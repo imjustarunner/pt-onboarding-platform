@@ -92,16 +92,19 @@ async function providerHasSchoolAccess({ providerUserId, schoolOrganizationId })
   }
 }
 
-async function userHasOrgOrAffiliatedAgencyAccess({ userId, role, schoolOrganizationId }) {
+async function userHasOrgOrAffiliatedAgencyAccess({ userId, role, user = null, schoolOrganizationId }) {
   if (!userId) return false;
   const roleNorm = String(role || '').toLowerCase();
   const userOrgs = await User.getAgencies(userId);
   const hasDirect = (userOrgs || []).some((org) => parseInt(org.id, 10) === parseInt(schoolOrganizationId, 10));
   if (hasDirect) return true;
+  const hasSupervisorCapability = await isSupervisorActor({ userId, role, user });
   if (roleNorm === 'provider') {
-    return await providerHasSchoolAccess({ providerUserId: userId, schoolOrganizationId });
+    const hasProviderAccess = await providerHasSchoolAccess({ providerUserId: userId, schoolOrganizationId });
+    if (hasProviderAccess) return true;
+    if (!hasSupervisorCapability) return false;
   }
-  if (await isSupervisorActor({ userId, role })) {
+  if (hasSupervisorCapability) {
     const hasSuperviseeSchoolAccess = await supervisorHasSuperviseeInSchool(userId, schoolOrganizationId);
     if (hasSuperviseeSchoolAccess) return true;
   }
@@ -136,7 +139,12 @@ async function assertSchoolPortalAccess(req, schoolId) {
   }
 
   if (String(role || '').toLowerCase() !== 'super_admin') {
-    const ok = await userHasOrgOrAffiliatedAgencyAccess({ userId, role, schoolOrganizationId: sid });
+    const ok = await userHasOrgOrAffiliatedAgencyAccess({
+      userId,
+      role,
+      user: req.user,
+      schoolOrganizationId: sid
+    });
     if (!ok) {
       const e = new Error('You do not have access to this school organization');
       e.statusCode = 403;

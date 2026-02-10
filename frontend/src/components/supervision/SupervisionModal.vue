@@ -548,14 +548,14 @@ function clientPortalHref(client) {
   const slug = String(client?.organization_slug || portalSlugForOrgId(client?.organization_id) || '').trim();
   const clientId = Number(client?.id || 0);
   if (!slug || !clientId) return '';
-  return `/${slug}/dashboard?clientId=${clientId}`;
+  return `/${slug}/dashboard?sp=roster&clientId=${clientId}`;
 }
 
 function complianceClientHref(row) {
   const slug = String(portalSlugForOrgId(row?.organization_id) || '').trim();
   const clientId = Number(row?.client_id || 0);
   if (!slug || !clientId) return '';
-  return `/${slug}/dashboard?clientId=${clientId}`;
+  return `/${slug}/dashboard?sp=roster&clientId=${clientId}`;
 }
 
 function openComplianceClient(row) {

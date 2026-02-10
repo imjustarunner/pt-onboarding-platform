@@ -704,7 +704,7 @@ onMounted(load);
 
 .public-docs-form-grid {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) 180px minmax(220px, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(150px, 190px) minmax(0, 1fr);
   gap: 8px;
   margin-top: 8px;
 }
@@ -810,9 +810,17 @@ onMounted(load);
   font-size: 13px;
   padding: 6px 10px;
   min-height: 32px;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 .public-docs :deep(textarea) {
   min-height: 80px;
+}
+
+.public-docs :deep(input[type='file']) {
+  padding: 4px 0;
+  min-height: auto;
 }
 
 /* Compact the library table rows */

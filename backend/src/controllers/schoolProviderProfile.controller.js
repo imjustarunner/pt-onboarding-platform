@@ -59,9 +59,70 @@ async function ensureSupervisorCanAccessProvider({ req, access, providerUserId }
 }
 
 async function ensureProviderAffiliated(providerUserId, schoolId) {
-  const orgs = await User.getAgencies(providerUserId);
-  const ok = (orgs || []).some((o) => parseInt(o.id, 10) === parseInt(schoolId, 10));
-  return { ok };
+  const pid = parseInt(providerUserId, 10);
+  const sid = parseInt(schoolId, 10);
+  if (!pid || !sid) return { ok: false };
+
+  const orgs = await User.getAgencies(pid);
+  const hasDirect = (orgs || []).some((o) => parseInt(o.id, 10) === sid);
+  if (hasDirect) return { ok: true };
+
+  try {
+    const [rows] = await pool.execute(
+      `SELECT 1
+       FROM provider_school_assignments psa
+       WHERE psa.school_organization_id = ?
+         AND psa.provider_user_id = ?
+         AND psa.is_active = TRUE
+       LIMIT 1`,
+      [sid, pid]
+    );
+    if (rows?.[0]) return { ok: true };
+  } catch (e) {
+    const msg = String(e?.message || '');
+    const missing =
+      msg.includes("doesn't exist") ||
+      msg.includes('ER_NO_SUCH_TABLE') ||
+      msg.includes('Unknown column') ||
+      msg.includes('ER_BAD_FIELD_ERROR');
+    if (!missing) throw e;
+  }
+
+  try {
+    const [rows] = await pool.execute(
+      `SELECT 1
+       FROM client_provider_assignments cpa
+       WHERE cpa.organization_id = ?
+         AND cpa.provider_user_id = ?
+         AND cpa.is_active = TRUE
+       LIMIT 1`,
+      [sid, pid]
+    );
+    if (rows?.[0]) return { ok: true };
+  } catch (e) {
+    const msg = String(e?.message || '');
+    const missing =
+      msg.includes("doesn't exist") ||
+      msg.includes('ER_NO_SUCH_TABLE') ||
+      msg.includes('Unknown column') ||
+      msg.includes('ER_BAD_FIELD_ERROR');
+    if (!missing) throw e;
+  }
+
+  try {
+    const [rows] = await pool.execute(
+      `SELECT 1
+       FROM clients c
+       WHERE c.organization_id = ?
+         AND c.provider_id = ?
+         AND (c.status IS NULL OR UPPER(c.status) <> 'ARCHIVED')
+       LIMIT 1`,
+      [sid, pid]
+    );
+    return { ok: !!rows?.[0] };
+  } catch {
+    return { ok: false };
+  }
 }
 
 export const getProviderSchoolProfile = async (req, res, next) => {
@@ -74,9 +135,14 @@ export const getProviderSchoolProfile = async (req, res, next) => {
     if (!providerUserId) return res.status(400).json({ error: { message: 'Invalid providerId' } });
     const providerAllowed = await ensureSupervisorCanAccessProvider({ req, access, providerUserId });
     if (!providerAllowed) return res.status(403).json({ error: { message: 'Access denied' } });
+    const hasSupervisorCapability = await isSupervisorActor({ userId: req.user?.id, role: req.user?.role, user: req.user });
 
     // Provider privacy: providers may only view their own profile in this context.
-    if (String(req.user?.role || '').toLowerCase() === 'provider' && parseInt(req.user?.id || 0, 10) !== providerUserId) {
+    if (
+      String(req.user?.role || '').toLowerCase() === 'provider' &&
+      parseInt(req.user?.id || 0, 10) !== providerUserId &&
+      !hasSupervisorCapability
+    ) {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
 
@@ -294,9 +360,14 @@ export const getProviderSchoolCaseloadSlots = async (req, res, next) => {
     if (!providerUserId) return res.status(400).json({ error: { message: 'Invalid providerId' } });
     const providerAllowed = await ensureSupervisorCanAccessProvider({ req, access, providerUserId });
     if (!providerAllowed) return res.status(403).json({ error: { message: 'Access denied' } });
+    const hasSupervisorCapability = await isSupervisorActor({ userId: req.user?.id, role: req.user?.role, user: req.user });
 
     // Provider privacy: providers may only view their own caseload in this context.
-    if (String(req.user?.role || '').toLowerCase() === 'provider' && parseInt(req.user?.id || 0, 10) !== providerUserId) {
+    if (
+      String(req.user?.role || '').toLowerCase() === 'provider' &&
+      parseInt(req.user?.id || 0, 10) !== providerUserId &&
+      !hasSupervisorCapability
+    ) {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
 

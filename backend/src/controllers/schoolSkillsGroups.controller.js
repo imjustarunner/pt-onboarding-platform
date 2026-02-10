@@ -97,21 +97,21 @@ async function ensureSkillsGroupOrgAccess(req, organizationId) {
     return { ok: true, org, activeAgencyId: parseInt(activeAgencyId, 10) };
   }
 
-  // Providers: limited access only if assigned to an active Skills Group under this org.
-  if (roleNorm === 'provider') {
-    const ok = await providerHasActiveSkillsGroupAccess({ providerUserId: userId, organizationId: orgId });
-    if (!ok) return { ok: false, status: 403, message: 'You do not have access to this organization' };
-    return { ok: true, org, activeAgencyId: activeAgencyId ? parseInt(activeAgencyId, 10) : null, providerLimited: true };
-  }
-
-  // Supervisors: read-only access when they supervise at least one provider in this school/program.
-  if ((await isSupervisorActor({ userId, role: roleNorm, user: req.user })) && (await supervisorHasSuperviseeInSchool(userId, orgId))) {
+  const hasSupervisorCapability = await isSupervisorActor({ userId, role: roleNorm, user: req.user });
+  if (hasSupervisorCapability && (await supervisorHasSuperviseeInSchool(userId, orgId))) {
     return {
       ok: true,
       org,
       activeAgencyId: activeAgencyId ? parseInt(activeAgencyId, 10) : null,
       supervisorLimited: true
     };
+  }
+
+  // Providers: limited access only if assigned to an active Skills Group under this org.
+  if (roleNorm === 'provider') {
+    const ok = await providerHasActiveSkillsGroupAccess({ providerUserId: userId, organizationId: orgId });
+    if (!ok) return { ok: false, status: 403, message: 'You do not have access to this organization' };
+    return { ok: true, org, activeAgencyId: activeAgencyId ? parseInt(activeAgencyId, 10) : null, providerLimited: true };
   }
 
   // school_staff must be directly assigned to org (no agency-affiliation)

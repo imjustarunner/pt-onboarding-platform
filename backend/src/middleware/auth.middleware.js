@@ -2,6 +2,7 @@ import jwt from 'jsonwebtoken';
 import config from '../config/config.js';
 import User from '../models/User.model.js';
 import { getUserCapabilities } from '../utils/capabilities.js';
+import { isSupervisorActor, supervisorHasSuperviseeInSchool } from '../utils/supervisorSchoolAccess.js';
 
 export const authenticate = (req, res, next) => {
   try {
@@ -247,6 +248,15 @@ export const requireAgencyAccess = async (req, res, next) => {
     const hasAccess = userAgencies.some(a => a.id === parseInt(agencyId));
     
     if (!hasAccess) {
+      const hasSupervisorCapability = await isSupervisorActor({
+        userId: req.user?.id,
+        role: req.user?.role,
+        user: req.user
+      });
+      if (hasSupervisorCapability) {
+        const canSupervisorAccess = await supervisorHasSuperviseeInSchool(req.user?.id, agencyId);
+        if (canSupervisorAccess) return next();
+      }
       return res.status(403).json({ error: { message: 'You do not have access to this agency' } });
     }
     

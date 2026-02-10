@@ -907,6 +907,7 @@ import { useAuthStore } from '../../store/auth';
 import api from '../../services/api';
 import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
+import { isSupervisor } from '../../utils/helpers';
 import QRCode from 'qrcode';
 
 const route = useRoute();
@@ -1158,7 +1159,8 @@ const atGlance = computed(() => {
 });
 
 const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
-const isProvider = computed(() => roleNorm.value === 'provider');
+const hasSupervisorCapability = computed(() => isSupervisor(authStore.user));
+const isProvider = computed(() => roleNorm.value === 'provider' && !hasSupervisorCapability.value);
 const isSchoolStaff = computed(() => roleNorm.value === 'school_staff');
 const canBackToSchools = computed(() => ['super_admin', 'admin', 'staff'].includes(roleNorm.value));
 const canUseComplianceCorner = computed(() => ['super_admin', 'admin'].includes(roleNorm.value));
