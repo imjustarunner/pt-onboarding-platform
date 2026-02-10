@@ -89,7 +89,15 @@
       
       <NotificationCards v-if="!previewMode" />
 
-      <SupervisionModal v-if="showSupervisionModal" @close="showSupervisionModal = false" />
+      <section v-if="showSupervisionModal" class="supervision-panel-wrap">
+        <div class="section-header">
+          <h2 style="margin: 0;">Supervision</h2>
+          <button type="button" class="btn btn-secondary btn-sm" @click="showSupervisionModal = false">
+            Back to dashboard
+          </button>
+        </div>
+        <SupervisionModal />
+      </section>
 
       <QuickActionsSection
         v-if="!previewMode"

@@ -469,6 +469,10 @@
             />
           </div>
 
+          <div v-if="!previewMode && isOnboardingComplete" v-show="activeTab === 'supervision'" class="my-panel">
+            <SupervisionModal />
+          </div>
+
           <!-- My Account (nested inside dashboard) -->
           <div
             v-if="!previewMode && isOnboardingComplete"
@@ -548,12 +552,12 @@
             <p v-if="activeTab === 'submit'" class="preview-text">Submit content preview</p>
             <p v-if="activeTab === 'on_demand_training'" class="preview-text">On-demand training content preview</p>
             <p v-if="activeTab === 'social_feeds'" class="preview-text">Social feeds content preview</p>
+            <p v-if="activeTab === 'supervision'" class="preview-text">Supervision content preview</p>
           </div>
         </div>
       </div>
     </div>
 
-    <SupervisionModal v-if="showSupervisionModal" @close="showSupervisionModal = false" />
     <SkillBuilderAvailabilityModal
       v-if="showSkillBuilderModal"
       :agency-id="currentAgencyId"
@@ -639,7 +643,6 @@ const pendingCompletionStatus = ref(null);
 const tierBadgeText = ref('');
 const tierBadgeKind = ref(''); // 'tier-current' | 'tier-grace' | 'tier-ooc'
 
-const showSupervisionModal = ref(false);
 const showSkillBuilderModal = ref(false);
 const showSkillBuildersAvailabilityModal = ref(false);
 const showLastPaycheckModal = ref(false);
@@ -1022,7 +1025,7 @@ const dashboardCards = computed(() => {
       cards.push({
         id: 'supervision',
         label: 'Supervision',
-        kind: 'modal',
+        kind: 'content',
         badgeCount: 0,
         iconUrl: brandingStore.getDashboardCardIconUrl('supervision', cardIconOrgOverride),
         description: 'View and support your supervisees.'
@@ -1162,6 +1165,7 @@ function platformIconLabel(type) {
   if (t === 'instagram') return 'IG';
   if (t === 'facebook') return 'FB';
   if (t === 'rss') return 'RSS';
+  if (t === 'embed') return 'Widget';
   return 'Link';
 }
 
@@ -1175,10 +1179,6 @@ const handleCardClick = (card) => {
   if (props.previewMode) return;
   if (card.kind === 'link' && card.to) {
     router.push(String(card.to));
-    return;
-  }
-  if (card.id === 'supervision') {
-    showSupervisionModal.value = true;
     return;
   }
   if (card.id === 'skill_builders_availability') {

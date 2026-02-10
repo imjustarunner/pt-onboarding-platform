@@ -43,29 +43,100 @@ export async function supervisorHasSuperviseeInSchool(supervisorUserId, schoolOr
   if (!superviseeIds.length) return false;
 
   const placeholders = superviseeIds.map(() => '?').join(',');
+
+  const hasUserAgenciesMembership = async (orgId) => {
+    try {
+      const [rows] = await pool.execute(
+        `SELECT 1
+         FROM user_agencies ua
+         WHERE ua.agency_id = ?
+           AND ua.user_id IN (${placeholders})
+         LIMIT 1`,
+        [orgId, ...superviseeIds]
+      );
+      return !!rows?.[0];
+    } catch {
+      return false;
+    }
+  };
+
+  // 1) Direct org membership.
+  if (await hasUserAgenciesMembership(schoolOrgId)) return true;
+
+  // 2) Active affiliated agency membership (school/program/learning -> agency).
+  try {
+    const [affRows] = await pool.execute(
+      `SELECT DISTINCT active_agency_id
+       FROM (
+         SELECT oa.active_agency_id AS active_agency_id
+         FROM organization_affiliations oa
+         WHERE oa.organization_id = ?
+           AND oa.is_active = TRUE
+         UNION ALL
+         SELECT asch.active_agency_id AS active_agency_id
+         FROM agency_schools asch
+         WHERE asch.school_id = ?
+           AND asch.is_active = TRUE
+       ) q
+       WHERE q.active_agency_id IS NOT NULL`,
+      [schoolOrgId, schoolOrgId]
+    );
+    const activeAgencyIds = [...new Set((affRows || []).map((r) => parsePositiveInt(r?.active_agency_id)).filter(Boolean))];
+    for (const agencyId of activeAgencyIds) {
+      if (await hasUserAgenciesMembership(agencyId)) return true;
+    }
+  } catch {
+    // continue to assignment-based fallback checks
+  }
+
+  // 3) Assignment-based checks in school context (handles cases where user_agencies is incomplete).
   try {
     const [rows] = await pool.execute(
       `SELECT 1
-       FROM user_agencies ua
-       WHERE ua.agency_id = ?
-         AND ua.user_id IN (${placeholders})
+       FROM provider_school_assignments psa
+       WHERE psa.school_organization_id = ?
+         AND psa.provider_user_id IN (${placeholders})
+         AND psa.is_active = TRUE
        LIMIT 1`,
       [schoolOrgId, ...superviseeIds]
     );
-    return !!rows?.[0];
-  } catch {
-    // Fallback if user_agencies shape differs: check each supervisee via model helper.
-    for (const superviseeId of superviseeIds) {
-      try {
-        const orgs = await User.getAgencies(superviseeId);
-        const hasOrg = (orgs || []).some((org) => parseInt(org.id, 10) === schoolOrgId);
-        if (hasOrg) return true;
-      } catch {
-        // ignore and continue
-      }
-    }
-    return false;
+    if (rows?.[0]) return true;
+  } catch (e) {
+    const msg = String(e?.message || '');
+    const missing =
+      msg.includes("doesn't exist") ||
+      msg.includes('ER_NO_SUCH_TABLE') ||
+      msg.includes('Unknown column') ||
+      msg.includes('ER_BAD_FIELD_ERROR');
+    if (!missing) throw e;
   }
+
+  try {
+    const [rows] = await pool.execute(
+      `SELECT 1
+       FROM client_provider_assignments cpa
+       WHERE cpa.organization_id = ?
+         AND cpa.provider_user_id IN (${placeholders})
+         AND cpa.is_active = TRUE
+       LIMIT 1`,
+      [schoolOrgId, ...superviseeIds]
+    );
+    if (rows?.[0]) return true;
+  } catch {
+    // ignore and continue to model helper fallback
+  }
+
+  // 4) Fallback via model helper.
+  for (const superviseeId of superviseeIds) {
+    try {
+      const orgs = await User.getAgencies(superviseeId);
+      const hasOrg = (orgs || []).some((org) => parseInt(org.id, 10) === schoolOrgId);
+      if (hasOrg) return true;
+    } catch {
+      // ignore and continue
+    }
+  }
+  return false;
 }
 
 export async function supervisorCanAccessClientInOrg({ supervisorUserId, clientId, orgId }) {

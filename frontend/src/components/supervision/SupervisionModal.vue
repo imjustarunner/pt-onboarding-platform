@@ -1,22 +1,20 @@
 <template>
-  <div class="supervision-modal-overlay" @click.self="$emit('close')">
-    <div class="supervision-modal" role="dialog" aria-modal="true" aria-labelledby="supervision-modal-title">
-      <div class="supervision-modal-header">
-        <button
-          v-if="selectedSupervisee"
-          type="button"
-          class="supervision-modal-back"
-          aria-label="Back to list"
-          @click="selectedSupervisee = null"
-        >
-          ← Back
-        </button>
-        <h2 id="supervision-modal-title">
-          {{ selectedSupervisee ? selectedSuperviseeDisplayName : 'Supervision' }}
-        </h2>
-        <button type="button" class="supervision-modal-close" aria-label="Close" @click="$emit('close')">&times;</button>
-      </div>
-      <div class="supervision-modal-body">
+  <div class="supervision-modal supervision-panel" role="region" aria-labelledby="supervision-modal-title">
+    <div class="supervision-modal-header">
+      <button
+        v-if="selectedSupervisee"
+        type="button"
+        class="supervision-modal-back"
+        aria-label="Back to supervisees"
+        @click="selectedSupervisee = null"
+      >
+        Back to supervisees
+      </button>
+      <h2 id="supervision-modal-title">
+        {{ selectedSupervisee ? selectedSuperviseeDisplayName : 'Supervision' }}
+      </h2>
+    </div>
+    <div class="supervision-modal-body">
         <!-- Step 1: List of supervisees -->
         <template v-if="!selectedSupervisee">
           <div v-if="loading" class="supervision-loading">Loading supervisees…</div>
@@ -135,9 +133,10 @@
                       rel="noopener noreferrer"
                       class="summary-meta"
                     >
-                      {{ client.identifier_code || client.initials || client.full_name || `Client ${client.id || ''}` }}
+                      {{ clientDisplayLabel(client) }}
                     </a>
-                    <span v-else class="summary-meta">{{ client.identifier_code || client.initials || client.full_name || `Client ${client.id || ''}` }}</span>
+                    <span v-else class="summary-meta">{{ clientDisplayLabel(client) }}</span>
+                    <span v-if="clientSchoolName(client)" class="summary-meta"> — {{ clientSchoolName(client) }}</span>
                   </li>
                 </ul>
               </div>
@@ -159,7 +158,7 @@
                   @click="openComplianceClient(row)"
                 >
                   <div class="compliance-card-title">
-                    {{ row.client_identifier_code || row.client_initials || 'Client' }}
+                    {{ complianceClientDisplayLabel(row) }}
                   </div>
                   <div class="compliance-card-meta">{{ row.organization_name || '—' }}</div>
                   <div class="compliance-card-meta">Pending {{ Number(row.days_since_assigned || 0) }}d</div>
@@ -230,7 +229,7 @@
               <ul v-else-if="documentsList?.length" class="supervision-docs-list">
                 <li v-for="doc in documentsList" :key="doc.id">
                   <span>{{ doc.task_title || doc.document_title || `Document ${doc.id}` }}</span>
-                  <span class="summary-meta"> — {{ doc.task_status === 'completed' ? 'Complete' : (doc.task_status || 'Pending') }}</span>
+                  <span class="summary-meta"> — {{ formatTaskStatusLabel(doc.task_status) }}</span>
                 </li>
               </ul>
               <p v-else class="supervision-placeholder">No documents.</p>
@@ -331,7 +330,6 @@
             </section>
           </div>
         </template>
-      </div>
     </div>
   </div>
 </template>
@@ -345,8 +343,6 @@ import api from '../../services/api';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 import ModuleAssignmentDialog from '../admin/ModuleAssignmentDialog.vue';
 import UserSpecificDocumentUploadDialog from '../documents/UserSpecificDocumentUploadDialog.vue';
-
-defineEmits(['close']);
 
 const route = useRoute();
 
@@ -491,6 +487,61 @@ function portalSlugForOrgId(orgId) {
     return affiliatedPortalsByOrgId.value.get(oid)?.slug || '';
   }
   return (affiliatedPortals.value?.[0]?.slug || '').trim();
+}
+
+function portalNameForOrgId(orgId) {
+  const oid = Number(orgId || 0);
+  if (oid && affiliatedPortalsByOrgId.value.has(oid)) {
+    return String(affiliatedPortalsByOrgId.value.get(oid)?.name || '').trim();
+  }
+  return '';
+}
+
+function clientDisplayLabel(client) {
+  const initials = String(client?.initials || '').trim();
+  const fullName = String(client?.full_name || '').trim();
+  const code = String(client?.identifier_code || '').trim();
+  if (initials) return initials;
+  if (fullName) return fullName;
+  if (code) return code;
+  return `Client ${client?.id || ''}`.trim();
+}
+
+function clientSchoolName(client) {
+  const direct = String(client?.organization_name || '').trim();
+  if (direct) return direct;
+  return portalNameForOrgId(client?.organization_id);
+}
+
+function complianceClientDisplayLabel(row) {
+  const initials = String(row?.client_initials || '').trim();
+  const fullName = String(row?.client_full_name || '').trim();
+  const code = String(row?.client_identifier_code || '').trim();
+  if (initials) return initials;
+  if (fullName) return fullName;
+  if (code) return code;
+  return 'Client';
+}
+
+function formatTaskStatusLabel(status) {
+  const raw = String(status || '').trim();
+  if (!raw) return 'Pending';
+  const normalized = raw.toLowerCase();
+  const map = {
+    completed: 'Complete',
+    pending: 'Pending',
+    pending_review: 'Pending review',
+    pending_signature: 'Pending signature',
+    in_progress: 'In progress',
+    rejected: 'Rejected',
+    declined: 'Declined'
+  };
+  if (map[normalized]) return map[normalized];
+  return raw
+    .replace(/_/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, (ch) => ch.toUpperCase());
 }
 
 function clientPortalHref(client) {
@@ -828,6 +879,14 @@ onMounted(() => {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+.supervision-panel {
+  width: 100%;
+  max-width: none;
+  max-height: none;
+  min-height: 60vh;
+  box-shadow: none;
+  border: 1px solid var(--border, #e5e7eb);
 }
 .compliance-grid {
   display: grid;

@@ -10,6 +10,11 @@ import { callGeminiText } from '../services/geminiText.service.js';
 import { sendNotificationEmail } from '../services/unifiedEmail/unifiedEmailSender.service.js';
 import NotificationGatekeeperService from '../services/notificationGatekeeper.service.js';
 import { isCategoryEnabledForUser } from '../services/notificationDispatcher.service.js';
+import {
+  isSupervisorActor,
+  supervisorHasSuperviseeInSchool,
+  supervisorCanAccessClientInOrg
+} from '../utils/supervisorSchoolAccess.js';
 
 async function hasSupportTicketMessagesTable() {
   try {
@@ -84,7 +89,12 @@ async function ensureOrgAccess(req, schoolOrganizationId) {
     const hasDirect = (orgs || []).some((o) => parseInt(o.id, 10) === sid);
     if (!hasDirect) {
       const role = String(req.user?.role || '').toLowerCase();
-      const canUseAgencyAffiliation = role === 'admin' || role === 'support' || role === 'staff';
+      const hasSupervisorCapability = await isSupervisorActor({ userId: req.user?.id, role, user: req.user });
+      if (hasSupervisorCapability) {
+        const canSupervisorAccess = await supervisorHasSuperviseeInSchool(req.user?.id, sid);
+        if (canSupervisorAccess) return { ok: true, org, schoolOrganizationId: sid, supervisorLimited: true };
+      }
+      const canUseAgencyAffiliation = role === 'admin' || role === 'support' || role === 'staff' || role === 'supervisor';
       if (!canUseAgencyAffiliation) return { ok: false, status: 403, message: 'Access denied' };
       const activeAgencyId = await resolveActiveAgencyIdForOrg(sid);
       const hasAgency = activeAgencyId
@@ -195,6 +205,25 @@ const isAgencyAdminUser = (req) => {
   const r = String(req.user?.role || '').toLowerCase();
   return r === 'admin' || r === 'super_admin' || r === 'support' || r === 'staff';
 };
+
+async function canSupervisorAccessClientScope({ req, schoolOrganizationId, clientId }) {
+  const userId = Number(req.user?.id || 0);
+  const sid = Number(schoolOrganizationId || 0);
+  const cid = Number(clientId || 0);
+  if (!userId || !sid || !cid) return false;
+  const role = String(req.user?.role || '').toLowerCase();
+  const isSupervisor = await isSupervisorActor({ userId, role, user: req.user });
+  if (!isSupervisor) return false;
+  const inSchool = await supervisorHasSuperviseeInSchool(userId, sid);
+  if (!inSchool) return false;
+  return await supervisorCanAccessClientInOrg({ supervisorUserId: userId, clientId: cid, orgId: sid });
+}
+
+async function canViewClientTicketScope({ req, schoolOrganizationId, clientId }) {
+  const role = String(req.user?.role || '').toLowerCase();
+  if (role === 'super_admin' || role === 'school_staff' || isAgencyAdminUser(req)) return true;
+  return await canSupervisorAccessClientScope({ req, schoolOrganizationId, clientId });
+}
 
 const isSuperAdmin = (req) => String(req.user?.role || '').toLowerCase() === 'super_admin';
 
@@ -511,8 +540,7 @@ export const getClientSupportTicketThread = async (req, res, next) => {
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
 
     // Only allow school staff + agency admin/support/staff to view client threads.
-    const role = String(req.user?.role || '').toLowerCase();
-    const canView = role === 'school_staff' || isAgencyAdminUser(req) || role === 'super_admin';
+    const canView = await canViewClientTicketScope({ req, schoolOrganizationId, clientId });
     if (!canView) return res.status(403).json({ error: { message: 'Access denied' } });
 
     const okClient = await ensureClientInOrg({ clientId, schoolOrganizationId });
@@ -567,8 +595,7 @@ export const markClientSupportTicketThreadRead = async (req, res, next) => {
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
 
     // Only allow school staff + agency admin/support/staff + super_admin (same as thread view)
-    const role = String(req.user?.role || '').toLowerCase();
-    const canView = role === 'school_staff' || isAgencyAdminUser(req) || role === 'super_admin';
+    const canView = await canViewClientTicketScope({ req, schoolOrganizationId, clientId });
     if (!canView) return res.status(403).json({ error: { message: 'Access denied' } });
 
     const okClient = await ensureClientInOrg({ clientId, schoolOrganizationId });
@@ -623,8 +650,7 @@ export const listClientSupportTickets = async (req, res, next) => {
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
 
     // Only allow school staff + agency admin/support/staff to view client tickets.
-    const role = String(req.user?.role || '').toLowerCase();
-    const canView = role === 'school_staff' || isAgencyAdminUser(req) || role === 'super_admin';
+    const canView = await canViewClientTicketScope({ req, schoolOrganizationId, clientId });
     if (!canView) return res.status(403).json({ error: { message: 'Access denied' } });
 
     const okClient = await ensureClientInOrg({ clientId, schoolOrganizationId });
@@ -662,7 +688,14 @@ export const listSupportTicketMessages = async (req, res, next) => {
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
 
     const role = String(req.user?.role || '').toLowerCase();
-    const canView = role === 'school_staff' || isAgencyAdminUser(req) || role === 'super_admin';
+    let canView = role === 'school_staff' || isAgencyAdminUser(req) || role === 'super_admin';
+    if (!canView && ticket.client_id) {
+      canView = await canSupervisorAccessClientScope({
+        req,
+        schoolOrganizationId: ticket.school_organization_id,
+        clientId: ticket.client_id
+      });
+    }
     if (!canView) return res.status(403).json({ error: { message: 'Access denied' } });
 
     if (!(await hasSupportTicketMessagesTable())) {
@@ -727,7 +760,14 @@ export const createSupportTicketMessage = async (req, res, next) => {
 
     // Client-scoped tickets: allow school_staff and agency admin/support/staff to post.
     if (ticket.client_id) {
-      const canPost = role === 'school_staff' || isAgencyAdminUser(req) || role === 'super_admin';
+      let canPost = role === 'school_staff' || isAgencyAdminUser(req) || role === 'super_admin';
+      if (!canPost) {
+        canPost = await canSupervisorAccessClientScope({
+          req,
+          schoolOrganizationId: ticket.school_organization_id,
+          clientId: ticket.client_id
+        });
+      }
       if (!canPost) return res.status(403).json({ error: { message: 'Access denied' } });
       // Validate client still belongs to org (avoids cross-org leakage)
       const okClient = await ensureClientInOrg({ clientId: ticket.client_id, schoolOrganizationId: ticket.school_organization_id });

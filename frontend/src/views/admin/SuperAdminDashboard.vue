@@ -83,7 +83,15 @@
       
       <NotificationCards />
 
-      <SupervisionModal v-if="showSupervisionModal" @close="showSupervisionModal = false" />
+      <section v-if="showSupervisionModal" class="supervision-panel-wrap">
+        <div class="section-header">
+          <h2 style="margin: 0;">Supervision</h2>
+          <button type="button" class="btn btn-secondary btn-sm" @click="showSupervisionModal = false">
+            Back to dashboard
+          </button>
+        </div>
+        <SupervisionModal />
+      </section>
       
       <div v-if="!currentAgency" class="brand-preview-hint">
         Select an agency brand to preview agency-specific icon overrides.
@@ -456,6 +464,17 @@ const quickActions = computed(() => {
     to: '/admin/executive-report',
     emoji: '📈',
     iconKey: 'executive_report',
+    category: 'Management',
+    roles: ['super_admin'],
+    capabilities: ['canAccessPlatform']
+  },
+  {
+    id: 'marketing_social',
+    title: 'Marketing and Social Media',
+    description: 'Schedule and publish Instagram posts per agency',
+    to: '/admin/marketing-social',
+    emoji: '📱',
+    iconKey: 'marketing_social',
     category: 'Management',
     roles: ['super_admin'],
     capabilities: ['canAccessPlatform']

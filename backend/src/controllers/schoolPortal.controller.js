@@ -325,20 +325,64 @@ async function getProviderAssignedClientIds({ providerUserId, schoolOrganization
   }
 }
 
-async function userHasOrgOrAffiliatedAgencyAccess({ userId, role, schoolOrganizationId }) {
+async function listSupervisorClientIdsForOrg({ supervisorUserId, orgId }) {
+  const sid = parseInt(supervisorUserId, 10);
+  const oid = parseInt(orgId, 10);
+  if (!sid || !oid) return [];
+
+  const superviseeIds = await getSupervisorSuperviseeIds(sid, null);
+  if (!superviseeIds.length) return [];
+  const placeholders = superviseeIds.map(() => '?').join(',');
+
+  try {
+    const [rows] = await pool.execute(
+      `SELECT DISTINCT cpa.client_id
+       FROM client_provider_assignments cpa
+       WHERE cpa.organization_id = ?
+         AND cpa.provider_user_id IN (${placeholders})
+         AND cpa.is_active = TRUE`,
+      [oid, ...superviseeIds]
+    );
+    return (rows || []).map((r) => Number(r.client_id)).filter(Boolean);
+  } catch (e) {
+    const msg = String(e?.message || '');
+    const missing = msg.includes("doesn't exist") || msg.includes('ER_NO_SUCH_TABLE') || msg.includes('Unknown column') || msg.includes('ER_BAD_FIELD_ERROR');
+    if (!missing) throw e;
+  }
+
+  try {
+    const [rows] = await pool.execute(
+      `SELECT c.id AS client_id
+       FROM clients c
+       WHERE c.organization_id = ?
+         AND c.provider_id IN (${placeholders})
+         AND (c.status IS NULL OR UPPER(c.status) <> 'ARCHIVED')`,
+      [oid, ...superviseeIds]
+    );
+    return (rows || []).map((r) => Number(r.client_id)).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+async function userHasOrgOrAffiliatedAgencyAccess({ userId, role, user = null, schoolOrganizationId }) {
   if (!userId) return false;
   const roleNorm = String(role || '').toLowerCase();
   const userOrgs = await User.getAgencies(userId);
   const hasDirect = (userOrgs || []).some((org) => parseInt(org.id, 10) === parseInt(schoolOrganizationId, 10));
   if (hasDirect) return true;
 
+  const hasSupervisorCapability = await isSupervisorActor({ userId, role, user });
+
   // Providers should be allowed if they have active assignment(s) under this school.
   // They still only receive their own assigned clients from the roster endpoint.
   if (roleNorm === 'provider') {
-    return await providerHasSchoolAccess({ providerUserId: userId, schoolOrganizationId });
+    const hasProviderAccess = await providerHasSchoolAccess({ providerUserId: userId, schoolOrganizationId });
+    if (hasProviderAccess) return true;
+    if (!hasSupervisorCapability) return false;
   }
 
-  if (await isSupervisorActor({ userId, role })) {
+  if (hasSupervisorCapability) {
     const hasSuperviseeSchoolAccess = await supervisorHasSuperviseeInSchool(userId, schoolOrganizationId);
     if (hasSuperviseeSchoolAccess) return true;
   }
@@ -1850,9 +1894,35 @@ export const listSchoolPortalNotificationsFeed = async (req, res, next) => {
     if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
 
     if (roleNorm !== 'super_admin') {
-      const ok = await userHasOrgOrAffiliatedAgencyAccess({ userId, role: roleNorm, schoolOrganizationId: orgId });
+      const ok = await userHasOrgOrAffiliatedAgencyAccess({
+        userId,
+        role: roleNorm,
+        user: req.user,
+        schoolOrganizationId: orgId
+      });
       if (!ok) return res.status(403).json({ error: { message: 'You do not have access to this school organization' } });
     }
+
+    const providerUserId = roleNorm === 'provider' ? Number(userId) : null;
+    const providerClientIds = providerUserId
+      ? await getProviderAssignedClientIds({ providerUserId, schoolOrganizationId: orgId })
+      : [];
+    const providerClientPlaceholders = providerClientIds.map(() => '?').join(',');
+
+    const isSupervisor = await isSupervisorActor({ userId, role: roleNorm, user: req.user });
+    const supervisorClientIds = isSupervisor
+      ? await listSupervisorClientIdsForOrg({ supervisorUserId: userId, orgId })
+      : [];
+    const supervisorClientPlaceholders = supervisorClientIds.map(() => '?').join(',');
+
+    const scopedClientIds = providerUserId
+      ? providerClientIds
+      : (isSupervisor ? supervisorClientIds : []);
+    const scopedClientPlaceholders = providerUserId
+      ? providerClientPlaceholders
+      : (isSupervisor ? supervisorClientPlaceholders : '');
+    const hasScopedRole = !!providerUserId || isSupervisor;
+    const canQueryScopedClients = !hasScopedRole || scopedClientIds.length > 0;
 
     // Per-user client notification toggles (default ON when missing).
     const categories = await getUserNotificationCategories(userId);
@@ -1926,9 +1996,9 @@ export const listSchoolPortalNotificationsFeed = async (req, res, next) => {
         || allowDocumentDateUpdates || allowOrgSwaps || allowOtherUpdates;
       if (!needsHistory) {
         events = [];
-      } else if (!providerUserId || providerClientIds.length > 0) {
-        const providerFilter = providerUserId ? `AND h.client_id IN (${providerClientPlaceholders})` : '';
-        const params = providerUserId ? [orgId, ...providerClientIds] : [orgId];
+      } else if (canQueryScopedClients) {
+        const providerFilter = hasScopedRole ? `AND h.client_id IN (${scopedClientPlaceholders})` : '';
+        const params = hasScopedRole ? [orgId, ...scopedClientIds] : [orgId];
         const [rows] = await pool.execute(
           `SELECT
              h.id,
@@ -2148,9 +2218,9 @@ export const listSchoolPortalNotificationsFeed = async (req, res, next) => {
     try {
       if (!allowClientComments) {
         comments = [];
-      } else if (!providerUserId || providerClientIds.length > 0) {
-        const providerFilter = providerUserId ? `AND n.client_id IN (${providerClientPlaceholders})` : '';
-        const params = providerUserId ? [orgId, ...providerClientIds] : [orgId];
+      } else if (canQueryScopedClients) {
+        const providerFilter = hasScopedRole ? `AND n.client_id IN (${scopedClientPlaceholders})` : '';
+        const params = hasScopedRole ? [orgId, ...scopedClientIds] : [orgId];
         const [rows] = await pool.execute(
           `SELECT
              n.id,
@@ -2202,11 +2272,11 @@ export const listSchoolPortalNotificationsFeed = async (req, res, next) => {
     try {
       if (!allowClientMessages) {
         messages = [];
-      } else if (!providerUserId || providerClientIds.length > 0) {
+      } else if (canQueryScopedClients) {
         if (await hasSupportTicketMessagesTable()) {
           const hasSoftDelete = await hasSupportTicketMessagesSoftDeleteColumns();
-          const providerFilter = providerUserId ? `AND t.client_id IN (${providerClientPlaceholders})` : '';
-          const params = providerUserId ? [orgId, orgId, ...providerClientIds] : [orgId, orgId];
+          const providerFilter = hasScopedRole ? `AND t.client_id IN (${scopedClientPlaceholders})` : '';
+          const params = hasScopedRole ? [orgId, orgId, ...scopedClientIds] : [orgId, orgId];
           const [rows] = await pool.execute(
             `SELECT
               m.id,
@@ -2410,9 +2480,9 @@ export const listSchoolPortalNotificationsFeed = async (req, res, next) => {
     try {
       if (!allowClientCreated) {
         clientCreated = [];
-      } else if (!providerUserId || providerClientIds.length > 0) {
-        const providerFilter = providerUserId ? `AND c.id IN (${providerClientPlaceholders})` : '';
-        const params = providerUserId ? [orgId, ...providerClientIds] : [orgId];
+      } else if (canQueryScopedClients) {
+        const providerFilter = hasScopedRole ? `AND c.id IN (${scopedClientPlaceholders})` : '';
+        const params = hasScopedRole ? [orgId, ...scopedClientIds] : [orgId];
         const [rows] = await pool.execute(
           `SELECT
              c.id,
@@ -2560,9 +2630,9 @@ export const listSchoolPortalNotificationsFeed = async (req, res, next) => {
         docsLinks = [];
       } else {
         let phiItems = [];
-        if (!providerUserId || providerClientIds.length > 0) {
-          const docParams = providerUserId && providerClientIds.length > 0 ? [orgId, ...providerClientIds] : [orgId];
-          const docFilter = providerUserId ? `AND c.id IN (${providerClientPlaceholders})` : '';
+        if (canQueryScopedClients) {
+          const docParams = hasScopedRole ? [orgId, ...scopedClientIds] : [orgId];
+          const docFilter = hasScopedRole ? `AND c.id IN (${scopedClientPlaceholders})` : '';
           const [phiRows] = await pool.execute(
             `SELECT
                d.id,
