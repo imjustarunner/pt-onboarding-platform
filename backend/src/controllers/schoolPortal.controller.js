@@ -12,6 +12,11 @@ import pool from '../config/database.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
 import { callGeminiText } from '../services/geminiText.service.js';
+import {
+  getSupervisorSuperviseeIds,
+  supervisorHasSuperviseeInSchool,
+  supervisorCanAccessClientInOrg
+} from '../utils/supervisorSchoolAccess.js';
 
 async function resolveActiveAgencyIdForOrg(orgId) {
   return (
@@ -237,7 +242,15 @@ async function getUserNotificationsProgress(userId) {
 
 function roleCanUseAgencyAffiliation(role) {
   const r = String(role || '').toLowerCase();
-  return r === 'admin' || r === 'support' || r === 'staff';
+  return r === 'admin' || r === 'support' || r === 'staff' || r === 'supervisor';
+}
+
+async function isSupervisorContext({ userId, role }) {
+  const roleNorm = String(role || '').toLowerCase();
+  if (roleNorm === 'supervisor') return true;
+  if (!userId) return false;
+  const user = await User.findById(userId);
+  return User.isSupervisor(user);
 }
 
 async function providerHasSchoolAccess({ providerUserId, schoolOrganizationId }) {
@@ -321,14 +334,20 @@ async function getProviderAssignedClientIds({ providerUserId, schoolOrganization
 
 async function userHasOrgOrAffiliatedAgencyAccess({ userId, role, schoolOrganizationId }) {
   if (!userId) return false;
+  const roleNorm = String(role || '').toLowerCase();
   const userOrgs = await User.getAgencies(userId);
   const hasDirect = (userOrgs || []).some((org) => parseInt(org.id, 10) === parseInt(schoolOrganizationId, 10));
   if (hasDirect) return true;
 
   // Providers should be allowed if they have active assignment(s) under this school.
   // They still only receive their own assigned clients from the roster endpoint.
-  if (String(role || '').toLowerCase() === 'provider') {
+  if (roleNorm === 'provider') {
     return await providerHasSchoolAccess({ providerUserId: userId, schoolOrganizationId });
+  }
+
+  if (await isSupervisorContext({ userId, role })) {
+    const hasSuperviseeSchoolAccess = await supervisorHasSuperviseeInSchool(userId, schoolOrganizationId);
+    if (hasSuperviseeSchoolAccess) return true;
   }
 
   if (!roleCanUseAgencyAffiliation(role)) return false;
@@ -365,6 +384,8 @@ export const getSchoolClients = async (req, res, next) => {
     // Providers ARE allowed to view the roster, but only for clients assigned to them
     // (restricted fields, no sensitive data).
     const isProvider = String(userRole || '').toLowerCase() === 'provider';
+    const isSupervisor = String(userRole || '').toLowerCase() === 'supervisor';
+    const supervisorProviderIds = isSupervisor ? await getSupervisorSuperviseeIds(userId, null) : [];
 
     // Verify organization exists (school/program/learning)
     const organization = await Agency.findById(organizationId);
@@ -473,6 +494,22 @@ export const getSchoolClients = async (req, res, next) => {
       });
       if (clientIdFilter) clients = (clients || []).filter((c) => Number(c?.id) === Number(clientIdFilter));
       if (skillsOnly) clients = (clients || []).filter((c) => !!c?.skills);
+    }
+
+    if (isSupervisor) {
+      const allowedProviderIds = new Set((supervisorProviderIds || []).map((id) => Number(id)).filter(Boolean));
+      clients = (clients || []).filter((client) => {
+        const rawProviderIds = String(client?.provider_ids || '').trim();
+        if (rawProviderIds) {
+          const rowProviderIds = rawProviderIds
+            .split(',')
+            .map((v) => parseInt(v, 10))
+            .filter((n) => Number.isFinite(n) && n > 0);
+          return rowProviderIds.some((pid) => allowedProviderIds.has(pid));
+        }
+        const legacyProviderId = parseInt(client?.provider_id, 10);
+        return Number.isFinite(legacyProviderId) && allowedProviderIds.has(legacyProviderId);
+      });
     }
 
     // Total comment counts (per client).
@@ -1101,7 +1138,12 @@ export const getSchoolPortalAffiliation = async (req, res, next) => {
     const canEditClients =
       roleNorm === 'super_admin'
         ? true
-        : (roleCanUseAgencyAffiliation(role) && !!activeAgencyId && userHasAgencyAccess && roleNorm !== 'provider' && roleNorm !== 'school_staff');
+        : (roleCanUseAgencyAffiliation(role) &&
+          !!activeAgencyId &&
+          userHasAgencyAccess &&
+          roleNorm !== 'provider' &&
+          roleNorm !== 'school_staff' &&
+          roleNorm !== 'supervisor');
 
     res.json({
       school_organization_id: sid,
@@ -1596,9 +1638,15 @@ export const getClientWaitlistNote = async (req, res, next) => {
     const providerClientIds = providerUserId ? await getProviderAssignedClientIds({ providerUserId, schoolOrganizationId: orgId }) : [];
     const providerClientPlaceholders = providerClientIds.map(() => '?').join(',');
 
+    const isSupervisor = roleNorm === 'supervisor';
     // Providers can only read waitlist notes for clients assigned to them in this org.
     if (roleNorm === 'provider') {
       const assigned = await providerAssignedToClientInOrg({ providerUserId: userId, clientId, orgId });
+      if (!assigned) return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+    // Supervisors are scoped to clients assigned to their supervisees.
+    if (isSupervisor) {
+      const assigned = await supervisorCanAccessClientInOrg({ supervisorUserId: userId, clientId, orgId });
       if (!assigned) return res.status(403).json({ error: { message: 'Access denied' } });
     }
 
@@ -1646,9 +1694,15 @@ export const upsertClientWaitlistNote = async (req, res, next) => {
       if (!ok) return res.status(403).json({ error: { message: 'You do not have access to this school organization' } });
     }
 
+    const isSupervisor = roleNorm === 'supervisor';
     // Providers can only edit waitlist notes for clients assigned to them in this org.
     if (roleNorm === 'provider') {
       const assigned = await providerAssignedToClientInOrg({ providerUserId: userId, clientId, orgId });
+      if (!assigned) return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+    // Supervisors are scoped to clients assigned to their supervisees.
+    if (isSupervisor) {
+      const assigned = await supervisorCanAccessClientInOrg({ supervisorUserId: userId, clientId, orgId });
       if (!assigned) return res.status(403).json({ error: { message: 'Access denied' } });
     }
 
@@ -1698,9 +1752,15 @@ export const listClientComments = async (req, res, next) => {
       if (!ok) return res.status(403).json({ error: { message: 'You do not have access to this school organization' } });
     }
 
+    const isSupervisor = roleNorm === 'supervisor';
     // Providers may only view comments for clients assigned to them in this org.
     if (roleNorm === 'provider') {
       const assigned = await providerAssignedToClientInOrg({ providerUserId: userId, clientId, orgId });
+      if (!assigned) return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+    // Supervisors are scoped to clients assigned to their supervisees.
+    if (isSupervisor) {
+      const assigned = await supervisorCanAccessClientInOrg({ supervisorUserId: userId, clientId, orgId });
       if (!assigned) return res.status(403).json({ error: { message: 'Access denied' } });
     }
 
@@ -1750,9 +1810,15 @@ export const createClientComment = async (req, res, next) => {
       if (!ok) return res.status(403).json({ error: { message: 'You do not have access to this school organization' } });
     }
 
+    const isSupervisor = roleNorm === 'supervisor';
     // Providers may only comment for clients assigned to them in this org.
     if (roleNorm === 'provider') {
       const assigned = await providerAssignedToClientInOrg({ providerUserId: userId, clientId, orgId });
+      if (!assigned) return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+    // Supervisors are scoped to clients assigned to their supervisees.
+    if (isSupervisor) {
+      const assigned = await supervisorCanAccessClientInOrg({ supervisorUserId: userId, clientId, orgId });
       if (!assigned) return res.status(403).json({ error: { message: 'Access denied' } });
     }
 
@@ -2843,6 +2909,9 @@ export const createSchoolPortalAnnouncement = async (req, res, next) => {
     const userId = req.user?.id;
     const roleNorm = String(req.user?.role || '').toLowerCase();
     if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+    if (roleNorm === 'supervisor') {
+      return res.status(403).json({ error: { message: 'Supervisors have read-only access in school portal announcements' } });
+    }
 
     if (roleNorm !== 'super_admin') {
       const ok = await userHasOrgOrAffiliatedAgencyAccess({ userId, role: roleNorm, schoolOrganizationId: orgId });

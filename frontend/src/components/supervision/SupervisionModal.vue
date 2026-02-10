@@ -126,7 +126,20 @@
               <div v-else-if="clientsError" class="supervision-error-inline">{{ clientsError }}</div>
               <div v-else-if="clientsList?.length" class="supervision-readonly-summary">
                 <p><strong>{{ clientsList.length }}</strong> client(s) assigned. Read-only.</p>
-                <p class="summary-meta">{{ clientsList.map(c => c.initials || c.full_name || '—').join(', ') }}</p>
+                <ul class="supervision-client-links">
+                  <li v-for="client in clientsList" :key="client.id || `${client.initials || ''}-${client.identifier_code || ''}`">
+                    <a
+                      v-if="clientPortalHref(client)"
+                      :href="clientPortalHref(client)"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="summary-meta"
+                    >
+                      {{ client.identifier_code || client.initials || client.full_name || `Client ${client.id || ''}` }}
+                    </a>
+                    <span v-else class="summary-meta">{{ client.identifier_code || client.initials || client.full_name || `Client ${client.id || ''}` }}</span>
+                  </li>
+                </ul>
               </div>
               <p v-else class="supervision-placeholder">No clients assigned for this agency.</p>
             </section>
@@ -143,6 +156,7 @@
                   :key="`${row.client_id}-${row.organization_id}`"
                   type="button"
                   class="compliance-card"
+                  @click="openComplianceClient(row)"
                 >
                   <div class="compliance-card-title">
                     {{ row.client_identifier_code || row.client_initials || 'Client' }}
@@ -164,6 +178,18 @@
                 <p v-if="(scheduleSummary.officeEvents?.length || 0) + (scheduleSummary.supervisionSessions?.length || 0) > 0" class="summary-meta">
                   {{ scheduleSummary.officeEvents?.length || 0 }} office event(s), {{ scheduleSummary.supervisionSessions?.length || 0 }} supervision session(s).
                 </p>
+                <div v-if="affiliatedPortals.length > 0" class="supervision-portal-buttons" style="margin-top: 0.5rem;">
+                  <a
+                    v-for="portal in affiliatedPortals"
+                    :key="`schedule-${portal.id}`"
+                    :href="`/${portal.slug}/dashboard`"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="btn btn-secondary btn-sm"
+                  >
+                    Open {{ portal.name }} schedule view
+                  </a>
+                </div>
               </div>
               <p v-else class="supervision-placeholder">No schedule data for this week.</p>
             </section>
@@ -370,7 +396,7 @@ const scheduleSaving = ref(false);
 const chatsLink = computed(() => {
   const slug = route.params?.organizationSlug || '';
   const s = selectedSupervisee.value;
-  const agencyId = currentAgencyId.value;
+  const agencyId = selectedSuperviseeAgencyId.value;
   const base = slug ? `/${slug}/dashboard` : '/dashboard';
   const params = new URLSearchParams();
   if (s?.supervisee_id) params.set('openChatWith', String(s.supervisee_id));
@@ -401,7 +427,7 @@ function formatSessionDate(iso) {
 
 async function submitScheduleMeeting() {
   const s = selectedSupervisee.value;
-  const agencyId = currentAgencyId.value;
+  const agencyId = selectedSuperviseeAgencyId.value;
   if (!s?.supervisee_id || !agencyId) return;
   const startAt = scheduleStartAt.value?.trim();
   const endAt = scheduleEndAt.value?.trim();
@@ -445,6 +471,48 @@ const currentAgencyId = computed(() => {
   return a?.id ?? null;
 });
 
+const selectedSuperviseeAgencyId = computed(() => {
+  const selectedAgencyId = selectedSupervisee.value?.agency_id;
+  return selectedAgencyId || currentAgencyId.value || null;
+});
+
+const affiliatedPortalsByOrgId = computed(() => {
+  const map = new Map();
+  for (const portal of affiliatedPortals.value || []) {
+    const orgId = Number(portal?.id || 0);
+    if (orgId) map.set(orgId, portal);
+  }
+  return map;
+});
+
+function portalSlugForOrgId(orgId) {
+  const oid = Number(orgId || 0);
+  if (oid && affiliatedPortalsByOrgId.value.has(oid)) {
+    return affiliatedPortalsByOrgId.value.get(oid)?.slug || '';
+  }
+  return (affiliatedPortals.value?.[0]?.slug || '').trim();
+}
+
+function clientPortalHref(client) {
+  const slug = String(client?.organization_slug || portalSlugForOrgId(client?.organization_id) || '').trim();
+  const clientId = Number(client?.id || 0);
+  if (!slug || !clientId) return '';
+  return `/${slug}/dashboard?clientId=${clientId}`;
+}
+
+function complianceClientHref(row) {
+  const slug = String(portalSlugForOrgId(row?.organization_id) || '').trim();
+  const clientId = Number(row?.client_id || 0);
+  if (!slug || !clientId) return '';
+  return `/${slug}/dashboard?clientId=${clientId}`;
+}
+
+function openComplianceClient(row) {
+  const href = complianceClientHref(row);
+  if (!href) return;
+  window.open(href, '_blank', 'noopener');
+}
+
 function superviseeDisplayName(s) {
   const first = (s.supervisee_first_name || '').trim();
   const last = (s.supervisee_last_name || '').trim();
@@ -481,8 +549,14 @@ async function fetchSupervisees() {
   error.value = '';
   try {
     const params = currentAgencyId.value ? { agencyId: currentAgencyId.value } : {};
-    const response = await api.get(`/supervisor-assignments/supervisor/${userId}`, { params });
-    supervisees.value = Array.isArray(response.data) ? response.data : [];
+    let response = await api.get(`/supervisor-assignments/supervisor/${userId}`, { params });
+    let rows = Array.isArray(response.data) ? response.data : [];
+    // When opened from a school portal, currentAgency can be a school org; retry unscoped if nothing is returned.
+    if (rows.length === 0 && currentAgencyId.value) {
+      response = await api.get(`/supervisor-assignments/supervisor/${userId}`);
+      rows = Array.isArray(response.data) ? response.data : [];
+    }
+    supervisees.value = rows;
   } catch (err) {
     console.error('Failed to fetch supervisees:', err);
     error.value = err?.response?.data?.error?.message || 'Failed to load supervisees.';
@@ -510,7 +584,7 @@ function fmtPct(ratio) {
 
 async function fetchSuperviseeSummary() {
   const s = selectedSupervisee.value;
-  const agencyId = currentAgencyId.value;
+  const agencyId = selectedSuperviseeAgencyId.value;
   if (!s?.supervisee_id || !agencyId) {
     summary.value = null;
     return;
@@ -531,7 +605,7 @@ async function fetchSuperviseeSummary() {
 
 async function fetchSuperviseeExtras() {
   const s = selectedSupervisee.value;
-  const agencyId = currentAgencyId.value;
+  const agencyId = selectedSuperviseeAgencyId.value;
   if (!s?.supervisee_id || !agencyId) return;
   supervisionSessionHours.value = null;
   supervisionSessionCount.value = null;
@@ -555,7 +629,7 @@ async function fetchSuperviseeExtras() {
 
 async function fetchScheduleSummary() {
   const s = selectedSupervisee.value;
-  const agencyId = currentAgencyId.value;
+  const agencyId = selectedSuperviseeAgencyId.value;
   if (!s?.supervisee_id) return;
   scheduleLoading.value = true;
   scheduleError.value = '';
@@ -609,7 +683,7 @@ async function fetchDocuments() {
 
 async function fetchClients() {
   const s = selectedSupervisee.value;
-  const agencyId = currentAgencyId.value;
+  const agencyId = selectedSuperviseeAgencyId.value;
   if (!s?.supervisee_id || !agencyId) {
     clientsList.value = [];
     return;
@@ -766,7 +840,7 @@ onMounted(() => {
   background: #fff;
   padding: 10px 12px;
   text-align: left;
-  cursor: default;
+  cursor: pointer;
 }
 .compliance-card-title {
   font-weight: 900;
@@ -898,6 +972,13 @@ onMounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.supervision-client-links {
+  margin: 0.35rem 0 0;
+  padding-left: 1.15rem;
+}
+.supervision-client-links li {
+  margin: 0.2rem 0;
 }
 
 /* Supervisee detail hero (photo + name) */

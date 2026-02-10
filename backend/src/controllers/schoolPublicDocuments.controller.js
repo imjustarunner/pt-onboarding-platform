@@ -5,6 +5,7 @@ import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
+import { supervisorHasSuperviseeInSchool } from '../utils/supervisorSchoolAccess.js';
 
 // Configure multer for memory storage (files will be uploaded to GCS or local fallback)
 const upload = multer({
@@ -49,7 +50,15 @@ async function resolveActiveAgencyIdForOrg(orgId) {
 
 function roleCanUseAgencyAffiliation(role) {
   const r = String(role || '').toLowerCase();
-  return r === 'admin' || r === 'support' || r === 'staff';
+  return r === 'admin' || r === 'support' || r === 'staff' || r === 'supervisor';
+}
+
+async function isSupervisorContext({ userId, role }) {
+  const roleNorm = String(role || '').toLowerCase();
+  if (roleNorm === 'supervisor') return true;
+  if (!userId) return false;
+  const user = await User.findById(userId);
+  return User.isSupervisor(user);
 }
 
 async function providerHasSchoolAccess({ providerUserId, schoolOrganizationId }) {
@@ -93,11 +102,16 @@ async function providerHasSchoolAccess({ providerUserId, schoolOrganizationId })
 
 async function userHasOrgOrAffiliatedAgencyAccess({ userId, role, schoolOrganizationId }) {
   if (!userId) return false;
+  const roleNorm = String(role || '').toLowerCase();
   const userOrgs = await User.getAgencies(userId);
   const hasDirect = (userOrgs || []).some((org) => parseInt(org.id, 10) === parseInt(schoolOrganizationId, 10));
   if (hasDirect) return true;
-  if (String(role || '').toLowerCase() === 'provider') {
+  if (roleNorm === 'provider') {
     return await providerHasSchoolAccess({ providerUserId: userId, schoolOrganizationId });
+  }
+  if (await isSupervisorContext({ userId, role })) {
+    const hasSuperviseeSchoolAccess = await supervisorHasSuperviseeInSchool(userId, schoolOrganizationId);
+    if (hasSuperviseeSchoolAccess) return true;
   }
   if (!roleCanUseAgencyAffiliation(role)) return false;
   const activeAgencyId = await resolveActiveAgencyIdForOrg(schoolOrganizationId);
@@ -140,6 +154,15 @@ async function assertSchoolPortalAccess(req, schoolId) {
   return { sid, org };
 }
 
+async function ensureSupervisorReadOnlyWriteDenied(req) {
+  const roleNorm = String(req.user?.role || '').toLowerCase();
+  if (roleNorm === 'supervisor') {
+    const e = new Error('Supervisors have read-only access to school public documents');
+    e.statusCode = 403;
+    throw e;
+  }
+}
+
 export const listSchoolPublicDocuments = async (req, res, next) => {
   try {
     const { organizationId } = req.params;
@@ -171,6 +194,7 @@ export const createSchoolPublicDocument = [
     try {
       const { organizationId } = req.params;
       const { sid } = await assertSchoolPortalAccess(req, organizationId);
+      await ensureSupervisorReadOnlyWriteDenied(req);
 
       const title = req.body?.title !== undefined ? String(req.body.title || '').trim() : '';
       const categoryKey = req.body?.categoryKey !== undefined ? String(req.body.categoryKey || '').trim() : '';
@@ -245,6 +269,7 @@ export const updateSchoolPublicDocumentMeta = async (req, res, next) => {
   try {
     const { organizationId, documentId } = req.params;
     const { sid } = await assertSchoolPortalAccess(req, organizationId);
+    await ensureSupervisorReadOnlyWriteDenied(req);
     const docId = parseInt(String(documentId || ''), 10);
     if (!docId) return res.status(400).json({ error: { message: 'Invalid documentId' } });
 
@@ -304,6 +329,7 @@ export const replaceSchoolPublicDocumentFile = [
     try {
       const { organizationId, documentId } = req.params;
       const { sid } = await assertSchoolPortalAccess(req, organizationId);
+      await ensureSupervisorReadOnlyWriteDenied(req);
       const docId = parseInt(String(documentId || ''), 10);
       if (!docId) return res.status(400).json({ error: { message: 'Invalid documentId' } });
 
@@ -371,6 +397,7 @@ export const deleteSchoolPublicDocument = async (req, res, next) => {
   try {
     const { organizationId, documentId } = req.params;
     const { sid } = await assertSchoolPortalAccess(req, organizationId);
+    await ensureSupervisorReadOnlyWriteDenied(req);
     const docId = parseInt(String(documentId || ''), 10);
     if (!docId) return res.status(400).json({ error: { message: 'Invalid documentId' } });
 

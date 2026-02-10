@@ -7,6 +7,7 @@ import { notifyClientBecameCurrent } from '../services/clientNotifications.servi
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
+import { getSupervisorSuperviseeIds, supervisorHasSuperviseeInSchool } from '../utils/supervisorSchoolAccess.js';
 
 const allowedDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 
@@ -29,7 +30,11 @@ async function ensureSchoolAccess(req, schoolId) {
     const hasDirect = (orgs || []).some((o) => parseInt(o.id, 10) === schoolOrgId);
     if (!hasDirect) {
       const role = String(req.user?.role || '').toLowerCase();
-      const canUseAgencyAffiliation = role === 'admin' || role === 'support' || role === 'staff';
+      if (role === 'supervisor') {
+        const canSupervisorAccess = await supervisorHasSuperviseeInSchool(req.user?.id, schoolOrgId);
+        if (canSupervisorAccess) return { ok: true, school, supervisorLimited: true };
+      }
+      const canUseAgencyAffiliation = role === 'admin' || role === 'support' || role === 'staff' || role === 'supervisor';
       if (!canUseAgencyAffiliation) return { ok: false, status: 403, message: 'You do not have access to this school organization' };
       const activeAgencyId =
         (await OrganizationAffiliation.getActiveAgencyIdForOrganization(schoolOrgId)) ||
@@ -43,6 +48,13 @@ async function ensureSchoolAccess(req, schoolId) {
   }
 
   return { ok: true, school };
+}
+
+async function ensureSupervisorCanAccessProvider({ req, access, providerId }) {
+  if (!access?.supervisorLimited) return true;
+  const superviseeIds = await getSupervisorSuperviseeIds(req.user?.id, null);
+  const allowed = (superviseeIds || []).some((id) => parseInt(id, 10) === parseInt(providerId, 10));
+  return !!allowed;
 }
 
 function buildOverlapWarnings(entries, startTime, endTime, excludeId = null) {
@@ -350,6 +362,8 @@ export const listAssignedClientsForProviderDay = async (req, res, next) => {
     const { schoolId, providerId } = req.params;
     const access = await ensureSchoolAccess(req, schoolId);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+    const providerAllowed = await ensureSupervisorCanAccessProvider({ req, access, providerId });
+    if (!providerAllowed) return res.status(403).json({ error: { message: 'Access denied' } });
 
     const dayOfWeek = normalizeDay(req.query.dayOfWeek);
     if (!dayOfWeek) return res.status(400).json({ error: { message: `dayOfWeek is required (${allowedDays.join(', ')})` } });
@@ -402,6 +416,8 @@ export const listScheduleEntries = async (req, res, next) => {
     const { schoolId, providerId } = req.params;
     const access = await ensureSchoolAccess(req, schoolId);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+    const providerAllowed = await ensureSupervisorCanAccessProvider({ req, access, providerId });
+    if (!providerAllowed) return res.status(403).json({ error: { message: 'Access denied' } });
 
     const dayOfWeek = normalizeDay(req.query.dayOfWeek);
     if (!dayOfWeek) return res.status(400).json({ error: { message: `dayOfWeek is required (${allowedDays.join(', ')})` } });
@@ -427,6 +443,7 @@ export const createScheduleEntry = async (req, res, next) => {
     const { schoolId, providerId } = req.params;
     const access = await ensureSchoolAccess(req, schoolId);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+    if (access.supervisorLimited) return res.status(403).json({ error: { message: 'Supervisors have read-only schedule access' } });
 
     const dayOfWeek = normalizeDay(req.body?.dayOfWeek);
     const clientId = parseInt(req.body?.clientId, 10);
@@ -509,6 +526,7 @@ export const updateScheduleEntry = async (req, res, next) => {
     const { schoolId, providerId, entryId } = req.params;
     const access = await ensureSchoolAccess(req, schoolId);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+    if (access.supervisorLimited) return res.status(403).json({ error: { message: 'Supervisors have read-only schedule access' } });
 
     const id = parseInt(entryId, 10);
     if (!id) return res.status(400).json({ error: { message: 'Invalid entryId' } });
@@ -573,6 +591,7 @@ export const moveScheduleEntry = async (req, res, next) => {
     const { schoolId, providerId, entryId } = req.params;
     const access = await ensureSchoolAccess(req, schoolId);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+    if (access.supervisorLimited) return res.status(403).json({ error: { message: 'Supervisors have read-only schedule access' } });
 
     const id = parseInt(entryId, 10);
     if (!id) return res.status(400).json({ error: { message: 'Invalid entryId' } });
@@ -669,6 +688,7 @@ export const deleteScheduleEntry = async (req, res, next) => {
     const { schoolId, providerId, entryId } = req.params;
     const access = await ensureSchoolAccess(req, schoolId);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+    if (access.supervisorLimited) return res.status(403).json({ error: { message: 'Supervisors have read-only schedule access' } });
 
     const id = parseInt(entryId, 10);
     if (!id) return res.status(400).json({ error: { message: 'Invalid entryId' } });

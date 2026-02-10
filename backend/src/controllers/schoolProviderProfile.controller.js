@@ -4,6 +4,7 @@ import Agency from '../models/Agency.model.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
+import { getSupervisorSuperviseeIds, supervisorHasSuperviseeInSchool } from '../utils/supervisorSchoolAccess.js';
 
 const allowedDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 
@@ -26,7 +27,11 @@ async function ensureSchoolAccess(req, schoolId) {
     const hasDirect = (orgs || []).some((o) => parseInt(o.id, 10) === schoolOrgId);
     if (!hasDirect) {
       const role = String(req.user?.role || '').toLowerCase();
-      const canUseAgencyAffiliation = role === 'admin' || role === 'support' || role === 'staff';
+      if (role === 'supervisor') {
+        const canSupervisorAccess = await supervisorHasSuperviseeInSchool(req.user?.id, schoolOrgId);
+        if (canSupervisorAccess) return { ok: true, school, supervisorLimited: true };
+      }
+      const canUseAgencyAffiliation = role === 'admin' || role === 'support' || role === 'staff' || role === 'supervisor';
       if (!canUseAgencyAffiliation) return { ok: false, status: 403, message: 'You do not have access to this school organization' };
       const activeAgencyId =
         (await OrganizationAffiliation.getActiveAgencyIdForOrganization(schoolOrgId)) ||
@@ -40,6 +45,12 @@ async function ensureSchoolAccess(req, schoolId) {
   }
 
   return { ok: true, school };
+}
+
+async function ensureSupervisorCanAccessProvider({ req, access, providerUserId }) {
+  if (!access?.supervisorLimited) return true;
+  const superviseeIds = await getSupervisorSuperviseeIds(req.user?.id, null);
+  return (superviseeIds || []).some((id) => parseInt(id, 10) === parseInt(providerUserId, 10));
 }
 
 async function ensureProviderAffiliated(providerUserId, schoolId) {
@@ -56,6 +67,8 @@ export const getProviderSchoolProfile = async (req, res, next) => {
 
     const providerUserId = parseInt(providerId, 10);
     if (!providerUserId) return res.status(400).json({ error: { message: 'Invalid providerId' } });
+    const providerAllowed = await ensureSupervisorCanAccessProvider({ req, access, providerUserId });
+    if (!providerAllowed) return res.status(403).json({ error: { message: 'Access denied' } });
 
     // Provider privacy: providers may only view their own profile in this context.
     if (String(req.user?.role || '').toLowerCase() === 'provider' && parseInt(req.user?.id || 0, 10) !== providerUserId) {
@@ -274,6 +287,8 @@ export const getProviderSchoolCaseloadSlots = async (req, res, next) => {
 
     const providerUserId = parseInt(providerId, 10);
     if (!providerUserId) return res.status(400).json({ error: { message: 'Invalid providerId' } });
+    const providerAllowed = await ensureSupervisorCanAccessProvider({ req, access, providerUserId });
+    if (!providerAllowed) return res.status(403).json({ error: { message: 'Access denied' } });
 
     // Provider privacy: providers may only view their own caseload in this context.
     if (String(req.user?.role || '').toLowerCase() === 'provider' && parseInt(req.user?.id || 0, 10) !== providerUserId) {

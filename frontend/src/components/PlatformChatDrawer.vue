@@ -260,7 +260,25 @@ const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
 const brandingStore = useBrandingStore();
 const isAuthenticated = computed(() => authStore.isAuthenticated);
-const agencyId = computed(() => agencyStore.currentAgency?.id || null);
+const isAgencyOrgType = (org) => String(org?.organization_type || org?.organizationType || 'agency').toLowerCase() === 'agency';
+const agencyId = computed(() => {
+  const current = agencyStore.currentAgency || null;
+  if (!current) return null;
+  if (isAgencyOrgType(current)) return current?.id || null;
+
+  // School/program/learning context: prefer explicit affiliated agency id.
+  const affiliated =
+    Number(current?.affiliated_agency_id || 0) ||
+    Number(current?.affiliatedAgencyId || 0) ||
+    null;
+  if (affiliated) return affiliated;
+
+  // Fallback: first agency-type org the user belongs to.
+  const userAgency = (agencyStore.userAgencies || []).find((a) => isAgencyOrgType(a));
+  if (userAgency?.id) return userAgency.id;
+  const knownAgency = (agencyStore.agencies || []).find((a) => isAgencyOrgType(a));
+  return knownAgency?.id || null;
+});
 const myRole = computed(() => authStore.user?.role || '');
 const isAdminLike = computed(() => myRole.value === 'admin' || myRole.value === 'super_admin');
 const adminsAllMode = computed(() => myRole.value === 'super_admin' && myAvailability.value === 'admins_only');

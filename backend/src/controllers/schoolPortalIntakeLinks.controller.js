@@ -3,6 +3,7 @@ import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
+import { supervisorHasSuperviseeInSchool } from '../utils/supervisorSchoolAccess.js';
 
 // Keep access rules aligned with schoolPublicDocuments.controller.js
 async function resolveActiveAgencyIdForOrg(orgId) {
@@ -15,7 +16,15 @@ async function resolveActiveAgencyIdForOrg(orgId) {
 
 function roleCanUseAgencyAffiliation(role) {
   const r = String(role || '').toLowerCase();
-  return r === 'admin' || r === 'support' || r === 'staff';
+  return r === 'admin' || r === 'support' || r === 'staff' || r === 'supervisor';
+}
+
+async function isSupervisorContext({ userId, role }) {
+  const roleNorm = String(role || '').toLowerCase();
+  if (roleNorm === 'supervisor') return true;
+  if (!userId) return false;
+  const user = await User.findById(userId);
+  return User.isSupervisor(user);
 }
 
 async function providerHasSchoolAccess({ providerUserId, schoolOrganizationId }) {
@@ -67,11 +76,16 @@ async function providerHasSchoolAccess({ providerUserId, schoolOrganizationId })
 
 async function userHasOrgOrAffiliatedAgencyAccess({ userId, role, schoolOrganizationId }) {
   if (!userId) return false;
+  const roleNorm = String(role || '').toLowerCase();
   const userOrgs = await User.getAgencies(userId);
   const hasDirect = (userOrgs || []).some((org) => parseInt(org.id, 10) === parseInt(schoolOrganizationId, 10));
   if (hasDirect) return true;
-  if (String(role || '').toLowerCase() === 'provider') {
+  if (roleNorm === 'provider') {
     return await providerHasSchoolAccess({ providerUserId: userId, schoolOrganizationId });
+  }
+  if (await isSupervisorContext({ userId, role })) {
+    const hasSuperviseeSchoolAccess = await supervisorHasSuperviseeInSchool(userId, schoolOrganizationId);
+    if (hasSuperviseeSchoolAccess) return true;
   }
   if (!roleCanUseAgencyAffiliation(role)) return false;
   const activeAgencyId = await resolveActiveAgencyIdForOrg(schoolOrganizationId);

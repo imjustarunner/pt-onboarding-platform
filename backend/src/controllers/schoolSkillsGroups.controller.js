@@ -3,6 +3,7 @@ import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
+import { getSupervisorSuperviseeIds, supervisorHasSuperviseeInSchool } from '../utils/supervisorSchoolAccess.js';
 
 const allowedOrgTypes = ['school', 'program', 'learning'];
 const allowedWeekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -97,6 +98,16 @@ async function ensureSkillsGroupOrgAccess(req, organizationId) {
     const ok = await providerHasActiveSkillsGroupAccess({ providerUserId: userId, organizationId: orgId });
     if (!ok) return { ok: false, status: 403, message: 'You do not have access to this organization' };
     return { ok: true, org, activeAgencyId: activeAgencyId ? parseInt(activeAgencyId, 10) : null, providerLimited: true };
+  }
+
+  // Supervisors: read-only access when they supervise at least one provider in this school/program.
+  if (roleNorm === 'supervisor' && (await supervisorHasSuperviseeInSchool(userId, orgId))) {
+    return {
+      ok: true,
+      org,
+      activeAgencyId: activeAgencyId ? parseInt(activeAgencyId, 10) : null,
+      supervisorLimited: true
+    };
   }
 
   // school_staff must be directly assigned to org (no agency-affiliation)
@@ -615,6 +626,11 @@ export const listProviderSkillsGroupMeetings = async (req, res, next) => {
     if (!providerUserId) return res.status(400).json({ error: { message: 'providerUserId is required' } });
     if (roleNorm === 'provider' && parseInt(req.user?.id, 10) !== providerUserId) {
       return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+    if (access.supervisorLimited) {
+      const superviseeIds = await getSupervisorSuperviseeIds(req.user?.id, null);
+      const allowed = (superviseeIds || []).some((id) => parseInt(id, 10) === parseInt(providerUserId, 10));
+      if (!allowed) return res.status(403).json({ error: { message: 'Access denied' } });
     }
 
     const weekday = String(req.query?.weekday || '').trim();

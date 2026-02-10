@@ -56,7 +56,11 @@ export const listPendingComplianceClients = async (req, res, next) => {
     const providerUserId = req.query?.providerUserId ? parseInt(req.query.providerUserId, 10) : null;
 
     const isAdmin = roleNorm === 'super_admin' || roleNorm === 'admin';
-    const isSupervisorRole = roleNorm === 'supervisor' || roleNorm === 'clinical_practice_assistant';
+    const actorUser = req.user?.has_supervisor_privileges !== undefined ? req.user : (await User.findById(userId));
+    const isSupervisorRole =
+      roleNorm === 'supervisor' ||
+      roleNorm === 'clinical_practice_assistant' ||
+      User.isSupervisor(actorUser);
 
     if (!organizationId && !providerUserId) {
       return res.status(400).json({ error: { message: 'organizationId or providerUserId is required' } });
