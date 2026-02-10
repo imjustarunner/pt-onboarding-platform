@@ -743,7 +743,9 @@ export const identifyLogin = async (req, res, next) => {
       }
     }
 
-    // Special-case school_staff: prefer exactly-one school (or portal org) even if multiple org memberships exist.
+    // Special-case school_staff:
+    // - exactly one portal org (school/program/learning) => snap to that portal
+    // - multiple portal orgs => stay on/resolve to agency context
     if (!resolved && userRole === 'school_staff') {
       const isPortalOrg = (o) => {
         const t = pickType(o);
@@ -755,6 +757,19 @@ export const identifyLogin = async (req, res, next) => {
       const portalOrgs = (orgs || []).filter(isPortalOrg);
       if (portalOrgs.length === 1) {
         resolved = portalOrgs[0];
+      } else if (portalOrgs.length > 1) {
+        const agencyOrgs = (orgs || []).filter((o) => pickType(o) === 'agency');
+        // Prefer the requested slug when it points at an agency membership.
+        if (requested) {
+          const requestedAgency = agencyOrgs.find((o) => pickSlug(o) === requested) || null;
+          if (requestedAgency) {
+            resolved = requestedAgency;
+          }
+        }
+        // Otherwise pick the first agency org if present.
+        if (!resolved && agencyOrgs.length > 0) {
+          resolved = agencyOrgs[0];
+        }
       }
     }
 
