@@ -13,17 +13,14 @@ function safeInt(v) {
  */
 export const listForDashboard = async (req, res, next) => {
   try {
+    // Social feeds UI and API restricted to super_admin until full release
+    if (req.user.role !== 'super_admin') {
+      return res.json({ feeds: [] });
+    }
+
     const agencyId = safeInt(req.query.agencyId);
     if (!agencyId) {
       return res.status(400).json({ error: { message: 'agencyId is required' } });
-    }
-
-    if (req.user.role !== 'super_admin') {
-      const userAgencies = await User.getAgencies(req.user.id);
-      const hasAccess = (userAgencies || []).some((a) => Number(a?.id) === Number(agencyId));
-      if (!hasAccess) {
-        return res.status(403).json({ error: { message: 'You do not have access to this agency' } });
-      }
     }
 
     const organizationId = safeInt(req.query.organizationId) || null;

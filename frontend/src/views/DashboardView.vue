@@ -113,9 +113,9 @@
       <ProviderTopSummaryCard v-if="!topCardCollapsed" @open-last-paycheck="openLastPaycheckModal" />
     </div>
 
-    <!-- Social & feeds (collapsible block) -->
+    <!-- Social & feeds (collapsible block) – super_admin only until full release -->
     <div
-      v-if="!previewMode && isOnboardingComplete && !isSchoolStaff && dashboardSocialFeeds.length > 0"
+      v-if="!previewMode && isOnboardingComplete && !isSchoolStaff && authStore.user?.role === 'super_admin' && dashboardSocialFeeds.length > 0"
       class="top-snapshot-wrap"
       data-tour="dash-social-feeds"
     >
@@ -461,8 +461,8 @@
             <OnDemandTrainingLibraryView />
           </div>
 
-          <!-- Social feeds (right panel) -->
-          <div v-if="!previewMode && isOnboardingComplete" v-show="activeTab === 'social_feeds'" class="my-panel">
+          <!-- Social feeds (right panel) – super_admin only until full release -->
+          <div v-if="!previewMode && isOnboardingComplete && authStore.user?.role === 'super_admin'" v-show="activeTab === 'social_feeds'" class="my-panel">
             <SocialFeedsPanel
               :agency-id="currentAgencyId"
               :selected-feed-id-from-parent="selectedSocialFeedId"
@@ -974,14 +974,17 @@ const dashboardCards = computed(() => {
       iconUrl: brandingStore.getDashboardCardIconUrl('on_demand_training', cardIconOrgOverride),
       description: 'Always available after onboarding is complete.'
     });
-    cards.push({
-      id: 'social_feeds',
-      label: 'Social feeds',
-      kind: 'content',
-      badgeCount: 0,
-      iconUrl: brandingStore.getDashboardCardIconUrl('social_feeds', cardIconOrgOverride),
-      description: 'Social and school feeds from your organization.'
-    });
+    // Social feeds – super_admin only until full release
+    if (role === 'super_admin') {
+      cards.push({
+        id: 'social_feeds',
+        label: 'Social feeds',
+        kind: 'content',
+        badgeCount: 0,
+        iconUrl: brandingStore.getDashboardCardIconUrl('social_feeds', cardIconOrgOverride),
+        description: 'Social and school feeds from your organization.'
+      });
+    }
 
     // Communications surfaces (separate pages)
     if (!isLimitedAccessNonProvider) {
@@ -1145,7 +1148,7 @@ const toggleSocialFeedsCollapsed = () => {
 };
 
 async function loadDashboardSocialFeeds() {
-  if (!currentAgencyId.value || !isOnboardingComplete.value) {
+  if (!currentAgencyId.value || !isOnboardingComplete.value || authStore.user?.role !== 'super_admin') {
     dashboardSocialFeeds.value = [];
     return;
   }

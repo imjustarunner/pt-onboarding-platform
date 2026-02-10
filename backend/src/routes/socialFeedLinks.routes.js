@@ -1,6 +1,6 @@
 import express from 'express';
 import { body } from 'express-validator';
-import { authenticate, requireAgencyAdmin } from '../middleware/auth.middleware.js';
+import { authenticate, requireAgencyAdmin, requireSuperAdmin } from '../middleware/auth.middleware.js';
 import {
   listByAgency,
   create,
@@ -10,11 +10,12 @@ import {
 
 const router = express.Router();
 
-router.get('/:agencyId/social-feeds', authenticate, requireAgencyAdmin, listByAgency);
+router.get('/:agencyId/social-feeds', authenticate, requireSuperAdmin, requireAgencyAdmin, listByAgency);
 
 router.post(
   '/:agencyId/social-feeds',
   authenticate,
+  requireSuperAdmin,
   requireAgencyAdmin,
   [
     body('type').optional().isIn(['instagram', 'facebook', 'rss', 'link']),
@@ -32,6 +33,7 @@ router.post(
 router.put(
   '/:agencyId/social-feeds/:id',
   authenticate,
+  requireSuperAdmin,
   requireAgencyAdmin,
   [
     body('type').optional().isIn(['instagram', 'facebook', 'rss', 'link']),
@@ -46,6 +48,6 @@ router.put(
   update
 );
 
-router.delete('/:agencyId/social-feeds/:id', authenticate, requireAgencyAdmin, remove);
+router.delete('/:agencyId/social-feeds/:id', authenticate, requireSuperAdmin, requireAgencyAdmin, remove);
 
 export default router;

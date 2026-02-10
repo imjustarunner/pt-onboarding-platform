@@ -283,7 +283,7 @@
             Announcements
           </button>
           <button
-            v-if="editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
+            v-if="userRole === 'super_admin' && editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
             type="button"
             :class="['tab-button', { active: activeTab === 'social_feeds' }]"
             @click="activeTab = 'social_feeds'"
@@ -1341,7 +1341,7 @@
           </div>
 
           <div
-            v-if="activeTab === 'social_feeds' && editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
+            v-if="userRole === 'super_admin' && activeTab === 'social_feeds' && editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
             class="tab-section"
           >
             <SocialFeedsAdmin :agency-id="editingAgency.id" />
