@@ -4,6 +4,7 @@ import UserExternalCalendar from '../models/UserExternalCalendar.model.js';
 import ExternalBusyCalendarService from './externalBusyCalendar.service.js';
 import GoogleCalendarService from './googleCalendar.service.js';
 import ProviderVirtualWorkingHours from '../models/ProviderVirtualWorkingHours.model.js';
+import OfficeScheduleMaterializer from './officeScheduleMaterializer.service.js';
 import { mergeIntervals, subtractInterval, slotizeIntervals } from '../utils/intervals.js';
 
 const DAY_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -154,6 +155,35 @@ export class ProviderAvailabilityService {
     if (!weekStart) throw new Error('weekStartYmd must be YYYY-MM-DD');
     const weekEnd = addDaysYmd(weekStart, 7);
 
+    // Ensure office_events exist for assigned office slots before availability reads.
+    // This keeps intake availability consistent for weeks not yet materialized by the schedule UI/watchdog.
+    try {
+      const [officeRows] = await pool.execute(
+        `SELECT DISTINCT ola.office_location_id
+         FROM office_location_agencies ola
+         JOIN office_locations ol ON ol.id = ola.office_location_id
+         WHERE ola.agency_id = ?
+           AND ol.is_active = TRUE`,
+        [aid]
+      );
+      const officeIds = (officeRows || [])
+        .map((r) => Number(r.office_location_id))
+        .filter((n) => Number.isInteger(n) && n > 0);
+      const materializeWeekAnchors = [weekStart, addDaysYmd(weekStart, 6)];
+      for (const officeLocationId of officeIds) {
+        for (const anchor of materializeWeekAnchors) {
+          // eslint-disable-next-line no-await-in-loop
+          await OfficeScheduleMaterializer.materializeWeek({
+            officeLocationId,
+            weekStartRaw: anchor,
+            createdByUserId: pid
+          });
+        }
+      }
+    } catch (e) {
+      if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+    }
+
     const tz = await this.resolveAgencyTimeZone({ agencyId: aid });
 
     // Window for external busy (absolute instants)
@@ -239,6 +269,7 @@ export class ProviderAvailabilityService {
          WHERE (e.assigned_provider_id = ? OR e.booked_provider_id = ?)
            AND e.start_at < ?
            AND e.end_at > ?
+           AND (e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')
          ORDER BY e.start_at ASC`,
         [aid, pid, pid, `${weekEnd} 00:00:00`, `${weekStart} 00:00:00`]
       );

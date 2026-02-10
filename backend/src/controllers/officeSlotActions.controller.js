@@ -301,7 +301,35 @@ export const staffAssignOpenSlot = async (req, res, next) => {
       createdByUserId: req.user.id
     });
 
-    res.json({ ok: true, assignment });
+    // Create one hourly office_event per assigned hour so each occurrence can be booked individually.
+    // Keep assignment row for legacy paths that still read office_room_assignments.
+    const createdEvents = [];
+    try {
+      const startHour = Number(hour);
+      const finalHour = Number(endHour !== null ? endHour : hour + 1);
+      for (let h = startHour; h < finalHour; h++) {
+        const slotStartAt = `${date} ${String(h).padStart(2, '0')}:00:00`;
+        const slotEndAt = `${date} ${String(h + 1).padStart(2, '0')}:00:00`;
+        // eslint-disable-next-line no-await-in-loop
+        const event = await OfficeEvent.upsertSlotState({
+          officeLocationId,
+          roomId,
+          startAt: slotStartAt,
+          endAt: slotEndAt,
+          slotState: 'ASSIGNED_AVAILABLE',
+          standingAssignmentId: null,
+          bookingPlanId: null,
+          assignedProviderId: assignedUserId,
+          bookedProviderId: null,
+          createdByUserId: req.user.id
+        });
+        if (event?.id) createdEvents.push(event);
+      }
+    } catch (e) {
+      if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+    }
+
+    res.json({ ok: true, assignment, events: createdEvents });
   } catch (e) {
     next(e);
   }

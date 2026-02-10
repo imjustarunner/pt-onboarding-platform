@@ -38,6 +38,11 @@ function isoForDateHour(dateStr, hour24) {
   return new Date(`${dateStr}T${hh}:00:00`).toISOString();
 }
 
+function timeMs(value) {
+  const t = new Date(value).getTime();
+  return Number.isFinite(t) ? t : NaN;
+}
+
 const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 function weekdayHourInTz(dateLike, timeZone) {
@@ -227,11 +232,17 @@ export const getWeeklyGrid = async (req, res, next) => {
     // Index assignments by room+date+hour (treat as "assigned" if overlapping the hour slot)
     const assignedBySlot = new Map();
     for (const a of assignments || []) {
+      const assignmentStartMs = timeMs(a.start_at);
+      const assignmentEndMs = a.end_at ? timeMs(a.end_at) : null;
+      if (!Number.isFinite(assignmentStartMs)) continue;
       for (const date of days) {
         for (const hour of hours) {
           const slotStart = isoForDateHour(date, hour);
           const slotEnd = new Date(new Date(slotStart).getTime() + 60 * 60 * 1000).toISOString();
-          const overlaps = a.start_at < slotEnd && (a.end_at === null || a.end_at > slotStart);
+          const slotStartMs = timeMs(slotStart);
+          const slotEndMs = timeMs(slotEnd);
+          if (!Number.isFinite(slotStartMs) || !Number.isFinite(slotEndMs)) continue;
+          const overlaps = assignmentStartMs < slotEndMs && (assignmentEndMs === null || assignmentEndMs > slotStartMs);
           if (!overlaps) continue;
           const k = key(a.room_id, date, hour);
           if (!assignedBySlot.has(k)) assignedBySlot.set(k, a);
