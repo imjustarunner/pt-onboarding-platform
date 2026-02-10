@@ -2962,8 +2962,8 @@ watch(
 .modal-content.large {
   background: white;
   border-radius: 12px;
-  max-width: 900px;
-  width: 90%;
+  width: min(1200px, 96vw);
+  max-width: min(1200px, 96vw);
   max-height: 90vh;
   display: flex;
   flex-direction: column;
@@ -3004,12 +3004,25 @@ watch(
 
 .modal-tabs {
   display: flex;
+  align-items: flex-end;
   gap: 8px;
-  padding: 0 24px;
+  padding: 0 24px 10px;
   border-bottom: 2px solid var(--border);
   overflow-x: auto;
   overflow-y: hidden;
   white-space: nowrap;
+  scrollbar-width: thin;
+  scrollbar-gutter: stable;
+  -webkit-overflow-scrolling: touch;
+}
+
+.modal-tabs::-webkit-scrollbar {
+  height: 8px;
+}
+
+.modal-tabs::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.18);
+  border-radius: 999px;
 }
 
 .tab-button {
@@ -3041,6 +3054,25 @@ watch(
   flex: 1;
   overflow-y: auto;
   padding: 24px;
+}
+
+@media (max-width: 980px) {
+  .modal-header {
+    padding: 16px;
+  }
+  .modal-tabs {
+    flex-wrap: wrap;
+    overflow-x: visible;
+    white-space: normal;
+    gap: 6px;
+    padding: 0 16px;
+  }
+  .tab-button {
+    padding: 10px 14px;
+  }
+  .tab-content {
+    padding: 16px;
+  }
 }
 
 .detail-section-docs {

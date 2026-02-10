@@ -81,25 +81,6 @@
         </div>
       </div>
 
-      <div class="packet-audit">
-        <div class="packet-audit-title">Packet audit (read-only)</div>
-        <div v-if="auditLoading" class="muted">Loading…</div>
-        <div v-else-if="auditError" class="error">{{ auditError }}</div>
-        <div v-else-if="auditStatements.length === 0" class="muted">No packet history yet.</div>
-        <div v-else class="packet-audit-list">
-          <div v-for="s in auditStatements" :key="s.documentId" class="packet-audit-item">
-            <div class="packet-audit-name">{{ s.originalName || `Document ${s.documentId}` }}</div>
-            <div class="packet-audit-line">Uploaded: {{ formatDateTime(s.uploadedAt) }}{{ s.uploadedBy ? ` by ${s.uploadedBy}` : '' }}</div>
-            <div class="packet-audit-line">Downloaded: {{ s.downloadedAt ? formatDateTime(s.downloadedAt) : '—' }}{{ s.downloadedBy ? ` by ${s.downloadedBy}` : '' }}</div>
-            <div class="packet-audit-line">Exported to EHR: {{ s.exportedToEhrAt ? formatDateTime(s.exportedToEhrAt) : '—' }}{{ s.exportedToEhrBy ? ` by ${s.exportedToEhrBy}` : '' }}</div>
-            <div class="packet-audit-line">
-              Removed: {{ s.removedAt ? formatDateTime(s.removedAt) : '—' }}{{ s.removedBy ? ` by ${s.removedBy}` : '' }}
-              <span v-if="s.removedReason"> · {{ s.removedReason }}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
       <div v-if="loading" class="loading">Loading…</div>
       <div v-else-if="error" class="error">{{ error }}</div>
       <div v-else class="body">
@@ -204,6 +185,25 @@
               </div>
             </div>
           </section>
+        </div>
+
+        <div class="packet-audit">
+          <div class="packet-audit-title">Packet audit (read-only)</div>
+          <div v-if="auditLoading" class="muted">Loading…</div>
+          <div v-else-if="auditError" class="error">{{ auditError }}</div>
+          <div v-else-if="auditStatements.length === 0" class="muted">No packet history yet.</div>
+          <div v-else class="packet-audit-list">
+            <div v-for="s in auditStatements" :key="s.documentId" class="packet-audit-item">
+              <div class="packet-audit-name">{{ s.originalName || `Document ${s.documentId}` }}</div>
+              <div class="packet-audit-line">Uploaded: {{ formatDateTime(s.uploadedAt) }}{{ s.uploadedBy ? ` by ${s.uploadedBy}` : '' }}</div>
+              <div class="packet-audit-line">Downloaded: {{ s.downloadedAt ? formatDateTime(s.downloadedAt) : '—' }}{{ s.downloadedBy ? ` by ${s.downloadedBy}` : '' }}</div>
+              <div class="packet-audit-line">Exported to EHR: {{ s.exportedToEhrAt ? formatDateTime(s.exportedToEhrAt) : '—' }}{{ s.exportedToEhrBy ? ` by ${s.exportedToEhrBy}` : '' }}</div>
+              <div class="packet-audit-line">
+                Removed: {{ s.removedAt ? formatDateTime(s.removedAt) : '—' }}{{ s.removedBy ? ` by ${s.removedBy}` : '' }}
+                <span v-if="s.removedReason"> · {{ s.removedReason }}</span>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -531,7 +531,7 @@ watch(
 }
 
 .packet-audit {
-  margin: 12px 16px 0 16px;
+  margin: 0;
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 10px 12px;
