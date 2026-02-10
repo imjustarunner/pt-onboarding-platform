@@ -208,10 +208,29 @@ export const useAuthStore = defineStore('auth', () => {
       localStorage.removeItem('sessionId');
       clearAuth();
       
-      // Redirect to appropriate login page based on user's agency
+      // Redirect to branded login when possible.
+      // Prefer the current route slug so users stay in the same portal context on logout.
+      let loginUrl = options.redirectTo || null;
+      if (!loginUrl) {
+        try {
+          const { default: router } = await import('../router');
+          const current = router.currentRoute?.value || null;
+          const slug = typeof current?.params?.organizationSlug === 'string'
+            ? String(current.params.organizationSlug).trim().toLowerCase()
+            : '';
+          if (slug) {
+            loginUrl = `/${slug}/login`;
+          }
+        } catch {
+          // Ignore and fall back below.
+        }
+      }
+
       // Get agencies from localStorage before clearing (they're cleared in clearStoredAgencies)
       const { getLoginUrl, clearStoredAgencies } = await import('../utils/loginRedirect');
-      const loginUrl = options.redirectTo || getLoginUrl(currentUser);
+      if (!loginUrl) {
+        loginUrl = getLoginUrl(currentUser);
+      }
       clearStoredAgencies(); // Clear stored agencies on logout
       
       // Prefer SPA navigation; fallback to hard redirect if router is unavailable.
