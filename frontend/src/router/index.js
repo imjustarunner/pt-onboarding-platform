@@ -914,12 +914,6 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['super_admin'] }
   },
   {
-    path: '/admin/marketing-social',
-    name: 'MarketingSocial',
-    component: () => import('../views/admin/MarketingSocialView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['super_admin'] }
-  },
-  {
     path: '/admin/payroll',
     name: 'Payroll',
     component: () => import('../views/admin/PayrollView.vue'),
