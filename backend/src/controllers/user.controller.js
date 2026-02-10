@@ -45,29 +45,38 @@ const parseFeatureFlags = (rawFlags) => {
 
 const isSsoPasswordOverrideEnabled = (user) => normalizeBoolFlag(user?.sso_password_override);
 
-const getSsoStateForUserAndOrg = async ({ user, org }) => {
-  const flags = parseFeatureFlags(org?.feature_flags ?? null);
-  const ssoEnabled = flags?.googleSsoEnabled === true;
-  const requiredRoles = Array.isArray(flags?.googleSsoRequiredRoles)
-    ? flags.googleSsoRequiredRoles.map((r) => String(r || '').toLowerCase()).filter(Boolean)
-    : [];
-  const userRole = String(user?.role || '').toLowerCase();
-  const ssoPolicyRequired = ssoEnabled && requiredRoles.includes(userRole) && !SSO_EXCLUDED_ROLES.has(userRole);
+const getSsoStateForUser = async (user) => {
   const ssoPasswordOverride = isSsoPasswordOverrideEnabled(user);
+  let ssoEnabled = false;
+  let ssoPolicyRequired = false;
+
+  try {
+    const orgs = await User.getAgencies(user?.id);
+    for (const org of (orgs || [])) {
+      const flags = parseFeatureFlags(org?.feature_flags ?? null);
+      if (flags?.googleSsoEnabled === true) ssoEnabled = true;
+
+      const requiredRoles = Array.isArray(flags?.googleSsoRequiredRoles)
+        ? flags.googleSsoRequiredRoles.map((r) => String(r || '').toLowerCase()).filter(Boolean)
+        : [];
+      const userRole = String(user?.role || '').toLowerCase();
+      const orgRequires = flags?.googleSsoEnabled === true && requiredRoles.includes(userRole) && !SSO_EXCLUDED_ROLES.has(userRole);
+      if (orgRequires) {
+        ssoPolicyRequired = true;
+        // No need to continue; effective requirement is true (unless override).
+        break;
+      }
+    }
+  } catch {
+    // best-effort
+  }
+
   return {
     ssoEnabled,
     ssoPolicyRequired,
     ssoPasswordOverride,
     ssoRequired: ssoPolicyRequired && !ssoPasswordOverride
   };
-};
-
-const getPrimaryOrgForUser = async (userId) => {
-  const userAgencies = await User.getAgencies(userId);
-  const primaryOrgId = userAgencies?.[0]?.id || null;
-  if (!primaryOrgId) return null;
-  const Agency = (await import('../models/Agency.model.js')).default;
-  return Agency.findById(primaryOrgId);
 };
 
 async function requireSharedAgencyAccessOrSuperAdmin({ actorUserId, targetUserId, actorRole }) {
@@ -3102,8 +3111,7 @@ export const generateTemporaryPassword = async (req, res, next) => {
 
     // If Workspace login is required for this user, temp passwords are blocked unless admin override is enabled.
     try {
-      const org = await getPrimaryOrgForUser(targetUser.id);
-      const ssoState = await getSsoStateForUserAndOrg({ user: targetUser, org });
+      const ssoState = await getSsoStateForUser(targetUser);
       if (ssoState.ssoRequired) {
         return res.status(409).json({
           error: {
@@ -3343,8 +3351,7 @@ export const sendResetPasswordLink = async (req, res, next) => {
 
     // If Workspace login is required for this user, reset links are blocked unless admin override is enabled.
     try {
-      const org = await getPrimaryOrgForUser(user.id);
-      const ssoState = await getSsoStateForUserAndOrg({ user, org });
+      const ssoState = await getSsoStateForUser(user);
       if (ssoState.ssoRequired) {
         return res.status(409).json({
           error: {
@@ -3543,8 +3550,7 @@ export const sendResetPasswordLinkSms = async (req, res, next) => {
 
     // If Workspace login is required for this user, reset links are blocked unless admin override is enabled.
     try {
-      const org = await getPrimaryOrgForUser(user.id);
-      const ssoState = await getSsoStateForUserAndOrg({ user, org });
+      const ssoState = await getSsoStateForUser(user);
       if (ssoState.ssoRequired) {
         return res.status(409).json({
           error: {
@@ -3830,8 +3836,7 @@ export const getAccountInfo = async (req, res, next) => {
     let ssoPasswordOverride = false;
     let ssoRequired = false;
     try {
-      const org = await getPrimaryOrgForUser(user.id);
-      const ssoState = await getSsoStateForUserAndOrg({ user, org });
+      const ssoState = await getSsoStateForUser(user);
       ssoEnabled = ssoState.ssoEnabled;
       ssoPolicyRequired = ssoState.ssoPolicyRequired;
       ssoPasswordOverride = ssoState.ssoPasswordOverride;
@@ -3990,8 +3995,7 @@ export const setSsoPasswordOverride = async (req, res, next) => {
     await pool.execute('UPDATE users SET sso_password_override = ? WHERE id = ?', [override ? 1 : 0, userId]);
 
     const refreshed = await User.findById(userId);
-    const org = await getPrimaryOrgForUser(userId).catch(() => null);
-    const ssoState = await getSsoStateForUserAndOrg({ user: refreshed || user, org }).catch(() => ({
+    const ssoState = await getSsoStateForUser(refreshed || user).catch(() => ({
       ssoEnabled: false,
       ssoPolicyRequired: false,
       ssoPasswordOverride: override,
