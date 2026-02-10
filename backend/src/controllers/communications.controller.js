@@ -76,6 +76,7 @@ export const getCommunicationsFeed = async (req, res, next) => {
       userId,
       userId,
       userId,
+      userId,
       ...(includeAllAgencies ? [] : agencyIds),
       ...(organizationId ? [organizationId] : [])
     ];
