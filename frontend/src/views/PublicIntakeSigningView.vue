@@ -531,13 +531,15 @@
         <p>Your documents were completed successfully. A copy will be emailed to the guardian.</p>
         <p class="muted">Download links expire in 14 days. After that, the files are deleted once uploaded to the EHR.</p>
         <div v-if="downloadUrl" class="actions">
-          <a class="btn btn-primary" :href="downloadUrl" target="_blank" rel="noopener">Download Packet PDF</a>
+          <a class="btn btn-primary" :href="downloadUrl" target="_blank" rel="noopener">View Packet PDF</a>
+          <a class="btn btn-secondary" :href="downloadUrl" download>Download Packet PDF</a>
         </div>
         <div v-if="clientBundleLinks.length" class="bundle-list">
           <div class="bundle-title">Download per-child packets</div>
           <div v-for="bundle in clientBundleLinks" :key="bundle.clientId || bundle.filename" class="bundle-item">
             <div class="bundle-name">{{ bundle.clientName || `Client ${bundle.clientId}` }}</div>
-            <a class="btn btn-secondary btn-sm" :href="bundle.downloadUrl" target="_blank" rel="noopener">Download</a>
+            <a class="btn btn-secondary btn-sm" :href="bundle.downloadUrl" target="_blank" rel="noopener">View</a>
+            <a class="btn btn-outline btn-sm" :href="bundle.downloadUrl" download>Download</a>
           </div>
         </div>
         <div v-if="clients.length" class="bundle-list">
