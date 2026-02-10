@@ -126,16 +126,14 @@
                 <p><strong>{{ clientsList.length }}</strong> client(s) assigned. Read-only.</p>
                 <ul class="supervision-client-links">
                   <li v-for="client in clientsList" :key="client.id || `${client.initials || ''}-${client.identifier_code || ''}`">
-                    <a
-                      v-if="clientPortalHref(client)"
-                      :href="clientPortalHref(client)"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      class="summary-meta"
+                    <button
+                      type="button"
+                      class="summary-meta summary-link-button"
+                      :disabled="schoolClientModalLoading"
+                      @click="openCaseloadClientModal(client)"
                     >
                       {{ clientDisplayLabel(client) }}
-                    </a>
-                    <span v-else class="summary-meta">{{ clientDisplayLabel(client) }}</span>
+                    </button>
                     <span v-if="clientSchoolName(client)" class="summary-meta"> — {{ clientSchoolName(client) }}</span>
                   </li>
                 </ul>
@@ -148,6 +146,9 @@
               <div v-else-if="compliancePendingError" class="supervision-error-inline">{{ compliancePendingError }}</div>
               <div v-else-if="compliancePendingList.length === 0" class="supervision-placeholder">
                 No pending compliance clients.
+              </div>
+              <div v-if="schoolClientModalError" class="supervision-error-inline" style="margin-bottom: 8px;">
+                {{ schoolClientModalError }}
               </div>
               <div v-else class="compliance-grid">
                 <button
@@ -331,6 +332,12 @@
           </div>
         </template>
     </div>
+    <ClientModal
+      v-if="selectedSchoolClient && selectedSchoolClientOrgId"
+      :client="selectedSchoolClient"
+      :school-organization-id="selectedSchoolClientOrgId"
+      @close="closeSchoolClientModal"
+    />
   </div>
 </template>
 
@@ -343,6 +350,7 @@ import api from '../../services/api';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 import ModuleAssignmentDialog from '../admin/ModuleAssignmentDialog.vue';
 import UserSpecificDocumentUploadDialog from '../documents/UserSpecificDocumentUploadDialog.vue';
+import ClientModal from '../school/redesign/ClientModal.vue';
 
 const route = useRoute();
 
@@ -374,6 +382,10 @@ const clientsError = ref('');
 const compliancePendingList = ref([]);
 const compliancePendingLoading = ref(false);
 const compliancePendingError = ref('');
+const selectedSchoolClient = ref(null);
+const selectedSchoolClientOrgId = ref(null);
+const schoolClientModalLoading = ref(false);
+const schoolClientModalError = ref('');
 const affiliatedPortals = ref([]);
 const affiliatedPortalsLoading = ref(false);
 const affiliatedPortalsError = ref('');
@@ -544,24 +556,66 @@ function formatTaskStatusLabel(status) {
     .replace(/\b\w/g, (ch) => ch.toUpperCase());
 }
 
-function clientPortalHref(client) {
-  const slug = String(client?.organization_slug || portalSlugForOrgId(client?.organization_id) || '').trim();
-  const clientId = Number(client?.id || 0);
-  if (!slug || !clientId) return '';
-  return `/${slug}/dashboard?sp=roster&clientId=${clientId}`;
+function resolveClientOrgId(client) {
+  const direct = Number(client?.organization_id || 0);
+  if (direct) return direct;
+  const slug = String(client?.organization_slug || '').trim().toLowerCase();
+  if (slug) {
+    const bySlug = (affiliatedPortals.value || []).find((p) => String(p?.slug || '').trim().toLowerCase() === slug);
+    const slugOrgId = Number(bySlug?.id || 0);
+    if (slugOrgId) return slugOrgId;
+  }
+  if ((affiliatedPortals.value || []).length === 1) {
+    const only = Number(affiliatedPortals.value?.[0]?.id || 0);
+    if (only) return only;
+  }
+  return null;
 }
 
-function complianceClientHref(row) {
-  const slug = String(portalSlugForOrgId(row?.organization_id) || '').trim();
-  const clientId = Number(row?.client_id || 0);
-  if (!slug || !clientId) return '';
-  return `/${slug}/dashboard?sp=roster&clientId=${clientId}`;
+async function openSchoolClientModal({ orgId, clientId }) {
+  const oid = Number(orgId || 0);
+  const cid = Number(clientId || 0);
+  if (!oid || !cid) {
+    schoolClientModalError.value = 'Unable to open client: missing school context.';
+    return;
+  }
+  schoolClientModalLoading.value = true;
+  schoolClientModalError.value = '';
+  try {
+    const response = await api.get(`/school-portal/${oid}/clients`, {
+      params: { clientId: cid }
+    });
+    const rows = Array.isArray(response.data) ? response.data : [];
+    const found = rows.find((r) => Number(r?.id) === cid) || null;
+    if (!found) {
+      schoolClientModalError.value = 'Client was not found in this school portal context.';
+      return;
+    }
+    selectedSchoolClient.value = found;
+    selectedSchoolClientOrgId.value = oid;
+  } catch (err) {
+    schoolClientModalError.value = err?.response?.data?.error?.message || 'Failed to open client.';
+  } finally {
+    schoolClientModalLoading.value = false;
+  }
+}
+
+function closeSchoolClientModal() {
+  selectedSchoolClient.value = null;
+  selectedSchoolClientOrgId.value = null;
+}
+
+function openCaseloadClientModal(client) {
+  const clientId = Number(client?.id || 0);
+  const orgId = resolveClientOrgId(client);
+  openSchoolClientModal({ orgId, clientId });
 }
 
 function openComplianceClient(row) {
-  const href = complianceClientHref(row);
-  if (!href) return;
-  window.open(href, '_blank', 'noopener');
+  openSchoolClientModal({
+    orgId: Number(row?.organization_id || 0),
+    clientId: Number(row?.client_id || 0)
+  });
 }
 
 function superviseeDisplayName(s) {
@@ -1038,6 +1092,18 @@ onMounted(() => {
 }
 .supervision-client-links li {
   margin: 0.2rem 0;
+}
+.summary-link-button {
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--primary, #2563eb);
+  cursor: pointer;
+  text-decoration: underline;
+}
+.summary-link-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 /* Supervisee detail hero (photo + name) */

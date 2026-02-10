@@ -914,6 +914,12 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['super_admin'] }
   },
   {
+    path: '/admin/marketing-social',
+    name: 'MarketingSocial',
+    component: () => import('../views/admin/MarketingSocialView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['super_admin'] }
+  },
+  {
     path: '/admin/payroll',
     name: 'Payroll',
     component: () => import('../views/admin/PayrollView.vue'),
@@ -1203,7 +1209,17 @@ router.beforeEach(async (to, from, next) => {
 
   // If user is authenticated and not super_admin, enforce slug-prefixed navigation
   // so branding stays consistent across all portal pages.
-  if (authStore.isAuthenticated && authStore.user?.role !== 'super_admin' && to.meta.requiresAuth && !to.meta.organizationSlug) {
+  const allowUnscopedDashboard =
+    to.path === '/dashboard' ||
+    to.path === '/mydashboard' ||
+    String(to.name || '') === 'Dashboard';
+  if (
+    authStore.isAuthenticated &&
+    authStore.user?.role !== 'super_admin' &&
+    to.meta.requiresAuth &&
+    !to.meta.organizationSlug &&
+    !allowUnscopedDashboard
+  ) {
     const slug = getDefaultOrganizationSlug();
     if (slug) {
       // Prefix the entire path (preserves queries/hash via fullPath).

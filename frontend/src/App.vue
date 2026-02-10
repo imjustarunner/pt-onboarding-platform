@@ -1032,10 +1032,7 @@ const orgTo = (path) => {
 // - Admin (agency): My Dashboard = /itsco/dashboard, Admin = /itsco/admin (orgTo handles slug).
 // - Staff (agency): My Dashboard = /itsco/dashboard, Agency dashboard = /itsco/agencydashboard (see orgTo('/agencydashboard') for staff nav if that route exists).
 const myDashboardTo = computed(() => {
-  if (String(authStore.user?.role || '').toLowerCase() === 'super_admin') {
-    return '/dashboard';
-  }
-  return orgTo('/dashboard');
+  return '/dashboard';
 });
 
 // When already on the target route, router-link does nothing; handle click so the button still does something (e.g. scroll to top).
