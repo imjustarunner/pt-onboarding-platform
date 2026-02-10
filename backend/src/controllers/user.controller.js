@@ -29,6 +29,46 @@ const isAdminOrSuperAdmin = (req) => {
 };
 
 const normalizeBoolFlag = (val) => val === 1 || val === true || val === '1';
+const SSO_EXCLUDED_ROLES = new Set(['school_staff', 'client_guardian', 'client', 'guardian']);
+
+const parseFeatureFlags = (rawFlags) => {
+  if (!rawFlags) return {};
+  if (typeof rawFlags === 'string') {
+    try {
+      return JSON.parse(rawFlags);
+    } catch {
+      return {};
+    }
+  }
+  return typeof rawFlags === 'object' ? rawFlags : {};
+};
+
+const isSsoPasswordOverrideEnabled = (user) => normalizeBoolFlag(user?.sso_password_override);
+
+const getSsoStateForUserAndOrg = async ({ user, org }) => {
+  const flags = parseFeatureFlags(org?.feature_flags ?? null);
+  const ssoEnabled = flags?.googleSsoEnabled === true;
+  const requiredRoles = Array.isArray(flags?.googleSsoRequiredRoles)
+    ? flags.googleSsoRequiredRoles.map((r) => String(r || '').toLowerCase()).filter(Boolean)
+    : [];
+  const userRole = String(user?.role || '').toLowerCase();
+  const ssoPolicyRequired = ssoEnabled && requiredRoles.includes(userRole) && !SSO_EXCLUDED_ROLES.has(userRole);
+  const ssoPasswordOverride = isSsoPasswordOverrideEnabled(user);
+  return {
+    ssoEnabled,
+    ssoPolicyRequired,
+    ssoPasswordOverride,
+    ssoRequired: ssoPolicyRequired && !ssoPasswordOverride
+  };
+};
+
+const getPrimaryOrgForUser = async (userId) => {
+  const userAgencies = await User.getAgencies(userId);
+  const primaryOrgId = userAgencies?.[0]?.id || null;
+  if (!primaryOrgId) return null;
+  const Agency = (await import('../models/Agency.model.js')).default;
+  return Agency.findById(primaryOrgId);
+};
 
 async function requireSharedAgencyAccessOrSuperAdmin({ actorUserId, targetUserId, actorRole }) {
   const r = String(actorRole || '').toLowerCase();
@@ -3055,6 +3095,26 @@ export const generateTemporaryPassword = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Admin access required' } });
     }
     
+    const targetUser = await User.findById(id);
+    if (!targetUser) {
+      return res.status(404).json({ error: { message: 'User not found' } });
+    }
+
+    // If Workspace login is required for this user, temp passwords are blocked unless admin override is enabled.
+    try {
+      const org = await getPrimaryOrgForUser(targetUser.id);
+      const ssoState = await getSsoStateForUserAndOrg({ user: targetUser, org });
+      if (ssoState.ssoRequired) {
+        return res.status(409).json({
+          error: {
+            message: 'Password login is disabled by Workspace policy for this user. Enable admin password override to issue a temporary password.'
+          }
+        });
+      }
+    } catch {
+      // Best-effort: do not block on org lookup failure.
+    }
+
     const tempPassword = await User.generateTemporaryPassword();
     // Default to 48 hours if not specified
     const finalExpiresInHours =
@@ -3281,6 +3341,21 @@ export const sendResetPasswordLink = async (req, res, next) => {
       });
     }
 
+    // If Workspace login is required for this user, reset links are blocked unless admin override is enabled.
+    try {
+      const org = await getPrimaryOrgForUser(user.id);
+      const ssoState = await getSsoStateForUserAndOrg({ user, org });
+      if (ssoState.ssoRequired) {
+        return res.status(409).json({
+          error: {
+            message: 'Password reset is disabled by Workspace policy for this user. Enable admin password override first if an exception is required.'
+          }
+        });
+      }
+    } catch {
+      // Best-effort: do not block on org lookup failure.
+    }
+
     const config = (await import('../config/config.js')).default;
     const frontendBase = (config.frontendUrl || '').replace(/\/$/, '');
     const userAgencies = await User.getAgencies(userId);
@@ -3464,6 +3539,21 @@ export const sendResetPasswordLinkSms = async (req, res, next) => {
     // Check permissions: Only admins/super_admins/support can send reset links via SMS
     if (req.user.role !== 'admin' && req.user.role !== 'super_admin' && req.user.role !== 'support') {
       return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    // If Workspace login is required for this user, reset links are blocked unless admin override is enabled.
+    try {
+      const org = await getPrimaryOrgForUser(user.id);
+      const ssoState = await getSsoStateForUserAndOrg({ user, org });
+      if (ssoState.ssoRequired) {
+        return res.status(409).json({
+          error: {
+            message: 'Password reset is disabled by Workspace policy for this user. Enable admin password override first if an exception is required.'
+          }
+        });
+      }
+    } catch {
+      // Best-effort: do not block on org lookup failure.
     }
 
     const phoneRaw = user.personal_phone || user.work_phone || user.phone_number || null;
@@ -3734,34 +3824,24 @@ export const getAccountInfo = async (req, res, next) => {
       loginCount = 0; // best-effort
     }
 
-    // Best-effort: detect whether org requires Google SSO for this user role.
-    // When required, we disable password reset / temp password actions.
-    let ssoRequired = false;
+    // Best-effort: detect Google SSO policy + effective enforcement for this user.
     let ssoEnabled = false;
+    let ssoPolicyRequired = false;
+    let ssoPasswordOverride = false;
+    let ssoRequired = false;
     try {
-      const userAgencies = await User.getAgencies(user.id);
-      const primaryOrgId = userAgencies?.[0]?.id || null;
-      if (primaryOrgId) {
-        const Agency = (await import('../models/Agency.model.js')).default;
-        const org = await Agency.findById(primaryOrgId);
-        const rawFlags = org?.feature_flags ?? null;
-        const featureFlags =
-          rawFlags && typeof rawFlags === 'string'
-            ? (() => { try { return JSON.parse(rawFlags); } catch { return {}; } })()
-            : (rawFlags && typeof rawFlags === 'object' ? rawFlags : {});
-
-        ssoEnabled = featureFlags?.googleSsoEnabled === true;
-        const requiredRoles = Array.isArray(featureFlags?.googleSsoRequiredRoles)
-          ? featureFlags.googleSsoRequiredRoles.map((r) => String(r || '').toLowerCase()).filter(Boolean)
-          : [];
-        const userRole = String(user.role || '').toLowerCase();
-        const excludedRoles = new Set(['school_staff', 'client_guardian', 'client', 'guardian']);
-        ssoRequired = ssoEnabled && requiredRoles.includes(userRole) && !excludedRoles.has(userRole);
-      }
+      const org = await getPrimaryOrgForUser(user.id);
+      const ssoState = await getSsoStateForUserAndOrg({ user, org });
+      ssoEnabled = ssoState.ssoEnabled;
+      ssoPolicyRequired = ssoState.ssoPolicyRequired;
+      ssoPasswordOverride = ssoState.ssoPasswordOverride;
+      ssoRequired = ssoState.ssoRequired;
     } catch {
       // best-effort
-      ssoRequired = false;
       ssoEnabled = false;
+      ssoPolicyRequired = false;
+      ssoPasswordOverride = false;
+      ssoRequired = false;
     }
     
     const accountInfo = {
@@ -3794,6 +3874,8 @@ export const getAccountInfo = async (req, res, next) => {
       hasLoggedIn: loginCount > 0,
       neverLoggedIn: loginCount === 0,
       ssoEnabled,
+      ssoPolicyRequired,
+      ssoPasswordOverride,
       ssoRequired,
       supervisors: supervisors,
       hasSupervisorPrivileges: (user.role === 'admin' || user.role === 'super_admin' || user.role === 'clinical_practice_assistant') 
@@ -3868,6 +3950,63 @@ export const getAccountInfo = async (req, res, next) => {
     }
     
     res.json(accountInfo);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const setSsoPasswordOverride = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const userId = parseInt(id, 10);
+    const override = normalizeBoolFlag(req.body?.override);
+
+    if (!Number.isFinite(userId) || userId <= 0) {
+      return res.status(400).json({ error: { message: 'Invalid user id' } });
+    }
+
+    // Only admins/super_admins/support can toggle this edge-case override.
+    const actorRole = String(req.user?.role || '').toLowerCase();
+    if (!['admin', 'super_admin', 'support'].includes(actorRole)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ error: { message: 'User not found' } });
+    }
+
+    const [columns] = await pool.execute(
+      "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'sso_password_override'"
+    );
+    if (!Array.isArray(columns) || columns.length === 0) {
+      return res.status(409).json({
+        error: {
+          message: 'Database is missing users.sso_password_override. Run the latest migration before using this override.'
+        }
+      });
+    }
+
+    await pool.execute('UPDATE users SET sso_password_override = ? WHERE id = ?', [override ? 1 : 0, userId]);
+
+    const refreshed = await User.findById(userId);
+    const org = await getPrimaryOrgForUser(userId).catch(() => null);
+    const ssoState = await getSsoStateForUserAndOrg({ user: refreshed || user, org }).catch(() => ({
+      ssoEnabled: false,
+      ssoPolicyRequired: false,
+      ssoPasswordOverride: override,
+      ssoRequired: false
+    }));
+
+    res.json({
+      message: override
+        ? 'Password login override enabled for this user.'
+        : 'Password login override disabled; Workspace policy is enforced again.',
+      ssoEnabled: ssoState.ssoEnabled,
+      ssoPolicyRequired: ssoState.ssoPolicyRequired,
+      ssoPasswordOverride: ssoState.ssoPasswordOverride,
+      ssoRequired: ssoState.ssoRequired
+    });
   } catch (error) {
     next(error);
   }

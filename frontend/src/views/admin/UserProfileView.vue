@@ -995,6 +995,28 @@
             </div>
             
             <div class="password-status-layout">
+              <div v-if="accountInfo.ssoPolicyRequired" class="reset-password-section">
+                <h4>Workspace Sign-in Policy</h4>
+                <p v-if="accountInfo.ssoRequired">
+                  Workspace login is enforced for this user by agency and role.
+                </p>
+                <p v-else>
+                  Admin password override is enabled for this user. Password reset and temporary password actions are allowed.
+                </p>
+                <button
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  :disabled="savingSsoPasswordOverride"
+                  @click="toggleSsoPasswordOverride(!accountInfo.ssoPasswordOverride)"
+                >
+                  {{
+                    savingSsoPasswordOverride
+                      ? 'Saving...'
+                      : (accountInfo.ssoPasswordOverride ? 'Re-enable Workspace-only sign-in' : 'Enable password login override')
+                  }}
+                </button>
+              </div>
+
               <div v-if="!canUsePasswordResetActions" class="reset-password-section">
                 <h4>Password Access</h4>
                 <p>This user’s organization requires Google sign-in. Password reset links and temporary passwords are disabled for this user.</p>
@@ -2948,10 +2970,13 @@ const accountInfo = ref({
   hasLoggedIn: false,
   neverLoggedIn: true,
   ssoEnabled: false,
+  ssoPolicyRequired: false,
+  ssoPasswordOverride: false,
   ssoRequired: false
 });
 const accountInfoLoading = ref(false);
 const accountInfoError = ref('');
+const savingSsoPasswordOverride = ref(false);
 const downloadingPackage = ref(false);
 const deactivatingUser = ref(false);
 const activatingUser = ref(false);
@@ -3209,6 +3234,30 @@ const confirmResetToken = async () => {
     alert(accountInfoError.value);
   } finally {
     resettingToken.value = false;
+  }
+};
+
+const toggleSsoPasswordOverride = async (enabled) => {
+  const nextState = Boolean(enabled);
+  const prompt = nextState
+    ? 'Enable password-login override for this user? This allows reset links and temporary passwords even when Workspace sign-in policy applies.'
+    : 'Disable password-login override and re-enforce Workspace-only sign-in for this user?';
+  if (!confirm(prompt)) return;
+
+  try {
+    savingSsoPasswordOverride.value = true;
+    await api.post(`/users/${userId.value}/sso-password-override`, { override: nextState });
+    await fetchAccountInfo();
+    alert(
+      nextState
+        ? 'Password-login override enabled for this user.'
+        : 'Workspace-only sign-in re-enabled for this user.'
+    );
+  } catch (err) {
+    const msg = err.response?.data?.error?.message || 'Failed to update Workspace sign-in override';
+    alert(msg);
+  } finally {
+    savingSsoPasswordOverride.value = false;
   }
 };
 

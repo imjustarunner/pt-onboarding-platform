@@ -83,14 +83,21 @@
           </div>
         </div>
 
-        <div class="card compact-card" style="margin-top: 16px;">
+        <div class="card compact-card" :class="{ 'security-sso-locked': accountInfo.ssoRequired }" style="margin-top: 16px;">
           <div class="section-header">
             <h3 style="margin: 0;">Security</h3>
-            <button class="btn btn-secondary btn-compact" @click="router.push('/change-password')">
+            <button
+              class="btn btn-secondary btn-compact"
+              :disabled="accountInfo.ssoRequired"
+              @click="router.push('/change-password')"
+            >
               Change Password
             </button>
           </div>
-          <div class="hint" style="margin-top: 6px;">
+          <div v-if="accountInfo.ssoRequired" class="hint security-sso-note" style="margin-top: 6px;">
+            Password changes are disabled. This account must use Workspace login based on agency and role policy.
+          </div>
+          <div v-else class="hint" style="margin-top: 6px;">
             You can change your password at any time.
           </div>
         </div>
@@ -945,6 +952,15 @@ onMounted(() => {
 .compact-card .hint {
   font-size: 12px;
   line-height: 1.4;
+}
+
+.security-sso-locked {
+  opacity: 0.7;
+}
+
+.security-sso-note {
+  color: #4b5563;
+  font-weight: 600;
 }
 
 .btn-compact {

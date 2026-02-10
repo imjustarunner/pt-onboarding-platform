@@ -30,6 +30,29 @@ async function buildPayrollCaps(user) {
   };
 }
 
+const SSO_EXCLUDED_ROLES = new Set(['school_staff', 'client_guardian', 'client', 'guardian']);
+const parseFeatureFlags = (raw) => {
+  if (!raw) return {};
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+  return raw && typeof raw === 'object' ? raw : {};
+};
+const isSsoPasswordOverrideEnabled = (user) =>
+  user?.sso_password_override === 1 || user?.sso_password_override === true || user?.sso_password_override === '1';
+const isSsoPolicyRequiredForRole = ({ featureFlags, userRole }) => {
+  const ssoEnabled = featureFlags?.googleSsoEnabled === true;
+  const requiredRoles = Array.isArray(featureFlags?.googleSsoRequiredRoles)
+    ? featureFlags.googleSsoRequiredRoles.map((r) => String(r || '').toLowerCase()).filter(Boolean)
+    : [];
+  return ssoEnabled && requiredRoles.includes(String(userRole || '').toLowerCase()) && !SSO_EXCLUDED_ROLES.has(String(userRole || '').toLowerCase());
+};
+
 export const approvedEmployeeLogin = async (req, res, next) => {
   try {
     const errors = validationResult(req);
@@ -261,22 +284,10 @@ export const login = async (req, res, next) => {
     if (orgSlug) {
       try {
         const org = (await Agency.findBySlug(orgSlug)) || (await Agency.findByPortalUrl(orgSlug));
-        const rawFlags = org?.feature_flags ?? null;
-        const featureFlags =
-          rawFlags && typeof rawFlags === 'string'
-            ? (() => {
-                try { return JSON.parse(rawFlags); } catch { return {}; }
-              })()
-            : (rawFlags && typeof rawFlags === 'object' ? rawFlags : {});
-
-        const ssoEnabled = featureFlags?.googleSsoEnabled === true;
-        const requiredRoles = Array.isArray(featureFlags?.googleSsoRequiredRoles)
-          ? featureFlags.googleSsoRequiredRoles.map((r) => String(r || '').toLowerCase()).filter(Boolean)
-          : [];
-
+        const featureFlags = parseFeatureFlags(org?.feature_flags ?? null);
         const userRole = String(user.role || '').toLowerCase();
-        const excludedRoles = new Set(['school_staff', 'client_guardian', 'client', 'guardian']);
-        if (ssoEnabled && requiredRoles.includes(userRole) && !excludedRoles.has(userRole)) {
+        const ssoPolicyRequired = isSsoPolicyRequiredForRole({ featureFlags, userRole });
+        if (ssoPolicyRequired && !isSsoPasswordOverrideEnabled(user)) {
           return res.status(403).json({
             error: {
               message: 'This organization requires Google sign-in. Please continue with Google.',
@@ -590,19 +601,6 @@ export const identifyLogin = async (req, res, next) => {
       });
     }
 
-    const parseFeatureFlags = (raw) => {
-      if (!raw) return {};
-      if (typeof raw === 'string') {
-        try {
-          const parsed = JSON.parse(raw);
-          return parsed && typeof parsed === 'object' ? parsed : {};
-        } catch {
-          return {};
-        }
-      }
-      return raw && typeof raw === 'object' ? raw : {};
-    };
-
     // IMPORTANT: prefer portal_url (public portal identifier) over slug (internal identifier).
     // Many child orgs (school/program/learning) use portal_url as the actual path segment.
     const pickSlug = (org) => String(org?.portal_url || org?.portalUrl || org?.slug || '').trim().toLowerCase() || null;
@@ -750,13 +748,8 @@ export const identifyLogin = async (req, res, next) => {
       try {
         const org = (await Agency.findBySlug(resolvedSlug)) || (await Agency.findByPortalUrl(resolvedSlug));
         const flags = parseFeatureFlags(org?.feature_flags ?? null);
-        const ssoEnabled = flags?.googleSsoEnabled === true;
-        const requiredRoles = Array.isArray(flags?.googleSsoRequiredRoles)
-          ? flags.googleSsoRequiredRoles.map((r) => String(r || '').toLowerCase()).filter(Boolean)
-          : [];
-
-        const excludedRoles = new Set(['school_staff', 'client_guardian', 'client', 'guardian']);
-        const roleEligible = requiredRoles.length > 0 ? requiredRoles.includes(userRole) : true;
+        const ssoPolicyRequired = isSsoPolicyRequiredForRole({ featureFlags: flags, userRole });
+        const ssoOverrideEnabled = isSsoPasswordOverrideEnabled(user);
 
         // Only auto-Google when the typed username matches the user's primary login email/username
         // (prevents redirect loops when they typed a legacy alias that doesn't match Google email).
@@ -767,7 +760,7 @@ export const identifyLogin = async (req, res, next) => {
           return normalizedUsername && (normalizedUsername === uEmail || normalizedUsername === uWork || normalizedUsername === uUser);
         })();
 
-        if (ssoEnabled && roleEligible && !excludedRoles.has(userRole) && normalizedUsername.includes('@') && sameAsPrimary) {
+        if (ssoPolicyRequired && !ssoOverrideEnabled && normalizedUsername.includes('@') && sameAsPrimary) {
           loginMethod = 'google';
           googleStartUrl = `/auth/google/start?orgSlug=${encodeURIComponent(resolvedSlug)}`;
         }
@@ -1782,6 +1775,20 @@ export const requestPasswordReset = async (req, res, next) => {
 
     const user = await User.findByEmail(requestedEmail).catch(() => null);
     if (!user?.id) return safeGenericRecoveryResponse(res);
+
+    // If this user is under Workspace-only policy for the requested org, do not issue reset tokens.
+    // Keep response generic to avoid account/policy enumeration.
+    try {
+      const agency = await resolvePrimaryAgencyForUser(user.id, orgSlug);
+      const featureFlags = parseFeatureFlags(agency?.feature_flags ?? null);
+      const userRole = String(user?.role || '').toLowerCase();
+      const ssoPolicyRequired = isSsoPolicyRequiredForRole({ featureFlags, userRole });
+      if (ssoPolicyRequired && !isSsoPasswordOverrideEnabled(user)) {
+        return safeGenericRecoveryResponse(res);
+      }
+    } catch {
+      // best-effort; continue with normal flow
+    }
 
     // Generate token (single-use) with purpose 'reset'
     const expiresInHours = 48;
