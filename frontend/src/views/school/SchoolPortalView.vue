@@ -132,7 +132,15 @@
             <div class="nav-label">Home</div>
           </button>
 
-          <button data-tour="school-nav-providers" class="nav-item" type="button" @click="openProvidersPanel" :class="{ active: portalMode === 'providers' }">
+          <button
+            data-tour="school-nav-providers"
+            class="nav-item"
+            type="button"
+            :disabled="!canAccessSchedulingPanels"
+            :title="!canAccessSchedulingPanels ? schedulingDisabledReason : ''"
+            @click="openProvidersPanel"
+            :class="{ active: portalMode === 'providers', disabled: !canAccessSchedulingPanels }"
+          >
             <div class="nav-icon">
               <img
                 v-if="brandingStore.getSchoolPortalCardIconUrl('providers', cardIconOrg)"
@@ -145,7 +153,15 @@
             <div class="nav-label">Providers</div>
           </button>
 
-          <button data-tour="school-nav-days" class="nav-item" type="button" @click="openDaysPanel" :class="{ active: portalMode === 'days' }">
+          <button
+            data-tour="school-nav-days"
+            class="nav-item"
+            type="button"
+            :disabled="!canAccessSchedulingPanels"
+            :title="!canAccessSchedulingPanels ? schedulingDisabledReason : ''"
+            @click="openDaysPanel"
+            :class="{ active: portalMode === 'days', disabled: !canAccessSchedulingPanels }"
+          >
             <div class="nav-icon">
               <img
                 v-if="brandingStore.getSchoolPortalCardIconUrl('days', cardIconOrg)"
@@ -280,7 +296,13 @@
                 <span v-else>School-wide announcements + client updates</span>
               </div>
             </button>
-            <button class="home-pill home-pill-clickable" type="button" @click="openDaysPanel">
+            <button
+              class="home-pill home-pill-clickable"
+              type="button"
+              :disabled="!canAccessSchedulingPanels"
+              :title="!canAccessSchedulingPanels ? schedulingDisabledReason : ''"
+              @click="openDaysPanel"
+            >
               <div class="home-pill-k">{{ atGlance.days }}</div>
               <div class="home-pill-v">Days supported</div>
             </button>
@@ -288,7 +310,13 @@
               <div class="home-pill-k">{{ atGlance.clients }}</div>
               <div class="home-pill-v">Clients being seen</div>
             </button>
-            <button class="home-pill home-pill-clickable" type="button" @click="openProvidersPanel">
+            <button
+              class="home-pill home-pill-clickable"
+              type="button"
+              :disabled="!canAccessSchedulingPanels"
+              :title="!canAccessSchedulingPanels ? schedulingDisabledReason : ''"
+              @click="openProvidersPanel"
+            >
               <div class="home-pill-k">{{ atGlance.slots }}</div>
               <div class="home-pill-v">Slots available</div>
             </button>
@@ -308,7 +336,15 @@
         </div>
 
         <div class="dashboard-card-grid" data-tour="school-home-cards">
-          <button data-tour="school-home-card-providers" class="dash-card" type="button" @click="openProvidersPanel">
+          <button
+            data-tour="school-home-card-providers"
+            class="dash-card"
+            type="button"
+            :disabled="!canAccessSchedulingPanels"
+            :title="!canAccessSchedulingPanels ? schedulingDisabledReason : ''"
+            :class="{ disabled: !canAccessSchedulingPanels }"
+            @click="openProvidersPanel"
+          >
             <div class="dash-card-icon">
               <img
                 v-if="brandingStore.getSchoolPortalCardIconUrl('providers', cardIconOrg)"
@@ -325,7 +361,15 @@
             </div>
           </button>
 
-          <button data-tour="school-home-card-days" class="dash-card" type="button" @click="openDaysPanel">
+          <button
+            data-tour="school-home-card-days"
+            class="dash-card"
+            type="button"
+            :disabled="!canAccessSchedulingPanels"
+            :title="!canAccessSchedulingPanels ? schedulingDisabledReason : ''"
+            :class="{ disabled: !canAccessSchedulingPanels }"
+            @click="openDaysPanel"
+          >
             <div class="dash-card-icon">
               <img
                 v-if="brandingStore.getSchoolPortalCardIconUrl('days', cardIconOrg)"
@@ -944,6 +988,8 @@ const intakeApprovalSubmitting = ref(false);
 const intakeApprovalError = ref('');
 const intakeApprovalStaffLastName = ref('');
 const intakeApprovalClientFirstName = ref('');
+const supervisorSuperviseeIds = ref([]);
+const schedulingEligibilityResolved = ref(false);
 
 // Provider availability request modal (creates a support ticket)
 const showAvailabilityRequest = ref(false);
@@ -1161,9 +1207,25 @@ const atGlance = computed(() => {
 const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
 const hasSupervisorCapability = computed(() => isSupervisor(authStore.user));
 const isProvider = computed(() => roleNorm.value === 'provider' && !hasSupervisorCapability.value);
+const isSupervisorProviderContext = computed(() => hasSupervisorCapability.value && roleNorm.value === 'provider');
 const isSchoolStaff = computed(() => roleNorm.value === 'school_staff');
 const canBackToSchools = computed(() => ['super_admin', 'admin', 'staff'].includes(roleNorm.value));
 const canUseComplianceCorner = computed(() => ['super_admin', 'admin'].includes(roleNorm.value));
+const canAccessSchedulingPanels = computed(() => {
+  if (!isSupervisorProviderContext.value) return true;
+  if (!schedulingEligibilityResolved.value) return true;
+  const superviseeIds = (supervisorSuperviseeIds.value || []).map((v) => Number(v)).filter(Boolean);
+  if (superviseeIds.length === 0) return false;
+  const eligibleProviderIds = new Set(
+    (Array.isArray(store.eligibleProviders) ? store.eligibleProviders : [])
+      .map((p) => Number(p?.provider_user_id || 0))
+      .filter(Boolean)
+  );
+  return superviseeIds.some((id) => eligibleProviderIds.has(id));
+});
+const schedulingDisabledReason = computed(() => (
+  'No assigned supervisee providers for this school yet.'
+));
 
 const settingsIconUrl = computed(() => {
   return brandingStore.getAdminQuickActionIconUrl('settings', cardIconOrg.value || null);
@@ -1311,6 +1373,32 @@ const canShowSchoolSettingsButton = computed(() => {
   return list.some((a) => Number(a?.id) === Number(affId));
 });
 
+const loadSupervisorScheduleEligibility = async () => {
+  if (!isSupervisorProviderContext.value) {
+    schedulingEligibilityResolved.value = true;
+    supervisorSuperviseeIds.value = [];
+    return;
+  }
+  const userId = Number(authStore.user?.id || 0);
+  if (!userId) {
+    schedulingEligibilityResolved.value = true;
+    supervisorSuperviseeIds.value = [];
+    return;
+  }
+  schedulingEligibilityResolved.value = false;
+  try {
+    const response = await api.get(`/supervisor-assignments/supervisor/${userId}`);
+    const rows = Array.isArray(response.data) ? response.data : [];
+    supervisorSuperviseeIds.value = rows
+      .map((r) => Number(r?.supervisee_id || 0))
+      .filter(Boolean);
+  } catch {
+    supervisorSuperviseeIds.value = [];
+  } finally {
+    schedulingEligibilityResolved.value = true;
+  }
+};
+
 const openAvailabilityRequest = (payload) => {
   availabilityRequest.value = payload || null;
   availabilityDeltaSlots.value = 0;
@@ -1450,6 +1538,10 @@ const openSchoolSettings = async () => {
 };
 
 const openProvidersPanel = async () => {
+  if (!canAccessSchedulingPanels.value) {
+    portalMode.value = 'home';
+    return;
+  }
   portalMode.value = 'providers';
   if (!Array.isArray(store.eligibleProviders) || store.eligibleProviders.length === 0) {
     await store.fetchEligibleProviders();
@@ -1457,6 +1549,10 @@ const openProvidersPanel = async () => {
 };
 
 const openDaysPanel = async () => {
+  if (!canAccessSchedulingPanels.value) {
+    portalMode.value = 'home';
+    return;
+  }
   portalMode.value = 'days';
   if (!organizationId.value) return;
   try {
@@ -1660,6 +1756,7 @@ onMounted(async () => {
     await store.fetchPortalStats();
     // Preload provider list so home has useful info immediately.
     await store.fetchEligibleProviders();
+    await loadSupervisorScheduleEligibility();
     // Preload announcements preview so the card badge/snippet is populated.
     await loadNotificationsPreview();
     await loadBannerAnnouncements();
@@ -1683,6 +1780,7 @@ watch(organizationId, async (id) => {
   await store.fetchDays();
   await store.fetchPortalStats();
   await store.fetchEligibleProviders();
+  await loadSupervisorScheduleEligibility();
   await loadNotificationsPreview();
   await loadBannerAnnouncements();
   if (portalMode.value === 'days' && store.selectedWeekday) await loadForDay(store.selectedWeekday);
@@ -1699,6 +1797,13 @@ watch(
     await applyRequestedPortalMode(mode);
   }
 );
+
+watch(canAccessSchedulingPanels, (allowed) => {
+  if (allowed) return;
+  if (portalMode.value === 'days' || portalMode.value === 'providers') {
+    portalMode.value = 'home';
+  }
+});
 
 watch(() => store.selectedWeekday, async (weekday) => {
   if (!organizationId.value) return;
@@ -1961,6 +2066,16 @@ watch(() => store.selectedWeekday, async (weekday) => {
 .nav-item:hover {
   transform: translateY(-1px);
 }
+.nav-item.disabled,
+.nav-item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+}
+.nav-item.disabled .nav-icon,
+.nav-item:disabled .nav-icon {
+  filter: grayscale(0.95);
+}
 .nav-item.active {
   transform: none;
 }
@@ -2060,6 +2175,10 @@ watch(() => store.selectedWeekday, async (weekday) => {
 .home-pill-clickable:hover {
   border-color: var(--primary);
 }
+.home-pill-clickable:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
 .home-pill-k {
   font-weight: 900;
   color: var(--text-primary);
@@ -2132,6 +2251,13 @@ watch(() => store.selectedWeekday, async (weekday) => {
 .dash-card:hover {
   border-color: var(--primary);
   box-shadow: var(--shadow);
+}
+.dash-card.disabled,
+.dash-card:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  border-color: var(--border);
+  box-shadow: none;
 }
 .dash-card-icon {
   width: 92px;

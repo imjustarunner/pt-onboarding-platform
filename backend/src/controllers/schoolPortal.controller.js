@@ -420,8 +420,8 @@ export const getSchoolClients = async (req, res, next) => {
 
     // Providers ARE allowed to view the roster, but only for clients assigned to them
     // (restricted fields, no sensitive data).
-    const isProvider = String(userRole || '').toLowerCase() === 'provider';
     const isSupervisor = await isSupervisorActor({ userId, role: userRole });
+    const isProvider = String(userRole || '').toLowerCase() === 'provider' && !isSupervisor;
     const supervisorProviderIds = isSupervisor ? await getSupervisorSuperviseeIds(userId, null) : [];
 
     // Verify organization exists (school/program/learning)

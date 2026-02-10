@@ -770,12 +770,9 @@ const fetchSuperviseesForSchedule = async () => {
     const myId = Number(authStore.user?.id || 0);
     if (!myId) return;
     if (!isSupervisor(authStore.user)) return;
-    if (!currentAgencyId.value) return;
 
     superviseesLoading.value = true;
-    const resp = await api.get(`/supervisor-assignments/supervisor/${myId}`, {
-      params: { agencyId: Number(currentAgencyId.value) }
-    });
+    const resp = await api.get(`/supervisor-assignments/supervisor/${myId}`);
 
     const rows = Array.isArray(resp.data) ? resp.data : [];
     supervisees.value = rows

@@ -22,23 +22,37 @@
           <div v-else-if="supervisees.length === 0" class="supervision-empty">
             <p>No supervisees assigned. Contact an administrator to assign supervisees.</p>
           </div>
-          <div v-else class="supervision-grid">
-            <button
-              v-for="s in supervisees"
-              :key="superviseeKey(s)"
-              type="button"
-              class="supervision-card"
-              @click="selectedSupervisee = s"
+          <div v-else class="supervision-groups">
+            <section
+              v-for="group in groupedSupervisees"
+              :key="group.key"
+              class="supervision-group"
             >
-              <div class="supervision-card-avatar" :class="{ 'has-photo': s.supervisee_profile_photo_url }">
-                <img v-if="s.supervisee_profile_photo_url" :src="toUploadsUrl(s.supervisee_profile_photo_url)" :alt="superviseeDisplayName(s)" class="supervision-card-avatar-img" />
-                <span v-else class="supervision-card-avatar-initial">{{ avatarInitial(s) }}</span>
+              <header class="supervision-group-header">
+                <span class="supervision-group-swatch" :style="group.headerStyle" />
+                <h3 class="supervision-group-name">{{ group.name }}</h3>
+                <span class="supervision-group-count">{{ group.items.length }}</span>
+              </header>
+              <div class="supervision-grid">
+                <button
+                  v-for="s in group.items"
+                  :key="superviseeKey(s)"
+                  type="button"
+                  class="supervision-card"
+                  :style="superviseeCardStyle(s)"
+                  @click="selectedSupervisee = s"
+                >
+                  <div class="supervision-card-avatar" :class="{ 'has-photo': s.supervisee_profile_photo_url }">
+                    <img v-if="s.supervisee_profile_photo_url" :src="toUploadsUrl(s.supervisee_profile_photo_url)" :alt="superviseeDisplayName(s)" class="supervision-card-avatar-img" />
+                    <span v-else class="supervision-card-avatar-initial">{{ avatarInitial(s) }}</span>
+                  </div>
+                  <div class="supervision-card-info">
+                    <span class="supervision-card-name">{{ superviseeDisplayName(s) }}</span>
+                    <span class="supervision-card-meta">{{ s.supervisee_email || s.agency_name || '' }}</span>
+                  </div>
+                </button>
               </div>
-              <div class="supervision-card-info">
-                <span class="supervision-card-name">{{ superviseeDisplayName(s) }}</span>
-                <span class="supervision-card-meta">{{ s.supervisee_email || s.agency_name || '' }}</span>
-              </div>
-            </button>
+            </section>
           </div>
         </template>
 
@@ -124,58 +138,51 @@
               <div v-else-if="clientsError" class="supervision-error-inline">{{ clientsError }}</div>
               <div v-else-if="clientsList?.length" class="supervision-readonly-summary">
                 <p><strong>{{ clientsList.length }}</strong> client(s) assigned. Read-only.</p>
-                <ul class="supervision-client-links">
-                  <li v-for="client in clientsList" :key="client.id || `${client.initials || ''}-${client.identifier_code || ''}`">
-                    <div class="client-item-main">
-                      <button
-                        type="button"
-                        class="summary-meta summary-link-button"
-                        :disabled="schoolClientModalLoading"
-                        @click="openCaseloadClientModal(client)"
-                      >
-                        {{ clientDisplayLabel(client) }}
-                      </button>
-                      <span v-if="clientSchoolName(client)" class="summary-meta"> — {{ clientSchoolName(client) }}</span>
-                    </div>
-                    <div class="summary-meta client-item-meta">
-                      Assigned: {{ caseloadAssignedDate(client) }} · Status: {{ caseloadStatus(client) }}
-                    </div>
-                    <div v-if="caseloadMissingChecklist(client).length" class="client-item-missing">
-                      Missing: {{ caseloadMissingChecklist(client).join(', ') }}
-                    </div>
-                  </li>
-                </ul>
+                <div class="caseload-table-wrap">
+                  <table class="caseload-table">
+                    <thead>
+                      <tr>
+                        <th><button type="button" class="caseload-sort-btn" @click="setCaseloadSort('client')">Client {{ caseloadSortIndicator('client') }}</button></th>
+                        <th><button type="button" class="caseload-sort-btn" @click="setCaseloadSort('school')">School {{ caseloadSortIndicator('school') }}</button></th>
+                        <th><button type="button" class="caseload-sort-btn" @click="setCaseloadSort('assigned')">Assigned {{ caseloadSortIndicator('assigned') }}</button></th>
+                        <th><button type="button" class="caseload-sort-btn" @click="setCaseloadSort('status')">Status {{ caseloadSortIndicator('status') }}</button></th>
+                        <th><button type="button" class="caseload-sort-btn" @click="setCaseloadSort('missing')">Missing checklist {{ caseloadSortIndicator('missing') }}</button></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="client in sortedClientsList" :key="client.id || `${client.initials || ''}-${client.identifier_code || ''}`">
+                        <td class="caseload-cell-client">
+                          <button
+                            type="button"
+                            class="summary-meta summary-link-button"
+                            :disabled="schoolClientModalLoading"
+                            @click="openCaseloadClientModal(client)"
+                          >
+                            {{ clientDisplayLabel(client) }}
+                          </button>
+                        </td>
+                        <td>{{ clientSchoolName(client) || '—' }}</td>
+                        <td>{{ caseloadAssignedDate(client) }}</td>
+                        <td>{{ caseloadStatus(client) }}</td>
+                        <td>
+                          <span v-if="caseloadMissingChecklist(client).length" class="client-item-missing">
+                            {{ caseloadMissingChecklist(client).join(', ') }}
+                          </span>
+                          <span v-else class="summary-meta">—</span>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <div v-if="schoolClientModalError" class="supervision-error-inline" style="margin-top: 8px;">
+                  {{ schoolClientModalError }}
+                </div>
               </div>
               <p v-else class="supervision-placeholder">No clients assigned for this agency.</p>
             </section>
             <section class="supervision-detail-section">
               <h3>Compliance list (not current)</h3>
-              <div v-if="compliancePendingLoading" class="supervision-placeholder">Loading compliance list…</div>
-              <div v-else-if="compliancePendingError" class="supervision-error-inline">{{ compliancePendingError }}</div>
-              <div v-else-if="complianceRowsToShow.length === 0" class="supervision-placeholder">
-                No pending compliance clients.
-              </div>
-              <div v-if="schoolClientModalError" class="supervision-error-inline" style="margin-bottom: 8px;">
-                {{ schoolClientModalError }}
-              </div>
-              <div v-else class="compliance-grid">
-                <button
-                  v-for="row in complianceRowsToShow"
-                  :key="`${row.client_id}-${row.organization_id}`"
-                  type="button"
-                  class="compliance-card"
-                  @click="openComplianceClient(row)"
-                >
-                  <div class="compliance-card-title">
-                    {{ complianceClientDisplayLabel(row) }}
-                  </div>
-                  <div class="compliance-card-meta">{{ row.organization_name || '—' }}</div>
-                  <div class="compliance-card-meta">Pending {{ Number(row.days_since_assigned || 0) }}d</div>
-                  <div class="compliance-card-missing">
-                    {{ (row.missing_checklist || []).join(', ') || 'Checklist up to date' }}
-                  </div>
-                </button>
-              </div>
+              <p class="supervision-placeholder">Included in the caseload table above. Sort by Status or Missing checklist to prioritize follow-up.</p>
             </section>
             <section class="supervision-detail-section">
               <h3>Schedules</h3>
@@ -397,6 +404,8 @@ const schoolClientModalError = ref('');
 const affiliatedPortals = ref([]);
 const affiliatedPortalsLoading = ref(false);
 const affiliatedPortalsError = ref('');
+const caseloadSortKey = ref('school');
+const caseloadSortDir = ref('asc');
 const showModulePicker = ref(false);
 const showUploadDocumentDialog = ref(false);
 const selectedModuleForAssign = ref('');
@@ -510,30 +519,41 @@ const complianceByClientId = computed(() => {
   return map;
 });
 
-const complianceRowsToShow = computed(() => {
-  if ((compliancePendingList.value || []).length > 0) return compliancePendingList.value;
-  const rows = [];
-  for (const client of clientsList.value || []) {
-    const missing = caseloadMissingChecklist(client);
-    const status = String(client?.status || client?.task_status || '').toLowerCase();
-    const notCurrentByStatus =
-      status.includes('pending') ||
-      status.includes('incomplete') ||
-      status.includes('review') ||
-      status.includes('not_current');
-    if (!missing.length && !notCurrentByStatus) continue;
-    rows.push({
-      client_id: Number(client?.id || 0),
-      organization_id: Number(resolveClientOrgId(client) || 0),
-      client_initials: String(client?.initials || '').trim(),
-      client_full_name: String(client?.full_name || '').trim(),
-      client_identifier_code: String(client?.identifier_code || '').trim(),
-      organization_name: clientSchoolName(client) || '',
-      days_since_assigned: 0,
-      missing_checklist: missing
-    });
-  }
+const sortedClientsList = computed(() => {
+  const rows = [...(clientsList.value || [])];
+  const dir = caseloadSortDir.value === 'desc' ? -1 : 1;
+  const key = caseloadSortKey.value;
+  rows.sort((a, b) => {
+    const av = caseloadSortValue(a, key);
+    const bv = caseloadSortValue(b, key);
+    if (av < bv) return -1 * dir;
+    if (av > bv) return 1 * dir;
+    return String(clientDisplayLabel(a)).localeCompare(String(clientDisplayLabel(b)));
+  });
   return rows;
+});
+
+const groupedSupervisees = computed(() => {
+  const groups = new Map();
+  const rows = Array.isArray(supervisees.value) ? supervisees.value : [];
+  for (const item of rows) {
+    const key = `${Number(item?.agency_id || 0)}:${String(item?.agency_name || '').trim().toLowerCase()}`;
+    if (!groups.has(key)) {
+      groups.set(key, {
+        key,
+        name: String(item?.agency_name || '').trim() || 'Unassigned agency',
+        color: parseAgencyPrimaryColor(item?.agency_color_palette),
+        items: []
+      });
+    }
+    groups.get(key).items.push(item);
+  }
+  return Array.from(groups.values())
+    .map((group) => ({
+      ...group,
+      headerStyle: group.color ? { backgroundColor: group.color } : {}
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 });
 
 function portalSlugForOrgId(orgId) {
@@ -566,16 +586,6 @@ function clientSchoolName(client) {
   const direct = String(client?.organization_name || '').trim();
   if (direct) return direct;
   return portalNameForOrgId(client?.organization_id);
-}
-
-function complianceClientDisplayLabel(row) {
-  const initials = String(row?.client_initials || '').trim();
-  const fullName = String(row?.client_full_name || '').trim();
-  const code = String(row?.client_identifier_code || '').trim();
-  if (initials) return initials;
-  if (fullName) return fullName;
-  if (code) return code;
-  return 'Client';
 }
 
 function formatTaskStatusLabel(status) {
@@ -634,6 +644,40 @@ function caseloadMissingChecklist(client) {
   const row = complianceByClientId.value.get(Number(client?.id || 0));
   const fromCompliance = Array.isArray(row?.missing_checklist) ? row.missing_checklist : [];
   return fromCompliance;
+}
+
+function caseloadSortValue(client, key) {
+  if (key === 'school') return String(clientSchoolName(client) || '').toLowerCase();
+  if (key === 'status') return String(caseloadStatus(client) || '').toLowerCase();
+  if (key === 'missing') return caseloadMissingChecklist(client).length;
+  if (key === 'assigned') return caseloadAssignedDateSortValue(client);
+  return String(clientDisplayLabel(client) || '').toLowerCase();
+}
+
+function caseloadAssignedDateSortValue(client) {
+  const fromClient = client?.assigned_at || client?.date_assigned || client?.created_at || null;
+  if (fromClient) {
+    const ts = new Date(fromClient).getTime();
+    return Number.isNaN(ts) ? 0 : ts;
+  }
+  const row = complianceByClientId.value.get(Number(client?.id || 0));
+  const days = Number(row?.days_since_assigned || 0);
+  if (!Number.isFinite(days)) return 0;
+  return Date.now() - (days * 24 * 60 * 60 * 1000);
+}
+
+function setCaseloadSort(key) {
+  if (caseloadSortKey.value === key) {
+    caseloadSortDir.value = caseloadSortDir.value === 'asc' ? 'desc' : 'asc';
+    return;
+  }
+  caseloadSortKey.value = key;
+  caseloadSortDir.value = key === 'missing' ? 'desc' : 'asc';
+}
+
+function caseloadSortIndicator(key) {
+  if (caseloadSortKey.value !== key) return '';
+  return caseloadSortDir.value === 'asc' ? '▲' : '▼';
 }
 
 function resolveClientOrgId(client) {
@@ -700,19 +744,6 @@ async function openSchoolClientModal({ orgId, clientId, seedClient = null }) {
   }
 }
 
-function clientSeedFromComplianceRow(row) {
-  return {
-    id: Number(row?.client_id || 0),
-    initials: row?.client_initials || '',
-    full_name: row?.client_full_name || '',
-    identifier_code: row?.client_identifier_code || '',
-    organization_id: Number(row?.organization_id || 0) || null,
-    organization_name: row?.organization_name || '',
-    status: 'pending_review',
-    missing_checklist: Array.isArray(row?.missing_checklist) ? row.missing_checklist : []
-  };
-}
-
 function closeSchoolClientModal() {
   selectedSchoolClient.value = null;
   selectedSchoolClientOrgId.value = null;
@@ -723,16 +754,6 @@ function openCaseloadClientModal(client) {
   const clientId = Number(client?.id || 0);
   const orgId = resolveClientOrgId(client);
   openSchoolClientModal({ orgId, clientId, seedClient: client });
-}
-
-function openComplianceClient(row) {
-  const orgId = Number(row?.organization_id || 0);
-  const clientId = Number(row?.client_id || 0);
-  openSchoolClientModal({
-    orgId,
-    clientId,
-    seedClient: clientSeedFromComplianceRow(row)
-  });
 }
 
 function superviseeDisplayName(s) {
@@ -760,6 +781,39 @@ function superviseeKey(s) {
   return `${s.supervisee_id}-${s.agency_id || ''}-${s.id || ''}`;
 }
 
+function parseAgencyPrimaryColor(raw) {
+  if (!raw) return '';
+  let parsed = raw;
+  if (typeof raw === 'string') {
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      parsed = null;
+    }
+  }
+  if (!parsed || typeof parsed !== 'object') return '';
+  const candidates = [
+    parsed.primary,
+    parsed.primaryColor,
+    parsed.primary_color,
+    parsed.brandPrimary,
+    parsed.brand_primary
+  ];
+  for (const value of candidates) {
+    const color = String(value || '').trim();
+    if (/^#[0-9A-Fa-f]{6}$/.test(color)) return color;
+  }
+  return '';
+}
+
+function superviseeCardStyle(s) {
+  const color = parseAgencyPrimaryColor(s?.agency_color_palette);
+  if (!color) return {};
+  return {
+    borderLeft: `4px solid ${color}`
+  };
+}
+
 async function fetchSupervisees() {
   const userId = authStore.user?.id;
   if (!userId) {
@@ -770,14 +824,8 @@ async function fetchSupervisees() {
   loading.value = true;
   error.value = '';
   try {
-    const params = currentAgencyId.value ? { agencyId: currentAgencyId.value } : {};
-    let response = await api.get(`/supervisor-assignments/supervisor/${userId}`, { params });
-    let rows = Array.isArray(response.data) ? response.data : [];
-    // When opened from a school portal, currentAgency can be a school org; retry unscoped if nothing is returned.
-    if (rows.length === 0 && currentAgencyId.value) {
-      response = await api.get(`/supervisor-assignments/supervisor/${userId}`);
-      rows = Array.isArray(response.data) ? response.data : [];
-    }
+    const response = await api.get(`/supervisor-assignments/supervisor/${userId}`);
+    const rows = Array.isArray(response.data) ? response.data : [];
     supervisees.value = rows;
   } catch (err) {
     console.error('Failed to fetch supervisees:', err);
@@ -1059,32 +1107,6 @@ onMounted(() => {
   box-shadow: none;
   border: 1px solid var(--border, #e5e7eb);
 }
-.compliance-grid {
-  display: grid;
-  gap: 10px;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-}
-.compliance-card {
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: #fff;
-  padding: 10px 12px;
-  text-align: left;
-  cursor: pointer;
-}
-.compliance-card-title {
-  font-weight: 900;
-}
-.compliance-card-meta {
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-.compliance-card-missing {
-  margin-top: 6px;
-  font-size: 12px;
-  color: #b91c1c;
-  font-weight: 700;
-}
 .supervision-modal-header {
   display: flex;
   align-items: center;
@@ -1141,6 +1163,42 @@ onMounted(() => {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 1rem;
+}
+.supervision-groups {
+  display: grid;
+  gap: 1rem;
+}
+.supervision-group {
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 12px;
+  padding: 0.75rem;
+  background: #fff;
+}
+.supervision-group-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+.supervision-group-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--primary, #2563eb);
+}
+.supervision-group-name {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text, #111);
+}
+.supervision-group-count {
+  margin-left: auto;
+  font-size: 0.75rem;
+  color: var(--text-secondary, #6b7280);
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 999px;
+  padding: 2px 7px;
 }
 .supervision-card {
   display: flex;
@@ -1203,18 +1261,38 @@ onMounted(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.supervision-client-links {
-  margin: 0.35rem 0 0;
-  padding-left: 1.15rem;
+.caseload-table-wrap {
+  width: 100%;
+  overflow-x: auto;
 }
-.supervision-client-links li {
-  margin: 0.2rem 0;
+.caseload-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
 }
-.client-item-main {
-  display: inline;
+.caseload-table thead th {
+  text-align: left;
+  border-bottom: 1px solid var(--border, #e5e7eb);
+  padding: 6px 8px;
+  white-space: nowrap;
 }
-.client-item-meta {
-  margin-top: 2px;
+.caseload-table tbody td {
+  border-bottom: 1px solid var(--border, #f1f5f9);
+  padding: 7px 8px;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.caseload-cell-client {
+  min-width: 120px;
+}
+.caseload-sort-btn {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  color: inherit;
 }
 .client-item-missing {
   font-size: 12px;

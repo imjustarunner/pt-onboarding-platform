@@ -77,7 +77,8 @@ class SupervisorAssignment {
              u.role as supervisee_role,
              u.profile_photo_path as supervisee_profile_photo_path,
              a.name as agency_name,
-             TRIM(COALESCE(a.slug, a.portal_url, '')) as agency_slug
+             TRIM(COALESCE(a.slug, a.portal_url, '')) as agency_slug,
+             a.color_palette as agency_color_palette
       FROM supervisor_assignments sa
       INNER JOIN users u ON sa.supervisee_id = u.id
       INNER JOIN agencies a ON sa.agency_id = a.id
