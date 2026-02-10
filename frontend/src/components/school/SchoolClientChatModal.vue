@@ -450,7 +450,8 @@ watch(
   background: white;
   border-radius: 12px;
   border: 1px solid var(--border);
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
 }
@@ -624,9 +625,7 @@ watch(
   display: grid;
   grid-template-columns: 1fr;
   gap: 12px;
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
+  overflow: visible;
 }
 
 .dual {
@@ -699,9 +698,7 @@ watch(
 }
 
 .pane-scroll {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
+  overflow: visible;
 }
 .comments-table {
   width: 100%;

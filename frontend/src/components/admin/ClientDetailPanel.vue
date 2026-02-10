@@ -3005,28 +3005,16 @@ watch(
 .modal-tabs {
   display: flex;
   align-items: flex-end;
+  flex-wrap: wrap;
   gap: 8px;
-  padding: 0 24px 10px;
+  padding: 0 24px;
   border-bottom: 2px solid var(--border);
-  overflow-x: auto;
-  overflow-y: hidden;
-  white-space: nowrap;
-  scrollbar-width: thin;
-  scrollbar-gutter: stable;
-  -webkit-overflow-scrolling: touch;
-}
-
-.modal-tabs::-webkit-scrollbar {
-  height: 8px;
-}
-
-.modal-tabs::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.18);
-  border-radius: 999px;
+  overflow: visible;
+  white-space: normal;
 }
 
 .tab-button {
-  padding: 12px 24px;
+  padding: 11px 16px;
   background: none;
   border: none;
   border-bottom: 3px solid transparent;
@@ -3036,7 +3024,7 @@ watch(
   color: var(--text-secondary);
   transition: all 0.2s;
   margin-bottom: -2px;
-  flex: 0 0 auto;
+  flex: 0 1 auto;
 }
 
 .tab-button:hover {
@@ -3061,9 +3049,6 @@ watch(
     padding: 16px;
   }
   .modal-tabs {
-    flex-wrap: wrap;
-    overflow-x: visible;
-    white-space: normal;
     gap: 6px;
     padding: 0 16px;
   }

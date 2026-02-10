@@ -1645,6 +1645,11 @@ onUnmounted(() => {
     overflow-x: auto;
     overflow-y: visible;
     -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .nav-links-wrapper::-webkit-scrollbar {
+    display: none;
   }
 
   .nav-links {
