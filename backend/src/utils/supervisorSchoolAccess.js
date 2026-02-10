@@ -27,7 +27,11 @@ export async function isSupervisorActor({ userId, role, user = null }) {
   if (roleNorm === 'supervisor') return true;
   const uid = parsePositiveInt(userId);
   if (!uid) return false;
-  if (user) return User.isSupervisor(user);
+  // JWT-backed req.user often omits has_supervisor_privileges; only trust
+  // in-memory user objects when the capability field is present.
+  if (user && user.has_supervisor_privileges !== undefined) {
+    return User.isSupervisor(user);
+  }
   const loaded = await User.findById(uid);
   return User.isSupervisor(loaded);
 }
