@@ -111,9 +111,43 @@ export const useAgencyStore = defineStore('agency', () => {
       const authStore = useAuthStore();
       const roleNorm = String(authStore.user?.role || '').toLowerCase();
 
+      const pickPortalKey = (org) => String(org?.portal_url || org?.portalUrl || org?.slug || '').trim().toLowerCase();
+      const inferPreferredPortalFromRuntime = () => {
+        try {
+          // Preferred source: explicit slug in path (e.g. /itsco/login or /nlu/dashboard).
+          const pathname = String(window.location?.pathname || '/');
+          const first = pathname.split('/').filter(Boolean)[0] || '';
+          const reserved = new Set([
+            'login', 'admin', 'dashboard', 'logout', 'schools', 'kiosk',
+            'passwordless-login', 'reset-password', 'change-password', 'intake'
+          ]);
+          const slugCandidate = String(first).trim().toLowerCase();
+          if (slugCandidate && !reserved.has(slugCandidate)) return slugCandidate;
+
+          // Fallback: host-resolved portal cache (set by branding initialization).
+          const host = String(window.location?.hostname || '').trim().toLowerCase();
+          if (host) {
+            const raw = sessionStorage.getItem(`__pt_portal_host__:${host}`);
+            if (raw) {
+              const parsed = JSON.parse(raw);
+              const p = String(parsed?.portalUrl || '').trim().toLowerCase();
+              if (p) return p;
+            }
+          }
+        } catch {
+          // ignore
+        }
+        return null;
+      };
+
       const pickDefaultAgencyForUser = (list) => {
         const arr = Array.isArray(list) ? list : [];
         if (!arr.length) return null;
+        const preferredPortal = inferPreferredPortalFromRuntime();
+        if (preferredPortal) {
+          const preferred = arr.find((a) => pickPortalKey(a) === preferredPortal);
+          if (preferred) return preferred;
+        }
         if (roleNorm === 'school_staff') {
           // School staff should land in portal orgs (school/program/learning), not the parent agency.
           const portal = arr.find((a) => {
@@ -151,7 +185,10 @@ export const useAgencyStore = defineStore('agency', () => {
         if (userAgencies.value.length > 0) {
           const currentType = String(currentAgency.value?.organization_type || currentAgency.value?.organizationType || '').toLowerCase();
           const isPortal = currentType === 'school' || currentType === 'program' || currentType === 'learning';
-          const shouldOverride = !currentAgency.value || (roleNorm === 'school_staff' && !isPortal);
+          const preferredPortal = inferPreferredPortalFromRuntime();
+          const currentPortal = pickPortalKey(currentAgency.value);
+          const hasPreferredMismatch = !!(preferredPortal && preferredPortal !== currentPortal);
+          const shouldOverride = !currentAgency.value || hasPreferredMismatch || (roleNorm === 'school_staff' && !isPortal);
           if (shouldOverride) {
             const def = pickDefaultAgencyForUser(userAgencies.value);
             if (def) setCurrentAgency(def);
@@ -174,7 +211,10 @@ export const useAgencyStore = defineStore('agency', () => {
         if (userAgencies.value.length > 0) {
           const currentType = String(currentAgency.value?.organization_type || currentAgency.value?.organizationType || '').toLowerCase();
           const isPortal = currentType === 'school' || currentType === 'program' || currentType === 'learning';
-          const shouldOverride = !currentAgency.value || (roleNorm === 'school_staff' && !isPortal);
+          const preferredPortal = inferPreferredPortalFromRuntime();
+          const currentPortal = pickPortalKey(currentAgency.value);
+          const hasPreferredMismatch = !!(preferredPortal && preferredPortal !== currentPortal);
+          const shouldOverride = !currentAgency.value || hasPreferredMismatch || (roleNorm === 'school_staff' && !isPortal);
           if (shouldOverride) {
             const def = pickDefaultAgencyForUser(userAgencies.value);
             if (def) setCurrentAgency(def);
