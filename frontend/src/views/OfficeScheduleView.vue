@@ -189,7 +189,7 @@
         </div>
 
         <template v-else>
-          <div class="section">
+          <div class="section" v-if="canSelfManageModalSlot">
             <div class="section-title">Provider actions</div>
 
             <div class="row">
@@ -222,24 +222,14 @@
             </div>
 
             <div class="row" style="margin-top: 10px;">
-              <label class="check">
-                <input type="checkbox" v-model="ackForfeit" />
-                <span>I understand this slot's day/time/frequency is forfeit at this time and available to others.</span>
-              </label>
-              <button class="btn btn-danger" @click="forfeit" :disabled="saving || !ackForfeit || !modalSlot?.standingAssignmentId">
-                Forfeit
+              <button class="btn btn-secondary" @click="staffBook(true)" :disabled="saving || !modalSlot?.eventId">
+                Mark booked (this occurrence)
+              </button>
+              <button class="btn btn-secondary" @click="staffBook(false)" :disabled="saving || !modalSlot?.eventId">
+                Mark available (this occurrence)
               </button>
             </div>
-          </div>
 
-          <div class="section">
-            <div class="section-title">Staff/admin action</div>
-            <div class="muted" style="margin-bottom: 8px;">
-              Booking converts this occurrence to assigned_booked immediately (no approval gate).
-            </div>
-            <button class="btn btn-primary" @click="staffBook" :disabled="saving || !modalSlot?.eventId">
-              Mark booked for this occurrence
-            </button>
             <div class="muted" style="margin: 10px 0 6px;">
               Virtual intake toggle (this hour only).
             </div>
@@ -249,6 +239,58 @@
               </button>
               <button class="btn btn-secondary" @click="disableVirtualIntake" :disabled="saving || !modalSlot?.eventId">
                 Disable virtual intake
+              </button>
+            </div>
+
+            <div class="row" style="margin-top: 10px;">
+              <select v-model="forfeitScope" class="select" :disabled="saving || (!modalSlot?.eventId && !modalSlot?.standingAssignmentId)">
+                <option value="occurrence">Forfeit this occurrence only</option>
+                <option value="future" :disabled="!isRecurringSlot">Forfeit this and all future recurring</option>
+              </select>
+              <label class="check">
+                <input type="checkbox" v-model="ackForfeit" />
+                <span>I understand this slot's day/time/frequency is forfeit at this time and available to others.</span>
+              </label>
+              <button class="btn btn-danger" @click="forfeit" :disabled="saving || !ackForfeit || (!modalSlot?.eventId && !modalSlot?.standingAssignmentId)">
+                Forfeit
+              </button>
+            </div>
+          </div>
+          <div class="section" v-else>
+            <div class="muted">This slot can only be edited by the assigned provider or schedule managers.</div>
+          </div>
+
+          <div class="section" v-if="canManageSchedule">
+            <div class="section-title">Staff/admin action</div>
+            <div class="muted" style="margin-bottom: 8px;">
+              Booking converts this occurrence to assigned_booked immediately (no approval gate).
+            </div>
+            <div class="row">
+              <button class="btn btn-primary" @click="staffBook(true)" :disabled="saving || !modalSlot?.eventId">
+                Mark booked (this occurrence)
+              </button>
+            </div>
+            <div class="muted" style="margin: 10px 0 6px;">
+              Virtual intake toggle (this hour only).
+            </div>
+            <div class="row">
+              <button class="btn btn-secondary" @click="enableVirtualIntake" :disabled="saving || !modalSlot?.eventId">
+                Enable virtual intake
+              </button>
+              <button class="btn btn-secondary" @click="disableVirtualIntake" :disabled="saving || !modalSlot?.eventId">
+                Disable virtual intake
+              </button>
+            </div>
+            <div class="muted" style="margin: 14px 0 6px;">
+              Remove from schedule.
+            </div>
+            <div class="row">
+              <select v-model="cancelScope" class="select" :disabled="saving || !modalSlot?.eventId">
+                <option value="occurrence">This occurrence only</option>
+                <option value="future" :disabled="!isRecurringSlot">This and all future recurring</option>
+              </select>
+              <button class="btn btn-danger" @click="cancelEventAction" :disabled="saving || !modalSlot?.eventId">
+                Delete event
               </button>
             </div>
           </div>
@@ -491,6 +533,7 @@ const canManageSchedule = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
   return ['clinical_practice_assistant', 'admin', 'super_admin', 'support', 'staff'].includes(role);
 });
+const currentUserId = computed(() => Number(authStore.user?.id || 0));
 
 const sortedRooms = computed(() => {
   const rooms = (grid.value?.rooms || []).slice();
@@ -553,6 +596,8 @@ const saving = ref(false);
 const bookFreq = ref('');
 const ackAvailable = ref(false);
 const ackForfeit = ref(false);
+const cancelScope = ref('occurrence');
+const forfeitScope = ref('occurrence');
 
 const providers = ref([]);
 const providerSearch = ref('');
@@ -590,6 +635,8 @@ const closeModal = () => {
   bookFreq.value = '';
   ackAvailable.value = false;
   ackForfeit.value = false;
+  cancelScope.value = 'occurrence';
+  forfeitScope.value = 'occurrence';
   providerSearch.value = '';
   selectedProviderId.value = 0;
   assignEndHour.value = 8;
@@ -600,9 +647,25 @@ const onSlotClick = (roomId, date, hour) => {
   if (!s) return;
   modalSlot.value = s;
   showModal.value = true;
+  cancelScope.value = 'occurrence';
+  forfeitScope.value = 'occurrence';
   assignEndHour.value = Number(hour) + 1;
   void loadProviders();
 };
+
+const canSelfManageModalSlot = computed(() => {
+  const providerId = Number(modalSlot.value?.providerId || 0);
+  if (!providerId) return canManageSchedule.value;
+  return canManageSchedule.value || providerId === currentUserId.value;
+});
+
+const isRecurringSlot = computed(() => {
+  const s = modalSlot.value;
+  if (!s) return false;
+  if (s.standingAssignmentId) return true;
+  const f = String(s.frequency || '').toUpperCase();
+  return f === 'WEEKLY' || f === 'BIWEEKLY' || f === 'MONTHLY';
+});
 
 const assignOpenSlot = async () => {
   if (!officeId.value || !modalSlot.value?.roomId || !selectedProviderId.value) return;
@@ -681,30 +744,46 @@ const setTemporary = async () => {
 };
 
 const forfeit = async () => {
-  if (!officeId.value || !modalSlot.value?.standingAssignmentId) return;
+  if (!officeId.value) return;
+  const scope = forfeitScope.value === 'future' && isRecurringSlot.value ? 'future' : 'occurrence';
   try {
     saving.value = true;
-    await api.post(`/office-slots/${officeId.value}/assignments/${modalSlot.value.standingAssignmentId}/forfeit`, {
-      acknowledged: true
-    });
+    if (modalSlot.value?.eventId) {
+      await api.post(`/office-slots/${officeId.value}/events/${modalSlot.value.eventId}/forfeit`, {
+        acknowledged: true,
+        scope
+      });
+    } else if (modalSlot.value?.standingAssignmentId) {
+      if (scope !== 'future') {
+        throw new Error('This slot only supports future-scope forfeit');
+      }
+      await api.post(`/office-slots/${officeId.value}/assignments/${modalSlot.value.standingAssignmentId}/forfeit`, {
+        acknowledged: true,
+        scope: 'future'
+      });
+    } else {
+      return;
+    }
     await loadGrid();
     closeModal();
   } catch (e) {
-    error.value = e.response?.data?.error?.message || 'Failed to forfeit';
+    error.value = e.response?.data?.error?.message || e.message || 'Failed to forfeit';
   } finally {
     saving.value = false;
   }
 };
 
-const staffBook = async () => {
+const staffBook = async (booked = true) => {
   if (!officeId.value || !modalSlot.value?.eventId) return;
   try {
     saving.value = true;
-    await api.post(`/office-slots/${officeId.value}/events/${modalSlot.value.eventId}/book`, {});
+    await api.post(`/office-slots/${officeId.value}/events/${modalSlot.value.eventId}/book`, {
+      booked
+    });
     await loadGrid();
     closeModal();
   } catch (e) {
-    error.value = e.response?.data?.error?.message || 'Failed to mark booked';
+    error.value = e.response?.data?.error?.message || 'Failed to update booked status';
   } finally {
     saving.value = false;
   }
@@ -738,6 +817,29 @@ const disableVirtualIntake = async () => {
   }
 };
 
+const cancelEventAction = async () => {
+  if (!officeId.value || !modalSlot.value?.eventId) return;
+  const scope = cancelScope.value === 'future' && isRecurringSlot.value ? 'future' : 'occurrence';
+  const prompt =
+    scope === 'future'
+      ? 'Delete this occurrence and all future recurring occurrences for this slot?'
+      : 'Delete this occurrence from schedule?';
+  const ok = window.confirm(prompt);
+  if (!ok) return;
+  try {
+    saving.value = true;
+    await api.post(`/office-slots/${officeId.value}/events/${modalSlot.value.eventId}/cancel`, {
+      scope
+    });
+    await loadGrid();
+    closeModal();
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to delete event';
+  } finally {
+    saving.value = false;
+  }
+};
+
 watch(() => officeId.value, async () => {
   grid.value = null;
   await loadGrid();
@@ -752,7 +854,7 @@ onMounted(loadGrid);
   justify-content: space-between;
   align-items: flex-end;
   gap: 12px;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
 }
 .subtitle { color: var(--text-secondary); margin-top: 4px; font-size: 13px; }
 .controls { display: flex; align-items: end; gap: 10px; flex-wrap: wrap; }
@@ -780,11 +882,12 @@ input[type='date'] {
 .dot.assigned_booked { background: #ef4444; }
 
 .room-card {
-  background: white;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.84));
+  backdrop-filter: blur(8px);
   border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 12px;
-  margin-bottom: 12px;
+  border-radius: 8px;
+  padding: 10px;
+  margin-bottom: 10px;
 }
 .room-nav {
   display: flex;
@@ -860,13 +963,13 @@ input[type='date'] {
 .week-table {
   display: grid;
   grid-template-columns: 90px repeat(7, minmax(0, 1fr));
-  gap: 6px;
+  gap: 4px;
 }
 .cell {
   border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 8px;
-  background: var(--bg-alt);
+  border-radius: 4px;
+  padding: 6px;
+  background: rgba(255, 255, 255, 0.86);
   font-size: 12px;
   color: var(--text-secondary);
 }
@@ -874,11 +977,15 @@ input[type='date'] {
 .day-head { background: white; font-weight: 800; color: var(--text-primary); text-align: center; }
 .hour-head { background: white; font-weight: 700; color: var(--text-primary); }
 .slot {
-  height: 34px;
+  height: 32px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: white;
+  background: rgba(255, 255, 255, 0.95);
+  transition: background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+}
+.slot:hover {
+  box-shadow: inset 0 0 0 1px rgba(30, 64, 175, 0.28);
 }
 .slot.open { background: #f8fafc; }
 .slot.assigned_available { background: rgba(251,191,36,0.22); border-color: rgba(251,191,36,0.45); }
@@ -889,7 +996,8 @@ input[type='date'] {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.45);
+  background: rgba(9, 14, 25, 0.36);
+  backdrop-filter: blur(7px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -897,26 +1005,39 @@ input[type='date'] {
   z-index: 50;
 }
 .modal {
-  width: 760px;
+  width: 680px;
   max-width: 100%;
-  background: white;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 16px;
+  max-height: 88vh;
+  overflow: auto;
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid rgba(148, 163, 184, 0.38);
+  border-radius: 8px;
+  padding: 14px;
+  box-shadow: 0 28px 70px rgba(15, 23, 42, 0.22);
 }
 .section {
-  border-top: 1px solid var(--border);
-  padding-top: 12px;
-  margin-top: 12px;
+  border-top: 1px solid rgba(148, 163, 184, 0.35);
+  padding-top: 10px;
+  margin-top: 10px;
 }
 .section-title { font-weight: 800; margin-bottom: 8px; }
 .actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; }
 select {
   padding: 10px 12px;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 8px;
 }
 .check { display: inline-flex; gap: 10px; align-items: flex-start; }
 .check span { color: var(--text-secondary); font-size: 13px; line-height: 1.35; }
+.modal .row {
+  align-items: center;
+  gap: 8px;
+}
+.modal .btn {
+  width: auto !important;
+  min-width: 180px;
+  border-radius: 8px;
+  padding: 9px 14px;
+}
 </style>
 

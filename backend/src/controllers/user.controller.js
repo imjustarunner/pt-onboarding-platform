@@ -223,10 +223,13 @@ export const getAllUsers = async (req, res, next) => {
     
     // For non-super_admin users, filter by their agencies
     let users;
-    if (req.user.role === 'super_admin') {
+    const roleNorm = String(req.user?.role || '').toLowerCase();
+    const isPrivilegedAdmin = roleNorm === 'super_admin' || roleNorm === 'admin' || roleNorm === 'support';
+
+    if (roleNorm === 'super_admin') {
       // Super admins see all users
       users = await User.findAll(includeArchived);
-    } else if (User.isSupervisor(req.user) || req.user.role === 'supervisor') {
+    } else if (!isPrivilegedAdmin && (User.isSupervisor(req.user) || roleNorm === 'supervisor')) {
       // Supervisors can ONLY view their assigned supervisees
       // Check using isSupervisor helper (requires full user object) or fallback to role check
       const requestingUser = await User.findById(req.user.id);
@@ -302,7 +305,7 @@ export const getAllUsers = async (req, res, next) => {
           users = rows;
         }
       }
-    } else if (req.user.role === 'clinical_practice_assistant') {
+    } else if (roleNorm === 'clinical_practice_assistant') {
       // CPAs can view all users in their agencies (same as old supervisor behavior)
       const userAgencies = await User.getAgencies(req.user.id);
       const agencyIds = userAgencies.map(a => a.id);

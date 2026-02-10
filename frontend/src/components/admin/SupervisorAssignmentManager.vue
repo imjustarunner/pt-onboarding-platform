@@ -246,9 +246,9 @@ const fetchSupervisors = async () => {
 const fetchAvailableUsers = async () => {
   try {
     const response = await api.get('/users');
-    // Filter to staff, facilitator, intern, admin
+    // Include provider and other common supervisee roles.
     let users = response.data.filter(u => 
-      ['staff', 'facilitator', 'intern', 'admin'].includes(u.role)
+      ['provider', 'staff', 'facilitator', 'intern', 'admin', 'school_staff'].includes(String(u?.role || '').toLowerCase())
     );
     
     // If we have agencies (from supervisee), filter users by those agencies

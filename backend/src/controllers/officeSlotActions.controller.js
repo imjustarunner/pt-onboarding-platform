@@ -195,9 +195,14 @@ export const forfeitAssignment = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'acknowledged is required to forfeit' } });
     }
 
+    const scope = String(req.body?.scope || 'future').trim().toLowerCase();
+    if (scope !== 'future') {
+      return res.status(400).json({ error: { message: 'Assignment-level forfeit only supports scope=future' } });
+    }
+
     await OfficeBookingPlan.deactivateByAssignmentId(sid);
     await OfficeStandingAssignment.update(sid, { is_active: false });
-    res.json({ ok: true });
+    res.json({ ok: true, scope: 'future' });
   } catch (e) {
     next(e);
   }
@@ -209,10 +214,6 @@ export const staffBookEvent = async (req, res, next) => {
     const officeLocationId = parseInt(officeId, 10);
     const eid = parseInt(eventId, 10);
     if (!officeLocationId || !eid) return res.status(400).json({ error: { message: 'Invalid ids' } });
-
-    if (!canManageSchedule(req.user.role)) {
-      return res.status(403).json({ error: { message: 'Only staff/admin can book slots' } });
-    }
 
     const ok = await requireOfficeAccess(req, officeLocationId);
     if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
@@ -227,14 +228,22 @@ export const staffBookEvent = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Event is missing assigned provider' } });
     }
 
-    const updated = await OfficeEvent.markBooked({ eventId: eid, bookedProviderId });
+    const isOwner = Number(req.user?.id || 0) === Number(bookedProviderId);
+    if (!isOwner && !canManageSchedule(req.user.role)) {
+      return res.status(403).json({ error: { message: 'Only assigned provider or schedule managers can update booking status' } });
+    }
+
+    const shouldBook = req.body?.booked !== false && String(req.body?.booked || '').toLowerCase() !== 'false';
+    const updated = shouldBook
+      ? await OfficeEvent.markBooked({ eventId: eid, bookedProviderId })
+      : await OfficeEvent.markAvailable({ eventId: eid });
     // Best-effort: mirror to Google Calendar (provider + room resource).
     try {
       await GoogleCalendarService.upsertBookedOfficeEvent({ officeEventId: updated?.id || eid });
     } catch {
       // ignore
     }
-    res.json({ ok: true, event: updated });
+    res.json({ ok: true, booked: shouldBook, event: updated });
   } catch (e) {
     next(e);
   }
@@ -370,6 +379,177 @@ export const setEventBookingPlan = async (req, res, next) => {
     });
 
     res.json({ ok: true, standingAssignment: assignment, bookingPlan: plan });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const cancelEvent = async (req, res, next) => {
+  try {
+    const { officeId, eventId } = req.params;
+    const officeLocationId = parseInt(officeId, 10);
+    const eid = parseInt(eventId, 10);
+    if (!officeLocationId || !eid) return res.status(400).json({ error: { message: 'Invalid ids' } });
+
+    const ok = await requireOfficeAccess(req, officeLocationId);
+    if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const ev = await OfficeEvent.findById(eid);
+    if (!ev || Number(ev.office_location_id) !== Number(officeLocationId)) {
+      return res.status(404).json({ error: { message: 'Event not found' } });
+    }
+
+    if (!canManageSchedule(req.user?.role)) {
+      return res.status(403).json({ error: { message: 'Only schedule managers can cancel/delete schedule events' } });
+    }
+
+    const scope = String(req.body?.scope || 'occurrence').trim().toLowerCase();
+    if (!['occurrence', 'future'].includes(scope)) {
+      return res.status(400).json({ error: { message: 'scope must be occurrence or future' } });
+    }
+
+    const startAt = String(ev.start_at || '').replace('T', ' ').slice(0, 19);
+    if (!startAt) return res.status(400).json({ error: { message: 'Event has invalid start time' } });
+
+    if (scope === 'occurrence') {
+      const updated = await OfficeEvent.cancelOccurrence({ eventId: eid });
+      await ProviderVirtualSlotAvailability.deactivateBySourceEventId(eid);
+      return res.json({ ok: true, scope: 'occurrence', event: updated });
+    }
+
+    const standingAssignmentId = Number(ev.standing_assignment_id || 0) || null;
+    const recurrenceGroupId = ev.recurrence_group_id || null;
+    if (!standingAssignmentId && !recurrenceGroupId) {
+      const updated = await OfficeEvent.cancelOccurrence({ eventId: eid });
+      await ProviderVirtualSlotAvailability.deactivateBySourceEventId(eid);
+      return res.json({ ok: true, scope: 'occurrence', event: updated, downgradedFromFuture: true });
+    }
+
+    let eventIds = [];
+    if (standingAssignmentId) {
+      const [rows] = await pool.execute(
+        `SELECT id
+         FROM office_events
+         WHERE standing_assignment_id = ?
+           AND start_at >= ?`,
+        [standingAssignmentId, startAt]
+      );
+      eventIds = (rows || []).map((r) => Number(r.id)).filter((n) => Number.isInteger(n) && n > 0);
+      await OfficeBookingPlan.deactivateByAssignmentId(standingAssignmentId);
+      await OfficeStandingAssignment.update(standingAssignmentId, { is_active: false });
+      await OfficeEvent.cancelFutureByStandingAssignment({ standingAssignmentId, startAt });
+    } else {
+      const [rows] = await pool.execute(
+        `SELECT id
+         FROM office_events
+         WHERE recurrence_group_id = ?
+           AND start_at >= ?`,
+        [recurrenceGroupId, startAt]
+      );
+      eventIds = (rows || []).map((r) => Number(r.id)).filter((n) => Number.isInteger(n) && n > 0);
+      await OfficeEvent.cancelFutureByRecurrenceGroup({ recurrenceGroupId, startAt });
+    }
+
+    for (const id of eventIds) {
+      // eslint-disable-next-line no-await-in-loop
+      await ProviderVirtualSlotAvailability.deactivateBySourceEventId(id);
+    }
+
+    res.json({
+      ok: true,
+      scope: 'future',
+      cancelledEventCount: eventIds.length,
+      standingAssignmentId: standingAssignmentId || null
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const forfeitEvent = async (req, res, next) => {
+  try {
+    const { officeId, eventId } = req.params;
+    const officeLocationId = parseInt(officeId, 10);
+    const eid = parseInt(eventId, 10);
+    if (!officeLocationId || !eid) return res.status(400).json({ error: { message: 'Invalid ids' } });
+
+    const ok = await requireOfficeAccess(req, officeLocationId);
+    if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const ev = await OfficeEvent.findById(eid);
+    if (!ev || Number(ev.office_location_id) !== Number(officeLocationId)) {
+      return res.status(404).json({ error: { message: 'Event not found' } });
+    }
+
+    const acknowledged = req.body?.acknowledged === true || req.body?.acknowledged === 'true';
+    if (!acknowledged) {
+      return res.status(400).json({ error: { message: 'acknowledged is required to forfeit' } });
+    }
+
+    const providerId = Number(ev.assigned_provider_id || ev.booked_provider_id || 0) || null;
+    const isOwner = Number(req.user?.id || 0) === providerId;
+    if (!isOwner && !canManageSchedule(req.user?.role)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const scope = String(req.body?.scope || 'occurrence').trim().toLowerCase();
+    if (!['occurrence', 'future'].includes(scope)) {
+      return res.status(400).json({ error: { message: 'scope must be occurrence or future' } });
+    }
+
+    const startAt = String(ev.start_at || '').replace('T', ' ').slice(0, 19);
+    if (!startAt) return res.status(400).json({ error: { message: 'Event has invalid start time' } });
+
+    if (scope === 'occurrence') {
+      const updated = await OfficeEvent.cancelOccurrence({ eventId: eid });
+      await ProviderVirtualSlotAvailability.deactivateBySourceEventId(eid);
+      return res.json({ ok: true, scope: 'occurrence', event: updated });
+    }
+
+    const standingAssignmentId = Number(ev.standing_assignment_id || 0) || null;
+    const recurrenceGroupId = ev.recurrence_group_id || null;
+    if (!standingAssignmentId && !recurrenceGroupId) {
+      const updated = await OfficeEvent.cancelOccurrence({ eventId: eid });
+      await ProviderVirtualSlotAvailability.deactivateBySourceEventId(eid);
+      return res.json({ ok: true, scope: 'occurrence', event: updated, downgradedFromFuture: true });
+    }
+
+    let eventIds = [];
+    if (standingAssignmentId) {
+      const [rows] = await pool.execute(
+        `SELECT id
+         FROM office_events
+         WHERE standing_assignment_id = ?
+           AND start_at >= ?`,
+        [standingAssignmentId, startAt]
+      );
+      eventIds = (rows || []).map((r) => Number(r.id)).filter((n) => Number.isInteger(n) && n > 0);
+      await OfficeBookingPlan.deactivateByAssignmentId(standingAssignmentId);
+      await OfficeStandingAssignment.update(standingAssignmentId, { is_active: false });
+      await OfficeEvent.cancelFutureByStandingAssignment({ standingAssignmentId, startAt });
+    } else {
+      const [rows] = await pool.execute(
+        `SELECT id
+         FROM office_events
+         WHERE recurrence_group_id = ?
+           AND start_at >= ?`,
+        [recurrenceGroupId, startAt]
+      );
+      eventIds = (rows || []).map((r) => Number(r.id)).filter((n) => Number.isInteger(n) && n > 0);
+      await OfficeEvent.cancelFutureByRecurrenceGroup({ recurrenceGroupId, startAt });
+    }
+
+    for (const id of eventIds) {
+      // eslint-disable-next-line no-await-in-loop
+      await ProviderVirtualSlotAvailability.deactivateBySourceEventId(id);
+    }
+
+    return res.json({
+      ok: true,
+      scope: 'future',
+      forfeitedEventCount: eventIds.length,
+      standingAssignmentId: standingAssignmentId || null
+    });
   } catch (e) {
     next(e);
   }

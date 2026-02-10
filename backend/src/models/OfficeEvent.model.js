@@ -59,7 +59,8 @@ class OfficeEvent {
        LEFT JOIN users au ON e.assigned_provider_id = au.id
        WHERE e.office_location_id = ?
          AND e.start_at < ?
-         AND e.end_at > ?`,
+         AND e.end_at > ?
+         AND (e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')`,
       [officeLocationId, endAt, startAt]
     );
     return rows || [];
@@ -151,6 +152,19 @@ class OfficeEvent {
     return await this.findById(eventId);
   }
 
+  static async markAvailable({ eventId }) {
+    await pool.execute(
+      `UPDATE office_events
+       SET status = 'RELEASED',
+           slot_state = 'ASSIGNED_AVAILABLE',
+           booked_provider_id = NULL,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [eventId]
+    );
+    return await this.findById(eventId);
+  }
+
   static async listBookedForOfficeDate({ officeLocationId, date }) {
     // date: YYYY-MM-DD
     const day = String(date || '').slice(0, 10);
@@ -177,6 +191,41 @@ class OfficeEvent {
       [officeLocationId, startAt, endAt]
     );
     return rows || [];
+  }
+
+  static async cancelOccurrence({ eventId }) {
+    await pool.execute(
+      `UPDATE office_events
+       SET status = 'CANCELLED',
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [eventId]
+    );
+    return await this.findById(eventId);
+  }
+
+  static async cancelFutureByStandingAssignment({ standingAssignmentId, startAt }) {
+    const [result] = await pool.execute(
+      `UPDATE office_events
+       SET status = 'CANCELLED',
+           updated_at = CURRENT_TIMESTAMP
+       WHERE standing_assignment_id = ?
+         AND start_at >= ?`,
+      [standingAssignmentId, startAt]
+    );
+    return Number(result?.affectedRows || 0);
+  }
+
+  static async cancelFutureByRecurrenceGroup({ recurrenceGroupId, startAt }) {
+    const [result] = await pool.execute(
+      `UPDATE office_events
+       SET status = 'CANCELLED',
+           updated_at = CURRENT_TIMESTAMP
+       WHERE recurrence_group_id = ?
+         AND start_at >= ?`,
+      [recurrenceGroupId, startAt]
+    );
+    return Number(result?.affectedRows || 0);
   }
 }
 

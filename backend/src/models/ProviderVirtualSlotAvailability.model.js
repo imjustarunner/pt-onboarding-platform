@@ -55,6 +55,17 @@ class ProviderVirtualSlotAvailability {
     );
     return Number(result?.affectedRows || 0);
   }
+
+  static async deactivateBySourceEventId(sourceEventId) {
+    const [result] = await pool.execute(
+      `UPDATE provider_virtual_slot_availability
+       SET is_active = FALSE, updated_at = CURRENT_TIMESTAMP
+       WHERE source = 'OFFICE_EVENT'
+         AND source_event_id = ?`,
+      [sourceEventId]
+    );
+    return Number(result?.affectedRows || 0);
+  }
 }
 
 export default ProviderVirtualSlotAvailability;
