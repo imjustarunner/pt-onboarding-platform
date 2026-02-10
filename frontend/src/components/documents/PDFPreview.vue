@@ -128,6 +128,10 @@ const renderPage = async (pageNum) => {
 
     await page.render({ canvasContext: ctx, viewport }).promise;
     updateMarkerStyles();
+    if (containerRef.value) {
+      containerRef.value.scrollTop = 0;
+      containerRef.value.scrollLeft = 0;
+    }
   } catch (e) {
     console.error('PDF render error:', e);
     error.value = e?.message || 'Failed to render PDF';

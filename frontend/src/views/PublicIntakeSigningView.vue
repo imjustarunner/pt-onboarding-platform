@@ -421,15 +421,6 @@
               @page-change="handlePageChange"
               @marker-click="handleMarkerClick"
             />
-            <p v-if="pageNotice" class="page-notice">{{ pageNotice }}</p>
-            <div v-if="showSkipToSignature" class="page-notice-actions">
-              <button class="btn btn-secondary btn-sm" type="button" @click="skipToSignaturePage">
-                Skip to signature page
-              </button>
-              <button class="btn btn-outline btn-sm" type="button" @click="dismissSkipNotice">
-                Continue reviewing pages
-              </button>
-            </div>
             <p class="note">Please review the document above. You must reach the last page before continuing.</p>
             <p v-if="checkboxMarkers.length && checkboxDisclaimer" class="note">
               {{ checkboxDisclaimer }}
@@ -499,18 +490,24 @@
             </div>
           </div>
           <SignaturePad @signed="onSigned" />
-          <div
+          <label
             v-if="allowSignatureReuseActions && lastSignatureData && !signatureData"
-            class="signature-actions"
+            class="checkbox-row signature-confirm"
           >
-            <button class="btn btn-secondary btn-sm" type="button" @click="useSavedSignatureAndContinue">
-              Use saved signature &amp; submit
-            </button>
-            <button class="btn btn-outline btn-sm" type="button" @click="startNewSignature">
-              Sign again
-            </button>
-          </div>
+            <input v-model="reuseSignatureConfirmed" type="checkbox" />
+            <span>I approve to sign, save, and reuse the signature.</span>
+          </label>
           <div v-if="signatureData" class="muted" style="margin-top: 6px;">Signature ready for this document.</div>
+        </div>
+
+        <div v-if="pageNotice" class="page-notice">{{ pageNotice }}</div>
+        <div v-if="showSkipToSignature" class="page-notice-actions">
+          <button class="btn btn-primary btn-sm" type="button" @click="skipToSignaturePage">
+            Skip to signature page
+          </button>
+          <button class="btn btn-outline btn-sm" type="button" @click="dismissSkipNotice">
+            Continue reviewing pages
+          </button>
         </div>
 
         <div class="actions">
@@ -679,6 +676,7 @@ const currentDocIndex = ref(0);
 const signatureBlockRef = ref(null);
 const signatureData = ref('');
 const lastSignatureData = ref('');
+const reuseSignatureConfirmed = ref(false);
 const signatureDocFlowIndexes = computed(() =>
   flowSteps.value
     .map((s, idx) => ({ s, idx }))
@@ -1660,21 +1658,6 @@ const onSigned = (dataUrl) => {
   lastSignatureData.value = dataUrl;
 };
 
-const useSavedSignatureAndContinue = async () => {
-  if (!lastSignatureData.value) return;
-  signatureData.value = lastSignatureData.value;
-  await nextTick();
-  await completeCurrentDocument();
-};
-
-const startNewSignature = async () => {
-  signatureData.value = '';
-  await nextTick();
-  if (signatureBlockRef.value?.scrollIntoView) {
-    signatureBlockRef.value.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }
-};
-
 const dismissSkipNotice = () => {
   showSkipToSignature.value = false;
 };
@@ -1710,6 +1693,10 @@ const completeCurrentDocument = async () => {
     }
     if (currentDoc.value.document_action_type === 'signature' && !signatureData.value) {
       if (allowSignatureReuseActions.value && lastSignatureData.value) {
+        if (!reuseSignatureConfirmed.value) {
+          stepError.value = 'Please confirm signature reuse to continue.';
+          return;
+        }
         signatureData.value = lastSignatureData.value;
       } else {
         stepError.value = 'Signature is required.';
@@ -2183,6 +2170,7 @@ watch(currentDoc, async () => {
   reviewTotalPages.value = 0;
   canProceed.value = currentDoc.value?.template_type !== 'pdf';
   signatureData.value = '';
+  reuseSignatureConfirmed.value = false;
   pageNotice.value = '';
   syncClientNamesToResponses();
   initializeFieldValues();
@@ -2248,6 +2236,22 @@ onMounted(async () => {
   display: block;
   font-weight: 600;
   margin-bottom: 4px;
+}
+.form-group input,
+.form-group textarea,
+.field-inputs input,
+.field-inputs textarea {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 14px;
+}
+.form-group input[type='date'],
+.field-inputs input[type='date'] {
+  min-height: 40px;
+  line-height: 1.2;
+  -webkit-appearance: none;
 }
 .clients-block {
   display: grid;
@@ -2351,6 +2355,7 @@ onMounted(async () => {
   flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 8px;
+  justify-content: flex-end;
 }
 .note {
   color: var(--text-secondary);
@@ -2396,6 +2401,14 @@ onMounted(async () => {
 .btn.btn-outline {
   background: transparent;
   border: 1px solid var(--border);
+}
+.public-intake .btn {
+  padding: 8px 12px;
+  font-size: 14px;
+}
+.public-intake .btn.btn-sm {
+  padding: 6px 10px;
+  font-size: 13px;
 }
 
 .info-block {
@@ -2445,6 +2458,10 @@ onMounted(async () => {
 }
 .signature-block {
   margin-top: 16px;
+}
+.signature-confirm {
+  margin-top: 10px;
+  font-weight: 600;
 }
 .signature-actions {
   display: flex;
