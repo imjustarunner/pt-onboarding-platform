@@ -218,12 +218,12 @@
             </button>
           </div>
 
-          <div v-if="filteredMyFields.length === 0" class="empty-state" style="margin-top: 10px;">
+          <div v-if="myRenderableFields.length === 0" class="empty-state" style="margin-top: 10px;">
             No profile fields found yet. Ask an admin to assign you a profile form module (or run “Sync Forms (Spec)”).
           </div>
 
           <div v-else class="fields-grid" style="margin-top: 12px;">
-            <div v-for="field in filteredMyFields" :key="field.id" class="field-item">
+            <div v-for="field in myRenderableFields" :key="field.id" class="field-item">
               <label :for="`my-field-${field.id}`">
                 {{ field.field_label }}
                 <span v-if="field.is_required" class="required-asterisk">*</span>
@@ -231,6 +231,9 @@
 
               <div v-if="isStaffManagedField(field)" class="hint" style="margin: 2px 0 6px 0;">
                 This section is managed by staff. You can view it here.
+              </div>
+              <div v-else-if="isFieldReadOnlyForCurrentUser(field)" class="hint" style="margin: 2px 0 6px 0;">
+                This field is managed by admin staff. You can view it here.
               </div>
 
               <div v-if="fileValueUrl(myUserInfoValues[field.id])" style="margin-bottom: 6px;">
@@ -243,7 +246,7 @@
                 :type="field.field_type === 'email' ? 'email' : field.field_type === 'phone' ? 'tel' : 'text'"
                 v-model="myUserInfoValues[field.id]"
                 :required="field.is_required"
-                :disabled="isStaffManagedField(field)"
+                :disabled="isFieldReadOnlyForCurrentUser(field)"
               />
 
               <input
@@ -252,7 +255,7 @@
                 type="number"
                 v-model="myUserInfoValues[field.id]"
                 :required="field.is_required"
-                :disabled="isStaffManagedField(field)"
+                :disabled="isFieldReadOnlyForCurrentUser(field)"
               />
 
               <input
@@ -261,7 +264,7 @@
                 type="date"
                 v-model="myUserInfoValues[field.id]"
                 :required="field.is_required"
-                :disabled="isStaffManagedField(field)"
+                :disabled="isFieldReadOnlyForCurrentUser(field)"
               />
 
               <textarea
@@ -270,7 +273,7 @@
                 v-model="myUserInfoValues[field.id]"
                 rows="3"
                 :required="field.is_required"
-                :disabled="isStaffManagedField(field)"
+                :disabled="isFieldReadOnlyForCurrentUser(field)"
               />
 
               <select
@@ -278,7 +281,7 @@
                 :id="`my-field-${field.id}`"
                 v-model="myUserInfoValues[field.id]"
                 :required="field.is_required"
-                :disabled="isStaffManagedField(field)"
+                :disabled="isFieldReadOnlyForCurrentUser(field)"
               >
                 <option value="">Select…</option>
                 <option v-for="opt in (field.options || [])" :key="opt" :value="opt">{{ opt }}</option>
@@ -290,7 +293,7 @@
                     type="checkbox"
                     :checked="normalizeMultiSelectValue(myUserInfoValues[field.id]).includes(opt)"
                     @change="toggleMyMultiSelect(field.id, opt)"
-                    :disabled="isStaffManagedField(field)"
+                    :disabled="isFieldReadOnlyForCurrentUser(field)"
                   />
                   {{ opt }}
                 </label>
@@ -301,7 +304,7 @@
                 :id="`my-field-${field.id}`"
                 v-model="myUserInfoValues[field.id]"
                 :required="field.is_required"
-                :disabled="isStaffManagedField(field)"
+                :disabled="isFieldReadOnlyForCurrentUser(field)"
               >
                 <option value="">Select…</option>
                 <option value="true">Yes</option>
@@ -313,7 +316,7 @@
                 :id="`my-field-${field.id}`"
                 v-model="myUserInfoValues[field.id]"
                 type="text"
-                :disabled="isStaffManagedField(field)"
+                :disabled="isFieldReadOnlyForCurrentUser(field)"
               />
             </div>
           </div>
@@ -610,6 +613,85 @@ const isStaffManagedField = (field) => {
   return String(field?.category_key || '') === 'gear_tracking';
 };
 
+const isAdminOrSuperAdmin = computed(() => {
+  const role = String(authStore.user?.role || '').toLowerCase();
+  return role === 'admin' || role === 'super_admin';
+});
+
+const normalizeFieldToken = (value) => String(value || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+
+const restrictedCredentialingFieldKeys = new Set([
+  'date_of_birth',
+  'birthdate',
+  'provider_birthdate',
+  'provider_credential_license_type_number',
+  'license_type_number',
+  'license_number',
+  'provider_credential_license_issued_date',
+  'license_issued',
+  'provider_credential_license_expiration_date',
+  'license_expires',
+  'provider_identity_npi_number',
+  'npi_number',
+  'provider_identity_taxonomy_code',
+  'taxonomy_code',
+  'provider_credential_caqh_provider_id',
+  'caqh_provider_id',
+  'medicaid_provider_type',
+  'provider_credential_medicaid_location_id',
+  'medicaid_location_id',
+  'medicaid_effective_date',
+  'provider_credential_medicaid_revalidation_date',
+  'medicaid_revalidation',
+  'medicare_number',
+  'provider_credential',
+  'tax_id',
+  'zipcode',
+  'zip_code'
+]);
+
+const restrictedCredentialingLabelPatterns = [
+  'birthdate',
+  'dateofbirth',
+  'licensenumber',
+  'licensetypenumber',
+  'datelicensed',
+  'datelicenseissued',
+  'datelicenseexpires',
+  'npinumber',
+  'taxonomycode',
+  'caqhproviderid',
+  'medicaidprovidertype',
+  'medicaidlocationid',
+  'medicaideffectivedate',
+  'medicaidrevalidationdate',
+  'medicarenumber',
+  'credential',
+  'taxid',
+  'zipcode',
+  'postalcode'
+];
+
+const isRestrictedCredentialingField = (field) => {
+  const fieldKey = String(field?.field_key || '').trim().toLowerCase();
+  if (restrictedCredentialingFieldKeys.has(fieldKey)) return true;
+  const labelToken = normalizeFieldToken(field?.field_label);
+  return restrictedCredentialingLabelPatterns.some((pattern) => labelToken.includes(pattern));
+};
+
+const shouldHideFieldForCurrentUser = (field) => {
+  if (isAdminOrSuperAdmin.value) return false;
+  const fieldKey = String(field?.field_key || '').trim().toLowerCase();
+  const labelToken = normalizeFieldToken(field?.field_label);
+  return fieldKey === 'npi_id' || labelToken === 'npiid';
+};
+
+const isFieldReadOnlyForCurrentUser = (field) => {
+  if (isStaffManagedField(field)) return true;
+  if (isAdminOrSuperAdmin.value) return false;
+  return isRestrictedCredentialingField(field);
+};
+
 const myCategoryOptions = computed(() => {
   const byKey = new Map((myUserInfoCategories.value || []).map((c) => [c.category_key, c]));
   const keysFromFields = new Set((myVisibleFields.value || []).map((f) => f.category_key || '__uncategorized'));
@@ -635,6 +717,10 @@ const filteredMyFields = computed(() => {
     return myVisibleFields.value.filter((f) => !f.category_key);
   }
   return myVisibleFields.value.filter((f) => f.category_key === activeMyCategoryKey.value);
+});
+
+const myRenderableFields = computed(() => {
+  return filteredMyFields.value.filter((field) => !shouldHideFieldForCurrentUser(field));
 });
 
 const fetchMyUserInfo = async () => {
