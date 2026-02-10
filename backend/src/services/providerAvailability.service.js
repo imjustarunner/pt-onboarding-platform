@@ -5,7 +5,7 @@ import ExternalBusyCalendarService from './externalBusyCalendar.service.js';
 import GoogleCalendarService from './googleCalendar.service.js';
 import ProviderVirtualWorkingHours from '../models/ProviderVirtualWorkingHours.model.js';
 import OfficeScheduleMaterializer from './officeScheduleMaterializer.service.js';
-import { mergeIntervals, subtractInterval, slotizeIntervals } from '../utils/intervals.js';
+import { mergeIntervals, subtractInterval, subtractIntervals, slotizeIntervals } from '../utils/intervals.js';
 
 const DAY_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
@@ -309,6 +309,65 @@ export class ProviderAvailabilityService {
       if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
     }
 
+    // 3b) Slot-level virtual overrides (event-driven toggles from Building Schedule)
+    const virtualSlotBase = [];
+    const virtualSlotOverrideIntervals = [];
+    try {
+      const [rows] = await pool.execute(
+        `SELECT
+           v.start_at,
+           v.end_at,
+           v.session_type,
+           v.office_location_id,
+           v.room_id,
+           ol.timezone AS building_timezone,
+           ol.name AS building_name,
+           r.room_number,
+           r.label AS room_label,
+           r.name AS room_name
+         FROM provider_virtual_slot_availability v
+         LEFT JOIN office_locations ol ON ol.id = v.office_location_id
+         LEFT JOIN office_rooms r ON r.id = v.room_id
+         WHERE v.agency_id = ?
+           AND v.provider_id = ?
+           AND v.is_active = TRUE
+           AND v.start_at < ?
+           AND v.end_at > ?
+         ORDER BY v.start_at ASC`,
+        [aid, pid, `${weekEnd} 00:00:00`, `${weekStart} 00:00:00`]
+      );
+      for (const r of rows || []) {
+        const st = parseMySqlDateTime(r.start_at);
+        const en = parseMySqlDateTime(r.end_at);
+        const tzEvent = String(r.building_timezone || '').trim() || tz;
+        if (!st || !en) continue;
+        const s = zonedWallTimeToUtc({ ...st, timeZone: tzEvent });
+        const e = zonedWallTimeToUtc({ ...en, timeZone: tzEvent });
+        if (!(e > s)) continue;
+
+        const sessionType = String(r.session_type || 'INTAKE').toUpperCase();
+        if (intakeOnlyFlag && !['INTAKE', 'BOTH'].includes(sessionType)) continue;
+        if (!intakeOnlyFlag && !['REGULAR', 'BOTH', 'INTAKE'].includes(sessionType)) continue;
+
+        virtualSlotBase.push({
+          start: s,
+          end: e,
+          meta: {
+            sessionType,
+            frequency: 'ONCE',
+            buildingId: Number(r.office_location_id || 0) || null,
+            buildingName: String(r.building_name || '').trim() || null,
+            roomId: Number(r.room_id || 0) || null,
+            roomLabel: String(r.room_label || r.room_name || r.room_number || '').trim() || null
+          }
+        });
+        // Overrides explicitly allow virtual during office reservation windows for the same slot.
+        virtualSlotOverrideIntervals.push({ start: s, end: e });
+      }
+    } catch (e) {
+      if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+    }
+
     // 4) External EHR busy (ICS) blocks both modalities
     let externalBusy = [];
     try {
@@ -372,9 +431,13 @@ export class ProviderAvailabilityService {
       ...externalBusyIntervals,
       ...googleBusyIntervals
     ]);
+    const officeReservedBusyForVirtual = subtractIntervals(
+      officeReservedBusy,
+      mergeIntervals(virtualSlotOverrideIntervals)
+    );
     const busyVirtual = mergeIntervals([
       ...busyAll,
-      ...officeReservedBusy
+      ...officeReservedBusyForVirtual
     ]);
     const busyInPerson = mergeIntervals([
       ...busyAll,
@@ -383,7 +446,8 @@ export class ProviderAvailabilityService {
 
     // Virtual availability (preserve meta for each slot)
     const virtualSlots = [];
-    for (const base of virtualBase) {
+    const combinedVirtualBase = [...virtualBase, ...virtualSlotBase];
+    for (const base of combinedVirtualBase) {
       const segs = subtractInterval(base, busyVirtual);
       for (const seg of segs) {
         const slots = slotizeIntervals([seg], slotMinutes);

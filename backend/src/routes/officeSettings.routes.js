@@ -16,6 +16,7 @@ import {
   listRooms,
   createRoom,
   updateRoom,
+  deleteRoom,
   testGoogleSync,
   searchModules,
   listOfficeQuestionnaires,
@@ -49,6 +50,7 @@ router.post('/:officeId/room-types', createRoomType);
 router.get('/:officeId/rooms', listRooms);
 router.post('/:officeId/rooms', createRoom);
 router.put('/:officeId/rooms/:roomId', updateRoom);
+router.delete('/:officeId/rooms/:roomId', deleteRoom);
 router.post('/:officeId/test-google-sync', testGoogleSync);
 
 // Questionnaire modules (shared modules)

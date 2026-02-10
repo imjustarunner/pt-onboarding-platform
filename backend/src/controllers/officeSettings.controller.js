@@ -9,8 +9,30 @@ import GoogleCalendarService from '../services/googleCalendar.service.js';
 import User from '../models/User.model.js';
 import pool from '../config/database.js';
 
-const canManageOfficeSettings = (role) =>
+const canManageOfficeSettingsRole = (role) =>
   role === 'admin' || role === 'super_admin' || role === 'support' || role === 'clinical_practice_assistant' || role === 'staff';
+
+const hasSkillBuilderCoordinatorAccess = (userLike) =>
+  userLike?.has_skill_builder_coordinator_access === true ||
+  userLike?.has_skill_builder_coordinator_access === 1 ||
+  userLike?.has_skill_builder_coordinator_access === '1';
+
+async function canManageOfficeSettings(req) {
+  if (canManageOfficeSettingsRole(req.user?.role)) return true;
+  if (hasSkillBuilderCoordinatorAccess(req.user)) return true;
+  try {
+    const [rows] = await pool.execute(
+      `SELECT has_skill_builder_coordinator_access
+       FROM users
+       WHERE id = ?
+       LIMIT 1`,
+      [Number(req.user?.id || 0)]
+    );
+    return hasSkillBuilderCoordinatorAccess(rows?.[0] || null);
+  } catch {
+    return false;
+  }
+}
 
 async function requireOfficeAccess(req, officeLocationId) {
   if (req.user.role === 'super_admin') return true;
@@ -44,16 +66,22 @@ export const listOffices = async (req, res, next) => {
 
 export const createOffice = async (req, res, next) => {
   try {
-    if (!canManageOfficeSettings(req.user.role)) {
+    if (!(await canManageOfficeSettings(req))) {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
     const { agencyId, name, timezone, svgUrl } = req.body || {};
-    const aid = parseInt(agencyId, 10);
-    if (!aid || !name) return res.status(400).json({ error: { message: 'agencyId and name are required' } });
+    let aid = parseInt(agencyId, 10);
+    if (!name) return res.status(400).json({ error: { message: 'name is required' } });
+
+    // For non-super-admins, default to first member agency if agencyId is omitted.
+    const agencies = await User.getAgencies(req.user.id);
+    if (!aid && req.user.role !== 'super_admin') {
+      aid = Number(agencies?.[0]?.id || 0) || 0;
+    }
+    if (!aid) return res.status(400).json({ error: { message: 'agencyId is required' } });
 
     // Must belong to agency unless super_admin
     if (req.user.role !== 'super_admin') {
-      const agencies = await User.getAgencies(req.user.id);
       const ok = agencies.some((a) => a.id === aid);
       if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
     }
@@ -101,7 +129,7 @@ export const getOffice = async (req, res, next) => {
 
 export const updateOffice = async (req, res, next) => {
   try {
-    if (!canManageOfficeSettings(req.user.role)) {
+    if (!(await canManageOfficeSettings(req))) {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
     const officeId = parseInt(req.params.officeId, 10);
@@ -128,7 +156,7 @@ export const updateOffice = async (req, res, next) => {
 
 export const archiveOffice = async (req, res, next) => {
   try {
-    if (!canManageOfficeSettings(req.user.role)) return res.status(403).json({ error: { message: 'Access denied' } });
+    if (!(await canManageOfficeSettings(req))) return res.status(403).json({ error: { message: 'Access denied' } });
     const officeId = parseInt(req.params.officeId, 10);
     if (!officeId) return res.status(400).json({ error: { message: 'Invalid officeId' } });
     const ok = await requireOfficeAccess(req, officeId);
@@ -146,7 +174,7 @@ export const archiveOffice = async (req, res, next) => {
 
 export const restoreOffice = async (req, res, next) => {
   try {
-    if (!canManageOfficeSettings(req.user.role)) return res.status(403).json({ error: { message: 'Access denied' } });
+    if (!(await canManageOfficeSettings(req))) return res.status(403).json({ error: { message: 'Access denied' } });
     const officeId = parseInt(req.params.officeId, 10);
     if (!officeId) return res.status(400).json({ error: { message: 'Invalid officeId' } });
     const ok = await requireOfficeAccess(req, officeId);
@@ -164,8 +192,7 @@ export const restoreOffice = async (req, res, next) => {
 
 export const listArchivedOffices = async (req, res, next) => {
   try {
-    // Keep this super-admin only for parity with agencies archive list.
-    if (req.user.role !== 'super_admin') return res.status(403).json({ error: { message: 'Access denied' } });
+    if (!(await canManageOfficeSettings(req))) return res.status(403).json({ error: { message: 'Access denied' } });
 
     const rows = await OfficeLocation.listAll({ includeInactive: true });
     const archived = (rows || [])
@@ -184,8 +211,7 @@ export const listArchivedOffices = async (req, res, next) => {
 
 export const deleteOffice = async (req, res, next) => {
   try {
-    // Permanent delete: super admin only.
-    if (req.user.role !== 'super_admin') return res.status(403).json({ error: { message: 'Access denied' } });
+    if (!(await canManageOfficeSettings(req))) return res.status(403).json({ error: { message: 'Access denied' } });
     const officeId = parseInt(req.params.officeId, 10);
     if (!officeId) return res.status(400).json({ error: { message: 'Invalid officeId' } });
 
@@ -205,7 +231,7 @@ export const deleteOffice = async (req, res, next) => {
 
 export const addOfficeAgency = async (req, res, next) => {
   try {
-    if (!canManageOfficeSettings(req.user.role)) {
+    if (!(await canManageOfficeSettings(req))) {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
     const officeId = parseInt(req.params.officeId, 10);
@@ -233,7 +259,7 @@ export const addOfficeAgency = async (req, res, next) => {
 
 export const removeOfficeAgency = async (req, res, next) => {
   try {
-    if (!canManageOfficeSettings(req.user.role)) {
+    if (!(await canManageOfficeSettings(req))) {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
     const officeId = parseInt(req.params.officeId, 10);
@@ -266,7 +292,7 @@ export const listRoomTypes = async (req, res, next) => {
 
 export const createRoomType = async (req, res, next) => {
   try {
-    if (!canManageOfficeSettings(req.user.role)) return res.status(403).json({ error: { message: 'Access denied' } });
+    if (!(await canManageOfficeSettings(req))) return res.status(403).json({ error: { message: 'Access denied' } });
     const officeId = parseInt(req.params.officeId, 10);
     const name = String(req.body?.name || '').trim();
     const sortOrder = parseInt(req.body?.sortOrder || 0, 10);
@@ -301,7 +327,7 @@ export const listRooms = async (req, res, next) => {
 
 export const createRoom = async (req, res, next) => {
   try {
-    if (!canManageOfficeSettings(req.user.role)) return res.status(403).json({ error: { message: 'Access denied' } });
+    if (!(await canManageOfficeSettings(req))) return res.status(403).json({ error: { message: 'Access denied' } });
     const officeId = parseInt(req.params.officeId, 10);
     if (!officeId) return res.status(400).json({ error: { message: 'Invalid officeId' } });
     const ok = await requireOfficeAccess(req, officeId);
@@ -333,7 +359,7 @@ export const createRoom = async (req, res, next) => {
 
 export const updateRoom = async (req, res, next) => {
   try {
-    if (!canManageOfficeSettings(req.user.role)) return res.status(403).json({ error: { message: 'Access denied' } });
+    if (!(await canManageOfficeSettings(req))) return res.status(403).json({ error: { message: 'Access denied' } });
     const officeId = parseInt(req.params.officeId, 10);
     const roomId = parseInt(req.params.roomId, 10);
     if (!officeId || !roomId) return res.status(400).json({ error: { message: 'Invalid ids' } });
@@ -369,9 +395,29 @@ export const updateRoom = async (req, res, next) => {
   }
 };
 
+export const deleteRoom = async (req, res, next) => {
+  try {
+    if (!(await canManageOfficeSettings(req))) return res.status(403).json({ error: { message: 'Access denied' } });
+    const officeId = parseInt(req.params.officeId, 10);
+    const roomId = parseInt(req.params.roomId, 10);
+    if (!officeId || !roomId) return res.status(400).json({ error: { message: 'Invalid ids' } });
+    const ok = await requireOfficeAccess(req, officeId);
+    if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const room = await OfficeRoom.findById(roomId);
+    if (!room || Number(room.location_id) !== Number(officeId)) {
+      return res.status(404).json({ error: { message: 'Room not found for this office' } });
+    }
+    await OfficeRoom.update(roomId, { is_active: false });
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const testGoogleSync = async (req, res, next) => {
   try {
-    if (!canManageOfficeSettings(req.user.role)) return res.status(403).json({ error: { message: 'Access denied' } });
+    if (!(await canManageOfficeSettings(req))) return res.status(403).json({ error: { message: 'Access denied' } });
     const officeId = parseInt(req.params.officeId, 10);
     if (!officeId) return res.status(400).json({ error: { message: 'Invalid officeId' } });
     const ok = await requireOfficeAccess(req, officeId);
@@ -444,7 +490,7 @@ export const listOfficeQuestionnaires = async (req, res, next) => {
 
 export const upsertOfficeQuestionnaire = async (req, res, next) => {
   try {
-    if (!canManageOfficeSettings(req.user.role)) return res.status(403).json({ error: { message: 'Access denied' } });
+    if (!(await canManageOfficeSettings(req))) return res.status(403).json({ error: { message: 'Access denied' } });
     const officeId = parseInt(req.params.officeId, 10);
     const moduleId = parseInt(req.body?.moduleId, 10);
     const agencyId = req.body?.agencyId === null || req.body?.agencyId === undefined ? null : parseInt(req.body.agencyId, 10);
@@ -463,7 +509,7 @@ export const upsertOfficeQuestionnaire = async (req, res, next) => {
 
 export const removeOfficeQuestionnaire = async (req, res, next) => {
   try {
-    if (!canManageOfficeSettings(req.user.role)) return res.status(403).json({ error: { message: 'Access denied' } });
+    if (!(await canManageOfficeSettings(req))) return res.status(403).json({ error: { message: 'Access denied' } });
     const officeId = parseInt(req.params.officeId, 10);
     const moduleId = parseInt(req.params.moduleId, 10);
     if (!officeId || !moduleId) return res.status(400).json({ error: { message: 'Invalid ids' } });

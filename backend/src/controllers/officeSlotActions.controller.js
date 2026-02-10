@@ -5,6 +5,7 @@ import OfficeBookingPlan from '../models/OfficeBookingPlan.model.js';
 import OfficeEvent from '../models/OfficeEvent.model.js';
 import OfficeRoom from '../models/OfficeRoom.model.js';
 import OfficeRoomAssignment from '../models/OfficeRoomAssignment.model.js';
+import ProviderVirtualSlotAvailability from '../models/ProviderVirtualSlotAvailability.model.js';
 import User from '../models/User.model.js';
 import GoogleCalendarService from '../services/googleCalendar.service.js';
 import pool from '../config/database.js';
@@ -12,10 +13,42 @@ import pool from '../config/database.js';
 const canManageSchedule = (role) =>
   role === 'clinical_practice_assistant' || role === 'admin' || role === 'super_admin' || role === 'support' || role === 'staff';
 
+const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+function weekdayHourInTz(dateLike, timeZone) {
+  const d = dateLike instanceof Date ? dateLike : new Date(dateLike);
+  if (Number.isNaN(d.getTime())) return null;
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      weekday: 'long',
+      hour: '2-digit',
+      hour12: false
+    }).formatToParts(d);
+    const weekday = parts.find((p) => p.type === 'weekday')?.value || '';
+    const hourStr = parts.find((p) => p.type === 'hour')?.value || '';
+    const hour = parseInt(hourStr, 10);
+    const idx = WEEKDAY_NAMES.indexOf(weekday);
+    if (idx < 0 || !Number.isInteger(hour)) return null;
+    return { weekdayName: weekday, weekdayIndex: idx, hour };
+  } catch {
+    return null;
+  }
+}
+
 async function requireOfficeAccess(req, officeLocationId) {
   if (req.user.role === 'super_admin') return true;
   const agencies = await User.getAgencies(req.user.id);
   return await OfficeLocationAgency.userHasAccess({ officeLocationId, agencyIds: agencies.map((a) => a.id) });
+}
+
+async function resolveAgencyForProviderOffice({ providerId, officeLocationId }) {
+  const providerAgencies = await User.getAgencies(providerId);
+  const officeAgencies = await OfficeLocationAgency.listAgenciesForOffice(officeLocationId);
+  const providerAgencyIds = new Set((providerAgencies || []).map((a) => Number(a.id)).filter((n) => Number.isInteger(n) && n > 0));
+  const officeAgencyIds = (officeAgencies || []).map((a) => Number(a.id)).filter((n) => Number.isInteger(n) && n > 0);
+  const match = officeAgencyIds.find((id) => providerAgencyIds.has(id));
+  return match || officeAgencyIds[0] || null;
 }
 
 export const setBookingPlan = async (req, res, next) => {
@@ -202,6 +235,141 @@ export const staffBookEvent = async (req, res, next) => {
       // ignore
     }
     res.json({ ok: true, event: updated });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const setEventVirtualIntakeAvailability = async (req, res, next) => {
+  try {
+    const { officeId, eventId } = req.params;
+    const officeLocationId = parseInt(officeId, 10);
+    const eid = parseInt(eventId, 10);
+    if (!officeLocationId || !eid) return res.status(400).json({ error: { message: 'Invalid ids' } });
+
+    const ok = await requireOfficeAccess(req, officeLocationId);
+    if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const ev = await OfficeEvent.findById(eid);
+    if (!ev || Number(ev.office_location_id) !== Number(officeLocationId)) {
+      return res.status(404).json({ error: { message: 'Event not found' } });
+    }
+    const providerId = Number(ev.assigned_provider_id || ev.booked_provider_id || 0) || null;
+    if (!providerId) return res.status(400).json({ error: { message: 'Event is missing assigned provider' } });
+
+    const isOwner = Number(req.user?.id || 0) === providerId;
+    if (!isOwner && !canManageSchedule(req.user?.role)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const enabled = req.body?.enabled !== false && String(req.body?.enabled || '').toLowerCase() !== 'false';
+    const startAt = String(ev.start_at || '').replace('T', ' ').slice(0, 19);
+    const endAt = String(ev.end_at || '').replace('T', ' ').slice(0, 19);
+    if (!startAt || !endAt) return res.status(400).json({ error: { message: 'Event is missing start/end time' } });
+
+    const agencyId = await resolveAgencyForProviderOffice({ providerId, officeLocationId });
+    if (!agencyId) {
+      return res.status(400).json({ error: { message: 'Unable to resolve agency for provider/office' } });
+    }
+
+    if (enabled) {
+      await ProviderVirtualSlotAvailability.upsertSlot({
+        agencyId,
+        providerId,
+        officeLocationId,
+        roomId: Number(ev.room_id || 0) || null,
+        startAt,
+        endAt,
+        sessionType: 'INTAKE',
+        source: 'OFFICE_EVENT',
+        sourceEventId: ev.id,
+        createdByUserId: req.user.id
+      });
+    } else {
+      await ProviderVirtualSlotAvailability.deactivateSlot({
+        agencyId,
+        providerId,
+        startAt,
+        endAt
+      });
+    }
+
+    res.json({ ok: true, enabled, agencyId, providerId, startAt, endAt });
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE') {
+      return res.status(409).json({ error: { message: 'Virtual slot overrides are not available yet. Run database migrations.' } });
+    }
+    next(e);
+  }
+};
+
+export const setEventBookingPlan = async (req, res, next) => {
+  try {
+    const { officeId, eventId } = req.params;
+    const officeLocationId = parseInt(officeId, 10);
+    const eid = parseInt(eventId, 10);
+    if (!officeLocationId || !eid) return res.status(400).json({ error: { message: 'Invalid ids' } });
+
+    const ok = await requireOfficeAccess(req, officeLocationId);
+    if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const ev = await OfficeEvent.findById(eid);
+    if (!ev || Number(ev.office_location_id) !== Number(officeLocationId)) {
+      return res.status(404).json({ error: { message: 'Event not found' } });
+    }
+
+    const freq = String(req.body?.bookedFrequency || '').toUpperCase();
+    if (!['WEEKLY', 'BIWEEKLY', 'MONTHLY'].includes(freq)) {
+      return res.status(400).json({ error: { message: 'bookedFrequency must be WEEKLY, BIWEEKLY, or MONTHLY' } });
+    }
+    const bookingStartDate = String(req.body?.bookingStartDate || String(ev.start_at || '').slice(0, 10)).slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(bookingStartDate)) {
+      return res.status(400).json({ error: { message: 'bookingStartDate must be YYYY-MM-DD' } });
+    }
+
+    const providerId = Number(ev.assigned_provider_id || ev.booked_provider_id || 0) || null;
+    if (!providerId) return res.status(400).json({ error: { message: 'Event is missing assigned provider' } });
+    const isOwner = Number(req.user?.id || 0) === providerId;
+    if (!isOwner && !canManageSchedule(req.user?.role)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const loc = await OfficeLocation.findById(officeLocationId);
+    const tz = String(loc?.timezone || 'America/New_York');
+    const wh = weekdayHourInTz(ev.start_at, tz);
+    if (!wh) return res.status(400).json({ error: { message: 'Invalid event start time' } });
+
+    let assignment = await OfficeStandingAssignment.findActiveBySlot({
+      officeLocationId,
+      roomId: Number(ev.room_id),
+      weekday: wh.weekdayIndex,
+      hour: wh.hour
+    });
+
+    const assignedFrequency = freq === 'BIWEEKLY' ? 'BIWEEKLY' : 'WEEKLY';
+    if (assignment?.id && Number(assignment.provider_id) !== providerId) {
+      return res.status(409).json({ error: { message: 'That slot is already assigned to another provider.' } });
+    }
+    if (!assignment?.id) {
+      assignment = await OfficeStandingAssignment.create({
+        officeLocationId,
+        roomId: Number(ev.room_id),
+        providerId,
+        weekday: wh.weekdayIndex,
+        hour: wh.hour,
+        assignedFrequency,
+        createdByUserId: req.user.id
+      });
+    }
+
+    const plan = await OfficeBookingPlan.upsertActive({
+      standingAssignmentId: assignment.id,
+      bookedFrequency: freq,
+      bookingStartDate,
+      createdByUserId: req.user.id
+    });
+
+    res.json({ ok: true, standingAssignment: assignment, bookingPlan: plan });
   } catch (e) {
     next(e);
   }

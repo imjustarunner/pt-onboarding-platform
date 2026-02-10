@@ -13,13 +13,43 @@
       <div v-else>
         <div v-if="error" class="error-box">{{ error }}</div>
 
-        <div class="section" data-tour="buildings-settings-svg">
-          <div class="section-title">SVG Map Link</div>
+        <div v-if="canManageOfficeSettings" class="section">
+          <div class="section-title">Add Building</div>
           <div class="row">
-            <input v-model="svgUrl" type="url" placeholder="https://.../building.svg" />
-            <button class="btn btn-primary" @click="saveOffice" :disabled="saving || loading">Save</button>
+            <input v-model="newOfficeName" placeholder="Building name" />
+            <select v-if="isSuperAdmin" v-model="newOfficeAgencyId">
+              <option value="">Select agency…</option>
+              <option v-for="a in agencyOrganizations" :key="`new-office-ag-${a.id}`" :value="String(a.id)">
+                {{ a.name }}
+              </option>
+            </select>
+            <input v-model="newOfficeTimezone" placeholder="Timezone (e.g. America/New_York)" />
+            <button class="btn btn-primary" @click="createOffice" :disabled="saving || loading || !newOfficeName.trim() || (isSuperAdmin && !newOfficeAgencyId)">
+              Add building
+            </button>
           </div>
-          <div class="hint">This is the URL stored on the building. (SVG markup caching can be added later.)</div>
+          <div class="hint">
+            For non-super-admin users, the building is created in your primary agency.
+          </div>
+        </div>
+
+        <div class="section" data-tour="buildings-settings-svg">
+          <div class="section-title">Building Details</div>
+          <div class="row">
+            <input v-model="officeName" placeholder="Building name" />
+            <input v-model="officeTimezone" placeholder="Timezone (e.g. America/New_York)" />
+            <input v-model="svgUrl" type="url" placeholder="https://.../building.svg" />
+            <button class="btn btn-primary" @click="saveOffice" :disabled="saving || loading || !canManageOfficeSettings">Save</button>
+            <button class="btn btn-secondary" @click="archiveOffice" :disabled="saving || loading || !canManageOfficeSettings">
+              Archive
+            </button>
+            <button class="btn btn-danger" @click="deleteOfficePermanently" :disabled="saving || loading || !canManageOfficeSettings">
+              Delete
+            </button>
+          </div>
+          <div class="hint">
+            Delete archives then permanently deletes this building and its rooms/events.
+          </div>
         </div>
 
         <div v-if="isSuperAdmin" class="section">
@@ -59,7 +89,7 @@
               <option value="">Select a module…</option>
               <option v-for="m in modules" :key="m.id" :value="String(m.id)">{{ m.title }}</option>
             </select>
-            <button class="btn btn-primary" @click="addQuestionnaire" :disabled="saving || loading || !selectedModuleId">
+            <button class="btn btn-primary" @click="addQuestionnaire" :disabled="saving || loading || !selectedModuleId || !canManageOfficeSettings">
               Add
             </button>
           </div>
@@ -74,7 +104,7 @@
                 <div class="title">{{ q.module_title }}</div>
                 <div class="meta">Module ID: {{ q.module_id }}</div>
               </div>
-              <button class="btn btn-danger btn-sm" @click="removeQuestionnaire(q.module_id)" :disabled="saving">Remove</button>
+              <button class="btn btn-danger btn-sm" @click="removeQuestionnaire(q.module_id)" :disabled="saving || !canManageOfficeSettings">Remove</button>
             </div>
           </div>
         </div>
@@ -83,7 +113,7 @@
           <div class="section-title">Office Types</div>
           <div class="row">
             <input v-model="newRoomTypeName" placeholder="New room type name" />
-            <button class="btn btn-primary" @click="createRoomType" :disabled="saving || loading || !newRoomTypeName.trim()">Add</button>
+            <button class="btn btn-primary" @click="createRoomType" :disabled="saving || loading || !newRoomTypeName.trim() || !canManageOfficeSettings">Add</button>
           </div>
           <div class="chips">
             <span v-for="rt in roomTypes" :key="rt.id" class="chip">{{ rt.name }}</span>
@@ -95,7 +125,7 @@
           <div class="row" data-tour="buildings-settings-rooms-create">
             <input v-model="newRoomNumber" type="number" placeholder="Number" style="max-width: 120px;" />
             <input v-model="newRoomLabel" placeholder="Label (e.g. Office 101)" />
-            <button class="btn btn-primary" @click="createRoom" :disabled="saving || loading || (!newRoomLabel.trim() && !newRoomNumber)">Add</button>
+            <button class="btn btn-primary" @click="createRoom" :disabled="saving || loading || (!newRoomLabel.trim() && !newRoomNumber) || !canManageOfficeSettings">Add</button>
           </div>
           <div v-if="rooms.length === 0" class="muted" style="margin-top: 10px;">No offices yet.</div>
           <div v-else class="list" style="margin-top: 10px;">
@@ -106,8 +136,11 @@
                 </div>
                 <div class="meta">Office ID: {{ r.id }}</div>
                 <div style="margin-top: 10px;">
-                  <button class="btn btn-secondary btn-sm" @click="toggleEditRoom(r)" :disabled="saving || loading">
+                  <button class="btn btn-secondary btn-sm" @click="toggleEditRoom(r)" :disabled="saving || loading || !canManageOfficeSettings">
                     {{ editingRoomIds.has(r.id) ? 'Cancel' : 'Edit' }}
+                  </button>
+                  <button class="btn btn-danger btn-sm" style="margin-left: 8px;" @click="deleteRoom(r)" :disabled="saving || loading || !canManageOfficeSettings">
+                    Delete
                   </button>
                 </div>
 
@@ -144,7 +177,7 @@
                     </div>
                   </div>
                   <div class="row" style="margin-top: 8px; margin-bottom: 0;">
-                    <button class="btn btn-primary btn-sm" @click="saveRoomEdits(r)" :disabled="saving || loading">
+                    <button class="btn btn-primary btn-sm" @click="saveRoomEdits(r)" :disabled="saving || loading || !canManageOfficeSettings">
                       Save changes
                     </button>
                   </div>
@@ -160,7 +193,7 @@
                       type="email"
                       placeholder="office-101@resource.yourdomain.com"
                     />
-                    <button class="btn btn-primary btn-sm" @click="saveRoomGoogleEmail(r)" :disabled="saving || loading">
+                    <button class="btn btn-primary btn-sm" @click="saveRoomGoogleEmail(r)" :disabled="saving || loading || !canManageOfficeSettings">
                       Save
                     </button>
                   </div>
@@ -214,23 +247,38 @@
 
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import api from '../services/api';
 import { useAuthStore } from '../store/auth';
 
 const route = useRoute();
+const router = useRouter();
 const officeId = computed(() => (typeof route.query.officeId === 'string' ? route.query.officeId : ''));
 const authStore = useAuthStore();
 const isSuperAdmin = computed(() => authStore.user?.role === 'super_admin');
+const canManageOfficeSettings = computed(() => {
+  const role = String(authStore.user?.role || '').toLowerCase();
+  const roleAllowed = ['staff', 'admin', 'super_admin', 'clinical_practice_assistant'].includes(role);
+  const skillBuilderCoordinator =
+    authStore.user?.has_skill_builder_coordinator_access === true ||
+    authStore.user?.has_skill_builder_coordinator_access === 1 ||
+    authStore.user?.has_skill_builder_coordinator_access === '1';
+  return roleAllowed || skillBuilderCoordinator;
+});
 
 const loading = ref(false);
 const saving = ref(false);
 const error = ref('');
 
+const officeName = ref('');
+const officeTimezone = ref('America/New_York');
 const svgUrl = ref('');
 const officeAgencies = ref([]);
 const allAgencies = ref([]);
 const selectedAgencyToAdd = ref('');
+const newOfficeName = ref('');
+const newOfficeTimezone = ref('America/New_York');
+const newOfficeAgencyId = ref('');
 
 const availableAgenciesToAdd = computed(() => {
   const assigned = new Set((officeAgencies.value || []).map((a) => Number(a?.id)));
@@ -239,6 +287,11 @@ const availableAgenciesToAdd = computed(() => {
     .filter((a) => !assigned.has(Number(a?.id)))
     .sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')));
 });
+const agencyOrganizations = computed(() =>
+  (allAgencies.value || [])
+    .filter((a) => String(a?.organization_type || 'agency').toLowerCase() === 'agency')
+    .sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')))
+);
 
 const questionnaires = ref([]);
 const modules = ref([]);
@@ -258,7 +311,7 @@ const googleTestRunning = ref(false);
 const googleTestResult = ref(null);
 
 const loadAgencyOptions = async () => {
-  if (!isSuperAdmin.value) return;
+  if (!canManageOfficeSettings.value) return;
   try {
     const resp = await api.get('/agencies');
     allAgencies.value = resp.data || [];
@@ -291,6 +344,8 @@ const loadAll = async () => {
       throw new Error('Failed to load building');
     }
 
+    officeName.value = officeResp.data?.name || '';
+    officeTimezone.value = officeResp.data?.timezone || 'America/New_York';
     svgUrl.value = officeResp.data?.svg_url || '';
     officeAgencies.value = officeResp.data?.agencies || [];
     questionnaires.value = qResp?.data || [];
@@ -327,10 +382,72 @@ const saveOffice = async () => {
   try {
     saving.value = true;
     error.value = '';
-    await api.put(`/offices/${officeId.value}`, { svgUrl: svgUrl.value || null });
+    await api.put(`/offices/${officeId.value}`, {
+      name: officeName.value?.trim() || null,
+      timezone: officeTimezone.value?.trim() || 'America/New_York',
+      svgUrl: svgUrl.value || null
+    });
     await loadAll();
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to save office';
+  } finally {
+    saving.value = false;
+  }
+};
+
+const createOffice = async () => {
+  try {
+    saving.value = true;
+    error.value = '';
+    const payload = {
+      name: newOfficeName.value.trim(),
+      timezone: newOfficeTimezone.value?.trim() || 'America/New_York',
+      svgUrl: null
+    };
+    if (isSuperAdmin.value && newOfficeAgencyId.value) payload.agencyId = Number(newOfficeAgencyId.value);
+    const resp = await api.post('/offices', payload);
+    const createdId = Number(resp?.data?.id || 0) || null;
+    newOfficeName.value = '';
+    if (createdId) {
+      await router.replace({ query: { ...route.query, officeId: String(createdId) } });
+      await loadAll();
+    }
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to create building';
+  } finally {
+    saving.value = false;
+  }
+};
+
+const archiveOffice = async () => {
+  if (!officeId.value) return;
+  const ok = window.confirm('Archive this building? It will be hidden from active building lists.');
+  if (!ok) return;
+  try {
+    saving.value = true;
+    error.value = '';
+    await api.post(`/offices/${officeId.value}/archive`, {});
+    await router.replace({ query: { ...route.query, officeId: undefined } });
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to archive building';
+  } finally {
+    saving.value = false;
+  }
+};
+
+const deleteOfficePermanently = async () => {
+  if (!officeId.value) return;
+  const ok = window.confirm('Delete this building permanently? This will remove related rooms and schedule data.');
+  if (!ok) return;
+  try {
+    saving.value = true;
+    error.value = '';
+    // Delete endpoint requires archived first.
+    await api.post(`/offices/${officeId.value}/archive`, {});
+    await api.delete(`/offices/${officeId.value}`);
+    await router.replace({ query: { ...route.query, officeId: undefined } });
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to delete building';
   } finally {
     saving.value = false;
   }
@@ -451,6 +568,22 @@ const saveRoomEdits = async (room) => {
     await loadAll();
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to save office changes';
+  } finally {
+    saving.value = false;
+  }
+};
+
+const deleteRoom = async (room) => {
+  if (!officeId.value || !room?.id) return;
+  const ok = window.confirm(`Delete office "${room.label || room.name || room.id}"?`);
+  if (!ok) return;
+  try {
+    saving.value = true;
+    error.value = '';
+    await api.delete(`/offices/${officeId.value}/rooms/${room.id}`);
+    await loadAll();
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to delete office';
   } finally {
     saving.value = false;
   }

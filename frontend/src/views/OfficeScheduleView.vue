@@ -200,7 +200,7 @@
                 <option value="BIWEEKLY">Biweekly</option>
                 <option value="MONTHLY">Monthly</option>
               </select>
-              <button class="btn btn-primary" @click="bookSlot" :disabled="saving || !bookFreq || !modalSlot?.standingAssignmentId">
+              <button class="btn btn-primary" @click="bookSlot" :disabled="saving || !bookFreq || (!modalSlot?.standingAssignmentId && !modalSlot?.eventId)">
                 Book
               </button>
             </div>
@@ -240,6 +240,17 @@
             <button class="btn btn-primary" @click="staffBook" :disabled="saving || !modalSlot?.eventId">
               Mark booked for this occurrence
             </button>
+            <div class="muted" style="margin: 10px 0 6px;">
+              Virtual intake toggle (this hour only).
+            </div>
+            <div class="row">
+              <button class="btn btn-secondary" @click="enableVirtualIntake" :disabled="saving || !modalSlot?.eventId">
+                Enable virtual intake
+              </button>
+              <button class="btn btn-secondary" @click="disableVirtualIntake" :disabled="saving || !modalSlot?.eventId">
+                Disable virtual intake
+              </button>
+            </div>
           </div>
         </template>
 
@@ -614,13 +625,22 @@ const assignOpenSlot = async () => {
 };
 
 const bookSlot = async () => {
-  if (!officeId.value || !modalSlot.value?.standingAssignmentId) return;
+  if (!officeId.value) return;
   try {
     saving.value = true;
-    await api.post(`/office-slots/${officeId.value}/assignments/${modalSlot.value.standingAssignmentId}/booking-plan`, {
-      bookedFrequency: bookFreq.value,
-      bookingStartDate: modalSlot.value.date
-    });
+    if (modalSlot.value?.standingAssignmentId) {
+      await api.post(`/office-slots/${officeId.value}/assignments/${modalSlot.value.standingAssignmentId}/booking-plan`, {
+        bookedFrequency: bookFreq.value,
+        bookingStartDate: modalSlot.value.date
+      });
+    } else if (modalSlot.value?.eventId) {
+      await api.post(`/office-slots/${officeId.value}/events/${modalSlot.value.eventId}/booking-plan`, {
+        bookedFrequency: bookFreq.value,
+        bookingStartDate: modalSlot.value.date
+      });
+    } else {
+      return;
+    }
     await loadGrid();
     closeModal();
   } catch (e) {
@@ -685,6 +705,34 @@ const staffBook = async () => {
     closeModal();
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to mark booked';
+  } finally {
+    saving.value = false;
+  }
+};
+
+const enableVirtualIntake = async () => {
+  if (!officeId.value || !modalSlot.value?.eventId) return;
+  try {
+    saving.value = true;
+    await api.post(`/office-slots/${officeId.value}/events/${modalSlot.value.eventId}/virtual-intake`, {
+      enabled: true
+    });
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to enable virtual intake';
+  } finally {
+    saving.value = false;
+  }
+};
+
+const disableVirtualIntake = async () => {
+  if (!officeId.value || !modalSlot.value?.eventId) return;
+  try {
+    saving.value = true;
+    await api.post(`/office-slots/${officeId.value}/events/${modalSlot.value.eventId}/virtual-intake`, {
+      enabled: false
+    });
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to disable virtual intake';
   } finally {
     saving.value = false;
   }
