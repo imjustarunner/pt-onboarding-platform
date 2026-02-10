@@ -671,7 +671,25 @@ export const identifyLogin = async (req, res, next) => {
           byOrg.set(orgId, Number(r?.agency_id || 0) || null);
         }
       } catch {
-        // ignore; table may not exist in older DBs
+        // Fallback for older schemas that used active_agency_id and/or active flags.
+        try {
+          const placeholders = ids.map(() => '?').join(',');
+          const [rows] = await pool.execute(
+            `SELECT organization_id, active_agency_id AS agency_id
+             FROM organization_affiliations
+             WHERE (is_active = TRUE OR active = TRUE)
+               AND organization_id IN (${placeholders})
+             ORDER BY updated_at DESC, id DESC`,
+            ids
+          );
+          for (const r of rows || []) {
+            const orgId = Number(r?.organization_id || 0);
+            if (!orgId || byOrg.has(orgId)) continue;
+            byOrg.set(orgId, Number(r?.agency_id || 0) || null);
+          }
+        } catch {
+          // ignore; table/columns may differ or not exist
+        }
       }
 
       // agency_schools (legacy)
@@ -691,7 +709,25 @@ export const identifyLogin = async (req, res, next) => {
           byOrg.set(orgId, Number(r?.agency_id || 0) || null);
         }
       } catch {
-        // ignore; table may not exist
+        // Fallback for older schemas that used school_id / active_agency_id / active.
+        try {
+          const placeholders = ids.map(() => '?').join(',');
+          const [rows] = await pool.execute(
+            `SELECT school_id AS organization_id, active_agency_id AS agency_id
+             FROM agency_schools
+             WHERE (is_active = TRUE OR active = TRUE)
+               AND school_id IN (${placeholders})
+             ORDER BY updated_at DESC, id DESC`,
+            ids
+          );
+          for (const r of rows || []) {
+            const orgId = Number(r?.organization_id || 0);
+            if (!orgId || byOrg.has(orgId)) continue;
+            byOrg.set(orgId, Number(r?.agency_id || 0) || null);
+          }
+        } catch {
+          // ignore; table/columns may differ or not exist
+        }
       }
 
       for (const o of out) {
