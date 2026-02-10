@@ -354,6 +354,19 @@
                 </div>
               </div>
               <div class="kv">
+                <div class="k">City / State</div>
+                <div class="v">
+                  <input v-model="preScreenLocation" class="input" placeholder="e.g., Denver, CO (optional, helps match)" />
+                </div>
+              </div>
+              <div class="kv">
+                <div class="k">Psychology Today URL</div>
+                <div class="v">
+                  <input v-model="preScreenPsychologyTodayUrl" class="input" placeholder="https://www.psychologytoday.com/us/therapists/..." />
+                  <div class="muted small" style="margin-top:6px;">Optional. If blank, the report will try to find a matching public profile via search.</div>
+                </div>
+              </div>
+              <div class="kv">
                 <div class="k">Resume text</div>
                 <div class="v">
                   <div class="muted small">
@@ -773,13 +786,17 @@ const addNote = async () => {
 // Pre-Screen (AI research)
 const generatingPreScreen = ref(false);
 const preScreenLinkedInUrl = ref('');
+const preScreenPsychologyTodayUrl = ref('');
+const preScreenLocation = ref('');
 const generatePreScreenReport = async () => {
   if (!selectedId.value || !effectiveAgencyId.value) return;
   try {
     generatingPreScreen.value = true;
     const body = {
       candidateName: candidateName.value,
-      linkedInUrl: String(preScreenLinkedInUrl.value || '').trim().slice(0, 800)
+      linkedInUrl: String(preScreenLinkedInUrl.value || '').trim().slice(0, 800),
+      psychologyTodayUrl: String(preScreenPsychologyTodayUrl.value || '').trim().slice(0, 900),
+      candidateLocation: String(preScreenLocation.value || '').trim().slice(0, 180)
     };
     const r = await api.post(`/hiring/candidates/${selectedId.value}/prescreen`, body, { params: { agencyId: effectiveAgencyId.value } });
     // Optimistic update + refresh for canonical latest report.

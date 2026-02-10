@@ -10,10 +10,21 @@ function sanitizeText(v, { maxLen }) {
   return s.length > maxLen ? s.slice(0, maxLen) : s;
 }
 
-function buildPreScreenPrompt({ candidateName, resumeText, linkedInUrl, jobTitle, jobDescriptionText, coverLetterText }) {
+function buildPreScreenPrompt({
+  candidateName,
+  resumeText,
+  linkedInUrl,
+  psychologyTodayUrl,
+  candidateLocation,
+  jobTitle,
+  jobDescriptionText,
+  coverLetterText
+}) {
   const name = sanitizeText(candidateName, { maxLen: 180 });
   const resume = sanitizeText(resumeText, { maxLen: 16000 });
   const linkedin = sanitizeText(linkedInUrl, { maxLen: 500 });
+  const psy = sanitizeText(psychologyTodayUrl, { maxLen: 700 });
+  const loc = sanitizeText(candidateLocation, { maxLen: 180 });
   const jt = sanitizeText(jobTitle, { maxLen: 255 });
   const jd = sanitizeText(jobDescriptionText, { maxLen: 60000 });
   const cl = sanitizeText(coverLetterText, { maxLen: 20000 });
@@ -23,7 +34,9 @@ function buildPreScreenPrompt({ candidateName, resumeText, linkedInUrl, jobTitle
 
   const userPrompt = [
     `Candidate name: ${name || '(not provided)'}`,
+    loc ? `Candidate location (provided): ${loc}` : 'Candidate location (provided): (none)',
     linkedin ? `LinkedIn URL (provided): ${linkedin}` : 'LinkedIn URL (provided): (none)',
+    psy ? `Psychology Today profile URL (provided): ${psy}` : 'Psychology Today profile URL (provided): (none)',
     '',
     'Job posting (provided by recruiter/admin):',
     jt ? `Job title: ${jt}` : 'Job title: (not provided)',
@@ -37,6 +50,7 @@ function buildPreScreenPrompt({ candidateName, resumeText, linkedInUrl, jobTitle
     'Method (be thorough):',
     '- Run multiple targeted searches to disambiguate identity if the name is common.',
     '- Look for professional artifacts: GitHub/GitLab, personal portfolio, publications, conference talks, package registries.',
+    '- If the candidate is likely a therapist/provider, look specifically for their Psychology Today public profile (site:psychologytoday.com). If found, cite it and extract: license type/state, specialties, modalities, and location. Use it only if identity is a confident match.',
     '- Verify each employment claim (company + title + dates) using only publicly available sources. If you cannot verify, say so.',
     '- If results could be a different person, label it "Unverified Potential Match" and explain why.',
     '- Evaluate how the candidate matches the job posting criteria. Be concise and specific.',
@@ -46,6 +60,11 @@ function buildPreScreenPrompt({ candidateName, resumeText, linkedInUrl, jobTitle
     '- Be concise. Prefer bullets over paragraphs.',
     '- Include an "Identity & Match Confidence" section (how you determined it is the same person).',
     '- Include an "Employment Verification" section (table: employer, claimed, public evidence, status).',
+    '- Include a "Psychology Today (if found)" section with:',
+    '  - Profile URL',
+    '  - License (type/state) if listed',
+    '  - Location if listed',
+    '  - Specialties/modality highlights (bullets)',
     '- Include a "Job Match Summary" section with:',
     '  - Strengths (3-8 bullets, each maps to a job requirement).',
     '  - Weaknesses / discussion points (3-8 bullets, each maps to a job requirement).',
@@ -57,7 +76,11 @@ function buildPreScreenPrompt({ candidateName, resumeText, linkedInUrl, jobTitle
     '- Do NOT include or reference private social media.'
   ].join('\n');
 
-  return { systemPrompt, userPrompt, normalized: { name, resume, linkedin, jobTitle: jt, jobDescriptionText: jd, coverLetterText: cl } };
+  return {
+    systemPrompt,
+    userPrompt,
+    normalized: { name, resume, linkedin, psychologyTodayUrl: psy, candidateLocation: loc, jobTitle: jt, jobDescriptionText: jd, coverLetterText: cl }
+  };
 }
 
 function sleep(ms) {
@@ -68,6 +91,8 @@ export async function generatePreScreenReportWithGeminiApiKey({
   candidateName,
   resumeText,
   linkedInUrl,
+  psychologyTodayUrl = '',
+  candidateLocation = '',
   jobTitle = '',
   jobDescriptionText = '',
   coverLetterText = ''
@@ -81,6 +106,8 @@ export async function generatePreScreenReportWithGeminiApiKey({
     candidateName,
     resumeText,
     linkedInUrl,
+    psychologyTodayUrl,
+    candidateLocation,
     jobTitle,
     jobDescriptionText,
     coverLetterText
@@ -132,6 +159,8 @@ export async function generatePreScreenReportWithGoogleSearch({
   candidateName,
   resumeText,
   linkedInUrl,
+  psychologyTodayUrl = '',
+  candidateLocation = '',
   jobTitle = '',
   jobDescriptionText = '',
   coverLetterText = '',
@@ -159,6 +188,8 @@ export async function generatePreScreenReportWithGoogleSearch({
     candidateName,
     resumeText,
     linkedInUrl,
+    psychologyTodayUrl,
+    candidateLocation,
     jobTitle,
     jobDescriptionText,
     coverLetterText
@@ -276,6 +307,8 @@ export async function generatePreScreenReportWithVertexNoSearch({
   candidateName,
   resumeText,
   linkedInUrl,
+  psychologyTodayUrl = '',
+  candidateLocation = '',
   jobTitle = '',
   jobDescriptionText = '',
   coverLetterText = ''
@@ -302,6 +335,8 @@ export async function generatePreScreenReportWithVertexNoSearch({
     candidateName,
     resumeText,
     linkedInUrl,
+    psychologyTodayUrl,
+    candidateLocation,
     jobTitle,
     jobDescriptionText,
     coverLetterText

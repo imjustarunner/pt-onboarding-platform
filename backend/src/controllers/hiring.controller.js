@@ -473,6 +473,8 @@ export const generateCandidatePreScreenReport = async (req, res, next) => {
     }
     resumeText = resumeText.slice(0, 20000);
     const linkedInUrl = String(req.body?.linkedInUrl || '').trim().slice(0, 800);
+    const psychologyTodayUrl = String(req.body?.psychologyTodayUrl || '').trim().slice(0, 900);
+    const candidateLocation = String(req.body?.candidateLocation || '').trim().slice(0, 180);
     const coverLetterText = String(req.body?.coverLetterText || profile?.cover_letter_text || '').trim().slice(0, 20000);
 
     // Prefer job description associated with the candidate profile; allow override via request.
@@ -497,6 +499,8 @@ export const generateCandidatePreScreenReport = async (req, res, next) => {
           candidateName,
           resumeText,
           linkedInUrl,
+          psychologyTodayUrl,
+          candidateLocation,
           jobTitle,
           jobDescriptionText,
           coverLetterText
@@ -515,6 +519,8 @@ export const generateCandidatePreScreenReport = async (req, res, next) => {
             candidateName,
             resumeText,
             linkedInUrl,
+            psychologyTodayUrl,
+            candidateLocation,
             jobTitle,
             jobDescriptionText,
             coverLetterText
@@ -524,6 +530,8 @@ export const generateCandidatePreScreenReport = async (req, res, next) => {
             candidateName,
             resumeText,
             linkedInUrl,
+            psychologyTodayUrl,
+            candidateLocation,
             jobTitle,
             jobDescriptionText,
             coverLetterText
