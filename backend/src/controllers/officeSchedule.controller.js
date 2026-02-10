@@ -33,6 +33,11 @@ function localYmdInTz(dateLike, timeZone) {
   }
 }
 
+function isoForDateHour(dateStr, hour24) {
+  const hh = String(hour24).padStart(2, '0');
+  return new Date(`${dateStr}T${hh}:00:00`).toISOString();
+}
+
 const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 function weekdayHourInTz(dateLike, timeZone) {
