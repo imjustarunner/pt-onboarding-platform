@@ -55,18 +55,18 @@ export function verifySignedState(state, { maxAgeMs = 10 * 60 * 1000 } = {}) {
   }
 }
  
-export function getGoogleOAuthClient() {
+export function getGoogleOAuthClient({ redirectUri: redirectUriOverride = null } = {}) {
   const clientId = getClientId();
   const clientSecret = getClientSecret();
-  const redirectUri = getRedirectUri();
+  const redirectUri = String(redirectUriOverride || getRedirectUri() || '').trim();
   if (!clientId || !clientSecret || !redirectUri) {
     throw new Error('Google OAuth is not configured (GOOGLE_OAUTH_CLIENT_ID/SECRET/REDIRECT_URI)');
   }
   return new google.auth.OAuth2(clientId, clientSecret, redirectUri);
 }
  
-export function getGoogleAuthorizeUrl({ state, nonce, prompt = 'select_account' }) {
-  const client = getGoogleOAuthClient();
+export function getGoogleAuthorizeUrl({ state, nonce, prompt = 'select_account', redirectUri = null }) {
+  const client = getGoogleOAuthClient({ redirectUri });
   return client.generateAuthUrl({
     access_type: 'online',
     response_type: 'code',
@@ -77,8 +77,8 @@ export function getGoogleAuthorizeUrl({ state, nonce, prompt = 'select_account' 
   });
 }
  
-export async function exchangeCodeForTokens({ code }) {
-  const client = getGoogleOAuthClient();
+export async function exchangeCodeForTokens({ code, redirectUri = null }) {
+  const client = getGoogleOAuthClient({ redirectUri });
   const { tokens } = await client.getToken(String(code));
   return tokens;
 }

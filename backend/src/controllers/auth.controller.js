@@ -868,6 +868,46 @@ export const logout = async (req, res, next) => {
 
 export const googleOAuthStart = async (req, res, next) => {
   try {
+    const getRequestHost = () => {
+      const xfHost = req.get('x-forwarded-host');
+      const raw = (xfHost || req.get('host') || req.hostname || '').toString();
+      if (!raw) return null;
+      return raw.split(',')[0].trim().toLowerCase();
+    };
+    const getRequestProto = () => {
+      const xfProto = req.get('x-forwarded-proto');
+      const raw = (xfProto || req.protocol || 'https').toString();
+      const p = raw.split(',')[0].trim().toLowerCase();
+      return p === 'http' || p === 'https' ? p : 'https';
+    };
+    const getAllowedRedirectHosts = () => {
+      const out = new Set();
+      try {
+        const base = String(process.env.GOOGLE_OAUTH_REDIRECT_URI || '').trim();
+        if (base) out.add(new URL(base).host.toLowerCase());
+      } catch {
+        // ignore
+      }
+      const extra = String(process.env.GOOGLE_OAUTH_ALLOWED_REDIRECT_HOSTS || '').trim();
+      if (extra) {
+        for (const h of extra.split(',').map((v) => v.trim().toLowerCase()).filter(Boolean)) {
+          out.add(h);
+        }
+      }
+      return out;
+    };
+    const buildOAuthRedirectUriForRequest = () => {
+      const fallback = String(process.env.GOOGLE_OAUTH_REDIRECT_URI || '').trim();
+      const host = getRequestHost();
+      const proto = getRequestProto();
+      if (!host) return fallback;
+      const allowedHosts = getAllowedRedirectHosts();
+      if (allowedHosts.has(host)) {
+        return `${proto}://${host}/api/auth/google/callback`;
+      }
+      return fallback;
+    };
+
     const orgSlugRaw = req.query?.orgSlug || req.query?.organizationSlug || null;
     const orgSlug = orgSlugRaw ? String(orgSlugRaw).trim().toLowerCase() : null;
     if (!orgSlug) {
@@ -880,11 +920,12 @@ export const googleOAuthStart = async (req, res, next) => {
       return res.status(404).send('Organization not found');
     }
 
-    const state = createGoogleState({ orgSlug });
+    const redirectUri = buildOAuthRedirectUriForRequest();
+    const state = createGoogleState({ orgSlug, redirectUri });
     const payload = verifyGoogleState(state);
     const nonce = payload?.nonce || null;
 
-    const authUrl = getGoogleAuthorizeUrl({ state, nonce });
+    const authUrl = getGoogleAuthorizeUrl({ state, nonce, redirectUri });
     return res.redirect(302, authUrl);
   } catch (error) {
     next(error);
@@ -895,16 +936,67 @@ export const googleOAuthCallback = async (req, res, next) => {
   try {
     const { code, state, error: oauthError, error_description } = req.query;
 
-    const redirectToLogin = (orgSlug, msg) => {
+    const getRequestHost = () => {
+      const xfHost = req.get('x-forwarded-host');
+      const raw = (xfHost || req.get('host') || req.hostname || '').toString();
+      if (!raw) return null;
+      return raw.split(',')[0].trim().toLowerCase();
+    };
+    const getRequestProto = () => {
+      const xfProto = req.get('x-forwarded-proto');
+      const raw = (xfProto || req.protocol || 'https').toString();
+      const p = raw.split(',')[0].trim().toLowerCase();
+      return p === 'http' || p === 'https' ? p : 'https';
+    };
+    const getAllowedRedirectHosts = () => {
+      const out = new Set();
+      try {
+        const base = String(process.env.GOOGLE_OAUTH_REDIRECT_URI || '').trim();
+        if (base) out.add(new URL(base).host.toLowerCase());
+      } catch {
+        // ignore
+      }
+      const extra = String(process.env.GOOGLE_OAUTH_ALLOWED_REDIRECT_HOSTS || '').trim();
+      if (extra) {
+        for (const h of extra.split(',').map((v) => v.trim().toLowerCase()).filter(Boolean)) {
+          out.add(h);
+        }
+      }
+      return out;
+    };
+    const buildOAuthRedirectUriForRequest = () => {
+      const fallback = String(process.env.GOOGLE_OAUTH_REDIRECT_URI || '').trim();
+      const host = getRequestHost();
+      const proto = getRequestProto();
+      if (!host) return fallback;
+      const allowedHosts = getAllowedRedirectHosts();
+      if (allowedHosts.has(host)) {
+        return `${proto}://${host}/api/auth/google/callback`;
+      }
+      return fallback;
+    };
+    const frontendBaseFromRedirectUri = (redirectUri) => {
+      try {
+        const u = new URL(String(redirectUri || '').trim());
+        return `${u.protocol}//${u.host}`;
+      } catch {
+        return config.frontendUrl;
+      }
+    };
+
+    const reqRedirectUri = buildOAuthRedirectUriForRequest();
+    const reqFrontendBase = frontendBaseFromRedirectUri(reqRedirectUri);
+
+    const redirectToLogin = (orgSlug, msg, frontendBase = reqFrontendBase) => {
       const safeSlug = String(orgSlug || '').trim() || '';
-      const url = new URL(config.frontendUrl);
+      const url = new URL(frontendBase || config.frontendUrl);
       url.pathname = safeSlug ? `/${safeSlug}/login` : '/login';
       if (msg) url.searchParams.set('error', String(msg));
       return res.redirect(302, url.toString());
     };
 
     if (oauthError) {
-      return redirectToLogin('', error_description || oauthError);
+      return redirectToLogin('', error_description || oauthError, reqFrontendBase);
     }
 
     if (!code || !state) {
@@ -916,19 +1008,21 @@ export const googleOAuthCallback = async (req, res, next) => {
       return res.status(400).send('Invalid or expired state');
     }
     const orgSlug = String(verified.orgSlug || '').trim().toLowerCase();
+    const redirectUri = String(verified?.redirectUri || reqRedirectUri || '').trim();
+    const frontendBase = frontendBaseFromRedirectUri(redirectUri);
 
     const org = (await Agency.findBySlug(orgSlug)) || (await Agency.findByPortalUrl(orgSlug));
     if (!org) {
-      return redirectToLogin(orgSlug, 'Organization not found');
+      return redirectToLogin(orgSlug, 'Organization not found', frontendBase);
     }
 
-    const tokens = await exchangeCodeForTokens({ code: String(code) });
+    const tokens = await exchangeCodeForTokens({ code: String(code), redirectUri });
     const idToken = tokens?.id_token || null;
     if (!idToken) {
-      return redirectToLogin(orgSlug, 'Google sign-in failed (missing id_token)');
+      return redirectToLogin(orgSlug, 'Google sign-in failed (missing id_token)', frontendBase);
     }
 
-    const oauthClient = getGoogleOAuthClient();
+    const oauthClient = getGoogleOAuthClient({ redirectUri });
     const ticket = await oauthClient.verifyIdToken({
       idToken,
       audience: process.env.GOOGLE_OAUTH_CLIENT_ID
@@ -938,7 +1032,7 @@ export const googleOAuthCallback = async (req, res, next) => {
     const emailVerified = claims?.email_verified === true || claims?.email_verified === 'true';
     const nonceOk = !verified?.nonce || String(claims?.nonce || '') === String(verified.nonce || '');
     if (!email || !emailVerified || !nonceOk) {
-      return redirectToLogin(orgSlug, 'Google sign-in could not be verified');
+      return redirectToLogin(orgSlug, 'Google sign-in could not be verified', frontendBase);
     }
 
     // Domain enforcement (multi-domain allowlist)
@@ -954,13 +1048,13 @@ export const googleOAuthCallback = async (req, res, next) => {
     if (allowedDomains.length > 0) {
       const domain = email.includes('@') ? email.split('@')[1] : '';
       if (!domain || !allowedDomains.includes(domain)) {
-        return redirectToLogin(orgSlug, 'Your Google account is not allowed for this organization');
+        return redirectToLogin(orgSlug, 'Your Google account is not allowed for this organization', frontendBase);
       }
     }
 
     const user = await User.findByEmail(email);
     if (!user) {
-      return redirectToLogin(orgSlug, 'No user account matches this Google email');
+      return redirectToLogin(orgSlug, 'No user account matches this Google email', frontendBase);
     }
 
     // Enforce org membership (unless super admin)
@@ -969,7 +1063,7 @@ export const googleOAuthCallback = async (req, res, next) => {
       const userOrgs = await User.getAgencies(user.id);
       const ok = (userOrgs || []).some((o) => String(o?.slug || o?.portal_url || '').toLowerCase() === orgSlug || Number(o?.id) === Number(org?.id));
       if (!ok) {
-        return redirectToLogin(orgSlug, 'You are not authorized to access this organization');
+        return redirectToLogin(orgSlug, 'You are not authorized to access this organization', frontendBase);
       }
     }
 
@@ -994,7 +1088,7 @@ export const googleOAuthCallback = async (req, res, next) => {
       }
     }, req);
 
-    const url = new URL(config.frontendUrl);
+    const url = new URL(frontendBase || config.frontendUrl);
     url.pathname = `/${orgSlug}/dashboard`;
     return res.redirect(302, url.toString());
   } catch (error) {
