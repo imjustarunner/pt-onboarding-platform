@@ -793,10 +793,9 @@
               <div class="form-group" style="margin-top: 12px;">
                 <label>Allowed Google domains</label>
                 <textarea
-                  :value="(agencyForm.featureFlags.googleSsoAllowedDomains || []).join('\\n')"
+                  v-model="googleSsoAllowedDomainsText"
                   rows="3"
                   placeholder="itsco.health&#10;plottwistco.com"
-                  @input="agencyForm.featureFlags.googleSsoAllowedDomains = String($event.target.value || '').split(/\\r?\\n|,/).map(s => s.trim().toLowerCase()).filter(Boolean)"
                 ></textarea>
                 <small class="hint">One per line (or comma-separated). Leave blank to allow any domain (not recommended).</small>
               </div>
@@ -4697,6 +4696,23 @@ const defaultAgencyForm = () => ({
 });
 
 const agencyForm = ref(defaultAgencyForm());
+
+const googleSsoAllowedDomainsText = computed({
+  get() {
+    const list = agencyForm.value?.featureFlags?.googleSsoAllowedDomains;
+    return Array.isArray(list) ? list.join('\n') : '';
+  },
+  set(value) {
+    const parsed = String(value || '')
+      .split(/\r?\n|,/)
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean);
+    if (!agencyForm.value.featureFlags || typeof agencyForm.value.featureFlags !== 'object') {
+      agencyForm.value.featureFlags = {};
+    }
+    agencyForm.value.featureFlags.googleSsoAllowedDomains = parsed;
+  }
+});
 
 // -------------------------
 // School Staff (contacts + accounts)

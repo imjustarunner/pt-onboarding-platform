@@ -10,16 +10,6 @@
         
         <div v-if="error" class="error" v-html="formatError(error)"></div>
 
-        <button
-          v-if="showGoogleButton && showPassword"
-          type="button"
-          class="btn btn-secondary"
-          :disabled="loading || loadingOrgPolicy"
-          @click="continueWithGoogle"
-        >
-          {{ loadingOrgPolicy ? 'Loading...' : 'Continue with Google' }}
-        </button>
-
         <form @submit.prevent="handleSubmit" class="login-form">
           <div class="form-group">
             <label for="username">Username</label>
@@ -30,7 +20,7 @@
               required
               placeholder="Enter your username"
               autocomplete="username"
-              :disabled="loading || verifying || loadingOrgPolicy"
+              :disabled="loading || verifying"
               @blur="maybeVerify"
             />
           </div>
@@ -264,7 +254,6 @@ onMounted(async () => {
   if (isOrgLogin.value && loginSlug.value) {
     // Fetch agency-specific login theme
     await fetchLoginTheme(loginSlug.value);
-    await loadOrgPolicy();
   } else {
     // Platform login: ensure no stale org theme sticks around.
     // On custom-domain portals (or <portal>.app.<base> portals), /login should remain branded.
@@ -313,7 +302,6 @@ onMounted(async () => {
 watch(loginSlug, async (newSlug, oldSlug) => {
   if (newSlug && newSlug !== oldSlug) {
     await fetchLoginTheme(newSlug);
-    await loadOrgPolicy();
   }
   if (!newSlug && oldSlug) {
     loginTheme.value = null;
@@ -323,7 +311,6 @@ watch(loginSlug, async (newSlug, oldSlug) => {
     } else {
       await brandingStore.initializePortalTheme();
     }
-    orgPolicy.value = { googleSsoEnabled: false };
   }
 });
 
@@ -341,8 +328,6 @@ const lastVerifiedUsername = ref('');
 const showForgotPasswordMessage = ref(false);
 const showForgotUsernameMessage = ref(false);
 const lastErrorCode = ref(null);
-const loadingOrgPolicy = ref(false);
-const orgPolicy = ref({ googleSsoEnabled: false });
 
 // Recovery state (forgot password/username)
 const recoveryLoading = ref(false);
@@ -353,11 +338,6 @@ const forgotPasswordEmail = ref('');
 const recoverFirstName = ref('');
 const recoverLastName = ref('');
 const recoverRole = ref('');
-
-const showGoogleButton = computed(() => {
-  if (!isOrgLogin.value) return false;
-  return orgPolicy.value?.googleSsoEnabled === true || lastErrorCode.value === 'SSO_REQUIRED';
-});
 
 const continueWithGoogle = () => {
   if (!loginSlug.value) return;
@@ -502,30 +482,6 @@ const handleSubmit = async () => {
     return;
   }
   await handleLogin();
-};
-
-const loadOrgPolicy = async () => {
-  if (!isOrgLogin.value || !loginSlug.value) {
-    orgPolicy.value = { googleSsoEnabled: false };
-    return;
-  }
-  try {
-    loadingOrgPolicy.value = true;
-    const resp = await api.get(`/agencies/slug/${String(loginSlug.value).trim().toLowerCase()}`);
-    const org = resp?.data || null;
-    const rawFlags = org?.feature_flags ?? null;
-    const flags =
-      rawFlags && typeof rawFlags === 'string'
-        ? (() => { try { return JSON.parse(rawFlags); } catch { return {}; } })()
-        : (rawFlags && typeof rawFlags === 'object' ? rawFlags : {});
-    orgPolicy.value = {
-      googleSsoEnabled: flags?.googleSsoEnabled === true
-    };
-  } catch {
-    orgPolicy.value = { googleSsoEnabled: false };
-  } finally {
-    loadingOrgPolicy.value = false;
-  }
 };
 
 const handleLogin = async () => {
