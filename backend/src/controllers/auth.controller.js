@@ -63,17 +63,25 @@ const isDomainAllowedForOrg = ({ email, featureFlags }) => {
 };
 const isWorkspaceEligibleForSso = ({ user, identifier, featureFlags }) => {
   const normalizedIdentifier = String(identifier || '').trim().toLowerCase();
-  if (!normalizedIdentifier || !normalizedIdentifier.includes('@')) return false;
   const userRole = String(user?.role || '').toLowerCase();
   const ssoPolicyRequired = isSsoPolicyRequiredForRole({ featureFlags, userRole });
   if (!ssoPolicyRequired || isSsoPasswordOverrideEnabled(user)) return false;
 
-  // Only enforce/auto-route when identifier is the user's workspace email.
-  const workEmail = String(user?.work_email || '').trim().toLowerCase();
-  if (!workEmail || normalizedIdentifier !== workEmail) return false;
+  // Use the user's canonical workspace identity first; fall back to primary email for older records.
+  const workspaceEmail = String(user?.work_email || user?.email || '').trim().toLowerCase();
+  if (!workspaceEmail || !workspaceEmail.includes('@')) return false;
 
-  // If org configured domain allowlist, workspace email must satisfy it.
-  return isDomainAllowedForOrg({ email: workEmail, featureFlags });
+  // If org configured domain allowlist, canonical workspace identity must satisfy it.
+  if (!isDomainAllowedForOrg({ email: workspaceEmail, featureFlags })) return false;
+
+  // Allow username-first identify to trigger Google when they entered a known primary identifier.
+  if (!normalizedIdentifier) return false;
+  const primaryIds = new Set([
+    String(user?.email || '').trim().toLowerCase(),
+    String(user?.work_email || '').trim().toLowerCase(),
+    String(user?.username || '').trim().toLowerCase()
+  ].filter(Boolean));
+  return primaryIds.has(normalizedIdentifier);
 };
 
 export const approvedEmployeeLogin = async (req, res, next) => {
