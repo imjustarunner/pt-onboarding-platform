@@ -52,6 +52,29 @@ const isSsoPolicyRequiredForRole = ({ featureFlags, userRole }) => {
     : [];
   return ssoEnabled && requiredRoles.includes(String(userRole || '').toLowerCase()) && !SSO_EXCLUDED_ROLES.has(String(userRole || '').toLowerCase());
 };
+const isDomainAllowedForOrg = ({ email, featureFlags }) => {
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  const domain = normalizedEmail.includes('@') ? normalizedEmail.split('@')[1] : '';
+  const allowedDomains = Array.isArray(featureFlags?.googleSsoAllowedDomains)
+    ? featureFlags.googleSsoAllowedDomains.map((d) => String(d || '').trim().toLowerCase()).filter(Boolean)
+    : [];
+  if (!allowedDomains.length) return true;
+  return !!domain && allowedDomains.includes(domain);
+};
+const isWorkspaceEligibleForSso = ({ user, identifier, featureFlags }) => {
+  const normalizedIdentifier = String(identifier || '').trim().toLowerCase();
+  if (!normalizedIdentifier || !normalizedIdentifier.includes('@')) return false;
+  const userRole = String(user?.role || '').toLowerCase();
+  const ssoPolicyRequired = isSsoPolicyRequiredForRole({ featureFlags, userRole });
+  if (!ssoPolicyRequired || isSsoPasswordOverrideEnabled(user)) return false;
+
+  // Only enforce/auto-route when identifier is the user's workspace email.
+  const workEmail = String(user?.work_email || '').trim().toLowerCase();
+  if (!workEmail || normalizedIdentifier !== workEmail) return false;
+
+  // If org configured domain allowlist, workspace email must satisfy it.
+  return isDomainAllowedForOrg({ email: workEmail, featureFlags });
+};
 
 export const approvedEmployeeLogin = async (req, res, next) => {
   try {
@@ -285,9 +308,7 @@ export const login = async (req, res, next) => {
       try {
         const org = (await Agency.findBySlug(orgSlug)) || (await Agency.findByPortalUrl(orgSlug));
         const featureFlags = parseFeatureFlags(org?.feature_flags ?? null);
-        const userRole = String(user.role || '').toLowerCase();
-        const ssoPolicyRequired = isSsoPolicyRequiredForRole({ featureFlags, userRole });
-        if (ssoPolicyRequired && !isSsoPasswordOverrideEnabled(user)) {
+        if (isWorkspaceEligibleForSso({ user, identifier, featureFlags })) {
           return res.status(403).json({
             error: {
               message: 'This organization requires Google sign-in. Please continue with Google.',
@@ -748,19 +769,7 @@ export const identifyLogin = async (req, res, next) => {
       try {
         const org = (await Agency.findBySlug(resolvedSlug)) || (await Agency.findByPortalUrl(resolvedSlug));
         const flags = parseFeatureFlags(org?.feature_flags ?? null);
-        const ssoPolicyRequired = isSsoPolicyRequiredForRole({ featureFlags: flags, userRole });
-        const ssoOverrideEnabled = isSsoPasswordOverrideEnabled(user);
-
-        // Only auto-Google when the typed username matches the user's primary login email/username
-        // (prevents redirect loops when they typed a legacy alias that doesn't match Google email).
-        const sameAsPrimary = (() => {
-          const uEmail = String(user?.email || '').trim().toLowerCase();
-          const uWork = String(user?.work_email || '').trim().toLowerCase();
-          const uUser = String(user?.username || '').trim().toLowerCase();
-          return normalizedUsername && (normalizedUsername === uEmail || normalizedUsername === uWork || normalizedUsername === uUser);
-        })();
-
-        if (ssoPolicyRequired && !ssoOverrideEnabled && normalizedUsername.includes('@') && sameAsPrimary) {
+        if (isWorkspaceEligibleForSso({ user, identifier: normalizedUsername, featureFlags: flags })) {
           loginMethod = 'google';
           googleStartUrl = `/auth/google/start?orgSlug=${encodeURIComponent(resolvedSlug)}`;
         }
@@ -1781,9 +1790,7 @@ export const requestPasswordReset = async (req, res, next) => {
     try {
       const agency = await resolvePrimaryAgencyForUser(user.id, orgSlug);
       const featureFlags = parseFeatureFlags(agency?.feature_flags ?? null);
-      const userRole = String(user?.role || '').toLowerCase();
-      const ssoPolicyRequired = isSsoPolicyRequiredForRole({ featureFlags, userRole });
-      if (ssoPolicyRequired && !isSsoPasswordOverrideEnabled(user)) {
+      if (isWorkspaceEligibleForSso({ user, identifier: requestedEmail, featureFlags })) {
         return safeGenericRecoveryResponse(res);
       }
     } catch {
