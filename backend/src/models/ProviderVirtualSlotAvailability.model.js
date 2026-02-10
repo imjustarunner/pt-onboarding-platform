@@ -44,27 +44,37 @@ class ProviderVirtualSlotAvailability {
   }
 
   static async deactivateSlot({ agencyId, providerId, startAt, endAt }) {
-    const [result] = await pool.execute(
-      `UPDATE provider_virtual_slot_availability
-       SET is_active = FALSE, updated_at = CURRENT_TIMESTAMP
-       WHERE agency_id = ?
-         AND provider_id = ?
-         AND start_at = ?
-         AND end_at = ?`,
-      [agencyId, providerId, startAt, endAt]
-    );
-    return Number(result?.affectedRows || 0);
+    try {
+      const [result] = await pool.execute(
+        `UPDATE provider_virtual_slot_availability
+         SET is_active = FALSE, updated_at = CURRENT_TIMESTAMP
+         WHERE agency_id = ?
+           AND provider_id = ?
+           AND start_at = ?
+           AND end_at = ?`,
+        [agencyId, providerId, startAt, endAt]
+      );
+      return Number(result?.affectedRows || 0);
+    } catch (e) {
+      if (e?.code === 'ER_NO_SUCH_TABLE') return 0;
+      throw e;
+    }
   }
 
   static async deactivateBySourceEventId(sourceEventId) {
-    const [result] = await pool.execute(
-      `UPDATE provider_virtual_slot_availability
-       SET is_active = FALSE, updated_at = CURRENT_TIMESTAMP
-       WHERE source = 'OFFICE_EVENT'
-         AND source_event_id = ?`,
-      [sourceEventId]
-    );
-    return Number(result?.affectedRows || 0);
+    try {
+      const [result] = await pool.execute(
+        `UPDATE provider_virtual_slot_availability
+         SET is_active = FALSE, updated_at = CURRENT_TIMESTAMP
+         WHERE source = 'OFFICE_EVENT'
+           AND source_event_id = ?`,
+        [sourceEventId]
+      );
+      return Number(result?.affectedRows || 0);
+    } catch (e) {
+      if (e?.code === 'ER_NO_SUCH_TABLE') return 0;
+      throw e;
+    }
   }
 }
 
