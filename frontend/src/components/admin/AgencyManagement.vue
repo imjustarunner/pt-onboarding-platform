@@ -3063,6 +3063,10 @@ const agencyStore = useAgencyStore();
 const route = useRoute();
 const router = useRouter();
 const userRole = computed(() => authStore.user?.role);
+const organizationSlug = computed(() => {
+  const slug = route.params?.organizationSlug;
+  return typeof slug === 'string' && slug.trim() ? slug.trim() : '';
+});
 
 const props = defineProps({
   // Embedded single-organization mode (used by School Portal settings).
@@ -5716,10 +5720,11 @@ const editAgency = async (agency) => {
   const orgTypeEarly = String(agency?.organization_type || agency?.organizationType || '').toLowerCase();
   if (agency?.__kind === 'building' || orgTypeEarly === 'office') {
     const officeId = agency?.id;
+    const path = organizationSlug.value ? `/${organizationSlug.value}/buildings/settings` : '/buildings/settings';
     if (officeId) {
-      router.push({ path: '/buildings/settings', query: { officeId: String(officeId) } });
+      router.push({ path, query: { officeId: String(officeId) } });
     } else {
-      router.push({ path: '/buildings/settings' });
+      router.push({ path });
     }
     return;
   }
