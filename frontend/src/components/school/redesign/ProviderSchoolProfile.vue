@@ -57,6 +57,18 @@
               <div v-if="profile?.credential" class="sub">{{ profile.credential }}</div>
               <div v-if="profile?.service_focus" class="sub">{{ profile.service_focus }}</div>
               <div v-if="providerContactLine" class="sub">{{ providerContactLine }}</div>
+              <div v-if="acceptedInsuranceLabels.length" class="insurance-row">
+                <div class="insurance-label">Accepted insurance</div>
+                <div class="insurance-list">
+                  <span
+                    v-for="name in acceptedInsuranceLabels"
+                    :key="`insurance-${name}`"
+                    class="insurance-pill"
+                  >
+                    {{ name }}
+                  </span>
+                </div>
+              </div>
               <div v-if="normalizedSupervisors.length" class="supervisor-row">
                 <div class="supervisor-label">Supervisors</div>
                 <div class="supervisor-list">
@@ -437,6 +449,13 @@ const normalizedSupervisors = computed(() => {
   return [];
 });
 
+const acceptedInsuranceLabels = computed(() => {
+  const items = Array.isArray(profile.value?.insurances_accepted) ? profile.value.insurances_accepted : [];
+  return items
+    .map((x) => String(x?.label || x?.insurance_key || '').trim())
+    .filter(Boolean);
+});
+
 const computeFiscalYearStartYmd = (d) => {
   const dt = d instanceof Date ? d : new Date(d);
   if (Number.isNaN(dt.getTime())) return '';
@@ -782,6 +801,32 @@ watch(
   margin-top: 10px;
   display: grid;
   gap: 6px;
+}
+.insurance-row {
+  margin-top: 10px;
+  display: grid;
+  gap: 6px;
+}
+.insurance-label {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text-secondary);
+}
+.insurance-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.insurance-pill {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text-primary);
 }
 .supervisor-list {
   display: flex;

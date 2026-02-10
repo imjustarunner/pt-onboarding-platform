@@ -11,6 +11,40 @@ import {
 } from '../utils/supervisorSchoolAccess.js';
 
 const allowedDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+const missingSchemaError = (e) => {
+  const msg = String(e?.message || '');
+  return (
+    msg.includes("doesn't exist") ||
+    msg.includes('ER_NO_SUCH_TABLE') ||
+    msg.includes('Unknown column') ||
+    msg.includes('ER_BAD_FIELD_ERROR')
+  );
+};
+
+const normalizeCredentialToken = (raw) =>
+  String(raw ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+
+const isBachelorsCredentialText = (raw) => {
+  const s = String(raw ?? '').trim();
+  if (!s) return false;
+  const lower = s.toLowerCase();
+  if (lower.includes('bachelor')) return true;
+  if (/\bba\b/i.test(s)) return true;
+  if (/\bbs\b/i.test(s)) return true;
+  if (/\bb\.a\.\b/i.test(lower)) return true;
+  if (/\bb\.s\.\b/i.test(lower)) return true;
+  return false;
+};
+
+const parseBooleanLike = (raw) => {
+  if (raw === true || raw === 1 || raw === '1') return true;
+  const s = String(raw ?? '').trim().toLowerCase();
+  return s === 'true' || s === 'yes' || s === 'y';
+};
 
 const normalizeDay = (d) => {
   const s = String(d || '').trim();
@@ -50,6 +84,16 @@ async function ensureSchoolAccess(req, schoolId) {
   }
 
   return { ok: true, school };
+}
+
+async function getActiveAgencyIdForSchool(schoolId) {
+  const schoolOrgId = parseInt(schoolId, 10);
+  if (!schoolOrgId) return null;
+  return (
+    (await OrganizationAffiliation.getActiveAgencyIdForOrganization(schoolOrgId)) ||
+    (await AgencySchool.getActiveAgencyIdForSchool(schoolOrgId)) ||
+    null
+  );
 }
 
 async function ensureSupervisorCanAccessProvider({ req, access, providerUserId }) {
@@ -125,6 +169,103 @@ async function ensureProviderAffiliated(providerUserId, schoolId) {
   }
 }
 
+async function computeAcceptedInsurances({ agencyId, providerUserId, credentialText }) {
+  const aid = parseInt(agencyId, 10);
+  const uid = parseInt(providerUserId, 10);
+  if (!aid || !uid) return { accepted: [], acceptsTricareOverride: false };
+
+  try {
+    const [insuranceRows] = await pool.execute(
+      `SELECT id, insurance_key, label
+       FROM insurance_types
+       WHERE agency_id = ? AND is_active = TRUE
+       ORDER BY label ASC`,
+      [aid]
+    );
+    if (!insuranceRows?.length) return { accepted: [], acceptsTricareOverride: false };
+
+    const insuranceById = new Map((insuranceRows || []).map((r) => [Number(r.id), r]));
+    const insuranceByKey = new Map((insuranceRows || []).map((r) => [String(r.insurance_key || '').toLowerCase(), r]));
+
+    const [credentialRows] = await pool.execute(
+      `SELECT id, credential_key, label
+       FROM provider_credentials
+       WHERE agency_id = ? AND is_active = TRUE`,
+      [aid]
+    );
+    const normalizedCredentialText = normalizeCredentialToken(credentialText);
+    let resolvedCredential = null;
+    if (normalizedCredentialText) {
+      resolvedCredential =
+        (credentialRows || []).find((r) => normalizeCredentialToken(r.credential_key) === normalizedCredentialText) ||
+        (credentialRows || []).find((r) => normalizeCredentialToken(r.label) === normalizedCredentialText) ||
+        null;
+    }
+
+    const bachelorsDetected = isBachelorsCredentialText(credentialText);
+    if (!resolvedCredential && bachelorsDetected) {
+      resolvedCredential =
+        (credentialRows || []).find((r) => normalizeCredentialToken(r.credential_key) === 'bachelors') ||
+        (credentialRows || []).find((r) => normalizeCredentialToken(r.label).includes('bachelor')) ||
+        null;
+    }
+
+    const acceptedKeys = new Set();
+    if (resolvedCredential?.id) {
+      const [eligRows] = await pool.execute(
+        `SELECT insurance_type_id
+         FROM credential_insurance_eligibility
+         WHERE credential_id = ? AND is_allowed = TRUE`,
+        [Number(resolvedCredential.id)]
+      );
+      for (const row of eligRows || []) {
+        const insurance = insuranceById.get(Number(row.insurance_type_id));
+        if (insurance?.insurance_key) acceptedKeys.add(String(insurance.insurance_key).toLowerCase());
+      }
+    }
+
+    // Defensive fallback for agencies that have not configured matrix rows for bachelors yet.
+    if (acceptedKeys.size === 0 && bachelorsDetected) {
+      if (insuranceByKey.has('medicaid')) acceptedKeys.add('medicaid');
+      if (insuranceByKey.has('self_pay')) acceptedKeys.add('self_pay');
+    }
+
+    let acceptsTricareOverride = false;
+    try {
+      const [tricareRows] = await pool.execute(
+        `SELECT uiv.value
+         FROM user_info_values uiv
+         JOIN user_info_field_definitions uifd ON uifd.id = uiv.field_definition_id
+         WHERE uiv.user_id = ?
+           AND uifd.field_key = 'provider_accepts_tricare'
+         ORDER BY uiv.updated_at DESC, uiv.id DESC
+         LIMIT 1`,
+        [uid]
+      );
+      acceptsTricareOverride = parseBooleanLike(tricareRows?.[0]?.value);
+    } catch (e) {
+      if (!missingSchemaError(e)) throw e;
+      acceptsTricareOverride = false;
+    }
+
+    // Tricare is provider-specific: only include when this explicit override is true.
+    if (acceptsTricareOverride && insuranceByKey.has('tricare')) acceptedKeys.add('tricare');
+    else acceptedKeys.delete('tricare');
+
+    const accepted = (insuranceRows || [])
+      .filter((r) => acceptedKeys.has(String(r.insurance_key || '').toLowerCase()))
+      .map((r) => ({
+        insurance_key: String(r.insurance_key || ''),
+        label: String(r.label || r.insurance_key || '')
+      }));
+
+    return { accepted, acceptsTricareOverride };
+  } catch (e) {
+    if (missingSchemaError(e)) return { accepted: [], acceptsTricareOverride: false };
+    throw e;
+  }
+}
+
 export const getProviderSchoolProfile = async (req, res, next) => {
   try {
     const { schoolId, providerId } = req.params;
@@ -164,13 +305,7 @@ export const getProviderSchoolProfile = async (req, res, next) => {
       );
       schoolInfoBlurb = rows?.[0]?.school_info_blurb ?? null;
     } catch (e) {
-      const msg = String(e?.message || '');
-      const missing =
-        msg.includes("doesn't exist") ||
-        msg.includes('ER_NO_SUCH_TABLE') ||
-        msg.includes('Unknown column') ||
-        msg.includes('ER_BAD_FIELD_ERROR');
-      if (!missing) throw e;
+      if (!missingSchemaError(e)) throw e;
       schoolInfoBlurb = null;
     }
 
@@ -189,24 +324,20 @@ export const getProviderSchoolProfile = async (req, res, next) => {
       );
       credential = rows?.[0]?.value ?? null;
     } catch (e) {
-      const msg = String(e?.message || '');
-      const missing =
-        msg.includes("doesn't exist") ||
-        msg.includes('ER_NO_SUCH_TABLE') ||
-        msg.includes('Unknown column') ||
-        msg.includes('ER_BAD_FIELD_ERROR');
-      if (!missing) throw e;
+      if (!missingSchemaError(e)) throw e;
       credential = null;
     }
+
+    const activeAgencyId = await getActiveAgencyIdForSchool(schoolId);
+    const insuranceInfo = await computeAcceptedInsurances({
+      agencyId: activeAgencyId,
+      providerUserId,
+      credentialText: credential
+    });
 
     // Optional: supervisors (best-effort; all assignments under the school's affiliated agency)
     let supervisors = [];
     try {
-      const schoolOrgId = parseInt(schoolId, 10);
-      const activeAgencyId =
-        (await OrganizationAffiliation.getActiveAgencyIdForOrganization(schoolOrgId)) ||
-        (await AgencySchool.getActiveAgencyIdForSchool(schoolOrgId)) ||
-        null;
       if (activeAgencyId) {
         // Try to include is_primary (newer DBs), fall back if column missing.
         let rows = [];
@@ -263,13 +394,7 @@ export const getProviderSchoolProfile = async (req, res, next) => {
             );
             credByUserId = new Map((crows || []).map((r) => [Number(r.user_id), r.value]));
           } catch (e) {
-            const msg = String(e?.message || '');
-            const missing =
-              msg.includes("doesn't exist") ||
-              msg.includes('ER_NO_SUCH_TABLE') ||
-              msg.includes('Unknown column') ||
-              msg.includes('ER_BAD_FIELD_ERROR');
-            if (!missing) throw e;
+            if (!missingSchemaError(e)) throw e;
           }
         }
 
@@ -284,13 +409,7 @@ export const getProviderSchoolProfile = async (req, res, next) => {
         }));
       }
     } catch (e) {
-      const msg = String(e?.message || '');
-      const missing =
-        msg.includes("doesn't exist") ||
-        msg.includes('ER_NO_SUCH_TABLE') ||
-        msg.includes('Unknown column') ||
-        msg.includes('ER_BAD_FIELD_ERROR');
-      if (!missing) throw e;
+      if (!missingSchemaError(e)) throw e;
       supervisors = [];
     }
 
@@ -308,6 +427,8 @@ export const getProviderSchoolProfile = async (req, res, next) => {
       work_phone_extension: u.work_phone_extension || null,
       profile_photo_url: publicUploadsUrlFromStoredPath(u.profile_photo_path || null),
       school_info_blurb: schoolInfoBlurb,
+      insurances_accepted: insuranceInfo.accepted,
+      accepts_tricare_override: insuranceInfo.acceptsTricareOverride,
       supervisors,
       primary_supervisor_id: (supervisors.find((s) => s.is_primary)?.id) || (supervisors[0]?.id || null)
     });
