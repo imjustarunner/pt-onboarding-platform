@@ -193,11 +193,19 @@
                 <p v-if="(scheduleSummary.officeEvents?.length || 0) + (scheduleSummary.supervisionSessions?.length || 0) > 0" class="summary-meta">
                   {{ scheduleSummary.officeEvents?.length || 0 }} office event(s), {{ scheduleSummary.supervisionSessions?.length || 0 }} supervision session(s).
                 </p>
+                <div class="supervision-portal-buttons" style="margin-top: 0.5rem;">
+                  <a
+                    :href="superviseeFullScheduleLink"
+                    class="btn btn-secondary btn-sm"
+                  >
+                    Open full schedule
+                  </a>
+                </div>
                 <div v-if="affiliatedPortals.length > 0" class="supervision-portal-buttons" style="margin-top: 0.5rem;">
                   <a
                     v-for="portal in affiliatedPortals"
                     :key="`schedule-${portal.id}`"
-                    :href="`/${portal.slug}/dashboard`"
+                    :href="`/${portal.slug}/dashboard?sp=days`"
                     target="_blank"
                     rel="noopener noreferrer"
                     class="btn btn-secondary btn-sm"
@@ -429,6 +437,19 @@ const chatsLink = computed(() => {
   if (selectedSuperviseeDisplayName.value) params.set('openChatWithName', selectedSuperviseeDisplayName.value);
   const q = params.toString();
   return q ? `${base}?${q}` : base;
+});
+
+const superviseeFullScheduleLink = computed(() => {
+  const slug = route.params?.organizationSlug || '';
+  const s = selectedSupervisee.value;
+  const base = slug ? `/${slug}/dashboard` : '/dashboard';
+  const params = new URLSearchParams();
+  params.set('tab', 'my_schedule');
+  if (s?.supervisee_id) {
+    params.set('scheduleMode', 'supervisee');
+    params.set('superviseeId', String(s.supervisee_id));
+  }
+  return `${base}?${params.toString()}`;
 });
 
 

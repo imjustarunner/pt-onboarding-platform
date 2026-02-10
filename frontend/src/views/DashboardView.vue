@@ -1222,6 +1222,17 @@ const syncFromQuery = () => {
   if (typeof qMy === 'string' && ['account', 'credentials', 'preferences', 'payroll', 'compensation'].includes(qMy)) {
     myTab.value = qMy;
   }
+
+  if (String(qTab || '') === 'my_schedule') {
+    const qScheduleMode = String(route.query?.scheduleMode || '').toLowerCase();
+    if (qScheduleMode === 'supervisee') {
+      scheduleViewMode.value = 'supervisee';
+      const qSuperviseeId = Number.parseInt(String(route.query?.superviseeId || ''), 10);
+      if (Number.isFinite(qSuperviseeId) && qSuperviseeId > 0) {
+        selectedSuperviseeId.value = qSuperviseeId;
+      }
+    }
+  }
 };
 
 const submitPanelView = ref('root'); // 'root' | 'in_school' | 'time' | 'availability' | 'virtual_hours'
@@ -1448,7 +1459,7 @@ watch(() => [props.previewStatus, props.previewData], () => {
   }
 }, { deep: true });
 
-watch(() => [route.query?.tab, route.query?.my], () => {
+watch(() => [route.query?.tab, route.query?.my, route.query?.scheduleMode, route.query?.superviseeId], () => {
   syncFromQuery();
 });
 
