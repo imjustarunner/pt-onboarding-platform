@@ -21,6 +21,7 @@
               placeholder="Enter your username"
               autocomplete="username"
               :disabled="loading || verifying"
+              @input="onUsernameInput"
               @blur="maybeVerify"
             />
           </div>
@@ -325,6 +326,7 @@ const orgOptions = ref([]);
 const selectedOrgSlug = ref('');
 const rememberLogin = ref(false);
 const lastVerifiedUsername = ref('');
+const lastUsernameInputAt = ref(0);
 const showForgotPasswordMessage = ref(false);
 const showForgotUsernameMessage = ref(false);
 const lastErrorCode = ref(null);
@@ -343,6 +345,10 @@ const continueWithGoogle = () => {
   if (!loginSlug.value) return;
   const base = getBackendBaseUrl();
   window.location.href = `${base}/auth/google/start?orgSlug=${encodeURIComponent(String(loginSlug.value).trim().toLowerCase())}`;
+};
+
+const onUsernameInput = () => {
+  lastUsernameInputAt.value = Date.now();
 };
 
 const resetToUsernameStep = () => {
@@ -463,10 +469,14 @@ const verifyUsername = async ({ orgSlugOverride = null, reason = 'user' } = {}) 
 };
 
 const maybeVerify = async () => {
+  if (showPassword.value || needsOrgChoice.value || verifying.value) return;
+  // Password managers (iCloud/1Password/etc.) may update inputs shortly after blur.
+  // Wait briefly so we verify the final, settled username value.
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  if (showPassword.value || needsOrgChoice.value || verifying.value) return;
   const u = String(username.value || '').trim().toLowerCase();
   if (!u) return;
-  if (showPassword.value || needsOrgChoice.value) return;
-  if (verifying.value) return;
+  if (Date.now() - Number(lastUsernameInputAt.value || 0) < 200) return;
   if (u === String(lastVerifiedUsername.value || '').trim().toLowerCase()) return;
   await verifyUsername({ reason: 'blur' });
 };

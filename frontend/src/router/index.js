@@ -6,6 +6,7 @@ import { useOrganizationStore } from '../store/organization';
 import { getDashboardRoute } from '../utils/router';
 import { getLoginUrl } from '../utils/loginRedirect';
 import { isSupervisor } from '../utils/helpers';
+import api from '../services/api';
 
 const getDefaultOrganizationSlug = () => {
   try {
@@ -1124,6 +1125,20 @@ router.beforeEach(async (to, from, next) => {
     'NewAccount'
   ]);
 
+  const tryBootstrapAuthFromCookie = async () => {
+    if (authStore.isAuthenticated) return true;
+    try {
+      // OAuth callback sets HttpOnly cookie server-side; hydrate SPA user from cookie-backed /users/me.
+      const resp = await api.get('/users/me', { skipGlobalLoading: true, skipAuthRedirect: true });
+      const u = resp?.data || null;
+      if (!u || (!u.id && !u.email)) return false;
+      authStore.setAuth(null, u, localStorage.getItem('sessionId') || null);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
   // Prevent stale org branding “flash” when leaving a branded portal.
   if (!to.meta.organizationSlug && from.meta.organizationSlug) {
     // On custom-domain portals, /login should remain branded (portalHostPortalUrl is set at boot).
@@ -1257,6 +1272,11 @@ router.beforeEach(async (to, from, next) => {
   }
   
   if (to.meta.requiresAuth && !authStore.isAuthenticated) {
+    const hydrated = await tryBootstrapAuthFromCookie();
+    if (hydrated) {
+      next();
+      return;
+    }
     // If this is an organization-slug route, always keep the slug in the login redirect
     // so users land on "/:organizationSlug/login" (branded) instead of platform "/login".
     const slug =
