@@ -421,11 +421,12 @@ const verifyUsername = async ({ orgSlugOverride = null, reason = 'user' } = {}) 
     lastVerifiedUsername.value = String(data?.normalizedUsername || u).trim().toLowerCase();
 
     if (data?.needsOrgChoice === true) {
-      const opts = Array.isArray(data?.orgOptions) ? data.orgOptions : [];
-      orgOptions.value = opts;
-      needsOrgChoice.value = true;
-      showPassword.value = false;
+      // Simplified login UX: never show an org picker.
+      // Keep users on the login route they chose and continue with password.
+      needsOrgChoice.value = false;
+      orgOptions.value = [];
       selectedOrgSlug.value = '';
+      showPassword.value = true;
       return;
     }
 

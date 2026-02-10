@@ -13,7 +13,27 @@ export const authLimiter = rateLimit({
   legacyHeaders: false,
   // Use memory store (default) - resets on server restart
   store: undefined, // Default in-memory store
-  keyGenerator: (req) => `auth:${getClientIpAddress(req) || req.ip || 'unknown'}`,
+  keyGenerator: (req) => {
+    const ip = getClientIpAddress(req) || req.ip || 'unknown';
+    const identifier = String(req.body?.username || req.body?.email || '').trim().toLowerCase();
+    // Include identifier so one user's retries don't lock out all users behind a shared IP.
+    return identifier ? `auth:${ip}:${identifier}` : `auth:${ip}`;
+  },
+});
+
+// Username verification step (pre-login UX) should be looser than actual password login.
+export const identifyLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: isDevelopment ? 120 : 30,
+  message: { error: { message: 'Too many verification attempts, please try again later' } },
+  standardHeaders: true,
+  legacyHeaders: false,
+  store: undefined, // Default in-memory store
+  keyGenerator: (req) => {
+    const ip = getClientIpAddress(req) || req.ip || 'unknown';
+    const username = String(req.body?.username || req.body?.email || '').trim().toLowerCase();
+    return username ? `identify:${ip}:${username}` : `identify:${ip}`;
+  },
 });
 
 export const apiLimiter = rateLimit({

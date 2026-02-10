@@ -22,7 +22,7 @@ import {
 } from '../controllers/auth.controller.js';
 import { authenticate, requireAdmin } from '../middleware/auth.middleware.js';
 import { requireAdminOrFirstUser } from '../middleware/conditionalAdmin.middleware.js';
-import { authLimiter, recoveryLimiter } from '../middleware/rateLimiter.middleware.js';
+import { authLimiter, identifyLimiter, recoveryLimiter } from '../middleware/rateLimiter.middleware.js';
 
 const router = express.Router();
 
@@ -144,7 +144,7 @@ const validateRegister = [
   body('bypassDuplicateCheck').optional().isBoolean().withMessage('bypassDuplicateCheck must be a boolean')
 ];
 
-router.post('/identify', authLimiter, validateIdentifyLogin, identifyLogin);
+router.post('/identify', identifyLimiter, validateIdentifyLogin, identifyLogin);
 router.post('/login', authLimiter, validateLogin, login);
 router.get('/google/start', googleOAuthStart);
 router.get('/google/callback', googleOAuthCallback);

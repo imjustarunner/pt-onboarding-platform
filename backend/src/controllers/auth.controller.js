@@ -728,41 +728,15 @@ export const identifyLogin = async (req, res, next) => {
       const portalOrgs = (orgs || []).filter(isPortalOrg);
       if (portalOrgs.length === 1) {
         resolved = portalOrgs[0];
-      } else if (portalOrgs.length > 1) {
-        // Restrict choices to portal orgs for school staff (they should not sign into the parent agency surface).
-        const portalOptions = portalOrgs.map((o) => ({
-          id: o?.id ?? null,
-          name: o?.name ?? null,
-          slug: o?.slug ?? null,
-          portal_url: o?.portal_url ?? o?.portalUrl ?? null,
-          organization_type: o?.organization_type ?? o?.organizationType ?? null
-        }));
-        return res.json({
-          matched: true,
-          normalizedUsername,
-          needsOrgChoice: true,
-          orgOptions: portalOptions,
-          resolvedOrg: null,
-          login: { method: 'password' }
-        });
       }
     }
 
     // If still unresolved:
     // - single org => use it
-    // - multi-org => require choice (frontend will pass last-used org slug next time)
+    // - multi-org => keep unresolved (no org dropdown; stay on current login context)
     if (!resolved) {
       if ((orgs || []).length === 1) {
         resolved = orgs[0];
-      } else if ((orgs || []).length > 1) {
-        return res.json({
-          matched: true,
-          normalizedUsername,
-          needsOrgChoice: true,
-          orgOptions,
-          resolvedOrg: null,
-          login: { method: 'password' }
-        });
       }
     }
 
