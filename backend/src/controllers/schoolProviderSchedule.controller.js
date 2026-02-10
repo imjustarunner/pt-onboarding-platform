@@ -7,7 +7,11 @@ import { notifyClientBecameCurrent } from '../services/clientNotifications.servi
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
-import { getSupervisorSuperviseeIds, supervisorHasSuperviseeInSchool } from '../utils/supervisorSchoolAccess.js';
+import {
+  getSupervisorSuperviseeIds,
+  isSupervisorActor,
+  supervisorHasSuperviseeInSchool
+} from '../utils/supervisorSchoolAccess.js';
 
 const allowedDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 
@@ -30,7 +34,8 @@ async function ensureSchoolAccess(req, schoolId) {
     const hasDirect = (orgs || []).some((o) => parseInt(o.id, 10) === schoolOrgId);
     if (!hasDirect) {
       const role = String(req.user?.role || '').toLowerCase();
-      if (role === 'supervisor') {
+      const hasSupervisorCapability = await isSupervisorActor({ userId: req.user?.id, role, user: req.user });
+      if (hasSupervisorCapability) {
         const canSupervisorAccess = await supervisorHasSuperviseeInSchool(req.user?.id, schoolOrgId);
         if (canSupervisorAccess) return { ok: true, school, supervisorLimited: true };
       }
@@ -351,7 +356,12 @@ export const listSchoolProvidersForScheduling = async (req, res, next) => {
       // ignore
     }
 
-    res.json(Array.from(byProvider.values()));
+    const providers = Array.from(byProvider.values());
+    if (access.supervisorLimited) {
+      const superviseeIds = new Set(await getSupervisorSuperviseeIds(req.user?.id, null));
+      return res.json(providers.filter((p) => superviseeIds.has(Number(p.provider_user_id))));
+    }
+    res.json(providers);
   } catch (e) {
     next(e);
   }

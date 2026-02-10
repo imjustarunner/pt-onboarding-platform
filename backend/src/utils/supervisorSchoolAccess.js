@@ -22,6 +22,16 @@ export async function getSupervisorSuperviseeIds(supervisorUserId, agencyId = nu
   }
 }
 
+export async function isSupervisorActor({ userId, role, user = null }) {
+  const roleNorm = String(role || '').toLowerCase();
+  if (roleNorm === 'supervisor') return true;
+  const uid = parsePositiveInt(userId);
+  if (!uid) return false;
+  if (user) return User.isSupervisor(user);
+  const loaded = await User.findById(uid);
+  return User.isSupervisor(loaded);
+}
+
 export async function supervisorHasSuperviseeInSchool(supervisorUserId, schoolOrganizationId) {
   const schoolOrgId = parsePositiveInt(schoolOrganizationId);
   if (!schoolOrgId) return false;

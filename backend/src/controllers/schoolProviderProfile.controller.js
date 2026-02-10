@@ -4,7 +4,11 @@ import Agency from '../models/Agency.model.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
-import { getSupervisorSuperviseeIds, supervisorHasSuperviseeInSchool } from '../utils/supervisorSchoolAccess.js';
+import {
+  getSupervisorSuperviseeIds,
+  isSupervisorActor,
+  supervisorHasSuperviseeInSchool
+} from '../utils/supervisorSchoolAccess.js';
 
 const allowedDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 
@@ -27,7 +31,8 @@ async function ensureSchoolAccess(req, schoolId) {
     const hasDirect = (orgs || []).some((o) => parseInt(o.id, 10) === schoolOrgId);
     if (!hasDirect) {
       const role = String(req.user?.role || '').toLowerCase();
-      if (role === 'supervisor') {
+      const hasSupervisorCapability = await isSupervisorActor({ userId: req.user?.id, role, user: req.user });
+      if (hasSupervisorCapability) {
         const canSupervisorAccess = await supervisorHasSuperviseeInSchool(req.user?.id, schoolOrgId);
         if (canSupervisorAccess) return { ok: true, school, supervisorLimited: true };
       }

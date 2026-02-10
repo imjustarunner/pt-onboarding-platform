@@ -14,6 +14,7 @@ import AgencySchool from '../models/AgencySchool.model.js';
 import { callGeminiText } from '../services/geminiText.service.js';
 import {
   getSupervisorSuperviseeIds,
+  isSupervisorActor,
   supervisorHasSuperviseeInSchool,
   supervisorCanAccessClientInOrg
 } from '../utils/supervisorSchoolAccess.js';
@@ -245,14 +246,6 @@ function roleCanUseAgencyAffiliation(role) {
   return r === 'admin' || r === 'support' || r === 'staff' || r === 'supervisor';
 }
 
-async function isSupervisorContext({ userId, role }) {
-  const roleNorm = String(role || '').toLowerCase();
-  if (roleNorm === 'supervisor') return true;
-  if (!userId) return false;
-  const user = await User.findById(userId);
-  return User.isSupervisor(user);
-}
-
 async function providerHasSchoolAccess({ providerUserId, schoolOrganizationId }) {
   const uid = parseInt(providerUserId, 10);
   const orgId = parseInt(schoolOrganizationId, 10);
@@ -345,7 +338,7 @@ async function userHasOrgOrAffiliatedAgencyAccess({ userId, role, schoolOrganiza
     return await providerHasSchoolAccess({ providerUserId: userId, schoolOrganizationId });
   }
 
-  if (await isSupervisorContext({ userId, role })) {
+  if (await isSupervisorActor({ userId, role })) {
     const hasSuperviseeSchoolAccess = await supervisorHasSuperviseeInSchool(userId, schoolOrganizationId);
     if (hasSuperviseeSchoolAccess) return true;
   }
@@ -384,7 +377,7 @@ export const getSchoolClients = async (req, res, next) => {
     // Providers ARE allowed to view the roster, but only for clients assigned to them
     // (restricted fields, no sensitive data).
     const isProvider = String(userRole || '').toLowerCase() === 'provider';
-    const isSupervisor = String(userRole || '').toLowerCase() === 'supervisor';
+    const isSupervisor = await isSupervisorActor({ userId, role: userRole });
     const supervisorProviderIds = isSupervisor ? await getSupervisorSuperviseeIds(userId, null) : [];
 
     // Verify organization exists (school/program/learning)
@@ -1638,7 +1631,7 @@ export const getClientWaitlistNote = async (req, res, next) => {
     const providerClientIds = providerUserId ? await getProviderAssignedClientIds({ providerUserId, schoolOrganizationId: orgId }) : [];
     const providerClientPlaceholders = providerClientIds.map(() => '?').join(',');
 
-    const isSupervisor = roleNorm === 'supervisor';
+    const isSupervisor = await isSupervisorActor({ userId, role: roleNorm });
     // Providers can only read waitlist notes for clients assigned to them in this org.
     if (roleNorm === 'provider') {
       const assigned = await providerAssignedToClientInOrg({ providerUserId: userId, clientId, orgId });
@@ -1694,7 +1687,7 @@ export const upsertClientWaitlistNote = async (req, res, next) => {
       if (!ok) return res.status(403).json({ error: { message: 'You do not have access to this school organization' } });
     }
 
-    const isSupervisor = roleNorm === 'supervisor';
+    const isSupervisor = await isSupervisorActor({ userId, role: roleNorm });
     // Providers can only edit waitlist notes for clients assigned to them in this org.
     if (roleNorm === 'provider') {
       const assigned = await providerAssignedToClientInOrg({ providerUserId: userId, clientId, orgId });
@@ -1752,7 +1745,7 @@ export const listClientComments = async (req, res, next) => {
       if (!ok) return res.status(403).json({ error: { message: 'You do not have access to this school organization' } });
     }
 
-    const isSupervisor = roleNorm === 'supervisor';
+    const isSupervisor = await isSupervisorActor({ userId, role: roleNorm });
     // Providers may only view comments for clients assigned to them in this org.
     if (roleNorm === 'provider') {
       const assigned = await providerAssignedToClientInOrg({ providerUserId: userId, clientId, orgId });
@@ -1810,7 +1803,7 @@ export const createClientComment = async (req, res, next) => {
       if (!ok) return res.status(403).json({ error: { message: 'You do not have access to this school organization' } });
     }
 
-    const isSupervisor = roleNorm === 'supervisor';
+    const isSupervisor = await isSupervisorActor({ userId, role: roleNorm });
     // Providers may only comment for clients assigned to them in this org.
     if (roleNorm === 'provider') {
       const assigned = await providerAssignedToClientInOrg({ providerUserId: userId, clientId, orgId });
@@ -2909,7 +2902,7 @@ export const createSchoolPortalAnnouncement = async (req, res, next) => {
     const userId = req.user?.id;
     const roleNorm = String(req.user?.role || '').toLowerCase();
     if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
-    if (roleNorm === 'supervisor') {
+    if (await isSupervisorActor({ userId, role: roleNorm })) {
       return res.status(403).json({ error: { message: 'Supervisors have read-only access in school portal announcements' } });
     }
 

@@ -5,7 +5,7 @@ import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
-import { supervisorHasSuperviseeInSchool } from '../utils/supervisorSchoolAccess.js';
+import { isSupervisorActor, supervisorHasSuperviseeInSchool } from '../utils/supervisorSchoolAccess.js';
 
 // Configure multer for memory storage (files will be uploaded to GCS or local fallback)
 const upload = multer({
@@ -51,14 +51,6 @@ async function resolveActiveAgencyIdForOrg(orgId) {
 function roleCanUseAgencyAffiliation(role) {
   const r = String(role || '').toLowerCase();
   return r === 'admin' || r === 'support' || r === 'staff' || r === 'supervisor';
-}
-
-async function isSupervisorContext({ userId, role }) {
-  const roleNorm = String(role || '').toLowerCase();
-  if (roleNorm === 'supervisor') return true;
-  if (!userId) return false;
-  const user = await User.findById(userId);
-  return User.isSupervisor(user);
 }
 
 async function providerHasSchoolAccess({ providerUserId, schoolOrganizationId }) {
@@ -109,7 +101,7 @@ async function userHasOrgOrAffiliatedAgencyAccess({ userId, role, schoolOrganiza
   if (roleNorm === 'provider') {
     return await providerHasSchoolAccess({ providerUserId: userId, schoolOrganizationId });
   }
-  if (await isSupervisorContext({ userId, role })) {
+  if (await isSupervisorActor({ userId, role })) {
     const hasSuperviseeSchoolAccess = await supervisorHasSuperviseeInSchool(userId, schoolOrganizationId);
     if (hasSuperviseeSchoolAccess) return true;
   }
@@ -155,8 +147,7 @@ async function assertSchoolPortalAccess(req, schoolId) {
 }
 
 async function ensureSupervisorReadOnlyWriteDenied(req) {
-  const roleNorm = String(req.user?.role || '').toLowerCase();
-  if (roleNorm === 'supervisor') {
+  if (await isSupervisorActor({ userId: req.user?.id, role: req.user?.role, user: req.user })) {
     const e = new Error('Supervisors have read-only access to school public documents');
     e.statusCode = 403;
     throw e;

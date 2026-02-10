@@ -3,7 +3,11 @@ import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
-import { getSupervisorSuperviseeIds, supervisorHasSuperviseeInSchool } from '../utils/supervisorSchoolAccess.js';
+import {
+  getSupervisorSuperviseeIds,
+  isSupervisorActor,
+  supervisorHasSuperviseeInSchool
+} from '../utils/supervisorSchoolAccess.js';
 
 const allowedOrgTypes = ['school', 'program', 'learning'];
 const allowedWeekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -101,7 +105,7 @@ async function ensureSkillsGroupOrgAccess(req, organizationId) {
   }
 
   // Supervisors: read-only access when they supervise at least one provider in this school/program.
-  if (roleNorm === 'supervisor' && (await supervisorHasSuperviseeInSchool(userId, orgId))) {
+  if ((await isSupervisorActor({ userId, role: roleNorm, user: req.user })) && (await supervisorHasSuperviseeInSchool(userId, orgId))) {
     return {
       ok: true,
       org,

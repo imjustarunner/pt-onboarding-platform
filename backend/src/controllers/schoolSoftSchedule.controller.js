@@ -4,7 +4,11 @@ import Agency from '../models/Agency.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
-import { supervisorHasSuperviseeInSchool } from '../utils/supervisorSchoolAccess.js';
+import {
+  getSupervisorSuperviseeIds,
+  isSupervisorActor,
+  supervisorHasSuperviseeInSchool
+} from '../utils/supervisorSchoolAccess.js';
 
 const allowedDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 
@@ -53,7 +57,8 @@ async function ensureSchoolAccess(req, schoolId) {
     const hasDirect = (orgs || []).some((o) => parseInt(o.id, 10) === schoolOrgId);
     if (!hasDirect) {
       const role = String(req.user?.role || '').toLowerCase();
-      if (role === 'supervisor') {
+      const hasSupervisorCapability = await isSupervisorActor({ userId: req.user?.id, role, user: req.user });
+      if (hasSupervisorCapability) {
         const canSupervisorAccess = await supervisorHasSuperviseeInSchool(req.user?.id, schoolOrgId);
         if (canSupervisorAccess) return { ok: true, school, supervisorLimited: true };
       }
@@ -84,6 +89,12 @@ function canEditSoftSchedule(req, providerUserId) {
   if (role === 'admin' || role === 'support' || role === 'super_admin') return true;
   if (role === 'provider') return parseInt(req.user?.id, 10) === parseInt(providerUserId, 10);
   return false;
+}
+
+async function ensureSupervisorCanAccessProvider({ req, access, providerUserId }) {
+  if (!access?.supervisorLimited) return true;
+  const superviseeIds = await getSupervisorSuperviseeIds(req.user?.id, null);
+  return (superviseeIds || []).some((id) => parseInt(id, 10) === parseInt(providerUserId, 10));
 }
 
 async function ensureProviderAssignedToDay({ schoolId, weekday, providerUserId }) {
@@ -213,7 +224,12 @@ export const listDayProviders = async (req, res, next) => {
 
     // Provider privacy: providers should only be able to view their own schedule/caseload.
     const role = String(req.user?.role || '').toLowerCase();
-    const providerOnlyUserId = role === 'provider' ? parseInt(req.user?.id || 0, 10) : null;
+    let providerOnlyUserId = role === 'provider' ? parseInt(req.user?.id || 0, 10) : null;
+    if (access.supervisorLimited) {
+      const superviseeIds = await getSupervisorSuperviseeIds(req.user?.id, null);
+      if ((superviseeIds || []).length === 0) return res.json([]);
+      providerOnlyUserId = null;
+    }
 
     const [rows] = await pool.execute(
       `SELECT a.id AS day_provider_assignment_id,
@@ -279,7 +295,7 @@ export const listDayProviders = async (req, res, next) => {
       }
     }
 
-    const out = (rows || []).map((r) => {
+    let out = (rows || []).map((r) => {
       const used = assignedCountByProvider.get(Number(r.provider_user_id)) || 0;
       const total = r.slots_total === null || r.slots_total === undefined ? null : Number(r.slots_total);
       const availCalc = total === null || !Number.isFinite(total) ? null : Math.max(0, total - used);
@@ -290,6 +306,10 @@ export const listDayProviders = async (req, res, next) => {
         profile_photo_url: null
       };
     });
+    if (access.supervisorLimited) {
+      const superviseeIds = new Set(await getSupervisorSuperviseeIds(req.user?.id, null));
+      out = out.filter((r) => superviseeIds.has(Number(r.provider_user_id)));
+    }
 
     // Best-effort: attach provider profile photo URLs if column exists.
     try {
@@ -389,6 +409,8 @@ export const getSoftScheduleSlots = async (req, res, next) => {
 
     const providerUserId = parseInt(providerId, 10);
     if (!providerUserId) return res.status(400).json({ error: { message: 'Invalid providerId' } });
+    const providerAllowed = await ensureSupervisorCanAccessProvider({ req, access, providerUserId });
+    if (!providerAllowed) return res.status(403).json({ error: { message: 'Access denied' } });
 
     const assigned = await ensureProviderAssignedToDay({ schoolId, weekday, providerUserId });
     if (!assigned.ok) {
