@@ -296,13 +296,37 @@ export const getWeeklyGrid = async (req, res, next) => {
           }
           const a = assignedBySlot.get(k);
           if (a) {
+            let assignmentEventId = null;
+            try {
+              const slotStartAt = `${date} ${String(hour).padStart(2, '0')}:00:00`;
+              const slotEndAt = `${date} ${String(hour + 1).padStart(2, '0')}:00:00`;
+              // Backfill hourly event rows for legacy assignment-only slots so admin actions
+              // (booked/virtual/cancel) always have a stable event id to operate on.
+              // eslint-disable-next-line no-await-in-loop
+              const ev = await OfficeEvent.upsertSlotState({
+                officeLocationId: parseInt(locationId),
+                roomId: room.id,
+                startAt: slotStartAt,
+                endAt: slotEndAt,
+                slotState: 'ASSIGNED_AVAILABLE',
+                standingAssignmentId: null,
+                bookingPlanId: null,
+                assignedProviderId: a.assigned_user_id || null,
+                bookedProviderId: null,
+                createdByUserId: req.user.id
+              });
+              assignmentEventId = ev?.id || null;
+            } catch (err) {
+              if (err?.code !== 'ER_NO_SUCH_TABLE') throw err;
+            }
+
             const initials = `${String(a.first_name || '').slice(0, 1)}${String(a.last_name || '').slice(0, 1)}`.toUpperCase();
             slots.push({
               roomId: room.id,
               date,
               hour,
               state: 'assigned_available',
-              eventId: null,
+              eventId: assignmentEventId,
               providerId: a.assigned_user_id,
               providerInitials: initials || null,
               assignedProviderId: a.assigned_user_id,
