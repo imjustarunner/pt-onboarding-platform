@@ -126,15 +126,23 @@
                 <p><strong>{{ clientsList.length }}</strong> client(s) assigned. Read-only.</p>
                 <ul class="supervision-client-links">
                   <li v-for="client in clientsList" :key="client.id || `${client.initials || ''}-${client.identifier_code || ''}`">
-                    <button
-                      type="button"
-                      class="summary-meta summary-link-button"
-                      :disabled="schoolClientModalLoading"
-                      @click="openCaseloadClientModal(client)"
-                    >
-                      {{ clientDisplayLabel(client) }}
-                    </button>
-                    <span v-if="clientSchoolName(client)" class="summary-meta"> — {{ clientSchoolName(client) }}</span>
+                    <div class="client-item-main">
+                      <button
+                        type="button"
+                        class="summary-meta summary-link-button"
+                        :disabled="schoolClientModalLoading"
+                        @click="openCaseloadClientModal(client)"
+                      >
+                        {{ clientDisplayLabel(client) }}
+                      </button>
+                      <span v-if="clientSchoolName(client)" class="summary-meta"> — {{ clientSchoolName(client) }}</span>
+                    </div>
+                    <div class="summary-meta client-item-meta">
+                      Assigned: {{ caseloadAssignedDate(client) }} · Status: {{ caseloadStatus(client) }}
+                    </div>
+                    <div v-if="caseloadMissingChecklist(client).length" class="client-item-missing">
+                      Missing: {{ caseloadMissingChecklist(client).join(', ') }}
+                    </div>
                   </li>
                 </ul>
               </div>
@@ -144,7 +152,7 @@
               <h3>Compliance list (not current)</h3>
               <div v-if="compliancePendingLoading" class="supervision-placeholder">Loading compliance list…</div>
               <div v-else-if="compliancePendingError" class="supervision-error-inline">{{ compliancePendingError }}</div>
-              <div v-else-if="compliancePendingList.length === 0" class="supervision-placeholder">
+              <div v-else-if="complianceRowsToShow.length === 0" class="supervision-placeholder">
                 No pending compliance clients.
               </div>
               <div v-if="schoolClientModalError" class="supervision-error-inline" style="margin-bottom: 8px;">
@@ -152,7 +160,7 @@
               </div>
               <div v-else class="compliance-grid">
                 <button
-                  v-for="row in compliancePendingList"
+                  v-for="row in complianceRowsToShow"
                   :key="`${row.client_id}-${row.organization_id}`"
                   type="button"
                   class="compliance-card"
@@ -493,6 +501,41 @@ const affiliatedPortalsByOrgId = computed(() => {
   return map;
 });
 
+const complianceByClientId = computed(() => {
+  const map = new Map();
+  for (const row of compliancePendingList.value || []) {
+    const cid = Number(row?.client_id || 0);
+    if (cid) map.set(cid, row);
+  }
+  return map;
+});
+
+const complianceRowsToShow = computed(() => {
+  if ((compliancePendingList.value || []).length > 0) return compliancePendingList.value;
+  const rows = [];
+  for (const client of clientsList.value || []) {
+    const missing = caseloadMissingChecklist(client);
+    const status = String(client?.status || client?.task_status || '').toLowerCase();
+    const notCurrentByStatus =
+      status.includes('pending') ||
+      status.includes('incomplete') ||
+      status.includes('review') ||
+      status.includes('not_current');
+    if (!missing.length && !notCurrentByStatus) continue;
+    rows.push({
+      client_id: Number(client?.id || 0),
+      organization_id: Number(resolveClientOrgId(client) || 0),
+      client_initials: String(client?.initials || '').trim(),
+      client_full_name: String(client?.full_name || '').trim(),
+      client_identifier_code: String(client?.identifier_code || '').trim(),
+      organization_name: clientSchoolName(client) || '',
+      days_since_assigned: 0,
+      missing_checklist: missing
+    });
+  }
+  return rows;
+});
+
 function portalSlugForOrgId(orgId) {
   const oid = Number(orgId || 0);
   if (oid && affiliatedPortalsByOrgId.value.has(oid)) {
@@ -556,6 +599,43 @@ function formatTaskStatusLabel(status) {
     .replace(/\b\w/g, (ch) => ch.toUpperCase());
 }
 
+function formatAssignedDate(value) {
+  if (!value) return '—';
+  try {
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return String(value);
+    return d.toLocaleDateString();
+  } catch {
+    return String(value);
+  }
+}
+
+function caseloadAssignedDate(client) {
+  const fromClient = client?.assigned_at || client?.date_assigned || client?.created_at || null;
+  if (fromClient) return formatAssignedDate(fromClient);
+  const row = complianceByClientId.value.get(Number(client?.id || 0));
+  if (!row) return '—';
+  const days = Number(row?.days_since_assigned || 0);
+  if (!days) return 'Today';
+  return `${days} day${days === 1 ? '' : 's'} ago`;
+}
+
+function caseloadStatus(client) {
+  const status = client?.status || client?.task_status || '';
+  if (status) return formatTaskStatusLabel(status);
+  const row = complianceByClientId.value.get(Number(client?.id || 0));
+  if (row) return 'Pending compliance';
+  return 'Active';
+}
+
+function caseloadMissingChecklist(client) {
+  const fromClient = Array.isArray(client?.missing_checklist) ? client.missing_checklist : [];
+  if (fromClient.length) return fromClient;
+  const row = complianceByClientId.value.get(Number(client?.id || 0));
+  const fromCompliance = Array.isArray(row?.missing_checklist) ? row.missing_checklist : [];
+  return fromCompliance;
+}
+
 function resolveClientOrgId(client) {
   const direct = Number(client?.organization_id || 0);
   if (direct) return direct;
@@ -572,7 +652,7 @@ function resolveClientOrgId(client) {
   return null;
 }
 
-async function openSchoolClientModal({ orgId, clientId }) {
+async function openSchoolClientModal({ orgId, clientId, seedClient = null }) {
   const oid = Number(orgId || 0);
   const cid = Number(clientId || 0);
   if (!oid || !cid) {
@@ -587,34 +667,71 @@ async function openSchoolClientModal({ orgId, clientId }) {
     });
     const rows = Array.isArray(response.data) ? response.data : [];
     const found = rows.find((r) => Number(r?.id) === cid) || null;
-    if (!found) {
-      schoolClientModalError.value = 'Client was not found in this school portal context.';
+    if (found) {
+      selectedSchoolClient.value = found;
+      selectedSchoolClientOrgId.value = oid;
       return;
     }
-    selectedSchoolClient.value = found;
-    selectedSchoolClientOrgId.value = oid;
+    if (seedClient) {
+      selectedSchoolClient.value = {
+        ...seedClient,
+        id: cid,
+        organization_id: Number(seedClient?.organization_id || oid) || oid
+      };
+      selectedSchoolClientOrgId.value = oid;
+      return;
+    }
+    schoolClientModalError.value = 'Client was not found in this school portal context.';
+    return;
   } catch (err) {
+    if (seedClient) {
+      selectedSchoolClient.value = {
+        ...seedClient,
+        id: cid,
+        organization_id: Number(seedClient?.organization_id || oid) || oid
+      };
+      selectedSchoolClientOrgId.value = oid;
+      schoolClientModalError.value = '';
+      return;
+    }
     schoolClientModalError.value = err?.response?.data?.error?.message || 'Failed to open client.';
   } finally {
     schoolClientModalLoading.value = false;
   }
 }
 
+function clientSeedFromComplianceRow(row) {
+  return {
+    id: Number(row?.client_id || 0),
+    initials: row?.client_initials || '',
+    full_name: row?.client_full_name || '',
+    identifier_code: row?.client_identifier_code || '',
+    organization_id: Number(row?.organization_id || 0) || null,
+    organization_name: row?.organization_name || '',
+    status: 'pending_review',
+    missing_checklist: Array.isArray(row?.missing_checklist) ? row.missing_checklist : []
+  };
+}
+
 function closeSchoolClientModal() {
   selectedSchoolClient.value = null;
   selectedSchoolClientOrgId.value = null;
+  schoolClientModalError.value = '';
 }
 
 function openCaseloadClientModal(client) {
   const clientId = Number(client?.id || 0);
   const orgId = resolveClientOrgId(client);
-  openSchoolClientModal({ orgId, clientId });
+  openSchoolClientModal({ orgId, clientId, seedClient: client });
 }
 
 function openComplianceClient(row) {
+  const orgId = Number(row?.organization_id || 0);
+  const clientId = Number(row?.client_id || 0);
   openSchoolClientModal({
-    orgId: Number(row?.organization_id || 0),
-    clientId: Number(row?.client_id || 0)
+    orgId,
+    clientId,
+    seedClient: clientSeedFromComplianceRow(row)
   });
 }
 
@@ -1092,6 +1209,18 @@ onMounted(() => {
 }
 .supervision-client-links li {
   margin: 0.2rem 0;
+}
+.client-item-main {
+  display: inline;
+}
+.client-item-meta {
+  margin-top: 2px;
+}
+.client-item-missing {
+  font-size: 12px;
+  color: #b91c1c;
+  font-weight: 700;
+  margin-top: 2px;
 }
 .summary-link-button {
   border: none;
