@@ -1,5 +1,21 @@
 import pool from '../config/database.js';
 
+function normalizeMySqlDateTime(value) {
+  if (value === null || value === undefined) return null;
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return null;
+    return value.toISOString().slice(0, 19).replace('T', ' ');
+  }
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(raw)) return raw;
+  if (/^\d{4}-\d{2}-\d{2}T/.test(raw)) return raw.replace('T', ' ').replace('Z', '').slice(0, 19);
+
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString().slice(0, 19).replace('T', ' ');
+}
+
 class OfficeEvent {
   static async findById(id) {
     const [rows] = await pool.execute('SELECT * FROM office_events WHERE id = ? LIMIT 1', [id]);
@@ -20,6 +36,8 @@ class OfficeEvent {
     createdByUserId,
     approvedByUserId = null
   }) {
+    const normalizedStartAt = normalizeMySqlDateTime(startAt);
+    const normalizedEndAt = normalizeMySqlDateTime(endAt);
     const [result] = await pool.execute(
       `INSERT INTO office_events
        (office_location_id, room_id, start_at, end_at, status, assigned_provider_id, booked_provider_id, source, recurrence_group_id, notes, created_by_user_id, approved_by_user_id)
@@ -27,8 +45,8 @@ class OfficeEvent {
       [
         officeLocationId,
         roomId,
-        startAt,
-        endAt,
+        normalizedStartAt,
+        normalizedEndAt,
         status,
         assignedProviderId,
         bookedProviderId,
@@ -67,9 +85,10 @@ class OfficeEvent {
   }
 
   static async findByRoomAndStart(roomId, startAt) {
+    const normalizedStartAt = normalizeMySqlDateTime(startAt);
     const [rows] = await pool.execute(
       `SELECT * FROM office_events WHERE room_id = ? AND start_at = ? LIMIT 1`,
-      [roomId, startAt]
+      [roomId, normalizedStartAt]
     );
     return rows?.[0] || null;
   }
@@ -86,10 +105,12 @@ class OfficeEvent {
     bookedProviderId = null,
     createdByUserId
   }) {
+    const normalizedStartAt = normalizeMySqlDateTime(startAt);
+    const normalizedEndAt = normalizeMySqlDateTime(endAt);
     // Keep legacy `status` aligned for older code paths.
     const legacyStatus = slotState === 'ASSIGNED_BOOKED' ? 'BOOKED' : 'RELEASED';
 
-    const existing = await this.findByRoomAndStart(roomId, startAt);
+    const existing = await this.findByRoomAndStart(roomId, normalizedStartAt);
     if (existing?.id) {
       await pool.execute(
         `UPDATE office_events
@@ -108,8 +129,8 @@ class OfficeEvent {
         [
           officeLocationId,
           roomId,
-          startAt,
-          endAt,
+          normalizedStartAt,
+          normalizedEndAt,
           legacyStatus,
           slotState,
           standingAssignmentId,
@@ -126,8 +147,8 @@ class OfficeEvent {
     return await this.create({
       officeLocationId,
       roomId,
-      startAt,
-      endAt,
+      startAt: normalizedStartAt,
+      endAt: normalizedEndAt,
       status: legacyStatus,
       assignedProviderId,
       bookedProviderId,
