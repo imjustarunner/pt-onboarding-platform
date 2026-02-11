@@ -33,13 +33,43 @@ function localYmdInTz(dateLike, timeZone) {
   }
 }
 
-function isoForDateHour(dateStr, hour24) {
+function mysqlDateTimeForDateHour(dateStr, hour24) {
   const hh = String(hour24).padStart(2, '0');
-  return new Date(`${dateStr}T${hh}:00:00`).toISOString();
+  return `${String(dateStr || '').slice(0, 10)} ${hh}:00:00`;
+}
+
+function parseSlotDateHour(value) {
+  if (!value) return null;
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return null;
+    return {
+      date: value.toISOString().slice(0, 10),
+      hour: value.getUTCHours()
+    };
+  }
+  const raw = String(value).trim();
+  const m = raw.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2})/);
+  if (!m) return null;
+  const hour = Number(m[2]);
+  if (!Number.isInteger(hour)) return null;
+  return { date: m[1], hour };
 }
 
 function timeMs(value) {
-  const t = new Date(value).getTime();
+  if (!value) return NaN;
+  if (value instanceof Date) return value.getTime();
+  const raw = String(value).trim();
+  const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})$/);
+  if (m) {
+    const y = Number(m[1]);
+    const mo = Number(m[2]) - 1;
+    const d = Number(m[3]);
+    const hh = Number(m[4]);
+    const mm = Number(m[5]);
+    const ss = Number(m[6]);
+    return Date.UTC(y, mo, d, hh, mm, ss);
+  }
+  const t = new Date(raw).getTime();
   return Number.isFinite(t) ? t : NaN;
 }
 
@@ -181,8 +211,8 @@ export const getWeeklyGrid = async (req, res, next) => {
       if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
     }
 
-    const windowStart = new Date(`${weekStart}T00:00:00`).toISOString();
-    const windowEnd = new Date(`${addDays(weekStart, 7)}T00:00:00`).toISOString();
+    const windowStart = `${weekStart} 00:00:00`;
+    const windowEnd = `${addDays(weekStart, 7)} 00:00:00`;
 
     // Normalize slots for each room/day/hour
     const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
@@ -209,9 +239,10 @@ export const getWeeklyGrid = async (req, res, next) => {
     const key = (roomId, date, hour) => `${roomId}:${date}:${hour}`;
     const eventBySlot = new Map();
     for (const e of events || []) {
-      const s = new Date(e.start_at);
-      const date = s.toISOString().slice(0, 10);
-      const hour = s.getHours();
+      const slot = parseSlotDateHour(e.start_at);
+      if (!slot) continue;
+      const date = slot.date;
+      const hour = slot.hour;
       const k = key(e.room_id, date, hour);
       // Precedence: assigned_booked over assigned_temporary over assigned_available
       const prev = eventBySlot.get(k);
@@ -237,8 +268,8 @@ export const getWeeklyGrid = async (req, res, next) => {
       if (!Number.isFinite(assignmentStartMs)) continue;
       for (const date of days) {
         for (const hour of hours) {
-          const slotStart = isoForDateHour(date, hour);
-          const slotEnd = new Date(new Date(slotStart).getTime() + 60 * 60 * 1000).toISOString();
+          const slotStart = mysqlDateTimeForDateHour(date, hour);
+          const slotEnd = mysqlDateTimeForDateHour(date, Number(hour) + 1);
           const slotStartMs = timeMs(slotStart);
           const slotEndMs = timeMs(slotEnd);
           if (!Number.isFinite(slotStartMs) || !Number.isFinite(slotEndMs)) continue;

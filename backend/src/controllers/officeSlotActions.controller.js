@@ -15,6 +15,23 @@ const canManageSchedule = (role) =>
 
 const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
+function weekdayHourFromSqlDateTime(value) {
+  const raw = String(value || '').trim();
+  const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2})/);
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]) - 1;
+  const d = Number(m[3]);
+  const hour = Number(m[4]);
+  if (![y, mo, d, hour].every((n) => Number.isInteger(n))) return null;
+  const weekdayIndex = new Date(Date.UTC(y, mo, d)).getUTCDay();
+  return {
+    weekdayName: WEEKDAY_NAMES[weekdayIndex] || '',
+    weekdayIndex,
+    hour
+  };
+}
+
 function weekdayHourInTz(dateLike, timeZone) {
   const d = dateLike instanceof Date ? dateLike : new Date(dateLike);
   if (Number.isNaN(d.getTime())) return null;
@@ -345,7 +362,7 @@ export const setEventBookingPlan = async (req, res, next) => {
 
     const loc = await OfficeLocation.findById(officeLocationId);
     const tz = String(loc?.timezone || 'America/New_York');
-    const wh = weekdayHourInTz(ev.start_at, tz);
+    const wh = weekdayHourFromSqlDateTime(ev.start_at) || weekdayHourInTz(ev.start_at, tz);
     if (!wh) return res.status(400).json({ error: { message: 'Invalid event start time' } });
 
     let assignment = await OfficeStandingAssignment.findActiveBySlot({

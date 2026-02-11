@@ -614,8 +614,8 @@ const filteredProviders = computed(() => {
   const q = String(providerSearch.value || '').trim().toLowerCase();
   const base = (providers.value || []).slice();
   base.sort((a, b) => String(a?.last_name || '').localeCompare(String(b?.last_name || '')) || String(a?.first_name || '').localeCompare(String(b?.first_name || '')));
-  if (!q) return base.slice(0, 50);
-  return base.filter((u) => `${u.first_name || ''} ${u.last_name || ''} ${u.email || ''}`.toLowerCase().includes(q)).slice(0, 50);
+  if (!q) return base;
+  return base.filter((u) => `${u.first_name || ''} ${u.last_name || ''} ${u.email || ''}`.toLowerCase().includes(q));
 });
 
 const loadProviders = async () => {

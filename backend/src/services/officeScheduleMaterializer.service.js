@@ -2,29 +2,50 @@ import OfficeStandingAssignment from '../models/OfficeStandingAssignment.model.j
 import OfficeBookingPlan from '../models/OfficeBookingPlan.model.js';
 import OfficeEvent from '../models/OfficeEvent.model.js';
 
+function parseYmdParts(dateStr) {
+  const raw = String(dateStr || '').slice(0, 10);
+  const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  if (!Number.isInteger(y) || !Number.isInteger(mo) || !Number.isInteger(d)) return null;
+  return { y, mo, d };
+}
+
+function ymdFromUtcDate(date) {
+  return date.toISOString().slice(0, 10);
+}
+
 function startOfWeekISO(dateStr) {
-  // Returns Sunday of the week for the given YYYY-MM-DD (local time)
-  const d = new Date(`${dateStr}T00:00:00`);
-  if (Number.isNaN(d.getTime())) return null;
-  const day = d.getDay(); // 0..6
-  d.setDate(d.getDate() - day);
-  return d.toISOString().slice(0, 10);
+  // Returns Sunday of the week for the given YYYY-MM-DD using UTC calendar math.
+  const p = parseYmdParts(dateStr);
+  if (!p) return null;
+  const d = new Date(Date.UTC(p.y, p.mo - 1, p.d));
+  const day = d.getUTCDay(); // 0..6
+  d.setUTCDate(d.getUTCDate() - day);
+  return ymdFromUtcDate(d);
 }
 
 function addDays(dateStr, days) {
-  const d = new Date(`${dateStr}T00:00:00`);
-  d.setDate(d.getDate() + Number(days || 0));
-  return d.toISOString().slice(0, 10);
+  const p = parseYmdParts(dateStr);
+  if (!p) return null;
+  const d = new Date(Date.UTC(p.y, p.mo - 1, p.d));
+  d.setUTCDate(d.getUTCDate() + Number(days || 0));
+  return ymdFromUtcDate(d);
 }
 
-function isoForDateHour(dateStr, hour24) {
+function mysqlDateTimeForDateHour(dateStr, hour24) {
   const hh = String(hour24).padStart(2, '0');
-  return new Date(`${dateStr}T${hh}:00:00`).toISOString();
+  return `${String(dateStr).slice(0, 10)} ${hh}:00:00`;
 }
 
 function weekIndexFromAnchor(dateStr, anchorStr) {
-  const a = new Date(`${anchorStr}T00:00:00`);
-  const d = new Date(`${dateStr}T00:00:00`);
+  const ap = parseYmdParts(anchorStr);
+  const dp = parseYmdParts(dateStr);
+  if (!ap || !dp) return 0;
+  const a = Date.UTC(ap.y, ap.mo - 1, ap.d);
+  const d = Date.UTC(dp.y, dp.mo - 1, dp.d);
   const diffDays = Math.floor((d - a) / (1000 * 60 * 60 * 24));
   return Math.floor(diffDays / 7);
 }
@@ -84,8 +105,8 @@ export class OfficeScheduleMaterializer {
     for (const a of standing) {
       for (const date of days) {
         if (!isAssignmentActiveOnDate(a, date)) continue;
-        const startAt = isoForDateHour(date, a.hour);
-        const endAt = new Date(new Date(startAt).getTime() + 60 * 60 * 1000).toISOString();
+        const startAt = mysqlDateTimeForDateHour(date, a.hour);
+        const endAt = mysqlDateTimeForDateHour(date, Number(a.hour) + 1);
 
         const isTemporary =
           a.availability_mode === 'TEMPORARY' &&
