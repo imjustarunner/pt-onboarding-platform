@@ -10,6 +10,8 @@ import { useBrandingStore } from './store/branding';
 
 const CHUNK_RELOAD_KEY = '__pt_chunk_reload__';
 
+let pendingChunkReloadPath = null;
+
 const isChunkLoadError = (err) => {
   const msg = String(err?.message || err || '');
   // Standard dynamic import failures
@@ -33,19 +35,21 @@ const isChunkLoadError = (err) => {
   return false;
 };
 
-const attemptChunkReload = (err) => {
+const attemptChunkReload = (err, targetPath) => {
   if (!isChunkLoadError(err)) return;
   const alreadyReloaded = sessionStorage.getItem(CHUNK_RELOAD_KEY) === '1';
   if (alreadyReloaded) return;
   sessionStorage.setItem(CHUNK_RELOAD_KEY, '1');
-  // Preserve current URL – reload will fetch fresh index.html with correct chunk refs
-  window.location.reload();
+  // Full navigation to target URL fetches fresh index.html and lands on the right page
+  const path = (targetPath || window.location.pathname + window.location.search + window.location.hash).trim() || '/';
+  const url = path.startsWith('http') ? path : window.location.origin + (path.startsWith('/') ? path : '/' + path);
+  window.location.href = url;
 };
 
 // Vite emits vite:preloadError when dynamic imports fail (e.g. chunk 404 after deploy).
 // This is the recommended way to handle version skew between cached HTML and new chunks.
 window.addEventListener('vite:preloadError', () => {
-  attemptChunkReload({ message: 'vite:preloadError' });
+  attemptChunkReload({ message: 'vite:preloadError' }, pendingChunkReloadPath);
 });
 
 async function bootstrap() {
@@ -55,10 +59,16 @@ async function bootstrap() {
   app.use(pinia);
   app.use(router);
 
+  // Capture intended destination so chunk-reload can navigate there instead of staying on current page.
+  router.beforeEach((to, from, next) => {
+    pendingChunkReloadPath = to.fullPath;
+    next();
+  });
+
   // If a deploy happens while someone is using the app, lazy-loaded route chunks can 404.
-  // This reloads once to pick up the new index/assets, avoiding a broken editor experience.
+  // Navigate to the intended URL so we get fresh index.html and land on the right page.
   router.onError((err) => {
-    attemptChunkReload(err);
+    attemptChunkReload(err, pendingChunkReloadPath);
   });
 
   // Also catch chunk load failures (e.g. script 404). For resource load errors,
@@ -66,13 +76,13 @@ async function bootstrap() {
   window.addEventListener('error', (event) => {
     const err = event?.error || event;
     if (!err && event?.target?.tagName === 'SCRIPT') {
-      attemptChunkReload({ target: event.target });
+      attemptChunkReload({ target: event.target }, pendingChunkReloadPath);
     } else {
-      attemptChunkReload(err);
+      attemptChunkReload(err, pendingChunkReloadPath);
     }
   });
   window.addEventListener('unhandledrejection', (event) => {
-    attemptChunkReload(event?.reason || event);
+    attemptChunkReload(event?.reason || event, pendingChunkReloadPath);
   });
 
   // Preload branding before first paint to prevent “wrong theme/logo flash”
