@@ -4287,6 +4287,105 @@ export const promoteToOnboarding = async (req, res, next) => {
   }
 };
 
+const VALID_EMPLOYEE_STATUSES = [
+  'PROSPECTIVE',
+  'PENDING_SETUP',
+  'PREHIRE_OPEN',
+  'PREHIRE_REVIEW',
+  'ONBOARDING',
+  'ACTIVE_EMPLOYEE',
+  'TERMINATED_PENDING',
+  'ARCHIVED'
+];
+
+export const updateUserStatus = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { status, note } = req.body;
+
+    // Only admins/super_admins/support can change status
+    if (req.user.role !== 'admin' && req.user.role !== 'super_admin' && req.user.role !== 'support') {
+      return res.status(403).json({ error: { message: 'Admin access required' } });
+    }
+
+    if (!status || typeof status !== 'string') {
+      return res.status(400).json({ error: { message: 'Status is required' } });
+    }
+
+    const statusUpper = String(status).trim().toUpperCase();
+    if (!VALID_EMPLOYEE_STATUSES.includes(statusUpper)) {
+      return res.status(400).json({
+        error: {
+          message: `Invalid status. Must be one of: ${VALID_EMPLOYEE_STATUSES.join(', ')}`,
+          validStatuses: VALID_EMPLOYEE_STATUSES
+        }
+      });
+    }
+
+    const user = await User.findById(id);
+    if (!user) {
+      return res.status(404).json({ error: { message: 'User not found' } });
+    }
+
+    // Guard: do not allow changing status of superadmin account (unless actor is super_admin)
+    if (user.email === 'superadmin@plottwistco.com' && req.user.role !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'Cannot change status of superadmin account' } });
+    }
+
+    // School staff and guardians only need active and archived
+    const roleNorm = String(user.role || '').toLowerCase();
+    const restrictedRoles = ['school_staff', 'client_guardian'];
+    if (restrictedRoles.includes(roleNorm)) {
+      const allowedStatuses = ['ACTIVE_EMPLOYEE', 'ARCHIVED'];
+      if (!allowedStatuses.includes(statusUpper)) {
+        return res.status(400).json({
+          error: {
+            message: `${roleNorm.replace('_', ' ')} can only be set to: ${allowedStatuses.join(', ')}`,
+            validStatuses: allowedStatuses
+          }
+        });
+      }
+    }
+
+    const updatedUser = await User.updateStatus(id, statusUpper, req.user.id);
+    if (!updatedUser) {
+      return res.status(404).json({ error: { message: 'User not found' } });
+    }
+
+    // Optional side effects for specific transitions
+    if (statusUpper === 'ONBOARDING') {
+      try {
+        const { enableWorkspaceLoginForUser } = await import('../services/workspaceLoginTransition.service.js');
+        await enableWorkspaceLoginForUser(updatedUser);
+      } catch (e) {
+        console.warn('Workspace login enable failed:', e?.message || e);
+      }
+    } else if (statusUpper === 'ACTIVE_EMPLOYEE') {
+      try {
+        const { enforceWorkspaceLoginForUser } = await import('../services/workspaceLoginTransition.service.js');
+        await enforceWorkspaceLoginForUser(updatedUser);
+      } catch (e) {
+        console.warn('Workspace login enforcement failed:', e?.message || e);
+      }
+      try {
+        const userAgencies = await User.getAgencies(id);
+        for (const agency of userAgencies || []) {
+          await NotificationService.createOnboardingCompletedNotification(id, agency.id);
+        }
+      } catch (notificationError) {
+        console.error('Onboarding completed notification failed:', notificationError);
+      }
+    }
+
+    res.json({
+      message: 'User status updated',
+      user: updatedUser
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const createCurrentEmployee = async (req, res, next) => {
   try {
     // Only admins/super_admins can create current employees

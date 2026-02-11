@@ -2,6 +2,21 @@
  * Status utility functions for user status lifecycle
  */
 
+/** All valid employee statuses (DB enum values) */
+export const VALID_EMPLOYEE_STATUSES = [
+  'PROSPECTIVE',
+  'PENDING_SETUP',
+  'PREHIRE_OPEN',
+  'PREHIRE_REVIEW',
+  'ONBOARDING',
+  'ACTIVE_EMPLOYEE',
+  'TERMINATED_PENDING',
+  'ARCHIVED'
+];
+
+/** Statuses allowed for school_staff and client_guardian (they skip the hiring workflow) */
+export const RESTRICTED_ROLE_STATUSES = ['ACTIVE_EMPLOYEE', 'ARCHIVED'];
+
 /**
  * Get display label for user status
  * @param {string} status - User status value

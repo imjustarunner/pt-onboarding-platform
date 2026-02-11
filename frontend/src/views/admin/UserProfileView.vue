@@ -1118,6 +1118,33 @@
                     <span class="expiration-warning">(7 days after status change)</span>
                   </p>
                 </div>
+
+                <!-- Manual status change: admin/super_admin/support only -->
+                <div
+                  v-if="canChangeStatusManually"
+                  class="status-change-dropdown"
+                  style="margin: 1rem 0;"
+                >
+                  <label for="status-select">Change status:</label>
+                  <select
+                    id="status-select"
+                    :value="user.status"
+                    class="form-control form-control-sm"
+                    style="max-width: 240px; display: inline-block; margin-left: 8px;"
+                    :disabled="updatingStatus"
+                    @change="onStatusChange"
+                  >
+                    <option :value="user.status" disabled>{{ getStatusLabel(user.status, user.is_active) }} (current)</option>
+                    <option
+                      v-for="s in availableStatusesForChange"
+                      :key="s"
+                      :value="s"
+                    >
+                      {{ getStatusLabel(s, true) }}
+                    </option>
+                  </select>
+                  <p v-if="statusChangeError" class="error" style="margin-top: 6px;">{{ statusChangeError }}</p>
+                </div>
                 
                 <div class="status-actions">
                   <!-- For PREHIRE_REVIEW users: Show "Promote to Onboarding" button -->
@@ -1931,6 +1958,7 @@ import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import { isSupervisor } from '../../utils/helpers.js';
+import { VALID_EMPLOYEE_STATUSES, RESTRICTED_ROLE_STATUSES } from '../../utils/statusUtils.js';
 import { getBackendBaseUrl } from '../../utils/uploadsUrl';
 import UserTrainingTab from '../../components/admin/UserTrainingTab.vue';
 import UserDocumentsTab from '../../components/admin/UserDocumentsTab.vue';
@@ -4111,6 +4139,22 @@ const formatDate = (dateString) => {
 
 const updatingStatus = ref(false);
 const downloadingDocument = ref(false);
+const statusChangeError = ref('');
+
+const canChangeStatusManually = computed(() => {
+  const role = authStore.user?.role;
+  return role === 'admin' || role === 'super_admin' || role === 'support';
+});
+
+const availableStatusesForChange = computed(() => {
+  const u = user.value;
+  if (!u) return [];
+  const roleNorm = String(u.role || '').toLowerCase();
+  const statuses = ['school_staff', 'client_guardian'].includes(roleNorm) ? RESTRICTED_ROLE_STATUSES : VALID_EMPLOYEE_STATUSES;
+  const current = String(u.status || '').toUpperCase();
+  return statuses.filter((s) => s !== current);
+});
+
 
 const getStatusLabel = (status, isActive = true) => {
   if (!isActive) {
@@ -4118,6 +4162,7 @@ const getStatusLabel = (status, isActive = true) => {
   }
   const labels = {
     // New status lifecycle
+    'PROSPECTIVE': 'Prospective (Applicant)',
     'PENDING_SETUP': 'Pending Setup',
     'PREHIRE_OPEN': 'Pre-Hire',
     'PREHIRE_REVIEW': 'Ready for Review',
@@ -4142,6 +4187,7 @@ const getStatusBadgeClass = (status, isActive = true) => {
   }
   const classes = {
     // New status lifecycle
+    'PROSPECTIVE': 'badge-info',
     'PENDING_SETUP': 'badge-warning',
     'PREHIRE_OPEN': 'badge-warning',
     'PREHIRE_REVIEW': 'badge-primary',
@@ -4326,6 +4372,37 @@ const archiveUser = async () => {
   } catch (err) {
     error.value = err.response?.data?.error?.message || 'Failed to archive user';
     alert(error.value);
+  } finally {
+    updatingStatus.value = false;
+  }
+};
+
+const onStatusChange = async (event) => {
+  const newStatus = event?.target?.value;
+  if (!newStatus || newStatus === user.value?.status) return;
+
+  const currentStatus = String(user.value?.status || '').toUpperCase();
+  const requiresConfirmation = (
+    (currentStatus === 'ACTIVE_EMPLOYEE' || currentStatus === 'active') && newStatus === 'PROSPECTIVE'
+  ) || (
+    (currentStatus === 'ACTIVE_EMPLOYEE' || currentStatus === 'active') && newStatus === 'ARCHIVED'
+  );
+
+  if (requiresConfirmation && !confirm(`Are you sure you want to move this user from ${getStatusLabel(currentStatus, true)} to ${getStatusLabel(newStatus, true)}? This is a significant status change.`)) {
+    event.target.value = user.value?.status; // Reset select
+    return;
+  }
+
+  try {
+    statusChangeError.value = '';
+    updatingStatus.value = true;
+    await api.put(`/users/${userId.value}/status`, { status: newStatus });
+    await fetchUser();
+    alert('Status updated successfully.');
+  } catch (err) {
+    statusChangeError.value = err.response?.data?.error?.message || 'Failed to update status';
+    alert(statusChangeError.value);
+    event.target.value = user.value?.status; // Reset select on error
   } finally {
     updatingStatus.value = false;
   }
