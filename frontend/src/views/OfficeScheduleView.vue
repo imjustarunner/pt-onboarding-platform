@@ -28,7 +28,7 @@
         <div class="legend-item"><span class="dot assigned_temporary"></span> Assigned temporary</div>
         <div class="legend-item"><span class="dot assigned_booked"></span> Assigned booked</div>
       </div>
-      <div v-if="selectedSlots.length" class="bulk-actions card">
+      <div v-if="selectedSlots.length > 1 && !showModal" class="bulk-actions card">
         <div class="bulk-head">
           <div class="bulk-title">Selected slots: {{ selectedSlots.length }}</div>
           <button class="btn btn-secondary btn-sm" @click="clearSelection" :disabled="saving">Clear</button>

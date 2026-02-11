@@ -14,9 +14,9 @@
     </div>
 
     <div class="tabs" data-tour="buildings-tabs">
-      <router-link class="tab" :class="{ active: isActive('/buildings/schedule') }" :to="orgTo('/buildings/schedule')" data-tour="buildings-tab-schedule">Schedule</router-link>
-      <router-link class="tab" :class="{ active: isActive('/buildings/review') }" :to="orgTo('/buildings/review')" data-tour="buildings-tab-review">Review</router-link>
-      <router-link class="tab" :class="{ active: isActive('/buildings/settings') }" :to="orgTo('/buildings/settings')" data-tour="buildings-tab-settings">Settings</router-link>
+      <router-link class="tab" :class="{ active: isActive('/buildings/schedule') }" :to="tabTo('/buildings/schedule')" data-tour="buildings-tab-schedule">Schedule</router-link>
+      <router-link class="tab" :class="{ active: isActive('/buildings/review') }" :to="tabTo('/buildings/review')" data-tour="buildings-tab-review">Review</router-link>
+      <router-link class="tab" :class="{ active: isActive('/buildings/settings') }" :to="tabTo('/buildings/settings')" data-tour="buildings-tab-settings">Settings</router-link>
     </div>
 
     <div v-if="error" class="error-box">{{ error }}</div>
@@ -42,6 +42,13 @@ const selectedOfficeId = ref('');
 
 const orgSlug = computed(() => (typeof route.params.organizationSlug === 'string' ? route.params.organizationSlug : null));
 const orgTo = (path) => (orgSlug.value ? `/${orgSlug.value}${path}` : path);
+const tabTo = (path) => ({
+  path: orgTo(path),
+  query: {
+    ...route.query,
+    officeId: selectedOfficeId.value || (typeof route.query.officeId === 'string' ? route.query.officeId : undefined) || undefined
+  }
+});
 
 const isActive = (prefix) => {
   const p = String(route.path || '');
