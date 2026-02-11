@@ -45,12 +45,25 @@ function weekdayHourInTz(dateLike, timeZone) {
     const weekday = parts.find((p) => p.type === 'weekday')?.value || '';
     const hourStr = parts.find((p) => p.type === 'hour')?.value || '';
     const hour = parseInt(hourStr, 10);
+    const normalizedHour = hour === 24 ? 0 : hour;
     const idx = WEEKDAY_NAMES.indexOf(weekday);
-    if (idx < 0 || !Number.isInteger(hour)) return null;
-    return { weekdayName: weekday, weekdayIndex: idx, hour };
+    if (idx < 0 || !Number.isInteger(normalizedHour)) return null;
+    return { weekdayName: weekday, weekdayIndex: idx, hour: normalizedHour };
   } catch {
     return null;
   }
+}
+
+function mysqlDateTimeForDateHour(dateStr, hour24) {
+  const m = String(dateStr || '').slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  const base = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  const totalHours = Number(hour24 || 0);
+  const dayOffset = Math.floor(totalHours / 24);
+  const normalizedHour = ((totalHours % 24) + 24) % 24;
+  base.setUTCDate(base.getUTCDate() + dayOffset);
+  const ymd = base.toISOString().slice(0, 10);
+  return `${ymd} ${String(normalizedHour).padStart(2, '0')}:00:00`;
 }
 
 async function requireOfficeAccess(req, officeLocationId) {
@@ -644,8 +657,8 @@ export const staffAssignOpenSlot = async (req, res, next) => {
     const user = await User.findById(assignedUserId);
     if (!user) return res.status(404).json({ error: { message: 'Assigned user not found' } });
 
-    const startAt = `${date} ${String(hour).padStart(2, '0')}:00:00`;
-    const endAt = `${date} ${String((endHour !== null ? endHour : (hour + 1))).padStart(2, '0')}:00:00`;
+    const startAt = mysqlDateTimeForDateHour(date, hour);
+    const endAt = mysqlDateTimeForDateHour(date, (endHour !== null ? endHour : (hour + 1)));
 
     if (recurrenceFrequency !== 'ONCE' && endHour !== null && endHour !== hour + 1) {
       return res.status(400).json({ error: { message: 'Recurring assignment currently supports one-hour slots only' } });
@@ -756,8 +769,8 @@ export const staffAssignOpenSlot = async (req, res, next) => {
       const startHour = Number(hour);
       const finalHour = Number(endHour !== null ? endHour : hour + 1);
       for (let h = startHour; h < finalHour; h++) {
-        const slotStartAt = `${date} ${String(h).padStart(2, '0')}:00:00`;
-        const slotEndAt = `${date} ${String(h + 1).padStart(2, '0')}:00:00`;
+        const slotStartAt = mysqlDateTimeForDateHour(date, h);
+        const slotEndAt = mysqlDateTimeForDateHour(date, h + 1);
         // eslint-disable-next-line no-await-in-loop
         const event = await OfficeEvent.upsertSlotState({
           officeLocationId,

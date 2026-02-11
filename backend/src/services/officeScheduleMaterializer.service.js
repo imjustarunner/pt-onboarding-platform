@@ -36,8 +36,14 @@ function addDays(dateStr, days) {
 }
 
 function mysqlDateTimeForDateHour(dateStr, hour24) {
-  const hh = String(hour24).padStart(2, '0');
-  return `${String(dateStr).slice(0, 10)} ${hh}:00:00`;
+  const p = parseYmdParts(dateStr);
+  if (!p) return null;
+  const base = new Date(Date.UTC(p.y, p.mo - 1, p.d));
+  const totalHours = Number(hour24 || 0);
+  const dayOffset = Math.floor(totalHours / 24);
+  const normalizedHour = ((totalHours % 24) + 24) % 24;
+  base.setUTCDate(base.getUTCDate() + dayOffset);
+  return `${ymdFromUtcDate(base)} ${String(normalizedHour).padStart(2, '0')}:00:00`;
 }
 
 function weekIndexFromAnchor(dateStr, anchorStr) {

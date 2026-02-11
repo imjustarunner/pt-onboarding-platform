@@ -34,8 +34,15 @@ function localYmdInTz(dateLike, timeZone) {
 }
 
 function mysqlDateTimeForDateHour(dateStr, hour24) {
-  const hh = String(hour24).padStart(2, '0');
-  return `${String(dateStr || '').slice(0, 10)} ${hh}:00:00`;
+  const m = String(dateStr || '').slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  const base = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  const totalHours = Number(hour24 || 0);
+  const dayOffset = Math.floor(totalHours / 24);
+  const normalizedHour = ((totalHours % 24) + 24) % 24;
+  base.setUTCDate(base.getUTCDate() + dayOffset);
+  const ymd = base.toISOString().slice(0, 10);
+  return `${ymd} ${String(normalizedHour).padStart(2, '0')}:00:00`;
 }
 
 function parseSlotDateHour(value) {
@@ -88,9 +95,10 @@ function weekdayHourInTz(dateLike, timeZone) {
     const weekday = parts.find((p) => p.type === 'weekday')?.value || '';
     const hourStr = parts.find((p) => p.type === 'hour')?.value || '';
     const hour = parseInt(hourStr, 10);
+    const normalizedHour = hour === 24 ? 0 : hour;
     const idx = WEEKDAY_NAMES.indexOf(weekday);
-    if (idx < 0 || !Number.isInteger(hour)) return null;
-    return { weekdayName: weekday, weekdayIndex: idx, hour };
+    if (idx < 0 || !Number.isInteger(normalizedHour)) return null;
+    return { weekdayName: weekday, weekdayIndex: idx, hour: normalizedHour };
   } catch {
     return null;
   }
