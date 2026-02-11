@@ -104,6 +104,15 @@ function weekdayIndexFromYmd(ymd) {
   return new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]))).getUTCDay();
 }
 
+function ymdFromDateLike(value, fallback = null) {
+  const raw = String(value || '').trim();
+  const exact = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (exact) return `${exact[1]}-${exact[2]}-${exact[3]}`;
+  const d = new Date(raw);
+  if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+  return fallback;
+}
+
 function startOfWeekYmd(ymd) {
   const m = String(ymd || '').slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!m) return null;
@@ -438,7 +447,7 @@ export const setEventBookingPlan = async (req, res, next) => {
     if (!['WEEKLY', 'BIWEEKLY', 'MONTHLY'].includes(freq)) {
       return res.status(400).json({ error: { message: 'bookedFrequency must be WEEKLY, BIWEEKLY, or MONTHLY' } });
     }
-    const bookingStartDate = String(req.body?.bookingStartDate || String(ev.start_at || '').slice(0, 10)).slice(0, 10);
+    const bookingStartDate = ymdFromDateLike(req.body?.bookingStartDate, ymdFromDateLike(ev.start_at));
     if (!/^\d{4}-\d{2}-\d{2}$/.test(bookingStartDate)) {
       return res.status(400).json({ error: { message: 'bookingStartDate must be YYYY-MM-DD' } });
     }
@@ -559,7 +568,7 @@ export const setEventRecurrence = async (req, res, next) => {
       assignment = await OfficeStandingAssignment.update(assignment.id, {
         assigned_frequency: recurrenceFrequency,
         is_active: true,
-        available_since_date: String(ev.start_at || '').slice(0, 10),
+        available_since_date: ymdFromDateLike(ev.start_at, new Date().toISOString().slice(0, 10)),
         last_two_week_confirmed_at: new Date()
       });
     } else {
@@ -576,7 +585,7 @@ export const setEventRecurrence = async (req, res, next) => {
         assignment = await OfficeStandingAssignment.update(slotExisting.id, {
           assigned_frequency: recurrenceFrequency,
           is_active: true,
-          available_since_date: String(ev.start_at || '').slice(0, 10),
+          available_since_date: ymdFromDateLike(ev.start_at, new Date().toISOString().slice(0, 10)),
           last_two_week_confirmed_at: new Date()
         });
       } else {
@@ -594,7 +603,7 @@ export const setEventRecurrence = async (req, res, next) => {
             assigned_frequency: recurrenceFrequency,
             is_active: true,
             recurrence_group_id: recurrenceGroupId,
-            available_since_date: String(ev.start_at || '').slice(0, 10),
+            available_since_date: ymdFromDateLike(ev.start_at, new Date().toISOString().slice(0, 10)),
             last_two_week_confirmed_at: new Date()
           });
         } else {
@@ -609,7 +618,7 @@ export const setEventRecurrence = async (req, res, next) => {
             createdByUserId: req.user.id
           });
           assignment = await OfficeStandingAssignment.update(assignment.id, {
-            available_since_date: String(ev.start_at || '').slice(0, 10),
+            available_since_date: ymdFromDateLike(ev.start_at, new Date().toISOString().slice(0, 10)),
             last_two_week_confirmed_at: new Date()
           });
         }
@@ -639,7 +648,7 @@ export const setEventRecurrence = async (req, res, next) => {
     const isBookedNow = String(ev.slot_state || '').toUpperCase() === 'ASSIGNED_BOOKED' || String(ev.status || '').toUpperCase() === 'BOOKED';
     let bookingPlan = null;
     if (isBookedNow) {
-      const bookingStartDate = String(ev.start_at || '').slice(0, 10);
+      const bookingStartDate = ymdFromDateLike(ev.start_at, new Date().toISOString().slice(0, 10));
       const recurringUntilDate = normalizeRecurringUntilDate(bookingStartDate, req.body?.recurringUntilDate);
       bookingPlan = await OfficeBookingPlan.upsertActive({
         standingAssignmentId: assignment.id,
