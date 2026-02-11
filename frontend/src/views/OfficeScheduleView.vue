@@ -28,6 +28,53 @@
         <div class="legend-item"><span class="dot assigned_temporary"></span> Assigned temporary</div>
         <div class="legend-item"><span class="dot assigned_booked"></span> Assigned booked</div>
       </div>
+      <div v-if="selectedSlots.length" class="bulk-actions card">
+        <div class="bulk-head">
+          <div class="bulk-title">Selected slots: {{ selectedSlots.length }}</div>
+          <button class="btn btn-secondary btn-sm" @click="clearSelection" :disabled="saving">Clear</button>
+        </div>
+        <div class="bulk-grid">
+          <div class="bulk-col">
+            <div class="muted">Assign selected open slots</div>
+            <select v-model.number="bulkProviderId" class="select">
+              <option :value="0">Select provider…</option>
+              <option v-for="p in filteredProviders" :key="`bp-${p.id}`" :value="Number(p.id)">
+                {{ p.last_name }}, {{ p.first_name }}
+              </option>
+            </select>
+            <select v-model="bulkAssignRecurrenceFreq" class="select">
+              <option value="ONCE">Single occurrence</option>
+              <option value="WEEKLY">Weekly</option>
+              <option value="BIWEEKLY">Biweekly</option>
+            </select>
+            <input v-if="bulkAssignRecurrenceFreq !== 'ONCE'" v-model="bulkAssignUntilDate" type="date" class="input" />
+            <div v-if="bulkAssignRecurrenceFreq !== 'ONCE'" class="weekday-picker">
+              <label class="weekday-label">Days</label>
+              <label v-for="wd in weekdayOptions" :key="`bwd-${wd.value}`" class="weekday-check">
+                <input type="checkbox" :checked="bulkAssignWeekdays.includes(wd.value)" @change="toggleBulkAssignWeekday(wd.value)" />
+                <span>{{ wd.label }}</span>
+              </label>
+            </div>
+            <button class="btn btn-primary" @click="bulkAssignSelected" :disabled="saving || !bulkCanAssign">
+              Assign selected
+            </button>
+          </div>
+          <div class="bulk-col">
+            <div class="muted">Edit/delete selected assigned slots</div>
+            <select v-model="bulkEditRecurrenceFreq" class="select">
+              <option value="WEEKLY">Weekly</option>
+              <option value="BIWEEKLY">Biweekly</option>
+            </select>
+            <input v-model="bulkEditRecurrenceUntil" type="date" class="input" />
+            <button class="btn btn-secondary" @click="bulkEditRecurrenceSelected" :disabled="saving || !selectedAssignedSlots.length">
+              Set recurrence
+            </button>
+            <button class="btn btn-danger" @click="bulkDeleteSelected" :disabled="saving || !selectedAssignedSlots.length">
+              Delete selected
+            </button>
+          </div>
+        </div>
+      </div>
 
       <div v-if="canManageSchedule" class="card avail-search" data-tour="buildings-schedule-avail-search">
         <div class="avail-search-head">
@@ -138,9 +185,11 @@
               v-for="d in grid.days"
               :key="`${room.id}-${d}-${h}`"
               class="cell slot"
-              :class="slotClass(room.id, d, h)"
+              :class="[slotClass(room.id, d, h), { selected: isSlotSelected(room.id, d, h) }]"
               :style="slotStyle(room.id, d, h)"
               :title="slotTitle(room.id, d, h)"
+              @mousedown.left.prevent="onSlotMouseDown(room.id, d, h)"
+              @mouseenter="onSlotMouseEnter(room.id, d, h)"
               @click="onSlotClick(room.id, d, h)"
             >
               <span class="initials">{{ slotInitials(room.id, d, h) }}</span>
@@ -398,6 +447,10 @@ const searchDate = ref(new Date().toISOString().slice(0, 10));
 const searchHour = ref(9);
 const searchFilter = ref('all'); // all | open | assigned
 const availabilityResults = ref([]);
+const selectedSlotKeys = ref([]);
+const dragAnchor = ref(null);
+const draggingSelection = ref(false);
+const suppressNextClick = ref(false);
 
 const formatDay = (d) => {
   try {
@@ -487,6 +540,24 @@ const slotStyle = (roomId, date, hour) => {
   };
 };
 
+const slotKey = (roomId, date, hour) => `${Number(roomId)}:${String(date)}:${Number(hour)}`;
+const parseSlotKey = (k) => {
+  const [roomId, date, hour] = String(k || '').split(':');
+  return { roomId: Number(roomId), date, hour: Number(hour) };
+};
+const isSlotSelected = (roomId, date, hour) => selectedSlotKeys.value.includes(slotKey(roomId, date, hour));
+const selectedSlots = computed(() => {
+  const out = [];
+  for (const key of selectedSlotKeys.value) {
+    const parsed = parseSlotKey(key);
+    const s = getSlot(parsed.roomId, parsed.date, parsed.hour);
+    if (s) out.push(s);
+  }
+  return out;
+});
+const selectedOpenSlots = computed(() => selectedSlots.value.filter((s) => String(s?.state || '') === 'open'));
+const selectedAssignedSlots = computed(() => selectedSlots.value.filter((s) => String(s?.state || '') !== 'open'));
+
 const addDaysYmd = (ymd, days) => {
   const m = String(ymd || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!m) return ymd;
@@ -517,6 +588,7 @@ const loadGrid = async () => {
     error.value = '';
     const resp = await api.get(`/office-schedule/locations/${officeId.value}/weekly-grid`, { params: { weekStart: weekStart.value } });
     grid.value = resp.data;
+    selectedSlotKeys.value = [];
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to load weekly grid';
   } finally {
@@ -715,6 +787,12 @@ const weekdayOptions = [
   { value: 5, label: 'Fri' },
   { value: 6, label: 'Sat' }
 ];
+const bulkProviderId = ref(0);
+const bulkAssignRecurrenceFreq = ref('ONCE');
+const bulkAssignUntilDate = ref(addDaysYmd(new Date().toISOString().slice(0, 10), 364));
+const bulkAssignWeekdays = ref([]);
+const bulkEditRecurrenceFreq = ref('WEEKLY');
+const bulkEditRecurrenceUntil = ref(addDaysYmd(new Date().toISOString().slice(0, 10), 364));
 const assignEndHourOptions = computed(() => {
   const start = Number(modalSlot.value?.hour ?? 0);
   const out = [];
@@ -726,6 +804,12 @@ const canAssignSubmit = computed(() => {
   if (!selectedProviderId.value || !modalSlot.value?.roomId) return false;
   if (assignRecurrenceFreq.value === 'ONCE') return true;
   return Array.isArray(assignWeekdays.value) && assignWeekdays.value.length > 0;
+});
+const bulkCanAssign = computed(() => {
+  if (!selectedOpenSlots.value.length) return false;
+  if (!bulkProviderId.value) return false;
+  if (bulkAssignRecurrenceFreq.value === 'ONCE') return true;
+  return Array.isArray(bulkAssignWeekdays.value) && bulkAssignWeekdays.value.length > 0;
 });
 const assignDisabledReason = computed(() => {
   if (saving.value) return 'Saving...';
@@ -774,6 +858,12 @@ const closeModal = () => {
   editRecurrenceUntil.value = '';
 };
 
+const clearSelection = () => {
+  selectedSlotKeys.value = [];
+  dragAnchor.value = null;
+  draggingSelection.value = false;
+};
+
 const setSuccessToast = (message) => {
   successToast.value = String(message || '').trim();
   if (successToastTimer) clearTimeout(successToastTimer);
@@ -783,6 +873,10 @@ const setSuccessToast = (message) => {
 };
 
 const onSlotClick = (roomId, date, hour) => {
+  if (suppressNextClick.value) {
+    suppressNextClick.value = false;
+    return;
+  }
   const s = getSlot(roomId, date, hour);
   if (!s) return;
   modalSlot.value = s;
@@ -800,6 +894,49 @@ const onSlotClick = (roomId, date, hour) => {
   void loadProviders();
 };
 
+const dragSelectionKeys = (anchor, current) => {
+  if (!grid.value || !anchor || !current) return [];
+  if (Number(anchor.roomId) !== Number(current.roomId)) return [slotKey(anchor.roomId, anchor.date, anchor.hour)];
+  const days = grid.value.days || [];
+  const d1 = days.indexOf(anchor.date);
+  const d2 = days.indexOf(current.date);
+  if (d1 < 0 || d2 < 0) return [slotKey(anchor.roomId, anchor.date, anchor.hour)];
+  const minDay = Math.min(d1, d2);
+  const maxDay = Math.max(d1, d2);
+  const minHour = Math.min(Number(anchor.hour), Number(current.hour));
+  const maxHour = Math.max(Number(anchor.hour), Number(current.hour));
+  const keys = [];
+  for (let di = minDay; di <= maxDay; di++) {
+    for (let h = minHour; h <= maxHour; h++) {
+      const key = slotKey(anchor.roomId, days[di], h);
+      if (getSlot(anchor.roomId, days[di], h)) keys.push(key);
+    }
+  }
+  return keys;
+};
+
+const onSlotMouseDown = (roomId, date, hour) => {
+  dragAnchor.value = { roomId: Number(roomId), date: String(date), hour: Number(hour) };
+  draggingSelection.value = true;
+  selectedSlotKeys.value = [slotKey(roomId, date, hour)];
+};
+
+const onSlotMouseEnter = (roomId, date, hour) => {
+  if (!draggingSelection.value || !dragAnchor.value) return;
+  selectedSlotKeys.value = dragSelectionKeys(dragAnchor.value, {
+    roomId: Number(roomId),
+    date: String(date),
+    hour: Number(hour)
+  });
+};
+
+const onGlobalMouseUp = () => {
+  if (!draggingSelection.value) return;
+  suppressNextClick.value = (selectedSlotKeys.value || []).length > 1;
+  draggingSelection.value = false;
+  dragAnchor.value = null;
+};
+
 const weekdayFromYmd = (ymd) => {
   const m = String(ymd || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!m) return null;
@@ -814,6 +951,115 @@ const toggleAssignWeekday = (value) => {
   if (set.has(v)) set.delete(v);
   else set.add(v);
   assignWeekdays.value = Array.from(set.values()).sort((a, b) => a - b);
+};
+
+const toggleBulkAssignWeekday = (value) => {
+  const v = Number(value);
+  if (!Number.isInteger(v) || v < 0 || v > 6) return;
+  const set = new Set(bulkAssignWeekdays.value || []);
+  if (set.has(v)) set.delete(v);
+  else set.add(v);
+  bulkAssignWeekdays.value = Array.from(set.values()).sort((a, b) => a - b);
+};
+
+const bulkAssignSelected = async () => {
+  if (!officeId.value || !bulkCanAssign.value) return;
+  const slots = selectedOpenSlots.value.slice();
+  let okCount = 0;
+  try {
+    saving.value = true;
+    error.value = '';
+    for (const s of slots) {
+      // eslint-disable-next-line no-await-in-loop
+      await api.post(`/office-slots/${officeId.value}/open-slots/assign`, {
+        roomId: s.roomId,
+        date: s.date,
+        hour: s.hour,
+        endHour: Number(s.hour) + 1,
+        assignedUserId: bulkProviderId.value,
+        recurrenceFrequency: bulkAssignRecurrenceFreq.value,
+        recurringUntilDate: bulkAssignRecurrenceFreq.value === 'ONCE' ? null : bulkAssignUntilDate.value,
+        weekdays: bulkAssignRecurrenceFreq.value === 'ONCE' ? [] : bulkAssignWeekdays.value
+      });
+      okCount += 1;
+    }
+    setSuccessToast(`Assigned ${okCount} slot${okCount === 1 ? '' : 's'}.`);
+    await loadGrid();
+    clearSelection();
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || `Assigned ${okCount} slots before an error occurred.`;
+  } finally {
+    saving.value = false;
+  }
+};
+
+const bulkDeleteSelected = async () => {
+  if (!officeId.value || !selectedAssignedSlots.value.length) return;
+  const ok = window.confirm(`Delete ${selectedAssignedSlots.value.length} selected assigned slot(s)?`);
+  if (!ok) return;
+  let okCount = 0;
+  try {
+    saving.value = true;
+    error.value = '';
+    for (const s of selectedAssignedSlots.value) {
+      if (s.eventId) {
+        // eslint-disable-next-line no-await-in-loop
+        await api.post(`/office-slots/${officeId.value}/events/${s.eventId}/cancel`, { scope: 'occurrence' });
+      } else if (s.standingAssignmentId) {
+        // eslint-disable-next-line no-await-in-loop
+        await api.post(`/office-slots/${officeId.value}/assignments/${s.standingAssignmentId}/cancel`, {
+          scope: 'occurrence',
+          date: s.date,
+          hour: s.hour
+        });
+      }
+      okCount += 1;
+    }
+    setSuccessToast(`Deleted ${okCount} slot${okCount === 1 ? '' : 's'}.`);
+    await loadGrid();
+    clearSelection();
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || `Deleted ${okCount} slots before an error occurred.`;
+  } finally {
+    saving.value = false;
+  }
+};
+
+const bulkEditRecurrenceSelected = async () => {
+  if (!officeId.value || !selectedAssignedSlots.value.length) return;
+  const uniqueTargets = new Map();
+  for (const s of selectedAssignedSlots.value) {
+    if (s.eventId) uniqueTargets.set(`e:${s.eventId}`, { type: 'event', id: s.eventId, date: s.date });
+    else if (s.standingAssignmentId) uniqueTargets.set(`a:${s.standingAssignmentId}`, { type: 'assignment', id: s.standingAssignmentId, date: s.date });
+  }
+  let okCount = 0;
+  try {
+    saving.value = true;
+    error.value = '';
+    for (const t of uniqueTargets.values()) {
+      if (t.type === 'event') {
+        // eslint-disable-next-line no-await-in-loop
+        await api.post(`/office-slots/${officeId.value}/events/${t.id}/recurrence`, {
+          recurrenceFrequency: bulkEditRecurrenceFreq.value,
+          recurringUntilDate: bulkEditRecurrenceUntil.value || addDaysYmd(t.date, 364)
+        });
+      } else {
+        // eslint-disable-next-line no-await-in-loop
+        await api.post(`/office-slots/${officeId.value}/assignments/${t.id}/recurrence`, {
+          recurrenceFrequency: bulkEditRecurrenceFreq.value,
+          recurringUntilDate: bulkEditRecurrenceUntil.value || addDaysYmd(t.date, 364)
+        });
+      }
+      okCount += 1;
+    }
+    setSuccessToast(`Updated recurrence on ${okCount} slot target${okCount === 1 ? '' : 's'}.`);
+    await loadGrid();
+    clearSelection();
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || `Updated ${okCount} targets before an error occurred.`;
+  } finally {
+    saving.value = false;
+  }
 };
 
 const canSelfManageModalSlot = computed(() => {
@@ -1096,8 +1342,13 @@ watch(() => officeId.value, async () => {
 }, { immediate: true });
 
 onMounted(loadGrid);
+onMounted(() => {
+  if (canManageSchedule.value) void loadProviders();
+  window.addEventListener('mouseup', onGlobalMouseUp);
+});
 onBeforeUnmount(() => {
   if (successToastTimer) clearTimeout(successToastTimer);
+  window.removeEventListener('mouseup', onGlobalMouseUp);
 });
 </script>
 
@@ -1248,6 +1499,36 @@ input[type='date'] {
   flex-direction: column;
   gap: 8px;
 }
+.bulk-actions {
+  margin: 8px 0 12px;
+  padding: 10px;
+  border: 1px solid var(--sched-border);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.74);
+}
+.bulk-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.bulk-title {
+  font-size: 13px;
+  font-weight: 800;
+}
+.bulk-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.bulk-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+@media (max-width: 900px) {
+  .bulk-grid { grid-template-columns: 1fr; }
+}
 .avail-row {
   display: grid;
   grid-template-columns: 1fr 1.4fr auto;
@@ -1370,6 +1651,14 @@ input[type='date'] {
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.72),
     0 4px 12px rgba(239, 68, 68, 0.18);
+}
+.slot.selected {
+  outline: 2px solid rgba(37, 99, 235, 0.9);
+  outline-offset: -2px;
+  box-shadow:
+    inset 0 0 0 1px rgba(37, 99, 235, 0.22),
+    0 0 0 2px rgba(37, 99, 235, 0.15),
+    0 8px 16px rgba(37, 99, 235, 0.18);
 }
 .initials {
   position: relative;
