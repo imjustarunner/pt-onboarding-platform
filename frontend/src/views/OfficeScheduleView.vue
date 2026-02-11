@@ -10,6 +10,7 @@
           <label>Week of</label>
           <input v-model="weekStart" type="date" @change="loadGrid" :disabled="!officeId" />
         </div>
+        <button class="btn btn-secondary" @click="goToNextWeek" :disabled="loading || !officeId">Next week</button>
         <button class="btn btn-secondary" @click="loadGrid" :disabled="loading || !officeId">Refresh</button>
       </div>
     </div>
@@ -263,6 +264,25 @@
           <div class="section" v-if="canManageSchedule">
             <div class="section-title">Staff/admin action</div>
             <div class="muted" style="margin-bottom: 8px;">
+              Edit recurrence for this slot.
+            </div>
+            <div class="row">
+              <label style="font-weight: 700;">Recurrence</label>
+              <select v-model="editRecurrenceFreq" class="select" :disabled="saving || (!modalSlot?.standingAssignmentId && !modalSlot?.eventId)">
+                <option value="">Select…</option>
+                <option value="WEEKLY">Weekly</option>
+                <option value="BIWEEKLY">Biweekly</option>
+                <option value="MONTHLY">Monthly</option>
+              </select>
+              <button
+                class="btn btn-secondary"
+                @click="saveRecurrence"
+                :disabled="saving || !editRecurrenceFreq || (!modalSlot?.standingAssignmentId && !modalSlot?.eventId)"
+              >
+                Save recurrence
+              </button>
+            </div>
+            <div class="muted" style="margin-bottom: 8px;">
               Booking converts this occurrence to assigned_booked immediately (no approval gate).
             </div>
             <div class="row">
@@ -412,6 +432,23 @@ const slotStyle = (roomId, date, hour) => {
   return {
     borderLeft: `5px solid ${c}`
   };
+};
+
+const addDaysYmd = (ymd, days) => {
+  const m = String(ymd || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return ymd;
+  const y = Number(m[1]);
+  const mo = Number(m[2]) - 1;
+  const d = Number(m[3]);
+  const dt = new Date(Date.UTC(y, mo, d));
+  dt.setUTCDate(dt.getUTCDate() + Number(days || 0));
+  return dt.toISOString().slice(0, 10);
+};
+
+const goToNextWeek = async () => {
+  const next = addDaysYmd(weekStart.value, 7);
+  weekStart.value = next;
+  await loadGrid();
 };
 
 const loadGrid = async () => {
@@ -594,6 +631,7 @@ const showModal = ref(false);
 const modalSlot = ref(null);
 const saving = ref(false);
 const bookFreq = ref('');
+const editRecurrenceFreq = ref('');
 const ackAvailable = ref(false);
 const ackForfeit = ref(false);
 const cancelScope = ref('occurrence');
@@ -633,6 +671,7 @@ const closeModal = () => {
   showModal.value = false;
   modalSlot.value = null;
   bookFreq.value = '';
+  editRecurrenceFreq.value = '';
   ackAvailable.value = false;
   ackForfeit.value = false;
   cancelScope.value = 'occurrence';
@@ -646,6 +685,7 @@ const onSlotClick = (roomId, date, hour) => {
   const s = getSlot(roomId, date, hour);
   if (!s) return;
   modalSlot.value = s;
+  editRecurrenceFreq.value = String(s?.bookedFrequency || s?.assignedFrequency || '').toUpperCase();
   showModal.value = true;
   cancelScope.value = 'occurrence';
   forfeitScope.value = 'occurrence';
@@ -708,6 +748,32 @@ const bookSlot = async () => {
     closeModal();
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to set booking plan';
+  } finally {
+    saving.value = false;
+  }
+};
+
+const saveRecurrence = async () => {
+  if (!officeId.value || !editRecurrenceFreq.value) return;
+  try {
+    saving.value = true;
+    if (modalSlot.value?.standingAssignmentId) {
+      await api.post(`/office-slots/${officeId.value}/assignments/${modalSlot.value.standingAssignmentId}/booking-plan`, {
+        bookedFrequency: editRecurrenceFreq.value,
+        bookingStartDate: modalSlot.value.date
+      });
+    } else if (modalSlot.value?.eventId) {
+      await api.post(`/office-slots/${officeId.value}/events/${modalSlot.value.eventId}/booking-plan`, {
+        bookedFrequency: editRecurrenceFreq.value,
+        bookingStartDate: modalSlot.value.date
+      });
+    } else {
+      return;
+    }
+    await loadGrid();
+    closeModal();
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to save recurrence';
   } finally {
     saving.value = false;
   }
@@ -849,45 +915,91 @@ onMounted(loadGrid);
 </script>
 
 <style scoped>
+.office-schedule {
+  --sched-bg-0: #f4f7fb;
+  --sched-bg-1: #eef3f9;
+  --sched-surface: rgba(255, 255, 255, 0.7);
+  --sched-surface-strong: rgba(255, 255, 255, 0.84);
+  --sched-border: rgba(148, 163, 184, 0.34);
+  --sched-border-strong: rgba(100, 116, 139, 0.42);
+  --sched-text: #0f172a;
+  --sched-text-muted: #475569;
+  --sched-accent: #2563eb;
+  --sched-shadow-soft: 0 10px 30px rgba(15, 23, 42, 0.08);
+  --sched-shadow-strong: 0 22px 60px rgba(15, 23, 42, 0.16);
+  background:
+    radial-gradient(circle at 10% -10%, rgba(37, 99, 235, 0.08), transparent 38%),
+    radial-gradient(circle at 90% -20%, rgba(20, 184, 166, 0.09), transparent 34%),
+    linear-gradient(180deg, var(--sched-bg-0), var(--sched-bg-1));
+  border-radius: 14px;
+  padding: 14px;
+}
+
 .header {
   display: flex;
   justify-content: space-between;
   align-items: flex-end;
-  gap: 12px;
-  margin-bottom: 10px;
+  gap: 14px;
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--sched-border);
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.54));
+  backdrop-filter: blur(8px);
+  box-shadow: var(--sched-shadow-soft);
 }
-.subtitle { color: var(--text-secondary); margin-top: 4px; font-size: 13px; }
+.subtitle { color: var(--sched-text-muted); margin-top: 4px; font-size: 13px; }
 .controls { display: flex; align-items: end; gap: 10px; flex-wrap: wrap; }
 .field { display: flex; flex-direction: column; gap: 6px; }
 input[type='date'] {
   padding: 10px 12px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--sched-border);
   border-radius: 10px;
+  background: var(--sched-surface-strong);
+  color: var(--sched-text);
 }
-.muted { color: var(--text-secondary); }
+.muted { color: var(--sched-text-muted); }
 .error-box {
-  background: #fee;
-  border: 1px solid #fcc;
+  background: rgba(254, 226, 226, 0.82);
+  border: 1px solid rgba(252, 165, 165, 0.65);
   padding: 10px 12px;
   border-radius: 8px;
   margin: 12px 0;
+  color: #7f1d1d;
 }
-.loading { color: var(--text-secondary); }
-.legend { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin: 10px 0 12px; color: var(--text-secondary); font-size: 13px; }
-.legend-item { display: inline-flex; gap: 8px; align-items: center; }
-.dot { width: 10px; height: 10px; border-radius: 999px; display: inline-block; }
-.dot.open { background: #94a3b8; }
-.dot.assigned_available { background: #fbbf24; }
-.dot.assigned_temporary { background: #3b82f6; }
-.dot.assigned_booked { background: #ef4444; }
+.loading { color: var(--sched-text-muted); }
+.legend {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 10px 0 12px;
+  color: var(--sched-text-muted);
+  font-size: 12px;
+}
+.legend-item {
+  display: inline-flex;
+  gap: 7px;
+  align-items: center;
+  padding: 5px 9px;
+  border: 1px solid var(--sched-border);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.7);
+}
+.dot { width: 9px; height: 9px; border-radius: 999px; display: inline-block; }
+.dot.open { background: #94a3b8; box-shadow: 0 0 0 4px rgba(148, 163, 184, 0.16); }
+.dot.assigned_available { background: #f59e0b; box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.18); }
+.dot.assigned_temporary { background: #2563eb; box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.16); }
+.dot.assigned_booked { background: #ef4444; box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.16); }
 
 .room-card {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.84));
-  backdrop-filter: blur(8px);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 10px;
-  margin-bottom: 10px;
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.87), rgba(255, 255, 255, 0.68));
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--sched-border);
+  border-radius: 12px;
+  padding: 12px;
+  margin-bottom: 12px;
+  box-shadow: var(--sched-shadow-soft);
 }
 .room-nav {
   display: flex;
@@ -901,8 +1013,13 @@ input[type='date'] {
 }
 
 .avail-search {
-  margin-top: 10px;
+  margin-top: 12px;
   padding: 12px;
+  border: 1px solid var(--sched-border);
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.62));
+  backdrop-filter: blur(8px);
+  box-shadow: var(--sched-shadow-soft);
 }
 .avail-search-head {
   display: flex;
@@ -936,9 +1053,9 @@ input[type='date'] {
   gap: 10px;
   align-items: center;
   padding: 10px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--sched-border);
   border-radius: 12px;
-  background: var(--bg);
+  background: var(--sched-surface);
 }
 @media (max-width: 900px) {
   .avail-row { grid-template-columns: 1fr; }
@@ -952,7 +1069,7 @@ input[type='date'] {
   border-radius: 999px;
   font-size: 12px;
   font-weight: 900;
-  border: 1px solid rgba(0,0,0,0.10);
+  border: 1px solid rgba(15, 23, 42, 0.12);
 }
 .pill-open { background: rgba(16, 185, 129, 0.12); border-color: rgba(16, 185, 129, 0.25); }
 .pill-assigned_available { background: rgba(59, 130, 246, 0.10); border-color: rgba(59, 130, 246, 0.22); }
@@ -963,41 +1080,55 @@ input[type='date'] {
 .week-table {
   display: grid;
   grid-template-columns: 90px repeat(7, minmax(0, 1fr));
-  gap: 4px;
+  gap: 5px;
 }
 .cell {
-  border: 1px solid var(--border);
-  border-radius: 4px;
+  border: 1px solid var(--sched-border);
+  border-radius: 8px;
   padding: 6px;
-  background: rgba(255, 255, 255, 0.86);
+  background: rgba(255, 255, 255, 0.74);
   font-size: 12px;
-  color: var(--text-secondary);
+  color: var(--sched-text-muted);
 }
 .corner { background: transparent; border: none; }
-.day-head { background: white; font-weight: 800; color: var(--text-primary); text-align: center; }
-.hour-head { background: white; font-weight: 700; color: var(--text-primary); }
+.day-head {
+  background: rgba(255, 255, 255, 0.94);
+  font-weight: 800;
+  color: var(--sched-text);
+  text-align: center;
+  box-shadow: inset 0 0 0 1px rgba(226, 232, 240, 0.6);
+}
+.hour-head {
+  background: rgba(255, 255, 255, 0.9);
+  font-weight: 700;
+  color: var(--sched-text);
+  box-shadow: inset 0 0 0 1px rgba(226, 232, 240, 0.55);
+}
 .slot {
   height: 32px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(255, 255, 255, 0.95);
+  background: rgba(255, 255, 255, 0.9);
   transition: background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
 }
 .slot:hover {
-  box-shadow: inset 0 0 0 1px rgba(30, 64, 175, 0.28);
+  box-shadow:
+    inset 0 0 0 1px rgba(30, 64, 175, 0.2),
+    0 6px 14px rgba(37, 99, 235, 0.12);
+  transform: translateY(-1px);
 }
-.slot.open { background: #f8fafc; }
-.slot.assigned_available { background: rgba(251,191,36,0.22); border-color: rgba(251,191,36,0.45); }
-.slot.assigned_temporary { background: rgba(59,130,246,0.18); border-color: rgba(59,130,246,0.35); }
-.slot.assigned_booked { background: rgba(239,68,68,0.18); border-color: rgba(239,68,68,0.35); }
-.initials { font-weight: 800; color: var(--text-primary); }
+.slot.open { background: rgba(248, 250, 252, 0.92); }
+.slot.assigned_available { background: rgba(251, 191, 36, 0.26); border-color: rgba(245, 158, 11, 0.4); }
+.slot.assigned_temporary { background: rgba(37, 99, 235, 0.22); border-color: rgba(37, 99, 235, 0.42); }
+.slot.assigned_booked { background: rgba(239, 68, 68, 0.24); border-color: rgba(239, 68, 68, 0.38); }
+.initials { font-weight: 900; color: #0b1220; letter-spacing: 0.02em; }
 
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(9, 14, 25, 0.36);
-  backdrop-filter: blur(7px);
+  background: rgba(9, 14, 25, 0.3);
+  backdrop-filter: blur(10px) saturate(120%);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1009,14 +1140,14 @@ input[type='date'] {
   max-width: 100%;
   max-height: 88vh;
   overflow: auto;
-  background: rgba(255, 255, 255, 0.94);
-  border: 1px solid rgba(148, 163, 184, 0.38);
-  border-radius: 8px;
-  padding: 14px;
-  box-shadow: 0 28px 70px rgba(15, 23, 42, 0.22);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.88));
+  border: 1px solid var(--sched-border-strong);
+  border-radius: 14px;
+  padding: 16px;
+  box-shadow: var(--sched-shadow-strong);
 }
 .section {
-  border-top: 1px solid rgba(148, 163, 184, 0.35);
+  border-top: 1px solid rgba(148, 163, 184, 0.3);
   padding-top: 10px;
   margin-top: 10px;
 }
@@ -1024,20 +1155,46 @@ input[type='date'] {
 .actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; }
 select {
   padding: 10px 12px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--sched-border-strong);
   border-radius: 8px;
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--sched-text);
 }
 .check { display: inline-flex; gap: 10px; align-items: flex-start; }
-.check span { color: var(--text-secondary); font-size: 13px; line-height: 1.35; }
+.check span { color: var(--sched-text-muted); font-size: 13px; line-height: 1.35; }
 .modal .row {
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
 }
 .modal .btn {
   width: auto !important;
   min-width: 180px;
-  border-radius: 8px;
-  padding: 9px 14px;
+  border-radius: 10px;
+  padding: 9px 15px;
+}
+
+.office-schedule :deep(.btn) {
+  border-radius: 10px;
+  font-weight: 700;
+  transition: transform 140ms ease, box-shadow 140ms ease, background-color 140ms ease;
+}
+.office-schedule :deep(.btn:hover:not(:disabled)) {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 16px rgba(15, 23, 42, 0.14);
+}
+.office-schedule :deep(.btn-primary) {
+  background: linear-gradient(180deg, #2563eb, #1d4ed8);
+  border-color: #1d4ed8;
+}
+.office-schedule :deep(.btn-secondary) {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(241, 245, 249, 0.9));
+  border-color: var(--sched-border-strong);
+  color: #0f172a;
+}
+.office-schedule :deep(.btn-danger) {
+  background: linear-gradient(180deg, #ef4444, #dc2626);
+  border-color: #dc2626;
 }
 </style>
 
