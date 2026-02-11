@@ -210,7 +210,12 @@
                   <span>{{ wd.label }}</span>
                 </label>
               </div>
-              <button class="btn btn-primary" @click="assignOpenSlot" :disabled="saving || !canAssignSubmit">
+              <button
+                class="btn btn-primary"
+                @click="assignOpenSlot"
+                :disabled="saving || !canAssignSubmit"
+                :title="assignDisabledReason || ''"
+              >
                 Assign
               </button>
             </div>
@@ -722,6 +727,16 @@ const canAssignSubmit = computed(() => {
   if (assignRecurrenceFreq.value === 'ONCE') return true;
   return Array.isArray(assignWeekdays.value) && assignWeekdays.value.length > 0;
 });
+const assignDisabledReason = computed(() => {
+  if (saving.value) return 'Saving...';
+  if (!officeId.value) return 'Select an office first.';
+  if (!modalSlot.value?.roomId) return 'Select an open slot.';
+  if (!selectedProviderId.value) return 'Select a provider before assigning.';
+  if (assignRecurrenceFreq.value !== 'ONCE' && (!Array.isArray(assignWeekdays.value) || !assignWeekdays.value.length)) {
+    return 'Select at least one weekday for recurring assignment.';
+  }
+  return '';
+});
 const filteredProviders = computed(() => {
   const q = String(providerSearch.value || '').trim().toLowerCase();
   const base = (providers.value || []).slice();
@@ -821,9 +836,17 @@ const isAssignedUnbooked = computed(() => {
 });
 
 const assignOpenSlot = async () => {
-  if (!officeId.value || !modalSlot.value?.roomId || !selectedProviderId.value) return;
+  if (!officeId.value || !modalSlot.value?.roomId || !selectedProviderId.value) {
+    error.value = assignDisabledReason.value || 'Select provider/slot before assigning.';
+    return;
+  }
+  if (assignRecurrenceFreq.value !== 'ONCE' && (!Array.isArray(assignWeekdays.value) || !assignWeekdays.value.length)) {
+    error.value = 'Select at least one weekday for recurring assignment.';
+    return;
+  }
   try {
     saving.value = true;
+    error.value = '';
     await api.post(`/office-slots/${officeId.value}/open-slots/assign`, {
       roomId: modalSlot.value.roomId,
       date: modalSlot.value.date,

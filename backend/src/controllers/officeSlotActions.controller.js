@@ -708,10 +708,32 @@ export const cancelEvent = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'untilDate must be on or after the selected date' } });
     }
 
+    const removeLegacyAssignmentOverlap = async () => {
+      const roomId = Number(ev.room_id || 0) || null;
+      const assignedUserId = Number(ev.assigned_provider_id || 0) || null;
+      const endAt = String(ev.end_at || '').replace('T', ' ').slice(0, 19);
+      if (!roomId || !assignedUserId || !startAt || !endAt) return 0;
+      try {
+        const [result] = await pool.execute(
+          `DELETE FROM office_room_assignments
+           WHERE room_id = ?
+             AND assigned_user_id = ?
+             AND start_at < ?
+             AND (end_at IS NULL OR end_at > ?)`,
+          [roomId, assignedUserId, endAt, startAt]
+        );
+        return Number(result?.affectedRows || 0);
+      } catch (e) {
+        if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+        return 0;
+      }
+    };
+
     if (scope === 'occurrence') {
       const updated = await OfficeEvent.cancelOccurrence({ eventId: eid });
       await ProviderVirtualSlotAvailability.deactivateBySourceEventId(eid);
-      return res.json({ ok: true, scope: 'occurrence', event: updated });
+      const legacyAssignmentRowsRemoved = await removeLegacyAssignmentOverlap();
+      return res.json({ ok: true, scope: 'occurrence', event: updated, legacyAssignmentRowsRemoved });
     }
 
     const standingAssignmentId = Number(ev.standing_assignment_id || 0) || null;
@@ -770,7 +792,14 @@ export const cancelEvent = async (req, res, next) => {
     if (!targetAssignmentIds.length && !recurrenceGroupId) {
       const updated = await OfficeEvent.cancelOccurrence({ eventId: eid });
       await ProviderVirtualSlotAvailability.deactivateBySourceEventId(eid);
-      return res.json({ ok: true, scope: 'occurrence', event: updated, downgradedFromScopedCancel: true });
+      const legacyAssignmentRowsRemoved = await removeLegacyAssignmentOverlap();
+      return res.json({
+        ok: true,
+        scope: 'occurrence',
+        event: updated,
+        downgradedFromScopedCancel: true,
+        legacyAssignmentRowsRemoved
+      });
     }
 
     const where = [];
