@@ -17,8 +17,8 @@ class OfficeStandingAssignment {
   }) {
     const [result] = await pool.execute(
       `INSERT INTO office_standing_assignments
-        (office_location_id, room_id, provider_id, weekday, hour, assigned_frequency, availability_mode, created_by_user_id)
-       VALUES (?, ?, ?, ?, ?, ?, 'AVAILABLE', ?)`,
+        (office_location_id, room_id, provider_id, weekday, hour, assigned_frequency, availability_mode, available_since_date, last_two_week_confirmed_at, created_by_user_id)
+       VALUES (?, ?, ?, ?, ?, ?, 'AVAILABLE', CURDATE(), NOW(), ?)`,
       [officeLocationId, roomId, providerId, weekday, hour, assignedFrequency, createdByUserId]
     );
     return this.findById(result.insertId);

@@ -134,11 +134,6 @@ export const keepAvailable = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Only the assigned provider can confirm availability' } });
     }
 
-    const acknowledged = req.body?.acknowledged === true || req.body?.acknowledged === 'true';
-    if (!acknowledged) {
-      return res.status(400).json({ error: { message: 'acknowledged is required to keep slot available' } });
-    }
-
     // Keeping available clears any temporary mode and keeps booking plan inactive unless user books later.
     await OfficeStandingAssignment.update(sid, {
       availability_mode: 'AVAILABLE',

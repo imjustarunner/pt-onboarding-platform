@@ -51,6 +51,17 @@ function weekIndexFromAnchor(dateStr, anchorStr) {
 }
 
 function isAssignmentActiveOnDate(assignment, dateStr) {
+  // Require ongoing provider confirmation every 2 weeks; fully expire after 6 weeks
+  // without confirmation so stale assigned slots stop materializing.
+  const lastTwoWeekConfirm = String(assignment.last_two_week_confirmed_at || '').slice(0, 10);
+  const availableSince = String(assignment.available_since_date || '').slice(0, 10);
+  const created = String(assignment.created_at || '').slice(0, 10);
+  const confirmAnchor = lastTwoWeekConfirm || availableSince || created;
+  if (confirmAnchor) {
+    const expiresAt = addDays(confirmAnchor, 42);
+    if (expiresAt && dateStr > expiresAt) return false;
+  }
+
   // Weekly always active; biweekly active on even week offset from available_since_date.
   if (assignment.assigned_frequency === 'WEEKLY') return true;
   const anchor = assignment.available_since_date || new Date().toISOString().slice(0, 10);
@@ -63,6 +74,10 @@ function shouldBookOnDate(plan, assignment, dateStr) {
   const start = String(plan.booking_start_date || '').slice(0, 10);
   if (!start) return false;
   if (dateStr < start) return false;
+  const planHardLimit = addDays(start, 365);
+  if (planHardLimit && dateStr > planHardLimit) return false;
+  const configuredUntil = String(plan.active_until_date || '').slice(0, 10);
+  if (configuredUntil && dateStr > configuredUntil) return false;
 
   if (plan.booked_frequency === 'WEEKLY') return true;
 

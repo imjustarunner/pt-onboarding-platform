@@ -207,12 +207,9 @@
             </div>
 
             <div class="row" style="margin-top: 10px;">
-              <label class="check">
-                <input type="checkbox" v-model="ackAvailable" />
-                <span>I understand this reservation will be available for temporary booking that I can approve or deny by my peers.</span>
-              </label>
-              <button class="btn btn-secondary" @click="keepAvailable" :disabled="saving || !ackAvailable || !modalSlot?.standingAssignmentId">
-                Keep available
+              <div class="muted">Assigned slots require a quick confirmation every 2 weeks, and unconfirmed assignments fall off after 6 weeks.</div>
+              <button class="btn btn-secondary" @click="keepAvailable" :disabled="saving || !modalSlot?.standingAssignmentId">
+                Confirm assigned slot
               </button>
             </div>
 
@@ -632,7 +629,6 @@ const modalSlot = ref(null);
 const saving = ref(false);
 const bookFreq = ref('');
 const editRecurrenceFreq = ref('');
-const ackAvailable = ref(false);
 const ackForfeit = ref(false);
 const cancelScope = ref('occurrence');
 const forfeitScope = ref('occurrence');
@@ -672,7 +668,6 @@ const closeModal = () => {
   modalSlot.value = null;
   bookFreq.value = '';
   editRecurrenceFreq.value = '';
-  ackAvailable.value = false;
   ackForfeit.value = false;
   cancelScope.value = 'occurrence';
   forfeitScope.value = 'occurrence';
