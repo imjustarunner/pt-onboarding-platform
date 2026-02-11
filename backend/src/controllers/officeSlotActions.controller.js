@@ -66,6 +66,24 @@ function mysqlDateTimeForDateHour(dateStr, hour24) {
   return `${ymd} ${String(normalizedHour).padStart(2, '0')}:00:00`;
 }
 
+function mysqlDateTimeFromValue(value) {
+  if (value === null || value === undefined) return null;
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return null;
+    return value.toISOString().slice(0, 19).replace('T', ' ');
+  }
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(raw)) return raw.slice(0, 19);
+  if (/^\d{4}-\d{2}-\d{2}T/.test(raw)) {
+    const d = new Date(raw);
+    if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 19).replace('T', ' ');
+  }
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString().slice(0, 19).replace('T', ' ');
+}
+
 async function requireOfficeAccess(req, officeLocationId) {
   if (req.user.role === 'super_admin') return true;
   const agencies = await User.getAgencies(req.user.id);
@@ -388,8 +406,8 @@ export const setEventVirtualIntakeAvailability = async (req, res, next) => {
     }
 
     const enabled = req.body?.enabled !== false && String(req.body?.enabled || '').toLowerCase() !== 'false';
-    const startAt = String(ev.start_at || '').replace('T', ' ').slice(0, 19);
-    const endAt = String(ev.end_at || '').replace('T', ' ').slice(0, 19);
+    const startAt = mysqlDateTimeFromValue(ev.start_at);
+    const endAt = mysqlDateTimeFromValue(ev.end_at);
     if (!startAt || !endAt) return res.status(400).json({ error: { message: 'Event is missing start/end time' } });
 
     const agencyId = await resolveAgencyForProviderOffice({ providerId, officeLocationId });
@@ -701,7 +719,7 @@ export const cancelEvent = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'untilDate must be YYYY-MM-DD when scope=until' } });
     }
 
-    const startAt = String(ev.start_at || '').replace('T', ' ').slice(0, 19);
+    const startAt = mysqlDateTimeFromValue(ev.start_at);
     if (!startAt) return res.status(400).json({ error: { message: 'Event has invalid start time' } });
     const startDateYmd = String(startAt).slice(0, 10);
     if (scope === 'until' && untilDateRaw < startDateYmd) {
@@ -711,7 +729,7 @@ export const cancelEvent = async (req, res, next) => {
     const removeLegacyAssignmentOverlap = async () => {
       const roomId = Number(ev.room_id || 0) || null;
       const assignedUserId = Number(ev.assigned_provider_id || 0) || null;
-      const endAt = String(ev.end_at || '').replace('T', ' ').slice(0, 19);
+      const endAt = mysqlDateTimeFromValue(ev.end_at);
       if (!roomId || !assignedUserId || !startAt || !endAt) return 0;
       try {
         const [result] = await pool.execute(
@@ -1051,7 +1069,7 @@ export const forfeitEvent = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'scope must be occurrence or future' } });
     }
 
-    const startAt = String(ev.start_at || '').replace('T', ' ').slice(0, 19);
+    const startAt = mysqlDateTimeFromValue(ev.start_at);
     if (!startAt) return res.status(400).json({ error: { message: 'Event has invalid start time' } });
 
     if (scope === 'occurrence') {
