@@ -36,12 +36,12 @@
         <div class="bulk-grid">
           <div class="bulk-col">
             <div class="muted">Assign selected open slots</div>
-            <select v-model.number="bulkProviderId" class="select">
-              <option :value="0">Select person…</option>
-              <option v-for="p in filteredProviders" :key="`bp-${p.id}`" :value="Number(p.id)">
-                {{ p.last_name }}, {{ p.first_name }}
-              </option>
-            </select>
+            <PersonSearchSelect
+              v-model="bulkProviderId"
+              :options="providers"
+              placeholder="Type name to search…"
+              :disabled="saving"
+            />
             <select v-model="bulkAssignRecurrenceFreq" class="select">
               <option value="ONCE">Single occurrence</option>
               <option value="WEEKLY">Weekly</option>
@@ -221,13 +221,12 @@
 
             <div class="row">
               <label style="font-weight: 700;">Person</label>
-              <input v-model="providerSearch" class="input" placeholder="Search person…" style="max-width: 260px;" />
-              <select v-model.number="selectedProviderId" class="select">
-                <option :value="0">Select…</option>
-                <option v-for="p in filteredProviders" :key="`p-${p.id}`" :value="Number(p.id)">
-                  {{ p.last_name }}, {{ p.first_name }}
-                </option>
-              </select>
+              <PersonSearchSelect
+                v-model="selectedProviderId"
+                :options="providers"
+                placeholder="Type name to search…"
+                :disabled="saving"
+              />
               <label style="font-weight: 700;">End</label>
               <select v-model.number="assignEndHour" class="select" :disabled="!modalSlot">
                 <option v-for="h in assignEndHourOptions" :key="`end-${h}`" :value="h">
@@ -431,6 +430,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../services/api';
 import { useAuthStore } from '../store/auth';
+import PersonSearchSelect from '../components/schedule/PersonSearchSelect.vue';
 const route = useRoute();
 const authStore = useAuthStore();
 
@@ -772,7 +772,6 @@ const cancelUntilDate = ref('');
 const forfeitScope = ref('occurrence');
 
 const providers = ref([]);
-const providerSearch = ref('');
 const selectedProviderId = ref(0);
 const assignEndHour = ref(8);
 const assignRecurrenceFreq = ref('ONCE');
@@ -821,14 +820,6 @@ const assignDisabledReason = computed(() => {
   }
   return '';
 });
-const filteredProviders = computed(() => {
-  const q = String(providerSearch.value || '').trim().toLowerCase();
-  const base = (providers.value || []).slice();
-  base.sort((a, b) => String(a?.last_name || '').localeCompare(String(b?.last_name || '')) || String(a?.first_name || '').localeCompare(String(b?.first_name || '')));
-  if (!q) return base;
-  return base.filter((u) => `${u.first_name || ''} ${u.last_name || ''} ${u.email || ''}`.toLowerCase().includes(q));
-});
-
 const loadProviders = async () => {
   if (!canManageSchedule.value) return;
   if (!officeId.value) {
@@ -853,7 +844,6 @@ const closeModal = () => {
   cancelScope.value = 'occurrence';
   cancelUntilDate.value = '';
   forfeitScope.value = 'occurrence';
-  providerSearch.value = '';
   selectedProviderId.value = 0;
   assignEndHour.value = 8;
   assignRecurrenceFreq.value = 'ONCE';
@@ -1538,6 +1528,15 @@ input[type='date'] {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+.office-schedule :deep(.person-search-select) {
+  min-width: 200px;
+}
+.office-schedule :deep(.person-search-select .input) {
+  padding: 10px 12px;
+  border: 1px solid var(--sched-border-strong);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.9);
 }
 @media (max-width: 900px) {
   .bulk-grid { grid-template-columns: 1fr; }

@@ -12,13 +12,25 @@ const CHUNK_RELOAD_KEY = '__pt_chunk_reload__';
 
 const isChunkLoadError = (err) => {
   const msg = String(err?.message || err || '');
-  return (
+  // Standard dynamic import failures
+  if (
     msg.includes('Failed to fetch dynamically imported module') ||
     msg.includes('Importing a module script failed') ||
     msg.includes('ChunkLoadError') ||
     msg.includes('Loading chunk') ||
-    msg.includes('Failed to fetch')
-  );
+    msg.includes('Failed to fetch') ||
+    msg.includes('ERR_ABORTED') ||
+    msg.includes('404') ||
+    msg.includes('Failed to load resource')
+  ) {
+    return true;
+  }
+  // Network/resource errors often surface differently across browsers
+  const target = err?.target || err?.srcElement;
+  if (target?.tagName === 'SCRIPT' && (target?.src || '').includes('.js')) {
+    return true;
+  }
+  return false;
 };
 
 const attemptChunkReload = (err) => {
@@ -26,8 +38,15 @@ const attemptChunkReload = (err) => {
   const alreadyReloaded = sessionStorage.getItem(CHUNK_RELOAD_KEY) === '1';
   if (alreadyReloaded) return;
   sessionStorage.setItem(CHUNK_RELOAD_KEY, '1');
+  // Preserve current URL – reload will fetch fresh index.html with correct chunk refs
   window.location.reload();
 };
+
+// Vite emits vite:preloadError when dynamic imports fail (e.g. chunk 404 after deploy).
+// This is the recommended way to handle version skew between cached HTML and new chunks.
+window.addEventListener('vite:preloadError', () => {
+  attemptChunkReload({ message: 'vite:preloadError' });
+});
 
 async function bootstrap() {
   const app = createApp(App);
@@ -42,9 +61,15 @@ async function bootstrap() {
     attemptChunkReload(err);
   });
 
-  // Also catch chunk load failures that bubble outside the router.
+  // Also catch chunk load failures (e.g. script 404). For resource load errors,
+  // event.error can be null; event.target is the failing script/link element.
   window.addEventListener('error', (event) => {
-    attemptChunkReload(event?.error || event);
+    const err = event?.error || event;
+    if (!err && event?.target?.tagName === 'SCRIPT') {
+      attemptChunkReload({ target: event.target });
+    } else {
+      attemptChunkReload(err);
+    }
   });
   window.addEventListener('unhandledrejection', (event) => {
     attemptChunkReload(event?.reason || event);
