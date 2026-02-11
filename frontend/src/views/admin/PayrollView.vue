@@ -1634,7 +1634,7 @@
 
         <!-- Payroll Stage modal -->
         <div v-show="showStageModal" class="modal-backdrop" @click.self="showStageModal = false">
-          <div class="modal">
+          <div class="modal" style="width: min(95vw, 1800px); max-height: 95vh;">
             <div class="modal-header">
               <div>
                 <div class="modal-title">Payroll Stage</div>
