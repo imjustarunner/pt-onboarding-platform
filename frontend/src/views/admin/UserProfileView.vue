@@ -1670,7 +1670,7 @@
             :agency-ids="selectedScheduleAgencyIds"
             :agency-label-by-id="scheduleAgencyLabelById"
             :week-start-ymd="scheduleWeekStartYmd"
-            @update:weekStartYmd="(v) => { scheduleWeekStartYmd = v; }"
+            @update:weekStartYmd="onScheduleWeekStartYmdUpdate"
             :availability-overlay="showAvailability ? providerWeekAvailability : null"
             mode="admin"
           />
@@ -3025,32 +3025,70 @@ const showAvailability = ref(false);
 const availabilityLoading = ref(false);
 const availabilityError = ref('');
 const providerWeekAvailability = ref(null);
+const availabilityLastLoadedKey = ref('');
+const availabilityInFlightKey = ref('');
+let availabilityRequestSeq = 0;
 
 const availabilityAgencyId = computed(() => {
   const ids = (selectedScheduleAgencyIds.value || []).map((n) => Number(n)).filter((n) => Number.isFinite(n) && n > 0);
   return ids[0] || Number(scheduleAgencyId.value || 0) || null;
 });
 
-const loadProviderWeekAvailability = async () => {
+const normalizeWeekStartYmd = (raw) => {
+  const s = String(raw || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return '';
+  const d = new Date(`${s}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return '';
+  const day = d.getDay(); // 0=Sun..6=Sat
+  const diff = (day === 0 ? -6 : 1) - day;
+  d.setDate(d.getDate() + diff);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${dd}`;
+};
+
+const onScheduleWeekStartYmdUpdate = (nextValue) => {
+  const next = normalizeWeekStartYmd(nextValue);
+  if (!next) return;
+  if (next === scheduleWeekStartYmd.value) return;
+  scheduleWeekStartYmd.value = next;
+};
+
+const loadProviderWeekAvailability = async ({ force = false } = {}) => {
   const aid = availabilityAgencyId.value;
   if (!aid) return;
+  const week = normalizeWeekStartYmd(scheduleWeekStartYmd.value) || String(scheduleWeekStartYmd.value || '').slice(0, 10);
+  const requestKey = `${Number(userId.value || 0)}|${aid}|${week}`;
+  if (!force) {
+    if (availabilityInFlightKey.value === requestKey) return;
+    if (availabilityLastLoadedKey.value === requestKey) return;
+  }
+  availabilityInFlightKey.value = requestKey;
+  const requestSeq = ++availabilityRequestSeq;
   try {
     availabilityLoading.value = true;
     availabilityError.value = '';
-    const r = await api.get(`/availability/providers/${Number(userId)}/week`, {
+    const r = await api.get(`/availability/providers/${Number(userId.value)}/week`, {
       params: {
         agencyId: aid,
-        weekStart: scheduleWeekStartYmd.value,
+        weekStart: week,
         includeGoogleBusy: 'true',
         slotMinutes: 60
       }
     });
+    if (requestSeq !== availabilityRequestSeq) return;
     providerWeekAvailability.value = r.data || null;
+    availabilityLastLoadedKey.value = requestKey;
   } catch (e) {
+    if (requestSeq !== availabilityRequestSeq) return;
     providerWeekAvailability.value = null;
     availabilityError.value = e.response?.data?.error?.message || 'Failed to load availability';
   } finally {
-    availabilityLoading.value = false;
+    if (requestSeq === availabilityRequestSeq) {
+      availabilityInFlightKey.value = '';
+      availabilityLoading.value = false;
+    }
   }
 };
 
@@ -3058,6 +3096,13 @@ watch([showAvailability, scheduleWeekStartYmd, availabilityAgencyId], () => {
   if (!showAvailability.value) return;
   void loadProviderWeekAvailability();
 }, { immediate: false });
+
+watch(showAvailability, (next) => {
+  if (!next) return;
+  // Allow explicit refresh when toggled back on.
+  availabilityLastLoadedKey.value = '';
+  void loadProviderWeekAvailability({ force: true });
+});
 
 const availabilityByDay = computed(() => {
   const DAY_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
