@@ -2888,10 +2888,6 @@ watch(selectedSchoolAffiliationId, async () => {
   await loadProviderSchoolBlurb();
 });
 
-watch(selectedProviderProfileAgencyId, async () => {
-  await loadProviderPublicProfile();
-});
-
 const showTempPasswordModal = ref(false);
 const generatingTempPassword = ref(false);
 const temporaryPassword = ref('');
@@ -2932,6 +2928,10 @@ const selectedProviderProfileAgency = computed(() => {
 });
 const selectedProviderProfileAgencyId = computed(() => Number(selectedProviderProfileAgency.value?.id || 0) || null);
 const selectedProviderProfileAgencyName = computed(() => String(selectedProviderProfileAgency.value?.name || '').trim());
+
+watch(selectedProviderProfileAgencyId, async () => {
+  await loadProviderPublicProfile();
+});
 
 const orgTypeFor = (org) => String(org?.organization_type || 'agency').toLowerCase();
 const isAgencyOrg = (org) => orgTypeFor(org) === 'agency';
