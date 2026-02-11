@@ -1109,20 +1109,75 @@ input[type='date'] {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(255, 255, 255, 0.9);
-  transition: background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+  position: relative;
+  overflow: hidden;
+  backdrop-filter: blur(10px) saturate(135%);
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.74), rgba(255, 255, 255, 0.5));
+  border: 1px solid rgba(148, 163, 184, 0.42);
+  border-radius: 10px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.72),
+    0 3px 10px rgba(15, 23, 42, 0.08);
+  transition: background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+}
+.slot::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.48), rgba(255, 255, 255, 0.03));
+  pointer-events: none;
+}
+.slot::after {
+  content: '';
+  position: absolute;
+  left: 10%;
+  top: -80%;
+  width: 55%;
+  height: 220%;
+  transform: rotate(18deg);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0));
+  opacity: 0.55;
+  pointer-events: none;
 }
 .slot:hover {
   box-shadow:
-    inset 0 0 0 1px rgba(30, 64, 175, 0.2),
-    0 6px 14px rgba(37, 99, 235, 0.12);
+    inset 0 0 0 1px rgba(30, 64, 175, 0.18),
+    0 10px 20px rgba(37, 99, 235, 0.16);
   transform: translateY(-1px);
 }
-.slot.open { background: rgba(248, 250, 252, 0.92); }
-.slot.assigned_available { background: rgba(251, 191, 36, 0.26); border-color: rgba(245, 158, 11, 0.4); }
-.slot.assigned_temporary { background: rgba(37, 99, 235, 0.22); border-color: rgba(37, 99, 235, 0.42); }
-.slot.assigned_booked { background: rgba(239, 68, 68, 0.24); border-color: rgba(239, 68, 68, 0.38); }
-.initials { font-weight: 900; color: #0b1220; letter-spacing: 0.02em; }
+.slot.open {
+  background: linear-gradient(160deg, rgba(248, 250, 252, 0.88), rgba(241, 245, 249, 0.6));
+  border-color: rgba(148, 163, 184, 0.4);
+}
+.slot.assigned_available {
+  background: linear-gradient(165deg, rgba(255, 247, 220, 0.92), rgba(253, 230, 138, 0.44));
+  border-color: rgba(245, 158, 11, 0.5);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.76),
+    0 4px 12px rgba(245, 158, 11, 0.18);
+}
+.slot.assigned_temporary {
+  background: linear-gradient(165deg, rgba(220, 234, 255, 0.9), rgba(147, 197, 253, 0.46));
+  border-color: rgba(37, 99, 235, 0.5);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.72),
+    0 4px 12px rgba(37, 99, 235, 0.2);
+}
+.slot.assigned_booked {
+  background: linear-gradient(165deg, rgba(255, 226, 226, 0.9), rgba(252, 165, 165, 0.44));
+  border-color: rgba(239, 68, 68, 0.5);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.72),
+    0 4px 12px rgba(239, 68, 68, 0.18);
+}
+.initials {
+  position: relative;
+  z-index: 1;
+  font-weight: 900;
+  color: #0b1220;
+  letter-spacing: 0.03em;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.45);
+}
 
 .modal-overlay {
   position: fixed;
