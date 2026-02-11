@@ -1176,9 +1176,10 @@ class Agency {
     let hasParentSign = false;
     let hasUploadPacket = false;
     let hasPublicDocs = false;
+    let hasAnnouncements = false;
     try {
       const [cols] = await pool.execute(
-        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME IN ('school_portal_providers_icon_id','school_portal_school_staff_icon_id','school_portal_faq_icon_id','school_portal_parent_qr_icon_id','school_portal_parent_sign_icon_id','school_portal_upload_packet_icon_id','school_portal_public_documents_icon_id')"
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME IN ('school_portal_providers_icon_id','school_portal_school_staff_icon_id','school_portal_faq_icon_id','school_portal_parent_qr_icon_id','school_portal_parent_sign_icon_id','school_portal_upload_packet_icon_id','school_portal_public_documents_icon_id','school_portal_announcements_icon_id')"
       );
       const names = new Set((cols || []).map((c) => c.COLUMN_NAME));
       hasSchoolPortalIcons = names.has('school_portal_providers_icon_id');
@@ -1188,6 +1189,7 @@ class Agency {
       hasParentSign = names.has('school_portal_parent_sign_icon_id');
       hasUploadPacket = names.has('school_portal_upload_packet_icon_id');
       hasPublicDocs = names.has('school_portal_public_documents_icon_id');
+      hasAnnouncements = names.has('school_portal_announcements_icon_id');
     } catch (e) {
       hasSchoolPortalIcons = false;
       hasSchoolPortalStaffIcon = false;
@@ -1196,6 +1198,7 @@ class Agency {
       hasParentSign = false;
       hasUploadPacket = false;
       hasPublicDocs = false;
+      hasAnnouncements = false;
     }
     if (schoolPortalSchoolStaffIconId !== undefined && !hasSchoolPortalStaffIcon) {
       const err = new Error(
