@@ -759,6 +759,12 @@
             </div>
             <small class="hint">Enables the Clinical Note Generator tool for this organization (providers see it on My Dashboard).</small>
 
+            <div class="toggle-row" style="margin-top: 10px;">
+              <span>Enable Public Provider Finder (agency-paid)</span>
+              <ToggleSwitch v-model="agencyForm.featureFlags.publicProviderFinderEnabled" compact />
+            </div>
+            <small class="hint">Enables external/public Find a Provider availability for this agency (requires pricing add-on entitlement).</small>
+
             <div class="toggle-row" style="margin-top: 14px;">
               <span>Enable Google Workspace login rules</span>
               <ToggleSwitch v-model="agencyForm.featureFlags.googleSsoEnabled" compact />
@@ -4671,6 +4677,9 @@ const defaultAgencyForm = () => ({
     // Default OFF until explicitly enabled (agency-paid)
     clinicalNoteGeneratorEnabled: false,
 
+    // Default OFF until explicitly enabled (agency-paid)
+    publicProviderFinderEnabled: false,
+
     // Google Workspace SSO gate (off by default)
     googleSsoEnabled: false,
     googleSsoRequiredRoles: ['staff', 'admin', 'provider', 'clinical_practice_assistant'],
@@ -5935,6 +5944,7 @@ const editAgency = async (agency) => {
       aiProviderSearchEnabled: featureFlags.aiProviderSearchEnabled === true,
       noteAidEnabled: featureFlags.noteAidEnabled === true,
       clinicalNoteGeneratorEnabled: featureFlags.clinicalNoteGeneratorEnabled === true,
+      publicProviderFinderEnabled: featureFlags.publicProviderFinderEnabled === true,
 
       googleSsoEnabled: featureFlags.googleSsoEnabled === true,
       googleSsoRequiredRoles: Array.isArray(featureFlags.googleSsoRequiredRoles)

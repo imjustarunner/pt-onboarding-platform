@@ -8,6 +8,7 @@ import ProviderAvailabilityService from '../services/providerAvailability.servic
 import crypto from 'crypto';
 import EmailService from '../services/email.service.js';
 import Notification from '../models/Notification.model.js';
+import { isPublicProviderFinderFeatureEnabled } from '../services/publicAvailabilityGate.service.js';
 
 function parseIntSafe(v) {
   const n = parseInt(v, 10);
@@ -2363,7 +2364,7 @@ export const getPublicProviderLinkInfo = async (req, res, next) => {
     if (!canManageAvailability(req.user?.role)) return res.status(403).json({ error: { message: 'Access denied' } });
 
     const [rows] = await pool.execute(
-      `SELECT id, slug, name, public_availability_enabled, public_availability_access_key
+      `SELECT id, slug, name, public_availability_enabled, public_availability_access_key, feature_flags
        FROM agencies
        WHERE id = ?
        LIMIT 1`,
@@ -2372,7 +2373,7 @@ export const getPublicProviderLinkInfo = async (req, res, next) => {
     const agency = rows?.[0] || null;
     if (!agency) return res.status(404).json({ error: { message: 'Agency not found' } });
 
-    const enabled = agency.public_availability_enabled === true || agency.public_availability_enabled === 1;
+    const enabled = isPublicProviderFinderFeatureEnabled(agency);
     let key = String(agency.public_availability_access_key || '').trim();
     if (!key) {
       key = crypto.randomBytes(18).toString('base64url');
@@ -2416,7 +2417,7 @@ export const rotatePublicProviderLinkKey = async (req, res, next) => {
     }
 
     const [rows] = await pool.execute(
-      `SELECT id, slug, name, public_availability_enabled
+      `SELECT id, slug, name, public_availability_enabled, feature_flags
        FROM agencies
        WHERE id = ?
        LIMIT 1`,
@@ -2428,7 +2429,7 @@ export const rotatePublicProviderLinkKey = async (req, res, next) => {
       agencyId: Number(agency?.id || agencyId),
       agencyName: agency?.name || '',
       agencySlug: agency?.slug || '',
-      publicAvailabilityEnabled: agency?.public_availability_enabled === true || agency?.public_availability_enabled === 1,
+      publicAvailabilityEnabled: isPublicProviderFinderFeatureEnabled(agency || {}),
       publicAvailabilityAccessKey: key,
       providerFinderUrl: buildProviderFinderPublicUrl({ agencyId, key })
     });

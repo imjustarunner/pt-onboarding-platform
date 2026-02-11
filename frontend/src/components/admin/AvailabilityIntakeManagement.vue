@@ -119,6 +119,9 @@
               Public availability enabled:
               <strong>{{ publicLinkInfo.publicAvailabilityEnabled ? 'Yes' : 'No' }}</strong>
             </div>
+            <div class="muted" style="margin-top: 6px;">
+              Managed in Agency Settings -> Features -> "Enable Public Provider Finder (agency-paid)".
+            </div>
           </div>
 
           <div v-if="publicRequests.length === 0" class="muted">No pending appointment requests.</div>

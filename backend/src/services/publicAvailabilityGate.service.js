@@ -1,6 +1,29 @@
 import pool from '../config/database.js';
 import { getEffectiveBillingPricingForAgency } from './billingPricing.service.js';
 
+function parseFeatureFlags(raw) {
+  if (!raw) return {};
+  if (typeof raw === 'object') return raw;
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
+
+function isPublicProviderFinderFeatureEnabled(agencyRow) {
+  const flags = parseFeatureFlags(agencyRow?.feature_flags);
+  // Primary pricing toggle now lives in agency feature flags.
+  if (flags.publicProviderFinderEnabled === true) return true;
+  if (flags.publicProviderFinderEnabled === false) return false;
+  // Backward compatibility for older agency rows that still use the legacy column.
+  return agencyRow?.public_availability_enabled === true || agencyRow?.public_availability_enabled === 1;
+}
+
 /**
  * Public Availability gating:
  * - Feature flag: agencies.public_availability_enabled must be true
@@ -13,7 +36,7 @@ export async function checkPublicAvailabilityGate(agencyId) {
   if (!aId || Number.isNaN(aId)) return { ok: false, status: 400, message: 'Invalid agencyId' };
 
   const [rows] = await pool.execute(
-    `SELECT id, public_availability_enabled
+    `SELECT id, public_availability_enabled, feature_flags
      FROM agencies
      WHERE id = ?
      LIMIT 1`,
@@ -22,7 +45,7 @@ export async function checkPublicAvailabilityGate(agencyId) {
   const agency = rows?.[0] || null;
   if (!agency) return { ok: false, status: 404, message: 'Agency not found' };
 
-  const enabled = agency.public_availability_enabled === true || agency.public_availability_enabled === 1;
+  const enabled = isPublicProviderFinderFeatureEnabled(agency);
   if (!enabled) {
     return { ok: false, status: 403, message: 'Public availability is not enabled for this agency' };
   }
@@ -35,4 +58,6 @@ export async function checkPublicAvailabilityGate(agencyId) {
 
   return { ok: true };
 }
+
+export { isPublicProviderFinderFeatureEnabled };
 

@@ -81,7 +81,7 @@ const agencies = ref([]);
 const providers = ref([]);
 const cards = ref([]);
 const providerWeekErrors = ref([]);
-const publicFinderKeyByAgencyId = ref({});
+const publicFinderInfoByAgencyId = ref({});
 let loadCardsRequestSeq = 0;
 const selectedAgencyId = ref(null);
 const weekStart = ref(getWeekStartYmd(new Date()));
@@ -279,22 +279,26 @@ async function loadProviders() {
   providers.value = Array.isArray(data) ? data : [];
 }
 
-async function getPublicFinderKeyForAgency(agencyId) {
+async function getPublicFinderInfoForAgency(agencyId) {
   const aid = Number(agencyId || 0);
-  if (!aid) return null;
-  const existing = String(publicFinderKeyByAgencyId.value?.[aid] || '').trim();
-  if (existing) return existing;
+  if (!aid) return { key: null, enabled: false };
+  const existing = publicFinderInfoByAgencyId.value?.[aid] || null;
+  if (existing && Object.prototype.hasOwnProperty.call(existing, 'key')) {
+    return {
+      key: String(existing.key || '').trim() || null,
+      enabled: !!existing.enabled
+    };
+  }
   const { data } = await api.get('/availability/admin/public-provider-link', {
     params: { agencyId: aid }
   });
   const key = String(data?.publicAvailabilityAccessKey || '').trim();
-  if (key) {
-    publicFinderKeyByAgencyId.value = {
-      ...(publicFinderKeyByAgencyId.value || {}),
-      [aid]: key
-    };
-  }
-  return key || null;
+  const enabled = !!data?.publicAvailabilityEnabled;
+  publicFinderInfoByAgencyId.value = {
+    ...(publicFinderInfoByAgencyId.value || {}),
+    [aid]: { key: key || null, enabled }
+  };
+  return { key: key || null, enabled };
 }
 
 async function loadCardsLegacyThisWeekOnly() {
@@ -315,8 +319,10 @@ async function loadCards() {
   providerWeekErrors.value = [];
   try {
     const aid = Number(selectedAgencyId.value || 0);
-    const key = await getPublicFinderKeyForAgency(aid);
-    if (key) {
+    const publicInfo = await getPublicFinderInfoForAgency(aid);
+    const key = String(publicInfo?.key || '').trim();
+    const enabled = !!publicInfo?.enabled;
+    if (enabled && key) {
       const [inPersonResp, virtualResp] = await Promise.all([
         api.get(`/public/provider-availability/${aid}/providers`, {
           params: { key, weekStart: weekStart.value, bookingMode: 'NEW_CLIENT', programType: 'IN_PERSON' },
