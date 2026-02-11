@@ -323,6 +323,118 @@ export const createJobDescription = async (req, res, next) => {
   }
 };
 
+export const updateJobDescription = async (req, res, next) => {
+  try {
+    const agencyId = parseIntParam(req.body?.agencyId || req.query.agencyId || req.user?.agencyId);
+    await ensureAgencyAccess(req, agencyId);
+
+    const jdId = parseIntParam(req.params.jobDescriptionId);
+    if (!jdId) return res.status(400).json({ error: { message: 'Invalid jobDescriptionId' } });
+
+    const existing = await HiringJobDescription.findById(jdId);
+    if (!existing || Number(existing.agency_id) !== Number(agencyId)) {
+      return res.status(404).json({ error: { message: 'Job description not found' } });
+    }
+
+    const titleRaw = req.body?.title;
+    const title = titleRaw !== undefined ? String(titleRaw || '').trim().slice(0, 255) : String(existing.title || '').trim();
+    if (!title) return res.status(400).json({ error: { message: 'title is required' } });
+
+    const hasUploadedFile = !!req.file;
+    const replaceWithNewVersion = String(req.body?.createNewVersion || '').trim() === '1' || hasUploadedFile;
+
+    // Uploaded JDs should be versioned by creating a new row; pasted JDs can be edited in-place.
+    if (replaceWithNewVersion && Number(existing.is_active) === 1) {
+      let storagePath = existing.storage_path || null;
+      let originalName = existing.original_name || null;
+      let mimeType = existing.mime_type || null;
+
+      const descriptionTextRaw = req.body?.descriptionText !== undefined
+        ? String(req.body.descriptionText || '')
+        : String(existing.description_text || '');
+      let descriptionText = descriptionTextRaw.trim();
+
+      if (hasUploadedFile) {
+        const fileBuffer = req.file.buffer;
+        originalName = req.file.originalname || 'job-description';
+        mimeType = req.file.mimetype || 'application/octet-stream';
+
+        if (!descriptionText && mimeType === 'text/plain') {
+          try {
+            descriptionText = String(fileBuffer.toString('utf8') || '').trim().slice(0, 60000);
+          } catch {
+            // ignore
+          }
+        }
+
+        const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+        const safeExt = originalName.includes('.') ? `.${originalName.split('.').pop()}` : '';
+        const filename = `job-desc-${agencyId}-${uniqueSuffix}${safeExt}`;
+        const storageResult = await StorageService.saveAdminDoc(fileBuffer, filename, mimeType);
+        storagePath = storageResult.relativePath;
+      }
+
+      const created = await HiringJobDescription.create({
+        agencyId,
+        title,
+        descriptionText: descriptionText || null,
+        storagePath: storagePath || null,
+        originalName: originalName || null,
+        mimeType: mimeType || null,
+        createdByUserId: req.user.id,
+        isActive: true
+      });
+      await HiringJobDescription.deactivateById(existing.id);
+      return res.json({
+        ...created,
+        replacedJobDescriptionId: existing.id
+      });
+    }
+
+    // In-place edit for pasted/no-file records.
+    if (existing.storage_path && !hasUploadedFile) {
+      return res.status(400).json({
+        error: {
+          message: 'Uploaded job descriptions should be updated by uploading a replacement file.'
+        }
+      });
+    }
+
+    const descriptionText = req.body?.descriptionText !== undefined
+      ? String(req.body.descriptionText || '').trim()
+      : existing.description_text;
+
+    const updated = await HiringJobDescription.updateById(jdId, {
+      title,
+      descriptionText: descriptionText || null
+    });
+
+    res.json(updated);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const deleteJobDescription = async (req, res, next) => {
+  try {
+    const agencyId = parseIntParam(req.query.agencyId || req.user?.agencyId);
+    await ensureAgencyAccess(req, agencyId);
+
+    const jdId = parseIntParam(req.params.jobDescriptionId);
+    if (!jdId) return res.status(400).json({ error: { message: 'Invalid jobDescriptionId' } });
+
+    const existing = await HiringJobDescription.findById(jdId);
+    if (!existing || Number(existing.agency_id) !== Number(agencyId)) {
+      return res.status(404).json({ error: { message: 'Job description not found' } });
+    }
+
+    await HiringJobDescription.deactivateById(jdId);
+    res.json({ ok: true, id: jdId });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const viewJobDescriptionFile = async (req, res, next) => {
   try {
     const agencyId = parseIntParam(req.query.agencyId || req.user?.agencyId);
@@ -350,6 +462,67 @@ export const viewJobDescriptionFile = async (req, res, next) => {
     next(e);
   }
 };
+
+async function ensureAssignedJobDescriptionDocument(candidateUserId, reqUserId) {
+  try {
+    const profile = await HiringProfile.findByCandidateUserId(candidateUserId);
+    const jdId = parseIntParam(profile?.job_description_id || profile?.jobDescriptionId);
+    if (!jdId) return null;
+
+    const jd = await HiringJobDescription.findById(jdId);
+    if (!jd) return null;
+
+    const docType = 'job_description_assignment';
+    const marker = `hiring_job_description_id:${jd.id}`;
+    const [existingRows] = await pool.execute(
+      `SELECT id
+       FROM user_admin_docs
+       WHERE user_id = ?
+         AND doc_type = ?
+         AND note_text LIKE ?
+       ORDER BY id DESC
+       LIMIT 1`,
+      [candidateUserId, docType, `%${marker}%`]
+    );
+    if (existingRows?.length) return existingRows[0];
+
+    const assignedAt = new Date().toISOString();
+    const parts = [
+      'source:hiring_promote',
+      marker,
+      `hiring_job_description_title:${String(jd.title || '').trim()}`,
+      `hiring_job_description_updated_at:${jd.updated_at ? new Date(jd.updated_at).toISOString() : ''}`,
+      `assigned_at:${assignedAt}`,
+      '',
+      '--- Snapshot ---',
+      String(jd.description_text || '').trim()
+    ];
+    const noteText = parts.join('\n').slice(0, 600000);
+
+    const [result] = await pool.execute(
+      `INSERT INTO user_admin_docs (
+        user_id, title, doc_type, note_text,
+        storage_path, original_name, mime_type,
+        created_by_user_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        candidateUserId,
+        `Job Description - ${String(jd.title || '').trim() || 'Assigned'}`,
+        docType,
+        noteText || null,
+        jd.storage_path || null,
+        jd.original_name || null,
+        jd.mime_type || null,
+        reqUserId
+      ]
+    );
+
+    return { id: result.insertId };
+  } catch {
+    // Non-blocking for hiring flow.
+    return null;
+  }
+}
 
 export const createCandidateNote = async (req, res, next) => {
   try {
@@ -628,6 +801,9 @@ export const promoteCandidateToPendingSetup = async (req, res, next) => {
     // Generate a passwordless token for initial setup (7 days).
     const tokenResult = await User.generatePasswordlessToken(candidateUserId, 7 * 24);
     const tokenLink = `${config.frontendUrl}/passwordless-login/${tokenResult.token}`;
+
+    // Preserve the exact job-description version this person was hired against.
+    await ensureAssignedJobDescriptionDocument(candidateUserId, req.user.id);
 
     res.json({
       user: updated,

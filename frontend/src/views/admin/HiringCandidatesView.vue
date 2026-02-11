@@ -458,6 +458,8 @@
               <div class="row-actions">
                 <button class="btn btn-secondary" @click="selectJobForCreate(j)" type="button">Select</button>
                 <button v-if="j.hasFile" class="btn btn-secondary" @click="viewJobFile(j)" type="button">View file</button>
+                <button class="btn btn-secondary" @click="startEditJob(j)" type="button">Edit</button>
+                <button class="btn btn-danger" @click="removeJobDescription(j)" type="button">Delete</button>
               </div>
             </div>
             <div v-if="jobDescriptions.length === 0" class="empty">No job descriptions yet.</div>
@@ -466,19 +468,42 @@
           <div class="divider"></div>
 
           <div class="job-create">
-            <div class="muted small" style="margin-bottom:6px;">Add a new job description</div>
-            <input v-model="newJob.title" class="input" placeholder="Job title (e.g., School SLP)" />
+            <div class="muted small" style="margin-bottom:6px;">
+              {{ editingJobId ? 'Edit job description' : 'Add a new job description' }}
+            </div>
+            <input
+              v-model="newJob.title"
+              class="input"
+              :placeholder="editingJobId ? 'Job title' : 'Job title (e.g., School SLP)'"
+            />
             <textarea
               v-model="newJob.descriptionText"
               class="textarea"
               rows="6"
+              :disabled="editingJobHasFile"
               placeholder="Paste job description text here (recommended for best matching)"
             ></textarea>
+            <div v-if="editingJobHasFile" class="muted small" style="margin-top:6px;">
+              This is an uploaded job description. To update it, upload a replacement file (creates a new version).
+            </div>
             <input type="file" ref="jobFile" @change="onJobFileChange" />
             <div v-if="jobCreateError" class="error-banner">{{ jobCreateError }}</div>
             <div class="row-actions" style="justify-content:flex-end;">
+              <button
+                v-if="editingJobId"
+                class="btn btn-secondary"
+                type="button"
+                @click="cancelEditJob"
+                :disabled="jobCreating"
+              >
+                Cancel
+              </button>
               <button class="btn btn-primary" @click="createJobDescription" :disabled="jobCreating || !newJob.title.trim()">
-                {{ jobCreating ? 'Saving…' : 'Save job description' }}
+                {{
+                  jobCreating
+                    ? 'Saving…'
+                    : (editingJobId ? (editingJobHasFile ? 'Upload new version' : 'Save changes') : 'Save job description')
+                }}
               </button>
             </div>
           </div>
@@ -489,8 +514,8 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue';
-import { useRoute } from 'vue-router';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import api from '../../services/api';
@@ -500,6 +525,7 @@ import { useAuthStore } from '../../store/auth';
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
 const route = useRoute();
+const router = useRouter();
 
 const loading = ref(false);
 const error = ref('');
@@ -1103,10 +1129,14 @@ const jobCreateError = ref('');
 const newJob = ref({ title: '', descriptionText: '' });
 const jobFile = ref(null);
 const jobSelectedFile = ref(null);
+const editingJobId = ref(null);
+const editingJobHasFile = ref(false);
 
 const openJobDescriptions = async () => {
   showJobs.value = true;
   jobCreateError.value = '';
+  editingJobId.value = null;
+  editingJobHasFile.value = false;
   newJob.value = { title: '', descriptionText: '' };
   jobSelectedFile.value = null;
   if (jobFile.value) jobFile.value.value = '';
@@ -1115,6 +1145,8 @@ const openJobDescriptions = async () => {
 
 const closeJobDescriptions = () => {
   showJobs.value = false;
+  editingJobId.value = null;
+  editingJobHasFile.value = false;
 };
 
 const onJobFileChange = (e) => {
@@ -1136,7 +1168,18 @@ const createJobDescription = async () => {
     if (jobSelectedFile.value) {
       fd.append('file', jobSelectedFile.value);
     }
-    await api.post('/hiring/job-descriptions', fd);
+    if (editingJobId.value) {
+      if (editingJobHasFile.value && !jobSelectedFile.value) {
+        jobCreateError.value = 'Please upload a replacement file to create a new version.';
+        return;
+      }
+      if (editingJobHasFile.value) fd.append('createNewVersion', '1');
+      await api.put(`/hiring/job-descriptions/${editingJobId.value}`, fd);
+    } else {
+      await api.post('/hiring/job-descriptions', fd);
+    }
+    editingJobId.value = null;
+    editingJobHasFile.value = false;
     newJob.value = { title: '', descriptionText: '' };
     jobSelectedFile.value = null;
     if (jobFile.value) jobFile.value.value = '';
@@ -1145,6 +1188,41 @@ const createJobDescription = async () => {
     jobCreateError.value = e.response?.data?.error?.message || 'Failed to create job description';
   } finally {
     jobCreating.value = false;
+  }
+};
+
+const startEditJob = (j) => {
+  editingJobId.value = j?.id ? Number(j.id) : null;
+  editingJobHasFile.value = !!j?.hasFile;
+  newJob.value = {
+    title: String(j?.title || ''),
+    descriptionText: String(j?.descriptionText || '')
+  };
+  jobSelectedFile.value = null;
+  jobCreateError.value = '';
+  if (jobFile.value) jobFile.value.value = '';
+};
+
+const cancelEditJob = () => {
+  editingJobId.value = null;
+  editingJobHasFile.value = false;
+  newJob.value = { title: '', descriptionText: '' };
+  jobSelectedFile.value = null;
+  jobCreateError.value = '';
+  if (jobFile.value) jobFile.value.value = '';
+};
+
+const removeJobDescription = async (j) => {
+  if (!j?.id || !effectiveAgencyId.value) return;
+  const ok = window.confirm(`Delete "${j.title}"? Existing applicant history will be preserved.`);
+  if (!ok) return;
+  try {
+    await api.delete(`/hiring/job-descriptions/${j.id}`, { params: { agencyId: effectiveAgencyId.value } });
+    if (editingJobId.value === Number(j.id)) cancelEditJob();
+    if (createForm.value.jobDescriptionId === String(j.id)) createForm.value.jobDescriptionId = '';
+    await loadJobDescriptions();
+  } catch (e) {
+    alert(e.response?.data?.error?.message || 'Failed to delete job description');
   }
 };
 
@@ -1203,8 +1281,16 @@ watch(
     // Ensure jobs are loaded so the modal isn't empty on first open.
     await loadJobDescriptions();
     await openJobDescriptions();
+    const nextQuery = { ...route.query };
+    delete nextQuery.openJobs;
+    if ('openJobsTs' in nextQuery) delete nextQuery.openJobsTs;
+    await router.replace({ query: nextQuery });
   }
 );
+
+const onOpenHiringJobsModal = async () => {
+  await openJobDescriptions();
+};
 
 onMounted(async () => {
   // Ensure we have agency lists for the selector.
@@ -1245,6 +1331,11 @@ onMounted(async () => {
   if (isTruthyQueryFlag(route.query?.openJobs)) {
     await openJobDescriptions();
   }
+  window.addEventListener('open-hiring-jobs-modal', onOpenHiringJobsModal);
+});
+
+onUnmounted(() => {
+  window.removeEventListener('open-hiring-jobs-modal', onOpenHiringJobsModal);
 });
 </script>
 

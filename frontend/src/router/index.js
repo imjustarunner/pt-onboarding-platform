@@ -553,6 +553,12 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: 'supervisor_or_cpa', organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/admin/find-providers',
+    name: 'OrganizationAdminFindProviders',
+    component: () => import('../views/SupervisorAvailabilityLabView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'supervisor'], organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/supervisor/availability-lab',
     name: 'OrganizationSupervisorAvailabilityLab',
     component: () => import('../views/SupervisorAvailabilityLabView.vue'),
@@ -966,6 +972,12 @@ const routes = [
     name: 'TeamNotifications',
     component: () => import('../views/SupervisorNotificationsView.vue'),
     meta: { requiresAuth: true, requiresRole: 'supervisor_or_cpa' }
+  },
+  {
+    path: '/admin/find-providers',
+    name: 'AdminFindProviders',
+    component: () => import('../views/SupervisorAvailabilityLabView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'supervisor'] }
   },
   {
     path: '/supervisor/availability-lab',

@@ -7,6 +7,8 @@ import {
   listHiringAssignees,
   listJobDescriptions,
   createJobDescription,
+  updateJobDescription,
+  deleteJobDescription,
   viewJobDescriptionFile,
   getCandidate,
   createCandidateNote,
@@ -55,6 +57,8 @@ router.post('/candidates', createCandidate);
 router.get('/assignees', listHiringAssignees);
 router.get('/job-descriptions', listJobDescriptions);
 router.post('/job-descriptions', upload.single('file'), createJobDescription);
+router.put('/job-descriptions/:jobDescriptionId', upload.single('file'), updateJobDescription);
+router.delete('/job-descriptions/:jobDescriptionId', deleteJobDescription);
 router.get('/job-descriptions/:jobDescriptionId/view', viewJobDescriptionFile);
 router.get('/candidates/:userId', getCandidate);
 router.post('/candidates/:userId/notes', createCandidateNote);

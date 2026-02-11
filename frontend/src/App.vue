@@ -97,11 +97,11 @@
                   </button>
                   <div v-if="peopleOpsMenuOpen" class="nav-dropdown-menu">
                     <router-link v-if="hasCapability('canManageHiring')" :to="orgTo('/admin/hiring')" @click="closeAllNavMenus">Applicants</router-link>
-                    <router-link
+                    <a
                       v-if="hasCapability('canManageHiring')"
-                      :to="{ path: orgTo('/admin/hiring'), query: { openJobs: '1' } }"
-                      @click="closeAllNavMenus"
-                    >Job descriptions</router-link>
+                      href="#"
+                      @click.prevent="openJobDescriptionsNav"
+                    >Job descriptions</a>
                     <router-link v-if="showOnDemandLink" :to="orgTo('/on-demand-training')" @click="closeAllNavMenus">On-Demand Training</router-link>
                     <router-link
                       :to="orgTo('/admin/modules')"
@@ -129,6 +129,7 @@
                   <div v-if="directoryMenuOpen" class="nav-dropdown-menu">
                     <router-link :to="orgTo('/admin/schools/overview?orgType=school')" v-if="user?.role === 'super_admin' || isAdmin" @click="closeAllNavMenus">School Overview</router-link>
                     <router-link :to="orgTo('/admin/schools/overview?orgType=program')" v-if="user?.role === 'super_admin' || isAdmin" @click="closeAllNavMenus">Program Overview</router-link>
+                    <router-link :to="orgTo('/admin/find-providers')" v-if="user?.role === 'super_admin' || isAdmin" @click="closeAllNavMenus">Provider Booking Interface</router-link>
                     <router-link :to="orgTo('/admin/users')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeAllNavMenus">Users</router-link>
                     <router-link :to="orgTo('/admin/clients')" v-if="isAdmin || user?.role === 'provider'" @click="closeAllNavMenus">Clients</router-link>
                   </div>
@@ -639,6 +640,15 @@ const closeAllNavMenus = () => {
   directoryMenuOpen.value = false;
   managementMenuOpen.value = false;
   engagementMenuOpen.value = false;
+};
+
+const openJobDescriptionsNav = async () => {
+  const targetPath = orgTo('/admin/hiring');
+  const nowToken = String(Date.now());
+  closeAllNavMenus();
+  await router.push({ path: targetPath, query: { openJobs: '1', openJobsTs: nowToken } });
+  // Same-route navigations can be ignored by the router; emit an explicit UI event as a fallback.
+  window.dispatchEvent(new CustomEvent('open-hiring-jobs-modal'));
 };
 
 const onDocumentClick = () => closeAllNavMenus();

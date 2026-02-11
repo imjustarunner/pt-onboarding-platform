@@ -61,6 +61,54 @@ class HiringJobDescription {
     );
     return rows || [];
   }
+
+  static async updateById(id, { title, descriptionText, storagePath, originalName, mimeType, isActive } = {}) {
+    const updates = [];
+    const params = [];
+
+    if (title !== undefined) {
+      updates.push('title = ?');
+      params.push(String(title || '').trim().slice(0, 255));
+    }
+    if (descriptionText !== undefined) {
+      updates.push('description_text = ?');
+      params.push(descriptionText !== null ? String(descriptionText) : null);
+    }
+    if (storagePath !== undefined) {
+      updates.push('storage_path = ?');
+      params.push(storagePath || null);
+    }
+    if (originalName !== undefined) {
+      updates.push('original_name = ?');
+      params.push(originalName || null);
+    }
+    if (mimeType !== undefined) {
+      updates.push('mime_type = ?');
+      params.push(mimeType || null);
+    }
+    if (isActive !== undefined) {
+      updates.push('is_active = ?');
+      params.push(isActive ? 1 : 0);
+    }
+
+    if (updates.length === 0) {
+      return this.findById(id);
+    }
+
+    params.push(parseIntParam(id));
+    await pool.execute(
+      `UPDATE hiring_job_descriptions
+       SET ${updates.join(', ')}
+       WHERE id = ?
+       LIMIT 1`,
+      params
+    );
+    return this.findById(id);
+  }
+
+  static async deactivateById(id) {
+    return this.updateById(id, { isActive: false });
+  }
 }
 
 export default HiringJobDescription;
