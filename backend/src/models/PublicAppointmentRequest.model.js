@@ -5,11 +5,17 @@ class PublicAppointmentRequest {
     agencyId,
     providerId,
     modality,
+    bookingMode = null,
+    programType = null,
     requestedStartAt,
     requestedEndAt,
     clientName,
     clientEmail,
     clientPhone = null,
+    clientInitials = null,
+    matchedClientId = null,
+    createdClientId = null,
+    createdGuardianUserId = null,
     notes = null
   }) {
     const aid = Number(agencyId || 0);
@@ -18,6 +24,8 @@ class PublicAppointmentRequest {
 
     const mod = String(modality || '').trim().toUpperCase();
     if (mod !== 'VIRTUAL' && mod !== 'IN_PERSON') throw new Error('Invalid modality');
+    const mode = bookingMode === null || bookingMode === undefined ? null : String(bookingMode || '').trim().toUpperCase();
+    const program = programType === null || programType === undefined ? null : String(programType || '').trim().toUpperCase();
 
     const start = String(requestedStartAt || '').trim();
     const end = String(requestedEndAt || '').trim();
@@ -29,13 +37,33 @@ class PublicAppointmentRequest {
     if (!email) throw new Error('client_email is required');
 
     const phone = clientPhone === null ? null : String(clientPhone || '').trim().slice(0, 64);
+    const initials = clientInitials === null ? null : String(clientInitials || '').trim().slice(0, 32);
     const memo = notes === null ? null : String(notes || '').trim().slice(0, 4000);
+    const matchedId = matchedClientId ? Number(matchedClientId) : null;
+    const createdClient = createdClientId ? Number(createdClientId) : null;
+    const createdGuardian = createdGuardianUserId ? Number(createdGuardianUserId) : null;
 
     const [r] = await pool.execute(
       `INSERT INTO public_appointment_requests
-        (agency_id, provider_id, modality, requested_start_at, requested_end_at, client_name, client_email, client_phone, notes, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING')`,
-      [aid, pid, mod, start, end, name, email, phone || null, memo || null]
+        (agency_id, provider_id, modality, booking_mode, program_type, requested_start_at, requested_end_at, client_name, client_email, client_phone, client_initials, matched_client_id, created_client_id, created_guardian_user_id, notes, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING')`,
+      [
+        aid,
+        pid,
+        mod,
+        mode,
+        program,
+        start,
+        end,
+        name,
+        email,
+        phone || null,
+        initials || null,
+        matchedId || null,
+        createdClient || null,
+        createdGuardian || null,
+        memo || null
+      ]
     );
 
     const id = Number(r?.insertId || 0);
@@ -78,6 +106,20 @@ class PublicAppointmentRequest {
       [st, rid, aid]
     );
     return Number(r?.affectedRows || 0) > 0;
+  }
+
+  static async findById({ agencyId, requestId }) {
+    const aid = Number(agencyId || 0);
+    const rid = Number(requestId || 0);
+    if (!aid || !rid) return null;
+    const [rows] = await pool.execute(
+      `SELECT *
+       FROM public_appointment_requests
+       WHERE id = ? AND agency_id = ?
+       LIMIT 1`,
+      [rid, aid]
+    );
+    return rows?.[0] || null;
   }
 }
 

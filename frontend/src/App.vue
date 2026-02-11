@@ -219,6 +219,9 @@
                         {{ buildingsPendingCount }}
                       </span>
                     </router-link>
+                    <router-link v-if="user?.role === 'supervisor'" :to="orgTo('/supervisor/availability-lab')" @click="closeAllNavMenus">
+                      Find Providers
+                    </router-link>
                     <router-link :to="orgTo('/admin/tools-aids')" v-if="noteAidEnabled && (isAdmin || user?.role === 'provider' || user?.role === 'staff')" @click="closeAllNavMenus">Tools &amp; Aids</router-link>
                   </div>
                 </div>
@@ -393,6 +396,12 @@
                 @click="closeMobileMenu"
                 class="mobile-nav-link"
               >Schedule</router-link>
+              <router-link
+                :to="orgTo('/supervisor/availability-lab')"
+                v-if="user?.role === 'supervisor'"
+                @click="closeMobileMenu"
+                class="mobile-nav-link"
+              >Find Providers</router-link>
               <router-link
                 :to="orgTo('/admin/tools-aids')"
                 v-if="noteAidEnabled && (isAdmin || user?.role === 'provider' || user?.role === 'staff')"

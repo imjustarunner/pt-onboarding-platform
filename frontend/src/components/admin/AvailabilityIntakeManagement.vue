@@ -103,14 +103,41 @@
 
         <!-- Public appointment requests -->
         <div v-else-if="tab === 'appointments'">
+          <div class="card-inner" style="margin-bottom: 10px;">
+            <div class="title">Public Find Provider Link</div>
+            <div class="muted" style="margin-top: 4px;">
+              Share this external URL with clients for agency-level provider intake/current-client booking.
+            </div>
+            <div v-if="publicLinkInfo.providerFinderUrl" class="row-inline" style="margin-top: 10px;">
+              <input class="input" :value="publicLinkInfo.providerFinderUrl" readonly @click="$event.target.select()" />
+              <button class="btn btn-secondary btn-sm" type="button" @click="copyPublicFinderLink">Copy</button>
+              <button class="btn btn-secondary btn-sm" type="button" @click="rotatePublicFinderKey" :disabled="saving">
+                Rotate key
+              </button>
+            </div>
+            <div class="meta" style="margin-top: 8px;">
+              Public availability enabled:
+              <strong>{{ publicLinkInfo.publicAvailabilityEnabled ? 'Yes' : 'No' }}</strong>
+            </div>
+          </div>
+
           <div v-if="publicRequests.length === 0" class="muted">No pending appointment requests.</div>
           <div v-else class="list">
             <div v-for="r in publicRequests" :key="r.id" class="row">
               <div class="main">
                 <div class="title">{{ r.providerName }} <span class="pill">{{ r.modality }}</span></div>
+                <div class="meta" v-if="r.bookingMode || r.programType">
+                  Mode: {{ r.bookingMode || '—' }} • Program: {{ r.programType || '—' }}
+                </div>
                 <div class="meta">Requested: {{ fmtDateTime(r.requestedStartAt) }} – {{ fmtDateTime(r.requestedEndAt) }}</div>
                 <div class="meta">Client: {{ r.clientName }} ({{ r.clientEmail }})</div>
+                <div class="meta" v-if="r.clientInitials">Initials: {{ r.clientInitials }}</div>
                 <div class="meta" v-if="r.clientPhone">Phone: {{ r.clientPhone }}</div>
+                <div class="meta" v-if="r.matchedClientId || r.createdClientId">
+                  Client link:
+                  <span v-if="r.matchedClientId">matched #{{ r.matchedClientId }}</span>
+                  <span v-if="r.createdClientId" style="margin-left: 8px;">created #{{ r.createdClientId }}</span>
+                </div>
                 <div class="meta" v-if="r.notes">Notes: {{ r.notes }}</div>
                 <div class="meta">Submitted: {{ fmtDateTime(r.createdAt) }}</div>
               </div>
@@ -270,6 +297,10 @@ const schools = ref([]);
 const officeRequests = ref([]);
 const schoolRequests = ref([]);
 const publicRequests = ref([]);
+const publicLinkInfo = reactive({
+  providerFinderUrl: '',
+  publicAvailabilityEnabled: false
+});
 const skills = ref([]);
 const providers = ref([]);
 
@@ -361,14 +392,15 @@ const reload = async () => {
     error.value = '';
     searchResult.value = null;
 
-    const [officesResp, schoolsResp, officeReqResp, schoolReqResp, publicReqResp, skillsResp, providersResp] = await Promise.all([
+    const [officesResp, schoolsResp, officeReqResp, schoolReqResp, publicReqResp, skillsResp, providersResp, publicLinkResp] = await Promise.all([
       api.get('/offices'),
       api.get(`/agencies/${agencyId.value}/affiliated-organizations`),
       api.get('/availability/admin/office-requests', { params: { agencyId: agencyId.value, status: 'PENDING' } }),
       api.get('/availability/admin/school-requests', { params: { agencyId: agencyId.value, status: 'PENDING' } }),
       api.get('/availability/admin/public-appointment-requests', { params: { agencyId: agencyId.value } }).catch(() => ({ data: { requests: [] } })),
       api.get('/availability/admin/skills', { params: { agencyId: agencyId.value } }),
-      api.get('/availability/admin/providers', { params: { agencyId: agencyId.value } })
+      api.get('/availability/admin/providers', { params: { agencyId: agencyId.value } }),
+      api.get('/availability/admin/public-provider-link', { params: { agencyId: agencyId.value } }).catch(() => ({ data: {} }))
     ]);
 
     offices.value = officesResp.data || [];
@@ -376,6 +408,8 @@ const reload = async () => {
     officeRequests.value = officeReqResp.data || [];
     schoolRequests.value = schoolReqResp.data || [];
     publicRequests.value = publicReqResp.data?.requests || [];
+    publicLinkInfo.providerFinderUrl = String(publicLinkResp.data?.providerFinderUrl || '');
+    publicLinkInfo.publicAvailabilityEnabled = !!publicLinkResp.data?.publicAvailabilityEnabled;
     skills.value = skillsResp.data || [];
     providers.value = providersResp.data || [];
 
@@ -390,6 +424,36 @@ const reload = async () => {
     error.value = e.response?.data?.error?.message || 'Failed to load availability intake';
   } finally {
     loading.value = false;
+  }
+};
+
+const copyPublicFinderLink = async () => {
+  const url = String(publicLinkInfo.providerFinderUrl || '').trim();
+  if (!url) return;
+  try {
+    await navigator.clipboard.writeText(url);
+  } catch {
+    const input = document.createElement('input');
+    input.value = url;
+    document.body.appendChild(input);
+    input.select();
+    document.execCommand('copy');
+    document.body.removeChild(input);
+  }
+};
+
+const rotatePublicFinderKey = async () => {
+  if (!agencyId.value) return;
+  try {
+    saving.value = true;
+    error.value = '';
+    const resp = await api.post('/availability/admin/public-provider-link/rotate-key', { agencyId: agencyId.value });
+    publicLinkInfo.providerFinderUrl = String(resp.data?.providerFinderUrl || '');
+    publicLinkInfo.publicAvailabilityEnabled = !!resp.data?.publicAvailabilityEnabled;
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to rotate public provider finder key';
+  } finally {
+    saving.value = false;
   }
 };
 

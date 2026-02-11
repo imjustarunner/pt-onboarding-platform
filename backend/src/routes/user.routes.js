@@ -3,6 +3,12 @@ import { getCurrentUser, getAllUsers, aiQueryUsers, getUserById, updateUser, upd
 import { getUserOfficeAssignments, upsertUserOfficeAssignments } from '../controllers/userOfficeAssignments.controller.js';
 import { upload as uploadProfilePhoto, uploadUserProfilePhoto } from '../controllers/userProfilePhoto.controller.js';
 import { getUserTrainingFocuses } from '../controllers/track.controller.js';
+import {
+  getUserProviderPublicProfile,
+  upsertUserProviderPublicProfile,
+  getAgencyProviderPortalSettings,
+  upsertAgencyProviderPortalSettings
+} from '../controllers/providerPublicProfile.controller.js';
 import { authenticate, requireBackofficeAdmin } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
@@ -19,6 +25,10 @@ router.post('/:id/login-email-alias', authenticate, requireBackofficeAdmin, addU
 router.get('/:id/schedule-summary', authenticate, getUserScheduleSummary);
 router.get('/:id/office-assignments', authenticate, requireBackofficeAdmin, getUserOfficeAssignments);
 router.put('/:id/office-assignments', authenticate, requireBackofficeAdmin, upsertUserOfficeAssignments);
+router.get('/:id/provider-public-profile', authenticate, getUserProviderPublicProfile);
+router.put('/:id/provider-public-profile', authenticate, upsertUserProviderPublicProfile);
+router.get('/agency-provider-portal/:agencyId', authenticate, getAgencyProviderPortalSettings);
+router.put('/agency-provider-portal/:agencyId', authenticate, upsertAgencyProviderPortalSettings);
 router.get('/:id/affiliated-portals', authenticate, getAffiliatedPortals);
 router.get('/:id/external-calendars', authenticate, getUserExternalCalendars);
 router.post('/:id/external-calendars', authenticate, createUserExternalCalendar);

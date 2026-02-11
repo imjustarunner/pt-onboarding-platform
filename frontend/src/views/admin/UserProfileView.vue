@@ -839,6 +839,85 @@
 
               <div class="admin-tools-section">
                 <h3>Admin Tools</h3>
+                <div v-if="isProviderLikeUser" class="card" style="margin-bottom: 16px;">
+                  <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
+                    <h4 style="margin:0;">Public Provider Profile (Agency Finder)</h4>
+                    <button
+                      class="btn btn-primary btn-sm"
+                      type="button"
+                      :disabled="!canEditUser || providerPublicProfileSaving || !selectedProviderProfileAgencyId"
+                      @click="saveProviderPublicProfile"
+                    >
+                      {{ providerPublicProfileSaving ? 'Saving…' : 'Save' }}
+                    </button>
+                  </div>
+                  <div v-if="providerPublicProfileLoading" class="loading">Loading provider public profile…</div>
+                  <div v-else-if="providerPublicProfileError" class="error">{{ providerPublicProfileError }}</div>
+                  <div v-else class="form-grid" style="margin-top: 10px;">
+                    <div class="form-group form-group-full">
+                      <label>Public provider blurb (view-only for providers)</label>
+                      <textarea
+                        v-model="providerPublicBlurb"
+                        rows="4"
+                        placeholder="Shown on public Find a Provider card details."
+                        :disabled="!canEditUser || providerPublicProfileSaving"
+                        style="width: 100%;"
+                      />
+                    </div>
+                    <div class="form-group">
+                      <label>Insurance accepted (comma separated)</label>
+                      <input
+                        v-model="providerPublicInsurancesCsv"
+                        type="text"
+                        placeholder="Medicaid, Self Pay, Tricare"
+                        :disabled="!canEditUser || providerPublicProfileSaving"
+                      />
+                    </div>
+                    <div class="form-group">
+                      <label>Provider self-pay override (USD)</label>
+                      <input
+                        v-model.number="providerSelfPayRateUsd"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        placeholder="Leave blank to use agency default"
+                        :disabled="!canEditUser || providerPublicProfileSaving"
+                      />
+                    </div>
+                    <div class="form-group">
+                      <label>Provider self-pay note</label>
+                      <input
+                        v-model="providerSelfPayRateNote"
+                        type="text"
+                        placeholder="Optional note shown publicly"
+                        :disabled="!canEditUser || providerPublicProfileSaving"
+                      />
+                    </div>
+                    <div class="form-group">
+                      <label>Agency default self-pay (USD)</label>
+                      <input
+                        v-model.number="agencyDefaultSelfPayRateUsd"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        :disabled="!canEditUser || providerPublicProfileSaving"
+                      />
+                    </div>
+                    <div class="form-group form-group-full">
+                      <label>Agency finder intro blurb</label>
+                      <textarea
+                        v-model="agencyFinderIntroBlurb"
+                        rows="3"
+                        placeholder="Intro paragraph shown above provider cards."
+                        :disabled="!canEditUser || providerPublicProfileSaving"
+                        style="width: 100%;"
+                      />
+                      <small class="form-help">
+                        Active agency: {{ selectedProviderProfileAgencyName || 'Select/assign an agency first' }}
+                      </small>
+                    </div>
+                  </div>
+                </div>
                 <div class="additional-account-info">
                   <div v-if="accountInfoLoading" class="loading">Loading account information...</div>
                   <div v-else-if="accountInfoError" class="error">{{ accountInfoError }}</div>
@@ -2809,6 +2888,10 @@ watch(selectedSchoolAffiliationId, async () => {
   await loadProviderSchoolBlurb();
 });
 
+watch(selectedProviderProfileAgencyId, async () => {
+  await loadProviderPublicProfile();
+});
+
 const showTempPasswordModal = ref(false);
 const generatingTempPassword = ref(false);
 const temporaryPassword = ref('');
@@ -2825,6 +2908,30 @@ const officeAssignmentsError = ref('');
 const savingOfficeAssignments = ref(false);
 const officeAssignmentOptions = ref([]);
 const officeAssignmentsDraft = ref([]);
+const providerPublicProfileLoading = ref(false);
+const providerPublicProfileSaving = ref(false);
+const providerPublicProfileError = ref('');
+const providerPublicBlurb = ref('');
+const providerPublicInsurancesCsv = ref('');
+const providerSelfPayRateUsd = ref(null);
+const providerSelfPayRateNote = ref('');
+const agencyDefaultSelfPayRateUsd = ref(null);
+const agencyFinderIntroBlurb = ref('');
+
+const isProviderLikeUser = computed(() => {
+  const role = String(user.value?.role || accountForm.value?.role || '').toLowerCase();
+  return role === 'provider' || role === 'supervisor' || !!accountForm.value?.hasProviderAccess;
+});
+
+const selectedProviderProfileAgency = computed(() => {
+  const agencies = Array.isArray(userAgencies.value) ? userAgencies.value : [];
+  const agencyOrg = agencies.find((a) => String(a?.organization_type || 'agency').toLowerCase() === 'agency');
+  if (agencyOrg?.id) return agencyOrg;
+  if (agencies?.[0]?.id) return agencies[0];
+  return null;
+});
+const selectedProviderProfileAgencyId = computed(() => Number(selectedProviderProfileAgency.value?.id || 0) || null);
+const selectedProviderProfileAgencyName = computed(() => String(selectedProviderProfileAgency.value?.name || '').trim());
 
 const orgTypeFor = (org) => String(org?.organization_type || 'agency').toLowerCase();
 const isAgencyOrg = (org) => orgTypeFor(org) === 'agency';
@@ -3238,7 +3345,7 @@ const fetchUser = async () => {
 
     // Kick off secondary requests in parallel (non-blocking).
     void Promise.allSettled([
-      fetchUserAgencies(),
+      fetchUserAgencies().then(() => loadProviderPublicProfile()),
       fetchAvailableAgencies(),
       fetchAccountInfo(),
       fetchProviderCredential(),
@@ -3484,6 +3591,71 @@ const fetchUserAgencies = async () => {
   } catch (err) {
     console.error('Failed to load user agencies:', err);
     userAgencies.value = [];
+  }
+};
+
+const loadProviderPublicProfile = async () => {
+  if (!isProviderLikeUser.value) return;
+  const agencyId = selectedProviderProfileAgencyId.value;
+  if (!agencyId) return;
+  try {
+    providerPublicProfileLoading.value = true;
+    providerPublicProfileError.value = '';
+    const { data } = await api.get(`/users/${userId.value}/provider-public-profile`, {
+      params: { agencyId }
+    });
+    const profile = data?.profile || {};
+    const defaults = data?.agencyDefaults || {};
+    providerPublicBlurb.value = String(profile.publicBlurb || '');
+    providerPublicInsurancesCsv.value = Array.isArray(profile.insurances) ? profile.insurances.join(', ') : '';
+    providerSelfPayRateUsd.value = profile.selfPayRateCents === null || profile.selfPayRateCents === undefined
+      ? null
+      : Number(profile.selfPayRateCents) / 100;
+    providerSelfPayRateNote.value = String(profile.selfPayRateNote || '');
+    agencyDefaultSelfPayRateUsd.value = defaults.defaultSelfPayRateCents === null || defaults.defaultSelfPayRateCents === undefined
+      ? null
+      : Number(defaults.defaultSelfPayRateCents) / 100;
+    agencyFinderIntroBlurb.value = String(defaults.finderIntroBlurb || '');
+  } catch (e) {
+    providerPublicProfileError.value = e.response?.data?.error?.message || 'Failed to load provider public profile';
+  } finally {
+    providerPublicProfileLoading.value = false;
+  }
+};
+
+const saveProviderPublicProfile = async () => {
+  const agencyId = selectedProviderProfileAgencyId.value;
+  if (!agencyId) return;
+  try {
+    providerPublicProfileSaving.value = true;
+    providerPublicProfileError.value = '';
+    const insurances = String(providerPublicInsurancesCsv.value || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const selfPayRateCents = providerSelfPayRateUsd.value === null || providerSelfPayRateUsd.value === undefined || providerSelfPayRateUsd.value === ''
+      ? null
+      : Math.round(Number(providerSelfPayRateUsd.value) * 100);
+    const agencyDefaultSelfPayRateCents = agencyDefaultSelfPayRateUsd.value === null || agencyDefaultSelfPayRateUsd.value === undefined || agencyDefaultSelfPayRateUsd.value === ''
+      ? null
+      : Math.round(Number(agencyDefaultSelfPayRateUsd.value) * 100);
+
+    await api.put(`/users/${userId.value}/provider-public-profile`, {
+      agencyId,
+      publicBlurb: providerPublicBlurb.value,
+      insurances,
+      selfPayRateCents,
+      selfPayRateNote: providerSelfPayRateNote.value
+    });
+    await api.put(`/users/agency-provider-portal/${agencyId}`, {
+      finderIntroBlurb: agencyFinderIntroBlurb.value,
+      defaultSelfPayRateCents: agencyDefaultSelfPayRateCents
+    });
+    await loadProviderPublicProfile();
+  } catch (e) {
+    providerPublicProfileError.value = e.response?.data?.error?.message || 'Failed to save provider public profile settings';
+  } finally {
+    providerPublicProfileSaving.value = false;
   }
 };
 

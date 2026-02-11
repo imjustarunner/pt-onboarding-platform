@@ -200,6 +200,33 @@
             </div>
           </div>
         </div>
+
+        <div v-if="isProviderLike" class="card compact-card" style="margin-top: 16px;">
+          <div class="section-header">
+            <h3 style="margin: 0;">Public Provider Profile (Read Only)</h3>
+          </div>
+          <div class="hint" style="margin-top: 6px;">
+            This is what clients see in the external Find a Provider page. Admin updates these settings.
+          </div>
+          <div v-if="providerPublicProfileLoading" class="loading" style="margin-top: 10px;">Loading profile…</div>
+          <div v-else-if="providerPublicProfileError" class="error" style="margin-top: 10px;">{{ providerPublicProfileError }}</div>
+          <div v-else class="fields-grid" style="margin-top: 12px;">
+            <div class="field-item field-item-full">
+              <label>Public blurb</label>
+              <div class="hint">{{ providerPublicProfile.publicBlurb || 'No public blurb added yet.' }}</div>
+            </div>
+            <div class="field-item">
+              <label>Self-pay rate</label>
+              <div class="hint">
+                {{ providerPublicProfile.selfPayRateLabel || providerPublicProfile.agencyDefaultSelfPayRateLabel || 'Not set' }}
+              </div>
+            </div>
+            <div class="field-item">
+              <label>Insurance accepted</label>
+              <div class="hint">{{ providerPublicProfile.insurancesLabel || 'Not listed yet' }}</div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- Profile Information (filled via assigned onboarding/profile modules) -->
@@ -594,6 +621,18 @@ const homeAddressForm = ref({
 const assignedOfficesLoading = ref(false);
 const assignedOfficesError = ref('');
 const assignedOffices = ref([]);
+const providerPublicProfileLoading = ref(false);
+const providerPublicProfileError = ref('');
+const providerPublicProfile = ref({
+  publicBlurb: '',
+  selfPayRateLabel: '',
+  agencyDefaultSelfPayRateLabel: '',
+  insurancesLabel: ''
+});
+const isProviderLike = computed(() => {
+  const role = String(authStore.user?.role || '').toLowerCase();
+  return role === 'provider' || role === 'supervisor' || !!authStore.user?.has_provider_access || !!authStore.user?.hasProviderAccess;
+});
 
 const normalizeMultiSelectValue = (raw) => {
   if (Array.isArray(raw)) return raw;
@@ -808,6 +847,47 @@ const fetchAssignedOffices = async () => {
   }
 };
 
+const fetchProviderPublicProfile = async () => {
+  if (!userId.value || !isProviderLike.value) return;
+  try {
+    providerPublicProfileLoading.value = true;
+    providerPublicProfileError.value = '';
+    const agenciesResp = await api.get(`/users/${userId.value}/agencies`);
+    const agencies = Array.isArray(agenciesResp.data) ? agenciesResp.data : [];
+    const agency = agencies.find((a) => String(a?.organization_type || 'agency').toLowerCase() === 'agency') || agencies[0] || null;
+    const agencyId = Number(agency?.id || 0);
+    if (!agencyId) {
+      providerPublicProfile.value = {
+        publicBlurb: '',
+        selfPayRateLabel: '',
+        agencyDefaultSelfPayRateLabel: '',
+        insurancesLabel: ''
+      };
+      return;
+    }
+    const { data } = await api.get(`/users/${userId.value}/provider-public-profile`, {
+      params: { agencyId }
+    });
+    const profile = data?.profile || {};
+    const defaults = data?.agencyDefaults || {};
+    const insurances = Array.isArray(profile.insurances) ? profile.insurances : [];
+    providerPublicProfile.value = {
+      publicBlurb: String(profile.publicBlurb || '').trim(),
+      selfPayRateLabel: profile.selfPayRateCents !== null && profile.selfPayRateCents !== undefined
+        ? `$${(Number(profile.selfPayRateCents) / 100).toFixed(2)}`
+        : '',
+      agencyDefaultSelfPayRateLabel: defaults.defaultSelfPayRateCents !== null && defaults.defaultSelfPayRateCents !== undefined
+        ? `$${(Number(defaults.defaultSelfPayRateCents) / 100).toFixed(2)}`
+        : '',
+      insurancesLabel: insurances.map((x) => String(x || '').trim()).filter(Boolean).join(', ')
+    };
+  } catch (err) {
+    providerPublicProfileError.value = err.response?.data?.error?.message || 'Failed to load public provider profile';
+  } finally {
+    providerPublicProfileLoading.value = false;
+  }
+};
+
 const copyLink = () => {
   if (accountInfo.value.passwordlessLoginLink) {
     navigator.clipboard.writeText(accountInfo.value.passwordlessLoginLink).then(() => {
@@ -982,6 +1062,7 @@ onMounted(() => {
     fetchAccountInfo();
     fetchMyUserInfo();
     fetchAssignedOffices();
+    fetchProviderPublicProfile();
   }
 });
 </script>
@@ -1136,6 +1217,10 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.field-item-full {
+  grid-column: 1 / -1;
 }
 
 .field-item label {

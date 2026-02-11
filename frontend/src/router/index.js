@@ -81,6 +81,12 @@ const routes = [
     component: () => import('../views/PublicIntakeSigningView.vue'),
     meta: { requiresGuest: false }
   },
+  {
+    path: '/find-provider/:agencyId',
+    name: 'PublicProviderFinder',
+    component: () => import('../views/PublicProviderFinderView.vue'),
+    meta: { requiresGuest: false }
+  },
   // Organization-specific routes (supports Agency, School, Program, Learning)
   // School splash page (public, no auth required)
   {
@@ -546,6 +552,12 @@ const routes = [
     component: () => import('../views/SupervisorNotificationsView.vue'),
     meta: { requiresAuth: true, requiresRole: 'supervisor_or_cpa', organizationSlug: true }
   },
+  {
+    path: '/:organizationSlug/supervisor/availability-lab',
+    name: 'OrganizationSupervisorAvailabilityLab',
+    component: () => import('../views/SupervisorAvailabilityLabView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['supervisor'], organizationSlug: true }
+  },
   // Legacy agency slug route (backward compatibility)
   {
     path: '/:agencySlug/login',
@@ -954,6 +966,12 @@ const routes = [
     name: 'TeamNotifications',
     component: () => import('../views/SupervisorNotificationsView.vue'),
     meta: { requiresAuth: true, requiresRole: 'supervisor_or_cpa' }
+  },
+  {
+    path: '/supervisor/availability-lab',
+    name: 'SupervisorAvailabilityLab',
+    component: () => import('../views/SupervisorAvailabilityLabView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['supervisor'] }
   },
   {
     path: '/tracks',

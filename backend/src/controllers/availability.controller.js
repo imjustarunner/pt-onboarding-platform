@@ -5,6 +5,9 @@ import { syncSchoolPortalDayProvider } from '../services/schoolPortalDaySync.ser
 import ProviderVirtualWorkingHours from '../models/ProviderVirtualWorkingHours.model.js';
 import PublicAppointmentRequest from '../models/PublicAppointmentRequest.model.js';
 import ProviderAvailabilityService from '../services/providerAvailability.service.js';
+import crypto from 'crypto';
+import EmailService from '../services/email.service.js';
+import Notification from '../models/Notification.model.js';
 
 function parseIntSafe(v) {
   const n = parseInt(v, 10);
@@ -71,6 +74,17 @@ async function isUserSupervised({ providerId, agencyId }) {
   return !!rows?.[0];
 }
 
+async function isSupervisorOfProvider({ supervisorId, providerId, agencyId }) {
+  const [rows] = await pool.execute(
+    `SELECT 1
+     FROM supervisor_assignments
+     WHERE supervisor_id = ? AND supervisee_id = ? AND agency_id = ?
+     LIMIT 1`,
+    [supervisorId, providerId, agencyId]
+  );
+  return !!rows?.[0];
+}
+
 const canManageAvailability = (role) => {
   const r = String(role || '').toLowerCase();
   return r === 'super_admin' || r === 'admin' || r === 'support' || r === 'clinical_practice_assistant' || r === 'staff';
@@ -84,6 +98,205 @@ const SKILL_BUILDER_MINUTES_PER_WEEK = 6 * 60;
 function canViewAvailabilityDashboard(role) {
   const r = String(role || '').toLowerCase();
   return canManageAvailability(r) || r === 'schedule_manager' || r === 'supervisor';
+}
+
+function buildProviderFinderPublicUrl({ agencyId, key }) {
+  const rawBase = String(
+    process.env.FRONTEND_URL ||
+    process.env.APP_BASE_URL ||
+    process.env.CORS_ORIGIN ||
+    'http://localhost:5173'
+  ).trim();
+  const base = rawBase.replace(/\/+$/, '');
+  const qs = key ? `?key=${encodeURIComponent(String(key))}` : '';
+  return `${base}/find-provider/${Number(agencyId)}${qs}`;
+}
+
+function mysqlDateTimeToIso(value) {
+  const s = String(value || '').trim();
+  if (!s) return null;
+  const parsed = new Date(s.includes('T') ? s : `${s.replace(' ', 'T')}Z`);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString();
+}
+
+function dayNameFromDateLike(value) {
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  const names = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  return names[d.getUTCDay()] || null;
+}
+
+async function ensureClientProviderLinkedForRequest({ requestRow, actorUserId }) {
+  const providerUserId = Number(requestRow?.provider_id || 0);
+  const clientId = Number(requestRow?.created_client_id || requestRow?.matched_client_id || 0);
+  if (!providerUserId || !clientId) return;
+
+  const [clientRows] = await pool.execute(
+    `SELECT id, organization_id
+     FROM clients
+     WHERE id = ?
+     LIMIT 1`,
+    [clientId]
+  );
+  const client = clientRows?.[0] || null;
+  if (!client) return;
+
+  const serviceDay = dayNameFromDateLike(mysqlDateTimeToIso(requestRow?.requested_start_at) || requestRow?.requested_start_at);
+  await pool.execute(
+    `UPDATE clients
+     SET provider_id = ?,
+         updated_by_user_id = ?,
+         last_activity_at = CURRENT_TIMESTAMP
+     WHERE id = ?`,
+    [providerUserId, actorUserId || null, clientId]
+  );
+
+  if (!Number(client.organization_id || 0)) return;
+  try {
+    await pool.execute(
+      `UPDATE client_provider_assignments
+       SET is_active = FALSE,
+           updated_by_user_id = ?,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE client_id = ?
+         AND organization_id = ?
+         AND provider_user_id <> ?`,
+      [actorUserId || null, clientId, Number(client.organization_id), providerUserId]
+    );
+
+    await pool.execute(
+      `INSERT INTO client_provider_assignments
+        (client_id, organization_id, provider_user_id, service_day, is_active, created_by_user_id, updated_by_user_id)
+       VALUES (?, ?, ?, ?, TRUE, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         service_day = VALUES(service_day),
+         is_active = TRUE,
+         updated_by_user_id = VALUES(updated_by_user_id),
+         updated_at = CURRENT_TIMESTAMP`,
+      [clientId, Number(client.organization_id), providerUserId, serviceDay || null, actorUserId || null, actorUserId || null]
+    );
+  } catch (e) {
+    const msg = String(e?.message || '');
+    const missing =
+      msg.includes("doesn't exist") ||
+      msg.includes('ER_NO_SUCH_TABLE') ||
+      msg.includes('Unknown column') ||
+      msg.includes('ER_BAD_FIELD_ERROR');
+    if (!missing) throw e;
+  }
+}
+
+async function requestStillAvailable({ agencyId, requestRow }) {
+  const providerId = Number(requestRow?.provider_id || 0);
+  if (!providerId) return false;
+  const startIso = mysqlDateTimeToIso(requestRow?.requested_start_at);
+  const endIso = mysqlDateTimeToIso(requestRow?.requested_end_at);
+  if (!startIso || !endIso) return false;
+  const weekStart = startOfWeekMonday(new Date(startIso)).toISOString().slice(0, 10);
+  const intakeOnly = String(requestRow?.booking_mode || '').toUpperCase() !== 'CURRENT_CLIENT';
+  const modality = String(requestRow?.modality || '').toUpperCase();
+  const availability = await ProviderAvailabilityService.computeWeekAvailability({
+    agencyId,
+    providerId,
+    weekStartYmd: weekStart,
+    includeGoogleBusy: true,
+    externalCalendarIds: [],
+    slotMinutes: 60,
+    intakeOnly
+  });
+  const list = modality === 'VIRTUAL' ? (availability.virtualSlots || []) : (availability.inPersonSlots || []);
+  const wanted = `${startIso}|${endIso}`;
+  return list.some((s) => `${s.startAt}|${s.endAt}` === wanted);
+}
+
+async function sendPublicRequestDecisionNotifications({ agencyId, requestRow, status, actorUserId }) {
+  const st = String(status || '').toUpperCase();
+  if (!['APPROVED', 'DECLINED', 'CANCELLED'].includes(st)) return;
+
+  const providerId = Number(requestRow?.provider_id || 0);
+  const [providerRows] = await pool.execute(
+    `SELECT id, first_name, last_name, email
+     FROM users
+     WHERE id = ?
+     LIMIT 1`,
+    [providerId]
+  );
+  const provider = providerRows?.[0] || null;
+  const [agencyRows] = await pool.execute(
+    `SELECT id, name
+     FROM agencies
+     WHERE id = ?
+     LIMIT 1`,
+    [agencyId]
+  );
+  const agencyName = String(agencyRows?.[0]?.name || `Agency ${agencyId}`);
+  const clientName = String(requestRow?.client_name || 'Client').trim();
+  const start = mysqlDateTimeToIso(requestRow?.requested_start_at) || requestRow?.requested_start_at;
+  const end = mysqlDateTimeToIso(requestRow?.requested_end_at) || requestRow?.requested_end_at;
+  const timeLabel = start && end ? `${new Date(start).toLocaleString()} - ${new Date(end).toLocaleTimeString()}` : 'requested time';
+  const modality = String(requestRow?.modality || '').toUpperCase() === 'VIRTUAL' ? 'Virtual' : 'In-Person';
+  const statusLabel = st === 'APPROVED' ? 'approved' : st === 'DECLINED' ? 'declined' : 'cancelled';
+
+  try {
+    await Notification.create({
+      type: 'program_reminder',
+      severity: st === 'APPROVED' ? 'info' : 'warning',
+      title: `Public appointment request ${statusLabel}`,
+      message: `${clientName} (${modality}) for ${timeLabel} has been ${statusLabel}.`,
+      userId: provider?.id || null,
+      agencyId: Number(agencyId),
+      relatedEntityType: 'public_appointment_request',
+      relatedEntityId: Number(requestRow?.id || 0) || null
+    });
+  } catch {
+    // non-blocking
+  }
+
+  if (!EmailService.isConfigured()) return;
+  const providerName = `${provider?.first_name || ''} ${provider?.last_name || ''}`.trim() || `Provider #${providerId}`;
+  const subject = `Public appointment request ${statusLabel} - ${agencyName}`;
+  const text = [
+    `Provider: ${providerName}`,
+    `Client: ${clientName}`,
+    `Modality: ${modality}`,
+    `Time: ${timeLabel}`,
+    `Status: ${st}`,
+    '',
+    `Agency: ${agencyName}`
+  ].join('\n');
+  const html = `
+    <div style="font-family: Arial, sans-serif; line-height: 1.5;">
+      <p><strong>Provider:</strong> ${providerName}</p>
+      <p><strong>Client:</strong> ${clientName}</p>
+      <p><strong>Modality:</strong> ${modality}</p>
+      <p><strong>Time:</strong> ${timeLabel}</p>
+      <p><strong>Status:</strong> ${st}</p>
+      <p><strong>Agency:</strong> ${agencyName}</p>
+    </div>
+  `.trim();
+
+  const recipients = [String(requestRow?.client_email || '').trim(), String(provider?.email || '').trim()]
+    .filter(Boolean);
+  for (const to of recipients) {
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      await EmailService.sendEmail({
+        to,
+        subject,
+        text,
+        html,
+        fromName: process.env.GOOGLE_WORKSPACE_FROM_NAME || 'People Operations',
+        fromAddress: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM || null,
+        replyTo: process.env.GOOGLE_WORKSPACE_REPLY_TO || null,
+        source: 'auto',
+        agencyId: Number(agencyId),
+        actorUserId: actorUserId || null
+      });
+    } catch {
+      // best-effort
+    }
+  }
 }
 
 function weekdayIntFromDayName(dayName) {
@@ -371,8 +584,17 @@ export const getProviderWeekAvailability = async (req, res, next) => {
     const providerId = parseIntSafe(req.params.providerId);
     if (!providerId) return res.status(400).json({ error: { message: 'Invalid providerId' } });
 
-    const isSelf = Number(req.user?.id || 0) === Number(providerId);
-    if (!isSelf && !canManageAvailability(req.user?.role)) {
+    const role = String(req.user?.role || '').toLowerCase();
+    const intakeLab = String(req.query.intakeLab || 'false').toLowerCase() === 'true';
+    const requestUserId = Number(req.user?.id || 0);
+    const isSelf = requestUserId === Number(providerId);
+    let canViewProvider = isSelf || canManageAvailability(role);
+    if (!canViewProvider && role === 'supervisor' && intakeLab) {
+      canViewProvider = true;
+    } else if (!canViewProvider && role === 'supervisor') {
+      canViewProvider = await isSupervisorOfProvider({ supervisorId: requestUserId, providerId, agencyId });
+    }
+    if (!canViewProvider) {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
 
@@ -1451,19 +1673,64 @@ export const listProvidersForAvailability = async (req, res, next) => {
   try {
     const agencyId = await resolveAgencyId(req);
     if (!(await requireAgencyMembership(req, res, agencyId))) return;
-    if (!canManageAvailability(req.user?.role)) return res.status(403).json({ error: { message: 'Access denied' } });
+    const role = String(req.user?.role || '').toLowerCase();
+    const isSupervisor = role === 'supervisor';
+    const intakeLab = String(req.query.intakeLab || 'false').toLowerCase() === 'true';
+    const scope = String(req.query.scope || '').toLowerCase();
+    const intakeScope = intakeLab || scope === 'intake';
+    if (!canManageAvailability(role) && !isSupervisor) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
 
-    const [rows] = await pool.execute(
-      `SELECT DISTINCT u.id, u.first_name, u.last_name, u.role
-       FROM users u
-       JOIN user_agencies ua ON ua.user_id = u.id
-       WHERE ua.agency_id = ?
-         AND (u.role IN ('provider') OR u.has_provider_access = TRUE)
-         AND (u.is_archived IS NULL OR u.is_archived = FALSE)
-         AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE'))
-       ORDER BY u.last_name ASC, u.first_name ASC`,
-      [agencyId]
-    );
+    let rows;
+    if (intakeScope) {
+      const [clientFacingRows] = await pool.execute(
+        `SELECT DISTINCT u.id, u.first_name, u.last_name, u.role
+         FROM users u
+         JOIN user_agencies ua ON ua.user_id = u.id
+         WHERE ua.agency_id = ?
+           AND (u.is_active IS NULL OR u.is_active = TRUE)
+           AND (u.is_archived IS NULL OR u.is_archived = FALSE)
+           AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE'))
+           AND (
+             u.role IN ('provider', 'supervisor', 'clinical_practice_assistant', 'admin', 'super_admin', 'staff', 'support')
+             OR u.has_provider_access = TRUE
+           )
+           AND LOWER(COALESCE(u.role, '')) NOT IN ('guardian', 'school_support')
+         ORDER BY u.last_name ASC, u.first_name ASC`,
+        [agencyId]
+      );
+      rows = clientFacingRows;
+    } else if (isSupervisor) {
+      const [superviseeRows] = await pool.execute(
+        `SELECT DISTINCT u.id, u.first_name, u.last_name, u.role
+         FROM supervisor_assignments sa
+         JOIN users u ON u.id = sa.supervisee_id
+         WHERE sa.agency_id = ?
+           AND sa.supervisor_id = ?
+           AND (u.role IN ('provider') OR u.has_provider_access = TRUE)
+           AND (u.is_active IS NULL OR u.is_active = TRUE)
+           AND (u.is_archived IS NULL OR u.is_archived = FALSE)
+           AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE'))
+         ORDER BY u.last_name ASC, u.first_name ASC`,
+        [agencyId, req.user.id]
+      );
+      rows = superviseeRows;
+    } else {
+      const [providerRows] = await pool.execute(
+        `SELECT DISTINCT u.id, u.first_name, u.last_name, u.role
+         FROM users u
+         JOIN user_agencies ua ON ua.user_id = u.id
+         WHERE ua.agency_id = ?
+           AND (u.role IN ('provider') OR u.has_provider_access = TRUE)
+           AND (u.is_active IS NULL OR u.is_active = TRUE)
+           AND (u.is_archived IS NULL OR u.is_archived = FALSE)
+           AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE'))
+         ORDER BY u.last_name ASC, u.first_name ASC`,
+        [agencyId]
+      );
+      rows = providerRows;
+    }
     res.json(rows || []);
   } catch (e) {
     next(e);
@@ -1932,11 +2199,17 @@ export const listPublicAppointmentRequests = async (req, res, next) => {
         providerId: r.provider_id,
         providerName: providerNames.get(Number(r.provider_id)) || `#${r.provider_id}`,
         modality: r.modality,
+        bookingMode: r.booking_mode || null,
+        programType: r.program_type || null,
         requestedStartAt: r.requested_start_at,
         requestedEndAt: r.requested_end_at,
         clientName: r.client_name,
         clientEmail: r.client_email,
         clientPhone: r.client_phone,
+        clientInitials: r.client_initials || null,
+        matchedClientId: r.matched_client_id || null,
+        createdClientId: r.created_client_id || null,
+        createdGuardianUserId: r.created_guardian_user_id || null,
         notes: r.notes || '',
         status: r.status,
         createdAt: r.created_at
@@ -1962,8 +2235,43 @@ export const setPublicAppointmentRequestStatus = async (req, res, next) => {
     }
 
     try {
+      const existing = await PublicAppointmentRequest.findById({ agencyId, requestId });
+      if (!existing) return res.status(404).json({ error: { message: 'Request not found' } });
+      if (String(existing.status || '').toUpperCase() !== 'PENDING') {
+        return res.status(409).json({ error: { message: `Request already ${String(existing.status || '').toLowerCase()}` } });
+      }
+
+      if (status === 'APPROVED') {
+        const stillAvailable = await requestStillAvailable({ agencyId, requestRow: existing });
+        if (!stillAvailable) {
+          return res.status(409).json({
+            error: {
+              message: 'Requested time is no longer available. Refresh and ask client to select a new slot.'
+            }
+          });
+        }
+      }
+
       const ok = await PublicAppointmentRequest.setStatus({ agencyId, requestId, status });
       if (!ok) return res.status(404).json({ error: { message: 'Request not found' } });
+
+      let updatedRow = null;
+      if (status === 'APPROVED') {
+        updatedRow = await PublicAppointmentRequest.findById({ agencyId, requestId });
+        if (updatedRow) {
+          await ensureClientProviderLinkedForRequest({ requestRow: updatedRow, actorUserId: req.user?.id || null });
+        }
+      }
+
+      const postUpdate = updatedRow || (await PublicAppointmentRequest.findById({ agencyId, requestId }));
+      if (postUpdate) {
+        await sendPublicRequestDecisionNotifications({
+          agencyId,
+          requestRow: postUpdate,
+          status,
+          actorUserId: req.user?.id || null
+        });
+      }
     } catch (e) {
       if (e?.code === 'ER_NO_SUCH_TABLE') return res.status(409).json({ error: { message: 'Migrations not applied yet' } });
       throw e;
@@ -2042,6 +2350,87 @@ export const getAdminPendingCounts = async (req, res, next) => {
       officeRequestsPending,
       schoolRequestsPending,
       total: officeRequestsPending + schoolRequestsPending
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const getPublicProviderLinkInfo = async (req, res, next) => {
+  try {
+    const agencyId = await resolveAgencyId(req);
+    if (!(await requireAgencyMembership(req, res, agencyId))) return;
+    if (!canManageAvailability(req.user?.role)) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const [rows] = await pool.execute(
+      `SELECT id, slug, name, public_availability_enabled, public_availability_access_key
+       FROM agencies
+       WHERE id = ?
+       LIMIT 1`,
+      [agencyId]
+    );
+    const agency = rows?.[0] || null;
+    if (!agency) return res.status(404).json({ error: { message: 'Agency not found' } });
+
+    const enabled = agency.public_availability_enabled === true || agency.public_availability_enabled === 1;
+    let key = String(agency.public_availability_access_key || '').trim();
+    if (!key) {
+      key = crypto.randomBytes(18).toString('base64url');
+      await pool.execute(
+        `UPDATE agencies
+         SET public_availability_access_key = ?
+         WHERE id = ?`,
+        [key, agencyId]
+      );
+    }
+
+    res.json({
+      ok: true,
+      agencyId: Number(agency.id),
+      agencyName: agency.name || '',
+      agencySlug: agency.slug || '',
+      publicAvailabilityEnabled: enabled,
+      publicAvailabilityAccessKey: key,
+      providerFinderUrl: buildProviderFinderPublicUrl({ agencyId, key })
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const rotatePublicProviderLinkKey = async (req, res, next) => {
+  try {
+    const agencyId = await resolveAgencyId(req);
+    if (!(await requireAgencyMembership(req, res, agencyId))) return;
+    if (!canManageAvailability(req.user?.role)) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const key = crypto.randomBytes(24).toString('base64url');
+    const [result] = await pool.execute(
+      `UPDATE agencies
+       SET public_availability_access_key = ?
+       WHERE id = ?`,
+      [key, agencyId]
+    );
+    if (!Number(result?.affectedRows || 0)) {
+      return res.status(404).json({ error: { message: 'Agency not found' } });
+    }
+
+    const [rows] = await pool.execute(
+      `SELECT id, slug, name, public_availability_enabled
+       FROM agencies
+       WHERE id = ?
+       LIMIT 1`,
+      [agencyId]
+    );
+    const agency = rows?.[0] || null;
+    res.json({
+      ok: true,
+      agencyId: Number(agency?.id || agencyId),
+      agencyName: agency?.name || '',
+      agencySlug: agency?.slug || '',
+      publicAvailabilityEnabled: agency?.public_availability_enabled === true || agency?.public_availability_enabled === 1,
+      publicAvailabilityAccessKey: key,
+      providerFinderUrl: buildProviderFinderPublicUrl({ agencyId, key })
     });
   } catch (e) {
     next(e);

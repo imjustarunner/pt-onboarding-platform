@@ -24,7 +24,9 @@ import {
   getAdminPendingCounts,
   listSkillBuildersAvailability,
   listPublicAppointmentRequests,
-  setPublicAppointmentRequestStatus
+  setPublicAppointmentRequestStatus,
+  getPublicProviderLinkInfo,
+  rotatePublicProviderLinkKey
 } from '../controllers/availability.controller.js';
 
 const router = express.Router();
@@ -59,6 +61,8 @@ router.get('/admin/provider-availability-dashboard', providerAvailabilityDashboa
 router.get('/admin/search', searchAvailability);
 router.get('/admin/public-appointment-requests', listPublicAppointmentRequests);
 router.post('/admin/public-appointment-requests/:id/status', setPublicAppointmentRequestStatus);
+router.get('/admin/public-provider-link', getPublicProviderLinkInfo);
+router.post('/admin/public-provider-link/rotate-key', rotatePublicProviderLinkKey);
 
 export default router;
 

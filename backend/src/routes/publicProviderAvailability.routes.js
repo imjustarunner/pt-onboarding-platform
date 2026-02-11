@@ -1,5 +1,7 @@
 import express from 'express';
 import {
+  listPublicProvidersAvailability,
+  getPublicProviderProfile,
   getPublicProviderAvailability,
   createPublicAppointmentRequest
 } from '../controllers/publicProviderAvailability.controller.js';
@@ -7,6 +9,8 @@ import {
 const router = express.Router();
 
 // Public provider availability feed + intake (token via ?key=...).
+router.get('/:agencyId/providers', listPublicProvidersAvailability);
+router.get('/:agencyId/providers/:providerId/profile', getPublicProviderProfile);
 router.get('/:agencyId/providers/:providerId', getPublicProviderAvailability);
 router.post('/:agencyId/requests', createPublicAppointmentRequest);
 
