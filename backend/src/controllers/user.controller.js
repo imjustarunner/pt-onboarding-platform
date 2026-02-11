@@ -1439,6 +1439,12 @@ export const updateUser = async (req, res, next) => {
             error: { message: 'Cannot remove super_admin role from a user who currently has it' } 
           });
         }
+        // Protect school_staff: never allow changing to provider (distinct portal role)
+        if (role !== undefined && targetUser.role === 'school_staff' && String(role || '').toLowerCase() === 'provider') {
+          return res.status(403).json({ 
+            error: { message: 'Cannot change school_staff role to provider – school_staff is a distinct portal role' } 
+          });
+        }
       }
       
       // Enforce role assignment permissions

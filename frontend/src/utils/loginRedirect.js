@@ -8,6 +8,22 @@
  * - Supports both portal_url (legacy) and slug (new) for backward compatibility
  */
 
+/** Path segments that are NOT organization slugs (first segment of path) */
+const NON_SLUG_SEGMENTS = ['login', 'schools', 'intake', 'kiosk', 'timeout', 'public', 'public-intake'];
+
+/**
+ * Get the current portal slug from the URL path (e.g. /nlu/dashboard → 'nlu').
+ * Use this for logout/timeout/401 redirects so users stay in the same branded portal.
+ * @returns {string|null} The slug or null if path doesn't indicate a branded portal
+ */
+export function getCurrentPortalSlugFromPath() {
+  if (typeof window === 'undefined' || !window.location?.pathname) return null;
+  const parts = window.location.pathname.split('/').filter(Boolean);
+  const first = parts[0];
+  if (!first || NON_SLUG_SEGMENTS.includes(first.toLowerCase())) return null;
+  return first;
+}
+
 /**
  * Get the appropriate login URL for a user
  * @param {Object} user - User object (may be null if logged out)
@@ -67,6 +83,24 @@ export function getLoginUrl(user = null, userAgencies = null) {
 
   // Organization exists but no slug or portal_url, use platform login
   return '/login';
+}
+
+/**
+ * Get login URL for redirects (logout, timeout, 401), preferring the current path's portal slug.
+ * This preserves brand: e.g. /nlu/dashboard timeout → /nlu/login?timeout=true
+ * @param {Object} user - User object (may be null)
+ * @param {Array} userAgencies - User's organizations (may be from localStorage)
+ * @param {Object} opts - Options: { timeout: true } to append ?timeout=true
+ * @returns {string} Login URL path
+ */
+export function getLoginUrlForRedirect(user = null, userAgencies = null, opts = {}) {
+  const slug = getCurrentPortalSlugFromPath();
+  if (slug) {
+    const base = `/${slug}/login`;
+    return opts.timeout ? `${base}?timeout=true` : base;
+  }
+  const base = getLoginUrl(user, userAgencies);
+  return opts.timeout ? `${base}${base.includes('?') ? '&' : '?'}timeout=true` : base;
 }
 
 /**

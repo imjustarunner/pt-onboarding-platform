@@ -52,7 +52,7 @@ PREPARE stmt FROM @sql;
 EXECUTE stmt;
 DEALLOCATE PREPARE stmt;
 
--- Step 2: normalize legacy values
+-- Step 2: normalize legacy values (school_staff is never touched – clinician/employee/NULL only)
 UPDATE users SET role = 'provider' WHERE role IS NULL;
 UPDATE users SET role = 'provider' WHERE role = 'clinician';
 UPDATE users SET role = 'provider' WHERE role = 'employee';

@@ -144,6 +144,34 @@ export const requireBackofficeAdmin = (req, res, next) => {
   next();
 };
 
+/**
+ * Guardian list access: backoffice admin OR supervisor with access to the client.
+ * Use for GET /clients/:id/guardians (view only).
+ */
+export const requireGuardianListAccess = async (req, res, next) => {
+  if (req.user.role === 'admin' || req.user.role === 'super_admin' || req.user.role === 'support') {
+    return next();
+  }
+  const requestingUser = await User.findById(req.user.id);
+  const isSupervisor = requestingUser && User.isSupervisor(requestingUser);
+  if (!isSupervisor) {
+    return res.status(403).json({ error: { message: 'Admin access required' } });
+  }
+  try {
+    const clientId = parseInt(req.params.id, 10);
+    if (!clientId) return res.status(400).json({ error: { message: 'Invalid client id' } });
+    const Client = (await import('../models/Client.model.js')).default;
+    const client = await Client.findById(clientId);
+    if (!client) return res.status(404).json({ error: { message: 'Client not found' } });
+    const { supervisorCanAccessClient } = await import('../utils/supervisorSchoolAccess.js');
+    const allowed = await supervisorCanAccessClient({ supervisorUserId: req.user.id, client });
+    if (!allowed) return res.status(403).json({ error: { message: 'You do not have access to this client' } });
+    next();
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const requireSuperAdmin = (req, res, next) => {
   if (req.user.role !== 'super_admin') {
     return res.status(403).json({ error: { message: 'Super admin access required' } });

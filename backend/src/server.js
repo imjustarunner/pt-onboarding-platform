@@ -130,8 +130,27 @@ app.set('etag', false);
 
 // Middleware
 // CORS configuration with explicit headers for mobile browser compatibility
+// Use a function to always allow localhost:5173 when running locally (port 3000),
+// even if NODE_ENV/CORS_ORIGIN are set for production (e.g. after adding Google OAuth)
+const corsOriginFn = (origin, callback) => {
+  const port = Number(process.env.PORT || config.port) || 3000;
+  const isLocalBackend = port === 3000;
+  const localOrigins = ['http://localhost:5173', 'http://127.0.0.1:5173'];
+  const allowed = Array.isArray(config.cors.origin)
+    ? [...config.cors.origin]
+    : [config.cors.origin];
+  if (isLocalBackend) {
+    allowed.push(...localOrigins);
+  }
+  const allowedSet = new Set(allowed.map((o) => String(o || '').toLowerCase()));
+  if (!origin || allowedSet.has(origin.toLowerCase())) {
+    callback(null, true);
+  } else {
+    callback(null, false);
+  }
+};
 app.use(cors({
-  origin: config.cors.origin,
+  origin: corsOriginFn,
   credentials: true,
   // Explicitly set allowed headers for mobile browser compatibility
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],

@@ -89,8 +89,10 @@ async function handleTimeout() {
   } catch (err) {
     console.error('Error during timeout handling:', err);
   } finally {
-    // Always logout on timeout
-    await authStore.logout('timeout', { redirectTo: '/login?timeout=true' });
+    // Always logout on timeout; preserve branded portal (e.g. /nlu/dashboard → /nlu/login?timeout=true)
+    const { getLoginUrlForRedirect } = await import('../utils/loginRedirect');
+    const redirectTo = getLoginUrlForRedirect(null, null, { timeout: true });
+    await authStore.logout('timeout', { redirectTo });
   }
 }
 

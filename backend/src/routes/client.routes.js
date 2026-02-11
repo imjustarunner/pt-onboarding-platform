@@ -39,7 +39,7 @@ import {
   deleteClient
 } from '../controllers/client.controller.js';
 import { listClientGuardians, upsertClientGuardian, updateClientGuardian, removeClientGuardian } from '../controllers/clientGuardian.controller.js';
-import { authenticate, requireBackofficeAdmin } from '../middleware/auth.middleware.js';
+import { authenticate, requireBackofficeAdmin, requireGuardianListAccess } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
 
@@ -128,8 +128,8 @@ router.get('/:id/provider-assignments', listClientProviderAssignments);
 router.post('/:id/provider-assignments', upsertClientProviderAssignment);
 router.delete('/:id/provider-assignments/:assignmentId', removeClientProviderAssignment);
 
-// Guardians (admin-managed)
-router.get('/:id/guardians', requireBackofficeAdmin, listClientGuardians);
+// Guardians (admin or supervisor with client access can view; only admin can create/update/delete)
+router.get('/:id/guardians', requireGuardianListAccess, listClientGuardians);
 router.post(
   '/:id/guardians',
   requireBackofficeAdmin,

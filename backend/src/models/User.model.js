@@ -667,7 +667,12 @@ class User {
     if (role !== undefined && currentUser.role === 'super_admin' && role !== 'super_admin') {
       throw new Error('Cannot remove super_admin role from a user who currently has it');
     }
-    
+
+    // Protect school_staff: never allow changing to provider (distinct portal role)
+    if (role !== undefined && currentUser.role === 'school_staff' && String(role || '').toLowerCase() === 'provider') {
+      throw new Error('Cannot change school_staff role to provider – school_staff is a distinct portal role');
+    }
+
     const updates = [];
     const values = [];
     let hasSupervisorPrivilegesAdded = false; // Track if we've already added this column

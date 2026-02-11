@@ -187,3 +187,18 @@ export async function supervisorCanAccessClientInOrg({ supervisorUserId, clientI
   }
 }
 
+/**
+ * Check if a supervisor has access to a client (via supervisee assignments).
+ * Tries organization_id first (school/program), then agency_id.
+ */
+export async function supervisorCanAccessClient({ supervisorUserId, client }) {
+  const sid = parsePositiveInt(supervisorUserId);
+  const cid = parsePositiveInt(client?.id);
+  if (!sid || !cid) return false;
+  const orgId = parsePositiveInt(client?.organization_id);
+  const agencyId = parsePositiveInt(client?.agency_id);
+  if (orgId && (await supervisorCanAccessClientInOrg({ supervisorUserId: sid, clientId: cid, orgId }))) return true;
+  if (agencyId && (await supervisorCanAccessClientInOrg({ supervisorUserId: sid, clientId: cid, orgId: agencyId }))) return true;
+  return false;
+}
+

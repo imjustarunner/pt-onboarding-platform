@@ -113,9 +113,9 @@ api.interceptors.response.use(
       localStorage.removeItem('user');
       sessionStorage.removeItem('justLoggedIn');
       
-      // Determine appropriate login URL based on user's agency
-      const { getLoginUrl } = await import('../utils/loginRedirect');
-      const loginUrl = getLoginUrl(user);
+      // Prefer current path slug so branded portals stay branded (e.g. /nlu/dashboard → /nlu/login)
+      const { getLoginUrlForRedirect } = await import('../utils/loginRedirect');
+      const loginUrl = getLoginUrlForRedirect(user);
       
       // Keep sessionId for activity logging
       window.location.href = loginUrl;
