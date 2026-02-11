@@ -234,6 +234,9 @@ export const addOfficeAgency = async (req, res, next) => {
     if (!(await canManageOfficeSettings(req))) {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
+    if (req.user.role !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'Only super admins can attach agencies to a building' } });
+    }
     const officeId = parseInt(req.params.officeId, 10);
     const agencyId = parseInt(req.body?.agencyId, 10);
     if (!officeId || !agencyId) return res.status(400).json({ error: { message: 'officeId and agencyId are required' } });
@@ -241,13 +244,6 @@ export const addOfficeAgency = async (req, res, next) => {
     // Must already have office access to assign
     const ok = await requireOfficeAccess(req, officeId);
     if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
-
-    // Must belong to agency being assigned unless super_admin
-    if (req.user.role !== 'super_admin') {
-      const agencies = await User.getAgencies(req.user.id);
-      const hasAgency = agencies.some((a) => a.id === agencyId);
-      if (!hasAgency) return res.status(403).json({ error: { message: 'Access denied' } });
-    }
 
     await OfficeLocationAgency.add({ officeLocationId: officeId, agencyId });
     const agencies = await OfficeLocationAgency.listAgenciesForOffice(officeId);
@@ -261,6 +257,9 @@ export const removeOfficeAgency = async (req, res, next) => {
   try {
     if (!(await canManageOfficeSettings(req))) {
       return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+    if (req.user.role !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'Only super admins can detach agencies from a building' } });
     }
     const officeId = parseInt(req.params.officeId, 10);
     const agencyId = parseInt(req.params.agencyId, 10);

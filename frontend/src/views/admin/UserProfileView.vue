@@ -1255,6 +1255,93 @@
               </div>
             </div>
           </div>
+
+          <div v-if="canManageAssignments" class="section-divider" style="margin-top: 18px;">
+            <h3>Assigned Building Offices</h3>
+          </div>
+          <div v-if="canManageAssignments" class="card" style="padding: 12px;">
+            <div class="hint">
+              These office links drive building-scoped scheduling options and school mileage office mapping.
+            </div>
+            <div v-if="officeAssignmentsLoading" class="loading" style="margin-top: 8px;">Loading office assignments…</div>
+            <div v-else-if="officeAssignmentsError" class="error" style="margin-top: 8px;">{{ officeAssignmentsError }}</div>
+            <template v-else>
+              <div v-if="!officeAssignmentsDraft.length" class="empty-state" style="margin-top: 8px;">
+                <p>No building office assignments yet.</p>
+              </div>
+              <div v-else class="table-wrap" style="margin-top: 10px;">
+                <table class="table">
+                  <thead>
+                    <tr>
+                      <th>Office</th>
+                      <th>Address</th>
+                      <th>Active</th>
+                      <th>Primary</th>
+                      <th v-if="canEditUser">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="(row, idx) in officeAssignmentsDraft" :key="`off-assign-${idx}`">
+                      <td>
+                        <select
+                          v-model.number="row.officeLocationId"
+                          :disabled="!canEditUser || savingOfficeAssignments"
+                          @change="syncOfficeRowDetails(row)"
+                        >
+                          <option :value="0" disabled>Select office…</option>
+                          <option
+                            v-for="opt in officeOptionsForRow(idx)"
+                            :key="`office-opt-${idx}-${opt.id}`"
+                            :value="Number(opt.id)"
+                          >
+                            {{ opt.name }}
+                          </option>
+                        </select>
+                      </td>
+                      <td>
+                        <span class="muted">{{ officeAddressForRow(row) || '—' }}</span>
+                      </td>
+                      <td>
+                        <input
+                          type="checkbox"
+                          v-model="row.isActive"
+                          :disabled="!canEditUser || savingOfficeAssignments"
+                          @change="normalizeOfficePrimary()"
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="radio"
+                          name="primary-office-assignment"
+                          :checked="row.isPrimary"
+                          :disabled="!canEditUser || savingOfficeAssignments || !row.isActive"
+                          @change="setPrimaryOfficeAssignment(idx)"
+                        />
+                      </td>
+                      <td v-if="canEditUser">
+                        <button
+                          class="btn btn-danger btn-sm"
+                          type="button"
+                          :disabled="savingOfficeAssignments"
+                          @click="removeOfficeAssignmentRow(idx)"
+                        >
+                          Remove
+                        </button>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div v-if="canEditUser" style="margin-top: 10px; display:flex; gap: 8px; flex-wrap: wrap;">
+                <button class="btn btn-secondary btn-sm" type="button" :disabled="savingOfficeAssignments" @click="addOfficeAssignmentRow">
+                  Add office
+                </button>
+                <button class="btn btn-primary btn-sm" type="button" :disabled="savingOfficeAssignments" @click="saveOfficeAssignments">
+                  {{ savingOfficeAssignments ? 'Saving…' : 'Save office assignments' }}
+                </button>
+              </div>
+            </template>
+          </div>
         </div>
 
         <div v-if="activeTab === 'provider_info'" class="tab-panel">
@@ -2705,6 +2792,11 @@ const userAgencies = ref([]);
 const availableAgencies = ref([]);
 const selectedAgencyId = ref('');
 const assigningAgency = ref(false);
+const officeAssignmentsLoading = ref(false);
+const officeAssignmentsError = ref('');
+const savingOfficeAssignments = ref(false);
+const officeAssignmentOptions = ref([]);
+const officeAssignmentsDraft = ref([]);
 
 const orgTypeFor = (org) => String(org?.organization_type || 'agency').toLowerCase();
 const isAgencyOrg = (org) => orgTypeFor(org) === 'agency';
@@ -3122,7 +3214,8 @@ const fetchUser = async () => {
       fetchAvailableAgencies(),
       fetchAccountInfo(),
       fetchProviderCredential(),
-      loadExternalCalendars()
+      loadExternalCalendars(),
+      loadOfficeAssignments()
     ]);
   } catch (err) {
     error.value = err.response?.data?.error?.message || 'Failed to load user';
@@ -3363,6 +3456,140 @@ const fetchUserAgencies = async () => {
   } catch (err) {
     console.error('Failed to load user agencies:', err);
     userAgencies.value = [];
+  }
+};
+
+const normalizeOfficePrimary = () => {
+  const rows = Array.isArray(officeAssignmentsDraft.value) ? officeAssignmentsDraft.value : [];
+  const active = rows.filter((r) => Number(r?.officeLocationId || 0) > 0 && r?.isActive);
+  if (!active.length) {
+    rows.forEach((r) => { r.isPrimary = false; });
+    return;
+  }
+  const currentPrimary = active.find((r) => r?.isPrimary);
+  const chosenId = Number(currentPrimary?.officeLocationId || active[0].officeLocationId);
+  rows.forEach((r) => {
+    const id = Number(r?.officeLocationId || 0);
+    r.isPrimary = r.isActive && id === chosenId;
+  });
+};
+
+const setPrimaryOfficeAssignment = (idx) => {
+  const rows = Array.isArray(officeAssignmentsDraft.value) ? officeAssignmentsDraft.value : [];
+  const target = rows[idx];
+  if (!target) return;
+  target.isActive = true;
+  const selectedId = Number(target.officeLocationId || 0);
+  rows.forEach((r) => {
+    r.isPrimary = r.isActive && Number(r.officeLocationId || 0) === selectedId;
+  });
+};
+
+const officeOptionsForRow = (idx) => {
+  const selectedByOthers = new Set(
+    (officeAssignmentsDraft.value || [])
+      .map((r, i) => (i === idx ? null : Number(r?.officeLocationId || 0)))
+      .filter((n) => Number.isFinite(n) && n > 0)
+  );
+  return (officeAssignmentOptions.value || []).filter((opt) => {
+    const id = Number(opt?.id || 0);
+    const self = Number(officeAssignmentsDraft.value?.[idx]?.officeLocationId || 0);
+    if (!id) return false;
+    if (id === self) return true;
+    return !selectedByOthers.has(id);
+  });
+};
+
+const syncOfficeRowDetails = (row) => {
+  const id = Number(row?.officeLocationId || 0);
+  if (!id) return;
+  const match = (officeAssignmentOptions.value || []).find((o) => Number(o?.id) === id);
+  if (match) row.addressLine = match.addressLine || '';
+  normalizeOfficePrimary();
+};
+
+const officeAddressForRow = (row) => {
+  const id = Number(row?.officeLocationId || 0);
+  const match = (officeAssignmentOptions.value || []).find((o) => Number(o?.id) === id);
+  return String(match?.addressLine || row?.addressLine || '').trim();
+};
+
+const addOfficeAssignmentRow = () => {
+  const rows = Array.isArray(officeAssignmentsDraft.value) ? officeAssignmentsDraft.value : [];
+  const selected = new Set(rows.map((r) => Number(r?.officeLocationId || 0)).filter((n) => n > 0));
+  const next = (officeAssignmentOptions.value || []).find((o) => !selected.has(Number(o?.id || 0))) || null;
+  rows.push({
+    officeLocationId: Number(next?.id || 0),
+    isActive: true,
+    isPrimary: false,
+    addressLine: next?.addressLine || ''
+  });
+  officeAssignmentsDraft.value = rows;
+  normalizeOfficePrimary();
+};
+
+const removeOfficeAssignmentRow = (idx) => {
+  const rows = Array.isArray(officeAssignmentsDraft.value) ? officeAssignmentsDraft.value.slice() : [];
+  rows.splice(idx, 1);
+  officeAssignmentsDraft.value = rows;
+  normalizeOfficePrimary();
+};
+
+const loadOfficeAssignments = async () => {
+  if (!canManageAssignments.value) {
+    officeAssignmentOptions.value = [];
+    officeAssignmentsDraft.value = [];
+    officeAssignmentsError.value = '';
+    return;
+  }
+  try {
+    officeAssignmentsLoading.value = true;
+    officeAssignmentsError.value = '';
+    const r = await api.get(`/users/${userId.value}/office-assignments`);
+    const payload = r.data || {};
+    officeAssignmentOptions.value = Array.isArray(payload.options) ? payload.options : [];
+    const assigned = Array.isArray(payload.assigned) ? payload.assigned : [];
+    officeAssignmentsDraft.value = assigned.map((a) => ({
+      officeLocationId: Number(a?.id || 0),
+      isActive: a?.isActive === undefined ? true : Boolean(a.isActive),
+      isPrimary: Boolean(a?.isPrimary),
+      addressLine: String(a?.addressLine || '')
+    }));
+    normalizeOfficePrimary();
+  } catch (err) {
+    officeAssignmentOptions.value = [];
+    officeAssignmentsDraft.value = [];
+    officeAssignmentsError.value = err.response?.data?.error?.message || 'Failed to load office assignments';
+  } finally {
+    officeAssignmentsLoading.value = false;
+  }
+};
+
+const saveOfficeAssignments = async () => {
+  try {
+    savingOfficeAssignments.value = true;
+    officeAssignmentsError.value = '';
+    normalizeOfficePrimary();
+    const assignments = (officeAssignmentsDraft.value || [])
+      .map((r) => ({
+        officeLocationId: Number(r?.officeLocationId || 0),
+        isActive: Boolean(r?.isActive),
+        isPrimary: Boolean(r?.isPrimary)
+      }))
+      .filter((r) => Number.isInteger(r.officeLocationId) && r.officeLocationId > 0);
+    const r = await api.put(`/users/${userId.value}/office-assignments`, { assignments });
+    const assigned = Array.isArray(r.data?.assigned) ? r.data.assigned : [];
+    officeAssignmentsDraft.value = assigned.map((a) => ({
+      officeLocationId: Number(a?.id || 0),
+      isActive: a?.isActive === undefined ? true : Boolean(a.isActive),
+      isPrimary: Boolean(a?.isPrimary),
+      addressLine: String(a?.addressLine || '')
+    }));
+    normalizeOfficePrimary();
+  } catch (err) {
+    officeAssignmentsError.value = err.response?.data?.error?.message || 'Failed to save office assignments';
+  } finally {
+    savingOfficeAssignments.value = false;
   }
 };
 

@@ -1,5 +1,6 @@
 import express from 'express';
 import { getCurrentUser, getAllUsers, aiQueryUsers, getUserById, updateUser, requireSkillBuilderConfirmNextLogin, getUserAgencies, getSuperviseePortalSlugs, getAffiliatedPortals, assignUserToAgency, removeUserFromAgency, setUserAgencyPayrollAccess, setUserAgencyH0032Mode, setUserAgencySupervisionPrelicensed, generateInvitationToken, generateTemporaryPassword, resetPasswordlessToken, sendInitialSetupLink, resendSetupLink, sendResetPasswordLink, sendResetPasswordLinkSms, getUserCredentials, getAccountInfo, downloadCompletionPackage, getOnboardingChecklist, markChecklistItemComplete, markUserComplete, markUserTerminated, markUserActive, getOnboardingDocument, archiveUser, restoreUser, deleteUser, getArchivedUsers, deactivateUser, markPendingComplete, checkPendingCompletionStatus, movePendingToActive, getPendingCompletionSummary, wipePendingUserData, changePassword, toggleSupervisorPrivileges, promoteToOnboarding, createCurrentEmployee, getUserLoginEmailAliases, addUserLoginEmailAlias, getUserScheduleSummary, getUserExternalCalendars, createUserExternalCalendar, addUserExternalCalendarFeed, patchUserExternalCalendar, patchUserExternalCalendarFeed, setSsoPasswordOverride } from '../controllers/user.controller.js';
+import { getUserOfficeAssignments, upsertUserOfficeAssignments } from '../controllers/userOfficeAssignments.controller.js';
 import { upload as uploadProfilePhoto, uploadUserProfilePhoto } from '../controllers/userProfilePhoto.controller.js';
 import { getUserTrainingFocuses } from '../controllers/track.controller.js';
 import { authenticate, requireBackofficeAdmin } from '../middleware/auth.middleware.js';
@@ -16,6 +17,8 @@ router.get('/:id/agencies', authenticate, getUserAgencies);
 router.get('/:id/login-email-aliases', authenticate, requireBackofficeAdmin, getUserLoginEmailAliases);
 router.post('/:id/login-email-alias', authenticate, requireBackofficeAdmin, addUserLoginEmailAlias);
 router.get('/:id/schedule-summary', authenticate, getUserScheduleSummary);
+router.get('/:id/office-assignments', authenticate, requireBackofficeAdmin, getUserOfficeAssignments);
+router.put('/:id/office-assignments', authenticate, requireBackofficeAdmin, upsertUserOfficeAssignments);
 router.get('/:id/affiliated-portals', authenticate, getAffiliatedPortals);
 router.get('/:id/external-calendars', authenticate, getUserExternalCalendars);
 router.post('/:id/external-calendars', authenticate, createUserExternalCalendar);
