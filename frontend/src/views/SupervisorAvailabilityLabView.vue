@@ -81,6 +81,7 @@ const error = ref('');
 const agencies = ref([]);
 const providers = ref([]);
 const cards = ref([]);
+const providerWeekErrors = ref([]);
 const selectedAgencyId = ref(null);
 const weekStart = ref(getWeekStartYmd(new Date()));
 const search = ref('');
@@ -164,19 +165,31 @@ function mapDisplaySlots(providerId, slots) {
 }
 
 async function fetchProviderWeek(providerId, requestedWeekStart) {
-  const { data } = await api.get(`/availability/providers/${providerId}/week`, {
-    params: {
-      agencyId: selectedAgencyId.value,
+  try {
+    const { data } = await api.get(`/availability/providers/${providerId}/week`, {
+      params: {
+        agencyId: selectedAgencyId.value,
+        weekStart: requestedWeekStart,
+        includeGoogleBusy: true,
+        intakeOnly: true,
+        intakeLab: true
+      }
+    });
+    return {
       weekStart: requestedWeekStart,
-      includeGoogleBusy: true,
-      intakeOnly: true,
-      intakeLab: true
-    }
-  });
-  return {
-    weekStart: requestedWeekStart,
-    slots: normalizeSlots(data)
-  };
+      slots: normalizeSlots(data)
+    };
+  } catch (e) {
+    providerWeekErrors.value.push({
+      providerId: Number(providerId),
+      weekStart: requestedWeekStart,
+      message: e?.response?.data?.error?.message || e?.message || 'Failed to load provider week'
+    });
+    return {
+      weekStart: requestedWeekStart,
+      slots: []
+    };
+  }
 }
 
 async function findNextAvailable(providerId, requestedWeekStart) {
@@ -251,6 +264,7 @@ async function loadCards() {
   if (!selectedAgencyId.value) return;
   loading.value = true;
   error.value = '';
+  providerWeekErrors.value = [];
   try {
     const built = await runWithConcurrency(providers.value, FETCH_CONCURRENCY, async (provider) => {
       const thisWeek = await fetchProviderWeek(provider.id, weekStart.value);
@@ -260,6 +274,9 @@ async function loadCards() {
     cards.value = built
       .filter(Boolean)
       .sort((a, b) => String(a.providerName || '').localeCompare(String(b.providerName || '')));
+    if (!cards.value.length && providerWeekErrors.value.length) {
+      error.value = 'No provider availability could be loaded for this week. Please refresh.';
+    }
   } catch (e) {
     console.error('Failed to load provider availability cards', e);
     error.value = e?.response?.data?.error?.message || 'Failed to load provider availability.';
