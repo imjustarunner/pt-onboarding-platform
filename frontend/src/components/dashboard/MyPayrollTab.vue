@@ -899,13 +899,21 @@
 
       <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr;">
         <div class="field" v-if="mileageForm.claimType === 'school_travel'">
-          <label>Assigned office</label>
+          <label>Assigned building office</label>
           <select v-model="mileageForm.officeLocationId">
-            <option :value="null" disabled>Select an office…</option>
-            <option v-for="o in mileageOffices" :key="o.id" :value="o.id">
-              {{ o.name }}
+            <option :value="null" disabled>Select an assigned office…</option>
+            <option v-for="o in mileageOfficeOptions" :key="o.id" :value="o.id">
+              {{ o.name }}{{ o.isPrimary ? ' (Primary)' : '' }}{{ o.addressLine ? ` — ${o.addressLine}` : '' }}
             </option>
           </select>
+          <div class="hint" style="margin-top: 6px;">
+            {{ (mileageAssignedOffices || []).length
+              ? 'Mileage mapping uses this assigned building address.'
+              : 'No explicit building assignment found yet; office selection uses agency offices.' }}
+          </div>
+          <div v-if="selectedMileageOffice?.addressLine" class="muted" style="margin-top: 4px;">
+            Using address: {{ selectedMileageOffice.addressLine }}
+          </div>
         </div>
         <div class="field" v-if="mileageForm.claimType === 'school_travel'">
           <label>Tier (for rate)</label>
@@ -1952,6 +1960,7 @@ const mileageClaimsLoading = ref(false);
 const mileageClaimsError = ref('');
 const mileageSchools = ref([]);
 const mileageOffices = ref([]);
+const mileageAssignedOffices = ref([]);
 const savingHomeAddress = ref(false);
 const editingHomeAddress = ref(false);
 const schoolTravelManualMilesMode = ref(false);
@@ -2041,6 +2050,16 @@ const mileageForm = ref({
   homeCity: '',
   homeState: '',
   homePostalCode: ''
+});
+const mileageOfficeOptions = computed(() => {
+  const assigned = Array.isArray(mileageAssignedOffices.value) ? mileageAssignedOffices.value : [];
+  if (assigned.length) return assigned;
+  return Array.isArray(mileageOffices.value) ? mileageOffices.value : [];
+});
+const selectedMileageOffice = computed(() => {
+  const id = Number(mileageForm.value.officeLocationId || 0);
+  if (!id) return null;
+  return mileageOfficeOptions.value.find((o) => Number(o?.id) === id) || null;
 });
 const medcancelForm = ref({
   claimDate: '',
@@ -2517,10 +2536,27 @@ const ytdTotals = computed(() => {
   return { year, totalPay, totalHours };
 });
 
-const openMileageModal = (claimType = 'school_travel') => {
+const pickDefaultMileageOfficeId = () => {
+  const assigned = Array.isArray(mileageAssignedOffices.value) ? mileageAssignedOffices.value : [];
+  if (assigned.length) {
+    const primary = assigned.find((o) => Boolean(o?.isPrimary || o?.is_primary || o?.isPrimaryAssigned));
+    return Number(primary?.id || assigned[0]?.id || 0) || null;
+  }
+  const all = Array.isArray(mileageOffices.value) ? mileageOffices.value : [];
+  if (!all.length) return null;
+  const preferred = all.find((o) => Boolean(o?.isPrimaryAssigned));
+  return Number(preferred?.id || all[0]?.id || 0) || null;
+};
+
+const openMileageModal = async (claimType = 'school_travel') => {
   submitMileageError.value = '';
   schoolTravelManualMilesMode.value = false;
   schoolTravelManualMilesReason.value = '';
+  if (agencyId.value) {
+    await Promise.all([loadMileageSchools(), loadMileageOffices(), loadMileageAssignedOffices(), loadMyHomeAddress()]);
+  } else {
+    await loadMyHomeAddress();
+  }
   const today = new Date();
   const ymd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
   mileageForm.value = {
@@ -2544,8 +2580,9 @@ const openMileageModal = (claimType = 'school_travel') => {
     homeState: mileageForm.value.homeState || '',
     homePostalCode: mileageForm.value.homePostalCode || ''
   };
-  // Pull saved home address so the modal reflects what mileage will use.
-  loadMyHomeAddress();
+  if (mileageForm.value.claimType === 'school_travel') {
+    mileageForm.value.officeLocationId = pickDefaultMileageOfficeId();
+  }
   // Default: if missing, prompt for entry; if present, show read-only with update button.
   editingHomeAddress.value = mileageForm.value.claimType === 'school_travel' ? !hasHomeAddress.value : false;
   showMileageModal.value = true;
@@ -2560,7 +2597,7 @@ const openEditMileageClaim = async (c) => {
   await loadMyHomeAddress();
 
   const claimType = String(c.claim_type || '').toLowerCase() === 'school_travel' ? 'school_travel' : 'standard';
-  openMileageModal(claimType);
+  await openMileageModal(claimType);
 
   // Default to manual miles for edits (avoids hard-blocks if auto distance is unavailable).
   if (claimType === 'school_travel') {
@@ -2591,9 +2628,9 @@ const openEditMileageClaim = async (c) => {
   };
 };
 
-const switchToSchoolMileage = () => {
+const switchToSchoolMileage = async () => {
   const keepDate = mileageForm.value.driveDate;
-  openMileageModal('school_travel');
+  await openMileageModal('school_travel');
   if (keepDate) mileageForm.value.driveDate = keepDate;
 };
 
@@ -2637,6 +2674,16 @@ const loadMileageOffices = async () => {
     mileageOffices.value = resp.data || [];
   } catch {
     mileageOffices.value = [];
+  }
+};
+
+const loadMileageAssignedOffices = async () => {
+  if (!agencyId.value) return;
+  try {
+    const resp = await api.get('/payroll/me/assigned-offices', { params: { agencyId: agencyId.value } });
+    mileageAssignedOffices.value = resp.data || [];
+  } catch {
+    mileageAssignedOffices.value = [];
   }
 };
 
@@ -3769,6 +3816,7 @@ watch(agencyId, async () => {
   await loadMileageClaims();
   await loadMileageSchools();
   await loadMileageOffices();
+  await loadMileageAssignedOffices();
   if (authStore.user?.medcancelEnabled && medcancelEnabledForAgency.value) {
     await loadMedcancelPolicy();
     await loadMedcancelClaims();
@@ -3792,6 +3840,7 @@ watch(
     // Ensure the supporting data is loaded for dropdowns before opening modals.
     await loadMileageSchools();
     await loadMileageOffices();
+    await loadMileageAssignedOffices();
     await loadMyHomeAddress();
 
     const key = String(v || '');
@@ -3800,9 +3849,9 @@ watch(
         submitMileageError.value = 'In-School submissions are disabled for this organization.';
         return;
       }
-      openMileageModal('school_travel');
+      await openMileageModal('school_travel');
     } else if (key === 'mileage') {
-      openMileageModal('standard');
+      await openMileageModal('standard');
     } else if (key === 'medcancel') {
       if (!authStore.user?.medcancelEnabled || !medcancelEnabledForAgency.value) {
         submitMedcancelError.value = 'Med Cancel is disabled for this organization.';
@@ -3837,6 +3886,7 @@ onMounted(async () => {
   await loadMyHomeAddress();
   await load();
   await loadMileageClaims();
+  await loadMileageAssignedOffices();
   if (authStore.user?.medcancelEnabled && medcancelEnabledForAgency.value) {
     await loadMedcancelPolicy();
     await loadMedcancelClaims();

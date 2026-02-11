@@ -203,6 +203,64 @@ function normalizeTierThresholds(raw) {
   return { tier1MinWeekly: a, tier2MinWeekly: b, tier3MinWeekly: c };
 }
 
+function formatAddressLine(parts = []) {
+  return parts
+    .map((v) => String(v || '').trim())
+    .filter(Boolean)
+    .join(', ');
+}
+
+async function listAssignedOfficeLocationsForUser({ targetUserId, agencyId = null }) {
+  try {
+    const uid = Number(targetUserId || 0);
+    if (!uid) return [];
+    const params = [];
+    let agencyFilterJoin = '';
+    if (agencyId) {
+      agencyFilterJoin = `
+        JOIN office_location_agencies ola
+          ON ola.office_location_id = ol.id
+         AND ola.agency_id = ?`;
+      params.push(Number(agencyId));
+    }
+    params.push(uid);
+    const [rows] = await pool.execute(
+      `SELECT
+          ol.id,
+          ol.name,
+          ol.street_address,
+          ol.city,
+          ol.state,
+          ol.postal_code,
+          ol.timezone,
+          CASE WHEN COALESCE(uol.is_primary, FALSE) = TRUE THEN 1 ELSE 0 END AS is_primary
+       FROM user_office_locations uol
+       JOIN office_locations ol ON ol.id = uol.office_location_id
+       ${agencyFilterJoin}
+       WHERE uol.user_id = ?
+         AND COALESCE(uol.is_active, TRUE) = TRUE
+         AND COALESCE(ol.is_active, TRUE) = TRUE
+       ORDER BY is_primary DESC, ol.name ASC`,
+      params
+    );
+    return (rows || []).map((r) => ({
+      id: Number(r.id),
+      name: r.name || `Office #${r.id}`,
+      street_address: r.street_address || '',
+      city: r.city || '',
+      state: r.state || '',
+      postal_code: r.postal_code || '',
+      timezone: r.timezone || null,
+      isAssigned: true,
+      isPrimary: Number(r.is_primary || 0) === 1,
+      addressLine: formatAddressLine([r.street_address, r.city, r.state, r.postal_code])
+    }));
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE') return [];
+    throw e;
+  }
+}
+
 async function getAgencyTierSettings(agencyId) {
   const fallback = { enabled: true, thresholds: { ...DEFAULT_TIER_THRESHOLDS } };
   if (!agencyId) return fallback;
@@ -8726,11 +8784,30 @@ export const createMyMileageClaim = async (req, res, next) => {
       }
     };
 
+    let effectiveOfficeLocationId = officeLocationId;
+    let assignedOfficeRows = [];
+    if (claimType === 'school_travel') {
+      assignedOfficeRows = await listAssignedOfficeLocationsForUser({ targetUserId: userId, agencyId });
+      if (!effectiveOfficeLocationId && assignedOfficeRows.length > 0) {
+        effectiveOfficeLocationId = Number(assignedOfficeRows[0]?.id || 0) || null;
+      }
+      if (effectiveOfficeLocationId && assignedOfficeRows.length > 0) {
+        const allowed = new Set(assignedOfficeRows.map((r) => Number(r.id)).filter((n) => Number.isInteger(n) && n > 0));
+        if (!allowed.has(Number(effectiveOfficeLocationId))) {
+          return res.status(400).json({
+            error: {
+              message: 'Select an assigned building office for school mileage travel.'
+            }
+          });
+        }
+      }
+    }
+
     // Enforce submission deadlines (timezone: office location when available; otherwise default).
     let officeTz = null;
     try {
-      if (officeLocationId) {
-        const loc = await OfficeLocation.findById(officeLocationId);
+      if (effectiveOfficeLocationId) {
+        const loc = await OfficeLocation.findById(effectiveOfficeLocationId);
         officeTz = loc?.timezone || null;
       }
     } catch { /* best-effort */ }
@@ -8748,7 +8825,7 @@ export const createMyMileageClaim = async (req, res, next) => {
     const suggestedPayrollPeriodIdOverride = win?.suggestedPayrollPeriodId || null;
     if (claimType === 'school_travel') {
       if (!schoolOrganizationId) return res.status(400).json({ error: { message: 'schoolOrganizationId is required' } });
-      if (!officeLocationId && !officeKey) return res.status(400).json({ error: { message: 'officeLocationId is required' } });
+      if (!effectiveOfficeLocationId && !officeKey) return res.status(400).json({ error: { message: 'officeLocationId is required' } });
       // Allow manual miles override for school_travel (used when auto distance is unavailable).
       if (miles !== null) {
         if (!Number.isFinite(Number(miles)) || Number(miles) < 0) {
@@ -8808,11 +8885,11 @@ export const createMyMileageClaim = async (req, res, next) => {
 
       // Office address (office_locations)
       let officeAddr = '';
-      if (officeLocationId) {
+      if (effectiveOfficeLocationId) {
         const [oRows] = await pool.execute(
           `SELECT street_address, city, state, postal_code
            FROM office_locations WHERE id = ? LIMIT 1`,
-          [officeLocationId]
+          [effectiveOfficeLocationId]
         );
         const o = oRows?.[0] || {};
         officeAddr = [o.street_address, o.city, o.state, o.postal_code].filter(Boolean).join(', ');
@@ -8855,7 +8932,7 @@ export const createMyMileageClaim = async (req, res, next) => {
       driveDate,
       claimType,
       schoolOrganizationId,
-      officeLocationId,
+      officeLocationId: effectiveOfficeLocationId,
       officeKey,
       homeSchoolRoundtripMiles: computedHomeSchoolRt,
       homeOfficeRoundtripMiles: computedHomeOfficeRt,
@@ -9020,7 +9097,52 @@ export const listOfficeLocationsForPayroll = async (req, res, next) => {
     }
 
     const rows = await OfficeLocation.findByAgency(agencyId, { includeInactive });
-    res.json(rows || []);
+    const assigned = await listAssignedOfficeLocationsForUser({ targetUserId: req.user?.id, agencyId });
+    const assignedMap = new Map((assigned || []).map((o) => [Number(o.id), o]));
+    const data = (rows || []).map((r) => {
+      const linked = assignedMap.get(Number(r.id)) || null;
+      return {
+        ...r,
+        isAssigned: Boolean(linked),
+        isPrimaryAssigned: Boolean(linked?.isPrimary),
+        addressLine: formatAddressLine([r.street_address, r.city, r.state, r.postal_code])
+      };
+    });
+    res.json(data);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const listMyAssignedOfficesForPayroll = async (req, res, next) => {
+  try {
+    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
+    if (agencyId && !isAdminRole(req.user.role)) {
+      const [rows] = await pool.execute(
+        'SELECT 1 FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1',
+        [req.user.id, agencyId]
+      );
+      if (!rows || rows.length === 0) {
+        return res.status(403).json({ error: { message: 'Access denied' } });
+      }
+    }
+    const data = await listAssignedOfficeLocationsForUser({ targetUserId: req.user?.id, agencyId });
+    res.json(data || []);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const listUserAssignedOfficesForPayroll = async (req, res, next) => {
+  try {
+    const targetUserId = req.params.userId ? parseInt(req.params.userId, 10) : null;
+    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!targetUserId) return res.status(400).json({ error: { message: 'userId is required' } });
+    if (!(await requirePayrollAccess(req, res, agencyId))) return;
+    if (!(await requireTargetUserInAgency({ res, agencyId, targetUserId }))) return;
+    const data = await listAssignedOfficeLocationsForUser({ targetUserId, agencyId });
+    res.json(data || []);
   } catch (e) {
     next(e);
   }

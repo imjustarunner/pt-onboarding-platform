@@ -119,6 +119,8 @@ import {
   ,deletePayrollManualPayLine
   ,listAgencySchoolsForPayroll
   ,listOfficeLocationsForPayroll
+  ,listMyAssignedOfficesForPayroll
+  ,listUserAssignedOfficesForPayroll
   ,updateMyHomeAddress
   ,getMyHomeAddress
   ,getUserHomeAddress
@@ -259,6 +261,8 @@ router.put('/schedule-settings', putAgencyPayrollScheduleSettings);
 router.post('/periods/cleanup-future', cleanupFuturePayrollPeriods);
 router.get('/agency-schools', listAgencySchoolsForPayroll);
 router.get('/office-locations', listOfficeLocationsForPayroll);
+router.get('/me/assigned-offices', listMyAssignedOfficesForPayroll);
+router.get('/users/:userId/assigned-offices', listUserAssignedOfficesForPayroll);
 router.post('/office-locations', createOfficeLocationForPayroll);
 router.patch('/office-locations/:locationId', updateOfficeLocationForPayroll);
 router.get('/me/home-address', getMyHomeAddress);

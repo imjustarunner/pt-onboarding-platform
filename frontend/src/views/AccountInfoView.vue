@@ -180,6 +180,26 @@
             </div>
           </div>
         </div>
+
+        <div class="card compact-card" style="margin-top: 16px;">
+          <div class="section-header">
+            <h3 style="margin: 0;">Assigned Building Office(s)</h3>
+          </div>
+          <div class="hint" style="margin-top: 6px;">
+            These building addresses are used by School Mileage mapping.
+          </div>
+          <div v-if="assignedOfficesError" class="error" style="margin-top: 10px;">{{ assignedOfficesError }}</div>
+          <div v-else-if="assignedOfficesLoading" class="loading" style="margin-top: 10px;">Loading assigned offices…</div>
+          <div v-else-if="!assignedOffices.length" class="hint" style="margin-top: 10px;">
+            No assigned building office is linked yet.
+          </div>
+          <div v-else class="fields-grid" style="margin-top: 12px;">
+            <div v-for="o in assignedOffices" :key="`assigned-office-${o.id}`" class="field-item">
+              <label>{{ o.name || `Office #${o.id}` }}<span v-if="o.isPrimary" class="required-asterisk" style="margin-left: 6px;">Primary</span></label>
+              <div class="hint">{{ o.addressLine || 'Address not configured' }}</div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- Profile Information (filled via assigned onboarding/profile modules) -->
@@ -571,6 +591,9 @@ const homeAddressForm = ref({
   state: '',
   postalCode: ''
 });
+const assignedOfficesLoading = ref(false);
+const assignedOfficesError = ref('');
+const assignedOffices = ref([]);
 
 const normalizeMultiSelectValue = (raw) => {
   if (Array.isArray(raw)) return raw;
@@ -771,6 +794,20 @@ const saveMyUserInfo = async () => {
   }
 };
 
+const fetchAssignedOffices = async () => {
+  try {
+    assignedOfficesLoading.value = true;
+    assignedOfficesError.value = '';
+    const resp = await api.get('/payroll/me/assigned-offices');
+    assignedOffices.value = Array.isArray(resp.data) ? resp.data : [];
+  } catch (err) {
+    assignedOffices.value = [];
+    assignedOfficesError.value = err.response?.data?.error?.message || 'Failed to load assigned building offices';
+  } finally {
+    assignedOfficesLoading.value = false;
+  }
+};
+
 const copyLink = () => {
   if (accountInfo.value.passwordlessLoginLink) {
     navigator.clipboard.writeText(accountInfo.value.passwordlessLoginLink).then(() => {
@@ -944,6 +981,7 @@ onMounted(() => {
   if (userId.value) {
     fetchAccountInfo();
     fetchMyUserInfo();
+    fetchAssignedOffices();
   }
 });
 </script>

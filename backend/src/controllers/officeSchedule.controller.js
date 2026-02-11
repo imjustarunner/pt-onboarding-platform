@@ -192,6 +192,103 @@ export const listLocations = async (req, res, next) => {
   }
 };
 
+export const listLocationProviders = async (req, res, next) => {
+  try {
+    const blocked = await userHasBlockingExpiredCredential(req.user.id);
+    if (blocked) {
+      return res.status(403).json({ error: { message: 'Scheduling is restricted due to an expired blocking credential' } });
+    }
+    if (!canManageSchedule(req.user.role)) {
+      return res.status(403).json({ error: { message: 'Only schedule managers can view building provider options' } });
+    }
+
+    const { locationId } = req.params;
+    const officeLocationId = parseInt(locationId, 10);
+    if (!officeLocationId) return res.status(400).json({ error: { message: 'Invalid location id' } });
+
+    const loc = await OfficeLocation.findById(officeLocationId);
+    if (!loc) return res.status(404).json({ error: { message: 'Location not found' } });
+
+    if (req.user.role !== 'super_admin') {
+      const userAgencies = await User.getAgencies(req.user.id);
+      const ok = await OfficeLocationAgency.userHasAccess({
+        officeLocationId,
+        agencyIds: userAgencies.map((a) => a.id)
+      });
+      if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    // Phase 2 foundation: if explicit user_office_locations links exist, include them as canonical.
+    // Backward compatible fallback to agency-based linkage when the table is not present yet.
+    try {
+      const [rows] = await pool.execute(
+        `SELECT DISTINCT
+            u.id,
+            u.first_name,
+            u.last_name,
+            u.email,
+            u.role,
+            u.has_provider_access,
+            u.is_active,
+            u.status,
+            u.is_archived
+         FROM users u
+         LEFT JOIN user_office_locations uol
+           ON uol.user_id = u.id
+          AND uol.office_location_id = ?
+          AND (uol.is_active IS NULL OR uol.is_active = TRUE)
+         LEFT JOIN user_agencies ua ON ua.user_id = u.id
+         LEFT JOIN office_location_agencies ola
+           ON ola.agency_id = ua.agency_id
+          AND ola.office_location_id = ?
+         WHERE (uol.user_id IS NOT NULL OR ola.office_location_id IS NOT NULL)
+           AND (u.is_active IS NULL OR u.is_active = TRUE)
+           AND (u.is_archived IS NULL OR u.is_archived = FALSE)
+           AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE'))
+           AND (
+             u.role IN ('provider', 'supervisor', 'clinical_practice_assistant', 'admin', 'super_admin', 'staff')
+             OR (u.has_provider_access = TRUE)
+           )
+           AND LOWER(COALESCE(u.role, '')) NOT IN ('guardian', 'school_support')
+         ORDER BY u.last_name ASC, u.first_name ASC`,
+        [officeLocationId, officeLocationId]
+      );
+      return res.json(rows || []);
+    } catch (e) {
+      if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+      const [rows] = await pool.execute(
+        `SELECT DISTINCT
+            u.id,
+            u.first_name,
+            u.last_name,
+            u.email,
+            u.role,
+            u.has_provider_access,
+            u.is_active,
+            u.status,
+            u.is_archived
+         FROM users u
+         JOIN user_agencies ua ON ua.user_id = u.id
+         JOIN office_location_agencies ola ON ola.agency_id = ua.agency_id
+         WHERE ola.office_location_id = ?
+           AND (u.is_active IS NULL OR u.is_active = TRUE)
+           AND (u.is_archived IS NULL OR u.is_archived = FALSE)
+           AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE'))
+           AND (
+             u.role IN ('provider', 'supervisor', 'clinical_practice_assistant', 'admin', 'super_admin', 'staff')
+             OR (u.has_provider_access = TRUE)
+           )
+           AND LOWER(COALESCE(u.role, '')) NOT IN ('guardian', 'school_support')
+         ORDER BY u.last_name ASC, u.first_name ASC`,
+        [officeLocationId]
+      );
+      return res.json(rows || []);
+    }
+  } catch (e) {
+    next(e);
+  }
+};
+
 // Weekly room grid: Mon–Sun hourly 7am–9pm (end hour exclusive in UI)
 export const getWeeklyGrid = async (req, res, next) => {
   try {

@@ -37,7 +37,7 @@
           <div class="bulk-col">
             <div class="muted">Assign selected open slots</div>
             <select v-model.number="bulkProviderId" class="select">
-              <option :value="0">Select provider…</option>
+              <option :value="0">Select person…</option>
               <option v-for="p in filteredProviders" :key="`bp-${p.id}`" :value="Number(p.id)">
                 {{ p.last_name }}, {{ p.first_name }}
               </option>
@@ -81,7 +81,7 @@
           <div>
             <div class="avail-search-title">Find availability</div>
             <div class="muted">
-              Search for open or assigned-available offices at a given day/time. Shows up to 2 hours before/after if contiguous slots are also available.
+              Search for open or assigned-available rooms in this building at a given day/time. Shows up to 2 hours before/after if contiguous slots are also available.
             </div>
           </div>
           <button class="btn btn-secondary btn-sm" type="button" @click="runAvailabilitySearch" :disabled="searching">
@@ -152,14 +152,14 @@
       </div>
 
       <div class="room-nav" data-tour="buildings-schedule-room-nav">
-        <label style="font-weight: 800;">Office</label>
+        <label style="font-weight: 800;">Room</label>
         <select v-model.number="selectedRoomId" class="select" :disabled="!grid">
           <option v-for="r in sortedRooms" :key="`room-opt-${r.id}`" :value="Number(r.id)">
             {{ r.roomNumber ? `#${r.roomNumber}` : '' }} {{ r.label || r.name }}
           </option>
         </select>
-        <button class="btn btn-secondary btn-sm" type="button" @click="prevRoom" :disabled="sortedRooms.length <= 1">Prev office</button>
-        <button class="btn btn-secondary btn-sm" type="button" @click="nextRoom" :disabled="sortedRooms.length <= 1">Next office</button>
+        <button class="btn btn-secondary btn-sm" type="button" @click="prevRoom" :disabled="sortedRooms.length <= 1">Prev room</button>
+        <button class="btn btn-secondary btn-sm" type="button" @click="nextRoom" :disabled="sortedRooms.length <= 1">Next room</button>
         <label class="check" style="margin-left: 10px;">
           <input type="checkbox" v-model="singleRoomMode" />
           <span>Show one office</span>
@@ -216,12 +216,12 @@
           <div v-if="canManageSchedule" class="section">
             <div class="section-title">Staff/admin action</div>
             <div class="muted" style="margin-bottom: 8px;">
-              Assigning creates a one-time office assignment for the selected time range.
+              Assigning creates a one-time building room assignment for the selected time range.
             </div>
 
             <div class="row">
-              <label style="font-weight: 700;">Provider</label>
-              <input v-model="providerSearch" class="input" placeholder="Search provider…" style="max-width: 260px;" />
+              <label style="font-weight: 700;">Person</label>
+              <input v-model="providerSearch" class="input" placeholder="Search person…" style="max-width: 260px;" />
               <select v-model.number="selectedProviderId" class="select">
                 <option :value="0">Select…</option>
                 <option v-for="p in filteredProviders" :key="`p-${p.id}`" :value="Number(p.id)">
@@ -271,7 +271,7 @@
           </div>
 
           <div v-else class="muted">
-            Open slots are not assignable for your role.
+            Building room slots are not assignable for your role.
           </div>
         </div>
 
@@ -831,10 +831,14 @@ const filteredProviders = computed(() => {
 
 const loadProviders = async () => {
   if (!canManageSchedule.value) return;
+  if (!officeId.value) {
+    providers.value = [];
+    return;
+  }
   try {
-    const r = await api.get('/users');
+    const r = await api.get(`/office-schedule/locations/${officeId.value}/providers`);
     const rows = Array.isArray(r.data) ? r.data : [];
-    providers.value = rows.filter((u) => String(u?.role || '').toLowerCase() === 'provider' || u?.has_provider_access === true);
+    providers.value = rows;
   } catch {
     providers.value = [];
   }
@@ -1339,6 +1343,7 @@ const cancelEventAction = async () => {
 watch(() => officeId.value, async () => {
   grid.value = null;
   await loadGrid();
+  if (canManageSchedule.value) await loadProviders();
 }, { immediate: true });
 
 onMounted(loadGrid);
@@ -1500,11 +1505,19 @@ input[type='date'] {
   gap: 8px;
 }
 .bulk-actions {
-  margin: 8px 0 12px;
+  position: fixed;
+  right: 14px;
+  bottom: 14px;
+  width: min(620px, calc(100vw - 28px));
+  max-height: 68vh;
+  overflow: auto;
+  z-index: 80;
+  margin: 0;
   padding: 10px;
   border: 1px solid var(--sched-border);
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.74);
+  box-shadow: var(--sched-shadow-strong);
 }
 .bulk-head {
   display: flex;
