@@ -68,6 +68,29 @@ async function resolveAgencyForProviderOffice({ providerId, officeLocationId }) 
   return match || officeAgencyIds[0] || null;
 }
 
+function addDaysYmd(ymd, days) {
+  const m = String(ymd || '').slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  d.setUTCDate(d.getUTCDate() + Number(days || 0));
+  return d.toISOString().slice(0, 10);
+}
+
+function normalizeRecurringUntilDate(bookingStartDate, rawUntil) {
+  const start = String(bookingStartDate || '').slice(0, 10);
+  const maxAllowed = addDaysYmd(start, 364);
+  const candidate = String(rawUntil || '').slice(0, 10);
+  if (!candidate || !/^\d{4}-\d{2}-\d{2}$/.test(candidate)) return maxAllowed;
+  if (candidate <= start) return maxAllowed;
+  return candidate > maxAllowed ? maxAllowed : candidate;
+}
+
+function weekdayIndexFromYmd(ymd) {
+  const m = String(ymd || '').slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  return new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]))).getUTCDay();
+}
+
 export const setBookingPlan = async (req, res, next) => {
   try {
     const { officeId, assignmentId } = req.params;
@@ -98,10 +121,12 @@ export const setBookingPlan = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
 
+    const recurringUntilDate = normalizeRecurringUntilDate(bookingStartDate, req.body?.recurringUntilDate);
     const plan = await OfficeBookingPlan.upsertActive({
       standingAssignmentId: sid,
       bookedFrequency: freq,
       bookingStartDate,
+      activeUntilDate: recurringUntilDate,
       createdByUserId: req.user.id
     });
 
@@ -383,10 +408,12 @@ export const setEventBookingPlan = async (req, res, next) => {
       });
     }
 
+    const recurringUntilDate = normalizeRecurringUntilDate(bookingStartDate, req.body?.recurringUntilDate);
     const plan = await OfficeBookingPlan.upsertActive({
       standingAssignmentId: assignment.id,
       bookedFrequency: freq,
       bookingStartDate,
+      activeUntilDate: recurringUntilDate,
       createdByUserId: req.user.id
     });
 
@@ -588,6 +615,9 @@ export const staffAssignOpenSlot = async (req, res, next) => {
     const endHour = endHourRaw === undefined || endHourRaw === null || endHourRaw === ''
       ? null
       : parseInt(endHourRaw, 10);
+    const recurrenceFrequencyRaw = String(req.body?.recurrenceFrequency || 'ONCE').trim().toUpperCase();
+    const recurrenceFrequency = ['ONCE', 'WEEKLY', 'BIWEEKLY'].includes(recurrenceFrequencyRaw) ? recurrenceFrequencyRaw : 'ONCE';
+    const recurringUntilDate = normalizeRecurringUntilDate(date, req.body?.recurringUntilDate);
     if (!roomId || !assignedUserId) {
       return res.status(400).json({ error: { message: 'roomId and assignedUserId are required' } });
     }
@@ -616,6 +646,10 @@ export const staffAssignOpenSlot = async (req, res, next) => {
 
     const startAt = `${date} ${String(hour).padStart(2, '0')}:00:00`;
     const endAt = `${date} ${String((endHour !== null ? endHour : (hour + 1))).padStart(2, '0')}:00:00`;
+
+    if (recurrenceFrequency !== 'ONCE' && endHour !== null && endHour !== hour + 1) {
+      return res.status(400).json({ error: { message: 'Recurring assignment currently supports one-hour slots only' } });
+    }
 
     // Avoid double-booking a room. Block if ANY assignment/event overlaps the requested window.
     try {
@@ -649,6 +683,60 @@ export const staffAssignOpenSlot = async (req, res, next) => {
       }
     } catch (e) {
       if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+    }
+
+    if (recurrenceFrequency !== 'ONCE') {
+      const weekday = weekdayIndexFromYmd(date);
+      if (!Number.isInteger(weekday)) {
+        return res.status(400).json({ error: { message: 'Invalid date for recurring assignment' } });
+      }
+
+      const existingStanding = await OfficeStandingAssignment.findActiveBySlot({
+        officeLocationId,
+        roomId,
+        weekday,
+        hour
+      });
+      if (existingStanding?.id) {
+        return res.status(409).json({ error: { message: 'That recurring office slot is already assigned.' } });
+      }
+
+      const assignedFrequency = recurrenceFrequency === 'BIWEEKLY' ? 'BIWEEKLY' : 'WEEKLY';
+      const standingAssignment = await OfficeStandingAssignment.create({
+        officeLocationId,
+        roomId,
+        providerId: assignedUserId,
+        weekday,
+        hour,
+        assignedFrequency,
+        createdByUserId: req.user.id
+      });
+
+      await OfficeStandingAssignment.update(standingAssignment.id, {
+        available_since_date: date,
+        last_two_week_confirmed_at: new Date()
+      });
+
+      const event = await OfficeEvent.upsertSlotState({
+        officeLocationId,
+        roomId,
+        startAt,
+        endAt,
+        slotState: 'ASSIGNED_AVAILABLE',
+        standingAssignmentId: standingAssignment.id,
+        bookingPlanId: null,
+        assignedProviderId: assignedUserId,
+        bookedProviderId: null,
+        createdByUserId: req.user.id
+      });
+
+      return res.json({
+        ok: true,
+        recurrenceFrequency,
+        recurringUntilDate,
+        standingAssignment,
+        events: event?.id ? [event] : []
+      });
     }
 
     const assignment = await OfficeRoomAssignment.create({

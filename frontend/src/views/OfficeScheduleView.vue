@@ -155,6 +155,11 @@
         <div class="muted" style="margin-bottom: 10px;">
           {{ modalSlot ? `${modalSlot.date} ${formatHour(modalSlot.hour)} — ${modalSlot.state}` : '' }}
         </div>
+        <div class="recurrence-summary" v-if="modalSlot">
+          <div><strong>Recurrence:</strong> {{ modalSlot.frequencyLabel || 'One-time' }}</div>
+          <div v-if="modalSlot.bookingStartDate"><strong>Starts:</strong> {{ modalSlot.bookingStartDate }}</div>
+          <div v-if="modalSlot.bookingActiveUntilDate"><strong>Until:</strong> {{ modalSlot.bookingActiveUntilDate }}</div>
+        </div>
 
         <div v-if="modalSlot?.state === 'open'">
           <div v-if="canManageSchedule" class="section">
@@ -178,6 +183,20 @@
                   {{ formatHour(h) }}
                 </option>
               </select>
+              <label style="font-weight: 700;">Recurrence</label>
+              <select v-model="assignRecurrenceFreq" class="select" :disabled="!modalSlot">
+                <option value="ONCE">Single occurrence</option>
+                <option value="WEEKLY">Weekly</option>
+                <option value="BIWEEKLY">Biweekly</option>
+              </select>
+              <label v-if="assignRecurrenceFreq !== 'ONCE'" style="font-weight: 700;">Recurring until</label>
+              <input
+                v-if="assignRecurrenceFreq !== 'ONCE'"
+                v-model="assignRecurringUntilDate"
+                type="date"
+                class="input"
+                :disabled="!modalSlot"
+              />
               <button class="btn btn-primary" @click="assignOpenSlot" :disabled="saving || !selectedProviderId || !modalSlot?.roomId">
                 Assign
               </button>
@@ -192,6 +211,9 @@
         <template v-else>
           <div class="section" v-if="canSelfManageModalSlot">
             <div class="section-title">Provider actions</div>
+            <div class="status-chip" :class="modalSlot?.state === 'assigned_booked' ? 'status-booked' : 'status-assigned'">
+              {{ modalSlot?.state === 'assigned_booked' ? 'Currently booked' : 'Currently assigned (not booked)' }}
+            </div>
 
             <div class="row">
               <label style="font-weight: 700;">Book frequency</label>
@@ -221,10 +243,10 @@
 
             <div class="row" style="margin-top: 10px;">
               <button class="btn btn-secondary" @click="staffBook(true)" :disabled="saving || !modalSlot?.eventId">
-                Mark booked (this occurrence)
+                Set booked (this occurrence)
               </button>
-              <button class="btn btn-secondary" @click="staffBook(false)" :disabled="saving || !modalSlot?.eventId">
-                Mark available (this occurrence)
+              <button class="btn btn-secondary" @click="staffBook(false)" :disabled="saving || !modalSlot?.eventId || isAssignedUnbooked">
+                Set unbooked (this occurrence)
               </button>
             </div>
 
@@ -271,6 +293,13 @@
                 <option value="BIWEEKLY">Biweekly</option>
                 <option value="MONTHLY">Monthly</option>
               </select>
+              <label style="font-weight: 700;">Until</label>
+              <input
+                v-model="editRecurrenceUntil"
+                type="date"
+                class="input"
+                :disabled="saving || !editRecurrenceFreq || (!modalSlot?.standingAssignmentId && !modalSlot?.eventId)"
+              />
               <button
                 class="btn btn-secondary"
                 @click="saveRecurrence"
@@ -629,6 +658,7 @@ const modalSlot = ref(null);
 const saving = ref(false);
 const bookFreq = ref('');
 const editRecurrenceFreq = ref('');
+const editRecurrenceUntil = ref('');
 const ackForfeit = ref(false);
 const cancelScope = ref('occurrence');
 const forfeitScope = ref('occurrence');
@@ -637,6 +667,8 @@ const providers = ref([]);
 const providerSearch = ref('');
 const selectedProviderId = ref(0);
 const assignEndHour = ref(8);
+const assignRecurrenceFreq = ref('ONCE');
+const assignRecurringUntilDate = ref('');
 const assignEndHourOptions = computed(() => {
   const start = Number(modalSlot.value?.hour ?? 0);
   const out = [];
@@ -674,17 +706,23 @@ const closeModal = () => {
   providerSearch.value = '';
   selectedProviderId.value = 0;
   assignEndHour.value = 8;
+  assignRecurrenceFreq.value = 'ONCE';
+  assignRecurringUntilDate.value = '';
+  editRecurrenceUntil.value = '';
 };
 
 const onSlotClick = (roomId, date, hour) => {
   const s = getSlot(roomId, date, hour);
   if (!s) return;
   modalSlot.value = s;
-  editRecurrenceFreq.value = String(s?.bookedFrequency || s?.assignedFrequency || '').toUpperCase();
+  editRecurrenceFreq.value = String(s?.bookedFrequency || s?.assignedFrequency || 'WEEKLY').toUpperCase();
+  editRecurrenceUntil.value = String(s?.bookingActiveUntilDate || addDaysYmd(String(s?.date || ''), 364) || '');
   showModal.value = true;
   cancelScope.value = 'occurrence';
   forfeitScope.value = 'occurrence';
   assignEndHour.value = Number(hour) + 1;
+  assignRecurringUntilDate.value = addDaysYmd(String(date || ''), 364);
+  assignRecurrenceFreq.value = 'ONCE';
   void loadProviders();
 };
 
@@ -702,6 +740,11 @@ const isRecurringSlot = computed(() => {
   return f === 'WEEKLY' || f === 'BIWEEKLY' || f === 'MONTHLY';
 });
 
+const isAssignedUnbooked = computed(() => {
+  const s = String(modalSlot.value?.state || '');
+  return s === 'assigned_available' || s === 'assigned_temporary';
+});
+
 const assignOpenSlot = async () => {
   if (!officeId.value || !modalSlot.value?.roomId || !selectedProviderId.value) return;
   try {
@@ -711,7 +754,9 @@ const assignOpenSlot = async () => {
       date: modalSlot.value.date,
       hour: modalSlot.value.hour,
       endHour: assignEndHour.value,
-      assignedUserId: selectedProviderId.value
+      assignedUserId: selectedProviderId.value,
+      recurrenceFrequency: assignRecurrenceFreq.value,
+      recurringUntilDate: assignRecurrenceFreq.value === 'ONCE' ? null : assignRecurringUntilDate.value
     });
     await loadGrid();
     closeModal();
@@ -729,12 +774,14 @@ const bookSlot = async () => {
     if (modalSlot.value?.standingAssignmentId) {
       await api.post(`/office-slots/${officeId.value}/assignments/${modalSlot.value.standingAssignmentId}/booking-plan`, {
         bookedFrequency: bookFreq.value,
-        bookingStartDate: modalSlot.value.date
+        bookingStartDate: modalSlot.value.date,
+        recurringUntilDate: addDaysYmd(modalSlot.value.date, 364)
       });
     } else if (modalSlot.value?.eventId) {
       await api.post(`/office-slots/${officeId.value}/events/${modalSlot.value.eventId}/booking-plan`, {
         bookedFrequency: bookFreq.value,
-        bookingStartDate: modalSlot.value.date
+        bookingStartDate: modalSlot.value.date,
+        recurringUntilDate: addDaysYmd(modalSlot.value.date, 364)
       });
     } else {
       return;
@@ -755,12 +802,14 @@ const saveRecurrence = async () => {
     if (modalSlot.value?.standingAssignmentId) {
       await api.post(`/office-slots/${officeId.value}/assignments/${modalSlot.value.standingAssignmentId}/booking-plan`, {
         bookedFrequency: editRecurrenceFreq.value,
-        bookingStartDate: modalSlot.value.date
+        bookingStartDate: modalSlot.value.date,
+        recurringUntilDate: editRecurrenceUntil.value || addDaysYmd(modalSlot.value.date, 364)
       });
     } else if (modalSlot.value?.eventId) {
       await api.post(`/office-slots/${officeId.value}/events/${modalSlot.value.eventId}/booking-plan`, {
         bookedFrequency: editRecurrenceFreq.value,
-        bookingStartDate: modalSlot.value.date
+        bookingStartDate: modalSlot.value.date,
+        recurringUntilDate: editRecurrenceUntil.value || addDaysYmd(modalSlot.value.date, 364)
       });
     } else {
       return;
@@ -1202,6 +1251,36 @@ input[type='date'] {
   margin-top: 10px;
 }
 .section-title { font-weight: 800; margin-bottom: 8px; }
+.recurrence-summary {
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--sched-border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.65);
+  color: var(--sched-text-muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  margin-bottom: 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+}
+.status-assigned {
+  background: rgba(245, 158, 11, 0.14);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  color: #7c2d12;
+}
+.status-booked {
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #7f1d1d;
+}
 .actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; }
 select {
   padding: 10px 12px;

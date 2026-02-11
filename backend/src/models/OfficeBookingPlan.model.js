@@ -8,6 +8,15 @@ function addDaysYmd(ymd, days) {
   return d.toISOString().slice(0, 10);
 }
 
+function normalizeActiveUntilDate({ bookingStartDate, activeUntilDate }) {
+  const start = String(bookingStartDate || '').slice(0, 10);
+  const maxAllowed = addDaysYmd(start, 364);
+  const requested = String(activeUntilDate || '').slice(0, 10);
+  if (!requested || !/^\d{4}-\d{2}-\d{2}$/.test(requested)) return maxAllowed;
+  if (!maxAllowed || requested <= start) return maxAllowed;
+  return requested > maxAllowed ? maxAllowed : requested;
+}
+
 class OfficeBookingPlan {
   static async listActiveByAssignmentIds(assignmentIds) {
     const ids = (assignmentIds || [])
@@ -39,9 +48,9 @@ class OfficeBookingPlan {
     return rows?.[0] || null;
   }
 
-  static async upsertActive({ standingAssignmentId, bookedFrequency, bookingStartDate, createdByUserId }) {
+  static async upsertActive({ standingAssignmentId, bookedFrequency, bookingStartDate, activeUntilDate = null, createdByUserId }) {
     const start = String(bookingStartDate || '').slice(0, 10);
-    const activeUntilDate = addDaysYmd(start, 365);
+    const normalizedActiveUntilDate = normalizeActiveUntilDate({ bookingStartDate: start, activeUntilDate });
     const existing = await this.findActiveByAssignmentId(standingAssignmentId);
     if (existing?.id) {
       await pool.execute(
@@ -52,7 +61,7 @@ class OfficeBookingPlan {
              last_confirmed_at = CURRENT_TIMESTAMP,
              updated_at = CURRENT_TIMESTAMP
          WHERE id = ?`,
-        [bookedFrequency, start, activeUntilDate, existing.id]
+        [bookedFrequency, start, normalizedActiveUntilDate, existing.id]
       );
       const [rows] = await pool.execute(`SELECT * FROM office_booking_plans WHERE id = ? LIMIT 1`, [existing.id]);
       return rows?.[0] || null;
@@ -62,7 +71,7 @@ class OfficeBookingPlan {
       `INSERT INTO office_booking_plans
          (standing_assignment_id, booked_frequency, booking_start_date, active_until_date, last_confirmed_at, created_by_user_id)
        VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, ?)`,
-      [standingAssignmentId, bookedFrequency, start, activeUntilDate, createdByUserId]
+      [standingAssignmentId, bookedFrequency, start, normalizedActiveUntilDate, createdByUserId]
     );
     const [rows] = await pool.execute(`SELECT * FROM office_booking_plans WHERE id = ? LIMIT 1`, [result.insertId]);
     return rows?.[0] || null;
@@ -82,7 +91,6 @@ class OfficeBookingPlan {
     await pool.execute(
       `UPDATE office_booking_plans
        SET last_confirmed_at = CURRENT_TIMESTAMP,
-           active_until_date = DATE_ADD(CURDATE(), INTERVAL 42 DAY),
            updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
       [planId]
