@@ -10,6 +10,7 @@
           <label>Week of</label>
           <input v-model="weekStart" type="date" @change="loadGrid" :disabled="!officeId" />
         </div>
+        <button class="btn btn-secondary" @click="goToPreviousWeek" :disabled="loading || !officeId">Previous week</button>
         <button class="btn btn-secondary" @click="goToNextWeek" :disabled="loading || !officeId">Next week</button>
         <button class="btn btn-secondary" @click="loadGrid" :disabled="loading || !officeId">Refresh</button>
       </div>
@@ -495,6 +496,12 @@ const addDaysYmd = (ymd, days) => {
 const goToNextWeek = async () => {
   const next = addDaysYmd(weekStart.value, 7);
   weekStart.value = next;
+  await loadGrid();
+};
+
+const goToPreviousWeek = async () => {
+  const prev = addDaysYmd(weekStart.value, -7);
+  weekStart.value = prev;
   await loadGrid();
 };
 

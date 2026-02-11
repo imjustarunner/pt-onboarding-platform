@@ -56,6 +56,12 @@ function weekIndexFromAnchor(dateStr, anchorStr) {
   return Math.floor(diffDays / 7);
 }
 
+function weekdayIndexFromYmd(dateStr) {
+  const p = parseYmdParts(dateStr);
+  if (!p) return null;
+  return new Date(Date.UTC(p.y, p.mo - 1, p.d)).getUTCDay();
+}
+
 function isAssignmentActiveOnDate(assignment, dateStr) {
   // Require ongoing provider confirmation every 2 weeks; fully expire after 6 weeks
   // without confirmation so stale assigned slots stop materializing.
@@ -125,6 +131,9 @@ export class OfficeScheduleMaterializer {
 
     for (const a of standing) {
       for (const date of days) {
+        // Materialize only on the assignment's configured weekday.
+        const weekday = weekdayIndexFromYmd(date);
+        if (!Number.isInteger(weekday) || Number(weekday) !== Number(a.weekday)) continue;
         if (!isAssignmentActiveOnDate(a, date)) continue;
         const startAt = mysqlDateTimeForDateHour(date, a.hour);
         const endAt = mysqlDateTimeForDateHour(date, Number(a.hour) + 1);
