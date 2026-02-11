@@ -343,7 +343,7 @@
               Remove from schedule.
             </div>
             <div class="row">
-              <select v-model="cancelScope" class="select" :disabled="saving || !modalSlot?.eventId">
+              <select v-model="cancelScope" class="select" :disabled="saving || (!modalSlot?.eventId && !modalSlot?.standingAssignmentId)">
                 <option value="occurrence">This occurrence only</option>
                 <option value="future_day" :disabled="!isRecurringSlot">This day only, future occurrences</option>
                 <option value="week" :disabled="!isRecurringSlot">This week only</option>
@@ -355,9 +355,9 @@
                 v-model="cancelUntilDate"
                 type="date"
                 class="input"
-                :disabled="saving || !modalSlot?.eventId"
+                :disabled="saving || (!modalSlot?.eventId && !modalSlot?.standingAssignmentId)"
               />
-              <button class="btn btn-danger" @click="cancelEventAction" :disabled="saving || !modalSlot?.eventId">
+              <button class="btn btn-danger" @click="cancelEventAction" :disabled="saving || (!modalSlot?.eventId && !modalSlot?.standingAssignmentId)">
                 Delete event
               </button>
             </div>
@@ -1042,11 +1042,21 @@ const cancelEventAction = async () => {
   if (!ok) return;
   try {
     saving.value = true;
-    await api.post(`/office-slots/${officeId.value}/events/${modalSlot.value.eventId}/cancel`, {
-      scope,
-      applyToSet,
-      untilDate: selected === 'until' ? cancelUntilDate.value : null
-    });
+    if (modalSlot.value?.eventId) {
+      await api.post(`/office-slots/${officeId.value}/events/${modalSlot.value.eventId}/cancel`, {
+        scope,
+        applyToSet,
+        untilDate: selected === 'until' ? cancelUntilDate.value : null
+      });
+    } else {
+      await api.post(`/office-slots/${officeId.value}/assignments/${modalSlot.value.standingAssignmentId}/cancel`, {
+        scope,
+        applyToSet,
+        date: modalSlot.value.date,
+        hour: modalSlot.value.hour,
+        untilDate: selected === 'until' ? cancelUntilDate.value : null
+      });
+    }
     setSuccessToast('Schedule update saved.');
     await loadGrid();
     closeModal();

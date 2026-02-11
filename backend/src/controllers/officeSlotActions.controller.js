@@ -854,6 +854,143 @@ export const cancelEvent = async (req, res, next) => {
   }
 };
 
+export const cancelAssignment = async (req, res, next) => {
+  try {
+    const { officeId, assignmentId } = req.params;
+    const officeLocationId = parseInt(officeId, 10);
+    const sid = parseInt(assignmentId, 10);
+    if (!officeLocationId || !sid) return res.status(400).json({ error: { message: 'Invalid ids' } });
+
+    const ok = await requireOfficeAccess(req, officeLocationId);
+    if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+    if (!canManageSchedule(req.user?.role)) {
+      return res.status(403).json({ error: { message: 'Only schedule managers can cancel/delete schedule events' } });
+    }
+
+    const assignment = await OfficeStandingAssignment.findById(sid);
+    if (!assignment || Number(assignment.office_location_id) !== Number(officeLocationId)) {
+      return res.status(404).json({ error: { message: 'Standing assignment not found' } });
+    }
+
+    const scope = String(req.body?.scope || 'occurrence').trim().toLowerCase();
+    if (!['occurrence', 'future', 'week', 'until'].includes(scope)) {
+      return res.status(400).json({ error: { message: 'scope must be occurrence, future, week, or until' } });
+    }
+    const applyToSet = req.body?.applyToSet === true || req.body?.applyToSet === 'true';
+    const slotDate = String(req.body?.date || '').slice(0, 10);
+    const slotHour = parseInt(req.body?.hour, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(slotDate) || !Number.isInteger(slotHour) || slotHour < 0 || slotHour > 23) {
+      return res.status(400).json({ error: { message: 'date (YYYY-MM-DD) and hour (0..23) are required' } });
+    }
+    const startAt = mysqlDateTimeForDateHour(slotDate, slotHour);
+    const untilDateRaw = String(req.body?.untilDate || '').slice(0, 10);
+    if (scope === 'until' && !/^\d{4}-\d{2}-\d{2}$/.test(untilDateRaw)) {
+      return res.status(400).json({ error: { message: 'untilDate must be YYYY-MM-DD when scope=until' } });
+    }
+    if (scope === 'until' && untilDateRaw < slotDate) {
+      return res.status(400).json({ error: { message: 'untilDate must be on or after the selected date' } });
+    }
+
+    let targetAssignmentIds = [sid];
+    if (applyToSet && assignment.recurrence_group_id) {
+      const [rows] = await pool.execute(
+        `SELECT id
+         FROM office_standing_assignments
+         WHERE recurrence_group_id = ?
+           AND office_location_id = ?`,
+        [assignment.recurrence_group_id, officeLocationId]
+      );
+      const ids = (rows || []).map((r) => Number(r.id)).filter((n) => Number.isInteger(n) && n > 0);
+      if (ids.length) targetAssignmentIds = ids;
+    }
+
+    let rangeStart = startAt;
+    let rangeEndExclusive = null;
+    if (scope === 'occurrence') {
+      rangeStart = startAt;
+      rangeEndExclusive = mysqlDateTimeForDateHour(slotDate, slotHour + 1);
+    } else if (scope === 'week') {
+      const ws = startOfWeekYmd(slotDate);
+      const we = ws ? addDaysYmd(ws, 7) : null;
+      rangeStart = ws ? `${ws} 00:00:00` : startAt;
+      rangeEndExclusive = we ? `${we} 00:00:00` : null;
+    } else if (scope === 'until') {
+      rangeStart = startAt;
+      const untilNextDay = addDaysYmd(untilDateRaw, 1);
+      rangeEndExclusive = untilNextDay ? `${untilNextDay} 00:00:00` : null;
+    }
+
+    const where = [
+      `standing_assignment_id IN (${targetAssignmentIds.map(() => '?').join(',')})`
+    ];
+    const params = [...targetAssignmentIds];
+    if (rangeStart) {
+      where.push('start_at >= ?');
+      params.push(rangeStart);
+    }
+    if (rangeEndExclusive) {
+      where.push('start_at < ?');
+      params.push(rangeEndExclusive);
+    }
+
+    const [rows] = await pool.execute(
+      `SELECT id
+       FROM office_events
+       WHERE ${where.join(' AND ')}`,
+      params
+    );
+    const eventIds = (rows || []).map((r) => Number(r.id)).filter((n) => Number.isInteger(n) && n > 0);
+
+    if (eventIds.length) {
+      await pool.execute(
+        `UPDATE office_events
+         SET status = 'CANCELLED',
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id IN (${eventIds.map(() => '?').join(',')})`,
+        eventIds
+      );
+    }
+
+    if ((scope === 'week' || scope === 'until') && targetAssignmentIds.length) {
+      const pauseUntilDate = scope === 'week'
+        ? addDaysYmd(String(rangeEndExclusive || '').slice(0, 10), -1)
+        : untilDateRaw;
+      for (const id of targetAssignmentIds) {
+        // eslint-disable-next-line no-await-in-loop
+        await OfficeStandingAssignment.update(id, {
+          availability_mode: 'TEMPORARY',
+          temporary_until_date: pauseUntilDate,
+          last_two_week_confirmed_at: new Date()
+        });
+      }
+    }
+
+    if (scope === 'future') {
+      for (const id of targetAssignmentIds) {
+        // eslint-disable-next-line no-await-in-loop
+        await OfficeBookingPlan.deactivateByAssignmentId(id);
+        // eslint-disable-next-line no-await-in-loop
+        await OfficeStandingAssignment.update(id, { is_active: false });
+      }
+    }
+
+    for (const id of eventIds) {
+      // eslint-disable-next-line no-await-in-loop
+      await ProviderVirtualSlotAvailability.deactivateBySourceEventId(id);
+    }
+
+    return res.json({
+      ok: true,
+      scope,
+      applyToSet,
+      cancelledEventCount: eventIds.length,
+      targetedStandingAssignmentIds: targetAssignmentIds
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const forfeitEvent = async (req, res, next) => {
   try {
     const { officeId, eventId } = req.params;
@@ -997,10 +1134,6 @@ export const staffAssignOpenSlot = async (req, res, next) => {
     const startAt = mysqlDateTimeForDateHour(date, hour);
     const endAt = mysqlDateTimeForDateHour(date, (endHour !== null ? endHour : (hour + 1)));
 
-    if (recurrenceFrequency !== 'ONCE' && endHour !== null && endHour !== hour + 1) {
-      return res.status(400).json({ error: { message: 'Recurring assignment currently supports one-hour slots only' } });
-    }
-
     // Avoid double-booking a room. Block if ANY assignment/event overlaps the requested window.
     try {
       const [aRows] = await pool.execute(
@@ -1045,59 +1178,71 @@ export const staffAssignOpenSlot = async (req, res, next) => {
       const standingAssignments = [];
       const createdEvents = [];
 
+      const startHour = Number(hour);
+      const finalHour = Number(endHour !== null ? endHour : hour + 1);
+
       for (const weekday of recurrenceWeekdays) {
-        // eslint-disable-next-line no-await-in-loop
-        const existingStanding = await OfficeStandingAssignment.findActiveBySlot({
-          officeLocationId,
-          roomId,
-          weekday,
-          hour
-        });
-        if (existingStanding?.id) {
-          return res.status(409).json({ error: { message: `Recurring slot already assigned for weekday ${weekday}.` } });
+        for (let h = startHour; h < finalHour; h++) {
+          // eslint-disable-next-line no-await-in-loop
+          const existingStanding = await OfficeStandingAssignment.findActiveBySlot({
+            officeLocationId,
+            roomId,
+            weekday,
+            hour: h
+          });
+          if (existingStanding?.id) {
+            return res.status(409).json({ error: { message: `Recurring slot already assigned for weekday ${weekday} hour ${h}.` } });
+          }
         }
       }
 
       for (const weekday of recurrenceWeekdays) {
-        // eslint-disable-next-line no-await-in-loop
-        const standingAssignment = await OfficeStandingAssignment.create({
-          officeLocationId,
-          roomId,
-          providerId: assignedUserId,
-          weekday,
-          hour,
-          assignedFrequency,
-          recurrenceGroupId,
-          createdByUserId: req.user.id
-        });
+        for (let h = startHour; h < finalHour; h++) {
+          // eslint-disable-next-line no-await-in-loop
+          const standingAssignment = await OfficeStandingAssignment.create({
+            officeLocationId,
+            roomId,
+            providerId: assignedUserId,
+            weekday,
+            hour: h,
+            assignedFrequency,
+            recurrenceGroupId,
+            createdByUserId: req.user.id
+          });
 
-        // eslint-disable-next-line no-await-in-loop
-        await OfficeStandingAssignment.update(standingAssignment.id, {
-          available_since_date: date,
-          last_two_week_confirmed_at: new Date()
-        });
-        standingAssignments.push(standingAssignment);
+          // eslint-disable-next-line no-await-in-loop
+          await OfficeStandingAssignment.update(standingAssignment.id, {
+            available_since_date: date,
+            last_two_week_confirmed_at: new Date()
+          });
+          standingAssignments.push(standingAssignment);
+        }
       }
 
       // Create the clicked-day event immediately so the user sees feedback before next materialization.
       const clickedWeekday = weekdayIndexFromYmd(date);
       if (recurrenceWeekdays.includes(clickedWeekday)) {
-        const standingForClickedDay = standingAssignments.find((a) => Number(a.weekday) === Number(clickedWeekday)) || null;
-        if (standingForClickedDay?.id) {
-          const event = await OfficeEvent.upsertSlotState({
-            officeLocationId,
-            roomId,
-            startAt,
-            endAt,
-            slotState: 'ASSIGNED_AVAILABLE',
-            standingAssignmentId: standingForClickedDay.id,
-            bookingPlanId: null,
-            recurrenceGroupId,
-            assignedProviderId: assignedUserId,
-            bookedProviderId: null,
-            createdByUserId: req.user.id
-          });
-          if (event?.id) createdEvents.push(event);
+        for (let h = startHour; h < finalHour; h++) {
+          const standingForClickedDay = standingAssignments.find((a) => Number(a.weekday) === Number(clickedWeekday) && Number(a.hour) === Number(h)) || null;
+          if (standingForClickedDay?.id) {
+            const slotStartAt = mysqlDateTimeForDateHour(date, h);
+            const slotEndAt = mysqlDateTimeForDateHour(date, h + 1);
+            // eslint-disable-next-line no-await-in-loop
+            const event = await OfficeEvent.upsertSlotState({
+              officeLocationId,
+              roomId,
+              startAt: slotStartAt,
+              endAt: slotEndAt,
+              slotState: 'ASSIGNED_AVAILABLE',
+              standingAssignmentId: standingForClickedDay.id,
+              bookingPlanId: null,
+              recurrenceGroupId,
+              assignedProviderId: assignedUserId,
+              bookedProviderId: null,
+              createdByUserId: req.user.id
+            });
+            if (event?.id) createdEvents.push(event);
+          }
         }
       }
 
