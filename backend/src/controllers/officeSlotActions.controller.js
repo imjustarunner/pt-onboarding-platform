@@ -468,16 +468,33 @@ export const setEventBookingPlan = async (req, res, next) => {
     }
     if (!assignment?.id) {
       const recurrenceGroupId = ev.recurrence_group_id || generateRecurrenceGroupId('OFFICE_ASSIGNMENT');
-      assignment = await OfficeStandingAssignment.create({
+      const reusable = await OfficeStandingAssignment.findAnyBySlotProviderFrequency({
         officeLocationId,
         roomId: Number(ev.room_id),
         providerId,
         weekday: wh.weekdayIndex,
         hour: wh.hour,
-        assignedFrequency,
-        recurrenceGroupId,
-        createdByUserId: req.user.id
+        assignedFrequency
       });
+      if (reusable?.id) {
+        assignment = await OfficeStandingAssignment.update(reusable.id, {
+          is_active: true,
+          recurrence_group_id: recurrenceGroupId,
+          available_since_date: bookingStartDate,
+          last_two_week_confirmed_at: new Date()
+        });
+      } else {
+        assignment = await OfficeStandingAssignment.create({
+          officeLocationId,
+          roomId: Number(ev.room_id),
+          providerId,
+          weekday: wh.weekdayIndex,
+          hour: wh.hour,
+          assignedFrequency,
+          recurrenceGroupId,
+          createdByUserId: req.user.id
+        });
+      }
     }
 
     const recurringUntilDate = normalizeRecurringUntilDate(bookingStartDate, req.body?.recurringUntilDate);
@@ -564,20 +581,38 @@ export const setEventRecurrence = async (req, res, next) => {
         });
       } else {
         const recurrenceGroupId = ev.recurrence_group_id || generateRecurrenceGroupId('OFFICE_ASSIGNMENT');
-        assignment = await OfficeStandingAssignment.create({
+        const reusable = await OfficeStandingAssignment.findAnyBySlotProviderFrequency({
           officeLocationId,
           roomId,
           providerId,
           weekday: wh.weekdayIndex,
           hour: wh.hour,
-          assignedFrequency: recurrenceFrequency,
-          recurrenceGroupId,
-          createdByUserId: req.user.id
+          assignedFrequency: recurrenceFrequency
         });
-        assignment = await OfficeStandingAssignment.update(assignment.id, {
-          available_since_date: String(ev.start_at || '').slice(0, 10),
-          last_two_week_confirmed_at: new Date()
-        });
+        if (reusable?.id) {
+          assignment = await OfficeStandingAssignment.update(reusable.id, {
+            assigned_frequency: recurrenceFrequency,
+            is_active: true,
+            recurrence_group_id: recurrenceGroupId,
+            available_since_date: String(ev.start_at || '').slice(0, 10),
+            last_two_week_confirmed_at: new Date()
+          });
+        } else {
+          assignment = await OfficeStandingAssignment.create({
+            officeLocationId,
+            roomId,
+            providerId,
+            weekday: wh.weekdayIndex,
+            hour: wh.hour,
+            assignedFrequency: recurrenceFrequency,
+            recurrenceGroupId,
+            createdByUserId: req.user.id
+          });
+          assignment = await OfficeStandingAssignment.update(assignment.id, {
+            available_since_date: String(ev.start_at || '').slice(0, 10),
+            last_two_week_confirmed_at: new Date()
+          });
+        }
       }
     }
 

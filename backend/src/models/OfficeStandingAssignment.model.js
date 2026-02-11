@@ -52,6 +52,30 @@ class OfficeStandingAssignment {
     return rows?.[0] || null;
   }
 
+  static async findAnyBySlotProviderFrequency({
+    officeLocationId,
+    roomId,
+    providerId,
+    weekday,
+    hour,
+    assignedFrequency = 'WEEKLY'
+  }) {
+    const [rows] = await pool.execute(
+      `SELECT *
+       FROM office_standing_assignments
+       WHERE office_location_id = ?
+         AND room_id = ?
+         AND provider_id = ?
+         AND weekday = ?
+         AND hour = ?
+         AND assigned_frequency = ?
+       ORDER BY is_active DESC, id DESC
+       LIMIT 1`,
+      [officeLocationId, roomId, providerId, weekday, hour, assignedFrequency]
+    );
+    return rows?.[0] || null;
+  }
+
   static async listByOffice(officeLocationId) {
     const [rows] = await pool.execute(
       `SELECT
