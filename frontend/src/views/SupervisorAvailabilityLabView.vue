@@ -71,7 +71,6 @@ import { computed, onMounted, ref } from 'vue';
 import { useAgencyStore } from '../store/agency';
 import api from '../services/api';
 
-const NEXT_AVAILABLE_WEEKS_LOOKAHEAD = 16;
 const CARD_SLOT_PREVIEW_LIMIT = 6;
 const FETCH_CONCURRENCY = 4;
 
@@ -82,6 +81,8 @@ const agencies = ref([]);
 const providers = ref([]);
 const cards = ref([]);
 const providerWeekErrors = ref([]);
+const publicFinderKeyByAgencyId = ref({});
+let loadCardsRequestSeq = 0;
 const selectedAgencyId = ref(null);
 const weekStart = ref(getWeekStartYmd(new Date()));
 const search = ref('');
@@ -192,37 +193,55 @@ async function fetchProviderWeek(providerId, requestedWeekStart) {
   }
 }
 
-async function findNextAvailable(providerId, requestedWeekStart) {
-  for (let i = 1; i <= NEXT_AVAILABLE_WEEKS_LOOKAHEAD; i += 1) {
-    const candidateWeek = addDaysYmd(requestedWeekStart, i * 7);
-    // eslint-disable-next-line no-await-in-loop
-    const week = await fetchProviderWeek(providerId, candidateWeek);
-    if (week.slots.length > 0) return week;
-  }
-  return null;
-}
-
-function buildCard(provider, thisWeek, nextWeek) {
-  const activeSet = thisWeek?.slots?.length ? thisWeek : nextWeek;
-  if (!activeSet || !activeSet.slots?.length) return null;
-
-  const firstSlot = activeSet.slots[0];
+function buildCardFromSlots(provider, slots) {
+  if (!slots?.length) return null;
+  const firstSlot = slots[0];
   const firstStart = firstSlot.startAt || firstSlot.start_at;
   const firstDate = toDate(firstStart);
   const bookedThroughDate = firstDate ? addDaysYmd(firstDate.toISOString().slice(0, 10), -1) : null;
-  const isThisWeek = !!thisWeek?.slots?.length;
 
   return {
     providerId: Number(provider.id),
     providerName: providerName(provider),
-    availabilityLabel: isThisWeek
-      ? `Available this week (${thisWeek.slots.length} intake slot${thisWeek.slots.length === 1 ? '' : 's'})`
-      : `Next available ${toDateLabel(firstStart)} (${activeSet.slots.length} intake slot${activeSet.slots.length === 1 ? '' : 's'})`,
-    bookedThroughLabel: isThisWeek
-      ? 'Booked through: currently open this week'
-      : (bookedThroughDate ? `Booked through: ${toDateLabel(bookedThroughDate)}` : 'Booked through: unknown'),
-    displaySlots: mapDisplaySlots(provider.id, activeSet.slots)
+    availabilityLabel: `Available this week (${slots.length} intake slot${slots.length === 1 ? '' : 's'})`,
+    bookedThroughLabel: bookedThroughDate ? `Booked through: ${toDateLabel(bookedThroughDate)}` : 'Booked through: currently open this week',
+    displaySlots: mapDisplaySlots(provider.id, slots)
   };
+}
+
+function normalizePublicProgramSlots(slots, modalityClass) {
+  return (Array.isArray(slots) ? slots : []).map((s) => ({
+    ...s,
+    modalityClass,
+    modality: modalityClass === 'modality-virtual' ? 'Virtual intake' : 'In-person intake'
+  }));
+}
+
+function mergePublicProviderCards(inPersonProviders, virtualProviders) {
+  const map = new Map();
+  const put = (provider, modalityClass) => {
+    const id = Number(provider?.providerId || 0);
+    if (!id) return;
+    const existing = map.get(id) || {
+      id,
+      first_name: String(provider?.firstName || '').trim(),
+      last_name: String(provider?.lastName || '').trim()
+    };
+    const availability = provider?.availability || {};
+    const progSlots = normalizePublicProgramSlots(availability?.slots, modalityClass);
+    existing._slots = [...(existing._slots || []), ...progSlots];
+    map.set(id, existing);
+  };
+  (inPersonProviders || []).forEach((p) => put(p, 'modality-office'));
+  (virtualProviders || []).forEach((p) => put(p, 'modality-virtual'));
+
+  const out = [];
+  for (const provider of map.values()) {
+    const slots = (provider._slots || []).sort((a, b) => String(a.startAt || '').localeCompare(String(b.startAt || '')));
+    const card = buildCardFromSlots(provider, slots);
+    if (card) out.push(card);
+  }
+  return out.sort((a, b) => String(a.providerName || '').localeCompare(String(b.providerName || '')));
 }
 
 async function runWithConcurrency(items, limit, worker) {
@@ -260,29 +279,72 @@ async function loadProviders() {
   providers.value = Array.isArray(data) ? data : [];
 }
 
+async function getPublicFinderKeyForAgency(agencyId) {
+  const aid = Number(agencyId || 0);
+  if (!aid) return null;
+  const existing = String(publicFinderKeyByAgencyId.value?.[aid] || '').trim();
+  if (existing) return existing;
+  const { data } = await api.get('/availability/admin/public-provider-link', {
+    params: { agencyId: aid }
+  });
+  const key = String(data?.publicAvailabilityAccessKey || '').trim();
+  if (key) {
+    publicFinderKeyByAgencyId.value = {
+      ...(publicFinderKeyByAgencyId.value || {}),
+      [aid]: key
+    };
+  }
+  return key || null;
+}
+
+async function loadCardsLegacyThisWeekOnly() {
+  const built = await runWithConcurrency(providers.value, FETCH_CONCURRENCY, async (provider) => {
+    const thisWeek = await fetchProviderWeek(provider.id, weekStart.value);
+    return buildCardFromSlots(provider, thisWeek?.slots || []);
+  });
+  cards.value = built
+    .filter(Boolean)
+    .sort((a, b) => String(a.providerName || '').localeCompare(String(b.providerName || '')));
+}
+
 async function loadCards() {
   if (!selectedAgencyId.value) return;
+  const requestSeq = ++loadCardsRequestSeq;
   loading.value = true;
   error.value = '';
   providerWeekErrors.value = [];
   try {
-    const built = await runWithConcurrency(providers.value, FETCH_CONCURRENCY, async (provider) => {
-      const thisWeek = await fetchProviderWeek(provider.id, weekStart.value);
-      const nextWeek = thisWeek.slots.length ? null : await findNextAvailable(provider.id, weekStart.value);
-      return buildCard(provider, thisWeek, nextWeek);
-    });
-    cards.value = built
-      .filter(Boolean)
-      .sort((a, b) => String(a.providerName || '').localeCompare(String(b.providerName || '')));
+    const aid = Number(selectedAgencyId.value || 0);
+    const key = await getPublicFinderKeyForAgency(aid);
+    if (key) {
+      const [inPersonResp, virtualResp] = await Promise.all([
+        api.get(`/public/provider-availability/${aid}/providers`, {
+          params: { key, weekStart: weekStart.value, bookingMode: 'NEW_CLIENT', programType: 'IN_PERSON' },
+          skipAuthRedirect: true
+        }),
+        api.get(`/public/provider-availability/${aid}/providers`, {
+          params: { key, weekStart: weekStart.value, bookingMode: 'NEW_CLIENT', programType: 'VIRTUAL' },
+          skipAuthRedirect: true
+        })
+      ]);
+      if (requestSeq !== loadCardsRequestSeq) return;
+      const inPersonProviders = Array.isArray(inPersonResp?.data?.providers) ? inPersonResp.data.providers : [];
+      const virtualProviders = Array.isArray(virtualResp?.data?.providers) ? virtualResp.data.providers : [];
+      cards.value = mergePublicProviderCards(inPersonProviders, virtualProviders);
+    } else {
+      await loadCardsLegacyThisWeekOnly();
+    }
+
     if (!cards.value.length && providerWeekErrors.value.length) {
       error.value = 'No provider availability could be loaded for this week. Please refresh.';
     }
   } catch (e) {
+    if (requestSeq !== loadCardsRequestSeq) return;
     console.error('Failed to load provider availability cards', e);
     error.value = e?.response?.data?.error?.message || 'Failed to load provider availability.';
     cards.value = [];
   } finally {
-    loading.value = false;
+    if (requestSeq === loadCardsRequestSeq) loading.value = false;
   }
 }
 
