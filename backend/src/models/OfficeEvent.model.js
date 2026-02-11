@@ -101,6 +101,7 @@ class OfficeEvent {
     slotState,
     standingAssignmentId = null,
     bookingPlanId = null,
+    recurrenceGroupId = null,
     assignedProviderId = null,
     bookedProviderId = null,
     createdByUserId
@@ -122,6 +123,7 @@ class OfficeEvent {
              slot_state = ?,
              standing_assignment_id = ?,
              booking_plan_id = ?,
+             recurrence_group_id = ?,
              assigned_provider_id = ?,
              booked_provider_id = ?,
              updated_at = CURRENT_TIMESTAMP
@@ -135,6 +137,7 @@ class OfficeEvent {
           slotState,
           standingAssignmentId,
           bookingPlanId,
+          recurrenceGroupId,
           assignedProviderId,
           bookedProviderId,
           existing.id
@@ -153,7 +156,7 @@ class OfficeEvent {
       assignedProviderId,
       bookedProviderId,
       source: 'ADMIN_OVERRIDE',
-      recurrenceGroupId: null,
+      recurrenceGroupId,
       notes: null,
       createdByUserId,
       approvedByUserId: null

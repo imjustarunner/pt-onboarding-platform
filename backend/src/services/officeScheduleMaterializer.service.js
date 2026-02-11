@@ -137,7 +137,8 @@ export class OfficeScheduleMaterializer {
 
         const plan = planByAssignment.get(a.id) || null;
         let slotState = baseSlotState;
-        if (plan && shouldBookOnDate(plan, a, date)) {
+        // Temporary pause suppresses booked materialization until pause window ends.
+        if (!isTemporary && plan && shouldBookOnDate(plan, a, date)) {
           slotState = 'ASSIGNED_BOOKED';
         }
 
@@ -149,6 +150,7 @@ export class OfficeScheduleMaterializer {
           slotState,
           standingAssignmentId: a.id,
           bookingPlanId: plan?.id || null,
+          recurrenceGroupId: a.recurrence_group_id || null,
           assignedProviderId: a.provider_id,
           bookedProviderId: slotState === 'ASSIGNED_BOOKED' ? a.provider_id : null,
           createdByUserId: uid || 1

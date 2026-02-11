@@ -13,14 +13,27 @@ class OfficeStandingAssignment {
     weekday,
     hour,
     assignedFrequency = 'WEEKLY',
+    recurrenceGroupId = null,
     createdByUserId
   }) {
-    const [result] = await pool.execute(
-      `INSERT INTO office_standing_assignments
-        (office_location_id, room_id, provider_id, weekday, hour, assigned_frequency, availability_mode, available_since_date, last_two_week_confirmed_at, created_by_user_id)
-       VALUES (?, ?, ?, ?, ?, ?, 'AVAILABLE', CURDATE(), NOW(), ?)`,
-      [officeLocationId, roomId, providerId, weekday, hour, assignedFrequency, createdByUserId]
-    );
+    let result;
+    try {
+      [result] = await pool.execute(
+        `INSERT INTO office_standing_assignments
+          (office_location_id, room_id, provider_id, weekday, hour, assigned_frequency, recurrence_group_id, availability_mode, available_since_date, last_two_week_confirmed_at, created_by_user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'AVAILABLE', CURDATE(), NOW(), ?)`,
+        [officeLocationId, roomId, providerId, weekday, hour, assignedFrequency, recurrenceGroupId, createdByUserId]
+      );
+    } catch (e) {
+      // Backward compatible with environments before migration 382.
+      if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+      [result] = await pool.execute(
+        `INSERT INTO office_standing_assignments
+          (office_location_id, room_id, provider_id, weekday, hour, assigned_frequency, availability_mode, available_since_date, last_two_week_confirmed_at, created_by_user_id)
+         VALUES (?, ?, ?, ?, ?, ?, 'AVAILABLE', CURDATE(), NOW(), ?)`,
+        [officeLocationId, roomId, providerId, weekday, hour, assignedFrequency, createdByUserId]
+      );
+    }
     return this.findById(result.insertId);
   }
 
@@ -56,11 +69,13 @@ class OfficeStandingAssignment {
 
   static async update(id, updates = {}) {
     const allowed = [
+      'assigned_frequency',
       'availability_mode',
       'temporary_until_date',
       'available_since_date',
       'last_two_week_confirmed_at',
       'last_six_week_checked_at',
+      'recurrence_group_id',
       'is_active'
     ];
     const fields = [];

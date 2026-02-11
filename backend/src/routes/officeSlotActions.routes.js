@@ -2,11 +2,13 @@ import express from 'express';
 import { authenticate } from '../middleware/auth.middleware.js';
 import {
   setBookingPlan,
+  setAssignmentRecurrence,
   keepAvailable,
   setTemporary,
   forfeitAssignment,
   staffBookEvent,
   setEventBookingPlan,
+  setEventRecurrence,
   setEventVirtualIntakeAvailability,
   forfeitEvent,
   cancelEvent,
@@ -18,7 +20,9 @@ const router = express.Router();
 router.use(authenticate);
 
 router.post('/:officeId/assignments/:assignmentId/booking-plan', setBookingPlan);
+router.post('/:officeId/assignments/:assignmentId/recurrence', setAssignmentRecurrence);
 router.post('/:officeId/events/:eventId/booking-plan', setEventBookingPlan);
+router.post('/:officeId/events/:eventId/recurrence', setEventRecurrence);
 router.post('/:officeId/assignments/:assignmentId/keep-available', keepAvailable);
 router.post('/:officeId/assignments/:assignmentId/temporary', setTemporary);
 router.post('/:officeId/assignments/:assignmentId/forfeit', forfeitAssignment);

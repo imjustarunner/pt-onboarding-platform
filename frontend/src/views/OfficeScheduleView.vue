@@ -18,6 +18,7 @@
     <div v-if="!officeId" class="muted">Select a building above to view the schedule.</div>
     <div v-else-if="error" class="error-box">{{ error }}</div>
     <div v-else-if="loading" class="loading">Loading…</div>
+    <div v-if="successToast" class="success-toast">{{ successToast }}</div>
 
     <div v-else-if="grid" class="grid-wrap" data-tour="buildings-schedule-gridwrap">
       <div class="legend" data-tour="buildings-schedule-legend">
@@ -197,7 +198,18 @@
                 class="input"
                 :disabled="!modalSlot"
               />
-              <button class="btn btn-primary" @click="assignOpenSlot" :disabled="saving || !selectedProviderId || !modalSlot?.roomId">
+              <div v-if="assignRecurrenceFreq !== 'ONCE'" class="weekday-picker">
+                <label class="weekday-label">Days</label>
+                <label v-for="wd in weekdayOptions" :key="`wd-${wd.value}`" class="weekday-check">
+                  <input
+                    type="checkbox"
+                    :checked="assignWeekdays.includes(wd.value)"
+                    @change="toggleAssignWeekday(wd.value)"
+                  />
+                  <span>{{ wd.label }}</span>
+                </label>
+              </div>
+              <button class="btn btn-primary" @click="assignOpenSlot" :disabled="saving || !canAssignSubmit">
                 Assign
               </button>
             </div>
@@ -291,7 +303,6 @@
                 <option value="">Select…</option>
                 <option value="WEEKLY">Weekly</option>
                 <option value="BIWEEKLY">Biweekly</option>
-                <option value="MONTHLY">Monthly</option>
               </select>
               <label style="font-weight: 700;">Until</label>
               <input
@@ -333,8 +344,18 @@
             <div class="row">
               <select v-model="cancelScope" class="select" :disabled="saving || !modalSlot?.eventId">
                 <option value="occurrence">This occurrence only</option>
-                <option value="future" :disabled="!isRecurringSlot">This and all future recurring</option>
+                <option value="future_day" :disabled="!isRecurringSlot">This day only, future occurrences</option>
+                <option value="week" :disabled="!isRecurringSlot">This week only</option>
+                <option value="future_set" :disabled="!isRecurringSlot">This and all future recurring (entire set)</option>
+                <option value="until" :disabled="!isRecurringSlot">Pause until date (e.g., holiday break)</option>
               </select>
+              <input
+                v-if="cancelScope === 'until'"
+                v-model="cancelUntilDate"
+                type="date"
+                class="input"
+                :disabled="saving || !modalSlot?.eventId"
+              />
               <button class="btn btn-danger" @click="cancelEventAction" :disabled="saving || !modalSlot?.eventId">
                 Delete event
               </button>
@@ -351,7 +372,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../services/api';
 import { useAuthStore } from '../store/auth';
@@ -656,11 +677,14 @@ const nextRoom = () => {
 const showModal = ref(false);
 const modalSlot = ref(null);
 const saving = ref(false);
+const successToast = ref('');
+let successToastTimer = null;
 const bookFreq = ref('');
 const editRecurrenceFreq = ref('');
 const editRecurrenceUntil = ref('');
 const ackForfeit = ref(false);
 const cancelScope = ref('occurrence');
+const cancelUntilDate = ref('');
 const forfeitScope = ref('occurrence');
 
 const providers = ref([]);
@@ -669,12 +693,27 @@ const selectedProviderId = ref(0);
 const assignEndHour = ref(8);
 const assignRecurrenceFreq = ref('ONCE');
 const assignRecurringUntilDate = ref('');
+const assignWeekdays = ref([]);
+const weekdayOptions = [
+  { value: 0, label: 'Sun' },
+  { value: 1, label: 'Mon' },
+  { value: 2, label: 'Tue' },
+  { value: 3, label: 'Wed' },
+  { value: 4, label: 'Thu' },
+  { value: 5, label: 'Fri' },
+  { value: 6, label: 'Sat' }
+];
 const assignEndHourOptions = computed(() => {
   const start = Number(modalSlot.value?.hour ?? 0);
   const out = [];
   // Grid is 7..21 so end is max 22
   for (let h = start + 1; h <= 22; h++) out.push(h);
   return out;
+});
+const canAssignSubmit = computed(() => {
+  if (!selectedProviderId.value || !modalSlot.value?.roomId) return false;
+  if (assignRecurrenceFreq.value === 'ONCE') return true;
+  return Array.isArray(assignWeekdays.value) && assignWeekdays.value.length > 0;
 });
 const filteredProviders = computed(() => {
   const q = String(providerSearch.value || '').trim().toLowerCase();
@@ -702,13 +741,23 @@ const closeModal = () => {
   editRecurrenceFreq.value = '';
   ackForfeit.value = false;
   cancelScope.value = 'occurrence';
+  cancelUntilDate.value = '';
   forfeitScope.value = 'occurrence';
   providerSearch.value = '';
   selectedProviderId.value = 0;
   assignEndHour.value = 8;
   assignRecurrenceFreq.value = 'ONCE';
   assignRecurringUntilDate.value = '';
+  assignWeekdays.value = [];
   editRecurrenceUntil.value = '';
+};
+
+const setSuccessToast = (message) => {
+  successToast.value = String(message || '').trim();
+  if (successToastTimer) clearTimeout(successToastTimer);
+  successToastTimer = setTimeout(() => {
+    successToast.value = '';
+  }, 2600);
 };
 
 const onSlotClick = (roomId, date, hour) => {
@@ -719,11 +768,30 @@ const onSlotClick = (roomId, date, hour) => {
   editRecurrenceUntil.value = String(s?.bookingActiveUntilDate || addDaysYmd(String(s?.date || ''), 364) || '');
   showModal.value = true;
   cancelScope.value = 'occurrence';
+  cancelUntilDate.value = addDaysYmd(String(date || ''), 14);
   forfeitScope.value = 'occurrence';
   assignEndHour.value = Number(hour) + 1;
   assignRecurringUntilDate.value = addDaysYmd(String(date || ''), 364);
   assignRecurrenceFreq.value = 'ONCE';
+  const clickedWeekday = weekdayFromYmd(String(date || ''));
+  assignWeekdays.value = Number.isInteger(clickedWeekday) ? [clickedWeekday] : [];
   void loadProviders();
+};
+
+const weekdayFromYmd = (ymd) => {
+  const m = String(ymd || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  return d.getUTCDay();
+};
+
+const toggleAssignWeekday = (value) => {
+  const v = Number(value);
+  if (!Number.isInteger(v) || v < 0 || v > 6) return;
+  const set = new Set(assignWeekdays.value || []);
+  if (set.has(v)) set.delete(v);
+  else set.add(v);
+  assignWeekdays.value = Array.from(set.values()).sort((a, b) => a - b);
 };
 
 const canSelfManageModalSlot = computed(() => {
@@ -756,8 +824,10 @@ const assignOpenSlot = async () => {
       endHour: assignEndHour.value,
       assignedUserId: selectedProviderId.value,
       recurrenceFrequency: assignRecurrenceFreq.value,
-      recurringUntilDate: assignRecurrenceFreq.value === 'ONCE' ? null : assignRecurringUntilDate.value
+      recurringUntilDate: assignRecurrenceFreq.value === 'ONCE' ? null : assignRecurringUntilDate.value,
+      weekdays: assignRecurrenceFreq.value === 'ONCE' ? [] : assignWeekdays.value
     });
+    setSuccessToast('Slot assigned successfully.');
     await loadGrid();
     closeModal();
   } catch (e) {
@@ -786,6 +856,7 @@ const bookSlot = async () => {
     } else {
       return;
     }
+    setSuccessToast('Booking plan saved.');
     await loadGrid();
     closeModal();
   } catch (e) {
@@ -800,20 +871,19 @@ const saveRecurrence = async () => {
   try {
     saving.value = true;
     if (modalSlot.value?.standingAssignmentId) {
-      await api.post(`/office-slots/${officeId.value}/assignments/${modalSlot.value.standingAssignmentId}/booking-plan`, {
-        bookedFrequency: editRecurrenceFreq.value,
-        bookingStartDate: modalSlot.value.date,
+      await api.post(`/office-slots/${officeId.value}/assignments/${modalSlot.value.standingAssignmentId}/recurrence`, {
+        recurrenceFrequency: editRecurrenceFreq.value,
         recurringUntilDate: editRecurrenceUntil.value || addDaysYmd(modalSlot.value.date, 364)
       });
     } else if (modalSlot.value?.eventId) {
-      await api.post(`/office-slots/${officeId.value}/events/${modalSlot.value.eventId}/booking-plan`, {
-        bookedFrequency: editRecurrenceFreq.value,
-        bookingStartDate: modalSlot.value.date,
+      await api.post(`/office-slots/${officeId.value}/events/${modalSlot.value.eventId}/recurrence`, {
+        recurrenceFrequency: editRecurrenceFreq.value,
         recurringUntilDate: editRecurrenceUntil.value || addDaysYmd(modalSlot.value.date, 364)
       });
     } else {
       return;
     }
+    setSuccessToast('Recurrence saved.');
     await loadGrid();
     closeModal();
   } catch (e) {
@@ -830,6 +900,7 @@ const keepAvailable = async () => {
     await api.post(`/office-slots/${officeId.value}/assignments/${modalSlot.value.standingAssignmentId}/keep-available`, {
       acknowledged: true
     });
+    setSuccessToast('Assigned slot confirmed.');
     await loadGrid();
     closeModal();
   } catch (e) {
@@ -844,6 +915,7 @@ const setTemporary = async () => {
   try {
     saving.value = true;
     await api.post(`/office-slots/${officeId.value}/assignments/${modalSlot.value.standingAssignmentId}/temporary`, { weeks: 4 });
+    setSuccessToast('Temporary mode set for this assignment.');
     await loadGrid();
     closeModal();
   } catch (e) {
@@ -874,6 +946,7 @@ const forfeit = async () => {
     } else {
       return;
     }
+    setSuccessToast('Slot forfeited.');
     await loadGrid();
     closeModal();
   } catch (e) {
@@ -890,6 +963,7 @@ const staffBook = async (booked = true) => {
     await api.post(`/office-slots/${officeId.value}/events/${modalSlot.value.eventId}/book`, {
       booked
     });
+    setSuccessToast(booked ? 'Occurrence marked booked.' : 'Occurrence marked unbooked.');
     await loadGrid();
     closeModal();
   } catch (e) {
@@ -906,6 +980,7 @@ const enableVirtualIntake = async () => {
     await api.post(`/office-slots/${officeId.value}/events/${modalSlot.value.eventId}/virtual-intake`, {
       enabled: true
     });
+    setSuccessToast('Virtual intake enabled for this slot.');
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to enable virtual intake';
   } finally {
@@ -920,6 +995,7 @@ const disableVirtualIntake = async () => {
     await api.post(`/office-slots/${officeId.value}/events/${modalSlot.value.eventId}/virtual-intake`, {
       enabled: false
     });
+    setSuccessToast('Virtual intake disabled for this slot.');
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to disable virtual intake';
   } finally {
@@ -929,18 +1005,42 @@ const disableVirtualIntake = async () => {
 
 const cancelEventAction = async () => {
   if (!officeId.value || !modalSlot.value?.eventId) return;
-  const scope = cancelScope.value === 'future' && isRecurringSlot.value ? 'future' : 'occurrence';
+  const selected = String(cancelScope.value || 'occurrence');
+  let scope = 'occurrence';
+  let applyToSet = false;
+  if (selected === 'future_day') {
+    scope = 'future';
+    applyToSet = false;
+  } else if (selected === 'week') {
+    scope = 'week';
+    applyToSet = true;
+  } else if (selected === 'future_set') {
+    scope = 'future';
+    applyToSet = true;
+  } else if (selected === 'until') {
+    scope = 'until';
+    applyToSet = true;
+  }
   const prompt =
-    scope === 'future'
-      ? 'Delete this occurrence and all future recurring occurrences for this slot?'
-      : 'Delete this occurrence from schedule?';
+    selected === 'future_set'
+      ? 'Cancel this recurring set from today forward?'
+      : selected === 'future_day'
+        ? 'Cancel this day of week from today forward (leave other days in the set)?'
+        : selected === 'week'
+          ? 'Cancel this recurring set for this week only?'
+          : selected === 'until'
+            ? `Cancel this recurring set until ${cancelUntilDate.value || 'the selected date'}?`
+            : 'Delete this occurrence from schedule?';
   const ok = window.confirm(prompt);
   if (!ok) return;
   try {
     saving.value = true;
     await api.post(`/office-slots/${officeId.value}/events/${modalSlot.value.eventId}/cancel`, {
-      scope
+      scope,
+      applyToSet,
+      untilDate: selected === 'until' ? cancelUntilDate.value : null
     });
+    setSuccessToast('Schedule update saved.');
     await loadGrid();
     closeModal();
   } catch (e) {
@@ -956,6 +1056,9 @@ watch(() => officeId.value, async () => {
 }, { immediate: true });
 
 onMounted(loadGrid);
+onBeforeUnmount(() => {
+  if (successToastTimer) clearTimeout(successToastTimer);
+});
 </script>
 
 <style scoped>
@@ -1012,6 +1115,20 @@ input[type='date'] {
   color: #7f1d1d;
 }
 .loading { color: var(--sched-text-muted); }
+.success-toast {
+  position: fixed;
+  top: 16px;
+  right: 18px;
+  z-index: 120;
+  padding: 10px 14px;
+  border-radius: 10px;
+  color: #14532d;
+  background: rgba(220, 252, 231, 0.95);
+  border: 1px solid rgba(34, 197, 94, 0.42);
+  box-shadow: 0 10px 20px rgba(21, 128, 61, 0.16);
+  font-weight: 700;
+  font-size: 13px;
+}
 .legend {
   display: flex;
   gap: 10px;
@@ -1251,6 +1368,29 @@ input[type='date'] {
   margin-top: 10px;
 }
 .section-title { font-weight: 800; margin-bottom: 8px; }
+.weekday-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 6px 8px;
+  border: 1px solid var(--sched-border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.6);
+}
+.weekday-label {
+  font-size: 12px;
+  color: var(--sched-text-muted);
+  font-weight: 700;
+  margin-right: 4px;
+}
+.weekday-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--sched-text-muted);
+}
 .recurrence-summary {
   margin-bottom: 8px;
   padding: 8px 10px;
