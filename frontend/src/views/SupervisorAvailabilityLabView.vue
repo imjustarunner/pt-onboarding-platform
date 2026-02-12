@@ -72,17 +72,12 @@ import { useAgencyStore } from '../store/agency';
 import api from '../services/api';
 
 const CARD_SLOT_PREVIEW_LIMIT = 6;
-const FETCH_CONCURRENCY = 4;
 
 const agencyStore = useAgencyStore();
 const loading = ref(false);
 const error = ref('');
 const agencies = ref([]);
-const providers = ref([]);
 const cards = ref([]);
-const providerWeekErrors = ref([]);
-const publicFinderInfoByAgencyId = ref({});
-let loadCardsRequestSeq = 0;
 const selectedAgencyId = ref(null);
 const weekStart = ref(getWeekStartYmd(new Date()));
 const search = ref('');
@@ -135,20 +130,6 @@ function slotLocation(slot) {
   return office || room || '';
 }
 
-function normalizeSlots(data) {
-  const inPerson = (Array.isArray(data?.inPersonSlots) ? data.inPersonSlots : []).map((s) => ({
-    ...s,
-    modality: 'In-person intake',
-    modalityClass: 'modality-office'
-  }));
-  const virtual = (Array.isArray(data?.virtualSlots) ? data.virtualSlots : []).map((s) => ({
-    ...s,
-    modality: 'Virtual intake',
-    modalityClass: 'modality-virtual'
-  }));
-  return [...inPerson, ...virtual].sort((a, b) => String(a.startAt || '').localeCompare(String(b.startAt || '')));
-}
-
 function mapDisplaySlots(providerId, slots) {
   return slots.slice(0, CARD_SLOT_PREVIEW_LIMIT).map((slot, idx) => {
     const start = slot.startAt || slot.start_at;
@@ -163,34 +144,6 @@ function mapDisplaySlots(providerId, slots) {
       location: slotLocation(slot)
     };
   });
-}
-
-async function fetchProviderWeek(providerId, requestedWeekStart) {
-  try {
-    const { data } = await api.get(`/availability/providers/${providerId}/week`, {
-      params: {
-        agencyId: selectedAgencyId.value,
-        weekStart: requestedWeekStart,
-        includeGoogleBusy: true,
-        intakeOnly: true,
-        intakeLab: true
-      }
-    });
-    return {
-      weekStart: requestedWeekStart,
-      slots: normalizeSlots(data)
-    };
-  } catch (e) {
-    providerWeekErrors.value.push({
-      providerId: Number(providerId),
-      weekStart: requestedWeekStart,
-      message: e?.response?.data?.error?.message || e?.message || 'Failed to load provider week'
-    });
-    return {
-      weekStart: requestedWeekStart,
-      slots: []
-    };
-  }
 }
 
 function buildCardFromSlots(provider, slots) {
@@ -209,57 +162,6 @@ function buildCardFromSlots(provider, slots) {
   };
 }
 
-function normalizePublicProgramSlots(slots, modalityClass) {
-  return (Array.isArray(slots) ? slots : []).map((s) => ({
-    ...s,
-    modalityClass,
-    modality: modalityClass === 'modality-virtual' ? 'Virtual intake' : 'In-person intake'
-  }));
-}
-
-function mergePublicProviderCards(inPersonProviders, virtualProviders) {
-  const map = new Map();
-  const put = (provider, modalityClass) => {
-    const id = Number(provider?.providerId || 0);
-    if (!id) return;
-    const existing = map.get(id) || {
-      id,
-      first_name: String(provider?.firstName || '').trim(),
-      last_name: String(provider?.lastName || '').trim()
-    };
-    const availability = provider?.availability || {};
-    const progSlots = normalizePublicProgramSlots(availability?.slots, modalityClass);
-    existing._slots = [...(existing._slots || []), ...progSlots];
-    map.set(id, existing);
-  };
-  (inPersonProviders || []).forEach((p) => put(p, 'modality-office'));
-  (virtualProviders || []).forEach((p) => put(p, 'modality-virtual'));
-
-  const out = [];
-  for (const provider of map.values()) {
-    const slots = (provider._slots || []).sort((a, b) => String(a.startAt || '').localeCompare(String(b.startAt || '')));
-    const card = buildCardFromSlots(provider, slots);
-    if (card) out.push(card);
-  }
-  return out.sort((a, b) => String(a.providerName || '').localeCompare(String(b.providerName || '')));
-}
-
-async function runWithConcurrency(items, limit, worker) {
-  const results = [];
-  const queue = [...items];
-  const runners = Array.from({ length: Math.max(1, Number(limit || 1)) }).map(async () => {
-    while (queue.length > 0) {
-      const item = queue.shift();
-      if (!item) break;
-      // eslint-disable-next-line no-await-in-loop
-      const out = await worker(item);
-      if (out) results.push(out);
-    }
-  });
-  await Promise.all(runners);
-  return results;
-}
-
 async function loadAgencies() {
   await agencyStore.fetchUserAgencies();
   agencies.value = Array.isArray(agencyStore.userAgencies) ? agencyStore.userAgencies : [];
@@ -268,94 +170,38 @@ async function loadAgencies() {
   }
 }
 
-async function loadProviders() {
-  if (!selectedAgencyId.value) {
-    providers.value = [];
-    return;
-  }
-  const { data } = await api.get('/availability/admin/providers', {
-    params: { agencyId: selectedAgencyId.value, scope: 'intake', intakeLab: true }
-  });
-  providers.value = Array.isArray(data) ? data : [];
-}
-
-async function getPublicFinderInfoForAgency(agencyId) {
-  const aid = Number(agencyId || 0);
-  if (!aid) return { key: null, enabled: false };
-  const existing = publicFinderInfoByAgencyId.value?.[aid] || null;
-  if (existing && Object.prototype.hasOwnProperty.call(existing, 'key')) {
-    return {
-      key: String(existing.key || '').trim() || null,
-      enabled: !!existing.enabled
-    };
-  }
-  const { data } = await api.get('/availability/admin/public-provider-link', {
-    params: { agencyId: aid }
-  });
-  const key = String(data?.publicAvailabilityAccessKey || '').trim();
-  const enabled = !!data?.publicAvailabilityEnabled;
-  publicFinderInfoByAgencyId.value = {
-    ...(publicFinderInfoByAgencyId.value || {}),
-    [aid]: { key: key || null, enabled }
-  };
-  return { key: key || null, enabled };
-}
-
-async function loadCardsLegacyThisWeekOnly() {
-  const built = await runWithConcurrency(providers.value, FETCH_CONCURRENCY, async (provider) => {
-    const thisWeek = await fetchProviderWeek(provider.id, weekStart.value);
-    return buildCardFromSlots(provider, thisWeek?.slots || []);
-  });
-  cards.value = built
-    .filter(Boolean)
-    .sort((a, b) => String(a.providerName || '').localeCompare(String(b.providerName || '')));
-}
-
 async function loadCards() {
   if (!selectedAgencyId.value) return;
-  const requestSeq = ++loadCardsRequestSeq;
   loading.value = true;
   error.value = '';
-  providerWeekErrors.value = [];
   try {
     const aid = Number(selectedAgencyId.value || 0);
-    const publicInfo = await getPublicFinderInfoForAgency(aid);
-    const key = String(publicInfo?.key || '').trim();
-    const enabled = !!publicInfo?.enabled;
-    if (enabled && key) {
-      const [inPersonResp, virtualResp] = await Promise.all([
-        api.get(`/public/provider-availability/${aid}/providers`, {
-          params: { key, weekStart: weekStart.value, bookingMode: 'NEW_CLIENT', programType: 'IN_PERSON' },
-          skipAuthRedirect: true
-        }),
-        api.get(`/public/provider-availability/${aid}/providers`, {
-          params: { key, weekStart: weekStart.value, bookingMode: 'NEW_CLIENT', programType: 'VIRTUAL' },
-          skipAuthRedirect: true
-        })
-      ]);
-      if (requestSeq !== loadCardsRequestSeq) return;
-      const inPersonProviders = Array.isArray(inPersonResp?.data?.providers) ? inPersonResp.data.providers : [];
-      const virtualProviders = Array.isArray(virtualResp?.data?.providers) ? virtualResp.data.providers : [];
-      cards.value = mergePublicProviderCards(inPersonProviders, virtualProviders);
-    } else {
-      await loadCardsLegacyThisWeekOnly();
-    }
-
-    if (!cards.value.length && providerWeekErrors.value.length) {
-      error.value = 'No provider availability could be loaded for this week. Please refresh.';
-    }
+    const { data } = await api.get('/availability/admin/intake-cards', {
+      params: { agencyId: aid, weekStart: weekStart.value }
+    });
+    const providers = Array.isArray(data?.providers) ? data.providers : [];
+    cards.value = providers
+      .map((p) => {
+        const merged = [
+          ...(Array.isArray(p?.inPersonSlots) ? p.inPersonSlots.map((s) => ({ ...s, modality: 'In-person intake', modalityClass: 'modality-office' })) : []),
+          ...(Array.isArray(p?.virtualSlots) ? p.virtualSlots.map((s) => ({ ...s, modality: 'Virtual intake', modalityClass: 'modality-virtual' })) : [])
+        ].sort((a, b) => String(a.startAt || '').localeCompare(String(b.startAt || '')));
+        return buildCardFromSlots(
+          { id: Number(p.providerId), first_name: p.firstName, last_name: p.lastName },
+          merged
+        );
+      })
+      .filter(Boolean);
   } catch (e) {
-    if (requestSeq !== loadCardsRequestSeq) return;
     console.error('Failed to load provider availability cards', e);
     error.value = e?.response?.data?.error?.message || 'Failed to load provider availability.';
     cards.value = [];
   } finally {
-    if (requestSeq === loadCardsRequestSeq) loading.value = false;
+    loading.value = false;
   }
 }
 
 async function onAgencyChange() {
-  await loadProviders();
   await loadCards();
 }
 
@@ -364,7 +210,6 @@ async function reloadAll() {
   error.value = '';
   try {
     await loadAgencies();
-    await loadProviders();
     await loadCards();
   } finally {
     loading.value = false;

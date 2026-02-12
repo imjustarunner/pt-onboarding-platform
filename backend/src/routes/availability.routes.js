@@ -19,6 +19,7 @@ import {
   deactivateAvailableSkill,
   setProviderSkills,
   listProvidersForAvailability,
+  listIntakeAvailabilityCards,
   providerAvailabilityDashboard,
   searchAvailability,
   getAdminPendingCounts,
@@ -54,6 +55,7 @@ router.post('/admin/skills', upsertAvailableSkill);
 router.post('/admin/skills/:skillId/deactivate', deactivateAvailableSkill);
 router.put('/admin/providers/:providerId/skills', setProviderSkills);
 router.get('/admin/providers', listProvidersForAvailability);
+router.get('/admin/intake-cards', listIntakeAvailabilityCards);
 
 router.get('/admin/pending-counts', getAdminPendingCounts);
 router.get('/admin/skill-builders', listSkillBuildersAvailability);

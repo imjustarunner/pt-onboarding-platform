@@ -1738,6 +1738,82 @@ export const listProvidersForAvailability = async (req, res, next) => {
   }
 };
 
+export const listIntakeAvailabilityCards = async (req, res, next) => {
+  try {
+    const agencyId = await resolveAgencyId(req);
+    if (!(await requireAgencyMembership(req, res, agencyId))) return;
+    const role = String(req.user?.role || '').toLowerCase();
+    const isSupervisor = role === 'supervisor';
+    if (!canManageAvailability(role) && !isSupervisor) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const weekStartYmd = String(req.query.weekStart || new Date().toISOString().slice(0, 10)).slice(0, 10);
+    const [providerRows] = await pool.execute(
+      `SELECT DISTINCT u.id, u.first_name, u.last_name, u.role
+       FROM users u
+       JOIN user_agencies ua ON ua.user_id = u.id
+       WHERE ua.agency_id = ?
+         AND (u.is_active IS NULL OR u.is_active = TRUE)
+         AND (u.is_archived IS NULL OR u.is_archived = FALSE)
+         AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE'))
+         AND (
+           u.role IN ('provider', 'supervisor', 'clinical_practice_assistant', 'admin', 'super_admin', 'staff', 'support')
+           OR u.has_provider_access = TRUE
+         )
+         AND LOWER(COALESCE(u.role, '')) NOT IN ('guardian', 'school_support')
+       ORDER BY u.last_name ASC, u.first_name ASC`,
+      [agencyId]
+    );
+    const providers = Array.isArray(providerRows) ? providerRows : [];
+
+    const concurrency = 8;
+    const queue = [...providers];
+    const out = [];
+    const workers = Array.from({ length: concurrency }).map(async () => {
+      while (queue.length) {
+        const provider = queue.shift();
+        if (!provider) break;
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          const avail = await ProviderAvailabilityService.computeWeekAvailability({
+            agencyId,
+            providerId: Number(provider.id),
+            weekStartYmd,
+            includeGoogleBusy: true,
+            externalCalendarIds: [],
+            slotMinutes: 60,
+            intakeOnly: true
+          });
+          const inPersonSlots = Array.isArray(avail?.inPersonSlots) ? avail.inPersonSlots : [];
+          const virtualSlots = Array.isArray(avail?.virtualSlots) ? avail.virtualSlots : [];
+          if (!inPersonSlots.length && !virtualSlots.length) continue;
+          out.push({
+            providerId: Number(provider.id),
+            firstName: String(provider.first_name || '').trim(),
+            lastName: String(provider.last_name || '').trim(),
+            inPersonSlots,
+            virtualSlots
+          });
+        } catch {
+          // skip provider-level failures for this aggregate response
+        }
+      }
+    });
+    await Promise.all(workers);
+
+    out.sort((a, b) => `${a.lastName}, ${a.firstName}`.localeCompare(`${b.lastName}, ${b.firstName}`));
+    res.json({
+      ok: true,
+      agencyId: Number(agencyId),
+      weekStart: weekStartYmd,
+      providers: out
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const providerAvailabilityDashboard = async (req, res, next) => {
   try {
     const agencyId = await resolveAgencyId(req);
