@@ -41,27 +41,41 @@
 
     <section v-else class="cards">
       <article v-for="card in filteredCards" :key="card.providerId" class="provider-card">
-        <header class="provider-head">
-          <div>
-            <h2>{{ card.providerName }}</h2>
-            <p class="meta-line">{{ card.availabilityLabel }}</p>
-            <p class="meta-line">{{ card.bookedThroughLabel }}</p>
-          </div>
-          <button class="btn btn-success btn-sm" type="button" disabled title="Booking CTA will be wired next">
-            Book intake
-          </button>
-        </header>
-
-        <div class="slot-list">
-          <div v-for="slot in card.displaySlots" :key="slot.key" class="slot-chip" :class="slot.modalityClass">
-            <div class="slot-line">
-              <span class="slot-time">{{ slot.when }}</span>
-              <span class="slot-badge">Recurring {{ slot.frequency }}</span>
+        <div class="provider-layout">
+          <div class="provider-identity">
+            <div class="avatar-fallback">{{ initialsFor(card.providerName) }}</div>
+            <div class="identity-copy">
+              <h2>{{ card.providerName }}</h2>
+              <p class="meta-line">{{ card.availabilityLabel }}</p>
+              <p class="meta-line">{{ card.bookedThroughLabel }}</p>
+              <p v-if="card.locationSummary" class="meta-line location-line">{{ card.locationSummary }}</p>
             </div>
-            <div class="slot-meta">{{ slot.modality }}</div>
-            <div v-if="slot.location" class="slot-loc">{{ slot.location }}</div>
           </div>
+
+          <div class="week-columns">
+            <div v-for="day in card.dayColumns" :key="`${card.providerId}-${day.key}`" class="day-col">
+              <div class="day-head">{{ day.label }}</div>
+              <div v-if="day.slots.length" class="day-slots">
+                <div
+                  v-for="slot in day.slots"
+                  :key="slot.key"
+                  class="time-pill"
+                  :class="slot.modalityClass"
+                  :title="slot.tooltip"
+                >
+                  <span class="pill-time">{{ slot.timeRange }}</span>
+                  <span class="pill-tag">{{ slot.shortModality }}</span>
+                </div>
+              </div>
+              <div v-else class="day-empty">-</div>
+            </div>
+          </div>
+
+          <button class="book-rail" type="button" disabled title="Booking CTA will be wired next">
+            Book
+          </button>
         </div>
+        <div class="card-foot">Click book to see the exact date</div>
       </article>
     </section>
   </div>
@@ -73,7 +87,17 @@ import { useAgencyStore } from '../store/agency';
 import { useAuthStore } from '../store/auth';
 import api from '../services/api';
 
-const CARD_SLOT_PREVIEW_LIMIT = 6;
+const CARD_SLOT_PREVIEW_LIMIT_PER_DAY = 6;
+const WEEKDAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
+const WEEKDAY_LABELS = {
+  0: 'Sun',
+  1: 'Mon',
+  2: 'Tue',
+  3: 'Wed',
+  4: 'Thu',
+  5: 'Fri',
+  6: 'Sat'
+};
 
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
@@ -109,6 +133,11 @@ function providerName(p) {
   return `${p.last_name || ''}, ${p.first_name || ''}`.replace(/^,\s*/, '').trim();
 }
 
+function initialsFor(name) {
+  const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+  return parts.slice(0, 2).map((p) => (p[0] || '').toUpperCase()).join('') || 'PR';
+}
+
 function toDate(dateLike) {
   const d = new Date(dateLike);
   return Number.isNaN(d.getTime()) ? null : d;
@@ -126,6 +155,18 @@ function toDateLabel(dateLike) {
   return d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+function timeOnlyLabel(dateLike) {
+  const d = toDate(dateLike);
+  if (!d) return '';
+  return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }).toLowerCase();
+}
+
+function weekdayKey(dateLike) {
+  const d = toDate(dateLike);
+  if (!d) return null;
+  return d.getDay();
+}
+
 function slotLocation(slot) {
   const office = String(slot?.buildingName || slot?.officeName || slot?.office_name || '').trim();
   const room = String(slot?.roomLabel || slot?.room_label || slot?.roomName || '').trim();
@@ -134,34 +175,73 @@ function slotLocation(slot) {
 }
 
 function mapDisplaySlots(providerId, slots) {
-  return slots.slice(0, CARD_SLOT_PREVIEW_LIMIT).map((slot, idx) => {
+  return (Array.isArray(slots) ? slots : []).map((slot, idx) => {
     const start = slot.startAt || slot.start_at;
     const end = slot.endAt || slot.end_at;
     const frequency = String(slot.frequency || 'WEEKLY').toUpperCase() === 'WEEKLY' ? 'weekly' : String(slot.frequency || '').toLowerCase();
+    const startDay = weekdayKey(start);
+    const endLabel = timeOnlyLabel(end);
+    const startLabel = timeOnlyLabel(start);
+    const location = slotLocation(slot);
+    const modality = String(slot.modality || '').trim();
     return {
       key: `${providerId}-${idx}-${String(start || '')}-${String(end || '')}`,
-      when: `${toDateTimeLabel(start)} - ${toDateTimeLabel(end).split(', ').slice(-1)[0] || ''}`,
-      modality: slot.modality,
+      modality,
       modalityClass: slot.modalityClass,
       frequency,
-      location: slotLocation(slot)
+      location,
+      startAt: start,
+      dayKey: startDay,
+      timeRange: `${startLabel}${endLabel ? ` - ${endLabel}` : ''}`,
+      shortModality: modality.toLowerCase().includes('virtual') ? 'VI' : 'IP',
+      tooltip: `${toDateTimeLabel(start)}${endLabel ? ` - ${endLabel}` : ''}${location ? ` • ${location}` : ''}`
+    };
+  });
+}
+
+function buildDayColumns(displaySlots) {
+  const byDay = new Map();
+  for (const day of WEEKDAY_ORDER) byDay.set(day, []);
+  for (const slot of Array.isArray(displaySlots) ? displaySlots : []) {
+    if (!Number.isInteger(slot.dayKey)) continue;
+    if (!byDay.has(slot.dayKey)) byDay.set(slot.dayKey, []);
+    byDay.get(slot.dayKey).push(slot);
+  }
+  return WEEKDAY_ORDER.map((day) => {
+    const slots = (byDay.get(day) || [])
+      .sort((a, b) => String(a.startAt || '').localeCompare(String(b.startAt || '')))
+      .slice(0, CARD_SLOT_PREVIEW_LIMIT_PER_DAY);
+    return {
+      key: day,
+      label: WEEKDAY_LABELS[day],
+      slots
     };
   });
 }
 
 function buildCardFromSlots(provider, slots) {
   if (!slots?.length) return null;
-  const firstSlot = slots[0];
+  const sortedSlots = [...slots].sort((a, b) => String(a.startAt || a.start_at || '').localeCompare(String(b.startAt || b.start_at || '')));
+  const firstSlot = sortedSlots[0];
   const firstStart = firstSlot.startAt || firstSlot.start_at;
   const firstDate = toDate(firstStart);
   const bookedThroughDate = firstDate ? addDaysYmd(firstDate.toISOString().slice(0, 10), -1) : null;
+  const displaySlots = mapDisplaySlots(provider.id, sortedSlots);
+  const locationSummary = Array.from(
+    new Set(
+      displaySlots
+        .map((s) => String(s.location || '').trim())
+        .filter(Boolean)
+    )
+  ).slice(0, 2).join(' • ');
 
   return {
     providerId: Number(provider.id),
     providerName: providerName(provider),
-    availabilityLabel: `Available this week (${slots.length} intake slot${slots.length === 1 ? '' : 's'})`,
+    availabilityLabel: `Available this week (${sortedSlots.length} intake slot${sortedSlots.length === 1 ? '' : 's'})`,
     bookedThroughLabel: bookedThroughDate ? `Booked through: ${toDateLabel(bookedThroughDate)}` : 'Booked through: currently open this week',
-    displaySlots: mapDisplaySlots(provider.id, slots)
+    locationSummary,
+    dayColumns: buildDayColumns(displaySlots)
   };
 }
 
@@ -257,11 +337,13 @@ onMounted(async () => {
 
 <style scoped>
 .provider-find-page {
-  max-width: 1200px;
+  max-width: 1280px;
   margin: 0 auto;
-  padding: 18px;
+  padding: 20px;
   display: grid;
-  gap: 14px;
+  gap: 16px;
+  background: linear-gradient(180deg, #f2fbf7 0%, #eef4ff 100%);
+  border-radius: 18px;
 }
 
 .page-head {
@@ -281,12 +363,13 @@ onMounted(async () => {
 
 .filters {
   display: grid;
-  grid-template-columns: repeat(4, minmax(160px, 1fr));
-  gap: 10px;
-  padding: 12px;
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
-  background: #fff;
+  grid-template-columns: repeat(4, minmax(180px, 1fr));
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #dbe7f5;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(4px);
 }
 
 .field {
@@ -302,9 +385,9 @@ onMounted(async () => {
 
 .field input,
 .field select {
-  border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  padding: 8px 10px;
+  border: 1px solid #cfe0f2;
+  border-radius: 10px;
+  padding: 9px 11px;
   background: #fff;
 }
 
@@ -324,24 +407,171 @@ onMounted(async () => {
 
 .loading,
 .empty {
-  background: #f8fafc;
-  border: 1px dashed #cbd5e1;
+  background: rgba(255, 255, 255, 0.8);
+  border: 1px dashed #c6d6ea;
   border-radius: 12px;
   padding: 18px;
 }
 
 .cards {
   display: grid;
-  gap: 12px;
+  gap: 14px;
 }
 
 .provider-card {
-  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
-  border: 1px solid #dbeafe;
-  border-radius: 14px;
-  padding: 12px;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid #d5e2f2;
+  border-radius: 18px;
+  padding: 14px;
   display: grid;
-  gap: 10px;
+  gap: 8px;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+}
+
+.provider-layout {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr) 84px;
+  align-items: stretch;
+  gap: 14px;
+}
+
+.provider-identity {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.avatar-fallback {
+  width: 78px;
+  height: 78px;
+  border-radius: 16px;
+  background: linear-gradient(160deg, #3fd18f 0%, #66c2ff 100%);
+  color: #fff;
+  font-weight: 800;
+  font-size: 26px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+}
+
+.identity-copy {
+  min-width: 0;
+}
+
+.identity-copy h2 {
+  margin: 0 0 5px;
+  font-size: 34px;
+  line-height: 1.05;
+  color: #0f172a;
+}
+
+.meta-line {
+  margin: 2px 0;
+  font-size: 13px;
+  color: #334155;
+}
+
+.location-line {
+  font-weight: 600;
+  color: #0f766e;
+}
+
+.week-columns {
+  border: 1px solid #d6e0ed;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+  padding: 8px;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.day-col {
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.86);
+  border: 1px solid #e2e8f0;
+  min-height: 130px;
+  padding: 7px 6px;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 7px;
+}
+
+.day-head {
+  text-align: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: #475569;
+  text-transform: lowercase;
+}
+
+.day-slots {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.day-empty {
+  display: grid;
+  place-items: center;
+  color: #94a3b8;
+  font-size: 18px;
+}
+
+.time-pill {
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 4px 8px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+}
+
+.pill-time {
+  font-size: 12px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.pill-tag {
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 1px 6px;
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(15, 23, 42, 0.12);
+}
+
+.modality-office {
+  background: #dbf6e7;
+  border-color: #7bdca8;
+}
+
+.modality-virtual {
+  background: #ebe8ff;
+  border-color: #c6b8ff;
+}
+
+.book-rail {
+  border: 0;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #28cf83 0%, #23b86f 100%);
+  color: #fff;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  transform: rotate(180deg);
+  cursor: not-allowed;
+  opacity: 0.82;
+}
+
+.card-foot {
+  text-align: center;
+  color: #64748b;
+  font-size: 12px;
 }
 
 .provider-head {
@@ -356,60 +586,6 @@ onMounted(async () => {
   font-size: 18px;
 }
 
-.meta-line {
-  margin: 2px 0;
-  font-size: 13px;
-  color: #334155;
-}
-
-.slot-list {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.slot-chip {
-  border: 1px solid transparent;
-  border-radius: 10px;
-  padding: 8px 10px;
-}
-
-.slot-line {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-}
-
-.slot-time {
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.slot-badge {
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 999px;
-  border: 1px solid rgba(15, 23, 42, 0.18);
-  background: rgba(255, 255, 255, 0.6);
-}
-
-.slot-meta,
-.slot-loc {
-  margin-top: 2px;
-  font-size: 12px;
-}
-
-.modality-office {
-  background: #dcfce7;
-  border-color: #86efac;
-}
-
-.modality-virtual {
-  background: #ede9fe;
-  border-color: #c4b5fd;
-}
-
 @media (max-width: 960px) {
   .filters {
     grid-template-columns: 1fr 1fr;
@@ -418,9 +594,20 @@ onMounted(async () => {
   .field-wide {
     grid-column: span 2;
   }
-
-  .slot-list {
+  .provider-layout {
     grid-template-columns: 1fr;
+  }
+  .provider-identity {
+    align-items: flex-start;
+  }
+  .week-columns {
+    overflow-x: auto;
+  }
+  .book-rail {
+    writing-mode: horizontal-tb;
+    transform: none;
+    min-height: 40px;
+    opacity: 1;
   }
 }
 
@@ -431,6 +618,12 @@ onMounted(async () => {
 
   .field-wide {
     grid-column: span 1;
+  }
+  .identity-copy h2 {
+    font-size: 28px;
+  }
+  .week-columns {
+    grid-template-columns: repeat(3, minmax(120px, 1fr));
   }
 }
 </style>

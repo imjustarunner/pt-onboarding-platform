@@ -319,8 +319,17 @@ export class ProviderAvailabilityService {
              FROM provider_in_person_slot_availability ip
              WHERE ip.agency_id = ?
                AND ip.provider_id = ?
-               AND ip.start_at = e.start_at
-               AND ip.end_at = e.end_at
+               AND (
+                 ip.source_event_id = e.id
+                 OR (
+                   ip.start_at = e.start_at
+                   AND ip.end_at = e.end_at
+                   AND (
+                     ip.office_location_id IS NULL
+                     OR ip.office_location_id = e.office_location_id
+                   )
+                 )
+               )
                AND ip.is_active = TRUE
            ) AS in_person_intake_enabled,
            ol.timezone AS building_timezone,

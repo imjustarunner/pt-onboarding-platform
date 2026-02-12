@@ -1155,63 +1155,49 @@ export const superAdminPurgeFutureBookedSlot = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Event not found' } });
     }
     const startAt = mysqlDateTimeFromValue(ev.start_at);
-    if (!startAt) return res.status(400).json({ error: { message: 'Event has invalid start time' } });
+    const endAt = mysqlDateTimeFromValue(ev.end_at);
+    if (!startAt || !endAt) return res.status(400).json({ error: { message: 'Event has invalid start/end time' } });
     const wh = weekdayHourFromSqlDateTime(startAt);
-    if (!wh) return res.status(400).json({ error: { message: 'Unable to derive slot weekday/hour' } });
-    const providerId = Number(ev.assigned_provider_id || ev.booked_provider_id || 0) || null;
+    if (!wh) return res.status(400).json({ error: { message: 'Unable to derive slot time window' } });
     const roomId = Number(ev.room_id || 0) || null;
-    if (!providerId || !roomId) {
-      return res.status(400).json({ error: { message: 'Event is missing provider or room linkage' } });
+    if (!roomId) {
+      return res.status(400).json({ error: { message: 'Event is missing room linkage' } });
     }
 
-    const directStandingAssignmentId = Number(ev.standing_assignment_id || 0) || null;
+    // Superadmin purge mode: room + slot-time for one year, independent of provider linkage.
+    // This avoids recurrence/provider edge-cases and force-clears hung future rows.
     const [assignmentRows] = await pool.execute(
       `SELECT id
        FROM office_standing_assignments
        WHERE office_location_id = ?
          AND room_id = ?
-         AND provider_id = ?
-         AND weekday = ?
          AND hour = ?`,
-      [officeLocationId, roomId, providerId, wh.weekdayIndex, wh.hour]
+      [officeLocationId, roomId, wh.hour]
     );
     const targetAssignmentIdSet = new Set(
       (assignmentRows || []).map((r) => Number(r.id)).filter((n) => Number.isInteger(n) && n > 0)
     );
-    if (Number.isInteger(directStandingAssignmentId) && directStandingAssignmentId > 0) {
-      targetAssignmentIdSet.add(directStandingAssignmentId);
-    }
     const targetAssignmentIds = Array.from(targetAssignmentIdSet.values());
     if (targetAssignmentIds.length) {
       for (const sid of targetAssignmentIds) {
         // eslint-disable-next-line no-await-in-loop
         await OfficeBookingPlan.deactivateByAssignmentId(sid);
+        // eslint-disable-next-line no-await-in-loop
+        await OfficeStandingAssignment.update(sid, { is_active: false });
       }
     }
-
-    const where = [
-      'office_location_id = ?',
-      'room_id = ?',
-      'start_at >= ?',
-      "(UPPER(COALESCE(status,'')) = 'BOOKED' OR UPPER(COALESCE(slot_state,'')) = 'ASSIGNED_BOOKED')"
-    ];
-    const params = [officeLocationId, roomId, startAt];
-    const recurrenceOrProviderRoomFallback = [];
-    if (targetAssignmentIds.length) {
-      recurrenceOrProviderRoomFallback.push(`standing_assignment_id IN (${targetAssignmentIds.map(() => '?').join(',')})`);
-      params.push(...targetAssignmentIds);
-    }
-    recurrenceOrProviderRoomFallback.push(
-      '(COALESCE(assigned_provider_id, booked_provider_id) = ? AND room_id = ? AND DAYOFWEEK(start_at) = ? AND HOUR(start_at) = ?)'
-    );
-    params.push(providerId, roomId, wh.weekdayIndex + 1, wh.hour);
-    where.push(`(${recurrenceOrProviderRoomFallback.join(' OR ')})`);
 
     const [rows] = await pool.execute(
       `SELECT id
        FROM office_events
-       WHERE ${where.join(' AND ')}`,
-      params
+       WHERE office_location_id = ?
+         AND room_id = ?
+         AND start_at >= ?
+         AND start_at < DATE_ADD(?, INTERVAL 365 DAY)
+         AND TIME(start_at) = TIME(?)
+         AND TIME(end_at) = TIME(?)
+         AND (status IS NULL OR UPPER(status) <> 'CANCELLED')`,
+      [officeLocationId, roomId, startAt, startAt, startAt, endAt]
     );
     const eventIds = (rows || []).map((r) => Number(r.id)).filter((n) => Number.isInteger(n) && n > 0);
     if (eventIds.length) {
@@ -1230,15 +1216,28 @@ export const superAdminPurgeFutureBookedSlot = async (req, res, next) => {
       // eslint-disable-next-line no-await-in-loop
       await ProviderVirtualSlotAvailability.deactivateBySourceEventId(id);
     }
+    try {
+      if (eventIds.length) {
+        await pool.execute(
+          `UPDATE provider_in_person_slot_availability
+           SET is_active = FALSE,
+               updated_at = CURRENT_TIMESTAMP
+           WHERE source_event_id IN (${eventIds.map(() => '?').join(',')})`,
+          eventIds
+        );
+      }
+    } catch (e) {
+      if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+    }
     await cancelGoogleForOfficeEventIds(eventIds);
 
     return res.json({
       ok: true,
       purgedEventCount: eventIds.length,
       purgedEventIds: eventIds,
-      providerId,
       roomId,
-      weekday: wh.weekdayIndex,
+      startAt,
+      endAt,
       hour: wh.hour,
       targetedStandingAssignmentIds: targetAssignmentIds
     });
