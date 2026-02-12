@@ -214,7 +214,10 @@
             >
               <span class="initials">{{ slotInitials(room.id, d, h) }}</span>
               <span v-if="slotHasInPersonIntake(room.id, d, h)" class="ip-pill" title="In-person intake enabled">IP</span>
-              <span v-if="slotHasVirtualIntake(room.id, d, h)" class="vi-pill" title="Virtual intake enabled">V</span>
+              <span v-if="slotHasVirtualIntake(room.id, d, h)" class="vi-pill" title="Virtual intake enabled">VI</span>
+              <span v-if="slotIntakeLabel(room.id, d, h)" class="intake-pill">
+                {{ slotIntakeLabel(room.id, d, h) }}
+              </span>
             </div>
           </template>
         </div>
@@ -579,6 +582,14 @@ const slotHasVirtualIntake = (roomId, date, hour) => {
 const slotHasInPersonIntake = (roomId, date, hour) => {
   const s = getSlot(roomId, date, hour);
   return Boolean(s?.inPersonIntakeEnabled);
+};
+const slotIntakeLabel = (roomId, date, hour) => {
+  const hasIp = slotHasInPersonIntake(roomId, date, hour);
+  const hasVi = slotHasVirtualIntake(roomId, date, hour);
+  if (hasIp && hasVi) return 'INTAKE IP+VI';
+  if (hasIp) return 'INTAKE IP';
+  if (hasVi) return 'INTAKE VI';
+  return '';
 };
 const isOwnProviderSlot = (roomId, date, hour) => {
   const s = getSlot(roomId, date, hour);
@@ -1890,6 +1901,7 @@ input[type='date'] {
   line-height: 14px;
   font-weight: 900;
   text-align: center;
+  border: 1px solid rgba(5, 150, 105, 0.9);
   box-shadow: 0 1px 4px rgba(15, 23, 42, 0.2);
 }
 .ip-pill {
@@ -1907,6 +1919,24 @@ input[type='date'] {
   line-height: 14px;
   font-weight: 900;
   text-align: center;
+  border: 1px solid rgba(217, 119, 6, 0.9);
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.2);
+}
+.intake-pill {
+  position: absolute;
+  left: 50%;
+  bottom: 2px;
+  transform: translateX(-50%);
+  z-index: 2;
+  padding: 0 6px;
+  height: 12px;
+  border-radius: 999px;
+  background: rgba(17, 24, 39, 0.86);
+  color: #f9fafb;
+  font-size: 8px;
+  line-height: 12px;
+  font-weight: 900;
+  letter-spacing: 0.03em;
   box-shadow: 0 1px 4px rgba(15, 23, 42, 0.2);
 }
 
