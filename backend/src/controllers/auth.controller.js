@@ -61,7 +61,7 @@ const isDomainAllowedForOrg = ({ email, featureFlags }) => {
   if (!allowedDomains.length) return true;
   return !!domain && allowedDomains.includes(domain);
 };
-const isWorkspaceEligibleForSso = ({ user, identifier, featureFlags }) => {
+const isWorkspaceEligibleForSso = ({ user, identifier, featureFlags, identifierUsedToFindUser }) => {
   const normalizedIdentifier = String(identifier || '').trim().toLowerCase();
   const userRole = String(user?.role || '').toLowerCase();
   const ssoPolicyRequired = isSsoPolicyRequiredForRole({ featureFlags, userRole });
@@ -79,7 +79,10 @@ const isWorkspaceEligibleForSso = ({ user, identifier, featureFlags }) => {
   const primaryIds = new Set([
     String(user?.email || '').trim().toLowerCase(),
     String(user?.work_email || '').trim().toLowerCase(),
-    String(user?.username || '').trim().toLowerCase()
+    String(user?.username || '').trim().toLowerCase(),
+    // Include identifier used to find user (e.g. from user_login_emails / Login Email) so users
+    // with login email aliases get Google SSO when they enter their correct login email.
+    ...(identifierUsedToFindUser ? [String(identifierUsedToFindUser).trim().toLowerCase()] : [])
   ].filter(Boolean));
   return primaryIds.has(normalizedIdentifier);
 };
@@ -828,7 +831,7 @@ export const identifyLogin = async (req, res, next) => {
       try {
         const org = (await Agency.findBySlug(resolvedSlug)) || (await Agency.findByPortalUrl(resolvedSlug));
         const flags = parseFeatureFlags(org?.feature_flags ?? null);
-        if (isWorkspaceEligibleForSso({ user, identifier: normalizedUsername, featureFlags: flags })) {
+        if (isWorkspaceEligibleForSso({ user, identifier: normalizedUsername, featureFlags: flags, identifierUsedToFindUser: normalizedUsername })) {
           loginMethod = 'google';
           googleStartUrl = `/auth/google/start?orgSlug=${encodeURIComponent(resolvedSlug)}`;
         }
