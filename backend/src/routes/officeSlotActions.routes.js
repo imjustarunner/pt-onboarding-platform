@@ -13,6 +13,7 @@ import {
   setEventInPersonIntakeAvailability,
   forfeitEvent,
   cancelEvent,
+  deleteEventFromGoogleNow,
   cancelAssignment,
   staffAssignOpenSlot
 } from '../controllers/officeSlotActions.controller.js';
@@ -33,6 +34,7 @@ router.post('/:officeId/events/:eventId/virtual-intake', setEventVirtualIntakeAv
 router.post('/:officeId/events/:eventId/in-person-intake', setEventInPersonIntakeAvailability);
 router.post('/:officeId/events/:eventId/forfeit', forfeitEvent);
 router.post('/:officeId/events/:eventId/cancel', cancelEvent);
+router.post('/:officeId/events/:eventId/google-delete-now', deleteEventFromGoogleNow);
 router.post('/:officeId/assignments/:assignmentId/cancel', cancelAssignment);
 router.post('/:officeId/open-slots/assign', staffAssignOpenSlot);
 

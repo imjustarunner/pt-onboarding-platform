@@ -459,6 +459,82 @@ export class GoogleCalendarService {
       return { ok: false, reason: 'google_api_error', error: String(e?.message || e) };
     }
   }
+
+  static async cancelBookedOfficeEvent({ officeEventId }) {
+    const eid = parseInt(officeEventId, 10);
+    if (!eid) return { ok: false, reason: 'invalid_office_event_id' };
+
+    const [rows] = await pool.execute(
+      `SELECT
+         id,
+         booked_provider_id,
+         google_provider_event_id,
+         google_provider_calendar_id,
+         google_room_resource_email
+       FROM office_events
+       WHERE id = ?
+       LIMIT 1`,
+      [eid]
+    );
+    const row = rows?.[0] || null;
+    if (!row) return { ok: false, reason: 'event_not_found' };
+
+    const googleEventId = String(row.google_provider_event_id || '').trim();
+    const providerEmail = String(row.google_provider_calendar_id || '').trim().toLowerCase();
+    if (!googleEventId || !providerEmail) {
+      await pool.execute(
+        `UPDATE office_events
+         SET google_sync_status = 'DELETED',
+             google_sync_error = NULL,
+             google_synced_at = NOW(),
+             google_provider_event_id = NULL
+         WHERE id = ?`,
+        [eid]
+      );
+      return { ok: true, skipped: true, reason: 'no_google_event_linked' };
+    }
+
+    const cal = this.buildCalendarClientForSubject(providerEmail);
+    const calendarId = 'primary';
+    try {
+      await cal.events.delete({ calendarId, eventId: googleEventId, sendUpdates: 'all' });
+      await pool.execute(
+        `UPDATE office_events
+         SET google_sync_status = 'DELETED',
+             google_sync_error = NULL,
+             google_synced_at = NOW(),
+             google_provider_event_id = NULL
+         WHERE id = ?`,
+        [eid]
+      );
+      return { ok: true };
+    } catch (e) {
+      const code = Number(e?.code || e?.response?.status || 0);
+      if (code === 404) {
+        await pool.execute(
+          `UPDATE office_events
+           SET google_sync_status = 'DELETED',
+               google_sync_error = NULL,
+               google_synced_at = NOW(),
+               google_provider_event_id = NULL
+           WHERE id = ?`,
+          [eid]
+        );
+        return { ok: true, skipped: true, reason: 'already_deleted_remote' };
+      }
+      const msg = String(e?.message || e).slice(0, 4000);
+      await pool.execute(
+        `UPDATE office_events
+         SET google_sync_status = 'FAILED',
+             google_sync_error = ?,
+             google_synced_at = NULL
+         WHERE id = ?`,
+        [msg, eid]
+      );
+      logGoogleUnauthorizedHint(e, { context: 'GoogleCalendarService.cancelBookedOfficeEvent' });
+      return { ok: false, reason: 'google_api_error', error: msg };
+    }
+  }
 }
 
 export default GoogleCalendarService;

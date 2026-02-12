@@ -1928,13 +1928,13 @@ function startOfWeekMondayYmd(dateStr) {
   const day = d.getDay(); // 0=Sun..6=Sat
   const diff = (day === 0 ? -6 : 1) - day; // shift to Monday
   d.setDate(d.getDate() + diff);
-  return d.toISOString().slice(0, 10);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 function addDaysYmd(ymd, days) {
   const d = new Date(`${String(ymd).slice(0, 10)}T00:00:00`);
   d.setDate(d.getDate() + Number(days || 0));
-  return d.toISOString().slice(0, 10);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 function toMysqlDateTimeWall(value) {

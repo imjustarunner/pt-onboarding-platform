@@ -21,13 +21,13 @@ function startOfWeekMondayYmd(input) {
   const day = d.getDay();
   const diff = (day === 0 ? -6 : 1) - day;
   d.setDate(d.getDate() + diff);
-  return d.toISOString().slice(0, 10);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 function addDaysYmd(ymd, days) {
   const d = new Date(`${String(ymd).slice(0, 10)}T00:00:00`);
   d.setDate(d.getDate() + Number(days || 0));
-  return d.toISOString().slice(0, 10);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 function toDate(val) {
@@ -83,7 +83,7 @@ async function requireAgencyPublicKey(req, res, agencyId) {
     return null;
   }
   const [rows] = await pool.execute(
-    `SELECT id, public_availability_access_key
+    `SELECT id, name, public_availability_access_key
      FROM agencies
      WHERE id = ?
      LIMIT 1`,
@@ -151,6 +151,27 @@ async function listAgencyClientFacingProviders({ agencyId }) {
   return rows || [];
 }
 
+function dedupeSlots(slots) {
+  const out = [];
+  const seen = new Set();
+  for (const s of Array.isArray(slots) ? slots : []) {
+    const key = [
+      String(s?.startAt || ''),
+      String(s?.endAt || ''),
+      String(s?.buildingId || ''),
+      String(s?.roomId || ''),
+      String(s?.sessionType || ''),
+      String(s?.frequency || '')
+    ].join('|');
+    if (!String(s?.startAt || '').trim() || !String(s?.endAt || '').trim()) continue;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(s);
+  }
+  out.sort((a, b) => String(a.startAt || '').localeCompare(String(b.startAt || '')));
+  return out;
+}
+
 async function resolveAgencyPortalSettings(agencyId) {
   const settings = await ProviderPublicProfile.getAgencySettings({ agencyId });
   return settings || {
@@ -212,31 +233,50 @@ function normalizeAvailabilitySlots({ result, bookingMode, providerAcceptingNewC
 }
 
 async function computeProviderWindowSummary({
-  agencyId,
+  agencyIds,
   providerId,
   weekStart,
   bookingMode,
   programType
 }) {
+  const scopedAgencyIds = Array.from(
+    new Set((Array.isArray(agencyIds) ? agencyIds : []).map((n) => Number(n)).filter((n) => Number.isInteger(n) && n > 0))
+  );
+  if (!scopedAgencyIds.length) {
+    return {
+      thisWeek: { virtualSlots: [], inPersonSlots: [] },
+      nextAvailableAt: null,
+      bookedThroughYmd: null
+    };
+  }
   const intakeOnly = String(bookingMode || 'NEW_CLIENT') === 'NEW_CLIENT';
   const program = normalizeProgramType(programType);
-  const pickProgramSlots = (result) =>
-    program === 'VIRTUAL'
-      ? (result?.virtualSlots || [])
-      : (result?.inPersonSlots || []);
-  const thisWeek = await ProviderAvailabilityService.computeWeekAvailability({
-    agencyId,
-    providerId,
-    weekStartYmd: weekStart,
-    includeGoogleBusy: true,
-    externalCalendarIds: [],
-    slotMinutes: 60,
-    intakeOnly
-  });
+  const pickProgramSlots = (result) => (program === 'VIRTUAL' ? (result?.virtualSlots || []) : (result?.inPersonSlots || []));
+  const computeForWeek = async (candidateWeekStart) => {
+    const perAgency = await Promise.all(
+      scopedAgencyIds.map((aid) =>
+        ProviderAvailabilityService.computeWeekAvailability({
+          agencyId: aid,
+          providerId,
+          weekStartYmd: candidateWeekStart,
+          includeGoogleBusy: true,
+          externalCalendarIds: [],
+          slotMinutes: 60,
+          intakeOnly
+        }).catch(() => null)
+      )
+    );
+    const valid = perAgency.filter(Boolean);
+    return {
+      inPersonSlots: dedupeSlots(valid.flatMap((r) => Array.isArray(r?.inPersonSlots) ? r.inPersonSlots : [])),
+      virtualSlots: dedupeSlots(valid.flatMap((r) => Array.isArray(r?.virtualSlots) ? r.virtualSlots : []))
+    };
+  };
+
+  const thisWeek = await computeForWeek(weekStart);
   let nextAvailable = null;
   let bookedThroughYmd = null;
-  const allThisWeek = pickProgramSlots(thisWeek)
-    .sort((a, b) => String(a.startAt || '').localeCompare(String(b.startAt || '')));
+  const allThisWeek = dedupeSlots(pickProgramSlots(thisWeek));
   if (allThisWeek.length > 0) {
     return {
       thisWeek,
@@ -248,17 +288,8 @@ async function computeProviderWindowSummary({
   for (let i = 1; i <= 16; i += 1) {
     const candidateWeek = addDaysYmd(weekStart, i * 7);
     // eslint-disable-next-line no-await-in-loop
-    const candidate = await ProviderAvailabilityService.computeWeekAvailability({
-      agencyId,
-      providerId,
-      weekStartYmd: candidateWeek,
-      includeGoogleBusy: true,
-      externalCalendarIds: [],
-      slotMinutes: 60,
-      intakeOnly
-    });
-    const merged = pickProgramSlots(candidate)
-      .sort((a, b) => String(a.startAt || '').localeCompare(String(b.startAt || '')));
+    const candidate = await computeForWeek(candidateWeek);
+    const merged = dedupeSlots(pickProgramSlots(candidate));
     if (merged.length > 0) {
       nextAvailable = merged[0].startAt;
       const nextDate = toDate(nextAvailable);
@@ -371,14 +402,49 @@ export const listPublicProvidersAvailability = async (req, res, next) => {
 
     const bookingMode = normalizeBookingMode(req.query.bookingMode || req.query.mode);
     const programType = normalizeProgramType(req.query.programType || req.query.program);
+    const agencyScope = String(req.query.agencyScope || 'ALL').trim().toUpperCase() === 'SINGLE' ? 'SINGLE' : 'ALL';
+    const filterAgencyId = parseIntSafe(req.query.filterAgencyId);
+    const key = String(req.query?.key || '').trim();
     const weekStartRaw = String(req.query.weekStart || new Date().toISOString().slice(0, 10)).slice(0, 10);
     const weekStart = startOfWeekMondayYmd(isValidYmd(weekStartRaw) ? weekStartRaw : new Date().toISOString().slice(0, 10));
     const agencySettings = await resolveAgencyPortalSettings(agencyId);
-    const providerRows = await listAgencyClientFacingProviders({ agencyId });
+    let scopeAgencies = [{ id: Number(agencyId), name: String(okAgency?.name || '').trim() || null }];
+    if (agencyScope === 'ALL' && key) {
+      const [rows] = await pool.execute(
+        `SELECT id, name
+         FROM agencies
+         WHERE public_availability_access_key = ?
+         ORDER BY name ASC, id ASC`,
+        [key]
+      );
+      const fromKey = (rows || [])
+        .map((r) => ({ id: Number(r.id || 0), name: String(r.name || '').trim() || null }))
+        .filter((r) => Number.isInteger(r.id) && r.id > 0);
+      if (fromKey.length) scopeAgencies = fromKey;
+    }
+    let scopeAgencyIds = Array.from(new Set(scopeAgencies.map((a) => Number(a.id)).filter((n) => Number.isInteger(n) && n > 0)));
+    if (agencyScope === 'SINGLE') scopeAgencyIds = [Number(agencyId)];
+    if (filterAgencyId && scopeAgencyIds.includes(Number(filterAgencyId))) scopeAgencyIds = [Number(filterAgencyId)];
+
+    const providerAgencyMap = new Map();
+    for (const aid of scopeAgencyIds) {
+      // eslint-disable-next-line no-await-in-loop
+      const rows = await listAgencyClientFacingProviders({ agencyId: aid });
+      for (const row of rows || []) {
+        const pid = Number(row?.id || 0);
+        if (!pid) continue;
+        if (!providerAgencyMap.has(pid)) providerAgencyMap.set(pid, { row, agencyIds: new Set() });
+        providerAgencyMap.get(pid).agencyIds.add(Number(aid));
+      }
+    }
+    const providerRows = Array.from(providerAgencyMap.values()).map((v) => ({
+      ...v.row,
+      agencyIds: Array.from(v.agencyIds.values()).sort((a, b) => a - b)
+    }));
 
     const providers = await runWithConcurrency(providerRows, 6, async (row) => {
       const summary = await computeProviderWindowSummary({
-        agencyId,
+        agencyIds: row.agencyIds,
         providerId: Number(row.id),
         weekStart,
         bookingMode,
@@ -397,6 +463,7 @@ export const listPublicProvidersAvailability = async (req, res, next) => {
 
       return {
         providerId: Number(row.id),
+        agencyIds: Array.isArray(row.agencyIds) ? row.agencyIds : [Number(agencyId)],
         firstName: row.first_name || '',
         lastName: row.last_name || '',
         displayName: `${row.first_name || ''} ${row.last_name || ''}`.trim(),
@@ -433,6 +500,11 @@ export const listPublicProvidersAvailability = async (req, res, next) => {
       weekStart,
       bookingMode,
       programType,
+      agencyScope,
+      scopeAgencies: scopeAgencies
+        .filter((a) => scopeAgencyIds.includes(Number(a.id)))
+        .map((a) => ({ id: Number(a.id), name: a.name || `Agency ${a.id}` })),
+      effectiveAgencyIds: scopeAgencyIds,
       introBlurb: agencySettings?.finderIntroBlurb || '',
       providers: (providers || []).sort((a, b) => String(a.displayName || '').localeCompare(String(b.displayName || '')))
     });

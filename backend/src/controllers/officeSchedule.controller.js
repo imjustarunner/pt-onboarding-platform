@@ -346,7 +346,8 @@ export const getWeeklyGrid = async (req, res, next) => {
       createdByUserId: req.user.id
     });
 
-    const events = await OfficeEvent.listForOfficeWindow({ officeLocationId: parseInt(locationId), startAt: windowStart, endAt: windowEnd });
+    const officeLocationIdNum = parseInt(locationId);
+    const events = await OfficeEvent.listForOfficeWindow({ officeLocationId: officeLocationIdNum, startAt: windowStart, endAt: windowEnd });
     // Legacy assignments (office_room_assignments) are treated as assigned_available for now.
     const assignments = await OfficeRoomAssignment.findAssignmentsForLocationWindow({
       locationId: parseInt(locationId),
@@ -363,7 +364,7 @@ export const getWeeklyGrid = async (req, res, next) => {
            AND session_type IN ('INTAKE', 'BOTH')
            AND start_at < ?
            AND end_at > ?`,
-        [parseInt(locationId), windowEnd, windowStart]
+        [officeLocationIdNum, windowEnd, windowStart]
       );
       for (const row of virtualRows || []) {
         const providerId = Number(row.provider_id || 0);
@@ -384,7 +385,7 @@ export const getWeeklyGrid = async (req, res, next) => {
            AND is_active = TRUE
            AND start_at < ?
            AND end_at > ?`,
-        [parseInt(locationId), windowEnd, windowStart]
+        [officeLocationIdNum, windowEnd, windowStart]
       );
       for (const row of inPersonRows || []) {
         const providerId = Number(row.provider_id || 0);
@@ -516,7 +517,7 @@ export const getWeeklyGrid = async (req, res, next) => {
               // (booked/virtual/cancel) always have a stable event id to operate on.
               // eslint-disable-next-line no-await-in-loop
               const ev = await OfficeEvent.upsertSlotState({
-                officeLocationId: parseInt(locationId),
+                officeLocationId: officeLocationIdNum,
                 roomId: room.id,
                 startAt: slotStartAt,
                 endAt: slotEndAt,
@@ -654,6 +655,47 @@ export const getWeeklyGrid = async (req, res, next) => {
       s.frequencyBadge = meta.frequencyBadge;
     }
 
+    const [cancelledGoogleRows] = await pool.execute(
+      `SELECT
+         e.id,
+         e.start_at,
+         e.end_at,
+         e.google_provider_event_id,
+         e.google_provider_calendar_id,
+         e.google_room_resource_email,
+         e.google_sync_status,
+         e.google_sync_error,
+         r.id AS room_id,
+         r.room_number,
+         r.label AS room_label,
+         r.name AS room_name
+       FROM office_events e
+       JOIN office_rooms r ON r.id = e.room_id
+       WHERE e.office_location_id = ?
+         AND e.start_at < ?
+         AND e.end_at > ?
+         AND UPPER(COALESCE(e.status, '')) = 'CANCELLED'
+         AND (
+           e.google_provider_event_id IS NOT NULL
+           OR UPPER(COALESCE(e.google_sync_status, '')) IN ('FAILED', 'PENDING')
+         )
+       ORDER BY e.start_at ASC`,
+      [officeLocationIdNum, windowEnd, windowStart]
+    );
+    const cancelledGoogleEvents = (cancelledGoogleRows || []).map((r) => ({
+      id: Number(r.id),
+      roomId: Number(r.room_id),
+      roomNumber: r.room_number ?? null,
+      roomLabel: r.room_label ?? r.room_name ?? null,
+      startAt: normalizeMysqlDateTime(r.start_at),
+      endAt: normalizeMysqlDateTime(r.end_at),
+      googleProviderEventId: String(r.google_provider_event_id || '').trim() || null,
+      googleProviderCalendarId: String(r.google_provider_calendar_id || '').trim() || null,
+      googleRoomResourceEmail: String(r.google_room_resource_email || '').trim() || null,
+      googleSyncStatus: String(r.google_sync_status || '').trim() || null,
+      googleSyncError: String(r.google_sync_error || '').trim() || null
+    }));
+
     res.json({
       location: { id: loc.id, name: loc.name, timezone: loc.timezone },
       weekStart,
@@ -665,7 +707,8 @@ export const getWeeklyGrid = async (req, res, next) => {
         roomNumber: r.room_number ?? null,
         label: r.label ?? null
       })),
-      slots
+      slots,
+      cancelledGoogleEvents
     });
   } catch (e) {
     next(e);

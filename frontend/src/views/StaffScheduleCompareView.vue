@@ -78,6 +78,7 @@
 
         <div v-else-if="viewMode === 'overlay'" class="overlay-card" data-tour="sched-compare-overlay">
           <ScheduleMultiUserOverlayGrid
+            :key="overlayGridKey"
             :user-ids="selectedUserIds"
             :agency-ids="agencyIdsForSchedule"
             :week-start-ymd="weekStartYmd"
@@ -136,13 +137,15 @@ const maxSelected = 6;
 const selectedUserIds = ref([]);
 const viewMode = ref('stacked'); // stacked | overlay
 const availabilityByUserId = ref({});
+const overlayLoadGeneration = ref(0);
 
-const todayYmd = () => new Date().toISOString().slice(0, 10);
+const toLocalYmd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const todayYmd = () => toLocalYmd(new Date());
 const weekStartYmd = ref(todayYmd());
 const shiftWeek = (deltaDays) => {
   const d = new Date(`${weekStartYmd.value}T00:00:00`);
   d.setDate(d.getDate() + Number(deltaDays || 0));
-  weekStartYmd.value = d.toISOString().slice(0, 10);
+  weekStartYmd.value = toLocalYmd(d);
 };
 
 const effectiveAgencyId = computed(() => {
@@ -183,6 +186,11 @@ const agencyLabelById = computed(() => {
   }
   return m;
 });
+const overlayGridKey = computed(() => [
+  (selectedUserIds.value || []).map((x) => Number(x)).filter((n) => Number.isFinite(n) && n > 0).join(','),
+  (agencyIdsForSchedule.value || []).join(','),
+  String(weekStartYmd.value || '')
+].join('|'));
 
 const isProviderLike = (u) => {
   const role = String(u?.role || '').toLowerCase();
@@ -193,15 +201,63 @@ const isProviderLike = (u) => {
 };
 
 const providers = computed(() => (users.value || []).filter(isProviderLike));
+
+function fuzzyScore(text, query) {
+  const t = String(text || '').toLowerCase();
+  const q = String(query || '').trim().toLowerCase();
+  if (!q) return { score: 1, inOrder: true };
+  const chars = q.split('').filter(Boolean);
+  if (!chars.length) return { score: 1, inOrder: true };
+  const allPresent = chars.every((c) => t.includes(c));
+  if (!allPresent) return { score: 0, inOrder: false };
+  const matched = [];
+  let cursor = 0;
+  for (const c of chars) {
+    const idx = t.indexOf(c, cursor);
+    if (idx === -1) {
+      const fallback = t.indexOf(c);
+      if (fallback === -1) return { score: 0, inOrder: false };
+      matched.push(fallback);
+      cursor = fallback + 1;
+    } else {
+      matched.push(idx);
+      cursor = idx + 1;
+    }
+  }
+  const inOrder = matched.every((idx, i) => i === 0 || idx > matched[i - 1]);
+  const contiguousBonus = inOrder && chars.length > 1
+    ? (t.includes(q) ? 2 : 1)
+    : 0;
+  return {
+    score: (inOrder ? 3 : 2) + contiguousBonus,
+    inOrder
+  };
+}
+
 const filteredProviders = computed(() => {
   const q = String(search.value || '').trim().toLowerCase();
   const base = (providers.value || []).slice();
-  base.sort((a, b) => String(a?.last_name || '').localeCompare(String(b?.last_name || '')) || String(a?.first_name || '').localeCompare(String(b?.first_name || '')));
+  base.sort((a, b) =>
+    String(a?.last_name || '').localeCompare(String(b?.last_name || '')) ||
+    String(a?.first_name || '').localeCompare(String(b?.first_name || '')) ||
+    Number(a?.id || 0) - Number(b?.id || 0)
+  );
   if (!q) return base;
-  return base.filter((u) => {
-    const s = `${u.first_name || ''} ${u.last_name || ''} ${u.email || ''}`.toLowerCase();
-    return s.includes(q);
+  const scored = base.map((u) => {
+    const searchText = `${u.first_name || ''} ${u.last_name || ''} ${u.email || ''}`;
+    const displayText = `${u.last_name || ''}, ${u.first_name || ''}`;
+    const s1 = fuzzyScore(searchText, q);
+    const s2 = fuzzyScore(displayText, q);
+    const score = Math.max(s1.score, s2.score);
+    return { u, score };
+  }).filter((x) => x.score > 0);
+  scored.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    return String(a.u?.last_name || '').localeCompare(String(b.u?.last_name || '')) ||
+      String(a.u?.first_name || '').localeCompare(String(b.u?.first_name || '')) ||
+      Number(a.u?.id || 0) - Number(b.u?.id || 0);
   });
+  return scored.map((x) => x.u);
 });
 
 const userLabelById = computed(() => {
@@ -281,12 +337,20 @@ const mergeSlotsByKey = (slots) => {
 };
 
 const loadAvailabilityOverlays = async () => {
+  const generation = overlayLoadGeneration.value + 1;
+  overlayLoadGeneration.value = generation;
   const uids = (selectedUserIds.value || []).map((x) => Number(x)).filter((n) => Number.isFinite(n) && n > 0);
   const aids = (agencyIdsForSchedule.value || []).map((x) => Number(x)).filter((n) => Number.isFinite(n) && n > 0);
   if (!uids.length || !aids.length) {
+    if (generation !== overlayLoadGeneration.value) return;
     availabilityByUserId.value = {};
     return;
   }
+  const current = { ...(availabilityByUserId.value || {}) };
+  for (const uid of Object.keys(current)) {
+    if (!uids.includes(Number(uid))) delete current[uid];
+  }
+  availabilityByUserId.value = current;
   const out = {};
   await Promise.all(
     uids.map(async (uid) => {
@@ -317,6 +381,7 @@ const loadAvailabilityOverlays = async () => {
       };
     })
   );
+  if (generation !== overlayLoadGeneration.value) return;
   availabilityByUserId.value = out;
 };
 
@@ -342,6 +407,15 @@ onMounted(async () => {
 
 watch([selectedUserIds, agencyIdsForSchedule, weekStartYmd, viewMode], () => {
   void loadAvailabilityOverlays();
+}, { deep: true });
+
+watch(selectedUserIds, (ids) => {
+  const keep = new Set((ids || []).map((n) => Number(n)));
+  const next = {};
+  for (const [k, v] of Object.entries(availabilityByUserId.value || {})) {
+    if (keep.has(Number(k))) next[k] = v;
+  }
+  availabilityByUserId.value = next;
 }, { deep: true });
 </script>
 

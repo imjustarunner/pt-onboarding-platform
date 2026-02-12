@@ -2,10 +2,10 @@
   <div class="office-week-wrap" data-tour="my-schedule-office-layout">
     <div v-if="!grid" class="hint">No office grid loaded.</div>
     <div v-else class="office-week">
-      <div v-for="(dateYmd, dayIdx) in days" :key="`day-${dateYmd}`" class="day-section">
+      <div v-for="dateYmd in days" :key="`day-${dateYmd}`" class="day-section">
         <div class="day-head" :class="{ today: isToday(dateYmd) }">
           <div class="day-title">
-            <span class="day-dow">{{ dayName(dayIdx) }}</span>
+            <span class="day-dow">{{ dayNameFromYmd(dateYmd) }}</span>
             <span class="day-date">{{ fmtMmdd(dateYmd) }}</span>
           </div>
           <div class="day-sub">{{ grid.location?.name || 'Office' }}</div>
@@ -69,7 +69,14 @@ const localTodayYmd = computed(() => {
 
 const isToday = (ymd) => String(ymd || '').slice(0, 10) === localTodayYmd.value;
 
-const dayName = (idx) => ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'][Number(idx) || 0] || '';
+const dayNameFromYmd = (ymd) => {
+  const s = String(ymd || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return '';
+  const [y, m, d] = s.split('-').map((n) => Number(n));
+  const dt = new Date(y, (m || 1) - 1, d || 1);
+  if (Number.isNaN(dt.getTime())) return '';
+  return ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][dt.getDay()] || '';
+};
 const fmtMmdd = (ymd) => {
   const s = String(ymd || '').slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;

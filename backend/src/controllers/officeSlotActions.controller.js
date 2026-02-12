@@ -102,6 +102,19 @@ async function resolveAgencyForProviderOffice({ providerId, officeLocationId, pr
   return match || officeAgencyIds[0] || null;
 }
 
+async function cancelGoogleForOfficeEventIds(eventIds = []) {
+  for (const id of eventIds) {
+    const eid = Number(id || 0);
+    if (!eid) continue;
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      await GoogleCalendarService.cancelBookedOfficeEvent({ officeEventId: eid });
+    } catch {
+      // best-effort cleanup only
+    }
+  }
+}
+
 function addDaysYmd(ymd, days) {
   const m = String(ymd || '').slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!m) return null;
@@ -374,11 +387,16 @@ export const staffBookEvent = async (req, res, next) => {
     const updated = shouldBook
       ? await OfficeEvent.markBooked({ eventId: eid, bookedProviderId })
       : await OfficeEvent.markAvailable({ eventId: eid });
+    const targetEventId = updated?.id || eid;
     // Best-effort: mirror to Google Calendar (provider + room resource).
     try {
-      await GoogleCalendarService.upsertBookedOfficeEvent({ officeEventId: updated?.id || eid });
+      if (shouldBook) {
+        await GoogleCalendarService.upsertBookedOfficeEvent({ officeEventId: targetEventId });
+      } else {
+        await GoogleCalendarService.cancelBookedOfficeEvent({ officeEventId: targetEventId });
+      }
     } catch {
-      // ignore
+      // ignore sync cleanup failures
     }
     res.json({ ok: true, booked: shouldBook, event: updated });
   } catch (e) {
@@ -864,6 +882,7 @@ export const cancelEvent = async (req, res, next) => {
     if (scope === 'occurrence') {
       const updated = await OfficeEvent.cancelOccurrence({ eventId: eid });
       await ProviderVirtualSlotAvailability.deactivateBySourceEventId(eid);
+      await cancelGoogleForOfficeEventIds([eid]);
       const legacyAssignmentRowsRemoved = await removeLegacyAssignmentOverlap();
       return res.json({ ok: true, scope: 'occurrence', event: updated, legacyAssignmentRowsRemoved });
     }
@@ -924,6 +943,7 @@ export const cancelEvent = async (req, res, next) => {
     if (!targetAssignmentIds.length && !recurrenceGroupId) {
       const updated = await OfficeEvent.cancelOccurrence({ eventId: eid });
       await ProviderVirtualSlotAvailability.deactivateBySourceEventId(eid);
+      await cancelGoogleForOfficeEventIds([eid]);
       const legacyAssignmentRowsRemoved = await removeLegacyAssignmentOverlap();
       return res.json({
         ok: true,
@@ -999,6 +1019,7 @@ export const cancelEvent = async (req, res, next) => {
       // eslint-disable-next-line no-await-in-loop
       await ProviderVirtualSlotAvailability.deactivateBySourceEventId(id);
     }
+    await cancelGoogleForOfficeEventIds(eventIds);
 
     res.json({
       ok: true,
@@ -1009,6 +1030,44 @@ export const cancelEvent = async (req, res, next) => {
       cancelledEventCount: eventIds.length,
       standingAssignmentId: standingAssignmentId || null,
       targetedStandingAssignmentIds: targetAssignmentIds
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const deleteEventFromGoogleNow = async (req, res, next) => {
+  try {
+    const { officeId, eventId } = req.params;
+    const officeLocationId = parseInt(officeId, 10);
+    const eid = parseInt(eventId, 10);
+    if (!officeLocationId || !eid) return res.status(400).json({ error: { message: 'Invalid ids' } });
+
+    const ok = await requireOfficeAccess(req, officeLocationId);
+    if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+    if (!canManageSchedule(req.user?.role)) {
+      return res.status(403).json({ error: { message: 'Only schedule managers can delete Google-linked office events' } });
+    }
+
+    const ev = await OfficeEvent.findById(eid);
+    if (!ev || Number(ev.office_location_id) !== Number(officeLocationId)) {
+      return res.status(404).json({ error: { message: 'Event not found' } });
+    }
+
+    const result = await GoogleCalendarService.cancelBookedOfficeEvent({ officeEventId: eid });
+    if (!result?.ok) {
+      return res.status(409).json({
+        error: {
+          message: result?.error || 'Failed to delete event from Google Calendar'
+        }
+      });
+    }
+
+    return res.json({
+      ok: true,
+      officeEventId: eid,
+      skipped: !!result?.skipped,
+      reason: result?.reason || null
     });
   } catch (e) {
     next(e);
@@ -1111,6 +1170,7 @@ export const cancelAssignment = async (req, res, next) => {
         eventIds
       );
     }
+    await cancelGoogleForOfficeEventIds(eventIds);
 
     if ((scope === 'week' || scope === 'until') && targetAssignmentIds.length) {
       const pauseUntilDate = scope === 'week'
@@ -1189,6 +1249,7 @@ export const forfeitEvent = async (req, res, next) => {
     if (scope === 'occurrence') {
       const updated = await OfficeEvent.cancelOccurrence({ eventId: eid });
       await ProviderVirtualSlotAvailability.deactivateBySourceEventId(eid);
+      await cancelGoogleForOfficeEventIds([eid]);
       return res.json({ ok: true, scope: 'occurrence', event: updated });
     }
 
@@ -1197,6 +1258,7 @@ export const forfeitEvent = async (req, res, next) => {
     if (!standingAssignmentId && !recurrenceGroupId) {
       const updated = await OfficeEvent.cancelOccurrence({ eventId: eid });
       await ProviderVirtualSlotAvailability.deactivateBySourceEventId(eid);
+      await cancelGoogleForOfficeEventIds([eid]);
       return res.json({ ok: true, scope: 'occurrence', event: updated, downgradedFromFuture: true });
     }
 
@@ -1229,6 +1291,7 @@ export const forfeitEvent = async (req, res, next) => {
       // eslint-disable-next-line no-await-in-loop
       await ProviderVirtualSlotAvailability.deactivateBySourceEventId(id);
     }
+    await cancelGoogleForOfficeEventIds(eventIds);
 
     return res.json({
       ok: true,
@@ -1319,6 +1382,7 @@ export const staffAssignOpenSlot = async (req, res, next) => {
          WHERE room_id = ?
            AND start_at < ?
            AND end_at > ?
+           AND (status IS NULL OR UPPER(status) <> 'CANCELLED')
          LIMIT 1`,
         [roomId, endAt, startAt]
       );

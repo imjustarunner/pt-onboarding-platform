@@ -1740,8 +1740,22 @@ export const listProvidersForAvailability = async (req, res, next) => {
 
 export const listIntakeAvailabilityCards = async (req, res, next) => {
   try {
-    const agencyId = await resolveAgencyId(req);
-    if (!(await requireAgencyMembership(req, res, agencyId))) return;
+    const requestedAgencyIds = String(req.query.agencyIds || '')
+      .split(',')
+      .map((v) => parseIntSafe(v))
+      .filter((n) => Number.isInteger(n) && n > 0);
+    const resolvedAgencyId = await resolveAgencyId(req);
+    const agencyIds = requestedAgencyIds.length
+      ? Array.from(new Set(requestedAgencyIds))
+      : (resolvedAgencyId ? [Number(resolvedAgencyId)] : []);
+    if (!agencyIds.length) {
+      return res.status(400).json({ error: { message: 'agencyId or agencyIds is required' } });
+    }
+
+    for (const aid of agencyIds) {
+      // eslint-disable-next-line no-await-in-loop
+      if (!(await requireAgencyMembership(req, res, aid))) return;
+    }
     const role = String(req.user?.role || '').toLowerCase();
     const isSupervisor = role === 'supervisor';
     if (!canManageAvailability(role) && !isSupervisor) {
@@ -1749,36 +1763,54 @@ export const listIntakeAvailabilityCards = async (req, res, next) => {
     }
 
     const weekStartYmd = String(req.query.weekStart || new Date().toISOString().slice(0, 10)).slice(0, 10);
-    const [providerRows] = await pool.execute(
-      `SELECT DISTINCT u.id, u.first_name, u.last_name, u.role
-       FROM users u
-       JOIN user_agencies ua ON ua.user_id = u.id
-       WHERE ua.agency_id = ?
-         AND (u.is_active IS NULL OR u.is_active = TRUE)
-         AND (u.is_archived IS NULL OR u.is_archived = FALSE)
-         AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE'))
-         AND (
-           u.role IN ('provider', 'supervisor', 'clinical_practice_assistant', 'admin', 'super_admin', 'staff', 'support')
-           OR u.has_provider_access = TRUE
-         )
-         AND LOWER(COALESCE(u.role, '')) NOT IN ('guardian', 'school_support')
-       ORDER BY u.last_name ASC, u.first_name ASC`,
-      [agencyId]
-    );
-    const providers = Array.isArray(providerRows) ? providerRows : [];
+    const providerById = new Map();
+    const pairs = [];
+    for (const aid of agencyIds) {
+      // eslint-disable-next-line no-await-in-loop
+      const [providerRows] = await pool.execute(
+        `SELECT DISTINCT u.id, u.first_name, u.last_name, u.role
+         FROM users u
+         JOIN user_agencies ua ON ua.user_id = u.id
+         WHERE ua.agency_id = ?
+           AND (u.is_active IS NULL OR u.is_active = TRUE)
+           AND (u.is_archived IS NULL OR u.is_archived = FALSE)
+           AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE'))
+           AND (
+             u.role IN ('provider', 'supervisor', 'clinical_practice_assistant', 'admin', 'super_admin', 'staff', 'support')
+             OR u.has_provider_access = TRUE
+           )
+           AND LOWER(COALESCE(u.role, '')) NOT IN ('guardian', 'school_support')
+         ORDER BY u.last_name ASC, u.first_name ASC`,
+        [aid]
+      );
+      for (const r of providerRows || []) {
+        const pid = Number(r.id || 0);
+        if (!pid) continue;
+        if (!providerById.has(pid)) {
+          providerById.set(pid, {
+            providerId: pid,
+            firstName: String(r.first_name || '').trim(),
+            lastName: String(r.last_name || '').trim()
+          });
+        }
+        pairs.push({ agencyId: aid, providerId: pid });
+      }
+    }
 
+    const aggregate = new Map();
+    const seenInPerson = new Map();
+    const seenVirtual = new Map();
+    const pairQueue = [...pairs];
     const concurrency = 8;
-    const queue = [...providers];
-    const out = [];
     const workers = Array.from({ length: concurrency }).map(async () => {
-      while (queue.length) {
-        const provider = queue.shift();
-        if (!provider) break;
+      while (pairQueue.length) {
+        const pair = pairQueue.shift();
+        if (!pair) break;
         try {
           // eslint-disable-next-line no-await-in-loop
           const avail = await ProviderAvailabilityService.computeWeekAvailability({
-            agencyId,
-            providerId: Number(provider.id),
+            agencyId: Number(pair.agencyId),
+            providerId: Number(pair.providerId),
             weekStartYmd,
             includeGoogleBusy: true,
             externalCalendarIds: [],
@@ -1788,13 +1820,38 @@ export const listIntakeAvailabilityCards = async (req, res, next) => {
           const inPersonSlots = Array.isArray(avail?.inPersonSlots) ? avail.inPersonSlots : [];
           const virtualSlots = Array.isArray(avail?.virtualSlots) ? avail.virtualSlots : [];
           if (!inPersonSlots.length && !virtualSlots.length) continue;
-          out.push({
-            providerId: Number(provider.id),
-            firstName: String(provider.first_name || '').trim(),
-            lastName: String(provider.last_name || '').trim(),
-            inPersonSlots,
-            virtualSlots
-          });
+
+          if (!aggregate.has(pair.providerId)) {
+            const base = providerById.get(pair.providerId);
+            aggregate.set(pair.providerId, {
+              providerId: Number(pair.providerId),
+              firstName: String(base?.firstName || '').trim(),
+              lastName: String(base?.lastName || '').trim(),
+              inPersonSlots: [],
+              virtualSlots: [],
+              agencyIds: []
+            });
+          }
+          const rec = aggregate.get(pair.providerId);
+          if (!rec.agencyIds.includes(Number(pair.agencyId))) rec.agencyIds.push(Number(pair.agencyId));
+
+          if (!seenInPerson.has(pair.providerId)) seenInPerson.set(pair.providerId, new Set());
+          if (!seenVirtual.has(pair.providerId)) seenVirtual.set(pair.providerId, new Set());
+          const inPersonSet = seenInPerson.get(pair.providerId);
+          const virtualSet = seenVirtual.get(pair.providerId);
+
+          for (const s of inPersonSlots) {
+            const k = `${String(s?.startAt || '')}|${String(s?.endAt || '')}|${String(s?.buildingId || '')}|${String(s?.roomId || '')}`;
+            if (inPersonSet.has(k)) continue;
+            inPersonSet.add(k);
+            rec.inPersonSlots.push(s);
+          }
+          for (const s of virtualSlots) {
+            const k = `${String(s?.startAt || '')}|${String(s?.endAt || '')}|${String(s?.buildingId || '')}|${String(s?.roomId || '')}`;
+            if (virtualSet.has(k)) continue;
+            virtualSet.add(k);
+            rec.virtualSlots.push(s);
+          }
         } catch {
           // skip provider-level failures for this aggregate response
         }
@@ -1802,10 +1859,12 @@ export const listIntakeAvailabilityCards = async (req, res, next) => {
     });
     await Promise.all(workers);
 
+    const out = Array.from(aggregate.values());
     out.sort((a, b) => `${a.lastName}, ${a.firstName}`.localeCompare(`${b.lastName}, ${b.firstName}`));
     res.json({
       ok: true,
-      agencyId: Number(agencyId),
+      agencyId: agencyIds.length === 1 ? Number(agencyIds[0]) : null,
+      agencyIds,
       weekStart: weekStartYmd,
       providers: out
     });

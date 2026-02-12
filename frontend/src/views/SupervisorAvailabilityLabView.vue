@@ -11,7 +11,8 @@
     <section class="filters">
       <label class="field">
         <span>Agency</span>
-        <select v-model="selectedAgencyId" @change="onAgencyChange">
+        <select v-model="selectedAgencyKey" @change="onAgencyChange">
+          <option value="ALL">All agencies</option>
           <option v-for="a in agencies" :key="a.id" :value="Number(a.id)">
             {{ a.name }}
           </option>
@@ -80,7 +81,7 @@ const loading = ref(false);
 const error = ref('');
 const agencies = ref([]);
 const cards = ref([]);
-const selectedAgencyId = ref(null);
+const selectedAgencyKey = ref('ALL');
 const weekStart = ref(getWeekStartYmd(new Date()));
 const search = ref('');
 
@@ -95,13 +96,13 @@ function getWeekStartYmd(dateLike) {
   const day = d.getDay();
   const diff = (day === 0 ? -6 : 1) - day;
   d.setDate(d.getDate() + diff);
-  return d.toISOString().slice(0, 10);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 function addDaysYmd(ymd, days) {
   const d = new Date(`${ymd}T00:00:00`);
   d.setDate(d.getDate() + Number(days || 0));
-  return d.toISOString().slice(0, 10);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 function providerName(p) {
@@ -168,24 +169,44 @@ async function loadAgencies() {
   const role = String(authStore.user?.role || '').toLowerCase();
   if (role === 'super_admin') {
     await agencyStore.fetchAgencies();
-    agencies.value = Array.isArray(agencyStore.agencies) ? agencyStore.agencies : [];
+    agencies.value = (Array.isArray(agencyStore.agencies) ? agencyStore.agencies : [])
+      .filter((a) => String(a?.organization_type || '').toLowerCase() === 'agency');
   } else {
     await agencyStore.fetchUserAgencies();
-    agencies.value = Array.isArray(agencyStore.userAgencies) ? agencyStore.userAgencies : [];
+    agencies.value = (Array.isArray(agencyStore.userAgencies) ? agencyStore.userAgencies : [])
+      .filter((a) => String(a?.organization_type || '').toLowerCase() === 'agency');
   }
-  if (!selectedAgencyId.value && agencies.value.length > 0) {
-    selectedAgencyId.value = Number(agencies.value[0].id);
+  if (!agencies.value.length) {
+    selectedAgencyKey.value = 'ALL';
+    return;
+  }
+  if (
+    selectedAgencyKey.value !== 'ALL' &&
+    !agencies.value.some((a) => Number(a.id) === Number(selectedAgencyKey.value))
+  ) {
+    selectedAgencyKey.value = 'ALL';
   }
 }
 
 async function loadCards() {
-  if (!selectedAgencyId.value) return;
+  const selectedAgencyId = Number(selectedAgencyKey.value || 0) || null;
+  const selectedAgencyIds = selectedAgencyKey.value === 'ALL'
+    ? agencies.value.map((a) => Number(a.id)).filter((n) => Number.isFinite(n) && n > 0)
+    : (selectedAgencyId ? [selectedAgencyId] : []);
+  if (!selectedAgencyIds.length) {
+    cards.value = [];
+    return;
+  }
   loading.value = true;
   error.value = '';
   try {
-    const aid = Number(selectedAgencyId.value || 0);
     const { data } = await api.get('/availability/admin/intake-cards', {
-      params: { agencyId: aid, weekStart: weekStart.value }
+      params: {
+        ...(selectedAgencyIds.length === 1
+          ? { agencyId: selectedAgencyIds[0] }
+          : { agencyIds: selectedAgencyIds.join(',') }),
+        weekStart: weekStart.value
+      }
     });
     const providers = Array.isArray(data?.providers) ? data.providers : [];
     cards.value = providers

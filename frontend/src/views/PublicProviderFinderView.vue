@@ -42,6 +42,28 @@
       </label>
 
       <label class="field">
+        <span>Company scope</span>
+        <div class="tab-row">
+          <button class="tab-btn" :class="{ active: agencyScope === 'ALL' }" type="button" @click="setAgencyScope('ALL')">
+            All affiliated companies
+          </button>
+          <button class="tab-btn" :class="{ active: agencyScope === 'SINGLE' }" type="button" @click="setAgencyScope('SINGLE')">
+            One company
+          </button>
+        </div>
+      </label>
+
+      <label class="field">
+        <span>Company</span>
+        <select v-model="selectedScopeAgencyId" :disabled="agencyScope !== 'SINGLE' || scopeAgencies.length === 0" @change="loadProviders">
+          <option value="">Select company</option>
+          <option v-for="a in scopeAgencies" :key="`scope-${a.id}`" :value="Number(a.id)">
+            {{ a.name }}
+          </option>
+        </select>
+      </label>
+
+      <label class="field">
         <span>Search provider</span>
         <input v-model="search" type="text" placeholder="Type a name..." />
       </label>
@@ -208,6 +230,9 @@ const introBlurb = ref('');
 const weekStart = ref(getWeekStartYmd(new Date()));
 const bookingMode = ref('NEW_CLIENT');
 const programType = ref('IN_PERSON');
+const agencyScope = ref('ALL');
+const scopeAgencies = ref([]);
+const selectedScopeAgencyId = ref('');
 const search = ref('');
 
 const showProviderInfo = ref(false);
@@ -244,13 +269,13 @@ function getWeekStartYmd(dateLike) {
   const day = d.getDay();
   const diff = (day === 0 ? -6 : 1) - day;
   d.setDate(d.getDate() + diff);
-  return d.toISOString().slice(0, 10);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 function addDaysYmd(ymd, days) {
   const d = new Date(`${ymd}T00:00:00`);
   d.setDate(d.getDate() + Number(days || 0));
-  return d.toISOString().slice(0, 10);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 function initialsFor(name) {
@@ -296,12 +321,26 @@ async function loadProviders() {
         key: accessKey.value,
         weekStart: weekStart.value,
         bookingMode: bookingMode.value,
-        programType: programType.value
+        programType: programType.value,
+        agencyScope: agencyScope.value,
+        ...(agencyScope.value === 'SINGLE' && Number(selectedScopeAgencyId.value || 0) > 0
+          ? { filterAgencyId: Number(selectedScopeAgencyId.value) }
+          : {})
       },
       skipAuthRedirect: true
     });
     providers.value = Array.isArray(data?.providers) ? data.providers : [];
     introBlurb.value = String(data?.introBlurb || '').trim();
+    scopeAgencies.value = Array.isArray(data?.scopeAgencies) ? data.scopeAgencies : [];
+    if (agencyScope.value === 'SINGLE') {
+      const selected = Number(selectedScopeAgencyId.value || 0);
+      const valid = scopeAgencies.value.some((a) => Number(a.id) === selected);
+      if (!valid) {
+        selectedScopeAgencyId.value = scopeAgencies.value.length ? Number(scopeAgencies.value[0].id) : '';
+      }
+    } else {
+      selectedScopeAgencyId.value = '';
+    }
   } catch (e) {
     providers.value = [];
     error.value = e?.response?.data?.error?.message || 'Failed to load providers.';
@@ -409,6 +448,12 @@ async function setProgram(program) {
   await loadProviders();
 }
 
+async function setAgencyScope(scope) {
+  agencyScope.value = scope === 'SINGLE' ? 'SINGLE' : 'ALL';
+  if (agencyScope.value === 'ALL') selectedScopeAgencyId.value = '';
+  await loadProviders();
+}
+
 async function shiftWeek(days) {
   weekStart.value = addDaysYmd(weekStart.value, days);
   await loadProviders();
@@ -428,7 +473,7 @@ onMounted(async () => {
 .header-controls { display: flex; gap: 8px; }
 .filters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; border: 1px solid #e2e8f0; border-radius: 12px; padding: 12px; background: #fff; }
 .field { display: grid; gap: 6px; font-size: 13px; font-weight: 600; }
-.field input, .field textarea { border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px 10px; }
+.field input, .field textarea, .field select { border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px 10px; }
 .tab-row { display: flex; gap: 8px; flex-wrap: wrap; }
 .tab-btn { border: 1px solid #cbd5e1; background: #f8fafc; padding: 8px 12px; border-radius: 999px; font-size: 12px; cursor: pointer; }
 .tab-btn.active { background: #dbeafe; border-color: #60a5fa; font-weight: 700; }

@@ -31,6 +31,36 @@
         <div class="legend-item"><span class="dot intake-v"></span> Virtual intake</div>
         <div class="legend-item"><span class="dot own-slot"></span> Your schedule</div>
       </div>
+      <div v-if="cancelledGoogleEvents.length" class="cancelled-google-card">
+        <div class="cancelled-google-title">Cancelled slots still linked to Google (cleanup queue)</div>
+        <div class="muted" style="margin-bottom: 8px;">
+          These were deleted/cancelled in-app. We now auto-delete from Google too; older records are listed here so they can be removed from Google resource calendars if still present.
+        </div>
+        <div class="cancelled-google-list">
+          <div v-for="x in cancelledGoogleEvents" :key="`cge-${x.id}`" class="cancelled-google-row">
+            <div>
+              <strong>{{ x.roomText }}</strong>
+              <div class="muted" style="font-size: 12px;">{{ x.when }}</div>
+            </div>
+            <div class="cancelled-google-meta">
+              <div><strong>Provider cal:</strong> {{ x.googleProviderCalendarId || 'n/a' }}</div>
+              <div><strong>Google event id:</strong> {{ x.googleProviderEventId || 'n/a' }}</div>
+              <div><strong>Room resource:</strong> {{ x.googleRoomResourceEmail || 'n/a' }}</div>
+              <div><strong>Sync:</strong> {{ x.googleSyncStatus || 'unknown' }}</div>
+            </div>
+            <div>
+              <button
+                class="btn btn-danger btn-sm"
+                type="button"
+                :disabled="deletingGoogleEventIds.includes(Number(x.id))"
+                @click="deleteFromGoogleNow(x.id)"
+              >
+                {{ deletingGoogleEventIds.includes(Number(x.id)) ? 'Deleting…' : 'Delete from Google now' }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
       <div v-if="bulkActionsVisible && !bulkActionsExpanded && !showModal" class="bulk-actions-mini card">
         <div class="bulk-mini-title">Selected: {{ selectedSlots.length }}</div>
         <div class="bulk-mini-actions">
@@ -530,6 +560,19 @@ const slotMap = computed(() => {
 });
 
 const getSlot = (roomId, date, hour) => slotMap.value.get(`${roomId}:${date}:${hour}`) || null;
+const cancelledGoogleEvents = computed(() => {
+  const rows = Array.isArray(grid.value?.cancelledGoogleEvents) ? grid.value.cancelledGoogleEvents : [];
+  return rows.map((x) => {
+    const roomText = `${x?.roomNumber ? `#${x.roomNumber} ` : ''}${x?.roomLabel || `Room ${x?.roomId || ''}`}`.trim();
+    const start = String(x?.startAt || '').replace('T', ' ').slice(0, 16);
+    const end = String(x?.endAt || '').replace('T', ' ').slice(11, 16);
+    return {
+      ...x,
+      roomText,
+      when: start && end ? `${start} - ${end}` : (start || '')
+    };
+  });
+});
 
 const isAvailableState = (state) => {
   const s = String(state || '');
@@ -830,6 +873,7 @@ const nextRoom = () => {
 const showModal = ref(false);
 const modalSlot = ref(null);
 const saving = ref(false);
+const deletingGoogleEventIds = ref([]);
 const successToast = ref('');
 let successToastTimer = null;
 const bookFreq = ref('');
@@ -935,6 +979,23 @@ const setSuccessToast = (message) => {
   successToastTimer = setTimeout(() => {
     successToast.value = '';
   }, 2600);
+};
+
+const deleteFromGoogleNow = async (eventId) => {
+  const eid = Number(eventId || 0);
+  if (!officeId.value || !eid) return;
+  if (deletingGoogleEventIds.value.includes(eid)) return;
+  try {
+    deletingGoogleEventIds.value = [...deletingGoogleEventIds.value, eid];
+    error.value = '';
+    await api.post(`/office-slots/${officeId.value}/events/${eid}/google-delete-now`, {});
+    setSuccessToast('Google event cleanup requested.');
+    await loadGrid();
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || 'Failed to delete event from Google';
+  } finally {
+    deletingGoogleEventIds.value = deletingGoogleEventIds.value.filter((id) => id !== eid);
+  }
 };
 
 const onSlotClick = (roomId, date, hour) => {
@@ -1607,6 +1668,36 @@ input[type='date'] {
 .dot.intake-ip { background: #f59e0b; box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.24); }
 .dot.intake-v { background: #10b981; box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.2); }
 .dot.own-slot { background: #7c3aed; box-shadow: 0 0 0 4px rgba(124, 58, 237, 0.2); }
+.cancelled-google-card {
+  margin-bottom: 12px;
+  border: 1px solid rgba(245, 158, 11, 0.42);
+  border-radius: 12px;
+  padding: 10px;
+  background: rgba(255, 247, 237, 0.72);
+}
+.cancelled-google-title {
+  font-weight: 900;
+  color: #92400e;
+  margin-bottom: 6px;
+}
+.cancelled-google-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cancelled-google-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid rgba(245, 158, 11, 0.28);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.68);
+}
+.cancelled-google-meta {
+  font-size: 12px;
+  color: #7c2d12;
+}
 
 .room-card {
   background: linear-gradient(160deg, rgba(255, 255, 255, 0.87), rgba(255, 255, 255, 0.68));

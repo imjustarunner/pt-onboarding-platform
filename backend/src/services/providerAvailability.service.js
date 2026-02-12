@@ -9,6 +9,15 @@ import { mergeIntervals, subtractInterval, subtractIntervals, slotizeIntervals }
 
 const DAY_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
+function localYmd(dateLike) {
+  const d = new Date(dateLike);
+  if (Number.isNaN(d.getTime())) return null;
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 function isValidYmd(s) {
   return /^\d{4}-\d{2}-\d{2}$/.test(String(s || '').slice(0, 10));
 }
@@ -19,13 +28,13 @@ function startOfWeekMondayYmd(dateStr) {
   const day = d.getDay(); // 0=Sun..6=Sat
   const diff = (day === 0 ? -6 : 1) - day; // shift to Monday
   d.setDate(d.getDate() + diff);
-  return d.toISOString().slice(0, 10);
+  return localYmd(d);
 }
 
 function addDaysYmd(ymd, days) {
   const d = new Date(`${String(ymd).slice(0, 10)}T00:00:00`);
   d.setDate(d.getDate() + Number(days || 0));
-  return d.toISOString().slice(0, 10);
+  return localYmd(d);
 }
 
 function dayIndex(dayOfWeek) {

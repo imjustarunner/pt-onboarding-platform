@@ -157,6 +157,7 @@ const showGoogleEvents = ref(false);
 const loading = ref(false);
 const error = ref('');
 const summariesByUserId = ref({}); // uid -> schedule-summary
+const loadGeneration = ref(0);
 
 const stableColorForId = (id) => {
   const n = Number(id || 0);
@@ -180,12 +181,20 @@ const initialsForUser = (uid) => {
 };
 
 const load = async () => {
+  const generation = loadGeneration.value + 1;
+  loadGeneration.value = generation;
   const agencyIds = effectiveAgencyIds.value;
   const ids = (props.userIds || []).map((x) => Number(x)).filter(Boolean);
   if (!agencyIds.length || !ids.length) {
+    if (generation !== loadGeneration.value) return;
     summariesByUserId.value = {};
     return;
   }
+  const keep = {};
+  for (const uid of ids) {
+    if (summariesByUserId.value?.[uid]) keep[uid] = summariesByUserId.value[uid];
+  }
+  summariesByUserId.value = keep;
   try {
     loading.value = true;
     error.value = '';
@@ -258,10 +267,12 @@ const load = async () => {
     for (const r of results) {
       if (r.ok && r.data) next[r.uid] = r.data;
     }
+    if (generation !== loadGeneration.value) return;
     summariesByUserId.value = next;
     const errs = results.filter((r) => !r.ok).slice(0, 2).map((r) => `${props.userLabelById?.[r.uid] || `User ${r.uid}`}: ${r.error}`);
     error.value = errs.length ? errs.join(' • ') : '';
   } finally {
+    if (generation !== loadGeneration.value) return;
     loading.value = false;
   }
 };
