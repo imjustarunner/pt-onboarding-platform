@@ -301,9 +301,24 @@
             <div class="section-title">Intake availability</div>
             <div class="muted" style="margin-bottom: 8px;">
               In-person intake:
-              <strong>{{ modalInPersonIntakeEnabled ? 'Enabled' : 'Not enabled for this slot state' }}</strong>
-              <span v-if="isAssignedUnbooked"> (assigned/open in office)</span>
-              <span v-else> (booked room slot)</span>
+              <strong>{{ modalInPersonIntakeEnabled ? 'Enabled' : 'Disabled' }}</strong>
+              <span> (this hour only)</span>
+            </div>
+            <div class="row" style="margin-bottom: 8px;">
+              <button
+                class="btn btn-secondary"
+                @click="enableInPersonIntake"
+                :disabled="saving || !canToggleInPersonIntake || modalInPersonIntakeEnabled"
+              >
+                Enable in-person intake
+              </button>
+              <button
+                class="btn btn-secondary"
+                @click="disableInPersonIntake"
+                :disabled="saving || !canToggleInPersonIntake || !modalInPersonIntakeEnabled"
+              >
+                Disable in-person intake
+              </button>
             </div>
             <div class="muted" style="margin: 8px 0 6px;">
               Virtual intake (this hour only):
@@ -563,8 +578,7 @@ const slotHasVirtualIntake = (roomId, date, hour) => {
 };
 const slotHasInPersonIntake = (roomId, date, hour) => {
   const s = getSlot(roomId, date, hour);
-  const state = String(s?.state || '');
-  return state === 'assigned_available' || state === 'assigned_temporary';
+  return Boolean(s?.inPersonIntakeEnabled);
 };
 const isOwnProviderSlot = (roomId, date, hour) => {
   const s = getSlot(roomId, date, hour);
@@ -1129,8 +1143,9 @@ const isAssignedUnbooked = computed(() => {
 });
 const isModalBooked = computed(() => String(modalSlot.value?.state || '') === 'assigned_booked');
 const modalVirtualIntakeEnabled = computed(() => Boolean(modalSlot.value?.virtualIntakeEnabled));
-const modalInPersonIntakeEnabled = computed(() => isAssignedUnbooked.value);
+const modalInPersonIntakeEnabled = computed(() => Boolean(modalSlot.value?.inPersonIntakeEnabled));
 const canToggleVirtualIntake = computed(() => canSelfManageModalSlot.value && Boolean(modalSlot.value?.eventId));
+const canToggleInPersonIntake = computed(() => canSelfManageModalSlot.value && Boolean(modalSlot.value?.eventId));
 
 const refreshModalSlotFromGrid = () => {
   const s = modalSlot.value;
@@ -1324,6 +1339,42 @@ const enableVirtualIntake = async () => {
     refreshModalSlotFromGrid();
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to enable virtual intake';
+  } finally {
+    saving.value = false;
+  }
+};
+
+const enableInPersonIntake = async () => {
+  if (!officeId.value || !modalSlot.value?.eventId) return;
+  try {
+    saving.value = true;
+    error.value = '';
+    await api.post(`/office-slots/${officeId.value}/events/${modalSlot.value.eventId}/in-person-intake`, {
+      enabled: true
+    });
+    setSuccessToast('In-person intake enabled for this slot.');
+    await loadGrid();
+    refreshModalSlotFromGrid();
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to enable in-person intake';
+  } finally {
+    saving.value = false;
+  }
+};
+
+const disableInPersonIntake = async () => {
+  if (!officeId.value || !modalSlot.value?.eventId) return;
+  try {
+    saving.value = true;
+    error.value = '';
+    await api.post(`/office-slots/${officeId.value}/events/${modalSlot.value.eventId}/in-person-intake`, {
+      enabled: false
+    });
+    setSuccessToast('In-person intake disabled for this slot.');
+    await loadGrid();
+    refreshModalSlotFromGrid();
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to disable in-person intake';
   } finally {
     saving.value = false;
   }

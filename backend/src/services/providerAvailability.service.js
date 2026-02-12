@@ -247,32 +247,7 @@ export class ProviderAvailabilityService {
     const officeBase = [];
     const officeReservedBusy = [];
     const officeBookedBusy = [];
-    try {
-      const [rows] = await pool.execute(
-        `SELECT
-           e.id,
-           e.start_at,
-           e.end_at,
-           e.status,
-           e.slot_state,
-           ol.timezone AS building_timezone,
-           ol.name AS building_name,
-           e.office_location_id,
-           e.room_id,
-           r.room_number,
-           r.label AS room_label,
-           r.name AS room_name
-         FROM office_events e
-         JOIN office_rooms r ON r.id = e.room_id
-         JOIN office_locations ol ON ol.id = e.office_location_id
-         JOIN office_location_agencies ola ON ola.office_location_id = ol.id AND ola.agency_id = ?
-         WHERE (e.assigned_provider_id = ? OR e.booked_provider_id = ?)
-           AND e.start_at < ?
-           AND e.end_at > ?
-           AND (e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')
-         ORDER BY e.start_at ASC`,
-        [aid, pid, pid, `${weekEnd} 00:00:00`, `${weekStart} 00:00:00`]
-      );
+    const pushOfficeRows = (rows, legacyNoToggle = false) => {
       for (const r of rows || []) {
         const st = parseMySqlDateTime(r.start_at);
         const en = parseMySqlDateTime(r.end_at);
@@ -298,15 +273,81 @@ export class ProviderAvailabilityService {
         // Any office reservation means provider is not virtually available during that time.
         officeReservedBusy.push({ start: s, end: e });
 
-        if (slotState === 'ASSIGNED_AVAILABLE' || slotState === 'ASSIGNED_TEMPORARY') {
+        const inPersonIntakeEnabled = legacyNoToggle ? true : Number(r.in_person_intake_enabled || 0) === 1;
+        if ((slotState === 'ASSIGNED_AVAILABLE' || slotState === 'ASSIGNED_TEMPORARY') && (!intakeOnlyFlag || inPersonIntakeEnabled)) {
           officeBase.push({ start: s, end: e, meta });
         }
         if (slotState === 'ASSIGNED_BOOKED' || status === 'BOOKED') {
           officeBookedBusy.push({ start: s, end: e });
         }
       }
+    };
+    try {
+      const [rows] = await pool.execute(
+        `SELECT
+           e.id,
+           e.start_at,
+           e.end_at,
+           e.status,
+           e.slot_state,
+           EXISTS(
+             SELECT 1
+             FROM provider_in_person_slot_availability ip
+             WHERE ip.agency_id = ?
+               AND ip.provider_id = ?
+               AND ip.start_at = e.start_at
+               AND ip.end_at = e.end_at
+               AND ip.is_active = TRUE
+           ) AS in_person_intake_enabled,
+           ol.timezone AS building_timezone,
+           ol.name AS building_name,
+           e.office_location_id,
+           e.room_id,
+           r.room_number,
+           r.label AS room_label,
+           r.name AS room_name
+         FROM office_events e
+         JOIN office_rooms r ON r.id = e.room_id
+         JOIN office_locations ol ON ol.id = e.office_location_id
+         JOIN office_location_agencies ola ON ola.office_location_id = ol.id AND ola.agency_id = ?
+         WHERE (e.assigned_provider_id = ? OR e.booked_provider_id = ?)
+           AND e.start_at < ?
+           AND e.end_at > ?
+           AND (e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')
+         ORDER BY e.start_at ASC`,
+        [aid, pid, aid, pid, pid, `${weekEnd} 00:00:00`, `${weekStart} 00:00:00`]
+      );
+      pushOfficeRows(rows, false);
     } catch (e) {
       if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+      const [fallbackRows] = await pool.execute(
+        `SELECT
+           e.id,
+           e.start_at,
+           e.end_at,
+           e.status,
+           e.slot_state,
+           ol.timezone AS building_timezone,
+           ol.name AS building_name,
+           e.office_location_id,
+           e.room_id,
+           r.room_number,
+           r.label AS room_label,
+           r.name AS room_name
+         FROM office_events e
+         JOIN office_rooms r ON r.id = e.room_id
+         JOIN office_locations ol ON ol.id = e.office_location_id
+         JOIN office_location_agencies ola ON ola.office_location_id = ol.id AND ola.agency_id = ?
+         WHERE (e.assigned_provider_id = ? OR e.booked_provider_id = ?)
+           AND e.start_at < ?
+           AND e.end_at > ?
+           AND (e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')
+         ORDER BY e.start_at ASC`,
+        [aid, pid, pid, `${weekEnd} 00:00:00`, `${weekStart} 00:00:00`]
+      );
+      // Legacy fallback when intake-toggle table does not exist yet:
+      // keep prior behavior by treating in-person intake as enabled for assigned-available slots.
+      pushOfficeRows(fallbackRows, true);
     }
 
     // 3b) Slot-level virtual overrides (event-driven toggles from Building Schedule)

@@ -10,6 +10,7 @@ import {
   setEventBookingPlan,
   setEventRecurrence,
   setEventVirtualIntakeAvailability,
+  setEventInPersonIntakeAvailability,
   forfeitEvent,
   cancelEvent,
   cancelAssignment,
@@ -29,6 +30,7 @@ router.post('/:officeId/assignments/:assignmentId/temporary', setTemporary);
 router.post('/:officeId/assignments/:assignmentId/forfeit', forfeitAssignment);
 router.post('/:officeId/events/:eventId/book', staffBookEvent);
 router.post('/:officeId/events/:eventId/virtual-intake', setEventVirtualIntakeAvailability);
+router.post('/:officeId/events/:eventId/in-person-intake', setEventInPersonIntakeAvailability);
 router.post('/:officeId/events/:eventId/forfeit', forfeitEvent);
 router.post('/:officeId/events/:eventId/cancel', cancelEvent);
 router.post('/:officeId/assignments/:assignmentId/cancel', cancelAssignment);

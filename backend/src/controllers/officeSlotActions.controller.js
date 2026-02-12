@@ -6,6 +6,7 @@ import OfficeEvent from '../models/OfficeEvent.model.js';
 import OfficeRoom from '../models/OfficeRoom.model.js';
 import OfficeRoomAssignment from '../models/OfficeRoomAssignment.model.js';
 import ProviderVirtualSlotAvailability from '../models/ProviderVirtualSlotAvailability.model.js';
+import ProviderInPersonSlotAvailability from '../models/ProviderInPersonSlotAvailability.model.js';
 import User from '../models/User.model.js';
 import GoogleCalendarService from '../services/googleCalendar.service.js';
 import pool from '../config/database.js';
@@ -462,6 +463,81 @@ export const setEventVirtualIntakeAvailability = async (req, res, next) => {
   } catch (e) {
     if (e?.code === 'ER_NO_SUCH_TABLE') {
       return res.status(409).json({ error: { message: 'Virtual slot overrides are not available yet. Run database migrations.' } });
+    }
+    next(e);
+  }
+};
+
+export const setEventInPersonIntakeAvailability = async (req, res, next) => {
+  try {
+    const { officeId, eventId } = req.params;
+    const officeLocationId = parseInt(officeId, 10);
+    const eid = parseInt(eventId, 10);
+    if (!officeLocationId || !eid) return res.status(400).json({ error: { message: 'Invalid ids' } });
+
+    const ok = await requireOfficeAccess(req, officeLocationId);
+    if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const ev = await OfficeEvent.findById(eid);
+    if (!ev || Number(ev.office_location_id) !== Number(officeLocationId)) {
+      return res.status(404).json({ error: { message: 'Event not found' } });
+    }
+    const providerId = Number(ev.assigned_provider_id || ev.booked_provider_id || 0) || null;
+    if (!providerId) return res.status(400).json({ error: { message: 'Event is missing assigned provider' } });
+
+    const isOwner = Number(req.user?.id || 0) === providerId;
+    if (!isOwner && !canManageSchedule(req.user?.role)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const enabled = req.body?.enabled !== false && String(req.body?.enabled || '').toLowerCase() !== 'false';
+    const startAt = mysqlDateTimeFromValue(ev.start_at);
+    const endAt = mysqlDateTimeFromValue(ev.end_at);
+    if (!startAt || !endAt) return res.status(400).json({ error: { message: 'Event is missing start/end time' } });
+
+    const agencyId = await resolveAgencyForProviderOffice({
+      providerId,
+      officeLocationId,
+      preferredAgencyId: req.user?.agencyId || null
+    });
+    if (!agencyId) {
+      return res.status(400).json({ error: { message: 'Unable to resolve agency for provider/office' } });
+    }
+
+    if (enabled) {
+      await ProviderInPersonSlotAvailability.upsertSlot({
+        agencyId,
+        providerId,
+        officeLocationId,
+        roomId: Number(ev.room_id || 0) || null,
+        startAt,
+        endAt,
+        source: 'OFFICE_EVENT',
+        sourceEventId: ev.id,
+        createdByUserId: req.user.id
+      });
+    } else {
+      const wasActive = await ProviderInPersonSlotAvailability.isActiveSlot({
+        agencyId,
+        providerId,
+        startAt,
+        endAt
+      });
+      if (!wasActive) {
+        return res.status(409).json({ error: { message: 'In-person intake is not enabled for this slot.' } });
+      }
+      await ProviderInPersonSlotAvailability.deactivateSlot({
+        agencyId,
+        providerId,
+        startAt,
+        endAt
+      });
+    }
+
+    res.json({ ok: true, enabled, agencyId, providerId, startAt, endAt });
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE') {
+      return res.status(409).json({ error: { message: 'In-person intake slot overrides are not available yet. Run database migrations.' } });
     }
     next(e);
   }

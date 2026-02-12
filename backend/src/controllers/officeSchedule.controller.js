@@ -374,6 +374,27 @@ export const getWeeklyGrid = async (req, res, next) => {
     } catch (e) {
       if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
     }
+    const inPersonIntakeSlotKeys = new Set();
+    try {
+      const [inPersonRows] = await pool.execute(
+        `SELECT provider_id, start_at, end_at
+         FROM provider_in_person_slot_availability
+         WHERE office_location_id = ?
+           AND is_active = TRUE
+           AND start_at < ?
+           AND end_at > ?`,
+        [parseInt(locationId), windowEnd, windowStart]
+      );
+      for (const row of inPersonRows || []) {
+        const providerId = Number(row.provider_id || 0);
+        const startAt = normalizeMysqlDateTime(row.start_at);
+        const endAt = normalizeMysqlDateTime(row.end_at);
+        if (!providerId || !startAt || !endAt) continue;
+        inPersonIntakeSlotKeys.add(`${providerId}:${startAt}:${endAt}`);
+      }
+    } catch (e) {
+      if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+    }
 
     // Index events by room+date+hour (hourly grid; pick state with highest precedence)
     const key = (roomId, date, hour) => `${roomId}:${date}:${hour}`;
@@ -457,6 +478,13 @@ export const getWeeklyGrid = async (req, res, next) => {
               virtualIntakeSlotKeys.has(
                 `${Number(e.assigned_provider_id || e.booked_provider_id)}:${slotStartAt}:${slotEndAt}`
               );
+            const inPersonIntakeEnabled =
+              Boolean(e.assigned_provider_id || e.booked_provider_id) &&
+              Boolean(slotStartAt) &&
+              Boolean(slotEndAt) &&
+              inPersonIntakeSlotKeys.has(
+                `${Number(e.assigned_provider_id || e.booked_provider_id)}:${slotStartAt}:${slotEndAt}`
+              );
             slots.push({
               roomId: room.id,
               date,
@@ -472,7 +500,8 @@ export const getWeeklyGrid = async (req, res, next) => {
               bookedProviderId: e.booked_provider_id || null,
               assignedProviderName: assignedProviderName || null,
               bookedProviderName: bookedProviderName || null,
-              virtualIntakeEnabled
+              virtualIntakeEnabled,
+              inPersonIntakeEnabled
             });
             continue;
           }
@@ -508,6 +537,11 @@ export const getWeeklyGrid = async (req, res, next) => {
               Boolean(slotStartAt) &&
               Boolean(slotEndAt) &&
               virtualIntakeSlotKeys.has(`${Number(a.assigned_user_id)}:${slotStartAt}:${slotEndAt}`);
+            const inPersonIntakeEnabled =
+              Boolean(a.assigned_user_id) &&
+              Boolean(slotStartAt) &&
+              Boolean(slotEndAt) &&
+              inPersonIntakeSlotKeys.has(`${Number(a.assigned_user_id)}:${slotStartAt}:${slotEndAt}`);
             slots.push({
               roomId: room.id,
               date,
@@ -521,7 +555,8 @@ export const getWeeklyGrid = async (req, res, next) => {
               bookedProviderId: null,
               assignedProviderName: formatClinicianName(a.first_name, a.last_name) || null,
               bookedProviderName: null,
-              virtualIntakeEnabled
+              virtualIntakeEnabled,
+              inPersonIntakeEnabled
             });
             continue;
           }
@@ -538,7 +573,8 @@ export const getWeeklyGrid = async (req, res, next) => {
             bookedProviderId: null,
             assignedProviderName: null,
             bookedProviderName: null,
-            virtualIntakeEnabled: false
+            virtualIntakeEnabled: false,
+            inPersonIntakeEnabled: false
           });
         }
       }
