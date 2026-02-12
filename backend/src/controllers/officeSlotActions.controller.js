@@ -90,11 +90,13 @@ async function requireOfficeAccess(req, officeLocationId) {
   return await OfficeLocationAgency.userHasAccess({ officeLocationId, agencyIds: agencies.map((a) => a.id) });
 }
 
-async function resolveAgencyForProviderOffice({ providerId, officeLocationId }) {
+async function resolveAgencyForProviderOffice({ providerId, officeLocationId, preferredAgencyId = null }) {
   const providerAgencies = await User.getAgencies(providerId);
   const officeAgencies = await OfficeLocationAgency.listAgenciesForOffice(officeLocationId);
   const providerAgencyIds = new Set((providerAgencies || []).map((a) => Number(a.id)).filter((n) => Number.isInteger(n) && n > 0));
   const officeAgencyIds = (officeAgencies || []).map((a) => Number(a.id)).filter((n) => Number.isInteger(n) && n > 0);
+  const preferred = Number(preferredAgencyId || 0);
+  if (preferred && providerAgencyIds.has(preferred) && officeAgencyIds.includes(preferred)) return preferred;
   const match = officeAgencyIds.find((id) => providerAgencyIds.has(id));
   return match || officeAgencyIds[0] || null;
 }
@@ -410,7 +412,11 @@ export const setEventVirtualIntakeAvailability = async (req, res, next) => {
     const endAt = mysqlDateTimeFromValue(ev.end_at);
     if (!startAt || !endAt) return res.status(400).json({ error: { message: 'Event is missing start/end time' } });
 
-    const agencyId = await resolveAgencyForProviderOffice({ providerId, officeLocationId });
+    const agencyId = await resolveAgencyForProviderOffice({
+      providerId,
+      officeLocationId,
+      preferredAgencyId: req.user?.agencyId || null
+    });
     if (!agencyId) {
       return res.status(400).json({ error: { message: 'Unable to resolve agency for provider/office' } });
     }
@@ -547,8 +553,13 @@ export const setEventBookingPlan = async (req, res, next) => {
       activeUntilDate: recurringUntilDate,
       createdByUserId: req.user.id
     });
-
-    res.json({ ok: true, standingAssignment: assignment, bookingPlan: plan });
+    const bookedEvent = await OfficeEvent.markBooked({ eventId: eid, bookedProviderId: providerId });
+    try {
+      await GoogleCalendarService.upsertBookedOfficeEvent({ officeEventId: bookedEvent?.id || eid });
+    } catch {
+      // ignore mirror failures
+    }
+    res.json({ ok: true, standingAssignment: assignment, bookingPlan: plan, event: bookedEvent });
   } catch (e) {
     next(e);
   }
