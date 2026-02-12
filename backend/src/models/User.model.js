@@ -125,12 +125,12 @@ class User {
     }
     
     if (hasUsernameColumn) {
-      query += ' FROM users WHERE email = ? OR work_email = ? OR username = ?';
+      // Use LOWER(TRIM()) for case-insensitive matching; handles legacy data with different casing/whitespace
+      query += ' FROM users WHERE LOWER(TRIM(email)) = ? OR LOWER(TRIM(work_email)) = ? OR LOWER(TRIM(username)) = ?';
       const [rows] = await pool.execute(query, [normalized, normalized, normalized]);
       if (rows[0]) return rows[0];
     } else {
-      // Username column doesn't exist yet (migration not run)
-      query += ' FROM users WHERE email = ? OR work_email = ?';
+      query += ' FROM users WHERE LOWER(TRIM(email)) = ? OR LOWER(TRIM(work_email)) = ?';
       const [rows] = await pool.execute(query, [normalized, normalized]);
       if (rows[0]) return rows[0];
     }
@@ -183,9 +183,33 @@ class User {
       console.warn('Could not check for columns:', err.message);
     }
     
-    query += ' FROM users WHERE username = ?';
-    const [rows] = await pool.execute(query, [username]);
-    return rows[0] || null;
+    // Use LOWER(TRIM()) for case-insensitive matching; handles legacy data with different casing/whitespace
+    const normalized = String(username || '').trim().toLowerCase();
+    query += ' FROM users WHERE LOWER(TRIM(username)) = ?';
+    const [rows] = await pool.execute(query, [normalized]);
+    if (rows[0]) return rows[0];
+    // Fallback: user_login_emails when identifier looks like email (e.g. someone enters email in "username" field)
+    if (normalized.includes('@')) {
+      try {
+        const dbName = process.env.DB_NAME || 'onboarding_stage';
+        const [tables] = await pool.execute(
+          "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'user_login_emails' LIMIT 1",
+          [dbName]
+        );
+        if (tables?.length > 0) {
+          const UserLoginEmail = (await import('./UserLoginEmail.model.js')).default;
+          const userId = await UserLoginEmail.findUserIdByEmail(normalized);
+          if (userId) {
+            const select = query.split(' FROM users ')[0];
+            const [rows2] = await pool.execute(`${select} FROM users WHERE id = ? LIMIT 1`, [userId]);
+            return rows2[0] || null;
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+    return null;
   }
 
   static async findByWorkEmail(workEmail) {

@@ -43,8 +43,9 @@ class UserLoginEmail {
   static async findUserIdByEmail(email) {
     const normalized = this.normalizeEmail(email);
     if (!normalized) return null;
+    // Use LOWER(TRIM()) for case-insensitive matching; handles legacy data with different casing/whitespace
     const [rows] = await pool.execute(
-      `SELECT user_id FROM user_login_emails WHERE email = ? LIMIT 1`,
+      `SELECT user_id FROM user_login_emails WHERE LOWER(TRIM(email)) = ? LIMIT 1`,
       [normalized]
     );
     return rows?.[0]?.user_id || null;

@@ -61,30 +61,47 @@ const isDomainAllowedForOrg = ({ email, featureFlags }) => {
   if (!allowedDomains.length) return true;
   return !!domain && allowedDomains.includes(domain);
 };
-const isWorkspaceEligibleForSso = ({ user, identifier, featureFlags, identifierUsedToFindUser }) => {
+/** True if any login email in the list has a domain in the org's allowed list (or no allowlist). Used when identifier is username (no @). */
+const isAnyLoginEmailDomainAllowed = ({ loginEmails, featureFlags }) => {
+  const allowedDomains = Array.isArray(featureFlags?.googleSsoAllowedDomains)
+    ? featureFlags.googleSsoAllowedDomains.map((d) => String(d || '').trim().toLowerCase()).filter(Boolean)
+    : [];
+  if (!allowedDomains.length) return true;
+  const normalized = (Array.isArray(loginEmails) ? loginEmails : []).map((e) => String(e || '').trim().toLowerCase()).filter((e) => e && e.includes('@'));
+  return normalized.some((email) => {
+    const domain = email.split('@')[1] || '';
+    return !!domain && allowedDomains.includes(domain);
+  });
+};
+const isWorkspaceEligibleForSso = ({ user, identifier, featureFlags, identifierUsedToFindUser, loginIdentifiers }) => {
   const normalizedIdentifier = String(identifier || '').trim().toLowerCase();
   const userRole = String(user?.role || '').toLowerCase();
   const ssoPolicyRequired = isSsoPolicyRequiredForRole({ featureFlags, userRole });
   if (!ssoPolicyRequired || isSsoPasswordOverrideEnabled(user)) return false;
 
-  // Use the user's canonical workspace identity first; fall back to primary email for older records.
-  const workspaceEmail = String(user?.work_email || user?.email || '').trim().toLowerCase();
-  if (!workspaceEmail || !workspaceEmail.includes('@')) return false;
-
-  // If org configured domain allowlist, canonical workspace identity must satisfy it.
-  if (!isDomainAllowedForOrg({ email: workspaceEmail, featureFlags })) return false;
-
-  // Allow username-first identify to trigger Google when they entered a known primary identifier.
-  if (!normalizedIdentifier) return false;
-  const primaryIds = new Set([
+  // They must use a valid login identifier (email, work_email, username, login aliases). NOT personal_email.
+  const validIds = new Set([
     String(user?.email || '').trim().toLowerCase(),
     String(user?.work_email || '').trim().toLowerCase(),
     String(user?.username || '').trim().toLowerCase(),
-    // Include identifier used to find user (e.g. from user_login_emails / Login Email) so users
-    // with login email aliases get Google SSO when they enter their correct login email.
-    ...(identifierUsedToFindUser ? [String(identifierUsedToFindUser).trim().toLowerCase()] : [])
+    ...(identifierUsedToFindUser ? [String(identifierUsedToFindUser).trim().toLowerCase()] : []),
+    ...(loginIdentifiers || []).map((e) => String(e || '').trim().toLowerCase())
   ].filter(Boolean));
-  return primaryIds.has(normalizedIdentifier);
+  if (!validIds.has(normalizedIdentifier)) return false;
+
+  // Domain check: the identifier they entered must match allowed domain. Prevents SSO with personal@gmail.com etc.
+  if (normalizedIdentifier.includes('@')) {
+    if (!isDomainAllowedForOrg({ email: normalizedIdentifier, featureFlags })) return false;
+  } else {
+    // Username (no @): check if their login emails have an allowed domain; personal_email is excluded.
+    const loginEmails = [
+      user?.email,
+      user?.work_email,
+      ...(loginIdentifiers || []).filter((e) => e && String(e).includes('@'))
+    ].filter(Boolean);
+    if (!isAnyLoginEmailDomainAllowed({ loginEmails, featureFlags })) return false;
+  }
+  return true;
 };
 
 export const approvedEmployeeLogin = async (req, res, next) => {
@@ -607,6 +624,13 @@ export const identifyLogin = async (req, res, next) => {
     try {
       user = await User.findByEmail(normalizedUsername);
       if (!user) user = await User.findByUsername(normalizedUsername);
+      // Explicit fallback: user_login_emails (Login Email aliases) when users table has no match.
+      // Covers cases where Login Email is stored only in user_login_emails or findByEmail's internal fallback fails.
+      if (!user && normalizedUsername.includes('@')) {
+        const UserLoginEmail = (await import('../models/UserLoginEmail.model.js')).default;
+        const userId = await UserLoginEmail.findUserIdByEmail(normalizedUsername);
+        if (userId) user = await User.findById(userId);
+      }
     } catch {
       user = null;
     }
@@ -831,7 +855,21 @@ export const identifyLogin = async (req, res, next) => {
       try {
         const org = (await Agency.findBySlug(resolvedSlug)) || (await Agency.findByPortalUrl(resolvedSlug));
         const flags = parseFeatureFlags(org?.feature_flags ?? null);
-        if (isWorkspaceEligibleForSso({ user, identifier: normalizedUsername, featureFlags: flags, identifierUsedToFindUser: normalizedUsername })) {
+        // Login identifiers only (email, work_email, login aliases). NOT personal_email.
+        const loginIdentifiers = [
+          user?.email,
+          user?.work_email,
+          ...(await (async () => {
+            try {
+              const UserLoginEmail = (await import('../models/UserLoginEmail.model.js')).default;
+              const aliases = await UserLoginEmail.listForUser(user.id);
+              return (aliases || []).map((r) => r?.email).filter(Boolean);
+            } catch {
+              return [];
+            }
+          })())
+        ].filter(Boolean);
+        if (isWorkspaceEligibleForSso({ user, identifier: normalizedUsername, featureFlags: flags, identifierUsedToFindUser: normalizedUsername, loginIdentifiers })) {
           loginMethod = 'google';
           googleStartUrl = `/auth/google/start?orgSlug=${encodeURIComponent(resolvedSlug)}`;
         }
