@@ -84,9 +84,15 @@
               <div class="rail-card-title">Documents</div>
               <div class="rail-card-sub">Forms and signatures</div>
             </button>
-            <button type="button" class="rail-card" :class="{ active: activePanel === 'billing' }" @click="activePanel = 'billing'">
+            <button
+              v-if="learningBillingVisible"
+              type="button"
+              class="rail-card"
+              :class="{ active: activePanel === 'billing' }"
+              @click="activePanel = 'billing'"
+            >
               <div class="rail-card-title">Billing</div>
-              <div class="rail-card-sub">Coming soon</div>
+              <div class="rail-card-sub">Learning program charges</div>
             </button>
             <button type="button" class="rail-card" :class="{ active: activePanel === 'messages' }" @click="activePanel = 'messages'">
               <div class="rail-card-title">Messages</div>
@@ -198,6 +204,17 @@
               </div>
             </template>
 
+            <template v-else-if="activePanel === 'billing'">
+              <div class="panel-head">
+                <div class="panel-title">Billing</div>
+                <div class="panel-subtitle">Learning-program-only billing for the selected child.</div>
+              </div>
+              <GuardianBillingTab
+                :agency-id="currentAgencyId"
+                :client-id="selectedChildId"
+              />
+            </template>
+
             <template v-else>
               <div class="panel-head">
                 <div class="panel-title">{{ panelTitle }}</div>
@@ -236,6 +253,7 @@ import api from '../../services/api';
 import TrainingFocusTab from '../../components/dashboard/TrainingFocusTab.vue';
 import DocumentsTab from '../../components/dashboard/DocumentsTab.vue';
 import GuardianProgramSelector from '../../components/GuardianProgramSelector.vue';
+import GuardianBillingTab from '../../components/guardian/GuardianBillingTab.vue';
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
@@ -280,6 +298,13 @@ const formatOrgType = (t) => {
 
 const programs = computed(() => Array.isArray(overview.value?.programs) ? overview.value.programs : []);
 const children = computed(() => Array.isArray(overview.value?.children) ? overview.value.children : []);
+const currentAgencyId = computed(() => Number(agencyStore.currentAgency?.id || 0) || null);
+const learningBillingVisible = computed(() => {
+  const orgType = String(agencyStore.currentAgency?.organization_type || '').toLowerCase();
+  if (orgType !== 'learning') return false;
+  const flags = agencyStore.currentAgency?.feature_flags || agencyStore.currentAgency?.featureFlags || {};
+  return Boolean(flags?.learningProgramBillingEnabled === true);
+});
 
 const selectedChild = computed(() => {
   const id = Number(selectedChildId.value);
@@ -380,7 +405,7 @@ const refreshAll = async () => {
 
 const openChild = (c) => {
   selectedChildId.value = Number(c?.client_id) || null;
-  activePanel.value = 'child';
+  activePanel.value = learningBillingVisible.value ? 'billing' : 'child';
 };
 
 const openComingSoon = (key) => {

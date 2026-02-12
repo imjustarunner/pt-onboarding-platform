@@ -7,6 +7,7 @@ import {
   listLocationProviders,
   getAvailability,
   getWeeklyGrid,
+  refreshEhrAssignedRoomBookings,
   createOfficeBookingRequest,
   listPendingOfficeBookingRequests,
   approveOfficeBookingRequest,
@@ -36,6 +37,7 @@ router.get('/locations/:locationId/rooms', listRooms);
 router.get('/locations/:locationId/providers', listLocationProviders);
 router.get('/locations/:locationId/availability', getAvailability);
 router.get('/locations/:locationId/weekly-grid', getWeeklyGrid);
+router.post('/locations/:locationId/refresh-ehr-assigned-bookings', refreshEhrAssignedRoomBookings);
 
 // User booking request
 router.post('/requests', createBookingRequest);

@@ -16,6 +16,15 @@
         <button class="btn btn-secondary" @click="toggleWeekStartMode" :disabled="loading || !officeId">
           Week starts: {{ weekStartMode === 'MONDAY' ? 'Monday' : 'Sunday' }}
         </button>
+        <button
+          v-if="canManageSchedule"
+          class="btn btn-secondary"
+          type="button"
+          @click="refreshEhrAssignedBookings"
+          :disabled="refreshingEhrBookings || !officeId"
+        >
+          {{ refreshingEhrBookings ? 'Refreshing EHR…' : 'Refresh EHR/Assigned booking' }}
+        </button>
         <button class="btn btn-secondary" @click="loadGrid" :disabled="loading || !officeId">Refresh</button>
       </div>
     </div>
@@ -248,6 +257,7 @@
               @click="onSlotClick(room.id, d, h)"
             >
               <span class="initials">{{ slotInitials(room.id, d, h) }}</span>
+              <span v-if="slotHasLearningLink(room.id, d, h)" class="lp-pill" title="Linked learning billing session">LP</span>
               <span v-if="slotHasInPersonIntake(room.id, d, h)" class="ip-pill" title="In-person intake enabled">IP</span>
               <span v-if="slotHasVirtualIntake(room.id, d, h)" class="vi-pill" title="Virtual intake enabled">VI</span>
             </div>
@@ -486,6 +496,42 @@
               </button>
             </div>
             <div class="muted" style="margin: 14px 0 6px;">
+              Link this booked office event to a learning billing session.
+            </div>
+            <div class="row">
+              <label style="font-weight: 700;">Client</label>
+              <select v-model.number="selectedLearningClientId" class="select" :disabled="saving || creatingLearningSession || !learningClients.length">
+                <option :value="0">Select client…</option>
+                <option v-for="c in learningClients" :key="`lcli-${c.id}`" :value="Number(c.id)">
+                  {{ c.label }}
+                </option>
+              </select>
+              <label style="font-weight: 700;">Service</label>
+              <select v-model.number="selectedLearningServiceId" class="select" :disabled="saving || creatingLearningSession || !learningServices.length">
+                <option :value="0">Optional service…</option>
+                <option v-for="s in learningServices" :key="`lsvc-${s.id}`" :value="Number(s.id)">
+                  {{ s.name }}
+                </option>
+              </select>
+              <label style="font-weight: 700;">Payment mode</label>
+              <select v-model="learningPaymentMode" class="select" :disabled="saving || creatingLearningSession">
+                <option value="PAY_PER_EVENT">Pay per event</option>
+                <option value="TOKEN">Token</option>
+                <option value="SUBSCRIPTION">Subscription</option>
+              </select>
+              <button
+                class="btn btn-secondary"
+                type="button"
+                @click="createLearningSessionFromModal"
+                :disabled="!canCreateLearningSession"
+              >
+                {{ creatingLearningSession ? 'Linking…' : (modalSlot?.learningLinked ? 'Re-link check' : 'Create learning session + charge') }}
+              </button>
+            </div>
+            <div class="muted" v-if="modalSlot?.learningLinked">
+              This slot is already linked to learning session #{{ modalSlot?.learningSessionId || '?' }}.
+            </div>
+            <div class="muted" style="margin: 14px 0 6px;">
               Remove from schedule.
             </div>
             <div class="row">
@@ -508,8 +554,8 @@
               </button>
             </div>
             <div class="row" v-if="isSuperAdmin" style="margin-top: 10px;">
-              <button class="btn btn-danger" @click="purgeFutureBookedSlot" :disabled="saving || !modalSlot?.eventId">
-                Purge future booked (provider + slot)
+              <button class="btn btn-danger" type="button" @click="purgeFutureBookedSlot" :disabled="purgingFuture || !modalSlot?.eventId">
+                {{ purgingFuture ? 'Purging…' : 'Purge future booked (provider + slot)' }}
               </button>
               <div class="muted">Emergency cleanup for this provider + room + day/time from this date forward.</div>
             </div>
@@ -539,6 +585,7 @@ const officeId = computed(() => (typeof route.query.officeId === 'string' ? rout
 const currentAgencyId = computed(() => Number(agencyStore.currentAgency?.id || 0) || null);
 
 const loading = ref(false);
+const refreshingEhrBookings = ref(false);
 const error = ref('');
 const grid = ref(null);
 const weekStart = ref(new Date().toISOString().slice(0, 10));
@@ -648,6 +695,10 @@ const slotTitle = (roomId, date, hour) => {
 const slotHasVirtualIntake = (roomId, date, hour) => {
   const s = getSlot(roomId, date, hour);
   return Boolean(s?.virtualIntakeEnabled);
+};
+const slotHasLearningLink = (roomId, date, hour) => {
+  const s = getSlot(roomId, date, hour);
+  return Boolean(s?.learningLinked);
 };
 const slotHasInPersonIntake = (roomId, date, hour) => {
   const s = getSlot(roomId, date, hour);
@@ -762,6 +813,23 @@ const loadGrid = async () => {
     error.value = e.response?.data?.error?.message || 'Failed to load weekly grid';
   } finally {
     loading.value = false;
+  }
+};
+
+const refreshEhrAssignedBookings = async () => {
+  if (!officeId.value) return;
+  try {
+    refreshingEhrBookings.value = true;
+    error.value = '';
+    const resp = await api.post(`/office-schedule/locations/${officeId.value}/refresh-ehr-assigned-bookings`, {});
+    const booked = Number(resp?.data?.bookedFromEhr || 0);
+    const scanned = Number(resp?.data?.scannedAssigned || 0);
+    setSuccessToast(`EHR refresh complete: ${booked} booked from ${scanned} assigned slot${scanned === 1 ? '' : 's'}.`);
+    await loadGrid();
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to refresh EHR/assigned room booking';
+  } finally {
+    refreshingEhrBookings.value = false;
   }
 };
 
@@ -942,6 +1010,7 @@ const nextRoom = () => {
 const showModal = ref(false);
 const modalSlot = ref(null);
 const saving = ref(false);
+const purgingFuture = ref(false);
 const deletingGoogleEventIds = ref([]);
 const successToast = ref('');
 let successToastTimer = null;
@@ -956,6 +1025,12 @@ const forfeitScope = ref('occurrence');
 
 const providers = ref([]);
 const selectedProviderId = ref(0);
+const learningClients = ref([]);
+const learningServices = ref([]);
+const selectedLearningClientId = ref(0);
+const selectedLearningServiceId = ref(0);
+const learningPaymentMode = ref('PAY_PER_EVENT');
+const creatingLearningSession = ref(false);
 const assignEndHour = ref(8);
 const assignRecurrenceFreq = ref('ONCE');
 const assignTemporary4Weeks = ref(false);
@@ -1019,6 +1094,36 @@ const loadProviders = async () => {
   }
 };
 
+const loadLearningBillingOptions = async () => {
+  const aid = Number(currentAgencyId.value || 0);
+  if (!aid || !canManageSchedule.value) {
+    learningClients.value = [];
+    learningServices.value = [];
+    return;
+  }
+  try {
+    const [clientsResp, servicesResp] = await Promise.all([
+      api.get('/clients', { params: { agency_id: aid } }),
+      api.get('/learning-billing/services', { params: { agencyId: aid } })
+    ]);
+    const rawClients = Array.isArray(clientsResp?.data) ? clientsResp.data : [];
+    const rawServices = Array.isArray(servicesResp?.data?.services) ? servicesResp.data.services : [];
+    learningClients.value = rawClients
+      .map((c) => ({
+        id: Number(c.id || 0),
+        label: String(c.full_name || c.initials || `Client ${c.id}`)
+      }))
+      .filter((c) => c.id > 0)
+      .sort((a, b) => a.label.localeCompare(b.label));
+    learningServices.value = rawServices
+      .map((s) => ({ id: Number(s.id || 0), name: String(s.name || '').trim() || `Service ${s.id}` }))
+      .filter((s) => s.id > 0);
+  } catch {
+    learningServices.value = [];
+    learningClients.value = [];
+  }
+};
+
 const closeModal = () => {
   showModal.value = false;
   modalSlot.value = null;
@@ -1036,6 +1141,10 @@ const closeModal = () => {
   assignRecurringUntilDate.value = '';
   assignWeekdays.value = [];
   editRecurrenceUntil.value = '';
+  selectedLearningClientId.value = 0;
+  selectedLearningServiceId.value = 0;
+  learningPaymentMode.value = 'PAY_PER_EVENT';
+  creatingLearningSession.value = false;
 };
 
 const clearSelection = () => {
@@ -1094,6 +1203,7 @@ const onSlotClick = (roomId, date, hour) => {
   const clickedWeekday = weekdayFromYmd(String(date || ''));
   assignWeekdays.value = Number.isInteger(clickedWeekday) ? [clickedWeekday] : [];
   void loadProviders();
+  void loadLearningBillingOptions();
 };
 
 const dragSelectionKeys = (anchor, current) => {
@@ -1287,6 +1397,13 @@ const modalVirtualIntakeEnabled = computed(() => Boolean(modalSlot.value?.virtua
 const modalInPersonIntakeEnabled = computed(() => Boolean(modalSlot.value?.inPersonIntakeEnabled));
 const canToggleVirtualIntake = computed(() => canSelfManageModalSlot.value && Boolean(modalSlot.value?.eventId));
 const canToggleInPersonIntake = computed(() => canSelfManageModalSlot.value && Boolean(modalSlot.value?.eventId));
+const canCreateLearningSession = computed(() => {
+  if (saving.value || creatingLearningSession.value) return false;
+  if (!canManageSchedule.value) return false;
+  if (!modalSlot.value?.eventId) return false;
+  if (String(modalSlot.value?.state || '') !== 'assigned_booked') return false;
+  return Number(selectedLearningClientId.value || 0) > 0;
+});
 
 const refreshModalSlotFromGrid = () => {
   const s = modalSlot.value;
@@ -1546,6 +1663,42 @@ const disableVirtualIntake = async () => {
   }
 };
 
+const createLearningSessionFromModal = async () => {
+  const aid = Number(currentAgencyId.value || 0);
+  const eventId = Number(modalSlot.value?.eventId || 0);
+  const clientId = Number(selectedLearningClientId.value || 0);
+  if (!aid || !eventId || !clientId) return;
+  try {
+    creatingLearningSession.value = true;
+    error.value = '';
+    const payload = {
+      agencyId: aid,
+      officeEventId: eventId,
+      clientId,
+      paymentMode: String(learningPaymentMode.value || 'PAY_PER_EVENT').toUpperCase()
+    };
+    const serviceId = Number(selectedLearningServiceId.value || 0);
+    if (serviceId > 0) payload.learningServiceId = serviceId;
+    payload.sourceTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Denver';
+    const resp = await api.post('/learning-billing/sessions/from-office-event', payload);
+    const covered = Boolean(resp?.data?.coverage?.covered);
+    const mode = String(resp?.data?.coverage?.mode || payload.paymentMode).toUpperCase();
+    if (covered && mode === 'TOKEN') {
+      setSuccessToast('Learning session linked and covered by token.');
+    } else if (covered && mode === 'SUBSCRIPTION') {
+      setSuccessToast('Learning session linked and covered by active subscription.');
+    } else {
+      setSuccessToast('Learning session linked and pending charge created.');
+    }
+    await loadGrid();
+    await loadModalSlotFromGrid();
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to create linked learning session';
+  } finally {
+    creatingLearningSession.value = false;
+  }
+};
+
 const cancelEventAction = async () => {
   if (!officeId.value || !modalSlot.value?.eventId) return;
   const selected = String(cancelScope.value || 'occurrence');
@@ -1604,19 +1757,27 @@ const cancelEventAction = async () => {
 };
 
 const purgeFutureBookedSlot = async () => {
-  if (!officeId.value || !modalSlot.value?.eventId) return;
+  const targetOfficeId = Number(officeId.value || modalSlot.value?.officeLocationId || 0);
+  const targetEventId = Number(modalSlot.value?.eventId || 0);
+  if (!targetOfficeId || !targetEventId) {
+    error.value = 'Unable to purge: slot is missing office/event linkage.';
+    return;
+  }
   const ok = window.confirm('Purge future booked occurrences for this provider + room + day/time slot? This is superadmin-only cleanup.');
   if (!ok) return;
   try {
-    saving.value = true;
-    await api.post(`/office-slots/${officeId.value}/events/${modalSlot.value.eventId}/purge-future-slot`, {});
-    setSuccessToast('Future booked occurrences purged for this provider + slot.');
+    purgingFuture.value = true;
+    const resp = await api.post(`/office-slots/${targetOfficeId}/events/${targetEventId}/purge-future-slot`, {});
+    const count = Number(resp?.data?.purgedEventCount || 0);
+    setSuccessToast(count > 0
+      ? `Purged ${count} future booked occurrence${count === 1 ? '' : 's'} for this provider + slot.`
+      : 'No future booked occurrences matched this provider + slot.');
     await loadGrid();
     closeModal();
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to purge future booked occurrences';
   } finally {
-    saving.value = false;
+    purgingFuture.value = false;
   }
 };
 
@@ -2098,6 +2259,24 @@ input[type='date'] {
   text-align: center;
   border: 1px solid rgba(5, 150, 105, 0.6);
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.16);
+}
+.lp-pill {
+  position: absolute;
+  left: 4px;
+  top: 3px;
+  z-index: 2;
+  min-width: 18px;
+  height: 14px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  color: #1d4ed8;
+  background: rgba(219, 234, 254, 0.95);
+  border: 1px solid rgba(147, 197, 253, 0.95);
 }
 .ip-pill {
   position: absolute;

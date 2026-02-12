@@ -549,6 +549,14 @@
           </div>
         </div>
 
+        <!-- Learning Billing Tab -->
+        <div v-if="activeTab === 'billing'" class="detail-section">
+          <GuardianBillingTab
+            :agency-id="Number(props.client?.agency_id || 0) || null"
+            :client-id="Number(props.client?.id || 0) || null"
+          />
+        </div>
+
         <!-- Messages/Notes Tab -->
         <div v-if="activeTab === 'messages'" class="detail-section">
           <div v-if="notesLoading" class="loading">Loading messages…</div>
@@ -1271,6 +1279,7 @@ import { ref, computed, onMounted, watch } from 'vue';
 import { useAuthStore } from '../../store/auth';
 import api from '../../services/api';
 import PhiDocumentsPanel from './PhiDocumentsPanel.vue';
+import GuardianBillingTab from '../guardian/GuardianBillingTab.vue';
 
 const props = defineProps({
   client: {
@@ -1293,6 +1302,17 @@ const isBackofficeRole = computed(() => ['super_admin', 'admin', 'support', 'sta
 const canViewAdminNote = computed(() => isBackofficeRole.value || roleNorm.value === 'supervisor');
 const canManageClientCode = computed(() => isBackofficeRole.value || roleNorm.value === 'supervisor');
 const canEditAccount = computed(() => isBackofficeRole.value && hasAgencyAccess.value);
+const learningBillingEnabledForClient = computed(() => {
+  const orgType = String(props.client?.organization_type || '').toLowerCase();
+  if (orgType !== 'learning') return false;
+  const raw = props.client?.organization_feature_flags;
+  const flags = typeof raw === 'string'
+    ? (() => {
+      try { return JSON.parse(raw); } catch { return {}; }
+    })()
+    : (raw || {});
+  return flags.learningProgramBillingEnabled === true;
+});
 
 const tabs = computed(() => {
   const base = [
@@ -1304,6 +1324,10 @@ const tabs = computed(() => {
     { id: 'guardians', label: 'Guardians' },
     { id: 'phi', label: 'Documentation' }
   ];
+  if (learningBillingEnabledForClient.value) {
+    const idx = base.findIndex((t) => t.id === 'messages');
+    base.splice(idx < 0 ? base.length : idx, 0, { id: 'billing', label: 'Billing' });
+  }
   if (canEditAccount.value) {
     // Insert before PHI tab
     const idx = base.findIndex((t) => t.id === 'phi');

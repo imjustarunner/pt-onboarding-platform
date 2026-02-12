@@ -150,6 +150,7 @@
                     <router-link :to="orgTo('/admin/executive-report')" v-if="user?.role === 'super_admin'" @click="closeAllNavMenus">Executive Report</router-link>
                     <router-link :to="orgTo('/admin/payroll')" v-if="canSeePayrollManagement" @click="closeAllNavMenus">Payroll</router-link>
                     <router-link :to="orgTo('/admin/receivables')" v-if="canSeePayrollManagement" @click="closeAllNavMenus">Receivables</router-link>
+                    <router-link :to="orgTo('/admin/learning-billing')" v-if="canSeePayrollManagement && learningBillingNavEnabled" @click="closeAllNavMenus">Learning Billing</router-link>
                     <router-link :to="orgTo('/admin/psychotherapy-compliance')" v-if="canSeePayrollManagement" @click="closeAllNavMenus">Psychotherapy Compliance</router-link>
                     <router-link :to="orgTo('/admin/compliance-corner')" v-if="isTrueAdmin" @click="closeAllNavMenus">Compliance Corner</router-link>
                     <router-link :to="orgTo('/admin/expenses')" v-if="canSeePayrollManagement" @click="closeAllNavMenus">Expense/Reimbursements</router-link>
@@ -411,6 +412,7 @@
               >Tools &amp; Aids</router-link>
               <router-link :to="orgTo('/admin/payroll')" v-if="canSeePayrollManagement" @click="closeMobileMenu" class="mobile-nav-link">Payroll</router-link>
               <router-link :to="orgTo('/admin/receivables')" v-if="canSeePayrollManagement" @click="closeMobileMenu" class="mobile-nav-link">Receivables</router-link>
+              <router-link :to="orgTo('/admin/learning-billing')" v-if="canSeePayrollManagement && learningBillingNavEnabled" @click="closeMobileMenu" class="mobile-nav-link">Learning Billing</router-link>
               <router-link :to="orgTo('/admin/expenses')" v-if="canSeePayrollManagement" @click="closeMobileMenu" class="mobile-nav-link">Expense/Reimbursements</router-link>
               <router-link :to="orgTo('/admin/revenue')" v-if="user?.role === 'super_admin'" @click="closeMobileMenu" class="mobile-nav-link">Revenue</router-link>
 
@@ -953,6 +955,17 @@ const canSeePayrollManagement = computed(() => {
   const ids = Array.isArray(user.value?.payrollAgencyIds) ? user.value.payrollAgencyIds : [];
   if (!currentAgencyId.value) return false;
   return ids.includes(currentAgencyId.value);
+});
+const learningBillingNavEnabled = computed(() => {
+  const a = agencyStore.currentAgency?.value || agencyStore.currentAgency || {};
+  const orgType = String(a.organization_type || '').toLowerCase();
+  if (orgType !== 'learning') return false;
+  const flags = typeof a.feature_flags === 'string'
+    ? (() => {
+      try { return JSON.parse(a.feature_flags); } catch { return {}; }
+    })()
+    : (a.feature_flags || {});
+  return flags.learningProgramBillingEnabled === true;
 });
 
 const canSeeApplicantsTopNavLink = computed(() => {

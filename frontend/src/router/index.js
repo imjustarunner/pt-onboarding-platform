@@ -505,6 +505,12 @@ const routes = [
     meta: { requiresAuth: true, requiresCapability: 'canManagePayroll', organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/admin/learning-billing',
+    name: 'OrganizationLearningBillingDesk',
+    component: () => import('../views/admin/LearningBillingDeskView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin', 'clinical_practice_assistant'], organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/admin/psychotherapy-compliance',
     name: 'OrganizationPsychotherapyCompliance',
     component: () => import('../views/admin/PsychotherapyComplianceView.vue'),
@@ -918,6 +924,12 @@ const routes = [
     name: 'Receivables',
     component: () => import('../views/admin/ReceivablesView.vue'),
     meta: { requiresAuth: true, requiresCapability: 'canManagePayroll' }
+  },
+  {
+    path: '/admin/learning-billing',
+    name: 'LearningBillingDesk',
+    component: () => import('../views/admin/LearningBillingDeskView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin', 'clinical_practice_assistant'] }
   },
   {
     path: '/admin/revenue',

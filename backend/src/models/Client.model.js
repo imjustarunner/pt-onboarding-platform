@@ -167,6 +167,8 @@ class Client {
         c.*,
         org.name as organization_name,
         org.slug as organization_slug,
+        org.organization_type as organization_type,
+        org.feature_flags as organization_feature_flags,
         provider.first_name as provider_first_name,
         provider.last_name as provider_last_name,
         cs.label as client_status_label,
