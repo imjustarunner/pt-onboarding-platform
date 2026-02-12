@@ -360,6 +360,7 @@ export const getWeeklyGrid = async (req, res, next) => {
          FROM provider_virtual_slot_availability
          WHERE office_location_id = ?
            AND is_active = TRUE
+           AND session_type IN ('INTAKE', 'BOTH')
            AND start_at < ?
            AND end_at > ?`,
         [parseInt(locationId), windowEnd, windowStart]

@@ -96,6 +96,27 @@ class ProviderVirtualSlotAvailability {
       throw e;
     }
   }
+
+  static async isActiveIntakeSlot({ agencyId, providerId, startAt, endAt }) {
+    try {
+      const [rows] = await pool.execute(
+        `SELECT id
+         FROM provider_virtual_slot_availability
+         WHERE agency_id = ?
+           AND provider_id = ?
+           AND start_at = ?
+           AND end_at = ?
+           AND is_active = TRUE
+           AND session_type IN ('INTAKE', 'BOTH')
+         LIMIT 1`,
+        [agencyId, providerId, startAt, endAt]
+      );
+      return Boolean(rows?.[0]?.id);
+    } catch (e) {
+      if (e?.code === 'ER_NO_SUCH_TABLE') return false;
+      throw e;
+    }
+  }
 }
 
 export default ProviderVirtualSlotAvailability;

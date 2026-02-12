@@ -442,20 +442,27 @@ export const setEventVirtualIntakeAvailability = async (req, res, next) => {
         createdByUserId: req.user.id
       });
     } else {
-      const wasActive = await ProviderVirtualSlotAvailability.isActiveSlot({
+      const wasIntakeActive = await ProviderVirtualSlotAvailability.isActiveIntakeSlot({
         agencyId,
         providerId,
         startAt,
         endAt
       });
-      if (!wasActive) {
+      if (!wasIntakeActive) {
         return res.status(409).json({ error: { message: 'Virtual intake is not enabled for this slot.' } });
       }
-      await ProviderVirtualSlotAvailability.deactivateSlot({
+      // Turning off intake keeps the slot virtually available (regular-only).
+      await ProviderVirtualSlotAvailability.upsertSlot({
         agencyId,
         providerId,
+        officeLocationId,
+        roomId: Number(ev.room_id || 0) || null,
         startAt,
-        endAt
+        endAt,
+        sessionType: 'REGULAR',
+        source: 'OFFICE_EVENT',
+        sourceEventId: ev.id,
+        createdByUserId: req.user.id
       });
     }
 

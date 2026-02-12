@@ -337,8 +337,9 @@
                 class="btn btn-secondary"
                 @click="disableVirtualIntake"
                 :disabled="saving || !modalSlot?.eventId || !modalVirtualIntakeEnabled"
+                title="Removes intake designation but keeps the slot virtually available."
               >
-                Disable virtual intake
+                Disable virtual intake (keep virtual available)
               </button>
             </div>
           </div>
