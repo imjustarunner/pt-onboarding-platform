@@ -367,14 +367,35 @@ const eventBlocksForUserCell = (uid, dayName, hour) => {
     const top = officeHits.sort((a, b) => stateRank(String(b.slotState || '').toUpperCase()) - stateRank(String(a.slotState || '').toUpperCase()))[0];
     const st = String(top?.slotState || '').toUpperCase();
     const kind = st === 'ASSIGNED_BOOKED' ? 'ob' : st === 'ASSIGNED_TEMPORARY' ? 'ot' : st === 'ASSIGNED_AVAILABLE' ? 'oa' : 'oa';
-    const label = st === 'ASSIGNED_BOOKED' ? 'Booked' : st === 'ASSIGNED_TEMPORARY' ? 'Temp' : 'Office';
+    const roomNumber = String(top?.roomNumber || '').trim();
+    const roomLabel = String(top?.roomLabel || '').trim();
+    const roomShort = roomNumber ? `#${roomNumber}` : (roomLabel || (st === 'ASSIGNED_BOOKED' ? 'Booked' : st === 'ASSIGNED_TEMPORARY' ? 'Temp' : 'Office'));
+    const fullRoom = roomNumber ? `#${roomNumber}${roomLabel ? ` (${roomLabel})` : ''}` : (roomLabel || 'Office');
     blocks.push({
       kind,
       key: `u${uid}-office-${dayName}-${hour}`,
       userId: uid,
-      shortLabel: `${init} ${label}`,
-      title: `${props.userLabelById?.[uid] || `User ${uid}`} — Office — ${label}`
+      shortLabel: `${init} ${roomShort}`,
+      title: `${props.userLabelById?.[uid] || `User ${uid}`} — Office — ${fullRoom}`
     });
+    if (top?.inPersonIntakeEnabled) {
+      blocks.push({
+        kind: 'intake-ip',
+        key: `u${uid}-intake-ip-${dayName}-${hour}`,
+        userId: uid,
+        shortLabel: `${init} IP`,
+        title: `${props.userLabelById?.[uid] || `User ${uid}`} — In-person intake enabled`
+      });
+    }
+    if (top?.virtualIntakeEnabled) {
+      blocks.push({
+        kind: 'intake-vi',
+        key: `u${uid}-intake-vi-${dayName}-${hour}`,
+        userId: uid,
+        shortLabel: `${init} VI`,
+        title: `${props.userLabelById?.[uid] || `User ${uid}`} — Virtual intake enabled`
+      });
+    }
   }
 
   // supervision
@@ -556,6 +577,8 @@ const onBlockClick = (e, b) => {
 .cell-block-oa { background: rgba(39, 174, 96, 0.18); border-color: rgba(39, 174, 96, 0.45); }
 .cell-block-ot { background: rgba(242, 153, 74, 0.18); border-color: rgba(242, 153, 74, 0.50); }
 .cell-block-ob { background: rgba(235, 87, 87, 0.18); border-color: rgba(235, 87, 87, 0.50); }
+.cell-block-intake-ip { background: rgba(34, 197, 94, 0.20); border-color: rgba(21, 128, 61, 0.45); color: rgba(21, 128, 61, 0.95); }
+.cell-block-intake-vi { background: rgba(59, 130, 246, 0.20); border-color: rgba(29, 78, 216, 0.45); color: rgba(29, 78, 216, 0.95); }
 .cell-block-gbusy { background: rgba(17, 24, 39, 0.10); border-color: rgba(17, 24, 39, 0.35); color: rgba(17, 24, 39, 0.95); }
 .cell-block-gevt { cursor: pointer; background: rgba(59, 130, 246, 0.12); border-color: rgba(59, 130, 246, 0.35); }
 .cell-block-more { background: rgba(148, 163, 184, 0.14); border-color: rgba(148, 163, 184, 0.40); color: rgba(51, 65, 85, 0.92); }

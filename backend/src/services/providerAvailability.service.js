@@ -274,10 +274,13 @@ export class ProviderAvailabilityService {
         officeReservedBusy.push({ start: s, end: e });
 
         const inPersonIntakeEnabled = legacyNoToggle ? true : Number(r.in_person_intake_enabled || 0) === 1;
-        if ((slotState === 'ASSIGNED_AVAILABLE' || slotState === 'ASSIGNED_TEMPORARY') && (!intakeOnlyFlag || inPersonIntakeEnabled)) {
+        const isOpenAssignmentState = slotState === 'ASSIGNED_AVAILABLE' || slotState === 'ASSIGNED_TEMPORARY';
+        const isBookedState = slotState === 'ASSIGNED_BOOKED' || status === 'BOOKED';
+        const includeInPersonForIntake = intakeOnlyFlag && inPersonIntakeEnabled && (isOpenAssignmentState || isBookedState);
+        if ((isOpenAssignmentState && !intakeOnlyFlag) || includeInPersonForIntake) {
           officeBase.push({ start: s, end: e, meta });
         }
-        if (slotState === 'ASSIGNED_BOOKED' || status === 'BOOKED') {
+        if (isBookedState) {
           officeBookedBusy.push({ start: s, end: e });
         }
       }
@@ -480,10 +483,14 @@ export class ProviderAvailabilityService {
       ...busyAll,
       ...officeReservedBusyForVirtual
     ]);
-    const busyInPerson = mergeIntervals([
-      ...busyAll,
-      ...officeBookedBusy
-    ]);
+    const busyInPerson = mergeIntervals(
+      intakeOnlyFlag
+        ? [...busyAll]
+        : [
+            ...busyAll,
+            ...officeBookedBusy
+          ]
+    );
 
     // Virtual availability (preserve meta for each slot)
     const virtualSlots = [];

@@ -11,9 +11,9 @@
           <label class="lbl-sm">Week of</label>
           <input v-model="weekStartYmd" type="date" class="input" />
         </div>
-        <select v-model="viewMode" class="input" style="min-width: 140px;" data-tour="sched-compare-view-mode">
-          <option value="overlay">Overlay</option>
-          <option value="stacked">Stacked</option>
+        <select v-model="viewMode" class="input" style="min-width: 180px;" data-tour="sched-compare-view-mode">
+          <option value="stacked">Detailed (stacked)</option>
+          <option value="overlay">Overlay (summary)</option>
         </select>
         <button class="btn btn-secondary" type="button" @click="shiftWeek(-7)">Prev</button>
         <button class="btn btn-secondary" type="button" @click="shiftWeek(7)">Next</button>
@@ -133,7 +133,7 @@ const search = ref('');
 
 const maxSelected = 6;
 const selectedUserIds = ref([]);
-const viewMode = ref('overlay'); // overlay | stacked
+const viewMode = ref('stacked'); // stacked | overlay
 
 const todayYmd = () => new Date().toISOString().slice(0, 10);
 const weekStartYmd = ref(todayYmd());
