@@ -413,10 +413,11 @@ export const setEventVirtualIntakeAvailability = async (req, res, next) => {
     const endAt = mysqlDateTimeFromValue(ev.end_at);
     if (!startAt || !endAt) return res.status(400).json({ error: { message: 'Event is missing start/end time' } });
 
+    const requestAgencyId = Number(req.body?.agencyId || req.query?.agencyId || 0) || null;
     const agencyId = await resolveAgencyForProviderOffice({
       providerId,
       officeLocationId,
-      preferredAgencyId: req.user?.agencyId || null
+      preferredAgencyId: requestAgencyId || req.user?.agencyId || null
     });
     if (!agencyId) {
       return res.status(400).json({ error: { message: 'Unable to resolve agency for provider/office' } });
@@ -502,10 +503,11 @@ export const setEventInPersonIntakeAvailability = async (req, res, next) => {
     const endAt = mysqlDateTimeFromValue(ev.end_at);
     if (!startAt || !endAt) return res.status(400).json({ error: { message: 'Event is missing start/end time' } });
 
+    const requestAgencyId = Number(req.body?.agencyId || req.query?.agencyId || 0) || null;
     const agencyId = await resolveAgencyForProviderOffice({
       providerId,
       officeLocationId,
-      preferredAgencyId: req.user?.agencyId || null
+      preferredAgencyId: requestAgencyId || req.user?.agencyId || null
     });
     if (!agencyId) {
       return res.status(400).json({ error: { message: 'Unable to resolve agency for provider/office' } });

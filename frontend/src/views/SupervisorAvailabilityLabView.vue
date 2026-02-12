@@ -69,11 +69,13 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue';
 import { useAgencyStore } from '../store/agency';
+import { useAuthStore } from '../store/auth';
 import api from '../services/api';
 
 const CARD_SLOT_PREVIEW_LIMIT = 6;
 
 const agencyStore = useAgencyStore();
+const authStore = useAuthStore();
 const loading = ref(false);
 const error = ref('');
 const agencies = ref([]);
@@ -163,8 +165,14 @@ function buildCardFromSlots(provider, slots) {
 }
 
 async function loadAgencies() {
-  await agencyStore.fetchUserAgencies();
-  agencies.value = Array.isArray(agencyStore.userAgencies) ? agencyStore.userAgencies : [];
+  const role = String(authStore.user?.role || '').toLowerCase();
+  if (role === 'super_admin') {
+    await agencyStore.fetchAgencies();
+    agencies.value = Array.isArray(agencyStore.agencies) ? agencyStore.agencies : [];
+  } else {
+    await agencyStore.fetchUserAgencies();
+    agencies.value = Array.isArray(agencyStore.userAgencies) ? agencyStore.userAgencies : [];
+  }
   if (!selectedAgencyId.value && agencies.value.length > 0) {
     selectedAgencyId.value = Number(agencies.value[0].id);
   }

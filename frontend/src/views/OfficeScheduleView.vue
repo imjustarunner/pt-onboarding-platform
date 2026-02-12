@@ -476,11 +476,14 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../services/api';
 import { useAuthStore } from '../store/auth';
+import { useAgencyStore } from '../store/agency';
 import PersonSearchSelect from '../components/schedule/PersonSearchSelect.vue';
 const route = useRoute();
 const authStore = useAuthStore();
+const agencyStore = useAgencyStore();
 
 const officeId = computed(() => (typeof route.query.officeId === 'string' ? route.query.officeId : ''));
+const currentAgencyId = computed(() => Number(agencyStore.currentAgency?.id || 0) || null);
 
 const loading = ref(false);
 const error = ref('');
@@ -1333,7 +1336,8 @@ const enableVirtualIntake = async () => {
     saving.value = true;
     error.value = '';
     await api.post(`/office-slots/${officeId.value}/events/${modalSlot.value.eventId}/virtual-intake`, {
-      enabled: true
+      enabled: true,
+      agencyId: currentAgencyId.value
     });
     setSuccessToast('Virtual intake enabled for this slot.');
     await loadGrid();
@@ -1351,7 +1355,8 @@ const enableInPersonIntake = async () => {
     saving.value = true;
     error.value = '';
     await api.post(`/office-slots/${officeId.value}/events/${modalSlot.value.eventId}/in-person-intake`, {
-      enabled: true
+      enabled: true,
+      agencyId: currentAgencyId.value
     });
     setSuccessToast('In-person intake enabled for this slot.');
     await loadGrid();
@@ -1369,7 +1374,8 @@ const disableInPersonIntake = async () => {
     saving.value = true;
     error.value = '';
     await api.post(`/office-slots/${officeId.value}/events/${modalSlot.value.eventId}/in-person-intake`, {
-      enabled: false
+      enabled: false,
+      agencyId: currentAgencyId.value
     });
     setSuccessToast('In-person intake disabled for this slot.');
     await loadGrid();
@@ -1387,7 +1393,8 @@ const disableVirtualIntake = async () => {
     saving.value = true;
     error.value = '';
     await api.post(`/office-slots/${officeId.value}/events/${modalSlot.value.eventId}/virtual-intake`, {
-      enabled: false
+      enabled: false,
+      agencyId: currentAgencyId.value
     });
     setSuccessToast('Virtual intake disabled for this slot.');
     await loadGrid();
