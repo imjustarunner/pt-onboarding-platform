@@ -484,7 +484,7 @@ export class GoogleCalendarService {
     if (!googleEventId || !providerEmail) {
       await pool.execute(
         `UPDATE office_events
-         SET google_sync_status = 'DELETED',
+         SET google_sync_status = 'SYNCED',
              google_sync_error = NULL,
              google_synced_at = NOW(),
              google_provider_event_id = NULL
@@ -500,7 +500,7 @@ export class GoogleCalendarService {
       await cal.events.delete({ calendarId, eventId: googleEventId, sendUpdates: 'all' });
       await pool.execute(
         `UPDATE office_events
-         SET google_sync_status = 'DELETED',
+         SET google_sync_status = 'SYNCED',
              google_sync_error = NULL,
              google_synced_at = NOW(),
              google_provider_event_id = NULL
@@ -513,7 +513,7 @@ export class GoogleCalendarService {
       if (code === 404) {
         await pool.execute(
           `UPDATE office_events
-           SET google_sync_status = 'DELETED',
+           SET google_sync_status = 'SYNCED',
                google_sync_error = NULL,
                google_synced_at = NOW(),
                google_provider_event_id = NULL
