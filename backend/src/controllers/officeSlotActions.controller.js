@@ -1164,6 +1164,7 @@ export const superAdminPurgeFutureBookedSlot = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Event is missing provider or room linkage' } });
     }
 
+    const directStandingAssignmentId = Number(ev.standing_assignment_id || 0) || null;
     const [assignmentRows] = await pool.execute(
       `SELECT id
        FROM office_standing_assignments
@@ -1174,7 +1175,13 @@ export const superAdminPurgeFutureBookedSlot = async (req, res, next) => {
          AND hour = ?`,
       [officeLocationId, roomId, providerId, wh.weekdayIndex, wh.hour]
     );
-    const targetAssignmentIds = (assignmentRows || []).map((r) => Number(r.id)).filter((n) => Number.isInteger(n) && n > 0);
+    const targetAssignmentIdSet = new Set(
+      (assignmentRows || []).map((r) => Number(r.id)).filter((n) => Number.isInteger(n) && n > 0)
+    );
+    if (Number.isInteger(directStandingAssignmentId) && directStandingAssignmentId > 0) {
+      targetAssignmentIdSet.add(directStandingAssignmentId);
+    }
+    const targetAssignmentIds = Array.from(targetAssignmentIdSet.values());
     if (targetAssignmentIds.length) {
       for (const sid of targetAssignmentIds) {
         // eslint-disable-next-line no-await-in-loop
@@ -1186,18 +1193,19 @@ export const superAdminPurgeFutureBookedSlot = async (req, res, next) => {
       'office_location_id = ?',
       'room_id = ?',
       'start_at >= ?',
-      'DAYOFWEEK(start_at) = ?',
-      'HOUR(start_at) = ?',
       "(UPPER(COALESCE(status,'')) = 'BOOKED' OR UPPER(COALESCE(slot_state,'')) = 'ASSIGNED_BOOKED')"
     ];
-    const params = [officeLocationId, roomId, startAt, wh.weekdayIndex + 1, wh.hour];
+    const params = [officeLocationId, roomId, startAt];
+    const recurrenceOrProviderRoomFallback = [];
     if (targetAssignmentIds.length) {
-      where.push(`standing_assignment_id IN (${targetAssignmentIds.map(() => '?').join(',')})`);
+      recurrenceOrProviderRoomFallback.push(`standing_assignment_id IN (${targetAssignmentIds.map(() => '?').join(',')})`);
       params.push(...targetAssignmentIds);
-    } else {
-      where.push('COALESCE(assigned_provider_id, booked_provider_id) = ?');
-      params.push(providerId);
     }
+    recurrenceOrProviderRoomFallback.push(
+      '(COALESCE(assigned_provider_id, booked_provider_id) = ? AND room_id = ? AND DAYOFWEEK(start_at) = ? AND HOUR(start_at) = ?)'
+    );
+    params.push(providerId, roomId, wh.weekdayIndex + 1, wh.hour);
+    where.push(`(${recurrenceOrProviderRoomFallback.join(' OR ')})`);
 
     const [rows] = await pool.execute(
       `SELECT id
@@ -1227,6 +1235,7 @@ export const superAdminPurgeFutureBookedSlot = async (req, res, next) => {
     return res.json({
       ok: true,
       purgedEventCount: eventIds.length,
+      purgedEventIds: eventIds,
       providerId,
       roomId,
       weekday: wh.weekdayIndex,
