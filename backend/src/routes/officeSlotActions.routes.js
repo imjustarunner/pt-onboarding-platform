@@ -14,6 +14,7 @@ import {
   forfeitEvent,
   cancelEvent,
   deleteEventFromGoogleNow,
+  superAdminPurgeFutureBookedSlot,
   cancelAssignment,
   staffAssignOpenSlot
 } from '../controllers/officeSlotActions.controller.js';
@@ -35,6 +36,7 @@ router.post('/:officeId/events/:eventId/in-person-intake', setEventInPersonIntak
 router.post('/:officeId/events/:eventId/forfeit', forfeitEvent);
 router.post('/:officeId/events/:eventId/cancel', cancelEvent);
 router.post('/:officeId/events/:eventId/google-delete-now', deleteEventFromGoogleNow);
+router.post('/:officeId/events/:eventId/purge-future-slot', superAdminPurgeFutureBookedSlot);
 router.post('/:officeId/assignments/:assignmentId/cancel', cancelAssignment);
 router.post('/:officeId/open-slots/assign', staffAssignOpenSlot);
 

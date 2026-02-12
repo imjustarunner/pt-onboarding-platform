@@ -502,6 +502,7 @@ const props = defineProps({
   mode: { type: String, default: 'self' }, // 'self' | 'admin'
   // Optional: parent-controlled weekStart (any date; normalized to Monday).
   weekStartYmd: { type: String, default: null },
+  weekStartsOn: { type: String, default: 'monday' },
   // Optional: availability overlay (computed server-side), to highlight open slots.
   availabilityOverlay: { type: Object, default: null }
 });
@@ -621,6 +622,7 @@ const scheduleColorVars = computed(() => {
 });
 
 const ALL_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+const SUNDAY_FIRST_DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const hours = Array.from({ length: 15 }, (_, i) => 7 + i); // 7..21
 
 const loading = ref(false);
@@ -791,7 +793,11 @@ try {
   overlayPrefsLoaded.value = true;
 }
 
-const visibleDays = computed(() => (hideWeekend.value ? ALL_DAYS.slice(0, 5) : ALL_DAYS.slice()));
+const orderedDays = computed(() => (String(props.weekStartsOn || '').toLowerCase() === 'sunday' ? SUNDAY_FIRST_DAYS : ALL_DAYS));
+const visibleDays = computed(() => {
+  if (hideWeekend.value) return ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+  return orderedDays.value.slice();
+});
 
 const gridStyle = computed(() => {
   const cols = visibleDays.value.length;
@@ -2532,6 +2538,7 @@ watch(modalHour, () => {
 }
 .sched-head-today {
   background: linear-gradient(180deg, rgba(59, 130, 246, 0.16), rgba(59, 130, 246, 0.06));
+  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.24), 0 0 0 2px rgba(59, 130, 246, 0.14);
 }
 .sched-grid > .sched-head-cell:first-child {
   border-left: none;
@@ -2570,6 +2577,7 @@ watch(modalHour, () => {
 }
 .sched-cell-today {
   background: rgba(59, 130, 246, 0.05);
+  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.18);
 }
 .sched-cell.clickable {
   cursor: pointer;

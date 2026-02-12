@@ -607,10 +607,11 @@ export const getWeeklyGrid = async (req, res, next) => {
     const bookedFreqByPlanId = new Map();
     const bookedStartByPlanId = new Map();
     const bookedUntilByPlanId = new Map();
+    const bookedCountByPlanId = new Map();
     if (planIds.length) {
       const placeholders = planIds.map(() => '?').join(',');
       const [rows] = await pool.execute(
-        `SELECT id, booked_frequency, booking_start_date, active_until_date
+        `SELECT id, booked_frequency, booking_start_date, active_until_date, booked_occurrence_count
          FROM office_booking_plans
          WHERE id IN (${placeholders})`,
         planIds
@@ -620,6 +621,7 @@ export const getWeeklyGrid = async (req, res, next) => {
         bookedFreqByPlanId.set(pid, String(r.booked_frequency || '').toUpperCase());
         bookedStartByPlanId.set(pid, r.booking_start_date ? String(r.booking_start_date).slice(0, 10) : null);
         bookedUntilByPlanId.set(pid, r.active_until_date ? String(r.active_until_date).slice(0, 10) : null);
+        bookedCountByPlanId.set(pid, Number.isInteger(Number(r.booked_occurrence_count)) ? Number(r.booked_occurrence_count) : null);
       }
     }
 
@@ -645,11 +647,13 @@ export const getWeeklyGrid = async (req, res, next) => {
       const bookedFrequency = planId ? bookedFreqByPlanId.get(planId) || null : null;
       const bookingStartDate = planId ? bookedStartByPlanId.get(planId) || null : null;
       const bookingActiveUntilDate = planId ? bookedUntilByPlanId.get(planId) || null : null;
+      const bookingOccurrenceCount = planId ? bookedCountByPlanId.get(planId) || null : null;
       const meta = frequencyMeta({ assignedFrequency, bookedFrequency, state: s.state });
       s.assignedFrequency = assignedFrequency;
       s.bookedFrequency = bookedFrequency;
       s.bookingStartDate = bookingStartDate;
       s.bookingActiveUntilDate = bookingActiveUntilDate;
+      s.bookingOccurrenceCount = bookingOccurrenceCount;
       s.frequency = meta.frequency;
       s.frequencyLabel = meta.frequencyLabel;
       s.frequencyBadge = meta.frequencyBadge;

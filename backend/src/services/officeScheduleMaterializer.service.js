@@ -107,6 +107,32 @@ function shouldBookOnDate(plan, assignment, dateStr) {
   return false;
 }
 
+function bookingOccurrenceNumberForDate(plan, assignment, dateStr) {
+  const start = String(plan?.booking_start_date || '').slice(0, 10);
+  if (!start || dateStr < start) return 0;
+  const planHardLimit = addDays(start, 365);
+  const configuredUntil = String(plan?.active_until_date || '').slice(0, 10);
+  const upperBound = [dateStr, planHardLimit, configuredUntil]
+    .filter((x) => String(x || '').length === 10)
+    .sort()[0] || dateStr;
+
+  let count = 0;
+  for (let d = start; d && d <= upperBound; d = addDays(d, 1)) {
+    const weekday = weekdayIndexFromYmd(d);
+    if (!Number.isInteger(weekday) || Number(weekday) !== Number(assignment?.weekday)) continue;
+    if (!shouldBookOnDate(plan, assignment, d)) continue;
+    count += 1;
+  }
+  return count;
+}
+
+function shouldBookByCount(plan, assignment, dateStr) {
+  const maxCountRaw = Number(plan?.booked_occurrence_count || 0);
+  if (!Number.isInteger(maxCountRaw) || maxCountRaw <= 0) return true;
+  const occurrenceNumber = bookingOccurrenceNumberForDate(plan, assignment, dateStr);
+  return occurrenceNumber > 0 && occurrenceNumber <= maxCountRaw;
+}
+
 export class OfficeScheduleMaterializer {
   static startOfWeekISO(dateStr) {
     return startOfWeekISO(dateStr);
@@ -147,7 +173,7 @@ export class OfficeScheduleMaterializer {
         const plan = planByAssignment.get(a.id) || null;
         let slotState = baseSlotState;
         // Temporary pause suppresses booked materialization until pause window ends.
-        if (!isTemporary && plan && shouldBookOnDate(plan, a, date)) {
+        if (!isTemporary && plan && shouldBookOnDate(plan, a, date) && shouldBookByCount(plan, a, date)) {
           slotState = 'ASSIGNED_BOOKED';
         }
 

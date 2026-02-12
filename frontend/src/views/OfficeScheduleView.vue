@@ -3,7 +3,7 @@
     <div class="header" data-tour="buildings-schedule-header">
       <div>
         <h3 style="margin: 0;" data-tour="buildings-schedule-title">Building Schedule</h3>
-        <div class="subtitle" data-tour="buildings-schedule-subtitle">Weekly office grid (Mon–Sun, 7am–9pm).</div>
+        <div class="subtitle" data-tour="buildings-schedule-subtitle">Weekly office grid (7am–9pm).</div>
       </div>
       <div class="controls" data-tour="buildings-schedule-controls">
         <div class="field" data-tour="buildings-schedule-week">
@@ -12,6 +12,10 @@
         </div>
         <button class="btn btn-secondary" @click="goToPreviousWeek" :disabled="loading || !officeId">Previous week</button>
         <button class="btn btn-secondary" @click="goToNextWeek" :disabled="loading || !officeId">Next week</button>
+        <button class="btn btn-secondary" @click="goToCurrentWeek" :disabled="loading || !officeId">Current week</button>
+        <button class="btn btn-secondary" @click="toggleWeekStartMode" :disabled="loading || !officeId">
+          Week starts: {{ weekStartMode === 'MONDAY' ? 'Monday' : 'Sunday' }}
+        </button>
         <button class="btn btn-secondary" @click="loadGrid" :disabled="loading || !officeId">Refresh</button>
       </div>
     </div>
@@ -219,21 +223,22 @@
 
         <div class="week-table" data-tour="buildings-schedule-week-table">
           <div class="cell corner"></div>
-          <div v-for="d in grid.days" :key="d" class="cell day-head">
+          <div v-for="d in displayedDays" :key="d" class="cell day-head" :class="{ today: isTodayDate(d) }">
             {{ formatDay(d) }}
           </div>
 
           <template v-for="h in grid.hours" :key="h">
             <div class="cell hour-head">{{ formatHour(h) }}</div>
             <div
-              v-for="d in grid.days"
+              v-for="d in displayedDays"
               :key="`${room.id}-${d}-${h}`"
               class="cell slot"
               :class="[
                 slotClass(room.id, d, h),
                 {
                   selected: isSlotSelected(room.id, d, h),
-                  'own-provider': isOwnProviderSlot(room.id, d, h)
+                  'own-provider': isOwnProviderSlot(room.id, d, h),
+                  today: isTodayDate(d)
                 }
               ]"
               :style="slotStyle(room.id, d, h)"
@@ -262,6 +267,7 @@
           <div><strong>Recurrence:</strong> {{ modalSlot.frequencyLabel || 'One-time' }}</div>
           <div v-if="modalSlot.bookingStartDate"><strong>Starts:</strong> {{ modalSlot.bookingStartDate }}</div>
           <div v-if="modalSlot.bookingActiveUntilDate"><strong>Until:</strong> {{ modalSlot.bookingActiveUntilDate }}</div>
+          <div v-if="modalSlot.bookingOccurrenceCount"><strong>Booked occurrences:</strong> {{ modalSlot.bookingOccurrenceCount }}</div>
         </div>
 
         <div v-if="modalSlot?.state === 'open'">
@@ -291,6 +297,13 @@
                 <option value="WEEKLY">Weekly</option>
                 <option value="BIWEEKLY">Biweekly</option>
               </select>
+              <label class="check" style="align-self: center;">
+                <input type="checkbox" v-model="assignTemporary4Weeks" :disabled="assignRecurrenceFreq === 'ONCE'" />
+                <span>Temporary 4-week hold</span>
+              </label>
+              <div v-if="assignTemporary4Weeks && assignRecurrenceFreq !== 'ONCE'" class="muted" style="max-width: 320px;">
+                Temporary hold while trying to place a client. If booked during hold, this converts to regular assigned office.
+              </div>
               <label v-if="assignRecurrenceFreq !== 'ONCE'" style="font-weight: 700;">Recurring until</label>
               <input
                 v-if="assignRecurrenceFreq !== 'ONCE'"
@@ -388,6 +401,8 @@
                 <option value="BIWEEKLY">Biweekly</option>
                 <option value="MONTHLY">Monthly</option>
               </select>
+              <label style="font-weight: 700;">Occurrences</label>
+              <input v-model.number="bookOccurrenceCount" type="number" min="1" max="104" class="input" style="width: 90px;" />
               <button class="btn btn-primary" @click="bookSlot" :disabled="saving || !bookFreq || (!modalSlot?.standingAssignmentId && !modalSlot?.eventId)">
                 Book
               </button>
@@ -397,12 +412,6 @@
               <div class="muted">Assigned slots require a quick confirmation every 2 weeks, and unconfirmed assignments fall off after 6 weeks.</div>
               <button class="btn btn-secondary" @click="keepAvailable" :disabled="saving || !modalSlot?.standingAssignmentId">
                 Confirm assigned slot
-              </button>
-            </div>
-
-            <div class="row" style="margin-top: 10px;">
-              <button class="btn btn-secondary" @click="setTemporary" :disabled="saving || !modalSlot?.standingAssignmentId">
-                Set temporary (4 weeks)
               </button>
             </div>
 
@@ -437,6 +446,14 @@
             <div class="section-title">Staff/admin action</div>
             <div class="muted" style="margin-bottom: 8px;">
               Edit recurrence for this slot.
+            </div>
+            <div class="row" style="margin-bottom: 8px;">
+              <button class="btn btn-secondary" @click="setTemporary" :disabled="saving || !modalSlot?.standingAssignmentId">
+                Set temporary (4 weeks)
+              </button>
+              <div class="muted">
+                Temporary hold while trying to place a client. If booked, it converts to regular assigned office.
+              </div>
             </div>
             <div class="row">
               <label style="font-weight: 700;">Recurrence</label>
@@ -490,6 +507,12 @@
                 Delete event
               </button>
             </div>
+            <div class="row" v-if="isSuperAdmin" style="margin-top: 10px;">
+              <button class="btn btn-danger" @click="purgeFutureBookedSlot" :disabled="saving || !modalSlot?.eventId">
+                Purge future booked (provider + slot)
+              </button>
+              <div class="muted">Emergency cleanup for this provider + room + day/time from this date forward.</div>
+            </div>
           </div>
         </template>
 
@@ -525,6 +548,9 @@ const searchError = ref('');
 const searchDate = ref(new Date().toISOString().slice(0, 10));
 const searchHour = ref(9);
 const searchFilter = ref('all'); // all | open | assigned
+const weekStartMode = ref(
+  typeof window !== 'undefined' && window.localStorage.getItem('schedule.weekStartMode') === 'SUNDAY' ? 'SUNDAY' : 'MONDAY'
+);
 const availabilityResults = ref([]);
 const selectedSlotKeys = ref([]);
 const dragAnchor = ref(null);
@@ -681,6 +707,35 @@ const addDaysYmd = (ymd, days) => {
   return dt.toISOString().slice(0, 10);
 };
 
+const startOfWeekForMode = (ymd, mode = weekStartMode.value) => {
+  const m = String(ymd || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return ymd;
+  const dt = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  const day = dt.getUTCDay(); // 0..6
+  const offset = mode === 'SUNDAY' ? day : (day + 6) % 7;
+  dt.setUTCDate(dt.getUTCDate() - offset);
+  return dt.toISOString().slice(0, 10);
+};
+
+const todayLocalYmd = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+const goToCurrentWeek = async () => {
+  weekStart.value = startOfWeekForMode(todayLocalYmd(), weekStartMode.value);
+  await loadGrid();
+};
+
+const toggleWeekStartMode = async () => {
+  weekStartMode.value = weekStartMode.value === 'MONDAY' ? 'SUNDAY' : 'MONDAY';
+  if (typeof window !== 'undefined') window.localStorage.setItem('schedule.weekStartMode', weekStartMode.value);
+  weekStart.value = startOfWeekForMode(weekStart.value, weekStartMode.value);
+  await loadGrid();
+};
+
+const isTodayDate = (ymd) => String(ymd || '').slice(0, 10) === todayLocalYmd();
+
 const goToNextWeek = async () => {
   const next = addDaysYmd(weekStart.value, 7);
   weekStart.value = next;
@@ -698,7 +753,9 @@ const loadGrid = async () => {
   try {
     loading.value = true;
     error.value = '';
-    const resp = await api.get(`/office-schedule/locations/${officeId.value}/weekly-grid`, { params: { weekStart: weekStart.value } });
+    const normalizedWeekStart = startOfWeekForMode(weekStart.value, weekStartMode.value);
+    weekStart.value = normalizedWeekStart;
+    const resp = await api.get(`/office-schedule/locations/${officeId.value}/weekly-grid`, { params: { weekStart: normalizedWeekStart } });
     grid.value = resp.data;
     selectedSlotKeys.value = [];
   } catch (e) {
@@ -813,6 +870,7 @@ const canManageSchedule = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
   return ['clinical_practice_assistant', 'admin', 'super_admin', 'support', 'staff'].includes(role);
 });
+const isSuperAdmin = computed(() => String(authStore.user?.role || '').toLowerCase() === 'super_admin');
 const currentUserId = computed(() => Number(authStore.user?.id || 0));
 
 const sortedRooms = computed(() => {
@@ -844,6 +902,17 @@ const displayedRooms = computed(() => {
   const id = Number(selectedRoomId.value || 0) || Number(rooms[0].id);
   const found = rooms.find((r) => Number(r.id) === id) || rooms[0];
   return found ? [found] : [];
+});
+const displayedDays = computed(() => {
+  const base = Array.isArray(grid.value?.days) ? grid.value.days.slice() : [];
+  if (!base.length) return [];
+  const order = weekStartMode.value === 'SUNDAY' ? [0, 1, 2, 3, 4, 5, 6] : [1, 2, 3, 4, 5, 6, 0];
+  const rank = new Map(order.map((d, idx) => [d, idx]));
+  return base.sort((a, b) => {
+    const aw = weekdayFromYmd(a);
+    const bw = weekdayFromYmd(b);
+    return (rank.get(aw) ?? 99) - (rank.get(bw) ?? 99);
+  });
 });
 
 watch(sortedRooms, (rooms) => {
@@ -877,6 +946,7 @@ const deletingGoogleEventIds = ref([]);
 const successToast = ref('');
 let successToastTimer = null;
 const bookFreq = ref('');
+const bookOccurrenceCount = ref(6);
 const editRecurrenceFreq = ref('');
 const editRecurrenceUntil = ref('');
 const ackForfeit = ref(false);
@@ -888,6 +958,7 @@ const providers = ref([]);
 const selectedProviderId = ref(0);
 const assignEndHour = ref(8);
 const assignRecurrenceFreq = ref('ONCE');
+const assignTemporary4Weeks = ref(false);
 const assignRecurringUntilDate = ref('');
 const assignWeekdays = ref([]);
 const weekdayOptions = [
@@ -952,6 +1023,7 @@ const closeModal = () => {
   showModal.value = false;
   modalSlot.value = null;
   bookFreq.value = '';
+  bookOccurrenceCount.value = 6;
   editRecurrenceFreq.value = '';
   ackForfeit.value = false;
   cancelScope.value = 'occurrence';
@@ -960,6 +1032,7 @@ const closeModal = () => {
   selectedProviderId.value = 0;
   assignEndHour.value = 8;
   assignRecurrenceFreq.value = 'ONCE';
+  assignTemporary4Weeks.value = false;
   assignRecurringUntilDate.value = '';
   assignWeekdays.value = [];
   editRecurrenceUntil.value = '';
@@ -1006,6 +1079,8 @@ const onSlotClick = (roomId, date, hour) => {
   const s = getSlot(roomId, date, hour);
   if (!s) return;
   modalSlot.value = s;
+  bookFreq.value = String(s?.bookedFrequency || '').toUpperCase();
+  bookOccurrenceCount.value = Number(s?.bookingOccurrenceCount || 6);
   editRecurrenceFreq.value = String(s?.bookedFrequency || s?.assignedFrequency || 'WEEKLY').toUpperCase();
   editRecurrenceUntil.value = String(s?.bookingActiveUntilDate || addDaysYmd(String(s?.date || ''), 364) || '');
   showModal.value = true;
@@ -1015,6 +1090,7 @@ const onSlotClick = (roomId, date, hour) => {
   assignEndHour.value = Number(hour) + 1;
   assignRecurringUntilDate.value = addDaysYmd(String(date || ''), 364);
   assignRecurrenceFreq.value = 'ONCE';
+  assignTemporary4Weeks.value = false;
   const clickedWeekday = weekdayFromYmd(String(date || ''));
   assignWeekdays.value = Number.isInteger(clickedWeekday) ? [clickedWeekday] : [];
   void loadProviders();
@@ -1023,7 +1099,7 @@ const onSlotClick = (roomId, date, hour) => {
 const dragSelectionKeys = (anchor, current) => {
   if (!grid.value || !anchor || !current) return [];
   if (Number(anchor.roomId) !== Number(current.roomId)) return [slotKey(anchor.roomId, anchor.date, anchor.hour)];
-  const days = grid.value.days || [];
+  const days = displayedDays.value || [];
   const d1 = days.indexOf(anchor.date);
   const d2 = days.indexOf(current.date);
   if (d1 < 0 || d2 < 0) return [slotKey(anchor.roomId, anchor.date, anchor.hour)];
@@ -1239,7 +1315,8 @@ const assignOpenSlot = async () => {
       assignedUserId: selectedProviderId.value,
       recurrenceFrequency: assignRecurrenceFreq.value,
       recurringUntilDate: assignRecurrenceFreq.value === 'ONCE' ? null : assignRecurringUntilDate.value,
-      weekdays: assignRecurrenceFreq.value === 'ONCE' ? [] : assignWeekdays.value
+        weekdays: assignRecurrenceFreq.value === 'ONCE' ? [] : assignWeekdays.value,
+        temporaryWeeks: assignTemporary4Weeks.value && assignRecurrenceFreq.value !== 'ONCE' ? 4 : 0
     });
     setSuccessToast('Slot assigned successfully.');
     await loadGrid();
@@ -1258,12 +1335,14 @@ const bookSlot = async () => {
     if (modalSlot.value?.standingAssignmentId) {
       await api.post(`/office-slots/${officeId.value}/assignments/${modalSlot.value.standingAssignmentId}/booking-plan`, {
         bookedFrequency: bookFreq.value,
+        bookedOccurrenceCount: Number(bookOccurrenceCount.value || 6),
         bookingStartDate: modalSlot.value.date,
         recurringUntilDate: addDaysYmd(modalSlot.value.date, 364)
       });
     } else if (modalSlot.value?.eventId) {
       await api.post(`/office-slots/${officeId.value}/events/${modalSlot.value.eventId}/booking-plan`, {
         bookedFrequency: bookFreq.value,
+        bookedOccurrenceCount: Number(bookOccurrenceCount.value || 6),
         bookingStartDate: modalSlot.value.date,
         recurringUntilDate: addDaysYmd(modalSlot.value.date, 364)
       });
@@ -1519,6 +1598,23 @@ const cancelEventAction = async () => {
     closeModal();
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to delete event';
+  } finally {
+    saving.value = false;
+  }
+};
+
+const purgeFutureBookedSlot = async () => {
+  if (!officeId.value || !modalSlot.value?.eventId) return;
+  const ok = window.confirm('Purge future booked occurrences for this provider + room + day/time slot? This is superadmin-only cleanup.');
+  if (!ok) return;
+  try {
+    saving.value = true;
+    await api.post(`/office-slots/${officeId.value}/events/${modalSlot.value.eventId}/purge-future-slot`, {});
+    setSuccessToast('Future booked occurrences purged for this provider + slot.');
+    await loadGrid();
+    closeModal();
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to purge future booked occurrences';
   } finally {
     saving.value = false;
   }
@@ -1879,6 +1975,11 @@ input[type='date'] {
   text-align: center;
   box-shadow: inset 0 0 0 1px rgba(226, 232, 240, 0.6);
 }
+.day-head.today {
+  box-shadow:
+    inset 0 0 0 1px rgba(37, 99, 235, 0.32),
+    0 0 0 2px rgba(37, 99, 235, 0.16);
+}
 .hour-head {
   background: rgba(255, 255, 255, 0.9);
   font-weight: 700;
@@ -1965,6 +2066,12 @@ input[type='date'] {
     inset 0 0 0 1px rgba(124, 58, 237, 0.22),
     0 0 0 2px rgba(124, 58, 237, 0.18),
     0 8px 18px rgba(124, 58, 237, 0.2);
+}
+.slot.today {
+  box-shadow:
+    inset 0 0 0 1px rgba(37, 99, 235, 0.26),
+    0 0 0 2px rgba(37, 99, 235, 0.12),
+    0 8px 18px rgba(59, 130, 246, 0.16);
 }
 .initials {
   position: relative;

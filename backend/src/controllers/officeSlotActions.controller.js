@@ -115,6 +115,19 @@ async function cancelGoogleForOfficeEventIds(eventIds = []) {
   }
 }
 
+async function promoteTemporaryAssignmentIfBooked(standingAssignmentId) {
+  const sid = Number(standingAssignmentId || 0);
+  if (!sid) return;
+  const assignment = await OfficeStandingAssignment.findById(sid);
+  if (!assignment) return;
+  if (String(assignment.availability_mode || '').toUpperCase() !== 'TEMPORARY') return;
+  await OfficeStandingAssignment.update(sid, {
+    availability_mode: 'AVAILABLE',
+    temporary_until_date: null,
+    last_two_week_confirmed_at: new Date()
+  });
+}
+
 function addDaysYmd(ymd, days) {
   const m = String(ymd || '').slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!m) return null;
@@ -130,6 +143,13 @@ function normalizeRecurringUntilDate(bookingStartDate, rawUntil) {
   if (!candidate || !/^\d{4}-\d{2}-\d{2}$/.test(candidate)) return maxAllowed;
   if (candidate <= start) return maxAllowed;
   return candidate > maxAllowed ? maxAllowed : candidate;
+}
+
+function normalizeBookedOccurrenceCount(rawCount) {
+  if (rawCount === null || rawCount === undefined || rawCount === '') return 6;
+  const n = parseInt(rawCount, 10);
+  if (!Number.isInteger(n) || n < 1) return 6;
+  return Math.min(n, 104);
 }
 
 function weekdayIndexFromYmd(ymd) {
@@ -200,11 +220,13 @@ export const setBookingPlan = async (req, res, next) => {
     }
 
     const recurringUntilDate = normalizeRecurringUntilDate(bookingStartDate, req.body?.recurringUntilDate);
+    const bookedOccurrenceCount = normalizeBookedOccurrenceCount(req.body?.bookedOccurrenceCount);
     const plan = await OfficeBookingPlan.upsertActive({
       standingAssignmentId: sid,
       bookedFrequency: freq,
       bookingStartDate,
       activeUntilDate: recurringUntilDate,
+      bookedOccurrenceCount,
       createdByUserId: req.user.id
     });
 
@@ -299,8 +321,8 @@ export const setTemporary = async (req, res, next) => {
     if (!assignment || assignment.office_location_id !== officeLocationId) {
       return res.status(404).json({ error: { message: 'Standing assignment not found' } });
     }
-    if (req.user.id !== assignment.provider_id) {
-      return res.status(403).json({ error: { message: 'Only the assigned provider can set temporary mode' } });
+    if (!canManageSchedule(req.user?.role)) {
+      return res.status(403).json({ error: { message: 'Only schedule managers can set temporary mode' } });
     }
 
     const weeks = parseInt(req.body?.weeks || 4, 10);
@@ -387,6 +409,9 @@ export const staffBookEvent = async (req, res, next) => {
     const updated = shouldBook
       ? await OfficeEvent.markBooked({ eventId: eid, bookedProviderId })
       : await OfficeEvent.markAvailable({ eventId: eid });
+    if (shouldBook) {
+      await promoteTemporaryAssignmentIfBooked(ev.standing_assignment_id);
+    }
     const targetEventId = updated?.id || eid;
     // Best-effort: mirror to Google Calendar (provider + room resource).
     try {
@@ -652,14 +677,17 @@ export const setEventBookingPlan = async (req, res, next) => {
     }
 
     const recurringUntilDate = normalizeRecurringUntilDate(bookingStartDate, req.body?.recurringUntilDate);
+    const bookedOccurrenceCount = normalizeBookedOccurrenceCount(req.body?.bookedOccurrenceCount);
     const plan = await OfficeBookingPlan.upsertActive({
       standingAssignmentId: assignment.id,
       bookedFrequency: freq,
       bookingStartDate,
       activeUntilDate: recurringUntilDate,
+      bookedOccurrenceCount,
       createdByUserId: req.user.id
     });
     const bookedEvent = await OfficeEvent.markBooked({ eventId: eid, bookedProviderId: providerId });
+    await promoteTemporaryAssignmentIfBooked(assignment?.id || ev.standing_assignment_id);
     try {
       await GoogleCalendarService.upsertBookedOfficeEvent({ officeEventId: bookedEvent?.id || eid });
     } catch {
@@ -800,11 +828,13 @@ export const setEventRecurrence = async (req, res, next) => {
     if (isBookedNow) {
       const bookingStartDate = ymdFromDateLike(ev.start_at, new Date().toISOString().slice(0, 10));
       const recurringUntilDate = normalizeRecurringUntilDate(bookingStartDate, req.body?.recurringUntilDate);
+      const bookedOccurrenceCount = normalizeBookedOccurrenceCount(req.body?.bookedOccurrenceCount);
       bookingPlan = await OfficeBookingPlan.upsertActive({
         standingAssignmentId: assignment.id,
         bookedFrequency: recurrenceFrequency,
         bookingStartDate,
         activeUntilDate: recurringUntilDate,
+        bookedOccurrenceCount,
         createdByUserId: req.user.id
       });
     }
@@ -938,6 +968,39 @@ export const cancelEvent = async (req, res, next) => {
       );
       targetAssignmentIds = (rows || []).map((r) => Number(r.id)).filter((n) => Number.isInteger(n) && n > 0);
     }
+    if (!targetAssignmentIds.length && applyToSet) {
+      const bookingPlanId = Number(ev.booking_plan_id || 0) || null;
+      if (bookingPlanId) {
+        const [rows] = await pool.execute(
+          `SELECT standing_assignment_id AS id
+           FROM office_booking_plans
+           WHERE id = ?
+             AND standing_assignment_id IS NOT NULL
+           LIMIT 1`,
+          [bookingPlanId]
+        );
+        targetAssignmentIds = (rows || []).map((r) => Number(r.id)).filter((n) => Number.isInteger(n) && n > 0);
+      }
+    }
+    if (!targetAssignmentIds.length && applyToSet) {
+      const providerId = Number(ev.assigned_provider_id || ev.booked_provider_id || 0) || null;
+      const roomId = Number(ev.room_id || 0) || null;
+      const wh = weekdayHourFromSqlDateTime(startAt);
+      if (providerId && roomId && wh) {
+        const [rows] = await pool.execute(
+          `SELECT id
+           FROM office_standing_assignments
+           WHERE office_location_id = ?
+             AND room_id = ?
+             AND provider_id = ?
+             AND weekday = ?
+             AND hour = ?
+           ORDER BY is_active DESC, id DESC`,
+          [officeLocationId, roomId, providerId, wh.weekdayIndex, wh.hour]
+        );
+        targetAssignmentIds = (rows || []).map((r) => Number(r.id)).filter((n) => Number.isInteger(n) && n > 0);
+      }
+    }
 
     // If no linkage exists, downgrade non-occurrence scopes to single occurrence.
     if (!targetAssignmentIds.length && !recurrenceGroupId) {
@@ -1068,6 +1131,107 @@ export const deleteEventFromGoogleNow = async (req, res, next) => {
       officeEventId: eid,
       skipped: !!result?.skipped,
       reason: result?.reason || null
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const superAdminPurgeFutureBookedSlot = async (req, res, next) => {
+  try {
+    const { officeId, eventId } = req.params;
+    const officeLocationId = parseInt(officeId, 10);
+    const eid = parseInt(eventId, 10);
+    if (!officeLocationId || !eid) return res.status(400).json({ error: { message: 'Invalid ids' } });
+    if (String(req.user?.role || '').toLowerCase() !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'Superadmin only' } });
+    }
+
+    const ok = await requireOfficeAccess(req, officeLocationId);
+    if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const ev = await OfficeEvent.findById(eid);
+    if (!ev || Number(ev.office_location_id) !== Number(officeLocationId)) {
+      return res.status(404).json({ error: { message: 'Event not found' } });
+    }
+    const startAt = mysqlDateTimeFromValue(ev.start_at);
+    if (!startAt) return res.status(400).json({ error: { message: 'Event has invalid start time' } });
+    const wh = weekdayHourFromSqlDateTime(startAt);
+    if (!wh) return res.status(400).json({ error: { message: 'Unable to derive slot weekday/hour' } });
+    const providerId = Number(ev.assigned_provider_id || ev.booked_provider_id || 0) || null;
+    const roomId = Number(ev.room_id || 0) || null;
+    if (!providerId || !roomId) {
+      return res.status(400).json({ error: { message: 'Event is missing provider or room linkage' } });
+    }
+
+    const [assignmentRows] = await pool.execute(
+      `SELECT id
+       FROM office_standing_assignments
+       WHERE office_location_id = ?
+         AND room_id = ?
+         AND provider_id = ?
+         AND weekday = ?
+         AND hour = ?`,
+      [officeLocationId, roomId, providerId, wh.weekdayIndex, wh.hour]
+    );
+    const targetAssignmentIds = (assignmentRows || []).map((r) => Number(r.id)).filter((n) => Number.isInteger(n) && n > 0);
+    if (targetAssignmentIds.length) {
+      for (const sid of targetAssignmentIds) {
+        // eslint-disable-next-line no-await-in-loop
+        await OfficeBookingPlan.deactivateByAssignmentId(sid);
+      }
+    }
+
+    const where = [
+      'office_location_id = ?',
+      'room_id = ?',
+      'start_at >= ?',
+      'DAYOFWEEK(start_at) = ?',
+      'HOUR(start_at) = ?',
+      "(UPPER(COALESCE(status,'')) = 'BOOKED' OR UPPER(COALESCE(slot_state,'')) = 'ASSIGNED_BOOKED')"
+    ];
+    const params = [officeLocationId, roomId, startAt, wh.weekdayIndex + 1, wh.hour];
+    if (targetAssignmentIds.length) {
+      where.push(`standing_assignment_id IN (${targetAssignmentIds.map(() => '?').join(',')})`);
+      params.push(...targetAssignmentIds);
+    } else {
+      where.push('COALESCE(assigned_provider_id, booked_provider_id) = ?');
+      params.push(providerId);
+    }
+
+    const [rows] = await pool.execute(
+      `SELECT id
+       FROM office_events
+       WHERE ${where.join(' AND ')}`,
+      params
+    );
+    const eventIds = (rows || []).map((r) => Number(r.id)).filter((n) => Number.isInteger(n) && n > 0);
+    if (eventIds.length) {
+      await pool.execute(
+        `UPDATE office_events
+         SET status = 'CANCELLED',
+             slot_state = 'ASSIGNED_AVAILABLE',
+             booked_provider_id = NULL,
+             booking_plan_id = NULL,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id IN (${eventIds.map(() => '?').join(',')})`,
+        eventIds
+      );
+    }
+    for (const id of eventIds) {
+      // eslint-disable-next-line no-await-in-loop
+      await ProviderVirtualSlotAvailability.deactivateBySourceEventId(id);
+    }
+    await cancelGoogleForOfficeEventIds(eventIds);
+
+    return res.json({
+      ok: true,
+      purgedEventCount: eventIds.length,
+      providerId,
+      roomId,
+      weekday: wh.weekdayIndex,
+      hour: wh.hour,
+      targetedStandingAssignmentIds: targetAssignmentIds
     });
   } catch (e) {
     next(e);
@@ -1327,6 +1491,8 @@ export const staffAssignOpenSlot = async (req, res, next) => {
       : parseInt(endHourRaw, 10);
     const recurrenceFrequencyRaw = String(req.body?.recurrenceFrequency || 'ONCE').trim().toUpperCase();
     const recurrenceFrequency = ['ONCE', 'WEEKLY', 'BIWEEKLY'].includes(recurrenceFrequencyRaw) ? recurrenceFrequencyRaw : 'ONCE';
+    const temporaryWeeksRaw = parseInt(req.body?.temporaryWeeks, 10);
+    const temporaryWeeks = Number.isInteger(temporaryWeeksRaw) && temporaryWeeksRaw > 0 ? Math.min(temporaryWeeksRaw, 12) : 0;
     const recurrenceWeekdays = uniqueWeekdays(req.body?.weekdays, date);
     const recurringUntilDate = normalizeRecurringUntilDate(date, req.body?.recurringUntilDate);
     if (!roomId || !assignedUserId) {
@@ -1438,7 +1604,13 @@ export const staffAssignOpenSlot = async (req, res, next) => {
           // eslint-disable-next-line no-await-in-loop
           await OfficeStandingAssignment.update(standingAssignment.id, {
             available_since_date: date,
-            last_two_week_confirmed_at: new Date()
+            last_two_week_confirmed_at: new Date(),
+            ...(temporaryWeeks > 0
+              ? {
+                availability_mode: 'TEMPORARY',
+                temporary_until_date: addDaysYmd(date, temporaryWeeks * 7)
+              }
+              : {})
           });
           standingAssignments.push(standingAssignment);
         }

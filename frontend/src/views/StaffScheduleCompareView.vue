@@ -17,6 +17,10 @@
         </select>
         <button class="btn btn-secondary" type="button" @click="shiftWeek(-7)">Prev</button>
         <button class="btn btn-secondary" type="button" @click="shiftWeek(7)">Next</button>
+        <button class="btn btn-secondary" type="button" @click="goToCurrentWeek">Current week</button>
+        <button class="btn btn-secondary" type="button" @click="toggleWeekStartsOn">
+          Week starts: {{ weekStartsOn === 'monday' ? 'Monday' : 'Sunday' }}
+        </button>
       </div>
     </div>
 
@@ -82,6 +86,7 @@
             :user-ids="selectedUserIds"
             :agency-ids="agencyIdsForSchedule"
             :week-start-ymd="weekStartYmd"
+            :week-starts-on="weekStartsOn"
             :user-label-by-id="userLabelById"
             @update:weekStartYmd="(v) => (weekStartYmd = v)"
           />
@@ -103,6 +108,7 @@
               :agency-ids="agencyIdsForSchedule"
               :agency-label-by-id="agencyLabelById"
               :week-start-ymd="weekStartYmd"
+              :week-starts-on="weekStartsOn"
               :availability-overlay="availabilityByUserId[uid] || null"
               mode="admin"
             />
@@ -142,10 +148,28 @@ const overlayLoadGeneration = ref(0);
 const toLocalYmd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const todayYmd = () => toLocalYmd(new Date());
 const weekStartYmd = ref(todayYmd());
+const weekStartsOn = ref(
+  typeof window !== 'undefined' && window.localStorage.getItem('schedule.weekStartsOn') === 'sunday' ? 'sunday' : 'monday'
+);
+const startOfWeekMondayYmd = (ymd) => {
+  const d = new Date(`${String(ymd || todayYmd()).slice(0, 10)}T12:00:00`);
+  d.setHours(0, 0, 0, 0);
+  const day = d.getDay();
+  const offset = (day + 6) % 7;
+  d.setDate(d.getDate() - offset);
+  return toLocalYmd(d);
+};
 const shiftWeek = (deltaDays) => {
   const d = new Date(`${weekStartYmd.value}T00:00:00`);
   d.setDate(d.getDate() + Number(deltaDays || 0));
   weekStartYmd.value = toLocalYmd(d);
+};
+const goToCurrentWeek = () => {
+  weekStartYmd.value = startOfWeekMondayYmd(todayYmd());
+};
+const toggleWeekStartsOn = () => {
+  weekStartsOn.value = weekStartsOn.value === 'monday' ? 'sunday' : 'monday';
+  if (typeof window !== 'undefined') window.localStorage.setItem('schedule.weekStartsOn', weekStartsOn.value);
 };
 
 const effectiveAgencyId = computed(() => {

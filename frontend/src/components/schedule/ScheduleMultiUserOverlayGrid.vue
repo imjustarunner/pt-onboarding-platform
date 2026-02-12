@@ -49,7 +49,7 @@
 
     <div v-else class="sched-grid" :style="gridStyle">
       <div class="sched-head-cell"></div>
-      <div v-for="d in ALL_DAYS" :key="d" class="sched-head-cell" :class="{ 'sched-head-today': isTodayDay(d) }">
+      <div v-for="d in orderedDays" :key="d" class="sched-head-cell" :class="{ 'sched-head-today': isTodayDay(d) }">
         <div class="sched-head-day">
           <div class="sched-head-dow">{{ d }}</div>
           <div class="sched-head-date">{{ dayDateLabel(d) }}</div>
@@ -58,7 +58,7 @@
 
       <template v-for="h in hours" :key="`h-${h}`">
         <div class="sched-hour">{{ hourLabel(h) }}</div>
-        <div v-for="d in ALL_DAYS" :key="`c-${d}-${h}`" class="sched-cell" :class="{ 'sched-cell-today': isTodayDay(d) }">
+        <div v-for="d in orderedDays" :key="`c-${d}-${h}`" class="sched-cell" :class="{ 'sched-cell-today': isTodayDay(d) }">
           <div class="cell-blocks">
             <div
               v-for="b in cellBlocks(d, h)"
@@ -86,11 +86,14 @@ const props = defineProps({
   userIds: { type: Array, required: true },
   agencyIds: { type: Array, default: null },
   weekStartYmd: { type: String, default: null },
+  weekStartsOn: { type: String, default: 'monday' },
   userLabelById: { type: Object, default: null }
 });
 const emit = defineEmits(['update:weekStartYmd']);
 
 const ALL_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+const SUNDAY_FIRST_DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const orderedDays = computed(() => (String(props.weekStartsOn || '').toLowerCase() === 'sunday' ? SUNDAY_FIRST_DAYS : ALL_DAYS));
 const hours = Array.from({ length: 15 }, (_, i) => 7 + i); // 7..21
 
 const pad2 = (n) => String(n).padStart(2, '0');
@@ -280,7 +283,7 @@ const load = async () => {
 watch([() => props.userIds, effectiveWeekStart, showGoogleBusy, showGoogleEvents, effectiveAgencyIds], () => void load(), { deep: true, immediate: true });
 
 const gridStyle = computed(() => ({
-  gridTemplateColumns: `64px repeat(${ALL_DAYS.length}, minmax(0, 1fr))`
+  gridTemplateColumns: `64px repeat(${orderedDays.value.length}, minmax(0, 1fr))`
 }));
 
 const weekTitle = computed(() => {
@@ -534,8 +537,14 @@ const onBlockClick = (e, b) => {
   border-color: rgba(59, 130, 246, 0.35);
   color: rgba(37, 99, 235, 0.95);
 }
-.sched-head-today { background: linear-gradient(180deg, rgba(59, 130, 246, 0.16), rgba(59, 130, 246, 0.06)); }
-.sched-cell-today { background: rgba(59, 130, 246, 0.05); }
+.sched-head-today {
+  background: linear-gradient(180deg, rgba(59, 130, 246, 0.16), rgba(59, 130, 246, 0.06));
+  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.26), 0 0 0 2px rgba(59, 130, 246, 0.14);
+}
+.sched-cell-today {
+  background: rgba(59, 130, 246, 0.05);
+  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.2);
+}
 
 .sched-grid {
   margin-top: 10px;

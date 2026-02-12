@@ -194,6 +194,12 @@ const dayGridStyle = computed(() => ({
 .cell.clickable { cursor: pointer; }
 .cell.clickable:hover { outline: 2px solid rgba(59, 130, 246, 0.22); outline-offset: -2px; }
 .cell.today { background: rgba(59, 130, 246, 0.03); }
+.day-head.today {
+  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.24), 0 0 0 2px rgba(59, 130, 246, 0.14);
+}
+.cell.today {
+  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.16);
+}
 
 .cell-main { display: flex; gap: 8px; align-items: center; justify-content: space-between; }
 .cell-name { font-weight: 900; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
