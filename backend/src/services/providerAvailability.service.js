@@ -33,6 +33,18 @@ function dayIndex(dayOfWeek) {
 }
 
 function parseMySqlDateTime(s) {
+  if (s instanceof Date) {
+    if (Number.isNaN(s.getTime())) return null;
+    // DATETIME is stored as wall-clock; when driver returns Date, UTC parts preserve numeric wall components.
+    return {
+      year: s.getUTCFullYear(),
+      month: s.getUTCMonth() + 1,
+      day: s.getUTCDate(),
+      hour: s.getUTCHours(),
+      minute: s.getUTCMinutes(),
+      second: s.getUTCSeconds()
+    };
+  }
   // "YYYY-MM-DD HH:MM:SS"
   const m = String(s || '').trim().match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/);
   if (!m) return null;

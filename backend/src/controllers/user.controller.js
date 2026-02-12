@@ -1937,6 +1937,29 @@ function addDaysYmd(ymd, days) {
   return d.toISOString().slice(0, 10);
 }
 
+function toMysqlDateTimeWall(value) {
+  if (value === null || value === undefined) return null;
+  const pad2 = (n) => String(n).padStart(2, '0');
+  const formatUtcParts = (d) =>
+    `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())} ${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}:${pad2(d.getUTCSeconds())}`;
+
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return null;
+    return formatUtcParts(value);
+  }
+
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(raw)) return raw.slice(0, 19);
+  if (/^\d{4}-\d{2}-\d{2}T/.test(raw)) {
+    const d = new Date(raw);
+    if (!Number.isNaN(d.getTime())) return formatUtcParts(d);
+  }
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return null;
+  return formatUtcParts(d);
+}
+
 const canViewProviderScheduleSummary = (role) => {
   const r = String(role || '').toLowerCase();
   return r === 'super_admin' || r === 'admin' || r === 'support' || r === 'staff' || r === 'clinical_practice_assistant';
@@ -2197,8 +2220,8 @@ export const getUserScheduleSummary = async (req, res, next) => {
         roomId: r.room_id,
         roomNumber: r.room_number,
         roomLabel: r.room_label || r.room_name,
-        startAt: r.start_at,
-        endAt: r.end_at,
+        startAt: toMysqlDateTimeWall(r.start_at) || r.start_at,
+        endAt: toMysqlDateTimeWall(r.end_at) || r.end_at,
         status: r.status,
         slotState: r.slot_state,
         virtualIntakeEnabled: Number(r.virtual_intake_enabled || 0) === 1,
