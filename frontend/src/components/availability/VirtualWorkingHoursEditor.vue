@@ -14,7 +14,8 @@
           <div>Day</div>
           <div>Start</div>
           <div>End</div>
-          <div>Session type</div>
+          <div>Virtual available</div>
+          <div>Intake</div>
           <div>Frequency</div>
           <div></div>
         </div>
@@ -25,11 +26,11 @@
           </select>
           <input class="input" type="time" v-model="r.startTime" />
           <input class="input" type="time" v-model="r.endTime" />
-          <select class="select" v-model="r.sessionType">
-            <option value="REGULAR">Regular</option>
-            <option value="INTAKE">Intake</option>
-            <option value="BOTH">Both</option>
-          </select>
+          <div class="pill yes">Yes</div>
+          <label class="check-inline">
+            <input type="checkbox" v-model="r.intakeEnabled" />
+            <span>Include in intake</span>
+          </label>
           <select class="select" v-model="r.frequency">
             <option value="WEEKLY">Weekly</option>
             <option value="BIWEEKLY">Biweekly</option>
@@ -49,7 +50,7 @@
       </div>
 
       <div class="muted" style="margin-top:10px;">
-        Tip: keep ranges aligned to the hour for clean 60-minute slots.
+        Rows are always virtual availability. Turn on "Include in intake" for slots that should appear in intake finder.
       </div>
     </div>
   </div>
@@ -71,7 +72,7 @@ const rows = ref([]);
 const dayOptions = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
 const addRow = () => {
-  rows.value.push({ dayOfWeek: 'Monday', startTime: '09:00', endTime: '10:00', sessionType: 'REGULAR', frequency: 'WEEKLY' });
+  rows.value.push({ dayOfWeek: 'Monday', startTime: '09:00', endTime: '10:00', intakeEnabled: false, frequency: 'WEEKLY' });
 };
 const removeRow = (idx) => {
   rows.value.splice(idx, 1);
@@ -87,7 +88,7 @@ const load = async () => {
       dayOfWeek: r.dayOfWeek || 'Monday',
       startTime: r.startTime || '09:00',
       endTime: r.endTime || '10:00',
-      sessionType: r.sessionType || 'REGULAR',
+      intakeEnabled: ['INTAKE', 'BOTH'].includes(String(r.sessionType || '').toUpperCase()),
       frequency: r.frequency || 'WEEKLY'
     }));
   } catch (e) {
@@ -103,7 +104,14 @@ const save = async () => {
     error.value = '';
     await api.put('/availability/me/virtual-working-hours', {
       agencyId: props.agencyId,
-      rows: rows.value
+      rows: rows.value.map((r) => ({
+        dayOfWeek: r.dayOfWeek,
+        startTime: r.startTime,
+        endTime: r.endTime,
+        // Intake-enabled virtual rows should also remain generally available virtually.
+        sessionType: r.intakeEnabled ? 'BOTH' : 'REGULAR',
+        frequency: r.frequency
+      }))
     });
     await load();
   } catch (e) {
@@ -121,10 +129,12 @@ watch(() => props.agencyId, load);
 .muted { color: var(--text-secondary); }
 .error { color: #b00020; }
 .vwh-table { display: flex; flex-direction: column; gap: 8px; }
-.vwh-row { display: grid; grid-template-columns: 1fr 140px 140px 170px 140px auto; gap: 10px; align-items: center; }
+.vwh-row { display: grid; grid-template-columns: 1fr 130px 130px 130px 180px 130px auto; gap: 10px; align-items: center; }
 @media (max-width: 900px) { .vwh-row { grid-template-columns: 1fr; } }
 .vwh-row-head { font-weight: 900; color: var(--text-secondary); }
 .select, .input { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); color: var(--text-primary); }
 .row-inline { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.check-inline { display: inline-flex; align-items: center; gap: 8px; color: var(--text-secondary); font-weight: 600; }
+.pill.yes { display: inline-flex; justify-content: center; align-items: center; height: 36px; border-radius: 10px; background: rgba(16,185,129,0.12); border: 1px solid rgba(16,185,129,0.32); color: #047857; font-weight: 800; }
 </style>
 
