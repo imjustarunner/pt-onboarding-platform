@@ -2157,7 +2157,28 @@ export const getUserScheduleSummary = async (req, res, next) => {
            e.start_at,
            e.end_at,
            e.status,
-           e.slot_state
+           e.slot_state,
+           EXISTS(
+             SELECT 1
+             FROM provider_virtual_slot_availability pv
+             WHERE pv.agency_id = ?
+               AND pv.provider_id = ?
+               AND pv.start_at = e.start_at
+               AND pv.end_at = e.end_at
+               AND pv.is_active = TRUE
+               AND UPPER(COALESCE(pv.session_type, 'REGULAR')) IN ('INTAKE', 'BOTH')
+             LIMIT 1
+           ) AS virtual_intake_enabled,
+           EXISTS(
+             SELECT 1
+             FROM provider_in_person_slot_availability ip
+             WHERE ip.agency_id = ?
+               AND ip.provider_id = ?
+               AND ip.start_at = e.start_at
+               AND ip.end_at = e.end_at
+               AND ip.is_active = TRUE
+             LIMIT 1
+           ) AS in_person_intake_enabled
          FROM office_events e
          JOIN office_rooms r ON r.id = e.room_id
          JOIN office_locations ol ON ol.id = e.office_location_id
@@ -2166,7 +2187,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
            AND e.start_at < ?
            AND e.end_at > ?
          ORDER BY e.start_at ASC`,
-        [agencyId, providerId, providerId, windowEnd, windowStart]
+        [agencyId, providerId, agencyId, providerId, agencyId, providerId, providerId, windowEnd, windowStart]
       );
       officeEvents = (rows || []).map((r) => ({
         id: r.id,
@@ -2178,7 +2199,9 @@ export const getUserScheduleSummary = async (req, res, next) => {
         startAt: r.start_at,
         endAt: r.end_at,
         status: r.status,
-        slotState: r.slot_state
+        slotState: r.slot_state,
+        virtualIntakeEnabled: Number(r.virtual_intake_enabled || 0) === 1,
+        inPersonIntakeEnabled: Number(r.in_person_intake_enabled || 0) === 1
       }));
     } catch (e) {
       if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;

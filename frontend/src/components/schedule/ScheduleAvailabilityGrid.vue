@@ -92,6 +92,19 @@
           </button>
 
           <button
+            type="button"
+            class="sched-pill"
+            :class="{ on: showExternalBusy }"
+            role="switch"
+            :aria-checked="String(!!showExternalBusy)"
+            :disabled="loading || !externalCalendarsAvailable.length"
+            @click="toggleExternalBusy"
+            title="Show or hide EHR busy overlays"
+          >
+            EHR busy
+          </button>
+
+          <button
             v-if="!calendarsHidden"
             class="sched-pill"
             type="button"
@@ -125,12 +138,12 @@
         Loading office availability…
       </div>
 
-      <div v-if="externalCalendarsAvailable.length" class="sched-toolbar-secondary">
+      <div class="sched-toolbar-secondary">
         <div class="sched-calendars" data-tour="my-schedule-ehr-calendars">
           <div class="sched-calendars-label">EHR calendars</div>
           <div class="sched-calendars-actions">
-            <button type="button" class="sched-chip" :disabled="loading" @click="selectAllExternalCalendars">All</button>
-            <button type="button" class="sched-chip" :disabled="loading" @click="clearExternalCalendars">None</button>
+            <button type="button" class="sched-chip" :disabled="loading || !externalCalendarsAvailable.length" @click="selectAllExternalCalendars">All</button>
+            <button type="button" class="sched-chip" :disabled="loading || !externalCalendarsAvailable.length" @click="clearExternalCalendars">None</button>
           </div>
           <button
             v-for="c in externalCalendarsAvailable"
@@ -138,11 +151,14 @@
             type="button"
             class="sched-chip"
             :class="{ on: selectedExternalCalendarIds.includes(Number(c.id)) }"
-            :disabled="loading"
+            :disabled="loading || !showExternalBusy"
             @click="toggleExternalCalendar(Number(c.id))"
           >
             {{ c.label }}
           </button>
+          <div v-if="!externalCalendarsAvailable.length" class="muted" style="font-size: 12px;">
+            No EHR calendars connected for this provider.
+          </div>
         </div>
       </div>
     </div>
@@ -158,7 +174,7 @@
         v-else
         :office-grid="officeGrid"
         :today-ymd="todayLocalYmd"
-        :can-book="canCreateRequests"
+        :can-book="canBookFromGrid"
         @cell-click="onOfficeLayoutCellClick"
       />
     </div>
@@ -182,9 +198,11 @@
         <div class="legend-item"><span class="swatch swatch-oa"></span> Office assigned</div>
         <div class="legend-item"><span class="swatch swatch-ot"></span> Office temporary</div>
         <div class="legend-item"><span class="swatch swatch-ob"></span> Office booked</div>
+        <div class="legend-item"><span class="swatch swatch-intake-ip"></span> In-person intake</div>
+        <div class="legend-item"><span class="swatch swatch-intake-vi"></span> Virtual intake</div>
         <div class="legend-item" v-if="showGoogleBusy"><span class="swatch swatch-gbusy"></span> Google busy</div>
         <div class="legend-item" v-if="showGoogleEvents"><span class="swatch swatch-gevt"></span> Google event</div>
-        <div class="legend-item" v-if="selectedExternalCalendarIds.length"><span class="swatch swatch-ebusy"></span> EHR busy</div>
+        <div class="legend-item" v-if="showExternalBusy && selectedExternalCalendarIds.length"><span class="swatch swatch-ebusy"></span> EHR busy</div>
       </div>
 
       <div class="sched-grid" :style="gridStyle">
@@ -203,7 +221,7 @@
             v-for="d in visibleDays"
             :key="`c-${d}-${h}`"
             class="sched-cell"
-            :class="{ clickable: canCreateRequests, 'sched-cell-today': isTodayDay(d) }"
+            :class="{ clickable: canBookFromGrid, 'sched-cell-today': isTodayDay(d) }"
             @click="onCellClick(d, h)"
             role="button"
             :tabindex="0"
@@ -253,8 +271,8 @@
           <label class="lbl">Request type</label>
           <select v-model="requestType" class="input">
             <option value="office">Office booking</option>
-            <option value="school" :disabled="!canUseSchool(modalDay, modalHour, modalEndHour)">School daytime availability</option>
-            <option value="supervision" :disabled="supervisorsLoading || supervisors.length === 0">Supervision (adds to Google Calendar)</option>
+            <option v-if="!isAdminMode" value="school" :disabled="!canUseSchool(modalDay, modalHour, modalEndHour)">School daytime availability</option>
+            <option v-if="!isAdminMode" value="supervision" :disabled="supervisorsLoading || supervisors.length === 0">Supervision (adds to Google Calendar)</option>
           </select>
           <div v-if="requestType === 'school' && !canUseSchool(modalDay, modalHour, modalEndHour)" class="muted" style="margin-top: 6px;">
             School daytime availability must be on weekdays and between 06:00 and 18:00.
@@ -616,6 +634,7 @@ const summary = ref(null);
 // - External/EHR calendars: ALL ON (once available list is loaded)
 const showGoogleBusy = ref(true);
 const showGoogleEvents = ref(false);
+const showExternalBusy = ref(true);
 const selectedExternalCalendarIds = ref([]); // populated from available list once loaded
 const hideWeekend = ref(props.mode === 'self');
 const initializedOverlayDefaults = ref(false);
@@ -657,6 +676,7 @@ const saveOverlayPrefs = () => {
     const payload = {
       showGoogleBusy: !!showGoogleBusy.value,
       showGoogleEvents: !!showGoogleEvents.value,
+      showExternalBusy: !!showExternalBusy.value,
       selectedExternalCalendarIds: coerceIdArray(selectedExternalCalendarIds.value),
       hideWeekend: !!hideWeekend.value,
       viewMode: String(viewMode.value || 'open_finder'),
@@ -678,7 +698,7 @@ const calendarsHidden = computed(
   () =>
     !showGoogleBusy.value &&
     !showGoogleEvents.value &&
-    (Array.isArray(selectedExternalCalendarIds.value) ? selectedExternalCalendarIds.value : []).length === 0
+    (!showExternalBusy.value || (Array.isArray(selectedExternalCalendarIds.value) ? selectedExternalCalendarIds.value : []).length === 0)
 );
 
 const selectAllExternalCalendars = () => {
@@ -687,6 +707,14 @@ const selectAllExternalCalendars = () => {
 
 const clearExternalCalendars = () => {
   selectedExternalCalendarIds.value = [];
+};
+
+const toggleExternalBusy = () => {
+  if (!externalCalendarsAvailable.value.length) return;
+  showExternalBusy.value = !showExternalBusy.value;
+  if (showExternalBusy.value && selectedExternalCalendarIds.value.length === 0) {
+    selectAllExternalCalendars();
+  }
 };
 
 const toggleExternalCalendar = (id) => {
@@ -703,10 +731,12 @@ const hideAllCalendars = () => {
   lastCalendarPrefs.value = {
     showGoogleBusy: !!showGoogleBusy.value,
     showGoogleEvents: !!showGoogleEvents.value,
+    showExternalBusy: !!showExternalBusy.value,
     selectedExternalCalendarIds: (selectedExternalCalendarIds.value || []).slice()
   };
   showGoogleBusy.value = false;
   showGoogleEvents.value = false;
+  showExternalBusy.value = false;
   selectedExternalCalendarIds.value = [];
 };
 
@@ -715,6 +745,7 @@ const showAllCalendars = () => {
   if (p) {
     showGoogleBusy.value = p.showGoogleBusy !== undefined ? !!p.showGoogleBusy : true;
     showGoogleEvents.value = p.showGoogleEvents !== undefined ? !!p.showGoogleEvents : false;
+    showExternalBusy.value = p.showExternalBusy !== undefined ? !!p.showExternalBusy : true;
     selectedExternalCalendarIds.value = coerceIdArray(p.selectedExternalCalendarIds);
     // If the restored selection is empty, default to ALL externals so "show" actually shows something.
     if (!selectedExternalCalendarIds.value.length && externalCalendarsAvailable.value.length) {
@@ -725,6 +756,7 @@ const showAllCalendars = () => {
   // Fallback defaults.
   showGoogleBusy.value = true;
   showGoogleEvents.value = false;
+  showExternalBusy.value = true;
   if (externalCalendarsAvailable.value.length) selectAllExternalCalendars();
 };
 
@@ -740,6 +772,7 @@ try {
     if (saved) {
       showGoogleBusy.value = saved.showGoogleBusy !== undefined ? !!saved.showGoogleBusy : true;
       showGoogleEvents.value = saved.showGoogleEvents !== undefined ? !!saved.showGoogleEvents : false;
+      showExternalBusy.value = saved.showExternalBusy !== undefined ? !!saved.showExternalBusy : true;
       selectedExternalCalendarIds.value = coerceIdArray(saved.selectedExternalCalendarIds);
       hideWeekend.value = saved.hideWeekend !== undefined ? !!saved.hideWeekend : true;
       viewMode.value = saved.viewMode === 'office_layout' ? 'office_layout' : 'open_finder';
@@ -750,6 +783,7 @@ try {
       // First-load defaults (select-all external happens once calendars list is known).
       showGoogleBusy.value = true;
       showGoogleEvents.value = false;
+      showExternalBusy.value = true;
       shouldDefaultSelectAllExternal.value = true;
     }
   }
@@ -857,7 +891,7 @@ const dayNameForDateYmd = (dateYmd) => {
 };
 
 const onOfficeLayoutCellClick = ({ dateYmd, hour, roomId }) => {
-  if (!canCreateRequests.value) return;
+  if (!canBookFromGrid.value) return;
   const dn = dayNameForDateYmd(dateYmd);
   if (!dn) return;
   // Reuse existing booking modal behavior (supports multi-hour + recurrence).
@@ -895,12 +929,12 @@ const agencyLabel = (agencyId) => {
   return String(label || '').trim();
 };
 
-const canCreateRequests = computed(() => props.mode === 'self');
 const isAdminMode = computed(() => props.mode === 'admin');
 const canManageOffices = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
   return ['clinical_practice_assistant', 'admin', 'super_admin', 'support', 'staff'].includes(role);
 });
+const canBookFromGrid = computed(() => props.mode === 'self' || (isAdminMode.value && canManageOffices.value));
 
 const availabilityClass = (dayName, hour) => {
   const a = props.availabilityOverlay && typeof props.availabilityOverlay === 'object' ? props.availabilityOverlay : null;
@@ -956,7 +990,7 @@ const load = async () => {
           agencyId: ids[0],
           includeGoogleBusy: showGoogleBusy.value ? 'true' : 'false',
           includeGoogleEvents: showGoogleEvents.value ? 'true' : 'false',
-          ...(selectedExternalCalendarIds.value.length
+          ...(showExternalBusy.value && selectedExternalCalendarIds.value.length
             ? { externalCalendarIds: selectedExternalCalendarIds.value.join(',') }
             : {})
         }
@@ -972,7 +1006,7 @@ const load = async () => {
                 agencyId,
                 includeGoogleBusy: showGoogleBusy.value ? 'true' : 'false',
                 includeGoogleEvents: showGoogleEvents.value ? 'true' : 'false',
-                ...(selectedExternalCalendarIds.value.length
+                ...(showExternalBusy.value && selectedExternalCalendarIds.value.length
                   ? { externalCalendarIds: selectedExternalCalendarIds.value.join(',') }
                   : {})
               }
@@ -1064,7 +1098,7 @@ const load = async () => {
 };
 
 watch([() => props.userId, effectiveAgencyIds], () => load(), { immediate: true });
-watch([showGoogleBusy, showGoogleEvents, selectedExternalCalendarIds], () => load(), { deep: true });
+watch([showGoogleBusy, showGoogleEvents, showExternalBusy, selectedExternalCalendarIds], () => load(), { deep: true });
 
 watch(
   () => props.weekStartYmd,
@@ -1106,6 +1140,7 @@ watch(externalCalendarsAvailable, (next) => {
     }
     // Default Google busy on for admin auditing.
     showGoogleBusy.value = true;
+    showExternalBusy.value = true;
     initializedOverlayDefaults.value = true;
   }
 
@@ -1114,7 +1149,7 @@ watch(externalCalendarsAvailable, (next) => {
 });
 
 // Persist overlay/view settings (provider UX only).
-watch([showGoogleBusy, showGoogleEvents, selectedExternalCalendarIds, hideWeekend, viewMode], () => {
+watch([showGoogleBusy, showGoogleEvents, showExternalBusy, selectedExternalCalendarIds, hideWeekend, viewMode], () => {
   if (props.mode !== 'self' || !overlayPrefsLoaded.value) return;
   saveOverlayPrefs();
 }, { deep: true });
@@ -1467,7 +1502,9 @@ const officeTopEvent = (dayName, hour) => {
 const officeTitle = (dayName, hour) => {
   const top = officeTopEvent(dayName, hour);
   if (!top) return `Office — ${dayName} ${hourLabel(hour)}`;
-  const room = top.roomLabel || 'Office';
+  const roomNumber = String(top.roomNumber || '').trim();
+  const roomLabel = String(top.roomLabel || '').trim();
+  const room = roomNumber ? `#${roomNumber}${roomLabel ? ` (${roomLabel})` : ''}` : (roomLabel || 'Office');
   const bld = top.buildingName || 'Office location';
   const st = String(top.slotState || '').toUpperCase();
   const label = st === 'ASSIGNED_BOOKED' ? 'Booked' : st === 'ASSIGNED_TEMPORARY' ? 'Temporary' : 'Assigned';
@@ -1500,6 +1537,14 @@ const externalBusyShortLabel = (dayName, hour) => {
   return `${labels[0]}+${labels.length - 1}`;
 };
 
+const shortOfficeLabel = (topEvent, fallback) => {
+  const roomNumber = String(topEvent?.roomNumber || '').trim();
+  if (roomNumber) return `#${roomNumber}`;
+  const roomLabel = String(topEvent?.roomLabel || '').trim();
+  if (roomLabel) return roomLabel.length > 12 ? `${roomLabel.slice(0, 12)}…` : roomLabel;
+  return fallback;
+};
+
 const cellBlocks = (dayName, hour) => {
   const blocks = [];
 
@@ -1508,11 +1553,18 @@ const cellBlocks = (dayName, hour) => {
   const top = ['ASSIGNED_BOOKED', 'ASSIGNED_TEMPORARY', 'ASSIGNED_AVAILABLE'].includes(st) ? officeTopEvent(dayName, hour) : null;
   const buildingId = top?.buildingId ? Number(top.buildingId) : null;
   if (st === 'ASSIGNED_BOOKED') {
-    blocks.push({ key: 'office-booked', kind: 'ob', shortLabel: 'Booked', title: officeTitle(dayName, hour), buildingId });
+    blocks.push({ key: 'office-booked', kind: 'ob', shortLabel: shortOfficeLabel(top, 'Booked'), title: officeTitle(dayName, hour), buildingId });
   } else if (st === 'ASSIGNED_TEMPORARY') {
-    blocks.push({ key: 'office-temp', kind: 'ot', shortLabel: 'Temp', title: officeTitle(dayName, hour), buildingId });
+    blocks.push({ key: 'office-temp', kind: 'ot', shortLabel: shortOfficeLabel(top, 'Temp'), title: officeTitle(dayName, hour), buildingId });
   } else if (st === 'ASSIGNED_AVAILABLE') {
-    blocks.push({ key: 'office-assigned', kind: 'oa', shortLabel: 'Office', title: officeTitle(dayName, hour), buildingId });
+    blocks.push({ key: 'office-assigned', kind: 'oa', shortLabel: shortOfficeLabel(top, 'Office'), title: officeTitle(dayName, hour), buildingId });
+  }
+
+  if (top?.inPersonIntakeEnabled) {
+    blocks.push({ key: 'intake-ip', kind: 'intake-ip', shortLabel: 'IP', title: `In-person intake enabled — ${officeTitle(dayName, hour)}` });
+  }
+  if (top?.virtualIntakeEnabled) {
+    blocks.push({ key: 'intake-vi', kind: 'intake-vi', shortLabel: 'VI', title: `Virtual intake enabled — ${officeTitle(dayName, hour)}` });
   }
 
   // Assigned school
@@ -1550,7 +1602,7 @@ const cellBlocks = (dayName, hour) => {
       blocks.push({ key: 'gevt-more', kind: 'more', shortLabel: `+${extra}`, title: `${extra} more Google events in this hour` });
     }
   }
-  if (selectedExternalCalendarIds.value.length && hasExternalBusy(dayName, hour)) {
+  if (showExternalBusy.value && selectedExternalCalendarIds.value.length && hasExternalBusy(dayName, hour)) {
     blocks.push({ key: 'ebusy', kind: 'ebusy', shortLabel: externalBusyShortLabel(dayName, hour), title: externalBusyTitle(dayName, hour) });
   }
 
@@ -1743,13 +1795,7 @@ const canUseSchool = (dayName, startHour, endHour) => {
 };
 
 const onCellClick = (dayName, hour) => {
-  if (!canCreateRequests.value) {
-    // Admin scheduling: assign office slots directly from a provider schedule (no request).
-    if (isAdminMode.value && canManageOffices.value) {
-      openOfficeAssignModal(dayName, hour);
-    }
-    return;
-  }
+  if (!canBookFromGrid.value) return;
   modalDay.value = dayName;
   modalHour.value = Number(hour);
   // Default to a 1-hour range; clamp to end-of-grid.
@@ -2028,7 +2074,8 @@ const submitRequest = async () => {
         endAt,
         recurrence: String(officeBookingRecurrence.value || 'ONCE'),
         openToAlternativeRoom: !roomId,
-        notes: requestNotes.value || ''
+        notes: requestNotes.value || '',
+        ...(isAdminMode.value ? { requestedProviderId: Number(props.userId) } : {})
       });
 
       // If it auto-booked, refresh the office grid immediately so the overlay updates.
@@ -2036,6 +2083,7 @@ const submitRequest = async () => {
         await loadSelectedOfficeGrid();
       }
     } else if (requestType.value === 'school') {
+      if (isAdminMode.value) throw new Error('School availability requests must be created from the provider schedule.');
       if (!canUseSchool(dn, h, endH)) throw new Error('School daytime availability must be on weekdays and between 06:00 and 18:00.');
       await api.post('/availability/school-requests', {
         agencyId: effectiveAgencyId.value,
@@ -2047,6 +2095,7 @@ const submitRequest = async () => {
         }]
       });
     } else if (requestType.value === 'supervision') {
+      if (isAdminMode.value) throw new Error('Supervision requests must be created from the provider schedule.');
       if (supervisorsLoading.value) throw new Error('Supervisors are still loading.');
       const supId = Number(selectedSupervisorId.value || 0);
       if (!supId) throw new Error('Please select a supervisor.');
@@ -2459,6 +2508,8 @@ watch(modalHour, () => {
 .swatch-oa { background: var(--sched-oa-bg, rgba(39, 174, 96, 0.22)); border-color: var(--sched-oa-border, rgba(39, 174, 96, 0.55)); }
 .swatch-ot { background: var(--sched-ot-bg, rgba(242, 153, 74, 0.24)); border-color: var(--sched-ot-border, rgba(242, 153, 74, 0.58)); }
 .swatch-ob { background: var(--sched-ob-bg, rgba(235, 87, 87, 0.22)); border-color: var(--sched-ob-border, rgba(235, 87, 87, 0.58)); }
+.swatch-intake-ip { background: rgba(34, 197, 94, 0.18); border-color: rgba(21, 128, 61, 0.45); }
+.swatch-intake-vi { background: rgba(59, 130, 246, 0.18); border-color: rgba(29, 78, 216, 0.45); }
 .swatch-gbusy { background: var(--sched-gbusy-bg, rgba(17, 24, 39, 0.18)); border-color: var(--sched-gbusy-border, rgba(17, 24, 39, 0.45)); }
 .swatch-gevt { background: rgba(59, 130, 246, 0.14); border-color: rgba(59, 130, 246, 0.35); }
 .swatch-ebusy { background: var(--sched-ebusy-bg, rgba(107, 114, 128, 0.18)); border-color: var(--sched-ebusy-border, rgba(107, 114, 128, 0.45)); }
@@ -2633,6 +2684,8 @@ watch(modalHour, () => {
 .cell-block-gbusy { background: var(--sched-gbusy-bg, rgba(17, 24, 39, 0.14)); border-color: var(--sched-gbusy-border, rgba(17, 24, 39, 0.42)); color: rgba(17, 24, 39, 0.9); }
 .cell-block-gevt { background: rgba(59, 130, 246, 0.14); border-color: rgba(59, 130, 246, 0.35); cursor: pointer; }
 .cell-block-ebusy { background: var(--sched-ebusy-bg, rgba(107, 114, 128, 0.16)); border-color: var(--sched-ebusy-border, rgba(107, 114, 128, 0.45)); color: rgba(17, 24, 39, 0.9); }
+.cell-block-intake-ip { background: rgba(34, 197, 94, 0.20); border-color: rgba(21, 128, 61, 0.45); color: rgba(21, 128, 61, 0.95); }
+.cell-block-intake-vi { background: rgba(59, 130, 246, 0.20); border-color: rgba(29, 78, 216, 0.45); color: rgba(29, 78, 216, 0.95); }
 .cell-block-more { background: rgba(148, 163, 184, 0.18); border-color: rgba(148, 163, 184, 0.45); color: rgba(51, 65, 85, 0.92); }
 
 .modal-backdrop {

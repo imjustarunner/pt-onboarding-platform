@@ -1003,7 +1003,17 @@ export const denyRequest = async (req, res, next) => {
 
 export const createOfficeBookingRequest = async (req, res, next) => {
   try {
-    const blocked = await userHasBlockingExpiredCredential(req.user.id);
+    const requestedProviderIdRaw = req.body?.requestedProviderId || req.body?.requested_provider_id || req.user.id;
+    const requestedProviderId = Number(requestedProviderIdRaw || 0) || Number(req.user.id || 0);
+    if (!requestedProviderId) {
+      return res.status(400).json({ error: { message: 'requestedProviderId is required' } });
+    }
+    const actingAsOtherProvider = requestedProviderId !== Number(req.user.id);
+    if (actingAsOtherProvider && !canManageSchedule(req.user.role)) {
+      return res.status(403).json({ error: { message: 'Only staff/admin can book on behalf of another provider' } });
+    }
+
+    const blocked = await userHasBlockingExpiredCredential(requestedProviderId);
     if (blocked) {
       return res.status(403).json({ error: { message: 'Scheduling is restricted due to an expired blocking credential' } });
     }
@@ -1034,6 +1044,18 @@ export const createOfficeBookingRequest = async (req, res, next) => {
         agencyIds: userAgencies.map((a) => a.id)
       });
       if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+    // When booking on behalf of another provider, ensure the target provider is affiliated
+    // with at least one agency attached to this office.
+    if (actingAsOtherProvider) {
+      const providerAgencies = await User.getAgencies(requestedProviderId);
+      const providerHasOfficeAccess = await OfficeLocationAgency.userHasAccess({
+        officeLocationId: loc.id,
+        agencyIds: (providerAgencies || []).map((a) => Number(a.id)).filter((n) => Number.isFinite(n) && n > 0)
+      });
+      if (!providerHasOfficeAccess) {
+        return res.status(403).json({ error: { message: 'Selected provider is not affiliated with this office organization' } });
+      }
     }
 
     // Room is optional (open-to-alternative). If provided it must match location.
@@ -1106,7 +1128,7 @@ export const createOfficeBookingRequest = async (req, res, next) => {
           endAt,
           status: 'BOOKED',
           assignedProviderId: null,
-          bookedProviderId: req.user.id,
+          bookedProviderId: requestedProviderId,
           source: 'PROVIDER_REQUEST',
           recurrenceGroupId: null,
           notes,
@@ -1121,7 +1143,7 @@ export const createOfficeBookingRequest = async (req, res, next) => {
       requestType: 'PROVIDER_REQUEST',
       officeLocationId: loc.id,
       roomId: room?.id || null,
-      requestedProviderId: req.user.id,
+      requestedProviderId,
       startAt,
       endAt,
       recurrence: normalizedRecurrence,
