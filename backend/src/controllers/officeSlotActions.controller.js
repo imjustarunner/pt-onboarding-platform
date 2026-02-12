@@ -416,6 +416,12 @@ export const setEventVirtualIntakeAvailability = async (req, res, next) => {
     }
 
     if (enabled) {
+      const slotState = String(ev.slot_state || '').toUpperCase();
+      const status = String(ev.status || '').toUpperCase();
+      const alreadyBooked = slotState === 'ASSIGNED_BOOKED' || status === 'BOOKED';
+      if (!alreadyBooked) {
+        await OfficeEvent.markBooked({ eventId: eid, bookedProviderId: providerId });
+      }
       await ProviderVirtualSlotAvailability.upsertSlot({
         agencyId,
         providerId,
@@ -429,6 +435,15 @@ export const setEventVirtualIntakeAvailability = async (req, res, next) => {
         createdByUserId: req.user.id
       });
     } else {
+      const wasActive = await ProviderVirtualSlotAvailability.isActiveSlot({
+        agencyId,
+        providerId,
+        startAt,
+        endAt
+      });
+      if (!wasActive) {
+        return res.status(409).json({ error: { message: 'Virtual intake is not enabled for this slot.' } });
+      }
       await ProviderVirtualSlotAvailability.deactivateSlot({
         agencyId,
         providerId,
@@ -437,7 +452,7 @@ export const setEventVirtualIntakeAvailability = async (req, res, next) => {
       });
     }
 
-    res.json({ ok: true, enabled, agencyId, providerId, startAt, endAt });
+    res.json({ ok: true, enabled, agencyId, providerId, startAt, endAt, booked: enabled ? true : undefined });
   } catch (e) {
     if (e?.code === 'ER_NO_SUCH_TABLE') {
       return res.status(409).json({ error: { message: 'Virtual slot overrides are not available yet. Run database migrations.' } });

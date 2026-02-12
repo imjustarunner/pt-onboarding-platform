@@ -45,6 +45,20 @@ function mysqlDateTimeForDateHour(dateStr, hour24) {
   return `${ymd} ${String(normalizedHour).padStart(2, '0')}:00:00`;
 }
 
+function normalizeMysqlDateTime(value) {
+  if (value === null || value === undefined) return '';
+  const raw = String(value).trim();
+  if (!raw) return '';
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(raw)) return raw.slice(0, 19);
+  if (/^\d{4}-\d{2}-\d{2}T/.test(raw)) {
+    const d = new Date(raw);
+    if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 19).replace('T', ' ');
+  }
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return '';
+  return parsed.toISOString().slice(0, 19).replace('T', ' ');
+}
+
 function parseSlotDateHour(value) {
   if (!value) return null;
   if (value instanceof Date) {
@@ -339,6 +353,27 @@ export const getWeeklyGrid = async (req, res, next) => {
       startAt: windowStart,
       endAt: windowEnd
     });
+    const virtualIntakeSlotKeys = new Set();
+    try {
+      const [virtualRows] = await pool.execute(
+        `SELECT provider_id, start_at, end_at
+         FROM provider_virtual_slot_availability
+         WHERE office_location_id = ?
+           AND is_active = TRUE
+           AND start_at < ?
+           AND end_at > ?`,
+        [parseInt(locationId), windowEnd, windowStart]
+      );
+      for (const row of virtualRows || []) {
+        const providerId = Number(row.provider_id || 0);
+        const startAt = normalizeMysqlDateTime(row.start_at);
+        const endAt = normalizeMysqlDateTime(row.end_at);
+        if (!providerId || !startAt || !endAt) continue;
+        virtualIntakeSlotKeys.add(`${providerId}:${startAt}:${endAt}`);
+      }
+    } catch (e) {
+      if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+    }
 
     // Index events by room+date+hour (hourly grid; pick state with highest precedence)
     const key = (roomId, date, hour) => `${roomId}:${date}:${hour}`;
@@ -413,6 +448,15 @@ export const getWeeklyGrid = async (req, res, next) => {
             const assignedProviderName = assignedFirst || assignedLast ? formatClinicianName(assignedFirst, assignedLast) : '';
             const bookedProviderName = bookedFirst || bookedLast ? formatClinicianName(bookedFirst, bookedLast) : '';
             const displayInitials = bookedInitials || assignedInitials || null;
+            const slotStartAt = mysqlDateTimeForDateHour(date, hour);
+            const slotEndAt = mysqlDateTimeForDateHour(date, Number(hour) + 1);
+            const virtualIntakeEnabled =
+              Boolean(e.assigned_provider_id || e.booked_provider_id) &&
+              Boolean(slotStartAt) &&
+              Boolean(slotEndAt) &&
+              virtualIntakeSlotKeys.has(
+                `${Number(e.assigned_provider_id || e.booked_provider_id)}:${slotStartAt}:${slotEndAt}`
+              );
             slots.push({
               roomId: room.id,
               date,
@@ -427,16 +471,17 @@ export const getWeeklyGrid = async (req, res, next) => {
               assignedProviderId: e.assigned_provider_id || null,
               bookedProviderId: e.booked_provider_id || null,
               assignedProviderName: assignedProviderName || null,
-              bookedProviderName: bookedProviderName || null
+              bookedProviderName: bookedProviderName || null,
+              virtualIntakeEnabled
             });
             continue;
           }
           const a = assignedBySlot.get(k);
           if (a) {
             let assignmentEventId = null;
+            const slotStartAt = `${date} ${String(hour).padStart(2, '0')}:00:00`;
+            const slotEndAt = `${date} ${String(hour + 1).padStart(2, '0')}:00:00`;
             try {
-              const slotStartAt = `${date} ${String(hour).padStart(2, '0')}:00:00`;
-              const slotEndAt = `${date} ${String(hour + 1).padStart(2, '0')}:00:00`;
               // Backfill hourly event rows for legacy assignment-only slots so admin actions
               // (booked/virtual/cancel) always have a stable event id to operate on.
               // eslint-disable-next-line no-await-in-loop
@@ -458,6 +503,11 @@ export const getWeeklyGrid = async (req, res, next) => {
             }
 
             const initials = `${String(a.first_name || '').slice(0, 1)}${String(a.last_name || '').slice(0, 1)}`.toUpperCase();
+            const virtualIntakeEnabled =
+              Boolean(a.assigned_user_id) &&
+              Boolean(slotStartAt) &&
+              Boolean(slotEndAt) &&
+              virtualIntakeSlotKeys.has(`${Number(a.assigned_user_id)}:${slotStartAt}:${slotEndAt}`);
             slots.push({
               roomId: room.id,
               date,
@@ -470,7 +520,8 @@ export const getWeeklyGrid = async (req, res, next) => {
               assignedProviderId: a.assigned_user_id,
               bookedProviderId: null,
               assignedProviderName: formatClinicianName(a.first_name, a.last_name) || null,
-              bookedProviderName: null
+              bookedProviderName: null,
+              virtualIntakeEnabled
             });
             continue;
           }
@@ -486,7 +537,8 @@ export const getWeeklyGrid = async (req, res, next) => {
             assignedProviderId: null,
             bookedProviderId: null,
             assignedProviderName: null,
-            bookedProviderName: null
+            bookedProviderName: null,
+            virtualIntakeEnabled: false
           });
         }
       }

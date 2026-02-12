@@ -27,11 +27,25 @@
         <div class="legend-item"><span class="dot assigned_available"></span> Assigned available</div>
         <div class="legend-item"><span class="dot assigned_temporary"></span> Assigned temporary</div>
         <div class="legend-item"><span class="dot assigned_booked"></span> Assigned booked</div>
+        <div class="legend-item"><span class="dot intake-ip"></span> In-person intake</div>
+        <div class="legend-item"><span class="dot intake-v"></span> Virtual intake</div>
+        <div class="legend-item"><span class="dot own-slot"></span> Your schedule</div>
       </div>
-      <div v-if="selectedSlots.length > 1 && !showModal" class="bulk-actions card">
+      <div v-if="bulkActionsVisible && !bulkActionsExpanded && !showModal" class="bulk-actions-mini card">
+        <div class="bulk-mini-title">Selected: {{ selectedSlots.length }}</div>
+        <div class="bulk-mini-actions">
+          <button class="btn btn-secondary btn-sm" @click="bulkActionsExpanded = true" :disabled="saving">Open actions</button>
+          <button class="btn btn-secondary btn-sm" @click="clearSelection" :disabled="saving">Clear</button>
+        </div>
+      </div>
+
+      <div v-if="bulkActionsVisible && bulkActionsExpanded && !showModal" class="bulk-actions card">
         <div class="bulk-head">
           <div class="bulk-title">Selected slots: {{ selectedSlots.length }}</div>
-          <button class="btn btn-secondary btn-sm" @click="clearSelection" :disabled="saving">Clear</button>
+          <div class="bulk-head-actions">
+            <button class="btn btn-secondary btn-sm" @click="bulkActionsExpanded = false" :disabled="saving">Continue selecting</button>
+            <button class="btn btn-secondary btn-sm" @click="clearSelection" :disabled="saving">Clear</button>
+          </div>
         </div>
         <div class="bulk-grid">
           <div class="bulk-col">
@@ -185,7 +199,13 @@
               v-for="d in grid.days"
               :key="`${room.id}-${d}-${h}`"
               class="cell slot"
-              :class="[slotClass(room.id, d, h), { selected: isSlotSelected(room.id, d, h) }]"
+              :class="[
+                slotClass(room.id, d, h),
+                {
+                  selected: isSlotSelected(room.id, d, h),
+                  'own-provider': isOwnProviderSlot(room.id, d, h)
+                }
+              ]"
               :style="slotStyle(room.id, d, h)"
               :title="slotTitle(room.id, d, h)"
               @mousedown.left.prevent="onSlotMouseDown(room.id, d, h)"
@@ -193,6 +213,8 @@
               @click="onSlotClick(room.id, d, h)"
             >
               <span class="initials">{{ slotInitials(room.id, d, h) }}</span>
+              <span v-if="slotHasInPersonIntake(room.id, d, h)" class="ip-pill" title="In-person intake enabled">IP</span>
+              <span v-if="slotHasVirtualIntake(room.id, d, h)" class="vi-pill" title="Virtual intake enabled">V</span>
             </div>
           </template>
         </div>
@@ -275,6 +297,37 @@
         </div>
 
         <template v-else>
+          <div class="section" v-if="canToggleVirtualIntake">
+            <div class="section-title">Intake availability</div>
+            <div class="muted" style="margin-bottom: 8px;">
+              In-person intake:
+              <strong>{{ modalInPersonIntakeEnabled ? 'Enabled' : 'Not enabled for this slot state' }}</strong>
+              <span v-if="isAssignedUnbooked"> (assigned/open in office)</span>
+              <span v-else> (booked room slot)</span>
+            </div>
+            <div class="muted" style="margin: 8px 0 6px;">
+              Virtual intake (this hour only):
+              <strong>{{ modalVirtualIntakeEnabled ? 'Enabled' : 'Disabled' }}</strong>
+            </div>
+            <div class="row">
+              <button
+                class="btn btn-secondary"
+                @click="enableVirtualIntake"
+                :disabled="saving || !modalSlot?.eventId || !isModalBooked || modalVirtualIntakeEnabled"
+                title="Virtual intake can be enabled only for booked room slots."
+              >
+                Enable virtual intake
+              </button>
+              <button
+                class="btn btn-secondary"
+                @click="disableVirtualIntake"
+                :disabled="saving || !modalSlot?.eventId || !modalVirtualIntakeEnabled"
+              >
+                Disable virtual intake
+              </button>
+            </div>
+          </div>
+
           <div class="section" v-if="canSelfManageModalSlot">
             <div class="section-title">Provider actions</div>
             <div class="status-chip" :class="modalSlot?.state === 'assigned_booked' ? 'status-booked' : 'status-assigned'">
@@ -313,18 +366,6 @@
               </button>
               <button class="btn btn-secondary" @click="staffBook(false)" :disabled="saving || !modalSlot?.eventId || isAssignedUnbooked">
                 Set unbooked (this occurrence)
-              </button>
-            </div>
-
-            <div class="muted" style="margin: 10px 0 6px;">
-              Virtual intake toggle (this hour only).
-            </div>
-            <div class="row">
-              <button class="btn btn-secondary" @click="enableVirtualIntake" :disabled="saving || !modalSlot?.eventId">
-                Enable virtual intake
-              </button>
-              <button class="btn btn-secondary" @click="disableVirtualIntake" :disabled="saving || !modalSlot?.eventId">
-                Disable virtual intake
               </button>
             </div>
 
@@ -379,17 +420,6 @@
             <div class="row">
               <button class="btn btn-primary" @click="staffBook(true)" :disabled="saving || !modalSlot?.eventId">
                 Mark booked (this occurrence)
-              </button>
-            </div>
-            <div class="muted" style="margin: 10px 0 6px;">
-              Virtual intake toggle (this hour only).
-            </div>
-            <div class="row">
-              <button class="btn btn-secondary" @click="enableVirtualIntake" :disabled="saving || !modalSlot?.eventId">
-                Enable virtual intake
-              </button>
-              <button class="btn btn-secondary" @click="disableVirtualIntake" :disabled="saving || !modalSlot?.eventId">
-                Disable virtual intake
               </button>
             </div>
             <div class="muted" style="margin: 14px 0 6px;">
@@ -451,6 +481,9 @@ const selectedSlotKeys = ref([]);
 const dragAnchor = ref(null);
 const draggingSelection = ref(false);
 const suppressNextClick = ref(false);
+const bulkActionsExpanded = ref(false);
+const bulkActionsVisible = ref(false);
+let bulkActionsDelayTimer = null;
 
 const formatDay = (d) => {
   try {
@@ -518,7 +551,25 @@ const slotInitials = (roomId, date, hour) => {
 const slotTitle = (roomId, date, hour) => {
   const s = getSlot(roomId, date, hour);
   if (!s) return '';
-  return `${date} ${formatHour(hour)} — ${s.state}${s.providerInitials ? ` (${s.providerInitials})` : ''}`;
+  const inPersonLabel = slotHasInPersonIntake(roomId, date, hour) ? ' • in-person intake on' : '';
+  const virtualLabel = s?.virtualIntakeEnabled ? ' • virtual intake on' : '';
+  const ownLabel = isOwnProviderSlot(roomId, date, hour) ? ' • your schedule' : '';
+  return `${date} ${formatHour(hour)} — ${s.state}${s.providerInitials ? ` (${s.providerInitials})` : ''}${inPersonLabel}${virtualLabel}${ownLabel}`;
+};
+
+const slotHasVirtualIntake = (roomId, date, hour) => {
+  const s = getSlot(roomId, date, hour);
+  return Boolean(s?.virtualIntakeEnabled);
+};
+const slotHasInPersonIntake = (roomId, date, hour) => {
+  const s = getSlot(roomId, date, hour);
+  const state = String(s?.state || '');
+  return state === 'assigned_available' || state === 'assigned_temporary';
+};
+const isOwnProviderSlot = (roomId, date, hour) => {
+  const s = getSlot(roomId, date, hour);
+  const pid = Number(s?.providerId || 0);
+  return pid > 0 && pid === currentUserId.value;
 };
 
 const stableColorForId = (id) => {
@@ -856,6 +907,8 @@ const clearSelection = () => {
   selectedSlotKeys.value = [];
   dragAnchor.value = null;
   draggingSelection.value = false;
+  bulkActionsVisible.value = false;
+  bulkActionsExpanded.value = false;
 };
 
 const setSuccessToast = (message) => {
@@ -1074,6 +1127,17 @@ const isAssignedUnbooked = computed(() => {
   const s = String(modalSlot.value?.state || '');
   return s === 'assigned_available' || s === 'assigned_temporary';
 });
+const isModalBooked = computed(() => String(modalSlot.value?.state || '') === 'assigned_booked');
+const modalVirtualIntakeEnabled = computed(() => Boolean(modalSlot.value?.virtualIntakeEnabled));
+const modalInPersonIntakeEnabled = computed(() => isAssignedUnbooked.value);
+const canToggleVirtualIntake = computed(() => canSelfManageModalSlot.value && Boolean(modalSlot.value?.eventId));
+
+const refreshModalSlotFromGrid = () => {
+  const s = modalSlot.value;
+  if (!s) return;
+  const latest = getSlot(s.roomId, s.date, s.hour);
+  if (latest) modalSlot.value = { ...latest };
+};
 
 const assignOpenSlot = async () => {
   if (!officeId.value || !modalSlot.value?.roomId || !selectedProviderId.value) {
@@ -1245,12 +1309,19 @@ const staffBook = async (booked = true) => {
 
 const enableVirtualIntake = async () => {
   if (!officeId.value || !modalSlot.value?.eventId) return;
+  if (!isModalBooked.value) {
+    error.value = 'Virtual intake can only be enabled on booked room slots.';
+    return;
+  }
   try {
     saving.value = true;
+    error.value = '';
     await api.post(`/office-slots/${officeId.value}/events/${modalSlot.value.eventId}/virtual-intake`, {
       enabled: true
     });
     setSuccessToast('Virtual intake enabled for this slot.');
+    await loadGrid();
+    refreshModalSlotFromGrid();
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to enable virtual intake';
   } finally {
@@ -1262,10 +1333,13 @@ const disableVirtualIntake = async () => {
   if (!officeId.value || !modalSlot.value?.eventId) return;
   try {
     saving.value = true;
+    error.value = '';
     await api.post(`/office-slots/${officeId.value}/events/${modalSlot.value.eventId}/virtual-intake`, {
       enabled: false
     });
     setSuccessToast('Virtual intake disabled for this slot.');
+    await loadGrid();
+    refreshModalSlotFromGrid();
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to disable virtual intake';
   } finally {
@@ -1343,8 +1417,41 @@ onMounted(() => {
 });
 onBeforeUnmount(() => {
   if (successToastTimer) clearTimeout(successToastTimer);
+  if (bulkActionsDelayTimer) clearTimeout(bulkActionsDelayTimer);
   window.removeEventListener('mouseup', onGlobalMouseUp);
 });
+
+watch(
+  [() => selectedSlots.value.length, draggingSelection, showModal],
+  ([count, dragging, modalOpen]) => {
+    if (modalOpen || count <= 1) {
+      bulkActionsVisible.value = false;
+      bulkActionsExpanded.value = false;
+      if (bulkActionsDelayTimer) {
+        clearTimeout(bulkActionsDelayTimer);
+        bulkActionsDelayTimer = null;
+      }
+      return;
+    }
+    if (dragging) {
+      bulkActionsExpanded.value = false;
+      if (bulkActionsDelayTimer) {
+        clearTimeout(bulkActionsDelayTimer);
+        bulkActionsDelayTimer = null;
+      }
+      return;
+    }
+    // Small delay so the tray does not instantly cover click targets while selecting.
+    if (bulkActionsDelayTimer) clearTimeout(bulkActionsDelayTimer);
+    bulkActionsDelayTimer = setTimeout(() => {
+      bulkActionsVisible.value = true;
+      // Open minimized by default to keep selection flow uninterrupted.
+      bulkActionsExpanded.value = false;
+      bulkActionsDelayTimer = null;
+    }, 500);
+  },
+  { immediate: true }
+);
 </script>
 
 <style scoped>
@@ -1438,6 +1545,9 @@ input[type='date'] {
 .dot.assigned_available { background: #f59e0b; box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.18); }
 .dot.assigned_temporary { background: #2563eb; box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.16); }
 .dot.assigned_booked { background: #ef4444; box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.16); }
+.dot.intake-ip { background: #f59e0b; box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.24); }
+.dot.intake-v { background: #10b981; box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.2); }
+.dot.own-slot { background: #7c3aed; box-shadow: 0 0 0 4px rgba(124, 58, 237, 0.2); }
 
 .room-card {
   background: linear-gradient(160deg, rgba(255, 255, 255, 0.87), rgba(255, 255, 255, 0.68));
@@ -1509,11 +1619,38 @@ input[type='date'] {
   background: rgba(255, 255, 255, 0.74);
   box-shadow: var(--sched-shadow-strong);
 }
+.bulk-actions-mini {
+  position: fixed;
+  right: 14px;
+  bottom: 14px;
+  z-index: 80;
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--sched-border);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: var(--sched-shadow-strong);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.bulk-mini-title {
+  font-size: 13px;
+  font-weight: 800;
+}
+.bulk-mini-actions {
+  display: inline-flex;
+  gap: 8px;
+}
 .bulk-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   margin-bottom: 8px;
+}
+.bulk-head-actions {
+  display: inline-flex;
+  gap: 8px;
 }
 .bulk-title {
   font-size: 13px;
@@ -1672,6 +1809,13 @@ input[type='date'] {
     0 0 0 2px rgba(37, 99, 235, 0.15),
     0 8px 16px rgba(37, 99, 235, 0.18);
 }
+.slot.own-provider {
+  border-color: rgba(124, 58, 237, 0.65);
+  box-shadow:
+    inset 0 0 0 1px rgba(124, 58, 237, 0.22),
+    0 0 0 2px rgba(124, 58, 237, 0.18),
+    0 8px 18px rgba(124, 58, 237, 0.2);
+}
 .initials {
   position: relative;
   z-index: 1;
@@ -1679,6 +1823,40 @@ input[type='date'] {
   color: #0b1220;
   letter-spacing: 0.03em;
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+.vi-pill {
+  position: absolute;
+  right: 4px;
+  top: 3px;
+  z-index: 2;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 999px;
+  background: rgba(16, 185, 129, 0.92);
+  color: #fff;
+  font-size: 10px;
+  line-height: 14px;
+  font-weight: 900;
+  text-align: center;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.2);
+}
+.ip-pill {
+  position: absolute;
+  left: 4px;
+  top: 3px;
+  z-index: 2;
+  min-width: 18px;
+  height: 14px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: rgba(245, 158, 11, 0.95);
+  color: #111827;
+  font-size: 9px;
+  line-height: 14px;
+  font-weight: 900;
+  text-align: center;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.2);
 }
 
 .modal-overlay {
