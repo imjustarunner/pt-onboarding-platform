@@ -2184,6 +2184,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
          JOIN office_locations ol ON ol.id = e.office_location_id
          JOIN office_location_agencies ola ON ola.office_location_id = ol.id AND ola.agency_id = ?
          WHERE (e.assigned_provider_id = ? OR e.booked_provider_id = ?)
+           AND (e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')
            AND e.start_at < ?
            AND e.end_at > ?
          ORDER BY e.start_at ASC`,

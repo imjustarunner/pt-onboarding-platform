@@ -102,6 +102,7 @@
               :agency-ids="agencyIdsForSchedule"
               :agency-label-by-id="agencyLabelById"
               :week-start-ymd="weekStartYmd"
+              :availability-overlay="availabilityByUserId[uid] || null"
               mode="admin"
             />
           </div>
@@ -112,7 +113,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../services/api';
 import { useAuthStore } from '../store/auth';
@@ -134,6 +135,7 @@ const search = ref('');
 const maxSelected = 6;
 const selectedUserIds = ref([]);
 const viewMode = ref('stacked'); // stacked | overlay
+const availabilityByUserId = ref({});
 
 const todayYmd = () => new Date().toISOString().slice(0, 10);
 const weekStartYmd = ref(todayYmd());
@@ -266,6 +268,58 @@ const loadUsers = async () => {
   }
 };
 
+const mergeSlotsByKey = (slots) => {
+  const map = new Map();
+  for (const s of Array.isArray(slots) ? slots : []) {
+    const startAt = String(s?.startAt || '').trim();
+    const endAt = String(s?.endAt || '').trim();
+    if (!startAt || !endAt) continue;
+    const k = `${startAt}|${endAt}`;
+    if (!map.has(k)) map.set(k, { startAt, endAt });
+  }
+  return Array.from(map.values()).sort((a, b) => `${a.startAt}`.localeCompare(`${b.startAt}`));
+};
+
+const loadAvailabilityOverlays = async () => {
+  const uids = (selectedUserIds.value || []).map((x) => Number(x)).filter((n) => Number.isFinite(n) && n > 0);
+  const aids = (agencyIdsForSchedule.value || []).map((x) => Number(x)).filter((n) => Number.isFinite(n) && n > 0);
+  if (!uids.length || !aids.length) {
+    availabilityByUserId.value = {};
+    return;
+  }
+  const out = {};
+  await Promise.all(
+    uids.map(async (uid) => {
+      const perAgency = await Promise.all(
+        aids.map((aid) =>
+          api
+            .get(`/availability/providers/${uid}/week`, {
+              params: {
+                agencyId: aid,
+                weekStart: weekStartYmd.value,
+                includeGoogleBusy: true,
+                intakeOnly: true
+              }
+            })
+            .then((r) => r?.data || null)
+            .catch(() => null)
+        )
+      );
+      const mergedVirtual = [];
+      const mergedInPerson = [];
+      for (const d of perAgency) {
+        mergedVirtual.push(...(Array.isArray(d?.virtualSlots) ? d.virtualSlots : []));
+        mergedInPerson.push(...(Array.isArray(d?.inPersonSlots) ? d.inPersonSlots : []));
+      }
+      out[uid] = {
+        virtualSlots: mergeSlotsByKey(mergedVirtual),
+        inPersonSlots: mergeSlotsByKey(mergedInPerson)
+      };
+    })
+  );
+  availabilityByUserId.value = out;
+};
+
 onMounted(async () => {
   // If organizationSlug exists, this route is org-prefixed; still safe to load the same endpoint.
   void route.params.organizationSlug;
@@ -283,7 +337,12 @@ onMounted(async () => {
     if (ids.length) selectedAgencyIds.value = ids;
     else if (effectiveAgencyId.value) selectedAgencyIds.value = [Number(effectiveAgencyId.value)];
   }
+  await loadAvailabilityOverlays();
 });
+
+watch([selectedUserIds, agencyIdsForSchedule, weekStartYmd, viewMode], () => {
+  void loadAvailabilityOverlays();
+}, { deep: true });
 </script>
 
 <style scoped>
