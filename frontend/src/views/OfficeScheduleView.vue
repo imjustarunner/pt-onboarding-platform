@@ -215,9 +215,6 @@
               <span class="initials">{{ slotInitials(room.id, d, h) }}</span>
               <span v-if="slotHasInPersonIntake(room.id, d, h)" class="ip-pill" title="In-person intake enabled">IP</span>
               <span v-if="slotHasVirtualIntake(room.id, d, h)" class="vi-pill" title="Virtual intake enabled">VI</span>
-              <span v-if="slotIntakeLabel(room.id, d, h)" class="intake-pill">
-                {{ slotIntakeLabel(room.id, d, h) }}
-              </span>
             </div>
           </template>
         </div>
@@ -582,14 +579,6 @@ const slotHasVirtualIntake = (roomId, date, hour) => {
 const slotHasInPersonIntake = (roomId, date, hour) => {
   const s = getSlot(roomId, date, hour);
   return Boolean(s?.inPersonIntakeEnabled);
-};
-const slotIntakeLabel = (roomId, date, hour) => {
-  const hasIp = slotHasInPersonIntake(roomId, date, hour);
-  const hasVi = slotHasVirtualIntake(roomId, date, hour);
-  if (hasIp && hasVi) return 'INTAKE IP+VI';
-  if (hasIp) return 'INTAKE IP';
-  if (hasVi) return 'INTAKE VI';
-  return '';
 };
 const isOwnProviderSlot = (roomId, date, hour) => {
   const s = getSlot(roomId, date, hour);
@@ -1891,18 +1880,18 @@ input[type='date'] {
   right: 4px;
   top: 3px;
   z-index: 2;
-  min-width: 14px;
+  min-width: 18px;
   height: 14px;
-  padding: 0 3px;
+  padding: 0 4px;
   border-radius: 999px;
-  background: rgba(16, 185, 129, 0.92);
+  background: rgba(16, 185, 129, 0.78);
   color: #fff;
-  font-size: 10px;
+  font-size: 9px;
   line-height: 14px;
   font-weight: 900;
   text-align: center;
-  border: 1px solid rgba(5, 150, 105, 0.9);
-  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.2);
+  border: 1px solid rgba(5, 150, 105, 0.6);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.16);
 }
 .ip-pill {
   position: absolute;
@@ -1913,31 +1902,14 @@ input[type='date'] {
   height: 14px;
   padding: 0 4px;
   border-radius: 999px;
-  background: rgba(245, 158, 11, 0.95);
+  background: rgba(245, 158, 11, 0.8);
   color: #111827;
   font-size: 9px;
   line-height: 14px;
   font-weight: 900;
   text-align: center;
-  border: 1px solid rgba(217, 119, 6, 0.9);
-  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.2);
-}
-.intake-pill {
-  position: absolute;
-  left: 50%;
-  bottom: 2px;
-  transform: translateX(-50%);
-  z-index: 2;
-  padding: 0 6px;
-  height: 12px;
-  border-radius: 999px;
-  background: rgba(17, 24, 39, 0.86);
-  color: #f9fafb;
-  font-size: 8px;
-  line-height: 12px;
-  font-weight: 900;
-  letter-spacing: 0.03em;
-  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.2);
+  border: 1px solid rgba(217, 119, 6, 0.62);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.16);
 }
 
 .modal-overlay {
