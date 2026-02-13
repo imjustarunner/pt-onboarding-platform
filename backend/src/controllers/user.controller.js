@@ -1179,16 +1179,16 @@ export const getUserById = async (req, res, next) => {
       if (!self) return res.status(404).json({ error: { message: 'User not found' } });
       return res.json({ ...self, profile_photo_url: publicUploadsUrlFromStoredPath(self.profile_photo_path) });
     }
-    
-    // Users can see their own profile
-    if (parseInt(id) === req.user.id) {
+
+    // Admin, super_admin, and support can view any user (trumps supervisor privileges)
+    if (req.user.role === 'admin' || req.user.role === 'super_admin' || req.user.role === 'support') {
       const user = await User.findById(id);
       if (!user) {
         return res.status(404).json({ error: { message: 'User not found' } });
       }
       return res.json({ ...user, profile_photo_url: publicUploadsUrlFromStoredPath(user.profile_photo_path) });
     }
-    
+
     // Supervisors can ONLY view their assigned supervisees
     // Check if requesting user is a supervisor using boolean as source of truth
     const requestingUser = await User.findById(req.user.id);
@@ -1242,16 +1242,7 @@ export const getUserById = async (req, res, next) => {
       
       return res.json({ ...targetUser, profile_photo_url: publicUploadsUrlFromStoredPath(targetUser.profile_photo_path) });
     }
-    
-    // Admin, super_admin, and support can view any user
-    if (req.user.role === 'admin' || req.user.role === 'super_admin' || req.user.role === 'support') {
-      const user = await User.findById(id);
-      if (!user) {
-        return res.status(404).json({ error: { message: 'User not found' } });
-      }
-      return res.json({ ...user, profile_photo_url: publicUploadsUrlFromStoredPath(user.profile_photo_path) });
-    }
-    
+
     return res.status(403).json({ error: { message: 'Access denied' } });
   } catch (error) {
     next(error);
