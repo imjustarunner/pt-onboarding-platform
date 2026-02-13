@@ -63,20 +63,10 @@ export default class UserPresenceStatus {
   /**
    * Fetch all users with staff-like roles and their presence status.
    * Used for SuperAdmin Team Board.
+   * Only staff, admin, super_admin (excludes providers, school_staff, guardians, etc.).
    */
   static async findAllWithUsers() {
-    const STAFF_ROLES = [
-      'staff',
-      'admin',
-      'support',
-      'provider',
-      'supervisor',
-      'clinical_practice_assistant',
-      'intern',
-      'school_staff',
-      'facilitator',
-      'super_admin'
-    ];
+    const STAFF_ROLES = ['staff', 'admin', 'super_admin'];
 
     let profilePhotoField = '';
     let preferredNameField = '';
