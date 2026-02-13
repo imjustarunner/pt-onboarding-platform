@@ -72,7 +72,7 @@ function filterNotificationsForViewer(notifications, viewerUserId, viewerRole) {
 }
 
 function isUnmuted(notification) {
-  const raw = notification?.muted_until;
+  const raw = notification?._muted_until_for_viewer ?? notification?.muted_until;
   if (!raw) return true;
   const t = new Date(raw).getTime();
   if (!Number.isFinite(t)) return true; // best-effort: don't hide if unparsable
@@ -136,18 +136,25 @@ async function appendNotificationContext(notifications) {
     }
   }
 
-  for (const n of list) {
-    const agencyName = agencyNameById.get(Number(n?.agency_id || 0)) || '';
-    if (agencyName) n.agency_name = agencyName;
-    if (String(n?.related_entity_type || '').toLowerCase() === 'client') {
-      const info = clientById.get(Number(n?.related_entity_id || 0));
-      if (info) {
-        n.client_initials = info.initials || '';
-        n.client_identifier_code = info.code || '';
-        if (info.organization_name) n.organization_name = info.organization_name;
+    for (const n of list) {
+      const agencyName = agencyNameById.get(Number(n?.agency_id || 0)) || '';
+      if (agencyName) n.agency_name = agencyName;
+      if (String(n?.related_entity_type || '').toLowerCase() === 'client') {
+        const info = clientById.get(Number(n?.related_entity_id || 0));
+        if (info) {
+          n.client_initials = info.initials || '';
+          n.client_identifier_code = info.code || '';
+          if (info.organization_name) n.organization_name = info.organization_name;
+        }
+      }
+      // Per-user read state: expose as is_read for frontend compatibility
+      if (n._is_read_for_viewer !== undefined) {
+        n.is_read = n._is_read_for_viewer;
+      }
+      if (n._muted_until_for_viewer !== undefined) {
+        n.muted_until = n._muted_until_for_viewer;
       }
     }
-  }
 
   return list;
 }
@@ -235,20 +242,23 @@ export const getNotifications = async (req, res, next) => {
         return res.json([]);
       }
 
-      // Get notifications for all accessible agencies (CPAs see all notifications for their agencies)
+      // Get notifications for all accessible agencies (CPAs see all; per-user read state)
       const allNotifications = [];
       for (const agencyId of accessibleAgencyIds) {
         const notifications = await Notification.findByAgency(agencyId, {
           type: type || undefined,
-          isRead: isRead !== undefined ? isRead === 'true' : undefined,
           isResolved: isResolved !== undefined ? isResolved === 'true' : undefined
         });
         allNotifications.push(...notifications);
       }
 
-      // Sort by created_at descending
-      allNotifications.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-      const filtered = filterNotificationsForViewer(allNotifications, userId, userRole);
+      await Notification.applyReadStateForViewer(allNotifications, userId);
+      let filtered = filterNotificationsForViewer(allNotifications, userId, userRole);
+      if (isRead !== undefined) {
+        const wantRead = isRead === 'true';
+        filtered = filtered.filter((n) => (n._is_read_for_viewer === wantRead));
+      }
+      filtered = filtered.filter(isUnmuted);
       await appendNotificationContext(filtered);
       return res.json(filtered);
     } else if (PERSONAL_ONLY_ROLES.has(String(userRole || '').toLowerCase())) {
@@ -291,21 +301,23 @@ export const getNotifications = async (req, res, next) => {
       return res.json([]);
     }
 
-    // Get notifications for all accessible agencies
+    // Get notifications for all accessible agencies (admin/support; per-user read state)
     const allNotifications = [];
     for (const agencyId of accessibleAgencyIds) {
       const notifications = await Notification.findByAgency(agencyId, {
         type: type || undefined,
-        isRead: isRead !== undefined ? isRead === 'true' : undefined,
         isResolved: isResolved !== undefined ? isResolved === 'true' : undefined
       });
       allNotifications.push(...notifications);
     }
 
-    // Sort by created_at descending
-    allNotifications.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-
-    const filtered = filterNotificationsForViewer(allNotifications, userId, userRole);
+    await Notification.applyReadStateForViewer(allNotifications, userId);
+    let filtered = filterNotificationsForViewer(allNotifications, userId, userRole);
+    if (isRead !== undefined) {
+      const wantRead = isRead === 'true';
+      filtered = filtered.filter((n) => (n._is_read_for_viewer === wantRead));
+    }
+    filtered = filtered.filter(isUnmuted);
     await appendNotificationContext(filtered);
     res.json(filtered);
   } catch (error) {
@@ -388,9 +400,13 @@ export const getNotificationCounts = async (req, res, next) => {
       
       return res.json(filteredCounts);
     } else if (userRole === 'clinical_practice_assistant') {
-      // CPAs can see all notification counts for all users in their agencies
+      // CPAs see their own per-user counts (agency-wide + any personal to them)
       const userAgencies = await User.getAgencies(userId);
       agencyIds = userAgencies.map(a => a.id);
+      if (agencyIds.length > 0) {
+        const counts = await Notification.getCountsByAgencyForUser(agencyIds, userId);
+        return res.json(counts);
+      }
     } else if (PERSONAL_ONLY_ROLES.has(String(userRole || '').toLowerCase())) {
       // Providers/staff/intern/facilitator: counts should be for *their* unread notifications only.
       const userAgencies = await User.getAgencies(userId);
@@ -409,7 +425,7 @@ export const getNotificationCounts = async (req, res, next) => {
       }
       return res.json(counts);
     } else {
-      // Admin/support can only see their agencies
+      // Admin/support see their own per-user counts
       const userAgencies = await User.getAgencies(userId);
       agencyIds = userAgencies.map(a => a.id);
     }
@@ -418,13 +434,8 @@ export const getNotificationCounts = async (req, res, next) => {
       return res.json({});
     }
 
-    // Compute counts for what the current viewer is actually allowed to see.
-    const counts = {};
-    for (const aid of agencyIds) {
-      const notifications = await Notification.findByAgency(aid, { isRead: false, isResolved: false });
-      const visible = filterNotificationsForViewer(notifications, userId, userRole).filter(isUnmuted);
-      counts[aid] = visible.length;
-    }
+    // Per-user counts: each user sees only their own unread notifications
+    const counts = await Notification.getCountsByAgencyForUser(agencyIds, userId);
     res.json(counts);
   } catch (error) {
     next(error);
@@ -443,6 +454,10 @@ export const markAsRead = async (req, res, next) => {
     if (MESSAGE_PRIVATE_TYPES.has(String(notification.type || '')) && Number(notification.user_id) !== Number(userId)) {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
+    // User-specific: only the recipient can mark personal notifications; agency-wide can be marked by anyone with access
+    if (notification.user_id != null && Number(notification.user_id) !== Number(userId)) {
+      return res.status(403).json({ error: { message: 'You can only mark your own notifications as read' } });
+    }
 
     // Verify user has access to this notification's agency
     if (req.user.role !== 'super_admin') {
@@ -454,7 +469,10 @@ export const markAsRead = async (req, res, next) => {
       }
     }
 
-    await Notification.markAsRead(id, userId);
+    const ok = await Notification.markAsReadForUser(id, userId);
+    if (!ok) {
+      return res.status(403).json({ error: { message: 'Unable to mark notification as read' } });
+    }
     res.json({ message: 'Notification marked as read' });
   } catch (error) {
     next(error);
@@ -513,14 +531,13 @@ export const markAllAsRead = async (req, res, next) => {
 
     let count;
     if (filters && (filters.type || filters.userId || filters.relatedEntityType)) {
-      // Mark filtered notifications as read
+      // Mark filtered notifications as read (user-specific: only current user's read state)
       const allNotifications = await Notification.findByAgency(parseInt(agencyId), {
         type: filters.type,
-        isRead: false,
         isResolved: false
       });
-      
-      let filtered = allNotifications;
+      await Notification.applyReadStateForViewer(allNotifications, userId);
+      let filtered = allNotifications.filter((n) => !n._is_read_for_viewer);
       if (filters.userId) {
         filtered = filtered.filter(n => n.user_id === parseInt(filters.userId));
       }
@@ -530,14 +547,16 @@ export const markAllAsRead = async (req, res, next) => {
           n.related_entity_id === parseInt(filters.relatedEntityId)
         );
       }
+      // Only mark notifications the current user can mark (personal to them or agency-wide)
+      filtered = filtered.filter((n) => n.user_id == null || Number(n.user_id) === Number(userId));
       
-      // Mark each filtered notification as read
+      // Mark each filtered notification as read for current user only
       for (const notification of filtered) {
-        await Notification.markAsRead(notification.id, userId);
+        await Notification.markAsReadForUser(notification.id, userId);
       }
       count = filtered.length;
     } else {
-      count = await Notification.markAllAsReadForAgency(parseInt(agencyId), userId);
+      count = await Notification.markAllAsReadForAgencyForUser(parseInt(agencyId), userId);
     }
     
     res.json({ message: `${count} notifications marked as read (muted for 48 hours)` });
