@@ -12,6 +12,7 @@ import { useTutorialStore } from '../store/tutorial';
 import { useAgencyStore } from '../store/agency';
 import { useOverlaysStore } from '../store/overlays';
 import { useSuperadminBuilderStore } from '../store/superadminBuilder';
+import { useOrganizationStore } from '../store/organization';
 import { getTourForRoute } from '../tutorial/registry';
 
 const route = useRoute();
@@ -20,6 +21,7 @@ const tutorialStore = useTutorialStore();
 const agencyStore = useAgencyStore();
 const overlaysStore = useOverlaysStore();
 const builderStore = useSuperadminBuilderStore();
+const organizationStore = useOrganizationStore();
 
 let drv = null;
 let activeTourId = null;
@@ -29,6 +31,11 @@ let lastAutoStartedKey = null;
 const currentAgencyId = computed(() => {
   const a = agencyStore.currentAgency?.value || agencyStore.currentAgency;
   return a?.id || null;
+});
+
+const isPortalOrg = computed(() => {
+  const t = String(organizationStore.organizationContext?.organizationType || '').toLowerCase();
+  return t === 'school' || t === 'program' || t === 'learning';
 });
 
 const isEditableTarget = (el) => {
@@ -128,7 +135,7 @@ const startForCurrentRoute = async () => {
     }
   }
 
-  const tour = draftTour || publishedTour || getTourForRoute(route);
+  const tour = draftTour || publishedTour || getTourForRoute(route, { isPortalOrg: isPortalOrg.value });
   if (!tour) return;
 
   await tutorialStore.ensureLoaded(userId);
@@ -178,7 +185,7 @@ const startForCurrentRoute = async () => {
 };
 
 watch(
-  () => [route.name, route.query?.tab, tutorialStore.enabled, authStore.user?.id, currentAgencyId.value],
+  () => [route.name, route.query?.tab, tutorialStore.enabled, authStore.user?.id, currentAgencyId.value, isPortalOrg.value],
   () => {
     startForCurrentRoute();
   },

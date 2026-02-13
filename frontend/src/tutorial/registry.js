@@ -32,10 +32,18 @@ import teamNotificationsTour from './tours/teamNotifications.tour';
 import clientManagementTour from './tours/clientManagement.tour';
 import providerDirectoryTour from './tours/providerDirectory.tour';
 import schoolsOverviewTour from './tours/schoolsOverview.tour';
+import schoolPortalTour from './tours/schoolPortal.tour';
 
-export const getTourForRoute = (route) => {
+export const getTourForRoute = (route, options = {}) => {
   const name = String(route?.name || '');
   if (!name) return null;
+
+  const isPortalOrg = options?.isPortalOrg === true;
+
+  // School/portal orgs on dashboard get the school portal tour.
+  if ((name === 'Dashboard' || name === 'OrganizationDashboard') && isPortalOrg) {
+    return schoolPortalTour;
+  }
 
   // Dashboard has multiple major panels; provide a focused tour when the schedule tab is open.
   const tab = String(route?.query?.tab || '');

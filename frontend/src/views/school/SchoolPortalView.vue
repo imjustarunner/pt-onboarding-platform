@@ -227,6 +227,7 @@
           </button>
 
           <button
+            data-tour="school-nav-notifications"
             class="nav-item"
             type="button"
             @click="openNotificationsPanel"
@@ -403,7 +404,7 @@
             </div>
           </button>
 
-          <button class="dash-card" type="button" @click="portalMode = 'skills'">
+          <button data-tour="school-home-card-skills" class="dash-card" type="button" @click="portalMode = 'skills'">
             <div class="dash-card-icon">
               <img
                 v-if="brandingStore.getSchoolPortalCardIconUrl('skills_groups', cardIconOrg)"
@@ -474,7 +475,7 @@
             </div>
           </button>
 
-          <button class="dash-card" type="button" @click="openNotificationsPanel">
+          <button data-tour="school-home-card-notifications" class="dash-card" type="button" @click="openNotificationsPanel">
             <div class="dash-card-icon">
               <img
                 v-if="brandingStore.getSchoolPortalCardIconUrl('announcements', cardIconOrg)"
@@ -513,7 +514,7 @@
             </div>
           </button>
 
-          <button class="dash-card" type="button" @click="openIntakeModal('qr')">
+          <button data-tour="school-home-card-parent-qr" class="dash-card" type="button" @click="openIntakeModal('qr')">
             <div class="dash-card-icon">
               <img
                 v-if="brandingStore.getSchoolPortalCardIconUrl('parent_qr', cardIconOrg)"
@@ -547,7 +548,7 @@
             </div>
           </button>
 
-          <button class="dash-card" type="button" @click="showUploadModal = true">
+          <button data-tour="school-home-card-upload" class="dash-card" type="button" @click="showUploadModal = true">
             <div class="dash-card-icon">
               <img
                 v-if="brandingStore.getSchoolPortalCardIconUrl('upload_packet', cardIconOrg)"
