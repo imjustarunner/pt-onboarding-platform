@@ -81,6 +81,10 @@
         </button>
       </div>
       
+      <div class="presence-widget-wrap">
+        <PresenceStatusWidget />
+      </div>
+      
       <NotificationCards />
 
       <section v-if="showSupervisionModal" class="supervision-panel-wrap">
@@ -127,6 +131,7 @@ import NotificationCards from '../../components/admin/NotificationCards.vue';
 import QuickActionsSection from '../../components/admin/QuickActionsSection.vue';
 import AgencySpecsPanel from '../../components/admin/AgencySpecsPanel.vue';
 import SupervisionModal from '../../components/supervision/SupervisionModal.vue';
+import PresenceStatusWidget from '../../components/dashboard/PresenceStatusWidget.vue';
 
 const authStore = useAuthStore();
 const user = computed(() => authStore.user);
@@ -491,6 +496,16 @@ const quickActions = computed(() => {
     capabilities: ['canAccessPlatform']
   },
   {
+    id: 'presence',
+    title: 'Presence / Team Board',
+    description: 'See who is in, out, or traveling (SuperAdmin testing)',
+    to: '/admin/presence',
+    emoji: '📍',
+    category: 'Management',
+    roles: ['super_admin'],
+    capabilities: ['canAccessPlatform']
+  },
+  {
     id: 'all_progress',
     title: 'View All Progress',
     description: 'View training progress across all agencies',
@@ -524,6 +539,7 @@ const quickActions = computed(() => {
 
 const defaultQuickActionIds = computed(() => ([
   'executive_report',
+  'presence',
   'manage_organizations',
   'manage_clients',
   ...(clinicalNoteGeneratorEnabledForAgency.value ? ['clinical_note_generator'] : []),
@@ -809,6 +825,10 @@ onMounted(loadMyOpenTickets);
   text-align: center;
   padding: 40px;
   color: var(--text-secondary);
+}
+
+.presence-widget-wrap {
+  max-width: 280px;
 }
 </style>
 

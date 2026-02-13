@@ -66,7 +66,9 @@ class Notification {
     // Payroll: home address changes (mileage / compliance workflow)
     'payroll_home_address_updated',
     // Custom program reminders
-    'program_reminder'
+    'program_reminder',
+    // Presence: nudge when Out Quick return time has passed
+    'presence_return_overdue_nudge'
   ];
 
   static async create(notificationData) {

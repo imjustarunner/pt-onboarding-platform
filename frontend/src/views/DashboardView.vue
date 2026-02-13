@@ -113,6 +113,15 @@
       <ProviderTopSummaryCard v-if="!topCardCollapsed" @open-last-paycheck="openLastPaycheckModal" />
     </div>
 
+    <!-- Presence status widget – staff can update their status -->
+    <div
+      v-if="!previewMode && isOnboardingComplete && !isSchoolStaff && canSeePresenceWidget"
+      class="top-snapshot-wrap"
+      data-tour="dash-presence-status"
+    >
+      <PresenceStatusWidget />
+    </div>
+
     <!-- Social & feeds (collapsible block) – super_admin only until full release -->
     <div
       v-if="!previewMode && isOnboardingComplete && !isSchoolStaff && authStore.user?.role === 'super_admin' && dashboardSocialFeeds.length > 0"
@@ -607,6 +616,7 @@ import SkillBuilderAvailabilityModal from '../components/availability/SkillBuild
 import SkillBuildersAvailabilityModal from '../components/availability/SkillBuildersAvailabilityModal.vue';
 import LastPaycheckModal from '../components/dashboard/LastPaycheckModal.vue';
 import SocialFeedsPanel from '../components/dashboard/SocialFeedsPanel.vue';
+import PresenceStatusWidget from '../components/dashboard/PresenceStatusWidget.vue';
 import { isSupervisor } from '../utils/helpers.js';
 
 const props = defineProps({
@@ -669,6 +679,12 @@ const isSkillBuilderConfirmRequired = computed(() => {
     u.skill_builder_confirm_required_next_login === 1 ||
     u.skill_builder_confirm_required_next_login === '1'
   );
+});
+
+// Presence widget: super_admin only for now; change to include staff roles when ready to roll out
+const canSeePresenceWidget = computed(() => {
+  const role = String(authStore.user?.role || '').toLowerCase();
+  return role === 'super_admin';
 });
 
 const onSkillBuilderConfirmed = () => {

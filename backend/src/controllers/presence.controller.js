@@ -1,6 +1,9 @@
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import Notification from '../models/Notification.model.js';
+import UserPresenceStatus from '../models/UserPresenceStatus.model.js';
+import Notification from '../models/Notification.model.js';
+import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 
 const IDLE_AFTER_MS = 5 * 60 * 1000; // 5 minutes
 const OFFLINE_AFTER_MS = 2 * 60 * 1000; // 2 minutes since last heartbeat (best-effort)
@@ -349,6 +352,262 @@ export const listAdminPresence = async (req, res, next) => {
     });
 
     res.json(out);
+  } catch (e) {
+    next(e);
+  }
+};
+
+// --- Team Board presence (status-based: In/Out/Traveling) ---
+
+/**
+ * Super-admin only: list all users with presence status for Team Board.
+ * GET /api/presence (root path, requires super_admin)
+ */
+export const listPresence = async (req, res, next) => {
+  try {
+    if (String(req.user?.role || '').toLowerCase() !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'Super admin access required' } });
+    }
+
+    const rows = await UserPresenceStatus.findAllWithUsers();
+    const out = (rows || []).map((r) => {
+      const firstName = r.first_name || '';
+      const lastName = r.last_name || '';
+      const preferredName = r.preferred_name || '';
+      const displayName = preferredName
+        ? `${firstName} "${preferredName}" ${lastName}`.trim()
+        : `${firstName} ${lastName}`.trim() || 'Unknown';
+      const agencyIds = (r.agency_ids || '')
+        .split(',')
+        .map((x) => parseInt(x, 10))
+        .filter((x) => !isNaN(x));
+      return {
+        id: r.id,
+        first_name: r.first_name,
+        last_name: r.last_name,
+        preferred_name: r.preferred_name,
+        display_name: displayName,
+        email: r.email,
+        role: r.role,
+        agency_ids: agencyIds,
+        profile_photo_url: publicUploadsUrlFromStoredPath(r.profile_photo_path),
+        presence_status: r.presence_status || null,
+        presence_note: r.presence_note || null,
+        presence_started_at: r.presence_started_at || null,
+        presence_ends_at: r.presence_ends_at || null,
+        presence_expected_return_at: r.presence_expected_return_at || null
+      };
+    });
+    res.json(out);
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Get current user's presence status (for staff self-update UI).
+ * GET /api/presence/status/me
+ */
+export const getMyPresenceStatus = async (req, res, next) => {
+  try {
+    const row = await UserPresenceStatus.findByUserId(req.user.id);
+    if (!row) return res.json({ presence_status: null, presence_note: null, presence_expected_return_at: null });
+    res.json({
+      presence_status: row.status,
+      presence_note: row.note,
+      presence_started_at: row.started_at,
+      presence_ends_at: row.ends_at,
+      presence_expected_return_at: row.expected_return_at
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Update current user's presence status.
+ * PUT /api/presence/status/me
+ */
+export const updateMyPresence = async (req, res, next) => {
+  try {
+    const { status, note, expected_return_at, started_at, ends_at } = req.body || {};
+    if (!status || !UserPresenceStatus.isValidStatus(status)) {
+      return res.status(400).json({
+        error: {
+          message: `status must be one of: ${UserPresenceStatus.STATUS_ENUM.join(', ')}`
+        }
+      });
+    }
+    if (status === 'out_quick' && !expected_return_at && !note) {
+      return res.status(400).json({
+        error: { message: 'Out – Quick requires expected_return_at or note (e.g. "Back by 2:15pm")' }
+      });
+    }
+    if (status === 'out_quick' && expected_return_at) {
+      const startedAt = started_at ? new Date(started_at) : new Date();
+      const returnAt = new Date(expected_return_at);
+      const minutes = (returnAt - startedAt) / (60 * 1000);
+      if (minutes > 90) {
+        return res.status(400).json({
+          error: { message: 'Out – Quick return time must be within 90 minutes of start' }
+        });
+      }
+    }
+    const result = await UserPresenceStatus.upsertForUser(req.user.id, {
+      status,
+      note: note || null,
+      expected_return_at: expected_return_at || null,
+      started_at: started_at || null,
+      ends_at: ends_at || null
+    });
+    res.json(result);
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Super-admin only: update any user's presence status (for testing).
+ * PUT /api/presence/status/:userId
+ */
+export const updateUserPresence = async (req, res, next) => {
+  try {
+    if (String(req.user?.role || '').toLowerCase() !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'Super admin access required' } });
+    }
+    const userId = parseInt(req.params.userId, 10);
+    if (!userId) return res.status(400).json({ error: { message: 'Invalid userId' } });
+
+    const { status, note, expected_return_at, started_at, ends_at } = req.body || {};
+    if (!status || !UserPresenceStatus.isValidStatus(status)) {
+      return res.status(400).json({
+        error: {
+          message: `status must be one of: ${UserPresenceStatus.STATUS_ENUM.join(', ')}`
+        }
+      });
+    }
+    if (status === 'out_quick' && !expected_return_at && !note) {
+      return res.status(400).json({
+        error: { message: 'Out – Quick requires expected_return_at or note (e.g. "Back by 2:15pm")' }
+      });
+    }
+    if (status === 'out_quick' && expected_return_at) {
+      const startedAt = started_at ? new Date(started_at) : new Date();
+      const returnAt = new Date(expected_return_at);
+      const minutes = (returnAt - startedAt) / (60 * 1000);
+      if (minutes > 90) {
+        return res.status(400).json({
+          error: { message: 'Out – Quick return time must be within 90 minutes of start' }
+        });
+      }
+    }
+    const result = await UserPresenceStatus.upsertForUser(userId, {
+      status,
+      note: note || null,
+      expected_return_at: expected_return_at || null,
+      started_at: started_at || null,
+      ends_at: ends_at || null
+    });
+    res.json(result);
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Super-admin only: bulk update presence status for multiple users.
+ * POST /api/presence/bulk-update
+ * Body: { userIds: number[], status, note?, expected_return_at?, started_at?, ends_at? }
+ */
+export const bulkUpdatePresence = async (req, res, next) => {
+  try {
+    if (String(req.user?.role || '').toLowerCase() !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'Super admin access required' } });
+    }
+    const { userIds, status, note, expected_return_at, started_at, ends_at } = req.body || {};
+    const ids = Array.isArray(userIds) ? userIds.map((x) => parseInt(x, 10)).filter((x) => !isNaN(x) && x > 0) : [];
+    if (ids.length === 0) {
+      return res.status(400).json({ error: { message: 'userIds must be a non-empty array' } });
+    }
+    if (!status || !UserPresenceStatus.isValidStatus(status)) {
+      return res.status(400).json({
+        error: { message: `status must be one of: ${UserPresenceStatus.STATUS_ENUM.join(', ')}` }
+      });
+    }
+    if (status === 'out_quick' && !expected_return_at && !note) {
+      return res.status(400).json({
+        error: { message: 'Out – Quick requires expected_return_at or note' }
+      });
+    }
+    if (status === 'out_quick' && expected_return_at) {
+      const startedAt = started_at ? new Date(started_at) : new Date();
+      const returnAt = new Date(expected_return_at);
+      const minutes = (returnAt - startedAt) / (60 * 1000);
+      if (minutes > 90) {
+        return res.status(400).json({
+          error: { message: 'Out – Quick return time must be within 90 minutes of start' }
+        });
+      }
+    }
+
+    const payload = {
+      status,
+      note: note || null,
+      expected_return_at: expected_return_at || null,
+      started_at: started_at || null,
+      ends_at: ends_at || null
+    };
+    const results = [];
+    for (const uid of ids) {
+      const r = await UserPresenceStatus.upsertForUser(uid, payload);
+      results.push({ userId: uid, ok: !!r });
+    }
+    res.json({ updated: results.length, results });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Super-admin only: nudge a user whose Out – Quick return time has passed.
+ * POST /api/presence/status/:userId/nudge
+ */
+export const nudgeUserPresence = async (req, res, next) => {
+  try {
+    if (String(req.user?.role || '').toLowerCase() !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'Super admin access required' } });
+    }
+    const userId = parseInt(req.params.userId, 10);
+    if (!userId) return res.status(400).json({ error: { message: 'Invalid userId' } });
+
+    const presence = await UserPresenceStatus.findByUserId(userId);
+    if (!presence || presence.status !== 'out_quick') {
+      return res.status(400).json({ error: { message: 'User does not have Out – Quick status' } });
+    }
+    const expectedReturn = presence.expected_return_at ? new Date(presence.expected_return_at) : null;
+    if (!expectedReturn || expectedReturn >= new Date()) {
+      return res.status(400).json({ error: { message: 'Return time has not passed yet' } });
+    }
+
+    const targetUser = await User.findById(userId);
+    const displayName = targetUser
+      ? `${targetUser.first_name || ''} ${targetUser.last_name || ''}`.trim() || 'Someone'
+      : 'Someone';
+    const agencies = await User.getAgencies(userId);
+    const agencyId = agencies?.[0]?.id || null;
+
+    await Notification.create({
+      type: 'presence_return_overdue_nudge',
+      severity: 'info',
+      title: 'Time to check in',
+      message: `Your "Out – Quick" return time has passed. Please update your status when you're back.`,
+      userId,
+      agencyId,
+      relatedEntityType: 'user_presence_status',
+      relatedEntityId: presence.id
+    });
+
+    res.json({ ok: true, message: `Nudge sent to ${displayName}` });
   } catch (e) {
     next(e);
   }
