@@ -1,6 +1,6 @@
 -- Migration: Presence + Time Tracker module (SuperAdmin testing)
 -- Description: Store per-user presence status for Team Board visibility.
--- One row per user (upsert pattern); each status update replaces the previous.
+-- One row per user (upsert pattern). Each status update replaces the previous.
 
 CREATE TABLE IF NOT EXISTS user_presence_status (
   id INT PRIMARY KEY AUTO_INCREMENT,

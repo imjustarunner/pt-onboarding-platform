@@ -81,8 +81,13 @@
         </button>
       </div>
       
-      <div class="presence-widget-wrap">
-        <PresenceStatusWidget />
+      <div class="presence-widgets-wrap">
+        <div class="presence-widget-wrap">
+          <PresenceStatusWidget />
+        </div>
+        <div class="presence-preview-wrap">
+          <PresenceTeamPreview />
+        </div>
       </div>
       
       <NotificationCards />
@@ -132,6 +137,7 @@ import QuickActionsSection from '../../components/admin/QuickActionsSection.vue'
 import AgencySpecsPanel from '../../components/admin/AgencySpecsPanel.vue';
 import SupervisionModal from '../../components/supervision/SupervisionModal.vue';
 import PresenceStatusWidget from '../../components/dashboard/PresenceStatusWidget.vue';
+import PresenceTeamPreview from '../../components/dashboard/PresenceTeamPreview.vue';
 
 const authStore = useAuthStore();
 const user = computed(() => authStore.user);
@@ -827,8 +833,21 @@ onMounted(loadMyOpenTickets);
   color: var(--text-secondary);
 }
 
+.presence-widgets-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  align-items: flex-start;
+}
+
 .presence-widget-wrap {
   max-width: 280px;
+}
+
+.presence-preview-wrap {
+  flex: 1;
+  min-width: 280px;
+  max-width: 600px;
 }
 </style>
 
