@@ -1,6 +1,7 @@
 import Notification from '../models/Notification.model.js';
 import User from '../models/User.model.js';
 import UserPreferences from '../models/UserPreferences.model.js';
+import * as PushService from './pushNotification.service.js';
 import NotificationGatekeeperService from './notificationGatekeeper.service.js';
 import TwilioService from './twilio.service.js';
 import NotificationSmsLog from '../models/NotificationSmsLog.model.js';
@@ -87,6 +88,7 @@ class NotificationDispatcherService {
   static async createNotificationAndDispatch(notificationData, { context = {} } = {}) {
     const created = await Notification.create(notificationData);
     await this.dispatchForNotification(created, { context }).catch(() => {});
+    await this.dispatchPushForNotification(created).catch(() => {});
     return created;
   }
 
@@ -199,6 +201,22 @@ class NotificationDispatcherService {
       await NotificationSmsLog.updateStatus(log.id, { status: 'failed', errorMessage: e.message });
       return { dispatched: false, reason: 'send_failed', error: e.message, decision };
     }
+  }
+
+  /**
+   * Send browser push notification if user has opted in.
+   */
+  static async dispatchPushForNotification(notification) {
+    if (!notification?.user_id) return { dispatched: false };
+    const prefs = await UserPreferences.findByUserId(notification.user_id);
+    if (!prefs?.push_notifications_enabled) return { dispatched: false };
+    const result = await PushService.sendPushToUser(notification.user_id, {
+      title: notification.title || 'Notification',
+      body: notification.message || '',
+      url: '/notifications',
+      tag: `n-${notification.id}`
+    });
+    return { dispatched: result.sent > 0, ...result };
   }
 }
 

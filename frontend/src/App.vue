@@ -262,6 +262,17 @@
               </button>
               <WeatherChip />
               <router-link
+                v-if="canShowScheduleIcon"
+                :to="orgTo('/schedule')"
+                class="nav-icon-btn"
+                title="Schedule"
+                aria-label="Schedule"
+                @click="closeAllNavMenus"
+              >
+                <img v-if="scheduleIconUrl" :src="scheduleIconUrl" alt="" class="nav-icon-img" />
+                <span v-else aria-hidden="true">📅</span>
+              </router-link>
+              <router-link
                 v-if="canShowSettingsIcon"
                 :to="orgTo('/admin/settings')"
                 class="nav-icon-btn"
@@ -394,7 +405,7 @@
               >Tickets</router-link>
               <router-link
                 :to="orgTo('/schedule')"
-                v-if="canShowScheduleTopNav"
+                v-if="canShowScheduleIcon || canShowScheduleTopNav"
                 @click="closeMobileMenu"
                 class="mobile-nav-link"
               >Schedule</router-link>
@@ -1019,9 +1030,24 @@ const canShowSettingsIcon = computed(() => {
   return (canCreateEdit.value || u?.role === 'support') && u?.role !== 'clinical_practice_assistant';
 });
 
+const canShowScheduleIcon = computed(() => {
+  const u = authStore.user;
+  if (!u) return false;
+  const role = String(u?.role || '').toLowerCase();
+  return ['admin', 'super_admin', 'clinical_practice_assistant', 'staff'].includes(role);
+});
+
 const settingsIconUrl = computed(() => {
   try {
     return brandingStore.getAdminQuickActionIconUrl('settings', agencyStore.currentAgency || null);
+  } catch {
+    return null;
+  }
+});
+
+const scheduleIconUrl = computed(() => {
+  try {
+    return brandingStore.getAdminQuickActionIconUrl('schedule', agencyStore.currentAgency || null);
   } catch {
     return null;
   }
@@ -1322,6 +1348,26 @@ onMounted(async () => {
   
   if (isAuthenticated.value) {
     startActivityTracking();
+    // Sync dark mode from server (in case changed on another device)
+    const uid = authStore.user?.id;
+    if (uid) {
+      try {
+        const { default: api } = await import('./services/api');
+        const { setDarkMode } = await import('./utils/darkMode');
+        const { useUserPreferencesStore } = await import('./store/userPreferences');
+        const res = await api.get(`/users/${uid}/preferences`, { skipGlobalLoading: true });
+        const data = res?.data || {};
+        const dark = !!data.dark_mode;
+        setDarkMode(uid, dark);
+        const prefsStore = useUserPreferencesStore();
+        prefsStore.setFromApi(data);
+        const density = data.layout_density || 'standard';
+        document.documentElement.removeAttribute('data-layout-density');
+        if (density !== 'standard') document.documentElement.setAttribute('data-layout-density', density);
+      } catch {
+        /* ignore - use localStorage fallback */
+      }
+    }
     
     // Check if user role needs to be refreshed (e.g., after role change in database)
     // This helps catch cases where the database role was updated but token still has old role

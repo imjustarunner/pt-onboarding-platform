@@ -45,6 +45,13 @@
               </label>
               <div class="field-help">Used when agencies enable text forwarding rules.</div>
             </div>
+            <div class="field checkbox">
+              <label>
+                <input v-model="prefs.push_notifications_enabled" type="checkbox" :disabled="notificationDisabled" />
+                Browser push notifications
+              </label>
+              <div class="field-help">Show notifications when the app tab is in the background.</div>
+            </div>
           </div>
 
           <div class="card">
@@ -509,6 +516,77 @@
       <div class="section-content">
         <div class="prefs-grid">
           <div class="card">
+            <h3 class="card-title">Appearance</h3>
+            <label class="field checkbox">
+              <input v-model="prefs.dark_mode" type="checkbox" :disabled="viewOnly" />
+              Dark mode
+            </label>
+            <div class="field-help">Use a dark theme for the app.</div>
+            <div class="field">
+              <label>Layout density</label>
+              <select v-model="prefs.layout_density" :disabled="viewOnly">
+                <option value="compact">Compact</option>
+                <option value="standard">Standard</option>
+                <option value="comfortable">Comfortable</option>
+              </select>
+              <div class="field-help">Controls spacing in tables and lists.</div>
+            </div>
+          </div>
+
+          <div class="card">
+            <h3 class="card-title">Regional & display</h3>
+            <div class="field">
+              <label>Timezone</label>
+              <select v-model="prefs.timezone" :disabled="viewOnly" class="timezone-select">
+                <option :value="null">Browser default</option>
+                <optgroup label="US">
+                  <option value="America/New_York">Eastern (New York)</option>
+                  <option value="America/Chicago">Central (Chicago)</option>
+                  <option value="America/Denver">Mountain (Denver)</option>
+                  <option value="America/Los_Angeles">Pacific (Los Angeles)</option>
+                </optgroup>
+                <optgroup label="Other">
+                  <option value="America/Toronto">Toronto</option>
+                  <option value="America/Vancouver">Vancouver</option>
+                  <option value="Europe/London">London</option>
+                  <option value="Europe/Paris">Paris</option>
+                  <option value="Europe/Berlin">Berlin</option>
+                  <option value="Asia/Tokyo">Tokyo</option>
+                  <option value="Australia/Sydney">Sydney</option>
+                </optgroup>
+              </select>
+              <div class="field-help">Used for dates, times, and digest send time.</div>
+            </div>
+            <div class="field">
+              <label>Date format</label>
+              <select v-model="prefs.date_format" :disabled="viewOnly">
+                <option value="MM/DD">MM/DD (e.g. 12/31/2025)</option>
+                <option value="DD/MM">DD/MM (e.g. 31/12/2025)</option>
+                <option value="YYYY-MM-DD">YYYY-MM-DD (e.g. 2025-12-31)</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Time format</label>
+              <select v-model="prefs.time_format" :disabled="viewOnly">
+                <option value="12h">12-hour (e.g. 2:30 PM)</option>
+                <option value="24h">24-hour (e.g. 14:30)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="card">
+            <h3 class="card-title">Schedule</h3>
+            <div class="field">
+              <label>Default schedule view</label>
+              <select v-model="prefs.schedule_default_view" :disabled="viewOnly">
+                <option value="open_finder">Open finder</option>
+                <option value="office_layout">Office layout</option>
+              </select>
+              <div class="field-help">Initial view when opening your schedule.</div>
+            </div>
+          </div>
+
+          <div class="card">
             <h3 class="card-title">Accessibility</h3>
             <label class="field checkbox">
               <input v-model="prefs.reduced_motion" type="checkbox" :disabled="viewOnly" />
@@ -542,7 +620,7 @@
                 <option value="clients">Clients</option>
                 <option value="schedule">Schedule</option>
               </select>
-              <div class="field-help">Stored now; we’ll apply this redirect behavior next.</div>
+              <div class="field-help">Which tab to show when you open My Dashboard.</div>
             </div>
           </div>
         </div>
@@ -574,8 +652,18 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
 import { useAuthStore } from '../store/auth';
+import { useUserPreferencesStore } from '../store/userPreferences';
 import api from '../services/api';
 import { refetchSessionLockConfig } from '../utils/activityTracker';
+import { setDarkMode } from '../utils/darkMode';
+import {
+  isPushSupported,
+  getPushPermissionState,
+  requestPushPermission,
+  registerPushSubscription,
+  unregisterPushSubscription,
+  ensureServiceWorkerRegistered
+} from '../utils/pushNotifications';
 
 const props = defineProps({
   userId: { type: Number, required: true },
@@ -588,6 +676,7 @@ const props = defineProps({
 });
 
 const authStore = useAuthStore();
+const userPrefsStore = useUserPreferencesStore();
 
 const loading = ref(true);
 const saving = ref(false);
@@ -599,6 +688,7 @@ const agencyNotificationSettings = ref({
   enforceDefaults: false
 });
 const sessionLockMaxMinutes = ref({ platformMax: 30, agencyMax: 30 });
+const vapidPublicKey = ref('');
 
 const dayOptions = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
@@ -655,6 +745,13 @@ const prefs = ref({
   reduced_motion: false,
   high_contrast_mode: false,
   larger_text: false,
+  dark_mode: false,
+  timezone: null,
+  schedule_default_view: 'open_finder',
+  layout_density: 'standard',
+  date_format: 'MM/DD',
+  time_format: '12h',
+  push_notifications_enabled: false,
   helper_enabled: true,
   default_landing_page: 'dashboard',
 
@@ -702,6 +799,14 @@ const sessionLockPinMismatch = computed(() => {
   if (!a && !b) return false;
   return a.length === 4 && b.length === 4 && a !== b;
 });
+
+const applyLayoutDensity = (density) => {
+  const root = document.documentElement;
+  root.removeAttribute('data-layout-density');
+  if (density && density !== 'standard') {
+    root.setAttribute('data-layout-density', density);
+  }
+};
 
 const normalizeTimeForInput = (t) => {
   if (!t) return '';
@@ -819,10 +924,19 @@ const load = async () => {
     if (data?.sessionLockMaxMinutes) {
       sessionLockMaxMinutes.value = data.sessionLockMaxMinutes;
     }
+    vapidPublicKey.value = data?.vapidPublicKey || '';
 
     prefs.value.session_lock_enabled = !!data?.session_lock_enabled;
     prefs.value.inactivity_timeout_minutes = data?.inactivity_timeout_minutes ?? null;
     prefs.value.session_lock_pin_set = !!data?.session_lock_pin_set;
+    prefs.value.dark_mode = !!data?.dark_mode;
+
+    // Apply dark mode and sync store when loading own preferences
+    if (props.userId === authStore.user?.id) {
+      setDarkMode(props.userId, prefs.value.dark_mode);
+      userPrefsStore.setFromApi(prefs.value);
+      applyLayoutDensity(prefs.value.layout_density);
+    }
 
     // Required toggles
     prefs.value.notification_categories.system_emergency_broadcasts = true;
@@ -890,6 +1004,13 @@ const save = async () => {
       reduced_motion: !!prefs.value.reduced_motion,
       high_contrast_mode: !!prefs.value.high_contrast_mode,
       larger_text: !!prefs.value.larger_text,
+      dark_mode: !!prefs.value.dark_mode,
+      timezone: prefs.value.timezone || null,
+      schedule_default_view: prefs.value.schedule_default_view || 'open_finder',
+      layout_density: prefs.value.layout_density || 'standard',
+      date_format: prefs.value.date_format || 'MM/DD',
+      time_format: prefs.value.time_format || '12h',
+      push_notifications_enabled: !!prefs.value.push_notifications_enabled,
       helper_enabled: !!prefs.value.helper_enabled,
       default_landing_page: prefs.value.default_landing_page || 'dashboard',
 
@@ -909,6 +1030,52 @@ const save = async () => {
       payload.scheduling_preferences = schedulingPrefs.value || null;
     }
 
+    // Handle push notifications: register or unregister before/with save
+    if (props.userId === authStore.user?.id && !viewOnly) {
+      const pushEnabled = !!payload.push_notifications_enabled;
+      if (pushEnabled) {
+        const supported = await isPushSupported();
+        if (supported && vapidPublicKey.value) {
+          const perm = await getPushPermissionState();
+          if (perm === 'granted') {
+            try {
+              await ensureServiceWorkerRegistered();
+              await registerPushSubscription(props.userId, vapidPublicKey.value);
+            } catch (e) {
+              error.value = e?.message || 'Failed to register push notifications';
+              saving.value = false;
+              return;
+            }
+          } else if (perm === 'default') {
+            const newPerm = await requestPushPermission();
+            if (newPerm === 'granted') {
+              try {
+                await ensureServiceWorkerRegistered();
+                await registerPushSubscription(props.userId, vapidPublicKey.value);
+              } catch (e) {
+                error.value = e?.message || 'Failed to register push notifications';
+                saving.value = false;
+                return;
+              }
+            } else {
+              payload.push_notifications_enabled = false;
+            }
+          }
+        } else if (supported && !vapidPublicKey.value) {
+          error.value = 'Push notifications are not configured. Contact your administrator.';
+          payload.push_notifications_enabled = false;
+        } else if (!supported) {
+          payload.push_notifications_enabled = false;
+        }
+      } else {
+        try {
+          await unregisterPushSubscription(props.userId);
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+
     await api.put(`/users/${props.userId}/preferences`, payload);
     saved.value = true;
     if (payload.session_lock_pin) {
@@ -918,6 +1085,13 @@ const save = async () => {
     }
     if (props.userId === authStore.user?.id && (payload.session_lock_enabled !== undefined || payload.inactivity_timeout_minutes !== undefined || payload.session_lock_pin)) {
       refetchSessionLockConfig();
+    }
+    if (props.userId === authStore.user?.id && payload.dark_mode !== undefined) {
+      setDarkMode(props.userId, payload.dark_mode);
+    }
+    if (props.userId === authStore.user?.id) {
+      userPrefsStore.setFromApi({ ...prefs.value, ...payload });
+      if (payload.layout_density !== undefined) applyLayoutDensity(payload.layout_density);
     }
     setTimeout(() => { saved.value = false; }, 2000);
   } catch (e) {
@@ -963,6 +1137,10 @@ onMounted(load);
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 12px;
+}
+
+.timezone-select {
+  min-width: 220px;
 }
 
 .section-header {

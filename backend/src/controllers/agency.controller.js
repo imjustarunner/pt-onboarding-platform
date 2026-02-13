@@ -385,17 +385,22 @@ export const updateAgency = async (req, res, next) => {
       ? parseJsonField(sessionSettings)
       : undefined;
 
+    // Platform-only fields: only super_admin can change these. Agency admins cannot edit isActive, slug.
+    const isSuperAdmin = req.user?.role === 'super_admin';
+    const effectiveIsActive = isSuperAdmin ? isActive : undefined;
+    const effectiveSlug = isSuperAdmin ? slug : undefined;
+
     const agency = await Agency.update(id, { 
       name, 
       officialName,
-      slug, 
+      slug: effectiveSlug, 
       logoUrl,
       logoPath, 
       colorPalette: formattedColorPalette, 
       terminologySettings,
       intakeRetentionPolicy: formattedRetentionPolicy,
       sessionSettings: formattedSessionSettings,
-      isActive, 
+      isActive: effectiveIsActive, 
       iconId,
       chatIconId,
       trainingFocusDefaultIconId,

@@ -53,6 +53,83 @@
   --agency-login-background: linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 100%);
 }
 
+/* Dark theme (when user enables in preferences) */
+[data-theme="dark"] {
+  --bg: #1a1d21;
+  --bg-alt: #25282c;
+  --text-primary: #e2e8f0;
+  --text-secondary: #94a3b8;
+  --border: #334155;
+  --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -1px rgba(0, 0, 0, 0.2);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.3), 0 4px 6px -2px rgba(0, 0, 0, 0.2);
+  --plottwistco-bg-alt: #25282c;
+}
+
+[data-theme="dark"] body {
+  background-color: var(--bg-alt);
+}
+
+[data-theme="dark"] .card,
+[data-theme="dark"] input,
+[data-theme="dark"] textarea,
+[data-theme="dark"] select {
+  background-color: var(--bg);
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] .card {
+  background-color: var(--bg);
+}
+
+[data-theme="dark"] .badge {
+  opacity: 0.9;
+}
+
+[data-theme="dark"] .badge-success {
+  background-color: var(--success);
+  color: white;
+}
+
+[data-theme="dark"] .badge-warning {
+  background-color: var(--warning);
+  color: #1a1d21;
+}
+
+[data-theme="dark"] .badge-info,
+[data-theme="dark"] .badge-secondary {
+  background-color: var(--border);
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] .error {
+  background-color: rgba(204, 61, 61, 0.2);
+  border-left-color: var(--error);
+}
+
+[data-theme="dark"] .success {
+  background-color: rgba(47, 143, 131, 0.2);
+  border-left-color: var(--success);
+  color: #a7f3ec;
+}
+
+/* Layout density (user preference) */
+[data-layout-density="compact"] .card,
+[data-layout-density="compact"] table td,
+[data-layout-density="compact"] table th {
+  padding: 6px 10px;
+}
+[data-layout-density="compact"] .field { margin-bottom: 8px; }
+[data-layout-density="compact"] .prefs-grid .card { padding: 10px 14px; }
+
+[data-layout-density="comfortable"] .card,
+[data-layout-density="comfortable"] table td,
+[data-layout-density="comfortable"] table th {
+  padding: 14px 18px;
+}
+[data-layout-density="comfortable"] .field { margin-bottom: 14px; }
+[data-layout-density="comfortable"] .prefs-grid .card { padding: 18px 22px; }
+
 body {
   /* Agency branding can override fonts; fall back to platform typography */
   font-family: var(--agency-font-family, var(--font-body));

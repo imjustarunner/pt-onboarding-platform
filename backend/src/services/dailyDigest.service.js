@@ -14,11 +14,18 @@ const parseTimeToMinutes = (raw) => {
   return hh * 60 + mm;
 };
 
-const sameDate = (a, b) =>
-  a && b
-    && a.getFullYear() === b.getFullYear()
-    && a.getMonth() === b.getMonth()
-    && a.getDate() === b.getDate();
+const sameDate = (a, b, tz = null) => {
+  if (!a || !b) return false;
+  if (!tz || typeof tz !== 'string' || !tz.trim()) {
+    return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  }
+  try {
+    const fmt = { timeZone: tz.trim(), year: 'numeric', month: '2-digit', day: '2-digit' };
+    return a.toLocaleString('en-CA', fmt) === b.toLocaleString('en-CA', fmt);
+  } catch {
+    return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  }
+};
 
 const formatDateLabel = (d) => {
   if (!d) return '';
@@ -36,11 +43,26 @@ const truncate = (val, max = 180) => {
   return `${s.slice(0, max - 1)}…`;
 };
 
-const shouldSendNow = ({ digestTime, lastSentAt, now }) => {
+/** Get current hour*60+minute in the given timezone (IANA e.g. America/New_York). */
+const getLocalMinutesInTimezone = (tz, date) => {
+  if (!tz || typeof tz !== 'string' || !tz.trim()) return null;
+  try {
+    const str = date.toLocaleString('en-US', { timeZone: tz.trim(), hour: '2-digit', minute: '2-digit', hour12: false });
+    const [h, m] = str.split(':').map((x) => parseInt(x, 10) || 0);
+    return h * 60 + m;
+  } catch {
+    return null;
+  }
+};
+
+const shouldSendNow = ({ digestTime, lastSentAt, now, timezone }) => {
   const t = parseTimeToMinutes(digestTime || DEFAULT_DIGEST_TIME);
   if (t === null) return false;
-  if (lastSentAt && sameDate(lastSentAt, now)) return false;
-  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+  if (lastSentAt && sameDate(lastSentAt, now, timezone)) return false;
+  const nowMinutes = timezone
+    ? getLocalMinutesInTimezone(timezone, now)
+    : (now.getHours() * 60 + now.getMinutes());
+  if (nowMinutes === null) return false;
   return nowMinutes >= t && nowMinutes < t + WINDOW_MINUTES;
 };
 
@@ -51,6 +73,7 @@ class DailyDigestService {
          up.user_id,
          up.daily_digest_time,
          up.daily_digest_last_sent_at,
+         up.timezone,
          u.email,
          u.work_email,
          (SELECT MIN(ua.agency_id) FROM user_agencies ua WHERE ua.user_id = up.user_id) AS agency_id
@@ -71,7 +94,7 @@ class DailyDigestService {
       if (!to) continue;
 
       const lastSentAt = row.daily_digest_last_sent_at ? new Date(row.daily_digest_last_sent_at) : null;
-      if (!shouldSendNow({ digestTime: row.daily_digest_time, lastSentAt, now })) continue;
+      if (!shouldSendNow({ digestTime: row.daily_digest_time, lastSentAt, now, timezone: row.timezone })) continue;
 
       const since = lastSentAt || new Date(now.getTime() - 24 * 60 * 60 * 1000);
       const [notifications] = await pool.execute(

@@ -150,12 +150,20 @@
 
     <!-- Dashboard Shell: left rail + right detail -->
     <div class="dashboard-shell" :class="{ 'schedule-focus': activeTab === 'my_schedule' }">
-      <div data-tour="dash-rail" class="dashboard-rail" :class="{ disabled: previewMode }" role="navigation" aria-label="Dashboard sections">
+      <div
+        data-tour="dash-rail"
+        class="dashboard-rail"
+        :class="{ disabled: previewMode, 'rail-top-mode': railTopMode, 'rail-pulse': railPulse }"
+        role="navigation"
+        aria-label="Dashboard sections"
+      >
+        <div v-if="railTopMode" class="rail-top-label">Your Dashboard — your source of information</div>
         <button
           v-for="card in railCards"
           :key="card.id"
           type="button"
           class="rail-card"
+          :data-card-id="card.id"
           :data-tour="`dash-rail-card-${String(card.id)}`"
           :class="{
             active: (card.kind === 'content' && activeTab === card.id),
@@ -589,10 +597,11 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed, watch } from 'vue';
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../store/auth';
 import { useAgencyStore } from '../store/agency';
+import { useUserPreferencesStore } from '../store/userPreferences';
 import { useBrandingStore } from '../store/branding';
 import api from '../services/api';
 import TrainingFocusTab from '../components/dashboard/TrainingFocusTab.vue';
@@ -638,6 +647,7 @@ const router = useRouter();
 const route = useRoute();
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
+const userPrefsStore = useUserPreferencesStore();
 const brandingStore = useBrandingStore();
 const activeTab = ref('checklist');
 const myTab = ref('account'); // 'account' | 'credentials' | 'preferences' | 'payroll'
@@ -655,6 +665,11 @@ const tierBadgeKind = ref(''); // 'tier-current' | 'tier-grace' | 'tier-ooc'
 
 const showSkillBuilderModal = ref(false);
 const showSkillBuildersAvailabilityModal = ref(false);
+
+const railTopMode = ref(false);
+const prefersReducedMotion = typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const railPulse = ref(!prefersReducedMotion);
+const RAIL_PULSE_DURATION_MS = 2500;
 const showLastPaycheckModal = ref(false);
 const lastPaycheckPayrollPeriodId = ref(null);
 
@@ -1532,16 +1547,34 @@ onMounted(async () => {
   loadSocialFeedsCollapsed();
   await fetchOnboardingStatus();
   syncFromQuery();
-  // Default to My Account → Account Info once onboarding is complete,
-  // unless the URL explicitly specifies a tab.
-  if (!route.query?.tab && !route.query?.my && onboardingCompletion.value >= 100 && isOnboardingComplete.value) {
-    activeTab.value = 'my';
-    myTab.value = 'account';
+  // When no tab in URL, apply default_landing_page preference or fall back to existing logic.
+  if (!route.query?.tab && !route.query?.my) {
+    const landing = userPrefsStore.defaultLandingPage || 'dashboard';
+    const allowed = new Set((railCards.value || []).map((c) => String(c?.id || '')).filter(Boolean));
+    if (landing === 'clients' && allowed.has('clients')) {
+      activeTab.value = 'clients';
+      router.replace({ query: { ...route.query, tab: 'clients' } });
+    } else if (landing === 'schedule' && allowed.has('my_schedule')) {
+      activeTab.value = 'my_schedule';
+      router.replace({ query: { ...route.query, tab: 'my_schedule' } });
+    } else if (landing === 'dashboard' || !allowed.has(landing)) {
+      // Default: My Account when onboarding complete, else first content card
+      if (onboardingCompletion.value >= 100 && isOnboardingComplete.value) {
+        activeTab.value = 'my';
+        myTab.value = 'account';
+      }
+    }
   }
   await loadCurrentTier();
   await loadAgencyDashboardBanner();
   await loadDashboardSocialFeeds();
+
+  updateRailTopMode();
+  railMediaQuery = typeof window !== 'undefined' && window.matchMedia('(max-width: 980px)');
+  if (railMediaQuery) railMediaQuery.addEventListener('change', updateRailTopMode);
+  railPulseTimer = setTimeout(() => { railPulse.value = false; }, RAIL_PULSE_DURATION_MS);
 });
+watch(activeTab, updateRailTopMode);
 
 // If available cards change (role/status), keep activeTab on a valid content card.
 watch(dashboardCards, () => {
@@ -1569,6 +1602,18 @@ watch([activeTab, currentAgencyId, () => authStore.user?.id], async () => {
   if (!currentAgencyId.value) return;
   await fetchSuperviseesForSchedule();
 }, { immediate: true });
+
+// Rail top mode: when rail moves to top (narrow viewport or schedule focus)
+const updateRailTopMode = () => {
+  const narrow = typeof window !== 'undefined' && window.matchMedia('(max-width: 980px)').matches;
+  railTopMode.value = narrow || activeTab.value === 'my_schedule';
+};
+let railPulseTimer = null;
+let railMediaQuery = null;
+onUnmounted(() => {
+  if (railMediaQuery) railMediaQuery.removeEventListener('change', updateRailTopMode);
+  if (railPulseTimer) clearTimeout(railPulseTimer);
+});
 </script>
 
 <style scoped>
@@ -1772,23 +1817,89 @@ h1 {
   padding-right: 2px; /* avoids scrollbar overlaying focus rings */
 }
 
+/* Rail in top mode: prominent bar with label */
+.dashboard-rail.rail-top-mode {
+  background: linear-gradient(135deg, rgba(255,255,255,0.92) 0%, rgba(243,246,250,0.95) 100%);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255,255,255,0.6);
+  border-radius: 14px;
+  padding: 12px 14px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.08), 0 0 0 1px rgba(29,38,51,0.06);
+}
+[data-theme="dark"] .dashboard-rail.rail-top-mode {
+  background: linear-gradient(135deg, rgba(26,29,33,0.92) 0%, rgba(37,40,44,0.95) 100%);
+  border-color: rgba(255,255,255,0.08);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+}
+.rail-top-label {
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--primary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 2px 8px 2px 0;
+  white-space: nowrap;
+  flex-shrink: 0;
+  align-self: center;
+}
+
+/* Pulse animation for rail cards (draws attention on load) */
+@keyframes rail-card-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(198, 154, 43, 0.25); }
+  50% { box-shadow: 0 0 0 8px rgba(198, 154, 43, 0); }
+}
+.dashboard-rail.rail-pulse .rail-card {
+  animation: rail-card-pulse 0.9s ease-in-out 3;
+}
+@media (prefers-reduced-motion: reduce) {
+  .dashboard-rail.rail-pulse .rail-card {
+    animation: none;
+  }
+}
+
 .rail-card {
   text-align: left;
-  background: white;
-  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.75);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255,255,255,0.5);
   border-radius: 12px;
   padding: 10px 12px;
   cursor: pointer;
-  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
 }
+[data-theme="dark"] .rail-card {
+  background: rgba(37, 40, 44, 0.75);
+  border-color: rgba(255,255,255,0.08);
+}
+
+/* Light glass tints per card type */
+.rail-card[data-card-id="checklist"] { border-left: 3px solid rgba(47, 143, 131, 0.5); }
+.rail-card[data-card-id="training"] { border-left: 3px solid rgba(156, 39, 176, 0.5); }
+.rail-card[data-card-id="documents"] { border-left: 3px solid rgba(33, 150, 243, 0.5); }
+.rail-card[data-card-id="my_schedule"] { border-left: 3px solid rgba(76, 175, 80, 0.5); }
+.rail-card[data-card-id="clients"] { border-left: 3px solid rgba(255, 152, 0, 0.5); }
+.rail-card[data-card-id="submit"] { border-left: 3px solid rgba(3, 169, 244, 0.6); }
+.rail-card[data-card-id="payroll"] { border-left: 3px solid rgba(103, 58, 183, 0.5); }
+.rail-card[data-card-id="my"] { border-left: 3px solid rgba(198, 154, 43, 0.6); }
+.rail-card[data-card-id="communications"] { border-left: 3px solid rgba(233, 30, 99, 0.5); }
+.rail-card[data-card-id="chats"] { border-left: 3px solid rgba(0, 188, 212, 0.5); }
+.rail-card[data-card-id="notifications"] { border-left: 3px solid rgba(244, 67, 54, 0.5); }
+.rail-card[data-card-id="on_demand_training"] { border-left: 3px solid rgba(139, 195, 74, 0.5); }
+.rail-card[data-card-id="supervision"] { border-left: 3px solid rgba(121, 85, 72, 0.5); }
 
 .rail-card:hover {
   border-color: var(--primary);
   box-shadow: var(--shadow);
+  background: rgba(255, 255, 255, 0.9);
+}
+[data-theme="dark"] .rail-card:hover {
+  background: rgba(37, 40, 44, 0.95);
 }
 
 .rail-card:disabled {
@@ -1799,12 +1910,15 @@ h1 {
 .rail-card.active {
   border-color: var(--accent);
   box-shadow: var(--shadow);
-  background: var(--bg-alt);
+  background: rgba(243, 246, 250, 0.95);
+}
+[data-theme="dark"] .rail-card.active {
+  background: rgba(51, 65, 85, 0.6);
 }
 
 .rail-card-submit {
-  background: #ecfeff;
-  border-color: #67e8f9;
+  background: rgba(236, 254, 255, 0.9);
+  border-color: rgba(103, 232, 249, 0.7);
 }
 .rail-card-submit .rail-card-title,
 .rail-card-submit .rail-card-cta {
@@ -1917,6 +2031,11 @@ h1 {
     flex-wrap: nowrap;
     overflow-x: auto;
     padding-bottom: 6px;
+    margin-bottom: 4px;
+  }
+  .dashboard-rail.rail-top-mode {
+    margin-bottom: 12px;
+    padding: 14px 16px;
   }
   .rail-card {
     min-width: 220px;

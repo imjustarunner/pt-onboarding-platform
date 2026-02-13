@@ -58,6 +58,7 @@
 import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useTasksStore } from '../../store/tasks';
+import { formatDate } from '../../utils/formatDate';
 
 const router = useRouter();
 const tasksStore = useTasksStore();
@@ -120,10 +121,6 @@ const getStatusBadgeClass = (status) => {
     overridden: 'badge-secondary'
   };
   return classes[status] || 'badge-secondary';
-};
-
-const formatDate = (dateString) => {
-  return new Date(dateString).toLocaleDateString();
 };
 
 onMounted(async () => {

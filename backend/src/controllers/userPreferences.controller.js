@@ -123,6 +123,13 @@ const buildDefaultPreferences = (userRole) => {
     high_contrast_mode: false,
     larger_text: false,
     default_landing_page: 'dashboard',
+    dark_mode: false,
+    timezone: null,
+    schedule_default_view: 'open_finder',
+    layout_density: 'standard',
+    date_format: 'MM/DD',
+    time_format: '12h',
+    push_notifications_enabled: false,
     helper_enabled: true,
     tutorial_progress: null,
     school_portal_notifications_progress: null,
@@ -180,6 +187,7 @@ export const getUserPreferences = async (req, res, next) => {
       return res.json({
         ...merged,
         sessionLockMaxMinutes: { platformMax, agencyMax },
+        vapidPublicKey: process.env.VAPID_PUBLIC_KEY || '',
         agencyNotificationSettings: {
           defaults: agencyDefaults || null,
           userEditable: agencyUserEditable,
@@ -203,6 +211,7 @@ export const getUserPreferences = async (req, res, next) => {
       ...safePrefs,
       session_lock_pin_set: !!(session_lock_pin_hash && String(session_lock_pin_hash).trim()),
       sessionLockMaxMinutes: { platformMax, agencyMax },
+      vapidPublicKey: process.env.VAPID_PUBLIC_KEY || '',
       notification_categories: mergedCategories,
       agencyNotificationSettings: {
         defaults: agencyDefaults || null,

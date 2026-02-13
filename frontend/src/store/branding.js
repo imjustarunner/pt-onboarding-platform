@@ -824,7 +824,8 @@ export const useBrandingStore = defineStore('branding', () => {
       dashboard_billing: 'dashboard_billing_icon_path',
       platform_settings: 'platform_settings_icon_path',
       view_all_progress: 'view_all_progress_icon_path',
-      settings: 'settings_icon_path'
+      settings: 'settings_icon_path',
+      schedule: 'my_dashboard_my_schedule_icon_path'
     };
     const field = iconFieldMap[actionKey];
     if (!field) return null;

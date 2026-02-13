@@ -47,10 +47,10 @@
                   <strong>User:</strong> {{ getUserName(notification.userId || notification.user_id) || (notification.message ? notification.message.match(/User ([^\(]+)/)?.[1] : null) || `User ${notification.userId || notification.user_id}` }}
                 </span>
                 <span v-if="notification.dueDate || notification.due_date" class="meta-item">
-                  <strong>Due Date:</strong> {{ formatDate(notification.dueDate || notification.due_date) }}
+                  <strong>Due Date:</strong> {{ formatDateTime(notification.dueDate || notification.due_date) }}
                 </span>
                 <span v-if="notification.created_at" class="meta-item">
-                  <strong>Date:</strong> {{ formatDate(notification.created_at) }}
+                  <strong>Date:</strong> {{ formatDateTime(notification.created_at) }}
                 </span>
               </div>
             </div>
@@ -72,6 +72,7 @@ import { useRouter } from 'vue-router';
 import { useAgencyStore } from '../store/agency';
 import { useAuthStore } from '../store/auth';
 import api from '../services/api';
+import { formatDateTime } from '../utils/formatDate';
 
 const router = useRouter();
 const agencyStore = useAgencyStore();
@@ -166,12 +167,6 @@ const getUserName = (userId) => {
   // If we don't have user data, try to extract from notification message
   // This is a fallback for when we can't fetch the users list
   return null; // Will be handled in template
-};
-
-const formatDate = (dateString) => {
-  if (!dateString) return 'N/A';
-  const date = new Date(dateString);
-  return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 };
 
 const loadNotifications = async () => {

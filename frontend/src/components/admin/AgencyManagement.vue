@@ -397,8 +397,15 @@
             </div>
             <div class="form-group">
               <label>Slug *</label>
-              <input v-model="agencyForm.slug" type="text" required pattern="[a-z0-9\\-]+" />
-              <small>Lowercase letters, numbers, and hyphens only</small>
+              <input
+                v-model="agencyForm.slug"
+                type="text"
+                required
+                pattern="[a-z0-9\\-]+"
+                :readonly="userRole !== 'super_admin'"
+              />
+              <small v-if="userRole === 'super_admin'">Lowercase letters, numbers, and hyphens only.</small>
+              <small v-else>Platform-controlled. Contact support to change.</small>
             </div>
 
             <div class="form-section-divider" style="margin-top: 18px; margin-bottom: 12px; padding-top: 18px; border-top: 1px solid var(--border);">

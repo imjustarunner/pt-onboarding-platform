@@ -116,6 +116,7 @@ import BrandingTemplatesManagement from './BrandingTemplatesManagement.vue';
 import EmailTemplateManagement from './EmailTemplateManagement.vue';
 import EmailSettingsPanel from './EmailSettingsPanel.vue';
 import PlatformSettings from './PlatformSettings.vue';
+import AgencyPlatformManagement from './AgencyPlatformManagement.vue';
 import UserInfoFieldManagement from './UserInfoFieldManagement.vue';
 import AgencyUserInfoFields from './AgencyUserInfoFields.vue';
 import CustomChecklistItemManagement from './CustomChecklistItemManagement.vue';
@@ -209,6 +210,16 @@ const allCategories = [
         roles: ['super_admin'],
         excludeRoles: ['support', 'clinical_practice_assistant'],
         excludeSupervisor: true
+      },
+      {
+        id: 'agency-platform',
+        label: 'Agency (Platform)',
+        icon: '🏛️',
+        component: 'AgencyPlatformManagement',
+        roles: ['super_admin'],
+        excludeRoles: ['support', 'clinical_practice_assistant'],
+        excludeSupervisor: true,
+        requiresAgency: true
       }
     ]
   },
@@ -548,6 +559,7 @@ const visibleCategories = computed(() => {
 // Component mapping
 const componentMap = {
   AgencyManagement,
+  AgencyPlatformManagement,
   AgencyManagementTeamConfig,
   BrandingConfig,
   BrandingTemplatesManagement,

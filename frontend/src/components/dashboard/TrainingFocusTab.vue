@@ -91,7 +91,7 @@
                   <span class="module-status">{{ getStatusLabel(module.status) }}</span>
                   <div v-if="module.status === 'completed'" class="module-completion-details">
                     <span v-if="module.timeSpentMinutes > 0" class="completion-time">
-                      Time: {{ formatTime(module.timeSpentMinutes) }}
+                      Time: {{ formatDuration(module.timeSpentMinutes) }}
                     </span>
                     <span v-if="module.completedAt" class="completion-date">
                       Completed: {{ formatDate(module.completedAt) }}
@@ -117,7 +117,7 @@
                   <span v-else-if="module.dueDate" class="module-due-date">Due: {{ formatDate(module.dueDate) }}</span>
                 </div>
                 <div class="module-time" v-if="module.timeSpentMinutes > 0 && module.status !== 'completed'">
-                  {{ formatTime(module.timeSpentMinutes) }}
+                  {{ formatDuration(module.timeSpentMinutes) }}
                 </div>
               </div>
             </div>
@@ -135,6 +135,7 @@ import { useRouter } from 'vue-router';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
+import { formatDate } from '../../utils/formatDate';
 
 const emit = defineEmits(['update-count']);
 
@@ -357,17 +358,11 @@ const getStatusLabel = (status) => {
   return labels[status] || 'Not Started';
 };
 
-const formatTime = (minutes) => {
+const formatDuration = (minutes) => {
   if (minutes < 60) return `${minutes} min`;
   const hours = Math.floor(minutes / 60);
   const mins = minutes % 60;
   return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
-};
-
-const formatDate = (dateString) => {
-  if (!dateString) return '';
-  const date = new Date(dateString);
-  return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 };
 
 onMounted(async () => {

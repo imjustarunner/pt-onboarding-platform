@@ -6,7 +6,9 @@ import './style.css';
 import 'driver.js/dist/driver.css';
 
 import { useAgencyStore } from './store/agency';
+import { useAuthStore } from './store/auth';
 import { useBrandingStore } from './store/branding';
+import { applyStoredDarkMode } from './utils/darkMode';
 
 const CHUNK_RELOAD_KEY = '__pt_chunk_reload__';
 
@@ -183,6 +185,19 @@ async function bootstrap() {
   router.afterEach(() => setTitle());
 
   await router.isReady();
+
+  // Apply dark mode from localStorage before first paint (user preference)
+  const authStore = useAuthStore(pinia);
+  const userId = authStore.user?.id;
+  if (userId) {
+    applyStoredDarkMode(userId);
+  }
+
+  // Register service worker for push notifications (best-effort)
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {});
+  }
+
   // Clear reload guard after a successful boot.
   sessionStorage.removeItem(CHUNK_RELOAD_KEY);
   app.mount('#app');

@@ -21,7 +21,7 @@
     "set-test-passwords": "node src/scripts/setTestPasswords.js",
     "restore-superadmin": "node src/scripts/restoreSuperAdmin.js",
     "migrate-icons": "node src/scripts/migrate-icons-to-uploads.js",
-    "gen-chat-key": "node src/scripts/generateChatEncryptionKey.js"
+    "gen-chat-key": "node src/scripts/generateChatEncryptionKey.js","gen-vapid":"node src/scripts/generateVapidKeys.js"
   },
   "keywords": [],
   "author": "",
@@ -59,6 +59,7 @@
     "pngjs": "^7.0.0",
     "puppeteer": "^21.11.0",
     "twilio": "^5.11.2",
+    "web-push": "^3.6.7",
     "xlsx": "^0.18.5",
     "yaml": "^2.8.0"
   }

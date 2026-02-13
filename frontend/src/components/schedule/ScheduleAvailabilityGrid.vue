@@ -486,9 +486,10 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
+import { useUserPreferencesStore } from '../../store/userPreferences';
 import OfficeWeeklyRoomGrid from './OfficeWeeklyRoomGrid.vue';
 
 const props = defineProps({
@@ -768,10 +769,12 @@ const viewModeOptions = [
 ];
 
 // Load persisted overlay prefs once (provider view only).
+let hadSavedOverlayPrefs = false;
 try {
   if (props.mode === 'self') {
     const saved = loadOverlayPrefs();
     if (saved) {
+      hadSavedOverlayPrefs = true;
       showGoogleBusy.value = saved.showGoogleBusy !== undefined ? !!saved.showGoogleBusy : true;
       showGoogleEvents.value = saved.showGoogleEvents !== undefined ? !!saved.showGoogleEvents : false;
       showExternalBusy.value = saved.showExternalBusy !== undefined ? !!saved.showExternalBusy : true;
@@ -792,6 +795,21 @@ try {
 } finally {
   overlayPrefsLoaded.value = true;
 }
+
+// When no saved overlay prefs, apply schedule_default_view from user preferences.
+onMounted(() => {
+  if (props.mode === 'self' && !hadSavedOverlayPrefs) {
+    try {
+      const prefsStore = useUserPreferencesStore();
+      const preferred = prefsStore.scheduleDefaultView;
+      if (preferred === 'office_layout' || preferred === 'open_finder') {
+        viewMode.value = preferred;
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+});
 
 const orderedDays = computed(() => (String(props.weekStartsOn || '').toLowerCase() === 'sunday' ? SUNDAY_FIRST_DAYS : ALL_DAYS));
 const visibleDays = computed(() => {

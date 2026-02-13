@@ -53,7 +53,7 @@
               </div>
               <p v-if="item.description">{{ item.description }}</p>
               <p v-if="item.due_date" class="due-date">
-                Due: {{ formatDate(item.due_date) }}
+                Due: {{ formatDateTime(item.due_date) }}
                 <span v-if="isOverdue(item.due_date)" class="overdue-indicator">Overdue</span>
               </p>
             </div>
@@ -96,7 +96,7 @@
                   </div>
                   <p v-if="item.description">{{ item.description }}</p>
                   <p v-if="item.completed_at" class="completed-date">
-                    Completed: {{ formatDate(item.completed_at) }}
+                    Completed: {{ formatDateTime(item.completed_at) }}
                   </p>
                 </div>
               </div>
@@ -128,7 +128,7 @@
               </div>
               <p v-if="item.description">{{ item.description }}</p>
               <p v-if="item.completed_at" class="completed-date">
-                Completed: {{ formatDate(item.completed_at) }}
+                Completed: {{ formatDateTime(item.completed_at) }}
               </p>
             </div>
           </div>
@@ -148,6 +148,7 @@ import { useRouter } from 'vue-router';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
+import { formatDateTime } from '../../utils/formatDate';
 
 const emit = defineEmits(['update-count']);
 
@@ -258,11 +259,6 @@ const handleDocumentAction = async (item) => {
 const isOverdue = (dueDate) => {
   if (!dueDate) return false;
   return new Date(dueDate) < new Date();
-};
-
-const formatDate = (dateString) => {
-  if (!dateString) return '';
-  return new Date(dateString).toLocaleString();
 };
 
 onMounted(async () => {
