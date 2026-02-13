@@ -187,6 +187,11 @@
           </section>
         </div>
 
+        <div v-if="canViewClientDocuments" class="documents-section">
+          <div class="documents-section-title">Documents</div>
+          <PhiDocumentsPanel :client-id="Number(client.id)" />
+        </div>
+
         <div class="packet-audit">
           <div class="packet-audit-title">Packet audit (read-only)</div>
           <div v-if="auditLoading" class="muted">Loading…</div>
@@ -222,6 +227,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import WaitlistNoteModal from './WaitlistNoteModal.vue';
 import ClientTicketThreadPanel from './ClientTicketThreadPanel.vue';
+import PhiDocumentsPanel from '../admin/PhiDocumentsPanel.vue';
 import { useAuthStore } from '../../store/auth';
 
 const props = defineProps({
@@ -234,6 +240,7 @@ defineEmits(['close']);
 const authStore = useAuthStore();
 const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
 const isSchoolStaff = computed(() => roleNorm.value === 'school_staff');
+const canViewClientDocuments = computed(() => ['provider', 'admin', 'staff', 'support', 'super_admin'].includes(roleNorm.value));
 
 const isWaitlist = computed(() => {
   const key = String(props.client?.client_status_key || '').toLowerCase().trim();
@@ -531,6 +538,17 @@ watch(
   gap: 10px;
 }
 
+.documents-section {
+  margin: 0 0 12px 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+  background: var(--bg-alt);
+}
+.documents-section-title {
+  font-weight: 700;
+  margin-bottom: 10px;
+}
 .packet-audit {
   margin: 0;
   border: 1px solid var(--border);

@@ -959,11 +959,12 @@ const dashboardCards = computed(() => {
           description: 'Your caseload by school with psychotherapy fiscal-year totals.'
         });
         if (clinicalNoteGeneratorEnabledForAgency.value && (isProvider || role === 'intern')) {
+          const slug = route.params?.organizationSlug;
           cards.push({
             id: 'tools_aids',
             label: 'Tools & Aids',
             kind: 'link',
-            to: '/admin/tools-aids',
+            to: typeof slug === 'string' && slug ? `/${slug}/admin/tools-aids` : '/admin/tools-aids',
             badgeCount: 0,
             iconUrl: brandingStore.getDashboardCardIconUrl('tools_aids', cardIconOrgOverride),
             description: 'Note Aid and upcoming clinical tools.'
@@ -1311,9 +1312,21 @@ const portalVariant = computed(() => String(agencyFlags.value?.portalVariant || 
 const providerSurfacesEnabled = computed(() => portalVariant.value !== 'employee');
 const inSchoolEnabled = computed(() => agencyFlags.value?.inSchoolSubmissionsEnabled !== false);
 const medcancelEnabledForAgency = computed(() => inSchoolEnabled.value && agencyFlags.value?.medcancelEnabled !== false);
-const clinicalNoteGeneratorEnabledForAgency = computed(() =>
-  isTruthyFlag(agencyFlags.value?.noteAidEnabled) || isTruthyFlag(agencyFlags.value?.clinicalNoteGeneratorEnabled)
-);
+const clinicalNoteGeneratorEnabledForAgency = computed(() => {
+  const base =
+    isTruthyFlag(agencyFlags.value?.noteAidEnabled) || isTruthyFlag(agencyFlags.value?.clinicalNoteGeneratorEnabled);
+  if (base) return true;
+  // For providers/interns: default to showing Tools & Aids when feature flags are not explicitly disabled
+  // (agency may be school org without flags, or agency context not yet loaded)
+  const role = String(authStore.user?.role || '').toLowerCase();
+  if (role === 'provider' || role === 'intern') {
+    const flags = agencyFlags.value;
+    if (!flags || (flags.noteAidEnabled === undefined && flags.clinicalNoteGeneratorEnabled === undefined)) return true;
+    if (flags.noteAidEnabled === false && flags.clinicalNoteGeneratorEnabled === false) return false;
+    return true;
+  }
+  return false;
+});
 
 const assignedSchools = ref([]);
 const assignedSchoolsLoading = ref(false);

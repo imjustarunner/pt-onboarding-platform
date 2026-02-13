@@ -226,6 +226,18 @@
             <div class="nav-label">Docs/Links</div>
           </button>
 
+          <router-link
+            v-if="canShowToolsAids"
+            data-tour="school-nav-tools-aids"
+            :to="toolsAidsPath"
+            class="nav-item"
+          >
+            <div class="nav-icon">
+              <div class="nav-icon-fallback" aria-hidden="true">TA</div>
+            </div>
+            <div class="nav-label">Tools &amp; Aids</div>
+          </router-link>
+
           <button
             data-tour="school-nav-notifications"
             class="nav-item"
@@ -1212,6 +1224,11 @@ const isSupervisorProviderContext = computed(() => hasSupervisorCapability.value
 const isSchoolStaff = computed(() => roleNorm.value === 'school_staff');
 const canBackToSchools = computed(() => ['super_admin', 'admin', 'staff'].includes(roleNorm.value));
 const canUseComplianceCorner = computed(() => ['super_admin', 'admin'].includes(roleNorm.value));
+const canShowToolsAids = computed(() => ['provider', 'admin', 'staff', 'support'].includes(roleNorm.value));
+const toolsAidsPath = computed(() => {
+  const slug = organizationSlug.value;
+  return typeof slug === 'string' && slug ? `/${slug}/admin/tools-aids` : '/admin/tools-aids';
+});
 const canAccessSchedulingPanels = computed(() => {
   if (!isSupervisorProviderContext.value) return true;
   if (!schedulingEligibilityResolved.value) return true;

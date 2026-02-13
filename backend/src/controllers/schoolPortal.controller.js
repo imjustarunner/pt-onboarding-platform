@@ -1169,18 +1169,20 @@ export const getSchoolPortalAffiliation = async (req, res, next) => {
     }
 
     // UI gating:
-    // - Never allow edit from school_staff/provider
+    // - Never allow edit from school_staff
     // - super_admin always allowed
     // - admin/staff/support allowed when they have agency access via active affiliation
+    // - provider allowed when they have agency access (to adjust checklist items for assigned clients)
     const canEditClients =
       roleNorm === 'super_admin'
         ? true
-        : (roleCanUseAgencyAffiliation(role) &&
-          !!activeAgencyId &&
-          userHasAgencyAccess &&
-          roleNorm !== 'provider' &&
-          roleNorm !== 'school_staff' &&
-          roleNorm !== 'supervisor');
+        : roleNorm === 'provider'
+          ? !!activeAgencyId && userHasAgencyAccess
+          : (roleCanUseAgencyAffiliation(role) &&
+            !!activeAgencyId &&
+            userHasAgencyAccess &&
+            roleNorm !== 'school_staff' &&
+            roleNorm !== 'supervisor');
 
     res.json({
       school_organization_id: sid,
