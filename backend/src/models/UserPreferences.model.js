@@ -50,6 +50,7 @@ class UserPreferences {
           'show_full_name_on_schedules', 'show_initials_only_on_boards', 'allow_name_in_pdfs',
           'reduced_motion', 'high_contrast_mode', 'larger_text', 'default_landing_page',
           'helper_enabled',
+          'session_lock_enabled', 'inactivity_timeout_minutes', 'session_lock_pin_hash',
           'tutorial_progress',
           'school_portal_notifications_progress'
         ];
@@ -106,6 +107,7 @@ class UserPreferences {
           'show_full_name_on_schedules', 'show_initials_only_on_boards', 'allow_name_in_pdfs',
           'reduced_motion', 'high_contrast_mode', 'larger_text', 'default_landing_page',
           'helper_enabled',
+          'session_lock_enabled', 'inactivity_timeout_minutes', 'session_lock_pin_hash',
           'tutorial_progress',
           'school_portal_notifications_progress'
         ];

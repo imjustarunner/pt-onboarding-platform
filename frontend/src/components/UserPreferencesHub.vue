@@ -241,7 +241,7 @@
           </div>
 
           <div class="actions">
-            <button class="btn btn-primary" @click="save" :disabled="viewOnly || saving">
+            <button class="btn btn-primary" @click="save" :disabled="viewOnly || saving || sessionLockPinMismatch">
               {{ saving ? 'Saving...' : 'Save Preferences' }}
             </button>
             <div v-if="saved" class="saved">Saved</div>
@@ -438,6 +438,68 @@
       </div>
     </section>
 
+    <!-- Section 4.5: Session Lock (HIPAA-style) - only for users with My Dashboard -->
+    <section v-if="hasMyDashboard" class="preferences-section">
+      <div class="section-header">
+        <h2>Session Lock</h2>
+        <p class="section-description">Lock your session after inactivity instead of logging out. Requires a 4-digit PIN to unlock.</p>
+      </div>
+      <div class="section-content">
+        <div class="prefs-grid">
+          <div class="card">
+            <h3 class="card-title">Session Lock</h3>
+            <label class="field checkbox">
+              <input v-model="prefs.session_lock_enabled" type="checkbox" :disabled="viewOnly" />
+              Enable session lock on inactivity
+            </label>
+            <div class="field-help">When enabled, after inactivity you'll see a lock screen instead of being logged out. Enter your PIN to continue.</div>
+
+            <div class="field" v-if="prefs.session_lock_enabled">
+              <label>Inactivity timeout</label>
+              <select v-model.number="prefs.inactivity_timeout_minutes" :disabled="viewOnly">
+                <option :value="null">Use default ({{ sessionLockMaxMinutes.agencyMax }} min)</option>
+                <option v-for="m in [5, 15, 30, 60].filter(m => m <= sessionLockMaxMinutes.agencyMax)" :key="m" :value="m">
+                  {{ m }} minutes
+                </option>
+              </select>
+              <div class="field-help">Platform max: {{ sessionLockMaxMinutes.platformMax }} min. Your agency allows up to {{ sessionLockMaxMinutes.agencyMax }} min.</div>
+            </div>
+
+            <div class="field" v-if="prefs.session_lock_enabled">
+              <label>4-digit PIN</label>
+              <p v-if="prefs.session_lock_pin_set" class="field-help">PIN is set. Enter a new PIN below to change it.</p>
+              <p v-else class="field-help">Set a 4-digit PIN to unlock your session.</p>
+              <div class="row" style="gap: 12px;">
+                <input
+                  v-model="sessionLockPinNew"
+                  type="password"
+                  inputmode="numeric"
+                  pattern="[0-9]*"
+                  maxlength="4"
+                  placeholder="New PIN"
+                  class="pin-input"
+                  :disabled="viewOnly"
+                  @input="sessionLockPinNew = ($event.target?.value || '').replace(/\D/g, '').slice(0, 4)"
+                />
+                <input
+                  v-model="sessionLockPinConfirm"
+                  type="password"
+                  inputmode="numeric"
+                  pattern="[0-9]*"
+                  maxlength="4"
+                  placeholder="Confirm PIN"
+                  class="pin-input"
+                  :disabled="viewOnly"
+                  @input="sessionLockPinConfirm = ($event.target?.value || '').replace(/\D/g, '').slice(0, 4)"
+                />
+              </div>
+              <p v-if="sessionLockPinMismatch" class="field-help" style="color: var(--danger, #dc3545);">PINs do not match.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <!-- Section 5: Accessibility & UI Preferences -->
     <section class="preferences-section">
       <div class="section-header">
@@ -513,6 +575,7 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { useAuthStore } from '../store/auth';
 import api from '../services/api';
+import { refetchSessionLockConfig } from '../utils/activityTracker';
 
 const props = defineProps({
   userId: { type: Number, required: true },
@@ -535,6 +598,7 @@ const agencyNotificationSettings = ref({
   userEditable: true,
   enforceDefaults: false
 });
+const sessionLockMaxMinutes = ref({ platformMax: 30, agencyMax: 30 });
 
 const dayOptions = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
@@ -592,7 +656,12 @@ const prefs = ref({
   high_contrast_mode: false,
   larger_text: false,
   helper_enabled: true,
-  default_landing_page: 'dashboard'
+  default_landing_page: 'dashboard',
+
+  // Session Lock (HIPAA-style)
+  session_lock_enabled: false,
+  inactivity_timeout_minutes: null,
+  session_lock_pin_set: false
 });
 
 const defaultScheduleColors = () => ({
@@ -618,6 +687,21 @@ const schedulingPrefs = ref({
 
 const isSupportRole = computed(() => authStore.user?.role === 'support');
 const canEditAdminControlled = computed(() => !!props.allowAdminControlledEdits);
+
+// Session Lock only for users with My Dashboard (not school_staff)
+const hasMyDashboard = computed(() => {
+  const role = String((props.userId === authStore.user?.id ? authStore.user?.role : props.identity?.role) || '').toLowerCase();
+  return role !== 'school_staff';
+});
+
+const sessionLockPinNew = ref('');
+const sessionLockPinConfirm = ref('');
+const sessionLockPinMismatch = computed(() => {
+  const a = sessionLockPinNew.value;
+  const b = sessionLockPinConfirm.value;
+  if (!a && !b) return false;
+  return a.length === 4 && b.length === 4 && a !== b;
+});
 
 const normalizeTimeForInput = (t) => {
   if (!t) return '';
@@ -732,6 +816,14 @@ const load = async () => {
       agencyNotificationSettings.value = { defaults: null, userEditable: false, enforceDefaults: true };
     }
 
+    if (data?.sessionLockMaxMinutes) {
+      sessionLockMaxMinutes.value = data.sessionLockMaxMinutes;
+    }
+
+    prefs.value.session_lock_enabled = !!data?.session_lock_enabled;
+    prefs.value.inactivity_timeout_minutes = data?.inactivity_timeout_minutes ?? null;
+    prefs.value.session_lock_pin_set = !!data?.session_lock_pin_set;
+
     // Required toggles
     prefs.value.notification_categories.system_emergency_broadcasts = true;
     if (isSupportRole.value) {
@@ -799,8 +891,18 @@ const save = async () => {
       high_contrast_mode: !!prefs.value.high_contrast_mode,
       larger_text: !!prefs.value.larger_text,
       helper_enabled: !!prefs.value.helper_enabled,
-      default_landing_page: prefs.value.default_landing_page || 'dashboard'
+      default_landing_page: prefs.value.default_landing_page || 'dashboard',
+
+      // Session Lock
+      session_lock_enabled: !!prefs.value.session_lock_enabled,
+      inactivity_timeout_minutes: prefs.value.session_lock_enabled && prefs.value.inactivity_timeout_minutes != null
+        ? prefs.value.inactivity_timeout_minutes
+        : null
     };
+
+    if (sessionLockPinNew.value && sessionLockPinConfirm.value && sessionLockPinNew.value === sessionLockPinConfirm.value && sessionLockPinNew.value.length === 4) {
+      payload.session_lock_pin = sessionLockPinNew.value;
+    }
 
     if (canEditAdminControlled.value) {
       payload.work_modality = prefs.value.work_modality || null;
@@ -809,6 +911,14 @@ const save = async () => {
 
     await api.put(`/users/${props.userId}/preferences`, payload);
     saved.value = true;
+    if (payload.session_lock_pin) {
+      sessionLockPinNew.value = '';
+      sessionLockPinConfirm.value = '';
+      prefs.value.session_lock_pin_set = true;
+    }
+    if (props.userId === authStore.user?.id && (payload.session_lock_enabled !== undefined || payload.inactivity_timeout_minutes !== undefined || payload.session_lock_pin)) {
+      refetchSessionLockConfig();
+    }
     setTimeout(() => { saved.value = false; }, 2000);
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message || 'Failed to save preferences';
@@ -931,6 +1041,12 @@ onMounted(load);
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
+}
+
+.pin-input {
+  max-width: 120px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.25em;
 }
 
 .days {

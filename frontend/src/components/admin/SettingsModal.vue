@@ -110,6 +110,7 @@ import { preloadImages } from '../../utils/preloadImages';
 
 // Import all existing components
 import AgencyManagement from './AgencyManagement.vue';
+import AgencyManagementTeamConfig from './AgencyManagementTeamConfig.vue';
 import BrandingConfig from './BrandingConfig.vue';
 import BrandingTemplatesManagement from './BrandingTemplatesManagement.vue';
 import EmailTemplateManagement from './EmailTemplateManagement.vue';
@@ -193,7 +194,24 @@ const toggleCategory = (categoryId) => {
 };
 
 // Define all settings categories and items
+// PLATFORM: Super Admin only - platform-wide settings that agencies can override
+// GENERAL, WORKFLOW, etc.: Agency-scoped or mixed
 const allCategories = [
+  {
+    id: 'platform',
+    label: 'PLATFORM',
+    items: [
+      {
+        id: 'platform-settings',
+        label: 'Platform Settings',
+        icon: '🔐',
+        component: 'PlatformSettings',
+        roles: ['super_admin'],
+        excludeRoles: ['support', 'clinical_practice_assistant'],
+        excludeSupervisor: true
+      }
+    ]
+  },
   {
     id: 'general',
     label: 'GENERAL',
@@ -450,13 +468,15 @@ const allCategories = [
         excludeSupervisor: true
       },
       {
-        id: 'platform-security',
-        label: 'Platform & Security',
-        icon: '🔐',
-        component: 'PlatformSettings',
+        id: 'management-team-config',
+        label: 'Management Team',
+        icon: '👥',
+        component: 'AgencyManagementTeamConfig',
         roles: ['super_admin'],
         excludeRoles: ['support', 'clinical_practice_assistant'],
-        excludeSupervisor: true
+        excludeSupervisor: true,
+        requiresAgency: true,
+        agencyOnly: true
       },
       {
         id: 'archive',
@@ -528,6 +548,7 @@ const visibleCategories = computed(() => {
 // Component mapping
 const componentMap = {
   AgencyManagement,
+  AgencyManagementTeamConfig,
   BrandingConfig,
   BrandingTemplatesManagement,
   EmailTemplateManagement,
@@ -578,7 +599,9 @@ const selectableAgencies = computed(() => {
   const activeCategory = selectedCategory.value;
   const activeItem = selectedItem.value;
   const activeIsPayroll = activeCategory === 'workflow' && activeItem === 'payroll-schedule';
-  const filtered = activeIsPayroll ? (list || []).filter(isAgencyOrg) : (list || []);
+  const activeIsManagementTeam = activeItem === 'management-team-config';
+  const needsAgencyOnly = activeIsPayroll || activeIsManagementTeam;
+  const filtered = needsAgencyOnly ? (list || []).filter(isAgencyOrg) : (list || []);
   return [...filtered].sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')));
 });
 
@@ -807,7 +830,7 @@ const settingsIconMap = {
   'assets': { idField: 'assets_icon_id', pathField: 'assets_icon_path' },
   'communications': { idField: 'communications_icon_id', pathField: 'communications_icon_path' },
   'integrations': { idField: 'integrations_icon_id', pathField: 'integrations_icon_path' },
-  'platform-security': { idField: 'platform_settings_icon_id', pathField: 'platform_settings_icon_path' },
+  'platform-settings': { idField: 'platform_settings_icon_id', pathField: 'platform_settings_icon_path' },
   'archive': { idField: 'archive_icon_id', pathField: 'archive_icon_path' }
 };
 

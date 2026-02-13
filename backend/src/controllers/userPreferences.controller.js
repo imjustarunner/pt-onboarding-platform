@@ -1,5 +1,40 @@
+import bcrypt from 'bcrypt';
+import pool from '../config/database.js';
 import UserPreferences from '../models/UserPreferences.model.js';
 import User from '../models/User.model.js';
+
+async function getSessionLockMaxMinutes(agencyId) {
+  let platformMax = 30;
+  try {
+    const [rows] = await pool.execute(
+      'SELECT max_inactivity_timeout_minutes FROM platform_branding ORDER BY id DESC LIMIT 1'
+    );
+    if (rows?.[0]?.max_inactivity_timeout_minutes != null) {
+      platformMax = Math.min(240, Math.max(1, parseInt(rows[0].max_inactivity_timeout_minutes, 10) || 30));
+    }
+  } catch {
+    /* use default */
+  }
+  let agencyMax = platformMax;
+  if (agencyId) {
+    try {
+      const [aRows] = await pool.execute(
+        'SELECT session_settings_json FROM agencies WHERE id = ? LIMIT 1',
+        [agencyId]
+      );
+      const settings = aRows?.[0]?.session_settings_json;
+      const parsed = typeof settings === 'string' ? (() => { try { return JSON.parse(settings); } catch { return {}; } })() : (settings || {});
+      const am = parsed.maxInactivityTimeoutMinutes ?? parsed.max_inactivity_timeout_minutes;
+      if (am != null) {
+        const n = parseInt(am, 10);
+        if (!isNaN(n) && n >= 1) agencyMax = Math.min(platformMax, n);
+      }
+    } catch {
+      /* use platform max */
+    }
+  }
+  return { platformMax, agencyMax };
+}
 
 const ALL_NOTIFICATION_CATEGORY_KEYS = [
   'messaging_new_inbound_client_text',
@@ -130,6 +165,8 @@ export const getUserPreferences = async (req, res, next) => {
     const agencyUserEditable = agencyPrefs ? agencyPrefs.userEditable !== false : false;
     const agencyEnforceDefaults = agencyPrefs ? agencyPrefs.enforceDefaults === true : true;
     
+    const { platformMax, agencyMax } = await getSessionLockMaxMinutes(agencyId);
+
     if (!preferences) {
       const role = targetUser?.role || 'staff';
       const base = buildDefaultPreferences(role);
@@ -142,6 +179,7 @@ export const getUserPreferences = async (req, res, next) => {
       };
       return res.json({
         ...merged,
+        sessionLockMaxMinutes: { platformMax, agencyMax },
         agencyNotificationSettings: {
           defaults: agencyDefaults || null,
           userEditable: agencyUserEditable,
@@ -160,8 +198,11 @@ export const getUserPreferences = async (req, res, next) => {
       mergedCategories.messaging_support_safety_net_alerts = true;
     }
 
+    const { session_lock_pin_hash, ...safePrefs } = preferences;
     res.json({
-      ...preferences,
+      ...safePrefs,
+      session_lock_pin_set: !!(session_lock_pin_hash && String(session_lock_pin_hash).trim()),
+      sessionLockMaxMinutes: { platformMax, agencyMax },
       notification_categories: mergedCategories,
       agencyNotificationSettings: {
         defaults: agencyDefaults || null,
@@ -218,6 +259,37 @@ export const updateUserPreferences = async (req, res, next) => {
     }
     if ('daily_digest_enabled' in updates) {
       updates.daily_digest_enabled = updates.daily_digest_enabled === true || updates.daily_digest_enabled === 1 || updates.daily_digest_enabled === '1';
+    }
+
+    if ('session_lock_enabled' in updates) {
+      updates.session_lock_enabled = updates.session_lock_enabled === true || updates.session_lock_enabled === 1 || updates.session_lock_enabled === '1';
+    }
+
+    if ('session_lock_pin' in updates) {
+      const pin = updates.session_lock_pin;
+      delete updates.session_lock_pin;
+      if (pin === null || pin === undefined || pin === '') {
+        updates.session_lock_pin_hash = null;
+      } else {
+        const pinStr = String(pin).trim();
+        if (!/^\d{4}$/.test(pinStr)) {
+          return res.status(400).json({ error: { message: 'Session lock PIN must be exactly 4 digits' } });
+        }
+        updates.session_lock_pin_hash = await bcrypt.hash(pinStr, 10);
+      }
+    }
+
+    if ('inactivity_timeout_minutes' in updates) {
+      const raw = updates.inactivity_timeout_minutes;
+      if (raw === null || raw === undefined || raw === '') {
+        updates.inactivity_timeout_minutes = null;
+      } else {
+        const n = parseInt(raw, 10);
+        if (isNaN(n) || n < 1 || n > 240) {
+          return res.status(400).json({ error: { message: 'inactivity_timeout_minutes must be between 1 and 240' } });
+        }
+        updates.inactivity_timeout_minutes = n;
+      }
     }
 
     // For non-admin users editing their own preferences, enforce boundaries

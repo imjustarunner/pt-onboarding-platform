@@ -769,6 +769,12 @@ const routes = [
     component: () => import('../views/admin/PresenceTeamBoardView.vue'),
     meta: { requiresAuth: true, requiresRole: ['super_admin'] }
   },
+  {
+    path: '/admin/management-team',
+    name: 'AgencyManagementTeam',
+    component: () => import('../views/admin/AgencyManagementTeamView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin'] }
+  },
   // Backward compatible: old route now redirects to Note Aid.
   {
     path: '/admin/clinical-note-generator',

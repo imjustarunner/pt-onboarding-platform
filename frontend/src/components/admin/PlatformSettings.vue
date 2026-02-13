@@ -79,6 +79,25 @@
     </div>
     
     <div class="settings-section">
+      <h3>Session Lock (Platform Max)</h3>
+      <p class="section-description">
+        Maximum inactivity timeout for session lock across the platform. Agencies can set a lower max for their users. Users choose their timeout in My Preferences (capped by agency/platform max).
+      </p>
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Platform max inactivity timeout (minutes)</label>
+          <input v-model.number="sessionLockPlatformMax" type="number" min="1" max="240" />
+          <small>Default: 30. Users with session lock enabled can choose up to this (or their agency's lower max). Valid: 1–240.</small>
+        </div>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn btn-primary" @click="saveSessionLockPlatformMax" :disabled="savingSessionLock">
+          {{ savingSessionLock ? 'Saving...' : 'Save Session Lock Max' }}
+        </button>
+      </div>
+    </div>
+
+    <div class="settings-section">
       <h3>Shared Module Library</h3>
       <p class="section-description">
         Manage platform-level shared modules that are available to all agencies.
@@ -262,6 +281,8 @@ const saving = ref(false);
 const savingMyDashboardIcons = ref(false);
 const savingSchoolPortalIcons = ref(false);
 const savingRetentionSettings = ref(false);
+const savingSessionLock = ref(false);
+const sessionLockPlatformMax = ref(30);
 const superAdminCount = ref(0);
 const totalAgencies = ref(0);
 const retentionSettings = ref({
@@ -345,6 +366,12 @@ const fetchSettings = async () => {
   } catch (err) {
     console.error('Failed to load settings:', err);
   }
+};
+
+const fetchSessionLockPlatformMax = () => {
+  const pb = brandingStore.platformBranding;
+  const val = pb?.max_inactivity_timeout_minutes ?? 30;
+  sessionLockPlatformMax.value = Math.min(240, Math.max(1, parseInt(val, 10) || 30));
 };
 
 const fetchRetentionSettings = async () => {
@@ -442,6 +469,23 @@ const saveSettings = async () => {
   }
 };
 
+const saveSessionLockPlatformMax = async () => {
+  try {
+    savingSessionLock.value = true;
+    const val = Math.min(240, Math.max(1, parseInt(sessionLockPlatformMax.value, 10) || 30));
+    await api.put('/platform-branding', {
+      maxInactivityTimeoutMinutes: val
+    });
+    await brandingStore.fetchPlatformBranding();
+    alert('Session lock platform max saved successfully.');
+  } catch (err) {
+    const msg = err?.response?.data?.error?.message || err?.response?.data?.message || err?.message || 'Failed to save';
+    alert(msg);
+  } finally {
+    savingSessionLock.value = false;
+  }
+};
+
 const saveRetentionSettings = async () => {
   try {
     savingRetentionSettings.value = true;
@@ -461,6 +505,7 @@ const saveRetentionSettings = async () => {
 onMounted(async () => {
   await fetchSettings();
   await fetchRetentionSettings();
+  fetchSessionLockPlatformMax();
   await fetchStats();
 });
 </script>

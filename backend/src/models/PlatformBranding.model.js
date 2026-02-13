@@ -638,7 +638,8 @@ class PlatformBranding {
       schoolPortalPublicDocumentsIconId,
       schoolPortalAnnouncementsIconId,
       defaultBrandingTemplateId,
-      currentBrandingTemplateId
+      currentBrandingTemplateId,
+      maxInactivityTimeoutMinutes
     } = brandingData;
 
     // Check if branding exists
@@ -694,6 +695,24 @@ class PlatformBranding {
       if (hasPeopleOpsTerm && peopleOpsTerm !== undefined) { 
         updates.push('people_ops_term = ?'); 
         values.push(peopleOpsTerm); 
+      }
+
+      // Session lock: platform max inactivity timeout (migration 393)
+      let hasMaxInactivityTimeout = false;
+      try {
+        const [cols] = await pool.execute(
+          "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'platform_branding' AND COLUMN_NAME = 'max_inactivity_timeout_minutes'"
+        );
+        hasMaxInactivityTimeout = (cols || []).length > 0;
+      } catch (e) {
+        hasMaxInactivityTimeout = false;
+      }
+      if (hasMaxInactivityTimeout && maxInactivityTimeoutMinutes !== undefined) {
+        const val = maxInactivityTimeoutMinutes === null || maxInactivityTimeoutMinutes === ''
+          ? null
+          : Math.min(240, Math.max(1, parseInt(maxInactivityTimeoutMinutes, 10) || 30));
+        updates.push('max_inactivity_timeout_minutes = ?');
+        values.push(val);
       }
       
       // Check if default icon columns exist

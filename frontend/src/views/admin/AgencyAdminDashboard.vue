@@ -415,6 +415,17 @@ const quickActions = computed(() => {
     capabilities: ['canSignDocuments']
   },
   {
+    id: 'management_team',
+    title: 'Management Team',
+    description: 'Your platform support team and availability',
+    to: '/admin/management-team',
+    emoji: '👥',
+    iconKey: 'manage_users',
+    category: 'Management',
+    roles: ['admin', 'support', 'super_admin', 'staff'],
+    capabilities: ['canAccessPlatform']
+  },
+  {
     id: 'manage_users',
     title: 'Manage Users',
     description: 'View and manage user accounts',
@@ -547,6 +558,7 @@ const quickActions = computed(() => {
 const defaultQuickActionIds = computed(() => ([
   'progress_dashboard',
   'manage_clients',
+  'management_team',
   ...(clinicalNoteGeneratorEnabledForAgency.value ? ['clinical_note_generator'] : []),
   ...(hasAffiliatedSchools.value ? ['school_overview'] : []),
   ...(hasAffiliatedPrograms.value ? ['program_overview'] : []),

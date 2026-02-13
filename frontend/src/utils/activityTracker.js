@@ -2,13 +2,12 @@
  * Activity tracker: inactivity timeout and presence heartbeat.
  *
  * Inactivity: after INACTIVITY_TIMEOUT with no DOM events (mouse, key, scroll, etc.)
- * while the tab is visible, the user is logged out. The presence heartbeat (every
- * HEARTBEAT_INTERVAL) is treated as activity when it succeeds. When the tab is hidden
- * (user in another window/tab), the inactivity countdown is paused so multiple windows
- * don't cause spurious logouts. visibilitychange restarts the timer when the user
- * returns to the tab.
+ * while the tab is visible, the user is logged out (or shown lock screen if enabled).
+ * The presence heartbeat (every HEARTBEAT_INTERVAL) is treated as activity when it succeeds.
+ * When the tab is hidden, the inactivity countdown is paused.
  */
 import { useAuthStore } from '../store/auth';
+import { useSessionLockStore } from '../store/sessionLock';
 import api from '../services/api';
 import { useAgencyStore } from '../store/agency';
 
@@ -33,8 +32,9 @@ function resetTimer() {
     activityTimer = null;
   }
 
-  // Only run the inactivity countdown when this tab/window is visible.
-  // When the user has multiple windows open, a hidden tab should not log them out.
+  const sessionLockStore = useSessionLockStore();
+  if (sessionLockStore.isLocked) return;
+
   if (isTracking && document.visibilityState === 'visible') {
     activityTimer = setTimeout(() => {
       handleTimeout();
@@ -44,52 +44,37 @@ function resetTimer() {
 
 async function handleTimeout() {
   const authStore = useAuthStore();
-  
-  if (!authStore.isAuthenticated) {
+  const sessionLockStore = useSessionLockStore();
+
+  if (!authStore.isAuthenticated) return;
+
+  if (sessionLockStore.useLockScreen) {
+    sessionLockStore.lock();
     return;
   }
-  
+
   try {
-    // Get session ID from localStorage
     const sessionId = localStorage.getItem('sessionId');
-    
-    // Log timeout event to backend
     if (sessionId || authStore.token) {
       try {
-        await api.post(
-          '/auth/logout',
-          { sessionId, reason: 'timeout' },
-          { skipAuthRedirect: true }
-        );
+        await api.post('/auth/logout', { sessionId, reason: 'timeout' }, { skipAuthRedirect: true });
       } catch (err) {
-        if (err?.response?.status !== 401) {
-          console.error('Failed to log timeout event:', err);
-        }
+        if (err?.response?.status !== 401) console.error('Failed to log timeout event:', err);
       }
-      
-      // Log timeout activity (already logged in logout, but log separately too)
       try {
         const timeoutMinutes = Math.round(getInactivityTimeoutMs() / 60000);
-        await api.post(
-          '/auth/activity-log',
-          {
-            actionType: 'timeout',
-            sessionId,
-            metadata: {
-              reason: 'inactivity_timeout',
-              timeoutMinutes
-            }
-          },
-          { skipAuthRedirect: true }
-        );
-      } catch (err) {
-        // Ignore errors - logout already logged it
+        await api.post('/auth/activity-log', {
+          actionType: 'timeout',
+          sessionId,
+          metadata: { reason: 'inactivity_timeout', timeoutMinutes }
+        }, { skipAuthRedirect: true });
+      } catch {
+        /* ignore */
       }
     }
   } catch (err) {
     console.error('Error during timeout handling:', err);
   } finally {
-    // Always logout on timeout; preserve branded portal (e.g. /nlu/dashboard → /nlu/login?timeout=true)
     const { getLoginUrlForRedirect } = await import('../utils/loginRedirect');
     const redirectTo = getLoginUrlForRedirect(null, null, { timeout: true });
     await authStore.logout('timeout', { redirectTo });
@@ -97,11 +82,13 @@ async function handleTimeout() {
 }
 
 function onActivity() {
+  const sessionLockStore = useSessionLockStore();
+  if (sessionLockStore.isLocked) return;
   lastActivityTime = Date.now();
   try {
     localStorage.setItem(LAST_ACTIVITY_KEY, String(lastActivityTime));
   } catch {
-    // ignore storage issues
+    /* ignore */
   }
   resetTimer();
 }
@@ -137,7 +124,6 @@ async function sendPresenceHeartbeat() {
   const authStore = useAuthStore();
   const agencyStore = useAgencyStore();
   if (!authStore.isAuthenticated) return;
-  if (document.visibilityState !== 'visible') return;
 
   const agencyId = agencyStore.currentAgency?.id || null;
   try {
@@ -146,35 +132,30 @@ async function sendPresenceHeartbeat() {
       lastActivityAt: new Date(lastActivityTime).toISOString()
     }, { skipGlobalLoading: true });
   } catch {
-    // ignore - presence is best-effort
+    /* ignore - presence is best-effort */
   }
 }
 
-export function startActivityTracking({ force = false } = {}) {
-  if (isTracking && !force) {
-    return; // Already tracking
-  }
-  if (isTracking) {
-    stopActivityTracking();
-  }
-  
+export async function startActivityTracking({ force = false } = {}) {
+  if (isTracking && !force) return;
+  if (isTracking) stopActivityTracking();
+
   isTracking = true;
   const storedActivity = Number(localStorage.getItem(LAST_ACTIVITY_KEY));
   lastActivityTime = Number.isFinite(storedActivity) ? storedActivity : Date.now();
-  
-  // Add event listeners for all activity events
-  activityEvents.forEach(event => {
-    document.addEventListener(event, onActivity, true);
-  });
 
-  // When user returns to tab, reset inactivity timer (avoids logout after background tab)
+  try {
+    const res = await api.get('/auth/session-lock-config', { skipGlobalLoading: true, skipAuthRedirect: true });
+    useSessionLockStore().setLockConfig(res.data || null);
+  } catch {
+    useSessionLockStore().setLockConfig(null);
+  }
+
+  activityEvents.forEach((event) => document.addEventListener(event, onActivity, true));
   document.addEventListener('visibilitychange', onVisibilityChange);
   window.addEventListener('storage', onStorageActivity);
 
-  // Start the timer
   resetTimer();
-
-  // Presence heartbeat (best-effort)
   sendPresenceHeartbeat();
   heartbeatTimer = setInterval(sendPresenceHeartbeat, getHeartbeatIntervalMs());
 }
@@ -209,6 +190,27 @@ export function getLastActivityTime() {
   return lastActivityTime;
 }
 
+export function resetActivityTimer() {
+  lastActivityTime = Date.now();
+  try {
+    localStorage.setItem(LAST_ACTIVITY_KEY, String(lastActivityTime));
+  } catch {
+    /* ignore */
+  }
+  resetTimer();
+}
+
+/** Refetch session lock config (e.g. after user changes preferences). */
+export async function refetchSessionLockConfig() {
+  try {
+    const res = await api.get('/auth/session-lock-config', { skipGlobalLoading: true, skipAuthRedirect: true });
+    useSessionLockStore().setLockConfig(res.data || null);
+  } catch {
+    useSessionLockStore().setLockConfig(null);
+  }
+  resetTimer();
+}
+
 function getSessionSettings() {
   const agencyStore = useAgencyStore();
   const raw =
@@ -234,6 +236,12 @@ function clampNumber(raw, min, max, fallback) {
 }
 
 function getInactivityTimeoutMs() {
+  const sessionLockStore = useSessionLockStore();
+  const config = sessionLockStore.lockConfig;
+  if (config?.effectiveTimeoutMinutes != null) {
+    const min = clampNumber(config.effectiveTimeoutMinutes, 1, 240, DEFAULT_INACTIVITY_TIMEOUT_MINUTES);
+    return min * 60 * 1000;
+  }
   const settings = getSessionSettings();
   const minutes = clampNumber(
     settings.inactivityTimeoutMinutes,

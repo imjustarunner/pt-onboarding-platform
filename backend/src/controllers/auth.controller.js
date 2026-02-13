@@ -968,6 +968,97 @@ export const logout = async (req, res, next) => {
   }
 };
 
+/**
+ * Verify session lock PIN for unlock.
+ * POST /auth/verify-session-pin
+ * Body: { pin: string } (4 digits)
+ */
+export const verifySessionPin = async (req, res, next) => {
+  try {
+    const pin = String(req.body?.pin || '').trim();
+    if (!/^\d{4}$/.test(pin)) {
+      return res.status(400).json({ error: { message: 'PIN must be exactly 4 digits' } });
+    }
+    const UserPreferences = (await import('../models/UserPreferences.model.js')).default;
+    const prefs = await UserPreferences.findByUserId(req.user.id);
+    const hash = prefs?.session_lock_pin_hash;
+    if (!hash) {
+      return res.status(400).json({ error: { message: 'No session lock PIN set' } });
+    }
+    const valid = await bcrypt.compare(pin, hash);
+    if (!valid) {
+      return res.status(401).json({ error: { message: 'Invalid PIN' } });
+    }
+    res.json({ valid: true });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Get session lock config for activity tracker.
+ * GET /auth/session-lock-config
+ * Returns platform max, agency max, user settings, effective timeout.
+ */
+export const getSessionLockConfig = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const UserPreferences = (await import('../models/UserPreferences.model.js')).default;
+    const prefs = await UserPreferences.findByUserId(userId);
+    const agencies = await User.getAgencies(userId);
+    const agencyId = agencies?.[0]?.id || null;
+
+    let platformMax = 30;
+    try {
+      const [rows] = await pool.execute(
+        'SELECT max_inactivity_timeout_minutes FROM platform_branding ORDER BY id DESC LIMIT 1'
+      );
+      if (rows?.[0]?.max_inactivity_timeout_minutes != null) {
+        platformMax = Math.min(240, Math.max(1, parseInt(rows[0].max_inactivity_timeout_minutes, 10) || 30));
+      }
+    } catch {
+      /* use default */
+    }
+
+    let agencyMax = platformMax;
+    if (agencyId) {
+      try {
+        const [aRows] = await pool.execute(
+          'SELECT session_settings_json FROM agencies WHERE id = ? LIMIT 1',
+          [agencyId]
+        );
+        const settings = aRows?.[0]?.session_settings_json;
+        const parsed = typeof settings === 'string' ? (() => { try { return JSON.parse(settings); } catch { return {}; } })() : (settings || {});
+        const am = parsed.maxInactivityTimeoutMinutes ?? parsed.max_inactivity_timeout_minutes;
+        if (am != null) {
+          const n = parseInt(am, 10);
+          if (!isNaN(n) && n >= 1) agencyMax = Math.min(platformMax, n);
+        }
+      } catch {
+        /* use platform max */
+      }
+    }
+
+    const sessionLockEnabled = prefs?.session_lock_enabled === true || prefs?.session_lock_enabled === 1;
+    const userTimeout = prefs?.inactivity_timeout_minutes != null
+      ? Math.min(agencyMax, Math.max(1, parseInt(prefs.inactivity_timeout_minutes, 10) || agencyMax))
+      : agencyMax;
+    const hasPin = !!(prefs?.session_lock_pin_hash && String(prefs.session_lock_pin_hash).trim());
+
+    res.json({
+      platformMaxMinutes: platformMax,
+      agencyMaxMinutes: agencyMax,
+      sessionLockEnabled,
+      inactivityTimeoutMinutes: userTimeout,
+      hasPin,
+      effectiveTimeoutMinutes: userTimeout,
+      useLockScreen: sessionLockEnabled && hasPin
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const googleOAuthStart = async (req, res, next) => {
   try {
     const getRequestHost = () => {

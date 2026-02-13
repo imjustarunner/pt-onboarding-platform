@@ -423,19 +423,25 @@
             </div>
 
             <div class="form-section-divider" style="margin-top: 18px; margin-bottom: 12px; padding-top: 18px; border-top: 1px solid var(--border);">
-              <h4 style="margin: 0; font-size: 16px;">Session Timeout</h4>
+              <h4 style="margin: 0; font-size: 16px;">Session Timeout & Lock</h4>
               <p class="section-description" style="margin-top: 6px;">
-                Controls inactivity logout and presence heartbeat for this agency.
+                Inactivity logout (when session lock is off) and presence heartbeat. Session lock max caps how long users with lock enabled can set their timeout.
               </p>
             </div>
             <div class="form-grid">
               <div class="form-group">
-                <label>Inactivity timeout (minutes)</label>
+                <label>Inactivity logout timeout (minutes)</label>
                 <input v-model.number="agencyForm.sessionSettings.inactivityTimeoutMinutes" type="number" min="1" max="240" />
+                <small>When session lock is disabled: logout after this many minutes of inactivity.</small>
               </div>
               <div class="form-group">
                 <label>Heartbeat interval (seconds)</label>
                 <input v-model.number="agencyForm.sessionSettings.heartbeatIntervalSeconds" type="number" min="10" max="300" />
+              </div>
+              <div class="form-group">
+                <label>Session lock max (minutes)</label>
+                <input v-model.number="agencyForm.sessionSettings.maxInactivityTimeoutMinutes" type="number" min="1" max="240" placeholder="Use platform max" />
+                <small>Cap for users with session lock enabled. Leave blank to use platform max. Cannot exceed platform setting.</small>
               </div>
             </div>
           </template>
@@ -4660,7 +4666,8 @@ const defaultAgencyForm = () => ({
   },
   sessionSettings: {
     inactivityTimeoutMinutes: 8,
-    heartbeatIntervalSeconds: 30
+    heartbeatIntervalSeconds: 30,
+    maxInactivityTimeoutMinutes: null
   },
   featureFlags: {
     // Controls dashboard module set + certain provider-only surfaces
@@ -5785,6 +5792,7 @@ const editAgency = async (agency) => {
   const sessionHeartbeatSeconds = Number.isFinite(Number(sessionSettingsRaw.heartbeatIntervalSeconds))
     ? Number(sessionSettingsRaw.heartbeatIntervalSeconds)
     : 30;
+  const sessionLockMaxMinutes = sessionSettingsRaw.maxInactivityTimeoutMinutes ?? sessionSettingsRaw.max_inactivity_timeout_minutes ?? null;
   
   // Parse custom parameters if they exist
   const customParams = safeJsonObject(agency.custom_parameters, {});
@@ -5935,7 +5943,8 @@ const editAgency = async (agency) => {
     },
     sessionSettings: {
       inactivityTimeoutMinutes: sessionInactivityMinutes,
-      heartbeatIntervalSeconds: sessionHeartbeatSeconds
+      heartbeatIntervalSeconds: sessionHeartbeatSeconds,
+      maxInactivityTimeoutMinutes: sessionLockMaxMinutes != null && Number.isFinite(Number(sessionLockMaxMinutes)) ? Number(sessionLockMaxMinutes) : null
     },
     featureFlags: {
       portalVariant: String(featureFlags.portalVariant || 'healthcare_provider'),
@@ -6543,7 +6552,10 @@ const saveAgency = async () => {
               10,
               300,
               30
-            )
+            ),
+            maxInactivityTimeoutMinutes: (sessionSettingsRaw.maxInactivityTimeoutMinutes != null && sessionSettingsRaw.maxInactivityTimeoutMinutes !== '')
+              ? clampNumber(sessionSettingsRaw.maxInactivityTimeoutMinutes, 1, 240, 30)
+              : null
           }
         : null;
     

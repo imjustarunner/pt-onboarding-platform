@@ -448,6 +448,12 @@
       <SuperAdminBuilderPanel v-if="isAuthenticated && brandingStore.isSuperAdmin" />
       <TourManager v-if="isAuthenticated" />
       <PlatformChatDrawer />
+      <SessionLockScreen
+        v-if="isAuthenticated"
+        :is-locked="sessionLockStore.isLocked"
+        @unlock="onSessionUnlock"
+        @logout="onSessionLockLogout"
+      />
       <PoweredByFooter v-if="isAuthenticated" />
       <div
         v-if="showLoginNotificationsModal"
@@ -498,8 +504,9 @@ import { useOrganizationStore } from './store/organization';
 import { useTutorialStore } from './store/tutorial';
 import { useSuperadminBuilderStore } from './store/superadminBuilder';
 import { useNotificationStore } from './store/notifications';
+import { useSessionLockStore } from './store/sessionLock';
 import { useRouter, useRoute } from 'vue-router';
-import { startActivityTracking, stopActivityTracking } from './utils/activityTracker';
+import { startActivityTracking, stopActivityTracking, resetActivityTimer } from './utils/activityTracker';
 import { isSupervisor } from './utils/helpers.js';
 import api from './services/api';
 import AgencySelector from './components/AgencySelector.vue';
@@ -511,6 +518,7 @@ import TourManager from './components/TourManager.vue';
 import SuperAdminBuilderPanel from './components/SuperAdminBuilderPanel.vue';
 import HelperWidget from './components/HelperWidget.vue';
 import WeatherChip from './components/WeatherChip.vue';
+import SessionLockScreen from './components/SessionLockScreen.vue';
 import { toUploadsUrl } from './utils/uploadsUrl';
 import { begin as beginLoading, end as endLoading, isLoading as globalLoading, getLoadingTextRef } from './utils/pageLoader';
 
@@ -521,6 +529,7 @@ const organizationStore = useOrganizationStore();
 const tutorialStore = useTutorialStore();
 const builderStore = useSuperadminBuilderStore();
 const notificationStore = useNotificationStore();
+const sessionLockStore = useSessionLockStore();
 const router = useRouter();
 const route = useRoute();
 const mobileMenuOpen = ref(false);
@@ -1082,6 +1091,20 @@ const handleLogout = async () => {
   mobileMenuOpen.value = false;
   await authStore.logout();
   router.push('/login');
+};
+
+const onSessionUnlock = () => {
+  sessionLockStore.unlock();
+  resetActivityTimer();
+};
+
+const onSessionLockLogout = async () => {
+  sessionLockStore.unlock();
+  stopActivityTracking();
+  mobileMenuOpen.value = false;
+  const { getLoginUrlForRedirect } = await import('./utils/loginRedirect');
+  const redirectTo = getLoginUrlForRedirect(null, null, { timeout: true });
+  await authStore.logout('timeout', { redirectTo });
 };
 
 // ---- Buildings pending availability badge (admin/staff/CPA) ----

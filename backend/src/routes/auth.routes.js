@@ -7,6 +7,8 @@ import {
   approvedEmployeeLogin,
   logout,
   logActivity,
+  verifySessionPin,
+  getSessionLockConfig,
   passwordlessTokenLogin,
   passwordlessTokenLoginFromBody,
   verifyPendingIdentity,
@@ -154,6 +156,10 @@ router.post('/approved-employee-login', [
 ], approvedEmployeeLogin);
 router.post('/logout', authenticate, logout);
 router.post('/activity-log', authenticate, logActivity);
+router.get('/session-lock-config', authenticate, getSessionLockConfig);
+router.post('/verify-session-pin', authenticate, [
+  body('pin').isString().trim().matches(/^\d{4}$/).withMessage('PIN must be exactly 4 digits')
+], verifySessionPin);
 router.post('/register', requireAdminOrFirstUser, validateRegister, register);
 
 // Public recovery endpoints (do not require authentication)

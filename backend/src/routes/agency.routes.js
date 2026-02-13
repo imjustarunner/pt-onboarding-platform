@@ -11,6 +11,12 @@ import {
   updateAgencyScheduledAnnouncement,
   deleteAgencyScheduledAnnouncement
 } from '../controllers/agencyAnnouncements.controller.js';
+import {
+  getManagementTeam,
+  getManagementTeamConfig,
+  updateManagementTeamConfig,
+  listEligibleUsers
+} from '../controllers/agencyManagementTeam.controller.js';
 import { listAgencyNotificationTriggers, updateAgencyNotificationTrigger } from '../controllers/agencyNotificationTriggers.controller.js';
 import { getAgencyNotificationPreferences, updateAgencyNotificationPreferences } from '../controllers/agencyNotificationPreferences.controller.js';
 import {
@@ -394,6 +400,7 @@ router.get('/portal/:portalUrl/login-theme', getLoginThemeByPortalUrl);
 // Protected routes
 router.get('/', authenticate, getAllAgencies);
 router.get('/archived', authenticate, requireSuperAdmin, getArchivedAgencies);
+router.get('/management-team/eligible-users', authenticate, requireSuperAdmin, listEligibleUsers);
 router.get('/:id/affiliated-organizations', authenticate, requireBackofficeAdmin, listAffiliatedOrganizations);
 router.get('/:id', authenticate, getAgencyById);
 
@@ -413,6 +420,9 @@ router.post('/:id/announcements', authenticate, requireBackofficeAdmin, createAg
 router.put('/:id/announcements/:announcementId', authenticate, requireBackofficeAdmin, updateAgencyScheduledAnnouncement);
 router.delete('/:id/announcements/:announcementId', authenticate, requireBackofficeAdmin, deleteAgencyScheduledAnnouncement);
 router.get('/:id/dashboard-banner', authenticate, getAgencyDashboardBanner);
+router.get('/:id/management-team', authenticate, getManagementTeam);
+router.get('/:id/management-team/config', authenticate, getManagementTeamConfig);
+router.put('/:id/management-team/config', authenticate, updateManagementTeamConfig);
 router.get('/:id/notification-triggers', authenticate, requireBackofficeAdmin, listAgencyNotificationTriggers);
 router.put('/:id/notification-triggers/:triggerKey', authenticate, requireBackofficeAdmin, updateAgencyNotificationTrigger);
 router.get('/:id/notification-preferences', authenticate, requireBackofficeAdmin, getAgencyNotificationPreferences);
