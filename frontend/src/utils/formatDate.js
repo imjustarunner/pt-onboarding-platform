@@ -44,13 +44,29 @@ function getTimeOptions(prefs) {
 }
 
 /**
+ * Parse a date-like value to a Date, handling date-only strings (YYYY-MM-DD) correctly.
+ * Date-only strings are parsed as local midnight to avoid timezone shift when displaying
+ * (e.g. "2024-02-13" as midnight UTC would show as 2/12 in Pacific timezone).
+ */
+function parseDateSafe(dateLike) {
+  if (dateLike instanceof Date) return dateLike;
+  const s = String(dateLike || '').trim();
+  const ymd = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:\s|T|$)/);
+  if (ymd) {
+    const [, y, m, d] = ymd;
+    return new Date(parseInt(y, 10), parseInt(m, 10) - 1, parseInt(d, 10));
+  }
+  return new Date(s);
+}
+
+/**
  * Format a date (date only, no time).
  * @param {string|Date} dateLike - ISO string or Date
  * @returns {string}
  */
 export function formatDate(dateLike) {
   if (!dateLike) return '';
-  const d = typeof dateLike === 'string' ? new Date(dateLike) : dateLike;
+  const d = parseDateSafe(dateLike);
   if (!(d instanceof Date) || Number.isNaN(d.getTime())) return String(dateLike);
 
   const prefs = getStore();
@@ -65,7 +81,7 @@ export function formatDate(dateLike) {
  */
 export function formatTime(dateLike) {
   if (!dateLike) return '';
-  const d = typeof dateLike === 'string' ? new Date(dateLike) : dateLike;
+  const d = parseDateSafe(dateLike);
   if (!(d instanceof Date) || Number.isNaN(d.getTime())) return String(dateLike);
 
   const prefs = getStore();
@@ -80,7 +96,9 @@ export function formatTime(dateLike) {
  */
 export function formatDateTime(dateLike) {
   if (!dateLike) return '';
-  const d = typeof dateLike === 'string' ? new Date(dateLike) : dateLike;
+  const d = typeof dateLike === 'string' && !/^\d{4}-\d{2}-\d{2}$/.test(String(dateLike).trim())
+    ? new Date(dateLike)
+    : parseDateSafe(dateLike);
   if (!(d instanceof Date) || Number.isNaN(d.getTime())) return String(dateLike);
 
   const prefs = getStore();
@@ -98,7 +116,9 @@ export function formatDateTime(dateLike) {
  */
 export function formatDateTimeShort(dateLike) {
   if (!dateLike) return '';
-  const d = typeof dateLike === 'string' ? new Date(dateLike) : dateLike;
+  const d = typeof dateLike === 'string' && !/^\d{4}-\d{2}-\d{2}$/.test(String(dateLike).trim())
+    ? new Date(dateLike)
+    : parseDateSafe(dateLike);
   if (!(d instanceof Date) || Number.isNaN(d.getTime())) return String(dateLike);
 
   const prefs = getStore();

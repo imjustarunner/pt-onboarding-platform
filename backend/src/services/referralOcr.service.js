@@ -14,7 +14,7 @@ function getVisionClient() {
 }
 
 class ReferralOcrService {
-  static async extractText({ buffer, mimeType }) {
+  static async extractText({ buffer, mimeType, languageHint }) {
     if (typeof globalThis.DOMMatrix === 'undefined') {
       const candidates = [
         dommatrixPkg?.DOMMatrix,
@@ -32,7 +32,7 @@ class ReferralOcrService {
     const type = String(mimeType || '').toLowerCase();
     if (type.includes('pdf')) {
       const { pagesToScan, printedLines } = await this.getPdfPageSelection(buffer);
-      const visionText = await this.extractPdfWithVision({ buffer, pagesToScan });
+      const visionText = await this.extractPdfWithVision({ buffer, pagesToScan, languageHint });
       if (!visionText || !visionText.trim()) {
         throw new Error('No handwritten text detected from Vision OCR.');
       }
@@ -42,7 +42,11 @@ class ReferralOcrService {
       }
       return filtered;
     }
-    const [res] = await getVisionClient().textDetection(buffer);
+    const request = {
+      image: { content: buffer },
+      ...(languageHint ? { imageContext: { languageHints: [languageHint] } } : {})
+    };
+    const [res] = await getVisionClient().textDetection(request);
     const text = res?.fullTextAnnotation?.text || res?.textAnnotations?.[0]?.description || '';
     return text || '';
   }
@@ -179,7 +183,7 @@ class ReferralOcrService {
     return filteredText || text;
   }
 
-  static async extractPdfWithVision({ buffer, pagesToScan }) {
+  static async extractPdfWithVision({ buffer, pagesToScan, languageHint }) {
     const bucket = await StorageService.getGCSBucket();
     const prefix = `referrals_ocr_tmp/${Date.now()}-${Math.random().toString(36).slice(2)}/`;
     const gcsUri = `gs://${bucket.name}/${prefix}`;
@@ -195,6 +199,7 @@ class ReferralOcrService {
           createdAt: new Date().toISOString()
         }
       });
+      const imageContext = languageHint ? { languageHints: [languageHint] } : undefined;
       const [operation] = await getVisionClient().asyncBatchAnnotateFiles({
         requests: [
           {
@@ -204,6 +209,7 @@ class ReferralOcrService {
               pages: Array.isArray(pagesToScan) && pagesToScan.length ? pagesToScan : undefined
             },
             features: [{ type: 'DOCUMENT_TEXT_DETECTION' }],
+            imageContext,
             outputConfig: { gcsDestination: { uri: gcsUri } }
           }
         ]

@@ -359,7 +359,18 @@ const defaultQuestionLabels = [
   'History of physical abuse',
   'History of neglect',
   'History of Emotional/Mental Abuse',
-  'Please explain'
+  'Please explain',
+  // Spanish equivalents for packet OCR
+  'Nombre del dependiente',
+  'Nombre del estudiante',
+  'Sexo del dependiente',
+  'Fecha de nacimiento',
+  'Edad',
+  'Grado',
+  'Dirección',
+  'Ciudad',
+  'Código postal',
+  'Idioma preferido'
 ];
 
 const questionLabels = computed(() => {
@@ -507,13 +518,13 @@ const parsePsc17 = (lines) => {
   };
   const detectAnswer = (line) => {
     const lower = normalize(line);
-    const hasNever = lower.includes('never');
-    const hasSometimes = lower.includes('sometimes');
-    const hasOften = lower.includes('often');
+    const hasNever = lower.includes('never') || lower.includes('nunca');
+    const hasSometimes = lower.includes('sometimes') || lower.includes('a veces') || lower.includes('aveces');
+    const hasOften = lower.includes('often') || lower.includes('a menudo') || lower.includes('amenudo');
     if (!(hasNever || hasSometimes || hasOften)) return null;
-    if (hasNever && isMarked(line, 'never')) return 0;
-    if (hasSometimes && isMarked(line, 'sometimes')) return 1;
-    if (hasOften && isMarked(line, 'often')) return 2;
+    if (hasNever && (isMarked(line, 'never') || isMarked(line, 'nunca'))) return 0;
+    if (hasSometimes && (isMarked(line, 'sometimes') || isMarked(line, 'a veces') || isMarked(line, 'aveces'))) return 1;
+    if (hasOften && (isMarked(line, 'often') || isMarked(line, 'a menudo') || isMarked(line, 'amenudo'))) return 2;
     return null;
   };
   const assign = (idx, value) => {
@@ -531,13 +542,14 @@ const parsePsc17 = (lines) => {
 
   if (answers.filter((v) => v !== null).length < 17) {
     const stitched = lines.join(' ');
-    const tokenMatch = stitched.match(/(never|sometimes|often)/gi);
+    const tokenMatch = stitched.match(/(never|sometimes|often|nunca|a veces|aveces|a menudo|amenudo)/gi);
     if (tokenMatch && tokenMatch.length >= 17) {
       tokenMatch.slice(0, 17).forEach((t, i) => {
         if (answers[i] === null) {
-          if (t.toLowerCase() === 'never') answers[i] = 0;
-          if (t.toLowerCase() === 'sometimes') answers[i] = 1;
-          if (t.toLowerCase() === 'often') answers[i] = 2;
+          const tok = t.toLowerCase();
+          if (tok === 'never' || tok === 'nunca') answers[i] = 0;
+          if (tok === 'sometimes' || tok === 'a veces' || tok === 'aveces') answers[i] = 1;
+          if (tok === 'often' || tok === 'a menudo' || tok === 'amenudo') answers[i] = 2;
         }
       });
     }
@@ -566,7 +578,8 @@ const extractNameFromOcr = (text) => {
   if (!raw) return null;
   const patterns = [
     /dependent(?:'s)?\s+name\s*[:\-]?\s*([A-Za-z'`.-]+)\s+([A-Za-z'`.-]+)/i,
-    /student\s+name\s*[:\-]?\s*([A-Za-z'`.-]+)\s+([A-Za-z'`.-]+)/i
+    /student\s+name\s*[:\-]?\s*([A-Za-z'`.-]+)\s+([A-Za-z'`.-]+)/i,
+    /nombre\s+del\s+(?:dependiente|estudiante)\s*[:\-]?\s*([A-Za-záéíóúñ'`.-]+)\s+([A-Za-záéíóúñ'`.-]+)/i
   ];
   for (const re of patterns) {
     const match = raw.match(re);
@@ -580,7 +593,7 @@ const extractNameFromOcr = (text) => {
 const maybeAutofillName = (text) => {
   if (firstName.value || lastName.value) return;
   const qaName = pageOneQaPairs.value.find((p) =>
-    /dependent(?:'s)?\s+name/i.test(p.question)
+    /dependent(?:'s)?\s+name|nombre\s+del\s+(?:dependiente|estudiante)/i.test(p.question)
   );
   if (qaName && qaName.answer) {
     const parts = qaName.answer.split(/\s+/).filter(Boolean);
@@ -706,6 +719,10 @@ const handleUpload = async () => {
   try {
     const formData = new FormData();
     formData.append('file', selectedFile.value);
+    // Send user's local date so submission_date matches what they see (avoids timezone drift)
+    const d = new Date();
+    const ymd = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    formData.append('submissionDate', ymd);
 
     const response = await api.post(`/organizations/${props.organizationSlug}/upload-referral`, formData);
 

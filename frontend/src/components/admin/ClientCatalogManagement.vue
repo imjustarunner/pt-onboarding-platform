@@ -33,6 +33,14 @@
         <p class="muted">
           Configure the packet questions and ignore list used to clean OCR output. One line per item.
         </p>
+        <div class="packet-ocr-language-row">
+          <label>Document language (for OCR)</label>
+          <select v-model="packetLanguageHint">
+            <option value="">Auto-detect (English default)</option>
+            <option value="es">Spanish</option>
+          </select>
+          <small class="muted">Use Spanish when packets are primarily in Spanish for better OCR accuracy.</small>
+        </div>
         <div class="packet-ocr-grid">
           <div class="packet-ocr-column">
             <h4>Questions (numbered)</h4>
@@ -96,6 +104,7 @@ const rows = ref([]);
 const savingIds = ref(new Set());
 const packetQuestionsText = ref('');
 const packetIgnoreText = ref('');
+const packetLanguageHint = ref('');
 const packetError = ref('');
 const packetSaved = ref(false);
 const savingPacket = ref(false);
@@ -132,6 +141,7 @@ const reload = async () => {
       const resp = await api.get('/client-settings/packet-ocr-config', { params: { agencyId: agencyId.value } });
       const questions = Array.isArray(resp.data?.questions) ? resp.data.questions : [];
       const ignore = Array.isArray(resp.data?.ignore) ? resp.data.ignore : [];
+      packetLanguageHint.value = resp.data?.languageHint || '';
       packetQuestionsText.value = questions
         .map((q, idx) => {
           const num = q?.number ? String(q.number) : String(idx + 1);
@@ -242,7 +252,8 @@ const savePacketConfig = async () => {
     await api.put('/client-settings/packet-ocr-config', {
       agencyId: agencyId.value,
       questions,
-      ignore
+      ignore,
+      languageHint: packetLanguageHint.value || null
     });
     packetSaved.value = true;
   } catch (e) {
@@ -299,6 +310,26 @@ const savePacketConfig = async () => {
 .packet-ocr-panel {
   display: grid;
   gap: 12px;
+}
+
+.packet-ocr-language-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.packet-ocr-language-row label {
+  font-weight: 600;
+}
+.packet-ocr-language-row select {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  min-width: 200px;
+}
+.packet-ocr-language-row small {
+  flex: 1;
+  min-width: 200px;
 }
 
 .packet-ocr-grid {

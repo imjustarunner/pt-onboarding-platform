@@ -123,7 +123,8 @@ router.put(
   requireAgencyAdmin,
   [
     body('questions').optional().isArray(),
-    body('ignore').optional().isArray()
+    body('ignore').optional().isArray(),
+    body('languageHint').optional().isString()
   ],
   updatePacketOcrConfig
 );

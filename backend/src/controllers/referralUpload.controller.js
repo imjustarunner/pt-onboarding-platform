@@ -134,6 +134,14 @@ export const uploadReferralPacket = [
       const paperworkStatusId = await resolvePaperworkStatusId({ agencyId });
       const clientStatusId = await getClientStatusIdByKey({ agencyId, statusKey: 'packet' });
 
+      // Use client-provided submission date (user's local date) to avoid timezone drift.
+      // Server UTC date can be a day off for users in US timezones (e.g. evening upload = next day UTC).
+      let submissionDate = req.body?.submissionDate || req.body?.submission_date;
+      if (typeof submissionDate === 'string') submissionDate = submissionDate.trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(submissionDate)) {
+        submissionDate = new Date().toISOString().split('T')[0];
+      }
+
       // Create client record with status = PACKET
       // Note: initials will need to be extracted from OCR or provided separately
       // For now, we'll use a placeholder
@@ -144,7 +152,7 @@ export const uploadReferralPacket = [
         initials: 'TBD', // Placeholder - should be extracted from OCR or form
         identifier_code: identifierCode,
         status: 'PACKET',
-        submission_date: new Date().toISOString().split('T')[0],
+        submission_date: submissionDate,
         document_status: 'PACKET',
         paperwork_status_id: paperworkStatusId,
         client_status_id: clientStatusId,

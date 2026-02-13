@@ -1,4 +1,5 @@
 import { validationResult } from 'express-validator';
+import pool from '../config/database.js';
 import Client from '../models/Client.model.js';
 import ClientPhiDocument from '../models/ClientPhiDocument.model.js';
 import ClientReferralOcr from '../models/ClientReferralOcr.model.js';
@@ -6,6 +7,20 @@ import User from '../models/User.model.js';
 import StorageService from '../services/storage.service.js';
 import DocumentEncryptionService from '../services/documentEncryption.service.js';
 import ReferralOcrService from '../services/referralOcr.service.js';
+
+async function getPacketOcrLanguageHint(agencyId) {
+  if (!agencyId) return null;
+  try {
+    const [rows] = await pool.execute(`SELECT custom_parameters FROM agencies WHERE id = ?`, [agencyId]);
+    const raw = rows?.[0]?.custom_parameters || null;
+    if (!raw) return null;
+    const custom = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    const hint = custom?.packet_ocr_config?.languageHint;
+    return String(hint || '').trim() || null;
+  } catch {
+    return null;
+  }
+}
 
 async function userCanAccessClient({ requestingUserId, requestingUserRole, client }) {
   if (requestingUserRole === 'super_admin') return true;
@@ -201,9 +216,10 @@ export const processReferralOcrRequest = async (req, res, next) => {
     }
 
     await ClientReferralOcr.updateById(requestId, { status: 'processing', error_message: null });
+    const languageHint = await getPacketOcrLanguageHint(client.agency_id);
     let text = '';
     try {
-      text = await ReferralOcrService.extractText({ buffer, mimeType: doc.mime_type });
+      text = await ReferralOcrService.extractText({ buffer, mimeType: doc.mime_type, languageHint });
       const aad = buildOcrAad({
         clientId: request.client_id,
         requestId,

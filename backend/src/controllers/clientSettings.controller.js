@@ -189,7 +189,8 @@ export const getPacketOcrConfig = async (req, res, next) => {
     const raw = custom.packet_ocr_config || {};
     const questions = Array.isArray(raw.questions) ? raw.questions : [];
     const ignore = Array.isArray(raw.ignore) ? raw.ignore : [];
-    res.json({ questions, ignore });
+    const languageHint = String(raw.languageHint || '').trim() || null;
+    res.json({ questions, ignore, languageHint });
   } catch (e) {
     next(e);
   }
@@ -201,6 +202,9 @@ export const updatePacketOcrConfig = async (req, res, next) => {
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
     const questions = Array.isArray(req.body?.questions) ? req.body.questions : [];
     const ignore = Array.isArray(req.body?.ignore) ? req.body.ignore : [];
+    const languageHint = req.body?.languageHint !== undefined
+      ? (String(req.body.languageHint || '').trim() || null)
+      : undefined;
     const normalizedQuestions = questions
       .map((q) => ({
         number: q?.number ? parseInt(q.number, 10) : null,
@@ -210,9 +214,11 @@ export const updatePacketOcrConfig = async (req, res, next) => {
     const normalizedIgnore = ignore.map((i) => String(i || '').trim()).filter(Boolean);
 
     const custom = await fetchAgencyCustomParameters(agencyId);
+    const existingHint = custom.packet_ocr_config?.languageHint;
     custom.packet_ocr_config = {
       questions: normalizedQuestions,
-      ignore: normalizedIgnore
+      ignore: normalizedIgnore,
+      languageHint: languageHint !== undefined ? languageHint : (existingHint ?? null)
     };
     await saveAgencyCustomParameters(agencyId, custom);
     res.json(custom.packet_ocr_config);
