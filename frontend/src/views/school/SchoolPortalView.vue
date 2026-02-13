@@ -84,7 +84,7 @@
           </button>
           <router-link
             v-if="canBackToSchools"
-            to="/admin/schools/overview"
+            :to="backToSchoolsPath"
             class="btn btn-secondary btn-sm"
           >
             Back to show all schools
@@ -1223,6 +1223,16 @@ const isProvider = computed(() => roleNorm.value === 'provider' && !hasSuperviso
 const isSupervisorProviderContext = computed(() => hasSupervisorCapability.value && roleNorm.value === 'provider');
 const isSchoolStaff = computed(() => roleNorm.value === 'school_staff');
 const canBackToSchools = computed(() => ['super_admin', 'admin', 'staff'].includes(roleNorm.value));
+const backToSchoolsPath = computed(() => {
+  const orgType = String(organizationStore.organizationContext?.organizationType || organizationStore.currentOrganization?.organization_type || 'school').toLowerCase();
+  const orgTypeParam = ['school', 'program', 'learning'].includes(orgType) ? orgType : 'school';
+  const parentAgency = cardIconOrg.value;
+  const parentSlug = parentAgency?.portal_url || parentAgency?.portalUrl || parentAgency?.slug;
+  if (typeof parentSlug === 'string' && parentSlug.trim()) {
+    return `/${parentSlug.trim()}/admin/schools/overview?orgType=${orgTypeParam}`;
+  }
+  return `/admin/schools/overview?orgType=${orgTypeParam}`;
+});
 const canUseComplianceCorner = computed(() => ['super_admin', 'admin'].includes(roleNorm.value));
 const canShowToolsAids = computed(() => ['provider', 'admin', 'staff', 'support'].includes(roleNorm.value));
 const toolsAidsPath = computed(() => {
