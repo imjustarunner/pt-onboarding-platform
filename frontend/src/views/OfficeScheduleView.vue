@@ -10,22 +10,24 @@
           <label>Week of</label>
           <input v-model="weekStart" type="date" @change="loadGrid" :disabled="!officeId" />
         </div>
-        <button class="btn btn-secondary" @click="goToPreviousWeek" :disabled="loading || !officeId">Previous week</button>
-        <button class="btn btn-secondary" @click="goToNextWeek" :disabled="loading || !officeId">Next week</button>
-        <button class="btn btn-secondary" @click="goToCurrentWeek" :disabled="loading || !officeId">Current week</button>
-        <button class="btn btn-secondary" @click="toggleWeekStartMode" :disabled="loading || !officeId">
-          Week starts: {{ weekStartMode === 'MONDAY' ? 'Monday' : 'Sunday' }}
+        <div class="btn-group">
+          <button class="btn btn-secondary btn-sm" @click="goToPreviousWeek" :disabled="loading || !officeId">Previous week</button>
+          <button class="btn btn-secondary btn-sm" @click="goToNextWeek" :disabled="loading || !officeId">Next week</button>
+          <button class="btn btn-secondary btn-sm" @click="goToCurrentWeek" :disabled="loading || !officeId">Current week</button>
+        </div>
+        <button class="btn btn-secondary btn-sm" @click="toggleWeekStartMode" :disabled="loading || !officeId">
+          {{ weekStartMode === 'MONDAY' ? 'Mon' : 'Sun' }} start
         </button>
         <button
           v-if="canManageSchedule"
-          class="btn btn-secondary"
+          class="btn btn-secondary btn-sm"
           type="button"
           @click="refreshEhrAssignedBookings"
           :disabled="refreshingEhrBookings || !officeId"
         >
-          {{ refreshingEhrBookings ? 'Refreshing EHR…' : 'Refresh EHR/Assigned booking' }}
+          {{ refreshingEhrBookings ? 'Refreshing…' : 'Refresh EHR' }}
         </button>
-        <button class="btn btn-secondary" @click="loadGrid" :disabled="loading || !officeId">Refresh</button>
+        <button class="btn btn-secondary btn-sm" @click="loadGrid" :disabled="loading || !officeId">Refresh</button>
       </div>
     </div>
 
@@ -215,12 +217,20 @@
             {{ r.roomNumber ? `#${r.roomNumber}` : '' }} {{ r.label || r.name }}
           </option>
         </select>
-        <button class="btn btn-secondary btn-sm" type="button" @click="prevRoom" :disabled="sortedRooms.length <= 1">Prev room</button>
-        <button class="btn btn-secondary btn-sm" type="button" @click="nextRoom" :disabled="sortedRooms.length <= 1">Next room</button>
-        <label class="check" style="margin-left: 10px;">
-          <input type="checkbox" v-model="singleRoomMode" />
-          <span>Show one office</span>
-        </label>
+        <div class="btn-group">
+          <button class="btn btn-secondary btn-sm" type="button" @click="prevRoom" :disabled="sortedRooms.length <= 1">Prev</button>
+          <button class="btn btn-secondary btn-sm" type="button" @click="nextRoom" :disabled="sortedRooms.length <= 1">Next</button>
+        </div>
+        <button
+          type="button"
+          class="btn btn-sm room-toggle"
+          :class="{ 'room-toggle-active': singleRoomMode }"
+          @click="singleRoomMode = !singleRoomMode"
+          :disabled="!grid || sortedRooms.length <= 1"
+          title="Show only one room at a time"
+        >
+          Show one office
+        </button>
       </div>
 
       <div v-for="room in displayedRooms" :key="room.id" class="room-card" data-tour="buildings-schedule-room-card">
@@ -1867,6 +1877,19 @@ watch(
 }
 .subtitle { color: var(--sched-text-muted); margin-top: 4px; font-size: 13px; }
 .controls { display: flex; align-items: end; gap: 10px; flex-wrap: wrap; }
+.btn-group {
+  display: inline-flex;
+  gap: 0;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+.btn-group .btn {
+  border-radius: 0;
+  border-right-width: 0;
+}
+.btn-group .btn:last-child { border-right-width: 1px; border-radius: 0 10px 10px 0; }
+.btn-group .btn:first-child { border-radius: 10px 0 0 10px; }
 .field { display: flex; flex-direction: column; gap: 6px; }
 input[type='date'] {
   padding: 10px 12px;
@@ -1974,6 +1997,30 @@ input[type='date'] {
 }
 .room-nav .select {
   min-width: 220px;
+}
+.room-toggle {
+  padding: 8px 14px;
+  border: 1px solid var(--sched-border-strong);
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(241, 245, 249, 0.9));
+  color: var(--sched-text);
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+}
+.room-toggle:hover:not(:disabled) {
+  background: linear-gradient(180deg, rgba(241, 245, 249, 0.98), rgba(226, 232, 240, 0.95));
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.1);
+}
+.room-toggle-active {
+  background: linear-gradient(180deg, #2563eb, #1d4ed8) !important;
+  border-color: #1d4ed8 !important;
+  color: #fff !important;
+}
+.room-toggle-active:hover:not(:disabled) {
+  background: linear-gradient(180deg, #3b82f6, #2563eb) !important;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25) !important;
 }
 
 .avail-search {
