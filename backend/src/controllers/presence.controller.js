@@ -2,7 +2,6 @@ import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import Notification from '../models/Notification.model.js';
 import UserPresenceStatus from '../models/UserPresenceStatus.model.js';
-import Notification from '../models/Notification.model.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 
 const IDLE_AFTER_MS = 5 * 60 * 1000; // 5 minutes

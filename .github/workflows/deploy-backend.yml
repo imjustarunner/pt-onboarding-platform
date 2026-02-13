@@ -128,7 +128,8 @@ jobs:
             --cpu=1 \
             --timeout=300 \
             --max-instances=10 \
-            --min-instances=0
+            --min-instances=0 \
+            --startup-probe=tcpSocket.port=8080,initialDelaySeconds=60,failureThreshold=6,periodSeconds=10,timeoutSeconds=5
 
           # IMPORTANT: if traffic was pinned to an older revision, explicitly promote the latest revision.
           gcloud run services update-traffic $SERVICE_NAME \
