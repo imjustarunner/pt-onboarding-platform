@@ -344,9 +344,9 @@ const formatSince = (iso) => {
   }
 };
 
-const fetchPresence = async () => {
+const fetchPresence = async (showLoading = true) => {
   try {
-    loading.value = true;
+    if (showLoading) loading.value = true;
     error.value = '';
     let agencyId = agencyStore.currentAgency?.id || agencyStore.currentAgency?.value;
     if (isAdmin.value && adminSelectedAgencyId.value) {
@@ -578,8 +578,14 @@ const fetchAdminAgencies = async () => {
   }
 };
 
-const POLL_INTERVAL_MS = 60 * 1000; // 60 seconds
+const POLL_INTERVAL_MS = 15 * 1000; // 15 seconds for more real-time updates
 let pollTimer = null;
+
+const onVisibilityChange = () => {
+  if (document.visibilityState === 'visible' && canAccess.value) {
+    fetchPresence(false);
+  }
+};
 
 onMounted(async () => {
   if (canAccess.value) {
@@ -588,8 +594,9 @@ onMounted(async () => {
     } else if (isAdmin.value) {
       await fetchAdminAgencies();
     }
-    fetchPresence();
-    pollTimer = setInterval(fetchPresence, POLL_INTERVAL_MS);
+    fetchPresence(true);
+    pollTimer = setInterval(() => fetchPresence(false), POLL_INTERVAL_MS);
+    document.addEventListener('visibilitychange', onVisibilityChange);
   }
 });
 
@@ -598,6 +605,7 @@ onBeforeUnmount(() => {
     clearInterval(pollTimer);
     pollTimer = null;
   }
+  document.removeEventListener('visibilitychange', onVisibilityChange);
 });
 </script>
 

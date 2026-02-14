@@ -29,9 +29,12 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, onBeforeUnmount } from 'vue';
 import api from '../../services/api';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
+
+const POLL_INTERVAL_MS = 15 * 1000;
+let pollTimer = null;
 
 const statusOptions = [
   { value: 'in_available', label: 'In – Available' },
@@ -72,9 +75,9 @@ const statusDotClass = (status) => {
   return 'dot-none';
 };
 
-const fetchPresence = async () => {
+const fetchPresence = async (showLoading = true) => {
   try {
-    loading.value = true;
+    if (showLoading) loading.value = true;
     error.value = '';
     const res = await api.get('/presence');
     people.value = Array.isArray(res.data) ? res.data : [];
@@ -86,7 +89,23 @@ const fetchPresence = async () => {
   }
 };
 
-onMounted(fetchPresence);
+const onVisibilityChange = () => {
+  if (document.visibilityState === 'visible') fetchPresence(false);
+};
+
+onMounted(() => {
+  fetchPresence(true);
+  pollTimer = setInterval(() => fetchPresence(false), POLL_INTERVAL_MS);
+  document.addEventListener('visibilitychange', onVisibilityChange);
+});
+
+onBeforeUnmount(() => {
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+  document.removeEventListener('visibilitychange', onVisibilityChange);
+});
 </script>
 
 <style scoped>

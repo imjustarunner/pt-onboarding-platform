@@ -5,6 +5,7 @@ import {
   listKioskEvents,
   checkInToEvent,
   listKioskQuestionnaires,
+  getKioskIntakeLinkDefinition,
   getKioskQuestionnaireDefinition,
   submitKioskQuestionnaire,
   listKioskProviders,
@@ -38,6 +39,8 @@ router.post('/:locationId/clock-out', kioskClockOut);
 router.post('/:locationId/guardian-checkin', kioskGuardianCheckin);
 router.post('/:locationId/checkin', checkInToEvent);
 router.get('/:locationId/questionnaires', listKioskQuestionnaires);
+router.get('/:locationId/intake-questionnaire/:intakeLinkId/definition', getKioskIntakeLinkDefinition);
+router.get('/:locationId/intake-questionnaire/:intakeLinkId/definition', getKioskIntakeLinkDefinition);
 router.get('/:locationId/questionnaires/:moduleId/definition', getKioskQuestionnaireDefinition);
 router.post('/:locationId/questionnaires/submit', submitKioskQuestionnaire);
 

@@ -159,7 +159,7 @@
         <div class="section" data-tour="buildings-settings-slot-rules">
           <div class="section-title">Per-Slot Questionnaire Rules</div>
           <div class="hint">
-            Assign questionnaires to specific rooms and times. When a client checks in to a matching slot, only these questionnaires are shown. Leave fields blank for "all".
+            Assign questionnaires or intake links to specific rooms and times. When a client checks in to a matching slot, only these are shown. Reuse intake links for consistent forms. Leave fields blank for "all".
           </div>
           <div class="row" style="margin-top: 10px; flex-wrap: wrap; gap: 8px;">
             <select v-model="newSlotRule.roomId" :disabled="loading" style="min-width: 140px;">
@@ -172,11 +172,15 @@
             </select>
             <input v-model.number="newSlotRule.hourStart" type="number" min="0" max="23" placeholder="Hour start (0–23)" style="min-width: 100px;" />
             <input v-model.number="newSlotRule.hourEnd" type="number" min="0" max="23" placeholder="Hour end (0–23)" style="min-width: 100px;" />
-            <select v-model="newSlotRule.moduleId" :disabled="loading" style="min-width: 180px;">
-              <option value="">Select module…</option>
+            <select v-model="newSlotRule.moduleId" :disabled="loading" style="min-width: 160px;">
+              <option value="">Module…</option>
               <option v-for="m in modules" :key="m.id" :value="String(m.id)">{{ m.title }}</option>
             </select>
-            <button class="btn btn-primary" @click="addSlotRule" :disabled="saving || loading || !newSlotRule.moduleId || !canManageOfficeSettings">
+            <select v-model="newSlotRule.intakeLinkId" :disabled="loading" style="min-width: 160px;">
+              <option value="">or Intake link…</option>
+              <option v-for="il in intakeLinks" :key="il.id" :value="String(il.id)">{{ il.title || `Link ${il.id}` }}</option>
+            </select>
+            <button class="btn btn-primary" @click="addSlotRule" :disabled="saving || loading || (!newSlotRule.moduleId && !newSlotRule.intakeLinkId) || !canManageOfficeSettings">
               Add rule
             </button>
           </div>
@@ -186,7 +190,7 @@
           <div v-else class="list" style="margin-top: 10px;">
             <div v-for="r in slotRules" :key="r.id" class="list-row">
               <div class="list-main">
-                <div class="title">{{ r.module_title }}</div>
+                <div class="title">{{ r.intake_link_title || r.module_title }}</div>
                 <div class="meta">
                   {{ r.room_name || 'All rooms' }} •
                   {{ r.day_of_week != null ? dayNames[r.day_of_week] : 'All days' }} •
@@ -397,12 +401,14 @@ const newKioskAssignment = ref({
   allowedDays: []
 });
 const slotRules = ref([]);
+const intakeLinks = ref([]);
 const newSlotRule = ref({
   roomId: '',
   dayOfWeek: '',
   hourStart: null,
   hourEnd: null,
-  moduleId: ''
+  moduleId: '',
+  intakeLinkId: ''
 });
 
 const roomTypes = ref([]);
@@ -442,7 +448,8 @@ const loadAll = async () => {
       api.get(`/offices/${officeId.value}/rooms`),
       api.get(`/offices/${officeId.value}/slot-questionnaire-rules`),
       api.get(`/offices/kiosk-users`),
-      api.get(`/offices/${officeId.value}/kiosk-assignments`)
+      api.get(`/offices/${officeId.value}/kiosk-assignments`),
+      api.get('/intake-links')
     ]);
 
     const officeResp = settled[0].status === 'fulfilled' ? settled[0].value : null;
@@ -453,6 +460,7 @@ const loadAll = async () => {
     const slotRulesResp = settled[5].status === 'fulfilled' ? settled[5].value : null;
     const kioskUsersResp = settled[6].status === 'fulfilled' ? settled[6].value : null;
     const kioskAssignmentsResp = settled[7].status === 'fulfilled' ? settled[7].value : null;
+    const intakeLinksResp = settled[8].status === 'fulfilled' ? settled[8].value : null;
 
     if (!officeResp) {
       throw new Error('Failed to load building');
@@ -470,6 +478,7 @@ const loadAll = async () => {
     slotRules.value = slotRulesResp?.data || [];
     kioskUsers.value = kioskUsersResp?.data || [];
     kioskAssignments.value = kioskAssignmentsResp?.data || [];
+    intakeLinks.value = Array.isArray(intakeLinksResp?.data) ? intakeLinksResp.data : [];
     // Seed editable google resource email map
     const map = {};
     for (const r of rooms.value || []) {
@@ -600,12 +609,13 @@ const removeQuestionnaire = async (moduleId) => {
 };
 
 const addSlotRule = async () => {
-  if (!officeId.value || !newSlotRule.value.moduleId) return;
+  if (!officeId.value || (!newSlotRule.value.moduleId && !newSlotRule.value.intakeLinkId)) return;
   try {
     saving.value = true;
     error.value = '';
     const payload = {
-      moduleId: Number(newSlotRule.value.moduleId),
+      moduleId: newSlotRule.value.moduleId ? Number(newSlotRule.value.moduleId) : null,
+      intakeLinkId: newSlotRule.value.intakeLinkId ? Number(newSlotRule.value.intakeLinkId) : null,
       roomId: newSlotRule.value.roomId ? Number(newSlotRule.value.roomId) : null,
       dayOfWeek: newSlotRule.value.dayOfWeek !== '' ? Number(newSlotRule.value.dayOfWeek) : null,
       hourStart: newSlotRule.value.hourStart !== '' && newSlotRule.value.hourStart != null ? Number(newSlotRule.value.hourStart) : null,
@@ -613,7 +623,7 @@ const addSlotRule = async () => {
     };
     const resp = await api.post(`/offices/${officeId.value}/slot-questionnaire-rules`, payload);
     slotRules.value = resp.data || [];
-    newSlotRule.value = { roomId: '', dayOfWeek: '', hourStart: null, hourEnd: null, moduleId: '' };
+    newSlotRule.value = { roomId: '', dayOfWeek: '', hourStart: null, hourEnd: null, moduleId: '', intakeLinkId: '' };
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to add slot rule';
   } finally {

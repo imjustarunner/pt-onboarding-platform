@@ -543,9 +543,11 @@ export const createSlotQuestionnaireRule = async (req, res, next) => {
   try {
     if (!(await canManageOfficeSettings(req))) return res.status(403).json({ error: { message: 'Access denied' } });
     const officeId = parseInt(req.params.officeId, 10);
-    const { roomId, dayOfWeek, hourStart, hourEnd, moduleId } = req.body || {};
-    const moduleIdNum = parseInt(moduleId, 10);
-    if (!officeId || !moduleIdNum) return res.status(400).json({ error: { message: 'moduleId is required' } });
+    const { roomId, dayOfWeek, hourStart, hourEnd, moduleId, intakeLinkId } = req.body || {};
+    const moduleIdNum = moduleId != null && moduleId !== '' ? parseInt(moduleId, 10) : null;
+    const intakeLinkIdNum = intakeLinkId != null && intakeLinkId !== '' ? parseInt(intakeLinkId, 10) : null;
+    if (!officeId) return res.status(400).json({ error: { message: 'officeId is required' } });
+    if (!moduleIdNum && !intakeLinkIdNum) return res.status(400).json({ error: { message: 'moduleId or intakeLinkId is required' } });
     const ok = await requireOfficeAccess(req, officeId);
     if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
 
@@ -554,13 +556,14 @@ export const createSlotQuestionnaireRule = async (req, res, next) => {
     const hourStartVal = hourStart === '' || hourStart === null || hourStart === undefined ? null : parseInt(hourStart, 10);
     const hourEndVal = hourEnd === '' || hourEnd === null || hourEnd === undefined ? null : parseInt(hourEnd, 10);
 
-    const id = await OfficeSlotQuestionnaireRule.create({
+    await OfficeSlotQuestionnaireRule.create({
       officeLocationId: officeId,
       roomId: roomIdVal,
       dayOfWeek: dayVal,
       hourStart: hourStartVal,
       hourEnd: hourEndVal,
-      moduleId: moduleIdNum
+      moduleId: moduleIdNum,
+      intakeLinkId: intakeLinkIdNum
     });
     const rows = await OfficeSlotQuestionnaireRule.listForOffice(officeId);
     res.status(201).json(rows || []);

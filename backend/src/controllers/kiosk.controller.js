@@ -209,11 +209,22 @@ export const listKioskQuestionnaires = async (req, res, next) => {
           startAt: ev.start_at
         });
         if (slotRules?.length > 0) {
-          out = slotRules.map((r) => ({
-            moduleId: r.module_id,
-            title: r.module_title,
-            description: r.module_description || null
-          }));
+          out = slotRules.map((r) => {
+            if (r.intake_link_id) {
+              return {
+                intakeLinkId: r.intake_link_id,
+                title: r.intake_link_title || `Intake ${r.intake_link_id}`,
+                description: null,
+                source: 'intake_link'
+              };
+            }
+            return {
+              moduleId: r.module_id,
+              title: r.module_title,
+              description: r.module_description || null,
+              source: 'module'
+            };
+          });
         }
       }
     }
@@ -222,10 +233,42 @@ export const listKioskQuestionnaires = async (req, res, next) => {
       out = (rows || []).map((r) => ({
         moduleId: r.module_id,
         title: r.module_title,
-        description: r.module_description || null
+        description: r.module_description || null,
+        source: 'module'
       }));
     }
     res.json(out);
+  } catch (e) {
+    next(e);
+  }
+};
+
+// Public: fetch intake link fields as kiosk-friendly form definition
+export const getKioskIntakeLinkDefinition = async (req, res, next) => {
+  try {
+    const intakeLinkId = parseInt(req.params.intakeLinkId);
+    if (!Number.isInteger(intakeLinkId) || intakeLinkId <= 0) {
+      return res.status(400).json({ error: { message: 'Invalid intakeLinkId' } });
+    }
+
+    const IntakeLink = (await import('../models/IntakeLink.model.js')).default;
+    const link = await IntakeLink.findById(intakeLinkId);
+    if (!link || !link.is_active) {
+      return res.status(404).json({ error: { message: 'Intake link not found' } });
+    }
+
+    const intakeFields = Array.isArray(link.intake_fields) ? link.intake_fields : [];
+    const fields = intakeFields
+      .filter((f) => (f.scope || 'client') === 'client')
+      .map((f, idx) => ({
+        id: f.field_key || `intake_${idx}`,
+        field_label: f.label || f.field_key || `Field ${idx + 1}`,
+        field_type: f.type || 'text',
+        options: f.options || null,
+        value: null
+      }));
+
+    res.json({ intakeLinkId, pages: [], fields });
   } catch (e) {
     next(e);
   }
@@ -285,12 +328,13 @@ export const submitKioskQuestionnaire = async (req, res, next) => {
   try {
     const { locationId } = req.params;
     const eventId = parseInt(req.body?.eventId);
-    const moduleId = parseInt(req.body?.moduleId);
+    const moduleId = req.body?.moduleId != null ? parseInt(req.body.moduleId, 10) : null;
+    const intakeLinkId = req.body?.intakeLinkId != null ? parseInt(req.body.intakeLinkId, 10) : null;
     const answers = req.body?.answers || {};
     const typicalDayTime = req.body?.typicalDayTime === true || req.body?.typicalDayTime === 'true';
 
     if (!Number.isInteger(eventId) || eventId <= 0) return res.status(400).json({ error: { message: 'eventId is required' } });
-    if (!Number.isInteger(moduleId) || moduleId <= 0) return res.status(400).json({ error: { message: 'moduleId is required' } });
+    if (!moduleId && !intakeLinkId) return res.status(400).json({ error: { message: 'moduleId or intakeLinkId is required' } });
 
     const loc = await OfficeLocation.findById(parseInt(locationId));
     if (!loc || !loc.is_active) return res.status(404).json({ error: { message: 'Location not found' } });
@@ -314,7 +358,8 @@ export const submitKioskQuestionnaire = async (req, res, next) => {
       roomId: ev.room_id,
       eventId: ev.id,
       providerId: ev.booked_provider_id,
-      moduleId,
+      moduleId: moduleId || null,
+      intakeLinkId: intakeLinkId || null,
       answers,
       typicalDayTime,
       appendToSlotHistory,

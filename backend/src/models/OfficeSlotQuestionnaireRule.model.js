@@ -19,11 +19,14 @@ class OfficeSlotQuestionnaireRule {
     params.push(dayOfWeek, hour, hour);
 
     const [rows] = await pool.execute(
-      `SELECT osqr.*, m.title AS module_title, m.description AS module_description
+      `SELECT osqr.*, m.title AS module_title, m.description AS module_description,
+              il.title AS intake_link_title
        FROM office_slot_questionnaire_rules osqr
-       JOIN modules m ON m.id = osqr.module_id
+       LEFT JOIN modules m ON m.id = osqr.module_id
+       LEFT JOIN intake_links il ON il.id = osqr.intake_link_id
        WHERE osqr.office_location_id = ?
          AND osqr.is_active = TRUE
+         AND (osqr.module_id IS NOT NULL OR osqr.intake_link_id IS NOT NULL)
          AND ${roomCondition}
          AND (osqr.day_of_week IS NULL OR osqr.day_of_week = ?)
          AND (osqr.hour_start IS NULL OR osqr.hour_start <= ?)
@@ -37,9 +40,10 @@ class OfficeSlotQuestionnaireRule {
 
   static async listForOffice(officeLocationId) {
     const [rows] = await pool.execute(
-      `SELECT osqr.*, m.title AS module_title, r.name AS room_name
+      `SELECT osqr.*, m.title AS module_title, il.title AS intake_link_title, r.name AS room_name
        FROM office_slot_questionnaire_rules osqr
-       JOIN modules m ON m.id = osqr.module_id
+       LEFT JOIN modules m ON m.id = osqr.module_id
+       LEFT JOIN intake_links il ON il.id = osqr.intake_link_id
        LEFT JOIN office_rooms r ON r.id = osqr.room_id
        WHERE osqr.office_location_id = ? AND osqr.is_active = TRUE
        ORDER BY r.name, osqr.day_of_week, osqr.hour_start`,
@@ -48,12 +52,20 @@ class OfficeSlotQuestionnaireRule {
     return rows || [];
   }
 
-  static async create({ officeLocationId, roomId = null, dayOfWeek = null, hourStart = null, hourEnd = null, moduleId }) {
+  static async create({
+    officeLocationId,
+    roomId = null,
+    dayOfWeek = null,
+    hourStart = null,
+    hourEnd = null,
+    moduleId = null,
+    intakeLinkId = null
+  }) {
     const end = hourEnd != null ? hourEnd : hourStart;
     const [result] = await pool.execute(
-      `INSERT INTO office_slot_questionnaire_rules (office_location_id, room_id, day_of_week, hour_start, hour_end, module_id)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [officeLocationId, roomId, dayOfWeek, hourStart, end, moduleId]
+      `INSERT INTO office_slot_questionnaire_rules (office_location_id, room_id, day_of_week, hour_start, hour_end, module_id, intake_link_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [officeLocationId, roomId, dayOfWeek, hourStart, end, moduleId, intakeLinkId]
     );
     return result.insertId;
   }

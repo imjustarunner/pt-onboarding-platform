@@ -225,14 +225,14 @@
 
         <div v-else class="field" style="margin-top: 12px;">
           <label>Questionnaire</label>
-          <select v-model="selectedModuleId" @change="loadDefinition">
+          <select v-model="selectedQuestionnaireKey" @change="loadDefinition">
             <option :value="''">Select…</option>
-            <option v-for="q in questionnaires" :key="q.moduleId" :value="String(q.moduleId)">{{ q.title }}</option>
+            <option v-for="q in questionnaires" :key="q.moduleId || q.intakeLinkId || q.title" :value="getQuestionnaireKey(q)">{{ q.title }}</option>
           </select>
         </div>
 
         <div v-if="definitionLoading" class="loading" style="margin-top: 10px;">Loading form…</div>
-        <div v-else-if="selectedModuleId && formFields.length === 0" class="muted" style="margin-top: 10px;">
+        <div v-else-if="selectedQuestionnaireKey && formFields.length === 0" class="muted" style="margin-top: 10px;">
           This questionnaire has no fields configured.
         </div>
 
@@ -278,7 +278,7 @@
 
         <div class="actions">
           <button class="btn btn-secondary" @click="step = 2" :disabled="saving">Back</button>
-          <button class="btn btn-primary" @click="submit" :disabled="saving || !selectedModuleId || typicalDayTime === ''">
+          <button class="btn btn-primary" @click="submit" :disabled="saving || !selectedQuestionnaireKey || typicalDayTime === ''">
             {{ saving ? 'Submitting…' : 'Submit' }}
           </button>
         </div>
@@ -377,7 +377,7 @@ const events = ref([]);
 const selectedEvent = ref(null);
 
 const questionnaires = ref([]);
-const selectedModuleId = ref('');
+const selectedQuestionnaireKey = ref('');
 const definitionLoading = ref(false);
 const formFields = ref([]);
 const answers = ref({});
@@ -424,11 +424,16 @@ const checkIn = async () => {
   }
 };
 
+const getQuestionnaireKey = (q) => {
+  if (q.intakeLinkId) return `intake:${q.intakeLinkId}`;
+  return `module:${q.moduleId}`;
+};
+
 const loadQuestionnaires = async () => {
   const params = selectedEvent.value?.id ? { eventId: selectedEvent.value.id } : {};
   const resp = await api.get(`/kiosk/${locationId.value}/questionnaires`, { params });
   questionnaires.value = resp.data || [];
-  selectedModuleId.value = '';
+  selectedQuestionnaireKey.value = '';
   formFields.value = [];
   answers.value = {};
   typicalDayTime.value = '';
@@ -442,14 +447,21 @@ const toggleMulti = (fieldId, opt) => {
 };
 
 const loadDefinition = async () => {
-  if (!selectedModuleId.value) {
+  if (!selectedQuestionnaireKey.value) {
     formFields.value = [];
     answers.value = {};
     return;
   }
+  const [type, id] = selectedQuestionnaireKey.value.split(':');
+  if (!type || !id) return;
   try {
     definitionLoading.value = true;
-    const resp = await api.get(`/kiosk/${locationId.value}/questionnaires/${selectedModuleId.value}/definition`);
+    let resp;
+    if (type === 'intake') {
+      resp = await api.get(`/kiosk/${locationId.value}/intake-questionnaire/${id}/definition`);
+    } else {
+      resp = await api.get(`/kiosk/${locationId.value}/questionnaires/${id}/definition`);
+    }
     formFields.value = resp.data?.fields || [];
     answers.value = {};
   } catch (e) {
@@ -462,15 +474,22 @@ const loadDefinition = async () => {
 };
 
 const submit = async () => {
+  const [type, id] = (selectedQuestionnaireKey.value || '').split(':');
+  if (!type || !id) return;
   try {
     saving.value = true;
     error.value = '';
-    await api.post(`/kiosk/${locationId.value}/questionnaires/submit`, {
+    const payload = {
       eventId: selectedEvent.value.id,
-      moduleId: Number(selectedModuleId.value),
       typicalDayTime: typicalDayTime.value === 'yes',
       answers: answers.value
-    });
+    };
+    if (type === 'intake') {
+      payload.intakeLinkId = Number(id);
+    } else {
+      payload.moduleId = Number(id);
+    }
+    await api.post(`/kiosk/${locationId.value}/questionnaires/submit`, payload);
     step.value = 5;
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to submit';
@@ -483,7 +502,7 @@ const reset = () => {
   step.value = 1;
   selectedEvent.value = null;
   questionnaires.value = [];
-  selectedModuleId.value = '';
+  selectedQuestionnaireKey.value = '';
   formFields.value = [];
   answers.value = {};
   typicalDayTime.value = '';
