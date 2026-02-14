@@ -163,6 +163,7 @@
           :key="card.id"
           type="button"
           class="rail-card"
+          :style="{ '--rail-accent': cardHue(card.id) }"
           :data-card-id="card.id"
           :data-tour="`dash-rail-card-${String(card.id)}`"
           :class="{
@@ -814,6 +815,43 @@ const railIconFallback = (card) => {
   const label = String(card?.label || '').trim();
   if (!label) return '•';
   return label.slice(0, 1).toUpperCase();
+};
+
+const CARD_HUE_PRESETS = {
+  checklist: 168,
+  training: 289,
+  documents: 207,
+  my_schedule: 122,
+  program_shifts: 300,
+  clients: 34,
+  tools_aids: 264,
+  submit: 196,
+  payroll: 261,
+  my: 42,
+  on_demand_training: 87,
+  social_feeds: 334,
+  communications: 334,
+  chats: 188,
+  notifications: 2,
+  supervision: 19,
+  skill_builders_availability: 154
+};
+
+const hashHue = (value) => {
+  const input = String(value || '').trim().toLowerCase();
+  if (!input) return 210;
+  let hash = 0;
+  for (let i = 0; i < input.length; i += 1) {
+    hash = ((hash << 5) - hash) + input.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash) % 360;
+};
+
+const cardHue = (cardId) => {
+  const key = String(cardId || '').trim();
+  const hue = Number.isFinite(CARD_HUE_PRESETS[key]) ? CARD_HUE_PRESETS[key] : hashHue(key);
+  return `hsla(${hue}, 68%, 48%, 0.55)`;
 };
 
 const dashboardBannerLoading = ref(false);
@@ -1916,6 +1954,7 @@ h1 {
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   border: 1px solid rgba(255,255,255,0.5);
+  border-left: 3px solid var(--rail-accent, rgba(198, 154, 43, 0.6));
   border-radius: 12px;
   padding: 10px 12px;
   cursor: pointer;
@@ -1929,22 +1968,6 @@ h1 {
   background: rgba(37, 40, 44, 0.75);
   border-color: rgba(255,255,255,0.08);
 }
-
-/* Light glass tints per card type */
-.rail-card[data-card-id="checklist"] { border-left: 3px solid rgba(47, 143, 131, 0.5); }
-.rail-card[data-card-id="training"] { border-left: 3px solid rgba(156, 39, 176, 0.5); }
-.rail-card[data-card-id="documents"] { border-left: 3px solid rgba(33, 150, 243, 0.5); }
-.rail-card[data-card-id="my_schedule"] { border-left: 3px solid rgba(76, 175, 80, 0.5); }
-.rail-card[data-card-id="program_shifts"] { border-left: 3px solid rgba(156, 39, 176, 0.5); }
-.rail-card[data-card-id="clients"] { border-left: 3px solid rgba(255, 152, 0, 0.5); }
-.rail-card[data-card-id="submit"] { border-left: 3px solid rgba(3, 169, 244, 0.6); }
-.rail-card[data-card-id="payroll"] { border-left: 3px solid rgba(103, 58, 183, 0.5); }
-.rail-card[data-card-id="my"] { border-left: 3px solid rgba(198, 154, 43, 0.6); }
-.rail-card[data-card-id="communications"] { border-left: 3px solid rgba(233, 30, 99, 0.5); }
-.rail-card[data-card-id="chats"] { border-left: 3px solid rgba(0, 188, 212, 0.5); }
-.rail-card[data-card-id="notifications"] { border-left: 3px solid rgba(244, 67, 54, 0.5); }
-.rail-card[data-card-id="on_demand_training"] { border-left: 3px solid rgba(139, 195, 74, 0.5); }
-.rail-card[data-card-id="supervision"] { border-left: 3px solid rgba(121, 85, 72, 0.5); }
 
 .rail-card:hover {
   border-color: var(--primary);

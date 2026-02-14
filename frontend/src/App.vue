@@ -224,7 +224,11 @@
                     <router-link v-if="user?.role === 'supervisor'" :to="orgTo('/supervisor/availability-lab')" @click="closeAllNavMenus">
                       Find Providers
                     </router-link>
-                    <router-link :to="orgTo('/admin/tools-aids')" v-if="noteAidEnabled && (isAdmin || user?.role === 'provider' || user?.role === 'staff')" @click="closeAllNavMenus">Tools &amp; Aids</router-link>
+                    <router-link
+                      :to="orgTo('/admin/tools-aids')"
+                      v-if="noteAidEnabled && (isAdmin || user?.role === 'staff' || user?.role === 'clinical_practice_assistant')"
+                      @click="closeAllNavMenus"
+                    >Tools &amp; Aids</router-link>
                   </div>
                 </div>
               </template>
@@ -417,7 +421,7 @@
               >Find Providers</router-link>
               <router-link
                 :to="orgTo('/admin/tools-aids')"
-                v-if="noteAidEnabled && (isAdmin || user?.role === 'provider' || user?.role === 'staff')"
+                v-if="noteAidEnabled && (isAdmin || user?.role === 'staff' || user?.role === 'clinical_practice_assistant')"
                 @click="closeMobileMenu"
                 class="mobile-nav-link"
               >Tools &amp; Aids</router-link>
