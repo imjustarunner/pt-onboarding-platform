@@ -745,14 +745,26 @@ const saveSettings = async () => {
   }
 };
 
+const applyProgressFromResponse = (progress) => {
+  if (!progress || typeof progress !== 'object') return;
+  const m = normalizeProgress(parseJsonMaybe(progress) || progress);
+  const key = String(props.schoolOrganizationId);
+  lastSeenOrg.value = String(m?.by_org?.[key] || '');
+  lastSeenByKind.value = m?.by_org_kind?.[key] || {};
+  lastSeenByClientKind.value = m?.by_org_client_kind?.[key] || {};
+  const dismissedList = m?.dismissed_by_org?.[key] || [];
+  dismissedIds.value = new Set(Array.isArray(dismissedList) ? dismissedList.map(String) : []);
+};
+
 const markRead = async ({ kind, clientId } = {}) => {
   try {
     if (!props.schoolOrganizationId) return;
-    await api.post(`/school-portal/${props.schoolOrganizationId}/notifications/read`, {
+    const r = await api.post(`/school-portal/${props.schoolOrganizationId}/notifications/read`, {
       kind: kind || undefined,
       clientId: clientId || undefined
     });
-    await loadLastSeen();
+    if (r?.data?.progress) applyProgressFromResponse(r.data.progress);
+    else await loadLastSeen();
   } catch {
     // ignore (should never block viewing)
   }
@@ -803,10 +815,13 @@ const dismiss = async (idsToDismiss) => {
   try {
     if (!props.schoolOrganizationId) return;
     const ids = Array.isArray(idsToDismiss) ? idsToDismiss : [idsToDismiss].filter(Boolean);
-    await api.post(`/school-portal/${props.schoolOrganizationId}/notifications/dismiss`, { ids });
-    const next = new Set(dismissedIds.value);
-    ids.forEach((id) => next.add(String(id)));
-    dismissedIds.value = next;
+    const r = await api.post(`/school-portal/${props.schoolOrganizationId}/notifications/dismiss`, { ids });
+    if (r?.data?.progress) applyProgressFromResponse(r.data.progress);
+    else {
+      const next = new Set(dismissedIds.value);
+      ids.forEach((id) => next.add(String(id)));
+      dismissedIds.value = next;
+    }
     emit('updated');
     selectedIds.value = selectedIds.value.filter((id) => !ids.includes(id));
   } catch {
