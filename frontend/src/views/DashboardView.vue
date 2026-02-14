@@ -702,6 +702,43 @@ const isSkillBuilderConfirmRequired = computed(() => {
   );
 });
 
+function parseFeatureFlags(raw) {
+  if (!raw) return {};
+  if (typeof raw === 'object') return raw || {};
+  if (typeof raw === 'string') {
+    try { return JSON.parse(raw) || {}; } catch { return {}; }
+  }
+  return {};
+}
+
+function isTruthyFlag(v) {
+  if (v === true || v === 1) return true;
+  const s = String(v ?? '').trim().toLowerCase();
+  return s === '1' || s === 'true' || s === 'yes' || s === 'on';
+}
+
+const agencyFlags = computed(() => parseFeatureFlags(agencyStore.currentAgency?.feature_flags));
+const portalVariant = computed(() => String(agencyFlags.value?.portalVariant || 'healthcare_provider'));
+const providerSurfacesEnabled = computed(() => portalVariant.value !== 'employee');
+const inSchoolEnabled = computed(() => agencyFlags.value?.inSchoolSubmissionsEnabled !== false);
+const medcancelEnabledForAgency = computed(() => inSchoolEnabled.value && agencyFlags.value?.medcancelEnabled !== false);
+const clinicalNoteGeneratorEnabledForAgency = computed(() => {
+  const base =
+    isTruthyFlag(agencyFlags.value?.noteAidEnabled) || isTruthyFlag(agencyFlags.value?.clinicalNoteGeneratorEnabled);
+  if (base) return true;
+  // For providers/interns: default to showing Tools & Aids when feature flags are not explicitly disabled
+  // (agency may be school org without flags, or agency context not yet loaded)
+  const role = String(authStore.user?.role || '').toLowerCase();
+  if (role === 'provider' || role === 'intern') {
+    const flags = agencyFlags.value;
+    if (!flags || (flags.noteAidEnabled === undefined && flags.clinicalNoteGeneratorEnabled === undefined)) return true;
+    if (flags.noteAidEnabled === false && flags.clinicalNoteGeneratorEnabled === false) return false;
+    return true;
+  }
+  return false;
+});
+const shiftProgramsEnabledForAgency = computed(() => isTruthyFlag(agencyFlags.value?.shiftProgramsEnabled));
+
 // Presence widget: super_admin always; staff/admin when agency has presenceEnabled
 const canSeePresenceWidget = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
@@ -1324,43 +1361,6 @@ const openVirtualWorkingHours = () => {
   }
   submitPanelView.value = 'virtual_hours';
 };
-
-function parseFeatureFlags(raw) {
-  if (!raw) return {};
-  if (typeof raw === 'object') return raw || {};
-  if (typeof raw === 'string') {
-    try { return JSON.parse(raw) || {}; } catch { return {}; }
-  }
-  return {};
-}
-
-function isTruthyFlag(v) {
-  if (v === true || v === 1) return true;
-  const s = String(v ?? '').trim().toLowerCase();
-  return s === '1' || s === 'true' || s === 'yes' || s === 'on';
-}
-
-const agencyFlags = computed(() => parseFeatureFlags(agencyStore.currentAgency?.feature_flags));
-const portalVariant = computed(() => String(agencyFlags.value?.portalVariant || 'healthcare_provider'));
-const providerSurfacesEnabled = computed(() => portalVariant.value !== 'employee');
-const inSchoolEnabled = computed(() => agencyFlags.value?.inSchoolSubmissionsEnabled !== false);
-const medcancelEnabledForAgency = computed(() => inSchoolEnabled.value && agencyFlags.value?.medcancelEnabled !== false);
-const clinicalNoteGeneratorEnabledForAgency = computed(() => {
-  const base =
-    isTruthyFlag(agencyFlags.value?.noteAidEnabled) || isTruthyFlag(agencyFlags.value?.clinicalNoteGeneratorEnabled);
-  if (base) return true;
-  // For providers/interns: default to showing Tools & Aids when feature flags are not explicitly disabled
-  // (agency may be school org without flags, or agency context not yet loaded)
-  const role = String(authStore.user?.role || '').toLowerCase();
-  if (role === 'provider' || role === 'intern') {
-    const flags = agencyFlags.value;
-    if (!flags || (flags.noteAidEnabled === undefined && flags.clinicalNoteGeneratorEnabled === undefined)) return true;
-    if (flags.noteAidEnabled === false && flags.clinicalNoteGeneratorEnabled === false) return false;
-    return true;
-  }
-  return false;
-});
-const shiftProgramsEnabledForAgency = computed(() => isTruthyFlag(agencyFlags.value?.shiftProgramsEnabled));
 
 const assignedSchools = ref([]);
 const assignedSchoolsLoading = ref(false);

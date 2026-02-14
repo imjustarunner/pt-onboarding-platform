@@ -190,15 +190,18 @@ export const useAuthStore = defineStore('auth', () => {
       // Get user info before clearing to determine login redirect
       const currentUser = user.value;
       
-      // Log logout event to backend (don't wait for response)
+      // Log logout event and clear server cookie before navigation.
       if (sessionId || token.value) {
-        api
-          .post('/auth/logout', { sessionId, reason }, { skipAuthRedirect: true })
-          .catch((err) => {
-            if (err?.response?.status !== 401) {
-              console.error('Failed to log logout event:', err);
-            }
-          });
+        try {
+          await Promise.race([
+            api.post('/auth/logout', { sessionId, reason }, { skipAuthRedirect: true }),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('logout_timeout')), 2000))
+          ]);
+        } catch (err) {
+          if (err?.message !== 'logout_timeout' && err?.response?.status !== 401) {
+            console.error('Failed to log logout event:', err);
+          }
+        }
       }
 
       // Mark presence offline (best-effort) so chat can move to notifications when away.
