@@ -14,14 +14,22 @@
         :to="action.to"
         class="action-card"
       >
-        <img
-          v-if="iconUrl(action) && !failedIconIds.has(String(action.id))"
-          :src="iconUrl(action)"
-          :alt="`${action.title} icon`"
-          class="action-icon"
-          @error="(e) => onIconError(action, e)"
-        />
-        <div v-else class="action-icon-placeholder">{{ action.emoji || '📌' }}</div>
+        <div class="action-icon-wrap">
+          <img
+            v-if="iconUrl(action) && !failedIconIds.has(String(action.id))"
+            :src="iconUrl(action)"
+            :alt="`${action.title} icon`"
+            class="action-icon"
+            @error="(e) => onIconError(action, e)"
+          />
+          <div v-else class="action-icon-placeholder">{{ action.emoji || '📌' }}</div>
+          <span
+            v-if="(badgeCounts[action.id] || 0) > 0"
+            class="action-badge"
+          >
+            {{ badgeCounts[action.id] > 99 ? '99+' : badgeCounts[action.id] }}
+          </span>
+        </div>
 
         <div class="action-content">
           <h3>{{ action.title }}</h3>
@@ -87,7 +95,8 @@ const props = defineProps({
   actions: { type: Array, required: true }, // [{id,title,description,to,emoji,category,roles?,capabilities?,iconKey?}]
   defaultActionIds: { type: Array, default: () => [] },
   iconResolver: { type: Function, default: null }, // (action) => url|null
-  compact: { type: Boolean, default: false } // icon + title only
+  compact: { type: Boolean, default: false }, // icon + title only
+  badgeCounts: { type: Object, default: () => ({}) } // { actionId: number } for badge display
 });
 
 const authStore = useAuthStore();
@@ -229,6 +238,8 @@ const selectedActions = computed(() => {
   return (selectedIds.value || []).map((id) => map.get(String(id))).filter(Boolean);
 });
 
+const badgeCounts = computed(() => props.badgeCounts && typeof props.badgeCounts === 'object' ? props.badgeCounts : {});
+
 onMounted(() => hydrate());
 
 watch(availableActions, () => {
@@ -295,6 +306,11 @@ watch(selectedIds, () => persist(), { deep: true });
   flex-shrink: 0;
 }
 
+.action-icon-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
 .action-icon-placeholder {
   width: 64px;
   height: 64px;
@@ -304,8 +320,26 @@ watch(selectedIds, () => persist(), { deep: true });
   font-size: 32px;
   background: var(--bg-alt);
   border-radius: 8px;
-  flex-shrink: 0;
   opacity: 0.7;
+}
+
+.action-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #ef4444;
+  color: white;
+  font-size: 12px;
+  font-weight: 800;
+  border-radius: 999px;
+  border: 2px solid white;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
 }
 
 .action-content {

@@ -238,6 +238,35 @@
     </div>
     
     <div class="settings-section">
+      <h3>Beta Feedback</h3>
+      <p class="section-description">
+        When enabled, all users see a floating "Beta" widget on screen. They can report issues with screenshots and context (route, what they were doing). Submissions are visible in the Beta Feedback dashboard (Super Admin only).
+      </p>
+      <div class="form-grid">
+        <div class="form-group">
+          <label class="toggle-label">
+            <span class="toggle-switch">
+              <input
+                v-model="betaFeedbackEnabled"
+                type="checkbox"
+                :disabled="savingBetaFeedback"
+              />
+              <span class="toggle-slider" />
+            </span>
+            <span class="toggle-text">Beta Feedback Widget Enabled</span>
+          </label>
+          <small>Turn on to let users submit feedback with screenshots for debugging.</small>
+        </div>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn btn-primary" @click="saveBetaFeedbackEnabled" :disabled="savingBetaFeedback">
+          {{ savingBetaFeedback ? 'Saving...' : 'Save Beta Feedback Setting' }}
+        </button>
+        <router-link to="/admin/beta-feedback" class="btn btn-secondary">View Submissions</router-link>
+      </div>
+    </div>
+
+    <div class="settings-section">
       <h3>Platform Information</h3>
       <div class="info-grid">
         <div class="info-item">
@@ -282,7 +311,9 @@ const savingMyDashboardIcons = ref(false);
 const savingSchoolPortalIcons = ref(false);
 const savingRetentionSettings = ref(false);
 const savingSessionLock = ref(false);
+const savingBetaFeedback = ref(false);
 const sessionLockPlatformMax = ref(30);
+const betaFeedbackEnabled = ref(false);
 const superAdminCount = ref(0);
 const totalAgencies = ref(0);
 const retentionSettings = ref({
@@ -372,6 +403,27 @@ const fetchSessionLockPlatformMax = () => {
   const pb = brandingStore.platformBranding;
   const val = pb?.max_inactivity_timeout_minutes ?? 30;
   sessionLockPlatformMax.value = Math.min(240, Math.max(1, parseInt(val, 10) || 30));
+};
+
+const fetchBetaFeedbackEnabled = () => {
+  const pb = brandingStore.platformBranding;
+  betaFeedbackEnabled.value = !!pb?.beta_feedback_enabled;
+};
+
+const saveBetaFeedbackEnabled = async () => {
+  try {
+    savingBetaFeedback.value = true;
+    await api.put('/platform-branding', {
+      betaFeedbackEnabled: betaFeedbackEnabled.value
+    });
+    await brandingStore.fetchPlatformBranding();
+    alert('Beta feedback setting saved successfully.');
+  } catch (err) {
+    const msg = err?.response?.data?.error?.message || err?.response?.data?.message || err?.message || 'Failed to save';
+    alert(msg);
+  } finally {
+    savingBetaFeedback.value = false;
+  }
 };
 
 const fetchRetentionSettings = async () => {
@@ -506,6 +558,7 @@ onMounted(async () => {
   await fetchSettings();
   await fetchRetentionSettings();
   fetchSessionLockPlatformMax();
+  fetchBetaFeedbackEnabled();
   await fetchStats();
 });
 </script>
@@ -631,6 +684,78 @@ onMounted(async () => {
   font-weight: 600;
   color: var(--text-primary);
   font-size: 13px;
+}
+
+.toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+}
+
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+}
+
+.toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle-slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #cbd5e1;
+  transition: 0.2s;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+}
+
+.toggle-slider:before {
+  position: absolute;
+  content: "";
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  bottom: 2px;
+  background-color: white;
+  transition: 0.2s;
+  border-radius: 50%;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.18);
+}
+
+.toggle-switch input:checked + .toggle-slider {
+  background-color: var(--primary);
+}
+
+.toggle-switch input:checked + .toggle-slider:before {
+  transform: translateX(20px);
+}
+
+.toggle-switch input:disabled + .toggle-slider {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.toggle-text {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.toggle-label small {
+  display: block;
+  margin-top: 6px;
+  margin-left: 56px;
+  color: var(--text-secondary);
+  font-size: 12px;
 }
 </style>
 

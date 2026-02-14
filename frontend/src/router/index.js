@@ -770,6 +770,12 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['super_admin'] }
   },
   {
+    path: '/admin/beta-feedback',
+    name: 'BetaFeedbackAdmin',
+    component: () => import('../views/admin/BetaFeedbackAdminView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['super_admin'] }
+  },
+  {
     path: '/admin/management-team',
     name: 'AgencyManagementTeam',
     component: () => import('../views/admin/AgencyManagementTeamView.vue'),

@@ -456,6 +456,7 @@
         <router-view />
       </main>
       <HelperWidget v-if="isAuthenticated" />
+      <BetaFeedbackWidget v-if="isAuthenticated" />
       <SuperAdminBuilderPanel v-if="isAuthenticated && brandingStore.isSuperAdmin" />
       <TourManager v-if="isAuthenticated" />
       <PlatformChatDrawer />
@@ -528,6 +529,7 @@ import PoweredByFooter from './components/PoweredByFooter.vue';
 import TourManager from './components/TourManager.vue';
 import SuperAdminBuilderPanel from './components/SuperAdminBuilderPanel.vue';
 import HelperWidget from './components/HelperWidget.vue';
+import BetaFeedbackWidget from './components/BetaFeedbackWidget.vue';
 import WeatherChip from './components/WeatherChip.vue';
 import SessionLockScreen from './components/SessionLockScreen.vue';
 import { toUploadsUrl } from './utils/uploadsUrl';

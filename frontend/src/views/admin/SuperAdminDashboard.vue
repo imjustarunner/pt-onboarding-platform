@@ -112,6 +112,7 @@
         :actions="quickActions"
         :default-action-ids="defaultQuickActionIds"
         :icon-resolver="resolveQuickActionIcon"
+        :badge-counts="betaFeedbackBadgeCounts"
         compact
       />
       
@@ -160,6 +161,11 @@ const showOrgBreakdown = ref(false);
 const agencies = ref([]);
 const selectedOrgId = ref(null);
 const orgOverviewSummary = ref({ counts: { school: 0, program: 0, learning: 0, other: 0 } });
+const betaFeedbackPendingCount = ref(0);
+
+const betaFeedbackBadgeCounts = computed(() => ({
+  beta_feedback: betaFeedbackPendingCount.value > 0 ? betaFeedbackPendingCount.value : 0
+}));
 
 // Use branding from store instead of local ref
 const branding = computed(() => brandingStore.platformBranding);
@@ -173,12 +179,14 @@ const fetchStats = async () => {
       await brandingStore.fetchPlatformBranding();
     }
     
-    const [agenciesRes, usersRes, modulesRes, templatesRes] = await Promise.all([
+    const [agenciesRes, usersRes, modulesRes, templatesRes, pendingRes] = await Promise.all([
       api.get('/agencies'),
       api.get('/users'),
       api.get('/modules'),
-      api.get('/training-focuses/templates')
+      api.get('/training-focuses/templates'),
+      api.get('/beta-feedback/pending-count', { skipGlobalLoading: true }).catch(() => ({ data: { count: 0 } }))
     ]);
+    betaFeedbackPendingCount.value = pendingRes?.data?.count ?? 0;
 
     const rawOrgs = Array.isArray(agenciesRes.data) ? agenciesRes.data : [];
     const primaryAgencies = rawOrgs.filter((a) => String(a?.organization_type || 'agency').toLowerCase() === 'agency');
@@ -512,6 +520,16 @@ const quickActions = computed(() => {
     capabilities: ['canAccessPlatform']
   },
   {
+    id: 'beta_feedback',
+    title: 'Beta Feedback',
+    description: 'View user-submitted feedback and screenshots for debugging',
+    to: '/admin/beta-feedback',
+    emoji: '🐛',
+    category: 'System',
+    roles: ['super_admin'],
+    capabilities: ['canAccessPlatform']
+  },
+  {
     id: 'all_progress',
     title: 'View All Progress',
     description: 'View training progress across all agencies',
@@ -546,6 +564,7 @@ const quickActions = computed(() => {
 const defaultQuickActionIds = computed(() => ([
   'executive_report',
   'presence',
+  'beta_feedback',
   'manage_organizations',
   'manage_clients',
   ...(clinicalNoteGeneratorEnabledForAgency.value ? ['clinical_note_generator'] : []),

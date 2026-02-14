@@ -417,6 +417,37 @@ class StorageService {
   }
 
   /**
+   * Save a beta feedback screenshot to GCS
+   * @param {number} feedbackId - Beta feedback submission ID
+   * @param {Buffer} fileBuffer - File content as buffer
+   * @param {string} filename - Filename (will be sanitized)
+   * @param {string} contentType - MIME type (e.g., image/png)
+   * @returns {Promise<{path: string, key: string, filename: string, relativePath: string}>}
+   */
+  static async saveBetaFeedbackScreenshot(feedbackId, fileBuffer, filename, contentType = 'image/png') {
+    const sanitizedFilename = this.sanitizeFilename(filename);
+    const key = `uploads/beta_feedback/${feedbackId}-${Date.now()}-${sanitizedFilename}`;
+
+    const bucket = await this.getGCSBucket();
+    const file = bucket.file(key);
+
+    await file.save(fileBuffer, {
+      contentType,
+      metadata: {
+        feedbackId: String(feedbackId || ''),
+        uploadedAt: new Date().toISOString()
+      }
+    });
+
+    return {
+      path: key,
+      key,
+      filename: sanitizedFilename,
+      relativePath: key
+    };
+  }
+
+  /**
    * Save a user profile photo to GCS
    * @param {number} userId - User ID (for metadata)
    * @param {Buffer} fileBuffer - File content

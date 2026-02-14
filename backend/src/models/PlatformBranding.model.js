@@ -639,7 +639,8 @@ class PlatformBranding {
       schoolPortalAnnouncementsIconId,
       defaultBrandingTemplateId,
       currentBrandingTemplateId,
-      maxInactivityTimeoutMinutes
+      maxInactivityTimeoutMinutes,
+      betaFeedbackEnabled
     } = brandingData;
 
     // Check if branding exists
@@ -713,6 +714,21 @@ class PlatformBranding {
           : Math.min(240, Math.max(1, parseInt(maxInactivityTimeoutMinutes, 10) || 30));
         updates.push('max_inactivity_timeout_minutes = ?');
         values.push(val);
+      }
+
+      // Beta feedback toggle (migration 403)
+      let hasBetaFeedbackEnabled = false;
+      try {
+        const [cols] = await pool.execute(
+          "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'platform_branding' AND COLUMN_NAME = 'beta_feedback_enabled'"
+        );
+        hasBetaFeedbackEnabled = (cols || []).length > 0;
+      } catch (e) {
+        hasBetaFeedbackEnabled = false;
+      }
+      if (hasBetaFeedbackEnabled && betaFeedbackEnabled !== undefined) {
+        updates.push('beta_feedback_enabled = ?');
+        values.push(betaFeedbackEnabled ? 1 : 0);
       }
       
       // Check if default icon columns exist

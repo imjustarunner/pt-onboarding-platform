@@ -429,6 +429,8 @@ export const useBrandingStore = defineStore('branding', () => {
   });
 
   // Tagline
+  const betaFeedbackEnabled = computed(() => !!platformBranding.value?.beta_feedback_enabled);
+
   const tagline = computed(() => {
     return platformBranding.value?.tagline || 'The gold standard for behavioral health workflows.';
   });
@@ -861,6 +863,7 @@ export const useBrandingStore = defineStore('branding', () => {
     displayName,
     peopleOpsTerm,
     navigationTitle,
+    betaFeedbackEnabled,
     tagline,
     platformBranding,
     fetchPlatformBranding,

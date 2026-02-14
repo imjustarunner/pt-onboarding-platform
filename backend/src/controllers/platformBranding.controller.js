@@ -214,7 +214,8 @@ export const updatePlatformBranding = async (req, res, next) => {
       schoolPortalParentQrIconId,
       schoolPortalParentSignIconId,
       schoolPortalUploadPacketIconId,
-      maxInactivityTimeoutMinutes
+      maxInactivityTimeoutMinutes,
+      betaFeedbackEnabled
     } = req.body;
 
     const branding = await PlatformBranding.update({
@@ -298,7 +299,8 @@ export const updatePlatformBranding = async (req, res, next) => {
       schoolPortalParentQrIconId: schoolPortalParentQrIconId !== undefined ? (schoolPortalParentQrIconId === null || schoolPortalParentQrIconId === '' ? null : parseInt(schoolPortalParentQrIconId)) : undefined,
       schoolPortalParentSignIconId: schoolPortalParentSignIconId !== undefined ? (schoolPortalParentSignIconId === null || schoolPortalParentSignIconId === '' ? null : parseInt(schoolPortalParentSignIconId)) : undefined,
       schoolPortalUploadPacketIconId: schoolPortalUploadPacketIconId !== undefined ? (schoolPortalUploadPacketIconId === null || schoolPortalUploadPacketIconId === '' ? null : parseInt(schoolPortalUploadPacketIconId)) : undefined,
-      maxInactivityTimeoutMinutes: maxInactivityTimeoutMinutes !== undefined ? (maxInactivityTimeoutMinutes === null || maxInactivityTimeoutMinutes === '' ? null : Math.min(240, Math.max(1, parseInt(maxInactivityTimeoutMinutes, 10) || 30))) : undefined
+      maxInactivityTimeoutMinutes: maxInactivityTimeoutMinutes !== undefined ? (maxInactivityTimeoutMinutes === null || maxInactivityTimeoutMinutes === '' ? null : Math.min(240, Math.max(1, parseInt(maxInactivityTimeoutMinutes, 10) || 30))) : undefined,
+      betaFeedbackEnabled: betaFeedbackEnabled !== undefined ? !!betaFeedbackEnabled : undefined
     }, req.user.id);
 
     res.json(branding);
