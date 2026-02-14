@@ -645,6 +645,34 @@
                 </div>
               </div>
             </div>
+
+            <div v-if="hasAgencyAccess" class="daily-notes-panel" style="margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--border-color, #ddd);">
+              <h3 style="margin:0;">Daily Notes</h3>
+              <p class="hint" style="margin-top: 6px;">Multiple staff can add notes throughout the day. Use initials only. Client/guardian can view notes for each date.</p>
+              <div style="display: flex; gap: 12px; align-items: flex-end; margin-top: 10px; flex-wrap: wrap;">
+                <div class="form-group">
+                  <label>Date</label>
+                  <input v-model="dailyNoteDate" type="date" class="input" @change="loadDailyNotes" />
+                </div>
+                <div class="form-group" style="flex: 1; min-width: 200px;">
+                  <label>Your note</label>
+                  <textarea v-model="dailyNoteMessage" class="input" rows="2" placeholder="Quick note for this day (initials only)…" />
+                </div>
+                <button class="btn btn-primary" :disabled="dailyNoteSaving || !dailyNoteDate" @click="saveDailyNote">
+                  {{ dailyNoteSaving ? 'Saving…' : 'Save' }}
+                </button>
+              </div>
+              <div v-if="dailyNotesForDate.length > 0" class="daily-notes-list" style="margin-top: 12px;">
+                <div v-for="n in dailyNotesForDate" :key="n.id" class="message-item daily-note-item">
+                  <span class="daily-note-initials">[{{ n.author_initials || '?' }}]</span>
+                  <span class="daily-note-message">{{ n.message }}</span>
+                  <span class="daily-note-time">{{ formatTime(n.created_at) }}</span>
+                </div>
+              </div>
+              <div v-else-if="dailyNoteDate && !dailyNotesLoading" class="empty-state" style="margin-top: 10px;">
+                <p>No notes for this date yet.</p>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -1427,6 +1455,52 @@ const toggleMessagesCollapsed = () => {
 };
 
 const showAdminNoteModal = ref(false);
+
+// Daily notes (multi-author, per-day)
+const dailyNoteDate = ref('');
+const dailyNoteMessage = ref('');
+const dailyNoteSaving = ref(false);
+const dailyNotesForDate = ref([]);
+const dailyNotesLoading = ref(false);
+const loadDailyNotes = async () => {
+  if (!props.client?.id || !dailyNoteDate.value) return;
+  dailyNotesLoading.value = true;
+  dailyNotesForDate.value = [];
+  try {
+    const { data } = await api.get(`/clients/${props.client.id}/daily-notes`, {
+      params: { note_date: dailyNoteDate.value }
+    });
+    dailyNotesForDate.value = data?.notes ?? [];
+    const myNote = (data?.notes ?? []).find((n) => Number(n.author_id) === authStore.user?.id);
+    dailyNoteMessage.value = myNote?.message ?? '';
+  } catch {
+    dailyNotesForDate.value = [];
+    dailyNoteMessage.value = '';
+  } finally {
+    dailyNotesLoading.value = false;
+  }
+};
+const saveDailyNote = async () => {
+  if (!props.client?.id || !dailyNoteDate.value) return;
+  dailyNoteSaving.value = true;
+  try {
+    await api.post(`/clients/${props.client.id}/daily-notes`, {
+      noteDate: dailyNoteDate.value,
+      message: dailyNoteMessage.value ?? ''
+    });
+    await loadDailyNotes();
+  } catch (err) {
+    console.error('Failed to save daily note:', err);
+  } finally {
+    dailyNoteSaving.value = false;
+  }
+};
+const formatTime = (dt) => {
+  if (!dt) return '';
+  const d = new Date(dt);
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+};
+
 const openAdminNoteModal = async () => {
   if (!isBackofficeRole.value) return;
   showAdminNoteModal.value = true;
@@ -2749,8 +2823,12 @@ watch(() => activeTab.value, (newTab) => {
     fetchAccessLog();
   } else if (newTab === 'checklist') {
     hydrateChecklist();
-  } else if (newTab === 'messages' && notes.value.length === 0) {
-    fetchNotes();
+  } else if (newTab === 'messages') {
+    if (notes.value.length === 0) fetchNotes();
+    if (!dailyNoteDate.value) {
+      dailyNoteDate.value = new Date().toISOString().slice(0, 10);
+      loadDailyNotes();
+    }
   } else if (newTab === 'guardians' && guardians.value.length === 0) {
     fetchGuardians();
   } else if (newTab === 'assignments') {
@@ -3386,6 +3464,27 @@ watch(
 
 .message-item.internal-note {
   border-left: 3px solid var(--primary);
+}
+
+.daily-note-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+}
+.daily-note-initials {
+  font-weight: 700;
+  color: var(--primary);
+  flex-shrink: 0;
+}
+.daily-note-message {
+  flex: 1;
+}
+.daily-note-time {
+  color: var(--text-secondary);
+  font-size: 12px;
+  flex-shrink: 0;
 }
 
 .message-header {

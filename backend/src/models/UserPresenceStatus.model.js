@@ -105,4 +105,20 @@ export default class UserPresenceStatus {
     );
     return rows || [];
   }
+
+  /**
+   * Same as findAllWithUsers but filtered to users in the given agency.
+   */
+  static async findAllWithUsersForAgency(agencyId) {
+    const all = await this.findAllWithUsers();
+    const aid = parseInt(agencyId, 10);
+    if (!aid) return all;
+    return all.filter((r) => {
+      const ids = (r.agency_ids || '')
+        .split(',')
+        .map((x) => parseInt(x, 10))
+        .filter((x) => !isNaN(x));
+      return ids.includes(aid);
+    });
+  }
 }

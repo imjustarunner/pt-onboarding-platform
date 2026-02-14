@@ -109,6 +109,95 @@
           </div>
         </div>
 
+        <div class="section" data-tour="buildings-settings-kiosk-assignments">
+          <div class="section-title">Kiosk Assignments</div>
+          <div class="hint">
+            Assign kiosk users to this building. Kiosks must be created as users with role "Kiosk" first.
+          </div>
+          <div class="row" style="margin-top: 10px; flex-wrap: wrap; gap: 8px;">
+            <select v-model="newKioskAssignment.kioskUserId" :disabled="loading" style="min-width: 180px;">
+              <option value="">Select kiosk user…</option>
+              <option v-for="k in kioskUsers" :key="k.id" :value="String(k.id)">{{ k.lastName }}, {{ k.firstName || '—' }}</option>
+            </select>
+            <select v-model="newKioskAssignment.agencyId" :disabled="loading" style="min-width: 160px;">
+              <option value="">Select agency…</option>
+              <option v-for="a in officeAgencies" :key="a.id" :value="String(a.id)">{{ a.name }}</option>
+            </select>
+            <button class="btn btn-primary" @click="addKioskAssignment" :disabled="saving || loading || !newKioskAssignment.kioskUserId || !newKioskAssignment.agencyId || !canManageOfficeSettings">
+              Add assignment
+            </button>
+          </div>
+          <details class="advanced-kiosk" style="margin-top: 10px;">
+            <summary>Advanced (valid dates, allowed days)</summary>
+            <div class="row" style="margin-top: 8px; flex-wrap: wrap; gap: 8px;">
+              <input v-model="newKioskAssignment.validFrom" type="date" placeholder="Valid from" style="min-width: 120px;" />
+              <input v-model="newKioskAssignment.validUntil" type="date" placeholder="Valid until" style="min-width: 120px;" />
+              <select v-model="newKioskAssignment.allowedDays" multiple style="min-width: 140px; height: 80px;">
+                <option v-for="(d, i) in dayNames" :key="i" :value="d.toLowerCase()">{{ d }}</option>
+              </select>
+              <span class="hint">Hold Ctrl/Cmd to select multiple days (e.g. Saturdays only)</span>
+            </div>
+          </details>
+          <div v-if="kioskAssignments.length === 0" class="muted" style="margin-top: 10px;">
+            No kiosk assignments for this building yet.
+          </div>
+          <div v-else class="list" style="margin-top: 10px;">
+            <div v-for="a in kioskAssignments" :key="a.id" class="list-row">
+              <div class="list-main">
+                <div class="title">{{ a.kiosk_first_name }} {{ a.kiosk_last_name }}</div>
+                <div class="meta">
+                  {{ a.agency_name }} •
+                  {{ a.valid_from || '—' }} to {{ a.valid_until || '—' }} •
+                  {{ formatAllowedDays(a.allowed_days_json) }}
+                </div>
+              </div>
+              <button class="btn btn-danger btn-sm" @click="removeKioskAssignment(a.id)" :disabled="saving || !canManageOfficeSettings">Remove</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="section" data-tour="buildings-settings-slot-rules">
+          <div class="section-title">Per-Slot Questionnaire Rules</div>
+          <div class="hint">
+            Assign questionnaires to specific rooms and times. When a client checks in to a matching slot, only these questionnaires are shown. Leave fields blank for "all".
+          </div>
+          <div class="row" style="margin-top: 10px; flex-wrap: wrap; gap: 8px;">
+            <select v-model="newSlotRule.roomId" :disabled="loading" style="min-width: 140px;">
+              <option value="">All rooms</option>
+              <option v-for="r in rooms" :key="r.id" :value="String(r.id)">{{ r.label || r.name || `Room ${r.id}` }}</option>
+            </select>
+            <select v-model="newSlotRule.dayOfWeek" :disabled="loading" style="min-width: 120px;">
+              <option value="">All days</option>
+              <option v-for="(d, i) in dayNames" :key="i" :value="String(i)">{{ d }}</option>
+            </select>
+            <input v-model.number="newSlotRule.hourStart" type="number" min="0" max="23" placeholder="Hour start (0–23)" style="min-width: 100px;" />
+            <input v-model.number="newSlotRule.hourEnd" type="number" min="0" max="23" placeholder="Hour end (0–23)" style="min-width: 100px;" />
+            <select v-model="newSlotRule.moduleId" :disabled="loading" style="min-width: 180px;">
+              <option value="">Select module…</option>
+              <option v-for="m in modules" :key="m.id" :value="String(m.id)">{{ m.title }}</option>
+            </select>
+            <button class="btn btn-primary" @click="addSlotRule" :disabled="saving || loading || !newSlotRule.moduleId || !canManageOfficeSettings">
+              Add rule
+            </button>
+          </div>
+          <div v-if="slotRules.length === 0" class="muted" style="margin-top: 10px;">
+            No per-slot rules yet. Office-level questionnaires apply to all slots.
+          </div>
+          <div v-else class="list" style="margin-top: 10px;">
+            <div v-for="r in slotRules" :key="r.id" class="list-row">
+              <div class="list-main">
+                <div class="title">{{ r.module_title }}</div>
+                <div class="meta">
+                  {{ r.room_name || 'All rooms' }} •
+                  {{ r.day_of_week != null ? dayNames[r.day_of_week] : 'All days' }} •
+                  {{ r.hour_start != null ? `${r.hour_start}:00` : '—' }}–{{ r.hour_end != null ? `${r.hour_end}:00` : '—' }}
+                </div>
+              </div>
+              <button class="btn btn-danger btn-sm" @click="removeSlotRule(r.id)" :disabled="saving || !canManageOfficeSettings">Remove</button>
+            </div>
+          </div>
+        </div>
+
         <div class="section" data-tour="buildings-settings-room-types">
           <div class="section-title">Office Types</div>
           <div class="row">
@@ -297,6 +386,25 @@ const questionnaires = ref([]);
 const modules = ref([]);
 const selectedModuleId = ref('');
 
+const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const kioskUsers = ref([]);
+const kioskAssignments = ref([]);
+const newKioskAssignment = ref({
+  kioskUserId: '',
+  agencyId: '',
+  validFrom: '',
+  validUntil: '',
+  allowedDays: []
+});
+const slotRules = ref([]);
+const newSlotRule = ref({
+  roomId: '',
+  dayOfWeek: '',
+  hourStart: null,
+  hourEnd: null,
+  moduleId: ''
+});
+
 const roomTypes = ref([]);
 const newRoomTypeName = ref('');
 
@@ -331,7 +439,10 @@ const loadAll = async () => {
       api.get(`/offices/${officeId.value}/questionnaires`),
       api.get(`/offices/questionnaire-modules/search`),
       api.get(`/offices/${officeId.value}/room-types`),
-      api.get(`/offices/${officeId.value}/rooms`)
+      api.get(`/offices/${officeId.value}/rooms`),
+      api.get(`/offices/${officeId.value}/slot-questionnaire-rules`),
+      api.get(`/offices/kiosk-users`),
+      api.get(`/offices/${officeId.value}/kiosk-assignments`)
     ]);
 
     const officeResp = settled[0].status === 'fulfilled' ? settled[0].value : null;
@@ -339,6 +450,9 @@ const loadAll = async () => {
     const modResp = settled[2].status === 'fulfilled' ? settled[2].value : null;
     const rtResp = settled[3].status === 'fulfilled' ? settled[3].value : null;
     const roomResp = settled[4].status === 'fulfilled' ? settled[4].value : null;
+    const slotRulesResp = settled[5].status === 'fulfilled' ? settled[5].value : null;
+    const kioskUsersResp = settled[6].status === 'fulfilled' ? settled[6].value : null;
+    const kioskAssignmentsResp = settled[7].status === 'fulfilled' ? settled[7].value : null;
 
     if (!officeResp) {
       throw new Error('Failed to load building');
@@ -353,6 +467,9 @@ const loadAll = async () => {
     modules.value = (modResp?.data || []).filter((m) => m?.is_custom_input_module === 1 || m?.is_custom_input_module === true);
     roomTypes.value = rtResp?.data || [];
     rooms.value = roomResp?.data || [];
+    slotRules.value = slotRulesResp?.data || [];
+    kioskUsers.value = kioskUsersResp?.data || [];
+    kioskAssignments.value = kioskAssignmentsResp?.data || [];
     // Seed editable google resource email map
     const map = {};
     for (const r of rooms.value || []) {
@@ -477,6 +594,86 @@ const removeQuestionnaire = async (moduleId) => {
     questionnaires.value = resp.data || [];
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to remove questionnaire';
+  } finally {
+    saving.value = false;
+  }
+};
+
+const addSlotRule = async () => {
+  if (!officeId.value || !newSlotRule.value.moduleId) return;
+  try {
+    saving.value = true;
+    error.value = '';
+    const payload = {
+      moduleId: Number(newSlotRule.value.moduleId),
+      roomId: newSlotRule.value.roomId ? Number(newSlotRule.value.roomId) : null,
+      dayOfWeek: newSlotRule.value.dayOfWeek !== '' ? Number(newSlotRule.value.dayOfWeek) : null,
+      hourStart: newSlotRule.value.hourStart !== '' && newSlotRule.value.hourStart != null ? Number(newSlotRule.value.hourStart) : null,
+      hourEnd: newSlotRule.value.hourEnd !== '' && newSlotRule.value.hourEnd != null ? Number(newSlotRule.value.hourEnd) : null
+    };
+    const resp = await api.post(`/offices/${officeId.value}/slot-questionnaire-rules`, payload);
+    slotRules.value = resp.data || [];
+    newSlotRule.value = { roomId: '', dayOfWeek: '', hourStart: null, hourEnd: null, moduleId: '' };
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to add slot rule';
+  } finally {
+    saving.value = false;
+  }
+};
+
+const formatAllowedDays = (json) => {
+  if (!json) return 'All days';
+  const arr = typeof json === 'string' ? (() => { try { return JSON.parse(json); } catch { return []; } })() : json;
+  return Array.isArray(arr) && arr.length > 0 ? arr.map((d) => String(d).charAt(0).toUpperCase() + String(d).slice(1)).join(', ') : 'All days';
+};
+
+const addKioskAssignment = async () => {
+  if (!officeId.value || !newKioskAssignment.value.kioskUserId || !newKioskAssignment.value.agencyId) return;
+  try {
+    saving.value = true;
+    error.value = '';
+    const payload = {
+      kioskUserId: Number(newKioskAssignment.value.kioskUserId),
+      agencyId: Number(newKioskAssignment.value.agencyId),
+      validFrom: newKioskAssignment.value.validFrom || null,
+      validUntil: newKioskAssignment.value.validUntil || null,
+      allowedDays: Array.isArray(newKioskAssignment.value.allowedDays) && newKioskAssignment.value.allowedDays.length > 0
+        ? newKioskAssignment.value.allowedDays
+        : null
+    };
+    const resp = await api.post(`/offices/${officeId.value}/kiosk-assignments`, payload);
+    kioskAssignments.value = resp.data || [];
+    newKioskAssignment.value = { kioskUserId: '', agencyId: '', validFrom: '', validUntil: '', allowedDays: [] };
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to add kiosk assignment';
+  } finally {
+    saving.value = false;
+  }
+};
+
+const removeKioskAssignment = async (assignmentId) => {
+  if (!officeId.value || !assignmentId) return;
+  try {
+    saving.value = true;
+    error.value = '';
+    const resp = await api.delete(`/offices/${officeId.value}/kiosk-assignments/${assignmentId}`);
+    kioskAssignments.value = resp.data || [];
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to remove kiosk assignment';
+  } finally {
+    saving.value = false;
+  }
+};
+
+const removeSlotRule = async (ruleId) => {
+  if (!officeId.value || !ruleId) return;
+  try {
+    saving.value = true;
+    error.value = '';
+    const resp = await api.delete(`/offices/${officeId.value}/slot-questionnaire-rules/${ruleId}`);
+    slotRules.value = resp.data || [];
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to remove slot rule';
   } finally {
     saving.value = false;
   }

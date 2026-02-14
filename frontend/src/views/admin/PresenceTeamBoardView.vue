@@ -4,10 +4,20 @@
       <div>
         <h1>Presence / Team Board</h1>
         <p class="page-description">
-          See who is in, out, or traveling. SuperAdmin testing only.
+          See who is in, out, or traveling.
         </p>
       </div>
       <div class="header-actions">
+        <select
+          v-if="isAdmin && adminAgencies.length > 1"
+          v-model="adminSelectedAgencyId"
+          class="filter-select"
+          aria-label="Select agency"
+          @change="fetchPresence"
+        >
+          <option value="">Select agency…</option>
+          <option v-for="a in adminAgencies" :key="a.id" :value="String(a.id)">{{ a.name }}</option>
+        </select>
         <input
           v-model="searchQuery"
           type="search"
@@ -15,7 +25,7 @@
           placeholder="Search by name..."
           aria-label="Search people"
         />
-        <select v-model="agencyFilter" class="filter-select" aria-label="Filter by agency">
+        <select v-if="isSuperAdmin" v-model="agencyFilter" class="filter-select" aria-label="Filter by agency">
           <option value="">All agencies</option>
           <option v-for="a in agencies" :key="a.id" :value="String(a.id)">{{ a.name }}</option>
         </select>
@@ -39,7 +49,7 @@
       </div>
     </div>
 
-    <!-- Bulk actions -->
+    <!-- Bulk actions (SuperAdmin only) -->
     <div v-if="isSuperAdmin && selectedIds.size > 0" class="bulk-bar">
       <span class="bulk-count">{{ selectedIds.size }} selected</span>
       <select v-model="bulkStatus" class="filter-select">
@@ -52,8 +62,8 @@
       <button class="btn btn-secondary" type="button" @click="clearSelection">Clear selection</button>
     </div>
 
-    <div v-if="!isSuperAdmin" class="access-denied">
-      <p>Access denied. This feature is SuperAdmin only.</p>
+    <div v-if="!canAccess" class="access-denied">
+      <p>Access denied. Enable Presence in your agency's Features to view the Team Board.</p>
     </div>
 
     <div v-else>
@@ -64,7 +74,7 @@
         <table class="team-board-table">
           <thead>
             <tr>
-              <th class="select-cell">
+              <th v-if="isSuperAdmin" class="select-cell">
                 <input
                   type="checkbox"
                   :checked="selectedIds.size > 0 && selectedIds.size === filteredPeople.length"
@@ -82,13 +92,14 @@
           </thead>
           <tbody>
             <tr v-if="filteredPeople.length === 0" class="empty-row">
-              <td colspan="6" class="empty-cell">
+              <td :colspan="isSuperAdmin ? 6 : 5" class="empty-cell">
                 {{ people.length === 0 ? 'No users found.' : 'No matches for the current filters.' }}
               </td>
             </tr>
             <tr v-for="person in sortedPeople" :key="person.id" class="person-row">
               <td class="select-cell">
                 <input
+                  v-if="isSuperAdmin"
                   type="checkbox"
                   :checked="selectedIds.has(person.id)"
                   @change="toggleSelect(person.id)"
@@ -113,6 +124,7 @@
               <td class="status-cell">
                 <span class="status-indicator" :class="statusIndicatorClass(person.presence_status)" :title="statusLabel(person.presence_status)" />
                 <select
+                  v-if="isSuperAdmin"
                   :value="person.presence_status || ''"
                   class="status-select"
                   @change="onStatusChange(person, $event)"
@@ -127,6 +139,7 @@
                     {{ opt.label }}
                   </option>
                 </select>
+                <span v-else class="status-readonly">{{ statusLabel(person.presence_status) || '—' }}</span>
               </td>
               <td class="note-cell">
                 <template v-if="person.presence_status === 'out_quick'">
@@ -135,7 +148,7 @@
                     Back {{ formatReturnTime(person.presence_expected_return_at) }}
                     <span v-if="isOverdue(person.presence_expected_return_at)" class="overdue-badge">Overdue</span>
                     <button
-                      v-if="isOverdue(person.presence_expected_return_at)"
+                      v-if="isSuperAdmin && isOverdue(person.presence_expected_return_at)"
                       type="button"
                       class="btn-nudge"
                       :disabled="nudgingId === person.id"
@@ -169,14 +182,20 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
 import { useAuthStore } from '../../store/auth';
+import { useAgencyStore } from '../../store/agency';
 import api from '../../services/api';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 
 const authStore = useAuthStore();
+const agencyStore = useAgencyStore();
 const user = computed(() => authStore.user);
 const isSuperAdmin = computed(
   () => String(user.value?.role || '').toLowerCase() === 'super_admin'
 );
+const isAdmin = computed(
+  () => String(user.value?.role || '').toLowerCase() === 'admin'
+);
+const canAccess = computed(() => isSuperAdmin.value || isAdmin.value);
 
 const loading = ref(true);
 const error = ref('');
@@ -187,6 +206,8 @@ const searchQuery = ref('');
 const statusFilter = ref('');
 const agencyFilter = ref('');
 const agencies = ref([]);
+const adminAgencies = ref([]);
+const adminSelectedAgencyId = ref('');
 const sortBy = ref('name');
 const sortOrder = ref('asc');
 const selectedIds = ref(new Set());
@@ -327,7 +348,16 @@ const fetchPresence = async () => {
   try {
     loading.value = true;
     error.value = '';
-    const res = await api.get('/presence');
+    let agencyId = agencyStore.currentAgency?.id || agencyStore.currentAgency?.value;
+    if (isAdmin.value && adminSelectedAgencyId.value) {
+      agencyId = parseInt(adminSelectedAgencyId.value, 10);
+    } else if (isAdmin.value && adminAgencies.value.length === 1) {
+      agencyId = adminAgencies.value[0]?.id;
+    }
+    const url = isSuperAdmin.value
+      ? '/presence'
+      : (agencyId ? `/presence/agency/${agencyId}/team` : '/presence');
+    const res = await api.get(url);
     people.value = Array.isArray(res.data) ? res.data : [];
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to load presence';
@@ -535,13 +565,30 @@ const fetchAgencies = async () => {
   }
 };
 
+const fetchAdminAgencies = async () => {
+  try {
+    const res = await api.get('/users/me/agencies');
+    const list = Array.isArray(res.data) ? res.data : [];
+    adminAgencies.value = list.filter((a) => a.organization_type === 'agency');
+    if (adminAgencies.value.length === 1 && !adminSelectedAgencyId.value) {
+      adminSelectedAgencyId.value = String(adminAgencies.value[0].id);
+    }
+  } catch {
+    adminAgencies.value = [];
+  }
+};
+
 const POLL_INTERVAL_MS = 60 * 1000; // 60 seconds
 let pollTimer = null;
 
-onMounted(() => {
-  if (isSuperAdmin.value) {
+onMounted(async () => {
+  if (canAccess.value) {
+    if (isSuperAdmin.value) {
+      await fetchAgencies();
+    } else if (isAdmin.value) {
+      await fetchAdminAgencies();
+    }
     fetchPresence();
-    fetchAgencies();
     pollTimer = setInterval(fetchPresence, POLL_INTERVAL_MS);
   }
 });
@@ -755,6 +802,11 @@ onBeforeUnmount(() => {
   background: white;
   font-size: 0.9rem;
   min-width: 200px;
+}
+
+.status-readonly {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
 }
 
 .note-cell {

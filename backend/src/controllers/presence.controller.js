@@ -359,45 +359,103 @@ export const listAdminPresence = async (req, res, next) => {
 // --- Team Board presence (status-based: In/Out/Traveling) ---
 
 /**
- * Super-admin only: list all users with presence status for Team Board.
- * GET /api/presence (root path, requires super_admin)
+ * List presence for Team Board.
+ * Super-admin: all users. Admin: agency-scoped when agency has presenceEnabled.
+ * GET /api/presence (root) or GET /api/presence/agency/:agencyId
  */
+const mapPresenceRows = (rows) => {
+  return (rows || []).map((r) => {
+    const firstName = r.first_name || '';
+    const lastName = r.last_name || '';
+    const preferredName = r.preferred_name || '';
+    const displayName = preferredName
+      ? `${firstName} "${preferredName}" ${lastName}`.trim()
+      : `${firstName} ${lastName}`.trim() || 'Unknown';
+    const agencyIds = (r.agency_ids || '')
+      .split(',')
+      .map((x) => parseInt(x, 10))
+      .filter((x) => !isNaN(x));
+    return {
+      id: r.id,
+      first_name: r.first_name,
+      last_name: r.last_name,
+      preferred_name: r.preferred_name,
+      display_name: displayName,
+      email: r.email,
+      role: r.role,
+      agency_ids: agencyIds,
+      profile_photo_url: publicUploadsUrlFromStoredPath(r.profile_photo_path),
+      presence_status: r.presence_status || null,
+      presence_note: r.presence_note || null,
+      presence_started_at: r.presence_started_at || null,
+      presence_ends_at: r.presence_ends_at || null,
+      presence_expected_return_at: r.presence_expected_return_at || null
+    };
+  });
+};
+
 export const listPresence = async (req, res, next) => {
   try {
-    if (String(req.user?.role || '').toLowerCase() !== 'super_admin') {
+    const role = String(req.user?.role || '').toLowerCase();
+    let rows;
+
+    if (role === 'super_admin') {
+      rows = await UserPresenceStatus.findAllWithUsers();
+    } else {
       return res.status(403).json({ error: { message: 'Super admin access required' } });
     }
+    res.json(mapPresenceRows(rows));
+  } catch (e) {
+    next(e);
+  }
+};
 
-    const rows = await UserPresenceStatus.findAllWithUsers();
-    const out = (rows || []).map((r) => {
-      const firstName = r.first_name || '';
-      const lastName = r.last_name || '';
-      const preferredName = r.preferred_name || '';
-      const displayName = preferredName
-        ? `${firstName} "${preferredName}" ${lastName}`.trim()
-        : `${firstName} ${lastName}`.trim() || 'Unknown';
-      const agencyIds = (r.agency_ids || '')
-        .split(',')
-        .map((x) => parseInt(x, 10))
-        .filter((x) => !isNaN(x));
-      return {
-        id: r.id,
-        first_name: r.first_name,
-        last_name: r.last_name,
-        preferred_name: r.preferred_name,
-        display_name: displayName,
-        email: r.email,
-        role: r.role,
-        agency_ids: agencyIds,
-        profile_photo_url: publicUploadsUrlFromStoredPath(r.profile_photo_path),
-        presence_status: r.presence_status || null,
-        presence_note: r.presence_note || null,
-        presence_started_at: r.presence_started_at || null,
-        presence_ends_at: r.presence_ends_at || null,
-        presence_expected_return_at: r.presence_expected_return_at || null
-      };
-    });
-    res.json(out);
+/**
+ * Admin: list presence for their agency's team (when agency has presenceEnabled).
+ * GET /api/presence/agency/:agencyId/team
+ */
+export const listPresenceForAgency = async (req, res, next) => {
+  try {
+    const agencyId = parseInt(req.params.agencyId, 10);
+    if (!agencyId) return res.status(400).json({ error: { message: 'Invalid agency id' } });
+
+    const role = String(req.user?.role || '').toLowerCase();
+    if (role === 'super_admin') {
+      const rows = await UserPresenceStatus.findAllWithUsersForAgency(agencyId);
+      return res.json(mapPresenceRows(rows));
+    }
+    if (role !== 'admin') {
+      return res.status(403).json({ error: { message: 'Admin access required' } });
+    }
+
+    const User = (await import('../models/User.model.js')).default;
+    const userAgencies = await User.getAgencies(req.user.id);
+    const hasAccess = (userAgencies || []).some((a) => parseInt(a.id, 10) === agencyId);
+    if (!hasAccess) {
+      return res.status(403).json({ error: { message: 'Access denied to this agency' } });
+    }
+
+    const [agencyRows] = await pool.execute(
+      'SELECT feature_flags FROM agencies WHERE id = ?',
+      [agencyId]
+    );
+    const agency = agencyRows?.[0];
+    let flags = {};
+    if (agency?.feature_flags) {
+      try {
+        flags = typeof agency.feature_flags === 'string'
+          ? JSON.parse(agency.feature_flags)
+          : agency.feature_flags;
+      } catch {
+        /* ignore */
+      }
+    }
+    if (flags.presenceEnabled !== true) {
+      return res.status(403).json({ error: { message: 'Presence is not enabled for this agency' } });
+    }
+
+    const rows = await UserPresenceStatus.findAllWithUsersForAgency(agencyId);
+    res.json(mapPresenceRows(rows));
   } catch (e) {
     next(e);
   }

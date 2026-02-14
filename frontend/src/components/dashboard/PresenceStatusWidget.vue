@@ -2,6 +2,7 @@
   <div class="presence-widget">
     <div class="presence-widget-header">
       <span class="presence-widget-title">My Status</span>
+      <router-link v-if="canViewTeamBoard" to="/admin/presence" class="presence-team-link">View Team Board</router-link>
     </div>
     <div class="presence-widget-body">
       <select
@@ -26,8 +27,21 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
+import { useAuthStore } from '../../store/auth';
+import { useAgencyStore } from '../../store/agency';
 import api from '../../services/api';
+
+const authStore = useAuthStore();
+const agencyStore = useAgencyStore();
+const canViewTeamBoard = computed(() => {
+  const role = String(authStore.user?.role || '').toLowerCase();
+  if (role === 'super_admin') return true;
+  if (role !== 'admin') return false;
+  const flags = agencyStore.currentAgency?.feature_flags || agencyStore.currentAgency?.featureFlags || {};
+  const f = typeof flags === 'object' ? flags : (() => { try { return JSON.parse(flags || '{}'); } catch { return {}; } })();
+  return f?.presenceEnabled === true;
+});
 
 const statusOptions = [
   { value: 'in_available', label: 'In – Available' },
@@ -59,6 +73,25 @@ const fetchStatus = async () => {
   }
 };
 
+const parseDateInput = (input) => {
+  const s = String(input || '').trim().toLowerCase();
+  if (!s) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  if (s === 'today') return today;
+  if (s === 'tomorrow') {
+    const t = new Date(today);
+    t.setDate(t.getDate() + 1);
+    return t;
+  }
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (m) {
+    const d = new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10));
+    return isNaN(d.getTime()) ? null : d;
+  }
+  return null;
+};
+
 const onChange = async (event) => {
   const newStatus = event.target?.value || '';
   if (!newStatus) return;
@@ -85,6 +118,27 @@ const onChange = async (event) => {
     }
     const note = prompt('Optional note (e.g. "Errand", "Appointment"):');
     if (note && note.trim()) payload.note = payload.note ? `${payload.note} – ${note.trim()}` : note.trim();
+  } else if (['out_am', 'out_pm', 'out_full_day', 'traveling_offsite'].includes(newStatus)) {
+    const dateInput = prompt('For which date? (today, tomorrow, or YYYY-MM-DD). Leave blank for today:');
+    const d = dateInput ? parseDateInput(dateInput) : new Date();
+    if (d) {
+      const start = new Date(d);
+      const end = new Date(d);
+      if (newStatus === 'out_full_day' || newStatus === 'traveling_offsite') {
+        start.setHours(0, 0, 0, 0);
+        end.setHours(23, 59, 59, 999);
+      } else if (newStatus === 'out_am') {
+        start.setHours(8, 0, 0, 0);
+        end.setHours(12, 0, 0, 0);
+      } else {
+        start.setHours(12, 0, 0, 0);
+        end.setHours(17, 0, 0, 0);
+      }
+      payload.started_at = start.toISOString();
+      payload.ends_at = end.toISOString();
+    }
+    const note = prompt('Optional note (e.g. "Travel day", "Appointment"):');
+    if (note && note.trim()) payload.note = note.trim();
   } else {
     const note = prompt('Optional note:');
     if (note && note.trim()) payload.note = note.trim();
@@ -131,7 +185,18 @@ onMounted(fetchStatus);
 }
 
 .presence-widget-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   margin-bottom: 12px;
+}
+.presence-team-link {
+  font-size: 0.8rem;
+  color: var(--primary, #2563eb);
+  text-decoration: none;
+}
+.presence-team-link:hover {
+  text-decoration: underline;
 }
 
 .presence-widget-title {

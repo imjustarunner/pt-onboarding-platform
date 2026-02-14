@@ -507,6 +507,57 @@
       </div>
     </section>
 
+    <!-- Section 4.6: Kiosk PIN - for staff who clock in/out at kiosks -->
+    <section v-if="hasMyDashboard" class="preferences-section">
+      <div class="section-header">
+        <h2>Kiosk PIN</h2>
+        <p class="section-description">Optional 4-digit PIN to identify yourself at clock-in/out kiosks. Use your PIN instead of tapping your name.</p>
+      </div>
+      <div class="section-content">
+        <div class="prefs-grid">
+          <div class="card">
+            <h3 class="card-title">Kiosk PIN</h3>
+            <p v-if="prefs.kiosk_pin_set" class="field-help">PIN is set. Enter a new PIN below to change it, or clear to remove.</p>
+            <p v-else class="field-help">Set a 4-digit PIN to clock in/out at kiosks without tapping your name.</p>
+            <div class="row" style="gap: 12px; align-items: flex-end;">
+              <div class="field" style="margin: 0;">
+                <label>4-digit PIN</label>
+                <input
+                  v-model="kioskPinNew"
+                  type="password"
+                  inputmode="numeric"
+                  pattern="[0-9]*"
+                  maxlength="4"
+                  placeholder="••••"
+                  class="pin-input"
+                  :disabled="viewOnly"
+                  @input="kioskPinNew = ($event.target?.value || '').replace(/\D/g, '').slice(0, 4)"
+                />
+              </div>
+              <button
+                type="button"
+                class="btn btn-primary"
+                :disabled="viewOnly || !kioskPinValid || savingKioskPin"
+                @click="saveKioskPin"
+              >
+                {{ savingKioskPin ? 'Saving…' : (prefs.kiosk_pin_set ? 'Change PIN' : 'Set PIN') }}
+              </button>
+              <button
+                v-if="prefs.kiosk_pin_set"
+                type="button"
+                class="btn btn-secondary"
+                :disabled="viewOnly || savingKioskPin"
+                @click="clearKioskPin"
+              >
+                Clear PIN
+              </button>
+            </div>
+            <p v-if="kioskPinError" class="field-help" style="color: var(--danger, #dc3545);">{{ kioskPinError }}</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <!-- Section 5: Accessibility & UI Preferences -->
     <section class="preferences-section">
       <div class="section-header">
@@ -758,7 +809,10 @@ const prefs = ref({
   // Session Lock (HIPAA-style)
   session_lock_enabled: false,
   inactivity_timeout_minutes: null,
-  session_lock_pin_set: false
+  session_lock_pin_set: false,
+
+  // Kiosk PIN (for clock in/out at kiosks)
+  kiosk_pin_set: false
 });
 
 const defaultScheduleColors = () => ({
@@ -799,6 +853,11 @@ const sessionLockPinMismatch = computed(() => {
   if (!a && !b) return false;
   return a.length === 4 && b.length === 4 && a !== b;
 });
+
+const kioskPinNew = ref('');
+const savingKioskPin = ref(false);
+const kioskPinError = ref('');
+const kioskPinValid = computed(() => /^\d{4}$/.test(String(kioskPinNew.value || '').trim()));
 
 const applyLayoutDensity = (density) => {
   const root = document.documentElement;
@@ -886,6 +945,38 @@ const parseJsonMaybe = (v) => {
   }
 };
 
+const saveKioskPin = async () => {
+  if (props.userId !== authStore.user?.id || viewOnly || !kioskPinValid.value) return;
+  try {
+    savingKioskPin.value = true;
+    kioskPinError.value = '';
+    await api.put('/users/me/kiosk-pin', { pin: kioskPinNew.value.trim() });
+    prefs.value.kiosk_pin_set = true;
+    kioskPinNew.value = '';
+    saved.value = true;
+  } catch (e) {
+    kioskPinError.value = e.response?.data?.error?.message || 'Failed to set PIN';
+  } finally {
+    savingKioskPin.value = false;
+  }
+};
+
+const clearKioskPin = async () => {
+  if (props.userId !== authStore.user?.id || viewOnly) return;
+  try {
+    savingKioskPin.value = true;
+    kioskPinError.value = '';
+    await api.put('/users/me/kiosk-pin', { pin: null });
+    prefs.value.kiosk_pin_set = false;
+    kioskPinNew.value = '';
+    saved.value = true;
+  } catch (e) {
+    kioskPinError.value = e.response?.data?.error?.message || 'Failed to clear PIN';
+  } finally {
+    savingKioskPin.value = false;
+  }
+};
+
 const load = async () => {
   try {
     loading.value = true;
@@ -929,6 +1020,7 @@ const load = async () => {
     prefs.value.session_lock_enabled = !!data?.session_lock_enabled;
     prefs.value.inactivity_timeout_minutes = data?.inactivity_timeout_minutes ?? null;
     prefs.value.session_lock_pin_set = !!data?.session_lock_pin_set;
+    prefs.value.kiosk_pin_set = !!data?.kiosk_pin_set;
     prefs.value.dark_mode = !!data?.dark_mode;
 
     // Apply dark mode and sync store when loading own preferences

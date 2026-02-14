@@ -143,12 +143,19 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, computed, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import { formatDateTime } from '../../utils/formatDate';
+
+const props = defineProps({
+  /** Optional program ID to filter checklist items by program-scoped enabled items */
+  programId: { type: Number, default: null },
+  /** Optional agency ID to filter checklist items */
+  agencyId: { type: Number, default: null }
+});
 
 const emit = defineEmits(['update-count']);
 
@@ -173,8 +180,10 @@ const fetchChecklist = async () => {
       error.value = 'User not found';
       return;
     }
-    
-    const response = await api.get(`/users/${userId}/unified-checklist`);
+    const params = {};
+    if (props.programId) params.programId = props.programId;
+    if (props.agencyId) params.agencyId = props.agencyId;
+    const response = await api.get(`/users/${userId}/unified-checklist`, { params });
     checklist.value = response.data;
     
     emit('update-count', checklist.value.counts.total);
@@ -268,6 +277,11 @@ onMounted(async () => {
   }
   await fetchChecklist();
 });
+
+// Refetch when program/agency context changes
+watch(() => [props.programId, props.agencyId], () => {
+  fetchChecklist();
+}, { deep: true });
 </script>
 
 <style scoped>

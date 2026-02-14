@@ -134,6 +134,7 @@ import PayrollScheduleSettings from './PayrollScheduleSettings.vue';
 import NoteAidKnowledgeBaseSettings from './NoteAidKnowledgeBaseSettings.vue';
 import SmsNumbersManagement from './SmsNumbersManagement.vue';
 import IntakeLinksView from '../../views/admin/IntakeLinksView.vue';
+import ShiftProgramManagement from './ShiftProgramManagement.vue';
 
 // Import placeholder components
 import TeamRolesManagement from './TeamRolesManagement.vue';
@@ -307,6 +308,17 @@ const allCategories = [
         component: 'AvailabilityIntakeManagement',
         requiresAgency: true,
         roles: ['super_admin', 'admin', 'support', 'clinical_practice_assistant', 'staff'],
+        excludeSupervisor: true
+      },
+      {
+        id: 'shift-programs',
+        label: 'Shift Programs',
+        icon: '⏱️',
+        component: 'ShiftProgramManagement',
+        requiresAgency: true,
+        requiresShiftProgramsEnabled: true,
+        roles: ['super_admin', 'admin'],
+        excludeRoles: ['support', 'clinical_practice_assistant'],
         excludeSupervisor: true
       },
       {
@@ -508,6 +520,7 @@ const visibleCategories = computed(() => {
   const isUserSupervisor = isSupervisor(authStore.user);
   const flags = parseFeatureFlags(agencyStore.currentAgency?.feature_flags);
   const noteAidEnabled = isTruthyFlag(flags?.noteAidEnabled);
+  const shiftProgramsEnabled = isTruthyFlag(flags?.shiftProgramsEnabled);
   
   return allCategories.map(category => ({
     ...category,
@@ -547,6 +560,9 @@ const visibleCategories = computed(() => {
         if (item.requiresNoteAidEnabled && !noteAidEnabled) {
           return false;
         }
+        if (item.requiresShiftProgramsEnabled && !shiftProgramsEnabled) {
+          return false;
+        }
         return true;
       })
       .map(item => ({
@@ -578,6 +594,7 @@ const componentMap = {
   ProviderCatalogManagement,
   ProviderSchedulingManagement,
   AvailabilityIntakeManagement,
+  ShiftProgramManagement,
   ViewportPreviewSettings,
   PayrollScheduleSettings,
   NoteAidKnowledgeBaseSettings,

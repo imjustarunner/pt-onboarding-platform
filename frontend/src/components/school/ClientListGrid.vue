@@ -14,7 +14,49 @@
 
     <div v-else class="clients-table-wrapper">
       <div v-if="showSearch" class="table-toolbar">
-        <div v-if="activeStatusFilterLabel" class="active-filter-row">
+        <div v-if="showAttentionFilters" class="attention-filter-row">
+          <button
+            type="button"
+            class="filter-pill"
+            :class="{ active: !attentionFilterActive }"
+            @click="setAttentionFilter(null)"
+          >
+            All
+          </button>
+          <button
+            type="button"
+            class="filter-pill filter-pill-attention"
+            :class="{ active: attentionFilterActive }"
+            @click="setAttentionFilter('needs_attention')"
+          >
+            Needs attention
+            <span v-if="attentionSummary.total > 0" class="filter-pill-count">{{ attentionSummary.total }}</span>
+          </button>
+          <button
+            type="button"
+            class="filter-pill"
+            :class="{ active: activeStatusFilterKey === 'pending' }"
+            @click="setStatusFilter('pending')"
+          >
+            Pending
+          </button>
+          <button
+            type="button"
+            class="filter-pill"
+            :class="{ active: activeStatusFilterKey === 'waitlist' }"
+            @click="setStatusFilter('waitlist')"
+          >
+            Waitlist
+          </button>
+        </div>
+        <div v-if="showSummaryBanner && attentionSummary.any" class="summary-banner">
+          <template v-if="attentionSummary.new > 0">{{ attentionSummary.new }} new</template>
+          <template v-if="attentionSummary.new > 0 && (attentionSummary.pendingCompliance > 0 || attentionSummary.openTickets > 0)"> • </template>
+          <template v-if="attentionSummary.pendingCompliance > 0">{{ attentionSummary.pendingCompliance }} pending compliance</template>
+          <template v-if="attentionSummary.pendingCompliance > 0 && attentionSummary.openTickets > 0"> • </template>
+          <template v-if="attentionSummary.openTickets > 0">{{ attentionSummary.openTickets }} ticket open</template>
+        </div>
+        <div v-if="activeStatusFilterLabel && !showAttentionFilters" class="active-filter-row">
           <span class="active-filter-pill">Status: {{ activeStatusFilterLabel }}</span>
           <button class="btn-link" type="button" @click="clearStatusFilter">Clear</button>
         </div>
@@ -38,6 +80,10 @@
           <div class="unread-legend-item">
             <span class="ticket-status-badge ticket-status-answered ticket-status-legend" aria-hidden="true">Ticket Answered</span>
             <span class="unread-legend-text">Ticket answered</span>
+          </div>
+          <div v-if="showAssignedColumn" class="unread-legend-item">
+            <span class="newly-assigned-badge newly-assigned-badge-legend" aria-hidden="true">New</span>
+            <span class="unread-legend-text">Assigned in last 7 days</span>
           </div>
           <div class="unread-legend-hint">Click a bubble to open it.</div>
         </div>
@@ -89,6 +135,16 @@
             <th></th>
             <th v-if="showChecklistButton"></th>
             <th v-if="canEditClients" class="edit-col">Edit</th>
+            <th
+              v-if="showAssignedColumn"
+              class="sortable"
+              @click="toggleSort('provider_assigned_at')"
+              role="button"
+              tabindex="0"
+            >
+              Assigned
+              <span class="sort-indicator" v-if="sortKey === 'provider_assigned_at'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
+            </th>
             <th class="sortable" @click="toggleSort('submission_date')" role="button" tabindex="0">
               Submission Date
               <span class="sort-indicator" v-if="sortKey === 'submission_date'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
@@ -100,7 +156,10 @@
             v-for="client in sortedClients"
             :key="client.id"
             class="client-row"
-            :class="{ 'client-row-clickable': isSchoolStaff }"
+            :class="{
+              'client-row-clickable': isSchoolStaff,
+              'client-row-newly-assigned': isNewlyAssigned(client)
+            }"
             :role="isSchoolStaff ? 'button' : undefined"
             :tabindex="isSchoolStaff ? 0 : undefined"
             @click="handleRowActivate(client)"
@@ -110,6 +169,13 @@
             <td class="initials-cell">
               <div class="client-label">
                 <span class="initials" :title="rosterLabelTitle(client)">{{ formatRosterLabel(client) }}</span>
+                <span
+                  v-if="isNewlyAssigned(client)"
+                  class="newly-assigned-badge"
+                  :title="`Assigned ${formatDate(client.provider_assigned_at)}`"
+                >
+                  New
+                </span>
                 <span
                   v-if="client.compliance_pending"
                   class="pending-compliance-badge"
@@ -219,9 +285,10 @@
             <td v-if="showChecklistButton">
               <button
                 v-if="client.user_is_assigned_provider"
-                class="btn btn-secondary btn-sm"
+                class="btn btn-primary btn-sm checklist-btn"
                 type="button"
-                @click.stop="goChecklist(client)"
+                :title="'Quick edit compliance checklist'"
+                @click.stop="openQuickChecklist(client)"
               >
                 Checklist
               </button>
@@ -229,6 +296,7 @@
             <td v-if="canEditClients" class="edit-col">
               <button class="btn btn-primary btn-sm" type="button" @click.stop="goEdit(client)">Edit</button>
             </td>
+            <td v-if="showAssignedColumn">{{ formatDate(client.provider_assigned_at) }}</td>
             <td>{{ formatDate(client.submission_date) }}</td>
           </tr>
         </tbody>
@@ -239,18 +307,25 @@
     <SchoolClientChatModal
       v-if="selectedClient"
       :client="selectedClient"
-      :schoolOrganizationId="organizationId"
+      :schoolOrganizationId="selectedClient?.organization_id || organizationId"
       :initial-pane="selectedClientInitialPane"
       @close="selectedClient = null; selectedClientInitialPane = null"
     />
 
     <WaitlistNoteModal
       v-if="waitlistClient"
-      :org-key="orgKey"
+      :org-key="waitlistOrgKey(waitlistClient)"
       :client="waitlistClient"
       :client-label-mode="clientLabelMode"
       @saved="onWaitlistSaved"
       @close="waitlistClient = null"
+    />
+
+    <QuickChecklistModal
+      v-if="quickChecklistClient"
+      :client="quickChecklistClient"
+      @close="quickChecklistClient = null"
+      @saved="onQuickChecklistSaved"
     />
   </div>
 </template>
@@ -261,6 +336,7 @@ import { useRouter } from 'vue-router';
 import api from '../../services/api';
 import SchoolClientChatModal from './SchoolClientChatModal.vue';
 import WaitlistNoteModal from './WaitlistNoteModal.vue';
+import QuickChecklistModal from './QuickChecklistModal.vue';
 import { useAuthStore } from '../../store/auth';
 
 const props = defineProps({
@@ -309,10 +385,17 @@ const props = defineProps({
   statusFilterKey: {
     type: String,
     default: ''
+  },
+  /**
+   * When provided (array), use this list instead of fetching. Used for "All schools" merged roster.
+   */
+  clientsOverride: {
+    type: Array,
+    default: null
   }
 });
 
-const emit = defineEmits(['edit-client', 'update:statusFilterKey']);
+const emit = defineEmits(['edit-client', 'update:statusFilterKey', 'update:needsAttentionCount']);
 
 const clients = ref([]);
 const loading = ref(false);
@@ -325,17 +408,21 @@ const router = useRouter();
 const authStore = useAuthStore();
 
 const canEditClients = ref(false);
+const quickChecklistClient = ref(null);
 const isSchoolStaff = computed(() => String(authStore.user?.role || '').toLowerCase() === 'school_staff');
 const showChecklistButton = computed(() => {
   const r = String(authStore.user?.role || '').toLowerCase();
   return r === 'provider';
 });
+const showAssignedColumn = computed(() => props.rosterScope === 'provider');
 
 const orgKey = computed(() => {
   // school roster expects numeric org id; provider roster may only have slug.
   const v = props.organizationId ? String(props.organizationId) : String(props.organizationSlug || '').trim();
   return v || '';
 });
+
+const waitlistOrgKey = (client) => orgKey.value || String(client?.organization_id || '').trim();
 
 // Waitlist note hover caching: clientId -> message
 const waitlistNoteByClientId = ref({});
@@ -350,7 +437,8 @@ const getWaitlistTitle = (client) => {
 
 const ensureWaitlistNoteLoaded = async (client) => {
   try {
-    if (!orgKey.value) return;
+    const org = orgKey.value || String(client?.organization_id || '').trim();
+    if (!org) return;
     const cid = Number(client?.id || 0);
     if (!cid) return;
     const key = String(cid);
@@ -358,7 +446,7 @@ const ensureWaitlistNoteLoaded = async (client) => {
     if (waitlistNoteLoadingByClientId.value?.[key]) return;
     waitlistNoteLoadingByClientId.value = { ...(waitlistNoteLoadingByClientId.value || {}), [key]: true };
     const r = await api.get(
-      `/school-portal/${encodeURIComponent(orgKey.value)}/clients/${cid}/waitlist-note`,
+      `/school-portal/${encodeURIComponent(org)}/clients/${cid}/waitlist-note`,
       { skipGlobalLoading: true, timeout: 8000 }
     );
     const msg = String(r.data?.note?.message || '').trim();
@@ -393,12 +481,39 @@ const waitlistTooltipText = (client) => {
   return waitlistNoteByClientId.value?.[key] || '(no note yet)';
 };
 
+const PROVIDER_SORT_STORAGE_KEY = 'providerClientListSort.v1';
+const loadStoredSort = () => {
+  try {
+    const raw = window?.localStorage?.getItem?.(PROVIDER_SORT_STORAGE_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (parsed?.key && typeof parsed.key === 'string') sortKey.value = parsed.key;
+    if (parsed?.dir === 'asc' || parsed?.dir === 'desc') sortDir.value = parsed.dir;
+  } catch {
+    // ignore
+  }
+};
+const saveSort = () => {
+  try {
+    if (props.rosterScope !== 'provider') return;
+    window?.localStorage?.setItem?.(
+      PROVIDER_SORT_STORAGE_KEY,
+      JSON.stringify({ key: sortKey.value, dir: sortDir.value })
+    );
+  } catch {
+    // ignore
+  }
+};
+
 const sortKey = ref('submission_date');
 const sortDir = ref('desc');
 
 const showPsychotherapyColumn = computed(() => !!props.psychotherapyTotalsByClientId);
 
+const useClientsOverride = () => Array.isArray(props.clientsOverride);
+
 const fetchClients = async () => {
+  if (useClientsOverride()) return;
   // School roster requires a numeric org id.
   // Provider "My roster" can fall back to using the org slug (more robust across contexts).
   if (!props.organizationId && props.rosterScope !== 'provider') {
@@ -463,17 +578,39 @@ const fetchEditPermissions = async () => {
 const toggleSort = (key) => {
   if (sortKey.value === key) {
     sortDir.value = sortDir.value === 'asc' ? 'desc' : 'asc';
-    return;
+  } else {
+    sortKey.value = key;
+    sortDir.value = key === 'submission_date' || key === 'provider_assigned_at' ? 'desc' : 'asc';
   }
-  sortKey.value = key;
-  // Default date sorts newest-first; everything else asc.
-  sortDir.value = key === 'submission_date' ? 'desc' : 'asc';
+  saveSort();
 };
 
 const dayOrder = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 
+const NEWLY_ASSIGNED_DAYS = 7;
+const isNewlyAssigned = (client) => {
+  const at = client?.provider_assigned_at;
+  if (!at) return false;
+  const assigned = new Date(at).getTime();
+  const now = Date.now();
+  const days = (now - assigned) / (24 * 60 * 60 * 1000);
+  return days <= NEWLY_ASSIGNED_DAYS;
+};
+
+const openQuickChecklist = (client) => {
+  quickChecklistClient.value = client;
+};
+
+const onQuickChecklistSaved = () => {
+  fetchClients();
+};
+
 const sortValue = (client, key) => {
   if (!client) return '';
+  if (key === 'provider_assigned_at') {
+    const t = client.provider_assigned_at ? new Date(client.provider_assigned_at).getTime() : 0;
+    return Number.isFinite(t) ? t : 0;
+  }
   if (key === 'status') return String(client.client_status_label || client.status || '').toLowerCase();
   if (key === 'document_status') return String(formatDocSummary(client) || '').toLowerCase();
   if (key === 'organization_name') return String(props.organizationName || client.organization_name || '').toLowerCase();
@@ -502,7 +639,49 @@ const sortValue = (client, key) => {
 
 const normalize = (v) => String(v || '').trim().toLowerCase();
 
-const activeStatusFilterKey = computed(() => normalize(props.statusFilterKey));
+const attentionFilterActive = ref(false);
+const localStatusFilterKey = ref(''); // used when provider has filter pills (parent may not pass statusFilterKey)
+const showAttentionFilters = computed(() => props.rosterScope === 'provider');
+const showSummaryBanner = computed(() => props.rosterScope === 'provider');
+
+const attentionSummary = computed(() => {
+  const list = Array.isArray(clients.value) ? clients.value : [];
+  let newCount = 0;
+  let pendingCompliance = 0;
+  let openTickets = 0;
+  for (const c of list) {
+    if (isNewlyAssigned(c)) newCount++;
+    if (c?.compliance_pending) pendingCompliance++;
+    if (Number(c?.open_ticket_count || 0) > 0) openTickets++;
+  }
+  return {
+    new: newCount,
+    pendingCompliance,
+    openTickets,
+    total: new Set(
+      list
+        .filter((c) => isNewlyAssigned(c) || c?.compliance_pending || Number(c?.open_ticket_count || 0) > 0)
+        .map((c) => c.id)
+    ).size,
+    any: newCount > 0 || pendingCompliance > 0 || openTickets > 0
+  };
+});
+
+const setAttentionFilter = (mode) => {
+  attentionFilterActive.value = mode === 'needs_attention';
+  if (mode !== 'needs_attention') emit('update:statusFilterKey', '');
+};
+
+const setStatusFilter = (key) => {
+  attentionFilterActive.value = false;
+  localStatusFilterKey.value = key || '';
+  emit('update:statusFilterKey', key || '');
+};
+
+const effectiveStatusFilterKey = computed(() =>
+  showAttentionFilters.value ? localStatusFilterKey.value : props.statusFilterKey
+);
+const activeStatusFilterKey = computed(() => normalize(effectiveStatusFilterKey.value));
 const activeStatusFilterLabel = computed(() => {
   const k = activeStatusFilterKey.value;
   if (!k) return '';
@@ -512,8 +691,11 @@ const activeStatusFilterLabel = computed(() => {
 });
 
 const statusFilteredClients = computed(() => {
-  const k = activeStatusFilterKey.value;
   const list = Array.isArray(clients.value) ? clients.value : [];
+  if (attentionFilterActive.value) {
+    return list.filter((c) => isNewlyAssigned(c) || c?.compliance_pending || Number(c?.open_ticket_count || 0) > 0);
+  }
+  const k = activeStatusFilterKey.value;
   if (!k) return list;
   return list.filter((c) => normalize(c?.client_status_key) === k);
 });
@@ -538,6 +720,8 @@ const filteredClients = computed(() => {
 });
 
 const clearStatusFilter = () => {
+  attentionFilterActive.value = false;
+  localStatusFilterKey.value = '';
   emit('update:statusFilterKey', '');
 };
 
@@ -740,23 +924,59 @@ const goEdit = (client) => {
     emit('edit-client', client);
     return;
   }
-  router.push({ path: '/admin/clients', query: { clientId: String(client.id) } });
+  const query = { clientId: String(client.id) };
+  if (props.rosterScope === 'provider') query.tab = 'checklist';
+  router.push({ path: '/admin/clients', query });
 };
 
-const goChecklist = (client) => {
-  if (!client?.id) return;
-  router.push({ path: '/admin/clients', query: { clientId: String(client.id), tab: 'checklist' } });
-};
+
+watch(
+  () => props.clientsOverride,
+  (val) => {
+    if (Array.isArray(val)) {
+      clients.value = val;
+      loading.value = false;
+      error.value = '';
+    }
+  },
+  { immediate: true }
+);
 
 watch(() => props.organizationId, () => {
+  if (useClientsOverride()) return;
   if (props.organizationId) {
     fetchClients();
     fetchEditPermissions();
   }
 });
 
+watch(
+  () => (showAttentionFilters.value ? attentionSummary.value.total : 0),
+  (count) => emit('update:needsAttentionCount', count),
+  { immediate: true }
+);
+
+// Default to "Needs attention" filter when provider has clients needing attention
+watch(
+  () => loading.value,
+  (isLoading, wasLoading) => {
+    if (wasLoading && !isLoading && props.rosterScope === 'provider' && attentionSummary.value.total > 0) {
+      attentionFilterActive.value = true;
+    }
+  }
+);
+
 onMounted(() => {
-  if (props.organizationId) {
+  if (props.rosterScope === 'provider') {
+    const hadStored = !!window?.localStorage?.getItem?.(PROVIDER_SORT_STORAGE_KEY);
+    loadStoredSort();
+    if (!hadStored) {
+      sortKey.value = 'provider_assigned_at';
+      sortDir.value = 'desc';
+      saveSort();
+    }
+  }
+  if (!useClientsOverride() && props.organizationId) {
     fetchClients();
     fetchEditPermissions();
   }
@@ -802,6 +1022,29 @@ onMounted(() => {
   margin-left: auto;
   color: var(--text-secondary);
   font-size: 12px;
+}
+
+@media (max-width: 640px) {
+  .table-toolbar {
+    gap: 8px;
+  }
+  .unread-legend {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .unread-legend-hint {
+    width: 100%;
+    margin-left: 0;
+    margin-top: 4px;
+  }
+  .clients-table th,
+  .clients-table td {
+    padding: 10px 8px;
+    font-size: 0.75rem;
+  }
+  .filter-pill {
+    padding: 10px 12px;
+  }
 }
 
 .unread-badge {
@@ -978,11 +1221,69 @@ onMounted(() => {
 
 .table-toolbar {
   display: flex;
-  justify-content: flex-end;
-  align-items: center;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
   margin-bottom: 8px;
 }
 
+.attention-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 0;
+}
+.filter-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  min-height: 44px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+}
+.filter-pill:hover {
+  border-color: var(--primary);
+  color: var(--text-primary);
+}
+.filter-pill.active {
+  border-color: var(--primary);
+  background: rgba(79, 70, 229, 0.08);
+  color: var(--primary);
+}
+.filter-pill-attention.active {
+  border-color: rgba(16, 185, 129, 0.6);
+  background: rgba(16, 185, 129, 0.1);
+  color: #065f46;
+}
+.filter-pill-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgba(16, 185, 129, 0.2);
+  color: #065f46;
+  font-size: 11px;
+}
+.summary-banner {
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  border-radius: 10px;
+  background: rgba(16, 185, 129, 0.06);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  font-size: 13px;
+  color: var(--text-primary);
+}
 .active-filter-row {
   display: inline-flex;
   align-items: center;
@@ -1011,9 +1312,10 @@ onMounted(() => {
   font-size: 0.75rem;
 }
 .table-search {
-  width: 320px;
-  max-width: 100%;
-  padding: 8px 10px;
+  width: 100%;
+  max-width: 320px;
+  padding: 10px 12px;
+  min-height: 44px;
   font-size: 0.8125rem;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -1076,6 +1378,41 @@ onMounted(() => {
 .client-row {
   cursor: default;
   transition: background 0.2s;
+}
+
+.client-row-newly-assigned {
+  background: rgba(16, 185, 129, 0.06);
+  animation: newlyAssignedPulse 2.5s ease-in-out 4;
+}
+
+@keyframes newlyAssignedPulse {
+  0%, 100% { background-color: rgba(16, 185, 129, 0.06); box-shadow: none; }
+  50% { background-color: rgba(16, 185, 129, 0.14); box-shadow: inset 0 0 0 1px rgba(16, 185, 129, 0.25); }
+}
+
+.newly-assigned-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 18px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  background: rgba(16, 185, 129, 0.2);
+  border: 1px solid rgba(16, 185, 129, 0.45);
+  color: #065f46;
+  animation: badgePulse 1.5s ease-in-out infinite;
+}
+
+@keyframes badgePulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.9; transform: scale(1.05); }
+}
+.newly-assigned-badge-legend {
+  animation: none;
+  cursor: default;
 }
 
 .client-row-clickable {

@@ -821,6 +821,7 @@ export const getProviderMyRoster = async (req, res, next) => {
       const [rows] = await pool.execute(
         `SELECT
            c.id,
+           coa.organization_id AS organization_id,
            c.initials,
            c.identifier_code,
            c.client_status_id,
@@ -866,7 +867,7 @@ export const getProviderMyRoster = async (req, res, next) => {
          WHERE (c.status IS NULL OR UPPER(c.status) <> 'ARCHIVED')
            AND (cs.status_key IS NULL OR LOWER(cs.status_key) <> 'archived')
            AND (? = 0 OR c.skills = TRUE)
-         GROUP BY c.id
+         GROUP BY c.id, coa.organization_id
          ORDER BY c.submission_date DESC, c.id DESC`,
         [orgId, providerUserId, skillsOnly ? 1 : 0]
       );
@@ -1090,7 +1091,8 @@ export const getProviderMyRoster = async (req, res, next) => {
         has_answered_ticket: (answeredTicketsByClientId.get(Number(client.id)) || 0) > 0,
         compliance_pending: compliancePending,
         compliance_days_since_assigned: daysSinceAssigned,
-        compliance_missing: missingChecklist
+        compliance_missing: missingChecklist,
+        provider_assigned_at: client.provider_assigned_at || null
       };
     });
 

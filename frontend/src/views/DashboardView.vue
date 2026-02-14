@@ -305,7 +305,7 @@
           </div>
 
           <div v-if="!previewMode && isOnboardingComplete && !isSchoolStaff" v-show="activeTab === 'clients'" class="my-panel">
-            <ProviderClientsTab />
+            <ProviderClientsTab @update:needsAttentionCount="clientsNeedsAttentionCount = $event" />
           </div>
 
           <!-- Submit (right panel) -->
@@ -473,6 +473,10 @@
             <MyPayrollTab />
           </div>
 
+          <div v-if="!previewMode && isOnboardingComplete && !isSchoolStaff" v-show="activeTab === 'program_shifts'" class="my-panel">
+            <ProgramShiftsTab />
+          </div>
+
           <!-- On-Demand Training (right panel) -->
           <div v-if="!previewMode && isOnboardingComplete" v-show="activeTab === 'on_demand_training'" class="my-panel">
             <OnDemandTrainingLibraryView />
@@ -617,6 +621,7 @@ import ScheduleAvailabilityGrid from '../components/schedule/ScheduleAvailabilit
 import CredentialsView from './CredentialsView.vue';
 import AccountInfoView from './AccountInfoView.vue';
 import MyPayrollTab from '../components/dashboard/MyPayrollTab.vue';
+import ProgramShiftsTab from '../components/dashboard/ProgramShiftsTab.vue';
 import MyCompensationTab from '../components/dashboard/MyCompensationTab.vue';
 import OnDemandTrainingLibraryView from './OnDemandTrainingLibraryView.vue';
 import ProviderClientsTab from '../components/dashboard/ProviderClientsTab.vue';
@@ -663,6 +668,7 @@ const pendingCompletionStatus = ref(null);
 const tierBadgeText = ref('');
 const tierBadgeKind = ref(''); // 'tier-current' | 'tier-grace' | 'tier-ooc'
 
+const clientsNeedsAttentionCount = ref(0);
 const showSkillBuilderModal = ref(false);
 const showSkillBuildersAvailabilityModal = ref(false);
 
@@ -696,10 +702,12 @@ const isSkillBuilderConfirmRequired = computed(() => {
   );
 });
 
-// Presence widget: super_admin only for now; change to include staff roles when ready to roll out
+// Presence widget: super_admin always; staff/admin when agency has presenceEnabled
 const canSeePresenceWidget = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
-  return role === 'super_admin';
+  if (role === 'super_admin') return true;
+  if (!['staff', 'admin'].includes(role)) return false;
+  return isTruthyFlag(agencyFlags.value?.presenceEnabled);
 });
 
 const onSkillBuilderConfirmed = () => {
@@ -954,7 +962,7 @@ const dashboardCards = computed(() => {
           id: 'clients',
           label: 'Clients',
           kind: 'content',
-          badgeCount: 0,
+          badgeCount: clientsNeedsAttentionCount.value || 0,
           iconUrl: brandingStore.getDashboardCardIconUrl('clients', cardIconOrgOverride),
           description: 'Your caseload by school with psychotherapy fiscal-year totals.'
         });
@@ -988,6 +996,29 @@ const dashboardCards = computed(() => {
           iconUrl: brandingStore.getDashboardCardIconUrl('payroll', cardIconOrgOverride),
           description: 'Your payroll history by pay period.'
         });
+        if (shiftProgramsEnabledForAgency.value) {
+          cards.push({
+            id: 'program_shifts',
+            label: 'My Shifts',
+            kind: 'content',
+            badgeCount: 0,
+            iconUrl: brandingStore.getDashboardCardIconUrl('my_schedule', cardIconOrgOverride),
+            description: 'Program shift schedule, sign up, and call-off.'
+          });
+        }
+      }
+      // My Shifts: also show for staff/facilitator/intern (shift program participants) when agency has flag
+      if (shiftProgramsEnabledForAgency.value && ['staff', 'facilitator', 'intern'].includes(role)) {
+        if (!cards.some((c) => c?.id === 'program_shifts')) {
+          cards.push({
+            id: 'program_shifts',
+            label: 'My Shifts',
+            kind: 'content',
+            badgeCount: 0,
+            iconUrl: brandingStore.getDashboardCardIconUrl('my_schedule', cardIconOrgOverride),
+            description: 'Program shift schedule, sign up, and call-off.'
+          });
+        }
       }
     }
     cards.push({
@@ -1040,8 +1071,8 @@ const dashboardCards = computed(() => {
       });
     }
 
-    // Notifications should not be shown for non-admin users.
-    if (isTrueAdmin) {
+    // Notifications: admins and providers (separate from Communications)
+    if (isTrueAdmin || isProvider) {
       cards.push({
         id: 'notifications',
         label: 'Notifications',
@@ -1094,20 +1125,21 @@ const railCards = computed(() => {
       return ({
         my: 0,
         my_schedule: 1,
-        skill_builders_availability: 2,
-        clients: 3,
-        tools_aids: 4,
-        checklist: 5,
-        training: 6,
-        documents: 7,
-        submit: 8,
-        payroll: 9,
-        on_demand_training: 10,
-        social_feeds: 11,
-        communications: 12,
-        chats: 13,
-        notifications: 14,
-        supervision: 15
+        program_shifts: 2,
+        skill_builders_availability: 3,
+        clients: 4,
+        tools_aids: 5,
+        checklist: 6,
+        training: 7,
+        documents: 8,
+        submit: 9,
+        payroll: 10,
+        on_demand_training: 11,
+        social_feeds: 12,
+        communications: 13,
+        chats: 14,
+        notifications: 15,
+        supervision: 16
       })[k] ?? 999;
     }
     return ({
@@ -1115,8 +1147,9 @@ const railCards = computed(() => {
       documents: 1,
       training: 2,
       my_schedule: 3,
-      skill_builders_availability: 4,
-      clients: 5,
+      program_shifts: 4,
+      skill_builders_availability: 5,
+      clients: 6,
       tools_aids: 6,
       submit: 7,
       payroll: 8,
@@ -1327,6 +1360,7 @@ const clinicalNoteGeneratorEnabledForAgency = computed(() => {
   }
   return false;
 });
+const shiftProgramsEnabledForAgency = computed(() => isTruthyFlag(agencyFlags.value?.shiftProgramsEnabled));
 
 const assignedSchools = ref([]);
 const assignedSchoolsLoading = ref(false);
@@ -1896,6 +1930,7 @@ h1 {
 .rail-card[data-card-id="training"] { border-left: 3px solid rgba(156, 39, 176, 0.5); }
 .rail-card[data-card-id="documents"] { border-left: 3px solid rgba(33, 150, 243, 0.5); }
 .rail-card[data-card-id="my_schedule"] { border-left: 3px solid rgba(76, 175, 80, 0.5); }
+.rail-card[data-card-id="program_shifts"] { border-left: 3px solid rgba(156, 39, 176, 0.5); }
 .rail-card[data-card-id="clients"] { border-left: 3px solid rgba(255, 152, 0, 0.5); }
 .rail-card[data-card-id="submit"] { border-left: 3px solid rgba(3, 169, 244, 0.6); }
 .rail-card[data-card-id="payroll"] { border-left: 3px solid rgba(103, 58, 183, 0.5); }

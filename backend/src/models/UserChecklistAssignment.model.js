@@ -1,7 +1,7 @@
 import pool from '../config/database.js';
 
 class UserChecklistAssignment {
-  static async findByUserId(userId, agencyId = null) {
+  static async findByUserId(userId, agencyId = null, programId = null) {
     // Get user's agencies
     const User = (await import('./User.model.js')).default;
     const userAgencies = await User.getAgencies(userId);
@@ -13,6 +13,7 @@ class UserChecklistAssignment {
     // Get all enabled items for user's agencies
     const CustomChecklistItem = (await import('./CustomChecklistItem.model.js')).default;
     const AgencyChecklistEnabledItem = (await import('./AgencyChecklistEnabledItem.model.js')).default;
+    const ProgramChecklistEnabledItem = (await import('./ProgramChecklistEnabledItem.model.js')).default;
     
     const allEnabledItems = [];
     
@@ -40,10 +41,35 @@ class UserChecklistAssignment {
       
       allEnabledItems.push(...enabledItems.allItems);
     }
+
+    // Program-scoped filter: when programId provided, restrict to program's agency and enabled items
+    let itemsToUse = allEnabledItems;
+    if (programId != null && programId > 0) {
+      const [progRows] = await pool.execute('SELECT agency_id FROM programs WHERE id = ?', [programId]);
+      const programAgencyId = progRows?.[0]?.agency_id;
+      let agencyFiltered = allEnabledItems;
+      if (programAgencyId != null) {
+        const aid = parseInt(programAgencyId, 10);
+        agencyFiltered = allEnabledItems.filter((item) => {
+          const itemAid = item.agency_id != null ? parseInt(item.agency_id, 10) : null;
+          return itemAid === null || itemAid === aid;
+        });
+      }
+      const programRows = await ProgramChecklistEnabledItem.findByProgramId(programId);
+      const programStatusByItem = {};
+      for (const r of programRows || []) {
+        programStatusByItem[r.checklist_item_id] = r.enabled === 1 || r.enabled === true;
+      }
+      // Include item if: explicitly enabled for program, or not in program table (default enabled)
+      itemsToUse = agencyFiltered.filter((item) => {
+        const status = programStatusByItem[item.id];
+        return status === undefined ? true : status;
+      });
+    }
     
     // Remove duplicates (in case user belongs to multiple agencies with same items)
     const uniqueItems = new Map();
-    for (const item of allEnabledItems) {
+    for (const item of itemsToUse) {
       if (!uniqueItems.has(item.id)) {
         uniqueItems.set(item.id, item);
       }
@@ -147,14 +173,15 @@ class UserChecklistAssignment {
     return this.findByUserAndItem(userId, itemId);
   }
 
-  static async getUnifiedChecklist(userId) {
+  static async getUnifiedChecklist(userId, options = {}) {
+    const { agencyId = null, programId = null } = options;
     // Get user status to determine filtering
     const User = (await import('./User.model.js')).default;
     const user = await User.findById(userId);
     const isPending = user && user.status === 'pending';
     
-    // Get custom checklist items
-    const customItems = await this.findByUserId(userId);
+    // Get custom checklist items (optionally filtered by agency and program)
+    const customItems = await this.findByUserId(userId, agencyId, programId);
     
     // For pending users, filter to only items from assigned onboarding package
     let filteredCustomItems = customItems;

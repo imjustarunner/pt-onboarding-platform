@@ -30,7 +30,7 @@ async function buildPayrollCaps(user) {
   };
 }
 
-const SSO_EXCLUDED_ROLES = new Set(['school_staff', 'client_guardian', 'client', 'guardian']);
+const SSO_EXCLUDED_ROLES = new Set(['school_staff', 'client_guardian', 'client', 'guardian', 'kiosk']);
 const parseFeatureFlags = (raw) => {
   if (!raw) return {};
   if (typeof raw === 'string') {

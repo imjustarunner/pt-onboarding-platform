@@ -6,6 +6,7 @@
         <label>
           <span class="label">School</span>
           <select class="select" v-model="selectedSchoolOrgId">
+            <option value="all">All schools</option>
             <option v-for="s in schools" :key="s.schoolOrganizationId" :value="Number(s.schoolOrganizationId)">
               {{ s.name }}
             </option>
@@ -36,19 +37,23 @@
     <ClientListGrid
       v-if="selectedSchoolOrgId"
       :organization-slug="organizationSlug"
-      :organization-id="Number(selectedSchoolOrgId)"
+      :organization-id="Number(selectedSchoolOrgId) || null"
       :organization-name="selectedSchoolName"
+      :clients-override="isAllSchools ? allClients : null"
       roster-scope="provider"
       :client-label-mode="clientLabelMode"
       :psychotherapy-totals-by-client-id="psychotherapyTotalsByClientId"
       :show-search="true"
       search-placeholder="Search clients…"
+      @update:needsAttentionCount="(count) => emit('update:needsAttentionCount', count)"
     />
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
+
+const emit = defineEmits(['update:needsAttentionCount']);
 import { useRoute } from 'vue-router';
 import { useAgencyStore } from '../../store/agency';
 import api from '../../services/api';
@@ -68,13 +73,16 @@ const selectedSchoolOrgId = ref(null);
 const selectedFiscalYearStart = ref('');
 const clientLabelMode = ref('codes'); // 'codes' | 'initials'
 
+const isAllSchools = computed(() => selectedSchoolOrgId.value === 'all');
+
 const selectedSchoolName = computed(() => {
   const id = selectedSchoolOrgId.value;
-  if (!id) return '';
+  if (!id || id === 'all') return '';
   const s = (schools.value || []).find((x) => Number(x.schoolOrganizationId) === Number(id));
   return s?.name || '';
 });
 const loading = ref(false);
+const allClients = ref([]);
 const error = ref('');
 const psychotherapyTotalsByClientId = ref(null);
 
@@ -132,6 +140,32 @@ const loadSchools = async () => {
   }
 };
 
+const loadAllRosters = async () => {
+  const list = schools.value || [];
+  if (list.length === 0) {
+    allClients.value = [];
+    return;
+  }
+  try {
+    const results = await Promise.all(
+      list.map((s) =>
+        api.get(`/school-portal/${encodeURIComponent(s.schoolOrganizationId)}/my-roster`, { skipGlobalLoading: true })
+      )
+    );
+    const byId = new Map();
+    for (const r of results) {
+      const arr = Array.isArray(r?.data) ? r.data : [];
+      for (const c of arr) {
+        const id = c?.id;
+        if (id && !byId.has(id)) byId.set(id, c);
+      }
+    }
+    allClients.value = Array.from(byId.values());
+  } catch {
+    allClients.value = [];
+  }
+};
+
 const loadCompliance = async () => {
   if (!agencyId.value) return;
   const r = await api.get('/psychotherapy-compliance/summary', {
@@ -152,6 +186,7 @@ const load = async () => {
 
     await loadSchools();
     await loadCompliance();
+    if (isAllSchools.value) await loadAllRosters();
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load clients';
   } finally {
@@ -170,6 +205,15 @@ onMounted(() => {
 });
 watch(() => agencyId.value, load);
 watch(() => selectedFiscalYearStart.value, () => loadCompliance().catch(() => {}));
+
+watch(
+  () => selectedSchoolOrgId.value,
+  async (id) => {
+    if (!id) emit('update:needsAttentionCount', 0);
+    if (id === 'all') await loadAllRosters();
+  },
+  { immediate: true }
+);
 </script>
 
 <style scoped>
@@ -204,7 +248,26 @@ watch(() => selectedFiscalYearStart.value, () => loadCompliance().catch(() => {}
   border-radius: 10px;
   background: var(--bg);
   padding: 10px 12px;
-  min-width: 220px;
+  min-width: 180px;
+  min-height: 44px;
+}
+
+@media (max-width: 640px) {
+  .section-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .filters {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .filters .select {
+    min-width: 0;
+    width: 100%;
+  }
+  .filters .btn {
+    min-height: 44px;
+  }
 }
 .error {
   color: #c33;

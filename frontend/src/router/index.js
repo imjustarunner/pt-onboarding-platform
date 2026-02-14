@@ -107,7 +107,21 @@ const routes = [
     component: () => import('../components/school/ReferralUpload.vue'),
     meta: { organizationSlug: true }
   },
-  // Public kiosk (no auth)
+  // Kiosk login (kiosk users only)
+  {
+    path: '/kiosk/login',
+    name: 'KioskLogin',
+    component: () => import('../views/KioskLoginView.vue'),
+    meta: { requiresGuest: false }
+  },
+  // Kiosk app (authenticated kiosk users – agency/location selector, then KioskView)
+  {
+    path: '/kiosk/app',
+    name: 'KioskApp',
+    component: () => import('../views/KioskAppView.vue'),
+    meta: { requiresAuth: true, requiresRole: 'kiosk' }
+  },
+  // Public kiosk (no auth – backward compatibility)
   {
     path: '/kiosk/:locationId',
     name: 'Kiosk',
@@ -767,7 +781,7 @@ const routes = [
     path: '/admin/presence',
     name: 'PresenceTeamBoard',
     component: () => import('../views/admin/PresenceTeamBoardView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['super_admin'] }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'super_admin'] }
   },
   {
     path: '/admin/beta-feedback',
@@ -1198,6 +1212,14 @@ router.beforeEach(async (to, from, next) => {
       return false;
     }
   };
+
+  // Kiosk users: restrict to /kiosk/* routes only
+  const isKioskUser = String(authStore.user?.role || '').toLowerCase() === 'kiosk';
+  const isKioskRoute = String(to.path || '').startsWith('/kiosk');
+  if (authStore.isAuthenticated && isKioskUser && !isKioskRoute) {
+    next('/kiosk/app');
+    return;
+  }
 
   // Prevent stale org branding “flash” when leaving a branded portal.
   if (!to.meta.organizationSlug && from.meta.organizationSlug) {

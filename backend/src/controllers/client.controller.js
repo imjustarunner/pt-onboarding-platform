@@ -2865,6 +2865,99 @@ export const createClientNote = async (req, res, next) => {
 };
 
 /**
+ * Get client daily notes
+ * GET /api/clients/:id/daily-notes
+ * - note_date: all notes for that date (multi-author, with author_initials). Staff + guardians (read-only for linked clients).
+ * - startDate/endDate: date range. Staff only.
+ */
+export const getClientDailyNotes = async (req, res, next) => {
+  try {
+    const clientId = parseInt(req.params.id, 10);
+    if (!clientId) return res.status(400).json({ error: { message: 'Invalid client id' } });
+
+    const currentClient = await Client.findById(clientId);
+    if (!currentClient) return res.status(404).json({ error: { message: 'Client not found' } });
+
+    const role = String(req.user?.role || '').toLowerCase();
+    const isGuardian = role === 'client_guardian';
+
+    if (isGuardian) {
+      const ClientGuardian = (await import('../models/ClientGuardian.model.js')).default;
+      const clients = await ClientGuardian.listClientsForGuardian({ guardianUserId: req.user.id });
+      const linked = (clients || []).some((c) => Number(c?.client_id) === clientId);
+      if (!linked) return res.status(403).json({ error: { message: 'Access denied. You are not linked to this client.' } });
+    } else {
+      const access = await ensureAgencyAccessToClient({ userId: req.user.id, role: req.user.role, clientId });
+      if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+    }
+
+    const ClientDailyNote = (await import('../models/ClientDailyNote.model.js')).default;
+    const { programId, startDate, endDate, note_date } = req.query;
+
+    if (note_date) {
+      const dateStr = String(note_date).slice(0, 10);
+      const notes = await ClientDailyNote.findByClientAndDate(clientId, dateStr, {
+        programId: programId ? parseInt(programId, 10) : null
+      });
+      return res.json({ note_date: dateStr, notes: notes || [], client_initials: currentClient?.initials || null });
+    }
+
+    if (isGuardian) return res.status(400).json({ error: { message: 'note_date is required for guardian access' } });
+
+    const notes = await ClientDailyNote.findByClient(clientId, {
+      programId: programId ? parseInt(programId, 10) : null,
+      startDate: startDate || null,
+      endDate: endDate || null
+    });
+    const withInitials = (notes || []).map((n) => {
+      const fn = String(n?.author_first_name || '').trim();
+      const ln = String(n?.author_last_name || '').trim();
+      const initials = fn && ln ? `${fn[0]}${ln[0]}`.toUpperCase() : (fn ? fn[0] : ln ? ln[0] : '?').toUpperCase();
+      return { ...n, author_initials: initials || '?' };
+    });
+    res.json(withInitials);
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Upsert client daily note
+ * POST /api/clients/:id/daily-notes
+ * Staff only. Guardians are read-only for daily notes.
+ */
+export const upsertClientDailyNote = async (req, res, next) => {
+  try {
+    const role = String(req.user?.role || '').toLowerCase();
+    if (role === 'client_guardian') return res.status(403).json({ error: { message: 'Guardians cannot add daily notes' } });
+
+    const clientId = parseInt(req.params.id, 10);
+    if (!clientId) return res.status(400).json({ error: { message: 'Invalid client id' } });
+
+    const currentClient = await Client.findById(clientId);
+    if (!currentClient) return res.status(404).json({ error: { message: 'Client not found' } });
+
+    const access = await ensureAgencyAccessToClient({ userId: req.user.id, role: req.user.role, clientId });
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    const { noteDate, message, programId } = req.body;
+    if (!noteDate) return res.status(400).json({ error: { message: 'noteDate is required' } });
+
+    const ClientDailyNote = (await import('../models/ClientDailyNote.model.js')).default;
+    const note = await ClientDailyNote.upsert({
+      clientId,
+      authorId: req.user.id,
+      programId: programId ? parseInt(programId, 10) : null,
+      noteDate: String(noteDate).slice(0, 10),
+      message: message.trim()
+    });
+    res.json(note);
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
  * Get client access log (admin/support/staff)
  * GET /api/clients/:id/access-log
  */

@@ -51,6 +51,7 @@ class UserPreferences {
           'reduced_motion', 'high_contrast_mode', 'larger_text', 'dark_mode', 'timezone', 'schedule_default_view', 'layout_density', 'date_format', 'time_format', 'push_notifications_enabled', 'default_landing_page',
           'helper_enabled',
           'session_lock_enabled', 'inactivity_timeout_minutes', 'session_lock_pin_hash',
+          'kiosk_pin_hash',
           'tutorial_progress',
           'school_portal_notifications_progress'
         ];
@@ -108,6 +109,7 @@ class UserPreferences {
           'reduced_motion', 'high_contrast_mode', 'larger_text', 'dark_mode', 'timezone', 'schedule_default_view', 'layout_density', 'date_format', 'time_format', 'push_notifications_enabled', 'default_landing_page',
           'helper_enabled',
           'session_lock_enabled', 'inactivity_timeout_minutes', 'session_lock_pin_hash',
+          'kiosk_pin_hash',
           'tutorial_progress',
           'school_portal_notifications_progress'
         ];

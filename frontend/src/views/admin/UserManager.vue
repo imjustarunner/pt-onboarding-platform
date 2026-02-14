@@ -126,6 +126,7 @@
               <select id="roleSort" v-model="roleSort" class="filter-select">
                 <option value="">All roles</option>
                 <option value="provider">Provider</option>
+                <option value="kiosk">Kiosk</option>
                 <option value="school_staff">School Staff</option>
                 <option value="clinical_practice_assistant">Clinical Practice Assistant</option>
                 <option value="client_guardian">Guardian</option>
@@ -581,6 +582,7 @@
                   <option value="provider">Provider</option>
                   <option value="school_staff">School Staff</option>
                   <option value="client_guardian">Guardian</option>
+                  <option v-if="user?.role === 'super_admin' || user?.role === 'admin'" value="kiosk">Kiosk</option>
                 </select>
                 <small v-if="userForm.role === 'client_guardian'" class="form-help">
                   Guardians are portal users (non-employee). They don't receive onboarding packages.
@@ -897,6 +899,7 @@
               <option value="staff">Staff</option>
               <option value="provider">Provider</option>
               <option value="school_staff">School Staff</option>
+              <option v-if="user?.role === 'super_admin' || user?.role === 'admin'" value="kiosk">Kiosk</option>
             </select>
             <small v-if="userForm.role === 'super_admin' && user?.role !== 'super_admin'" class="form-help">Only super admins can assign the super admin role</small>
             <small v-else-if="userForm.role === 'admin' && user?.role !== 'super_admin' && user?.role !== 'admin'" class="form-help">Only super admins and admins can assign the admin role</small>

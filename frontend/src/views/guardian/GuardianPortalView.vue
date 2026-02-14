@@ -154,28 +154,52 @@
             <template v-else-if="activePanel === 'child'">
               <div class="panel-head">
                 <div class="panel-title">Child</div>
-                <div class="panel-subtitle">Details for the selected child.</div>
+                <div class="panel-subtitle">Details and daily notes for the selected child.</div>
               </div>
-              <div v-if="selectedChild" class="child-details">
-                <div class="row">
-                  <div class="label">Initials</div>
-                  <div class="value">{{ selectedChild.initials }}</div>
+              <div v-if="selectedChild" class="child-panel-content">
+                <div class="child-details">
+                  <div class="row">
+                    <div class="label">Initials</div>
+                    <div class="value">{{ selectedChild.initials }}</div>
+                  </div>
+                  <div class="row">
+                    <div class="label">Program</div>
+                    <div class="value">{{ selectedChild.organization_name }}</div>
+                  </div>
+                  <div class="row">
+                    <div class="label">Relationship</div>
+                    <div class="value">{{ selectedChild.relationship_title || 'Guardian' }}</div>
+                  </div>
+                  <div class="row">
+                    <div class="label">Status</div>
+                    <div class="value">{{ formatClientStatus(selectedChild.status) }}</div>
+                  </div>
+                  <div class="row">
+                    <div class="label">Docs</div>
+                    <div class="value">{{ formatDocStatus(selectedChild.document_status) }}</div>
+                  </div>
                 </div>
-                <div class="row">
-                  <div class="label">Program</div>
-                  <div class="value">{{ selectedChild.organization_name }}</div>
+                <div class="guardian-checkin-hint">
+                  <p class="hint" style="margin: 0; padding: 8px 10px; background: var(--bg-muted, #f0f4f8); border-radius: 6px;">
+                    <strong>Program check-in:</strong> Use the kiosk at the front desk when you drop off or pick up.
+                  </p>
                 </div>
-                <div class="row">
-                  <div class="label">Relationship</div>
-                  <div class="value">{{ selectedChild.relationship_title || 'Guardian' }}</div>
-                </div>
-                <div class="row">
-                  <div class="label">Status</div>
-                  <div class="value">{{ formatClientStatus(selectedChild.status) }}</div>
-                </div>
-                <div class="row">
-                  <div class="label">Docs</div>
-                  <div class="value">{{ formatDocStatus(selectedChild.document_status) }}</div>
+                <div class="guardian-daily-notes">
+                  <h4 style="margin: 16px 0 8px;">Daily Notes</h4>
+                  <p class="hint" style="margin-bottom: 10px;">Staff notes for {{ selectedChild.initials }}. Use initials only.</p>
+                  <div style="display: flex; gap: 12px; align-items: center; margin-bottom: 10px;">
+                    <label>Date</label>
+                    <input v-model="guardianNoteDate" type="date" class="input" style="max-width: 160px;" @change="loadGuardianDailyNotes" />
+                  </div>
+                  <div v-if="guardianNotesLoading" class="hint">Loading…</div>
+                  <div v-else-if="guardianDailyNotes.length > 0" class="guardian-notes-list">
+                    <div v-for="n in guardianDailyNotes" :key="n.id" class="guardian-note-item">
+                      <span class="guardian-note-initials">[{{ n.author_initials || '?' }}]</span>
+                      <span class="guardian-note-message">{{ n.message }}</span>
+                      <span class="guardian-note-time">{{ formatNoteTime(n.created_at) }}</span>
+                    </div>
+                  </div>
+                  <div v-else-if="guardianNoteDate" class="hint">No notes for this date.</div>
                 </div>
               </div>
               <div v-else class="hint">Select a child from the left rail.</div>
@@ -245,7 +269,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import { useRoute, useRouter } from 'vue-router';
@@ -408,6 +432,41 @@ const openChild = (c) => {
   activePanel.value = learningBillingVisible.value ? 'billing' : 'child';
 };
 
+const guardianNoteDate = ref('');
+const guardianDailyNotes = ref([]);
+const guardianNotesLoading = ref(false);
+const loadGuardianDailyNotes = async () => {
+  const clientId = selectedChildId.value;
+  const date = guardianNoteDate.value;
+  if (!clientId || !date) {
+    guardianDailyNotes.value = [];
+    return;
+  }
+  guardianNotesLoading.value = true;
+  try {
+    const { data } = await api.get(`/clients/${clientId}/daily-notes`, { params: { note_date: date } });
+    guardianDailyNotes.value = data?.notes ?? [];
+  } catch {
+    guardianDailyNotes.value = [];
+  } finally {
+    guardianNotesLoading.value = false;
+  }
+};
+const formatNoteTime = (dt) => {
+  if (!dt) return '';
+  const d = new Date(dt);
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+};
+
+watch(selectedChildId, (id) => {
+  if (id) {
+    guardianNoteDate.value = new Date().toISOString().slice(0, 10);
+    loadGuardianDailyNotes();
+  } else {
+    guardianDailyNotes.value = [];
+  }
+}, { immediate: true });
+
 const openComingSoon = (key) => {
   comingSoonKey.value = String(key || '');
 };
@@ -501,6 +560,48 @@ onMounted(async () => {
 
 .top-card-desc {
   color: var(--text-secondary);
+}
+
+.guardian-checkin-hint {
+  margin-top: 12px;
+}
+
+.guardian-daily-notes {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+  margin-top: 12px;
+}
+
+.guardian-notes-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.guardian-note-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+  background: var(--bg-muted, #f8f9fa);
+  border-radius: 6px;
+}
+
+.guardian-note-initials {
+  font-weight: 700;
+  color: var(--primary);
+  flex-shrink: 0;
+}
+
+.guardian-note-message {
+  flex: 1;
+}
+
+.guardian-note-time {
+  color: var(--text-secondary);
+  font-size: 12px;
+  flex-shrink: 0;
   font-size: 13px;
 }
 

@@ -16,7 +16,8 @@ const SMS_CATEGORY_BY_TYPE = {
   credential_expiring: 'compliance_credential_expiration_reminders',
   credential_expired_blocking: 'compliance_access_restriction_warnings',
   program_reminder: 'program_reminders',
-  client_assigned: 'client_assignments'
+  client_assigned: 'client_assignments',
+  shift_calloff_need_coverage: 'scheduling_shift_calloff'
 };
 
 function parseJsonMaybe(v) {
@@ -47,6 +48,7 @@ async function resolveNotificationCategories({ userId, agencyId }) {
       scheduling_room_booking_approved_denied: false,
       scheduling_schedule_changes: false,
       scheduling_room_release_requests: false,
+      scheduling_shift_calloff: true,
       compliance_credential_expiration_reminders: false,
       compliance_access_restriction_warnings: false,
       compliance_payroll_document_availability: false,

@@ -1,12 +1,15 @@
 import express from 'express';
 import { authenticate } from '../middleware/auth.middleware.js';
-import { getUserPreferences, updateUserPreferences } from '../controllers/userPreferences.controller.js';
+import { getUserPreferences, updateUserPreferences, updateKioskPin } from '../controllers/userPreferences.controller.js';
 import {
   registerPushSubscription,
   unregisterPushSubscription
 } from '../controllers/pushSubscription.controller.js';
 
 const router = express.Router();
+
+// Kiosk PIN (must be before :userId routes)
+router.put('/me/kiosk-pin', authenticate, updateKioskPin);
 
 // Get user preferences
 router.get('/:userId/preferences', authenticate, getUserPreferences);

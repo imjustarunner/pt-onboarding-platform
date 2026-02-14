@@ -502,6 +502,12 @@ const handleLogin = async () => {
   const result = await authStore.login(username.value, password.value, loginSlug.value);
   
   if (result.success) {
+    // Kiosk users go to kiosk app (no agency fetch)
+    if (authStore.user?.role?.toLowerCase() === 'kiosk') {
+      router.push('/kiosk/app');
+      loading.value = false;
+      return;
+    }
     // Fetch user's agencies and set default if not super admin
     if (authStore.user.role !== 'super_admin' && authStore.user.type !== 'approved_employee') {
       await agencyStore.fetchUserAgencies();

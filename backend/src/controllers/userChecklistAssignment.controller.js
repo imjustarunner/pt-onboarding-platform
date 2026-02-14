@@ -4,6 +4,7 @@ import { validationResult } from 'express-validator';
 export const getUnifiedChecklist = async (req, res, next) => {
   try {
     const { userId } = req.params;
+    const { agencyId, programId } = req.query;
     
     // Users can view their own checklist, admins/supervisors/CPAs can view their supervisees
     if (parseInt(userId) !== req.user.id && req.user.role !== 'admin' && req.user.role !== 'super_admin' && req.user.role !== 'support') {
@@ -22,7 +23,10 @@ export const getUnifiedChecklist = async (req, res, next) => {
       }
     }
     
-    const checklist = await UserChecklistAssignment.getUnifiedChecklist(parseInt(userId));
+    const checklist = await UserChecklistAssignment.getUnifiedChecklist(parseInt(userId), {
+      agencyId: agencyId ? parseInt(agencyId) : null,
+      programId: programId ? parseInt(programId) : null
+    });
     res.json(checklist);
   } catch (error) {
     next(error);
@@ -32,7 +36,7 @@ export const getUnifiedChecklist = async (req, res, next) => {
 export const getCustomChecklist = async (req, res, next) => {
   try {
     const { userId } = req.params;
-    const { agencyId } = req.query;
+    const { agencyId, programId } = req.query;
     
     // Users can view their own checklist, admins/supervisors/CPAs can view their supervisees
     if (parseInt(userId) !== req.user.id && req.user.role !== 'admin' && req.user.role !== 'super_admin' && req.user.role !== 'support') {
@@ -53,7 +57,8 @@ export const getCustomChecklist = async (req, res, next) => {
     
     const items = await UserChecklistAssignment.findByUserId(
       parseInt(userId),
-      agencyId ? parseInt(agencyId) : null
+      agencyId ? parseInt(agencyId) : null,
+      programId ? parseInt(programId) : null
     );
     
     res.json(items);

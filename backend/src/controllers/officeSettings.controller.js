@@ -4,6 +4,8 @@ import OfficeRoom from '../models/OfficeRoom.model.js';
 import OfficeRoomType from '../models/OfficeRoomType.model.js';
 import OfficeRoomTypeLink from '../models/OfficeRoomTypeLink.model.js';
 import OfficeQuestionnaireModule from '../models/OfficeQuestionnaireModule.model.js';
+import OfficeSlotQuestionnaireRule from '../models/OfficeSlotQuestionnaireRule.model.js';
+import KioskAgencyAssignment from '../models/KioskAgencyAssignment.model.js';
 import Module from '../models/Module.model.js';
 import GoogleCalendarService from '../services/googleCalendar.service.js';
 import User from '../models/User.model.js';
@@ -518,6 +520,157 @@ export const removeOfficeQuestionnaire = async (req, res, next) => {
     await OfficeQuestionnaireModule.remove({ officeLocationId: officeId, moduleId, agencyId: null });
     const rows = await OfficeQuestionnaireModule.listForOffice({ officeLocationId: officeId });
     res.json(rows);
+  } catch (e) {
+    next(e);
+  }
+};
+
+// Slot questionnaire rules: assign questionnaires to specific room/day/hour
+export const listSlotQuestionnaireRules = async (req, res, next) => {
+  try {
+    const officeId = parseInt(req.params.officeId, 10);
+    if (!officeId) return res.status(400).json({ error: { message: 'Invalid officeId' } });
+    const ok = await requireOfficeAccess(req, officeId);
+    if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+    const rows = await OfficeSlotQuestionnaireRule.listForOffice(officeId);
+    res.json(rows || []);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const createSlotQuestionnaireRule = async (req, res, next) => {
+  try {
+    if (!(await canManageOfficeSettings(req))) return res.status(403).json({ error: { message: 'Access denied' } });
+    const officeId = parseInt(req.params.officeId, 10);
+    const { roomId, dayOfWeek, hourStart, hourEnd, moduleId } = req.body || {};
+    const moduleIdNum = parseInt(moduleId, 10);
+    if (!officeId || !moduleIdNum) return res.status(400).json({ error: { message: 'moduleId is required' } });
+    const ok = await requireOfficeAccess(req, officeId);
+    if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const roomIdVal = roomId === '' || roomId === null || roomId === undefined ? null : parseInt(roomId, 10);
+    const dayVal = dayOfWeek === '' || dayOfWeek === null || dayOfWeek === undefined ? null : parseInt(dayOfWeek, 10);
+    const hourStartVal = hourStart === '' || hourStart === null || hourStart === undefined ? null : parseInt(hourStart, 10);
+    const hourEndVal = hourEnd === '' || hourEnd === null || hourEnd === undefined ? null : parseInt(hourEnd, 10);
+
+    const id = await OfficeSlotQuestionnaireRule.create({
+      officeLocationId: officeId,
+      roomId: roomIdVal,
+      dayOfWeek: dayVal,
+      hourStart: hourStartVal,
+      hourEnd: hourEndVal,
+      moduleId: moduleIdNum
+    });
+    const rows = await OfficeSlotQuestionnaireRule.listForOffice(officeId);
+    res.status(201).json(rows || []);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const listKioskUsers = async (req, res, next) => {
+  try {
+    if (!(await canManageOfficeSettings(req))) return res.status(403).json({ error: { message: 'Access denied' } });
+    const [rows] = await pool.execute(
+      `SELECT id, first_name, last_name, email, status
+       FROM users WHERE LOWER(role) = 'kiosk' AND status = 'active'
+       ORDER BY last_name, first_name`
+    );
+    res.json((rows || []).map((r) => ({ id: r.id, firstName: r.first_name, lastName: r.last_name, email: r.email })));
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const listKioskAssignments = async (req, res, next) => {
+  try {
+    const officeId = parseInt(req.params.officeId, 10);
+    if (!officeId) return res.status(400).json({ error: { message: 'Invalid officeId' } });
+    const ok = await requireOfficeAccess(req, officeId);
+    if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+    const rows = await KioskAgencyAssignment.listByOffice(officeId);
+    res.json(rows || []);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const createKioskAssignment = async (req, res, next) => {
+  try {
+    if (!(await canManageOfficeSettings(req))) return res.status(403).json({ error: { message: 'Access denied' } });
+    const officeId = parseInt(req.params.officeId, 10);
+    const { kioskUserId, agencyId, programId, validFrom, validUntil, allowedDays, settingsJson } = req.body || {};
+    const kuid = parseInt(kioskUserId, 10);
+    const aid = parseInt(agencyId, 10);
+    if (!officeId || !kuid || !aid) return res.status(400).json({ error: { message: 'kioskUserId and agencyId are required' } });
+    const ok = await requireOfficeAccess(req, officeId);
+    if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const pid = programId ? parseInt(programId, 10) : null;
+    let allowedDaysJson = null;
+    if (allowedDays != null && allowedDays !== '') {
+      try {
+        allowedDaysJson = Array.isArray(allowedDays) ? allowedDays : JSON.parse(String(allowedDays));
+      } catch {
+        // ignore invalid JSON
+      }
+    }
+    const id = await KioskAgencyAssignment.create({
+      kioskUserId: kuid,
+      agencyId: aid,
+      officeLocationId: officeId,
+      programId: pid,
+      settingsJson: settingsJson || null,
+      validFrom: validFrom || null,
+      validUntil: validUntil || null,
+      allowedDaysJson
+    });
+    const rows = await KioskAgencyAssignment.listByOffice(officeId);
+    res.status(201).json(rows || []);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const deleteKioskAssignment = async (req, res, next) => {
+  try {
+    if (!(await canManageOfficeSettings(req))) return res.status(403).json({ error: { message: 'Access denied' } });
+    const officeId = parseInt(req.params.officeId, 10);
+    const assignmentId = parseInt(req.params.assignmentId, 10);
+    if (!officeId || !assignmentId) return res.status(400).json({ error: { message: 'Invalid ids' } });
+    const ok = await requireOfficeAccess(req, officeId);
+    if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const [rows] = await pool.execute(
+      'SELECT id FROM kiosk_agency_assignments WHERE id = ? AND office_location_id = ?',
+      [assignmentId, officeId]
+    );
+    if (!rows?.length) return res.status(404).json({ error: { message: 'Assignment not found' } });
+    await pool.execute('UPDATE kiosk_agency_assignments SET is_active = FALSE WHERE id = ?', [assignmentId]);
+    const list = await KioskAgencyAssignment.listByOffice(officeId);
+    res.json(list || []);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const deleteSlotQuestionnaireRule = async (req, res, next) => {
+  try {
+    if (!(await canManageOfficeSettings(req))) return res.status(403).json({ error: { message: 'Access denied' } });
+    const officeId = parseInt(req.params.officeId, 10);
+    const ruleId = parseInt(req.params.ruleId, 10);
+    if (!officeId || !ruleId) return res.status(400).json({ error: { message: 'Invalid ids' } });
+    const ok = await requireOfficeAccess(req, officeId);
+    if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const rule = await OfficeSlotQuestionnaireRule.findById(ruleId);
+    if (!rule || rule.office_location_id !== officeId) {
+      return res.status(404).json({ error: { message: 'Rule not found' } });
+    }
+    await OfficeSlotQuestionnaireRule.delete(ruleId);
+    const rows = await OfficeSlotQuestionnaireRule.listForOffice(officeId);
+    res.json(rows || []);
   } catch (e) {
     next(e);
   }

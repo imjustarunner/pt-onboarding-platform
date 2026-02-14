@@ -41,6 +41,11 @@ export function getDashboardRoute() {
     return '/on-demand-training';
   }
 
+  // Kiosk users go to kiosk app
+  if (String(user.role || '').toLowerCase() === 'kiosk') {
+    return '/kiosk/app';
+  }
+
   // Guardian portal accounts go to the guardian portal (prefer branded slug if available)
   if (String(user.role || '').toLowerCase() === 'client_guardian') {
     const slug =

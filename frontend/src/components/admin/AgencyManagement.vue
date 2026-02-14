@@ -755,6 +755,18 @@
             <small class="hint">Controls Med Cancel claim submissions and related notifications.</small>
 
             <div class="toggle-row" style="margin-top: 10px;">
+              <span>Enable Shift Programs</span>
+              <ToggleSwitch v-model="agencyForm.featureFlags.shiftProgramsEnabled" compact />
+            </div>
+            <small class="hint">Enables shift-based programs: clock in/out at kiosk, shift scheduling, assign providers. Configure in Settings → Workflow → Shift Programs.</small>
+
+            <div class="toggle-row" style="margin-top: 10px;">
+              <span>Enable Presence / Team Board</span>
+              <ToggleSwitch v-model="agencyForm.featureFlags.presenceEnabled" compact />
+            </div>
+            <small class="hint">When enabled, staff and admins see the Presence status widget and can update their status. Admins see their agency's Team Board.</small>
+
+            <div class="toggle-row" style="margin-top: 10px;">
               <span>Enable AI Provider Search (Gemini)</span>
               <ToggleSwitch v-model="agencyForm.featureFlags.aiProviderSearchEnabled" compact />
             </div>
@@ -4682,6 +4694,8 @@ const defaultAgencyForm = () => ({
     // Defaults are "enabled" to preserve existing behavior until an admin turns them off.
     inSchoolSubmissionsEnabled: true,
     medcancelEnabled: true,
+    shiftProgramsEnabled: false,
+    presenceEnabled: false,
     // Default OFF until explicitly enabled (requires GEMINI_API_KEY in backend).
     aiProviderSearchEnabled: false,
 
@@ -5957,6 +5971,8 @@ const editAgency = async (agency) => {
       portalVariant: String(featureFlags.portalVariant || 'healthcare_provider'),
       inSchoolSubmissionsEnabled: featureFlags.inSchoolSubmissionsEnabled !== false,
       medcancelEnabled: featureFlags.medcancelEnabled !== false,
+      shiftProgramsEnabled: featureFlags.shiftProgramsEnabled === true,
+      presenceEnabled: featureFlags.presenceEnabled === true,
       aiProviderSearchEnabled: featureFlags.aiProviderSearchEnabled === true,
       noteAidEnabled: featureFlags.noteAidEnabled === true,
       clinicalNoteGeneratorEnabled: featureFlags.clinicalNoteGeneratorEnabled === true,

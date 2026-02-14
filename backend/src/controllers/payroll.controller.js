@@ -89,6 +89,12 @@ import {
   approvePtoRequestAndPostToPayroll,
   runPtoAccrualForPostedPeriod
 } from '../services/payrollPto.service.js';
+import {
+  aggregateShiftTimePunchesByUser,
+  aggregateOnCallPayByUser,
+  aggregatePerfectAttendanceBonusByUser,
+  aggregateShiftCoverageBonusByUser
+} from '../services/shiftProgramPayroll.service.js';
 
 const TIER_WINDOW_PERIODS = 6; // 6 pay periods (~90 days)
 
@@ -3055,6 +3061,23 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
     if (!byUser.has(uid)) byUser.set(uid, []);
   }
 
+  // Shift program: time punches, on-call pay, bonuses (Phase 6)
+  let shiftTimePunchesByUser = new Map();
+  let shiftOnCallPayByUser = new Map();
+  let shiftPerfectAttendanceByUser = new Map();
+  let shiftCoverageBonusByUser = new Map();
+  try {
+    shiftTimePunchesByUser = await aggregateShiftTimePunchesByUser({ agencyId, periodStart, periodEnd });
+    shiftOnCallPayByUser = await aggregateOnCallPayByUser({ agencyId, periodStart, periodEnd });
+    shiftPerfectAttendanceByUser = await aggregatePerfectAttendanceBonusByUser({ agencyId, periodStart, periodEnd });
+    shiftCoverageBonusByUser = await aggregateShiftCoverageBonusByUser({ agencyId, periodStart, periodEnd });
+    for (const uid of shiftTimePunchesByUser.keys()) {
+      if (!byUser.has(uid)) byUser.set(uid, []);
+    }
+  } catch (e) {
+    if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+  }
+
   // Prelicensed pay gating for supervision codes (99414/99416):
   // pay is $0 until (individual>=50 AND total>=100) as of *prior* periods (pay-forward only).
   const supervisionPayEligibleByUserId = new Map();
@@ -3418,6 +3441,21 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
       };
     }
 
+    // Shift program: add time punch hours (direct/indirect from kiosk clock-out)
+    let shiftHoursPay = 0;
+    const shiftHours = shiftTimePunchesByUser.get(Number(userId)) || null;
+    if (shiftHours && (Number(shiftHours.totalHours || 0) > 1e-9)) {
+      const d = Number(shiftHours.directHours || 0) || 0;
+      const i = Number(shiftHours.indirectHours || 0) || 0;
+      totalHours += d + i;
+      directHours += d;
+      indirectHours += i;
+      if (tierSettings.enabled && d > 1e-9) tierCreditsCurrent += d;
+      const directRate = Number(rateCard?.direct_rate || 0) || 0;
+      const indirectRate = Number(rateCard?.indirect_rate || 0) || 0;
+      shiftHoursPay = Math.round((d * directRate + i * indirectRate) * 100) / 100;
+    }
+
     let currentWindowCount = 0;
     let currentWindowSum = 0;
     let currentBiWeeklyAvg = 0;
@@ -3527,6 +3565,9 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
     const imatterAmount = Number(adj?.imatter_amount || 0);
     const missedAppointmentsAmount = Number(adj?.missed_appointments_amount || 0);
     const bonusAmount = Number(adj?.bonus_amount || 0);
+    const shiftOnCallPayAmount = shiftOnCallPayByUser.get(Number(userId)) || 0;
+    const shiftPerfectAttendanceAmount = shiftPerfectAttendanceByUser.get(Number(userId)) || 0;
+    const shiftCoverageAmount = shiftCoverageBonusByUser.get(Number(userId)) || 0;
     const holidayBonusClaimsAmount = await PayrollHolidayBonusClaim.sumApprovedForPeriodUser({
       payrollPeriodId,
       agencyId,
@@ -3639,6 +3680,9 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
       imatterAmount +
       missedAppointmentsAmount +
       bonusAmount +
+      shiftOnCallPayAmount +
+      shiftPerfectAttendanceAmount +
+      shiftCoverageAmount +
       holidayBonusClaimsAmount +
       timeClaimsAmount +
       ptoPay +
@@ -3649,7 +3693,7 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
     // - If salary exists, salary is the base pay.
     // - Service/session pay only adds on top when explicitly enabled (include_service_pay = true).
     const hasSalary = salaryAmount > 0.001;
-    const basePay = hasSalary ? salaryAmount : subtotal;
+    const basePay = hasSalary ? salaryAmount : (subtotal + shiftHoursPay);
     const servicePayAddonAmount = (hasSalary && salaryIncludeServicePay) ? subtotal : 0;
     const totalAmount = basePay + adjustmentsAmount + servicePayAddonAmount;
 
@@ -3665,6 +3709,9 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
     if (Number(imatterAmount || 0) > 1e-9) pushLine({ type: 'imatter', label: 'IMatter', taxable: true, amount: imatterAmount });
     if (Number(missedAppointmentsAmount || 0) > 1e-9) pushLine({ type: 'missed_appointments', label: 'Missed appointments', taxable: true, amount: missedAppointmentsAmount });
     if (Number(bonusAmount || 0) > 1e-9) pushLine({ type: 'bonus', label: 'Bonus', taxable: true, amount: bonusAmount });
+    if (Number(shiftOnCallPayAmount || 0) > 1e-9) pushLine({ type: 'shift_on_call', label: 'Shift on-call pay', taxable: true, amount: shiftOnCallPayAmount });
+    if (Number(shiftPerfectAttendanceAmount || 0) > 1e-9) pushLine({ type: 'shift_perfect_attendance', label: 'Perfect attendance bonus', taxable: true, amount: shiftPerfectAttendanceAmount });
+    if (Number(shiftCoverageAmount || 0) > 1e-9) pushLine({ type: 'shift_coverage', label: 'Shift coverage bonus', taxable: true, amount: shiftCoverageAmount });
     if (Number(holidayBonusClaimsAmount || 0) > 1e-9) {
       pushLine({ type: 'holiday_bonus', label: 'Holiday Bonus', taxable: true, amount: holidayBonusClaimsAmount, meta: { auto: holidayBonusClaimsAmount } });
     }
@@ -3733,6 +3780,10 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
     }
 
     breakdown.__adjustments = {
+      shiftHoursPay,
+      shiftOnCallPayAmount: shiftOnCallPayAmount,
+      shiftPerfectAttendanceAmount: shiftPerfectAttendanceAmount,
+      shiftCoverageAmount: shiftCoverageAmount,
       mileageAmount,
       mileageClaimsAmount,
       manualMileageAmount,

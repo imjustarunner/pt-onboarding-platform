@@ -720,6 +720,7 @@
     <ClientDetailPanel
       v-if="adminSelectedClient"
       :client="adminSelectedClient"
+      :initial-tab="isProvider ? 'checklist' : ''"
       @close="closeAdminClientEditor"
       @updated="handleAdminClientUpdated"
     />

@@ -21,6 +21,8 @@ import {
   getClientNotes,
   getClientAdminNote,
   createClientNote,
+  getClientDailyNotes,
+  upsertClientDailyNote,
   upsertClientAdminNote,
   setClientIdentifierCode,
   generateClientIdentifierCode,
@@ -106,6 +108,10 @@ router.get('/:id/notes', getClientNotes);
 
 // Create note
 router.post('/:id/notes', createClientNote);
+
+// Daily notes (per-day, program-scoped)
+router.get('/:id/daily-notes', getClientDailyNotes);
+router.post('/:id/daily-notes', upsertClientDailyNote);
 
 // Mark notes read (per-user)
 router.post('/:id/notes/read', markClientNotesRead);

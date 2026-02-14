@@ -144,6 +144,14 @@ export const requireBackofficeAdmin = (req, res, next) => {
   next();
 };
 
+/** Kiosk users only – used for kiosk-specific authenticated routes */
+export const requireKioskUser = (req, res, next) => {
+  if (String(req.user?.role || '').toLowerCase() !== 'kiosk') {
+    return res.status(403).json({ error: { message: 'Kiosk access required' } });
+  }
+  next();
+};
+
 /**
  * Guardian list access: backoffice admin OR supervisor with access to the client.
  * Use for GET /clients/:id/guardians (view only).

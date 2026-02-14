@@ -2,6 +2,7 @@ import bcrypt from 'bcrypt';
 import pool from '../config/database.js';
 import UserPreferences from '../models/UserPreferences.model.js';
 import User from '../models/User.model.js';
+import KioskModel from '../models/Kiosk.model.js';
 
 async function getSessionLockMaxMinutes(agencyId) {
   let platformMax = 30;
@@ -186,6 +187,8 @@ export const getUserPreferences = async (req, res, next) => {
       };
       return res.json({
         ...merged,
+        session_lock_pin_set: false,
+        kiosk_pin_set: false,
         sessionLockMaxMinutes: { platformMax, agencyMax },
         vapidPublicKey: process.env.VAPID_PUBLIC_KEY || '',
         agencyNotificationSettings: {
@@ -206,10 +209,11 @@ export const getUserPreferences = async (req, res, next) => {
       mergedCategories.messaging_support_safety_net_alerts = true;
     }
 
-    const { session_lock_pin_hash, ...safePrefs } = preferences;
+    const { session_lock_pin_hash, kiosk_pin_hash, ...safePrefs } = preferences;
     res.json({
       ...safePrefs,
       session_lock_pin_set: !!(session_lock_pin_hash && String(session_lock_pin_hash).trim()),
+      kiosk_pin_set: !!(kiosk_pin_hash && String(kiosk_pin_hash).trim()),
       sessionLockMaxMinutes: { platformMax, agencyMax },
       vapidPublicKey: process.env.VAPID_PUBLIC_KEY || '',
       notification_categories: mergedCategories,
@@ -221,6 +225,35 @@ export const getUserPreferences = async (req, res, next) => {
     });
   } catch (error) {
     console.error('Error fetching user preferences:', error);
+    next(error);
+  }
+};
+
+/**
+ * Set or clear kiosk PIN for the current user
+ * PUT /api/users/me/kiosk-pin
+ * Body: { pin: "1234" } to set, { pin: null } or { pin: "" } to clear
+ */
+export const updateKioskPin = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const { pin } = req.body;
+
+    if (pin === null || pin === undefined || pin === '') {
+      await UserPreferences.update(userId, { kiosk_pin_hash: null });
+      return res.json({ message: 'Kiosk PIN cleared', hasPin: false });
+    }
+
+    const pinStr = String(pin).trim();
+    if (!/^\d{4}$/.test(pinStr)) {
+      return res.status(400).json({ error: { message: 'Kiosk PIN must be exactly 4 digits' } });
+    }
+
+    const pinHash = KioskModel.hashPin(pinStr);
+    await UserPreferences.update(userId, { kiosk_pin_hash: pinHash });
+    res.json({ message: 'Kiosk PIN set', hasPin: true });
+  } catch (error) {
+    console.error('Error updating kiosk PIN:', error);
     next(error);
   }
 };
