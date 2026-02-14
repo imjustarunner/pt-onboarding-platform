@@ -670,7 +670,8 @@ app.use((req, res) => {
 // Cloud Run sets PORT automatically (typically 8080). Bind to all interfaces.
 const PORT_RAW = process.env.PORT ?? config.port ?? 8080;
 const PORT = Number.parseInt(String(PORT_RAW), 10) || 8080;
-const HOST = String(process.env.HOST || '0.0.0.0');
+// Cloud Run requires binding to all interfaces. Avoid env overrides like HOST=127.0.0.1.
+const HOST = '0.0.0.0';
 
 app.listen(PORT, HOST, () => {
   console.log(`🚀 Server running on http://${HOST}:${PORT}`);
