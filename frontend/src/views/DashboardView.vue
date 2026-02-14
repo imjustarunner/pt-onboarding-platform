@@ -1651,10 +1651,10 @@ watch([activeTab, currentAgencyId, () => authStore.user?.id], async () => {
 }, { immediate: true });
 
 // Rail top mode: when rail moves to top (narrow viewport or schedule focus)
-const updateRailTopMode = () => {
+function updateRailTopMode() {
   const narrow = typeof window !== 'undefined' && window.matchMedia('(max-width: 980px)').matches;
   railTopMode.value = narrow || activeTab.value === 'my_schedule';
-};
+}
 let railPulseTimer = null;
 let railMediaQuery = null;
 onUnmounted(() => {
