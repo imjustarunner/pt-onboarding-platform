@@ -302,7 +302,8 @@ export const updateAgency = async (req, res, next) => {
 
     const { id } = req.params;
     const { name, slug, officialName, logoUrl, logoPath, colorPalette, terminologySettings, intakeRetentionPolicy, sessionSettings, isActive, iconId, chatIconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, manageAgenciesIconId, manageClientsIconId, schoolOverviewIconId, programOverviewIconId, providerAvailabilityDashboardIconId, executiveReportIconId, manageModulesIconId, manageDocumentsIconId, manageUsersIconId, platformSettingsIconId, viewAllProgressIconId, progressDashboardIconId, settingsIconId, dashboardNotificationsIconId, dashboardCommunicationsIconId, dashboardChatsIconId, dashboardPayrollIconId, dashboardBillingIconId, externalCalendarAuditIconId, certificateTemplateUrl, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, customDomain, themeSettings, customParameters, featureFlags, publicAvailabilityEnabled, organizationType, affiliatedAgencyId, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId, supportTicketCreatedIconId, ticketingNotificationOrgTypes, myDashboardChecklistIconId, myDashboardTrainingIconId, myDashboardDocumentsIconId, myDashboardMyAccountIconId, myDashboardMyScheduleIconId, myDashboardClientsIconId, myDashboardSupervisionIconId, myDashboardClinicalNoteGeneratorIconId, myDashboardOnDemandTrainingIconId, myDashboardPayrollIconId, myDashboardSubmitIconId, myDashboardCommunicationsIconId, myDashboardChatsIconId, myDashboardNotificationsIconId, schoolPortalProvidersIconId, schoolPortalDaysIconId, schoolPortalRosterIconId, schoolPortalSkillsGroupsIconId, schoolPortalContactAdminIconId, schoolPortalFaqIconId, schoolPortalSchoolStaffIconId, schoolPortalParentQrIconId, schoolPortalParentSignIconId, schoolPortalUploadPacketIconId, schoolPortalPublicDocumentsIconId, schoolPortalAnnouncementsIconId, streetAddress, city, state, postalCode, tierSystemEnabled, tierThresholds,
-      companyProfileIconId, teamRolesIconId, billingIconId, packagesIconId, checklistItemsIconId, fieldDefinitionsIconId, brandingTemplatesIconId, assetsIconId, communicationsIconId, integrationsIconId, archiveIconId
+      companyProfileIconId, teamRolesIconId, billingIconId, packagesIconId, checklistItemsIconId, fieldDefinitionsIconId, brandingTemplatesIconId, assetsIconId, communicationsIconId, integrationsIconId, archiveIconId,
+      reviewPromptConfig
     } = req.body;
     
     // Validate Google Docs URL if provided
@@ -385,6 +386,10 @@ export const updateAgency = async (req, res, next) => {
       ? parseJsonField(sessionSettings)
       : undefined;
 
+    const formattedReviewPromptConfig = reviewPromptConfig !== undefined
+      ? parseJsonField(reviewPromptConfig)
+      : undefined;
+
     // Platform-only fields: only super_admin can change these. Agency admins cannot edit isActive, slug.
     const isSuperAdmin = req.user?.role === 'super_admin';
     const effectiveIsActive = isSuperAdmin ? isActive : undefined;
@@ -464,6 +469,7 @@ export const updateAgency = async (req, res, next) => {
       customDomain,
       themeSettings: formattedThemeSettings,
       customParameters: formattedCustomParameters,
+      reviewPromptConfig: formattedReviewPromptConfig,
       featureFlags: formattedFeatureFlags,
       publicAvailabilityEnabled,
       organizationType,

@@ -53,7 +53,8 @@ class UserPreferences {
           'session_lock_enabled', 'inactivity_timeout_minutes', 'session_lock_pin_hash',
           'kiosk_pin_hash',
           'tutorial_progress',
-          'school_portal_notifications_progress'
+          'school_portal_notifications_progress',
+          'review_prompt_state'
         ];
 
         for (const field of allowedFields) {
@@ -67,7 +68,8 @@ class UserPreferences {
               field === 'schedule_color_overrides' ||
               field === 'dashboard_notification_org_types' ||
               field === 'tutorial_progress' ||
-              field === 'school_portal_notifications_progress'
+              field === 'school_portal_notifications_progress' ||
+              field === 'review_prompt_state'
             ) {
               values.push(JSON.stringify(preferences[field]));
             } else {
@@ -111,7 +113,8 @@ class UserPreferences {
           'session_lock_enabled', 'inactivity_timeout_minutes', 'session_lock_pin_hash',
           'kiosk_pin_hash',
           'tutorial_progress',
-          'school_portal_notifications_progress'
+          'school_portal_notifications_progress',
+          'review_prompt_state'
         ];
 
         for (const field of allowedFields) {
@@ -126,7 +129,8 @@ class UserPreferences {
               field === 'schedule_color_overrides' ||
               field === 'dashboard_notification_org_types' ||
               field === 'tutorial_progress' ||
-              field === 'school_portal_notifications_progress'
+              field === 'school_portal_notifications_progress' ||
+              field === 'review_prompt_state'
             ) {
               values.push(JSON.stringify(preferences[field]));
             } else {

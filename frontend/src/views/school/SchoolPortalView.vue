@@ -731,6 +731,15 @@
       @close="showHelpDesk = false"
     />
 
+    <ReviewPromptModal
+      v-if="showReviewPrompt && reviewPromptConfig"
+      :config="reviewPromptConfig"
+      @close="showReviewPrompt = false"
+      @completed="onReviewPromptCompleted"
+      @snooze="onReviewPromptSnooze"
+      @dismiss="onReviewPromptDismiss"
+    />
+
     <ClientTicketThreadModal
       v-if="showTicketModal && ticketModalClient && organizationId"
       :client="ticketModalClient"
@@ -946,6 +955,7 @@ import { useAgencyStore } from '../../store/agency';
 import { useTutorialStore } from '../../store/tutorial';
 import ClientListGrid from '../../components/school/ClientListGrid.vue';
 import SchoolHelpDeskModal from '../../components/school/SchoolHelpDeskModal.vue';
+import ReviewPromptModal from '../../components/school/ReviewPromptModal.vue';
 import ClientTicketThreadModal from '../../components/school/ClientTicketThreadModal.vue';
 import ReferralUpload from '../../components/school/ReferralUpload.vue';
 import SchoolDayBar from '../../components/school/redesign/SchoolDayBar.vue';
@@ -978,6 +988,7 @@ const agencyStore = useAgencyStore();
 const tutorialStore = useTutorialStore();
 
 const showHelpDesk = ref(false);
+const showReviewPrompt = ref(false);
 const showTicketModal = ref(false);
 const ticketModalClient = ref(null);
 const ticketModalTicketId = ref(null);
@@ -1542,10 +1553,77 @@ const ensureAffiliation = async () => {
     } else {
       cardIconOrg.value = null;
     }
+    await checkReviewPrompt();
   } catch {
     affiliatedAgencyId.value = null;
     cardIconOrg.value = null;
   }
+};
+
+const reviewPromptConfig = computed(() => {
+  const cfg = cardIconOrg.value?.review_prompt_config;
+  if (!cfg || !cfg.enabled) return null;
+  const hasLink = (cfg.reviewLink && String(cfg.reviewLink).trim()) || (cfg.surveyLink && String(cfg.surveyLink).trim());
+  if (!hasLink) return null;
+  return cfg;
+});
+
+const userReviewPromptState = ref(null);
+
+const checkReviewPrompt = async () => {
+  if (!isSchoolStaff.value || !reviewPromptConfig.value || !affiliatedAgencyId.value) return;
+  const uid = authStore.user?.id;
+  if (!uid) return;
+  try {
+    const pref = (await api.get(`/users/${uid}/preferences`)).data || {};
+    userReviewPromptState.value = pref.review_prompt_state || null;
+    const state = typeof pref.review_prompt_state === 'object' ? pref.review_prompt_state : null;
+    const byAgency = state?.byAgency || {};
+    const agencyState = byAgency[String(affiliatedAgencyId.value)] || {};
+    if (agencyState.completed) return;
+    const now = new Date();
+    const dismissedUntil = agencyState.dismissedUntil ? new Date(agencyState.dismissedUntil) : null;
+    if (dismissedUntil && now < dismissedUntil) return;
+    const snoozeUntil = agencyState.snoozeUntil ? new Date(agencyState.snoozeUntil) : null;
+    if (snoozeUntil && now < snoozeUntil) return;
+    showReviewPrompt.value = true;
+  } catch {
+    // Don't show on error; avoid blocking the portal
+  }
+};
+
+const updateReviewPromptState = async (updates) => {
+  const uid = authStore.user?.id;
+  if (!uid || !affiliatedAgencyId.value) return;
+  const agencyKey = String(affiliatedAgencyId.value);
+  const existing = userReviewPromptState.value && typeof userReviewPromptState.value === 'object'
+    ? userReviewPromptState.value
+    : {};
+  const byAgency = { ...(existing.byAgency || {}) };
+  byAgency[agencyKey] = { ...(byAgency[agencyKey] || {}), ...updates };
+  const next = { ...existing, byAgency };
+  try {
+    await api.put(`/users/${uid}/preferences`, { review_prompt_state: next });
+    userReviewPromptState.value = next;
+  } catch {
+    // best effort
+  }
+};
+
+const onReviewPromptCompleted = () => {
+  updateReviewPromptState({ completed: true });
+};
+
+const onReviewPromptSnooze = () => {
+  const d = new Date();
+  d.setDate(d.getDate() + 7);
+  updateReviewPromptState({ snoozeUntil: d.toISOString() });
+};
+
+const onReviewPromptDismiss = () => {
+  const d = new Date();
+  d.setDate(d.getDate() + 30);
+  updateReviewPromptState({ dismissedUntil: d.toISOString() });
 };
 
 const openSchoolSettings = async () => {

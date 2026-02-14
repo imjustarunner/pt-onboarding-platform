@@ -2211,6 +2211,22 @@ class Agency {
       updates.push('theme_settings = ?');
       values.push(themeSettings ? JSON.stringify(themeSettings) : null);
     }
+    // Review prompt config (optional column)
+    if (agencyData.reviewPromptConfig !== undefined) {
+      let hasReviewPromptConfig = false;
+      try {
+        const [cols] = await pool.execute(
+          "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'review_prompt_config'"
+        );
+        hasReviewPromptConfig = (cols || []).length > 0;
+      } catch {
+        hasReviewPromptConfig = false;
+      }
+      if (hasReviewPromptConfig) {
+        updates.push('review_prompt_config = ?');
+        values.push(agencyData.reviewPromptConfig ? JSON.stringify(agencyData.reviewPromptConfig) : null);
+      }
+    }
     if (customParameters !== undefined) {
       // Check if custom_parameters column exists
       let hasCustomParams = false;

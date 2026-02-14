@@ -451,6 +451,44 @@
                 <small>Cap for users with session lock enabled. Leave blank to use platform max. Cannot exceed platform setting.</small>
               </div>
             </div>
+
+            <div
+              v-if="String(agencyForm.organizationType || '').toLowerCase() === 'agency'"
+              class="form-section-divider"
+              style="margin-top: 18px; margin-bottom: 12px; padding-top: 18px; border-top: 1px solid var(--border);"
+            >
+              <h4 style="margin: 0; font-size: 16px;">Feedback &amp; Review Prompt</h4>
+              <p class="section-description" style="margin-top: 6px;">
+                Show a popup in school portals asking staff if they like your services. They can leave a review (Google, Indeed, etc.), snooze, or dismiss for 30 days. The only way to stop seeing it is to leave a review.
+              </p>
+              <div class="form-group" style="margin-top: 12px;">
+                <label class="checkbox-label">
+                  <input v-model="agencyForm.reviewPromptConfig.enabled" type="checkbox" />
+                  Enable review prompt for school staff
+                </label>
+              </div>
+              <div v-if="agencyForm.reviewPromptConfig.enabled" class="form-grid" style="margin-top: 12px;">
+                <div class="form-group">
+                  <label>Review link (Google, Indeed, etc.)</label>
+                  <input v-model="agencyForm.reviewPromptConfig.reviewLink" type="url" placeholder="https://g.page/..." />
+                  <small>Where users leave a public review.</small>
+                </div>
+                <div class="form-group">
+                  <label>Platform label</label>
+                  <input v-model="agencyForm.reviewPromptConfig.platformLabel" type="text" placeholder="e.g., Google, Indeed" />
+                  <small>Shown on the button: "Leave a review on [label]"</small>
+                </div>
+                <div class="form-group" style="grid-column: 1 / -1;">
+                  <label>Survey link (optional)</label>
+                  <input v-model="agencyForm.reviewPromptConfig.surveyLink" type="url" placeholder="https://forms.google.com/..." />
+                  <small>Alternative "How are we doing?" feedback form. Shown alongside or instead of the review link.</small>
+                </div>
+                <div class="form-group" style="grid-column: 1 / -1;">
+                  <label>Custom message</label>
+                  <textarea v-model="agencyForm.reviewPromptConfig.message" rows="2" placeholder="Do you like our services? We'd love to hear from you."></textarea>
+                </div>
+              </div>
+            </div>
           </template>
 
           <template v-else>
@@ -4733,7 +4771,15 @@ const defaultAgencyForm = () => ({
   supportTicketCreatedIconId: null,
 
   // Ticketing notification scope (agency-only; defaults to all child org types)
-  ticketingNotificationOrgTypes: ['school', 'program', 'learning']
+  ticketingNotificationOrgTypes: ['school', 'program', 'learning'],
+  // Review prompt (agency-level; shown in school portals to staff)
+  reviewPromptConfig: {
+    enabled: false,
+    reviewLink: '',
+    surveyLink: '',
+    message: '',
+    platformLabel: ''
+  }
 });
 
 const agencyForm = ref(defaultAgencyForm());
@@ -6011,6 +6057,17 @@ const editAgency = async (agency) => {
         return parsed.map((t) => String(t || '').trim().toLowerCase()).filter(Boolean);
       }
       return ['school', 'program', 'learning'];
+    })(),
+    reviewPromptConfig: (() => {
+      const raw = agency.review_prompt_config ?? null;
+      const cfg = typeof raw === 'string' && raw.trim() ? (() => { try { return JSON.parse(raw); } catch { return {}; } })() : (raw && typeof raw === 'object' ? raw : {});
+      return {
+        enabled: !!cfg.enabled,
+        reviewLink: String(cfg.reviewLink || '').trim(),
+        surveyLink: String(cfg.surveyLink || '').trim(),
+        message: String(cfg.message || '').trim(),
+        platformLabel: String(cfg.platformLabel || '').trim()
+      };
     })()
   };
 
@@ -6737,6 +6794,16 @@ const saveAgency = async () => {
       ticketingNotificationOrgTypes: Array.isArray(agencyForm.value.ticketingNotificationOrgTypes)
         ? agencyForm.value.ticketingNotificationOrgTypes.map((t) => String(t || '').trim().toLowerCase()).filter(Boolean)
         : null,
+      reviewPromptConfig:
+        String(agencyForm.value.organizationType || '').toLowerCase() === 'agency' && agencyForm.value.reviewPromptConfig?.enabled
+          ? {
+              enabled: true,
+              reviewLink: String(agencyForm.value.reviewPromptConfig.reviewLink || '').trim() || null,
+              surveyLink: String(agencyForm.value.reviewPromptConfig.surveyLink || '').trim() || null,
+              message: String(agencyForm.value.reviewPromptConfig.message || '').trim() || null,
+              platformLabel: String(agencyForm.value.reviewPromptConfig.platformLabel || '').trim() || null
+            }
+          : null,
       schoolProfile:
         String(agencyForm.value.organizationType || '').toLowerCase() === 'school'
           ? {
