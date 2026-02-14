@@ -126,10 +126,11 @@ jobs:
             --update-env-vars="${ENV_VARS}" \
             --memory=2Gi \
             --cpu=1 \
+            --cpu-boost \
             --timeout=300 \
             --max-instances=10 \
             --min-instances=0 \
-            --startup-probe=tcpSocket.port=8080,initialDelaySeconds=60,failureThreshold=6,periodSeconds=10,timeoutSeconds=5
+            --startup-probe=tcpSocket.port=8080,initialDelaySeconds=90,failureThreshold=8,periodSeconds=10,timeoutSeconds=5
 
           # IMPORTANT: if traffic was pinned to an older revision, explicitly promote the latest revision.
           gcloud run services update-traffic $SERVICE_NAME \
