@@ -9,8 +9,9 @@ WORKDIR /app/frontend
 # Copy frontend package files first (for better layer caching)
 COPY frontend/package*.json ./
 
-# Install dependencies
-RUN npm ci
+# Install dependencies without running postinstall scripts yet.
+# frontend/package.json postinstall triggers a build, which needs index.html copied first.
+RUN npm ci --ignore-scripts
 
 # Copy all frontend files (including index.html)
 # Copy index.html first explicitly to ensure it's present
