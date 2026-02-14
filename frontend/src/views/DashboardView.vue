@@ -31,6 +31,46 @@
         </div>
       </div>
     </div>
+
+    <div v-if="!previewMode && isOnboardingComplete && companyEvents.length > 0" class="company-events-strip">
+      <div class="company-events-head">
+        <strong>Upcoming company events</strong>
+        <small class="hint">Targeted to you</small>
+      </div>
+      <div class="company-events-list">
+        <article v-for="event in companyEvents" :key="`event-${event.id}`" class="company-event-card">
+          <div class="company-event-title">
+            {{ event.title }}
+            <span v-if="event.eventType === 'direct_notice'" class="hint"> · Direct message</span>
+          </div>
+          <div class="company-event-when">{{ formatCompanyEventWhen(event) }}</div>
+          <div v-if="event.splashContent" class="company-event-copy">{{ event.splashContent }}</div>
+          <div v-if="event.votingConfig?.enabled" class="company-event-rsvp">
+            <div class="hint">
+              {{ event.votingConfig?.question || 'RSVP' }}
+              <span v-if="event.myResponse"> — Your response: {{ event.myResponse.responseLabel }}</span>
+              <span v-if="event.votingClosedAt"> (closed)</span>
+            </div>
+            <div v-if="!event.votingClosedAt" class="company-event-rsvp-actions">
+              <button
+                v-for="opt in (event.votingConfig?.options || [])"
+                :key="`${event.id}-${opt.key}`"
+                type="button"
+                class="btn btn-secondary btn-sm"
+                @click="respondToCompanyEvent(event, opt.key)"
+              >
+                {{ opt.label }}
+              </button>
+            </div>
+          </div>
+          <div v-if="event.eventType !== 'direct_notice'" class="company-event-actions">
+            <a v-if="event.googleCalendarUrl" :href="event.googleCalendarUrl" target="_blank" rel="noopener">Add to Google</a>
+            <span v-if="event.googleCalendarUrl"> · </span>
+            <a :href="event.icsUrl">Download ICS</a>
+          </div>
+        </article>
+      </div>
+    </div>
     
     <!-- Pending Completion Button -->
     <div v-if="isPending && pendingCompletionStatus?.allComplete && !pendingCompletionStatus?.accessLocked && (userStatus === 'PREHIRE_OPEN' || userStatus === 'pending')" class="pending-completion-banner">
@@ -858,6 +898,7 @@ const dashboardBannerLoading = ref(false);
 const dashboardBannerError = ref('');
 const dashboardBanner = ref(null); // { type, message, agencyId, names } | null
 const scheduledBannerItems = ref([]);
+const companyEvents = ref([]);
 
 const dashboardBannerTexts = computed(() => {
   const scheduled = Array.isArray(scheduledBannerItems.value) ? scheduledBannerItems.value : [];
@@ -872,6 +913,25 @@ const dashboardBannerTexts = computed(() => {
   const birthdayText = String(dashboardBanner.value?.message || '').trim();
   return [...scheduledTexts, birthdayText].filter(Boolean).slice(0, 10);
 });
+
+const formatCompanyEventWhen = (event) => {
+  const startsAt = new Date(event?.nextOccurrenceStart || event?.startsAt || 0);
+  if (!Number.isFinite(startsAt.getTime())) return 'Time TBD';
+  const recurrence = String(event?.recurrence?.frequency || 'none');
+  const recurrenceLabel = recurrence === 'weekly' ? 'Weekly' : (recurrence === 'monthly' ? 'Monthly' : 'One-time');
+  return `${startsAt.toLocaleString()} (${recurrenceLabel})`;
+};
+
+const respondToCompanyEvent = async (event, responseKey) => {
+  if (!event?.id || !responseKey) return;
+  try {
+    await api.post(`/me/company-events/${event.id}/respond`, { responseKey });
+    await loadMyCompanyEvents();
+  } catch (e) {
+    const msg = e?.response?.data?.error?.message || 'Could not save your response.';
+    window.alert(msg);
+  }
+};
 
 const currentAgencyId = computed(() => {
   const a = agencyStore.currentAgency?.value || agencyStore.currentAgency;
@@ -1632,6 +1692,28 @@ const loadAgencyDashboardBanner = async () => {
   }
 };
 
+const loadMyCompanyEvents = async () => {
+  if (props.previewMode || !isOnboardingComplete.value) {
+    companyEvents.value = [];
+    return;
+  }
+  try {
+    const resp = await api.get('/me/company-events');
+    const rows = Array.isArray(resp.data) ? resp.data : [];
+    const sorted = rows
+      .slice()
+      .sort((a, b) => {
+        const aTime = new Date(a?.nextOccurrenceStart || a?.startsAt || 0).getTime();
+        const bTime = new Date(b?.nextOccurrenceStart || b?.startsAt || 0).getTime();
+        return aTime - bTime;
+      })
+      .slice(0, 8);
+    companyEvents.value = sorted;
+  } catch {
+    companyEvents.value = [];
+  }
+};
+
 onMounted(async () => {
   loadTopCardCollapsed();
   loadSocialFeedsCollapsed();
@@ -1657,6 +1739,7 @@ onMounted(async () => {
   }
   await loadCurrentTier();
   await loadAgencyDashboardBanner();
+  await loadMyCompanyEvents();
   await loadDashboardSocialFeeds();
 
   updateRailTopMode();
@@ -1680,6 +1763,7 @@ watch([currentAgencyId, isOnboardingComplete], async () => {
   await loadCurrentTier();
   await loadMyAssignedSchools();
   await loadAgencyDashboardBanner();
+  await loadMyCompanyEvents();
   await loadDashboardSocialFeeds();
 });
 
@@ -2302,6 +2386,67 @@ h1 {
 
 .agency-announcement-banner:hover .agency-announcement-track {
   animation-play-state: paused;
+}
+
+.company-events-strip {
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 16px;
+  background: var(--surface-secondary);
+}
+
+.company-events-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.company-events-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.company-event-card {
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--surface-primary);
+}
+
+.company-event-title {
+  font-weight: 600;
+}
+
+.company-event-when {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 3px;
+}
+
+.company-event-copy {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+}
+
+.company-event-rsvp {
+  margin-top: 8px;
+}
+
+.company-event-rsvp-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.company-event-actions {
+  margin-top: 8px;
+  font-size: 13px;
 }
 
 @keyframes agencyBannerMarquee {

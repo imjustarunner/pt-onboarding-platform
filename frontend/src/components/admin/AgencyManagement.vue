@@ -283,6 +283,14 @@
             Announcements
           </button>
           <button
+            v-if="editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
+            type="button"
+            :class="['tab-button', { active: activeTab === 'company_events' }]"
+            @click="activeTab = 'company_events'"
+          >
+            Company Events
+          </button>
+          <button
             v-if="userRole === 'super_admin' && editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
             type="button"
             :class="['tab-button', { active: activeTab === 'social_feeds' }]"
@@ -1407,6 +1415,13 @@
                 <div v-else class="muted" style="padding: 8px 4px;">No scheduled announcements yet.</div>
               </div>
             </div>
+          </div>
+
+          <div
+            v-if="activeTab === 'company_events' && editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
+            class="tab-section"
+          >
+            <CompanyEventsManager :agency-id="Number(editingAgency.id)" />
           </div>
 
           <div
@@ -3126,6 +3141,7 @@ import IconTemplateModal from './IconTemplateModal.vue';
 import SplashPagePreviewModal from './SplashPagePreviewModal.vue';
 import ToggleSwitch from '../ui/ToggleSwitch.vue';
 import SocialFeedsAdmin from './SocialFeedsAdmin.vue';
+import CompanyEventsManager from './CompanyEventsManager.vue';
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();

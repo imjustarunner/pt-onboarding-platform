@@ -30,6 +30,18 @@ import {
   updateProgramReminderSchedule,
   deleteProgramReminderSchedule
 } from '../controllers/programReminderSchedule.controller.js';
+import {
+  listCompanyEventsForAgency,
+  listCompanyEventAudienceOptions,
+  createCompanyEvent,
+  updateCompanyEvent,
+  deleteCompanyEvent,
+  downloadCompanyEventIcsForAgency,
+  listCompanyEventResponses,
+  closeCompanyEventVoting,
+  sendCompanyEventVotingSms,
+  sendCompanyEventDirectMessage
+} from '../controllers/companyEvents.controller.js';
 import { listSchoolStaffUsers, createSchoolContact, updateSchoolContact, deleteSchoolContact, createSchoolStaffUserFromContact, revokeSchoolStaffAccess } from '../controllers/schoolStaffAdmin.controller.js';
 import { authenticate, requireBackofficeAdmin, requireSuperAdmin } from '../middleware/auth.middleware.js';
 
@@ -443,6 +455,16 @@ router.get('/:id/program-reminders', authenticate, requireBackofficeAdmin, listP
 router.post('/:id/program-reminders', authenticate, requireBackofficeAdmin, createProgramReminderSchedule);
 router.put('/:id/program-reminders/:scheduleId', authenticate, requireBackofficeAdmin, updateProgramReminderSchedule);
 router.delete('/:id/program-reminders/:scheduleId', authenticate, requireBackofficeAdmin, deleteProgramReminderSchedule);
+router.get('/:id/company-events/:eventId/ics', authenticate, downloadCompanyEventIcsForAgency);
+router.get('/:id/company-events', authenticate, listCompanyEventsForAgency);
+router.get('/:id/company-events/audience-options', authenticate, listCompanyEventAudienceOptions);
+router.post('/:id/company-events', authenticate, createCompanyEvent);
+router.put('/:id/company-events/:eventId', authenticate, updateCompanyEvent);
+router.delete('/:id/company-events/:eventId', authenticate, deleteCompanyEvent);
+router.get('/:id/company-events/:eventId/responses', authenticate, listCompanyEventResponses);
+router.post('/:id/company-events/:eventId/close-voting', authenticate, closeCompanyEventVoting);
+router.post('/:id/company-events/:eventId/send-sms-vote', authenticate, sendCompanyEventVotingSms);
+router.post('/:id/company-events/:eventId/send-direct-message', authenticate, sendCompanyEventDirectMessage);
 router.post('/', authenticate, requireBackofficeAdmin, validateCreateAgency, createAgency);
 router.put('/:id', authenticate, requireBackofficeAdmin, validateUpdateAgency, updateAgency);
 router.post('/:id/archive', authenticate, requireSuperAdmin, archiveAgency);

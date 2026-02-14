@@ -115,6 +115,7 @@ import clinicalNoteGeneratorRoutes from './routes/clinicalNoteGenerator.routes.j
 import complianceCornerRoutes from './routes/complianceCorner.routes.js';
 import learningBillingRoutes from './routes/learningBilling.routes.js';
 import betaFeedbackRoutes from './routes/betaFeedback.routes.js';
+import meRoutes from './routes/me.routes.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -501,6 +502,7 @@ app.use('/api/agencies', agencyRoutes);
 app.use('/api/agencies', agencyDashboardRoutes);
 app.use('/api/agencies', agencySchoolsRoutes);
 app.use('/api/agencies', socialFeedLinksRoutes);
+app.use('/api/me', meRoutes);
 app.use('/api/tracks', trackRoutes);
 app.use('/api/training-focuses', trackRoutes); // Alias for new terminology
 app.use('/api/acknowledgments', acknowledgmentRoutes);
