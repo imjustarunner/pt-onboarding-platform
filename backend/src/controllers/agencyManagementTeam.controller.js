@@ -1,5 +1,5 @@
 import User from '../models/User.model.js';
-import AgencyManagementTeam from '../models/AgencyManagementTeam.model.js';
+import AgencyManagementTeam, { ROLE_TYPES } from '../models/AgencyManagementTeam.model.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 
 const parseAgencyId = (raw) => {
@@ -48,6 +48,7 @@ export const getManagementTeam = async (req, res, next) => {
         email: r.email,
         role: r.role,
         display_role: r.display_role || null,
+        role_type: r.role_type || null,
         profile_photo_url: publicUploadsUrlFromStoredPath(r.profile_photo_path),
         presence_status: r.presence_status || null,
         presence_note: r.presence_note || null,
@@ -80,6 +81,7 @@ export const getManagementTeamConfig = async (req, res, next) => {
       id: r.id,
       user_id: r.user_id,
       display_role: r.display_role || null,
+      role_type: r.role_type || null,
       display_order: r.display_order,
       first_name: r.first_name,
       last_name: r.last_name,
@@ -113,12 +115,161 @@ export const updateManagementTeamConfig = async (req, res, next) => {
       id: r.id,
       user_id: r.user_id,
       display_role: r.display_role || null,
+      role_type: r.role_type || null,
       display_order: r.display_order,
       first_name: r.first_name,
       last_name: r.last_name,
       email: r.email,
       role: r.role
     })));
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * GET /api/agencies/:id/management-team/today
+ * Agency view: management team with day-level coverage applied for today.
+ */
+export const getManagementTeamToday = async (req, res, next) => {
+  try {
+    const agencyId = parseAgencyId(req.params.id);
+    if (!agencyId) {
+      return res.status(400).json({ error: { message: 'Invalid agency id' } });
+    }
+
+    if (!(await userHasAgencyAccess(req, agencyId))) {
+      return res.status(403).json({ error: { message: 'Not authorized for this agency' } });
+    }
+
+    const dateStr = req.query.date || new Date().toISOString().slice(0, 10);
+    const rows = await AgencyManagementTeam.listForAgencyWithPresenceToday(agencyId, dateStr);
+    const out = (rows || []).map((r) => {
+      const firstName = r.first_name || '';
+      const lastName = r.last_name || '';
+      const preferredName = r.preferred_name || '';
+      const displayName = preferredName
+        ? `${firstName} "${preferredName}" ${lastName}`.trim()
+        : `${firstName} ${lastName}`.trim() || 'Unknown';
+      return {
+        id: r.id,
+        first_name: r.first_name,
+        last_name: r.last_name,
+        display_name: displayName,
+        email: r.email,
+        role: r.role,
+        display_role: r.display_role || null,
+        role_type: r.role_type || null,
+        profile_photo_url: publicUploadsUrlFromStoredPath(r.profile_photo_path),
+        presence_status: r.presence_status || null,
+        presence_note: r.presence_note || null,
+        presence_expected_return_at: r.presence_expected_return_at || null,
+        is_covering: !!r.is_covering
+      };
+    });
+    res.json(out);
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * GET /api/agencies/:id/management-team/coverage
+ * SuperAdmin only: list coverage for an agency.
+ */
+export const listCoverage = async (req, res, next) => {
+  try {
+    if (String(req.user?.role || '').toLowerCase() !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'Super admin access required' } });
+    }
+
+    const agencyId = parseAgencyId(req.params.id);
+    if (!agencyId) {
+      return res.status(400).json({ error: { message: 'Invalid agency id' } });
+    }
+
+    const fromDate = req.query.fromDate || null;
+    const toDate = req.query.toDate || null;
+    const rows = await AgencyManagementTeam.listCoverage(agencyId, fromDate, toDate);
+    res.json(rows.map((r) => ({
+      id: r.id,
+      agency_id: r.agency_id,
+      role_type: r.role_type,
+      covered_by_user_id: r.covered_by_user_id,
+      coverage_date: r.coverage_date,
+      replaces_user_id: r.replaces_user_id,
+      note: r.note,
+      created_at: r.created_at
+    })));
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * POST /api/agencies/:id/management-team/coverage
+ * SuperAdmin only: set coverage for a role on a date.
+ * Body: { roleType, coverageDate, coveredByUserId, replacesUserId? }
+ */
+export const setCoverage = async (req, res, next) => {
+  try {
+    if (String(req.user?.role || '').toLowerCase() !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'Super admin access required' } });
+    }
+
+    const agencyId = parseAgencyId(req.params.id);
+    if (!agencyId) {
+      return res.status(400).json({ error: { message: 'Invalid agency id' } });
+    }
+
+    const { roleType, coverageDate, coveredByUserId, replacesUserId } = req.body || {};
+    if (!roleType || !coverageDate || !coveredByUserId) {
+      return res.status(400).json({ error: { message: 'roleType, coverageDate, and coveredByUserId are required' } });
+    }
+
+    await AgencyManagementTeam.setCoverage(agencyId, roleType, coverageDate, coveredByUserId, replacesUserId || null);
+    const coverage = await AgencyManagementTeam.getCoverageForDate(agencyId, coverageDate);
+    res.status(201).json(coverage);
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * DELETE /api/agencies/:id/management-team/coverage
+ * SuperAdmin only: remove coverage for a role on a date.
+ * Query: roleType, coverageDate
+ */
+export const deleteCoverage = async (req, res, next) => {
+  try {
+    if (String(req.user?.role || '').toLowerCase() !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'Super admin access required' } });
+    }
+
+    const agencyId = parseAgencyId(req.params.id);
+    if (!agencyId) {
+      return res.status(400).json({ error: { message: 'Invalid agency id' } });
+    }
+
+    const { roleType, coverageDate } = req.query || {};
+    if (!roleType || !coverageDate) {
+      return res.status(400).json({ error: { message: 'roleType and coverageDate are required' } });
+    }
+
+    await AgencyManagementTeam.deleteCoverage(agencyId, roleType, coverageDate);
+    res.status(204).send();
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * GET /api/agencies/management-team/role-types
+ * Returns role type options for team assignment (credentialing, billing, support, account_manager).
+ */
+export const getRoleTypes = async (req, res, next) => {
+  try {
+    res.json(ROLE_TYPES);
   } catch (e) {
     next(e);
   }

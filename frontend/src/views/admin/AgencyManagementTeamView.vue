@@ -17,34 +17,51 @@
       <p class="hint">Contact your platform administrator to set this up.</p>
     </div>
 
-    <div v-else class="team-circle-container">
-      <div class="team-circle" :style="circleStyle">
-        <div
-          v-for="(person, idx) in team"
-          :key="person.id"
-          class="team-member"
-          :style="memberPosition(idx)"
-        >
-          <div class="avatar-wrap" :title="statusTooltip(person)">
-            <div class="avatar" :class="{ 'has-photo': person.profile_photo_url }">
-              <img
-                v-if="person.profile_photo_url"
-                :src="avatarUrl(person.profile_photo_url)"
-                :alt="person.display_name"
-                class="avatar-img"
-              />
-              <span v-else class="avatar-initial">{{ avatarInitial(person) }}</span>
+    <div v-else class="team-board">
+      <div
+        v-for="group in teamByRole"
+        :key="group.roleType || '_unassigned'"
+        class="role-section"
+      >
+        <h3 class="role-section-title">{{ group.label }}</h3>
+        <div class="role-members" :style="groupCircleStyle(group.members.length)">
+          <div
+            v-for="(person, idx) in group.members"
+            :key="person.id"
+            class="team-member"
+            :style="memberPosition(idx, group.members.length)"
+          >
+            <div class="avatar-wrap" :title="statusTooltip(person)">
+              <div class="avatar" :class="{ 'has-photo': person.profile_photo_url }">
+                <img
+                  v-if="person.profile_photo_url"
+                  :src="avatarUrl(person.profile_photo_url)"
+                  :alt="person.display_name"
+                  class="avatar-img"
+                />
+                <span v-else class="avatar-initial">{{ avatarInitial(person) }}</span>
+              </div>
+              <span class="status-dot" :class="statusDotClass(person.presence_status)" />
             </div>
-            <span class="status-dot" :class="statusDotClass(person.presence_status)" />
-          </div>
-          <div class="member-info">
-            <span class="member-name">{{ person.display_name }}</span>
-            <span v-if="person.display_role" class="member-role">{{ person.display_role }}</span>
-            <span v-else class="member-role">{{ formatRole(person.role) }}</span>
-            <span v-if="person.presence_status" class="member-status" :class="statusTextClass(person.presence_status)">
-              {{ statusLabel(person.presence_status) }}
-            </span>
-            <a v-if="person.email" :href="`mailto:${person.email}`" class="member-email">Email</a>
+            <div class="member-info">
+              <span class="member-name">{{ person.display_name }}</span>
+              <span v-if="person.display_role" class="member-role">{{ person.display_role }}</span>
+              <span v-else class="member-role">{{ formatRole(person.role) }}</span>
+              <span v-if="person.is_covering" class="covering-badge">Covering</span>
+              <span v-if="person.presence_status" class="member-status" :class="statusTextClass(person.presence_status)">
+                {{ statusLabel(person.presence_status) }}
+              </span>
+              <div class="member-actions">
+                <button
+                  type="button"
+                  class="btn btn-sm btn-primary"
+                  @click="openMessage(person)"
+                >
+                  Message
+                </button>
+                <a v-if="person.email" :href="`mailto:${person.email}`" class="member-email">Email</a>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -54,9 +71,19 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue';
+import { useRouter } from 'vue-router';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
+
+const router = useRouter();
+
+const ROLE_TYPE_LABELS = {
+  credentialing: 'Credentialing',
+  billing: 'Billing',
+  support: 'Support',
+  account_manager: 'Account Manager'
+};
 
 const statusOptions = [
   { value: 'in_available', label: 'Available' },
@@ -76,12 +103,29 @@ const team = ref([]);
 
 const currentAgencyId = computed(() => agencyStore.currentAgency?.id || null);
 
-const circleStyle = computed(() => {
-  const n = team.value.length;
-  const radius = n <= 3 ? 120 : n <= 6 ? 160 : 200;
+const teamByRole = computed(() => {
+  const list = team.value;
+  const byRole = new Map();
+  for (const p of list) {
+    const rt = p.role_type || '_unassigned';
+    if (!byRole.has(rt)) byRole.set(rt, []);
+    byRole.get(rt).push(p);
+  }
+  const order = ['credentialing', 'billing', 'support', 'account_manager', '_unassigned'];
+  return order
+    .filter((rt) => byRole.has(rt))
+    .map((rt) => ({
+      roleType: rt === '_unassigned' ? null : rt,
+      label: rt === '_unassigned' ? 'Team' : (ROLE_TYPE_LABELS[rt] || rt),
+      members: byRole.get(rt)
+    }));
+});
+
+function groupCircleStyle(n) {
+  const radius = n <= 3 ? 100 : n <= 6 ? 130 : 160;
   const size = (radius + 80) * 2;
   return { '--circle-radius': `${radius}px`, '--circle-size': `${size}px` };
-});
+}
 
 const avatarUrl = (rel) => toUploadsUrl(rel);
 
@@ -131,12 +175,11 @@ const formatRole = (role) => {
   return r.charAt(0).toUpperCase() + r.slice(1);
 };
 
-function memberPosition(idx) {
-  const n = team.value.length;
-  if (n === 0) return {};
+function memberPosition(idx, n) {
+  if (!n) return {};
   if (n === 1) return { top: '50%', left: '50%', transform: 'translate(-50%, -50%)' };
   const angle = (2 * Math.PI * idx) / n - Math.PI / 2;
-  const radius = n <= 3 ? 120 : n <= 6 ? 160 : 200;
+  const radius = n <= 3 ? 100 : n <= 6 ? 130 : 160;
   const size = (radius + 80) * 2;
   const frac = (radius / size) * 100;
   const x = 50 + frac * Math.cos(angle);
@@ -159,7 +202,7 @@ async function fetchTeam() {
   try {
     loading.value = true;
     error.value = '';
-    const res = await api.get(`/agencies/${agencyId}/management-team`);
+    const res = await api.get(`/agencies/${agencyId}/management-team/today`);
     team.value = Array.isArray(res.data) ? res.data : [];
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to load';
@@ -171,6 +214,19 @@ async function fetchTeam() {
 
 function refresh() {
   fetchTeam();
+}
+
+function openMessage(person) {
+  const agencyId = currentAgencyId.value;
+  if (!agencyId || !person?.id) return;
+  router.push({
+    path: '/admin/management-team',
+    query: {
+      openChatWith: String(person.id),
+      agencyId: String(agencyId),
+      openChatWithName: person.display_name || ''
+    }
+  });
 }
 
 onMounted(fetchTeam);
@@ -220,18 +276,33 @@ onMounted(fetchTeam);
   margin-top: 8px;
 }
 
-.team-circle-container {
+.team-board {
   display: flex;
-  justify-content: center;
-  align-items: center;
-  min-height: 400px;
+  flex-wrap: wrap;
+  gap: 32px;
   padding: 24px;
 }
 
-.team-circle {
+.role-section {
+  flex: 1;
+  min-width: 280px;
+  max-width: 420px;
+}
+
+.role-section-title {
+  margin: 0 0 16px;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.role-members {
   position: relative;
-  width: var(--circle-size, 560px);
-  height: var(--circle-size, 560px);
+  width: var(--circle-size, 360px);
+  height: var(--circle-size, 360px);
+  margin: 0 auto;
 }
 
 .team-member {
@@ -315,6 +386,19 @@ onMounted(fetchTeam);
   margin-bottom: 2px;
 }
 
+.covering-badge {
+  display: inline-block;
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--primary);
+  border: 1px solid var(--primary);
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-top: 2px;
+}
+
 .member-status {
   font-size: 0.75rem;
   font-weight: 500;
@@ -335,6 +419,20 @@ onMounted(fetchTeam);
 
 .member-status.status-out {
   color: #ef4444;
+}
+
+.member-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  margin-top: 6px;
+}
+
+.member-actions .btn {
+  font-size: 0.8rem;
+  padding: 4px 10px;
 }
 
 .member-email {
