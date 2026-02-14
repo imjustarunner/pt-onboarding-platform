@@ -1118,7 +1118,6 @@ const handleLogout = async () => {
   stopActivityTracking();
   mobileMenuOpen.value = false;
   await authStore.logout();
-  router.push('/login');
 };
 
 const onSessionUnlock = () => {
