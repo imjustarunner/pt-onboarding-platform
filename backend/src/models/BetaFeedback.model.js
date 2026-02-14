@@ -68,6 +68,8 @@ class BetaFeedback {
 
     let where = [];
     const params = [];
+    const safeLimit = Math.max(1, Math.min(200, Number.parseInt(String(limit), 10) || 100));
+    const safeOffset = Math.max(0, Number.parseInt(String(offset), 10) || 0);
 
     if (agencyId != null) {
       where.push('(bf.agency_id = ? OR bf.agency_id IS NULL)');
@@ -95,9 +97,11 @@ class BetaFeedback {
     }
 
     const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
-    params.push(limit, offset);
+    params.push(safeLimit, safeOffset);
 
-    const [rows] = await pool.execute(
+    // Use query() (text protocol) here to avoid prepared-statement arg edge cases
+    // seen in Cloud SQL for LIMIT/OFFSET dynamic statements.
+    const [rows] = await pool.query(
       `SELECT bf.*,
         u.email as user_email,
         u.first_name as user_first_name,
