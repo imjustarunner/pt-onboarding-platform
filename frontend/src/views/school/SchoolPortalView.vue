@@ -253,7 +253,7 @@
                 class="nav-icon-img"
               />
               <div v-else class="nav-icon-fallback" aria-hidden="true">AN</div>
-              <span v-if="notificationsUnreadCount > 0" class="nav-badge" :class="{ pulse: notificationsUnreadCount > 0 }">
+              <span v-if="notificationsUnreadCount > 0" class="nav-badge" :class="{ pulse: notificationsUnreadCount > 0 }" :title="`${notificationsUnreadCount} unread`">
                 {{ notificationsUnreadCount }}
               </span>
             </div>
@@ -299,7 +299,7 @@
           <div class="home-snapshot-grid">
             <button class="home-pill home-pill-clickable home-pill-notifications" type="button" @click="openNotificationsPanel">
               <div class="home-pill-k">
-                <span v-if="notificationsUnreadCount > 0" class="home-pill-badge" :class="{ pulse: notificationsUnreadCount > 0 }">
+                <span v-if="notificationsUnreadCount > 0" class="home-pill-badge" :class="{ pulse: notificationsUnreadCount > 0 }" :title="`${notificationsUnreadCount} unread`">
                   {{ notificationsUnreadCount }}
                 </span>
                 <span v-else class="home-pill-k-text">Notifications</span>
@@ -503,7 +503,7 @@
             </div>
             <div class="dash-card-meta">
               <span class="dash-card-cta">Open</span>
-              <span v-if="notificationsUnreadCount > 0" class="dash-card-badge dash-card-badge-pulse">
+              <span v-if="notificationsUnreadCount > 0" class="dash-card-badge dash-card-badge-pulse" :title="`${notificationsUnreadCount} unread`">
                 {{ notificationsUnreadCount }}
               </span>
             </div>
@@ -1330,13 +1330,38 @@ const loadNotificationsPreview = async () => {
     const pref = prefResp?.data || {};
     const raw = pref.school_portal_notifications_progress;
     const m = parseJsonMaybe(raw) || raw;
-    const lastSeenIso = m && typeof m === 'object' ? String(m[String(orgId)] || '') : '';
-    const lastSeenMs = lastSeenIso ? new Date(lastSeenIso).getTime() : 0;
+    const progress = m && typeof m === 'object' && m.by_org
+      ? { ...m, dismissed_by_org: m.dismissed_by_org && typeof m.dismissed_by_org === 'object' ? m.dismissed_by_org : {} }
+      : { by_org: m && typeof m === 'object' ? m : {}, by_org_kind: {}, by_org_client_kind: {}, dismissed_by_org: {} };
+    const orgKey = String(orgId);
+    const byOrg = progress?.by_org || {};
+    const byOrgKind = progress?.by_org_kind?.[orgKey] || {};
+    const byOrgClientKind = progress?.by_org_client_kind?.[orgKey] || {};
+
+    const lastSeenForItem = (it) => {
+      const kind = String(it?.kind || '').toLowerCase();
+      const clientId = it?.client_id ? String(it.client_id) : '';
+      if (clientId && byOrgClientKind[clientId]?.[kind]) {
+        const t = new Date(byOrgClientKind[clientId][kind]).getTime();
+        return Number.isFinite(t) ? t : 0;
+      }
+      if (byOrgKind[kind]) {
+        const t = new Date(byOrgKind[kind]).getTime();
+        return Number.isFinite(t) ? t : 0;
+      }
+      const iso = byOrg[orgKey] || '';
+      return iso ? new Date(iso).getTime() : 0;
+    };
+
+    const dismissedList = progress?.dismissed_by_org?.[orgKey] || [];
+    const dismissedSet = new Set(Array.isArray(dismissedList) ? dismissedList.map(String) : []);
 
     const feed = Array.isArray(feedResp?.data) ? feedResp.data : [];
     const unread = feed.filter((it) => {
+      const id = String(it?.id ?? '');
+      if (dismissedSet.has(id)) return false;
       const t = it?.created_at ? new Date(it.created_at).getTime() : 0;
-      return Number.isFinite(t) && t > lastSeenMs;
+      return Number.isFinite(t) && t > lastSeenForItem(it);
     });
 
     notificationsUnreadCount.value = unread.length;

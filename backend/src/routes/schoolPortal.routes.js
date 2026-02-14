@@ -13,6 +13,7 @@ import {
   createClientComment,
   listSchoolPortalNotificationsFeed,
   markSchoolPortalNotificationsRead,
+  dismissSchoolPortalNotifications,
   listSchoolPortalBannerAnnouncements,
   createSchoolPortalAnnouncement,
   queryComplianceCorner
@@ -73,6 +74,7 @@ router.get('/:organizationId/clients/:clientId/comments', authenticate, listClie
 router.post('/:organizationId/clients/:clientId/comments', authenticate, createClientComment);
 router.get('/:organizationId/notifications/feed', authenticate, listSchoolPortalNotificationsFeed);
 router.post('/:organizationId/notifications/read', authenticate, markSchoolPortalNotificationsRead);
+router.post('/:organizationId/notifications/dismiss', authenticate, dismissSchoolPortalNotifications);
 router.get('/:organizationId/announcements/banner', authenticate, listSchoolPortalBannerAnnouncements);
 router.post('/:organizationId/announcements', authenticate, createSchoolPortalAnnouncement);
 router.post('/:organizationId/compliance-corner/query', authenticate, queryComplianceCorner);

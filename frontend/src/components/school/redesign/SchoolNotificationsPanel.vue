@@ -75,6 +75,47 @@
       >
         Mark selected read
       </button>
+      <button
+        class="btn btn-secondary btn-sm"
+        type="button"
+        @click="dismissSelected"
+        :disabled="loading || prefsLoading || selectedCount === 0"
+      >
+        Dismiss selected
+      </button>
+      <button
+        class="btn btn-secondary btn-sm"
+        type="button"
+        @click="dismissAll"
+        :disabled="loading || prefsLoading || visibleFilteredCount === 0"
+      >
+        Dismiss all
+      </button>
+      <div class="toolbar-divider" />
+      <button
+        class="btn btn-secondary btn-sm"
+        type="button"
+        @click="selectAllOnPage"
+        :disabled="loading || filteredItems.length === 0"
+      >
+        Select all on page
+      </button>
+      <button
+        class="btn btn-secondary btn-sm"
+        type="button"
+        @click="selectAllTotal"
+        :disabled="loading || items.length === 0"
+      >
+        Select all total
+      </button>
+      <button
+        v-if="selectedCount > 0"
+        class="btn btn-secondary btn-sm"
+        type="button"
+        @click="clearSelection"
+      >
+        Clear selection
+      </button>
       <div class="toolbar-divider" />
       <div class="filter-group" role="group" aria-label="Notification filters">
         <button class="filter-btn" type="button" :class="{ active: activeFilter === 'all' }" @click="setFilter('all')">
@@ -100,6 +141,7 @@
       <label class="selector">
         <span class="selector-label">Sort</span>
         <select v-model="sortOrder" class="selector-select">
+          <option value="unread_first">Unread first</option>
           <option value="newest">Newest first</option>
           <option value="oldest">Oldest first</option>
         </select>
@@ -218,6 +260,13 @@
             @click.stop="markItemRead(it)"
           >
             Mark read
+          </button>
+          <button
+            class="btn btn-secondary btn-sm item-action-btn"
+            type="button"
+            @click.stop="dismiss([String(it?.id ?? '')])"
+          >
+            Dismiss
           </button>
         </div>
       </div>
@@ -412,7 +461,7 @@ const loading = ref(false);
 const error = ref('');
 const items = ref([]);
 const activeFilter = ref('all');
-const sortOrder = ref('newest');
+const sortOrder = ref('unread_first');
 const visibleKinds = ref({
   client_event: true,
   message: true,
@@ -444,8 +493,35 @@ const setFilter = (next) => {
 
 const sortedItems = computed(() => {
   const list = items.value || [];
-  const dir = sortOrder.value === 'oldest' ? 1 : -1;
+  const order = sortOrder.value || 'newest';
+  const dir = order === 'oldest' ? 1 : -1;
+  const lastSeen = lastSeenOrg.value;
+  const byKind = lastSeenByKind.value;
+  const byClientKind = lastSeenByClientKind.value;
+  const lastSeenForItem = (it) => {
+    const kind = String(it?.kind || '').toLowerCase();
+    const clientId = it?.client_id ? String(it.client_id) : '';
+    if (clientId && byClientKind[clientId]?.[kind]) {
+      const t = new Date(byClientKind[clientId][kind]).getTime();
+      return Number.isFinite(t) ? t : 0;
+    }
+    if (byKind[kind]) {
+      const t = new Date(byKind[kind]).getTime();
+      return Number.isFinite(t) ? t : 0;
+    }
+    return lastSeen ? new Date(lastSeen).getTime() : 0;
+  };
+  const isUnreadItem = (it) => {
+    const t = it?.created_at ? new Date(it.created_at).getTime() : 0;
+    return Number.isFinite(t) && t > lastSeenForItem(it);
+  };
   return list.slice().sort((a, b) => {
+    if (order === 'unread_first') {
+      const aUnread = isUnreadItem(a);
+      const bUnread = isUnreadItem(b);
+      if (aUnread && !bUnread) return -1;
+      if (!aUnread && bUnread) return 1;
+    }
     const at = a?.created_at ? new Date(a.created_at).getTime() : 0;
     const bt = b?.created_at ? new Date(b.created_at).getTime() : 0;
     if (at !== bt) return (at - bt) * dir;
@@ -453,8 +529,16 @@ const sortedItems = computed(() => {
   });
 });
 
-const filteredItems = computed(() => {
+const dismissedIds = ref(new Set());
+
+const visibleFilteredCount = computed(() => {
   const list = sortedItems.value || [];
+  const dismissed = dismissedIds.value;
+  const filtered = filterByKindAndVisibility(list);
+  return filtered.filter((it) => !dismissed.has(String(it?.id ?? ''))).length;
+});
+
+function filterByKindAndVisibility(list) {
   if (activeFilter.value !== 'all') {
     if (activeFilter.value === 'ticket') {
       return list.filter((it) => String(it?.kind || '').toLowerCase() === 'ticket');
@@ -479,6 +563,12 @@ const filteredItems = computed(() => {
     if (k === 'doc') return !!visibleKinds.value.doc;
     return true;
   });
+}
+
+const filteredItems = computed(() => {
+  const list = filterByKindAndVisibility(sortedItems.value || []);
+  const dismissed = dismissedIds.value;
+  return list.filter((it) => !dismissed.has(String(it?.id ?? '')));
 });
 
 const emptyText = computed(() => {
@@ -532,9 +622,14 @@ const settings = ref({
 });
 
 const normalizeProgress = (raw) => {
-  if (raw && typeof raw === 'object' && raw.by_org) return raw;
+  if (raw && typeof raw === 'object' && raw.by_org) {
+    return {
+      ...raw,
+      dismissed_by_org: raw.dismissed_by_org && typeof raw.dismissed_by_org === 'object' ? raw.dismissed_by_org : {}
+    };
+  }
   const legacy = raw && typeof raw === 'object' ? raw : {};
-  return { by_org: legacy, by_org_kind: {}, by_org_client_kind: {} };
+  return { by_org: legacy, by_org_kind: {}, by_org_client_kind: {}, dismissed_by_org: {} };
 };
 
 const loadLastSeen = async () => {
@@ -549,10 +644,13 @@ const loadLastSeen = async () => {
     lastSeenOrg.value = String(m?.by_org?.[key] || '');
     lastSeenByKind.value = m?.by_org_kind?.[key] || {};
     lastSeenByClientKind.value = m?.by_org_client_kind?.[key] || {};
+    const dismissedList = m?.dismissed_by_org?.[key] || [];
+    dismissedIds.value = new Set(Array.isArray(dismissedList) ? dismissedList.map(String) : []);
   } catch {
     lastSeenOrg.value = '';
     lastSeenByKind.value = {};
     lastSeenByClientKind.value = {};
+    dismissedIds.value = new Set();
   } finally {
     prefsLoading.value = false;
   }
@@ -698,6 +796,49 @@ const markVisibleRead = async () => {
     })
   );
   emit('updated');
+  selectedIds.value = [];
+};
+
+const dismiss = async (idsToDismiss) => {
+  try {
+    if (!props.schoolOrganizationId) return;
+    const ids = Array.isArray(idsToDismiss) ? idsToDismiss : [idsToDismiss].filter(Boolean);
+    await api.post(`/school-portal/${props.schoolOrganizationId}/notifications/dismiss`, { ids });
+    const next = new Set(dismissedIds.value);
+    ids.forEach((id) => next.add(String(id)));
+    dismissedIds.value = next;
+    emit('updated');
+    selectedIds.value = selectedIds.value.filter((id) => !ids.includes(id));
+  } catch {
+    // ignore
+  }
+};
+
+const dismissSelected = async () => {
+  const ids = selectedItems.value.map((it) => String(it?.id ?? '')).filter(Boolean);
+  if (ids.length === 0) return;
+  await dismiss(ids);
+  selectedIds.value = [];
+};
+
+const dismissAll = async () => {
+  const ids = (filteredItems.value || []).map((it) => String(it?.id ?? '')).filter(Boolean);
+  if (ids.length === 0) return;
+  await dismiss(ids);
+  selectedIds.value = [];
+};
+
+const selectAllOnPage = () => {
+  const ids = (filteredItems.value || []).map((it) => String(it?.id ?? '')).filter(Boolean);
+  selectedIds.value = [...new Set([...selectedIds.value, ...ids])];
+};
+
+const selectAllTotal = () => {
+  const ids = (items.value || []).map((it) => String(it?.id ?? '')).filter(Boolean);
+  selectedIds.value = [...new Set([...selectedIds.value, ...ids])];
+};
+
+const clearSelection = () => {
   selectedIds.value = [];
 };
 

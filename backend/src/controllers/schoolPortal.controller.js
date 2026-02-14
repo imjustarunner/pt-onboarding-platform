@@ -94,12 +94,18 @@ async function parseComplianceQuery(query) {
 
 function normalizeNotificationsProgress(raw) {
   const parsed = parseJsonMaybe(raw) || raw;
-  if (parsed && typeof parsed === 'object' && parsed.by_org) return parsed;
+  if (parsed && typeof parsed === 'object' && parsed.by_org) {
+    return {
+      ...parsed,
+      dismissed_by_org: parsed.dismissed_by_org && typeof parsed.dismissed_by_org === 'object' ? parsed.dismissed_by_org : {}
+    };
+  }
   const legacy = parsed && typeof parsed === 'object' ? parsed : {};
   return {
     by_org: legacy,
     by_org_kind: {},
-    by_org_client_kind: {}
+    by_org_client_kind: {},
+    dismissed_by_org: {}
   };
 }
 
@@ -2912,6 +2918,48 @@ export const markSchoolPortalNotificationsRead = async (req, res, next) => {
       progress = setLastSeenByOrgClientKind(progress, orgId, clientId, normalizedKind, nowIso);
     } else if (normalizedKind) {
       progress = setLastSeenByOrgKind(progress, orgId, normalizedKind, nowIso);
+    }
+
+    await UserPreferences.update(userId, { school_portal_notifications_progress: progress });
+    res.json({ ok: true, progress });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Dismiss school portal notifications (per-user hide from list).
+ * POST /api/school-portal/:organizationId/notifications/dismiss
+ * body: { ids?: string[] } - notification IDs to dismiss. Omit or empty = dismiss all visible.
+ */
+export const dismissSchoolPortalNotifications = async (req, res, next) => {
+  try {
+    const orgId = await resolveOrgIdFromParam(req.params.organizationId);
+    if (!orgId) return res.status(400).json({ error: { message: 'Invalid organizationId' } });
+
+    const userId = req.user?.id;
+    const roleNorm = String(req.user?.role || '').toLowerCase();
+    if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+
+    if (roleNorm !== 'super_admin') {
+      const ok = await userHasOrgOrAffiliatedAgencyAccess({ userId, role: roleNorm, schoolOrganizationId: orgId });
+      if (!ok) return res.status(403).json({ error: { message: 'You do not have access to this school organization' } });
+    }
+
+    const rawIds = req.body?.ids;
+    const ids = Array.isArray(rawIds) ? rawIds.map((x) => String(x || '').trim()).filter(Boolean) : [];
+
+    let progress = await getUserNotificationsProgress(userId);
+    const orgKey = String(orgId);
+    const nowIso = new Date().toISOString();
+
+    if (ids.length > 0) {
+      const existing = new Set(progress?.dismissed_by_org?.[orgKey] || []);
+      ids.forEach((id) => existing.add(id));
+      const dismissed = { ...(progress?.dismissed_by_org || {}), [orgKey]: Array.from(existing).slice(-500) };
+      progress = { ...progress, dismissed_by_org: dismissed };
+    } else {
+      progress = setLastSeenByOrg(progress, orgId, nowIso);
     }
 
     await UserPreferences.update(userId, { school_portal_notifications_progress: progress });
