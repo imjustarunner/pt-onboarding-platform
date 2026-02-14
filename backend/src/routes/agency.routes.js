@@ -38,9 +38,16 @@ import {
   deleteCompanyEvent,
   downloadCompanyEventIcsForAgency,
   listCompanyEventResponses,
+  listCompanyEventDeliveryLogs,
   closeCompanyEventVoting,
   sendCompanyEventVotingSms,
-  sendCompanyEventDirectMessage
+  sendCompanyEventDirectMessage,
+  listCompanyEventTemplates,
+  createCompanyEventTemplate,
+  updateCompanyEventTemplate,
+  deleteCompanyEventTemplate,
+  getCompanyEventAnalytics,
+  exportCompanyEventResponsesCsv
 } from '../controllers/companyEvents.controller.js';
 import { listSchoolStaffUsers, createSchoolContact, updateSchoolContact, deleteSchoolContact, createSchoolStaffUserFromContact, revokeSchoolStaffAccess } from '../controllers/schoolStaffAdmin.controller.js';
 import { authenticate, requireBackofficeAdmin, requireSuperAdmin } from '../middleware/auth.middleware.js';
@@ -462,9 +469,16 @@ router.post('/:id/company-events', authenticate, createCompanyEvent);
 router.put('/:id/company-events/:eventId', authenticate, updateCompanyEvent);
 router.delete('/:id/company-events/:eventId', authenticate, deleteCompanyEvent);
 router.get('/:id/company-events/:eventId/responses', authenticate, listCompanyEventResponses);
+router.get('/:id/company-events/:eventId/delivery-logs', authenticate, listCompanyEventDeliveryLogs);
+router.get('/:id/company-events/:eventId/analytics', authenticate, getCompanyEventAnalytics);
+router.get('/:id/company-events/:eventId/responses.csv', authenticate, exportCompanyEventResponsesCsv);
 router.post('/:id/company-events/:eventId/close-voting', authenticate, closeCompanyEventVoting);
 router.post('/:id/company-events/:eventId/send-sms-vote', authenticate, sendCompanyEventVotingSms);
 router.post('/:id/company-events/:eventId/send-direct-message', authenticate, sendCompanyEventDirectMessage);
+router.get('/:id/company-events/templates', authenticate, listCompanyEventTemplates);
+router.post('/:id/company-events/templates', authenticate, createCompanyEventTemplate);
+router.put('/:id/company-events/templates/:templateId', authenticate, updateCompanyEventTemplate);
+router.delete('/:id/company-events/templates/:templateId', authenticate, deleteCompanyEventTemplate);
 router.post('/', authenticate, requireBackofficeAdmin, validateCreateAgency, createAgency);
 router.put('/:id', authenticate, requireBackofficeAdmin, validateUpdateAgency, updateAgency);
 router.post('/:id/archive', authenticate, requireSuperAdmin, archiveAgency);

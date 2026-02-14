@@ -897,6 +897,23 @@ app.listen(PORT, HOST, () => {
   scheduleProgramReminders();
   setInterval(scheduleProgramReminders, 5 * 60 * 1000);
 
+  // Company event RSVP reminders (runs every 10 minutes)
+  const scheduleCompanyEventReminders = async () => {
+    try {
+      const { processCompanyEventResponseReminders } = await import('./controllers/companyEvents.controller.js');
+      await processCompanyEventResponseReminders();
+    } catch (error) {
+      if (error.code === 'ER_NO_SUCH_TABLE') {
+        console.warn('Company event reminder tables not found. Run migrations 414, 415, and 416.');
+      } else {
+        console.error('Error in company event reminder scheduler:', error);
+      }
+    }
+  };
+
+  scheduleCompanyEventReminders();
+  setInterval(scheduleCompanyEventReminders, 10 * 60 * 1000);
+
   // Daily digest emails (runs every 15 minutes; respects per-user time + opt-in)
   const scheduleDailyDigest = async () => {
     try {

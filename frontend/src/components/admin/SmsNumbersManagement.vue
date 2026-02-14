@@ -37,7 +37,26 @@
               </option>
             </select>
           </div>
+          <div class="form-group">
+            <label>Company Events SMS</label>
+            <select v-model="settings.companyEventsEnabled" class="select">
+              <option :value="false">Disabled</option>
+              <option :value="true">Enabled</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Company Events sender number</label>
+            <select v-model="settings.companyEventsSenderNumberId" class="select">
+              <option :value="null">Select number…</option>
+              <option v-for="n in activeAgencyNumbers" :key="n.id" :value="n.id">
+                {{ n.phone_number }}{{ n.friendly_name ? ` (${n.friendly_name})` : '' }}
+              </option>
+            </select>
+          </div>
         </div>
+        <p v-if="settings.companyEventsEnabled && !settings.companyEventsSenderNumberId" class="muted" style="margin-top:8px;">
+          Set a sender number before using Company Events SMS.
+        </p>
         <div class="actions">
           <button class="btn" :disabled="savingSettings" @click="saveSettings">
             {{ savingSettings ? 'Saving…' : 'Save settings' }}
@@ -214,7 +233,9 @@ const agencyStore = useAgencyStore();
 const settings = ref({
   smsNumbersEnabled: false,
   smsComplianceMode: 'opt_in_required',
-  smsDefaultUserId: null
+  smsDefaultUserId: null,
+  companyEventsEnabled: false,
+  companyEventsSenderNumberId: null
 });
 const settingsError = ref('');
 const savingSettings = ref(false);
@@ -243,6 +264,7 @@ const ruleDraft = ref({
 const savingRules = ref(false);
 
 const agencyId = computed(() => agencyStore.currentAgency?.id || null);
+const activeAgencyNumbers = computed(() => (numbers.value || []).filter((n) => n?.is_active && n?.status === 'active'));
 
 const loadSettings = async () => {
   if (!agencyId.value) return;
@@ -252,7 +274,9 @@ const loadSettings = async () => {
     settings.value = {
       smsNumbersEnabled: res.data?.smsNumbersEnabled === true,
       smsComplianceMode: res.data?.smsComplianceMode || 'opt_in_required',
-      smsDefaultUserId: res.data?.smsDefaultUserId || null
+      smsDefaultUserId: res.data?.smsDefaultUserId || null,
+      companyEventsEnabled: res.data?.companyEventsEnabled === true,
+      companyEventsSenderNumberId: res.data?.companyEventsSenderNumberId || null
     };
   } catch (e) {
     settingsError.value = e?.response?.data?.error?.message || 'Failed to load SMS settings';

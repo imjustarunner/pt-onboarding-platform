@@ -54,7 +54,11 @@ export const getAgencySmsSettings = async (req, res, next) => {
       agencyId,
       smsNumbersEnabled: flags.smsNumbersEnabled === true,
       smsComplianceMode: flags.smsComplianceMode || 'opt_in_required',
-      smsDefaultUserId: flags.smsDefaultUserId || null
+      smsDefaultUserId: flags.smsDefaultUserId || null,
+      companyEventsEnabled: flags.companyEventsEnabled === true,
+      companyEventsSenderNumberId: flags.companyEventsSenderNumberId
+        ? Number(flags.companyEventsSenderNumberId)
+        : null
     });
   } catch (e) {
     next(e);
@@ -68,17 +72,43 @@ export const updateAgencySmsSettings = async (req, res, next) => {
     const agency = await Agency.findById(agencyId);
     if (!agency) return res.status(404).json({ error: { message: 'Agency not found' } });
     const flags = parseFeatureFlags(agency.feature_flags);
-    const { smsNumbersEnabled, smsComplianceMode, smsDefaultUserId } = req.body || {};
+    const {
+      smsNumbersEnabled,
+      smsComplianceMode,
+      smsDefaultUserId,
+      companyEventsEnabled,
+      companyEventsSenderNumberId
+    } = req.body || {};
     if (smsNumbersEnabled != null) flags.smsNumbersEnabled = !!smsNumbersEnabled;
     if (smsComplianceMode) flags.smsComplianceMode = String(smsComplianceMode);
     if (smsDefaultUserId !== undefined) flags.smsDefaultUserId = smsDefaultUserId ? Number(smsDefaultUserId) : null;
+    if (companyEventsEnabled !== undefined) flags.companyEventsEnabled = !!companyEventsEnabled;
+    if (companyEventsSenderNumberId !== undefined) {
+      const parsedNumberId = companyEventsSenderNumberId ? Number(companyEventsSenderNumberId) : null;
+      if (parsedNumberId) {
+        const number = await TwilioNumber.findById(parsedNumberId);
+        if (!number || Number(number.agency_id) !== Number(agencyId)) {
+          return res.status(400).json({ error: { message: 'companyEventsSenderNumberId is invalid for this agency' } });
+        }
+        flags.companyEventsSenderNumberId = parsedNumberId;
+        // Keep legacy key in sync for inbound short-code based matching.
+        flags.company_events_short_code = number.phone_number || null;
+      } else {
+        flags.companyEventsSenderNumberId = null;
+        flags.company_events_short_code = null;
+      }
+    }
 
     await pool.execute('UPDATE agencies SET feature_flags = ? WHERE id = ?', [JSON.stringify(flags), agencyId]);
     res.json({
       agencyId,
       smsNumbersEnabled: flags.smsNumbersEnabled === true,
       smsComplianceMode: flags.smsComplianceMode || 'opt_in_required',
-      smsDefaultUserId: flags.smsDefaultUserId || null
+      smsDefaultUserId: flags.smsDefaultUserId || null,
+      companyEventsEnabled: flags.companyEventsEnabled === true,
+      companyEventsSenderNumberId: flags.companyEventsSenderNumberId
+        ? Number(flags.companyEventsSenderNumberId)
+        : null
     });
   } catch (e) {
     next(e);

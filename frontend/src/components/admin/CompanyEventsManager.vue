@@ -4,6 +4,9 @@
       <div>
         <h4>Company events</h4>
         <small class="hint">Phase 2: RSVP + SMS voting for targeted internal events.</small>
+        <div class="hint" :class="{ 'status-ready': smsReadiness.ready, 'status-not-ready': !smsReadiness.ready }" style="margin-top: 4px;">
+          Company Events SMS: {{ smsReadiness.message }}
+        </div>
       </div>
       <div class="actions">
         <button type="button" class="btn btn-secondary btn-sm" @click="loadAll" :disabled="loading || !agencyId">
@@ -24,7 +27,7 @@
       <label class="lbl" for="direct-template">Direct message template</label>
       <select id="direct-template" v-model="selectedTemplateId" class="input">
         <option value="">Select template…</option>
-        <option v-for="tpl in directMessageTemplates" :key="tpl.id" :value="tpl.id">{{ tpl.label }}</option>
+        <option v-for="tpl in directMessageTemplates" :key="tpl.id" :value="String(tpl.id)">{{ tpl.name || tpl.label }}</option>
       </select>
       <button type="button" class="btn btn-secondary btn-sm" :disabled="!selectedTemplateId" @click="applyDirectTemplate">
         Apply template
@@ -141,6 +144,26 @@
             </div>
           </div>
         </div>
+        <div v-if="draft.votingConfig.enabled" class="grid" style="margin-top: 6px;">
+          <div class="form-group">
+            <label class="lbl">Reminders enabled</label>
+            <select v-model="draft.reminderConfig.enabled" class="input">
+              <option :value="false">No</option>
+              <option :value="true">Yes</option>
+            </select>
+          </div>
+          <div v-if="draft.reminderConfig.enabled" class="form-group">
+            <label class="lbl">Offsets (hours before)</label>
+            <input v-model.trim="draft.reminderOffsetsRaw" class="input" placeholder="24,2" />
+          </div>
+          <div v-if="draft.reminderConfig.enabled" class="form-group">
+            <label class="lbl">Reminder SMS</label>
+            <select v-model="draft.reminderConfig.channels.sms" class="input">
+              <option :value="false">No</option>
+              <option :value="true">Yes</option>
+            </select>
+          </div>
+        </div>
       </div>
 
       <div class="audience-block">
@@ -165,6 +188,15 @@
               <label v-for="group in audienceGroups" :key="`g-${group.id}`" class="select-item">
                 <input type="checkbox" :checked="draft.audience.groupIds.includes(group.id)" @change="toggleGroup(group.id, $event.target.checked)" />
                 <span>{{ group.name }}</span>
+              </label>
+            </div>
+          </div>
+          <div>
+            <div class="audience-title">Roles ({{ draft.audience.roleKeys.length }} selected)</div>
+            <div class="select-list">
+              <label v-for="role in audienceRoles" :key="`r-${role.key}`" class="select-item">
+                <input type="checkbox" :checked="draft.audience.roleKeys.includes(role.key)" @change="toggleRole(role.key, $event.target.checked)" />
+                <span>{{ role.label }}</span>
               </label>
             </div>
           </div>
@@ -219,6 +251,8 @@
               <button type="button" class="btn btn-secondary btn-sm" @click="editEvent(event)">Edit</button>
               <button type="button" class="btn btn-secondary btn-sm" @click="sendDirectMessage(event)" :disabled="saving">Send message</button>
               <button type="button" class="btn btn-secondary btn-sm" @click="sendSmsVote(event)" :disabled="saving || !event.votingConfig?.enabled || !event.votingConfig?.viaSms || !!event.votingClosedAt">Send SMS</button>
+              <button type="button" class="btn btn-secondary btn-sm" @click="viewDeliveryLogs(event)" :disabled="saving">Delivery</button>
+              <button type="button" class="btn btn-secondary btn-sm" @click="downloadResponsesCsv(event)" :disabled="saving">CSV</button>
               <button type="button" class="btn btn-secondary btn-sm" @click="closeVoting(event)" :disabled="saving || !event.votingConfig?.enabled || !!event.votingClosedAt">Close</button>
               <button type="button" class="btn btn-danger btn-sm" @click="removeEvent(event)" :disabled="saving">Delete</button>
             </td>
@@ -249,28 +283,32 @@ const error = ref('');
 const events = ref([]);
 const audienceUsers = ref([]);
 const audienceGroups = ref([]);
+const audienceRoles = ref([]);
 const selectedTemplateId = ref('');
-
-const directMessageTemplates = [
+const directMessageTemplates = ref([
   {
     id: 'congrats',
-    label: 'Congrats',
-    title: 'Congratulations!',
-    message: "Congratulations on your achievement. We are proud of your work."
+    name: 'Congrats',
+    titleTemplate: 'Congratulations!',
+    messageTemplate: "Congratulations on your achievement. We are proud of your work."
   },
   {
     id: 'pickup-prize',
-    label: 'Prize pickup',
-    title: 'Prize pickup',
-    message: 'Please come by the office this week to pick up your prize.'
+    name: 'Prize pickup',
+    titleTemplate: 'Prize pickup',
+    messageTemplate: 'Please come by the office this week to pick up your prize.'
   },
   {
     id: 'come-to-office',
-    label: 'Come to office',
-    title: 'Office visit request',
-    message: 'Please come to the office when you can. See front desk on arrival.'
+    name: 'Come to office',
+    titleTemplate: 'Office visit request',
+    messageTemplate: 'Please come to the office when you can. See front desk on arrival.'
   }
-];
+]);
+const smsReadiness = ref({
+  ready: false,
+  message: 'Not configured'
+});
 
 const weekdayOptions = [
   { value: 0, label: 'Sun' },
@@ -309,9 +347,19 @@ const emptyDraft = () => ({
       { key: '3', label: 'Maybe' }
     ]
   },
+  reminderConfig: {
+    enabled: false,
+    offsetsHours: [24, 2],
+    channels: {
+      inApp: true,
+      sms: false
+    }
+  },
+  reminderOffsetsRaw: '24,2',
   audience: {
     userIds: [],
-    groupIds: []
+    groupIds: [],
+    roleKeys: []
   }
 });
 
@@ -345,8 +393,9 @@ const recurrenceLabel = (recurrence) => {
 const audienceLabel = (audience) => {
   const users = Array.isArray(audience?.userIds) ? audience.userIds.length : 0;
   const groups = Array.isArray(audience?.groupIds) ? audience.groupIds.length : 0;
-  if (!users && !groups) return 'All agency users';
-  return `${users} user(s), ${groups} group(s)`;
+  const roles = Array.isArray(audience?.roleKeys) ? audience.roleKeys.length : 0;
+  if (!users && !groups && !roles) return 'All agency users';
+  return `${users} user(s), ${groups} group(s), ${roles} role(s)`;
 };
 
 const normalizeRecurrenceForPayload = (recurrence = {}) => {
@@ -393,18 +442,19 @@ const startDirectMessage = () => {
 };
 
 const applyDirectTemplate = () => {
-  const template = directMessageTemplates.find((item) => item.id === selectedTemplateId.value);
+  const template = directMessageTemplates.value.find((item) => String(item.id) === String(selectedTemplateId.value));
   if (!template) return;
   startDirectMessage();
-  draft.value.title = template.title;
-  draft.value.description = template.message;
-  draft.value.splashContent = template.message;
+  draft.value.title = template.titleTemplate || template.name || 'Direct message';
+  draft.value.description = template.messageTemplate || '';
+  draft.value.splashContent = template.messageTemplate || '';
   draft.value.eventType = 'direct_notice';
 };
 
 const clearAudience = () => {
   draft.value.audience.userIds = [];
   draft.value.audience.groupIds = [];
+  draft.value.audience.roleKeys = [];
 };
 
 const toggleUser = (userId, checked) => {
@@ -419,6 +469,13 @@ const toggleGroup = (groupId, checked) => {
   if (checked) set.add(Number(groupId));
   else set.delete(Number(groupId));
   draft.value.audience.groupIds = [...set];
+};
+
+const toggleRole = (roleKey, checked) => {
+  const set = new Set(draft.value.audience.roleKeys);
+  if (checked) set.add(String(roleKey));
+  else set.delete(String(roleKey));
+  draft.value.audience.roleKeys = [...set];
 };
 
 const toggleWeekday = (weekday, checked) => {
@@ -458,9 +515,23 @@ const editEvent = (event) => {
             { key: '3', label: 'Maybe' }
           ]
     },
+    reminderConfig: {
+      enabled: !!event.reminderConfig?.enabled,
+      offsetsHours: Array.isArray(event.reminderConfig?.offsetsHours)
+        ? event.reminderConfig.offsetsHours.map((v) => Number(v)).filter((v) => Number.isFinite(v) && v > 0)
+        : [24, 2],
+      channels: {
+        inApp: event.reminderConfig?.channels?.inApp !== false,
+        sms: !!event.reminderConfig?.channels?.sms
+      }
+    },
+    reminderOffsetsRaw: Array.isArray(event.reminderConfig?.offsetsHours) && event.reminderConfig.offsetsHours.length
+      ? event.reminderConfig.offsetsHours.join(',')
+      : '24,2',
     audience: {
       userIds: Array.isArray(event.audience?.userIds) ? event.audience.userIds.map((id) => Number(id)) : [],
-      groupIds: Array.isArray(event.audience?.groupIds) ? event.audience.groupIds.map((id) => Number(id)) : []
+      groupIds: Array.isArray(event.audience?.groupIds) ? event.audience.groupIds.map((id) => Number(id)) : [],
+      roleKeys: Array.isArray(event.audience?.roleKeys) ? event.audience.roleKeys.map((k) => String(k)) : []
     }
   };
 };
@@ -505,9 +576,21 @@ const saveEvent = async () => {
           }))
           .filter((o) => o.key && o.label)
       },
+      reminderConfig: {
+        enabled: !!draft.value.reminderConfig.enabled,
+        offsetsHours: String(draft.value.reminderOffsetsRaw || '')
+          .split(',')
+          .map((n) => Number.parseInt(String(n).trim(), 10))
+          .filter((n) => Number.isFinite(n) && n > 0),
+        channels: {
+          inApp: true,
+          sms: !!draft.value.reminderConfig.channels.sms
+        }
+      },
       audience: {
         userIds: draft.value.audience.userIds,
-        groupIds: draft.value.audience.groupIds
+        groupIds: draft.value.audience.groupIds,
+        roleKeys: draft.value.audience.roleKeys
       }
     };
     if (draft.value.id) {
@@ -556,6 +639,7 @@ const sendDirectMessage = async (event) => {
     await api.post(`/agencies/${props.agencyId}/company-events/${event.id}/send-direct-message`, {
       title: event.title,
       message,
+      templateId: selectedTemplateId.value ? Number(selectedTemplateId.value) : undefined,
       sendInApp: true,
       sendSms
     });
@@ -578,6 +662,26 @@ const sendSmsVote = async (event) => {
   } finally {
     saving.value = false;
   }
+};
+
+const viewDeliveryLogs = async (event) => {
+  if (!props.agencyId || !event?.id) return;
+  saving.value = true;
+  error.value = '';
+  try {
+    const resp = await api.get(`/agencies/${props.agencyId}/company-events/${event.id}/delivery-logs`);
+    const summary = resp.data?.summary || {};
+    window.alert(`Delivery summary\nIn-app sent: ${summary.inAppSent || 0}\nIn-app failed: ${summary.inAppFailed || 0}\nSMS sent: ${summary.smsSent || 0}\nSMS failed: ${summary.smsFailed || 0}\nSMS skipped: ${summary.smsSkipped || 0}`);
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || e.message || 'Failed to load delivery logs';
+  } finally {
+    saving.value = false;
+  }
+};
+
+const downloadResponsesCsv = (event) => {
+  if (!props.agencyId || !event?.id) return;
+  window.open(`/api/agencies/${props.agencyId}/company-events/${event.id}/responses.csv`, '_blank', 'noopener');
 };
 
 const closeVoting = async (event) => {
@@ -608,11 +712,46 @@ const loadAudienceOptions = async () => {
   if (!props.agencyId) {
     audienceUsers.value = [];
     audienceGroups.value = [];
+    audienceRoles.value = [];
     return;
   }
   const resp = await api.get(`/agencies/${props.agencyId}/company-events/audience-options`);
   audienceUsers.value = Array.isArray(resp.data?.users) ? resp.data.users : [];
   audienceGroups.value = Array.isArray(resp.data?.groups) ? resp.data.groups : [];
+  audienceRoles.value = Array.isArray(resp.data?.roles) ? resp.data.roles : [];
+};
+
+const loadTemplates = async () => {
+  if (!props.agencyId) return;
+  const resp = await api.get(`/agencies/${props.agencyId}/company-events/templates`);
+  const templates = Array.isArray(resp.data) ? resp.data : [];
+  if (templates.length) directMessageTemplates.value = templates;
+};
+
+const loadSmsReadiness = async () => {
+  if (!props.agencyId) {
+    smsReadiness.value = { ready: false, message: 'Select an agency' };
+    return;
+  }
+  try {
+    const resp = await api.get(`/sms-numbers/agency/${props.agencyId}/settings`);
+    const settings = resp.data || {};
+    if (settings.smsNumbersEnabled !== true) {
+      smsReadiness.value = { ready: false, message: 'SMS numbers disabled in agency settings' };
+      return;
+    }
+    if (settings.companyEventsEnabled !== true) {
+      smsReadiness.value = { ready: false, message: 'Company Events SMS disabled in agency settings' };
+      return;
+    }
+    if (!settings.companyEventsSenderNumberId) {
+      smsReadiness.value = { ready: false, message: 'Select Company Events sender number in Texting Numbers' };
+      return;
+    }
+    smsReadiness.value = { ready: true, message: 'Ready' };
+  } catch {
+    smsReadiness.value = { ready: false, message: 'Could not verify settings' };
+  }
 };
 
 const loadAll = async () => {
@@ -620,12 +759,15 @@ const loadAll = async () => {
     events.value = [];
     audienceUsers.value = [];
     audienceGroups.value = [];
+    audienceRoles.value = [];
+    smsReadiness.value = { ready: false, message: 'Select an agency' };
     return;
   }
   loading.value = true;
   error.value = '';
   try {
-    await Promise.all([loadEvents(), loadAudienceOptions()]);
+    await Promise.all([loadEvents(), loadAudienceOptions(), loadTemplates()]);
+    await loadSmsReadiness();
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message || 'Failed to load company events';
   } finally {
@@ -652,6 +794,12 @@ watch(() => props.agencyId, async () => {
 }
 .header-row h4 {
   margin: 0;
+}
+.status-ready {
+  color: #0a7f40;
+}
+.status-not-ready {
+  color: #8f4a00;
 }
 .editor-card {
   border: 1px solid var(--border-color);
