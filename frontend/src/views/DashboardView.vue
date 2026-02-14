@@ -952,6 +952,11 @@ const filteredTabs = computed(() => {
 });
 
 const isSchoolStaff = computed(() => String(authStore.user?.role || '').toLowerCase() === 'school_staff');
+const canAccessToolsAids = computed(() => {
+  const role = String(authStore.user?.role || '').toLowerCase();
+  // Keep role access aligned with router permissions for /admin/tools-aids.
+  return ['admin', 'super_admin', 'support', 'provider', 'staff', 'clinical_practice_assistant'].includes(role);
+});
 
 const dashboardCards = computed(() => {
   const u = authStore.user;
@@ -1003,18 +1008,6 @@ const dashboardCards = computed(() => {
           iconUrl: brandingStore.getDashboardCardIconUrl('clients', cardIconOrgOverride),
           description: 'Your caseload by school with psychotherapy fiscal-year totals.'
         });
-        if (clinicalNoteGeneratorEnabledForAgency.value && (isProvider || role === 'intern')) {
-          const slug = route.params?.organizationSlug;
-          cards.push({
-            id: 'tools_aids',
-            label: 'Tools & Aids',
-            kind: 'link',
-            to: typeof slug === 'string' && slug ? `/${slug}/admin/tools-aids` : '/admin/tools-aids',
-            badgeCount: 0,
-            iconUrl: brandingStore.getDashboardCardIconUrl('tools_aids', cardIconOrgOverride),
-            description: 'Note Aid and upcoming clinical tools.'
-          });
-        }
         if (providerSurfacesEnabled.value) {
           cards.push({
             id: 'submit',
@@ -1043,6 +1036,18 @@ const dashboardCards = computed(() => {
             description: 'Program shift schedule, sign up, and call-off.'
           });
         }
+      }
+      if (clinicalNoteGeneratorEnabledForAgency.value && canAccessToolsAids.value) {
+        const slug = route.params?.organizationSlug;
+        cards.push({
+          id: 'tools_aids',
+          label: 'Tools & Aids',
+          kind: 'link',
+          to: typeof slug === 'string' && slug ? `/${slug}/admin/tools-aids` : '/admin/tools-aids',
+          badgeCount: 0,
+          iconUrl: brandingStore.getDashboardCardIconUrl('tools_aids', cardIconOrgOverride),
+          description: 'Note Aid and upcoming clinical tools.'
+        });
       }
       // My Shifts: also show for staff/facilitator/intern (shift program participants) when agency has flag
       if (shiftProgramsEnabledForAgency.value && ['staff', 'facilitator', 'intern'].includes(role)) {
