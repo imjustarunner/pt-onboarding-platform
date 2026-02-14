@@ -114,7 +114,6 @@ import agentsRoutes from './routes/agents.routes.js';
 import clinicalNoteGeneratorRoutes from './routes/clinicalNoteGenerator.routes.js';
 import complianceCornerRoutes from './routes/complianceCorner.routes.js';
 import learningBillingRoutes from './routes/learningBilling.routes.js';
-import shiftProgramRoutes from './routes/shiftProgram.routes.js';
 import betaFeedbackRoutes from './routes/betaFeedback.routes.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -559,7 +558,6 @@ app.use('/api/guardian-portal', guardianPortalRoutes); // Guardian portal routes
 app.use('/api/bulk-import', bulkImportRoutes); // Bulk import routes (legacy migration tool)
 app.use('/api/office-schedule', officeScheduleRoutes);
 app.use('/api/learning-billing', learningBillingRoutes);
-app.use('/api/shift-programs', shiftProgramRoutes);
 app.use('/api/offices', officeSettingsRoutes);
 app.use('/api/office-slots', officeSlotActionsRoutes);
 app.use('/api/office-review', officeReviewRoutes);
