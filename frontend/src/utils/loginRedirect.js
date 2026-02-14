@@ -25,6 +25,23 @@ export function getCurrentPortalSlugFromPath() {
 }
 
 /**
+ * Best-effort portal slug from persisted current agency context.
+ * Useful when route path is generic (/dashboard) but user is in a branded portal context.
+ */
+export function getCurrentPortalSlugFromStorage() {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem('currentAgency');
+    if (!raw) return null;
+    const agency = JSON.parse(raw);
+    const slug = String(agency?.portal_url || agency?.portalUrl || agency?.slug || '').trim();
+    return slug || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Get the appropriate login URL for a user
  * @param {Object} user - User object (may be null if logged out)
  * @param {Array} userAgencies - Array of user's organizations (may be from localStorage)
@@ -97,6 +114,11 @@ export function getLoginUrlForRedirect(user = null, userAgencies = null, opts = 
   const slug = getCurrentPortalSlugFromPath();
   if (slug) {
     const base = `/${slug}/login`;
+    return opts.timeout ? `${base}?timeout=true` : base;
+  }
+  const storedSlug = getCurrentPortalSlugFromStorage();
+  if (storedSlug) {
+    const base = `/${storedSlug}/login`;
     return opts.timeout ? `${base}?timeout=true` : base;
   }
   const base = getLoginUrl(user, userAgencies);

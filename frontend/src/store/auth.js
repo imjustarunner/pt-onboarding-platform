@@ -190,17 +190,16 @@ export const useAuthStore = defineStore('auth', () => {
       // Get user info before clearing to determine login redirect
       const currentUser = user.value;
       
-      // Log logout event and clear server cookie before navigation.
-      if (sessionId || token.value) {
-        try {
-          await Promise.race([
-            api.post('/auth/logout', { sessionId, reason }, { skipAuthRedirect: true }),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('logout_timeout')), 2000))
-          ]);
-        } catch (err) {
-          if (err?.message !== 'logout_timeout' && err?.response?.status !== 401) {
-            console.error('Failed to log logout event:', err);
-          }
+      // Always ask backend to clear auth cookie before redirect.
+      // sessionId can be null; cookie invalidation still matters.
+      try {
+        await Promise.race([
+          api.post('/auth/logout', { sessionId, reason }, { skipAuthRedirect: true }),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('logout_timeout')), 3000))
+        ]);
+      } catch (err) {
+        if (err?.message !== 'logout_timeout' && err?.response?.status !== 401) {
+          console.error('Failed to log logout event:', err);
         }
       }
 
@@ -230,9 +229,9 @@ export const useAuthStore = defineStore('auth', () => {
       }
 
       // Get agencies from localStorage before clearing (they're cleared in clearStoredAgencies)
-      const { getLoginUrl, clearStoredAgencies } = await import('../utils/loginRedirect');
+      const { getLoginUrlForRedirect, clearStoredAgencies } = await import('../utils/loginRedirect');
       if (!loginUrl) {
-        loginUrl = getLoginUrl(currentUser);
+        loginUrl = getLoginUrlForRedirect(currentUser);
       }
       clearStoredAgencies(); // Clear stored agencies on logout
       
