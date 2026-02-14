@@ -278,8 +278,14 @@ export class ProviderAvailabilityService {
         const e = zonedWallTimeToUtc({ ...en, timeZone: tzEvent });
         if (!(e > s)) continue;
 
-        const slotState = String(r.slot_state || '').toUpperCase();
+        // Normalize office_event state across older/newer schemas.
+        // Some records rely on status ('RELEASED' / 'BOOKED') without slot_state populated.
+        let slotState = String(r.slot_state || '').toUpperCase();
         const status = String(r.status || '').toUpperCase();
+        if (!slotState) {
+          if (status === 'BOOKED') slotState = 'ASSIGNED_BOOKED';
+          else if (status === 'RELEASED') slotState = 'ASSIGNED_AVAILABLE';
+        }
         const meta = {
           officeEventId: Number(r.id),
           buildingId: Number(r.office_location_id),
