@@ -3,6 +3,7 @@
     v-if="enabled"
     class="beta-feedback-root"
     :class="{ 'form-open': formOpen }"
+    data-beta-feedback-ui="true"
   >
     <!-- Collapsed: "Beta" pill with light blue transparent -->
     <div
@@ -60,8 +61,8 @@
             <div class="form-group">
               <label>Screenshot (optional)</label>
               <div class="screenshot-actions">
-                <button type="button" class="btn btn-secondary btn-sm" @click="captureScreen" :disabled="submitting">
-                  Capture screen
+                <button type="button" class="btn btn-secondary btn-sm" @click="captureScreen" :disabled="submitting || capturing">
+                  {{ capturing ? 'Capturing...' : 'Capture screen' }}
                 </button>
                 <label class="btn btn-secondary btn-sm file-label">
                   <input type="file" accept="image/png,image/jpeg,image/webp" @change="onFileSelect" hidden />
@@ -115,6 +116,7 @@ const hoverOpen = ref(false);
 const description = ref('');
 const screenshotBlob = ref(null);
 const screenshotPreview = ref(null);
+const capturing = ref(false);
 const submitting = ref(false);
 const submitError = ref('');
 const submitSuccess = ref(false);
@@ -139,15 +141,23 @@ onMounted(async () => {
 });
 
 const captureScreen = async () => {
+  if (capturing.value) return;
   try {
+    capturing.value = true;
+    submitError.value = '';
     const canvas = await html2canvas(document.body, {
       useCORS: true,
       allowTaint: true,
       scale: 0.75,
-      logging: false
+      logging: false,
+      // Exclude beta widget/modal so screenshots capture the underlying page context.
+      ignoreElements: (el) => !!el?.closest?.('[data-beta-feedback-ui="true"]')
     });
     canvas.toBlob((blob) => {
       if (blob) {
+        if (screenshotPreview.value) {
+          URL.revokeObjectURL(screenshotPreview.value);
+        }
         screenshotBlob.value = blob;
         screenshotPreview.value = URL.createObjectURL(blob);
       }
@@ -155,6 +165,8 @@ const captureScreen = async () => {
   } catch (err) {
     console.error('Screenshot capture failed:', err);
     submitError.value = 'Could not capture screen. Try uploading a file instead.';
+  } finally {
+    capturing.value = false;
   }
 };
 
