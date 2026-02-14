@@ -1325,20 +1325,20 @@ const openVirtualWorkingHours = () => {
   submitPanelView.value = 'virtual_hours';
 };
 
-const parseFeatureFlags = (raw) => {
+function parseFeatureFlags(raw) {
   if (!raw) return {};
   if (typeof raw === 'object') return raw || {};
   if (typeof raw === 'string') {
     try { return JSON.parse(raw) || {}; } catch { return {}; }
   }
   return {};
-};
+}
 
-const isTruthyFlag = (v) => {
+function isTruthyFlag(v) {
   if (v === true || v === 1) return true;
   const s = String(v ?? '').trim().toLowerCase();
   return s === '1' || s === 'true' || s === 'yes' || s === 'on';
-};
+}
 
 const agencyFlags = computed(() => parseFeatureFlags(agencyStore.currentAgency?.feature_flags));
 const portalVariant = computed(() => String(agencyFlags.value?.portalVariant || 'healthcare_provider'));
