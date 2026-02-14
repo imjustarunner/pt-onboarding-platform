@@ -183,20 +183,24 @@
                 >
                   Pending {{ Number(client.compliance_days_since_assigned || 0) }}d
                 </span>
-                <span
+                <button
                   v-if="Number(client.open_ticket_count || 0) > 0"
-                  class="ticket-status-badge ticket-status-open"
-                  :title="`Ticket open (${Number(client.open_ticket_count || 0)})`"
+                  class="ticket-status-badge ticket-status-open ticket-status-btn"
+                  type="button"
+                  :title="`Ticket open (${Number(client.open_ticket_count || 0)}) — click to open messages`"
+                  @click.stop="openClient(client, 'messages')"
                 >
                   Ticket Open {{ Number(client.open_ticket_count || 0) }}
-                </span>
-                <span
+                </button>
+                <button
                   v-if="Number(client.answered_ticket_count || 0) > 0"
-                  class="ticket-status-badge ticket-status-answered"
-                  :title="`Ticket answered (${Number(client.answered_ticket_count || 0)})`"
+                  class="ticket-status-badge ticket-status-answered ticket-status-btn"
+                  type="button"
+                  :title="`Ticket answered (${Number(client.answered_ticket_count || 0)}) — click to open messages`"
+                  @click.stop="openClient(client, 'messages')"
                 >
                   Ticket Answered {{ Number(client.answered_ticket_count || 0) }}
-                </span>
+                </button>
                 <button
                   v-if="Number(client.unread_notes_count || 0) > 0"
                   class="unread-badge unread-badge-comments"
@@ -1092,6 +1096,10 @@ onMounted(() => {
 }
 .ticket-status-legend {
   cursor: default;
+}
+.ticket-status-btn {
+  cursor: pointer;
+  border: none;
 }
 .pending-compliance-badge {
   display: inline-flex;

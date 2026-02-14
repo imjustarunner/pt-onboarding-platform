@@ -9,9 +9,9 @@
         <button class="btn btn-secondary btn-sm" type="button" @click="load" :disabled="loading">
           {{ loading ? 'Loading…' : 'Refresh' }}
         </button>
-        <a v-if="canManageTickets" class="btn btn-secondary btn-sm" :href="ticketsHref">
+        <router-link v-if="canManageTickets" class="btn btn-secondary btn-sm" :to="ticketsPath">
           Support tickets
-        </a>
+        </router-link>
       </div>
     </div>
 
@@ -75,6 +75,7 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue';
+import { useRoute } from 'vue-router';
 import api from '../../../services/api';
 import { useAuthStore } from '../../../store/auth';
 
@@ -84,13 +85,18 @@ const props = defineProps({
 });
 
 const authStore = useAuthStore();
+const route = useRoute();
 const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
 
 const canRequest = computed(() => roleNorm.value === 'school_staff');
 const canRemove = computed(() => ['super_admin', 'admin', 'support', 'staff'].includes(roleNorm.value));
 const canManageTickets = computed(() => ['super_admin', 'admin', 'support', 'staff'].includes(roleNorm.value));
 
-const ticketsHref = computed(() => `/admin/support-tickets?schoolOrganizationId=${encodeURIComponent(props.schoolOrganizationId)}`);
+const ticketsPath = computed(() => {
+  const query = `schoolOrganizationId=${encodeURIComponent(props.schoolOrganizationId)}`;
+  const slug = String(route.params?.organizationSlug || '').trim();
+  return slug ? `/${slug}/tickets?${query}` : `/tickets?${query}`;
+});
 
 const staff = ref([]);
 const loading = ref(false);

@@ -827,6 +827,12 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin'] }
   },
   {
+    path: '/:organizationSlug/admin/support-tickets',
+    name: 'OrganizationSupportTicketsQueueLegacy',
+    redirect: (to) => `/${to.params.organizationSlug}/tickets`,
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin'], organizationSlug: true }
+  },
+  {
     path: '/tickets',
     name: 'TicketsQueue',
     component: () => import('../views/admin/SupportTicketsQueueView.vue'),
