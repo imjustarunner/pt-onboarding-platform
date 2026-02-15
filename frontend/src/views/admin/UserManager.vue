@@ -305,7 +305,7 @@
                     class="btn btn-secondary btn-sm user-affiliations-details-btn"
                     @click.prevent="toggleUserAffiliationsPopover(Number(user.id))"
                     :aria-expanded="isUserAffiliationsPopoverOpenFor(Number(user.id)) ? 'true' : 'false'"
-                    :title="`Show schools / other orgs (${userChildOrgs(user).length})`"
+                    :aria-label="`Show schools / other orgs (${userChildOrgs(user).length})`"
                   >
                     Details
                     <span class="muted" style="font-weight: 800;">({{ userChildOrgs(user).length }})</span>
@@ -340,7 +340,7 @@
                 v-if="(String(user.role || '').toLowerCase() === 'provider')"
                 :class="['badge', availabilityBadgeClass(user)]"
                 style="margin-left: 6px; font-size: 10px;"
-                :title="availabilityBadgeTitle(user)"
+                :aria-label="availabilityBadgeTitle(user)"
               >
                 {{ availabilityBadgeText(user) }}
               </span>

@@ -49,9 +49,6 @@ export function deriveCredentialTier({ userRole, providerCredentialText }) {
   // QBHA detection: require explicit token in credential text.
   if (upper.includes('QBHA') || upper.includes('QUALIFIED BEHAVIORAL HEALTH ASSISTANT')) return 'qbha';
 
-  // Bachelors detection.
-  if (isBachelorsCredentialText(cred)) return 'bachelors';
-
   // Intern or higher credential text.
   const internPlusTokens = [
     'INTERN',
@@ -75,6 +72,9 @@ export function deriveCredentialTier({ userRole, providerCredentialText }) {
     'LICENSED'
   ];
   if (containsAnyToken(cred, internPlusTokens)) return 'intern_plus';
+
+  // Bachelors detection (after intern-plus precedence).
+  if (isBachelorsCredentialText(cred)) return 'bachelors';
 
   return 'unknown';
 }

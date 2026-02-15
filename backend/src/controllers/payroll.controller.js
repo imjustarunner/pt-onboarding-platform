@@ -3718,7 +3718,6 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
     // Time claims: explicit line items, bucketed direct/indirect, and can contribute to hour totals.
     for (const c of approvedTimeClaims || []) {
       const amt = Number(c?.applied_amount || 0);
-      if (Math.abs(amt) < 1e-9) continue;
       const b = String(c?.bucket || 'indirect').trim().toLowerCase() === 'direct' ? 'direct' : 'indirect';
       const hrsFromCol =
         (c?.credits_hours === null || c?.credits_hours === undefined || c?.credits_hours === '')
@@ -3735,16 +3734,18 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
           tierCreditsCurrent += hrs;
         }
       }
-      const t = String(c?.claim_type || '').trim();
-      const typeLabel = t ? t.replace(/_/g, ' ') : 'time claim';
-      pushLine({
-        type: 'time_claim',
-        label: `Time claim (${typeLabel})`,
-        taxable: true,
-        amount: amt,
-        bucket: b,
-        meta: { creditsHours: (Number.isFinite(hrs) ? hrs : null) }
-      });
+      if (Math.abs(amt) > 1e-9) {
+        const t = String(c?.claim_type || '').trim();
+        const typeLabel = t ? t.replace(/_/g, ' ') : 'time claim';
+        pushLine({
+          type: 'time_claim',
+          label: `Time claim (${typeLabel})`,
+          taxable: true,
+          amount: amt,
+          bucket: b,
+          meta: { creditsHours: (Number.isFinite(hrs) ? hrs : null) }
+        });
+      }
     }
     if (Number(ptoPay || 0) > 1e-9) pushLine({ type: 'pto', label: 'PTO', taxable: true, amount: ptoPay, meta: { hours: ptoHours, rate: ptoRate } });
     for (const it of otherHoursItems) {
@@ -11806,16 +11807,26 @@ export const patchTimeClaim = async (req, res, next) => {
       });
       if (!ok.ok) return;
 
-      // Applied amount is dollar-based; do NOT compute from rate cards.
-      // Prefer explicit admin override, otherwise use payload amount if provided.
+      // Applied amount is dollar-based.
+      // Prefer explicit admin override, then payload amount (if provided), then best-effort
+      // default based on submitted minutes + user's rate card.
       const override = body.appliedAmount === null || body.appliedAmount === undefined || body.appliedAmount === '' ? null : Number(body.appliedAmount);
       const payloadAmountRaw =
         claim?.payload?.amount === null || claim?.payload?.amount === undefined || claim?.payload?.amount === ''
           ? null
           : Number(claim?.payload?.amount);
+      let computedDefaultAmount = null;
+      if (!Number.isFinite(override) && !Number.isFinite(payloadAmountRaw)) {
+        try {
+          const rateCard = await PayrollRateCard.findForUser(claim.agency_id, claim.user_id);
+          computedDefaultAmount = computeDefaultAppliedAmountForTimeClaim({ claim, rateCard });
+        } catch {
+          computedDefaultAmount = null;
+        }
+      }
       const appliedAmount = Number.isFinite(override)
         ? override
-        : (Number.isFinite(payloadAmountRaw) ? payloadAmountRaw : 0);
+        : (Number.isFinite(payloadAmountRaw) ? payloadAmountRaw : (Number.isFinite(computedDefaultAmount) ? computedDefaultAmount : 0));
       if (!Number.isFinite(appliedAmount) || appliedAmount < 0) {
         return res.status(400).json({ error: { message: 'appliedAmount must be a non-negative number' } });
       }

@@ -53,9 +53,12 @@
           <label class="label">Service Code</label>
           <select v-model="selectedServiceCode" class="input" :disabled="autoSelectCode || forceAutoSelect">
             <option value="" disabled>Select a service code</option>
-            <option v-for="code in serviceCodeOptions" :key="code" :value="code">{{ code }}</option>
+            <option v-for="code in serviceCodeOptions" :key="code" :value="code">{{ serviceCodeOptionLabel(code) }}</option>
             <option v-if="canUseOtherCode" value="__other__">Other (enter code)</option>
           </select>
+          <small v-if="selectedServiceCode && selectedServiceCode !== '__other__' && serviceCodeDescription(selectedServiceCode)" class="hint" style="display: block; margin-top: 6px;">
+            {{ serviceCodeDescription(selectedServiceCode) }}
+          </small>
 
           <div v-if="selectedServiceCode === '__other__'" style="margin-top: 10px;">
             <label class="label sub">Other service code</label>
@@ -372,6 +375,34 @@ const STATIC_COMMON_CODES = [
   '99416'
 ];
 
+const SERVICE_CODE_DESCRIPTIONS = {
+  '90791': 'Psychiatric diagnostic intake/assessment.',
+  '90832': 'Individual therapy, 16-37 minutes.',
+  '90834': 'Individual therapy, 38-52 minutes.',
+  '90837': 'Individual therapy, 53+ minutes.',
+  '90846': 'Family therapy without client present.',
+  '90847': 'Family/couples therapy with client present.',
+  'H0002': 'Behavioral health screening/intake-type support.',
+  'H0004': 'Individual counseling/therapy tied to plan goals.',
+  'H0023': 'Behavioral health outreach and engagement.',
+  'H0025': 'Behavioral health prevention education.',
+  'H0031': 'Clinical assessment and treatment recommendations.',
+  'H0032': 'Treatment/service plan development and updates.',
+  'H2014': 'Skills training/development and community support.',
+  'H2015': 'Comprehensive community support (children/adolescents).',
+  'H2016': 'H2015 extended/day-format variant.',
+  'H2017': 'Psychosocial rehab/add-on support (per policy/catalog).',
+  'H2018': 'Psychosocial rehab extended support (per policy/catalog).',
+  'H2021': 'Wrap-around/community-based support services.',
+  'H2022': 'H2021 extended/day-format variant.',
+  'H2033': 'Intensive home/family/community treatment.',
+  'T1017': 'Case management and care coordination.',
+  'S9454': 'Stress management education class.',
+  '97535': 'Self-care/home-management training.',
+  '99414': 'Supervision accrual/support code.',
+  '99416': 'Supervision accrual/support code (extended).'
+};
+
 // Allow manual entry if a code isn't listed; backend still enforces eligibility.
 const canUseOtherCode = computed(() => true);
 
@@ -380,6 +411,13 @@ const serviceCodeOptions = computed(() => {
   const list = Array.isArray(raw) ? raw : STATIC_COMMON_CODES;
   return Array.from(new Set(list.map((c) => String(c || '').trim().toUpperCase()).filter(Boolean))).sort();
 });
+
+const serviceCodeDescription = (code) => SERVICE_CODE_DESCRIPTIONS[String(code || '').trim().toUpperCase()] || '';
+const serviceCodeOptionLabel = (code) => {
+  const normalized = String(code || '').trim().toUpperCase();
+  const desc = serviceCodeDescription(normalized);
+  return desc ? `${normalized} — ${desc}` : normalized;
+};
 
 const actualServiceCode = computed(() => {
   if (selectedServiceCode.value === '__other__') return String(otherServiceCode.value || '').trim().toUpperCase();

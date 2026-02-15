@@ -2012,6 +2012,7 @@
                       <th>Submitted by</th>
                       <th>Date</th>
                       <th>Type</th>
+                      <th class="right">Requested time</th>
                       <th class="right">Bucket</th>
                       <th class="right">Hours/Credits</th>
                       <th class="right">Applied $</th>
@@ -2026,6 +2027,7 @@
                       <td>{{ submitterLabel(c) }}</td>
                       <td>{{ c.claim_date }}</td>
                       <td>{{ timeTypeLabel(c) }}</td>
+                      <td class="right">{{ timeRequestedLabel(c) }}</td>
                       <td class="right">
                         <select v-model="timeBucketByClaimId[c.id]" :disabled="approvingTimeClaimId === c.id">
                           <option value="indirect">Indirect</option>
@@ -2510,7 +2512,7 @@
                       <td>{{ c.claim_date }}</td>
                       <td>{{ timeTypeLabel(c) }}</td>
                       <td class="right">{{ String(c.bucket || 'indirect').toLowerCase() === 'direct' ? 'Direct' : 'Indirect' }}</td>
-                      <td class="right">{{ fmtNum(Number(c.credits_hours ?? c.creditsHours ?? 0)) }}</td>
+                      <td class="right">{{ fmtNum(timeClaimHours(c)) }}</td>
                       <td class="right">{{ fmtMoney(Number(c.applied_amount || 0)) }}</td>
                       <td class="right">
                         <div class="actions" style="justify-content: flex-end; margin: 0;">
@@ -5876,6 +5878,41 @@ const timeTypeLabel = (c) => {
   return t || 'Time';
 };
 
+const timeClaimPayload = (c) => (c && typeof c.payload === 'object' && c.payload) ? c.payload : {};
+
+const timeClaimMinutes = (c) => {
+  const payload = timeClaimPayload(c);
+  const explicit = Number(payload?.totalMinutes);
+  if (Number.isFinite(explicit) && explicit > 0) return explicit;
+  const direct = Number(payload?.directMinutes || 0);
+  const indirect = Number(payload?.indirectMinutes || 0);
+  const combined = direct + indirect;
+  return (Number.isFinite(combined) && combined > 0) ? combined : 0;
+};
+
+const timeClaimHours = (c) => {
+  const col = Number(c?.credits_hours ?? c?.creditsHours);
+  if (Number.isFinite(col) && col >= 0) return col;
+  const mins = timeClaimMinutes(c);
+  if (!(mins > 0)) return 0;
+  return Math.round((mins / 60) * 100) / 100;
+};
+
+const timeRequestedLabel = (c) => {
+  const mins = timeClaimMinutes(c);
+  if (!(mins > 0)) return '—';
+  const hrs = Math.round((mins / 60) * 100) / 100;
+  return `${mins} min (${hrs} h)`;
+};
+
+const defaultBucketForTimeClaim = (c) => {
+  const payload = timeClaimPayload(c);
+  const direct = Number(payload?.directMinutes || 0);
+  const indirect = Number(payload?.indirectMinutes || 0);
+  if (direct > 0 && !(indirect > 0)) return 'direct';
+  return 'indirect';
+};
+
 const loadApprovedHolidayBonusClaimsList = async () => {
   if (!agencyId.value || !selectedPeriodId.value) return;
   try {
@@ -6128,8 +6165,8 @@ const loadPendingTimeClaims = async () => {
     for (const c of pendingTimeClaims.value || []) {
       if (!c?.id) continue;
       next[c.id] = next[c.id] || selectedPeriodId.value;
-      bNext[c.id] = bNext[c.id] || 'indirect';
-      if (hNext[c.id] === undefined) hNext[c.id] = '';
+      bNext[c.id] = bNext[c.id] || defaultBucketForTimeClaim(c);
+      if (hNext[c.id] === undefined) hNext[c.id] = timeClaimHours(c) > 0 ? String(timeClaimHours(c)) : '';
       if (aNext[c.id] === undefined) aNext[c.id] = '';
     }
     timeTargetPeriodByClaimId.value = next;
@@ -6161,8 +6198,8 @@ const loadAllPendingTimeClaims = async () => {
     for (const c of pendingTimeClaims.value || []) {
       if (!c?.id) continue;
       next[c.id] = next[c.id] || c.suggested_payroll_period_id || selectedPeriodId.value;
-      bNext[c.id] = bNext[c.id] || 'indirect';
-      if (hNext[c.id] === undefined) hNext[c.id] = '';
+      bNext[c.id] = bNext[c.id] || defaultBucketForTimeClaim(c);
+      if (hNext[c.id] === undefined) hNext[c.id] = timeClaimHours(c) > 0 ? String(timeClaimHours(c)) : '';
       if (aNext[c.id] === undefined) aNext[c.id] = '';
     }
     timeTargetPeriodByClaimId.value = next;

@@ -139,7 +139,7 @@ async function getProviderCredentialTextForUserId(userId) {
       [uid]
     );
     const v = rows?.[0]?.value ?? null;
-    return v === null || v === undefined ? null : String(v);
+    if (v !== null && v !== undefined && String(v).trim()) return String(v);
   } catch (e) {
     const msg = String(e?.message || '');
     const missing =
@@ -148,6 +148,20 @@ async function getProviderCredentialTextForUserId(userId) {
       msg.includes('Unknown column') ||
       msg.includes('ER_BAD_FIELD_ERROR');
     if (!missing) throw e;
+  }
+
+  // Fallback for environments that store credential directly on users table.
+  try {
+    const [rows] = await pool.execute(
+      `SELECT provider_credential
+       FROM users
+       WHERE id = ?
+       LIMIT 1`,
+      [uid]
+    );
+    const v = rows?.[0]?.provider_credential ?? null;
+    return v === null || v === undefined ? null : String(v);
+  } catch {
     return null;
   }
 }
@@ -633,16 +647,6 @@ export const generateClinicalNote = async (req, res, next) => {
     let inputText = String(req.body?.inputText || '').trim().slice(0, 12000);
     const draftId = req.body?.draftId ? safeInt(req.body.draftId) : null;
 
-    const effectiveAutoSelect = autoSelectCode || tier === 'unknown';
-    if (!effectiveAutoSelect && !serviceCode) {
-      return res.status(400).json({ error: { message: 'serviceCode is required unless autoSelectCode is true' } });
-    }
-
-    // Program rule: only allow programId/label when service code is H2014.
-    if ((programId || programLabel) && serviceCode !== 'H2014') {
-      return res.status(400).json({ error: { message: 'programId is only allowed for service code H2014' } });
-    }
-
     if (programId) {
       // Enforce program access (similar to requireProgramAccess middleware),
       // but implemented inline to avoid middleware short-circuit hangs.
@@ -667,6 +671,15 @@ export const generateClinicalNote = async (req, res, next) => {
     const allowedCodes = catalogCodes
       ? (Array.isArray(tierCodes) ? intersectCodes(catalogCodes, tierCodes) : catalogCodes)
       : tierCodes;
+    const effectiveAutoSelect = autoSelectCode || tier === 'unknown';
+    if (!effectiveAutoSelect && !serviceCode) {
+      return res.status(400).json({ error: { message: 'serviceCode is required unless autoSelectCode is true' } });
+    }
+
+    // Program rule: only allow programId/label when service code is H2014.
+    if ((programId || programLabel) && serviceCode !== 'H2014') {
+      return res.status(400).json({ error: { message: 'programId is only allowed for service code H2014' } });
+    }
 
     if (!effectiveAutoSelect) {
       assertServiceCodeAllowed({ tier, serviceCode, allowedCodes });
