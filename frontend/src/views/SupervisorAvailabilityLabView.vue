@@ -43,10 +43,17 @@
       <article v-for="card in filteredCards" :key="card.providerId" class="provider-card">
         <div class="provider-layout">
           <div class="provider-identity">
-            <div class="avatar" :class="{ 'has-photo': card.profilePhotoUrl }">
-              <img v-if="card.profilePhotoUrl" :src="card.profilePhotoUrl" :alt="card.providerName" class="avatar-img" />
-              <div v-else class="avatar-fallback">{{ initialsFor(card.providerName) }}</div>
-            </div>
+            <button
+              class="avatar-btn"
+              type="button"
+              :title="`View ${card.providerName} profile`"
+              @click="openProviderProfile(card)"
+            >
+              <div class="avatar avatar-lg" :class="{ 'has-photo': card.profilePhotoUrl }">
+                <img v-if="card.profilePhotoUrl" :src="card.profilePhotoUrl" :alt="card.providerName" class="avatar-img" />
+                <div v-else class="avatar-fallback">{{ initialsFor(card.providerName) }}</div>
+              </div>
+            </button>
             <div class="identity-copy">
               <h2>{{ card.providerName }}</h2>
               <p class="meta-line">{{ card.availabilityLabel }}</p>
@@ -80,6 +87,59 @@
         <div class="card-foot">Click book to see the exact date</div>
       </article>
     </section>
+
+    <div v-if="profileModal.open" class="modal-overlay" @click.self="closeProviderProfile">
+      <div class="modal">
+        <div class="modal-header">
+          <h3>Provider profile</h3>
+          <button class="btn btn-secondary btn-sm" type="button" @click="closeProviderProfile">Close</button>
+        </div>
+
+        <div class="modal-body">
+          <div v-if="profileModal.loading" class="loading">Loading profile…</div>
+          <div v-else-if="profileModal.error" class="error">{{ profileModal.error }}</div>
+          <div v-else-if="!profileModal.user" class="empty">No profile data available.</div>
+
+          <div v-else class="profile-wrap">
+            <div class="profile-hero">
+              <div class="avatar avatar-xl" :class="{ 'has-photo': profileModal.photoUrl }">
+                <img v-if="profileModal.photoUrl" :src="profileModal.photoUrl" :alt="profileModal.displayName" class="avatar-img" />
+                <div v-else class="avatar-fallback">{{ initialsFor(profileModal.displayName) }}</div>
+              </div>
+              <div class="profile-hero-copy">
+                <div class="profile-name">{{ profileModal.displayName }}</div>
+                <div class="profile-meta">{{ profileModal.user.role || 'provider' }}</div>
+              </div>
+            </div>
+
+            <div class="profile-grid">
+              <div class="profile-field">
+                <div class="profile-label">Title</div>
+                <div class="profile-value">{{ profileModal.user.title || '—' }}</div>
+              </div>
+              <div class="profile-field">
+                <div class="profile-label">Service focus</div>
+                <div class="profile-value">{{ profileModal.user.service_focus || '—' }}</div>
+              </div>
+              <div class="profile-field">
+                <div class="profile-label">Email</div>
+                <div class="profile-value">{{ profileModal.user.work_email || profileModal.user.email || '—' }}</div>
+              </div>
+              <div class="profile-field">
+                <div class="profile-label">Phone</div>
+                <div class="profile-value">
+                  {{ profileModal.user.work_phone || profileModal.user.personal_phone || '—' }}
+                </div>
+              </div>
+            </div>
+
+            <div class="profile-note muted">
+              Most provider profiles are still being filled in. Missing fields will show as “—”.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -111,6 +171,58 @@ const cards = ref([]);
 const selectedAgencyKey = ref('ALL');
 const weekStart = ref(getWeekStartYmd(new Date()));
 const search = ref('');
+
+const profileModal = ref({
+  open: false,
+  loading: false,
+  error: '',
+  user: null,
+  photoUrl: null,
+  displayName: ''
+});
+
+function providerDisplayNameFromUser(u) {
+  const preferred = String(u?.preferred_name || '').trim();
+  const first = String(u?.first_name || '').trim();
+  const last = String(u?.last_name || '').trim();
+  if (preferred && last) return `${last}, ${preferred}`;
+  if (first && last) return `${last}, ${first}`;
+  return String(u?.name || '').trim() || '';
+}
+
+async function openProviderProfile(card) {
+  const providerId = Number(card?.providerId || 0);
+  const name = String(card?.providerName || '').trim();
+  if (!providerId) return;
+
+  profileModal.value.open = true;
+  profileModal.value.loading = true;
+  profileModal.value.error = '';
+  profileModal.value.user = null;
+  profileModal.value.displayName = name || '';
+  profileModal.value.photoUrl = card?.profilePhotoUrl || null;
+
+  try {
+    const { data } = await api.get(`/users/${providerId}`);
+    const u = data || null;
+    profileModal.value.user = u;
+    profileModal.value.displayName = providerDisplayNameFromUser(u) || name || 'Provider';
+    profileModal.value.photoUrl = toUploadsUrl(u?.profile_photo_url || u?.profile_photo_path || null) || (card?.profilePhotoUrl || null);
+  } catch (e) {
+    profileModal.value.error = e?.response?.data?.error?.message || 'Failed to load profile.';
+  } finally {
+    profileModal.value.loading = false;
+  }
+}
+
+function closeProviderProfile() {
+  profileModal.value.open = false;
+  profileModal.value.loading = false;
+  profileModal.value.error = '';
+  profileModal.value.user = null;
+  profileModal.value.photoUrl = null;
+  profileModal.value.displayName = '';
+}
 
 const filteredCards = computed(() => {
   const q = String(search.value || '').trim().toLowerCase();
@@ -445,6 +557,20 @@ onMounted(async () => {
   align-items: center;
 }
 
+.avatar-btn {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  border-radius: 18px;
+}
+
+.avatar-btn:focus-visible {
+  outline: 3px solid rgba(59, 130, 246, 0.6);
+  outline-offset: 3px;
+}
+
 .avatar {
   width: 78px;
   height: 78px;
@@ -454,6 +580,22 @@ onMounted(async () => {
   background: linear-gradient(160deg, #3fd18f 0%, #66c2ff 100%);
   display: grid;
   place-items: center;
+}
+
+.avatar-lg {
+  width: 110px;
+  height: 110px;
+  border-radius: 20px;
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.14);
+  border: 2px solid rgba(255, 255, 255, 0.9);
+}
+
+.avatar-xl {
+  width: 130px;
+  height: 130px;
+  border-radius: 22px;
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.16);
+  border: 2px solid rgba(255, 255, 255, 0.9);
 }
 
 .avatar-img {
@@ -502,6 +644,103 @@ onMounted(async () => {
   padding: 8px;
   display: grid;
   gap: 6px;
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  z-index: 9999;
+}
+
+.modal {
+  width: min(860px, 100%);
+  max-height: min(84vh, 900px);
+  overflow: auto;
+  background: rgba(255, 255, 255, 0.98);
+  border: 1px solid #d5e2f2;
+  border-radius: 18px;
+  box-shadow: 0 18px 60px rgba(15, 23, 42, 0.35);
+}
+
+.modal-header {
+  padding: 14px 16px;
+  border-bottom: 1px solid #e2e8f0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 18px;
+  color: #0f172a;
+}
+
+.modal-body {
+  padding: 16px;
+}
+
+.profile-wrap {
+  display: grid;
+  gap: 14px;
+}
+
+.profile-hero {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+}
+
+.profile-hero-copy {
+  min-width: 0;
+}
+
+.profile-name {
+  font-size: 22px;
+  font-weight: 800;
+  color: #0f172a;
+  line-height: 1.15;
+}
+
+.profile-meta {
+  margin-top: 4px;
+  color: #475569;
+  font-size: 13px;
+}
+
+.profile-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.profile-field {
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 10px 12px;
+  background: #fff;
+}
+
+.profile-label {
+  font-size: 12px;
+  color: #64748b;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.profile-value {
+  font-size: 14px;
+  color: #0f172a;
+  word-break: break-word;
+}
+
+.profile-note {
+  font-size: 12px;
 }
 
 .day-col {
