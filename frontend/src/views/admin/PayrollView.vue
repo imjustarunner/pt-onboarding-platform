@@ -501,7 +501,7 @@
     <!-- V2 modals: isolated from page state -->
     <teleport to="body">
       <div v-if="showRunModalV2" class="modal-backdrop" @click.self="showRunModalV2 = false">
-        <div class="modal">
+        <div class="modal modal-payroll-results">
           <div class="modal-header">
             <div>
               <div class="modal-title">Ran Payroll</div>
@@ -589,7 +589,7 @@
 
     <teleport to="body">
       <div v-if="showPreviewPostModalV2" class="modal-backdrop" @click.self="showPreviewPostModalV2 = false">
-        <div class="modal">
+        <div class="modal modal-payroll-results">
           <div class="modal-header">
             <div>
               <div class="modal-title">Preview Post</div>
@@ -3223,7 +3223,7 @@
         <!-- View Ran Payroll modal -->
         <teleport to="body">
           <div v-if="showRunModal" class="modal-backdrop" @click.self="showRunModal = false">
-            <div class="modal">
+            <div class="modal modal-payroll-results">
             <div class="modal-header">
               <div>
                 <div class="modal-title">Ran Payroll (Private Totals)</div>
@@ -3415,7 +3415,7 @@
         <!-- Preview Post modal -->
         <teleport to="body">
           <div v-if="showPreviewPostModal" class="modal-backdrop" @click.self="showPreviewPostModal = false">
-            <div class="modal">
+            <div class="modal modal-payroll-results">
             <div class="modal-header">
               <div>
                 <div class="modal-title">Preview Post (Provider View)</div>
@@ -10488,6 +10488,11 @@ input[type='number'] {
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 10px;
+}
+
+.modal-payroll-results {
+  width: min(1500px, 96vw);
+  max-height: 92vh;
 }
 
 .wizard-hero {
