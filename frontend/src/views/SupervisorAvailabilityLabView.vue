@@ -65,16 +65,49 @@
           <div class="week-columns" :style="{ gridTemplateColumns: `repeat(${card.dayColumns.length}, minmax(0, 1fr))` }">
             <div v-for="day in card.dayColumns" :key="`${card.providerId}-${day.key}`" class="day-col">
               <div class="day-head">{{ day.label }}</div>
-              <div v-if="day.slots.length" class="day-slots">
+              <div v-if="day.rows.length" class="day-rows">
+                <div v-if="day.showSplitHeader" class="day-subhead">
+                  <span>In person</span>
+                  <span>Virtual</span>
+                </div>
+
                 <div
-                  v-for="slot in day.slots"
-                  :key="slot.key"
-                  class="time-pill"
-                  :class="slot.modalityClass"
-                  :title="slot.tooltip"
+                  v-for="row in day.rows"
+                  :key="row.key"
+                  class="day-row"
+                  :class="{ split: day.showSplitHeader }"
                 >
-                  <span class="pill-time">{{ slot.timeRange }}</span>
-                  <span class="pill-tag">{{ slot.shortModality }}</span>
+                  <template v-if="day.showSplitHeader">
+                    <template v-if="row.inPerson && row.virtual">
+                      <div class="time-pill modality-office" :title="row.inPerson.tooltip">
+                        <span class="pill-time">{{ row.inPerson.timeRange }}</span>
+                      </div>
+                      <div class="time-pill modality-virtual" :title="row.virtual.tooltip">
+                        <span class="pill-time">{{ row.virtual.timeRange }}</span>
+                      </div>
+                    </template>
+                    <template v-else>
+                      <div
+                        class="time-pill span-2"
+                        :class="row.inPerson ? 'modality-office' : 'modality-virtual'"
+                        :title="(row.inPerson || row.virtual).tooltip"
+                      >
+                        <span class="pill-time">{{ (row.inPerson || row.virtual).timeRange }}</span>
+                        <span class="pill-tag">{{ row.inPerson ? 'IP' : 'VI' }}</span>
+                      </div>
+                    </template>
+                  </template>
+
+                  <template v-else>
+                    <div
+                      class="time-pill"
+                      :class="(row.inPerson || row.virtual).modalityClass"
+                      :title="(row.inPerson || row.virtual).tooltip"
+                    >
+                      <span class="pill-time">{{ (row.inPerson || row.virtual).timeRange }}</span>
+                      <span class="pill-tag">{{ (row.inPerson || row.virtual).shortModality }}</span>
+                    </div>
+                  </template>
                 </div>
               </div>
             </div>
@@ -299,9 +332,11 @@ function mapDisplaySlots(providerId, slots) {
     const startLabel = timeOnlyLabel(start);
     const location = slotLocation(slot);
     const modality = String(slot.modality || '').trim();
+    const kind = modality.toLowerCase().includes('virtual') ? 'virtual' : 'in_person';
     return {
       key: `${providerId}-${idx}-${String(start || '')}-${String(end || '')}`,
       modality,
+      kind,
       modalityClass: slot.modalityClass,
       frequency,
       location,
@@ -323,15 +358,43 @@ function buildDayColumns(displaySlots) {
     byDay.get(slot.dayKey).push(slot);
   }
   return WEEKDAY_ORDER.map((day) => {
-    const slots = (byDay.get(day) || [])
-      .sort((a, b) => String(a.startAt || '').localeCompare(String(b.startAt || '')))
+    const slots = (byDay.get(day) || []).sort((a, b) => String(a.startAt || '').localeCompare(String(b.startAt || '')));
+
+    const rowsByWindow = new Map(); // `${startAt}|${endAt}` -> row
+    for (const s of slots) {
+      const startAt = String(s.startAt || '');
+      const endAt = String(s.endAt || '');
+      const k = `${startAt}|${endAt}`;
+      if (!rowsByWindow.has(k)) {
+        rowsByWindow.set(k, {
+          key: k,
+          sortKey: startAt,
+          inPerson: null,
+          virtual: null
+        });
+      }
+      const row = rowsByWindow.get(k);
+      if (s.kind === 'virtual') row.virtual = s;
+      else row.inPerson = s;
+      // Prefer earliest for sorting
+      if (startAt && (!row.sortKey || startAt < row.sortKey)) row.sortKey = startAt;
+    }
+
+    const rows = Array.from(rowsByWindow.values())
+      .sort((a, b) => String(a.sortKey || '').localeCompare(String(b.sortKey || '')))
       .slice(0, CARD_SLOT_PREVIEW_LIMIT_PER_DAY);
+
+    const hasInPerson = rows.some((r) => !!r.inPerson);
+    const hasVirtual = rows.some((r) => !!r.virtual);
+    const showSplitHeader = hasInPerson && hasVirtual;
+
     return {
       key: day,
       label: WEEKDAY_LABELS[day],
-      slots
+      rows,
+      showSplitHeader
     };
-  }).filter((d) => (d?.slots || []).length > 0);
+  }).filter((d) => (d?.rows || []).length > 0);
 }
 
 function buildCardFromSlots(provider, slots) {
@@ -543,7 +606,7 @@ onMounted(async () => {
   display: grid;
   gap: 14px;
   /* Floating avatar overlaps card top; keep it below the week buttons */
-  margin-top: 56px;
+  margin-top: 92px;
 }
 
 .provider-card {
@@ -555,12 +618,12 @@ onMounted(async () => {
   gap: 8px;
   box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
   position: relative;
-  padding-top: 54px; /* room for floating avatar */
+  padding-top: 88px; /* room for floating avatar */
 }
 
 .provider-layout {
   display: grid;
-  grid-template-columns: 260px minmax(0, 1fr) 84px;
+  grid-template-columns: 360px minmax(0, 1fr) 84px;
   align-items: stretch;
   gap: 14px;
 }
@@ -569,7 +632,7 @@ onMounted(async () => {
   display: flex;
   gap: 12px;
   align-items: center;
-  padding-left: 156px; /* room for floating avatar */
+  padding-left: 262px; /* room for floating avatar */
 }
 
 .avatar-btn {
@@ -583,7 +646,7 @@ onMounted(async () => {
 
 .avatar-float {
   position: absolute;
-  top: -44px;
+  top: -74px;
   left: 18px;
   z-index: 4;
 }
@@ -605,11 +668,11 @@ onMounted(async () => {
 }
 
 .avatar-float-img {
-  width: 168px;
-  height: 168px;
+  width: 228px;
+  height: 228px;
   border-radius: 9999px;
-  box-shadow: 0 22px 52px rgba(15, 23, 42, 0.22);
-  border: 3px solid rgba(255, 255, 255, 0.92);
+  box-shadow: 0 26px 60px rgba(15, 23, 42, 0.24);
+  border: 4px solid rgba(255, 255, 255, 0.92);
 }
 
 .avatar-xl {
@@ -643,8 +706,8 @@ onMounted(async () => {
 
 .identity-copy h2 {
   margin: 0 0 5px;
-  font-size: 34px;
-  line-height: 1.05;
+  font-size: 40px;
+  line-height: 1.02;
   color: #0f172a;
 }
 
@@ -790,6 +853,37 @@ onMounted(async () => {
   gap: 6px;
 }
 
+.day-rows {
+  display: grid;
+  gap: 8px;
+}
+
+.day-subhead {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  font-size: 10px;
+  font-weight: 800;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 0 4px;
+}
+
+.day-row {
+  display: grid;
+  gap: 8px;
+}
+
+.day-row.split {
+  grid-template-columns: 1fr 1fr;
+}
+
+.time-pill.span-2 {
+  grid-column: 1 / -1;
+  justify-content: space-between;
+}
+
 .day-empty {
   display: grid;
   place-items: center;
@@ -879,18 +973,18 @@ onMounted(async () => {
   .provider-identity {
     align-items: flex-start;
     padding-left: 0;
-    padding-top: 52px;
+    padding-top: 78px;
   }
   .provider-card {
     padding-top: 14px;
   }
   .avatar-float {
-    top: -38px;
+    top: -62px;
     left: 14px;
   }
   .avatar-float-img {
-    width: 140px;
-    height: 140px;
+    width: 190px;
+    height: 190px;
     border-radius: 9999px;
   }
   .week-columns {
@@ -913,15 +1007,15 @@ onMounted(async () => {
     grid-column: span 1;
   }
   .identity-copy h2 {
-    font-size: 28px;
+    font-size: 32px;
   }
   .avatar-float {
-    top: -34px;
+    top: -54px;
     left: 12px;
   }
   .avatar-float-img {
-    width: 120px;
-    height: 120px;
+    width: 160px;
+    height: 160px;
     border-radius: 9999px;
   }
   .week-columns {
