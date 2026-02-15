@@ -1771,7 +1771,9 @@ export const listIntakeAvailabilityCards = async (req, res, next) => {
     try {
       const agencyIdSet = new Set(agencyIds.map((n) => Number(n)).filter((n) => Number.isInteger(n) && n > 0));
       const monday = startOfWeekMonday(weekStartYmd);
-      const materializeWeekAnchors = [toYmd(monday), toYmd(addDays(monday, 6))];
+      const anchor = toYmd(monday);
+      const windowStart = `${anchor} 00:00:00`;
+      const windowEnd = `${toYmd(addDays(monday, 7))} 00:00:00`;
       for (const aid of Array.from(agencyIdSet.values())) {
         // eslint-disable-next-line no-await-in-loop
         const [officeRows] = await pool.execute(
@@ -1786,14 +1788,24 @@ export const listIntakeAvailabilityCards = async (req, res, next) => {
           .map((r) => Number(r.office_location_id))
           .filter((n) => Number.isInteger(n) && n > 0);
         for (const officeLocationId of officeIds) {
-          for (const anchor of materializeWeekAnchors) {
-            // eslint-disable-next-line no-await-in-loop
-            await OfficeScheduleMaterializer.materializeWeek({
-              officeLocationId,
-              weekStartRaw: anchor,
-              createdByUserId: req.user?.id || null
-            });
-          }
+          // Skip materialization if the week already has any office_events rows.
+          // eslint-disable-next-line no-await-in-loop
+          const [existing] = await pool.execute(
+            `SELECT 1
+             FROM office_events
+             WHERE office_location_id = ?
+               AND start_at >= ?
+               AND start_at < ?
+             LIMIT 1`,
+            [Number(officeLocationId), windowStart, windowEnd]
+          );
+          if (existing?.[0]) continue;
+          // eslint-disable-next-line no-await-in-loop
+          await OfficeScheduleMaterializer.materializeWeek({
+            officeLocationId,
+            weekStartRaw: anchor,
+            createdByUserId: req.user?.id || null
+          });
         }
       }
     } catch (e) {

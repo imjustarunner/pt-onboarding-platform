@@ -376,6 +376,16 @@ async function loadAgencies() {
     selectedAgencyKey.value = 'ALL';
     return;
   }
+
+  // Default to a single agency for performance (ALL can be very slow).
+  if (selectedAgencyKey.value === 'ALL') {
+    const preferred = Number(authStore.user?.agency_id || 0) || null;
+    if (preferred && agencies.value.some((a) => Number(a.id) === preferred)) {
+      selectedAgencyKey.value = preferred;
+    } else {
+      selectedAgencyKey.value = Number(agencies.value?.[0]?.id || 0) || 'ALL';
+    }
+  }
   if (
     selectedAgencyKey.value !== 'ALL' &&
     !agencies.value.some((a) => Number(a.id) === Number(selectedAgencyKey.value))
@@ -532,6 +542,8 @@ onMounted(async () => {
 .cards {
   display: grid;
   gap: 14px;
+  /* Floating avatar overlaps card top; keep it below the week buttons */
+  margin-top: 56px;
 }
 
 .provider-card {
@@ -595,7 +607,7 @@ onMounted(async () => {
 .avatar-float-img {
   width: 168px;
   height: 168px;
-  border-radius: 26px;
+  border-radius: 9999px;
   box-shadow: 0 22px 52px rgba(15, 23, 42, 0.22);
   border: 3px solid rgba(255, 255, 255, 0.92);
 }
@@ -879,7 +891,7 @@ onMounted(async () => {
   .avatar-float-img {
     width: 140px;
     height: 140px;
-    border-radius: 24px;
+    border-radius: 9999px;
   }
   .week-columns {
     overflow-x: auto;
@@ -910,7 +922,7 @@ onMounted(async () => {
   .avatar-float-img {
     width: 120px;
     height: 120px;
-    border-radius: 22px;
+    border-radius: 9999px;
   }
   .week-columns {
     grid-template-columns: repeat(3, minmax(120px, 1fr));
