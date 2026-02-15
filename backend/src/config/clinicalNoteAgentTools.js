@@ -404,6 +404,14 @@ Section 1: Symptom Description and Subjective Report. (No diagnosis name, no ind
 Section 2: Objective Content. At least 4 sentences. Must include consent.
 Section 3: Plan. At least 2 sentences. Next steps.
 
+Psychotherapy duration rule:
+- 90832, 90834, and 90837 are all individual psychotherapy notes and must use the same documentation style/structure.
+- The distinction between these three codes is duration only:
+  - 90832: 16-37 minutes
+  - 90834: 38-52 minutes
+  - 90837: 53+ minutes
+- Do not change note style by code; only choose the code by documented time.
+
 Consultation Note Guide:
 Generate the output as one paragraph that is based on the requirements and details necessary for the specific information found in the CODE LIST pdf.
 
@@ -604,6 +612,7 @@ Section 4 — Assessment / Academic Context (Optional).
   PSYCHOTHERAPY_NOTE: String.raw`
 90837, 90834, 90832 | Progress Note Writer (Psychotherapy)
 Generate structured, clinically appropriate progress notes for individual therapy sessions.
+Use the same note format and tone for 90832, 90834, and 90837; the only difference is session length/code selection.
 
 Output Format:
 1. Symptom Description and Subjective Report

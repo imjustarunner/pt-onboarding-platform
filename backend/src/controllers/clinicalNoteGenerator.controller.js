@@ -391,6 +391,44 @@ async function getAgencyServiceCodeCatalog({ agencyId }) {
   }
 }
 
+async function listAgencyAudioAgreementTemplates({ agencyId }) {
+  const aid = safeInt(agencyId);
+  if (!aid) return [];
+  try {
+    const [rows] = await pool.execute(
+      `SELECT id, name, document_type, document_action_type
+       FROM document_templates
+       WHERE agency_id = ?
+         AND is_active = TRUE
+         AND (is_archived = FALSE OR is_archived IS NULL)
+         AND document_type IN ('agreement', 'consent', 'authorization', 'disclosure')
+         AND (
+           LOWER(name) LIKE '%audio%'
+           OR LOWER(name) LIKE '%record%'
+           OR LOWER(name) LIKE '%consent%'
+           OR LOWER(name) LIKE '%waiver%'
+         )
+       ORDER BY name ASC
+       LIMIT 200`,
+      [aid]
+    );
+    return (rows || [])
+      .map((r) => ({
+        id: Number(r.id),
+        name: String(r.name || '').trim(),
+        documentType: String(r.document_type || '').trim(),
+        actionType: String(r.document_action_type || '').trim()
+      }))
+      .filter((r) => Number.isFinite(r.id) && r.id > 0 && r.name);
+  } catch (e) {
+    // Best-effort: older deployments may not include these columns.
+    if (e?.code === 'ER_NO_SUCH_TABLE' || e?.code === 'ER_BAD_FIELD_ERROR') return [];
+    const msg = String(e?.message || '');
+    if (msg.includes('ER_NO_SUCH_TABLE') || msg.includes('Unknown column') || msg.includes("doesn't exist")) return [];
+    throw e;
+  }
+}
+
 export const getClinicalNotesContext = async (req, res, next) => {
   try {
     if (!requireNotSchoolStaff(req, res)) return;
@@ -415,10 +453,12 @@ export const getClinicalNotesContext = async (req, res, next) => {
     // If the agency has a defined service-code dictionary, prefer it for the dropdown.
     // This makes the UI show "many" codes without hardcoding them in the frontend.
     const eligibleServiceCodes = serviceCodeCatalog.length ? serviceCodeCatalog : eligibleServiceCodesForTier(tier); // null means "all"
+    const audioAgreementTemplates = await listAgencyAudioAgreementTemplates({ agencyId });
     res.json({
       providerCredentialText: providerCredentialText || '',
       derivedTier: tier,
-      eligibleServiceCodes
+      eligibleServiceCodes,
+      audioAgreementTemplates
     });
   } catch (e) {
     next(e);
@@ -645,6 +685,9 @@ export const generateClinicalNote = async (req, res, next) => {
     const autoSelectCode = parseBool(req.body?.autoSelectCode);
     const transcriptSource = String(req.body?.transcriptSource || '').trim().toLowerCase();
     let inputText = String(req.body?.inputText || '').trim().slice(0, 12000);
+    const revisionInstruction = req.body?.revisionInstruction
+      ? String(req.body.revisionInstruction).trim().slice(0, 1500)
+      : '';
     const draftId = req.body?.draftId ? safeInt(req.body.draftId) : null;
 
     if (programId) {
@@ -717,6 +760,16 @@ export const generateClinicalNote = async (req, res, next) => {
     let prompt = buildPromptForTool({ tool, inputText });
     if (programLabel && serviceCode === 'H2014') {
       prompt = [prompt, '', `Program: ${programLabel}`].join('\n');
+    }
+    if (revisionInstruction) {
+      prompt = [
+        prompt,
+        '',
+        'Revision request from clinician:',
+        revisionInstruction,
+        '',
+        'Apply this revision request while preserving compliance and note structure requirements.'
+      ].join('\n');
     }
     if (effectiveAutoSelect && Array.isArray(allowedCodes) && allowedCodes.length) {
       prompt = [

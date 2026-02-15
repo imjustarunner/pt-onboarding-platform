@@ -111,6 +111,7 @@ router.post(
     body('programLabel').optional().isString().isLength({ min: 1, max: 120 }),
     body('dateOfService').optional().isString().isLength({ min: 1, max: 32 }),
     body('initials').optional().isString().isLength({ min: 0, max: 16 }),
+    body('revisionInstruction').optional().isString().isLength({ min: 1, max: 1500 }),
     body('inputText').isString().isLength({ min: 1, max: 12000 }),
     body('draftId').optional().isInt({ min: 1 })
   ],

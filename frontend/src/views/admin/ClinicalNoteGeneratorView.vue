@@ -106,6 +106,58 @@
         <label class="label">Input</label>
         <textarea v-model="inputText" class="textarea" rows="10" placeholder="Paste or type your session details here…" />
 
+        <div class="consent-box">
+          <label class="checkbox">
+            <input v-model="recordingConsentConfirmed" type="checkbox" />
+            <span>I confirm client consent to record has been obtained before recording.</span>
+          </label>
+          <label class="checkbox" style="margin-top: 6px;">
+            <input v-model="additionalParticipantPresent" type="checkbox" />
+            <span>Another person (besides clinician and client) will be present in the recording.</span>
+          </label>
+          <div v-if="additionalParticipantPresent" style="margin-top: 8px;">
+            <label class="label sub">Is a signed recording agreement already on file in the EHR for this client?</label>
+            <select v-model="recordingAgreementOnFile" class="input">
+              <option value="">Select an option</option>
+              <option value="yes">Yes, already on file</option>
+              <option value="no">No, need to obtain/upload</option>
+            </select>
+          </div>
+          <div v-if="additionalParticipantPresent && recordingAgreementOnFile === 'no'" style="margin-top: 8px;">
+            <label class="label sub">Audio recording agreement template (agency)</label>
+            <select v-model="selectedAudioAgreementTemplateId" class="input" :disabled="!audioAgreementTemplates.length">
+              <option value="">Select an agreement template</option>
+              <option v-for="t in audioAgreementTemplates" :key="t.id" :value="String(t.id)">
+                {{ t.name }}
+              </option>
+            </select>
+            <div class="actions" style="margin-top: 8px;">
+              <button
+                class="btn btn-secondary btn-sm"
+                type="button"
+                :disabled="!selectedAudioAgreementTemplateId || downloadingAudioAgreementTemplate"
+                @click="downloadAudioAgreementTemplate"
+              >
+                {{ downloadingAudioAgreementTemplate ? 'Downloading…' : 'Download agreement template' }}
+              </button>
+            </div>
+            <small class="hint" style="display: block; margin-top: 4px;">
+              Download, complete, and upload the signed document to the client record in your EHR. This tool does not store signed agreements.
+            </small>
+          </div>
+          <small
+            v-if="additionalParticipantPresent && recordingAgreementOnFile === 'no' && !audioAgreementTemplates.length"
+            class="hint"
+            style="display: block; margin-top: 6px;"
+          >
+            No audio-consent/agreement templates were found for this agency yet.
+          </small>
+          <small class="hint" style="display: block; margin-top: 6px;">
+            HIPAA reminder: avoid including more PHI than needed and confirm recording permissions before capture.
+          </small>
+          <small v-if="recordingConsentError" class="error">{{ recordingConsentError }}</small>
+        </div>
+
         <div class="actions">
           <button class="btn btn-secondary" type="button" :disabled="recordingBusy" @click="toggleRecording">
             {{ recording ? 'Stop recording' : 'Record audio' }}
@@ -116,10 +168,10 @@
           <button
             class="btn btn-secondary"
             type="button"
-            :disabled="!audioBlob || recording || serverTranscribing"
+            :disabled="!canServerTranscribe"
             @click="transcribeAudioServer"
           >
-            {{ serverTranscribing ? 'Transcribing…' : 'Transcribe audio (server)' }}
+            {{ serverTranscribing ? 'Transcribing…' : 'Transcribe audio (server fallback)' }}
           </button>
           <button class="btn btn-primary" type="button" :disabled="generateDisabled" @click="generateNote">
             {{ generating ? 'Generating…' : 'Generate note' }}
@@ -133,7 +185,10 @@
           Live transcript: {{ liveTranscript }}
         </small>
         <small v-if="audioBlob" class="hint">
-          Audio captured ({{ audioMimeType || 'unknown type' }}) — will be uploaded with your request.
+          Audio captured ({{ audioMimeType || 'unknown type' }}, {{ audioDurationLabel }}) — will be uploaded with your request.
+        </small>
+        <small v-if="audioBlob && !canServerTranscribe && !recording && !serverTranscribing" class="hint">
+          {{ serverTranscribeDisabledReason }}
         </small>
         <small v-if="serverTranscribeError" class="error">{{ serverTranscribeError }}</small>
         <small v-if="generateError" class="error">{{ generateError }}</small>
@@ -141,6 +196,18 @@
 
       <div style="margin-top: 18px;">
         <label class="label">Output</label>
+        <div class="muted" style="margin-bottom: 8px;">
+          {{ generationLogicSummary }}
+        </div>
+        <div class="field" style="margin-bottom: 10px;">
+          <label>Retry instruction (optional)</label>
+          <textarea
+            v-model="revisionInstruction"
+            class="textarea"
+            rows="3"
+            placeholder="If needed, tell Note Aid what to revise while keeping the same transcript..."
+          />
+        </div>
         <div v-if="sectionEntries.length === 0" class="empty-state">
           <strong>No output yet</strong>
           <div class="muted">Generated sections will appear here as separate cards.</div>
@@ -157,7 +224,14 @@
           </div>
         </div>
         <div class="actions">
+          <button class="btn btn-secondary btn-sm" type="button" :disabled="generating || !String(inputText || '').trim()" @click="generateNote">
+            {{ generating ? 'Regenerating…' : 'Retry with same transcript' }}
+          </button>
+          <button class="btn btn-primary btn-sm" type="button" :disabled="!sectionEntries.length" @click="approveNoteOutput">
+            Approve note output
+          </button>
           <span v-if="copied" class="hint">Copied.</span>
+          <span v-if="approvalMessage" class="hint">{{ approvalMessage }}</span>
         </div>
       </div>
 
@@ -282,6 +356,7 @@ const contextError = ref('');
 const providerCredentialText = ref('');
 const derivedTier = ref('unknown');
 const eligibleServiceCodes = ref(null); // array|null
+const audioAgreementTemplates = ref([]);
 
 // Programs (for H2014)
 const programs = ref([]);
@@ -308,6 +383,12 @@ const initials = ref('');
 const inputText = ref('');
 const autoSelectCode = ref(false);
 const forceAutoSelect = computed(() => String(derivedTier.value || '') === 'unknown');
+const recordingConsentConfirmed = ref(false);
+const additionalParticipantPresent = ref(false);
+const recordingAgreementOnFile = ref('');
+const selectedAudioAgreementTemplateId = ref('');
+const recordingConsentError = ref('');
+const downloadingAudioAgreementTemplate = ref(false);
 
 // Draft state
 const draftId = ref(null);
@@ -319,6 +400,7 @@ const recording = ref(false);
 const recordingBusy = ref(false);
 const audioBlob = ref(null);
 const audioMimeType = ref('');
+const audioDurationSeconds = ref(0);
 let mediaRecorder = null;
 let mediaStream = null;
 let audioChunks = [];
@@ -332,8 +414,11 @@ const generating = ref(false);
 const generateError = ref('');
 const outputObj = ref(null);
 const copied = ref(false);
+const revisionInstruction = ref('');
+const approvalMessage = ref('');
 const serverTranscribing = ref(false);
 const serverTranscribeError = ref('');
+const SERVER_TRANSCRIBE_MIN_SECONDS = 75;
 
 // Recent drafts
 const showRecent = ref(false);
@@ -425,6 +510,34 @@ const actualServiceCode = computed(() => {
 });
 
 const showProgramDropdown = computed(() => actualServiceCode.value === 'H2014');
+const requiresAudioAgreementSelection = computed(
+  () => additionalParticipantPresent.value
+    && recordingAgreementOnFile.value === 'no'
+    && Array.isArray(audioAgreementTemplates.value)
+    && audioAgreementTemplates.value.length > 0
+);
+const canServerTranscribe = computed(() => {
+  if (!audioBlob.value) return false;
+  if (recording.value || serverTranscribing.value) return false;
+  if (Number(audioDurationSeconds.value || 0) < SERVER_TRANSCRIBE_MIN_SECONDS) return false;
+  return true;
+});
+const serverTranscribeDisabledReason = computed(() => {
+  if (!audioBlob.value) return 'Record audio first.';
+  if (recording.value) return 'Stop recording before server transcription.';
+  if (serverTranscribing.value) return 'Server transcription is in progress.';
+  const secs = Number(audioDurationSeconds.value || 0);
+  if (secs < SERVER_TRANSCRIBE_MIN_SECONDS) {
+    return `Server transcription is enabled for longer clips (${SERVER_TRANSCRIBE_MIN_SECONDS}s+). Current clip: ${Math.max(0, Math.round(secs))}s.`;
+  }
+  return '';
+});
+const audioDurationLabel = computed(() => {
+  const total = Math.max(0, Math.round(Number(audioDurationSeconds.value || 0)));
+  const mins = Math.floor(total / 60);
+  const secs = total % 60;
+  return `${mins}:${String(secs).padStart(2, '0')}`;
+});
 
 watch(showProgramDropdown, (on) => {
   if (!on) selectedProgramId.value = '';
@@ -444,6 +557,15 @@ watch(forceAutoSelect, (on) => {
     selectedProgramId.value = '';
   }
 });
+watch(additionalParticipantPresent, (on) => {
+  if (!on) {
+    selectedAudioAgreementTemplateId.value = '';
+    recordingAgreementOnFile.value = '';
+  }
+});
+watch(recordingAgreementOnFile, (v) => {
+  if (v !== 'no') selectedAudioAgreementTemplateId.value = '';
+});
 
 const eligibleCodesLabel = computed(() => {
   if (Array.isArray(eligibleServiceCodes.value)) return `${eligibleServiceCodes.value.length}`;
@@ -454,13 +576,34 @@ const eligibleCodesLabel = computed(() => {
 const generateDisabled = computed(() => {
   if (generating.value) return true;
   if (recording.value || recordingBusy.value) return true;
-  const sc = actualServiceCode.value;
-  if (!autoSelectCode.value && !forceAutoSelect.value && !sc) return true;
   const hasText = !!String(inputText.value || '').trim();
   const hasAudio = !!audioBlob.value;
   if (!hasText && !hasAudio) return true;
   return false;
 });
+
+const getAudioBlobDurationSeconds = async (blob) => {
+  if (!blob) return 0;
+  return await new Promise((resolve) => {
+    try {
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio();
+      audio.preload = 'metadata';
+      audio.onloadedmetadata = () => {
+        const d = Number(audio.duration || 0);
+        URL.revokeObjectURL(url);
+        resolve(Number.isFinite(d) && d > 0 ? d : 0);
+      };
+      audio.onerror = () => {
+        URL.revokeObjectURL(url);
+        resolve(0);
+      };
+      audio.src = url;
+    } catch {
+      resolve(0);
+    }
+  });
+};
 
 function extractSections(obj) {
   if (!obj || typeof obj !== 'object') return {};
@@ -478,6 +621,20 @@ function extractSections(obj) {
 const sectionEntries = computed(() => {
   const sections = extractSections(outputObj.value);
   return Object.entries(sections);
+});
+
+const generationLogicSummary = computed(() => {
+  const meta = outputObj.value?.meta || {};
+  const toolId = String(meta?.toolId || '').trim();
+  const model = String(meta?.model || '').trim();
+  const sections = extractSections(outputObj.value);
+  const chosenCode = String(sections?.Code || '').trim();
+  const base = toolId
+    ? `Generator: ${toolId}`
+    : 'Generator: not available yet';
+  const codePart = chosenCode ? ` • Chosen code: ${chosenCode}` : '';
+  const modelPart = model ? ` • Model: ${model}` : '';
+  return `${base}${codePart}${modelPart}`;
 });
 
 const copyText = async (text) => {
@@ -514,11 +671,13 @@ const loadContext = async () => {
     providerCredentialText.value = String(res?.data?.providerCredentialText || '');
     derivedTier.value = String(res?.data?.derivedTier || 'unknown');
     eligibleServiceCodes.value = res?.data?.eligibleServiceCodes ?? null;
+    audioAgreementTemplates.value = Array.isArray(res?.data?.audioAgreementTemplates) ? res.data.audioAgreementTemplates : [];
   } catch (e) {
     contextError.value = e.response?.data?.error?.message || 'Failed to load user context';
     providerCredentialText.value = '';
     derivedTier.value = 'unknown';
     eligibleServiceCodes.value = null;
+    audioAgreementTemplates.value = [];
   } finally {
     loadingContext.value = false;
   }
@@ -542,6 +701,7 @@ const programLabel = (programId) => {
 
 const autosave = async () => {
   if (!canUseTool.value) return;
+  const shouldPersistInputText = !audioBlob.value && transcriptSource.value !== 'audio';
   // Save only form state (no audio).
   const payload = {
     agencyId: currentAgencyId.value,
@@ -556,7 +716,7 @@ const autosave = async () => {
         : null,
     dateOfService: dateOfService.value ? String(dateOfService.value) : null,
     initials: initials.value ? String(initials.value) : null,
-    inputText: String(inputText.value || '')
+    inputText: shouldPersistInputText ? String(inputText.value || '') : null
   };
 
   // If nothing meaningful yet, skip.
@@ -583,6 +743,7 @@ const autosave = async () => {
 
 const toggleRecording = async () => {
   if (recordingBusy.value) return;
+  recordingConsentError.value = '';
   if (recording.value) {
     try {
       recordingBusy.value = true;
@@ -596,6 +757,18 @@ const toggleRecording = async () => {
   }
 
   try {
+    if (!recordingConsentConfirmed.value) {
+      recordingConsentError.value = 'Confirm consent before starting audio recording.';
+      return;
+    }
+    if (additionalParticipantPresent.value && !recordingAgreementOnFile.value) {
+      recordingConsentError.value = 'Answer whether a signed recording agreement is already on file.';
+      return;
+    }
+    if (requiresAudioAgreementSelection.value && !String(selectedAudioAgreementTemplateId.value || '').trim()) {
+      recordingConsentError.value = 'Select an audio recording agreement template for this session.';
+      return;
+    }
     recordingBusy.value = true;
     audioChunks = [];
     mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -606,23 +779,34 @@ const toggleRecording = async () => {
       if (e?.data && e.data.size > 0) audioChunks.push(e.data);
     };
     mr.onstop = () => {
-      try {
-        const blob = new Blob(audioChunks, { type: mr.mimeType || 'audio/webm' });
-        audioBlob.value = blob.size > 0 ? blob : null;
-      } catch {
-        audioBlob.value = null;
-      }
-      try {
-        mediaStream?.getTracks?.().forEach((t) => t.stop());
-      } catch {
-        // ignore
-      }
-      mediaStream = null;
-      mediaRecorder = null;
-      audioChunks = [];
-      recording.value = false;
-      recordingBusy.value = false;
-      stopTranscription();
+      (async () => {
+        try {
+          const blob = new Blob(audioChunks, { type: mr.mimeType || 'audio/webm' });
+          const hasTranscriptText = transcriptSource.value === 'audio' && !!String(inputText.value || '').trim();
+          if (hasTranscriptText) {
+            // Privacy-first: if we already have transcript text, don't retain local audio.
+            audioBlob.value = null;
+            audioDurationSeconds.value = 0;
+          } else {
+            audioBlob.value = blob.size > 0 ? blob : null;
+            audioDurationSeconds.value = audioBlob.value ? await getAudioBlobDurationSeconds(audioBlob.value) : 0;
+          }
+        } catch {
+          audioBlob.value = null;
+          audioDurationSeconds.value = 0;
+        }
+        try {
+          mediaStream?.getTracks?.().forEach((t) => t.stop());
+        } catch {
+          // ignore
+        }
+        mediaStream = null;
+        mediaRecorder = null;
+        audioChunks = [];
+        recording.value = false;
+        recordingBusy.value = false;
+        stopTranscription();
+      })();
     };
     mr.onerror = () => {
       try {
@@ -651,10 +835,11 @@ const toggleRecording = async () => {
 const clearAudio = () => {
   audioBlob.value = null;
   audioMimeType.value = '';
+  audioDurationSeconds.value = 0;
 };
 
 const transcribeAudioServer = async () => {
-  if (!audioBlob.value || serverTranscribing.value) return;
+  if (!canServerTranscribe.value) return;
   if (!currentAgencyId.value) return;
   try {
     serverTranscribing.value = true;
@@ -668,6 +853,7 @@ const transcribeAudioServer = async () => {
     if (transcript) {
       appendTranscript(transcript);
       transcriptSource.value = 'audio';
+      clearAudio();
     } else {
       serverTranscribeError.value = 'No transcript returned.';
     }
@@ -675,6 +861,32 @@ const transcribeAudioServer = async () => {
     serverTranscribeError.value = e.response?.data?.error?.message || 'Failed to transcribe audio';
   } finally {
     serverTranscribing.value = false;
+  }
+};
+
+const downloadAudioAgreementTemplate = async () => {
+  const id = String(selectedAudioAgreementTemplateId.value || '').trim();
+  if (!id) return;
+  try {
+    downloadingAudioAgreementTemplate.value = true;
+    recordingConsentError.value = '';
+    const resp = await api.get(`/document-templates/${id}/preview`, { responseType: 'blob' });
+    const blob = resp?.data;
+    if (!blob) throw new Error('No file returned');
+    const selected = (audioAgreementTemplates.value || []).find((t) => String(t?.id) === id);
+    const safeName = String(selected?.name || `audio-agreement-${id}`).replace(/[^a-zA-Z0-9._-]+/g, '_');
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${safeName}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+  } catch (e) {
+    recordingConsentError.value = e.response?.data?.error?.message || e.message || 'Failed to download agreement template';
+  } finally {
+    downloadingAudioAgreementTemplate.value = false;
   }
 };
 
@@ -711,6 +923,7 @@ const startTranscription = () => {
       liveTranscript.value = interim.trim();
       if (finalText.trim()) {
         appendTranscript(finalText);
+        transcriptSource.value = 'audio';
         liveTranscript.value = '';
       }
       if (String(inputText.value || '').length >= 11800) {
@@ -750,10 +963,11 @@ const generateNote = async () => {
 
     const fd = new FormData();
     fd.append('agencyId', String(currentAgencyId.value));
-    if (!autoSelectCode.value && !forceAutoSelect.value && actualServiceCode.value) {
+    const shouldAutoSelectCode = autoSelectCode.value || forceAutoSelect.value || !actualServiceCode.value;
+    if (!shouldAutoSelectCode && actualServiceCode.value) {
       fd.append('serviceCode', actualServiceCode.value);
     }
-    fd.append('autoSelectCode', String(autoSelectCode.value || forceAutoSelect.value));
+    fd.append('autoSelectCode', String(shouldAutoSelectCode));
     if (selectedProgram.value?.isCustom && selectedProgram.value?.name) {
       fd.append('programLabel', String(selectedProgram.value.name));
     } else if (showProgramDropdown.value && selectedProgramId.value) {
@@ -764,6 +978,9 @@ const generateNote = async () => {
     if (dateOfService.value) fd.append('dateOfService', String(dateOfService.value));
     if (initials.value) fd.append('initials', String(initials.value));
     fd.append('inputText', String(inputText.value || ''));
+    if (String(revisionInstruction.value || '').trim()) {
+      fd.append('revisionInstruction', String(revisionInstruction.value || '').trim());
+    }
     if (draftId.value) fd.append('draftId', String(draftId.value));
     if (audioBlob.value) {
       const name = `audio.${(audioBlob.value.type || '').includes('webm') ? 'webm' : 'blob'}`;
@@ -773,6 +990,7 @@ const generateNote = async () => {
     const res = await api.post('/clinical-notes/generate', fd);
     outputObj.value = res?.data?.outputJson || null;
     if (res?.data?.draftId) draftId.value = res.data.draftId;
+    approvalMessage.value = '';
 
     // Refresh recent list if open.
     if (showRecent.value) await loadRecent();
@@ -783,6 +1001,18 @@ const generateNote = async () => {
   } finally {
     generating.value = false;
   }
+};
+
+const approveNoteOutput = () => {
+  if (!sectionEntries.value.length) return;
+  const ok = window.confirm('Approve this note and clear transcript/audio from this form?');
+  if (!ok) return;
+  inputText.value = '';
+  transcriptSource.value = '';
+  liveTranscript.value = '';
+  clearAudio();
+  revisionInstruction.value = '';
+  approvalMessage.value = 'Approved. Transcript/audio cleared from this form.';
 };
 
 const formatDateTime = (raw) => {
@@ -893,6 +1123,7 @@ watch([currentAgencyId, clinicalNoteGeneratorEnabled], async () => {
   providerCredentialText.value = '';
   derivedTier.value = 'unknown';
   eligibleServiceCodes.value = null;
+  audioAgreementTemplates.value = [];
   programs.value = [];
   draftId.value = null;
   lastSavedAt.value = '';
@@ -900,6 +1131,15 @@ watch([currentAgencyId, clinicalNoteGeneratorEnabled], async () => {
   recentError.value = '';
   contextError.value = '';
   generateError.value = '';
+  revisionInstruction.value = '';
+  approvalMessage.value = '';
+  recordingConsentError.value = '';
+  recordingConsentConfirmed.value = false;
+  selectedAudioAgreementTemplateId.value = '';
+  additionalParticipantPresent.value = false;
+  recordingAgreementOnFile.value = '';
+  downloadingAudioAgreementTemplate.value = false;
+  audioDurationSeconds.value = 0;
   outputObj.value = null;
   if (canUseTool.value) {
     await loadContext();
@@ -956,6 +1196,15 @@ onBeforeUnmount(() => {
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 20px;
+}
+
+.consent-box {
+  margin-top: 10px;
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-alt, #f8fafc);
 }
 
 .banner {
