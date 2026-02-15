@@ -43,7 +43,10 @@
       <article v-for="card in filteredCards" :key="card.providerId" class="provider-card">
         <div class="provider-layout">
           <div class="provider-identity">
-            <div class="avatar-fallback">{{ initialsFor(card.providerName) }}</div>
+            <div class="avatar" :class="{ 'has-photo': card.profilePhotoUrl }">
+              <img v-if="card.profilePhotoUrl" :src="card.profilePhotoUrl" :alt="card.providerName" class="avatar-img" />
+              <div v-else class="avatar-fallback">{{ initialsFor(card.providerName) }}</div>
+            </div>
             <div class="identity-copy">
               <h2>{{ card.providerName }}</h2>
               <p class="meta-line">{{ card.availabilityLabel }}</p>
@@ -52,7 +55,7 @@
             </div>
           </div>
 
-          <div class="week-columns">
+          <div class="week-columns" :style="{ gridTemplateColumns: `repeat(${card.dayColumns.length}, minmax(0, 1fr))` }">
             <div v-for="day in card.dayColumns" :key="`${card.providerId}-${day.key}`" class="day-col">
               <div class="day-head">{{ day.label }}</div>
               <div v-if="day.slots.length" class="day-slots">
@@ -67,7 +70,6 @@
                   <span class="pill-tag">{{ slot.shortModality }}</span>
                 </div>
               </div>
-              <div v-else class="day-empty">-</div>
             </div>
           </div>
 
@@ -86,6 +88,7 @@ import { computed, onMounted, ref } from 'vue';
 import { useAgencyStore } from '../store/agency';
 import { useAuthStore } from '../store/auth';
 import api from '../services/api';
+import { toUploadsUrl } from '../utils/uploadsUrl';
 
 const CARD_SLOT_PREVIEW_LIMIT_PER_DAY = 6;
 const WEEKDAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
@@ -216,7 +219,7 @@ function buildDayColumns(displaySlots) {
       label: WEEKDAY_LABELS[day],
       slots
     };
-  });
+  }).filter((d) => (d?.slots || []).length > 0);
 }
 
 function buildCardFromSlots(provider, slots) {
@@ -238,6 +241,7 @@ function buildCardFromSlots(provider, slots) {
   return {
     providerId: Number(provider.id),
     providerName: providerName(provider),
+    profilePhotoUrl: toUploadsUrl(provider?.profilePhotoUrl || provider?.profile_photo_url || provider?.profile_photo_path || null),
     availabilityLabel: `Available this week (${sortedSlots.length} intake slot${sortedSlots.length === 1 ? '' : 's'})`,
     bookedThroughLabel: bookedThroughDate ? `Booked through: ${toDateLabel(bookedThroughDate)}` : 'Booked through: currently open this week',
     locationSummary,
@@ -296,7 +300,7 @@ async function loadCards() {
           ...(Array.isArray(p?.virtualSlots) ? p.virtualSlots.map((s) => ({ ...s, modality: 'Virtual intake', modalityClass: 'modality-virtual' })) : [])
         ].sort((a, b) => String(a.startAt || '').localeCompare(String(b.startAt || '')));
         return buildCardFromSlots(
-          { id: Number(p.providerId), first_name: p.firstName, last_name: p.lastName },
+          { id: Number(p.providerId), first_name: p.firstName, last_name: p.lastName, profilePhotoUrl: p.profilePhotoUrl },
           merged
         );
       })
@@ -441,17 +445,32 @@ onMounted(async () => {
   align-items: center;
 }
 
-.avatar-fallback {
+.avatar {
   width: 78px;
   height: 78px;
   border-radius: 16px;
+  flex: 0 0 auto;
+  overflow: hidden;
   background: linear-gradient(160deg, #3fd18f 0%, #66c2ff 100%);
+  display: grid;
+  place-items: center;
+}
+
+.avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.avatar-fallback {
+  width: 100%;
+  height: 100%;
   color: #fff;
   font-weight: 800;
   font-size: 26px;
   display: grid;
   place-items: center;
-  flex: 0 0 auto;
 }
 
 .identity-copy {
@@ -482,7 +501,6 @@ onMounted(async () => {
   background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
   padding: 8px;
   display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 6px;
 }
 

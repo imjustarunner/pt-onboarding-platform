@@ -9,6 +9,8 @@ import crypto from 'crypto';
 import EmailService from '../services/email.service.js';
 import Notification from '../models/Notification.model.js';
 import { isPublicProviderFinderFeatureEnabled } from '../services/publicAvailabilityGate.service.js';
+import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
+import OfficeScheduleMaterializer from '../services/officeScheduleMaterializer.service.js';
 
 function parseIntSafe(v) {
   const n = parseInt(v, 10);
@@ -1763,12 +1765,63 @@ export const listIntakeAvailabilityCards = async (req, res, next) => {
     }
 
     const weekStartYmd = String(req.query.weekStart || new Date().toISOString().slice(0, 10)).slice(0, 10);
+
+    // Performance: materialize office_events once per request (not per provider).
+    // ProviderAvailabilityService can also materialize, but that is too expensive in aggregate.
+    try {
+      const agencyIdSet = new Set(agencyIds.map((n) => Number(n)).filter((n) => Number.isInteger(n) && n > 0));
+      const monday = startOfWeekMonday(weekStartYmd);
+      const materializeWeekAnchors = [toYmd(monday), toYmd(addDays(monday, 6))];
+      for (const aid of Array.from(agencyIdSet.values())) {
+        // eslint-disable-next-line no-await-in-loop
+        const [officeRows] = await pool.execute(
+          `SELECT DISTINCT ola.office_location_id
+           FROM office_location_agencies ola
+           JOIN office_locations ol ON ol.id = ola.office_location_id
+           WHERE ola.agency_id = ?
+             AND ol.is_active = TRUE`,
+          [Number(aid)]
+        );
+        const officeIds = (officeRows || [])
+          .map((r) => Number(r.office_location_id))
+          .filter((n) => Number.isInteger(n) && n > 0);
+        for (const officeLocationId of officeIds) {
+          for (const anchor of materializeWeekAnchors) {
+            // eslint-disable-next-line no-await-in-loop
+            await OfficeScheduleMaterializer.materializeWeek({
+              officeLocationId,
+              weekStartRaw: anchor,
+              createdByUserId: req.user?.id || null
+            });
+          }
+        }
+      }
+    } catch (e) {
+      // Best-effort only; materialization is an optimization.
+      if (e?.code !== 'ER_NO_SUCH_TABLE') {
+        // ignore
+      }
+    }
+
     const providerById = new Map();
     const pairs = [];
+
+    // Best-effort: include provider profile photos when the column exists.
+    let hasProfilePhotoPath = false;
+    try {
+      const [cols] = await pool.execute(
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'profile_photo_path' LIMIT 1"
+      );
+      hasProfilePhotoPath = (cols || []).length > 0;
+    } catch {
+      hasProfilePhotoPath = false;
+    }
+
+    const photoSelect = hasProfilePhotoPath ? ', u.profile_photo_path' : '';
     for (const aid of agencyIds) {
       // eslint-disable-next-line no-await-in-loop
       const [providerRows] = await pool.execute(
-        `SELECT DISTINCT u.id, u.first_name, u.last_name, u.role
+        `SELECT DISTINCT u.id, u.first_name, u.last_name, u.role${photoSelect}
          FROM users u
          JOIN user_agencies ua ON ua.user_id = u.id
          WHERE ua.agency_id = ?
@@ -1790,7 +1843,8 @@ export const listIntakeAvailabilityCards = async (req, res, next) => {
           providerById.set(pid, {
             providerId: pid,
             firstName: String(r.first_name || '').trim(),
-            lastName: String(r.last_name || '').trim()
+            lastName: String(r.last_name || '').trim(),
+            profilePhotoUrl: hasProfilePhotoPath ? publicUploadsUrlFromStoredPath(r.profile_photo_path) : null
           });
         }
         pairs.push({ agencyId: aid, providerId: pid });
@@ -1812,10 +1866,12 @@ export const listIntakeAvailabilityCards = async (req, res, next) => {
             agencyId: Number(pair.agencyId),
             providerId: Number(pair.providerId),
             weekStartYmd,
-            includeGoogleBusy: true,
+            includeGoogleBusy: false,
+            includeExternalBusy: false,
             externalCalendarIds: [],
             slotMinutes: 60,
-            intakeOnly: true
+            intakeOnly: true,
+            materializeOfficeEvents: false
           });
           const inPersonSlots = Array.isArray(avail?.inPersonSlots) ? avail.inPersonSlots : [];
           const virtualSlots = Array.isArray(avail?.virtualSlots) ? avail.virtualSlots : [];

@@ -162,9 +162,11 @@ export class ProviderAvailabilityService {
     providerId,
     weekStartYmd,
     includeGoogleBusy = true,
+    includeExternalBusy = true,
     externalCalendarIds = [],
     slotMinutes = 60,
-    intakeOnly = false
+    intakeOnly = false,
+    materializeOfficeEvents = true
   }) {
     const aid = Number(agencyId || 0);
     const pid = Number(providerId || 0);
@@ -178,31 +180,34 @@ export class ProviderAvailabilityService {
 
     // Ensure office_events exist for assigned office slots before availability reads.
     // This keeps intake availability consistent for weeks not yet materialized by the schedule UI/watchdog.
-    try {
-      const [officeRows] = await pool.execute(
-        `SELECT DISTINCT ola.office_location_id
-         FROM office_location_agencies ola
-         JOIN office_locations ol ON ol.id = ola.office_location_id
-         WHERE ola.agency_id = ?
-           AND ol.is_active = TRUE`,
-        [aid]
-      );
-      const officeIds = (officeRows || [])
-        .map((r) => Number(r.office_location_id))
-        .filter((n) => Number.isInteger(n) && n > 0);
-      const materializeWeekAnchors = [weekStart, addDaysYmd(weekStart, 6)];
-      for (const officeLocationId of officeIds) {
-        for (const anchor of materializeWeekAnchors) {
-          // eslint-disable-next-line no-await-in-loop
-          await OfficeScheduleMaterializer.materializeWeek({
-            officeLocationId,
-            weekStartRaw: anchor,
-            createdByUserId: pid
-          });
+    // NOTE: some callers aggregate many providers (e.g. intake-cards) and should materialize once at the controller layer.
+    if (materializeOfficeEvents) {
+      try {
+        const [officeRows] = await pool.execute(
+          `SELECT DISTINCT ola.office_location_id
+           FROM office_location_agencies ola
+           JOIN office_locations ol ON ol.id = ola.office_location_id
+           WHERE ola.agency_id = ?
+             AND ol.is_active = TRUE`,
+          [aid]
+        );
+        const officeIds = (officeRows || [])
+          .map((r) => Number(r.office_location_id))
+          .filter((n) => Number.isInteger(n) && n > 0);
+        const materializeWeekAnchors = [weekStart, addDaysYmd(weekStart, 6)];
+        for (const officeLocationId of officeIds) {
+          for (const anchor of materializeWeekAnchors) {
+            // eslint-disable-next-line no-await-in-loop
+            await OfficeScheduleMaterializer.materializeWeek({
+              officeLocationId,
+              weekStartRaw: anchor,
+              createdByUserId: pid
+            });
+          }
         }
+      } catch (e) {
+        if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
       }
-    } catch (e) {
-      if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
     }
 
     const tz = await this.resolveAgencyTimeZone({ agencyId: aid });
@@ -303,7 +308,8 @@ export class ProviderAvailabilityService {
         const inPersonIntakeEnabled = legacyNoToggle ? true : Number(r.in_person_intake_enabled || 0) === 1;
         const isOpenAssignmentState = slotState === 'ASSIGNED_AVAILABLE' || slotState === 'ASSIGNED_TEMPORARY';
         const isBookedState = slotState === 'ASSIGNED_BOOKED' || status === 'BOOKED';
-        const includeInPersonForIntake = intakeOnlyFlag && inPersonIntakeEnabled && (isOpenAssignmentState || isBookedState);
+        // For intake availability, only advertise open in-person slots (not booked).
+        const includeInPersonForIntake = intakeOnlyFlag && inPersonIntakeEnabled && isOpenAssignmentState;
         if ((isOpenAssignmentState && !intakeOnlyFlag) || includeInPersonForIntake) {
           officeBase.push({ start: s, end: e, meta });
         }
@@ -450,36 +456,38 @@ export class ProviderAvailabilityService {
 
     // 4) External EHR busy (ICS) blocks both modalities
     let externalBusy = [];
-    try {
-      let feeds = [];
-      const ids = Array.isArray(externalCalendarIds)
-        ? externalCalendarIds.map((n) => Number(n)).filter((n) => Number.isInteger(n) && n > 0)
-        : [];
-      if (ids.length > 0) {
-        feeds = await UserExternalCalendar.listFeedsForCalendars({ userId: pid, calendarIds: ids, activeOnly: true });
-      } else {
-        const calendars = await UserExternalCalendar.listForUser({ userId: pid, includeFeeds: true, activeOnly: true });
-        for (const c of calendars || []) {
-          for (const f of c.feeds || []) {
-            if (f?.isActive) feeds.push({ icsUrl: f.icsUrl });
+    if (includeExternalBusy) {
+      try {
+        let feeds = [];
+        const ids = Array.isArray(externalCalendarIds)
+          ? externalCalendarIds.map((n) => Number(n)).filter((n) => Number.isInteger(n) && n > 0)
+          : [];
+        if (ids.length > 0) {
+          feeds = await UserExternalCalendar.listFeedsForCalendars({ userId: pid, calendarIds: ids, activeOnly: true });
+        } else {
+          const calendars = await UserExternalCalendar.listForUser({ userId: pid, includeFeeds: true, activeOnly: true });
+          for (const c of calendars || []) {
+            for (const f of c.feeds || []) {
+              if (f?.isActive) feeds.push({ icsUrl: f.icsUrl });
+            }
           }
         }
+        // Legacy fallback
+        if (feeds.length === 0) {
+          const legacy = provider?.external_busy_ics_url || provider?.externalBusyIcsUrl || null;
+          if (legacy) feeds = [{ icsUrl: legacy }];
+        }
+        const r = await ExternalBusyCalendarService.getBusyForFeeds({
+          userId: pid,
+          weekStart,
+          feeds: feeds.map((f, idx) => ({ id: idx + 1, url: f.icsUrl || f.url || f.icsUrl })),
+          timeMinIso,
+          timeMaxIso
+        });
+        if (r?.ok) externalBusy = r.busy || [];
+      } catch {
+        externalBusy = [];
       }
-      // Legacy fallback
-      if (feeds.length === 0) {
-        const legacy = provider?.external_busy_ics_url || provider?.externalBusyIcsUrl || null;
-        if (legacy) feeds = [{ icsUrl: legacy }];
-      }
-      const r = await ExternalBusyCalendarService.getBusyForFeeds({
-        userId: pid,
-        weekStart,
-        feeds: feeds.map((f, idx) => ({ id: idx + 1, url: f.icsUrl || f.url || f.icsUrl })),
-        timeMinIso,
-        timeMaxIso
-      });
-      if (r?.ok) externalBusy = r.busy || [];
-    } catch {
-      externalBusy = [];
     }
     const externalBusyIntervals = (externalBusy || [])
       .map((b) => ({ start: new Date(b.startAt), end: new Date(b.endAt) }))
@@ -515,9 +523,11 @@ export class ProviderAvailabilityService {
       officeReservedBusy,
       mergeIntervals(virtualSlotOverrideIntervals)
     );
+    // Intake mode: allow offering both in-person and virtual at the same time
+    // (client chooses modality). Still block virtual when the office slot is booked.
     const busyVirtual = mergeIntervals([
       ...busyAll,
-      ...officeReservedBusyForVirtual
+      ...(intakeOnlyFlag ? officeBookedBusy : officeReservedBusyForVirtual)
     ]);
     const busyInPerson = mergeIntervals(
       intakeOnlyFlag
