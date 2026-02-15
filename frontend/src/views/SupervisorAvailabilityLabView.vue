@@ -41,19 +41,19 @@
 
     <section v-else class="cards">
       <article v-for="card in filteredCards" :key="card.providerId" class="provider-card">
+        <button
+          class="avatar-btn avatar-float"
+          type="button"
+          :title="`View ${card.providerName} profile`"
+          @click="openProviderProfile(card)"
+        >
+          <div class="avatar avatar-float-img" :class="{ 'has-photo': card.profilePhotoUrl }">
+            <img v-if="card.profilePhotoUrl" :src="card.profilePhotoUrl" :alt="card.providerName" class="avatar-img" />
+            <div v-else class="avatar-fallback">{{ initialsFor(card.providerName) }}</div>
+          </div>
+        </button>
         <div class="provider-layout">
           <div class="provider-identity">
-            <button
-              class="avatar-btn"
-              type="button"
-              :title="`View ${card.providerName} profile`"
-              @click="openProviderProfile(card)"
-            >
-              <div class="avatar avatar-lg" :class="{ 'has-photo': card.profilePhotoUrl }">
-                <img v-if="card.profilePhotoUrl" :src="card.profilePhotoUrl" :alt="card.providerName" class="avatar-img" />
-                <div v-else class="avatar-fallback">{{ initialsFor(card.providerName) }}</div>
-              </div>
-            </button>
             <div class="identity-copy">
               <h2>{{ card.providerName }}</h2>
               <p class="meta-line">{{ card.availabilityLabel }}</p>
@@ -542,6 +542,8 @@ onMounted(async () => {
   display: grid;
   gap: 8px;
   box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+  position: relative;
+  padding-top: 54px; /* room for floating avatar */
 }
 
 .provider-layout {
@@ -555,6 +557,7 @@ onMounted(async () => {
   display: flex;
   gap: 12px;
   align-items: center;
+  padding-left: 156px; /* room for floating avatar */
 }
 
 .avatar-btn {
@@ -564,6 +567,13 @@ onMounted(async () => {
   padding: 0;
   cursor: pointer;
   border-radius: 18px;
+}
+
+.avatar-float {
+  position: absolute;
+  top: -44px;
+  left: 18px;
+  z-index: 4;
 }
 
 .avatar-btn:focus-visible {
@@ -582,12 +592,12 @@ onMounted(async () => {
   place-items: center;
 }
 
-.avatar-lg {
-  width: 110px;
-  height: 110px;
-  border-radius: 20px;
-  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.14);
-  border: 2px solid rgba(255, 255, 255, 0.9);
+.avatar-float-img {
+  width: 168px;
+  height: 168px;
+  border-radius: 26px;
+  box-shadow: 0 22px 52px rgba(15, 23, 42, 0.22);
+  border: 3px solid rgba(255, 255, 255, 0.92);
 }
 
 .avatar-xl {
@@ -856,6 +866,20 @@ onMounted(async () => {
   }
   .provider-identity {
     align-items: flex-start;
+    padding-left: 0;
+    padding-top: 52px;
+  }
+  .provider-card {
+    padding-top: 14px;
+  }
+  .avatar-float {
+    top: -38px;
+    left: 14px;
+  }
+  .avatar-float-img {
+    width: 140px;
+    height: 140px;
+    border-radius: 24px;
   }
   .week-columns {
     overflow-x: auto;
@@ -878,6 +902,15 @@ onMounted(async () => {
   }
   .identity-copy h2 {
     font-size: 28px;
+  }
+  .avatar-float {
+    top: -34px;
+    left: 12px;
+  }
+  .avatar-float-img {
+    width: 120px;
+    height: 120px;
+    border-radius: 22px;
   }
   .week-columns {
     grid-template-columns: repeat(3, minmax(120px, 1fr));
