@@ -1883,6 +1883,7 @@ export const listIntakeAvailabilityCards = async (req, res, next) => {
               providerId: Number(pair.providerId),
               firstName: String(base?.firstName || '').trim(),
               lastName: String(base?.lastName || '').trim(),
+              profilePhotoUrl: base?.profilePhotoUrl || null,
               inPersonSlots: [],
               virtualSlots: [],
               agencyIds: []
