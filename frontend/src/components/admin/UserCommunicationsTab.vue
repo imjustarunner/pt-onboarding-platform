@@ -1,6 +1,72 @@
 <template>
   <div class="user-communications-tab">
     <div class="tab-header">
+      <h3>Post Announcement / Splash</h3>
+    </div>
+    <div class="communication-card" style="margin-bottom: 18px;">
+      <p class="muted" style="margin: 0 0 12px 0;">
+        Create a scheduled agency announcement directly from this profile. Choose to post to this user only or everyone.
+      </p>
+      <div v-if="postError" class="error" style="margin-bottom: 12px;">{{ postError }}</div>
+      <div v-if="postSuccess" style="margin-bottom: 12px; color: #166534; background: #dcfce7; border: 1px solid #bbf7d0; border-radius: 6px; padding: 10px 12px;">
+        {{ postSuccess }}
+      </div>
+      <div class="filter-controls" style="flex-wrap: wrap; align-items: flex-end;">
+        <div>
+          <label class="muted" style="display:block; margin-bottom: 6px;">Agency</label>
+          <select v-model="postDraft.agencyId" class="form-select" :disabled="viewOnly || posting">
+            <option value="" disabled>Select agency</option>
+            <option v-for="agency in userAgencies" :key="`post-agency-${agency.id}`" :value="String(agency.id)">
+              {{ agency.name }}
+            </option>
+          </select>
+        </div>
+        <div>
+          <label class="muted" style="display:block; margin-bottom: 6px;">Type</label>
+          <select v-model="postDraft.displayType" class="form-select" :disabled="viewOnly || posting">
+            <option value="announcement">Announcement</option>
+            <option value="splash">Splash</option>
+          </select>
+        </div>
+        <div>
+          <label class="muted" style="display:block; margin-bottom: 6px;">Audience</label>
+          <select v-model="postDraft.scope" class="form-select" :disabled="viewOnly || posting">
+            <option value="user">This user only</option>
+            <option value="everyone">Everyone in agency</option>
+          </select>
+        </div>
+        <div>
+          <label class="muted" style="display:block; margin-bottom: 6px;">Starts</label>
+          <input v-model="postDraft.startsAt" class="form-select" type="datetime-local" :disabled="viewOnly || posting" />
+        </div>
+        <div>
+          <label class="muted" style="display:block; margin-bottom: 6px;">Ends</label>
+          <input v-model="postDraft.endsAt" class="form-select" type="datetime-local" :disabled="viewOnly || posting" />
+        </div>
+      </div>
+      <div style="margin-top: 12px;">
+        <label class="muted" style="display:block; margin-bottom: 6px;">Title (optional)</label>
+        <input v-model="postDraft.title" class="form-select" type="text" maxlength="255" placeholder="e.g., Welcome to the team" :disabled="viewOnly || posting" />
+      </div>
+      <div style="margin-top: 12px;">
+        <label class="muted" style="display:block; margin-bottom: 6px;">Message</label>
+        <textarea
+          v-model="postDraft.message"
+          class="form-select"
+          rows="3"
+          maxlength="1200"
+          placeholder="Type announcement message..."
+          :disabled="viewOnly || posting"
+        />
+      </div>
+      <div style="margin-top: 12px; display:flex; gap: 8px; align-items:center;">
+        <button class="btn btn-primary btn-sm" type="button" @click="postAnnouncementFromProfile" :disabled="viewOnly || posting || !canPostFromProfile">
+          {{ posting ? 'Posting…' : 'Post now' }}
+        </button>
+      </div>
+    </div>
+
+    <div class="tab-header">
       <h3>Generated Communications</h3>
       <div class="filter-controls">
         <select v-model="selectedAgency" @change="loadCommunications" class="form-select">
@@ -166,7 +232,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, computed } from 'vue';
 import api from '../../services/api';
 
 const props = defineProps({
@@ -190,6 +256,65 @@ const error = ref('');
 const selectedAgency = ref('');
 const selectedType = ref('');
 const viewingCommunication = ref(null);
+const posting = ref(false);
+const postError = ref('');
+const postSuccess = ref('');
+
+const toLocalInput = (d) => {
+  const dt = d instanceof Date ? d : new Date(d);
+  if (!Number.isFinite(dt.getTime())) return '';
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}T${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
+};
+
+const defaultAgencyId = String(props.userAgencies?.[0]?.id || '');
+const now = new Date();
+const in24h = new Date(now.getTime() + (24 * 60 * 60 * 1000));
+const postDraft = ref({
+  agencyId: defaultAgencyId,
+  displayType: 'announcement',
+  scope: 'user',
+  title: '',
+  message: '',
+  startsAt: toLocalInput(now),
+  endsAt: toLocalInput(in24h)
+});
+
+const canPostFromProfile = computed(() => {
+  if (!postDraft.value.agencyId) return false;
+  if (!String(postDraft.value.message || '').trim()) return false;
+  if (!postDraft.value.startsAt || !postDraft.value.endsAt) return false;
+  const starts = new Date(postDraft.value.startsAt);
+  const ends = new Date(postDraft.value.endsAt);
+  if (!Number.isFinite(starts.getTime()) || !Number.isFinite(ends.getTime())) return false;
+  return ends.getTime() > starts.getTime();
+});
+
+const postAnnouncementFromProfile = async () => {
+  if (!canPostFromProfile.value || props.viewOnly) return;
+  postError.value = '';
+  postSuccess.value = '';
+  posting.value = true;
+  try {
+    const agencyId = parseInt(String(postDraft.value.agencyId || ''), 10);
+    const payload = {
+      title: String(postDraft.value.title || '').trim() || null,
+      message: String(postDraft.value.message || '').trim(),
+      display_type: String(postDraft.value.displayType || 'announcement').toLowerCase() === 'splash' ? 'splash' : 'announcement',
+      recipient_user_ids: String(postDraft.value.scope || 'user') === 'everyone' ? [] : [props.userId],
+      starts_at: new Date(postDraft.value.startsAt),
+      ends_at: new Date(postDraft.value.endsAt)
+    };
+    await api.post(`/agencies/${agencyId}/announcements`, payload);
+    postSuccess.value = 'Posted. It will appear in the agency announcement feed.';
+    postDraft.value.message = '';
+    postDraft.value.title = '';
+  } catch (err) {
+    postError.value = err.response?.data?.error?.message || 'Failed to post announcement';
+  } finally {
+    posting.value = false;
+  }
+};
 
 const loadCommunications = async () => {
   loading.value = true;

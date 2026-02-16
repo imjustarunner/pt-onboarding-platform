@@ -13,6 +13,93 @@
     <div v-else-if="error" class="error">{{ error }}</div>
     
     <div v-else>
+      <div
+        v-if="canUseQuickAnnouncements"
+        style="border: 1px solid var(--border); border-radius: 10px; background: #fff; padding: 14px; margin-bottom: 14px;"
+      >
+        <div style="display:flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 10px;">
+          <h3 style="margin: 0; font-size: 16px;">Quick Announcement / Splash</h3>
+          <button type="button" class="btn btn-secondary btn-sm" @click="resetQuickAnnouncementDraft" :disabled="quickAnnouncementSubmitting">
+            Reset
+          </button>
+        </div>
+        <p class="muted" style="margin: 0 0 12px 0;">
+          Post from the directory without opening a user profile. Choose one user or everyone in an agency.
+        </p>
+        <div v-if="quickAnnouncementError" class="error" style="margin-bottom: 10px;">{{ quickAnnouncementError }}</div>
+        <div
+          v-if="quickAnnouncementSuccess"
+          style="margin-bottom: 10px; color: #166534; background: #dcfce7; border: 1px solid #bbf7d0; border-radius: 6px; padding: 10px 12px;"
+        >
+          {{ quickAnnouncementSuccess }}
+        </div>
+        <div style="display:flex; gap: 10px; flex-wrap: wrap; align-items: flex-end;">
+          <div>
+            <label class="muted" style="display:block; margin-bottom: 6px;">Agency</label>
+            <select v-model="quickAnnouncementDraft.agencyId" class="filter-select" :disabled="quickAnnouncementSubmitting">
+              <option value="" disabled>Select agency</option>
+              <option v-for="a in agencyOptions" :key="`qa-agency-${a.id}`" :value="String(a.id)">{{ a.name }}</option>
+            </select>
+          </div>
+          <div>
+            <label class="muted" style="display:block; margin-bottom: 6px;">Type</label>
+            <select v-model="quickAnnouncementDraft.displayType" class="filter-select" :disabled="quickAnnouncementSubmitting">
+              <option value="announcement">Announcement</option>
+              <option value="splash">Splash</option>
+            </select>
+          </div>
+          <div>
+            <label class="muted" style="display:block; margin-bottom: 6px;">Audience</label>
+            <select v-model="quickAnnouncementDraft.scope" class="filter-select" :disabled="quickAnnouncementSubmitting">
+              <option value="single">One user</option>
+              <option value="everyone">Everyone in agency</option>
+            </select>
+          </div>
+          <div v-if="quickAnnouncementDraft.scope === 'single'">
+            <label class="muted" style="display:block; margin-bottom: 6px;">User</label>
+            <select v-model="quickAnnouncementDraft.userId" class="filter-select" :disabled="quickAnnouncementSubmitting">
+              <option value="" disabled>Select user</option>
+              <option v-for="u in quickAnnouncementUserOptions" :key="`qa-user-${u.id}`" :value="String(u.id)">
+                {{ u.label }}
+              </option>
+            </select>
+          </div>
+          <div>
+            <label class="muted" style="display:block; margin-bottom: 6px;">Starts</label>
+            <input v-model="quickAnnouncementDraft.startsAt" class="filter-input" type="datetime-local" :disabled="quickAnnouncementSubmitting" />
+          </div>
+          <div>
+            <label class="muted" style="display:block; margin-bottom: 6px;">Ends</label>
+            <input v-model="quickAnnouncementDraft.endsAt" class="filter-input" type="datetime-local" :disabled="quickAnnouncementSubmitting" />
+          </div>
+        </div>
+        <div style="margin-top: 10px;">
+          <label class="muted" style="display:block; margin-bottom: 6px;">Title (optional)</label>
+          <input v-model="quickAnnouncementDraft.title" class="filter-input" type="text" maxlength="255" :disabled="quickAnnouncementSubmitting" />
+        </div>
+        <div style="margin-top: 10px;">
+          <label class="muted" style="display:block; margin-bottom: 6px;">Message</label>
+          <textarea
+            v-model="quickAnnouncementDraft.message"
+            class="filter-input"
+            rows="2"
+            maxlength="1200"
+            placeholder="Type announcement message..."
+            :disabled="quickAnnouncementSubmitting"
+          />
+        </div>
+        <div style="margin-top: 10px;">
+          <button
+            type="button"
+            class="btn btn-primary btn-sm"
+            @click="postQuickAnnouncement"
+            :disabled="quickAnnouncementSubmitting || !canSubmitQuickAnnouncement"
+          >
+            {{ quickAnnouncementSubmitting ? 'Posting…' : 'Post announcement' }}
+          </button>
+        </div>
+      </div>
+
       <div class="users-layout">
         <aside class="filters-sidebar" data-tour="users-filters-sidebar">
           <div class="filter-section">
@@ -374,6 +461,9 @@
             <td class="actions-cell">
               <div class="action-buttons">
                 <router-link :to="`/admin/users/${user.id}`" class="btn btn-primary btn-sm">View Profile</router-link>
+                <router-link :to="`/admin/users/${user.id}?tab=communications`" class="btn btn-secondary btn-sm">
+                  Announce / Splash
+                </router-link>
                 <button 
                   v-if="(user.status === 'PREHIRE_OPEN' || user.status === 'pending') && !user.pending_access_locked && (authStore.user?.role === 'admin' || authStore.user?.role === 'super_admin' || authStore.user?.role === 'support' || authStore.user?.role === 'staff' || (!isSupervisor(authStore.user) && authStore.user?.role !== 'clinical_practice_assistant'))" 
                   @click="showPendingCompleteModal(user)" 
@@ -1488,6 +1578,114 @@ const agencyOptions = computed(() => {
     .filter((o) => String(o?.organization_type || 'agency').toLowerCase() === 'agency')
     .sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')));
 });
+
+const canUseQuickAnnouncements = computed(() => {
+  const role = String(authStore.user?.role || '').toLowerCase();
+  return role === 'super_admin' || role === 'admin' || role === 'support' || role === 'staff';
+});
+
+const toLocalInput = (d) => {
+  const dt = d instanceof Date ? d : new Date(d);
+  if (!Number.isFinite(dt.getTime())) return '';
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}T${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
+};
+
+const quickAnnouncementSubmitting = ref(false);
+const quickAnnouncementError = ref('');
+const quickAnnouncementSuccess = ref('');
+const quickAnnouncementDraft = ref({
+  agencyId: '',
+  displayType: 'announcement',
+  scope: 'single',
+  userId: '',
+  title: '',
+  message: '',
+  startsAt: toLocalInput(new Date()),
+  endsAt: toLocalInput(new Date(Date.now() + 24 * 60 * 60 * 1000))
+});
+
+const quickAnnouncementUserOptions = computed(() => {
+  const aid = parseInt(String(quickAnnouncementDraft.value.agencyId || ''), 10);
+  const base = (users.value || [])
+    .filter((u) => {
+      const role = String(u?.role || '').toLowerCase();
+      if (role === 'client_guardian') return false;
+      if (!aid) return true;
+      return userAgencyIds(u).includes(aid);
+    })
+    .map((u) => {
+      const id = Number(u?.id || 0);
+      const first = String(u?.first_name || '').trim();
+      const last = String(u?.last_name || '').trim();
+      const email = String(u?.email || '').trim();
+      const fullName = `${first} ${last}`.trim();
+      return {
+        id,
+        label: fullName ? `${fullName}${email ? ` (${email})` : ''}` : (email || `User ${id}`)
+      };
+    })
+    .filter((u) => u.id > 0);
+  return base.sort((a, b) => a.label.localeCompare(b.label));
+});
+
+const canSubmitQuickAnnouncement = computed(() => {
+  const aid = parseInt(String(quickAnnouncementDraft.value.agencyId || ''), 10);
+  if (!aid) return false;
+  if (!String(quickAnnouncementDraft.value.message || '').trim()) return false;
+  if (!quickAnnouncementDraft.value.startsAt || !quickAnnouncementDraft.value.endsAt) return false;
+  const starts = new Date(quickAnnouncementDraft.value.startsAt);
+  const ends = new Date(quickAnnouncementDraft.value.endsAt);
+  if (!Number.isFinite(starts.getTime()) || !Number.isFinite(ends.getTime())) return false;
+  if (ends.getTime() <= starts.getTime()) return false;
+  if (quickAnnouncementDraft.value.scope === 'single') {
+    const uid = parseInt(String(quickAnnouncementDraft.value.userId || ''), 10);
+    if (!uid) return false;
+  }
+  return true;
+});
+
+const resetQuickAnnouncementDraft = () => {
+  quickAnnouncementError.value = '';
+  quickAnnouncementSuccess.value = '';
+  quickAnnouncementDraft.value = {
+    agencyId: '',
+    displayType: 'announcement',
+    scope: 'single',
+    userId: '',
+    title: '',
+    message: '',
+    startsAt: toLocalInput(new Date()),
+    endsAt: toLocalInput(new Date(Date.now() + 24 * 60 * 60 * 1000))
+  };
+};
+
+const postQuickAnnouncement = async () => {
+  if (!canSubmitQuickAnnouncement.value || quickAnnouncementSubmitting.value) return;
+  quickAnnouncementSubmitting.value = true;
+  quickAnnouncementError.value = '';
+  quickAnnouncementSuccess.value = '';
+  try {
+    const agencyId = parseInt(String(quickAnnouncementDraft.value.agencyId || ''), 10);
+    const userId = parseInt(String(quickAnnouncementDraft.value.userId || ''), 10);
+    const payload = {
+      title: String(quickAnnouncementDraft.value.title || '').trim() || null,
+      message: String(quickAnnouncementDraft.value.message || '').trim(),
+      display_type: String(quickAnnouncementDraft.value.displayType || 'announcement').toLowerCase() === 'splash' ? 'splash' : 'announcement',
+      recipient_user_ids: quickAnnouncementDraft.value.scope === 'everyone' ? [] : [userId],
+      starts_at: new Date(quickAnnouncementDraft.value.startsAt),
+      ends_at: new Date(quickAnnouncementDraft.value.endsAt)
+    };
+    await api.post(`/agencies/${agencyId}/announcements`, payload);
+    quickAnnouncementSuccess.value = 'Announcement posted successfully.';
+    quickAnnouncementDraft.value.title = '';
+    quickAnnouncementDraft.value.message = '';
+  } catch (err) {
+    quickAnnouncementError.value = err.response?.data?.error?.message || 'Failed to post announcement';
+  } finally {
+    quickAnnouncementSubmitting.value = false;
+  }
+};
 
 const organizationOptions = computed(() => {
   const list = Array.isArray(agencies.value) ? agencies.value : [];
