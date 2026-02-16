@@ -1260,18 +1260,16 @@ const dashboardCards = computed(() => {
       });
     }
 
-    // Notifications: admins and providers (separate from Communications)
-    if (isTrueAdmin || isProvider) {
-      cards.push({
-        id: 'notifications',
-        label: 'Notifications',
-        kind: 'link',
-        to: '/admin/notifications',
-        badgeCount: 0,
-        iconUrl: brandingStore.getDashboardCardIconUrl('notifications', cardIconOrgOverride),
-        description: 'Your recent notifications.'
-      });
-    }
+    // Notifications: show for all users and route to the unified hub.
+    cards.push({
+      id: 'notifications',
+      label: 'Notifications',
+      kind: 'link',
+      to: '/notifications',
+      badgeCount: 0,
+      iconUrl: brandingStore.getDashboardCardIconUrl('notifications', cardIconOrgOverride),
+      description: 'Your recent notifications.'
+    });
     // Supervision card (supervisors only)
     if (isSupervisor(authStore.user)) {
       cards.push({

@@ -10,7 +10,7 @@
         <div class="card-top">
           <h2>My Notifications</h2>
           <div class="card-top-actions">
-            <span class="pill">{{ myUnreadCount }} unread</span>
+            <span class="pill pill-unread">{{ myUnreadCount }} unread</span>
             <button
               class="btn btn-secondary btn-sm"
               type="button"
@@ -19,33 +19,71 @@
             >
               {{ clientLabelMode === 'codes' ? 'Show initials' : 'Show codes' }}
             </button>
+            <button
+              v-if="myUnreadCount > 0"
+              class="btn btn-primary btn-sm"
+              type="button"
+              @click="markVisibleUnreadAsRead"
+            >
+              Mark visible unread
+            </button>
             <router-link v-if="isAdminLike" class="btn btn-secondary btn-sm" :to="ticketsLink">
               Tickets
             </router-link>
           </div>
         </div>
         <p class="hint">These are notifications where you are the target user (including SMS-eligible events).</p>
+        <div v-if="typeChips.length > 0" class="type-chips" role="group" aria-label="Filter notification types">
+          <button
+            class="chip-btn"
+            :class="{ active: activeTypeFilter === 'all' }"
+            type="button"
+            @click="activeTypeFilter = 'all'"
+          >
+            All ({{ displayedTotalCount }})
+          </button>
+          <button
+            v-for="chip in typeChips"
+            :key="chip.type"
+            class="chip-btn"
+            :class="{ active: activeTypeFilter === chip.type }"
+            type="button"
+            @click="activeTypeFilter = chip.type"
+          >
+            {{ chip.label }} ({{ chip.count }})
+          </button>
+        </div>
 
         <div v-if="loadingMy" class="loading">Loading…</div>
-        <div v-else-if="myNotifications.length === 0" class="empty">No notifications.</div>
+        <div v-else-if="displayedMyNotifications.length === 0" class="empty">No notifications.</div>
         <div v-else class="list">
-          <button
-            v-for="n in myNotifications"
+          <div
+            v-for="n in displayedMyNotifications"
             :key="n.id"
             class="notif-row"
-            type="button"
-            @click="openNotification(n)"
+            :class="{ unread: isUnread(n), urgent: isUrgent(n) }"
           >
             <div class="col col-title">
-              <span :class="['sev', `sev-${n.severity || 'info'}`]">{{ n.severity || 'info' }}</span>
-              <div class="title">{{ n.title }}</div>
+              <span v-if="isUnread(n)" class="unread-dot" aria-hidden="true"></span>
+              <span v-if="isUrgent(n)" class="badge badge-urgent">URGENT</span>
+              <span :class="['badge', 'badge-severity', `sev-${n.severity || 'info'}`]">{{ formatSeverityLabel(n.severity) }}</span>
+              <span class="badge badge-type">{{ getTypeLabel(n.type) }}</span>
+              <span class="badge" :class="isUnread(n) ? 'badge-unread' : 'badge-read'">{{ isUnread(n) ? 'Unread' : 'Read' }}</span>
+              <button class="title-link" type="button" @click="openNotification(n)">{{ n.title }}</button>
             </div>
             <div class="col col-msg">{{ formatNotificationLine(n) }}</div>
             <div class="col col-meta">
               <span>{{ formatDate(n.created_at) }}</span>
-              <button class="link" @click.stop="markRead(n)" :disabled="n.is_read">Mark read</button>
+              <div class="meta-actions">
+                <button class="btn btn-secondary btn-sm mark-btn" type="button" @click="markRead(n)" :disabled="!isUnread(n)">
+                  Mark read
+                </button>
+                <button class="btn btn-danger btn-sm" type="button" @click="dismissNotification(n)">
+                  Dismiss
+                </button>
+              </div>
             </div>
-          </button>
+          </div>
         </div>
       </div>
 
@@ -184,6 +222,7 @@ const previewById = ref({});
 const clientLabelMode = ref('initials'); // 'initials' | 'codes'
 const adminSelectedClient = ref(null);
 const adminClientLoading = ref(false);
+const activeTypeFilter = ref('all');
 
 const userId = computed(() => authStore.user?.id);
 const role = computed(() => authStore.user?.role);
@@ -220,8 +259,19 @@ const loadMy = async () => {
   try {
     loadingMy.value = true;
     const resp = await api.get('/notifications');
-    const all = resp.data || [];
-    myNotifications.value = all.filter((n) => n.user_id === userId.value).slice(0, 12);
+    const all = Array.isArray(resp.data) ? resp.data : [];
+    const needsScopedMine = isAdminLike.value || isTeamRole.value;
+    const mine = needsScopedMine
+      ? all.filter((n) => Number(n.user_id) === Number(userId.value))
+      : all;
+    myNotifications.value = mine
+      .filter((n) => !n.is_resolved)
+      .sort((a, b) => {
+        const aUnread = (!a.is_read && !a.is_resolved) ? 1 : 0;
+        const bUnread = (!b.is_read && !b.is_resolved) ? 1 : 0;
+        if (aUnread !== bUnread) return bUnread - aUnread;
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      });
   } finally {
     loadingMy.value = false;
   }
@@ -299,9 +349,27 @@ const markRead = async (n) => {
   try {
     await api.put(`/notifications/${n.id}/read`);
     n.is_read = true;
+    n.read_at = new Date().toISOString();
   } catch {
     // ignore
   }
+};
+
+const dismissNotification = async (n) => {
+  try {
+    await api.put(`/notifications/${n.id}/resolved`);
+    n.is_resolved = true;
+    n.resolved_at = new Date().toISOString();
+    myNotifications.value = myNotifications.value.filter((item) => item.id !== n.id);
+  } catch {
+    // ignore
+  }
+};
+
+const markVisibleUnreadAsRead = async () => {
+  const unread = displayedMyNotifications.value.filter((n) => isUnread(n));
+  if (!unread.length) return;
+  await Promise.allSettled(unread.map((n) => markRead(n)));
 };
 
 const openNotification = async (notification) => {
@@ -359,6 +427,56 @@ const handleAdminClientUpdated = (payload) => {
 };
 
 const myUnreadCount = computed(() => myNotifications.value.filter((n) => !n.is_read && !n.is_resolved).length);
+const displayedTotalCount = computed(() => myNotifications.value.length);
+
+const isUnread = (n) => !!n && !n.is_read && !n.is_resolved;
+const isUrgent = (n) => String(n?.severity || '').toLowerCase() === 'urgent';
+
+const typeLabelMap = {
+  support_ticket_created: 'Support ticket',
+  task_overdue: 'Task overdue',
+  status_expired: 'Status expired',
+  temp_password_expired: 'Temp password expired',
+  onboarding_completed: 'Onboarding completed',
+  invitation_expired: 'Invitation expired',
+  pending_completed: 'Pending completed',
+  payroll_unpaid_notes_2_periods_old: 'Payroll notes',
+  payroll_missing_notes_reminder: 'Payroll reminder',
+  unsigned_draft_notes_pending: 'Unsigned drafts'
+};
+
+const humanizeSnake = (v) => String(v || '')
+  .split('_')
+  .filter(Boolean)
+  .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+  .join(' ');
+
+const getTypeLabel = (type) => {
+  const k = String(type || '').trim();
+  return typeLabelMap[k] || humanizeSnake(k) || 'General';
+};
+
+const formatSeverityLabel = (severity) => {
+  const s = String(severity || 'info').trim().toLowerCase();
+  if (!s) return 'Info';
+  return s.charAt(0).toUpperCase() + s.slice(1);
+};
+
+const typeChips = computed(() => {
+  const map = new Map();
+  for (const n of myNotifications.value || []) {
+    const t = String(n?.type || '').trim() || 'general';
+    map.set(t, (map.get(t) || 0) + 1);
+  }
+  return Array.from(map.entries())
+    .map(([type, count]) => ({ type, count, label: getTypeLabel(type) }))
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+});
+
+const displayedMyNotifications = computed(() => {
+  if (activeTypeFilter.value === 'all') return myNotifications.value;
+  return myNotifications.value.filter((n) => String(n?.type || '').trim() === activeTypeFilter.value);
+});
 
 const formatDate = (dateString) => {
   if (!dateString) return '';
@@ -469,6 +587,12 @@ watch(
   font-size: 12px;
   color: var(--text-secondary);
 }
+.pill-unread {
+  border-color: #93c5fd;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-weight: 700;
+}
 .hint { color: var(--text-secondary); font-size: 13px; margin: 8px 0 12px 0; }
 .loading, .empty { color: var(--text-secondary); }
 .list { display: flex; flex-direction: column; gap: 6px; }
@@ -487,9 +611,17 @@ watch(
   border-radius: 10px;
   background: white;
   text-align: left;
-  cursor: pointer;
+  border-left: 4px solid transparent;
 }
 .notif-row:hover { border-color: var(--primary); }
+.notif-row.unread {
+  background: #f8fafc;
+  border-left-color: #2563eb;
+}
+.notif-row.urgent {
+  border-left-color: #dc2626;
+  background: #fff7f7;
+}
 .col { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .col-msg { color: var(--text-secondary); font-size: 13px; }
 .col-meta {
@@ -497,13 +629,65 @@ watch(
   color: var(--text-secondary);
   font-size: 12px;
 }
-.sev { font-size: 12px; padding: 2px 6px; border-radius: 999px; border: 1px solid var(--border); }
-.sev-urgent { border-color: #f5a9a9; color: #a33; }
-.sev-warning { border-color: #f0d08a; color: #8a5a00; }
-.sev-info { border-color: var(--border); }
-.title { font-weight: 600; color: var(--text-primary); }
+.badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); font-weight: 700; }
+.badge-urgent { border-color: #fecaca; background: #fef2f2; color: #b91c1c; }
+.badge-severity.sev-urgent { border-color: #fecaca; color: #b91c1c; }
+.badge-severity.sev-warning { border-color: #fde68a; color: #92400e; background: #fffbeb; }
+.badge-severity.sev-info { border-color: #cbd5e1; color: #334155; background: #f8fafc; }
+.badge-type { border-color: #d1d5db; color: #374151; background: #f9fafb; }
+.badge-unread { border-color: #93c5fd; color: #1d4ed8; background: #eff6ff; }
+.badge-read { border-color: #d1d5db; color: #6b7280; background: #f9fafb; }
+.unread-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #2563eb;
+  flex-shrink: 0;
+}
+.title-link {
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-weight: 700;
+  font-size: 14px;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+}
+.title-link:hover {
+  color: var(--primary);
+}
 .link { background: none; border: none; color: var(--primary); cursor: pointer; padding: 0; }
 .link:disabled { color: var(--text-secondary); cursor: default; }
+.meta-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.mark-btn {
+  font-weight: 700;
+}
+.type-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.chip-btn {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 5px 10px;
+  background: white;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+}
+.chip-btn.active {
+  border-color: rgba(14, 165, 233, 0.5);
+  background: rgba(14, 165, 233, 0.12);
+  color: #0369a1;
+}
 .agency-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .agency-card {
   border: 1px solid var(--border);
