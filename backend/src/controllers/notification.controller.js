@@ -361,8 +361,38 @@ export const getNotificationCounts = async (req, res, next) => {
   try {
     const userId = req.user.id;
     const userRole = req.user.role;
+    const requestedScope = String(req.query?.scope || '').trim().toLowerCase();
 
     let agencyIds = [];
+
+    // Managed-feed counts: align with admin Notifications page unread logic.
+    // This includes all unread, unresolved, unmuted items visible in the agency feed.
+    if (
+      requestedScope === 'managed_feed'
+      && (userRole === 'super_admin' || userRole === 'admin' || userRole === 'support')
+    ) {
+      if (userRole === 'super_admin') {
+        const pool = (await import('../config/database.js')).default;
+        const [agencies] = await pool.execute('SELECT id FROM agencies WHERE is_active = TRUE');
+        agencyIds = agencies.map((a) => a.id);
+      } else {
+        const userAgencies = await User.getAgencies(userId);
+        agencyIds = userAgencies.map((a) => a.id);
+      }
+
+      if (agencyIds.length === 0) return res.json({});
+
+      const counts = {};
+      for (const aid of agencyIds) {
+        const notifications = await Notification.findByAgency(aid, {
+          isResolved: false
+        });
+        await Notification.applyReadStateForViewer(notifications, userId);
+        const visible = filterNotificationsForViewer(notifications, userId, userRole).filter(isUnmuted);
+        counts[aid] = visible.filter((n) => !n._is_read_for_viewer && !n.is_resolved).length;
+      }
+      return res.json(counts);
+    }
     
     if (userRole === 'super_admin') {
       // Super admin can see all agencies

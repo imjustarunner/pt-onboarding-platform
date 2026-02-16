@@ -227,7 +227,10 @@ const activeTypeFilter = ref('all');
 
 const userId = computed(() => authStore.user?.id);
 const role = computed(() => authStore.user?.role);
-const agencies = computed(() => agencyStore.userAgencies || []);
+const agencies = computed(() => {
+  if (role.value === 'super_admin') return agencyStore.agencies || [];
+  return agencyStore.userAgencies || [];
+});
 
 const isAdminLike = computed(() => role.value === 'admin' || role.value === 'super_admin' || role.value === 'support');
 const isTeamRole = computed(() => role.value === 'supervisor' || role.value === 'clinical_practice_assistant');
@@ -284,7 +287,8 @@ const loadMy = async () => {
 const loadCounts = async () => {
   try {
     loadingCounts.value = true;
-    const resp = await api.get('/notifications/counts');
+    const params = showAgencyCards.value ? { scope: 'managed_feed' } : undefined;
+    const resp = await api.get('/notifications/counts', params ? { params } : undefined);
     counts.value = resp.data || {};
   } finally {
     loadingCounts.value = false;
@@ -523,7 +527,11 @@ onMounted(async () => {
   } catch {
     // ignore
   }
-  if (!agencyStore.userAgencies || agencyStore.userAgencies.length === 0) {
+  if (role.value === 'super_admin') {
+    if (!agencyStore.agencies || agencyStore.agencies.length === 0) {
+      await agencyStore.fetchAgencies().catch(() => {});
+    }
+  } else if (!agencyStore.userAgencies || agencyStore.userAgencies.length === 0) {
     await agencyStore.fetchUserAgencies().catch(() => {});
   }
   if (!platformAgencyId.value && agencies.value?.length) {
