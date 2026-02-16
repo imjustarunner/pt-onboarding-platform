@@ -129,30 +129,83 @@
 
           <template v-if="isSessionRecording">
             <label class="checkbox" style="margin-top: 10px;">
-              <input v-model="recordingConsentConfirmed" type="checkbox" />
-              <span>I confirm client consent to record has been obtained before recording.</span>
+              <input v-model="clientPresentInRecording" type="checkbox" />
+              <span>Client will be present in this recording.</span>
             </label>
-            <label class="checkbox" style="margin-top: 6px;">
+
+            <div v-if="clientPresentInRecording" class="consent-step">
+              <label class="label sub">Is client consent already recorded and on file?</label>
+              <select v-model="clientConsentOnFile" class="input">
+                <option value="">Select an option</option>
+                <option value="yes">Yes</option>
+                <option value="no">No — capture now</option>
+              </select>
+              <div v-if="clientConsentOnFile === 'no'" class="consent-followup">
+                <div class="actions">
+                  <button class="btn btn-secondary btn-sm" type="button" @click="openConsentSignatureModal('client')">
+                    Capture client signature now
+                  </button>
+                  <button
+                    class="btn btn-secondary btn-sm"
+                    type="button"
+                    :disabled="!clientConsentSignatureData"
+                    @click="downloadSignedConsent('client')"
+                  >
+                    Download signed client consent
+                  </button>
+                </div>
+                <div class="field">
+                  <label class="label sub">Attach signed client consent (optional)</label>
+                  <input type="file" class="input" accept=".pdf,.png,.jpg,.jpeg,.webp" @change="onClientConsentFileSelected" />
+                  <small v-if="clientConsentAttachmentName" class="hint">Attached: {{ clientConsentAttachmentName }}</small>
+                </div>
+              </div>
+            </div>
+
+            <label class="checkbox" style="margin-top: 10px;">
               <input v-model="additionalParticipantPresent" type="checkbox" />
               <span>Another person (besides clinician and client) will be present in the recording.</span>
             </label>
-            <div v-if="additionalParticipantPresent" style="margin-top: 8px;">
-              <label class="label sub">Is a signed recording agreement already on file in the EHR for this client?</label>
-              <select v-model="recordingAgreementOnFile" class="input">
+
+            <div v-if="additionalParticipantPresent" class="consent-step">
+              <label class="label sub">Is additional-participant consent already recorded and on file?</label>
+              <select v-model="additionalParticipantConsentOnFile" class="input">
                 <option value="">Select an option</option>
-                <option value="yes">Yes, already on file</option>
-                <option value="no">No, need to obtain/upload</option>
+                <option value="yes">Yes</option>
+                <option value="no">No — capture now</option>
               </select>
+
+              <div v-if="additionalParticipantConsentOnFile === 'no'" class="consent-followup">
+                <div class="actions">
+                  <button class="btn btn-secondary btn-sm" type="button" @click="openConsentSignatureModal('additional')">
+                    Capture additional-person signature now
+                  </button>
+                  <button
+                    class="btn btn-secondary btn-sm"
+                    type="button"
+                    :disabled="!additionalParticipantConsentSignatureData"
+                    @click="downloadSignedConsent('additional')"
+                  >
+                    Download signed additional-person consent
+                  </button>
+                </div>
+                <div class="field">
+                  <label class="label sub">Attach signed additional-person consent (optional)</label>
+                  <input type="file" class="input" accept=".pdf,.png,.jpg,.jpeg,.webp" @change="onAdditionalConsentFileSelected" />
+                  <small v-if="additionalParticipantConsentAttachmentName" class="hint">Attached: {{ additionalParticipantConsentAttachmentName }}</small>
+                </div>
+              </div>
             </div>
-            <div v-if="additionalParticipantPresent && recordingAgreementOnFile === 'no'" style="margin-top: 8px;">
-              <label class="label sub">Audio recording agreement template (agency)</label>
+
+            <div v-if="requiresConsentTemplateSelection" class="consent-step">
+              <label class="label sub">Consent/agreement template for this recording</label>
               <select v-model="selectedAudioAgreementTemplateId" class="input" :disabled="!audioAgreementTemplates.length">
                 <option value="">Select an agreement template</option>
                 <option v-for="t in audioAgreementTemplates" :key="t.id" :value="String(t.id)">
                   {{ t.name }}
                 </option>
               </select>
-              <div class="actions" style="margin-top: 8px;">
+              <div class="actions">
                 <button
                   class="btn btn-secondary btn-sm"
                   type="button"
@@ -166,8 +219,9 @@
                 Download, complete, and upload the signed document to the client record in your EHR. This tool does not store signed agreements.
               </small>
             </div>
+
             <small
-              v-if="additionalParticipantPresent && recordingAgreementOnFile === 'no' && !audioAgreementTemplates.length"
+              v-if="requiresConsentTemplateSelection && !audioAgreementTemplates.length"
               class="hint"
               style="display: block; margin-top: 6px;"
             >
@@ -335,6 +389,19 @@
         </div>
       </div>
     </div>
+
+    <div v-if="consentSignatureModalOpen" class="consent-modal-backdrop" @click.self="closeConsentSignatureModal">
+      <div class="consent-modal">
+        <div class="consent-modal-header">
+          <h3 class="h3" style="margin: 0;">Capture {{ consentSignatureTargetLabel }} consent signature</h3>
+          <button class="icon-btn" type="button" @click="closeConsentSignatureModal">Close</button>
+        </div>
+        <div class="muted" style="margin-bottom: 8px;">
+          Sign below, then we will download a signed consent image immediately.
+        </div>
+        <SignaturePad @signed="onConsentSigned" />
+      </div>
+    </div>
   </div>
 </template>
 
@@ -343,6 +410,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useAgencyStore } from '../../store/agency';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
+import SignaturePad from '../../components/SignaturePad.vue';
 
 const agencyStore = useAgencyStore();
 const route = useRoute();
@@ -408,14 +476,24 @@ const initials = ref('');
 const inputText = ref('');
 const autoSelectCode = ref(false);
 const forceAutoSelect = computed(() => String(derivedTier.value || '') === 'unknown');
-const recordingConsentConfirmed = ref(false);
+const clientPresentInRecording = ref(true);
+const clientConsentOnFile = ref('');
+const clientConsentSignatureData = ref('');
+const clientConsentAttachmentName = ref('');
 const additionalParticipantPresent = ref(false);
-const recordingAgreementOnFile = ref('');
+const additionalParticipantConsentOnFile = ref('');
+const additionalParticipantConsentSignatureData = ref('');
+const additionalParticipantConsentAttachmentName = ref('');
 const selectedAudioAgreementTemplateId = ref('');
 const recordingConsentError = ref('');
 const downloadingAudioAgreementTemplate = ref(false);
 const recordingPurpose = ref('dictation');
 const isSessionRecording = computed(() => recordingPurpose.value === 'session');
+const consentSignatureModalOpen = ref(false);
+const consentSignatureTarget = ref('client');
+const consentSignatureTargetLabel = computed(() =>
+  consentSignatureTarget.value === 'additional' ? 'additional-participant' : 'client'
+);
 
 // Draft state
 const draftId = ref(null);
@@ -537,9 +615,11 @@ const actualServiceCode = computed(() => {
 });
 
 const showProgramDropdown = computed(() => actualServiceCode.value === 'H2014');
-const requiresAudioAgreementSelection = computed(
-  () => additionalParticipantPresent.value
-    && recordingAgreementOnFile.value === 'no'
+const requiresConsentTemplateSelection = computed(
+  () => (
+    (clientPresentInRecording.value && clientConsentOnFile.value === 'no')
+      || (additionalParticipantPresent.value && additionalParticipantConsentOnFile.value === 'no')
+  )
     && Array.isArray(audioAgreementTemplates.value)
     && audioAgreementTemplates.value.length > 0
 );
@@ -566,6 +646,15 @@ const audioDurationLabel = computed(() => {
   return `${mins}:${String(secs).padStart(2, '0')}`;
 });
 
+const hasClientCapturedConsent = computed(() =>
+  !!String(clientConsentSignatureData.value || '').trim()
+    || !!String(clientConsentAttachmentName.value || '').trim()
+);
+const hasAdditionalCapturedConsent = computed(() =>
+  !!String(additionalParticipantConsentSignatureData.value || '').trim()
+    || !!String(additionalParticipantConsentAttachmentName.value || '').trim()
+);
+
 watch(showProgramDropdown, (on) => {
   if (!on) selectedProgramId.value = '';
 });
@@ -584,23 +673,51 @@ watch(forceAutoSelect, (on) => {
     selectedProgramId.value = '';
   }
 });
-watch(additionalParticipantPresent, (on) => {
+watch(clientPresentInRecording, (on) => {
   if (!on) {
-    selectedAudioAgreementTemplateId.value = '';
-    recordingAgreementOnFile.value = '';
+    clientConsentOnFile.value = '';
+    clientConsentSignatureData.value = '';
+    clientConsentAttachmentName.value = '';
   }
 });
-watch(recordingAgreementOnFile, (v) => {
-  if (v !== 'no') selectedAudioAgreementTemplateId.value = '';
+watch(clientConsentOnFile, (v) => {
+  if (v !== 'no') {
+    clientConsentSignatureData.value = '';
+    clientConsentAttachmentName.value = '';
+    return;
+  }
+  if (!hasClientCapturedConsent.value) openConsentSignatureModal('client');
+});
+watch(additionalParticipantPresent, (on) => {
+  if (!on) {
+    additionalParticipantConsentOnFile.value = '';
+    additionalParticipantConsentSignatureData.value = '';
+    additionalParticipantConsentAttachmentName.value = '';
+    selectedAudioAgreementTemplateId.value = '';
+  }
+});
+watch(additionalParticipantConsentOnFile, (v) => {
+  if (v !== 'no') {
+    additionalParticipantConsentSignatureData.value = '';
+    additionalParticipantConsentAttachmentName.value = '';
+    return;
+  }
+  if (!hasAdditionalCapturedConsent.value) openConsentSignatureModal('additional');
 });
 watch(recordingPurpose, (mode) => {
   recordingConsentError.value = '';
   if (mode !== 'session') {
     // Session-specific fields are irrelevant in dictation-only mode.
-    recordingConsentConfirmed.value = false;
+    clientPresentInRecording.value = true;
+    clientConsentOnFile.value = '';
+    clientConsentSignatureData.value = '';
+    clientConsentAttachmentName.value = '';
     additionalParticipantPresent.value = false;
-    recordingAgreementOnFile.value = '';
+    additionalParticipantConsentOnFile.value = '';
+    additionalParticipantConsentSignatureData.value = '';
+    additionalParticipantConsentAttachmentName.value = '';
     selectedAudioAgreementTemplateId.value = '';
+    closeConsentSignatureModal();
   }
 });
 
@@ -796,15 +913,29 @@ const toggleRecording = async () => {
 
   try {
     if (isSessionRecording.value) {
-      if (!recordingConsentConfirmed.value) {
-        recordingConsentError.value = 'Confirm consent before starting audio recording.';
+      if (clientPresentInRecording.value && !clientConsentOnFile.value) {
+        recordingConsentError.value = 'Select whether client consent is already on file.';
         return;
       }
-      if (additionalParticipantPresent.value && !recordingAgreementOnFile.value) {
-        recordingConsentError.value = 'Answer whether a signed recording agreement is already on file.';
+      if (clientPresentInRecording.value && clientConsentOnFile.value === 'no' && !hasClientCapturedConsent.value) {
+        recordingConsentError.value = 'Capture or attach client consent before starting recording.';
+        openConsentSignatureModal('client');
         return;
       }
-      if (requiresAudioAgreementSelection.value && !String(selectedAudioAgreementTemplateId.value || '').trim()) {
+      if (additionalParticipantPresent.value && !additionalParticipantConsentOnFile.value) {
+        recordingConsentError.value = 'Select whether additional-participant consent is already on file.';
+        return;
+      }
+      if (
+        additionalParticipantPresent.value
+        && additionalParticipantConsentOnFile.value === 'no'
+        && !hasAdditionalCapturedConsent.value
+      ) {
+        recordingConsentError.value = 'Capture or attach additional-participant consent before starting recording.';
+        openConsentSignatureModal('additional');
+        return;
+      }
+      if (requiresConsentTemplateSelection.value && !String(selectedAudioAgreementTemplateId.value || '').trim()) {
         recordingConsentError.value = 'Select an audio recording agreement template for this session.';
         return;
       }
@@ -928,6 +1059,73 @@ const downloadAudioAgreementTemplate = async () => {
     recordingConsentError.value = e.response?.data?.error?.message || e.message || 'Failed to download agreement template';
   } finally {
     downloadingAudioAgreementTemplate.value = false;
+  }
+};
+
+const openConsentSignatureModal = (target) => {
+  consentSignatureTarget.value = target === 'additional' ? 'additional' : 'client';
+  consentSignatureModalOpen.value = true;
+};
+
+const closeConsentSignatureModal = () => {
+  consentSignatureModalOpen.value = false;
+};
+
+const downloadDataUrl = (filename, dataUrl) => {
+  try {
+    if (!dataUrl) return;
+    const a = document.createElement('a');
+    a.href = dataUrl;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  } catch {
+    // ignore
+  }
+};
+
+const downloadSignedConsent = (target) => {
+  const isAdditional = target === 'additional';
+  const dataUrl = isAdditional
+    ? String(additionalParticipantConsentSignatureData.value || '')
+    : String(clientConsentSignatureData.value || '');
+  if (!dataUrl) return;
+  const datePart = new Date().toISOString().slice(0, 10);
+  const name = isAdditional
+    ? `additional-participant-consent-signature-${datePart}.png`
+    : `client-consent-signature-${datePart}.png`;
+  downloadDataUrl(name, dataUrl);
+};
+
+const onConsentSigned = (signatureDataUrl) => {
+  const dataUrl = String(signatureDataUrl || '').trim();
+  if (!dataUrl) return;
+  if (consentSignatureTarget.value === 'additional') {
+    additionalParticipantConsentSignatureData.value = dataUrl;
+    additionalParticipantConsentAttachmentName.value = '';
+    downloadSignedConsent('additional');
+  } else {
+    clientConsentSignatureData.value = dataUrl;
+    clientConsentAttachmentName.value = '';
+    downloadSignedConsent('client');
+  }
+  closeConsentSignatureModal();
+};
+
+const onClientConsentFileSelected = (event) => {
+  const file = event?.target?.files?.[0];
+  clientConsentAttachmentName.value = file?.name ? String(file.name) : '';
+  if (clientConsentAttachmentName.value) {
+    clientConsentSignatureData.value = '';
+  }
+};
+
+const onAdditionalConsentFileSelected = (event) => {
+  const file = event?.target?.files?.[0];
+  additionalParticipantConsentAttachmentName.value = file?.name ? String(file.name) : '';
+  if (additionalParticipantConsentAttachmentName.value) {
+    additionalParticipantConsentSignatureData.value = '';
   }
 };
 
@@ -1177,10 +1375,17 @@ watch([currentAgencyId, clinicalNoteGeneratorEnabled], async () => {
   approvalMessage.value = '';
   recordingConsentError.value = '';
   recordingPurpose.value = 'dictation';
-  recordingConsentConfirmed.value = false;
+  clientPresentInRecording.value = true;
+  clientConsentOnFile.value = '';
+  clientConsentSignatureData.value = '';
+  clientConsentAttachmentName.value = '';
   selectedAudioAgreementTemplateId.value = '';
   additionalParticipantPresent.value = false;
-  recordingAgreementOnFile.value = '';
+  additionalParticipantConsentOnFile.value = '';
+  additionalParticipantConsentSignatureData.value = '';
+  additionalParticipantConsentAttachmentName.value = '';
+  consentSignatureModalOpen.value = false;
+  consentSignatureTarget.value = 'client';
   downloadingAudioAgreementTemplate.value = false;
   audioDurationSeconds.value = 0;
   outputObj.value = null;
@@ -1248,6 +1453,47 @@ onBeforeUnmount(() => {
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--bg-alt, #f8fafc);
+}
+
+.consent-step {
+  margin-top: 10px;
+}
+
+.consent-followup {
+  margin-top: 8px;
+  padding: 10px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  background: white;
+}
+
+.consent-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1200;
+  padding: 16px;
+}
+
+.consent-modal {
+  width: min(760px, 100%);
+  max-height: 90vh;
+  overflow: auto;
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 14px;
+}
+
+.consent-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
 }
 
 .purpose-toggle {
