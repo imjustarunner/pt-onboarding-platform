@@ -2,7 +2,7 @@
   <div 
     class="template-card" 
     :class="getAgencyClass(template.agency_id)"
-    :style="getAgencyStyle(template.agency_id)"
+    :style="getCardStyle(template)"
   >
     <div class="card-header">
       <div class="card-header-content">
@@ -369,16 +369,40 @@ const getAgencyStyle = (agencyId) => {
     '--agency-bg': bgColor
   };
 };
+
+const getDocumentTypeStyle = (documentType) => {
+  const palette = {
+    acknowledgment: { color: '#0ea5e9', bg: '#e0f2fe' },
+    authorization: { color: '#8b5cf6', bg: '#ede9fe' },
+    agreement: { color: '#14b8a6', bg: '#ccfbf1' },
+    audio_recording_consent: { color: '#f97316', bg: '#ffedd5' },
+    compliance: { color: '#ef4444', bg: '#fee2e2' },
+    disclosure: { color: '#06b6d4', bg: '#cffafe' },
+    consent: { color: '#10b981', bg: '#d1fae5' },
+    administrative: { color: '#6b7280', bg: '#f3f4f6' }
+  };
+  const key = String(documentType || '').trim().toLowerCase();
+  const chosen = palette[key] || palette.administrative;
+  return {
+    '--template-color': chosen.color,
+    '--template-bg': chosen.bg
+  };
+};
+
+const getCardStyle = (template) => ({
+  ...getAgencyStyle(template?.agency_id),
+  ...getDocumentTypeStyle(template?.document_type)
+});
 </script>
 
 <style scoped>
 .template-card {
-  background: var(--agency-bg, white);
+  background: var(--template-bg, var(--agency-bg, white));
   border-radius: 12px;
   padding: 24px;
   box-shadow: var(--shadow);
   border: 1px solid var(--border);
-  border-left: 4px solid var(--agency-color, var(--border));
+  border-left: 4px solid var(--template-color, var(--agency-color, var(--border)));
   transition: all 0.2s;
 }
 
