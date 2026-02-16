@@ -177,7 +177,31 @@ const load = async () => {
     const resp = await api.get('/communications/feed', { params: { limit: 75 } });
     rows.value = Array.isArray(resp.data) ? resp.data : [];
   } catch (e) {
-    error.value = e.response?.data?.error?.message || 'Failed to load messages';
+    // Graceful fallback: if unified feed fails, load user-scoped SMS feed so texting still works.
+    try {
+      const fallback = await api.get('/messages/recent', { params: { limit: 75 } });
+      const smsRows = Array.isArray(fallback.data) ? fallback.data : [];
+      rows.value = smsRows.map((m) => ({
+        kind: 'sms',
+        id: Number(m.id),
+        agency_id: m.agency_id ? Number(m.agency_id) : null,
+        user_id: m.user_id ? Number(m.user_id) : null,
+        client_id: m.client_id ? Number(m.client_id) : null,
+        direction: m.direction || null,
+        preview: String(m.body || ''),
+        created_at: m.created_at,
+        client_initials: m.client_initials || null,
+        user_first_name: m.user_first_name || null,
+        user_last_name: m.user_last_name || null
+      }));
+      error.value = '';
+    } catch (fallbackErr) {
+      error.value =
+        e.response?.data?.error?.message ||
+        fallbackErr.response?.data?.error?.message ||
+        'Failed to load messages';
+      rows.value = [];
+    }
   } finally {
     loading.value = false;
   }
