@@ -943,6 +943,29 @@ app.listen(PORT, HOST, () => {
   scheduleDailyDigest();
   setInterval(scheduleDailyDigest, 15 * 60 * 1000);
 
+  // Agency birthday/anniversary automation (runs hourly; deduped per agency/day/type)
+  const scheduleAgencyAnnouncementAutomation = async () => {
+    try {
+      const AgencyAnnouncementAutomationService = (await import('./services/agencyAnnouncementAutomation.service.js')).default;
+      await AgencyAnnouncementAutomationService.runDailyTick();
+    } catch (error) {
+      const msg = String(error?.message || '');
+      const missing =
+        error?.code === 'ER_NO_SUCH_TABLE' ||
+        error?.code === 'ER_BAD_FIELD_ERROR' ||
+        msg.includes('agency_announcements') ||
+        msg.includes('agency_announcement_automation_runs');
+      if (missing) {
+        console.warn('Agency announcement automation tables not found. Run migrations 421 and 422.');
+      } else {
+        console.error('Error in agency announcement automation scheduler:', error);
+      }
+    }
+  };
+
+  scheduleAgencyAnnouncementAutomation();
+  setInterval(scheduleAgencyAnnouncementAutomation, 60 * 60 * 1000);
+
   // Schedule daily at midnight
   setTimeout(() => {
     scheduleOfficeScheduleWatchdog();

@@ -955,7 +955,9 @@ const dashboardBannerTexts = computed(() => {
     .map((a) => {
       const title = String(a?.title || '').trim();
       const msg = String(a?.message || '').trim();
-      const t = title && title.toLowerCase() !== 'announcement' ? `${title}: ${msg}` : msg;
+      const kind = String(a?.display_type || 'announcement').trim().toLowerCase();
+      const base = title && title.toLowerCase() !== 'announcement' ? `${title}: ${msg}` : msg;
+      const t = kind === 'splash' ? `Splash: ${base}` : base;
       return String(t || '').trim();
     })
     .filter(Boolean);

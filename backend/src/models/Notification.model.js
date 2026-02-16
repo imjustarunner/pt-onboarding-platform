@@ -68,7 +68,10 @@ class Notification {
     // Custom program reminders
     'program_reminder',
     // Presence: nudge when Out Quick return time has passed
-    'presence_return_overdue_nudge'
+    'presence_return_overdue_nudge',
+    // Agency announcement automation
+    'birthday_announcement',
+    'anniversary_announcement'
   ];
 
   static async create(notificationData) {

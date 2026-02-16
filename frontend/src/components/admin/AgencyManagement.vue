@@ -1323,6 +1323,23 @@
                 />
               </div>
 
+              <div class="toggle-row" style="margin-top: 14px;">
+                <span><strong>Work anniversary banner</strong> (uses profile start date)</span>
+                <ToggleSwitch v-model="announcementsDraft.anniversaryEnabled" />
+              </div>
+              <small class="hint" style="display:block; margin-top: 6px;">
+                Message template supports <code>{fullName}</code> and <code>{years}</code>.
+              </small>
+              <div class="form-group" style="margin-top: 12px;">
+                <label>Anniversary message template</label>
+                <input
+                  v-model="announcementsDraft.anniversaryTemplate"
+                  type="text"
+                  :disabled="announcementsSaving"
+                  placeholder="Happy {years}-year anniversary, {fullName}"
+                />
+              </div>
+
               <div class="filters-row" style="align-items: flex-end; margin-top: 10px;">
                 <div class="filters-group">
                   <button type="button" class="btn btn-secondary btn-sm" @click="loadAgencyAnnouncements" :disabled="announcementsLoading || announcementsSaving || !editingAgency?.id">
@@ -1357,6 +1374,13 @@
                     <label class="filters-label">Title (optional)</label>
                     <input v-model="scheduledDraft.title" class="filters-input" type="text" maxlength="255" placeholder="e.g., Payroll due Friday" />
                   </div>
+                  <div class="filters-group" style="min-width: 180px;">
+                    <label class="filters-label">Type</label>
+                    <select v-model="scheduledDraft.displayType" class="filters-input">
+                      <option value="announcement">Announcement</option>
+                      <option value="splash">Splash</option>
+                    </select>
+                  </div>
                   <div class="filters-group" style="min-width: 200px;">
                     <label class="filters-label">Starts</label>
                     <input v-model="scheduledDraft.startsAt" class="filters-input" type="datetime-local" />
@@ -1368,6 +1392,15 @@
                   <div class="filters-group" style="flex: 1 1 420px;">
                     <label class="filters-label">Message</label>
                     <textarea v-model="scheduledDraft.message" class="filters-input" rows="2" maxlength="1200" placeholder="Type announcement…"></textarea>
+                  </div>
+                  <div class="filters-group" style="min-width: 320px;">
+                    <label class="filters-label">Recipients (optional)</label>
+                    <select v-model="scheduledDraft.recipientUserIds" class="filters-input" multiple style="min-height: 86px;">
+                      <option v-for="opt in agencyAnnouncementRecipientOptions" :key="`ann-rec-${opt.id}`" :value="opt.id">
+                        {{ opt.label }}
+                      </option>
+                    </select>
+                    <small class="hint">Leave blank to show for everyone in this agency.</small>
                   </div>
                 </div>
                 <div class="filters-row" style="align-items: center; margin-top: 10px;">
@@ -1397,6 +1430,8 @@
                   <thead>
                     <tr>
                       <th>Title</th>
+                      <th>Type</th>
+                      <th>Recipients</th>
                       <th>Message</th>
                       <th>Starts</th>
                       <th>Ends</th>
@@ -1407,6 +1442,10 @@
                   <tbody>
                     <tr v-for="a in scheduledAnnouncements" :key="`ann-${a.id}`">
                       <td>{{ a.title || 'Announcement' }}</td>
+                      <td>{{ String(a.display_type || 'announcement').toLowerCase() === 'splash' ? 'Splash' : 'Announcement' }}</td>
+                      <td>
+                        {{ scheduledRecipientsLabel(a) }}
+                      </td>
                       <td>{{ a.message }}</td>
                       <td>{{ formatAnnouncementDate(a.starts_at) }}</td>
                       <td>{{ formatAnnouncementDate(a.ends_at) }}</td>
@@ -3408,7 +3447,9 @@ const announcementsError = ref('');
 const announcementsLoadedAgencyId = ref(null);
 const announcementsDraft = ref({
   birthdayEnabled: false,
-  birthdayTemplate: 'Happy Birthday, {fullName}'
+  birthdayTemplate: 'Happy Birthday, {fullName}',
+  anniversaryEnabled: false,
+  anniversaryTemplate: 'Happy {years}-year anniversary, {fullName}'
 });
 
 // Scheduled announcements (time-limited banners)
@@ -3421,6 +3462,8 @@ const scheduledFormError = ref('');
 const scheduledDraft = ref({
   id: null,
   title: '',
+  displayType: 'announcement',
+  recipientUserIds: [],
   message: '',
   startsAt: '',
   endsAt: ''
@@ -3444,6 +3487,8 @@ const resetScheduledDraft = () => {
   scheduledDraft.value = {
     id: null,
     title: '',
+    displayType: 'announcement',
+    recipientUserIds: [],
     message: '',
     startsAt: toLocalInput(now),
     endsAt: toLocalInput(ends)
@@ -3460,6 +3505,34 @@ const scheduledCanSubmit = computed(() => {
   return true;
 });
 
+const parseAgencyIdsForUser = (user) => {
+  if (Array.isArray(user?.agencyIds)) {
+    return user.agencyIds.map((value) => parseInt(String(value), 10)).filter((value) => Number.isFinite(value) && value > 0);
+  }
+  const raw = user?.agency_ids ?? user?.agencyIds ?? '';
+  if (typeof raw !== 'string') return [];
+  return raw
+    .split(',')
+    .map((value) => parseInt(String(value || '').trim(), 10))
+    .filter((value) => Number.isFinite(value) && value > 0);
+};
+
+const agencyAnnouncementRecipientOptions = computed(() => {
+  const agencyId = Number(editingAgency.value?.id || 0);
+  if (!agencyId) return [];
+  return (availableUsers.value || [])
+    .filter((user) => parseAgencyIdsForUser(user).includes(agencyId))
+    .map((user) => {
+      const id = Number(user?.id || 0);
+      const first = String(user?.first_name || user?.firstName || '').trim();
+      const last = String(user?.last_name || user?.lastName || '').trim();
+      const fullName = `${first} ${last}`.trim() || String(user?.email || '').trim() || `User ${id}`;
+      return { id, label: fullName };
+    })
+    .filter((opt) => opt.id > 0)
+    .sort((a, b) => a.label.localeCompare(b.label));
+});
+
 const loadAgencyAnnouncements = async () => {
   if (!editingAgency.value?.id) return;
   const agencyId = Number(editingAgency.value.id);
@@ -3470,7 +3543,9 @@ const loadAgencyAnnouncements = async () => {
     const resp = await api.get(`/agencies/${agencyId}/announcements`);
     announcementsDraft.value = {
       birthdayEnabled: Boolean(resp.data?.birthdayEnabled),
-      birthdayTemplate: resp.data?.birthdayTemplate || 'Happy Birthday, {fullName}'
+      birthdayTemplate: resp.data?.birthdayTemplate || 'Happy Birthday, {fullName}',
+      anniversaryEnabled: Boolean(resp.data?.anniversaryEnabled),
+      anniversaryTemplate: resp.data?.anniversaryTemplate || 'Happy {years}-year anniversary, {fullName}'
     };
     announcementsLoadedAgencyId.value = agencyId;
   } catch (e) {
@@ -3489,12 +3564,16 @@ const saveAgencyAnnouncements = async () => {
     announcementsError.value = '';
     const payload = {
       birthdayEnabled: Boolean(announcementsDraft.value.birthdayEnabled),
-      birthdayTemplate: String(announcementsDraft.value.birthdayTemplate || '').trim()
+      birthdayTemplate: String(announcementsDraft.value.birthdayTemplate || '').trim(),
+      anniversaryEnabled: Boolean(announcementsDraft.value.anniversaryEnabled),
+      anniversaryTemplate: String(announcementsDraft.value.anniversaryTemplate || '').trim()
     };
     const resp = await api.put(`/agencies/${agencyId}/announcements`, payload);
     announcementsDraft.value = {
       birthdayEnabled: Boolean(resp.data?.birthdayEnabled),
-      birthdayTemplate: resp.data?.birthdayTemplate || 'Happy Birthday, {fullName}'
+      birthdayTemplate: resp.data?.birthdayTemplate || 'Happy Birthday, {fullName}',
+      anniversaryEnabled: Boolean(resp.data?.anniversaryEnabled),
+      anniversaryTemplate: resp.data?.anniversaryTemplate || 'Happy {years}-year anniversary, {fullName}'
     };
     announcementsLoadedAgencyId.value = agencyId;
   } catch (e) {
@@ -3534,6 +3613,10 @@ const saveScheduledAnnouncement = async () => {
     scheduledFormError.value = '';
     const payload = {
       title: scheduledDraft.value.title?.trim() || null,
+      display_type: String(scheduledDraft.value.displayType || 'announcement').toLowerCase() === 'splash' ? 'splash' : 'announcement',
+      recipient_user_ids: Array.isArray(scheduledDraft.value.recipientUserIds)
+        ? scheduledDraft.value.recipientUserIds.map((value) => parseInt(String(value), 10)).filter((value) => Number.isFinite(value) && value > 0)
+        : [],
       message: scheduledDraft.value.message.trim(),
       starts_at: new Date(scheduledDraft.value.startsAt),
       ends_at: new Date(scheduledDraft.value.endsAt)
@@ -3556,6 +3639,10 @@ const editScheduledAnnouncement = (item) => {
   scheduledDraft.value = {
     id: item?.id || null,
     title: String(item?.title || ''),
+    displayType: String(item?.display_type || 'announcement').toLowerCase() === 'splash' ? 'splash' : 'announcement',
+    recipientUserIds: Array.isArray(item?.recipient_user_ids)
+      ? item.recipient_user_ids.map((value) => parseInt(String(value), 10)).filter((value) => Number.isFinite(value) && value > 0)
+      : [],
     message: String(item?.message || ''),
     startsAt: toLocalInput(item?.starts_at),
     endsAt: toLocalInput(item?.ends_at)
@@ -3597,6 +3684,16 @@ const scheduledStatusLabel = (item) => {
   if (now < startsAt) return 'Scheduled';
   if (now > endsAt) return 'Ended';
   return 'Active';
+};
+
+const scheduledRecipientsLabel = (item) => {
+  const ids = Array.isArray(item?.recipient_user_ids)
+    ? item.recipient_user_ids.map((value) => parseInt(String(value), 10)).filter((value) => Number.isFinite(value) && value > 0)
+    : [];
+  if (!ids.length) return 'Everyone';
+  const names = ids
+    .map((id) => agencyAnnouncementRecipientOptions.value.find((opt) => Number(opt.id) === Number(id))?.label || `User ${id}`);
+  return names.join(', ');
 };
 
 // Office locations (sites) editor (agency-only)
