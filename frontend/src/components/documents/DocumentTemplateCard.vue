@@ -35,7 +35,17 @@
       <span v-else class="badge badge-success">Agency</span>
     </div>
     
-    <p class="description">{{ template.description || 'No description' }}</p>
+    <p :class="['description', { collapsed: !descriptionExpanded && canExpandDescription }]">
+      {{ descriptionText }}
+    </p>
+    <button
+      v-if="canExpandDescription"
+      type="button"
+      class="description-toggle"
+      @click="descriptionExpanded = !descriptionExpanded"
+    >
+      {{ descriptionExpanded ? 'Show less' : 'Show more' }}
+    </button>
     
     <div class="card-meta">
       <span class="version">Version {{ template.version }}</span>
@@ -64,7 +74,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import { useBrandingStore } from '../../store/branding';
@@ -120,6 +130,13 @@ const canDelete = computed(() => {
   }
   return false;
 });
+
+const descriptionExpanded = ref(false);
+const descriptionText = computed(() => {
+  const text = String(props.template?.description || '').trim();
+  return text || 'No description';
+});
+const canExpandDescription = computed(() => descriptionText.value.length > 180);
 
 const handlePreview = () => {
   if (props.template.template_type === 'pdf') {
@@ -372,20 +389,20 @@ const getAgencyStyle = (agencyId) => {
 
 const getDocumentTypeStyle = (documentType) => {
   const palette = {
-    acknowledgment: { color: '#0ea5e9', bg: '#e0f2fe' },
-    authorization: { color: '#8b5cf6', bg: '#ede9fe' },
-    agreement: { color: '#14b8a6', bg: '#ccfbf1' },
-    audio_recording_consent: { color: '#f97316', bg: '#ffedd5' },
-    compliance: { color: '#ef4444', bg: '#fee2e2' },
-    disclosure: { color: '#06b6d4', bg: '#cffafe' },
-    consent: { color: '#10b981', bg: '#d1fae5' },
-    administrative: { color: '#6b7280', bg: '#f3f4f6' }
+    acknowledgment: '#0ea5e9',
+    authorization: '#8b5cf6',
+    agreement: '#14b8a6',
+    audio_recording_consent: '#f97316',
+    compliance: '#ef4444',
+    disclosure: '#06b6d4',
+    consent: '#10b981',
+    administrative: '#6b7280'
   };
   const key = String(documentType || '').trim().toLowerCase();
   const chosen = palette[key] || palette.administrative;
   return {
-    '--template-color': chosen.color,
-    '--template-bg': chosen.bg
+    '--template-color': chosen,
+    '--template-bg': `${chosen}10`
   };
 };
 
@@ -399,7 +416,7 @@ const getCardStyle = (template) => ({
 .template-card {
   background: var(--template-bg, var(--agency-bg, white));
   border-radius: 12px;
-  padding: 24px;
+  padding: 14px;
   box-shadow: var(--shadow);
   border: 1px solid var(--border);
   border-left: 4px solid var(--template-color, var(--agency-color, var(--border)));
@@ -412,19 +429,19 @@ const getCardStyle = (template) => ({
 }
 
 .card-header {
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 
 .card-header-content {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   flex: 1;
 }
 
 .document-icon {
-  width: 48px;
-  height: 48px;
+  width: 34px;
+  height: 34px;
   object-fit: contain;
   flex-shrink: 0;
 }
@@ -432,24 +449,43 @@ const getCardStyle = (template) => ({
 .card-header h3 {
   margin: 0;
   color: var(--text-primary);
-  font-size: 18px;
+  font-size: 15px;
   font-weight: 600;
+  line-height: 1.2;
   flex: 1;
 }
 
 .badges {
   display: flex;
   gap: 6px;
-  flex-wrap: nowrap;
-  margin-bottom: 12px;
-  overflow-x: auto; /* Allow horizontal scrolling if needed */
+  flex-wrap: wrap;
+  margin-bottom: 8px;
 }
 
 .description {
   color: var(--text-secondary);
-  font-size: 14px;
-  margin: 0 0 16px 0;
-  line-height: 1.5;
+  font-size: 13px;
+  margin: 0 0 6px 0;
+  line-height: 1.35;
+}
+
+.description.collapsed {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.description-toggle {
+  border: none;
+  background: transparent;
+  color: var(--primary-color, #2563eb);
+  padding: 0;
+  margin: 0 0 8px 0;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
 }
 
 .card-meta {
@@ -457,14 +493,14 @@ const getCardStyle = (template) => ({
   justify-content: space-between;
   font-size: 12px;
   color: var(--text-secondary);
-  margin-bottom: 16px;
-  padding-top: 16px;
+  margin-bottom: 10px;
+  padding-top: 8px;
   border-top: 1px solid var(--border);
 }
 
 .card-actions {
   display: flex;
-  gap: 6px;
+  gap: 5px;
   flex-wrap: wrap;
 }
 
@@ -476,8 +512,8 @@ const getCardStyle = (template) => ({
 }
 
 .btn-sm {
-  padding: 6px 12px;
-  font-size: 13px;
+  padding: 5px 10px;
+  font-size: 12px;
 }
 
 .assign-button {

@@ -126,7 +126,7 @@
             v-for="template in getFilteredTemplates()" 
             :key="template.id"
             :class="getAgencyRowClass(template.agency_id)"
-            :style="getAgencyRowStyle(template.agency_id)"
+            :style="getTemplateRowStyle(template)"
           >
             <td>
               <div class="table-document-content">
@@ -1165,6 +1165,30 @@ const getAgencyRowStyle = (agencyId) => {
   };
 };
 
+const getDocumentTypeRowStyle = (documentType) => {
+  const palette = {
+    acknowledgment: '#0ea5e9',
+    authorization: '#8b5cf6',
+    agreement: '#14b8a6',
+    audio_recording_consent: '#f97316',
+    compliance: '#ef4444',
+    disclosure: '#06b6d4',
+    consent: '#10b981',
+    administrative: '#6b7280'
+  };
+  const key = String(documentType || '').trim().toLowerCase();
+  const color = palette[key] || palette.administrative;
+  return {
+    '--template-row-color': color,
+    '--template-row-bg': `${color}10`
+  };
+};
+
+const getTemplateRowStyle = (template) => ({
+  ...getAgencyRowStyle(template?.agency_id),
+  ...getDocumentTypeRowStyle(template?.document_type)
+});
+
 const formatDate = (dateString) => {
   if (!dateString) return '-';
   return new Date(dateString).toLocaleDateString();
@@ -1528,8 +1552,8 @@ onMounted(async () => {
 }
 
 .documents-table tbody tr {
-  background: var(--agency-row-bg, white);
-  border-left: 3px solid var(--agency-row-color, transparent);
+  background: var(--template-row-bg, var(--agency-row-bg, white));
+  border-left: 3px solid var(--template-row-color, var(--agency-row-color, transparent));
 }
 
 .documents-table tbody tr:hover {
