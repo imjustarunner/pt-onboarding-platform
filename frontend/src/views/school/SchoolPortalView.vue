@@ -2123,6 +2123,20 @@ watch(() => store.selectedWeekday, async (weekday) => {
   gap: 10px;
 }
 
+/* Keep School Portal header/action buttons compact and stable. */
+.school-portal .btn {
+  width: auto;
+  min-width: 0;
+  padding: 7px 12px;
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.school-portal .btn.btn-sm {
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
 .settings-icon-btn {
   width: 34px;
   padding-left: 0;

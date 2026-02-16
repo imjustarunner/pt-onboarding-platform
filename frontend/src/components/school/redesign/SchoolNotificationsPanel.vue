@@ -1242,6 +1242,20 @@ watch(
   margin-bottom: 12px;
   flex-wrap: wrap;
 }
+
+/* Keep school portal action buttons compact and stable. */
+.panel .btn {
+  width: auto;
+  min-width: 0;
+  padding: 7px 12px;
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.panel .btn.btn-sm {
+  padding: 6px 10px;
+  font-size: 12px;
+}
 .spacer {
   flex: 1;
 }

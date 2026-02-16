@@ -1618,6 +1618,20 @@ select {
   flex-wrap: wrap;
 }
 
+/* Keep Note Aid controls compact even if global .btn styles shift. */
+.content-card .btn {
+  width: auto;
+  min-width: 0;
+  padding: 8px 14px;
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.content-card .btn.btn-sm {
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
 .divider {
   height: 1px;
   background: var(--border);
