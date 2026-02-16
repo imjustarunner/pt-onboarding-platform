@@ -623,7 +623,7 @@ const handleLogoError = (event) => {
 };
 </script>
 
-<style>
+<style scoped>
 /* Login page styles - use dynamic theme from branding store */
 .login-page {
   min-height: 100vh;

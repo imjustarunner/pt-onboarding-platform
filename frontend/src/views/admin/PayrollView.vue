@@ -10491,8 +10491,9 @@ input[type='number'] {
 }
 
 .modal-payroll-results {
-  width: min(1500px, 96vw);
-  max-height: 92vh;
+  width: min(1500px, 96vw) !important;
+  max-width: 96vw !important;
+  max-height: 92vh !important;
 }
 
 .wizard-hero {
