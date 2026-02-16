@@ -686,6 +686,8 @@ const handleAdminSignature = (sigData) => {
   hasAdminSignature.value = true;
 };
 
+const wait = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
+
 const finalizeSignature = async () => {
   if (!hasSignature.value || !signatureData.value) {
     error.value = 'Please provide a signature';
@@ -729,6 +731,8 @@ const finalizeSignature = async () => {
     errorDetails.value = null;
     await documentsStore.signDocument(taskId, signatureData.value, fieldValues.value);
     currentStep.value = 4;
+    await loadDocumentTask();
+    await downloadDocument({ auto: true });
   } catch (err) {
     const errorData = err.response?.data?.error || {};
     error.value = errorData.message || 'Failed to finalize signature';
@@ -742,11 +746,13 @@ const finalizeSignature = async () => {
   }
 };
 
-const downloadDocument = async () => {
+const downloadDocument = async ({ auto = false, retry = 0 } = {}) => {
   try {
     loading.value = true;
-    error.value = '';
-    errorDetails.value = null;
+    if (!auto) {
+      error.value = '';
+      errorDetails.value = null;
+    }
     const title = safeFilename(task.value?.title || template.value?.name || 'document');
     const assignee = safeFilename(
       `${authStore.user?.first_name || ''} ${authStore.user?.last_name || ''}`.trim() || authStore.user?.email || 'assigned-user'
@@ -755,13 +761,25 @@ const downloadDocument = async () => {
     const filename = `${title} - ${assignee} - ${dateLabel}.pdf`;
     await documentsStore.downloadSignedDocument(taskId, filename);
   } catch (err) {
-    console.error('downloadDocument: Error:', err);
     const errorData = err.response?.data?.error || {};
+    const isNotFinalized =
+      (err.response?.status === 400 && errorData.status === 'not_finalized')
+      || /not finalized/i.test(String(err?.message || ''));
+
+    if (auto && isNotFinalized && retry < 4) {
+      await wait(400 * (retry + 1));
+      await downloadDocument({ auto: true, retry: retry + 1 });
+      return;
+    }
+
+    console.error('downloadDocument: Error:', err);
+    if (auto) return;
+
     error.value = errorData.message || err.message || 'Failed to download document';
     errorDetails.value = errorData;
-    
+
     // Show user-friendly message for not finalized documents
-    if (err.response?.status === 400 && errorData.status === 'not_finalized') {
+    if (isNotFinalized) {
       error.value = 'Document has not been finalized yet. Please complete the signature process (Intent → Sign → Finalize) before downloading.';
     }
   } finally {
