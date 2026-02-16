@@ -53,43 +53,31 @@ export const getRecentMessages = async (req, res, next) => {
     if (!uid) return res.status(401).json({ error: { message: 'Not authenticated' } });
 
     // Privacy rule: users can only see their own message logs (no cross-user safety net feed).
-    const agencyIds = await getAgencyIdsForUser(uid);
+    // Keep bind count fixed to avoid mysql_stmt_execute mismatches from dynamic IN clauses.
     const rawLimit = req.query.limit ? parseInt(req.query.limit, 10) : 50;
     const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 200) : 50;
-    let rows = [];
-    if (agencyIds.length === 0) {
-      const [r] = await pool.execute(
-        `SELECT ml.*,
-                c.initials AS client_initials,
-                u.first_name AS user_first_name,
-                u.last_name AS user_last_name
-         FROM message_logs ml
-         LEFT JOIN clients c ON ml.client_id = c.id
-         LEFT JOIN users u ON ml.user_id = u.id
-         WHERE ml.user_id = ?
-         ORDER BY ml.created_at DESC
-         LIMIT ?`,
-        [uid, limit]
-      );
-      rows = r;
-    } else {
-      const placeholders = agencyIds.map(() => '?').join(',');
-      const [r] = await pool.execute(
-        `SELECT ml.*,
-                c.initials AS client_initials,
-                u.first_name AS user_first_name,
-                u.last_name AS user_last_name
-         FROM message_logs ml
-         LEFT JOIN clients c ON ml.client_id = c.id
-         LEFT JOIN users u ON ml.user_id = u.id
-         WHERE ml.user_id = ?
-           AND (ml.agency_id IN (${placeholders}) OR ml.agency_id IS NULL)
-         ORDER BY ml.created_at DESC
-         LIMIT ?`,
-        [uid, ...agencyIds, limit]
-      );
-      rows = r;
-    }
+    const [rows] = await pool.execute(
+      `SELECT ml.*,
+              c.initials AS client_initials,
+              u.first_name AS user_first_name,
+              u.last_name AS user_last_name
+       FROM message_logs ml
+       LEFT JOIN clients c ON ml.client_id = c.id
+       LEFT JOIN users u ON ml.user_id = u.id
+       WHERE ml.user_id = ?
+         AND (
+           ml.agency_id IS NULL
+           OR EXISTS (
+             SELECT 1
+             FROM user_agencies ua
+             WHERE ua.user_id = ?
+               AND ua.agency_id = ml.agency_id
+           )
+         )
+       ORDER BY ml.created_at DESC
+       LIMIT ?`,
+      [uid, uid, limit]
+    );
     res.json(rows);
   } catch (e) {
     next(e);
@@ -112,7 +100,8 @@ export const getThread = async (req, res, next) => {
     if (!client) return res.status(404).json({ error: { message: 'Client not found' } });
     await assertClientAgencyAccess(req.user.id, client);
 
-    const limit = req.query.limit ? Math.min(parseInt(req.query.limit), 200) : 100;
+    const rawLimit = req.query.limit ? parseInt(req.query.limit, 10) : 100;
+    const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 200) : 100;
     const rows = await MessageLog.listThread({ userId: req.user.id, clientId: cid, limit });
     res.json({ client, messages: rows });
   } catch (e) {
