@@ -1246,10 +1246,10 @@ const dashboardCards = computed(() => {
         id: 'communications',
         label: 'Communications',
         kind: 'link',
-        to: '/admin/communications',
+        to: '/admin/communications/sms',
         badgeCount: 0,
         iconUrl: brandingStore.getDashboardCardIconUrl('communications', cardIconOrgOverride),
-        description: 'Unified feed for texts + platform chats.'
+        description: 'SMS inbox, calls, and delivery automation workspace.'
       });
       cards.push({
         id: 'chats',

@@ -180,16 +180,26 @@
                     :aria-expanded="engagementMenuOpen ? 'true' : 'false'"
                     @click.stop="toggleEngagementMenu"
                   >
-                    Engagement <span class="brand-caret">▾</span>
+                    Communications <span class="brand-caret">▾</span>
                   </button>
                   <div v-if="engagementMenuOpen" class="nav-dropdown-menu">
                     <router-link
                       v-if="canUseEngagementFeed"
                       :to="orgTo('/admin/communications')"
                       @click="closeAllNavMenus"
-                    >Feed</router-link>
+                    >Workspace</router-link>
                     <router-link
                       v-if="canUseEngagementFeed"
+                      :to="orgTo('/admin/communications/sms')"
+                      @click="closeAllNavMenus"
+                    >SMS Inbox</router-link>
+                    <router-link
+                      v-if="canUseEngagementFeed"
+                      :to="{ path: orgTo('/admin/communications'), query: { tab: 'calls' } }"
+                      @click="closeAllNavMenus"
+                    >Calls</router-link>
+                    <router-link
+                      v-if="canUseChats"
                       :to="orgTo('/admin/communications/chats')"
                       @click="closeAllNavMenus"
                     >Chats</router-link>
@@ -382,13 +392,25 @@
               <router-link :to="orgTo('/admin/note-aid')" v-if="noteAidEnabled && (isAdmin || user?.role === 'provider' || user?.role === 'staff')" @click="closeMobileMenu" class="mobile-nav-link">Note Aid</router-link>
               <router-link
                 :to="orgTo('/admin/communications')"
-                v-if="(isAdmin || user?.role === 'clinical_practice_assistant') && hasCapability('canUseChat')"
+                v-if="canUseEngagementFeed"
                 @click="closeMobileMenu"
                 class="mobile-nav-link"
-              >Engagement (Feed)</router-link>
+              >Communications Workspace</router-link>
+              <router-link
+                :to="orgTo('/admin/communications/sms')"
+                v-if="canUseEngagementFeed"
+                @click="closeMobileMenu"
+                class="mobile-nav-link"
+              >SMS Inbox</router-link>
+              <router-link
+                :to="{ path: orgTo('/admin/communications'), query: { tab: 'calls' } }"
+                v-if="canUseEngagementFeed"
+                @click="closeMobileMenu"
+                class="mobile-nav-link"
+              >Calls</router-link>
               <router-link
                 :to="orgTo('/admin/communications/chats')"
-                v-if="(isAdmin || user?.role === 'clinical_practice_assistant') && hasCapability('canUseChat')"
+                v-if="canUseChats"
                 @click="closeMobileMenu"
                 class="mobile-nav-link"
               >Chats</router-link>
@@ -923,7 +945,20 @@ const canUseAgencyCampaigns = computed(() => {
   return isAdmin || user?.role === 'support' || user?.role === 'staff' || user?.role === 'super_admin' || user?.role === 'clinical_practice_assistant';
 });
 const canUseEngagementFeed = computed(() => {
-  return (isAdmin || user?.role === 'clinical_practice_assistant') && hasCapability('canUseChat');
+  const role = String(user?.role || '').toLowerCase();
+  return (
+    role === 'admin' ||
+    role === 'support' ||
+    role === 'super_admin' ||
+    role === 'clinical_practice_assistant' ||
+    role === 'schedule_manager' ||
+    role === 'provider' ||
+    role === 'staff' ||
+    role === 'school_staff'
+  );
+});
+const canUseChats = computed(() => {
+  return canUseEngagementFeed.value && hasCapability('canUseChat');
 });
 const showEngagementMenu = computed(() => {
   return (

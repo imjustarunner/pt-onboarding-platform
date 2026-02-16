@@ -415,7 +415,21 @@ const routes = [
     path: '/:organizationSlug/admin/communications',
     name: 'OrganizationCommunicationsFeed',
     component: () => import('../views/admin/CommunicationsFeedView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['schedule_manager', 'provider', 'staff', 'school_staff'], organizationSlug: true }
+    meta: {
+      requiresAuth: true,
+      requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'schedule_manager', 'provider', 'staff', 'school_staff'],
+      organizationSlug: true
+    }
+  },
+  {
+    path: '/:organizationSlug/admin/communications/sms',
+    name: 'OrganizationSmsInbox',
+    component: () => import('../views/admin/SmsInboxView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'schedule_manager', 'provider', 'staff', 'school_staff'],
+      organizationSlug: true
+    }
   },
   {
     path: '/:organizationSlug/admin/tools-aids',
@@ -427,7 +441,11 @@ const routes = [
     path: '/:organizationSlug/admin/communications/chats',
     name: 'OrganizationPlatformChats',
     component: () => import('../views/admin/PlatformChatsView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['schedule_manager', 'provider', 'staff', 'school_staff'], organizationSlug: true }
+    meta: {
+      requiresAuth: true,
+      requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'schedule_manager', 'provider', 'staff', 'school_staff'],
+      organizationSlug: true
+    }
   },
   {
     path: '/:organizationSlug/admin/communications/campaigns',
@@ -859,6 +877,15 @@ const routes = [
     name: 'CommunicationsFeed',
     component: () => import('../views/admin/CommunicationsFeedView.vue'),
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'schedule_manager', 'provider', 'staff', 'school_staff'] }
+  },
+  {
+    path: '/admin/communications/sms',
+    name: 'SmsInbox',
+    component: () => import('../views/admin/SmsInboxView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'schedule_manager', 'provider', 'staff', 'school_staff']
+    }
   },
   {
     path: '/admin/tools-aids',

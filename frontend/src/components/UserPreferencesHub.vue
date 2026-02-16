@@ -45,6 +45,26 @@
               </label>
               <div class="field-help">Used when agencies enable text forwarding rules.</div>
             </div>
+            <div class="field checkbox" v-if="prefs.sms_enabled">
+              <label>
+                <input v-model="prefs.sms_use_own_number_for_reminders" type="checkbox" :disabled="notificationDisabled" />
+                Use my assigned number for reminders when agency allows it
+              </label>
+              <div class="field-help">If off, reminders fall back to agency sender number.</div>
+            </div>
+            <div class="field checkbox" v-if="prefs.sms_enabled">
+              <label>
+                <input v-model="prefs.sms_support_mirror_enabled" type="checkbox" :disabled="notificationDisabled" />
+                Mirror inbound client texts to support
+              </label>
+            </div>
+            <div class="field" v-if="prefs.sms_enabled && prefs.sms_support_mirror_enabled">
+              <label>Support takeover mode</label>
+              <select v-model="prefs.sms_support_thread_mode" :disabled="notificationDisabled">
+                <option value="respondable">Respondable (provider + support)</option>
+                <option value="read_only">Read-only for provider</option>
+              </select>
+            </div>
             <div class="field checkbox">
               <label>
                 <input v-model="prefs.push_notifications_enabled" type="checkbox" :disabled="notificationDisabled" />
@@ -771,6 +791,9 @@ const prefs = ref({
   email_enabled: true,
   sms_enabled: false,
   sms_forwarding_enabled: true,
+  sms_use_own_number_for_reminders: true,
+  sms_support_mirror_enabled: false,
+  sms_support_thread_mode: 'respondable',
   in_app_enabled: true,
   quiet_hours_enabled: false,
   quiet_hours_allowed_days: [],
@@ -893,6 +916,8 @@ watch(
     if (!enabled) {
       prefs.value.auto_reply_enabled = false;
       prefs.value.auto_reply_message = '';
+      prefs.value.sms_support_mirror_enabled = false;
+      prefs.value.sms_support_thread_mode = 'respondable';
     }
   }
 );
@@ -1072,6 +1097,11 @@ const save = async () => {
       email_enabled: !!prefs.value.email_enabled,
       sms_enabled: !!prefs.value.sms_enabled,
       sms_forwarding_enabled: !!prefs.value.sms_forwarding_enabled,
+      sms_use_own_number_for_reminders: !!prefs.value.sms_use_own_number_for_reminders,
+      sms_support_mirror_enabled: !!prefs.value.sms_support_mirror_enabled,
+      sms_support_thread_mode: prefs.value.sms_support_mirror_enabled
+        ? (prefs.value.sms_support_thread_mode || 'respondable')
+        : 'respondable',
       daily_digest_enabled: !!prefs.value.daily_digest_enabled,
       daily_digest_time: prefs.value.daily_digest_enabled
         ? (prefs.value.daily_digest_time || '07:00')

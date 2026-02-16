@@ -103,13 +103,43 @@ export const getClients = async (req, res, next) => {
       new Map(allClients.map(c => [c.id, c])).values()
     );
 
+    // Provider view should only include their own contacts.
+    // "Own" means primary provider_id match OR an active multi-provider assignment.
+    let providerScopedClients = uniqueClients;
+    if (String(userRole || '').toLowerCase() === 'provider') {
+      const visibleClientIds = new Set((uniqueClients || [])
+        .filter((c) => parseInt(c?.provider_id, 10) === parseInt(userId, 10))
+        .map((c) => parseInt(c.id, 10)));
+
+      try {
+        const placeholders = agencyIds.map(() => '?').join(',');
+        const [assignmentRows] = await pool.execute(
+          `SELECT DISTINCT cpa.client_id
+           FROM client_provider_assignments cpa
+           JOIN clients c ON c.id = cpa.client_id
+           WHERE cpa.provider_user_id = ?
+             AND cpa.is_active = TRUE
+             AND c.agency_id IN (${placeholders})`,
+          [userId, ...agencyIds]
+        );
+        for (const row of assignmentRows || []) {
+          const id = parseInt(row?.client_id, 10);
+          if (id) visibleClientIds.add(id);
+        }
+      } catch {
+        // Older DBs may not have client_provider_assignments; legacy provider_id filter still applies.
+      }
+
+      providerScopedClients = (uniqueClients || []).filter((c) => visibleClientIds.has(parseInt(c?.id, 10)));
+    }
+
     // Default behavior: archived clients should not appear in the main client list.
     // They are managed via Settings -> Archive, or by explicitly requesting status=ARCHIVED/includeArchived=true.
     const statusNorm = String(status || '').toUpperCase();
     const out =
       includeArchived || statusNorm === 'ARCHIVED'
-        ? uniqueClients
-        : uniqueClients.filter((c) => String(c?.status || '').toUpperCase() !== 'ARCHIVED');
+        ? providerScopedClients
+        : providerScopedClients.filter((c) => String(c?.status || '').toUpperCase() !== 'ARCHIVED');
 
     res.json(out);
   } catch (error) {
@@ -504,10 +534,33 @@ export const createClient = async (req, res, next) => {
       // best-effort only
     }
 
+    // Provider-created contacts should always be owned by that provider.
+    // Agency staff/admin can still set provider_id explicitly.
+    let resolvedProviderId = null;
+    const roleNorm2 = String(userRole || '').toLowerCase();
+    if (roleNorm2 === 'provider') {
+      resolvedProviderId = userId;
+    } else if (provider_id !== undefined && provider_id !== null && provider_id !== '') {
+      const parsedProviderId = parseInt(provider_id, 10);
+      if (!parsedProviderId) {
+        return res.status(400).json({ error: { message: 'provider_id must be a valid integer when provided' } });
+      }
+      const provider = await User.findById(parsedProviderId);
+      if (!provider) {
+        return res.status(404).json({ error: { message: 'Provider not found' } });
+      }
+      const providerAgencies = await User.getAgencies(parsedProviderId);
+      const inAgency = (providerAgencies || []).some((a) => parseInt(a?.id, 10) === parsedAgencyId);
+      if (!inAgency) {
+        return res.status(400).json({ error: { message: 'Selected provider is not assigned to this agency' } });
+      }
+      resolvedProviderId = parsedProviderId;
+    }
+
     const client = await Client.create({
       organization_id: parsedOrganizationId,
       agency_id: parsedAgencyId,
-      provider_id: provider_id || null,
+      provider_id: resolvedProviderId,
       initials: initialsForSave,
       identifier_code: clientIdentifierCode,
       // "status" is treated as internal workflow/archive flag; new clients are not archived.

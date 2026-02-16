@@ -36,6 +36,11 @@ const isMissingTableError = (err) => {
   );
 };
 
+const normalizePositiveInt = (value) => {
+  const n = Number.parseInt(String(value), 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
+};
+
 async function getAgencyIdsForUser(userId, role, forcedAgencyId) {
   const reqAgency = forcedAgencyId ? Number(forcedAgencyId) : null;
   if (reqAgency) {
@@ -67,14 +72,14 @@ async function getAgencyIdsForUser(userId, role, forcedAgencyId) {
  */
 export const getCommunicationsFeed = async (req, res, next) => {
   try {
-    const userId = req.user?.id;
+    const userId = normalizePositiveInt(req.user?.id);
     const role = req.user?.role;
     if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
 
-    const limitRaw = req.query.limit ? parseInt(String(req.query.limit), 10) : null;
+    const limitRaw = req.query.limit ? Number.parseInt(String(req.query.limit), 10) : null;
     const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 200) : 75;
-    const agencyIdParam = req.query.agencyId ? parseInt(String(req.query.agencyId), 10) : null;
-    const organizationId = req.query.organizationId ? parseInt(String(req.query.organizationId), 10) : null;
+    const agencyIdParam = req.query.agencyId ? Number.parseInt(String(req.query.agencyId), 10) : null;
+    const organizationId = req.query.organizationId ? Number.parseInt(String(req.query.organizationId), 10) : null;
     const isSuperAdmin = String(role || '').toLowerCase() === 'super_admin';
     const includeAllAgencies = isSuperAdmin && !agencyIdParam;
 
@@ -145,7 +150,9 @@ export const getCommunicationsFeed = async (req, res, next) => {
       );
       chatRows = rows || [];
     } catch (e) {
-      if (!isMissingTableError(e)) throw e;
+      if (!isMissingTableError(e)) {
+        console.warn('Communications feed chat query failed; returning partial feed:', e?.message || e);
+      }
       chatRows = [];
     }
 
@@ -168,7 +175,9 @@ export const getCommunicationsFeed = async (req, res, next) => {
           return acc;
         }, {});
       } catch (e) {
-        if (!isMissingTableError(e)) throw e;
+        if (!isMissingTableError(e)) {
+          console.warn('Communications feed participant query failed; continuing without participants:', e?.message || e);
+        }
         participantsByThread = {};
       }
     }
@@ -272,7 +281,9 @@ export const getCommunicationsFeed = async (req, res, next) => {
           user_last_name: m.user_last_name || null
         }));
       } catch (e) {
-        if (!isMissingTableError(e)) throw e;
+        if (!isMissingTableError(e)) {
+          console.warn('Communications feed SMS query failed; returning without SMS items:', e?.message || e);
+        }
         smsItems = [];
       }
     }
@@ -334,6 +345,181 @@ export const getCommunicationsFeed = async (req, res, next) => {
 
     res.json(merged.slice(0, limit));
   } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Calls workspace feed (foundation endpoint).
+ * GET /api/communications/calls?limit=75&agencyId?=
+ */
+export const getCallsFeed = async (req, res, next) => {
+  try {
+    const userId = normalizePositiveInt(req.user?.id);
+    const role = req.user?.role;
+    if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+
+    const limitRaw = req.query.limit ? Number.parseInt(String(req.query.limit), 10) : null;
+    const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 200) : 75;
+    const agencyIdParam = req.query.agencyId ? Number.parseInt(String(req.query.agencyId), 10) : null;
+    const isSuperAdmin = String(role || '').toLowerCase() === 'super_admin';
+    const includeAllAgencies = isSuperAdmin && !agencyIdParam;
+    const agencyIds = await getAgencyIdsForUser(userId, role, agencyIdParam);
+
+    // Admin-like users: agency-scoped call feed.
+    if (canViewAgencySms(role)) {
+      const whereAgency = includeAllAgencies ? '1=1' : `cl.agency_id IN (${agencyIds.map(() => '?').join(',')})`;
+      const params = [...(includeAllAgencies ? [] : agencyIds), limit];
+      const [rows] = await pool.execute(
+        `SELECT cl.*
+         FROM call_logs cl
+         WHERE ${whereAgency}
+         ORDER BY COALESCE(cl.started_at, cl.created_at) DESC
+         LIMIT ?`,
+        params
+      );
+      return res.json({ enabled: true, items: rows || [] });
+    }
+
+    // Provider/staff users: own call rows only.
+    if (!agencyIds.length) {
+      const [rows] = await pool.execute(
+        `SELECT cl.*
+         FROM call_logs cl
+         WHERE cl.user_id = ?
+         ORDER BY COALESCE(cl.started_at, cl.created_at) DESC
+         LIMIT ?`,
+        [userId, limit]
+      );
+      return res.json({ enabled: true, items: rows || [] });
+    }
+
+    const placeholders = agencyIds.map(() => '?').join(',');
+    const [rows] = await pool.execute(
+      `SELECT cl.*
+       FROM call_logs cl
+       WHERE cl.user_id = ?
+         AND (cl.agency_id IN (${placeholders}) OR cl.agency_id IS NULL)
+       ORDER BY COALESCE(cl.started_at, cl.created_at) DESC
+       LIMIT ?`,
+      [userId, ...agencyIds, limit]
+    );
+    return res.json({ enabled: true, items: rows || [] });
+  } catch (e) {
+    // Voice schema is not available yet in all environments.
+    if (isMissingTableError(e)) {
+      return res.json({ enabled: false, items: [] });
+    }
+    next(e);
+  }
+};
+
+/**
+ * Calls analytics (foundation metrics).
+ * GET /api/communications/calls/analytics?days=30&agencyId?=
+ */
+export const getCallsAnalytics = async (req, res, next) => {
+  try {
+    const userId = normalizePositiveInt(req.user?.id);
+    const role = req.user?.role;
+    if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+
+    const agencyIdParam = req.query.agencyId ? Number.parseInt(String(req.query.agencyId), 10) : null;
+    const daysRaw = req.query.days ? Number.parseInt(String(req.query.days), 10) : 30;
+    const days = Number.isFinite(daysRaw) ? Math.min(Math.max(daysRaw, 1), 365) : 30;
+    const sinceExpr = `DATE_SUB(NOW(), INTERVAL ${days} DAY)`;
+
+    const isSuperAdmin = String(role || '').toLowerCase() === 'super_admin';
+    const includeAllAgencies = isSuperAdmin && !agencyIdParam;
+    const agencyIds = await getAgencyIdsForUser(userId, role, agencyIdParam);
+    const canAgencyView = canViewAgencySms(role);
+
+    let where = `cl.created_at >= ${sinceExpr}`;
+    const params = [];
+    let voicemailWhere = `cv.created_at >= ${sinceExpr}`;
+    const voicemailParams = [];
+
+    if (canAgencyView) {
+      if (!includeAllAgencies) {
+        if (!agencyIds.length) {
+          return res.json({
+            enabled: true,
+            days,
+            summary: { total: 0, inbound: 0, outbound: 0, answered: 0, missed: 0, avgDurationSeconds: 0, voicemailCount: 0 },
+            byStatus: []
+          });
+        }
+        where += ` AND cl.agency_id IN (${agencyIds.map(() => '?').join(',')})`;
+        params.push(...agencyIds);
+        voicemailWhere += ` AND cv.agency_id IN (${agencyIds.map(() => '?').join(',')})`;
+        voicemailParams.push(...agencyIds);
+      }
+    } else {
+      where += ` AND cl.user_id = ?`;
+      params.push(userId);
+      voicemailWhere += ` AND cv.user_id = ?`;
+      voicemailParams.push(userId);
+      if (agencyIds.length) {
+        where += ` AND (cl.agency_id IN (${agencyIds.map(() => '?').join(',')}) OR cl.agency_id IS NULL)`;
+        params.push(...agencyIds);
+        voicemailWhere += ` AND (cv.agency_id IN (${agencyIds.map(() => '?').join(',')}) OR cv.agency_id IS NULL)`;
+        voicemailParams.push(...agencyIds);
+      }
+    }
+
+    const [summaryRows] = await pool.execute(
+      `SELECT
+         COUNT(*) AS total,
+         SUM(CASE WHEN cl.direction = 'INBOUND' THEN 1 ELSE 0 END) AS inbound,
+         SUM(CASE WHEN cl.direction = 'OUTBOUND' THEN 1 ELSE 0 END) AS outbound,
+         SUM(CASE WHEN LOWER(COALESCE(cl.status, '')) IN ('completed','in-progress','bridging','answered') THEN 1 ELSE 0 END) AS answered,
+         SUM(CASE WHEN LOWER(COALESCE(cl.status, '')) IN ('no-answer','busy','failed','canceled') THEN 1 ELSE 0 END) AS missed,
+         AVG(CASE WHEN cl.duration_seconds IS NOT NULL THEN cl.duration_seconds ELSE NULL END) AS avg_duration
+       FROM call_logs cl
+       WHERE ${where}`,
+      params
+    );
+
+    const [vmRows] = await pool.execute(
+      `SELECT COUNT(*) AS voicemail_count
+       FROM call_voicemails cv
+       WHERE ${voicemailWhere}`,
+      voicemailParams
+    );
+
+    const [statusRows] = await pool.execute(
+      `SELECT LOWER(COALESCE(cl.status, 'unknown')) AS status, COUNT(*) AS count
+       FROM call_logs cl
+       WHERE ${where}
+       GROUP BY LOWER(COALESCE(cl.status, 'unknown'))
+       ORDER BY count DESC`,
+      params
+    );
+
+    const s = summaryRows?.[0] || {};
+    res.json({
+      enabled: true,
+      days,
+      summary: {
+        total: Number(s.total || 0),
+        inbound: Number(s.inbound || 0),
+        outbound: Number(s.outbound || 0),
+        answered: Number(s.answered || 0),
+        missed: Number(s.missed || 0),
+        avgDurationSeconds: Number(s.avg_duration || 0),
+        voicemailCount: Number(vmRows?.[0]?.voicemail_count || 0)
+      },
+      byStatus: (statusRows || []).map((r) => ({ status: r.status, count: Number(r.count || 0) }))
+    });
+  } catch (e) {
+    if (isMissingTableError(e)) {
+      return res.json({
+        enabled: false,
+        days: 30,
+        summary: { total: 0, inbound: 0, outbound: 0, answered: 0, missed: 0, avgDurationSeconds: 0, voicemailCount: 0 },
+        byStatus: []
+      });
+    }
     next(e);
   }
 };

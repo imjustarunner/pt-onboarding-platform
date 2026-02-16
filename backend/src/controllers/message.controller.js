@@ -7,6 +7,7 @@ import TwilioOptInState from '../models/TwilioOptInState.model.js';
 import NotificationGatekeeperService from '../services/notificationGatekeeper.service.js';
 import TwilioService from '../services/twilio.service.js';
 import { resolveOutboundNumber } from '../services/twilioNumberRouting.service.js';
+import SmsThreadEscalation from '../models/SmsThreadEscalation.model.js';
 
 const parseFeatureFlags = (raw) => {
   if (!raw) return {};
@@ -23,7 +24,9 @@ const canViewSafetyNetFeed = (role) =>
 
 async function getAgencyIdsForUser(userId) {
   const agencies = await User.getAgencies(userId);
-  return (agencies || []).map((a) => a.id);
+  return (agencies || [])
+    .map((a) => Number(a?.id))
+    .filter((id) => Number.isFinite(id) && id > 0);
 }
 
 function parseIntOrNull(v) {
@@ -46,9 +49,13 @@ async function assertClientAgencyAccess(reqUserId, client) {
 
 export const getRecentMessages = async (req, res, next) => {
   try {
+    const uid = parseIntOrNull(req.user?.id);
+    if (!uid) return res.status(401).json({ error: { message: 'Not authenticated' } });
+
     // Privacy rule: users can only see their own message logs (no cross-user safety net feed).
-    const agencyIds = await getAgencyIdsForUser(req.user.id);
-    const limit = req.query.limit ? Math.min(parseInt(req.query.limit), 200) : 50;
+    const agencyIds = await getAgencyIdsForUser(uid);
+    const rawLimit = req.query.limit ? parseInt(req.query.limit, 10) : 50;
+    const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 200) : 50;
     let rows = [];
     if (agencyIds.length === 0) {
       const [r] = await pool.execute(
@@ -62,7 +69,7 @@ export const getRecentMessages = async (req, res, next) => {
          WHERE ml.user_id = ?
          ORDER BY ml.created_at DESC
          LIMIT ?`,
-        [req.user.id, limit]
+        [uid, limit]
       );
       rows = r;
     } else {
@@ -79,7 +86,7 @@ export const getRecentMessages = async (req, res, next) => {
            AND (ml.agency_id IN (${placeholders}) OR ml.agency_id IS NULL)
          ORDER BY ml.created_at DESC
          LIMIT ?`,
-        [req.user.id, ...agencyIds, limit]
+        [uid, ...agencyIds, limit]
       );
       rows = r;
     }
@@ -154,6 +161,20 @@ export const sendMessage = async (req, res, next) => {
     if (!resolved?.number && !user.system_phone_number) {
       return res.status(400).json({ error: { message: 'No system phone number assigned for sending' } });
     }
+
+    let activeEscalation = null;
+    try {
+      activeEscalation = await SmsThreadEscalation.findActive({ userId: uid, clientId: cid });
+    } catch {
+      activeEscalation = null;
+    }
+    if (activeEscalation && activeEscalation.thread_mode === 'read_only') {
+      return res.status(403).json({
+        error: {
+          message: 'This thread is currently escalated to support in read-only mode for the provider.'
+        }
+      });
+    }
     const fromNumber = resolved?.number?.phone_number || user.system_phone_number;
     const numberId = resolved?.number?.id || null;
     const ownerType = resolved?.ownerType || (resolved?.number ? 'agency' : 'staff');
@@ -202,6 +223,7 @@ export const sendMessage = async (req, res, next) => {
         body
       });
       const updated = await MessageLog.markSent(outboundLog.id, msg.sid, { provider: 'twilio', status: msg.status, gatekeeper: decision });
+      await SmsThreadEscalation.resolveActive({ userId: uid, clientId: cid }).catch(() => {});
       res.status(201).json(updated);
     } catch (sendErr) {
       await MessageLog.markFailed(outboundLog.id, sendErr.message);

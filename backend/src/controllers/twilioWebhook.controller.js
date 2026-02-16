@@ -9,6 +9,7 @@ import NotificationGatekeeperService from '../services/notificationGatekeeper.se
 import TwilioService from '../services/twilio.service.js';
 import TwilioNumberRule from '../models/TwilioNumberRule.model.js';
 import TwilioOptInState from '../models/TwilioOptInState.model.js';
+import SmsThreadEscalation from '../models/SmsThreadEscalation.model.js';
 import Agency from '../models/Agency.model.js';
 import { resolveInboundRoute } from '../services/twilioNumberRouting.service.js';
 import { handleAgencyCampaignInbound } from './agencyCampaigns.controller.js';
@@ -209,6 +210,38 @@ export const inboundSmsWebhook = async (req, res, next) => {
       metadata: { provider: 'twilio', numberId }
     });
 
+    const prefs = ownerUser ? await UserPreferences.findByUserId(ownerUser.id) : null;
+    // Provider-level immediate support mirror option.
+    if (agencyId && ownerUser?.id) {
+      const agency = await Agency.findById(agencyId);
+      const flags = parseFeatureFlags(agency?.feature_flags);
+      const mirrorEnabled = prefs?.sms_support_mirror_enabled === true || prefs?.sms_support_mirror_enabled === 1;
+      const supportPhone = MessageLog.normalizePhone(flags.smsSupportFallbackPhone || agency?.phone_number) ||
+        flags.smsSupportFallbackPhone || agency?.phone_number || null;
+      if (mirrorEnabled && supportPhone && clientId && (number?.phone_number || ownerUser?.system_phone_number)) {
+        try {
+          const supportBody = `Support mirror: inbound text from ${client?.initials || `client #${clientId || 'unknown'}`}. Message: "${String(body || '').slice(0, 180)}"`;
+          await TwilioService.sendSms({
+            to: supportPhone,
+            from: MessageLog.normalizePhone(number?.phone_number || ownerUser.system_phone_number) || number?.phone_number || ownerUser.system_phone_number,
+            body: supportBody
+          });
+          await SmsThreadEscalation.createOrKeep({
+            agencyId,
+            userId: ownerUser.id,
+            clientId,
+            inboundLogId: inboundLog?.id || null,
+            escalatedToPhone: supportPhone,
+            escalationType: 'provider_mirror',
+            threadMode: prefs?.sms_support_thread_mode === 'read_only' ? 'read_only' : 'respondable',
+            metadata: { mirrored: true }
+          });
+        } catch (e) {
+          console.warn('Support mirror SMS failed:', e.message);
+        }
+      }
+    }
+
     if (keyword === 'STOP' && numberId && clientId) {
       const msg = await getRuleMessage(numberId, 'opt_out', 'You have been opted out. Reply START to rejoin.');
       return res.status(200).type('text/xml').send(twimlResponse(msg));
@@ -281,7 +314,6 @@ export const inboundSmsWebhook = async (req, res, next) => {
     // After-hours auto-responder (loop breaker: once per client every 4 hours)
     // Only when user has it enabled AND we are outside quiet hours (gatekeeper says SMS is suppressed).
     // Note: Auto reply sends to the client; this is independent of notification channel gating.
-    const prefs = ownerUser ? await UserPreferences.findByUserId(ownerUser.id) : null;
     const autoReplyEnabled = prefs?.auto_reply_enabled === true || prefs?.auto_reply_enabled === 1;
     const smsEnabled = prefs?.sms_enabled === true || prefs?.sms_enabled === 1;
     const ruleAutoReply = numberId ? await TwilioNumberRule.getActiveRule(numberId, 'after_hours') : null;

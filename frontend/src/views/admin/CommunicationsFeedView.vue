@@ -2,15 +2,20 @@
   <div class="container comms-feed">
     <div class="header" data-tour="comms-header">
       <div>
-        <h2 data-tour="comms-title">Notifications</h2>
-        <p class="subtitle" data-tour="comms-subtitle">All communications + school notifications.</p>
+        <h2 data-tour="comms-title">Communications</h2>
+        <p class="subtitle" data-tour="comms-subtitle">Workspace for texting, chat, calls, and delivery queues.</p>
       </div>
       <div class="header-actions" data-tour="comms-actions">
         <div class="tabs">
           <button class="tab" :class="{ active: activeTab === 'all' }" @click="setTab('all')">All</button>
           <button class="tab" :class="{ active: activeTab === 'texts' }" @click="setTab('texts')">Texting</button>
-          <button class="tab" :class="{ active: activeTab === 'school' }" @click="setTab('school')">School notifications</button>
+          <button class="tab" :class="{ active: activeTab === 'calls' }" @click="setTab('calls')">Calls</button>
+          <button class="tab" :class="{ active: activeTab === 'automation' }" @click="setTab('automation')">Automation</button>
+          <button class="tab" :class="{ active: activeTab === 'school' }" @click="setTab('school')">School alerts</button>
         </div>
+        <router-link class="btn btn-secondary" :to="smsInboxLink">SMS Inbox</router-link>
+        <router-link class="btn btn-secondary" :to="preferencesLink">Preferences</router-link>
+        <router-link v-if="canManageTexting" class="btn btn-secondary" :to="textingSettingsLink">Texting settings</router-link>
         <router-link class="btn btn-secondary" :to="chatsLink" data-tour="comms-go-chats">Chats</router-link>
         <router-link class="btn btn-secondary" :to="ticketsLink">Tickets</router-link>
         <button class="btn btn-secondary" @click="refreshActive" :disabled="loading || schoolLoading">Refresh</button>
@@ -55,6 +60,177 @@
               </button>
             </div>
           </button>
+        </div>
+      </div>
+      <div v-else-if="activeTab === 'calls'">
+        <div class="card calls-settings-card">
+          <div class="top" style="margin-bottom:8px;">
+            <span class="badge ticket">CALL SETTINGS</span>
+            <span class="owner">Manage voice routing behavior for your user account.</span>
+          </div>
+          <div class="grid">
+            <div class="form-group">
+              <label>Inbound calls</label>
+              <select v-model="callSettings.inbound_enabled" class="select">
+                <option :value="true">Enabled</option>
+                <option :value="false">Disabled</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Outbound calls</label>
+              <select v-model="callSettings.outbound_enabled" class="select">
+                <option :value="true">Enabled</option>
+                <option :value="false">Disabled</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Forward calls to</label>
+              <input v-model="callSettings.forward_to_phone" class="input" placeholder="+15551234567" />
+            </div>
+            <div class="form-group">
+              <label>Call recording</label>
+              <select v-model="callSettings.allow_call_recording" class="select">
+                <option :value="false">Disabled</option>
+                <option :value="true">Enabled</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Voicemail fallback</label>
+              <select v-model="callSettings.voicemail_enabled" class="select">
+                <option :value="false">Disabled</option>
+                <option :value="true">Enabled</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Voicemail message</label>
+              <input v-model="callSettings.voicemail_message" class="input" placeholder="Sorry we missed your call. Please call back later." />
+            </div>
+            <div class="form-group">
+              <label>Provider ring timeout (agency)</label>
+              <input :value="callSettings.provider_ring_timeout_seconds" class="input" disabled />
+            </div>
+          </div>
+          <div class="actions">
+            <button class="btn btn-secondary" @click="saveCallSettings" :disabled="savingCallSettings">
+              {{ savingCallSettings ? 'Saving…' : 'Save call settings' }}
+            </button>
+          </div>
+        </div>
+        <div class="card calls-settings-card">
+          <div class="top" style="margin-bottom:8px;">
+            <span class="badge ticket">ANALYTICS</span>
+            <span class="owner">Last {{ callAnalytics.days }} days</span>
+          </div>
+          <div class="grid">
+            <div class="form-group">
+              <label>Total calls</label>
+              <div class="metric">{{ callAnalytics.summary.total }}</div>
+            </div>
+            <div class="form-group">
+              <label>Answered</label>
+              <div class="metric">{{ callAnalytics.summary.answered }}</div>
+            </div>
+            <div class="form-group">
+              <label>Missed</label>
+              <div class="metric">{{ callAnalytics.summary.missed }}</div>
+            </div>
+            <div class="form-group">
+              <label>Avg duration</label>
+              <div class="metric">{{ Math.round(callAnalytics.summary.avgDurationSeconds || 0) }}s</div>
+            </div>
+            <div class="form-group">
+              <label>Voicemails</label>
+              <div class="metric">{{ callAnalytics.summary.voicemailCount || 0 }}</div>
+            </div>
+          </div>
+        </div>
+        <div class="card calls-settings-card">
+          <div class="top" style="margin-bottom:8px;">
+            <span class="badge ticket">VOICEMAILS</span>
+            <span class="owner">Recorded voicemail inbox</span>
+          </div>
+          <div v-if="voicemailLoading" class="loading">Loading voicemails…</div>
+          <div v-else-if="voicemails.length === 0" class="empty">No voicemails in the selected period.</div>
+          <div v-else class="list">
+            <div v-for="vm in voicemails" :key="`vm-${vm.id}`" class="row">
+              <div class="left">
+                <div class="top">
+                  <span class="badge in">VOICEMAIL</span>
+                  <span class="client">From: {{ vm.from_number || '—' }}</span>
+                  <span class="owner">To: {{ vm.to_number || '—' }}</span>
+                </div>
+                <div class="body">
+                  Duration: {{ vm.duration_seconds || 0 }}s · Status: {{ String(vm.status || 'recorded').toUpperCase() }}
+                </div>
+              </div>
+              <div class="right">
+                <div class="time">{{ formatTime(vm.created_at) }}</div>
+                <button class="btn btn-secondary btn-xs" @click="playVoicemail(vm)" :disabled="playingVoicemailId === vm.id">
+                  {{ playingVoicemailId === vm.id ? 'Loading…' : 'Play' }}
+                </button>
+              </div>
+            </div>
+          </div>
+          <audio v-if="voicemailAudioSrc" :src="voicemailAudioSrc" controls style="margin-top:8px; width:100%;" />
+        </div>
+        <div v-if="callsError" class="error-box">{{ callsError }}</div>
+        <div v-else-if="callsLoading" class="loading">Loading call activity…</div>
+        <div v-else-if="!callsEnabled" class="empty">
+          Voice logs are not enabled in this environment yet. This tab is ready for Twilio voice rollout.
+        </div>
+        <div v-else-if="callRows.length === 0" class="empty">No call logs yet.</div>
+        <div v-else class="list" data-tour="comms-list">
+          <div v-for="c in callRows" :key="`call-${c.id || c.sid || c.created_at}`" class="row">
+            <div class="left">
+              <div class="top">
+                <span class="badge ticket">CALL</span>
+                <span class="client">From: {{ c.from_number || c.from || '—' }}</span>
+                <span class="owner">To: {{ c.to_number || c.to || '—' }}</span>
+              </div>
+              <div class="body">
+                Status: {{ String(c.status || c.call_status || 'unknown').toUpperCase() }}
+                <span v-if="c.duration_seconds || c.duration"> · Duration: {{ c.duration_seconds || c.duration }}s</span>
+              </div>
+            </div>
+            <div class="right">
+              <div class="time">{{ formatTime(c.started_at || c.created_at || c.end_time) }}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div v-else-if="activeTab === 'automation'">
+        <div class="toolbar">
+          <div class="inline">
+            <select v-model="platformChannel" class="select">
+              <option value="email">Email</option>
+              <option value="sms">Text</option>
+            </select>
+            <select v-model="platformStatus" class="select">
+              <option value="pending">Pending</option>
+              <option value="failed">Failed</option>
+            </select>
+            <button class="btn btn-secondary" @click="loadPlatform" :disabled="platformLoading">
+              {{ platformLoading ? 'Loading…' : 'Refresh queue' }}
+            </button>
+          </div>
+        </div>
+        <div v-if="platformError" class="error-box">{{ platformError }}</div>
+        <div v-else-if="platformLoading" class="loading">Loading delivery queue…</div>
+        <div v-else-if="platformRows.length === 0" class="empty">No platform communications found.</div>
+        <div v-else class="list">
+          <div v-for="c in platformRows" :key="`automation-${c.id}`" class="row">
+            <div class="left">
+              <div class="top">
+                <span class="badge">{{ String(c.channel || 'msg').toUpperCase() }}</span>
+                <span class="client">{{ c.subject || c.template_type || 'Message' }}</span>
+                <span class="owner">{{ c.recipient_address || c.user_email || '—' }}</span>
+              </div>
+              <div class="body">{{ c.body }}</div>
+            </div>
+            <div class="right">
+              <div class="time">{{ formatTime(c.generated_at || c.created_at) }}</div>
+            </div>
+          </div>
         </div>
       </div>
       <div v-else>
@@ -114,7 +290,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
@@ -128,6 +304,35 @@ const route = useRoute();
 const loading = ref(true);
 const error = ref('');
 const rows = ref([]);
+const callsLoading = ref(false);
+const callsError = ref('');
+const callsEnabled = ref(false);
+const callRows = ref([]);
+const callSettings = ref({
+  inbound_enabled: true,
+  outbound_enabled: true,
+  forward_to_phone: '',
+  allow_call_recording: false,
+  voicemail_enabled: false,
+  voicemail_message: '',
+  provider_ring_timeout_seconds: 20
+});
+const savingCallSettings = ref(false);
+const callAnalytics = ref({
+  enabled: false,
+  days: 30,
+  summary: { total: 0, inbound: 0, outbound: 0, answered: 0, missed: 0, avgDurationSeconds: 0, voicemailCount: 0 },
+  byStatus: []
+});
+const voicemailLoading = ref(false);
+const voicemails = ref([]);
+const voicemailAudioSrc = ref('');
+const playingVoicemailId = ref(null);
+const platformLoading = ref(false);
+const platformError = ref('');
+const platformRows = ref([]);
+const platformChannel = ref('email');
+const platformStatus = ref('pending');
 const schoolLoading = ref(false);
 const schoolError = ref('');
 const schoolRows = ref([]);
@@ -136,6 +341,31 @@ const chatsLink = computed(() => {
   const slug = route.params.organizationSlug;
   if (typeof slug === 'string' && slug) return `/${slug}/admin/communications/chats`;
   return '/admin/communications/chats';
+});
+const smsInboxLink = computed(() => {
+  const slug = route.params.organizationSlug;
+  if (typeof slug === 'string' && slug) return `/${slug}/admin/communications/sms`;
+  return '/admin/communications/sms';
+});
+const preferencesLink = computed(() => {
+  const slug = route.params.organizationSlug;
+  if (typeof slug === 'string' && slug) return `/${slug}/preferences`;
+  return '/preferences';
+});
+const textingSettingsLink = computed(() => {
+  const slug = route.params.organizationSlug;
+  const base = typeof slug === 'string' && slug ? `/${slug}/admin/settings` : '/admin/settings';
+  return `${base}?category=system&item=sms-numbers`;
+});
+const canManageTexting = computed(() => {
+  const role = String(authStore.user?.role || '').toLowerCase();
+  return role === 'admin' || role === 'support' || role === 'super_admin' || role === 'clinical_practice_assistant';
+});
+const currentAgencyId = computed(() => {
+  const direct = agencyStore.currentAgency?.id || agencyStore.currentAgency?.value?.id;
+  if (direct) return Number(direct);
+  const list = agencyStore.userAgencies?.value || agencyStore.userAgencies || [];
+  return Number(list?.[0]?.id || 0) || null;
 });
 
 const ticketsLink = computed(() => {
@@ -147,6 +377,8 @@ const ticketsLink = computed(() => {
 const activeTab = computed(() => {
   const t = String(route.query?.tab || 'all');
   if (t === 'texts') return 'texts';
+  if (t === 'calls') return 'calls';
+  if (t === 'automation') return 'automation';
   if (t === 'school') return 'school';
   return 'all';
 });
@@ -204,6 +436,137 @@ const load = async () => {
     }
   } finally {
     loading.value = false;
+  }
+};
+
+const loadCalls = async () => {
+  try {
+    callsLoading.value = true;
+    callsError.value = '';
+    const params = { limit: 75 };
+    if (currentAgencyId.value) params.agencyId = currentAgencyId.value;
+    const resp = await api.get('/communications/calls', { params });
+    callsEnabled.value = resp.data?.enabled === true;
+    callRows.value = Array.isArray(resp.data?.items) ? resp.data.items : [];
+  } catch (e) {
+    callsError.value = e.response?.data?.error?.message || 'Failed to load call activity';
+    callsEnabled.value = false;
+    callRows.value = [];
+  } finally {
+    callsLoading.value = false;
+  }
+};
+
+const loadCallSettings = async () => {
+  try {
+    const resp = await api.get('/communications/calls/settings');
+    callSettings.value = {
+      inbound_enabled: resp.data?.inbound_enabled !== false,
+      outbound_enabled: resp.data?.outbound_enabled !== false,
+      forward_to_phone: resp.data?.forward_to_phone || '',
+      allow_call_recording: resp.data?.allow_call_recording === true,
+      voicemail_enabled: resp.data?.voicemail_enabled === true,
+      voicemail_message: resp.data?.voicemail_message || '',
+      provider_ring_timeout_seconds: Number(resp.data?.provider_ring_timeout_seconds || 20) || 20
+    };
+  } catch {
+    // keep defaults to avoid blocking calls tab
+  }
+};
+
+const saveCallSettings = async () => {
+  try {
+    savingCallSettings.value = true;
+    callsError.value = '';
+    await api.put('/communications/calls/settings', {
+      inbound_enabled: callSettings.value.inbound_enabled,
+      outbound_enabled: callSettings.value.outbound_enabled,
+      forward_to_phone: callSettings.value.forward_to_phone || null,
+      allow_call_recording: callSettings.value.allow_call_recording,
+      voicemail_enabled: callSettings.value.voicemail_enabled,
+      voicemail_message: callSettings.value.voicemail_message || null
+    });
+  } catch (e) {
+    callsError.value = e.response?.data?.error?.message || 'Failed to save call settings';
+  } finally {
+    savingCallSettings.value = false;
+  }
+};
+
+const loadCallAnalytics = async () => {
+  try {
+    const params = { days: 30 };
+    if (currentAgencyId.value) params.agencyId = currentAgencyId.value;
+    const resp = await api.get('/communications/calls/analytics', { params });
+    callAnalytics.value = {
+      enabled: resp.data?.enabled === true,
+      days: Number(resp.data?.days || 30) || 30,
+      summary: {
+        total: Number(resp.data?.summary?.total || 0),
+        inbound: Number(resp.data?.summary?.inbound || 0),
+        outbound: Number(resp.data?.summary?.outbound || 0),
+        answered: Number(resp.data?.summary?.answered || 0),
+        missed: Number(resp.data?.summary?.missed || 0),
+        avgDurationSeconds: Number(resp.data?.summary?.avgDurationSeconds || 0),
+        voicemailCount: Number(resp.data?.summary?.voicemailCount || 0)
+      },
+      byStatus: Array.isArray(resp.data?.byStatus) ? resp.data.byStatus : []
+    };
+  } catch {
+    // Keep calls tab functional even if analytics is unavailable
+  }
+};
+
+const loadVoicemails = async () => {
+  try {
+    voicemailLoading.value = true;
+    const params = { days: 30, limit: 100 };
+    if (currentAgencyId.value) params.agencyId = currentAgencyId.value;
+    const resp = await api.get('/communications/calls/voicemails', { params });
+    voicemails.value = Array.isArray(resp.data) ? resp.data : [];
+  } catch {
+    voicemails.value = [];
+  } finally {
+    voicemailLoading.value = false;
+  }
+};
+
+const playVoicemail = async (vm) => {
+  if (!vm?.id) return;
+  try {
+    playingVoicemailId.value = vm.id;
+    const resp = await api.get(`/communications/calls/voicemails/${vm.id}/audio`, { responseType: 'blob' });
+    if (voicemailAudioSrc.value) {
+      URL.revokeObjectURL(voicemailAudioSrc.value);
+    }
+    voicemailAudioSrc.value = URL.createObjectURL(resp.data);
+  } catch (e) {
+    callsError.value = e.response?.data?.error?.message || 'Failed to load voicemail audio';
+  } finally {
+    playingVoicemailId.value = null;
+  }
+};
+
+const loadPlatform = async () => {
+  try {
+    platformLoading.value = true;
+    platformError.value = '';
+    if (!currentAgencyId.value) {
+      platformRows.value = [];
+      return;
+    }
+    const params = {
+      agencyId: currentAgencyId.value,
+      channel: platformChannel.value,
+      status: platformStatus.value
+    };
+    const resp = await api.get('/communications/pending', { params });
+    platformRows.value = Array.isArray(resp.data) ? resp.data : [];
+  } catch (e) {
+    platformError.value = e.response?.data?.error?.message || 'Failed to load platform communications';
+    platformRows.value = [];
+  } finally {
+    platformLoading.value = false;
   }
 };
 
@@ -317,7 +680,12 @@ const openItem = async (i) => {
   }
   if (i.kind === 'sms') {
     if (!i.user_id || !i.client_id) return;
-    router.push(`/admin/communications/thread/${i.user_id}/${i.client_id}`);
+    const slug = route.params.organizationSlug;
+    if (typeof slug === 'string' && slug) {
+      router.push({ path: `/${slug}/admin/communications/sms`, query: { clientId: String(i.client_id) } });
+    } else {
+      router.push({ path: '/admin/communications/sms', query: { clientId: String(i.client_id) } });
+    }
     return;
   }
   // Chat: go to chats UI and auto-open the thread.
@@ -387,6 +755,10 @@ const schoolBadgeClass = (i) => {
 const refreshActive = async () => {
   if (activeTab.value === 'school') {
     await loadSchoolNotifications();
+  } else if (activeTab.value === 'calls') {
+    await Promise.all([loadCalls(), loadCallAnalytics(), loadVoicemails()]);
+  } else if (activeTab.value === 'automation') {
+    await loadPlatform();
   } else {
     await load();
   }
@@ -405,13 +777,30 @@ onMounted(async () => {
     return;
   }
   await load();
+  await Promise.all([loadCalls(), loadCallAnalytics(), loadVoicemails()]);
+  await loadCallSettings();
   if (activeTab.value === 'school') await loadSchoolNotifications();
+  if (activeTab.value === 'automation') await loadPlatform();
 });
 
 watch(activeTab, async (tab) => {
   if (tab === 'school' && schoolRows.value.length === 0 && !schoolLoading.value) {
     await loadSchoolNotifications();
   }
+  if (tab === 'calls' && callRows.value.length === 0 && !callsLoading.value) {
+    await Promise.all([loadCalls(), loadCallAnalytics(), loadVoicemails()]);
+  }
+  if (tab === 'automation' && platformRows.value.length === 0 && !platformLoading.value) {
+    await loadPlatform();
+  }
+});
+
+watch([platformChannel, platformStatus, currentAgencyId], async () => {
+  if (activeTab.value === 'automation') await loadPlatform();
+});
+
+onBeforeUnmount(() => {
+  if (voicemailAudioSrc.value) URL.revokeObjectURL(voicemailAudioSrc.value);
 });
 </script>
 
@@ -454,6 +843,41 @@ watch(activeTab, async (tab) => {
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 14px;
+}
+.calls-settings-card {
+  margin-bottom: 12px;
+}
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.input {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.metric {
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+.actions {
+  margin-top: 10px;
+}
+.toolbar {
+  margin-bottom: 10px;
+}
+.inline {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
 }
 .list {
   display: flex;

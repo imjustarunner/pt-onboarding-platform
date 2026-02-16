@@ -1,11 +1,13 @@
 import pool from '../config/database.js';
 import Agency from '../models/Agency.model.js';
 import User from '../models/User.model.js';
+import Client from '../models/Client.model.js';
 import TwilioNumber from '../models/TwilioNumber.model.js';
 import TwilioNumberAssignment from '../models/TwilioNumberAssignment.model.js';
 import TwilioNumberRule from '../models/TwilioNumberRule.model.js';
+import TwilioOptInState from '../models/TwilioOptInState.model.js';
 import TwilioService from '../services/twilio.service.js';
-import { resolveOutboundNumber } from '../services/twilioNumberRouting.service.js';
+import { resolveOutboundNumber, resolveReminderNumber } from '../services/twilioNumberRouting.service.js';
 
 const parseFeatureFlags = (raw) => {
   if (!raw) return {};
@@ -15,6 +17,11 @@ const parseFeatureFlags = (raw) => {
   } catch {
     return {};
   }
+};
+
+const normalizeUrl = (value) => {
+  const v = String(value || '').trim();
+  return v || null;
 };
 
 async function assertNumberAccess(req, numberId, { requireAdmin = false } = {}) {
@@ -54,11 +61,19 @@ export const getAgencySmsSettings = async (req, res, next) => {
       agencyId,
       smsNumbersEnabled: flags.smsNumbersEnabled === true,
       smsComplianceMode: flags.smsComplianceMode || 'opt_in_required',
+      smsReminderSenderMode: flags.smsReminderSenderMode || 'agency_default',
       smsDefaultUserId: flags.smsDefaultUserId || null,
       companyEventsEnabled: flags.companyEventsEnabled === true,
       companyEventsSenderNumberId: flags.companyEventsSenderNumberId
         ? Number(flags.companyEventsSenderNumberId)
-        : null
+        : null,
+      voiceSupportFallbackPhone: flags.voiceSupportFallbackPhone || null,
+      voiceSupportFallbackMessage: flags.voiceSupportFallbackMessage || null,
+      voiceProviderRingTimeoutSeconds: Number(flags.voiceProviderRingTimeoutSeconds || 20) || 20,
+      voiceProviderPreConnectMessage: flags.voiceProviderPreConnectMessage || null,
+      voiceSupportPreConnectMessage: flags.voiceSupportPreConnectMessage || null,
+      smsSupportFallbackPhone: flags.smsSupportFallbackPhone || null,
+      smsSupportEscalationHours: Number(flags.smsSupportEscalationHours || 12) || 12
     });
   } catch (e) {
     next(e);
@@ -75,12 +90,21 @@ export const updateAgencySmsSettings = async (req, res, next) => {
     const {
       smsNumbersEnabled,
       smsComplianceMode,
+      smsReminderSenderMode,
       smsDefaultUserId,
       companyEventsEnabled,
-      companyEventsSenderNumberId
+      companyEventsSenderNumberId,
+      voiceSupportFallbackPhone,
+      voiceSupportFallbackMessage,
+      voiceProviderRingTimeoutSeconds,
+      voiceProviderPreConnectMessage,
+      voiceSupportPreConnectMessage,
+      smsSupportFallbackPhone,
+      smsSupportEscalationHours
     } = req.body || {};
     if (smsNumbersEnabled != null) flags.smsNumbersEnabled = !!smsNumbersEnabled;
     if (smsComplianceMode) flags.smsComplianceMode = String(smsComplianceMode);
+    if (smsReminderSenderMode) flags.smsReminderSenderMode = String(smsReminderSenderMode);
     if (smsDefaultUserId !== undefined) flags.smsDefaultUserId = smsDefaultUserId ? Number(smsDefaultUserId) : null;
     if (companyEventsEnabled !== undefined) flags.companyEventsEnabled = !!companyEventsEnabled;
     if (companyEventsSenderNumberId !== undefined) {
@@ -98,17 +122,52 @@ export const updateAgencySmsSettings = async (req, res, next) => {
         flags.company_events_short_code = null;
       }
     }
+    if (voiceSupportFallbackPhone !== undefined) {
+      flags.voiceSupportFallbackPhone = voiceSupportFallbackPhone ? String(voiceSupportFallbackPhone).trim() : null;
+    }
+    if (voiceSupportFallbackMessage !== undefined) {
+      flags.voiceSupportFallbackMessage = voiceSupportFallbackMessage ? String(voiceSupportFallbackMessage).trim() : null;
+    }
+    if (voiceProviderRingTimeoutSeconds !== undefined) {
+      const n = parseInt(voiceProviderRingTimeoutSeconds, 10);
+      flags.voiceProviderRingTimeoutSeconds = Number.isFinite(n) ? Math.min(Math.max(n, 10), 60) : 20;
+    }
+    if (voiceProviderPreConnectMessage !== undefined) {
+      flags.voiceProviderPreConnectMessage = voiceProviderPreConnectMessage
+        ? String(voiceProviderPreConnectMessage).trim()
+        : null;
+    }
+    if (voiceSupportPreConnectMessage !== undefined) {
+      flags.voiceSupportPreConnectMessage = voiceSupportPreConnectMessage
+        ? String(voiceSupportPreConnectMessage).trim()
+        : null;
+    }
+    if (smsSupportFallbackPhone !== undefined) {
+      flags.smsSupportFallbackPhone = smsSupportFallbackPhone ? String(smsSupportFallbackPhone).trim() : null;
+    }
+    if (smsSupportEscalationHours !== undefined) {
+      const n = parseInt(smsSupportEscalationHours, 10);
+      flags.smsSupportEscalationHours = Number.isFinite(n) ? Math.min(Math.max(n, 1), 168) : 12;
+    }
 
     await pool.execute('UPDATE agencies SET feature_flags = ? WHERE id = ?', [JSON.stringify(flags), agencyId]);
     res.json({
       agencyId,
       smsNumbersEnabled: flags.smsNumbersEnabled === true,
       smsComplianceMode: flags.smsComplianceMode || 'opt_in_required',
+      smsReminderSenderMode: flags.smsReminderSenderMode || 'agency_default',
       smsDefaultUserId: flags.smsDefaultUserId || null,
       companyEventsEnabled: flags.companyEventsEnabled === true,
       companyEventsSenderNumberId: flags.companyEventsSenderNumberId
         ? Number(flags.companyEventsSenderNumberId)
-        : null
+        : null,
+      voiceSupportFallbackPhone: flags.voiceSupportFallbackPhone || null,
+      voiceSupportFallbackMessage: flags.voiceSupportFallbackMessage || null,
+      voiceProviderRingTimeoutSeconds: Number(flags.voiceProviderRingTimeoutSeconds || 20) || 20,
+      voiceProviderPreConnectMessage: flags.voiceProviderPreConnectMessage || null,
+      voiceSupportPreConnectMessage: flags.voiceSupportPreConnectMessage || null,
+      smsSupportFallbackPhone: flags.smsSupportFallbackPhone || null,
+      smsSupportEscalationHours: Number(flags.smsSupportEscalationHours || 12) || 12
     });
   } catch (e) {
     next(e);
@@ -155,7 +214,8 @@ export const purchaseNumber = async (req, res, next) => {
     if (!phoneNumber) return res.status(400).json({ error: { message: 'phoneNumber is required' } });
 
     const smsUrl = process.env.TWILIO_SMS_WEBHOOK_URL || null;
-    const purchased = await TwilioService.purchaseNumber({ phoneNumber, friendlyName, smsUrl });
+    const voiceUrl = process.env.TWILIO_VOICE_WEBHOOK_URL || null;
+    const purchased = await TwilioService.purchaseNumber({ phoneNumber, friendlyName, smsUrl, voiceUrl });
     const record = await TwilioNumber.create({
       agencyId,
       phoneNumber: purchased.phoneNumber || phoneNumber,
@@ -314,6 +374,222 @@ export const resolveOutboundPreview = async (req, res, next) => {
     res.json({
       number: resolved.number,
       ownerType: resolved.ownerType
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const resolveReminderPreview = async (req, res, next) => {
+  try {
+    const { clientId, providerUserId } = req.query || {};
+    const providerId = providerUserId ? parseInt(providerUserId, 10) : req.user?.id;
+    const resolved = await resolveReminderNumber({
+      providerUserId: providerId,
+      clientId: clientId ? parseInt(clientId, 10) : null
+    });
+    if (!resolved?.number) return res.status(404).json({ error: { message: 'No available reminder number' } });
+    res.json({
+      number: resolved.number,
+      ownerType: resolved.ownerType
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const getClientConsentStates = async (req, res, next) => {
+  try {
+    const clientId = parseInt(req.params.clientId, 10);
+    if (!clientId) return res.status(400).json({ error: { message: 'Invalid clientId' } });
+    const client = await Client.findById(clientId, { includeSensitive: false });
+    if (!client) return res.status(404).json({ error: { message: 'Client not found' } });
+    const requesterAgencies = await User.getAgencies(req.user?.id);
+    const ok = (requesterAgencies || []).some((a) => Number(a?.id) === Number(client.agency_id));
+    if (!ok && req.user?.role !== 'super_admin') return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const numbers = await TwilioNumber.listByAgency(client.agency_id, { includeInactive: false });
+    const states = [];
+    for (const n of numbers || []) {
+      const state = await TwilioOptInState.findByClientNumber({ clientId, numberId: n.id });
+      states.push({
+        numberId: n.id,
+        phoneNumber: n.phone_number,
+        status: state?.status || 'pending',
+        source: state?.source || null,
+        updatedAt: state?.updated_at || null
+      });
+    }
+    res.json({
+      clientId,
+      agencyId: client.agency_id,
+      states
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const updateClientConsentState = async (req, res, next) => {
+  try {
+    const clientId = parseInt(req.params.clientId, 10);
+    const numberId = parseInt(req.body?.numberId, 10);
+    const status = String(req.body?.status || '').trim().toLowerCase();
+    if (!clientId || !numberId) {
+      return res.status(400).json({ error: { message: 'clientId and numberId are required' } });
+    }
+    if (!['opted_in', 'opted_out', 'pending'].includes(status)) {
+      return res.status(400).json({ error: { message: 'status must be opted_in, opted_out, or pending' } });
+    }
+    const client = await Client.findById(clientId, { includeSensitive: false });
+    if (!client) return res.status(404).json({ error: { message: 'Client not found' } });
+    const number = await TwilioNumber.findById(numberId);
+    if (!number || Number(number.agency_id) !== Number(client.agency_id)) {
+      return res.status(400).json({ error: { message: 'Selected number is invalid for this client agency' } });
+    }
+    const requesterAgencies = await User.getAgencies(req.user?.id);
+    const ok = (requesterAgencies || []).some((a) => Number(a?.id) === Number(client.agency_id));
+    if (!ok && req.user?.role !== 'super_admin') return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const updated = await TwilioOptInState.upsert({
+      agencyId: client.agency_id,
+      clientId,
+      numberId,
+      status,
+      source: req.body?.source || 'manual_update'
+    });
+    res.json(updated);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const getAgencyWebhookStatus = async (req, res, next) => {
+  try {
+    const agencyId = parseInt(req.params.agencyId, 10);
+    if (!agencyId) return res.status(400).json({ error: { message: 'Invalid agencyId' } });
+
+    const expectedSmsUrl = normalizeUrl(process.env.TWILIO_SMS_WEBHOOK_URL);
+    const expectedVoiceUrl = normalizeUrl(process.env.TWILIO_VOICE_WEBHOOK_URL);
+    const expectedSmsConfigured = Boolean(expectedSmsUrl);
+    const expectedVoiceConfigured = Boolean(expectedVoiceUrl);
+
+    const numbers = await TwilioNumber.listByAgency(agencyId, { includeInactive: true });
+    const statuses = await Promise.all(
+      (numbers || []).map(async (n) => {
+        if (!n?.twilio_sid) {
+          return {
+            numberId: n.id,
+            phoneNumber: n.phone_number,
+            twilioSid: null,
+            provider: 'manual',
+            smsUrl: null,
+            voiceUrl: null,
+            smsMatches: false,
+            voiceMatches: false,
+            canSync: false
+          };
+        }
+        try {
+          const fetched = await TwilioService.getIncomingNumber({ incomingPhoneNumberSid: n.twilio_sid });
+          const smsUrl = normalizeUrl(fetched?.smsUrl || fetched?.sms_url);
+          const voiceUrl = normalizeUrl(fetched?.voiceUrl || fetched?.voice_url);
+          return {
+            numberId: n.id,
+            phoneNumber: n.phone_number,
+            twilioSid: n.twilio_sid,
+            provider: 'twilio',
+            smsUrl,
+            voiceUrl,
+            smsMatches: expectedSmsUrl ? smsUrl === expectedSmsUrl : false,
+            voiceMatches: expectedVoiceUrl ? voiceUrl === expectedVoiceUrl : false,
+            canSync: true
+          };
+        } catch (e) {
+          return {
+            numberId: n.id,
+            phoneNumber: n.phone_number,
+            twilioSid: n.twilio_sid,
+            provider: 'twilio',
+            error: e?.message || 'Failed to read Twilio number',
+            smsUrl: null,
+            voiceUrl: null,
+            smsMatches: false,
+            voiceMatches: false,
+            canSync: true
+          };
+        }
+      })
+    );
+
+    res.json({
+      agencyId,
+      expected: {
+        smsUrl: expectedSmsUrl,
+        voiceUrl: expectedVoiceUrl,
+        smsConfigured: expectedSmsConfigured,
+        voiceConfigured: expectedVoiceConfigured
+      },
+      statuses
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const syncAgencyWebhooks = async (req, res, next) => {
+  try {
+    const agencyId = parseInt(req.params.agencyId, 10);
+    if (!agencyId) return res.status(400).json({ error: { message: 'Invalid agencyId' } });
+
+    const smsUrl = normalizeUrl(process.env.TWILIO_SMS_WEBHOOK_URL);
+    const voiceUrl = normalizeUrl(process.env.TWILIO_VOICE_WEBHOOK_URL);
+    if (!smsUrl && !voiceUrl) {
+      return res.status(400).json({ error: { message: 'No webhook URLs configured. Set TWILIO_SMS_WEBHOOK_URL and/or TWILIO_VOICE_WEBHOOK_URL.' } });
+    }
+
+    const numbers = await TwilioNumber.listByAgency(agencyId, { includeInactive: true });
+    const results = [];
+    for (const n of numbers || []) {
+      if (!n?.twilio_sid) {
+        results.push({
+          numberId: n.id,
+          phoneNumber: n.phone_number,
+          twilioSid: null,
+          synced: false,
+          reason: 'manual_number_no_twilio_sid'
+        });
+        continue;
+      }
+      try {
+        const updated = await TwilioService.updateIncomingNumberWebhooks({
+          incomingPhoneNumberSid: n.twilio_sid,
+          smsUrl: smsUrl || undefined,
+          voiceUrl: voiceUrl || undefined
+        });
+        results.push({
+          numberId: n.id,
+          phoneNumber: n.phone_number,
+          twilioSid: n.twilio_sid,
+          synced: true,
+          smsUrl: normalizeUrl(updated?.smsUrl || updated?.sms_url),
+          voiceUrl: normalizeUrl(updated?.voiceUrl || updated?.voice_url)
+        });
+      } catch (err) {
+        results.push({
+          numberId: n.id,
+          phoneNumber: n.phone_number,
+          twilioSid: n.twilio_sid,
+          synced: false,
+          error: err?.message || 'Failed to sync webhooks'
+        });
+      }
+    }
+
+    res.json({
+      agencyId,
+      requested: { smsUrl, voiceUrl },
+      results
     });
   } catch (e) {
     next(e);

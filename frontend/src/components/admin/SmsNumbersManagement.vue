@@ -29,6 +29,13 @@
             </select>
           </div>
           <div class="form-group">
+            <label>Reminder sender mode</label>
+            <select v-model="settings.smsReminderSenderMode" class="select">
+              <option value="agency_default">Agency number by default</option>
+              <option value="provider_optional">Provider number when provider preference is enabled</option>
+            </select>
+          </div>
+          <div class="form-group">
             <label>Default inbound user</label>
             <select v-model="settings.smsDefaultUserId" class="select">
               <option :value="null">None</option>
@@ -53,10 +60,58 @@
               </option>
             </select>
           </div>
+          <div class="form-group">
+            <label>SMS support fallback phone</label>
+            <input v-model="settings.smsSupportFallbackPhone" class="input" placeholder="+15551234567" />
+          </div>
+          <div class="form-group">
+            <label>SMS support escalation timeout (hours)</label>
+            <input v-model.number="settings.smsSupportEscalationHours" class="input" type="number" min="1" max="168" />
+          </div>
+          <div class="form-group">
+            <label>Voice support fallback phone</label>
+            <input v-model="settings.voiceSupportFallbackPhone" class="input" placeholder="+15551234567" />
+          </div>
+          <div class="form-group">
+            <label>Voice support fallback message</label>
+            <input v-model="settings.voiceSupportFallbackMessage" class="input" placeholder="Please hold while we connect you to support." />
+          </div>
+          <div class="form-group">
+            <label>Voice provider pre-connect message</label>
+            <input v-model="settings.voiceProviderPreConnectMessage" class="input" placeholder="Please hold while we connect your call." />
+          </div>
+          <div class="form-group">
+            <label>Voice support pre-connect message</label>
+            <input v-model="settings.voiceSupportPreConnectMessage" class="input" placeholder="Please hold while we connect you to support." />
+          </div>
+          <div class="form-group">
+            <label>Provider ring timeout (seconds)</label>
+            <input v-model.number="settings.voiceProviderRingTimeoutSeconds" class="input" type="number" min="10" max="60" />
+          </div>
         </div>
         <p v-if="settings.companyEventsEnabled && !settings.companyEventsSenderNumberId" class="muted" style="margin-top:8px;">
           Set a sender number before using Company Events SMS.
         </p>
+        <div class="webhook-status-card">
+          <div class="webhook-status-header">
+            <strong>Webhook readiness</strong>
+            <div class="inline">
+              <button class="btn btn-secondary" :disabled="loadingWebhookStatus" @click="loadWebhookStatus">
+                {{ loadingWebhookStatus ? 'Checking…' : 'Check status' }}
+              </button>
+              <button class="btn btn-secondary" :disabled="syncingWebhooks" @click="syncWebhooks">
+                {{ syncingWebhooks ? 'Syncing…' : 'Sync Twilio webhooks' }}
+              </button>
+            </div>
+          </div>
+          <div v-if="webhookError" class="error">{{ webhookError }}</div>
+          <div class="muted">
+            Expected SMS URL: {{ webhookExpected.smsUrl || 'Not configured' }}
+          </div>
+          <div class="muted">
+            Expected Voice URL: {{ webhookExpected.voiceUrl || 'Not configured' }}
+          </div>
+        </div>
         <div class="actions">
           <button class="btn" :disabled="savingSettings" @click="saveSettings">
             {{ savingSettings ? 'Saving…' : 'Save settings' }}
@@ -104,6 +159,16 @@
               <div class="title">{{ n.phone_number }}</div>
               <div class="muted">
                 Status: {{ n.status }} · {{ n.is_active ? 'Active' : 'Inactive' }}
+              </div>
+              <div class="muted">
+                SMS webhook:
+                <span :class="statusClass(numberWebhookStatus(n.id)?.smsMatches)">
+                  {{ webhookLabel(numberWebhookStatus(n.id)?.smsMatches, numberWebhookStatus(n.id)) }}
+                </span>
+                · Voice webhook:
+                <span :class="statusClass(numberWebhookStatus(n.id)?.voiceMatches)">
+                  {{ webhookLabel(numberWebhookStatus(n.id)?.voiceMatches, numberWebhookStatus(n.id)) }}
+                </span>
               </div>
               <div class="muted" v-if="n.assignments?.length">
                 Assigned to: {{ assignmentLabel(n.assignments[0]) }}
@@ -233,12 +298,25 @@ const agencyStore = useAgencyStore();
 const settings = ref({
   smsNumbersEnabled: false,
   smsComplianceMode: 'opt_in_required',
+  smsReminderSenderMode: 'agency_default',
   smsDefaultUserId: null,
   companyEventsEnabled: false,
-  companyEventsSenderNumberId: null
+  companyEventsSenderNumberId: null,
+  smsSupportFallbackPhone: '',
+  smsSupportEscalationHours: 12,
+  voiceSupportFallbackPhone: '',
+  voiceSupportFallbackMessage: '',
+  voiceProviderRingTimeoutSeconds: 20,
+  voiceProviderPreConnectMessage: '',
+  voiceSupportPreConnectMessage: ''
 });
 const settingsError = ref('');
 const savingSettings = ref(false);
+const webhookExpected = ref({ smsUrl: null, voiceUrl: null });
+const webhookStatuses = ref([]);
+const webhookError = ref('');
+const loadingWebhookStatus = ref(false);
+const syncingWebhooks = ref(false);
 
 const numbers = ref([]);
 const agencyUsers = ref([]);
@@ -274,9 +352,17 @@ const loadSettings = async () => {
     settings.value = {
       smsNumbersEnabled: res.data?.smsNumbersEnabled === true,
       smsComplianceMode: res.data?.smsComplianceMode || 'opt_in_required',
+      smsReminderSenderMode: res.data?.smsReminderSenderMode || 'agency_default',
       smsDefaultUserId: res.data?.smsDefaultUserId || null,
       companyEventsEnabled: res.data?.companyEventsEnabled === true,
-      companyEventsSenderNumberId: res.data?.companyEventsSenderNumberId || null
+      companyEventsSenderNumberId: res.data?.companyEventsSenderNumberId || null,
+      smsSupportFallbackPhone: res.data?.smsSupportFallbackPhone || '',
+      smsSupportEscalationHours: Number(res.data?.smsSupportEscalationHours || 12) || 12,
+      voiceSupportFallbackPhone: res.data?.voiceSupportFallbackPhone || '',
+      voiceSupportFallbackMessage: res.data?.voiceSupportFallbackMessage || '',
+      voiceProviderRingTimeoutSeconds: Number(res.data?.voiceProviderRingTimeoutSeconds || 20) || 20,
+      voiceProviderPreConnectMessage: res.data?.voiceProviderPreConnectMessage || '',
+      voiceSupportPreConnectMessage: res.data?.voiceSupportPreConnectMessage || ''
     };
   } catch (e) {
     settingsError.value = e?.response?.data?.error?.message || 'Failed to load SMS settings';
@@ -293,6 +379,36 @@ const saveSettings = async () => {
     settingsError.value = e?.response?.data?.error?.message || 'Failed to save SMS settings';
   } finally {
     savingSettings.value = false;
+  }
+};
+
+const loadWebhookStatus = async () => {
+  if (!agencyId.value) return;
+  loadingWebhookStatus.value = true;
+  webhookError.value = '';
+  try {
+    const res = await api.get(`/sms-numbers/agency/${agencyId.value}/webhooks/status`);
+    webhookExpected.value = res.data?.expected || { smsUrl: null, voiceUrl: null };
+    webhookStatuses.value = Array.isArray(res.data?.statuses) ? res.data.statuses : [];
+  } catch (e) {
+    webhookError.value = e?.response?.data?.error?.message || 'Failed to load webhook status';
+    webhookStatuses.value = [];
+  } finally {
+    loadingWebhookStatus.value = false;
+  }
+};
+
+const syncWebhooks = async () => {
+  if (!agencyId.value) return;
+  syncingWebhooks.value = true;
+  webhookError.value = '';
+  try {
+    await api.post(`/sms-numbers/agency/${agencyId.value}/webhooks/sync`);
+    await loadWebhookStatus();
+  } catch (e) {
+    webhookError.value = e?.response?.data?.error?.message || 'Failed to sync webhooks';
+  } finally {
+    syncingWebhooks.value = false;
   }
 };
 
@@ -442,8 +558,23 @@ const assignmentLabel = (assignment) => {
   return `${user.first_name || ''} ${user.last_name || ''}`.trim();
 };
 
+const numberWebhookStatus = (numberId) => webhookStatuses.value.find((s) => Number(s.numberId) === Number(numberId)) || null;
+const webhookLabel = (matches, status) => {
+  if (!status) return 'Unknown';
+  if (status.provider === 'manual') return 'Manual';
+  if (status.error) return 'Error';
+  if (matches === true) return 'OK';
+  if (matches === false) return 'Mismatch';
+  return 'Unknown';
+};
+const statusClass = (matches) => {
+  if (matches === true) return 'status-ok';
+  if (matches === false) return 'status-bad';
+  return '';
+};
+
 const init = async () => {
-  await Promise.all([loadSettings(), loadNumbers(), loadUsers()]);
+  await Promise.all([loadSettings(), loadNumbers(), loadUsers(), loadWebhookStatus()]);
 };
 
 watch(agencyId, async (val) => {
@@ -518,6 +649,26 @@ onMounted(async () => {
 .error {
   color: #b91c1c;
   margin-bottom: 8px;
+}
+.webhook-status-card {
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  padding: 10px;
+  margin-top: 10px;
+}
+.webhook-status-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.status-ok {
+  color: #166534;
+  font-weight: 600;
+}
+.status-bad {
+  color: #b91c1c;
+  font-weight: 600;
 }
 .empty-state {
   color: var(--text-secondary);

@@ -2,7 +2,8 @@
   <div class="container">
     <div class="header" data-tour="notifhub-header">
       <h1 data-tour="notifhub-title">Notifications</h1>
-      <p class="sub">Personal + agency notifications in one place.</p>
+      <p class="sub">Alerts only. Use Communications workspace for texting, calls, and delivery queues.</p>
+      <router-link class="btn btn-secondary btn-sm" :to="communicationsLink">Open Communications</router-link>
     </div>
 
     <div class="card-grid" data-tour="notifhub-grid">
@@ -122,10 +123,10 @@
 
       <div v-if="showPlatformCard" class="card card-compact" data-tour="notifhub-card-platform">
         <div class="card-top">
-          <h2>Platform Communications</h2>
+          <h2>Delivery Alerts</h2>
           <span class="pill">{{ platformCount }} pending</span>
         </div>
-        <p class="hint">Pending/failed emails and texts that need review or manual approval.</p>
+        <p class="hint">Pending/failed emails and texts. Full queue controls also live in Communications → Automation.</p>
         <div class="platform-controls">
           <label class="field">
             Agency
@@ -239,6 +240,9 @@ const orgSlug = computed(() => {
   const s = route.params.organizationSlug;
   return typeof s === 'string' && s ? s : null;
 });
+const communicationsLink = computed(() => (
+  orgSlug.value ? `/${orgSlug.value}/admin/communications` : '/admin/communications'
+));
 
 const adminNotificationsLink = (agencyId) => {
   return orgSlug.value

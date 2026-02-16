@@ -904,6 +904,27 @@ app.listen(PORT, HOST, () => {
   scheduleProgramReminders();
   setInterval(scheduleProgramReminders, 5 * 60 * 1000);
 
+  // SMS support escalations (runs every 10 minutes)
+  const scheduleSmsSupportEscalations = async () => {
+    try {
+      const SmsSupportEscalationService = (await import('./services/smsSupportEscalation.service.js')).default;
+      await SmsSupportEscalationService.runTick();
+    } catch (error) {
+      const msg = String(error?.message || '');
+      const missing =
+        error?.code === 'ER_NO_SUCH_TABLE' ||
+        msg.includes('sms_thread_escalations');
+      if (missing) {
+        console.warn('SMS support escalation tables not found. Run migration 427_create_sms_thread_escalations.sql');
+      } else {
+        console.error('Error in SMS support escalation scheduler:', error);
+      }
+    }
+  };
+
+  scheduleSmsSupportEscalations();
+  setInterval(scheduleSmsSupportEscalations, 10 * 60 * 1000);
+
   // Company event RSVP reminders (runs every 10 minutes)
   const scheduleCompanyEventReminders = async () => {
     try {

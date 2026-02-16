@@ -4,6 +4,7 @@ import Client from '../models/Client.model.js';
 import Agency from '../models/Agency.model.js';
 import TwilioNumber from '../models/TwilioNumber.model.js';
 import TwilioNumberAssignment from '../models/TwilioNumberAssignment.model.js';
+import UserPreferences from '../models/UserPreferences.model.js';
 
 const pickFirst = (rows) => (rows && rows.length ? rows[0] : null);
 
@@ -105,6 +106,28 @@ export async function resolveOutboundNumber({ userId, clientId, requestedNumberI
   if (agencyNumber) return { number: agencyNumber, assignment: null, ownerType: 'agency' };
 
   return { number: null, assignment: null, ownerType: null };
+}
+
+export async function resolveReminderNumber({ providerUserId, clientId = null }) {
+  const uid = Number(providerUserId || 0);
+  if (!uid) return { number: null, assignment: null, ownerType: null };
+
+  const agencyId = clientId
+    ? (await Client.findById(clientId, { includeSensitive: false }))?.agency_id
+    : (await findAgencyIdForUser(uid));
+  const agency = agencyId ? await Agency.findById(agencyId) : null;
+  const flags = parseFeatureFlags(agency?.feature_flags);
+  const senderMode = String(flags.smsReminderSenderMode || 'agency_default');
+  const prefs = await UserPreferences.findByUserId(uid);
+  const useOwnNumber = prefs?.sms_use_own_number_for_reminders !== false && prefs?.sms_use_own_number_for_reminders !== 0;
+  if (senderMode !== 'provider_optional' || !useOwnNumber) {
+    const agencyNumber = await findFallbackAgencyNumber(agencyId);
+    return agencyNumber
+      ? { number: agencyNumber, assignment: null, ownerType: 'agency' }
+      : { number: null, assignment: null, ownerType: null };
+  }
+
+  return resolveOutboundNumber({ userId: uid, clientId, requestedNumberId: null });
 }
 
 export async function resolveInboundRoute({ toNumber, fromNumber }) {

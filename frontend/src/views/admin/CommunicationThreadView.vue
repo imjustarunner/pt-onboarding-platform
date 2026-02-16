@@ -2,7 +2,7 @@
   <div class="container comms-thread">
     <div class="header" data-tour="thread-header">
       <div>
-        <router-link to="/admin/communications" class="back" data-tour="thread-back">← Back to All Recent Texts</router-link>
+        <router-link :to="smsInboxLink" class="back" data-tour="thread-back">← Back to SMS Inbox</router-link>
         <h2 data-tour="thread-title">Conversation</h2>
         <p class="subtitle" data-tour="thread-client">
           Client: {{ thread?.client?.initials || '—' }}
@@ -74,6 +74,11 @@ import { useRoute } from 'vue-router';
 import api from '../../services/api';
 
 const route = useRoute();
+const smsInboxLink = computed(() => {
+  const slug = route.params.organizationSlug;
+  if (typeof slug === 'string' && slug) return `/${slug}/admin/communications/sms`;
+  return '/admin/communications/sms';
+});
 const userId = computed(() => parseInt(route.params.userId));
 const clientId = computed(() => parseInt(route.params.clientId));
 
