@@ -1,6 +1,9 @@
-export default {
-  id: 'dashboard',
-  version: 3,
+export const DASHBOARD_TOUR_ID = 'dashboard';
+export const DASHBOARD_TOUR_VERSION = 4;
+
+const dashboardTour = {
+  id: DASHBOARD_TOUR_ID,
+  version: DASHBOARD_TOUR_VERSION,
   steps: [
     {
       popover: {
@@ -47,10 +50,46 @@ export default {
       }
     },
     {
-      element: '[data-tour="dash-rail-card-checklist"]',
+      element: '[data-tour="dash-rail-card-my"]',
       popover: {
-        title: 'Checklist',
-        description: 'Start here to view required items and track completion.',
+        title: 'My Account',
+        description: 'This is where you manage your account info, credentials, and other personal settings.',
+        side: 'right',
+        align: 'center'
+      }
+    },
+    {
+      element: '[data-tour="dash-my-subnav"]',
+      popover: {
+        title: 'My Account tabs',
+        description: 'Use these subtabs to switch between Account Info, Credentials, Preferences, etc.',
+        side: 'bottom',
+        align: 'start'
+      }
+    },
+    {
+      element: '[data-tour="dash-rail-card-my_schedule"]',
+      popover: {
+        title: 'My Schedule (providers)',
+        description: 'Open this to see your week and availability. If you don’t see it, scheduling may be disabled for your organization.',
+        side: 'right',
+        align: 'center'
+      }
+    },
+    {
+      element: '[data-tour="dash-rail-card-program_shifts"]',
+      popover: {
+        title: 'My Shifts',
+        description: 'Review program shifts, pick up available shifts, and manage call-offs.',
+        side: 'right',
+        align: 'center'
+      }
+    },
+    {
+      element: '[data-tour="dash-rail-card-skill_builders_availability"]',
+      popover: {
+        title: 'Skill Builders',
+        description: 'Review and manage Skill Builder availability submissions.',
         side: 'right',
         align: 'center'
       }
@@ -65,46 +104,19 @@ export default {
       }
     },
     {
-      element: '[data-tour="dash-rail-card-payroll"]',
+      element: '[data-tour="dash-rail-card-tools_aids"]',
       popover: {
-        title: 'Payroll',
-        description: 'View payroll history by pay period.',
+        title: 'Tools & Aids',
+        description: 'Open Note Aid and related helper tools for your documentation workflow.',
         side: 'right',
         align: 'center'
       }
     },
     {
-      element: '[data-tour="dash-rail-card-on_demand_training"]',
+      element: '[data-tour="dash-rail-card-checklist"]',
       popover: {
-        title: 'On-Demand Training',
-        description: 'Always-available training library (post-onboarding).',
-        side: 'right',
-        align: 'center'
-      }
-    },
-    {
-      element: '[data-tour="dash-rail-card-communications"]',
-      popover: {
-        title: 'Communications',
-        description: 'Opens the unified communications feed (texts + platform chats).',
-        side: 'right',
-        align: 'center'
-      }
-    },
-    {
-      element: '[data-tour="dash-rail-card-notifications"]',
-      popover: {
-        title: 'Notifications',
-        description: 'Quick link to your recent notifications.',
-        side: 'right',
-        align: 'center'
-      }
-    },
-    {
-      element: '[data-tour="dash-rail-card-documents"]',
-      popover: {
-        title: 'Documents',
-        description: 'Review and upload required documents here (when applicable).',
+        title: 'Checklist',
+        description: 'Start here to view required items and track completion.',
         side: 'right',
         align: 'center'
       }
@@ -119,10 +131,10 @@ export default {
       }
     },
     {
-      element: '[data-tour="dash-rail-card-my_schedule"]',
+      element: '[data-tour="dash-rail-card-documents"]',
       popover: {
-        title: 'My Schedule (providers)',
-        description: 'Open this to see your week and availability. If you don’t see it, scheduling may be disabled for your organization.',
+        title: 'Documents',
+        description: 'Review and upload required documents here (when applicable).',
         side: 'right',
         align: 'center'
       }
@@ -146,234 +158,88 @@ export default {
       }
     },
     {
-      element: '[data-tour="dash-rail-card-my"]',
+      element: '[data-tour="dash-rail-card-payroll"]',
       popover: {
-        title: 'My Account',
-        description: 'This is where you manage your account info, credentials, and other personal settings.',
+        title: 'Payroll',
+        description: 'View payroll history by pay period.',
         side: 'right',
         align: 'center'
       }
     },
     {
-      element: '[data-tour="dash-my-subnav"]',
+      element: '[data-tour="dash-rail-card-on_demand_training"]',
       popover: {
-        title: 'My Account tabs',
-        description: 'Use these subtabs to switch between Account Info, Credentials, Preferences, etc.',
-        side: 'bottom',
-        align: 'start'
-      }
-    },
-
-    // --- School portal (OrganizationDashboard when organizationType === 'school') ---
-    {
-      element: '[data-tour="school-header-title"]',
-      popover: {
-        title: 'School Portal',
-        description: 'This portal is designed for scheduling + roster workflows while avoiding PHI exposure.',
-        side: 'bottom',
-        align: 'start'
-      }
-    },
-    {
-      element: '[data-tour="school-top-actions"]',
-      popover: {
-        title: 'Top actions',
-        description: 'Quick actions live up here (settings, privacy toggle for codes/initials, contact admin, logout for school staff).',
-        side: 'bottom',
-        align: 'end'
-      }
-    },
-    {
-      element: '[data-tour="school-codes-toggle"]',
-      popover: {
-        title: 'Codes vs initials',
-        description: 'Use this toggle to switch how roster labels display (based on your organization’s privacy expectations).',
-        side: 'bottom',
-        align: 'end'
-      }
-    },
-    {
-      element: '[data-tour="school-home-snapshot"]',
-      popover: {
-        title: 'At a glance',
-        description: 'This snapshot summarizes current activity: supported days, clients being seen, available slots, pending + waitlist counts.',
-        side: 'bottom',
-        align: 'start'
-      }
-    },
-    {
-      element: '[data-tour="school-home-cards"]',
-      popover: {
-        title: 'Choose a section',
-        description: 'Use these cards to navigate. After you open a section, a left-side navigation rail appears so you can switch quickly.',
-        side: 'top',
-        align: 'start'
-      }
-    },
-    {
-      element: '[data-tour="school-home-card-providers"]',
-      popover: {
-        title: 'Providers',
-        description: 'Browse provider cards, open profiles, and message providers (based on your role/permissions).',
-        side: 'top',
-        align: 'start'
-      }
-    },
-    {
-      element: '[data-tour="school-home-card-days"]',
-      popover: {
-        title: 'Days',
-        description: 'Choose a weekday to view schedules, slots, and requests for availability.',
-        side: 'top',
-        align: 'start'
-      }
-    },
-    {
-      element: '[data-tour="school-home-roster"]',
-      popover: {
-        title: 'Roster',
-        description: 'Search and sort the roster. Providers typically see their own roster; school staff may see broader views.',
-        side: 'top',
-        align: 'start'
-      }
-    },
-    {
-      element: '[data-tour="school-home-card-staff"]',
-      popover: {
-        title: 'School staff',
-        description: 'Manage linked school staff accounts and requests (availability depends on your role).',
-        side: 'top',
-        align: 'start'
-      }
-    },
-    {
-      element: '[data-tour="school-home-card-docs"]',
-      popover: {
-        title: 'Docs / Links',
-        description: 'Shared reference documents and links for the school organization.',
-        side: 'top',
-        align: 'start'
-      }
-    },
-    {
-      element: '[data-tour="school-nav-rail"]',
-      popover: {
-        title: 'Navigation rail',
-        description: 'After you open a section, use the left rail to switch between Home, Providers, Days, Roster, Staff, and Docs quickly.',
+        title: 'On-Demand Training',
+        description: 'Always-available training library (post-onboarding).',
         side: 'right',
         align: 'center'
       }
     },
     {
-      element: '[data-tour="school-providers-panel"]',
+      element: '[data-tour="dash-rail-card-social_feeds"]',
       popover: {
-        title: 'Providers panel',
-        description: 'Browse providers, open profiles, and message them (as permitted).',
-        side: 'left',
-        align: 'start'
-      }
-    },
-    {
-      element: '[data-tour="school-days-daybar"]',
-      popover: {
-        title: 'Pick a day',
-        description: 'Choose a weekday to load the schedules for that day.',
-        side: 'bottom',
-        align: 'start'
-      }
-    },
-    {
-      element: '[data-tour="school-days-panel"]',
-      popover: {
-        title: 'Day schedules',
-        description: 'This panel shows the schedules/slots for the selected day, and tools to request availability updates.',
-        side: 'left',
-        align: 'start'
-      }
-    },
-    {
-      element: '[data-tour="school-roster-header"]',
-      popover: {
-        title: 'Roster header',
-        description: 'Providers see “My roster”; school staff may see a broader roster view, depending on role.',
-        side: 'bottom',
-        align: 'start'
-      }
-    },
-    {
-      element: '[data-tour="school-roster-panel"]',
-      popover: {
-        title: 'Roster grid',
-        description: 'Search and interact with the roster list (restricted fields by design).',
-        side: 'top',
-        align: 'start'
-      }
-    },
-    {
-      element: '[data-tour="school-staff-panel"]',
-      popover: {
-        title: 'School staff',
-        description: 'Manage linked school staff accounts and requests (based on role/permissions).',
-        side: 'left',
-        align: 'start'
-      }
-    },
-    {
-      element: '[data-tour="school-docs-panel"]',
-      popover: {
-        title: 'Docs / Links',
-        description: 'Reference docs and links that are shared for the school organization.',
-        side: 'left',
-        align: 'start'
-      }
-    },
-
-    // --- Client modal (School portal) ---
-    {
-      element: '[data-tour="school-client-modal"]',
-      popover: {
-        title: 'Client modal',
-        description: 'When you open a client, this modal helps you coordinate safely (no PHI). Comments and ticketed Messages are both visible.',
-        side: 'bottom',
-        align: 'start'
-      }
-    },
-    {
-      element: '[data-tour="school-client-modal-comments"]',
-      popover: {
-        title: 'Comments (shared notes)',
-        description: 'Use Comments for brief non-clinical updates that everyone can see. Clicking inside this side expands it for easier reading and writing.',
+        title: 'Social feeds',
+        description: 'Organization social and school feed content in one place.',
         side: 'right',
-        align: 'start'
+        align: 'center'
       }
     },
     {
-      element: '[data-tour="school-client-modal-messages"]',
+      element: '[data-tour="dash-rail-card-communications"]',
       popover: {
-        title: 'Messages (ticketed)',
-        description: 'Use Messages for questions/inquiries. Messages create tickets with replies nested beneath each message. Clicking inside this side expands it.',
-        side: 'left',
-        align: 'start'
-      }
-    },
-    {
-      element: '[data-tour="school-client-modal-ticket-list"]',
-      popover: {
-        title: 'Ticket history',
-        description: 'Each client can have multiple tickets. Select a ticket to view its thread. Tickets show number and status for clarity.',
+        title: 'Communications',
+        description: 'Opens the unified communications feed (texts + platform chats).',
         side: 'right',
-        align: 'start'
+        align: 'center'
       }
     },
     {
-      element: '[data-tour="school-client-modal-ticket-composer"]',
+      element: '[data-tour="dash-rail-card-chats"]',
       popover: {
-        title: 'Send a ticketed message',
-        description: 'Write a message to create a new ticket or reply within the selected ticket. Avoid PHI.',
-        side: 'top',
-        align: 'start'
+        title: 'Chats',
+        description: 'Open direct platform chats.',
+        side: 'right',
+        align: 'center'
+      }
+    },
+    {
+      element: '[data-tour="dash-rail-card-notifications"]',
+      popover: {
+        title: 'Notifications',
+        description: 'Quick link to your recent notifications.',
+        side: 'right',
+        align: 'center'
+      }
+    },
+    {
+      element: '[data-tour="dash-rail-card-supervision"]',
+      popover: {
+        title: 'Supervision',
+        description: 'View your supervisees and supervision-related workflows.',
+        side: 'right',
+        align: 'center'
       }
     }
   ]
 };
+
+export const getDashboardRailCardDescriptors = () => {
+  const out = {};
+  for (const step of dashboardTour.steps || []) {
+    const el = typeof step?.element === 'string' ? step.element : '';
+    const match = el.match(/^\[data-tour="dash-rail-card-(.+)"\]$/);
+    if (!match) continue;
+    const cardId = String(match[1] || '').trim();
+    const title = String(step?.popover?.title || '').trim();
+    const description = String(step?.popover?.description || '').trim();
+    if (!cardId || !title || !description) continue;
+    out[cardId] = {
+      title,
+      description
+    };
+  }
+  return out;
+};
+
+export default dashboardTour;
 

@@ -13,6 +13,16 @@
       <h1 data-tour="dash-header-title">{{ isPending ? 'Pre-Hire Checklist' : 'My Dashboard' }}</h1>
       <span class="badge badge-user">Personal</span>
       <span v-if="tierBadgeText" class="badge badge-tier" :class="tierBadgeKind">{{ tierBadgeText }}</span>
+      <button
+        type="button"
+        class="btn btn-secondary btn-sm tutorial-toggle"
+        :class="{ active: tutorialStore.enabled }"
+        :aria-pressed="tutorialStore.enabled ? 'true' : 'false'"
+        @click="tutorialStore.setEnabled(!tutorialStore.enabled)"
+        title="Turn tutorials on/off"
+      >
+        Tutorial {{ tutorialStore.enabled ? 'On' : 'Off' }}
+      </button>
     </div>
 
     <!-- Agency announcement banner (Dashboard) -->
@@ -198,44 +208,69 @@
         aria-label="Dashboard sections"
       >
         <div v-if="railTopMode" class="rail-top-label">Your Dashboard — your source of information</div>
-        <button
+        <div
           v-for="card in railCards"
           :key="card.id"
-          type="button"
-          class="rail-card"
-          :style="{ '--rail-accent': cardHue(card.id) }"
-          :data-card-id="card.id"
-          :data-tour="`dash-rail-card-${String(card.id)}`"
-          :class="{
-            active: (card.kind === 'content' && activeTab === card.id),
-            'rail-card-submit': card.id === 'submit'
-          }"
-          :aria-current="(card.kind === 'content' && activeTab === card.id) ? 'page' : undefined"
-          :disabled="previewMode"
-          @click="handleCardClick(card)"
+          class="rail-card-row"
         >
-          <div class="rail-card-left">
-            <div class="rail-card-icon">
-              <img
-                v-if="card.iconUrl && !failedRailIconIds.has(String(card.id))"
-                :src="card.iconUrl"
-                :alt="`${card.label} icon`"
-                class="rail-card-icon-img"
-                @error="(e) => onRailIconError(card, e)"
-              />
-              <div v-else class="rail-card-icon-fallback" aria-hidden="true">
-                {{ railIconFallback(card) }}
+          <button
+            type="button"
+            class="rail-card"
+            :style="{ '--rail-accent': cardHue(card.id) }"
+            :data-card-id="card.id"
+            :data-tour="`dash-rail-card-${String(card.id)}`"
+            :class="{
+              active: (card.kind === 'content' && activeTab === card.id),
+              'rail-card-submit': card.id === 'submit'
+            }"
+            :aria-current="(card.kind === 'content' && activeTab === card.id) ? 'page' : undefined"
+            :disabled="previewMode"
+            @click="handleCardClick(card)"
+          >
+            <div class="rail-card-left">
+              <div class="rail-card-icon">
+                <img
+                  v-if="card.iconUrl && !failedRailIconIds.has(String(card.id))"
+                  :src="card.iconUrl"
+                  :alt="`${card.label} icon`"
+                  class="rail-card-icon-img"
+                  @error="(e) => onRailIconError(card, e)"
+                />
+                <div v-else class="rail-card-icon-fallback" aria-hidden="true">
+                  {{ railIconFallback(card) }}
+                </div>
+              </div>
+              <div class="rail-card-text">
+                <div class="rail-card-title">{{ card.label }}</div>
               </div>
             </div>
-            <div class="rail-card-text">
-              <div class="rail-card-title">{{ card.label }}</div>
+            <div class="rail-card-meta">
+              <span v-if="card.badgeCount > 0" class="rail-card-badge">{{ card.badgeCount }}</span>
+              <span class="rail-card-cta">{{ card.kind === 'link' || card.kind === 'modal' ? 'Open' : (card.kind === 'action' ? 'Open' : 'View') }}</span>
+            </div>
+          </button>
+          <div v-if="railCardDescriptor(card.id)" class="rail-card-help">
+            <button
+              type="button"
+              class="rail-card-help-btn"
+              :title="`About ${card.label}`"
+              :aria-label="`About ${card.label}`"
+              :aria-expanded="openCardDescriptorId === String(card.id) ? 'true' : 'false'"
+              @click.stop="toggleCardDescriptor(card.id)"
+            >
+              i
+            </button>
+            <div
+              v-if="openCardDescriptorId === String(card.id)"
+              class="rail-card-help-popover"
+              role="dialog"
+              :aria-label="`About ${card.label}`"
+            >
+              <div class="rail-card-help-title">{{ railCardDescriptor(card.id).title }}</div>
+              <div class="rail-card-help-desc">{{ railCardDescriptor(card.id).description }}</div>
             </div>
           </div>
-          <div class="rail-card-meta">
-            <span v-if="card.badgeCount > 0" class="rail-card-badge">{{ card.badgeCount }}</span>
-            <span class="rail-card-cta">{{ card.kind === 'link' || card.kind === 'modal' ? 'Open' : (card.kind === 'action' ? 'Open' : 'View') }}</span>
-          </div>
-        </button>
+        </div>
       </div>
 
       <div class="dashboard-detail">
@@ -648,6 +683,7 @@ import { useAuthStore } from '../store/auth';
 import { useAgencyStore } from '../store/agency';
 import { useUserPreferencesStore } from '../store/userPreferences';
 import { useBrandingStore } from '../store/branding';
+import { useTutorialStore } from '../store/tutorial';
 import api from '../services/api';
 import TrainingFocusTab from '../components/dashboard/TrainingFocusTab.vue';
 import DocumentsTab from '../components/dashboard/DocumentsTab.vue';
@@ -673,6 +709,7 @@ import LastPaycheckModal from '../components/dashboard/LastPaycheckModal.vue';
 import SocialFeedsPanel from '../components/dashboard/SocialFeedsPanel.vue';
 import PresenceStatusWidget from '../components/dashboard/PresenceStatusWidget.vue';
 import { isSupervisor } from '../utils/helpers.js';
+import { getDashboardRailCardDescriptors } from '../tutorial/tours/dashboard.tour';
 
 const props = defineProps({
   previewMode: {
@@ -695,6 +732,7 @@ const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
 const userPrefsStore = useUserPreferencesStore();
 const brandingStore = useBrandingStore();
+const tutorialStore = useTutorialStore();
 const activeTab = ref('checklist');
 const myTab = ref('account'); // 'account' | 'credentials' | 'preferences' | 'payroll'
 const onboardingCompletion = ref(100);
@@ -719,6 +757,17 @@ const railPulse = ref(!prefersReducedMotion);
 const RAIL_PULSE_DURATION_MS = 2500;
 const showLastPaycheckModal = ref(false);
 const lastPaycheckPayrollPeriodId = ref(null);
+const railCardDescriptors = getDashboardRailCardDescriptors();
+const openCardDescriptorId = ref('');
+
+const railCardDescriptor = (cardId) => railCardDescriptors[String(cardId)] || null;
+const closeCardDescriptor = () => {
+  openCardDescriptorId.value = '';
+};
+const toggleCardDescriptor = (cardId) => {
+  const next = String(cardId || '');
+  openCardDescriptorId.value = openCardDescriptorId.value === next ? '' : next;
+};
 
 const isSkillBuilderEligible = computed(() => {
   const u = authStore.user || {};
@@ -1311,28 +1360,14 @@ const railCards = computed(() => {
   });
 });
 
-const TOP_CARD_COLLAPSE_KEY = 'dashboard.topCardCollapsed.v1';
 const topCardCollapsed = ref(false);
 
 const SOCIAL_FEEDS_COLLAPSE_KEY = 'dashboard.socialFeedsCollapsed.v1';
 const socialFeedsCollapsed = ref(false);
 const dashboardSocialFeeds = ref([]);
 const selectedSocialFeedId = ref(null);
-const loadTopCardCollapsed = () => {
-  try {
-    const v = window?.localStorage?.getItem?.(TOP_CARD_COLLAPSE_KEY);
-    topCardCollapsed.value = v === '1';
-  } catch {
-    topCardCollapsed.value = false;
-  }
-};
 const toggleTopCardCollapsed = () => {
   topCardCollapsed.value = !topCardCollapsed.value;
-  try {
-    window?.localStorage?.setItem?.(TOP_CARD_COLLAPSE_KEY, topCardCollapsed.value ? '1' : '0');
-  } catch {
-    // ignore
-  }
 };
 
 const loadSocialFeedsCollapsed = () => {
@@ -1381,6 +1416,7 @@ function openSocialFeedInDetail(feed) {
 }
 
 const handleCardClick = (card) => {
+  closeCardDescriptor();
   if (props.previewMode) return;
   if (card.kind === 'link' && card.to) {
     router.push(String(card.to));
@@ -1444,6 +1480,18 @@ const syncFromQuery = () => {
 };
 
 const submitPanelView = ref('root'); // 'root' | 'in_school' | 'time' | 'availability' | 'virtual_hours'
+
+const handleDocumentPointerDown = (event) => {
+  if (!openCardDescriptorId.value) return;
+  const target = event?.target;
+  if (target instanceof Element && target.closest('.rail-card-help')) return;
+  closeCardDescriptor();
+};
+
+const handleDocumentKeydown = (event) => {
+  if (event?.key !== 'Escape') return;
+  closeCardDescriptor();
+};
 
 const openTimeClaims = () => {
   submitPanelView.value = 'time';
@@ -1715,7 +1763,8 @@ const loadMyCompanyEvents = async () => {
 };
 
 onMounted(async () => {
-  loadTopCardCollapsed();
+  // Always start expanded on each visit so users do not lose visibility.
+  topCardCollapsed.value = false;
   loadSocialFeedsCollapsed();
   await fetchOnboardingStatus();
   syncFromQuery();
@@ -1746,6 +1795,8 @@ onMounted(async () => {
   railMediaQuery = typeof window !== 'undefined' && window.matchMedia('(max-width: 980px)');
   if (railMediaQuery) railMediaQuery.addEventListener('change', updateRailTopMode);
   railPulseTimer = setTimeout(() => { railPulse.value = false; }, RAIL_PULSE_DURATION_MS);
+  document.addEventListener('pointerdown', handleDocumentPointerDown);
+  document.addEventListener('keydown', handleDocumentKeydown);
 });
 watch(activeTab, updateRailTopMode);
 
@@ -1787,6 +1838,8 @@ let railMediaQuery = null;
 onUnmounted(() => {
   if (railMediaQuery) railMediaQuery.removeEventListener('change', updateRailTopMode);
   if (railPulseTimer) clearTimeout(railPulseTimer);
+  document.removeEventListener('pointerdown', handleDocumentPointerDown);
+  document.removeEventListener('keydown', handleDocumentKeydown);
 });
 </script>
 
@@ -1960,7 +2013,7 @@ h1 {
   overflow-x: auto;
   padding-bottom: 6px;
 }
-.dashboard-shell.schedule-focus .rail-card {
+.dashboard-shell.schedule-focus .rail-card-row {
   width: auto;
   min-width: auto;
   flex: 0 0 auto;
@@ -1989,6 +2042,12 @@ h1 {
   max-height: calc(100vh - 24px);
   overflow: auto;
   padding-right: 2px; /* avoids scrollbar overlaying focus rings */
+}
+
+.rail-card-row {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
 }
 
 /* Rail in top mode: prominent bar with label */
@@ -2033,6 +2092,7 @@ h1 {
 }
 
 .rail-card {
+  flex: 1 1 auto;
   text-align: left;
   background: rgba(255, 255, 255, 0.75);
   backdrop-filter: blur(10px);
@@ -2159,6 +2219,57 @@ h1 {
   font-size: 12px;
   color: var(--text-secondary);
   white-space: nowrap;
+}
+
+.rail-card-help {
+  position: relative;
+  flex: 0 0 auto;
+  align-self: center;
+}
+
+.rail-card-help-btn {
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-alt);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0;
+}
+
+.rail-card-help-btn:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.rail-card-help-popover {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  width: min(320px, 78vw);
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-lg);
+  padding: 10px 12px;
+  z-index: 30;
+}
+
+.rail-card-help-title {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+}
+
+.rail-card-help-desc {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-secondary);
 }
 
 .dashboard-detail {
@@ -2570,6 +2681,11 @@ h1 {
 .dashboard-header-user h1 {
   margin: 0;
   color: var(--text-primary);
+}
+
+.tutorial-toggle {
+  margin-left: auto;
+  white-space: nowrap;
 }
 
 .badge-user {
