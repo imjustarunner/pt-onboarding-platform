@@ -2,9 +2,23 @@ import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import Client from '../models/Client.model.js';
 
-const canViewSms = (role) => {
+const canViewAgencySms = (role) => {
   const r = String(role || '').toLowerCase();
   return r === 'support' || r === 'admin' || r === 'super_admin' || r === 'clinical_practice_assistant';
+};
+
+const canViewOwnSms = (role) => {
+  const r = String(role || '').toLowerCase();
+  return (
+    r === 'support' ||
+    r === 'admin' ||
+    r === 'super_admin' ||
+    r === 'clinical_practice_assistant' ||
+    r === 'schedule_manager' ||
+    r === 'provider' ||
+    r === 'staff' ||
+    r === 'school_staff'
+  );
 };
 
 const canViewTickets = (role) => {
@@ -185,24 +199,65 @@ export const getCommunicationsFeed = async (req, res, next) => {
       };
     });
 
-    // SMS feed: only for roles that can view SMS safety net.
+    // SMS feed:
+    // - Admin-like roles can view agency-level SMS safety net.
+    // - Provider/staff roles can view only their own SMS rows.
     let smsItems = [];
-    if (canViewSms(role) && !organizationId) {
+    if (canViewOwnSms(role) && !organizationId) {
       try {
-        const smsAgencyWhere = includeAllAgencies ? '1=1' : `ml.agency_id IN (${agencyIds.map(() => '?').join(',')})`;
-        const [rows] = await pool.execute(
-          `SELECT ml.*,
-                  c.initials AS client_initials,
-                  u.first_name AS user_first_name,
-                  u.last_name AS user_last_name
-           FROM message_logs ml
-           LEFT JOIN clients c ON ml.client_id = c.id
-           LEFT JOIN users u ON ml.user_id = u.id
-           WHERE ${smsAgencyWhere}
-           ORDER BY ml.created_at DESC
-           LIMIT ?`,
-          [...(includeAllAgencies ? [] : agencyIds), limit]
-        );
+        let rows = [];
+        if (canViewAgencySms(role)) {
+          const smsAgencyWhere = includeAllAgencies ? '1=1' : `ml.agency_id IN (${agencyIds.map(() => '?').join(',')})`;
+          const [r] = await pool.execute(
+            `SELECT ml.*,
+                    c.initials AS client_initials,
+                    u.first_name AS user_first_name,
+                    u.last_name AS user_last_name
+             FROM message_logs ml
+             LEFT JOIN clients c ON ml.client_id = c.id
+             LEFT JOIN users u ON ml.user_id = u.id
+             WHERE ${smsAgencyWhere}
+             ORDER BY ml.created_at DESC
+             LIMIT ?`,
+            [...(includeAllAgencies ? [] : agencyIds), limit]
+          );
+          rows = r || [];
+        } else {
+          // Provider/staff visibility is scoped to their own messages only.
+          if (!agencyIds.length) {
+            const [r] = await pool.execute(
+              `SELECT ml.*,
+                      c.initials AS client_initials,
+                      u.first_name AS user_first_name,
+                      u.last_name AS user_last_name
+               FROM message_logs ml
+               LEFT JOIN clients c ON ml.client_id = c.id
+               LEFT JOIN users u ON ml.user_id = u.id
+               WHERE ml.user_id = ?
+               ORDER BY ml.created_at DESC
+               LIMIT ?`,
+              [userId, limit]
+            );
+            rows = r || [];
+          } else {
+            const placeholders = agencyIds.map(() => '?').join(',');
+            const [r] = await pool.execute(
+              `SELECT ml.*,
+                      c.initials AS client_initials,
+                      u.first_name AS user_first_name,
+                      u.last_name AS user_last_name
+               FROM message_logs ml
+               LEFT JOIN clients c ON ml.client_id = c.id
+               LEFT JOIN users u ON ml.user_id = u.id
+               WHERE ml.user_id = ?
+                 AND (ml.agency_id IN (${placeholders}) OR ml.agency_id IS NULL)
+               ORDER BY ml.created_at DESC
+               LIMIT ?`,
+              [userId, ...agencyIds, limit]
+            );
+            rows = r || [];
+          }
+        }
         smsItems = (rows || []).map((m) => ({
           kind: 'sms',
           id: Number(m.id),

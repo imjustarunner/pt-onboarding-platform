@@ -439,7 +439,11 @@ const routes = [
     path: '/:organizationSlug/admin/communications/thread/:userId/:clientId',
     name: 'OrganizationCommunicationThread',
     component: () => import('../views/admin/CommunicationThreadView.vue'),
-    meta: { requiresAuth: true, requiresRole: 'schedule_manager', organizationSlug: true }
+    meta: {
+      requiresAuth: true,
+      requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'schedule_manager', 'provider', 'staff', 'school_staff'],
+      organizationSlug: true
+    }
   },
   {
     path: '/:organizationSlug/admin/schedule-approvals',
@@ -878,7 +882,10 @@ const routes = [
     path: '/admin/communications/thread/:userId/:clientId',
     name: 'CommunicationThread',
     component: () => import('../views/admin/CommunicationThreadView.vue'),
-    meta: { requiresAuth: true, requiresRole: 'schedule_manager' }
+    meta: {
+      requiresAuth: true,
+      requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'schedule_manager', 'provider', 'staff', 'school_staff']
+    }
   },
   {
     path: '/admin/schedule-approvals',
