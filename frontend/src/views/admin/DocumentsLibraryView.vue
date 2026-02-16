@@ -50,6 +50,7 @@
         <option value="acknowledgment">Acknowledgment</option>
         <option value="authorization">Authorization</option>
         <option value="agreement">Agreement</option>
+        <option value="audio_recording_consent">Audio Recording Consent</option>
         <option value="compliance">Compliance</option>
         <option value="disclosure">Disclosure</option>
         <option value="consent">Consent</option>
@@ -1174,6 +1175,7 @@ const formatDocumentType = (type) => {
     acknowledgment: 'Acknowledgment',
     authorization: 'Authorization',
     agreement: 'Agreement',
+    audio_recording_consent: 'Audio Recording Consent',
     compliance: 'Compliance',
     disclosure: 'Disclosure',
     consent: 'Consent',

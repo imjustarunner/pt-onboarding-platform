@@ -401,13 +401,7 @@ async function listAgencyAudioAgreementTemplates({ agencyId }) {
        WHERE agency_id = ?
          AND is_active = TRUE
          AND (is_archived = FALSE OR is_archived IS NULL)
-         AND document_type IN ('agreement', 'consent', 'authorization', 'disclosure')
-         AND (
-           LOWER(name) LIKE '%audio%'
-           OR LOWER(name) LIKE '%record%'
-           OR LOWER(name) LIKE '%consent%'
-           OR LOWER(name) LIKE '%waiver%'
-         )
+         AND document_type = 'audio_recording_consent'
        ORDER BY name ASC
        LIMIT 200`,
       [aid]

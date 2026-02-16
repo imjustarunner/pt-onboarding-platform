@@ -141,6 +141,7 @@ const formatDocumentType = (type) => {
     acknowledgment: 'Acknowledgment',
     authorization: 'Authorization',
     agreement: 'Agreement',
+    audio_recording_consent: 'Audio Recording Consent',
     compliance: 'Compliance',
     disclosure: 'Disclosure',
     consent: 'Consent',
