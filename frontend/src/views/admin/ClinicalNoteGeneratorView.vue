@@ -107,50 +107,75 @@
         <textarea v-model="inputText" class="textarea" rows="10" placeholder="Paste or type your session details here…" />
 
         <div class="consent-box">
-          <label class="checkbox">
-            <input v-model="recordingConsentConfirmed" type="checkbox" />
-            <span>I confirm client consent to record has been obtained before recording.</span>
-          </label>
-          <label class="checkbox" style="margin-top: 6px;">
-            <input v-model="additionalParticipantPresent" type="checkbox" />
-            <span>Another person (besides clinician and client) will be present in the recording.</span>
-          </label>
-          <div v-if="additionalParticipantPresent" style="margin-top: 8px;">
-            <label class="label sub">Is a signed recording agreement already on file in the EHR for this client?</label>
-            <select v-model="recordingAgreementOnFile" class="input">
-              <option value="">Select an option</option>
-              <option value="yes">Yes, already on file</option>
-              <option value="no">No, need to obtain/upload</option>
-            </select>
+          <label class="label sub" style="margin-bottom: 6px;">Recording purpose</label>
+          <div class="purpose-toggle" role="radiogroup" aria-label="Recording purpose">
+            <button
+              type="button"
+              class="purpose-btn"
+              :class="{ active: isSessionRecording }"
+              @click="recordingPurpose = 'session'"
+            >
+              Session recording
+            </button>
+            <button
+              type="button"
+              class="purpose-btn"
+              :class="{ active: !isSessionRecording }"
+              @click="recordingPurpose = 'dictation'"
+            >
+              Dictation only (my voice)
+            </button>
           </div>
-          <div v-if="additionalParticipantPresent && recordingAgreementOnFile === 'no'" style="margin-top: 8px;">
-            <label class="label sub">Audio recording agreement template (agency)</label>
-            <select v-model="selectedAudioAgreementTemplateId" class="input" :disabled="!audioAgreementTemplates.length">
-              <option value="">Select an agreement template</option>
-              <option v-for="t in audioAgreementTemplates" :key="t.id" :value="String(t.id)">
-                {{ t.name }}
-              </option>
-            </select>
-            <div class="actions" style="margin-top: 8px;">
-              <button
-                class="btn btn-secondary btn-sm"
-                type="button"
-                :disabled="!selectedAudioAgreementTemplateId || downloadingAudioAgreementTemplate"
-                @click="downloadAudioAgreementTemplate"
-              >
-                {{ downloadingAudioAgreementTemplate ? 'Downloading…' : 'Download agreement template' }}
-              </button>
+
+          <template v-if="isSessionRecording">
+            <label class="checkbox" style="margin-top: 10px;">
+              <input v-model="recordingConsentConfirmed" type="checkbox" />
+              <span>I confirm client consent to record has been obtained before recording.</span>
+            </label>
+            <label class="checkbox" style="margin-top: 6px;">
+              <input v-model="additionalParticipantPresent" type="checkbox" />
+              <span>Another person (besides clinician and client) will be present in the recording.</span>
+            </label>
+            <div v-if="additionalParticipantPresent" style="margin-top: 8px;">
+              <label class="label sub">Is a signed recording agreement already on file in the EHR for this client?</label>
+              <select v-model="recordingAgreementOnFile" class="input">
+                <option value="">Select an option</option>
+                <option value="yes">Yes, already on file</option>
+                <option value="no">No, need to obtain/upload</option>
+              </select>
             </div>
-            <small class="hint" style="display: block; margin-top: 4px;">
-              Download, complete, and upload the signed document to the client record in your EHR. This tool does not store signed agreements.
+            <div v-if="additionalParticipantPresent && recordingAgreementOnFile === 'no'" style="margin-top: 8px;">
+              <label class="label sub">Audio recording agreement template (agency)</label>
+              <select v-model="selectedAudioAgreementTemplateId" class="input" :disabled="!audioAgreementTemplates.length">
+                <option value="">Select an agreement template</option>
+                <option v-for="t in audioAgreementTemplates" :key="t.id" :value="String(t.id)">
+                  {{ t.name }}
+                </option>
+              </select>
+              <div class="actions" style="margin-top: 8px;">
+                <button
+                  class="btn btn-secondary btn-sm"
+                  type="button"
+                  :disabled="!selectedAudioAgreementTemplateId || downloadingAudioAgreementTemplate"
+                  @click="downloadAudioAgreementTemplate"
+                >
+                  {{ downloadingAudioAgreementTemplate ? 'Downloading…' : 'Download agreement template' }}
+                </button>
+              </div>
+              <small class="hint" style="display: block; margin-top: 4px;">
+                Download, complete, and upload the signed document to the client record in your EHR. This tool does not store signed agreements.
+              </small>
+            </div>
+            <small
+              v-if="additionalParticipantPresent && recordingAgreementOnFile === 'no' && !audioAgreementTemplates.length"
+              class="hint"
+              style="display: block; margin-top: 6px;"
+            >
+              No audio-consent/agreement templates were found for this agency yet.
             </small>
-          </div>
-          <small
-            v-if="additionalParticipantPresent && recordingAgreementOnFile === 'no' && !audioAgreementTemplates.length"
-            class="hint"
-            style="display: block; margin-top: 6px;"
-          >
-            No audio-consent/agreement templates were found for this agency yet.
+          </template>
+          <small v-else class="hint" style="display: block; margin-top: 8px;">
+            Dictation-only mode records only your spoken note summary. Session-recording consent checkboxes are not required in this mode.
           </small>
           <small class="hint" style="display: block; margin-top: 6px;">
             HIPAA reminder: avoid including more PHI than needed and confirm recording permissions before capture.
@@ -160,7 +185,7 @@
 
         <div class="actions">
           <button class="btn btn-secondary" type="button" :disabled="recordingBusy" @click="toggleRecording">
-            {{ recording ? 'Stop recording' : 'Record audio' }}
+            {{ recording ? 'Stop recording' : (isSessionRecording ? 'Record session audio' : 'Record dictation') }}
           </button>
           <button class="btn btn-secondary" type="button" :disabled="!audioBlob || recording" @click="clearAudio">
             Clear recording
@@ -389,6 +414,8 @@ const recordingAgreementOnFile = ref('');
 const selectedAudioAgreementTemplateId = ref('');
 const recordingConsentError = ref('');
 const downloadingAudioAgreementTemplate = ref(false);
+const recordingPurpose = ref('dictation');
+const isSessionRecording = computed(() => recordingPurpose.value === 'session');
 
 // Draft state
 const draftId = ref(null);
@@ -566,6 +593,16 @@ watch(additionalParticipantPresent, (on) => {
 watch(recordingAgreementOnFile, (v) => {
   if (v !== 'no') selectedAudioAgreementTemplateId.value = '';
 });
+watch(recordingPurpose, (mode) => {
+  recordingConsentError.value = '';
+  if (mode !== 'session') {
+    // Session-specific fields are irrelevant in dictation-only mode.
+    recordingConsentConfirmed.value = false;
+    additionalParticipantPresent.value = false;
+    recordingAgreementOnFile.value = '';
+    selectedAudioAgreementTemplateId.value = '';
+  }
+});
 
 const eligibleCodesLabel = computed(() => {
   if (Array.isArray(eligibleServiceCodes.value)) return `${eligibleServiceCodes.value.length}`;
@@ -705,6 +742,7 @@ const autosave = async () => {
   // Save only form state (no audio).
   const payload = {
     agencyId: currentAgencyId.value,
+    recordingPurpose: String(recordingPurpose.value || 'dictation'),
     serviceCode: autoSelectCode.value ? null : actualServiceCode.value || null,
     programId:
       showProgramDropdown.value && selectedProgram.value && !selectedProgram.value?.isCustom
@@ -757,17 +795,19 @@ const toggleRecording = async () => {
   }
 
   try {
-    if (!recordingConsentConfirmed.value) {
-      recordingConsentError.value = 'Confirm consent before starting audio recording.';
-      return;
-    }
-    if (additionalParticipantPresent.value && !recordingAgreementOnFile.value) {
-      recordingConsentError.value = 'Answer whether a signed recording agreement is already on file.';
-      return;
-    }
-    if (requiresAudioAgreementSelection.value && !String(selectedAudioAgreementTemplateId.value || '').trim()) {
-      recordingConsentError.value = 'Select an audio recording agreement template for this session.';
-      return;
+    if (isSessionRecording.value) {
+      if (!recordingConsentConfirmed.value) {
+        recordingConsentError.value = 'Confirm consent before starting audio recording.';
+        return;
+      }
+      if (additionalParticipantPresent.value && !recordingAgreementOnFile.value) {
+        recordingConsentError.value = 'Answer whether a signed recording agreement is already on file.';
+        return;
+      }
+      if (requiresAudioAgreementSelection.value && !String(selectedAudioAgreementTemplateId.value || '').trim()) {
+        recordingConsentError.value = 'Select an audio recording agreement template for this session.';
+        return;
+      }
     }
     recordingBusy.value = true;
     audioChunks = [];
@@ -846,6 +886,7 @@ const transcribeAudioServer = async () => {
     serverTranscribeError.value = '';
     const fd = new FormData();
     fd.append('agencyId', String(currentAgencyId.value));
+    fd.append('recordingPurpose', String(recordingPurpose.value || 'dictation'));
     const name = `audio.${(audioBlob.value.type || '').includes('webm') ? 'webm' : 'blob'}`;
     fd.append('audio', audioBlob.value, name);
     const res = await api.post('/clinical-notes/transcribe', fd);
@@ -963,6 +1004,7 @@ const generateNote = async () => {
 
     const fd = new FormData();
     fd.append('agencyId', String(currentAgencyId.value));
+    fd.append('recordingPurpose', String(recordingPurpose.value || 'dictation'));
     const shouldAutoSelectCode = autoSelectCode.value || forceAutoSelect.value || !actualServiceCode.value;
     if (!shouldAutoSelectCode && actualServiceCode.value) {
       fd.append('serviceCode', actualServiceCode.value);
@@ -1134,6 +1176,7 @@ watch([currentAgencyId, clinicalNoteGeneratorEnabled], async () => {
   revisionInstruction.value = '';
   approvalMessage.value = '';
   recordingConsentError.value = '';
+  recordingPurpose.value = 'dictation';
   recordingConsentConfirmed.value = false;
   selectedAudioAgreementTemplateId.value = '';
   additionalParticipantPresent.value = false;
@@ -1205,6 +1248,28 @@ onBeforeUnmount(() => {
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--bg-alt, #f8fafc);
+}
+
+.purpose-toggle {
+  display: inline-flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.purpose-btn {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 6px 12px;
+  background: white;
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.purpose-btn.active {
+  border-color: #1f6feb;
+  background: rgba(31, 111, 235, 0.1);
+  color: #1f6feb;
 }
 
 .banner {
