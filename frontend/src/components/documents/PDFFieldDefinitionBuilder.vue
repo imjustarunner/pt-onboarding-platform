@@ -12,7 +12,35 @@
         No custom fields added yet.
       </div>
 
-      <div v-for="field in fields" :key="field.id" class="field-card" :class="{ active: field.id === activeFieldId }">
+      <div
+        v-for="(field, idx) in fields"
+        :key="field.id"
+        class="field-card"
+        :class="{ active: field.id === activeFieldId }"
+      >
+        <div class="field-card-header">
+          <span class="field-index">#{{ idx + 1 }}</span>
+          <div class="field-order-actions">
+            <button
+              type="button"
+              class="btn btn-xs btn-secondary"
+              :disabled="idx === 0"
+              title="Move up"
+              @click="moveFieldUp(idx)"
+            >
+              ↑
+            </button>
+            <button
+              type="button"
+              class="btn btn-xs btn-secondary"
+              :disabled="idx === fields.length - 1"
+              title="Move down"
+              @click="moveFieldDown(idx)"
+            >
+              ↓
+            </button>
+          </div>
+        </div>
         <div class="field-row">
           <input v-model="field.label" type="text" placeholder="Field label" />
         </div>
@@ -272,6 +300,23 @@ const addField = () => {
   activeOption.value = { fieldId: null, optionId: null };
 };
 
+const moveField = (fromIdx, toIdx) => {
+  if (fromIdx === toIdx) return;
+  if (fromIdx < 0 || toIdx < 0 || fromIdx >= fields.value.length || toIdx >= fields.value.length) return;
+  const reordered = [...fields.value];
+  const [moved] = reordered.splice(fromIdx, 1);
+  reordered.splice(toIdx, 0, moved);
+  fields.value = reordered;
+};
+
+const moveFieldUp = (idx) => {
+  moveField(idx, idx - 1);
+};
+
+const moveFieldDown = (idx) => {
+  moveField(idx, idx + 1);
+};
+
 const removeField = (id) => {
   fields.value = fields.value.filter((f) => f.id !== id);
   if (activeFieldId.value === id) activeFieldId.value = null;
@@ -513,6 +558,24 @@ onMounted(() => {
   background: #eef5ff;
 }
 
+.field-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.field-index {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.field-order-actions {
+  display: flex;
+  gap: 6px;
+}
+
 .field-row {
   display: flex;
   gap: 8px;
@@ -617,7 +680,7 @@ onMounted(() => {
 
 .pdf-canvas {
   display: block;
-  max-width: 100%;
+  max-width: none;
 }
 
 .pdf-canvas.picking {
@@ -653,5 +716,15 @@ onMounted(() => {
 .hint {
   color: var(--text-secondary);
   font-size: 12px;
+}
+
+@media (max-width: 1100px) {
+  .pdf-field-builder {
+    grid-template-columns: 1fr;
+  }
+
+  .pdf-viewer-container {
+    max-height: 500px;
+  }
 }
 </style>

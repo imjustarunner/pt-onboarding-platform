@@ -1,6 +1,6 @@
 <template>
   <div class="modal-overlay" @click="$emit('close')">
-    <div class="modal-content" @click.stop>
+    <div class="modal-content" :class="{ wide: hasPdfPlacementUi }" @click.stop>
       <h2>{{ existingTemplate ? 'Upload New Version' : 'Upload PDF Document' }}</h2>
       <form @submit.prevent="handleUpload">
         <div v-if="existingTemplate" class="info-box" style="padding: 12px; background: #e7f3ff; border: 1px solid #b3d9ff; border-radius: 4px; margin-bottom: 16px;">
@@ -209,6 +209,7 @@ const signatureCoordinates = ref({
   page: null
 });
 const fieldDefinitions = ref([]);
+const hasPdfPlacementUi = computed(() => Boolean(selectedFile.value && pdfUrl.value));
 const parseFieldDefinitions = (raw) => {
   if (!raw) return [];
   try {
@@ -491,6 +492,11 @@ onUnmounted(() => {
   width: 90%;
   max-height: 90vh;
   overflow-y: auto;
+}
+
+.modal-content.wide {
+  max-width: 1200px;
+  width: 96%;
 }
 
 .form-group {
