@@ -1,9 +1,19 @@
+import pool from '../../config/database.js';
 import { getGmailClient, getImpersonatedUser } from './gmailClient.js';
 import { ensureLabelId } from './gmailLabels.js';
 import EmailSenderIdentity from '../../models/EmailSenderIdentity.model.js';
 import Agency from '../../models/Agency.model.js';
+import User from '../../models/User.model.js';
 import { sendEmailFromIdentity } from './unifiedEmailSender.service.js';
 import { callGeminiText } from '../geminiText.service.js';
+import { resolveEffectiveEmailAiPolicy } from '../emailSettings.service.js';
+import {
+  extractClientReferenceHeuristic,
+  isSenderAllowedForPolicy,
+  isStatusIntentHeuristic,
+  matchSchoolClient,
+  normalizeEmailAiPolicyMode
+} from './inboundEmailPolicy.service.js';
 
 function headerMap(headers = []) {
   const m = new Map();
@@ -111,15 +121,429 @@ async function compileGeminiDecision({ agencyName, fromEmail, subject, bodyText 
   return { needsHuman, replyText };
 }
 
-async function routeSenderIdentityIdFromHeaders(hdrs) {
+function parseTruthy(value) {
+  const s = String(value || '').trim().toLowerCase();
+  return s === '1' || s === 'true' || s === 'yes' || s === 'on';
+}
+
+function isIntentAllowedByPolicy({ intentClass, allowedIntentClasses }) {
+  const list = Array.isArray(allowedIntentClasses) ? allowedIntentClasses : [];
+  if (!list.length) return true;
+  return list.includes(String(intentClass || '').trim().toLowerCase());
+}
+
+async function routeSenderIdentityFromHeaders(hdrs) {
   const to = extractEmails(hdrs.get('to'));
   const cc = extractEmails(hdrs.get('cc'));
   const all = [...to, ...cc];
   for (const addr of all) {
     const identity = await EmailSenderIdentity.findByInboundAddress(addr);
-    if (identity?.id) return identity.id;
+    if (identity?.id) return { senderIdentityId: identity.id, matchedAddress: addr, to, cc };
   }
-  return null;
+  return { senderIdentityId: null, matchedAddress: null, to, cc };
+}
+
+async function hasSupportTicketMessagesTable() {
+  try {
+    const [rows] = await pool.execute(
+      "SELECT COUNT(*) AS cnt FROM information_schema.tables WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'support_ticket_messages'"
+    );
+    return Number(rows?.[0]?.cnt || 0) > 0;
+  } catch {
+    return false;
+  }
+}
+
+async function hasClientPaperworkItemsTable() {
+  try {
+    const [rows] = await pool.execute(
+      "SELECT COUNT(*) AS cnt FROM information_schema.tables WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'client_paperwork_items'"
+    );
+    return Number(rows?.[0]?.cnt || 0) > 0;
+  } catch {
+    return false;
+  }
+}
+
+async function findSchoolContextByInboundAddresses({ agencyId, addresses }) {
+  const list = Array.from(new Set((addresses || []).map((x) => String(x || '').trim().toLowerCase()).filter(Boolean)));
+  if (!list.length) return null;
+  try {
+    const placeholders = list.map(() => '?').join(',');
+    const [rows] = await pool.execute(
+      `SELECT sp.school_organization_id, a.name AS school_name
+       FROM school_profiles sp
+       JOIN agencies a ON a.id = sp.school_organization_id
+       LEFT JOIN organization_affiliations oa
+         ON oa.organization_id = sp.school_organization_id
+        AND oa.is_active = TRUE
+       LEFT JOIN agency_schools asch
+         ON asch.school_organization_id = sp.school_organization_id
+        AND asch.is_active = TRUE
+       WHERE LOWER(sp.itsco_email) IN (${placeholders})
+         ${agencyId ? 'AND (oa.agency_id = ? OR asch.agency_id = ?)' : ''}
+       ORDER BY sp.school_organization_id ASC
+       LIMIT 1`,
+      agencyId ? [...list, Number(agencyId), Number(agencyId)] : list
+    );
+    const row = rows?.[0] || null;
+    if (!row?.school_organization_id) return null;
+    return {
+      schoolOrganizationId: Number(row.school_organization_id),
+      schoolName: row.school_name || null
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function findKnownSender({ schoolOrganizationId, fromEmail }) {
+  const email = String(fromEmail || '').trim().toLowerCase();
+  if (!email) return { isKnownContact: false, isKnownAccount: false, accountUserId: null };
+
+  let isKnownContact = false;
+  try {
+    const [rows] = await pool.execute(
+      `SELECT id
+       FROM school_contacts
+       WHERE school_organization_id = ?
+         AND LOWER(COALESCE(email, '')) = ?
+       LIMIT 1`,
+      [Number(schoolOrganizationId), email]
+    );
+    isKnownContact = !!rows?.[0];
+  } catch {
+    isKnownContact = false;
+  }
+
+  let accountUserId = null;
+  try {
+    const direct = await User.findByEmail(email);
+    if (direct?.id) accountUserId = Number(direct.id);
+  } catch {
+    accountUserId = null;
+  }
+  if (!accountUserId) {
+    try {
+      const [rows] = await pool.execute(
+        `SELECT id
+         FROM users
+         WHERE LOWER(COALESCE(email, '')) = ?
+            OR LOWER(COALESCE(work_email, '')) = ?
+         LIMIT 1`,
+        [email, email]
+      );
+      accountUserId = rows?.[0]?.id ? Number(rows[0].id) : null;
+    } catch {
+      accountUserId = null;
+    }
+  }
+
+  return {
+    isKnownContact,
+    isKnownAccount: !!accountUserId,
+    accountUserId: accountUserId || null
+  };
+}
+
+async function findFallbackCreatorUserId(agencyId) {
+  const aid = Number(agencyId || 0);
+  if (!aid) return null;
+  try {
+    const [rows] = await pool.execute(
+      `SELECT u.id
+       FROM users u
+       JOIN user_agencies ua ON ua.user_id = u.id
+       WHERE ua.agency_id = ?
+         AND LOWER(COALESCE(u.role, '')) IN ('admin', 'support', 'staff', 'super_admin')
+         AND (u.is_archived = FALSE OR u.is_archived IS NULL)
+         AND UPPER(COALESCE(u.status, '')) <> 'ARCHIVED'
+       ORDER BY FIELD(LOWER(COALESCE(u.role,'')), 'admin', 'support', 'staff', 'super_admin'), u.id ASC
+       LIMIT 1`,
+      [aid]
+    );
+    return rows?.[0]?.id ? Number(rows[0].id) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function resolvePreferredReplyAlias({ agencyId, fallbackFromEmail }) {
+  const aid = Number(agencyId || 0);
+  try {
+    const [rows] = await pool.execute(
+      `SELECT from_email
+       FROM email_sender_identities
+       WHERE is_active = TRUE
+         AND LOWER(identity_key) IN ('schoolreply', 'school_reply')
+         AND (? = 0 OR agency_id = ? OR agency_id IS NULL)
+       ORDER BY agency_id IS NULL ASC, id ASC
+       LIMIT 1`,
+      [aid, aid]
+    );
+    if (rows?.[0]?.from_email) return String(rows[0].from_email).trim().toLowerCase();
+  } catch {
+    // Ignore and fall back to routed sender identity.
+  }
+  return String(fallbackFromEmail || '').trim().toLowerCase() || null;
+}
+
+async function classifyStatusIntent({ subject, bodyText }) {
+  const heuristicIntent = isStatusIntentHeuristic({ subject, bodyText });
+  const heuristicRef = extractClientReferenceHeuristic({ subject, bodyText });
+  try {
+    const prompt = [
+      'Classify if the email is asking for a client status update.',
+      'Return JSON only with keys:',
+      '{"isStatusIntent": boolean, "clientReference": string|null, "confidence": number}',
+      '',
+      `Subject: ${String(subject || '')}`,
+      'Body:',
+      String(bodyText || '')
+    ].join('\n');
+    const { text } = await callGeminiText({ prompt, temperature: 0.1, maxOutputTokens: 220 });
+    const jsonText = String(text || '').trim().replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```$/i, '').trim();
+    const parsed = JSON.parse(jsonText);
+    const aiIntent = parsed?.isStatusIntent === true;
+    const aiRef = parsed?.clientReference ? String(parsed.clientReference).trim() : null;
+    const aiConfidence = Number(parsed?.confidence || 0);
+    return {
+      isStatusIntent: aiIntent || heuristicIntent,
+      clientReference: aiRef || heuristicRef,
+      confidence: Number.isFinite(aiConfidence) ? Math.max(0, Math.min(1, aiConfidence)) : (heuristicIntent ? 0.65 : 0)
+    };
+  } catch {
+    return {
+      isStatusIntent: heuristicIntent,
+      clientReference: heuristicRef,
+      confidence: heuristicIntent ? 0.6 : 0
+    };
+  }
+}
+
+async function listSchoolClientsForStatusReply({ schoolOrganizationId }) {
+  const sid = Number(schoolOrganizationId || 0);
+  if (!sid) return [];
+  try {
+    const [rows] = await pool.execute(
+      `SELECT c.id,
+              c.organization_id,
+              c.agency_id,
+              c.identifier_code,
+              c.initials,
+              c.full_name,
+              c.first_name,
+              c.last_name,
+              c.status,
+              c.document_status,
+              GROUP_CONCAT(DISTINCT cpa.service_day ORDER BY FIELD(cpa.service_day,'Monday','Tuesday','Wednesday','Thursday','Friday') SEPARATOR ', ') AS service_day,
+              GROUP_CONCAT(DISTINCT CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, '')) ORDER BY u.last_name ASC, u.first_name ASC SEPARATOR ', ') AS provider_name,
+              c.parents_contacted_at,
+              c.parents_contacted_successful,
+              c.intake_at,
+              c.first_service_at,
+              c.checklist_updated_at,
+              c.checklist_updated_by_name,
+              cs.label AS client_status_label,
+              ps.label AS paperwork_status_label
+       FROM clients c
+       JOIN client_organization_assignments coa
+         ON coa.client_id = c.id
+        AND coa.organization_id = ?
+        AND coa.is_active = TRUE
+       LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
+       LEFT JOIN paperwork_statuses ps ON ps.id = c.paperwork_status_id
+       LEFT JOIN client_provider_assignments cpa
+         ON cpa.client_id = c.id
+        AND cpa.organization_id = coa.organization_id
+        AND cpa.is_active = TRUE
+       LEFT JOIN users u ON u.id = cpa.provider_user_id
+       WHERE (c.status IS NULL OR UPPER(c.status) <> 'ARCHIVED')
+       GROUP BY c.id
+       ORDER BY c.id DESC`,
+      [sid]
+    );
+    return rows || [];
+  } catch {
+    try {
+      const [rows] = await pool.execute(
+        `SELECT c.id,
+                c.organization_id,
+                c.agency_id,
+                c.identifier_code,
+                c.initials,
+                c.full_name,
+                c.first_name,
+                c.last_name,
+                c.status,
+                c.document_status,
+                c.service_day,
+                c.parents_contacted_at,
+                c.parents_contacted_successful,
+                c.intake_at,
+                c.first_service_at,
+                c.checklist_updated_at,
+                c.checklist_updated_by_name,
+                cs.label AS client_status_label,
+                ps.label AS paperwork_status_label,
+                CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, '')) AS provider_name
+         FROM clients c
+         LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
+         LEFT JOIN paperwork_statuses ps ON ps.id = c.paperwork_status_id
+         LEFT JOIN users u ON u.id = c.provider_id
+         WHERE c.organization_id = ?
+         AND UPPER(COALESCE(c.status, '')) <> 'ARCHIVED'
+         ORDER BY c.id DESC`,
+        [sid]
+      );
+      return rows || [];
+    } catch {
+      return [];
+    }
+  }
+}
+
+async function getClientChecklistDetailsForStatusReply({ clientId, agencyId }) {
+  const cid = Number(clientId || 0);
+  const aid = Number(agencyId || 0);
+  if (!cid || !aid) return [];
+  if (!(await hasClientPaperworkItemsTable())) return [];
+  try {
+    const [rows] = await pool.execute(
+      `SELECT ps.status_key, ps.label, cpi.is_needed, cpi.received_at
+       FROM client_paperwork_items cpi
+       INNER JOIN paperwork_statuses ps ON ps.id = cpi.paperwork_status_id
+       WHERE cpi.client_id = ?
+         AND ps.agency_id = ?
+       ORDER BY cpi.is_needed DESC, cpi.received_at DESC, ps.label ASC`,
+      [cid, aid]
+    );
+    return (rows || []).map((r) => ({
+      statusKey: String(r.status_key || '').toLowerCase(),
+      label: r.label || r.status_key || 'Item',
+      isNeeded: r.is_needed === 1 || r.is_needed === true,
+      receivedAt: r.received_at || null
+    }));
+  } catch {
+    return [];
+  }
+}
+
+function buildClientChecklistSummary(client) {
+  const parts = [];
+  if (client?.parents_contacted_at) {
+    parts.push(`Parents contacted: yes (${String(client.parents_contacted_at).slice(0, 10)})`);
+  } else {
+    parts.push('Parents contacted: no');
+  }
+  if (client?.intake_at) parts.push(`Intake date: ${String(client.intake_at).slice(0, 10)}`);
+  else parts.push('Intake date: pending');
+  if (client?.first_service_at) parts.push(`First service: ${String(client.first_service_at).slice(0, 10)}`);
+  else parts.push('First service: pending');
+  return parts.join('; ');
+}
+
+async function generateStatusDraft({
+  schoolName,
+  subject,
+  bodyText,
+  senderEmail,
+  replyAlias,
+  client,
+  checklistItems
+}) {
+  const checklistSummary = buildClientChecklistSummary(client);
+  const neededItems = (checklistItems || []).filter((x) => x.isNeeded).slice(0, 6).map((x) => x.label);
+  const receivedItems = (checklistItems || []).filter((x) => !x.isNeeded).slice(0, 4).map((x) => x.label);
+  const prompt = [
+    'Write a concise school-facing email reply.',
+    'Use plain language and do not include PHI beyond what is provided.',
+    'Keep it short (3-6 sentences), polite, and operational.',
+    'Do not promise dates you cannot confirm.',
+    '',
+    `School: ${schoolName || 'School organization'}`,
+    `Incoming subject: ${String(subject || '').trim()}`,
+    `Sender: ${senderEmail || 'Unknown'}`,
+    `Reply alias: ${replyAlias || 'schoolreply@itsco.health'}`,
+    '',
+    'Incoming message:',
+    String(bodyText || ''),
+    '',
+    'Client context:',
+    `- Client reference: ${client.full_name || client.initials || client.identifier_code || `Client #${client.id}`}`,
+    `- Client status: ${client.client_status_label || client.status || 'Unknown'}`,
+    `- Document status: ${client.paperwork_status_label || client.document_status || 'Unknown'}`,
+    `- Assigned provider/day: ${client.provider_name || 'Unassigned'}${client.service_day ? ` (${client.service_day})` : ''}`,
+    `- Checklist: ${checklistSummary}`,
+    `- Needed checklist items: ${neededItems.length ? neededItems.join(', ') : 'None listed'}`,
+    `- Recently received checklist items: ${receivedItems.length ? receivedItems.join(', ') : 'None listed'}`,
+    '',
+    'Return only the reply body text.'
+  ].join('\n');
+  const { text } = await callGeminiText({ prompt, temperature: 0.2, maxOutputTokens: 420 });
+  return String(text || '').trim();
+}
+
+function truncate(value, max = 1000) {
+  const s = String(value || '').trim();
+  if (!s) return '';
+  return s.length > max ? `${s.slice(0, max)}...` : s;
+}
+
+async function createEmailDraftSupportTicket({
+  schoolOrganizationId,
+  agencyId,
+  createdByUserId,
+  subject,
+  bodyText,
+  fromEmail,
+  messageId,
+  threadId,
+  receivedAt,
+  matchedClient,
+  draftResponse,
+  draftConfidence,
+  draftStatus,
+  escalationReason,
+  metadata
+}) {
+  const [result] = await pool.execute(
+    `INSERT INTO support_tickets
+      (school_organization_id, client_id, created_by_user_id, agency_id, source_channel,
+       source_email_from, source_email_subject, source_email_message_id, source_email_thread_id, source_email_received_at,
+       email_ingested_at,
+       subject, question, status, ai_draft_response, ai_draft_confidence, ai_draft_status, ai_draft_metadata_json,
+       ai_draft_generated_at, draft_generated_at, ai_draft_review_state, escalation_reason)
+     VALUES (?, ?, ?, ?, 'email', ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'pending', ?)`,
+    [
+      Number(schoolOrganizationId),
+      matchedClient?.id ? Number(matchedClient.id) : null,
+      Number(createdByUserId),
+      agencyId ? Number(agencyId) : null,
+      String(fromEmail || '').trim() || null,
+      truncate(subject, 255) || null,
+      String(messageId || '').trim() || null,
+      String(threadId || '').trim() || null,
+      receivedAt || null,
+      receivedAt || null,
+      truncate(subject || 'Inbound school status request', 255) || 'Inbound school status request',
+      truncate(bodyText, 4000),
+      draftResponse ? truncate(draftResponse, 6000) : null,
+      Number.isFinite(Number(draftConfidence)) ? Number(draftConfidence) : null,
+      draftStatus || null,
+      metadata ? JSON.stringify(metadata) : null,
+      escalationReason || null
+    ]
+  );
+  const ticketId = Number(result?.insertId || 0);
+  if (ticketId && (await hasSupportTicketMessagesTable())) {
+    await pool.execute(
+      `INSERT INTO support_ticket_messages (ticket_id, parent_message_id, author_user_id, author_role, body)
+       VALUES (?, NULL, ?, 'system_email', ?)`,
+      [ticketId, Number(createdByUserId), truncate(bodyText, 8000)]
+    );
+  }
+  return ticketId;
 }
 
 export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
@@ -137,7 +561,15 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
   });
 
   const msgs = list.data?.messages || [];
-  const results = { scanned: msgs.length, replied: 0, needsHuman: 0, ignored: 0, unroutable: 0 };
+  const statusDraftsEnabled = parseTruthy(process.env.EMAIL_AI_STATUS_DRAFTS_ENABLED);
+  const results = {
+    scanned: msgs.length,
+    replied: 0,
+    draftedToTickets: 0,
+    needsHuman: 0,
+    ignored: 0,
+    unroutable: 0
+  };
 
   for (const m of msgs) {
     const id = m.id;
@@ -172,7 +604,8 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
       continue;
     }
 
-    const senderIdentityId = await routeSenderIdentityIdFromHeaders(hdrs);
+    const routed = await routeSenderIdentityFromHeaders(hdrs);
+    const senderIdentityId = routed.senderIdentityId;
     if (!senderIdentityId) {
       results.unroutable += 1;
       await gmail.users.messages.modify({
@@ -189,6 +622,206 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
     const agencyName = agency?.name || 'your organization';
 
     const bodyText = pickBodyText(payload);
+
+    if (statusDraftsEnabled) {
+      const schoolContext = await findSchoolContextByInboundAddresses({
+        agencyId,
+        addresses: [routed.matchedAddress, ...routed.to, ...routed.cc]
+      });
+      if (!schoolContext?.schoolOrganizationId) {
+        results.needsHuman += 1;
+        await gmail.users.messages.modify({
+          userId: 'me',
+          id,
+          requestBody: { removeLabelIds: ['UNREAD'], addLabelIds: [processedLabelId, needsHumanLabelId] }
+        });
+        continue;
+      }
+
+      const policy = await resolveEffectiveEmailAiPolicy({
+        agencyId,
+        schoolOrganizationId: schoolContext.schoolOrganizationId
+      });
+      const sender = await findKnownSender({
+        schoolOrganizationId: schoolContext.schoolOrganizationId,
+        fromEmail
+      });
+      const senderAllowed = isSenderAllowedForPolicy({
+        policyMode: normalizeEmailAiPolicyMode(policy.mode),
+        isKnownContact: sender.isKnownContact,
+        isKnownAccount: sender.isKnownAccount
+      });
+      if (!senderAllowed) {
+        results.needsHuman += 1;
+        await gmail.users.messages.modify({
+          userId: 'me',
+          id,
+          requestBody: { removeLabelIds: ['UNREAD'], addLabelIds: [processedLabelId, needsHumanLabelId] }
+        });
+        continue;
+      }
+
+      const allowedSenderIdentityKeys = Array.isArray(policy.allowedSenderIdentityKeys)
+        ? policy.allowedSenderIdentityKeys
+        : [];
+      if (allowedSenderIdentityKeys.length > 0) {
+        const identityKeyNorm = String(identity?.identity_key || '').trim().toLowerCase();
+        if (!allowedSenderIdentityKeys.includes(identityKeyNorm)) {
+          results.needsHuman += 1;
+          await gmail.users.messages.modify({
+            userId: 'me',
+            id,
+            requestBody: { removeLabelIds: ['UNREAD'], addLabelIds: [processedLabelId, needsHumanLabelId] }
+          });
+          continue;
+        }
+      }
+
+      const creatorUserId = sender.accountUserId || (await findFallbackCreatorUserId(agencyId));
+      if (!creatorUserId) {
+        results.needsHuman += 1;
+        await gmail.users.messages.modify({
+          userId: 'me',
+          id,
+          requestBody: { removeLabelIds: ['UNREAD'], addLabelIds: [processedLabelId, needsHumanLabelId] }
+        });
+        continue;
+      }
+
+      const intent = await classifyStatusIntent({ subject, bodyText });
+      const intentClass = intent.isStatusIntent ? 'school_status_request' : 'other';
+      const intentAllowed = isIntentAllowedByPolicy({
+        intentClass,
+        allowedIntentClasses: policy.allowedIntentClasses
+      });
+      if (!intentAllowed) {
+        results.needsHuman += 1;
+        await createEmailDraftSupportTicket({
+          schoolOrganizationId: schoolContext.schoolOrganizationId,
+          agencyId,
+          createdByUserId: creatorUserId,
+          subject,
+          bodyText,
+          fromEmail,
+          messageId: hdrs.get('message-id') || null,
+          threadId: full.data?.threadId || null,
+          receivedAt: new Date(full.data?.internalDate ? Number(full.data.internalDate) : Date.now()),
+          matchedClient: null,
+          draftResponse: null,
+          draftConfidence: intent.confidence,
+          draftStatus: 'needs_review',
+          escalationReason: 'intent_not_allowed_by_policy',
+          metadata: {
+            policyMode: policy.mode,
+            policySource: policy.source,
+            allowedIntentClasses: policy.allowedIntentClasses || [],
+            detectedIntentClass: intentClass
+          }
+        }).catch(() => {});
+        await gmail.users.messages.modify({
+          userId: 'me',
+          id,
+          requestBody: { removeLabelIds: ['UNREAD'], addLabelIds: [processedLabelId, needsHumanLabelId] }
+        });
+        continue;
+      }
+      const clients = await listSchoolClientsForStatusReply({ schoolOrganizationId: schoolContext.schoolOrganizationId });
+      const match = intent.isStatusIntent ? matchSchoolClient({ query: intent.clientReference, clients }) : { match: null, confidence: 0, reason: 'not_status_intent', candidates: [] };
+
+      let draftResponse = null;
+      let draftStatus = 'needs_review';
+      let escalationReason = intent.isStatusIntent ? 'no_client_match' : 'not_status_intent';
+      let checklistItems = [];
+      const proposedReplyFrom = await resolvePreferredReplyAlias({
+        agencyId,
+        fallbackFromEmail: identity?.from_email
+      });
+
+      if (intent.isStatusIntent && match.match) {
+        const threshold = Number(policy.matchConfidenceThreshold || 0.75);
+        if (Number(match.confidence || 0) < threshold) {
+          draftStatus = 'needs_review';
+          escalationReason = 'low_confidence_client_match';
+        }
+        checklistItems = await getClientChecklistDetailsForStatusReply({
+          clientId: match.match.id,
+          agencyId: match.match.agency_id || agencyId
+        });
+        if (escalationReason !== 'low_confidence_client_match') {
+          draftResponse = await generateStatusDraft({
+            schoolName: schoolContext.schoolName,
+            subject,
+            bodyText,
+            senderEmail: fromEmail,
+            replyAlias: proposedReplyFrom,
+            client: match.match,
+            checklistItems
+          }).catch(() => null);
+          if (draftResponse) {
+            draftStatus = 'safe_to_send';
+            escalationReason = null;
+          } else {
+            draftStatus = 'needs_review';
+            escalationReason = 'draft_generation_failed';
+          }
+        }
+      } else if (intent.isStatusIntent) {
+        if (match.reason === 'ambiguous') escalationReason = 'ambiguous_client_match';
+        else if (match.reason === 'low_confidence') escalationReason = 'low_confidence_client_match';
+        else escalationReason = 'no_client_match';
+      }
+
+      await createEmailDraftSupportTicket({
+        schoolOrganizationId: schoolContext.schoolOrganizationId,
+        agencyId,
+        createdByUserId: creatorUserId,
+        subject,
+        bodyText,
+        fromEmail,
+        messageId: hdrs.get('message-id') || null,
+        threadId: full.data?.threadId || null,
+        receivedAt: new Date(full.data?.internalDate ? Number(full.data.internalDate) : Date.now()),
+        matchedClient: match.match,
+        draftResponse,
+        draftConfidence: match.confidence || intent.confidence,
+        draftStatus,
+        escalationReason,
+        metadata: {
+          policyMode: policy.mode,
+          policySource: policy.source,
+          allowedIntentClasses: policy.allowedIntentClasses || [],
+          matchConfidenceThreshold: policy.matchConfidenceThreshold || 0.75,
+          allowedSenderIdentityKeys: policy.allowedSenderIdentityKeys || [],
+          knownContact: sender.isKnownContact,
+          knownAccount: sender.isKnownAccount,
+          extractedClientReference: intent.clientReference || null,
+          matchReason: match.reason || null,
+          recommendation: draftStatus,
+          matchCandidates: (match.candidates || []).map((c) => ({
+            clientId: c?.client?.id || null,
+            initials: c?.client?.initials || null,
+            identifierCode: c?.client?.identifier_code || null,
+            score: c?.score || 0
+          })),
+          checklistItems: (checklistItems || []).map((item) => ({
+            statusKey: item.statusKey,
+            label: item.label,
+            isNeeded: item.isNeeded,
+            receivedAt: item.receivedAt
+          })),
+          proposedReplyFrom
+        }
+      }).catch(() => {});
+
+      results.draftedToTickets += 1;
+      await gmail.users.messages.modify({
+        userId: 'me',
+        id,
+        requestBody: { removeLabelIds: ['UNREAD'], addLabelIds: [processedLabelId, needsHumanLabelId] }
+      });
+      continue;
+    }
+
     const decision = await compileGeminiDecision({ agencyName, fromEmail, subject, bodyText }).catch((e) => {
       return { needsHuman: true, replyText: '', error: e.message };
     });

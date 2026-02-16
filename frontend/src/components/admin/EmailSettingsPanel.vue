@@ -182,19 +182,186 @@
         <div v-if="!agencyRows.length" class="empty-state">No agencies available.</div>
         <div v-else class="agency-list">
           <div v-for="agency in agencyRows" :key="agency.agencyId" class="agency-row">
-            <div class="agency-name">{{ agency.name }}</div>
-            <div class="agency-toggle">
-              <label class="toggle">
-                <input
-                  type="checkbox"
-                  v-model="agency.notificationsEnabled"
-                  :disabled="!canEditAgencies"
-                />
-                <span>Enabled</span>
-              </label>
-              <small v-if="!settings.platform.notificationsEnabled" class="hint">
-                Disabled by platform toggle.
-              </small>
+            <div class="agency-config">
+              <div class="agency-name">{{ agency.name }}</div>
+              <div class="agency-controls">
+                <div class="settings-value">
+                  <label class="toggle">
+                    <input
+                      type="checkbox"
+                      v-model="agency.notificationsEnabled"
+                      :disabled="!canEditAgencies"
+                    />
+                    <span>Email notifications enabled</span>
+                  </label>
+                  <small v-if="!settings.platform.notificationsEnabled" class="hint">
+                    Disabled by platform toggle.
+                  </small>
+                </div>
+                <div class="settings-value">
+                  <label class="hint-label">Inbound AI policy</label>
+                  <select v-model="agency.aiDraftPolicyMode" class="form-select" :disabled="!canEditAgencies">
+                    <option value="human_only">Human only</option>
+                    <option value="draft_known_contacts_or_accounts">Draft for known contacts OR known accounts</option>
+                    <option value="draft_known_contacts_only">Draft for known contacts only</option>
+                    <option value="draft_known_accounts_only">Draft for known accounts only</option>
+                  </select>
+                </div>
+                <div class="settings-value">
+                  <label class="toggle">
+                    <input
+                      type="checkbox"
+                      v-model="agency.allowSchoolOverrides"
+                      :disabled="!canEditAgencies"
+                    />
+                    <span>Allow school overrides</span>
+                  </label>
+                </div>
+                <div class="settings-value">
+                  <label class="hint-label">Allowed intent classes</label>
+                  <label v-for="intent in KNOWN_INTENT_OPTIONS" :key="`${agency.agencyId}-intent-${intent}`" class="toggle">
+                    <input
+                      type="checkbox"
+                      :value="intent"
+                      v-model="agency.aiAllowedIntentClasses"
+                      :disabled="!canEditAgencies"
+                    />
+                    <span>{{ intent }}</span>
+                  </label>
+                </div>
+                <div class="settings-value">
+                  <label class="hint-label">Client-match confidence threshold</label>
+                  <input
+                    v-model.number="agency.aiMatchConfidenceThreshold"
+                    type="number"
+                    min="0.5"
+                    max="0.99"
+                    step="0.01"
+                    :disabled="!canEditAgencies"
+                  />
+                </div>
+                <div class="settings-value">
+                  <label class="hint-label">Approved sender identity keys</label>
+                  <input
+                    v-model="agency.aiAllowedSenderIdentityKeysCsv"
+                    type="text"
+                    placeholder="schoolreply, system"
+                    :disabled="!canEditAgencies"
+                  />
+                  <small class="hint">Comma-separated keys. Leave blank to allow all active identity keys.</small>
+                </div>
+              </div>
+              <div class="school-overrides">
+                <div class="hint-label">School overrides</div>
+                <div v-if="!(schoolOverridesByAgency[String(agency.agencyId)] || []).length" class="hint">
+                  No school overrides for this agency.
+                </div>
+                <div
+                  v-for="ov in (schoolOverridesByAgency[String(agency.agencyId)] || [])"
+                  :key="`ov-${agency.agencyId}-${ov.schoolOrganizationId}`"
+                  class="override-row"
+                >
+                  <div class="override-school">
+                    {{ ov.schoolName || `School #${ov.schoolOrganizationId}` }}
+                  </div>
+                  <select v-model="ov.policyMode" class="form-select override-select" :disabled="!canEditAgencies">
+                    <option value="human_only">Human only</option>
+                    <option value="draft_known_contacts_or_accounts">Known contacts OR accounts</option>
+                    <option value="draft_known_contacts_only">Known contacts only</option>
+                    <option value="draft_known_accounts_only">Known accounts only</option>
+                  </select>
+                  <label class="toggle">
+                    <input type="checkbox" v-model="ov.isActive" :disabled="!canEditAgencies" />
+                    <span>Active</span>
+                  </label>
+                  <label class="toggle">
+                    <input type="checkbox" v-model="ov.inheritAdvancedControls" :disabled="!canEditAgencies" />
+                    <span>Inherit advanced controls</span>
+                  </label>
+                  <button
+                    v-if="canEditAgencies"
+                    class="btn btn-danger btn-sm"
+                    type="button"
+                    @click="removeSchoolOverride(agency.agencyId, ov.schoolOrganizationId)"
+                  >
+                    Delete
+                  </button>
+                  <div v-if="!ov.inheritAdvancedControls" class="override-advanced">
+                    <div class="settings-value">
+                      <label class="hint-label">Allowed intent classes</label>
+                      <label v-for="intent in KNOWN_INTENT_OPTIONS" :key="`ov-${agency.agencyId}-${ov.schoolOrganizationId}-${intent}`" class="toggle">
+                        <input type="checkbox" :value="intent" v-model="ov.allowedIntentClasses" :disabled="!canEditAgencies" />
+                        <span>{{ intent }}</span>
+                      </label>
+                    </div>
+                    <div class="settings-value">
+                      <label class="hint-label">Confidence threshold</label>
+                      <input
+                        v-model.number="ov.matchConfidenceThreshold"
+                        type="number"
+                        min="0.5"
+                        max="0.99"
+                        step="0.01"
+                        :disabled="!canEditAgencies"
+                      />
+                    </div>
+                    <div class="settings-value">
+                      <label class="hint-label">Approved sender identity keys</label>
+                      <input
+                        v-model="ov.allowedSenderIdentityKeysCsv"
+                        type="text"
+                        placeholder="schoolreply, system"
+                        :disabled="!canEditAgencies"
+                      />
+                    </div>
+                  </div>
+                </div>
+                <div v-if="canEditAgencies" class="override-add">
+                  <input
+                    v-model="overrideDraftForAgency(agency.agencyId).schoolOrganizationId"
+                    class="input"
+                    type="number"
+                    placeholder="School org ID"
+                  />
+                  <select
+                    v-model="overrideDraftForAgency(agency.agencyId).policyMode"
+                    class="form-select override-select"
+                  >
+                    <option value="human_only">Human only</option>
+                    <option value="draft_known_contacts_or_accounts">Known contacts OR accounts</option>
+                    <option value="draft_known_contacts_only">Known contacts only</option>
+                    <option value="draft_known_accounts_only">Known accounts only</option>
+                  </select>
+                  <button class="btn btn-secondary btn-sm" type="button" @click="addSchoolOverride(agency.agencyId)">
+                    Add override
+                  </button>
+                </div>
+                <div v-if="canEditAgencies" class="override-add override-add-advanced">
+                  <label class="toggle">
+                    <input type="checkbox" v-model="overrideDraftForAgency(agency.agencyId).inheritAdvancedControls" />
+                    <span>Inherit advanced controls on create</span>
+                  </label>
+                  <template v-if="!overrideDraftForAgency(agency.agencyId).inheritAdvancedControls">
+                    <label v-for="intent in KNOWN_INTENT_OPTIONS" :key="`draft-${agency.agencyId}-${intent}`" class="toggle">
+                      <input type="checkbox" :value="intent" v-model="overrideDraftForAgency(agency.agencyId).allowedIntentClasses" />
+                      <span>{{ intent }}</span>
+                    </label>
+                    <input
+                      v-model.number="overrideDraftForAgency(agency.agencyId).matchConfidenceThreshold"
+                      type="number"
+                      min="0.5"
+                      max="0.99"
+                      step="0.01"
+                      placeholder="Confidence threshold"
+                    />
+                    <input
+                      v-model="overrideDraftForAgency(agency.agencyId).allowedSenderIdentityKeysCsv"
+                      type="text"
+                      placeholder="Approved sender keys"
+                    />
+                  </template>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -230,6 +397,8 @@ const settings = ref({
   fromName: null,
   impersonateUser: null,
   agencies: []
+  ,
+  schoolOverridesByAgency: {}
 });
 
 const form = ref({
@@ -254,9 +423,19 @@ const newIdentity = ref({
   replyTo: '',
   inboundAddressesText: ''
 });
+const schoolOverridesByAgency = ref({});
+const deletedSchoolOverrides = ref([]);
+const newOverrideByAgency = ref({});
+const KNOWN_INTENT_OPTIONS = ['school_status_request'];
+
+const parseCsv = (raw) => String(raw || '')
+  .split(',')
+  .map((x) => x.trim().toLowerCase())
+  .filter(Boolean);
+const toCsv = (arr) => Array.isArray(arr) ? arr.join(', ') : '';
 
 const canEditPlatform = computed(() => authStore.user?.role === 'super_admin');
-const canEditAgencies = computed(() => ['super_admin', 'admin'].includes(authStore.user?.role));
+const canEditAgencies = computed(() => ['super_admin', 'admin', 'staff', 'support'].includes(authStore.user?.role));
 const canEditAny = computed(() => canEditPlatform.value || canEditAgencies.value);
 
 const loadSettings = async () => {
@@ -270,8 +449,44 @@ const loadSettings = async () => {
     agencyRows.value = (settings.value.agencies || []).map((a) => ({
       agencyId: a.agencyId,
       name: a.name,
-      notificationsEnabled: a.notificationsEnabled !== false
+      notificationsEnabled: a.notificationsEnabled !== false,
+      aiDraftPolicyMode: a.aiDraftPolicyMode || 'human_only',
+      allowSchoolOverrides: a.allowSchoolOverrides !== false,
+      aiAllowedIntentClasses: Array.isArray(a.aiAllowedIntentClasses) ? a.aiAllowedIntentClasses : ['school_status_request'],
+      aiMatchConfidenceThreshold: Number(a.aiMatchConfidenceThreshold ?? 0.75),
+      aiAllowedSenderIdentityKeysCsv: toCsv(a.aiAllowedSenderIdentityKeys || [])
     }));
+    schoolOverridesByAgency.value = {};
+    for (const agency of agencyRows.value) {
+      const key = String(agency.agencyId);
+      schoolOverridesByAgency.value[key] = Array.isArray(settings.value.schoolOverridesByAgency?.[key])
+        ? settings.value.schoolOverridesByAgency[key].map((ov) => ({
+          ...ov,
+          agencyId: Number(ov.agencyId || agency.agencyId),
+          schoolOrganizationId: Number(ov.schoolOrganizationId),
+          policyMode: ov.policyMode || 'human_only',
+          isActive: ov.isActive !== false,
+          inheritAdvancedControls:
+            !Array.isArray(ov.allowedIntentClasses) &&
+            (ov.matchConfidenceThreshold === null || ov.matchConfidenceThreshold === undefined) &&
+            !Array.isArray(ov.allowedSenderIdentityKeys),
+          allowedIntentClasses: Array.isArray(ov.allowedIntentClasses)
+            ? ov.allowedIntentClasses
+            : ['school_status_request'],
+          matchConfidenceThreshold: Number(ov.matchConfidenceThreshold ?? 0.75),
+          allowedSenderIdentityKeysCsv: toCsv(ov.allowedSenderIdentityKeys || [])
+        }))
+        : [];
+      newOverrideByAgency.value[key] = {
+        schoolOrganizationId: '',
+        policyMode: 'human_only',
+        inheritAdvancedControls: true,
+        allowedIntentClasses: ['school_status_request'],
+        matchConfidenceThreshold: 0.75,
+        allowedSenderIdentityKeysCsv: ''
+      };
+    }
+    deletedSchoolOverrides.value = [];
     if (!senderAgencyId.value) {
       if (canEditPlatform.value) {
         senderAgencyId.value = '';
@@ -387,18 +602,98 @@ const save = async () => {
       },
       agencies: agencyRows.value.map((a) => ({
         agencyId: a.agencyId,
-        notificationsEnabled: a.notificationsEnabled
-      }))
+        notificationsEnabled: a.notificationsEnabled,
+        aiDraftPolicyMode: a.aiDraftPolicyMode || 'human_only',
+        allowSchoolOverrides: a.allowSchoolOverrides !== false,
+        aiAllowedIntentClasses: Array.isArray(a.aiAllowedIntentClasses) ? a.aiAllowedIntentClasses : ['school_status_request'],
+        aiMatchConfidenceThreshold: Number(a.aiMatchConfidenceThreshold ?? 0.75),
+        aiAllowedSenderIdentityKeys: parseCsv(a.aiAllowedSenderIdentityKeysCsv)
+      })),
+      schoolOverrides: [
+        ...Object.values(schoolOverridesByAgency.value || {}).flatMap((list) => (
+          (Array.isArray(list) ? list : []).map((ov) => ({
+            agencyId: Number(ov.agencyId),
+            schoolOrganizationId: Number(ov.schoolOrganizationId),
+            policyMode: ov.policyMode || 'human_only',
+            isActive: ov.isActive !== false,
+            allowedIntentClasses: ov.inheritAdvancedControls ? null : (Array.isArray(ov.allowedIntentClasses) ? ov.allowedIntentClasses : ['school_status_request']),
+            matchConfidenceThreshold: ov.inheritAdvancedControls ? null : Number(ov.matchConfidenceThreshold ?? 0.75),
+            allowedSenderIdentityKeys: ov.inheritAdvancedControls ? null : parseCsv(ov.allowedSenderIdentityKeysCsv)
+          }))
+        )),
+        ...deletedSchoolOverrides.value
+      ]
     };
     const response = await api.put('/email-settings', payload);
     if (response.data?.platform) {
       settings.value.platform = response.data.platform;
     }
+    await loadSettings();
   } catch (err) {
     error.value = err?.response?.data?.error?.message || 'Failed to save email settings.';
   } finally {
     saving.value = false;
   }
+};
+
+const addSchoolOverride = (agencyId) => {
+  const key = String(agencyId);
+  const draft = newOverrideByAgency.value[key] || {};
+  const schoolOrganizationId = Number(draft.schoolOrganizationId || 0);
+  if (!schoolOrganizationId) return;
+  const list = Array.isArray(schoolOverridesByAgency.value[key]) ? schoolOverridesByAgency.value[key] : [];
+  if (list.some((ov) => Number(ov.schoolOrganizationId) === schoolOrganizationId)) return;
+  schoolOverridesByAgency.value[key] = [
+    ...list,
+    {
+      agencyId: Number(agencyId),
+      schoolOrganizationId,
+      schoolName: null,
+      policyMode: draft.policyMode || 'human_only',
+      isActive: true,
+      inheritAdvancedControls: draft.inheritAdvancedControls !== false,
+      allowedIntentClasses: Array.isArray(draft.allowedIntentClasses) ? draft.allowedIntentClasses : ['school_status_request'],
+      matchConfidenceThreshold: Number(draft.matchConfidenceThreshold ?? 0.75),
+      allowedSenderIdentityKeysCsv: String(draft.allowedSenderIdentityKeysCsv || '')
+    }
+  ];
+  newOverrideByAgency.value[key] = {
+    schoolOrganizationId: '',
+    policyMode: 'human_only',
+    inheritAdvancedControls: true,
+    allowedIntentClasses: ['school_status_request'],
+    matchConfidenceThreshold: 0.75,
+    allowedSenderIdentityKeysCsv: ''
+  };
+};
+
+const removeSchoolOverride = (agencyId, schoolOrganizationId) => {
+  const key = String(agencyId);
+  const sid = Number(schoolOrganizationId || 0);
+  if (!sid) return;
+  schoolOverridesByAgency.value[key] = (schoolOverridesByAgency.value[key] || []).filter(
+    (ov) => Number(ov.schoolOrganizationId) !== sid
+  );
+  deletedSchoolOverrides.value.push({
+    agencyId: Number(agencyId),
+    schoolOrganizationId: sid,
+    remove: true
+  });
+};
+
+const overrideDraftForAgency = (agencyId) => {
+  const key = String(agencyId);
+  if (!newOverrideByAgency.value[key]) {
+    newOverrideByAgency.value[key] = {
+      schoolOrganizationId: '',
+      policyMode: 'human_only',
+      inheritAdvancedControls: true,
+      allowedIntentClasses: ['school_status_request'],
+      matchConfidenceThreshold: 0.75,
+      allowedSenderIdentityKeysCsv: ''
+    };
+  }
+  return newOverrideByAgency.value[key];
 };
 
 onMounted(loadSettings);
@@ -550,9 +845,7 @@ watch([senderAgencyId, includePlatformDefaults], () => {
 }
 
 .agency-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+  display: block;
   padding: 10px 0;
   border-bottom: 1px dashed var(--border);
 }
@@ -565,6 +858,17 @@ watch([senderAgencyId, includePlatformDefaults], () => {
   font-weight: 600;
 }
 
+.agency-config {
+  display: grid;
+  gap: 10px;
+}
+
+.agency-controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
 .agency-toggle {
   display: flex;
   flex-direction: column;
@@ -572,11 +876,76 @@ watch([senderAgencyId, includePlatformDefaults], () => {
   gap: 4px;
 }
 
+.hint-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.school-overrides {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+  background: #fafafa;
+  display: grid;
+  gap: 8px;
+}
+
+.override-row {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr auto auto auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.override-advanced {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 8px;
+  padding: 8px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+}
+
+.override-school {
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.override-select {
+  max-width: none;
+}
+
+.override-add {
+  display: grid;
+  grid-template-columns: 180px 1fr auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.override-add-advanced {
+  grid-template-columns: 1fr;
+  padding-top: 6px;
+  border-top: 1px dashed var(--border);
+}
+
 .toggle {
   display: flex;
   align-items: center;
   gap: 8px;
   font-size: 14px;
+}
+
+@media (max-width: 980px) {
+  .agency-controls {
+    grid-template-columns: 1fr;
+  }
+  .override-row {
+    grid-template-columns: 1fr;
+  }
+  .override-add {
+    grid-template-columns: 1fr;
+  }
 }
 
 .error {

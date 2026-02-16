@@ -23,6 +23,34 @@
             <option value="closed">Closed</option>
           </select>
         </label>
+        <label class="field">
+          Source
+          <select v-model="sourceChannel" class="input">
+            <option value="">All</option>
+            <option value="portal">Portal</option>
+            <option value="email">Email</option>
+          </select>
+        </label>
+        <label class="field">
+          Draft State
+          <select v-model="draftState" class="input">
+            <option value="">All</option>
+            <option value="pending">Pending</option>
+            <option value="accepted">Accepted</option>
+            <option value="edited">Edited</option>
+            <option value="rejected">Rejected</option>
+            <option value="needs_review">Needs review</option>
+            <option value="none">None</option>
+          </select>
+        </label>
+        <label class="field">
+          Sent
+          <select v-model="sentState" class="input">
+            <option value="">All</option>
+            <option value="sent">Sent</option>
+            <option value="unsent">Unsent</option>
+          </select>
+        </label>
         <button
           class="btn btn-secondary"
           type="button"
@@ -73,6 +101,9 @@
               <span class="inline-meta">{{ formatDateTime(t.created_at) }}</span>
               <span class="inline-sep">•</span>
               <span class="inline-meta ellipsis" :title="t.question">Q: {{ t.question }}</span>
+              <span v-if="t.source_channel === 'email'" class="pill status-pill">Email</span>
+              <span v-if="t.escalation_reason" class="pill stale">Needs review: {{ formatEscalationReason(t.escalation_reason) }}</span>
+              <span v-if="t.sent_at" class="pill status-pill">Sent</span>
               <span v-if="t.answer" class="inline-sep">•</span>
               <span v-if="t.answer" class="inline-meta ellipsis">A: {{ t.answer }}</span>
               <span class="pill status-pill">{{ formatStatus(t.status) }}</span>
@@ -191,6 +222,62 @@
             <div class="answer-question" v-if="t.question">
               <div class="label">Question</div>
               <div class="text">{{ t.question }}</div>
+            </div>
+            <div v-if="t.ai_draft_response" class="answer-question">
+              <div class="label">AI draft</div>
+              <div class="text">{{ t.ai_draft_response }}</div>
+              <div v-if="t._draftMeta?.extractedClientReference || t.source_email_from" class="muted" style="margin-top: 8px;">
+                <div v-if="t.source_email_from"><strong>From:</strong> {{ t.source_email_from }}</div>
+                <div v-if="t.source_email_subject"><strong>Email subject:</strong> {{ t.source_email_subject }}</div>
+                <div v-if="t.email_ingested_at || t.source_email_received_at"><strong>Received:</strong> {{ formatDateTime(t.email_ingested_at || t.source_email_received_at) }}</div>
+                <div v-if="t._draftMeta?.extractedClientReference"><strong>Extracted client:</strong> {{ t._draftMeta.extractedClientReference }}</div>
+                <div v-if="t._draftMeta?.matchReason"><strong>Match reason:</strong> {{ t._draftMeta.matchReason }}</div>
+                <div v-if="t._draftMeta?.knownContact !== undefined || t._draftMeta?.knownAccount !== undefined">
+                  <strong>Sender known:</strong>
+                  contact={{ t._draftMeta?.knownContact ? 'yes' : 'no' }}, account={{ t._draftMeta?.knownAccount ? 'yes' : 'no' }}
+                </div>
+              </div>
+              <div class="answer-buttons" style="margin-top: 8px;">
+                <button class="btn btn-secondary btn-sm" type="button" @click="useAiDraft(t)" :disabled="submitting">
+                  Use draft
+                </button>
+                <button class="btn btn-secondary btn-sm" type="button" @click="copyAiDraft(t)" :disabled="submitting">
+                  Copy draft
+                </button>
+                <button
+                  class="btn btn-secondary btn-sm"
+                  type="button"
+                  @click="markDraftReview(t, 'accepted')"
+                  :disabled="reviewingDraftId === t.id"
+                >
+                  {{ reviewingDraftId === t.id ? 'Saving…' : 'Mark accepted' }}
+                </button>
+                <button
+                  class="btn btn-secondary btn-sm"
+                  type="button"
+                  @click="markDraftReview(t, 'rejected')"
+                  :disabled="reviewingDraftId === t.id"
+                >
+                  {{ reviewingDraftId === t.id ? 'Saving…' : 'Mark rejected' }}
+                </button>
+                <button
+                  v-if="t.source_channel === 'email' && !t.sent_at"
+                  class="btn btn-primary btn-sm"
+                  type="button"
+                  @click="markDraftSent(t)"
+                  :disabled="markingSentId === t.id"
+                >
+                  {{ markingSentId === t.id ? 'Saving…' : 'Mark sent' }}
+                </button>
+              </div>
+              <div v-if="t.ai_draft_review_state || t.sent_at" class="muted" style="margin-top: 8px;">
+                <span v-if="t.ai_draft_review_state">Review: {{ t.ai_draft_review_state }}</span>
+                <span v-if="t.approved_by_first_name || t.approved_by_last_name">
+                  {{ t.ai_draft_review_state ? ' • ' : '' }}
+                  Approved by: {{ [t.approved_by_first_name, t.approved_by_last_name].filter(Boolean).join(' ') }}
+                </span>
+                <span v-if="t.sent_at">{{ (t.ai_draft_review_state || t.approved_by_first_name || t.approved_by_last_name) ? ' • ' : '' }}Sent: {{ formatDateTime(t.sent_at) }}</span>
+              </div>
             </div>
           <label class="field" style="width: 100%;">
             Answer
@@ -320,6 +407,9 @@ const error = ref('');
 
 const schoolIdInput = ref('');
 const status = ref('');
+const sourceChannel = ref('');
+const draftState = ref('');
+const sentState = ref('');
 const viewMode = ref('all');
 const searchInput = ref('');
 
@@ -327,6 +417,8 @@ const openAnswerId = ref(null);
 const answerText = ref('');
 const submitting = ref(false);
 const generatingResponse = ref(false);
+const reviewingDraftId = ref(null);
+const markingSentId = ref(null);
 const answerError = ref('');
 const claimingId = ref(null);
 const unclaimingId = ref(null);
@@ -378,6 +470,14 @@ const syncFromQuery = () => {
   }
   const qStatus = String(route.query?.status || '').trim().toLowerCase();
   if (qStatus === 'open' || qStatus === 'answered' || qStatus === 'closed') status.value = qStatus;
+  const qSource = String(route.query?.sourceChannel || '').trim().toLowerCase();
+  if (qSource === 'portal' || qSource === 'email') sourceChannel.value = qSource;
+  const qDraftState = String(route.query?.draftState || '').trim().toLowerCase();
+  if (['pending', 'accepted', 'edited', 'rejected', 'needs_review', 'none'].includes(qDraftState)) {
+    draftState.value = qDraftState;
+  }
+  const qSentState = String(route.query?.sentState || '').trim().toLowerCase();
+  if (qSentState === 'sent' || qSentState === 'unsent') sentState.value = qSentState;
   const qMine = String(route.query?.mine || '').trim().toLowerCase();
   viewMode.value = qMine === 'true' || qMine === '1' ? 'mine' : 'all';
   const qSearch = route.query?.q;
@@ -460,6 +560,12 @@ const pushQuery = () => {
   else delete q.schoolOrganizationId;
   if (status.value) q.status = status.value;
   else delete q.status;
+  if (sourceChannel.value) q.sourceChannel = sourceChannel.value;
+  else delete q.sourceChannel;
+  if (draftState.value) q.draftState = draftState.value;
+  else delete q.draftState;
+  if (sentState.value) q.sentState = sentState.value;
+  else delete q.sentState;
   if (viewMode.value === 'mine') q.mine = 'true';
   else delete q.mine;
   if (searchInput.value && searchInput.value.trim()) q.q = searchInput.value.trim().slice(0, 120);
@@ -480,11 +586,17 @@ const load = async () => {
     const sid = Number(schoolIdInput.value);
     if (Number.isFinite(sid) && sid > 0) params.schoolOrganizationId = sid;
     if (status.value) params.status = status.value;
+    if (sourceChannel.value) params.sourceChannel = sourceChannel.value;
+    if (draftState.value) params.draftState = draftState.value;
+    if (sentState.value) params.sentState = sentState.value;
     if (viewMode.value === 'mine') params.mine = true;
     if (searchInput.value && searchInput.value.trim()) params.q = searchInput.value.trim().slice(0, 120);
 
     const r = await api.get('/support-tickets', { params });
-    tickets.value = Array.isArray(r.data) ? r.data : [];
+    tickets.value = (Array.isArray(r.data) ? r.data : []).map((ticket) => ({
+      ...ticket,
+      _draftMeta: parseDraftMetadata(ticket?.ai_draft_metadata_json)
+    }));
 
     const nextAssignees = {};
     for (const t of tickets.value) {
@@ -501,6 +613,16 @@ const load = async () => {
     tickets.value = [];
   } finally {
     loading.value = false;
+  }
+};
+
+const parseDraftMetadata = (raw) => {
+  if (!raw) return {};
+  if (typeof raw === 'object') return raw;
+  try {
+    return JSON.parse(String(raw));
+  } catch {
+    return {};
   }
 };
 
@@ -748,10 +870,15 @@ const submitAnswer = async (t, mode = 'answered') => {
       return;
     }
     const closeOnRead = mode === 'close_on_read';
+    const draftText = String(t?.ai_draft_response || '').trim();
+    const answerFinal = answerText.value.trim();
+    let aiDraftDecision = null;
+    if (draftText) aiDraftDecision = draftText === answerFinal ? 'accepted' : 'edited';
     await api.post(`/support-tickets/${t.id}/answer`, {
-      answer: answerText.value.trim(),
+      answer: answerFinal,
       status: 'answered',
-      closeOnRead
+      closeOnRead,
+      aiDraftDecision
     });
     autoClaimedTicketId.value = null;
     openAnswerId.value = null;
@@ -761,6 +888,48 @@ const submitAnswer = async (t, mode = 'answered') => {
     answerError.value = e.response?.data?.error?.message || 'Failed to submit answer';
   } finally {
     submitting.value = false;
+  }
+};
+
+const useAiDraft = (t) => {
+  const draft = String(t?.ai_draft_response || '').trim();
+  if (!draft) return;
+  answerText.value = draft;
+};
+
+const copyAiDraft = async (t) => {
+  const draft = String(t?.ai_draft_response || '').trim();
+  if (!draft) return;
+  try {
+    await navigator.clipboard.writeText(draft);
+  } catch {
+    // ignore
+  }
+};
+
+const markDraftReview = async (t, state) => {
+  if (!t?.id) return;
+  try {
+    reviewingDraftId.value = t.id;
+    await api.post(`/support-tickets/${t.id}/review-draft`, { state });
+    await load();
+  } catch (e) {
+    answerError.value = e.response?.data?.error?.message || 'Failed to update draft review state';
+  } finally {
+    reviewingDraftId.value = null;
+  }
+};
+
+const markDraftSent = async (t) => {
+  if (!t?.id) return;
+  try {
+    markingSentId.value = t.id;
+    await api.post(`/support-tickets/${t.id}/mark-sent`);
+    await load();
+  } catch (e) {
+    answerError.value = e.response?.data?.error?.message || 'Failed to mark draft as sent';
+  } finally {
+    markingSentId.value = null;
   }
 };
 
@@ -809,6 +978,12 @@ const formatStatus = (s) => {
   if (v === 'answered') return 'Answered';
   if (v === 'closed') return 'Closed';
   return 'Open';
+};
+
+const formatEscalationReason = (value) => {
+  const v = String(value || '').trim().replace(/_/g, ' ');
+  if (!v) return '';
+  return v.charAt(0).toUpperCase() + v.slice(1);
 };
 
 const openAdminClientEditor = async (ticket) => {

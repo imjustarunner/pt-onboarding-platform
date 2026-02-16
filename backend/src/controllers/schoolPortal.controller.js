@@ -1557,6 +1557,118 @@ export const listSchoolPortalFaq = async (req, res, next) => {
   }
 };
 
+function roleCanManageSchoolPortalFaq(userRole) {
+  const role = String(userRole || '').toLowerCase();
+  return (
+    role === 'provider' ||
+    role === 'admin' ||
+    role === 'staff' ||
+    role === 'support' ||
+    role === 'super_admin'
+  );
+}
+
+async function hasSchoolPortalFaqTable() {
+  try {
+    const [tables] = await pool.execute(
+      "SELECT COUNT(*) AS cnt FROM information_schema.tables WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'school_portal_faqs'"
+    );
+    return Number(tables?.[0]?.cnt || 0) > 0;
+  } catch {
+    return false;
+  }
+}
+
+async function maybeGenerateFaqSummary({ question, answer }) {
+  const prompt = [
+    'Summarize the following FAQ into a short paragraph (1-3 sentences).',
+    'Do NOT include any client identifiers, initials, or PHI.',
+    '',
+    'Question:',
+    String(question || '').trim(),
+    '',
+    'Answer:',
+    String(answer || '').trim()
+  ].join('\n');
+  try {
+    const { text } = await callGeminiText({ prompt, temperature: 0.2, maxOutputTokens: 320 });
+    const out = String(text || '').trim();
+    return out ? out.slice(0, 900) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * School Portal FAQ create (non-client-specific).
+ * POST /api/school-portal/:organizationId/faq
+ */
+export const createSchoolPortalFaq = async (req, res, next) => {
+  try {
+    const { organizationId } = req.params;
+    const orgId = parseInt(organizationId, 10);
+    if (!orgId) return res.status(400).json({ error: { message: 'Invalid organizationId' } });
+
+    const userId = req.user?.id;
+    const userRole = req.user?.role;
+    if (!roleCanManageSchoolPortalFaq(userRole)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const organization = await Agency.findById(orgId);
+    if (!organization) return res.status(404).json({ error: { message: 'Organization not found' } });
+    const orgType = String(organization.organization_type || 'agency').toLowerCase();
+    const allowedTypes = ['school', 'program', 'learning'];
+    if (!allowedTypes.includes(orgType)) {
+      return res.status(400).json({
+        error: { message: `This endpoint is only available for organizations of type: ${allowedTypes.join(', ')}` }
+      });
+    }
+
+    if (userRole !== 'super_admin') {
+      const ok = await userHasOrgOrAffiliatedAgencyAccess({ userId, role: userRole, schoolOrganizationId: orgId });
+      if (!ok) {
+        return res.status(403).json({ error: { message: 'You do not have access to this school organization' } });
+      }
+    }
+
+    if (!(await hasSchoolPortalFaqTable())) {
+      return res.status(409).json({ error: { message: 'FAQ is not enabled (missing migration)' } });
+    }
+
+    const activeAgencyId = await resolveActiveAgencyIdForOrg(orgId);
+    if (!activeAgencyId) {
+      return res.status(409).json({ error: { message: 'No active affiliated agency configured for this organization' } });
+    }
+
+    const subject = req.body?.subject ? String(req.body.subject).trim().slice(0, 120) : null;
+    const question = String(req.body?.question || '').trim();
+    const answer = String(req.body?.answer || '').trim();
+    if (!question || !answer) {
+      return res.status(400).json({ error: { message: 'question and answer are required' } });
+    }
+    const aiSummary = await maybeGenerateFaqSummary({ question, answer });
+
+    const [result] = await pool.execute(
+      `INSERT INTO school_portal_faqs
+        (agency_id, subject, question, answer, status, ai_summary, created_by_user_id, updated_by_user_id)
+       VALUES (?, ?, ?, ?, 'published', ?, ?, ?)`,
+      [parseInt(activeAgencyId, 10), subject || 'General', question, answer, aiSummary, userId, userId]
+    );
+
+    const [rows] = await pool.execute(
+      `SELECT id, subject, question, answer, ai_summary
+       FROM school_portal_faqs
+       WHERE id = ?
+       LIMIT 1`,
+      [result.insertId]
+    );
+    res.status(201).json(rows?.[0] || null);
+  } catch (e) {
+    next(e);
+  }
+};
+
 async function resolveOrgIdFromParam(rawOrgIdOrSlug) {
   const raw = String(rawOrgIdOrSlug || '').trim();
   if (!raw) return null;

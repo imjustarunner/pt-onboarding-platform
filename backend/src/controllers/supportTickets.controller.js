@@ -353,6 +353,9 @@ export const listSupportTicketsQueue = async (req, res, next) => {
 
     const schoolOrganizationId = req.query?.schoolOrganizationId ? parseInt(req.query.schoolOrganizationId, 10) : null;
     const status = req.query?.status ? String(req.query.status).trim().toLowerCase() : null;
+    const sourceChannel = req.query?.sourceChannel ? String(req.query.sourceChannel).trim().toLowerCase() : null;
+    const draftState = req.query?.draftState ? String(req.query.draftState).trim().toLowerCase() : null;
+    const sentState = req.query?.sentState ? String(req.query.sentState).trim().toLowerCase() : null;
     const mine = parseBool(req.query?.mine);
     const qRaw = req.query?.q ? String(req.query.q) : '';
     const q = qRaw.trim().slice(0, 120);
@@ -370,6 +373,26 @@ export const listSupportTicketsQueue = async (req, res, next) => {
     if (status) {
       where.push('LOWER(t.status) = ?');
       params.push(status);
+    }
+
+    if (sourceChannel) {
+      where.push('LOWER(COALESCE(t.source_channel, ?)) = ?');
+      params.push('portal', sourceChannel);
+    }
+
+    if (draftState) {
+      if (draftState === 'none') {
+        where.push('(t.ai_draft_review_state IS NULL OR t.ai_draft_review_state = \'\')');
+      } else {
+        where.push('LOWER(COALESCE(t.ai_draft_review_state, \'\')) = ?');
+        params.push(draftState);
+      }
+    }
+
+    if (sentState === 'sent') {
+      where.push('t.sent_at IS NOT NULL');
+    } else if (sentState === 'unsent') {
+      where.push('t.sent_at IS NULL');
     }
 
     // "My tickets" = claimed by current user.
@@ -392,6 +415,8 @@ export const listSupportTicketsQueue = async (req, res, next) => {
              cb.email AS created_by_email,
              ab.first_name AS answered_by_first_name,
              ab.last_name AS answered_by_last_name,
+             ap.first_name AS approved_by_first_name,
+             ap.last_name AS approved_by_last_name,
              cl.first_name AS claimed_by_first_name,
              cl.last_name AS claimed_by_last_name,
              s.name AS school_name,
@@ -400,6 +425,7 @@ export const listSupportTicketsQueue = async (req, res, next) => {
       FROM support_tickets t
       LEFT JOIN users cb ON cb.id = t.created_by_user_id
       LEFT JOIN users ab ON ab.id = t.answered_by_user_id
+      LEFT JOIN users ap ON ap.id = t.approved_by_user_id
       LEFT JOIN users cl ON cl.id = t.claimed_by_user_id
       LEFT JOIN agencies s ON s.id = t.school_organization_id
       LEFT JOIN clients c ON c.id = t.client_id
@@ -1080,6 +1106,91 @@ export const generateSupportTicketResponse = async (req, res, next) => {
   }
 };
 
+export const reviewSupportTicketDraft = async (req, res, next) => {
+  try {
+    if (!isAgencyAdminUser(req)) {
+      return res.status(403).json({ error: { message: 'Only admin/support can review ticket drafts' } });
+    }
+
+    const ticketId = parseInt(req.params.id, 10);
+    if (!ticketId) return res.status(400).json({ error: { message: 'Invalid ticket id' } });
+
+    const state = String(req.body?.state || '').trim().toLowerCase();
+    const note = String(req.body?.note || '').trim();
+    if (!['accepted', 'edited', 'rejected', 'needs_review'].includes(state)) {
+      return res.status(400).json({ error: { message: 'state must be accepted, edited, rejected, or needs_review' } });
+    }
+
+    const [rows] = await pool.execute(`SELECT * FROM support_tickets WHERE id = ? LIMIT 1`, [ticketId]);
+    const ticket = rows?.[0] || null;
+    if (!ticket) return res.status(404).json({ error: { message: 'Ticket not found' } });
+
+    const access = await ensureOrgAccess(req, ticket.school_organization_id);
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    await pool.execute(
+      `UPDATE support_tickets
+       SET ai_draft_review_state = ?,
+           ai_draft_review_note = ?,
+           ai_draft_reviewed_by_user_id = ?,
+           ai_draft_reviewed_at = CURRENT_TIMESTAMP,
+           approved_by_user_id = CASE
+             WHEN ? IN ('accepted', 'edited') THEN ?
+             ELSE approved_by_user_id
+           END
+       WHERE id = ?`,
+      [state, note || null, req.user.id, state, req.user.id, ticketId]
+    );
+
+    const [out] = await pool.execute(`SELECT * FROM support_tickets WHERE id = ?`, [ticketId]);
+    res.json(out?.[0] || null);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const markSupportTicketDraftSent = async (req, res, next) => {
+  try {
+    if (!isAgencyAdminUser(req)) {
+      return res.status(403).json({ error: { message: 'Only admin/support can mark draft tickets sent' } });
+    }
+
+    const ticketId = parseInt(req.params.id, 10);
+    if (!ticketId) return res.status(400).json({ error: { message: 'Invalid ticket id' } });
+
+    const note = String(req.body?.note || '').trim();
+    const [rows] = await pool.execute(`SELECT * FROM support_tickets WHERE id = ? LIMIT 1`, [ticketId]);
+    const ticket = rows?.[0] || null;
+    if (!ticket) return res.status(404).json({ error: { message: 'Ticket not found' } });
+
+    const access = await ensureOrgAccess(req, ticket.school_organization_id);
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    await pool.execute(
+      `UPDATE support_tickets
+       SET sent_at = COALESCE(sent_at, CURRENT_TIMESTAMP),
+           approved_by_user_id = COALESCE(approved_by_user_id, ?),
+           ai_draft_review_state = CASE
+             WHEN COALESCE(ai_draft_review_state, '') = '' THEN 'accepted'
+             ELSE ai_draft_review_state
+           END,
+           ai_draft_review_note = CASE
+             WHEN ? <> '' THEN ?
+             ELSE ai_draft_review_note
+           END,
+           ai_draft_reviewed_by_user_id = COALESCE(ai_draft_reviewed_by_user_id, ?),
+           ai_draft_reviewed_at = COALESCE(ai_draft_reviewed_at, CURRENT_TIMESTAMP)
+       WHERE id = ?`,
+      [req.user.id, note, note, req.user.id, ticketId]
+    );
+
+    const [out] = await pool.execute(`SELECT * FROM support_tickets WHERE id = ?`, [ticketId]);
+    res.json(out?.[0] || null);
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const answerSupportTicket = async (req, res, next) => {
   try {
     if (!isAgencyAdminUser(req)) {
@@ -1092,6 +1203,11 @@ export const answerSupportTicket = async (req, res, next) => {
     const answer = String(req.body?.answer || '').trim();
     const status = req.body?.status ? String(req.body.status).trim().toLowerCase() : 'answered';
     const closeOnRead = req.body?.closeOnRead === true || req.body?.closeOnRead === 1 || req.body?.closeOnRead === '1';
+    const aiDraftDecisionRaw = String(req.body?.aiDraftDecision || '').trim().toLowerCase();
+    const aiDraftDecision = ['accepted', 'edited', 'rejected', 'needs_review'].includes(aiDraftDecisionRaw)
+      ? aiDraftDecisionRaw
+      : null;
+    const aiDraftReviewNote = String(req.body?.aiDraftReviewNote || '').trim();
     if (!answer) return res.status(400).json({ error: { message: 'answer is required' } });
     if (!['answered', 'closed', 'open'].includes(status)) {
       return res.status(400).json({ error: { message: 'status must be open, answered, or closed' } });
@@ -1147,6 +1263,27 @@ export const answerSupportTicket = async (req, res, next) => {
          SET answer = ?, status = ?, answered_by_user_id = ?, answered_at = CURRENT_TIMESTAMP
          WHERE id = ?`,
         [answer, status, req.user.id, ticketId]
+      );
+    }
+
+    // Record AI draft review state when this ticket has a draft.
+    if (ticket?.ai_draft_response) {
+      const normalizedDraft = String(ticket.ai_draft_response || '').trim();
+      const normalizedAnswer = String(answer || '').trim();
+      const inferredDecision = normalizedDraft && normalizedDraft === normalizedAnswer ? 'accepted' : 'edited';
+      const finalDecision = aiDraftDecision || inferredDecision;
+      await pool.execute(
+        `UPDATE support_tickets
+         SET ai_draft_review_state = ?,
+             ai_draft_review_note = ?,
+             ai_draft_reviewed_by_user_id = ?,
+             ai_draft_reviewed_at = CURRENT_TIMESTAMP,
+             approved_by_user_id = CASE
+               WHEN ? IN ('accepted', 'edited') THEN ?
+               ELSE approved_by_user_id
+             END
+         WHERE id = ?`,
+        [finalDecision, aiDraftReviewNote || null, req.user.id, finalDecision, req.user.id, ticketId]
       );
     }
 

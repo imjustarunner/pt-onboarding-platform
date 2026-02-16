@@ -5,7 +5,14 @@ import {
   getPlatformEmailSettings,
   setPlatformEmailSettings,
   listAgencyEmailSettings,
-  normalizeEmailSendingMode
+  normalizeEmailSendingMode,
+  normalizeEmailAiPolicyMode,
+  normalizeEmailAiIntentClasses,
+  normalizeEmailAiConfidenceThreshold,
+  normalizeSenderIdentityKeys,
+  listSchoolEmailAiPolicyOverrides,
+  upsertSchoolEmailAiPolicyOverride,
+  removeSchoolEmailAiPolicyOverride
 } from '../services/emailSettings.service.js';
 
 export const getEmailSettings = async (req, res, next) => {
@@ -32,9 +39,23 @@ export const getEmailSettings = async (req, res, next) => {
         agencyId: Number(a.id),
         name: a.name,
         notificationsEnabled: setting.notificationsEnabled !== false,
+        aiDraftPolicyMode: setting.aiDraftPolicyMode || 'human_only',
+        allowSchoolOverrides: setting.allowSchoolOverrides !== false,
+        aiAllowedIntentClasses: setting.aiAllowedIntentClasses || ['school_status_request'],
+        aiMatchConfidenceThreshold: setting.aiMatchConfidenceThreshold ?? 0.75,
+        aiAllowedSenderIdentityKeys: setting.aiAllowedSenderIdentityKeys || [],
         effectiveNotificationsEnabled: effectiveEnabled
       };
     });
+
+    const overridesByAgency = {};
+    for (const a of agenciesPayload) {
+      try {
+        overridesByAgency[String(a.agencyId)] = await listSchoolEmailAiPolicyOverrides(a.agencyId);
+      } catch {
+        overridesByAgency[String(a.agencyId)] = [];
+      }
+    }
 
     res.json({
       platform: {
@@ -45,7 +66,8 @@ export const getEmailSettings = async (req, res, next) => {
       fromAddress: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM || null,
       fromName: process.env.GOOGLE_WORKSPACE_FROM_NAME || null,
       impersonateUser: process.env.GMAIL_IMPERSONATE_USER || process.env.GOOGLE_WORKSPACE_IMPERSONATE_USER || null,
-      agencies: agenciesPayload
+      agencies: agenciesPayload,
+      schoolOverridesByAgency: overridesByAgency
     });
   } catch (error) {
     next(error);
@@ -56,7 +78,7 @@ export const updateEmailSettings = async (req, res, next) => {
   try {
     const { platform, agencies } = req.body || {};
     const userRole = req.user?.role || 'staff';
-    if (!['admin', 'super_admin'].includes(userRole)) {
+    if (!['admin', 'super_admin', 'staff', 'support'].includes(userRole)) {
       return res.status(403).json({ error: { message: 'Admin access required' } });
     }
 
@@ -87,7 +109,46 @@ export const updateEmailSettings = async (req, res, next) => {
         await AgencyEmailSettings.update({
           agencyId,
           notificationsEnabled: a.notificationsEnabled !== false,
+          aiDraftPolicyMode: normalizeEmailAiPolicyMode(a.aiDraftPolicyMode || 'human_only'),
+          allowSchoolOverrides: a.allowSchoolOverrides !== false,
+          aiAllowedIntents: normalizeEmailAiIntentClasses(a.aiAllowedIntentClasses || ['school_status_request']),
+          aiMatchConfidenceThreshold: normalizeEmailAiConfidenceThreshold(a.aiMatchConfidenceThreshold ?? 0.75),
+          aiAllowedSenderIdentityKeys: normalizeSenderIdentityKeys(a.aiAllowedSenderIdentityKeys || []),
           actorUserId: req.user.id
+        });
+      }
+    }
+
+    const schoolOverrides = Array.isArray(req.body?.schoolOverrides) ? req.body.schoolOverrides : [];
+    if (schoolOverrides.length > 0) {
+      const allowedAgencyIds = userRole === 'super_admin'
+        ? schoolOverrides.map((o) => Number(o.agencyId))
+        : (await User.getAgencies(req.user.id)).map((a) => Number(a.id));
+      const allowed = new Set(allowedAgencyIds.filter(Boolean));
+      for (const o of schoolOverrides) {
+        const agencyId = Number(o?.agencyId || 0);
+        const schoolOrganizationId = Number(o?.schoolOrganizationId || 0);
+        const remove = o?.remove === true;
+        if (!agencyId || !schoolOrganizationId || !allowed.has(agencyId)) continue;
+        if (remove) {
+          await removeSchoolEmailAiPolicyOverride(schoolOrganizationId);
+          continue;
+        }
+        await upsertSchoolEmailAiPolicyOverride({
+          agencyId,
+          schoolOrganizationId,
+          policyMode: normalizeEmailAiPolicyMode(o?.policyMode || 'human_only'),
+          allowedIntentClasses: Array.isArray(o?.allowedIntentClasses)
+            ? normalizeEmailAiIntentClasses(o.allowedIntentClasses)
+            : null,
+          matchConfidenceThreshold: o?.matchConfidenceThreshold === undefined || o?.matchConfidenceThreshold === null
+            ? null
+            : normalizeEmailAiConfidenceThreshold(o.matchConfidenceThreshold),
+          allowedSenderIdentityKeys: Array.isArray(o?.allowedSenderIdentityKeys)
+            ? normalizeSenderIdentityKeys(o.allowedSenderIdentityKeys)
+            : null,
+          isActive: o?.isActive !== false,
+          updatedByUserId: req.user.id
         });
       }
     }

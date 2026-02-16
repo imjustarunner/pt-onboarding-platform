@@ -614,12 +614,22 @@
                   :key="c.id"
                   style="border: 1px solid var(--border); border-radius: 10px; padding: 10px; background: var(--card-bg);"
                 >
-                  <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                    <strong v-if="c.full_name">{{ c.full_name }}</strong>
-                    <span v-else style="color: var(--text-secondary);">(no name)</span>
-                    <span v-if="c.is_primary" class="badge badge-success">Primary</span>
-                    <span v-if="c.role_title" style="color: var(--text-secondary);">• {{ c.role_title }}</span>
-                    <span v-if="c.email" style="color: var(--text-secondary);">• {{ c.email }}</span>
+                  <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;">
+                    <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                      <strong v-if="c.full_name">{{ c.full_name }}</strong>
+                      <span v-else style="color: var(--text-secondary);">(no name)</span>
+                      <span v-if="c.is_primary" class="badge badge-success">Primary</span>
+                      <span v-if="c.role_title" style="color: var(--text-secondary);">• {{ c.role_title }}</span>
+                      <span v-if="c.email" style="color: var(--text-secondary);">• {{ c.email }}</span>
+                    </div>
+                    <button
+                      type="button"
+                      class="btn btn-danger btn-sm"
+                      @click="deleteSchoolContact(c)"
+                      :disabled="deletingSchoolContactId === c.id"
+                    >
+                      {{ deletingSchoolContactId === c.id ? 'Deleting…' : 'Delete' }}
+                    </button>
                   </div>
                   <div v-if="c.notes" style="margin-top: 4px; color: var(--text-secondary); font-size: 12px;">
                     {{ c.notes }}

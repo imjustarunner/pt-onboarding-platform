@@ -7,6 +7,7 @@ import {
   listSchoolStaff,
   removeSchoolStaff,
   listSchoolPortalFaq,
+  createSchoolPortalFaq,
   getClientWaitlistNote,
   upsertClientWaitlistNote,
   listClientComments,
@@ -83,6 +84,7 @@ router.get('/:organizationId/stats', authenticate, getSchoolPortalStats);
 router.get('/:organizationId/school-staff', authenticate, listSchoolStaff);
 router.delete('/:organizationId/school-staff/:userId', authenticate, removeSchoolStaff);
 router.get('/:organizationId/faq', authenticate, listSchoolPortalFaq);
+router.post('/:organizationId/faq', authenticate, createSchoolPortalFaq);
 
 // School portal: shared public documents library (non-PHI)
 router.get('/:organizationId/intake-links', authenticate, listSchoolPortalIntakeLinks);

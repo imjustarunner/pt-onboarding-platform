@@ -11,6 +11,8 @@ import {
   createSupportTicketMessage,
   deleteSupportTicketMessage,
   generateSupportTicketResponse,
+  reviewSupportTicketDraft,
+  markSupportTicketDraftSent,
   answerSupportTicket,
   claimSupportTicket,
   unclaimSupportTicket,
@@ -49,6 +51,8 @@ router.post('/:id/answer', answerSupportTicket);
 
 // Admin/support: generate Gemini draft response
 router.post('/:id/generate-response', generateSupportTicketResponse);
+router.post('/:id/review-draft', reviewSupportTicketDraft);
+router.post('/:id/mark-sent', markSupportTicketDraftSent);
 
 // Admin/support/staff: claim ticket (ownership)
 router.post('/:id/claim', claimSupportTicket);

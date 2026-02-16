@@ -72,11 +72,13 @@
               <div v-if="normalizedSupervisors.length" class="supervisor-row">
                 <div class="supervisor-label">Supervisors</div>
                 <div class="supervisor-list">
-                  <div
+                  <button
                     v-for="s in normalizedSupervisors"
                     :key="`sup-${s.id}`"
                     class="supervisor-pill"
+                    type="button"
                     :title="s.is_primary ? 'Primary supervisor' : 'Supervisor'"
+                    @click.stop="openSupervisorDetails(s)"
                   >
                     <div class="supervisor-avatar" aria-hidden="true">
                       <img
@@ -96,7 +98,7 @@
                         {{ s.credential }}
                       </div>
                     </div>
-                  </div>
+                  </button>
                 </div>
               </div>
               <div v-if="profile?.school_info_blurb" class="blurb">
@@ -150,7 +152,7 @@
             <div class="panel-title">Slot-based caseload (summary)</div>
             <div class="summary-grid">
               <div
-                v-for="a in (caseload?.assignments || [])"
+                v-for="a in displayedCaseloadAssignments"
                 :key="a.day_of_week"
                 class="summary-row"
                 :class="{ inactive: !a.is_active }"
@@ -182,10 +184,17 @@
                   <span v-if="(a.clients || []).length === 0" class="muted-small">—</span>
                 </div>
               </div>
+              <div v-if="displayedCaseloadAssignments.length === 0" class="muted-small">
+                No assigned slot days.
+              </div>
             </div>
           </div>
 
-          <div class="panel" data-tour="school-provider-clients-panel">
+          <div
+            v-if="canViewPsychotherapyPanel"
+            class="panel"
+            data-tour="school-provider-clients-panel"
+          >
             <div class="panel-title">Clients (psychotherapy fiscal-year totals)</div>
             <div v-if="psychotherapyLoading" class="muted">Loading psychotherapy totals…</div>
             <div v-else-if="psychotherapyError" class="muted">Psychotherapy totals unavailable.</div>
@@ -252,6 +261,50 @@
         </div>
       </div>
     </div>
+
+    <div
+      v-if="selectedSupervisor"
+      class="supervisor-modal-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Supervisor details"
+      @click.self="closeSupervisorDetails"
+    >
+      <div class="supervisor-modal-card">
+        <div class="supervisor-modal-header">
+          <strong>Supervisor details</strong>
+          <button class="btn btn-secondary btn-sm" type="button" @click="closeSupervisorDetails">Close</button>
+        </div>
+        <div class="supervisor-modal-body">
+          <div class="supervisor-modal-top">
+            <div class="supervisor-avatar supervisor-avatar-lg" aria-hidden="true">
+              <img
+                v-if="selectedSupervisor.profile_photo_url"
+                :src="toUploadsUrl(selectedSupervisor.profile_photo_url)"
+                alt=""
+                class="supervisor-avatar-img"
+              />
+              <span v-else class="supervisor-avatar-fallback">{{ initialsFor(selectedSupervisor) }}</span>
+            </div>
+            <div class="supervisor-modal-meta">
+              <div class="supervisor-modal-name">
+                {{ selectedSupervisor.first_name }} {{ selectedSupervisor.last_name }}
+                <span v-if="selectedSupervisor.is_primary" class="primary-tag">Primary</span>
+              </div>
+              <div v-if="selectedSupervisor.credential" class="supervisor-modal-line">
+                {{ selectedSupervisor.credential }}
+              </div>
+              <div v-if="selectedSupervisor.email" class="supervisor-modal-line">
+                <a :href="`mailto:${selectedSupervisor.email}`">{{ selectedSupervisor.email }}</a>
+              </div>
+            </div>
+          </div>
+          <div class="supervisor-modal-note">
+            Supervises {{ providerDisplayName }} for this organization.
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -277,6 +330,13 @@ const authStore = useAuthStore();
 const route = useRoute();
 const router = useRouter();
 const meUserId = computed(() => authStore.user?.id || null);
+const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
+const canViewPsychotherapyPanel = computed(() => (
+  roleNorm.value === 'provider' ||
+  roleNorm.value === 'admin' ||
+  roleNorm.value === 'staff' ||
+  roleNorm.value === 'super_admin'
+));
 
 const profilePhotoUrl = computed(() => toUploadsUrl(profile.value?.profile_photo_url || null));
 
@@ -319,6 +379,7 @@ const messagesError = ref('');
 const messages = ref([]);
 const messageDraft = ref('');
 const sendingMessage = ref(false);
+const selectedSupervisor = ref(null);
 
 const clientLabelMode = ref('codes'); // shared portal setting
 const toggleClientLabelMode = () => {
@@ -349,16 +410,21 @@ const clientTitle = (c) => {
 
 const weekdayList = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 const dayBarDays = ref(weekdayList.map((d) => ({ weekday: d, has_providers: false })));
+const hasAssignedSlots = (assignment) => {
+  if (!assignment?.is_active) return false;
+  const total = Number(assignment?.slots_total ?? 0);
+  const used = Number(assignment?.slots_used ?? 0);
+  return (Number.isFinite(total) && total > 0) || (Number.isFinite(used) && used > 0);
+};
+const displayedCaseloadAssignments = computed(() => {
+  const list = Array.isArray(caseload.value?.assignments) ? caseload.value.assignments : [];
+  const byDay = new Map(list.map((a) => [String(a?.day_of_week || ''), a]));
+  return weekdayList
+    .map((day) => byDay.get(day))
+    .filter((a) => a && hasAssignedSlots(a));
+});
 const recomputeDayBar = () => {
-  const byDay = new Map();
-  (caseload.value?.assignments || []).forEach((a) => {
-    if (!a) return;
-    const day = String(a.day_of_week || '');
-    byDay.set(day, a);
-  });
-
   const availabilityStatusFor = (a) => {
-    if (!a?.is_active) return null;
     const total = Number(a?.slots_total ?? 0);
     const used = Number(a?.slots_used ?? 0);
     const totalOk = Number.isFinite(total) && total > 0;
@@ -370,15 +436,17 @@ const recomputeDayBar = () => {
     return 'green';
   };
 
-  dayBarDays.value = weekdayList.map((d) => {
-    const a = byDay.get(d) || null;
-    const has = !!a?.is_active;
+  dayBarDays.value = displayedCaseloadAssignments.value.map((a) => {
+    const d = String(a?.day_of_week || '');
     return {
       weekday: d,
-      has_providers: has,
-      availability_status: has ? availabilityStatusFor(a) : null
+      has_providers: true,
+      availability_status: availabilityStatusFor(a)
     };
   });
+  if (!dayBarDays.value.some((d) => d.weekday === selectedWeekday.value)) {
+    selectedWeekday.value = null;
+  }
 };
 
 const providerContactLine = computed(() => {
@@ -429,7 +497,7 @@ const slotsLeftText = (a) => {
 const selectedDayClients = ref([]);
 const recomputeSelectedDayClients = () => {
   const day = String(selectedWeekday.value || '');
-  const a = (caseload.value?.assignments || []).find((x) => String(x.day_of_week) === day) || null;
+  const a = displayedCaseloadAssignments.value.find((x) => String(x.day_of_week) === day) || null;
   selectedDayClients.value = Array.isArray(a?.clients) ? a.clients : [];
 };
 
@@ -449,6 +517,21 @@ const normalizedSupervisors = computed(() => {
   return [];
 });
 
+const providerDisplayName = computed(() => {
+  const first = String(profile.value?.first_name || '').trim();
+  const last = String(profile.value?.last_name || '').trim();
+  const full = `${first} ${last}`.trim();
+  return full || 'this provider';
+});
+
+const openSupervisorDetails = (supervisor) => {
+  selectedSupervisor.value = supervisor || null;
+};
+
+const closeSupervisorDetails = () => {
+  selectedSupervisor.value = null;
+};
+
 const acceptedInsuranceLabels = computed(() => {
   const items = Array.isArray(profile.value?.insurances_accepted) ? profile.value.insurances_accepted : [];
   return items
@@ -466,6 +549,11 @@ const computeFiscalYearStartYmd = (d) => {
 };
 
 const loadPsychotherapyCompliance = async () => {
+  if (!canViewPsychotherapyPanel.value) {
+    psychotherapyError.value = '';
+    psychotherapyTotalsByClientId.value = null;
+    return;
+  }
   try {
     psychotherapyLoading.value = true;
     psychotherapyError.value = '';
@@ -477,7 +565,11 @@ const loadPsychotherapyCompliance = async () => {
     const agencyId = aff.data?.active_agency_id ? Number(aff.data.active_agency_id) : null;
     if (!agencyId) return;
     const r = await api.get('/psychotherapy-compliance/summary', {
-      params: { agencyId, fiscalYearStart: psychotherapyFiscalYearStart.value }
+      params: {
+        agencyId,
+        fiscalYearStart: psychotherapyFiscalYearStart.value,
+        providerUserId: Number(props.providerUserId)
+      }
     });
     const matched = Array.isArray(r.data?.matched) ? r.data.matched : [];
     const m = {};
@@ -849,6 +941,14 @@ watch(
   width: fit-content;
   max-width: 100%;
 }
+.supervisor-pill:hover {
+  border-color: rgba(79, 70, 229, 0.38);
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.10);
+}
+.supervisor-pill[type="button"] {
+  cursor: pointer;
+  text-align: left;
+}
 .supervisor-avatar {
   width: 26px;
   height: 26px;
@@ -870,6 +970,10 @@ watch(
   font-size: 11px;
   font-weight: 900;
   color: var(--text-secondary);
+}
+.supervisor-avatar-lg {
+  width: 56px;
+  height: 56px;
 }
 .supervisor-meta {
   min-width: 0;
@@ -898,6 +1002,63 @@ watch(
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.supervisor-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  z-index: 1600;
+}
+.supervisor-modal-card {
+  width: min(460px, 96vw);
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+.supervisor-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.supervisor-modal-body {
+  padding: 14px;
+  display: grid;
+  gap: 10px;
+}
+.supervisor-modal-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.supervisor-modal-meta {
+  min-width: 0;
+}
+.supervisor-modal-name {
+  font-size: 16px;
+  font-weight: 900;
+  color: var(--text-primary);
+}
+.supervisor-modal-line {
+  margin-top: 2px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+.supervisor-modal-line a {
+  color: inherit;
+  text-decoration: underline;
+}
+.supervisor-modal-note {
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 .day-pill {
   display: inline-flex;
