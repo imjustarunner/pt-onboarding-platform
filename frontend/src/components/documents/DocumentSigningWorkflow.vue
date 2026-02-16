@@ -195,8 +195,8 @@
         <button @click="downloadDocument" class="btn btn-primary" :disabled="loading">
           {{ loading ? 'Downloading...' : 'Download Signed Document' }}
         </button>
-        <button @click="router.push(getDashboardRoute())" class="btn btn-secondary">
-          Return to Dashboard
+        <button @click="closeSession" class="btn btn-secondary">
+          Close session
         </button>
       </div>
 
@@ -418,10 +418,12 @@ const handleMarkerClick = (marker) => {
   scrollToField(marker.fieldId);
 };
 
-const focusFieldOnPdf = (field) => {
+const focusFieldOnPdf = async (field) => {
   const marker = pdfMarkers.value.find((m) => m.fieldId === field.id);
-  if (marker?.page && signPdfRef.value?.goToPage) {
-    signPdfRef.value.goToPage(marker.page);
+  if (marker?.id && signPdfRef.value?.focusMarker) {
+    await signPdfRef.value.focusMarker(marker.id, marker.page);
+  } else if (marker?.page && signPdfRef.value?.goToPage) {
+    await signPdfRef.value.goToPage(marker.page);
   }
   activeMarkerId.value = marker?.id || null;
   activeFieldId.value = field.id;
@@ -800,6 +802,20 @@ const safeFilename = (name) => {
     .trim()
     .slice(0, 80);
   return base || 'document';
+};
+
+const closeSession = () => {
+  try {
+    window.close();
+  } catch {
+    // ignore
+  }
+  window.setTimeout(() => {
+    if (!window.closed) {
+      error.value = 'Signing session complete. You can close this tab/window now.';
+      errorDetails.value = null;
+    }
+  }, 50);
 };
 
 const finalizeAdminCountersign = async () => {

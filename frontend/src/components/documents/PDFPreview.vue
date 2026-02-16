@@ -25,6 +25,7 @@
         <button
           v-for="marker in markers"
           :key="marker.id"
+          :data-marker-id="marker.id"
           class="pdf-marker"
           :class="{
             active: marker.id === activeMarkerId,
@@ -213,10 +214,27 @@ const nextPage = async () => {
 const goToPage = async (pageNum) => {
   if (!pdfDoc) return;
   const target = Math.max(1, Math.min(Number(pageNum) || 1, totalPages.value || 1));
-  if (target === currentPage.value) return;
+  const changed = target !== currentPage.value;
   currentPage.value = target;
   await renderPage(currentPage.value);
-  emit('page-change', { currentPage: currentPage.value, totalPages: totalPages.value });
+  if (changed) {
+    emit('page-change', { currentPage: currentPage.value, totalPages: totalPages.value });
+  }
+};
+
+const focusMarker = async (markerId, pageNum = null) => {
+  const id = String(markerId || '').trim();
+  if (!id) return;
+  if (pageNum !== null && pageNum !== undefined) {
+    await goToPage(pageNum);
+  } else {
+    await renderPage(currentPage.value);
+  }
+  await nextTick();
+  const el = containerRef.value?.querySelector?.(`[data-marker-id="${id}"]`);
+  if (el?.scrollIntoView) {
+    el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+  }
 };
 
 const zoomIn = async () => {
@@ -245,6 +263,7 @@ watch(
 
 defineExpose({
   goToPage,
+  focusMarker,
   goToNextPage: nextPage,
   goToPreviousPage: previousPage
 });

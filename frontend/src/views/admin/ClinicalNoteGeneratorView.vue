@@ -112,18 +112,18 @@
             <button
               type="button"
               class="purpose-btn"
-              :class="{ active: isSessionRecording }"
-              @click="recordingPurpose = 'session'"
-            >
-              Session recording
-            </button>
-            <button
-              type="button"
-              class="purpose-btn"
               :class="{ active: !isSessionRecording }"
               @click="recordingPurpose = 'dictation'"
             >
               Dictation only (my voice)
+            </button>
+            <button
+              type="button"
+              class="purpose-btn"
+              :class="{ active: isSessionRecording }"
+              @click="recordingPurpose = 'session'"
+            >
+              Session recording
             </button>
           </div>
 
@@ -770,9 +770,55 @@ function extractSections(obj) {
   return out;
 }
 
+const compactCodeDeciderRationale = (raw, chosenCode) => {
+  const text = String(raw || '').trim();
+  if (!text) return '';
+  const lines = text.split('\n');
+  const isCodeHeader = (line) => /^code\s*:/i.test(String(line || '').trim());
+  const normalizedChosen = String(chosenCode || '').trim().toUpperCase();
+  const firstCodeIdx = lines.findIndex((line) => isCodeHeader(line));
+  if (firstCodeIdx < 0) return text;
+
+  // Preserve any brief leading context before code-by-code blocks.
+  const preface = lines.slice(0, firstCodeIdx).join('\n').trim();
+
+  const pickBlockFrom = (startIdx) => {
+    let endIdx = lines.length;
+    for (let i = startIdx + 1; i < lines.length; i += 1) {
+      if (isCodeHeader(lines[i])) {
+        endIdx = i;
+        break;
+      }
+    }
+    return lines.slice(startIdx, endIdx).join('\n').trim();
+  };
+
+  let chosenBlock = '';
+  if (normalizedChosen) {
+    const chosenIdx = lines.findIndex((line) => {
+      const m = String(line || '').match(/^code\s*:\s*([A-Za-z0-9_-]+)/i);
+      return String(m?.[1] || '').toUpperCase() === normalizedChosen;
+    });
+    if (chosenIdx >= 0) chosenBlock = pickBlockFrom(chosenIdx);
+  }
+  if (!chosenBlock) chosenBlock = pickBlockFrom(firstCodeIdx);
+
+  if (!preface) return chosenBlock || text;
+  if (!chosenBlock) return preface;
+  return `${preface}\n\n${chosenBlock}`.trim();
+};
+
 const sectionEntries = computed(() => {
   const sections = extractSections(outputObj.value);
-  return Object.entries(sections);
+  const toolId = String(outputObj.value?.meta?.toolId || '').trim().toLowerCase();
+  const chosenCode = String(sections?.Code || '').trim();
+  const entries = Object.entries(sections);
+  if (toolId !== 'clinical_code_decider') return entries;
+  return entries.map(([title, text]) => {
+    if (!/rationale/i.test(String(title || ''))) return [title, text];
+    const compacted = compactCodeDeciderRationale(text, chosenCode);
+    return [title, compacted || text];
+  });
 });
 
 const generationLogicSummary = computed(() => {
