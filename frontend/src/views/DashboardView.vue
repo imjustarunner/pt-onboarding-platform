@@ -249,7 +249,7 @@
               <span class="rail-card-cta">{{ card.kind === 'link' || card.kind === 'modal' ? 'Open' : (card.kind === 'action' ? 'Open' : 'View') }}</span>
             </div>
           </button>
-          <div v-if="railCardDescriptor(card.id)" class="rail-card-help">
+          <div v-if="tutorialStore.enabled && railCardDescriptor(card.id)" class="rail-card-help">
             <button
               type="button"
               class="rail-card-help-btn"
@@ -1694,6 +1694,13 @@ watch(() => [props.previewStatus, props.previewData], () => {
 watch(() => [route.query?.tab, route.query?.my, route.query?.scheduleMode, route.query?.superviseeId], () => {
   syncFromQuery();
 });
+
+watch(
+  () => tutorialStore.enabled,
+  (enabled) => {
+    if (!enabled) closeCardDescriptor();
+  }
+);
 
 const loadAgencyDashboardBanner = async () => {
   if (props.previewMode) {
