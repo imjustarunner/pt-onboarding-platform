@@ -440,6 +440,7 @@ const typeLabelMap = {
   onboarding_completed: 'Onboarding completed',
   invitation_expired: 'Invitation expired',
   pending_completed: 'Pending completed',
+  payroll_unsigned_draft_notes_pending: 'Unsigned drafts',
   payroll_unpaid_notes_2_periods_old: 'Payroll notes',
   payroll_missing_notes_reminder: 'Payroll reminder',
   unsigned_draft_notes_pending: 'Unsigned drafts'
@@ -574,10 +575,12 @@ watch(
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  flex-wrap: wrap;
 }
 .card-top-actions {
   display: inline-flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
 }
 .pill {
@@ -597,14 +600,17 @@ watch(
 .loading, .empty { color: var(--text-secondary); }
 .list { display: flex; flex-direction: column; gap: 6px; }
 .card-mine .list {
-  max-height: 260px;
-  overflow: auto;
-  padding-right: 4px;
+  max-height: none;
+  overflow: visible;
+  padding-right: 0;
 }
 .notif-row {
   display: grid;
-  grid-template-columns: 260px 1fr 220px;
-  align-items: center;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "title meta"
+    "msg meta";
+  align-items: start;
   gap: 12px;
   padding: 8px 10px;
   border: 1px solid var(--border);
@@ -623,11 +629,27 @@ watch(
   background: #fff7f7;
 }
 .col { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.col-msg { color: var(--text-secondary); font-size: 13px; }
+.col-title {
+  grid-area: title;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.col-msg {
+  grid-area: msg;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
 .col-meta {
+  grid-area: meta;
+  flex-direction: column;
+  align-items: flex-end;
   justify-content: space-between;
   color: var(--text-secondary);
   font-size: 12px;
+  gap: 8px;
+  min-width: 170px;
 }
 .badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); font-weight: 700; }
 .badge-urgent { border-color: #fecaca; background: #fef2f2; color: #b91c1c; }
@@ -653,6 +675,9 @@ watch(
   padding: 0;
   cursor: pointer;
   text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.25;
 }
 .title-link:hover {
   color: var(--primary);
@@ -662,6 +687,8 @@ watch(
 .meta-actions {
   display: inline-flex;
   align-items: center;
+  justify-content: flex-end;
+  flex-wrap: nowrap;
   gap: 6px;
 }
 .mark-btn {
@@ -772,11 +799,21 @@ watch(
 @media (max-width: 900px) {
   .notif-row {
     grid-template-columns: 1fr;
+    grid-template-areas:
+      "title"
+      "msg"
+      "meta";
     gap: 6px;
   }
   .col-meta {
     justify-content: flex-start;
+    align-items: flex-start;
     gap: 12px;
+    min-width: 0;
+  }
+  .meta-actions {
+    justify-content: flex-start;
+    flex-wrap: wrap;
   }
 }
 </style>
