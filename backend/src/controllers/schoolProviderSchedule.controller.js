@@ -134,7 +134,7 @@ export const listSchoolProvidersForScheduling = async (req, res, next) => {
          LEFT JOIN provider_school_profiles psp
            ON psp.school_organization_id = psa.school_organization_id
           AND psp.provider_user_id = psa.provider_user_id
-         WHERE psa.school_organization_id = ?
+         WHERE psa.school_organization_id = ? AND psa.is_active = TRUE
          ORDER BY u.last_name ASC, u.first_name ASC, psa.day_of_week ASC`,
         [parseInt(schoolId, 10)]
       );
@@ -163,7 +163,7 @@ export const listSchoolProvidersForScheduling = async (req, res, next) => {
            LEFT JOIN provider_school_profiles psp
              ON psp.school_organization_id = psa.school_organization_id
             AND psp.provider_user_id = psa.provider_user_id
-           WHERE psa.school_organization_id = ?
+           WHERE psa.school_organization_id = ? AND psa.is_active = TRUE
            ORDER BY u.last_name ASC, u.first_name ASC, psa.day_of_week ASC`,
           [parseInt(schoolId, 10)]
         );
@@ -190,7 +190,7 @@ export const listSchoolProvidersForScheduling = async (req, res, next) => {
                   psa.is_active
            FROM provider_school_assignments psa
            JOIN users u ON u.id = psa.provider_user_id
-           WHERE psa.school_organization_id = ?
+           WHERE psa.school_organization_id = ? AND psa.is_active = TRUE
            ORDER BY u.last_name ASC, u.first_name ASC, psa.day_of_week ASC`,
           [parseInt(schoolId, 10)]
         );
