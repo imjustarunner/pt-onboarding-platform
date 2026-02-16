@@ -120,6 +120,8 @@ const capturing = ref(false);
 const submitting = ref(false);
 const submitError = ref('');
 const submitSuccess = ref(false);
+const MAX_SCREENSHOT_BYTES = 4.5 * 1024 * 1024;
+const MAX_SCREENSHOT_DIMENSION = 1920;
 
 const enabled = computed(() => !!brandingStore.betaFeedbackEnabled);
 const routePath = computed(() => route.fullPath || route.path || '');
@@ -153,15 +155,23 @@ const captureScreen = async () => {
       // Exclude beta widget/modal so screenshots capture the underlying page context.
       ignoreElements: (el) => !!el?.closest?.('[data-beta-feedback-ui="true"]')
     });
-    canvas.toBlob((blob) => {
-      if (blob) {
-        if (screenshotPreview.value) {
-          URL.revokeObjectURL(screenshotPreview.value);
-        }
-        screenshotBlob.value = blob;
-        screenshotPreview.value = URL.createObjectURL(blob);
-      }
-    }, 'image/png', 0.85);
+    const captureBlob = await new Promise((resolve) => {
+      canvas.toBlob((blob) => resolve(blob || null), 'image/jpeg', 0.82);
+    });
+    if (!captureBlob) {
+      submitError.value = 'Could not capture screen. Try uploading a file instead.';
+      return;
+    }
+    const optimized = await ensureUploadSizedImage(captureBlob);
+    if (!optimized) {
+      submitError.value = 'Screenshot is too large. Please try uploading a smaller image.';
+      return;
+    }
+    if (screenshotPreview.value) {
+      URL.revokeObjectURL(screenshotPreview.value);
+    }
+    screenshotBlob.value = optimized;
+    screenshotPreview.value = URL.createObjectURL(optimized);
   } catch (err) {
     console.error('Screenshot capture failed:', err);
     submitError.value = 'Could not capture screen. Try uploading a file instead.';
@@ -170,17 +180,96 @@ const captureScreen = async () => {
   }
 };
 
-const onFileSelect = (e) => {
+const loadImageDimensions = (blob) =>
+  new Promise((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = () => {
+      const width = Number(img.naturalWidth || img.width || 0);
+      const height = Number(img.naturalHeight || img.height || 0);
+      URL.revokeObjectURL(objectUrl);
+      resolve({ width, height, image: img });
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error('invalid_image'));
+    };
+    img.src = objectUrl;
+  });
+
+const compressImageBlob = async (inputBlob, targetBytes = MAX_SCREENSHOT_BYTES) => {
+  const { width, height, image } = await loadImageDimensions(inputBlob);
+  if (!width || !height) return null;
+
+  let nextWidth = width;
+  let nextHeight = height;
+  const maxSide = Math.max(width, height);
+  if (maxSide > MAX_SCREENSHOT_DIMENSION) {
+    const ratio = MAX_SCREENSHOT_DIMENSION / maxSide;
+    nextWidth = Math.max(1, Math.round(width * ratio));
+    nextHeight = Math.max(1, Math.round(height * ratio));
+  }
+
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+
+  let quality = 0.84;
+  for (let pass = 0; pass < 6; pass += 1) {
+    canvas.width = nextWidth;
+    canvas.height = nextHeight;
+    ctx.clearRect(0, 0, nextWidth, nextHeight);
+    ctx.drawImage(image, 0, 0, nextWidth, nextHeight);
+
+    // eslint-disable-next-line no-await-in-loop
+    const blob = await new Promise((resolve) => {
+      canvas.toBlob((b) => resolve(b || null), 'image/jpeg', quality);
+    });
+    if (!blob) return null;
+    if (blob.size <= targetBytes) return blob;
+
+    quality = Math.max(0.45, quality - 0.1);
+    if (pass >= 2) {
+      nextWidth = Math.max(960, Math.round(nextWidth * 0.85));
+      nextHeight = Math.max(540, Math.round(nextHeight * 0.85));
+    }
+  }
+  return null;
+};
+
+const ensureUploadSizedImage = async (blob) => {
+  if (!blob) return null;
+  if (blob.size <= MAX_SCREENSHOT_BYTES) return blob;
+  return await compressImageBlob(blob, MAX_SCREENSHOT_BYTES);
+};
+
+const onFileSelect = async (e) => {
   const file = e?.target?.files?.[0];
   if (!file) return;
   const allowed = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
   if (!allowed.includes(file.type)) {
     submitError.value = 'Please select a PNG, JPEG, or WebP image.';
+    if (e?.target) e.target.value = '';
     return;
   }
-  screenshotBlob.value = file;
-  screenshotPreview.value = URL.createObjectURL(file);
-  submitError.value = '';
+  try {
+    submitError.value = '';
+    const optimized = await ensureUploadSizedImage(file);
+    if (!optimized) {
+      submitError.value = 'Image is too large to upload. Please choose a smaller screenshot.';
+      if (e?.target) e.target.value = '';
+      return;
+    }
+    if (screenshotPreview.value) {
+      URL.revokeObjectURL(screenshotPreview.value);
+    }
+    screenshotBlob.value = optimized;
+    screenshotPreview.value = URL.createObjectURL(optimized);
+  } catch (err) {
+    submitError.value = 'Could not process that image. Please try another screenshot.';
+  } finally {
+    if (e?.target) e.target.value = '';
+  }
 };
 
 const clearScreenshot = () => {
@@ -214,8 +303,7 @@ const submit = async () => {
     formData.append('viewportHeight', String(window.innerHeight || 0));
 
     if (screenshotBlob.value) {
-      const ext = screenshotBlob.value.type === 'image/jpeg' ? '.jpg' : '.png';
-      formData.append('screenshot', screenshotBlob.value, `screenshot${ext}`);
+      formData.append('screenshot', screenshotBlob.value, 'screenshot.jpg');
     }
 
     await api.post('/beta-feedback', formData, {

@@ -1385,9 +1385,17 @@ const bulkEditRecurrenceSelected = async () => {
 };
 
 const canSelfManageModalSlot = computed(() => {
+  if (canManageSchedule.value) return true;
+  const s = modalSlot.value;
+  if (!s) return false;
   const providerId = Number(modalSlot.value?.providerId || 0);
-  if (!providerId) return canManageSchedule.value;
-  return canManageSchedule.value || providerId === currentUserId.value;
+  if (providerId > 0) return providerId === currentUserId.value;
+
+  // Fallback for data edge-cases where assigned/booked owner ids are missing on the
+  // slot payload: allow self-service path and let backend enforce true ownership.
+  const state = String(s?.state || '');
+  const isAssignedState = state === 'assigned_available' || state === 'assigned_temporary' || state === 'assigned_booked';
+  return isAssignedState && Boolean(s?.standingAssignmentId || s?.eventId);
 });
 
 const isRecurringSlot = computed(() => {
