@@ -70,11 +70,16 @@ class OfficeEvent {
          bu.first_name AS booked_provider_first_name,
          bu.last_name AS booked_provider_last_name,
          au.first_name AS assigned_provider_first_name,
-         au.last_name AS assigned_provider_last_name
+         au.last_name AS assigned_provider_last_name,
+         sa.provider_id AS standing_assignment_provider_id,
+         su.first_name AS standing_provider_first_name,
+         su.last_name AS standing_provider_last_name
        FROM office_events e
        JOIN office_rooms r ON e.room_id = r.id
        LEFT JOIN users bu ON e.booked_provider_id = bu.id
        LEFT JOIN users au ON e.assigned_provider_id = au.id
+       LEFT JOIN office_standing_assignments sa ON e.standing_assignment_id = sa.id
+       LEFT JOIN users su ON sa.provider_id = su.id
        WHERE e.office_location_id = ?
          AND e.start_at < ?
          AND e.end_at > ?

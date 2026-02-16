@@ -1400,7 +1400,14 @@ export const forfeitEvent = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'acknowledged is required to forfeit' } });
     }
 
-    const providerId = Number(ev.assigned_provider_id || ev.booked_provider_id || 0) || null;
+    let providerId = Number(ev.assigned_provider_id || ev.booked_provider_id || 0) || null;
+    if (!providerId) {
+      const standingAssignmentId = Number(ev.standing_assignment_id || 0) || null;
+      if (standingAssignmentId) {
+        const standingAssignment = await OfficeStandingAssignment.findById(standingAssignmentId);
+        providerId = Number(standingAssignment?.provider_id || 0) || null;
+      }
+    }
     const isOwner = Number(req.user?.id || 0) === providerId;
     const hasOfficeAccess = isOwner ? true : await requireOfficeAccess(req, officeLocationId);
     if (!hasOfficeAccess) return res.status(403).json({ error: { message: 'Access denied' } });

@@ -588,25 +588,33 @@ export const getWeeklyGrid = async (req, res, next) => {
             const assignedLast = String(e.assigned_provider_last_name || '').trim();
             const assignedLi = assignedLast.slice(0, 1);
             const assignedInitials = `${assignedFirst.slice(0, 1)}${assignedLi}`.toUpperCase();
+            const standingFirst = String(e.standing_provider_first_name || '').trim();
+            const standingLast = String(e.standing_provider_last_name || '').trim();
+            const standingLi = standingLast.slice(0, 1);
+            const standingInitials = `${standingFirst.slice(0, 1)}${standingLi}`.toUpperCase();
+            const effectiveProviderId =
+              Number(e.assigned_provider_id || e.booked_provider_id || e.standing_assignment_provider_id || 0) || null;
 
-            const assignedProviderName = assignedFirst || assignedLast ? formatClinicianName(assignedFirst, assignedLast) : '';
+            const assignedProviderName = assignedFirst || assignedLast
+              ? formatClinicianName(assignedFirst, assignedLast)
+              : (standingFirst || standingLast ? formatClinicianName(standingFirst, standingLast) : '');
             const bookedProviderName = bookedFirst || bookedLast ? formatClinicianName(bookedFirst, bookedLast) : '';
-            const displayInitials = bookedInitials || assignedInitials || null;
+            const displayInitials = bookedInitials || assignedInitials || standingInitials || null;
             const slotStartAt = mysqlDateTimeForDateHour(date, hour);
             const slotEndAt = mysqlDateTimeForDateHour(date, Number(hour) + 1);
             const virtualIntakeEnabled =
-              Boolean(e.assigned_provider_id || e.booked_provider_id) &&
+              Boolean(effectiveProviderId) &&
               Boolean(slotStartAt) &&
               Boolean(slotEndAt) &&
               virtualIntakeSlotKeys.has(
-                `${Number(e.assigned_provider_id || e.booked_provider_id)}:${slotStartAt}:${slotEndAt}`
+                `${Number(effectiveProviderId)}:${slotStartAt}:${slotEndAt}`
               );
             const inPersonIntakeEnabled =
-              Boolean(e.assigned_provider_id || e.booked_provider_id) &&
+              Boolean(effectiveProviderId) &&
               Boolean(slotStartAt) &&
               Boolean(slotEndAt) &&
               inPersonIntakeSlotKeys.has(
-                `${Number(e.assigned_provider_id || e.booked_provider_id)}:${slotStartAt}:${slotEndAt}`
+                `${Number(effectiveProviderId)}:${slotStartAt}:${slotEndAt}`
               );
             slots.push({
               roomId: room.id,
@@ -619,9 +627,9 @@ export const getWeeklyGrid = async (req, res, next) => {
               standingAssignmentId: e.standing_assignment_id || null,
               bookingPlanId: e.booking_plan_id || null,
               recurrenceGroupId: e.recurrence_group_id || null,
-              providerId: e.assigned_provider_id || e.booked_provider_id || null,
+              providerId: effectiveProviderId,
               providerInitials: displayInitials,
-              assignedProviderId: e.assigned_provider_id || null,
+              assignedProviderId: e.assigned_provider_id || e.standing_assignment_provider_id || null,
               bookedProviderId: e.booked_provider_id || null,
               assignedProviderName: assignedProviderName || null,
               bookedProviderName: bookedProviderName || null,
