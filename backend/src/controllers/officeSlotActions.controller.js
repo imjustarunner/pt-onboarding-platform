@@ -349,15 +349,14 @@ export const forfeitAssignment = async (req, res, next) => {
     const sid = parseInt(assignmentId, 10);
     if (!officeLocationId || !sid) return res.status(400).json({ error: { message: 'Invalid ids' } });
 
-    const ok = await requireOfficeAccess(req, officeLocationId);
-    if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
-
     const assignment = await OfficeStandingAssignment.findById(sid);
     if (!assignment || assignment.office_location_id !== officeLocationId) {
       return res.status(404).json({ error: { message: 'Standing assignment not found' } });
     }
 
     const isOwner = req.user.id === assignment.provider_id;
+    const hasOfficeAccess = isOwner ? true : await requireOfficeAccess(req, officeLocationId);
+    if (!hasOfficeAccess) return res.status(403).json({ error: { message: 'Access denied' } });
     if (!isOwner && !canManageSchedule(req.user.role)) {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
@@ -1391,9 +1390,6 @@ export const forfeitEvent = async (req, res, next) => {
     const eid = parseInt(eventId, 10);
     if (!officeLocationId || !eid) return res.status(400).json({ error: { message: 'Invalid ids' } });
 
-    const ok = await requireOfficeAccess(req, officeLocationId);
-    if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
-
     const ev = await OfficeEvent.findById(eid);
     if (!ev || Number(ev.office_location_id) !== Number(officeLocationId)) {
       return res.status(404).json({ error: { message: 'Event not found' } });
@@ -1406,6 +1402,8 @@ export const forfeitEvent = async (req, res, next) => {
 
     const providerId = Number(ev.assigned_provider_id || ev.booked_provider_id || 0) || null;
     const isOwner = Number(req.user?.id || 0) === providerId;
+    const hasOfficeAccess = isOwner ? true : await requireOfficeAccess(req, officeLocationId);
+    if (!hasOfficeAccess) return res.status(403).json({ error: { message: 'Access denied' } });
     if (!isOwner && !canManageSchedule(req.user?.role)) {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
