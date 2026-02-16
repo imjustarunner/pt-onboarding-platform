@@ -636,12 +636,19 @@ app.use((err, req, res, next) => {
   }
 
   if (!err.status && isEnumTruncation) {
+    const enumColumnMatch = sqlMessage.match(/column '([^']+)'/i);
+    const enumColumn = enumColumnMatch?.[1] || null;
+    const enumHint = enumColumn === 'document_type'
+      ? 'Invalid document type enum value. Run the latest DB migrations (including migration 417 for audio_recording_consent).'
+      : enumColumn === 'document_action_type'
+        ? 'Invalid document action type enum value. Run the latest DB migrations to expand supported action types.'
+        : 'Invalid enum value provided. Run the latest DB migrations to expand supported values.';
     return res.status(400).json({
       error: {
-        message:
-          'Invalid enum value provided. If this is a document action type, run the latest DB migrations to expand supported values.',
+        message: enumHint,
         ...(config.nodeEnv === 'development' && {
           code: err.code,
+          enumColumn,
           sqlMessage: err.sqlMessage,
           sqlState: err.sqlState
         })
