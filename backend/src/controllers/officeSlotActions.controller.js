@@ -466,14 +466,6 @@ export const setEventVirtualIntakeAvailability = async (req, res, next) => {
     }
 
     if (enabled) {
-      const slotState = String(ev.slot_state || '').toUpperCase();
-      const status = String(ev.status || '').toUpperCase();
-      const alreadyBooked = slotState === 'ASSIGNED_BOOKED' || status === 'BOOKED';
-      if (!alreadyBooked) {
-        return res.status(409).json({
-          error: { message: 'Virtual intake can be enabled only for booked room slots.' }
-        });
-      }
       await ProviderVirtualSlotAvailability.upsertSlot({
         agencyId,
         providerId,

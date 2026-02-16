@@ -409,8 +409,8 @@
               <button
                 class="btn btn-secondary"
                 @click="enableVirtualIntake"
-                :disabled="saving || !modalSlot?.eventId || !isModalBooked || modalVirtualIntakeEnabled"
-                title="Virtual intake can be enabled only for booked room slots."
+                :disabled="saving || !modalSlot?.eventId || modalVirtualIntakeEnabled"
+                title="Enable virtual intake for this hour."
               >
                 Enable virtual intake
               </button>
@@ -1039,9 +1039,14 @@ const selectedRoomId = ref(0);
 const displayedRooms = computed(() => {
   const rooms = sortedRooms.value || [];
   if (!rooms.length) return [];
-  if (!singleRoomMode.value) return rooms;
   const id = Number(selectedRoomId.value || 0) || Number(rooms[0].id);
-  const found = rooms.find((r) => Number(r.id) === id) || rooms[0];
+  const idx = rooms.findIndex((r) => Number(r.id) === id);
+  const selectedIdx = idx >= 0 ? idx : 0;
+  if (!singleRoomMode.value) {
+    // Keep "all offices" visible, but rotate order so Prev/Next changes which office appears first.
+    return selectedIdx === 0 ? rooms : [...rooms.slice(selectedIdx), ...rooms.slice(0, selectedIdx)];
+  }
+  const found = rooms[selectedIdx] || rooms[0];
   return found ? [found] : [];
 });
 const displayedDays = computed(() => {
@@ -1666,10 +1671,6 @@ const staffBook = async (booked = true) => {
 
 const enableVirtualIntake = async () => {
   if (!officeId.value || !modalSlot.value?.eventId) return;
-  if (!isModalBooked.value) {
-    error.value = 'Virtual intake can only be enabled on booked room slots.';
-    return;
-  }
   try {
     saving.value = true;
     error.value = '';
