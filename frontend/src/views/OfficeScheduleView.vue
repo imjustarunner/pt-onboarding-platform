@@ -266,7 +266,7 @@
               @mouseenter="onSlotMouseEnter(room.id, d, h)"
               @click="onSlotClick(room.id, d, h)"
             >
-              <span class="initials">{{ slotInitials(room.id, d, h) }}</span>
+              <span class="slot-label">{{ slotDisplayLabel(room.id, d, h) }}</span>
               <span v-if="slotHasLearningLink(room.id, d, h)" class="lp-pill" title="Linked learning billing session">LP</span>
               <span v-if="slotHasInPersonIntake(room.id, d, h)" class="ip-pill" title="In-person intake enabled">IP</span>
               <span v-if="slotHasVirtualIntake(room.id, d, h)" class="vi-pill" title="Virtual intake enabled">VI</span>
@@ -288,6 +288,24 @@
           <div v-if="modalSlot.bookingStartDate"><strong>Starts:</strong> {{ modalSlot.bookingStartDate }}</div>
           <div v-if="modalSlot.bookingActiveUntilDate"><strong>Until:</strong> {{ modalSlot.bookingActiveUntilDate }}</div>
           <div v-if="modalSlot.bookingOccurrenceCount"><strong>Booked occurrences:</strong> {{ modalSlot.bookingOccurrenceCount }}</div>
+        </div>
+        <div class="slot-details" v-if="modalSlot">
+          <div><strong>Assigned to:</strong> {{ providerDisplayName(modalSlot.assignedProviderFullName || modalSlot.assignedProviderName || modalSlot.bookedProviderFullName || modalSlot.bookedProviderName, modalSlot.providerInitials, 'Unassigned') }}</div>
+          <div v-if="modalSlot.bookedProviderFullName || modalSlot.bookedProviderName"><strong>Booked for:</strong> {{ providerDisplayName(modalSlot.bookedProviderFullName || modalSlot.bookedProviderName, modalSlot.providerInitials, 'Unassigned') }}</div>
+          <div><strong>Event ID:</strong> {{ modalSlot.eventId || 'n/a' }}</div>
+          <div><strong>Standing assignment:</strong> {{ modalSlot.standingAssignmentId || 'n/a' }}</div>
+          <div v-if="modalSlot.assignmentCreatedAt"><strong>Assigned on:</strong> {{ formatDateTime(modalSlot.assignmentCreatedAt) }}</div>
+          <div v-if="modalSlot.assignmentCreatedByName"><strong>Assigned by:</strong> {{ modalSlot.assignmentCreatedByName }}</div>
+          <div v-if="modalSlot.assignmentAvailableSinceDate"><strong>Available since:</strong> {{ formatDateOnly(modalSlot.assignmentAvailableSinceDate) }}</div>
+          <div v-if="modalSlot.assignmentLastTwoWeekConfirmedAt"><strong>Last 2-week confirmation:</strong> {{ formatDateTime(modalSlot.assignmentLastTwoWeekConfirmedAt) }}</div>
+          <div v-if="modalSlot.assignmentConfirmationExpiresAt"><strong>Falls off after:</strong> {{ formatDateOnly(modalSlot.assignmentConfirmationExpiresAt) }}</div>
+          <div v-if="Number.isInteger(Number(modalSlot.assignmentTwoWeekWindowsRemaining))">
+            <strong>2-week windows remaining:</strong> {{ modalSlot.assignmentTwoWeekWindowsRemaining }} / 3
+          </div>
+          <div v-if="modalSlot.bookingCreatedAt"><strong>Booking plan created:</strong> {{ formatDateTime(modalSlot.bookingCreatedAt) }}</div>
+          <div v-if="modalSlot.bookingCreatedByName"><strong>Booking plan set by:</strong> {{ modalSlot.bookingCreatedByName }}</div>
+          <div v-if="modalSlot.bookingLastConfirmedAt"><strong>Last booked confirmation:</strong> {{ formatDateTime(modalSlot.bookingLastConfirmedAt) }}</div>
+          <div class="muted">Rule reminder: providers confirm every 2 weeks; assignments auto-fall off after 6 weeks (~3 windows) without confirmation.</div>
         </div>
 
         <div v-if="modalSlot?.state === 'open'">
@@ -633,6 +651,37 @@ const formatHour = (h) => {
   return d.toLocaleTimeString([], { hour: 'numeric' });
 };
 
+const formatDateOnly = (value) => {
+  const raw = String(value || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return value || '';
+  const dt = new Date(`${raw}T00:00:00`);
+  if (Number.isNaN(dt.getTime())) return raw;
+  return dt.toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' });
+};
+
+const formatDateTime = (value) => {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const normalized = raw.includes('T') ? raw : raw.replace(' ', 'T');
+  const dt = new Date(normalized);
+  if (Number.isNaN(dt.getTime())) return raw.slice(0, 16).replace('T', ' ');
+  return dt.toLocaleString([], {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit'
+  });
+};
+
+const providerDisplayName = (name, initials = null, fallback = 'Unknown') => {
+  const full = String(name || '').trim();
+  if (full) return full;
+  const short = String(initials || '').trim();
+  if (short) return `Initials ${short}`;
+  return fallback;
+};
+
 const slotMap = computed(() => {
   const m = new Map();
   const slots = grid.value?.slots || [];
@@ -693,13 +742,27 @@ const slotInitials = (roomId, date, hour) => {
   return s?.providerInitials || '';
 };
 
+const slotDisplayLabel = (roomId, date, hour) => {
+  const s = getSlot(roomId, date, hour);
+  if (!s) return '';
+  const full =
+    String(s?.bookedProviderFullName || s?.bookedProviderName || s?.assignedProviderFullName || s?.assignedProviderName || '').trim();
+  if (full) return full;
+  return String(s?.providerInitials || '').trim();
+};
+
 const slotTitle = (roomId, date, hour) => {
   const s = getSlot(roomId, date, hour);
   if (!s) return '';
   const inPersonLabel = slotHasInPersonIntake(roomId, date, hour) ? ' • in-person intake on' : '';
   const virtualLabel = s?.virtualIntakeEnabled ? ' • virtual intake on' : '';
   const ownLabel = isOwnProviderSlot(roomId, date, hour) ? ' • your schedule' : '';
-  return `${date} ${formatHour(hour)} — ${s.state}${s.providerInitials ? ` (${s.providerInitials})` : ''}${inPersonLabel}${virtualLabel}${ownLabel}`;
+  const providerLabel = providerDisplayName(
+    s?.bookedProviderFullName || s?.bookedProviderName || s?.assignedProviderFullName || s?.assignedProviderName,
+    s?.providerInitials,
+    ''
+  );
+  return `${date} ${formatHour(hour)} — ${s.state}${providerLabel ? ` • ${providerLabel}` : ''}${inPersonLabel}${virtualLabel}${ownLabel}`;
 };
 
 const slotHasVirtualIntake = (roomId, date, hour) => {
@@ -2289,13 +2352,22 @@ input[type='date'] {
     0 0 0 2px rgba(37, 99, 235, 0.12),
     0 8px 18px rgba(59, 130, 246, 0.16);
 }
-.initials {
+.slot-label {
   position: relative;
   z-index: 1;
-  font-weight: 900;
+  font-weight: 700;
+  font-size: 11px;
+  line-height: 1.1;
   color: #0b1220;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.01em;
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.45);
+  display: block;
+  width: 100%;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 0 22px;
 }
 .vi-pill {
   position: absolute;
@@ -2412,6 +2484,18 @@ input[type='date'] {
   color: var(--sched-text-muted);
   font-size: 12px;
   line-height: 1.35;
+}
+.slot-details {
+  margin-bottom: 10px;
+  padding: 10px;
+  border: 1px solid var(--sched-border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--sched-text-muted);
+  font-size: 12px;
+  line-height: 1.35;
+  display: grid;
+  gap: 4px;
 }
 .status-chip {
   display: inline-flex;

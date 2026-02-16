@@ -51,6 +51,12 @@ function formatClinicianName(firstName, lastName) {
   return `${firstName || ''} ${ln}`.trim();
 }
 
+function formatFullName(firstName, lastName) {
+  const f = String(firstName || '').trim();
+  const l = String(lastName || '').trim();
+  return `${f} ${l}`.trim();
+}
+
 function localYmdInTz(dateLike, timeZone) {
   try {
     const d = dateLike instanceof Date ? dateLike : new Date(dateLike);
@@ -598,7 +604,11 @@ export const getWeeklyGrid = async (req, res, next) => {
             const assignedProviderName = assignedFirst || assignedLast
               ? formatClinicianName(assignedFirst, assignedLast)
               : (standingFirst || standingLast ? formatClinicianName(standingFirst, standingLast) : '');
+            const assignedProviderFullName = assignedFirst || assignedLast
+              ? formatFullName(assignedFirst, assignedLast)
+              : (standingFirst || standingLast ? formatFullName(standingFirst, standingLast) : '');
             const bookedProviderName = bookedFirst || bookedLast ? formatClinicianName(bookedFirst, bookedLast) : '';
+            const bookedProviderFullName = bookedFirst || bookedLast ? formatFullName(bookedFirst, bookedLast) : '';
             const displayInitials = bookedInitials || assignedInitials || standingInitials || null;
             const slotStartAt = mysqlDateTimeForDateHour(date, hour);
             const slotEndAt = mysqlDateTimeForDateHour(date, Number(hour) + 1);
@@ -632,7 +642,9 @@ export const getWeeklyGrid = async (req, res, next) => {
               assignedProviderId: e.assigned_provider_id || e.standing_assignment_provider_id || null,
               bookedProviderId: e.booked_provider_id || null,
               assignedProviderName: assignedProviderName || null,
+              assignedProviderFullName: assignedProviderFullName || null,
               bookedProviderName: bookedProviderName || null,
+              bookedProviderFullName: bookedProviderFullName || null,
               virtualIntakeEnabled,
               inPersonIntakeEnabled
             });
@@ -689,7 +701,9 @@ export const getWeeklyGrid = async (req, res, next) => {
               assignedProviderId: a.assigned_user_id,
               bookedProviderId: null,
               assignedProviderName: formatClinicianName(a.first_name, a.last_name) || null,
+              assignedProviderFullName: formatFullName(a.first_name, a.last_name) || null,
               bookedProviderName: null,
+              bookedProviderFullName: null,
               virtualIntakeEnabled,
               inPersonIntakeEnabled
             });
@@ -709,7 +723,9 @@ export const getWeeklyGrid = async (req, res, next) => {
             assignedProviderId: null,
             bookedProviderId: null,
             assignedProviderName: null,
+            assignedProviderFullName: null,
             bookedProviderName: null,
+            bookedProviderFullName: null,
             virtualIntakeEnabled: false,
             inPersonIntakeEnabled: false
           });
@@ -727,36 +743,98 @@ export const getWeeklyGrid = async (req, res, next) => {
       new Set((slots || []).map((s) => parseInt(s?.bookingPlanId, 10)).filter((n) => Number.isInteger(n) && n > 0))
     );
 
-    const assignedFreqByStandingId = new Map();
+    const assignedFrequencyByStandingId = new Map();
+    const assignmentMetaByStandingId = new Map();
     if (standingIds.length) {
       const placeholders = standingIds.map(() => '?').join(',');
       const [rows] = await pool.execute(
-        `SELECT id, assigned_frequency
-         FROM office_standing_assignments
-         WHERE id IN (${placeholders})`,
+        `SELECT
+           a.id,
+           a.assigned_frequency,
+           a.availability_mode,
+           a.temporary_until_date,
+           a.available_since_date,
+           a.last_two_week_confirmed_at,
+           a.last_six_week_checked_at,
+           a.created_by_user_id,
+           a.created_at,
+           cb.first_name AS created_by_first_name,
+           cb.last_name AS created_by_last_name
+         FROM office_standing_assignments a
+         LEFT JOIN users cb ON cb.id = a.created_by_user_id
+         WHERE a.id IN (${placeholders})`,
         standingIds
       );
-      for (const r of rows || []) assignedFreqByStandingId.set(Number(r.id), String(r.assigned_frequency || '').toUpperCase());
+      const todayYmd = new Date().toISOString().slice(0, 10);
+      const dayMs = 24 * 60 * 60 * 1000;
+      for (const r of rows || []) {
+        const sid = Number(r.id);
+        const assignedFrequency = String(r.assigned_frequency || '').toUpperCase();
+        assignedFrequencyByStandingId.set(sid, assignedFrequency);
+
+        const availableSinceDate = r.available_since_date ? String(r.available_since_date).slice(0, 10) : null;
+        const lastTwoWeekConfirmedAt = normalizeMysqlDateTime(r.last_two_week_confirmed_at) || null;
+        const lastSixWeekCheckedAt = normalizeMysqlDateTime(r.last_six_week_checked_at) || null;
+        const assignmentCreatedAt = normalizeMysqlDateTime(r.created_at) || null;
+        const createdByUserId = Number(r.created_by_user_id || 0) || null;
+        const createdByName = formatFullName(r.created_by_first_name, r.created_by_last_name) || null;
+
+        const confirmAnchorYmd = String(lastTwoWeekConfirmedAt || availableSinceDate || assignmentCreatedAt || '').slice(0, 10) || null;
+        const confirmationExpiresAt = confirmAnchorYmd ? addDays(confirmAnchorYmd, 42) : null;
+        const expiresMs = confirmationExpiresAt ? Date.parse(`${confirmationExpiresAt}T00:00:00Z`) : NaN;
+        const todayMs = Date.parse(`${todayYmd}T00:00:00Z`);
+        const remainingDays = Number.isFinite(expiresMs) ? Math.max(0, Math.floor((expiresMs - todayMs) / dayMs)) : null;
+        const twoWeekWindowsRemaining = Number.isInteger(remainingDays)
+          ? Math.max(0, Math.min(3, Math.ceil(remainingDays / 14)))
+          : null;
+
+        assignmentMetaByStandingId.set(sid, {
+          assignmentCreatedAt,
+          assignmentCreatedByUserId: createdByUserId,
+          assignmentCreatedByName: createdByName,
+          assignmentAvailabilityMode: String(r.availability_mode || '').toUpperCase() || null,
+          assignmentTemporaryUntilDate: r.temporary_until_date ? String(r.temporary_until_date).slice(0, 10) : null,
+          assignmentAvailableSinceDate: availableSinceDate,
+          assignmentLastTwoWeekConfirmedAt: lastTwoWeekConfirmedAt,
+          assignmentLastSixWeekCheckedAt: lastSixWeekCheckedAt,
+          assignmentConfirmationExpiresAt: confirmationExpiresAt,
+          assignmentTwoWeekWindowsRemaining: twoWeekWindowsRemaining
+        });
+      }
     }
 
-    const bookedFreqByPlanId = new Map();
-    const bookedStartByPlanId = new Map();
-    const bookedUntilByPlanId = new Map();
-    const bookedCountByPlanId = new Map();
+    const bookingMetaByPlanId = new Map();
     if (planIds.length) {
       const placeholders = planIds.map(() => '?').join(',');
       const [rows] = await pool.execute(
-        `SELECT id, booked_frequency, booking_start_date, active_until_date, booked_occurrence_count
-         FROM office_booking_plans
-         WHERE id IN (${placeholders})`,
+        `SELECT
+           p.id,
+           p.booked_frequency,
+           p.booking_start_date,
+           p.active_until_date,
+           p.booked_occurrence_count,
+           p.last_confirmed_at,
+           p.created_at,
+           p.created_by_user_id,
+           cb.first_name AS created_by_first_name,
+           cb.last_name AS created_by_last_name
+         FROM office_booking_plans p
+         LEFT JOIN users cb ON cb.id = p.created_by_user_id
+         WHERE p.id IN (${placeholders})`,
         planIds
       );
       for (const r of rows || []) {
         const pid = Number(r.id);
-        bookedFreqByPlanId.set(pid, String(r.booked_frequency || '').toUpperCase());
-        bookedStartByPlanId.set(pid, r.booking_start_date ? String(r.booking_start_date).slice(0, 10) : null);
-        bookedUntilByPlanId.set(pid, r.active_until_date ? String(r.active_until_date).slice(0, 10) : null);
-        bookedCountByPlanId.set(pid, Number.isInteger(Number(r.booked_occurrence_count)) ? Number(r.booked_occurrence_count) : null);
+        bookingMetaByPlanId.set(pid, {
+          bookedFrequency: String(r.booked_frequency || '').toUpperCase() || null,
+          bookingStartDate: r.booking_start_date ? String(r.booking_start_date).slice(0, 10) : null,
+          bookingActiveUntilDate: r.active_until_date ? String(r.active_until_date).slice(0, 10) : null,
+          bookingOccurrenceCount: Number.isInteger(Number(r.booked_occurrence_count)) ? Number(r.booked_occurrence_count) : null,
+          bookingLastConfirmedAt: normalizeMysqlDateTime(r.last_confirmed_at) || null,
+          bookingCreatedAt: normalizeMysqlDateTime(r.created_at) || null,
+          bookingCreatedByUserId: Number(r.created_by_user_id || 0) || null,
+          bookingCreatedByName: formatFullName(r.created_by_first_name, r.created_by_last_name) || null
+        });
       }
     }
 
@@ -778,17 +856,33 @@ export const getWeeklyGrid = async (req, res, next) => {
     for (const s of slots) {
       const standingId = Number(s.standingAssignmentId || 0) || null;
       const planId = Number(s.bookingPlanId || 0) || null;
-      const assignedFrequency = standingId ? assignedFreqByStandingId.get(standingId) || null : null;
-      const bookedFrequency = planId ? bookedFreqByPlanId.get(planId) || null : null;
-      const bookingStartDate = planId ? bookedStartByPlanId.get(planId) || null : null;
-      const bookingActiveUntilDate = planId ? bookedUntilByPlanId.get(planId) || null : null;
-      const bookingOccurrenceCount = planId ? bookedCountByPlanId.get(planId) || null : null;
+      const assignedFrequency = standingId ? assignedFrequencyByStandingId.get(standingId) || null : null;
+      const assignmentMeta = standingId ? assignmentMetaByStandingId.get(standingId) || null : null;
+      const bookingMeta = planId ? bookingMetaByPlanId.get(planId) || null : null;
+      const bookedFrequency = bookingMeta?.bookedFrequency || null;
+      const bookingStartDate = bookingMeta?.bookingStartDate || null;
+      const bookingActiveUntilDate = bookingMeta?.bookingActiveUntilDate || null;
+      const bookingOccurrenceCount = bookingMeta?.bookingOccurrenceCount || null;
       const meta = frequencyMeta({ assignedFrequency, bookedFrequency, state: s.state });
       s.assignedFrequency = assignedFrequency;
       s.bookedFrequency = bookedFrequency;
       s.bookingStartDate = bookingStartDate;
       s.bookingActiveUntilDate = bookingActiveUntilDate;
       s.bookingOccurrenceCount = bookingOccurrenceCount;
+      s.bookingLastConfirmedAt = bookingMeta?.bookingLastConfirmedAt || null;
+      s.bookingCreatedAt = bookingMeta?.bookingCreatedAt || null;
+      s.bookingCreatedByUserId = bookingMeta?.bookingCreatedByUserId || null;
+      s.bookingCreatedByName = bookingMeta?.bookingCreatedByName || null;
+      s.assignmentCreatedAt = assignmentMeta?.assignmentCreatedAt || null;
+      s.assignmentCreatedByUserId = assignmentMeta?.assignmentCreatedByUserId || null;
+      s.assignmentCreatedByName = assignmentMeta?.assignmentCreatedByName || null;
+      s.assignmentAvailabilityMode = assignmentMeta?.assignmentAvailabilityMode || null;
+      s.assignmentTemporaryUntilDate = assignmentMeta?.assignmentTemporaryUntilDate || null;
+      s.assignmentAvailableSinceDate = assignmentMeta?.assignmentAvailableSinceDate || null;
+      s.assignmentLastTwoWeekConfirmedAt = assignmentMeta?.assignmentLastTwoWeekConfirmedAt || null;
+      s.assignmentLastSixWeekCheckedAt = assignmentMeta?.assignmentLastSixWeekCheckedAt || null;
+      s.assignmentConfirmationExpiresAt = assignmentMeta?.assignmentConfirmationExpiresAt || null;
+      s.assignmentTwoWeekWindowsRemaining = assignmentMeta?.assignmentTwoWeekWindowsRemaining ?? null;
       s.frequency = meta.frequency;
       s.frequencyLabel = meta.frequencyLabel;
       s.frequencyBadge = meta.frequencyBadge;
