@@ -53,31 +53,32 @@ export const getRecentMessages = async (req, res, next) => {
     if (!uid) return res.status(401).json({ error: { message: 'Not authenticated' } });
 
     // Privacy rule: users can only see their own message logs (no cross-user safety net feed).
-    // Keep bind count fixed to avoid mysql_stmt_execute mismatches from dynamic IN clauses.
     const rawLimit = req.query.limit ? parseInt(req.query.limit, 10) : 50;
     const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 200) : 50;
-    const [rows] = await pool.execute(
-      `SELECT ml.*,
-              c.initials AS client_initials,
-              u.first_name AS user_first_name,
-              u.last_name AS user_last_name
-       FROM message_logs ml
-       LEFT JOIN clients c ON ml.client_id = c.id
-       LEFT JOIN users u ON ml.user_id = u.id
-       WHERE ml.user_id = ?
-         AND (
-           ml.agency_id IS NULL
-           OR EXISTS (
-             SELECT 1
-             FROM user_agencies ua
-             WHERE ua.user_id = ?
-               AND ua.agency_id = ml.agency_id
-           )
-         )
-       ORDER BY ml.created_at DESC
-       LIMIT ?`,
-      [uid, uid, limit]
-    );
+    const safeUid = Number(uid);
+    const safeLimit = Number(limit);
+    const sql = `
+      SELECT ml.*,
+             c.initials AS client_initials,
+             u.first_name AS user_first_name,
+             u.last_name AS user_last_name
+      FROM message_logs ml
+      LEFT JOIN clients c ON ml.client_id = c.id
+      LEFT JOIN users u ON ml.user_id = u.id
+      WHERE ml.user_id = ${safeUid}
+        AND (
+          ml.agency_id IS NULL
+          OR EXISTS (
+            SELECT 1
+            FROM user_agencies ua
+            WHERE ua.user_id = ${safeUid}
+              AND ua.agency_id = ml.agency_id
+          )
+        )
+      ORDER BY ml.created_at DESC
+      LIMIT ${safeLimit}
+    `;
+    const [rows] = await pool.query(sql);
     res.json(rows);
   } catch (e) {
     next(e);
