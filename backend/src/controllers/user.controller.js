@@ -30,6 +30,18 @@ const isAdminOrSuperAdmin = (req) => {
 
 const normalizeBoolFlag = (val) => val === 1 || val === true || val === '1';
 const SSO_EXCLUDED_ROLES = new Set(['school_staff', 'client_guardian', 'client', 'guardian']);
+const isMissingBillingInfraError = (err) => {
+  if (!err) return false;
+  const code = String(err?.code || '');
+  if (code === 'ER_NO_SUCH_TABLE' || code === 'ER_BAD_FIELD_ERROR' || code === 'ER_BAD_DB_ERROR') return true;
+  const msg = String(err?.message || '').toLowerCase();
+  return (
+    msg.includes('doesn\'t exist') ||
+    msg.includes('unknown column') ||
+    msg.includes('agency_billing_accounts') ||
+    msg.includes('platform_billing_pricing')
+  );
+};
 
 const parseFeatureFlags = (rawFlags) => {
   if (!rawFlags) return {};
@@ -1460,28 +1472,35 @@ export const updateUser = async (req, res, next) => {
         });
       }
 
-      // Billing hard gate: adding an admin beyond included requires acknowledgement
+      // Billing hard gate: adding an admin beyond included requires acknowledgement.
+      // If billing infra is not present in this environment, skip the gate instead of
+      // blocking role changes with a 500.
       if (role === 'admin') {
-        const { getAdminAddBillingImpact } = await import('../services/adminBillingGate.service.js');
-        const targetUser = await User.findById(id);
-        if (targetUser && targetUser.role !== 'admin') {
-          const agencies = await User.getAgencies(id);
-          const impacts = [];
-          for (const agency of agencies) {
-            const impact = await getAdminAddBillingImpact(agency.id, { deltaAdmins: 1 });
-            if (impact) {
-              impacts.push({ agencyId: agency.id, agencyName: agency.name, ...impact });
+        try {
+          const { getAdminAddBillingImpact } = await import('../services/adminBillingGate.service.js');
+          const targetUser = await User.findById(id);
+          if (targetUser && targetUser.role !== 'admin') {
+            const agencies = await User.getAgencies(id);
+            const impacts = [];
+            for (const agency of agencies) {
+              const impact = await getAdminAddBillingImpact(agency.id, { deltaAdmins: 1 });
+              if (impact) {
+                impacts.push({ agencyId: agency.id, agencyName: agency.name, ...impact });
+              }
+            }
+            if (impacts.length > 0 && billingAcknowledged !== true) {
+              return res.status(409).json({
+                error: { message: 'Billing acknowledgement required to add an admin beyond included limits.' },
+                billingImpact: {
+                  code: 'ADMIN_OVERAGE',
+                  impacts
+                }
+              });
             }
           }
-          if (impacts.length > 0 && billingAcknowledged !== true) {
-            return res.status(409).json({
-              error: { message: 'Billing acknowledgement required to add an admin beyond included limits.' },
-              billingImpact: {
-                code: 'ADMIN_OVERAGE',
-                impacts
-              }
-            });
-          }
+        } catch (billingGateError) {
+          if (!isMissingBillingInfraError(billingGateError)) throw billingGateError;
+          console.warn('Admin billing gate unavailable; skipping billing impact check:', billingGateError?.message || billingGateError);
         }
       }
     }
@@ -2251,6 +2270,8 @@ export const getUserScheduleSummary = async (req, res, next) => {
           counterpartyName: otherName || null,
           sessionType,
           isRequired,
+          presenterRole: r.viewer_presenter_role || null,
+          presenterStatus: r.viewer_presenter_status || null,
           startAt: r.start_at,
           endAt: r.end_at,
           status: r.status,
