@@ -1630,6 +1630,100 @@
               </div>
             </div>
           </div>
+
+          <div v-if="showSupervisionConflictsModal" class="modal-backdrop">
+            <div class="modal" style="width: min(1080px, 100%);">
+              <div class="modal-header">
+                <div>
+                  <div class="modal-title">Supervision conflicts (legacy + app)</div>
+                  <div class="hint">Rows that may cause duplicate supervision pay in this period.</div>
+                </div>
+                <div class="actions" style="margin: 0;">
+                  <button class="btn btn-secondary btn-sm" type="button" @click="loadSupervisionConflictsReport" :disabled="supervisionConflictsLoading || !selectedPeriodId">
+                    Refresh
+                  </button>
+                  <button class="btn btn-secondary btn-sm" type="button" @click="showSupervisionConflictsModal = false" style="margin-left: 8px;">
+                    Close
+                  </button>
+                </div>
+              </div>
+
+              <div v-if="supervisionConflictsError" class="warn-box" style="margin-top: 12px;">{{ supervisionConflictsError }}</div>
+              <div v-if="supervisionConflictsLoading" class="muted" style="margin-top: 12px;">Loading supervision conflicts…</div>
+
+              <div v-else style="margin-top: 12px;">
+                <div class="hint" style="margin-bottom: 8px;">
+                  Unresolved rows: <strong>{{ supervisionConflictsUnresolvedCount }}</strong>
+                </div>
+                <div v-if="!(supervisionConflictsRows || []).length" class="muted">
+                  No duplicate supervision rows detected for this period.
+                </div>
+
+                <div v-else class="table-wrap">
+                  <table class="table">
+                    <thead>
+                      <tr>
+                        <th>Provider</th>
+                        <th>Date</th>
+                        <th>Legacy code</th>
+                        <th class="right">Legacy units</th>
+                        <th class="right">App minutes</th>
+                        <th>Session types</th>
+                        <th class="right">Delta min</th>
+                        <th>Confidence</th>
+                        <th>Decision</th>
+                        <th class="right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="r in supervisionConflictsRows" :key="`${r.user_id}:${r.service_date}:${r.legacy_service_code}`">
+                        <td>{{ nameForUserId(Number(r.user_id || 0)) }}</td>
+                        <td>{{ r.service_date || '—' }}</td>
+                        <td>{{ r.legacy_service_code || '—' }}</td>
+                        <td class="right">{{ fmtNum(Number(r.legacy_units_total || 0)) }}</td>
+                        <td class="right">{{ fmtNum(Number(r.app_attended_minutes || 0)) }}</td>
+                        <td class="muted">{{ Array.isArray(r.app_session_types) ? r.app_session_types.join(', ') : '—' }}</td>
+                        <td class="right">{{ fmtNum(Number(r.delta_minutes || 0)) }}</td>
+                        <td>
+                          <span :class="String(r.confidence || '') === 'high' ? 'ok' : (String(r.confidence || '') === 'medium' ? 'warn' : 'muted')">
+                            {{ String(r.confidence || 'low') }}
+                          </span>
+                        </td>
+                        <td>
+                          <div v-if="r.resolution">
+                            <div>{{ supervisionConflictResolutionLabel(r.resolution) }}</div>
+                            <div class="muted" v-if="r.resolution_by_user_id || r.resolution_at">
+                              {{ r.resolution_by_user_id ? `by ${nameForUserId(Number(r.resolution_by_user_id || 0))}` : '' }}
+                              <span v-if="r.resolution_by_user_id && r.resolution_at"> • </span>
+                              {{ r.resolution_at ? fmtDateTime(r.resolution_at) : '' }}
+                            </div>
+                            <div class="muted" v-if="r.resolution_note">{{ r.resolution_note }}</div>
+                          </div>
+                          <span v-else class="warn">Unresolved</span>
+                        </td>
+                        <td class="right">
+                          <div class="actions" style="justify-content: flex-end; margin: 0;">
+                            <button class="btn btn-secondary btn-sm" type="button" :disabled="supervisionConflictSavingKey === supervisionConflictRowKey(r)" @click="saveSupervisionConflictResolution(r, 'use_app_attendance')">
+                              Use app
+                            </button>
+                            <button class="btn btn-secondary btn-sm" type="button" :disabled="supervisionConflictSavingKey === supervisionConflictRowKey(r)" @click="saveSupervisionConflictResolution(r, 'use_legacy_import')">
+                              Use legacy
+                            </button>
+                            <button class="btn btn-secondary btn-sm" type="button" :disabled="supervisionConflictSavingKey === supervisionConflictRowKey(r)" @click="saveSupervisionConflictResolution(r, 'ignore')">
+                              Ignore
+                            </button>
+                            <button class="btn btn-secondary btn-sm" type="button" :disabled="supervisionConflictSavingKey === supervisionConflictRowKey(r)" @click="saveSupervisionConflictResolution(r, 'clear')">
+                              Clear
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
         </teleport>
 
         <!-- Payroll Stage modal -->
@@ -1659,6 +1753,16 @@
                   title="Review payable imported services that occurred on configured holiday dates (latest import)."
                 >
                   Review holiday hours
+                </button>
+                <button
+                  class="btn btn-secondary btn-sm"
+                  type="button"
+                  @click="openSupervisionConflictsModal"
+                  :disabled="!selectedPeriodId"
+                  style="margin-left: 8px;"
+                  title="Flag potential double-pay rows where legacy supervision billing and in-app supervision attendance both exist."
+                >
+                  Review supervision conflicts
                 </button>
                 <button
                   v-if="isSuperAdmin && isPeriodPosted"
@@ -4568,6 +4672,7 @@ const showPayrollToolsModal = ref(false);
 const showSubmitOnBehalfModal = ref(false);
 const showTodoModal = ref(false);
 const showHolidayHoursModal = ref(false);
+const showSupervisionConflictsModal = ref(false);
 const showPayrollWizardModal = ref(false);
 const payrollToolsTab = ref('compare'); // compare | viewer
 const payrollToolsLoading = ref(false);
@@ -4582,6 +4687,10 @@ const holidayHoursLoading = ref(false);
 const holidayHoursError = ref('');
 const holidayHoursMatched = ref([]);
 const holidayHoursUnmatched = ref([]);
+const supervisionConflictsLoading = ref(false);
+const supervisionConflictsError = ref('');
+const supervisionConflictsRows = ref([]);
+const supervisionConflictSavingKey = ref('');
 
 // Compare controls
 const payrollToolsCompareMode = ref('detail'); // detail | summary
@@ -5872,6 +5981,7 @@ const splitSummary = (c) => {
 const timeTypeLabel = (c) => {
   const t = String(c?.claim_type || '').toLowerCase();
   if (t === 'meeting_training') return 'Meeting/Training';
+  if (t === 'mentor_cpa_meeting') return 'Mentor/CPA Meeting';
   if (t === 'excess_holiday') return 'Excess/Holiday';
   if (t === 'service_correction') return 'Service correction';
   if (t === 'overtime_evaluation') return 'Overtime eval';
@@ -8683,6 +8793,68 @@ const loadHolidayHoursReport = async () => {
 const openHolidayHoursModal = async () => {
   showHolidayHoursModal.value = true;
   await loadHolidayHoursReport();
+};
+
+const loadSupervisionConflictsReport = async () => {
+  if (!selectedPeriodId.value) return;
+  try {
+    supervisionConflictsLoading.value = true;
+    supervisionConflictsError.value = '';
+    const resp = await api.get(`/payroll/periods/${selectedPeriodId.value}/reports/supervision-conflicts`);
+    supervisionConflictsRows.value = (resp.data?.rows || []).filter((r) => !!r && typeof r === 'object');
+  } catch (e) {
+    supervisionConflictsError.value = e.response?.data?.error?.message || e.message || 'Failed to load supervision conflict report';
+    supervisionConflictsRows.value = [];
+  } finally {
+    supervisionConflictsLoading.value = false;
+  }
+};
+
+const supervisionConflictRowKey = (r) => `${Number(r?.user_id || 0)}:${String(r?.service_date || '').slice(0, 10)}`;
+
+const supervisionConflictResolutionLabel = (v) => {
+  const k = String(v || '').trim().toLowerCase();
+  if (k === 'use_app_attendance') return 'Use app attendance';
+  if (k === 'use_legacy_import') return 'Use legacy import';
+  if (k === 'ignore') return 'Ignore';
+  return '—';
+};
+
+const supervisionConflictsUnresolvedCount = computed(() => {
+  const rows = Array.isArray(supervisionConflictsRows.value) ? supervisionConflictsRows.value : [];
+  const unresolvedKeys = new Set();
+  for (const r of rows) {
+    if (String(r?.resolution || '').trim()) continue;
+    unresolvedKeys.add(supervisionConflictRowKey(r));
+  }
+  return unresolvedKeys.size;
+});
+
+const saveSupervisionConflictResolution = async (row, resolution) => {
+  if (!selectedPeriodId.value || !row) return;
+  const userId = Number(row.user_id || 0);
+  const serviceDate = String(row.service_date || '').slice(0, 10);
+  if (!userId || !serviceDate) return;
+  const key = supervisionConflictRowKey(row);
+  try {
+    supervisionConflictSavingKey.value = key;
+    supervisionConflictsError.value = '';
+    await api.put(`/payroll/periods/${selectedPeriodId.value}/supervision-conflicts/resolution`, {
+      userId,
+      serviceDate,
+      resolution
+    });
+    await loadSupervisionConflictsReport();
+  } catch (e) {
+    supervisionConflictsError.value = e.response?.data?.error?.message || e.message || 'Failed to save supervision conflict resolution';
+  } finally {
+    supervisionConflictSavingKey.value = '';
+  }
+};
+
+const openSupervisionConflictsModal = async () => {
+  showSupervisionConflictsModal.value = true;
+  await loadSupervisionConflictsReport();
 };
 
 const holidayHoursProviderLabel = (r) => {

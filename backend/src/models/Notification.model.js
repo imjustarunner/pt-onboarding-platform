@@ -63,6 +63,7 @@ class Notification {
     'supervision_individual_50_reached',
     'supervision_total_100_reached',
     'supervision_supervisee_completed',
+    'supervision_presenter_reminder',
     // Payroll: home address changes (mileage / compliance workflow)
     'payroll_home_address_updated',
     // Custom program reminders

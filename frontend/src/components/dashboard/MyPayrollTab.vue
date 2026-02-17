@@ -1593,9 +1593,18 @@
             <option>Admin Town Hall Meeting</option>
             <option>Training</option>
             <option>Evaluation</option>
+            <option>Mentor/CPA Individual Meeting</option>
             <option>Not listed</option>
           </select>
         </div>
+      </div>
+
+      <div class="field" v-if="timeMeetingForm.meetingType === 'Mentor/CPA Individual Meeting'" style="margin-top: 10px;">
+        <label>Meeting with</label>
+        <select v-model="timeMeetingForm.mentorRole">
+          <option value="intern_mentor">Intern Mentor</option>
+          <option value="clinical_practice_assistant">Clinical Practice Assistant (CPA)</option>
+        </select>
       </div>
 
       <div class="field" v-if="timeMeetingForm.meetingType === 'Not listed'" style="margin-top: 10px;">
@@ -2093,6 +2102,7 @@ const companyCardExpenseForm = ref({
 const timeMeetingForm = ref({
   claimDate: '',
   meetingType: 'Training',
+  mentorRole: 'intern_mentor',
   otherMeeting: '',
   startTime: '',
   endTime: '',
@@ -3284,6 +3294,7 @@ const loadTimeClaims = async () => {
 const timeClaimTypeLabel = (c) => {
   const t = String(c?.claim_type || '').toLowerCase();
   if (t === 'meeting_training') return 'Meeting/Training';
+  if (t === 'mentor_cpa_meeting') return 'Mentor/CPA Meeting';
   if (t === 'excess_holiday') return 'Excess/Holiday';
   if (t === 'service_correction') return 'Service correction';
   if (t === 'overtime_evaluation') return 'Overtime eval';
@@ -3365,12 +3376,13 @@ const openEditTimeClaim = (c) => {
   submitTimeClaimError.value = '';
   const type = String(c.claim_type || '').toLowerCase();
   const payload = c.payload || {};
-  if (type === 'meeting_training') {
+  if (type === 'meeting_training' || type === 'mentor_cpa_meeting') {
     openTimeMeetingModal();
     timeMeetingForm.value = {
       ...timeMeetingForm.value,
       claimDate: String(c.claim_date || '').slice(0, 10),
-      meetingType: payload.meetingType || 'Training',
+      meetingType: (type === 'mentor_cpa_meeting') ? 'Mentor/CPA Individual Meeting' : (payload.meetingType || 'Training'),
+      mentorRole: payload.mentorRole || 'intern_mentor',
       otherMeeting: payload.otherMeeting || '',
       startTime: payload.startTime || '',
       endTime: payload.endTime || '',
@@ -3432,11 +3444,13 @@ const openEditTimeClaim = (c) => {
 
 const submitTimeMeeting = async () => {
   submitTimeClaimError.value = '';
+  const isMentorCpaMeeting = String(timeMeetingForm.value.meetingType || '').trim() === 'Mentor/CPA Individual Meeting';
   await submitTimeClaim({
-    claimType: 'meeting_training',
+    claimType: isMentorCpaMeeting ? 'mentor_cpa_meeting' : 'meeting_training',
     claimDate: timeMeetingForm.value.claimDate,
     payload: {
       meetingType: timeMeetingForm.value.meetingType,
+      mentorRole: isMentorCpaMeeting ? timeMeetingForm.value.mentorRole : null,
       otherMeeting: timeMeetingForm.value.otherMeeting,
       startTime: timeMeetingForm.value.startTime,
       endTime: timeMeetingForm.value.endTime,

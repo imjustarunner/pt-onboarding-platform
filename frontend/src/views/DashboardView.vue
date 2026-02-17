@@ -101,6 +101,30 @@
         </article>
       </div>
     </div>
+
+    <div
+      v-if="!previewMode && isOnboardingComplete && presenterAssignmentsNeedingAttention.length > 0"
+      class="supervision-invite-strip"
+    >
+      <div class="supervision-invite-head">
+        <strong>Presenter Assignments</strong>
+        <small class="hint">You will be reminded 3 times.</small>
+      </div>
+      <div class="supervision-invite-list">
+        <article v-for="item in presenterAssignmentsNeedingAttention" :key="`presenter-${item.presenterAssignmentId}`" class="supervision-invite-card">
+          <div class="invite-title">
+            {{ item.sessionTypeLabel }} presenter ({{ item.presenterRoleLabel }})
+          </div>
+          <div class="invite-time">
+            {{ item.timeLabel }}<span v-if="item.reminderLabel"> • {{ item.reminderLabel }}</span>
+          </div>
+          <div class="invite-actions">
+            <button type="button" class="btn btn-primary btn-sm" @click="joinSupervisionPrompt(item)">View session</button>
+            <button type="button" class="btn btn-secondary btn-sm" @click="dismissPresenterAssignment(item.presenterAssignmentId)">Dismiss</button>
+          </div>
+        </article>
+      </div>
+    </div>
     
     <!-- Pending Completion Button -->
     <div v-if="isPending && pendingCompletionStatus?.allComplete && !pendingCompletionStatus?.accessLocked && (userStatus === 'PREHIRE_OPEN' || userStatus === 'pending')" class="pending-completion-banner">
@@ -1033,6 +1057,8 @@ const currentAgencyId = computed(() => {
 
 const supervisionPromptRows = ref([]);
 const dismissedOptionalSupervisionPromptIds = ref(new Set());
+const presenterAssignmentRows = ref([]);
+const dismissedPresenterAssignmentIds = ref(new Set());
 const supervisionPromptPollMs = 30000;
 let supervisionPromptTimer = null;
 
@@ -1080,10 +1106,48 @@ const optionalSupervisionPrompts = computed(() => {
     }));
 });
 
+const presenterRoleLabel = (role) => {
+  const r = String(role || 'primary').toLowerCase();
+  return r === 'secondary' ? 'Secondary' : 'Primary';
+};
+
+const presenterReminderLabel = (stage) => {
+  const s = String(stage || '');
+  if (s === 'd7') return 'Reminder: 7 days';
+  if (s === 'h24') return 'Reminder: 24 hours';
+  if (s === 'h1') return 'Reminder: 1 hour';
+  return '';
+};
+
+const presenterAssignmentsNeedingAttention = computed(() => {
+  const dismissed = dismissedPresenterAssignmentIds.value || new Set();
+  const rows = Array.isArray(presenterAssignmentRows.value) ? presenterAssignmentRows.value : [];
+  return rows
+    .filter((r) => !dismissed.has(Number(r?.presenterAssignmentId || 0)))
+    .filter((r) => {
+      const mins = Number(r?.startsInMinutes);
+      return Number.isFinite(mins) && mins <= (7 * 24 * 60) && mins >= -120;
+    })
+    .slice(0, 5)
+    .map((r) => ({
+      ...r,
+      sessionTypeLabel: sessionTypeLabel(r?.sessionType),
+      presenterRoleLabel: presenterRoleLabel(r?.presenterRole),
+      timeLabel: promptTimeLabel(r),
+      reminderLabel: presenterReminderLabel(r?.reminderStage)
+    }));
+});
+
 const dismissOptionalSupervisionPrompt = (sessionId) => {
   const sid = Number(sessionId || 0);
   if (!sid) return;
   dismissedOptionalSupervisionPromptIds.value = new Set([...(dismissedOptionalSupervisionPromptIds.value || new Set()), sid]);
+};
+
+const dismissPresenterAssignment = (assignmentId) => {
+  const id = Number(assignmentId || 0);
+  if (!id) return;
+  dismissedPresenterAssignmentIds.value = new Set([...(dismissedPresenterAssignmentIds.value || new Set()), id]);
 };
 
 const joinSupervisionPrompt = (prompt) => {
@@ -1108,6 +1172,21 @@ const loadSupervisionPrompts = async () => {
     supervisionPromptRows.value = Array.isArray(resp.data?.prompts) ? resp.data.prompts : [];
   } catch {
     supervisionPromptRows.value = [];
+  }
+};
+
+const loadPresenterAssignments = async () => {
+  if (props.previewMode || !isOnboardingComplete.value || !authStore.user?.id) {
+    presenterAssignmentRows.value = [];
+    return;
+  }
+  try {
+    const params = {};
+    if (currentAgencyId.value) params.agencyId = Number(currentAgencyId.value);
+    const resp = await api.get('/supervision/my-presenter-assignments', { params });
+    presenterAssignmentRows.value = Array.isArray(resp.data?.assignments) ? resp.data.assignments : [];
+  } catch {
+    presenterAssignmentRows.value = [];
   }
 };
 
@@ -1947,6 +2026,7 @@ onMounted(async () => {
   await loadAgencyDashboardBanner();
   await loadMyCompanyEvents();
   await loadSupervisionPrompts();
+  await loadPresenterAssignments();
   await loadDashboardSocialFeeds();
 
   updateRailTopMode();
@@ -1958,6 +2038,7 @@ onMounted(async () => {
   document.addEventListener('fullscreenchange', updateScheduleFullscreenState);
   supervisionPromptTimer = setInterval(() => {
     loadSupervisionPrompts();
+    loadPresenterAssignments();
   }, supervisionPromptPollMs);
 });
 watch(activeTab, updateRailTopMode);
@@ -1978,6 +2059,7 @@ watch([currentAgencyId, isOnboardingComplete], async () => {
   await loadAgencyDashboardBanner();
   await loadMyCompanyEvents();
   await loadSupervisionPrompts();
+  await loadPresenterAssignments();
   await loadDashboardSocialFeeds();
 });
 

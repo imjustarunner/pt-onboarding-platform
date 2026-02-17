@@ -2558,6 +2558,214 @@ export const getPayrollReportHolidayHours = async (req, res, next) => {
   }
 };
 
+export const getPayrollReportSupervisionConflicts = async (req, res, next) => {
+  try {
+    const payrollPeriodId = parseInt(req.params.id, 10);
+    if (!payrollPeriodId) return res.status(400).json({ error: { message: 'Pay period id is required' } });
+
+    const period = await PayrollPeriod.findById(payrollPeriodId);
+    if (!period) return res.status(404).json({ error: { message: 'Pay period not found' } });
+    if (!(await requirePayrollAccess(req, res, period.agency_id))) return;
+
+    const payrollImportId = await latestImportIdForPeriod(payrollPeriodId);
+    if (!payrollImportId) return res.json({ payrollPeriodId, payrollImportId: null, rows: [] });
+
+    const payableClause = `(pir.note_status = 'FINALIZED' OR (pir.note_status = 'DRAFT' AND pir.draft_payable = 1))`;
+    const supervisionCodes = ['99414', '99415', '99416'];
+    const providerIds = String(req.query?.providerIds || '')
+      .split(',')
+      .map((x) => parseInt(String(x || '').trim(), 10))
+      .filter((n) => Number.isFinite(n) && n > 0);
+
+    const [legacyRows] = await pool.execute(
+      `SELECT
+         pir.user_id,
+         MIN(pir.provider_name) AS provider_name,
+         DATE_FORMAT(pir.service_date, '%Y-%m-%d') AS service_date,
+         UPPER(TRIM(pir.service_code)) AS service_code,
+         SUM(COALESCE(pir.unit_count, 0)) AS units_total,
+         COUNT(*) AS row_count
+       FROM payroll_import_rows pir
+       WHERE pir.payroll_period_id = ?
+         AND pir.payroll_import_id = ?
+         AND pir.agency_id = ?
+         AND pir.user_id IS NOT NULL
+         AND UPPER(TRIM(pir.service_code)) IN (${supervisionCodes.map(() => '?').join(',')})
+         AND ${payableClause}
+         ${providerIds.length ? ` AND pir.user_id IN (${providerIds.map(() => '?').join(',')})` : ''}
+       GROUP BY pir.user_id, DATE(pir.service_date), UPPER(TRIM(pir.service_code))
+       ORDER BY pir.service_date ASC, pir.user_id ASC`,
+      [
+        payrollPeriodId,
+        payrollImportId,
+        period.agency_id,
+        ...supervisionCodes,
+        ...(providerIds.length ? providerIds : [])
+      ]
+    );
+
+    const [appRows] = await pool.execute(
+      `SELECT
+         ssar.user_id,
+         DATE_FORMAT(ss.start_time, '%Y-%m-%d') AS service_date,
+         LOWER(TRIM(COALESCE(ss.session_type, 'individual'))) AS session_type,
+         SUM(COALESCE(ssar.attended_minutes, 0)) AS attended_minutes,
+         COUNT(*) AS attendance_row_count
+       FROM supervision_session_attendance_rollups ssar
+       JOIN supervision_sessions ss ON ss.id = ssar.session_id
+       WHERE ss.agency_id = ?
+         AND ssar.user_id IS NOT NULL
+         AND ss.start_time >= ?
+         AND ss.start_time < DATE_ADD(?, INTERVAL 1 DAY)
+         ${providerIds.length ? ` AND ssar.user_id IN (${providerIds.map(() => '?').join(',')})` : ''}
+       GROUP BY ssar.user_id, DATE(ss.start_time), LOWER(TRIM(COALESCE(ss.session_type, 'individual')))
+       ORDER BY ss.start_time ASC, ssar.user_id ASC`,
+      [
+        period.agency_id,
+        period.period_start,
+        period.period_end,
+        ...(providerIds.length ? providerIds : [])
+      ]
+    );
+
+    const appByUserDate = new Map();
+    for (const r of (appRows || [])) {
+      const uid = Number(r.user_id || 0);
+      const d = String(r.service_date || '').slice(0, 10);
+      if (!uid || !d) continue;
+      const k = `${uid}:${d}`;
+      const cur = appByUserDate.get(k) || { attendedMinutes: 0, attendanceRows: 0, sessionTypeSet: new Set() };
+      cur.attendedMinutes += Number(r.attended_minutes || 0);
+      cur.attendanceRows += Number(r.attendance_row_count || 0);
+      cur.sessionTypeSet.add(String(r.session_type || 'individual'));
+      appByUserDate.set(k, cur);
+    }
+
+    const [resolutionRows] = await pool.execute(
+      `SELECT
+         user_id,
+         DATE_FORMAT(service_date, '%Y-%m-%d') AS service_date,
+         resolution,
+         note,
+         resolved_by_user_id,
+         resolved_at
+       FROM payroll_supervision_conflict_resolutions
+       WHERE payroll_period_id = ?
+         AND agency_id = ?`,
+      [payrollPeriodId, period.agency_id]
+    );
+    const resolutionByUserDate = new Map(
+      (resolutionRows || []).map((r) => [
+        `${Number(r.user_id || 0)}:${String(r.service_date || '').slice(0, 10)}`,
+        {
+          resolution: String(r.resolution || '').trim(),
+          note: r.note || null,
+          resolved_by_user_id: Number(r.resolved_by_user_id || 0) || null,
+          resolved_at: r.resolved_at || null
+        }
+      ])
+    );
+
+    const rows = [];
+    for (const lr of (legacyRows || [])) {
+      const uid = Number(lr.user_id || 0);
+      const serviceDate = String(lr.service_date || '').slice(0, 10);
+      const app = appByUserDate.get(`${uid}:${serviceDate}`);
+      if (!app) continue;
+
+      const legacyMinutes = Number(lr.units_total || 0);
+      const appMinutes = Number(app.attendedMinutes || 0);
+      const deltaMinutes = Math.abs(legacyMinutes - appMinutes);
+      const confidence = deltaMinutes <= 15 ? 'high' : (deltaMinutes <= 45 ? 'medium' : 'low');
+
+      const resolutionKey = `${uid}:${serviceDate}`;
+      const resolved = resolutionByUserDate.get(resolutionKey) || null;
+
+      rows.push({
+        user_id: uid,
+        provider_name: lr.provider_name || null,
+        service_date: serviceDate,
+        legacy_service_code: String(lr.service_code || '').trim().toUpperCase(),
+        legacy_units_total: Number(legacyMinutes.toFixed(2)),
+        app_attended_minutes: Number(appMinutes.toFixed(2)),
+        app_attendance_rows: Number(app.attendanceRows || 0),
+        app_session_types: Array.from(app.sessionTypeSet.values()).sort(),
+        delta_minutes: Number(deltaMinutes.toFixed(2)),
+        confidence,
+        resolution: resolved?.resolution || null,
+        resolution_note: resolved?.note || null,
+        resolution_by_user_id: resolved?.resolved_by_user_id || null,
+        resolution_at: resolved?.resolved_at || null
+      });
+    }
+
+    const unresolvedCount = rows.reduce((acc, r) => acc + (r?.resolution ? 0 : 1), 0);
+    res.json({ payrollPeriodId, payrollImportId, unresolvedCount, rows });
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE') {
+      return res.json({ payrollPeriodId: parseInt(req.params.id, 10) || null, payrollImportId: null, rows: [], skipped: true });
+    }
+    next(e);
+  }
+};
+
+export const putPayrollSupervisionConflictResolution = async (req, res, next) => {
+  try {
+    const payrollPeriodId = parseInt(req.params.id, 10);
+    if (!payrollPeriodId) return res.status(400).json({ error: { message: 'Pay period id is required' } });
+
+    const period = await PayrollPeriod.findById(payrollPeriodId);
+    if (!period) return res.status(404).json({ error: { message: 'Pay period not found' } });
+    if (!(await requirePayrollAccess(req, res, period.agency_id))) return;
+
+    const userId = Number(req.body?.userId || 0);
+    const serviceDate = String(req.body?.serviceDate || '').slice(0, 10);
+    const resolution = String(req.body?.resolution || '').trim().toLowerCase();
+    const noteRaw = req.body?.note;
+    const note = noteRaw === null || noteRaw === undefined ? null : String(noteRaw).trim().slice(0, 255);
+
+    if (!Number.isFinite(userId) || userId <= 0) return res.status(400).json({ error: { message: 'userId is required' } });
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(serviceDate)) {
+      return res.status(400).json({ error: { message: 'serviceDate (YYYY-MM-DD) is required' } });
+    }
+    const allowed = new Set(['use_app_attendance', 'use_legacy_import', 'ignore', 'clear']);
+    if (!allowed.has(resolution)) {
+      return res.status(400).json({ error: { message: 'resolution must be use_app_attendance, use_legacy_import, ignore, or clear' } });
+    }
+
+    if (resolution === 'clear') {
+      await pool.execute(
+        `DELETE FROM payroll_supervision_conflict_resolutions
+         WHERE payroll_period_id = ?
+           AND agency_id = ?
+           AND user_id = ?
+           AND service_date = ?`,
+        [payrollPeriodId, period.agency_id, userId, serviceDate]
+      );
+      return res.json({ ok: true, cleared: true });
+    }
+
+    await pool.execute(
+      `INSERT INTO payroll_supervision_conflict_resolutions
+         (payroll_period_id, agency_id, user_id, service_date, resolution, note, resolved_by_user_id, resolved_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
+       ON DUPLICATE KEY UPDATE
+         resolution = VALUES(resolution),
+         note = VALUES(note),
+         resolved_by_user_id = VALUES(resolved_by_user_id),
+         resolved_at = NOW()`,
+      [payrollPeriodId, period.agency_id, userId, serviceDate, resolution, note, req.user.id]
+    );
+
+    res.json({ ok: true });
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE') {
+      return res.status(409).json({ error: { message: 'Conflict resolution table not found. Run DB migrations first.' } });
+    }
+    next(e);
+  }
+};
+
 function csvEscape(v) {
   const s = v === null || v === undefined ? '' : String(v);
   if (/[",\n]/.test(s)) return `"${s.replaceAll('"', '""')}"`;
@@ -7752,6 +7960,93 @@ export const runPayrollPeriod = async (req, res, next) => {
       });
     }
 
+    // Block running payroll if supervision dual-source conflicts exist without a resolution.
+    // This prevents accidental double-pay during legacy -> app transition.
+    try {
+      const [conflictCountRows] = await pool.execute(
+        `SELECT COUNT(*) AS cnt
+         FROM (
+           SELECT pir.user_id, DATE(pir.service_date) AS service_date
+           FROM payroll_import_rows pir
+           JOIN (
+             SELECT ssar.user_id, DATE(ss.start_time) AS service_date
+             FROM supervision_session_attendance_rollups ssar
+             JOIN supervision_sessions ss ON ss.id = ssar.session_id
+             WHERE ss.agency_id = ?
+               AND ss.start_time >= ?
+               AND ss.start_time < DATE_ADD(?, INTERVAL 1 DAY)
+             GROUP BY ssar.user_id, DATE(ss.start_time)
+           ) app
+             ON app.user_id = pir.user_id
+            AND app.service_date = DATE(pir.service_date)
+           LEFT JOIN payroll_supervision_conflict_resolutions r
+             ON r.payroll_period_id = pir.payroll_period_id
+            AND r.agency_id = pir.agency_id
+            AND r.user_id = pir.user_id
+            AND r.service_date = DATE(pir.service_date)
+           WHERE pir.payroll_period_id = ?
+             AND pir.agency_id = ?
+             AND pir.user_id IS NOT NULL
+             AND UPPER(TRIM(pir.service_code)) IN ('99414','99415','99416')
+             AND (pir.note_status = 'FINALIZED' OR (pir.note_status = 'DRAFT' AND pir.draft_payable = 1))
+             AND r.id IS NULL
+           GROUP BY pir.user_id, DATE(pir.service_date)
+         ) t`,
+        [period.agency_id, period.period_start, period.period_end, payrollPeriodId, period.agency_id]
+      );
+      const unresolvedSupervisionConflicts = Number(conflictCountRows?.[0]?.cnt || 0);
+      if (unresolvedSupervisionConflicts > 0) {
+        const [sampleRows] = await pool.execute(
+          `SELECT
+             pir.user_id,
+             DATE_FORMAT(pir.service_date, '%Y-%m-%d') AS service_date,
+             MIN(pir.provider_name) AS provider_name
+           FROM payroll_import_rows pir
+           JOIN (
+             SELECT ssar.user_id, DATE(ss.start_time) AS service_date
+             FROM supervision_session_attendance_rollups ssar
+             JOIN supervision_sessions ss ON ss.id = ssar.session_id
+             WHERE ss.agency_id = ?
+               AND ss.start_time >= ?
+               AND ss.start_time < DATE_ADD(?, INTERVAL 1 DAY)
+             GROUP BY ssar.user_id, DATE(ss.start_time)
+           ) app
+             ON app.user_id = pir.user_id
+            AND app.service_date = DATE(pir.service_date)
+           LEFT JOIN payroll_supervision_conflict_resolutions r
+             ON r.payroll_period_id = pir.payroll_period_id
+            AND r.agency_id = pir.agency_id
+            AND r.user_id = pir.user_id
+            AND r.service_date = DATE(pir.service_date)
+           WHERE pir.payroll_period_id = ?
+             AND pir.agency_id = ?
+             AND pir.user_id IS NOT NULL
+             AND UPPER(TRIM(pir.service_code)) IN ('99414','99415','99416')
+             AND (pir.note_status = 'FINALIZED' OR (pir.note_status = 'DRAFT' AND pir.draft_payable = 1))
+             AND r.id IS NULL
+           GROUP BY pir.user_id, DATE(pir.service_date)
+           ORDER BY DATE(pir.service_date) ASC, pir.user_id ASC
+           LIMIT 25`,
+          [period.agency_id, period.period_start, period.period_end, payrollPeriodId, period.agency_id]
+        );
+        return res.status(409).json({
+          error: {
+            message: `Cannot run payroll: ${unresolvedSupervisionConflicts} unresolved supervision conflict(s). Resolve them in "Review supervision conflicts".`
+          },
+          unresolvedSupervisionConflicts: {
+            count: unresolvedSupervisionConflicts,
+            sample: (sampleRows || []).map((r) => ({
+              user_id: Number(r.user_id || 0),
+              service_date: String(r.service_date || '').slice(0, 10),
+              provider_name: r.provider_name || null
+            }))
+          }
+        });
+      }
+    } catch (e) {
+      if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+    }
+
     // Block running payroll if H0031/H0032 rows requiring minutes are not processed.
     const pendingProcessingCount = await PayrollImportRow.countUnprocessedForPeriod({ payrollPeriodId });
     if (!skipProcessingGate && pendingProcessingCount > 0) {
@@ -11450,7 +11745,7 @@ export const patchReimbursementClaim = async (req, res, next) => {
 
 function timeClaimAllowedType(t) {
   const k = String(t || '').trim().toLowerCase();
-  return ['meeting_training', 'excess_holiday', 'service_correction', 'overtime_evaluation'].includes(k) ? k : null;
+  return ['meeting_training', 'mentor_cpa_meeting', 'excess_holiday', 'service_correction', 'overtime_evaluation'].includes(k) ? k : null;
 }
 
 function toMinutes(v) {
@@ -11490,12 +11785,20 @@ export const createMyTimeClaim = async (req, res, next) => {
     if (!attestation) return res.status(400).json({ error: { message: 'attestation is required' } });
 
     // Light validation per type (keep payload flexible for iteration).
-    if (claimType === 'meeting_training') {
+    if (claimType === 'meeting_training' || claimType === 'mentor_cpa_meeting') {
       const totalMinutes = toMinutes(payload?.totalMinutes);
       if (!(totalMinutes >= 1)) return res.status(400).json({ error: { message: 'totalMinutes is required' } });
-      if (!String(payload?.meetingType || '').trim()) return res.status(400).json({ error: { message: 'meetingType is required' } });
+      if (claimType === 'meeting_training' && !String(payload?.meetingType || '').trim()) {
+        return res.status(400).json({ error: { message: 'meetingType is required' } });
+      }
       if (!String(payload?.platform || '').trim()) return res.status(400).json({ error: { message: 'platform is required' } });
       if (!String(payload?.summary || '').trim()) return res.status(400).json({ error: { message: 'summary is required' } });
+      if (claimType === 'mentor_cpa_meeting') {
+        const role = String(payload?.mentorRole || '').trim().toLowerCase();
+        if (!(role === 'intern_mentor' || role === 'clinical_practice_assistant')) {
+          return res.status(400).json({ error: { message: 'mentorRole must be intern_mentor or clinical_practice_assistant' } });
+        }
+      }
     } else if (claimType === 'excess_holiday') {
       const directMinutes = toMinutes(payload?.directMinutes);
       const indirectMinutes = toMinutes(payload?.indirectMinutes);
@@ -11762,7 +12065,7 @@ function computeDefaultAppliedAmountForTimeClaim({ claim, rateCard }) {
   const directRate = Number(rateCard?.direct_rate || 0);
   const indirectRate = Number(rateCard?.indirect_rate || 0);
 
-  if (type === 'meeting_training') {
+  if (type === 'meeting_training' || type === 'mentor_cpa_meeting') {
     const mins = Number(payload?.totalMinutes || 0);
     if (Number.isFinite(mins) && mins > 0 && indirectRate > 0) {
       return Math.round(((mins / 60) * indirectRate) * 100) / 100;

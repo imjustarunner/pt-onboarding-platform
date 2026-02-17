@@ -417,6 +417,31 @@
             <span>Create Google Meet link (only if missing)</span>
           </label>
 
+          <div style="margin-top: 12px;">
+            <label class="lbl">Presenter tracking</label>
+            <div v-if="supvPresentersLoading" class="muted">Loading presenters…</div>
+            <div v-else-if="supvPresentersError" class="error">{{ supvPresentersError }}</div>
+            <div v-else-if="supvPresenters.length === 0" class="muted">No presenters assigned.</div>
+            <div v-else class="supv-presenter-list">
+              <div v-for="p in supvPresenters" :key="`presenter-${p.id}`" class="supv-presenter-row">
+                <div>
+                  <strong>{{ p.presenter_name || p.presenter_email || `User ${p.user_id}` }}</strong>
+                  <span class="muted"> ({{ p.presenter_role === 'secondary' ? 'Secondary' : 'Primary' }})</span>
+                  <span class="muted"> · {{ String(p.status || 'assigned') }}</span>
+                </div>
+                <button
+                  v-if="canManagePresenterStatus"
+                  class="btn btn-secondary btn-sm"
+                  type="button"
+                  :disabled="supvSaving"
+                  @click="togglePresenterPresented(p)"
+                >
+                  {{ String(p.status || '').toLowerCase() === 'presented' ? 'Mark unpresented' : 'Mark presented' }}
+                </button>
+              </div>
+            </div>
+          </div>
+
           <div class="modal-actions" style="justify-content: space-between;">
             <button class="btn btn-danger" type="button" @click="cancelSupvSession" :disabled="supvSaving || !selectedSupvSessionId">
               Cancel session
@@ -1273,9 +1298,26 @@ const supervisionLabel = (dayName, hour) => {
     const nm = String(ev.counterpartyName || '').trim();
     if (nm) names.push(nm);
   }
-  if (!names.length) return 'Supv';
+  const listInCell = [];
+  for (const ev of list) {
+    const startRaw = String(ev.startAt || '').trim();
+    const endRaw = String(ev.endAt || '').trim();
+    if (!startRaw || !endRaw) continue;
+    const startLocal = new Date(startRaw.includes('T') ? startRaw : startRaw.replace(' ', 'T'));
+    const endLocal = new Date(endRaw.includes('T') ? endRaw : endRaw.replace(' ', 'T'));
+    if (Number.isNaN(startLocal.getTime()) || Number.isNaN(endLocal.getTime())) continue;
+    const idx = dayIndexForDateLocal(localYmd(startLocal), s.weekStart || weekStart.value);
+    const dn = ALL_DAYS[idx] || null;
+    if (dn !== dayName) continue;
+    const cellDate = addDaysYmd(s.weekStart || weekStart.value, ALL_DAYS.indexOf(dayName));
+    const cellStart = new Date(`${cellDate}T${pad2(hour)}:00:00`);
+    const cellEnd = new Date(`${cellDate}T${pad2(hour + 1)}:00:00`);
+    if (endLocal > cellStart && startLocal < cellEnd) listInCell.push(ev);
+  }
+  const hasPresenter = listInCell.some((ev) => String(ev?.presenterRole || '').trim().length > 0);
+  if (!names.length) return hasPresenter ? 'Presenting' : 'Supv';
   if (names.length === 1) return names[0];
-  return `${names[0]}+${names.length - 1}`;
+  return hasPresenter ? `Presenting • ${names[0]}+${names.length - 1}` : `${names[0]}+${names.length - 1}`;
 };
 
 const supervisionTitle = (dayName, hour) => {
@@ -1299,7 +1341,11 @@ const supervisionTitle = (dayName, hour) => {
   }
   const withNames = hits.map((ev) => String(ev.counterpartyName || '').trim()).filter(Boolean);
   const who = withNames.length ? withNames.join(', ') : '—';
-  return `Supervision — ${who} — ${dayName} ${hourLabel(hour)}`;
+  const presenterRows = hits.filter((ev) => String(ev?.presenterRole || '').trim().length > 0);
+  const presenterText = presenterRows.length
+    ? ` • Presenter (${presenterRows.map((ev) => String(ev.presenterRole || 'primary')).join(', ')})`
+    : '';
+  return `Supervision — ${who} — ${dayName} ${hourLabel(hour)}${presenterText}`;
 };
 
 const hasSchool = (dayName, hour) => {
@@ -2170,6 +2216,9 @@ const supvCreateMeetLink = ref(false);
 const supvDayLabel = ref('');
 const supvStartHour = ref(7);
 const supvEndHour = ref(8);
+const supvPresenters = ref([]);
+const supvPresentersLoading = ref(false);
+const supvPresentersError = ref('');
 
 const parseMaybeDate = (raw) => {
   const s = String(raw || '').trim();
@@ -2222,6 +2271,33 @@ const selectedSupvSession = computed(() => {
   return list.find((x) => Number(x?.id) === Number(selectedSupvSessionId.value)) || null;
 });
 
+const canManagePresenterStatus = computed(() => {
+  const role = String(authStore.user?.role || '').toLowerCase();
+  const privileged = ['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant'].includes(role);
+  const isSessionSupervisor = String(selectedSupvSession.value?.role || '') === 'supervisor';
+  return privileged || isSessionSupervisor || isAdminMode.value;
+});
+
+const loadSupvPresenters = async (sessionId) => {
+  const sid = Number(sessionId || 0);
+  if (!sid) {
+    supvPresenters.value = [];
+    supvPresentersError.value = '';
+    return;
+  }
+  try {
+    supvPresentersLoading.value = true;
+    supvPresentersError.value = '';
+    const resp = await api.get(`/supervision/sessions/${sid}/presenters`);
+    supvPresenters.value = Array.isArray(resp.data?.presenters) ? resp.data.presenters : [];
+  } catch (e) {
+    supvPresenters.value = [];
+    supvPresentersError.value = e.response?.data?.error?.message || e.message || 'Failed to load presenters';
+  } finally {
+    supvPresentersLoading.value = false;
+  }
+};
+
 const openSupvModal = (dayName, hour) => {
   const hits = supervisionSessionsInCell(dayName, hour);
   if (!hits.length) return;
@@ -2238,6 +2314,7 @@ const openSupvModal = (dayName, hour) => {
   supvEndIsoLocal.value = toDatetimeLocalValue(parseMaybeDate(first.endAt));
   supvNotes.value = String(first.notes || '');
   supvCreateMeetLink.value = false;
+  void loadSupvPresenters(selectedSupvSessionId.value);
 };
 
 const closeSupvModal = () => {
@@ -2248,6 +2325,9 @@ const closeSupvModal = () => {
   supvEndIsoLocal.value = '';
   supvNotes.value = '';
   supvCreateMeetLink.value = false;
+  supvPresenters.value = [];
+  supvPresentersLoading.value = false;
+  supvPresentersError.value = '';
 };
 
 watch(selectedSupvSessionId, (id) => {
@@ -2257,7 +2337,27 @@ watch(selectedSupvSessionId, (id) => {
   supvNotes.value = String(ev.notes || '');
   supvStartIsoLocal.value = toDatetimeLocalValue(parseMaybeDate(ev.startAt));
   supvEndIsoLocal.value = toDatetimeLocalValue(parseMaybeDate(ev.endAt));
+  void loadSupvPresenters(id);
 });
+
+const togglePresenterPresented = async (presenter) => {
+  const sid = Number(selectedSupvSessionId.value || 0);
+  const uid = Number(presenter?.user_id || 0);
+  if (!sid || !uid) return;
+  try {
+    supvSaving.value = true;
+    supvModalError.value = '';
+    const currentlyPresented = String(presenter?.status || '').toLowerCase() === 'presented';
+    await api.post(`/supervision/sessions/${sid}/presenters/${uid}/presented`, {
+      presented: !currentlyPresented
+    });
+    await loadSupvPresenters(sid);
+  } catch (e) {
+    supvModalError.value = e.response?.data?.error?.message || e.message || 'Failed to update presenter status';
+  } finally {
+    supvSaving.value = false;
+  }
+};
 
 const saveSupvSession = async () => {
   const id = Number(selectedSupvSessionId.value || 0);
@@ -2423,6 +2523,21 @@ watch(modalHour, () => {
   background: rgba(242, 153, 74, 0.14);
   border-color: rgba(242, 153, 74, 0.42);
   color: rgba(146, 64, 14, 0.95);
+}
+.supv-presenter-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 6px;
+}
+.supv-presenter-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: var(--bg-card);
 }
 .sched-calendars-actions {
   display: inline-flex;

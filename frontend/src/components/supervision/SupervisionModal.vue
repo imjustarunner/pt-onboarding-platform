@@ -356,6 +356,14 @@
                       </select>
                     </div>
                   </div>
+                  <div v-if="presenterCandidateOptions.length > 0 && scheduleSessionType !== 'individual'" class="form-group">
+                    <label>Presenter(s) (up to 2)</label>
+                    <select v-model="schedulePresenterIds" class="input" multiple size="3">
+                      <option v-for="opt in presenterCandidateOptions" :key="`presenter-${opt.id}`" :value="opt.id">
+                        {{ opt.label }}
+                      </option>
+                    </select>
+                  </div>
                   <div class="form-group">
                     <label>Modality (optional)</label>
                     <input v-model="scheduleModality" type="text" class="input" placeholder="e.g. In-person, Video" />
@@ -450,6 +458,7 @@ const scheduleEndAt = ref('');
 const scheduleSessionType = ref('individual');
 const scheduleRequiredAttendeeIds = ref([]);
 const scheduleOptionalAttendeeIds = ref([]);
+const schedulePresenterIds = ref([]);
 const scheduleModality = ref('');
 const scheduleNotes = ref('');
 const scheduleSaving = ref(false);
@@ -508,6 +517,7 @@ async function submitScheduleMeeting() {
   const endAt = scheduleEndAt.value?.trim();
   const requiredIds = Array.from(new Set((scheduleRequiredAttendeeIds.value || []).map((n) => Number(n)).filter((n) => Number.isFinite(n) && n > 0)));
   const optionalIds = Array.from(new Set((scheduleOptionalAttendeeIds.value || []).map((n) => Number(n)).filter((n) => Number.isFinite(n) && n > 0 && !requiredIds.includes(n))));
+  const presenterIds = Array.from(new Set((schedulePresenterIds.value || []).map((n) => Number(n)).filter((n) => Number.isFinite(n) && n > 0))).slice(0, 2);
   if (!startAt || !endAt) {
     scheduleError.value = 'Start and end are required.';
     return;
@@ -529,6 +539,7 @@ async function submitScheduleMeeting() {
       sessionType: scheduleSessionType.value,
       requiredAttendeeUserIds: requiredIds,
       optionalAttendeeUserIds: optionalIds,
+      presenterUserIds: presenterIds,
       startAt: startAt.replace('T', ' ').slice(0, 19),
       endAt: endAt.replace('T', ' ').slice(0, 19),
       modality: scheduleModality.value?.trim() || null,
@@ -539,6 +550,7 @@ async function submitScheduleMeeting() {
     scheduleSessionType.value = 'individual';
     scheduleRequiredAttendeeIds.value = [];
     scheduleOptionalAttendeeIds.value = [];
+    schedulePresenterIds.value = [];
     scheduleModality.value = '';
     scheduleNotes.value = '';
     await fetchScheduleSummary();
@@ -554,12 +566,21 @@ watch(scheduleSessionType, (next) => {
   if (next === 'individual') {
     scheduleRequiredAttendeeIds.value = [];
     scheduleOptionalAttendeeIds.value = [];
+    schedulePresenterIds.value = [];
   }
 });
 
 watch(scheduleRequiredAttendeeIds, (next) => {
   const req = new Set((next || []).map((n) => Number(n)));
   scheduleOptionalAttendeeIds.value = (scheduleOptionalAttendeeIds.value || []).filter((n) => !req.has(Number(n)));
+}, { deep: true });
+
+watch([scheduleRequiredAttendeeIds, scheduleOptionalAttendeeIds, selectedSupervisee], () => {
+  const allowed = new Set((presenterCandidateOptions.value || []).map((p) => Number(p.id)));
+  schedulePresenterIds.value = (schedulePresenterIds.value || [])
+    .map((n) => Number(n))
+    .filter((n) => allowed.has(n))
+    .slice(0, 2);
 }, { deep: true });
 
 const selectedModuleForAssignObj = computed(() => {
@@ -589,6 +610,27 @@ const availableAdditionalAttendees = computed(() => {
       label: `${String(r?.supervisee_last_name || '').trim()}, ${String(r?.supervisee_first_name || '').trim()}`.replace(/^,\s*/, '').trim()
     }))
     .filter((r) => r.id > 0);
+});
+
+const presenterCandidateOptions = computed(() => {
+  const s = selectedSupervisee.value;
+  const primaryId = Number(s?.supervisee_id || 0);
+  const map = new Map();
+  if (primaryId) {
+    map.set(primaryId, {
+      id: primaryId,
+      label: selectedSuperviseeDisplayName.value || 'Primary supervisee'
+    });
+  }
+  for (const row of availableAdditionalAttendees.value || []) {
+    map.set(Number(row.id), { id: Number(row.id), label: row.label });
+  }
+  const included = new Set([
+    primaryId,
+    ...(scheduleRequiredAttendeeIds.value || []).map((n) => Number(n)),
+    ...(scheduleOptionalAttendeeIds.value || []).map((n) => Number(n))
+  ]);
+  return Array.from(map.values()).filter((r) => included.has(Number(r.id)));
 });
 
 const affiliatedPortalsByOrgId = computed(() => {

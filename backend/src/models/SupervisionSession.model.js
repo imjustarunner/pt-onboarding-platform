@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import Notification from './Notification.model.js';
 
 class SupervisionSession {
   static async create({
@@ -211,6 +212,194 @@ class SupervisionSession {
     );
   }
 
+  static async setPresenters({
+    sessionId,
+    presenterUserIds = [],
+    assignedByUserId = null,
+    topicSummaryByUserId = {}
+  }) {
+    const sid = parseInt(sessionId, 10);
+    const presenterIds = Array.from(new Set((presenterUserIds || []).map((n) => parseInt(n, 10)).filter((n) => Number.isFinite(n) && n > 0))).slice(0, 2);
+    await pool.execute('DELETE FROM supervision_session_presenters WHERE session_id = ?', [sid]);
+    if (!presenterIds.length) return;
+
+    const rows = presenterIds.map((uid, idx) => ({
+      userId: uid,
+      presenterRole: idx === 0 ? 'primary' : 'secondary',
+      topicSummary: String(topicSummaryByUserId?.[uid] || '').trim() || null
+    }));
+    const placeholders = rows.map(() => '(?, ?, ?, ?, ?, NOW())').join(', ');
+    const values = rows.flatMap((r) => [
+      sid,
+      r.userId,
+      r.presenterRole,
+      r.topicSummary,
+      assignedByUserId ? parseInt(assignedByUserId, 10) : null
+    ]);
+    await pool.execute(
+      `INSERT INTO supervision_session_presenters
+        (session_id, user_id, presenter_role, topic_summary, assigned_by_user_id, assigned_at)
+       VALUES ${placeholders}`,
+      values
+    );
+  }
+
+  static async listPresenterAssignmentsForUser({ userId, agencyId = null, now = new Date() }) {
+    const uid = parseInt(userId, 10);
+    const nowDate = now instanceof Date ? now : new Date(now);
+    if (!uid || Number.isNaN(nowDate.getTime())) return [];
+    const whereAgency = Number(agencyId) > 0 ? 'AND ss.agency_id = ?' : '';
+    const args = [uid];
+    if (Number(agencyId) > 0) args.push(Number(agencyId));
+
+    const [rows] = await pool.execute(
+      `SELECT
+         sp.id AS presenter_assignment_id,
+         sp.session_id,
+         sp.user_id,
+         sp.presenter_role,
+         sp.status AS presenter_status,
+         sp.topic_summary,
+         ss.agency_id,
+         ss.session_type,
+         ss.start_at,
+         ss.end_at,
+         ss.status AS session_status,
+         ss.google_meet_link,
+         CONCAT(COALESCE(sup.first_name, ''), ' ', COALESCE(sup.last_name, '')) AS supervisor_name
+       FROM supervision_session_presenters sp
+       JOIN supervision_sessions ss ON ss.id = sp.session_id
+       JOIN users sup ON sup.id = ss.supervisor_user_id
+       WHERE sp.user_id = ?
+         AND (ss.status IS NULL OR ss.status <> 'CANCELLED')
+         AND ss.end_at >= DATE_SUB(NOW(), INTERVAL 2 DAY)
+         ${whereAgency}
+       ORDER BY ss.start_at ASC`,
+      args
+    );
+    return rows || [];
+  }
+
+  static reminderScheduleForSessionStart(startAtRaw) {
+    const start = new Date(startAtRaw);
+    if (!Number.isFinite(start.getTime())) return [];
+    return [
+      { type: 'd7', scheduledFor: new Date(start.getTime() - (7 * 24 * 60 * 60 * 1000)) },
+      { type: 'h24', scheduledFor: new Date(start.getTime() - (24 * 60 * 60 * 1000)) },
+      { type: 'h1', scheduledFor: new Date(start.getTime() - (60 * 60 * 1000)) }
+    ];
+  }
+
+  static async ensurePresenterReminders({
+    presenterAssignmentId,
+    userId,
+    agencyId,
+    sessionId,
+    sessionType,
+    supervisorName,
+    startAt,
+    now = new Date()
+  }) {
+    const aid = parseInt(presenterAssignmentId, 10);
+    const uid = parseInt(userId, 10);
+    const agency = parseInt(agencyId, 10);
+    const sid = parseInt(sessionId, 10);
+    const nowDate = now instanceof Date ? now : new Date(now);
+    if (!aid || !uid || !agency || !sid || !Number.isFinite(nowDate.getTime())) return [];
+
+    const schedule = this.reminderScheduleForSessionStart(startAt);
+    const sent = [];
+    for (const item of schedule) {
+      if (!(item.scheduledFor instanceof Date) || !Number.isFinite(item.scheduledFor.getTime())) continue;
+      if (item.scheduledFor.getTime() > nowDate.getTime()) continue;
+
+      const [existsRows] = await pool.execute(
+        `SELECT id, sent_at
+         FROM supervision_presenter_reminders
+         WHERE presenter_assignment_id = ? AND reminder_type = ?
+         LIMIT 1`,
+        [aid, item.type]
+      );
+      if ((existsRows || []).length && existsRows[0]?.sent_at) continue;
+
+      const whenLabel = item.type === 'd7' ? 'in 7 days' : (item.type === 'h24' ? 'in 24 hours' : 'in 1 hour');
+      const title = 'Supervision presenter reminder';
+      const message = `You are assigned to present (${sessionType || 'group'} supervision) ${whenLabel}. Session starts at ${new Date(startAt).toLocaleString()} with ${supervisorName || 'your supervisor'}.`;
+
+      const notif = await Notification.create({
+        type: 'supervision_presenter_reminder',
+        severity: 'info',
+        title,
+        message,
+        userId: uid,
+        agencyId: agency,
+        relatedEntityType: 'supervision_session',
+        relatedEntityId: sid
+      });
+
+      if ((existsRows || []).length) {
+        await pool.execute(
+          `UPDATE supervision_presenter_reminders
+           SET scheduled_for = ?, sent_at = NOW(), notification_id = ?, channel = 'in_app'
+           WHERE id = ?`,
+          [item.scheduledFor, notif?.id || null, existsRows[0].id]
+        );
+      } else {
+        await pool.execute(
+          `INSERT INTO supervision_presenter_reminders
+            (presenter_assignment_id, reminder_type, scheduled_for, sent_at, notification_id, channel)
+           VALUES (?, ?, ?, NOW(), ?, 'in_app')`,
+          [aid, item.type, item.scheduledFor, notif?.id || null]
+        );
+      }
+      sent.push({ type: item.type, notificationId: notif?.id || null });
+    }
+    return sent;
+  }
+
+  static async listPresentersForSession(sessionId) {
+    const sid = parseInt(sessionId, 10);
+    if (!sid) return [];
+    const [rows] = await pool.execute(
+      `SELECT
+         sp.id,
+         sp.session_id,
+         sp.user_id,
+         sp.presenter_role,
+         sp.status,
+         sp.topic_summary,
+         sp.assigned_by_user_id,
+         sp.assigned_at,
+         sp.confirmed_at,
+         sp.presented_at,
+         CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, '')) AS presenter_name,
+         u.email AS presenter_email
+       FROM supervision_session_presenters sp
+       JOIN users u ON u.id = sp.user_id
+       WHERE sp.session_id = ?
+       ORDER BY CASE WHEN sp.presenter_role = 'primary' THEN 0 ELSE 1 END, sp.id ASC`,
+      [sid]
+    );
+    return rows || [];
+  }
+
+  static async setPresenterStatus({ sessionId, userId, status }) {
+    const sid = parseInt(sessionId, 10);
+    const uid = parseInt(userId, 10);
+    const next = String(status || '').trim().toLowerCase();
+    if (!sid || !uid || !['assigned', 'confirmed', 'presented', 'missed'].includes(next)) return false;
+    const [result] = await pool.execute(
+      `UPDATE supervision_session_presenters
+       SET status = ?,
+           confirmed_at = CASE WHEN ? = 'confirmed' THEN NOW() ELSE confirmed_at END,
+           presented_at = CASE WHEN ? = 'presented' THEN NOW() ELSE presented_at END,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE session_id = ? AND user_id = ?`,
+      [next, next, next, sid, uid]
+    );
+    return (result?.affectedRows || 0) > 0;
+  }
+
   static async findById(id) {
     const sid = parseInt(id, 10);
     const [rows] = await pool.execute(
@@ -331,6 +520,21 @@ class SupervisionSession {
            WHERE ssa2.session_id = ss.id
              AND ssa2.participant_role = 'supervisee'
          ) AS supervisee_names
+         ,
+         (
+           SELECT ssp.presenter_role
+           FROM supervision_session_presenters ssp
+           WHERE ssp.session_id = ss.id
+             AND ssp.user_id = ?
+           LIMIT 1
+         ) AS viewer_presenter_role,
+         (
+           SELECT ssp.status
+           FROM supervision_session_presenters ssp
+           WHERE ssp.session_id = ss.id
+             AND ssp.user_id = ?
+           LIMIT 1
+         ) AS viewer_presenter_status
        FROM supervision_sessions ss
        JOIN users sup ON sup.id = ss.supervisor_user_id
        LEFT JOIN users sv ON sv.id = ss.supervisee_user_id
@@ -349,7 +553,7 @@ class SupervisionSession {
          AND ss.end_at > ?
          AND (ss.status IS NULL OR ss.status <> 'CANCELLED')
        ORDER BY ss.start_at ASC`,
-      [uId, aId, uId, uId, uId, windowEnd, windowStart]
+      [uId, uId, uId, aId, uId, uId, uId, windowEnd, windowStart]
     );
     return rows || [];
   }

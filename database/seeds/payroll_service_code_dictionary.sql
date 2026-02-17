@@ -68,6 +68,7 @@ VALUES
   (@AGENCY_ID, 'IMatter', 'direct', 1, 0, 0, 1, 0, 1),
   (@AGENCY_ID, 'Indirect Time', 'indirect', 1, 1, 1, 60, 0.01666666667, 1),
   (@AGENCY_ID, 'Individual Meeting', 'meeting', 1, 1, 1, 60, 0.01666666667, 1),
+  (@AGENCY_ID, 'Mentor/CPA Meeting', 'meeting', 1, 1, 1, 60, 0.01666666667, 1),
   (@AGENCY_ID, 'MedCancel', 'other_pay', 1, 0, 0, 1, 0, 0),
   (@AGENCY_ID, 'Missed Appt', 'other_pay', 1, 0, 0, 1, 0, 0),
   (@AGENCY_ID, 'Outreach', 'indirect', 1, 60, 1, 1, 1, 1),

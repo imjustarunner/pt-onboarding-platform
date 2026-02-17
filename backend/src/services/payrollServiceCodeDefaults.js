@@ -54,6 +54,7 @@ export const PAYROLL_SERVICE_CODE_DEFAULTS = new Map(
     ['IMATTER', { category: 'direct', otherSlot: 1, durationMinutes: 0, payDivisor: 1, creditValue: 0 }],
     ['INDIRECT TIME', { category: 'indirect', otherSlot: 1, durationMinutes: 1, payDivisor: 60, creditValue: 0.01666666667 }],
     ['INDIVIDUAL MEETING', { category: 'meeting', otherSlot: 1, durationMinutes: 1, payDivisor: 60, creditValue: 0.01666666667 }],
+    ['MENTOR/CPA MEETING', { category: 'meeting', otherSlot: 1, durationMinutes: 1, payDivisor: 60, creditValue: 0.01666666667 }],
     ['MEDCANCEL', { category: 'other_pay', otherSlot: 1, durationMinutes: 0, payDivisor: 1, creditValue: 0 }],
     ['MISSED APPT', { category: 'other_pay', otherSlot: 1, durationMinutes: 0, payDivisor: 1, creditValue: 0 }],
     ['OUTREACH', { category: 'indirect', otherSlot: 1, durationMinutes: 60, payDivisor: 1, creditValue: 1 }],

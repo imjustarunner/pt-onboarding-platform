@@ -82,6 +82,8 @@ export const createSupervisionSessionValidators = [
   body('requiredAttendeeUserIds.*').optional().isInt({ min: 1 }).withMessage('requiredAttendeeUserIds must contain valid user ids'),
   body('optionalAttendeeUserIds').optional().isArray().withMessage('optionalAttendeeUserIds must be an array'),
   body('optionalAttendeeUserIds.*').optional().isInt({ min: 1 }).withMessage('optionalAttendeeUserIds must contain valid user ids'),
+  body('presenterUserIds').optional().isArray().withMessage('presenterUserIds must be an array'),
+  body('presenterUserIds.*').optional().isInt({ min: 1 }).withMessage('presenterUserIds must contain valid user ids'),
   body('startAt').not().isEmpty().withMessage('startAt is required'),
   body('endAt').not().isEmpty().withMessage('endAt is required'),
   body('createMeetLink').optional().isBoolean().withMessage('createMeetLink must be boolean')
@@ -91,6 +93,8 @@ export const patchSupervisionSessionValidators = [
   body('startAt').optional(),
   body('endAt').optional(),
   body('sessionType').optional().isIn(['individual', 'triadic', 'group']).withMessage('sessionType must be individual, triadic, or group'),
+  body('presenterUserIds').optional().isArray().withMessage('presenterUserIds must be an array'),
+  body('presenterUserIds.*').optional().isInt({ min: 1 }).withMessage('presenterUserIds must contain valid user ids'),
   body('notes').optional(),
   body('modality').optional(),
   body('locationText').optional(),
@@ -131,6 +135,13 @@ export const createSupervisionSession = async (req, res, next) => {
           .filter((n) => Number.isFinite(n) && n > 0 && n !== supervisorUserId && n !== superviseeUserId)
       )
     );
+    const presenterUserIds = Array.from(
+      new Set(
+        (Array.isArray(req.body?.presenterUserIds) ? req.body.presenterUserIds : [])
+          .map((n) => parseInt(n, 10))
+          .filter((n) => Number.isFinite(n) && n > 0 && n !== supervisorUserId)
+      )
+    ).slice(0, 2);
 
     if (!startAt || !endAt) return res.status(400).json({ error: { message: 'Invalid startAt/endAt' } });
     if (endAt <= startAt) return res.status(400).json({ error: { message: 'endAt must be after startAt' } });
@@ -191,6 +202,12 @@ export const createSupervisionSession = async (req, res, next) => {
         status: 'INVITED'
       }))
     ]);
+    const validPresenterIds = presenterUserIds.filter((uid) => superviseeIds.includes(uid) || uid === superviseeUserId);
+    await SupervisionSession.setPresenters({
+      sessionId: created.id,
+      presenterUserIds: validPresenterIds,
+      assignedByUserId: req.user.id
+    });
 
     // Best-effort: sync to Google Calendar on supervisor calendar
     const hostEmail = String(supervisor.email || '').trim().toLowerCase();
@@ -262,6 +279,15 @@ export const patchSupervisionSession = async (req, res, next) => {
     const modality = req.body?.modality !== undefined ? (req.body?.modality ? String(req.body.modality) : null) : undefined;
     const locationText = req.body?.locationText !== undefined ? (req.body?.locationText ? String(req.body.locationText) : null) : undefined;
     const createMeetLink = req.body?.createMeetLink === true;
+    const presenterUserIds = req.body?.presenterUserIds !== undefined
+      ? Array.from(
+        new Set(
+          (Array.isArray(req.body?.presenterUserIds) ? req.body.presenterUserIds : [])
+            .map((n) => parseInt(n, 10))
+            .filter((n) => Number.isFinite(n) && n > 0 && n !== Number(row.supervisor_user_id))
+        )
+      ).slice(0, 2)
+      : undefined;
 
     const nextStart = startAt !== undefined ? startAt : row.start_at;
     const nextEnd = endAt !== undefined ? endAt : row.end_at;
@@ -276,6 +302,17 @@ export const patchSupervisionSession = async (req, res, next) => {
       modality,
       locationText
     });
+    if (presenterUserIds !== undefined) {
+      const attendees = await SupervisionSession.listAttendees(id);
+      const allowed = new Set((attendees || []).filter((a) => String(a?.participant_role || '') === 'supervisee').map((a) => Number(a.user_id)));
+      if (Number(row.supervisee_user_id || 0)) allowed.add(Number(row.supervisee_user_id));
+      const validPresenterIds = presenterUserIds.filter((uid) => allowed.has(uid));
+      await SupervisionSession.setPresenters({
+        sessionId: id,
+        presenterUserIds: validPresenterIds,
+        assignedByUserId: req.user.id
+      });
+    }
 
     // Best-effort: patch/insert Google event on supervisor calendar (keep existing meet link unless requested and missing)
     const supervisor = await User.findById(row.supervisor_user_id);
@@ -428,6 +465,122 @@ export const getMySupervisionPrompts = async (req, res, next) => {
     }).filter((row) => row.inPromptWindow);
 
     res.json({ ok: true, prompts, now: now.toISOString() });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const getMyPresenterAssignments = async (req, res, next) => {
+  try {
+    const userId = Number(req.user?.id || 0);
+    const agencyId = req.query?.agencyId ? Number(req.query.agencyId) : null;
+    if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+
+    const now = new Date();
+    const rows = await SupervisionSession.listPresenterAssignmentsForUser({
+      userId,
+      agencyId: Number.isFinite(agencyId) && agencyId > 0 ? agencyId : null,
+      now
+    });
+
+    const out = [];
+    for (const row of rows || []) {
+      await SupervisionSession.ensurePresenterReminders({
+        presenterAssignmentId: row.presenter_assignment_id,
+        userId,
+        agencyId: row.agency_id,
+        sessionId: row.session_id,
+        sessionType: row.session_type,
+        supervisorName: row.supervisor_name,
+        startAt: row.start_at,
+        now
+      });
+      const start = new Date(row.start_at || 0);
+      const startsInMinutes = Number.isFinite(start.getTime())
+        ? Math.round((start.getTime() - now.getTime()) / 60000)
+        : null;
+      out.push({
+        presenterAssignmentId: Number(row.presenter_assignment_id),
+        sessionId: Number(row.session_id),
+        agencyId: Number(row.agency_id),
+        sessionType: String(row.session_type || 'group'),
+        presenterRole: String(row.presenter_role || 'primary'),
+        presenterStatus: String(row.presenter_status || 'assigned'),
+        topicSummary: row.topic_summary || null,
+        startAt: row.start_at,
+        endAt: row.end_at,
+        sessionStatus: row.session_status,
+        googleMeetLink: row.google_meet_link || null,
+        supervisorName: String(row.supervisor_name || '').trim() || null,
+        startsInMinutes,
+        reminderStage: startsInMinutes !== null
+          ? (startsInMinutes <= 60 ? 'h1' : (startsInMinutes <= (24 * 60) ? 'h24' : (startsInMinutes <= (7 * 24 * 60) ? 'd7' : null)))
+          : null
+      });
+    }
+
+    res.json({ ok: true, assignments: out, now: now.toISOString() });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const getSessionPresenters = async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ error: { message: 'Invalid session id' } });
+    const row = await SupervisionSession.findById(id);
+    if (!row) return res.status(404).json({ error: { message: 'Session not found' } });
+
+    const ok = await canScheduleSession(req, {
+      agencyId: row.agency_id,
+      supervisorUserId: row.supervisor_user_id,
+      superviseeUserId: row.supervisee_user_id
+    });
+    if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const presenters = await SupervisionSession.listPresentersForSession(id);
+    res.json({ ok: true, presenters });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const markSessionPresenterPresented = async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const presenterUserId = parseInt(req.params.userId, 10);
+    const presented = req.body?.presented !== false;
+    if (!id || !presenterUserId) return res.status(400).json({ error: { message: 'Invalid session/presenter id' } });
+
+    const row = await SupervisionSession.findById(id);
+    if (!row) return res.status(404).json({ error: { message: 'Session not found' } });
+
+    const role = String(req.user?.role || '').toLowerCase();
+    const actorUserId = Number(req.user?.id || 0);
+    const isSupervisorActor = actorUserId === Number(row.supervisor_user_id);
+    const isPrivileged = ['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant'].includes(role);
+    if (!isSupervisorActor && !isPrivileged) {
+      return res.status(403).json({ error: { message: 'Only supervisors or authorized staff can mark presenters as presented.' } });
+    }
+
+    const okAccess = await canScheduleSession(req, {
+      agencyId: row.agency_id,
+      supervisorUserId: row.supervisor_user_id,
+      superviseeUserId: row.supervisee_user_id
+    });
+    if (!okAccess) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const status = presented ? 'presented' : 'assigned';
+    const ok = await SupervisionSession.setPresenterStatus({
+      sessionId: id,
+      userId: presenterUserId,
+      status
+    });
+    if (!ok) return res.status(404).json({ error: { message: 'Presenter assignment not found for this session' } });
+
+    const presenters = await SupervisionSession.listPresentersForSession(id);
+    res.json({ ok: true, presenters, status });
   } catch (e) {
     next(e);
   }
