@@ -3994,19 +3994,19 @@
                 <label>Baseline run (used as “before”)</label>
                 <select v-model="carryoverBaselineRunId" :disabled="carryoverLoading || !carryoverRuns.length">
                   <option :value="null" disabled>Select baseline run…</option>
-                  <option v-for="r in carryoverRuns" :key="r.id" :value="r.id">{{ fmtDateTime(r.ran_at) }}</option>
+                  <option v-for="r in carryoverRuns" :key="r.id" :value="r.id">{{ carryoverRunLabelById[r.id] || fmtDateTime(r.ran_at) }}</option>
                 </select>
               </div>
               <div class="field">
                 <label>Compare run (used as “after”)</label>
                 <select v-model="carryoverCompareRunId" :disabled="carryoverLoading || !carryoverRuns.length">
                   <option :value="null" disabled>Select compare run…</option>
-                  <option v-for="r in carryoverRuns" :key="r.id" :value="r.id">{{ fmtDateTime(r.ran_at) }}</option>
+                  <option v-for="r in carryoverRuns" :key="r.id" :value="r.id">{{ carryoverRunLabelById[r.id] || fmtDateTime(r.ran_at) }}</option>
                 </select>
               </div>
               <div class="field">
                 <label>Tip</label>
-                <div class="hint">If the prior period was only run once, there may be no changes to detect.</div>
+                <div class="hint">Defaults to previous run → latest run. If the prior period was only run once, there may be no changes to detect.</div>
               </div>
             </div>
 
@@ -5151,6 +5151,39 @@ const priorStillUnpaidStageError = ref('');
 const applyingCarryover = ref(false);
 const carryoverApplyResult = ref(null); // { inserted: number, warnings?: any[] }
 const manualCarryoverEnabled = ref(false);
+
+const pickDefaultCarryoverRunPair = (runs) => {
+  const list = Array.isArray(runs) ? runs : [];
+  if (!list.length) return { baselineRunId: null, compareRunId: null };
+  if (list.length === 1) {
+    const only = Number(list[0]?.id || 0) || null;
+    return { baselineRunId: only, compareRunId: only };
+  }
+  // Default to "previous -> latest" so Process Changes compares the newest upload
+  // against the immediately prior snapshot of that same pay period.
+  const compare = Number(list[list.length - 1]?.id || 0) || null;
+  const baseline = Number(list[list.length - 2]?.id || 0) || null;
+  return { baselineRunId: baseline, compareRunId: compare };
+};
+
+const carryoverRunLabelById = computed(() => {
+  const rows = Array.isArray(carryoverRuns.value) ? carryoverRuns.value : [];
+  const out = {};
+  const total = rows.length;
+  rows.forEach((r, idx) => {
+    const id = Number(r?.id || 0);
+    if (!id) return;
+    const when = fmtDateTime(r?.ran_at);
+    const byNameRaw = `${r?.ran_by_first_name || ''} ${r?.ran_by_last_name || ''}`.trim();
+    const by = byNameRaw || 'Unknown user';
+    const tags = [];
+    if (idx === total - 1) tags.push('latest');
+    if (idx === total - 2) tags.push('previous');
+    const tagSuffix = tags.length ? ` [${tags.join(', ')}]` : '';
+    out[id] = `Run #${id} (${idx + 1}/${total}) - ${when} - ${by}${tagSuffix}`;
+  });
+  return out;
+});
 
 // Stage editing for yellow/red columns (persisted)
 const stageCarryoverEditMode = ref(false);
@@ -9212,8 +9245,9 @@ const loadCarryoverRuns = async () => {
   const resp = await api.get(`/payroll/periods/${carryoverPriorPeriodId.value}/runs`);
   carryoverRuns.value = resp.data || [];
   if (carryoverRuns.value.length) {
-    carryoverBaselineRunId.value = carryoverRuns.value[0].id;
-    carryoverCompareRunId.value = carryoverRuns.value[carryoverRuns.value.length - 1].id;
+    const pair = pickDefaultCarryoverRunPair(carryoverRuns.value || []);
+    carryoverBaselineRunId.value = pair.baselineRunId;
+    carryoverCompareRunId.value = pair.compareRunId;
   }
 };
 
