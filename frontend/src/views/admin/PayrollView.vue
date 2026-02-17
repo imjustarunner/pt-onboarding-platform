@@ -1098,7 +1098,7 @@
 
           <div class="actions" style="margin-top: 12px; justify-content: flex-end;">
             <button class="btn btn-primary" @click="confirmProcessImport" :disabled="processingChanges || !processImportFile || !agencyId">
-              {{ processingChanges ? 'Working...' : 'Confirm prior period' }}
+              {{ processingChanges ? 'Working...' : 'Confirm & run compare' }}
             </button>
           </div>
         </div>
@@ -10417,6 +10417,38 @@ const processAutoImport = async () => {
   }
 };
 
+const runProcessCompareFlow = async (sourcePeriodId) => {
+  if (!sourcePeriodId) {
+    processError.value = 'Could not determine a prior pay period to import into.';
+    return;
+  }
+  if (!selectedPeriodId.value) {
+    processError.value = 'Select a present pay period (destination) first.';
+    return;
+  }
+  if (!processImportFile.value) {
+    processError.value = 'Please choose the updated prior-period report file again.';
+    return;
+  }
+
+  await loadPeriods();
+  const p = (periods.value || []).find((x) => Number(x.id) === Number(sourcePeriodId)) || null;
+  processSourcePeriodId.value = Number(sourcePeriodId);
+  processSourcePeriodLabel.value = p ? periodRangeLabel(p) : `Period #${sourcePeriodId}`;
+
+  // Create a snapshot-only run from the uploaded prior-period report.
+  const fd = new FormData();
+  fd.append('file', processImportFile.value);
+  await api.post(`/payroll/periods/${processSourcePeriodId.value}/runs/snapshot-from-file`, fd);
+
+  // Switch UI context to the present pay period (destination) and open compare modal.
+  await selectPeriod(selectedPeriodId.value);
+  showCarryoverModal.value = true;
+  carryoverPriorPeriodId.value = processSourcePeriodId.value;
+  await loadCarryoverRuns();
+  await loadCarryoverPreview();
+};
+
 const confirmProcessImport = async () => {
   try {
     if (!agencyId.value) return;
@@ -10443,19 +10475,11 @@ const confirmProcessImport = async () => {
         return;
       }
     }
-    if (!sourcePeriodId) {
-      processError.value = 'Could not determine a prior pay period to import into.';
-      return;
-    }
-
-    await loadPeriods();
-    const p = (periods.value || []).find((x) => x.id === sourcePeriodId) || null;
-    processSourcePeriodId.value = sourcePeriodId;
-    processSourcePeriodLabel.value = p ? periodRangeLabel(p) : `Period #${sourcePeriodId}`;
 
     processConfirmOpen.value = false;
+    await runProcessCompareFlow(sourcePeriodId);
   } catch (e) {
-    processError.value = e.response?.data?.error?.message || e.message || 'Failed to select prior pay period for comparison';
+    processError.value = e.response?.data?.error?.message || e.message || 'Failed to run prior period and compare changes';
   } finally {
     processingChanges.value = false;
   }
@@ -10464,25 +10488,9 @@ const confirmProcessImport = async () => {
 const processRunAndCompare = async () => {
   try {
     if (!processSourcePeriodId.value) return;
-    if (!selectedPeriodId.value) return;
     processingChanges.value = true;
     processError.value = '';
-
-    // Create a snapshot-only run from the uploaded report (does NOT modify the old pay period).
-    if (!processImportFile.value) {
-      processError.value = 'Please choose the updated prior-period report file again.';
-      return;
-    }
-    const fd = new FormData();
-    fd.append('file', processImportFile.value);
-    await api.post(`/payroll/periods/${processSourcePeriodId.value}/runs/snapshot-from-file`, fd);
-
-    // Switch UI context to the present pay period (destination) and open compare modal.
-    await selectPeriod(selectedPeriodId.value);
-    showCarryoverModal.value = true;
-    carryoverPriorPeriodId.value = processSourcePeriodId.value;
-    await loadCarryoverRuns();
-    await loadCarryoverPreview();
+    await runProcessCompareFlow(processSourcePeriodId.value);
   } catch (e) {
     processError.value = e.response?.data?.error?.message || e.message || 'Failed to run prior period and compare changes';
   } finally {
