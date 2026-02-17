@@ -45,6 +45,7 @@ import PayrollPtoAccount from '../models/PayrollPtoAccount.model.js';
 import PayrollPtoLedger from '../models/PayrollPtoLedger.model.js';
 import PayrollPtoRequest from '../models/PayrollPtoRequest.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
+import AdminAuditLog from '../models/AdminAuditLog.model.js';
 import pool from '../config/database.js';
 import AdpPayrollService from '../services/adpPayroll.service.js';
 import StorageService from '../services/storage.service.js';
@@ -601,6 +602,51 @@ export async function requirePayrollAccess(req, res, agencyIdOrOrgId) {
     res.status(403).json({ error: { message: 'Payroll access required' } });
     return null;
   }
+
+  // Best-effort audit: record payroll write actions so payroll activity is visible in Audit Center.
+  // We intentionally do NOT log request bodies (PHI/PII risk); only safe metadata (route + ids + body keys).
+  try {
+    const method = String(req?.method || '').toUpperCase();
+    const isWrite = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method);
+    if (isWrite) {
+      const actorUserId = Number(req.user?.id || 0) || null;
+      if (actorUserId) {
+        const routePath = req?.route?.path ? String(req.route.path) : null;
+        const baseUrl = req?.baseUrl ? String(req.baseUrl) : '';
+        const route = routePath ? `${baseUrl}${routePath}` : (req?.originalUrl ? String(req.originalUrl) : baseUrl);
+        const bodyKeys = (req?.body && typeof req.body === 'object' && !Array.isArray(req.body))
+          ? Object.keys(req.body).slice(0, 50)
+          : [];
+        await AdminAuditLog.logAction({
+          actionType: 'payroll_write',
+          actorUserId,
+          targetUserId: null,
+          moduleId: null,
+          trackId: null,
+          agencyId: resolvedAgencyId,
+          metadata: {
+            method,
+            route,
+            params: req?.params || {},
+            query: (() => {
+              const q = req?.query && typeof req.query === 'object' ? req.query : {};
+              // Keep only primitive query values to avoid logging large payloads.
+              const out = {};
+              for (const [k, v] of Object.entries(q)) {
+                if (v === null || v === undefined) continue;
+                if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') out[k] = v;
+              }
+              return out;
+            })(),
+            bodyKeys
+          }
+        });
+      }
+    }
+  } catch {
+    // Never block payroll actions on logging.
+  }
+
   return resolvedAgencyId;
 }
 

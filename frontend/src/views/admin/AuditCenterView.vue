@@ -148,6 +148,7 @@ const actionOptions = [
   'mark_track_complete',
   'grant_payroll_access',
   'revoke_payroll_access',
+  'payroll_write',
   'support_ticket_created',
   'support_ticket_message',
   'view_client',

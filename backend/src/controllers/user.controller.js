@@ -172,10 +172,9 @@ export const getCurrentUser = async (req, res, next) => {
 
     const payrollAgencyIds = user?.id ? await User.listPayrollAgencyIds(user.id) : [];
     const baseCaps = getUserCapabilities(user);
-    const canManagePayroll =
-      user.role === 'admin' ||
-      user.role === 'super_admin' ||
-      (user.role === 'staff' && payrollAgencyIds.length > 0);
+    // Payroll management is gated by user_agencies.has_payroll_access (except super_admin).
+    // This keeps UI capability checks consistent with payroll controller enforcement.
+    const canManagePayroll = user.role === 'super_admin' || payrollAgencyIds.length > 0;
 
     // 6-month password expiry (best-effort; defaults to created_at if password_changed_at missing)
     const calcPasswordExpiry = (u) => {
@@ -1825,7 +1824,13 @@ export const updateUser = async (req, res, next) => {
     }
 
     // Payroll access (profile toggle: set for all agencies for this user)
-    if (hasPayrollAccess !== undefined) updateData.hasPayrollAccess = Boolean(hasPayrollAccess);
+    if (hasPayrollAccess !== undefined) {
+      // Only admins/super_admins can grant payroll access (including for themselves).
+      if (req.user.role !== 'admin' && req.user.role !== 'super_admin') {
+        return res.status(403).json({ error: { message: 'Only admins or super admins can change Payroll access' } });
+      }
+      updateData.hasPayrollAccess = Boolean(hasPayrollAccess);
+    }
     // Hourly worker (drives Direct/Indirect ratio card visibility)
     if (isHourlyWorker !== undefined) updateData.isHourlyWorker = Boolean(isHourlyWorker);
     // Hiring process access (applicants / prospective)

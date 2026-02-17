@@ -520,7 +520,7 @@
                 <label
                   v-if="showPayrollAccessToggle"
                   class="compact-toggle"
-                  title="Payroll access given to staff or provider. Not accessible by default except admin/super admin."
+                  title="Enable to allow this user to access Payroll management for their assigned agencies. Changes are audited."
                 >
                   <span class="compact-title">Payroll access</span>
                   <div class="toggle-switch toggle-switch-sm">
@@ -2914,10 +2914,10 @@ const credentialTierPreviewLabel = computed(() => {
   return 'Unknown (defaults to QBHA-safe rules where applicable)';
 });
 
-// Payroll access toggle: show for staff/provider/etc., not for admin/super_admin (they have payroll by role).
+// Payroll access toggle: show for everyone except super_admin (super_admin always has payroll).
 const showPayrollAccessToggle = computed(() => {
   const role = String(user.value?.role || accountForm.value?.role || '').trim().toLowerCase();
-  return role && role !== 'admin' && role !== 'super_admin';
+  return role && role !== 'super_admin';
 });
 
 // Watch for role changes to reset supervisor privileges if role becomes ineligible
