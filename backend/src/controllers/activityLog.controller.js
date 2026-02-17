@@ -49,6 +49,11 @@ const recordDisabledSource = (diagnostics, source, error) => {
   }
 };
 
+const isUnionCollationError = (error) => {
+  const msg = String(error?.sqlMessage || error?.message || '').toLowerCase();
+  return msg.includes('illegal mix of collations') && msg.includes('union');
+};
+
 const csvEscape = (value) => {
   const s = value == null ? '' : String(value);
   if (s.includes('"') || s.includes(',') || s.includes('\n')) {
@@ -221,89 +226,39 @@ const getSupportTicketRows = async (filters = {}, diagnostics = null) => {
   const { agencyId, userId, actionType, search, limit = 50, offset = 0, sortOrder = 'DESC', startDate, endDate } = filters;
   // If the caller requests an unsupported type, return empty quickly.
   if (actionType && !['support_ticket_created', 'support_ticket_message'].includes(String(actionType))) return [];
-  const where = ['(t.agency_id = ? OR (t.agency_id IS NULL AND c.agency_id = ?))'];
-  const params = [agencyId, agencyId];
-  const { start, end } = toDateRange(startDate, endDate);
-  if (userId) { where.push('x.user_id = ?'); params.push(userId); }
-  if (actionType) { where.push('x.action_type = ?'); params.push(String(actionType)); }
-  if (start) { where.push('x.created_at >= ?'); params.push(start); }
-  if (end) { where.push('x.created_at <= ?'); params.push(end); }
-  addClientSearchWhere(where, params, search, 'c');
-  if (search) {
-    const like = asLike(search);
-    where.push(`(
-      LOWER(COALESCE(x.subject, '')) LIKE ?
-      OR LOWER(COALESCE(x.body_text, '')) LIKE ?
-      OR LOWER(COALESCE(u.email, '')) LIKE ?
-      OR LOWER(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))) LIKE ?
-    )`);
-    params.push(like, like, like, like);
-  }
   const order = String(sortOrder).toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
   const qLimit = Math.max(1, Math.min(parseInt(limit, 10) || 50, 5000));
   const qOffset = Math.max(0, parseInt(offset, 10) || 0);
-  try {
-    const [rows] = await pool.execute(
-      `SELECT x.id, x.created_at, x.action_type, x.user_id,
-              u.email AS user_email, u.first_name AS user_first_name, u.last_name AS user_last_name,
-              NULL AS ip_address, NULL AS session_id,
-              JSON_OBJECT('ticketId', x.ticket_id, 'subject', x.subject, 'messageId', x.message_id, 'status', t.status) AS metadata,
-              c.id AS client_id, c.initials AS client_initials, c.full_name AS client_full_name,
-              c.client_type, c.identifier_code AS client_identifier_code,
-              COALESCE(t.agency_id, c.agency_id) AS agency_id,
-              a.name AS agency_name,
-              'support_ticket' AS log_type,
-              CASE WHEN c.id IS NULL THEN '/admin/tickets' ELSE CONCAT('/admin/clients?clientId=', c.id, '&tab=messages') END AS link_path
-       FROM (
-         SELECT st.id, st.id AS ticket_id, NULL AS message_id, st.created_at,
-                'support_ticket_created' AS action_type, st.created_by_user_id AS user_id,
-                st.subject, st.question AS body_text
-         FROM support_tickets st
-         UNION ALL
-         SELECT stm.id + 1000000000 AS id, stm.ticket_id, stm.id AS message_id, stm.created_at,
-                'support_ticket_message' AS action_type, stm.author_user_id AS user_id,
-                st.subject, stm.body AS body_text
-         FROM support_ticket_messages stm
-         JOIN support_tickets st ON st.id = stm.ticket_id
-       ) x
-       JOIN support_tickets t ON t.id = x.ticket_id
-       LEFT JOIN clients c ON c.id = t.client_id
-       LEFT JOIN users u ON u.id = x.user_id
-       LEFT JOIN agencies a ON a.id = COALESCE(t.agency_id, c.agency_id)
-       WHERE ${where.join(' AND ')}
-       ORDER BY x.created_at ${order}, x.id DESC
-       LIMIT ${qLimit} OFFSET ${qOffset}`,
-      params
-    );
-    return (rows || []).map(normalizeAuditRow);
-  } catch (e) {
-    // Graceful fallback: older deployments may not have support_ticket_messages yet.
-    if (!isMissingDbArtifactError(e)) throw e;
-    recordDisabledSource(diagnostics, 'support_ticket', e);
 
-    // If the request specifically asked for messages, return empty.
-    if (String(actionType || '') === 'support_ticket_message') return [];
+  const includeCreated = !actionType || String(actionType) === 'support_ticket_created';
+  const includeMessages = !actionType || String(actionType) === 'support_ticket_message';
 
-    const where2 = ['(t.agency_id = ? OR (t.agency_id IS NULL AND c.agency_id = ?))'];
-    const params2 = [agencyId, agencyId];
-    const { start: s2, end: e2 } = toDateRange(startDate, endDate);
-    if (userId) { where2.push('t.created_by_user_id = ?'); params2.push(userId); }
-    if (s2) { where2.push('t.created_at >= ?'); params2.push(s2); }
-    if (e2) { where2.push('t.created_at <= ?'); params2.push(e2); }
-    addClientSearchWhere(where2, params2, search, 'c');
+  // To preserve correct ordering across both sources, fetch an expanded slice and merge/sort in JS.
+  const expanded = Math.min(qOffset + qLimit, 5000);
+
+  const { start, end } = toDateRange(startDate, endDate);
+
+  const out = [];
+
+  if (includeCreated) {
+    const whereT = ['(t.agency_id = ? OR (t.agency_id IS NULL AND c.agency_id = ?))'];
+    const paramsT = [agencyId, agencyId];
+    if (userId) { whereT.push('t.created_by_user_id = ?'); paramsT.push(userId); }
+    if (start) { whereT.push('t.created_at >= ?'); paramsT.push(start); }
+    if (end) { whereT.push('t.created_at <= ?'); paramsT.push(end); }
+    addClientSearchWhere(whereT, paramsT, search, 'c');
     if (search) {
       const like = asLike(search);
-      where2.push(`(
+      whereT.push(`(
         LOWER(COALESCE(t.subject, '')) LIKE ?
         OR LOWER(COALESCE(t.question, '')) LIKE ?
         OR LOWER(COALESCE(u.email, '')) LIKE ?
         OR LOWER(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))) LIKE ?
       )`);
-      params2.push(like, like, like, like);
+      paramsT.push(like, like, like, like);
     }
-
     try {
-      const [rows2] = await pool.execute(
+      const [rowsT] = await pool.execute(
         `SELECT t.id AS id, t.created_at, 'support_ticket_created' AS action_type, t.created_by_user_id AS user_id,
                 u.email AS user_email, u.first_name AS user_first_name, u.last_name AS user_last_name,
                 NULL AS ip_address, NULL AS session_id,
@@ -318,105 +273,170 @@ const getSupportTicketRows = async (filters = {}, diagnostics = null) => {
          LEFT JOIN clients c ON c.id = t.client_id
          LEFT JOIN users u ON u.id = t.created_by_user_id
          LEFT JOIN agencies a ON a.id = COALESCE(t.agency_id, c.agency_id)
-         WHERE ${where2.join(' AND ')}
+         WHERE ${whereT.join(' AND ')}
          ORDER BY t.created_at ${order}, t.id DESC
-         LIMIT ${qLimit} OFFSET ${qOffset}`,
-        params2
+         LIMIT ${expanded} OFFSET 0`,
+        paramsT
       );
-      return (rows2 || []).map(normalizeAuditRow);
-    } catch (e2) {
-      if (isMissingDbArtifactError(e2)) {
-        recordDisabledSource(diagnostics, 'support_ticket', e2);
-        return [];
+      out.push(...(rowsT || []).map(normalizeAuditRow));
+    } catch (e) {
+      if (isMissingDbArtifactError(e) || isUnionCollationError(e)) {
+        recordDisabledSource(diagnostics, 'support_ticket', e);
+      } else {
+        throw e;
       }
-      throw e2;
     }
   }
+
+  if (includeMessages) {
+    const whereM = ['(t.agency_id = ? OR (t.agency_id IS NULL AND c.agency_id = ?))'];
+    const paramsM = [agencyId, agencyId];
+    if (userId) { whereM.push('m.author_user_id = ?'); paramsM.push(userId); }
+    if (start) { whereM.push('m.created_at >= ?'); paramsM.push(start); }
+    if (end) { whereM.push('m.created_at <= ?'); paramsM.push(end); }
+    addClientSearchWhere(whereM, paramsM, search, 'c');
+    if (search) {
+      const like = asLike(search);
+      whereM.push(`(
+        LOWER(COALESCE(t.subject, '')) LIKE ?
+        OR LOWER(COALESCE(m.body, '')) LIKE ?
+        OR LOWER(COALESCE(u.email, '')) LIKE ?
+        OR LOWER(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))) LIKE ?
+      )`);
+      paramsM.push(like, like, like, like);
+    }
+    try {
+      const [rowsM] = await pool.execute(
+        `SELECT (m.id + 1000000000) AS id, m.created_at, 'support_ticket_message' AS action_type, m.author_user_id AS user_id,
+                u.email AS user_email, u.first_name AS user_first_name, u.last_name AS user_last_name,
+                NULL AS ip_address, NULL AS session_id,
+                JSON_OBJECT('ticketId', m.ticket_id, 'subject', t.subject, 'messageId', m.id, 'status', t.status) AS metadata,
+                c.id AS client_id, c.initials AS client_initials, c.full_name AS client_full_name,
+                c.client_type, c.identifier_code AS client_identifier_code,
+                COALESCE(t.agency_id, c.agency_id) AS agency_id,
+                a.name AS agency_name,
+                'support_ticket' AS log_type,
+                CASE WHEN c.id IS NULL THEN '/admin/tickets' ELSE CONCAT('/admin/clients?clientId=', c.id, '&tab=messages') END AS link_path
+         FROM support_ticket_messages m
+         JOIN support_tickets t ON t.id = m.ticket_id
+         LEFT JOIN clients c ON c.id = t.client_id
+         LEFT JOIN users u ON u.id = m.author_user_id
+         LEFT JOIN agencies a ON a.id = COALESCE(t.agency_id, c.agency_id)
+         WHERE ${whereM.join(' AND ')}
+         ORDER BY m.created_at ${order}, m.id DESC
+         LIMIT ${expanded} OFFSET 0`,
+        paramsM
+      );
+      out.push(...(rowsM || []).map(normalizeAuditRow));
+    } catch (e) {
+      if (isMissingDbArtifactError(e) || isUnionCollationError(e)) {
+        recordDisabledSource(diagnostics, 'support_ticket', e);
+      } else {
+        throw e;
+      }
+    }
+  }
+
+  // Global sort (created_at desc/asc) then id desc for stability, then apply requested slice.
+  out.sort((a, b) => {
+    const ta = new Date(a.created_at || 0).getTime();
+    const tb = new Date(b.created_at || 0).getTime();
+    if (ta !== tb) return order === 'ASC' ? (ta - tb) : (tb - ta);
+    const ia = Number(a.id || 0);
+    const ib = Number(b.id || 0);
+    return ib - ia;
+  });
+
+  return out.slice(qOffset, qOffset + qLimit);
 };
 
 const countSupportTicketRows = async (filters = {}, diagnostics = null) => {
   const { agencyId, userId, actionType, search, startDate, endDate } = filters;
   if (actionType && !['support_ticket_created', 'support_ticket_message'].includes(String(actionType))) return 0;
-  const where = ['(t.agency_id = ? OR (t.agency_id IS NULL AND c.agency_id = ?))'];
-  const params = [agencyId, agencyId];
-  const { start, end } = toDateRange(startDate, endDate);
-  if (userId) { where.push('x.user_id = ?'); params.push(userId); }
-  if (actionType) { where.push('x.action_type = ?'); params.push(String(actionType)); }
-  if (start) { where.push('x.created_at >= ?'); params.push(start); }
-  if (end) { where.push('x.created_at <= ?'); params.push(end); }
-  addClientSearchWhere(where, params, search, 'c');
-  if (search) {
-    const like = asLike(search);
-    where.push(`(
-      LOWER(COALESCE(x.subject, '')) LIKE ?
-      OR LOWER(COALESCE(x.body_text, '')) LIKE ?
-      OR LOWER(COALESCE(u.email, '')) LIKE ?
-      OR LOWER(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))) LIKE ?
-    )`);
-    params.push(like, like, like, like);
-  }
-  try {
-    const [rows] = await pool.execute(
-      `SELECT COUNT(*) AS total
-       FROM (
-         SELECT st.id, st.id AS ticket_id, st.created_at, 'support_ticket_created' AS action_type,
-                st.created_by_user_id AS user_id, st.subject, st.question AS body_text
-         FROM support_tickets st
-         UNION ALL
-         SELECT stm.id + 1000000000 AS id, stm.ticket_id, stm.created_at, 'support_ticket_message' AS action_type,
-                stm.author_user_id AS user_id, st.subject, stm.body AS body_text
-         FROM support_ticket_messages stm
-         JOIN support_tickets st ON st.id = stm.ticket_id
-       ) x
-       JOIN support_tickets t ON t.id = x.ticket_id
-       LEFT JOIN clients c ON c.id = t.client_id
-       LEFT JOIN users u ON u.id = x.user_id
-       WHERE ${where.join(' AND ')}`,
-      params
-    );
-    return Number(rows?.[0]?.total || 0);
-  } catch (e) {
-    if (!isMissingDbArtifactError(e)) throw e;
-    recordDisabledSource(diagnostics, 'support_ticket', e);
-    if (String(actionType || '') === 'support_ticket_message') return 0;
 
-    // Fallback count for created tickets only.
-    const where2 = ['(t.agency_id = ? OR (t.agency_id IS NULL AND c.agency_id = ?))'];
-    const params2 = [agencyId, agencyId];
-    const { start: s2, end: e2 } = toDateRange(startDate, endDate);
-    if (userId) { where2.push('t.created_by_user_id = ?'); params2.push(userId); }
-    if (s2) { where2.push('t.created_at >= ?'); params2.push(s2); }
-    if (e2) { where2.push('t.created_at <= ?'); params2.push(e2); }
-    addClientSearchWhere(where2, params2, search, 'c');
+  const includeCreated = !actionType || String(actionType) === 'support_ticket_created';
+  const includeMessages = !actionType || String(actionType) === 'support_ticket_message';
+
+  const { start, end } = toDateRange(startDate, endDate);
+
+  const counts = [];
+
+  if (includeCreated) {
+    const whereT = ['(t.agency_id = ? OR (t.agency_id IS NULL AND c.agency_id = ?))'];
+    const paramsT = [agencyId, agencyId];
+    if (userId) { whereT.push('t.created_by_user_id = ?'); paramsT.push(userId); }
+    if (start) { whereT.push('t.created_at >= ?'); paramsT.push(start); }
+    if (end) { whereT.push('t.created_at <= ?'); paramsT.push(end); }
+    addClientSearchWhere(whereT, paramsT, search, 'c');
     if (search) {
       const like = asLike(search);
-      where2.push(`(
+      whereT.push(`(
         LOWER(COALESCE(t.subject, '')) LIKE ?
         OR LOWER(COALESCE(t.question, '')) LIKE ?
         OR LOWER(COALESCE(u.email, '')) LIKE ?
         OR LOWER(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))) LIKE ?
       )`);
-      params2.push(like, like, like, like);
+      paramsT.push(like, like, like, like);
     }
-
     try {
-      const [rows2] = await pool.execute(
+      const [rowsT] = await pool.execute(
         `SELECT COUNT(*) AS total
          FROM support_tickets t
          LEFT JOIN clients c ON c.id = t.client_id
          LEFT JOIN users u ON u.id = t.created_by_user_id
-         WHERE ${where2.join(' AND ')}`,
-        params2
+         WHERE ${whereT.join(' AND ')}`,
+        paramsT
       );
-      return Number(rows2?.[0]?.total || 0);
-    } catch (e2) {
-      if (isMissingDbArtifactError(e2)) {
-        recordDisabledSource(diagnostics, 'support_ticket', e2);
-        return 0;
+      counts.push(Number(rowsT?.[0]?.total || 0));
+    } catch (e) {
+      if (isMissingDbArtifactError(e) || isUnionCollationError(e)) {
+        recordDisabledSource(diagnostics, 'support_ticket', e);
+        counts.push(0);
+      } else {
+        throw e;
       }
-      throw e2;
     }
   }
+
+  if (includeMessages) {
+    const whereM = ['(t.agency_id = ? OR (t.agency_id IS NULL AND c.agency_id = ?))'];
+    const paramsM = [agencyId, agencyId];
+    if (userId) { whereM.push('m.author_user_id = ?'); paramsM.push(userId); }
+    if (start) { whereM.push('m.created_at >= ?'); paramsM.push(start); }
+    if (end) { whereM.push('m.created_at <= ?'); paramsM.push(end); }
+    addClientSearchWhere(whereM, paramsM, search, 'c');
+    if (search) {
+      const like = asLike(search);
+      whereM.push(`(
+        LOWER(COALESCE(t.subject, '')) LIKE ?
+        OR LOWER(COALESCE(m.body, '')) LIKE ?
+        OR LOWER(COALESCE(u.email, '')) LIKE ?
+        OR LOWER(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))) LIKE ?
+      )`);
+      paramsM.push(like, like, like, like);
+    }
+    try {
+      const [rowsM] = await pool.execute(
+        `SELECT COUNT(*) AS total
+         FROM support_ticket_messages m
+         JOIN support_tickets t ON t.id = m.ticket_id
+         LEFT JOIN clients c ON c.id = t.client_id
+         LEFT JOIN users u ON u.id = m.author_user_id
+         WHERE ${whereM.join(' AND ')}`,
+        paramsM
+      );
+      counts.push(Number(rowsM?.[0]?.total || 0));
+    } catch (e) {
+      if (isMissingDbArtifactError(e) || isUnionCollationError(e)) {
+        recordDisabledSource(diagnostics, 'support_ticket', e);
+        counts.push(0);
+      } else {
+        throw e;
+      }
+    }
+  }
+
+  return counts.reduce((sum, n) => sum + (Number(n) || 0), 0);
 };
 
 const getPhiDocumentRows = async (filters = {}, diagnostics = null) => {
