@@ -7,6 +7,7 @@ import {
   getClientById,
   createClient,
   updateClient,
+  graduateClientType,
   updateClientStatus,
   unarchiveClient,
   bulkPromoteSchoolYear,
@@ -69,6 +70,9 @@ router.post('/', createClient);
 
 // Update client
 router.put('/:id', updateClient);
+
+// Graduate client type (school -> learning -> clinical)
+router.post('/:id/client-type', graduateClientType);
 
 // Unarchive client (admin/staff/support/super_admin)
 router.post('/:id/unarchive', unarchiveClient);
@@ -143,6 +147,7 @@ router.post(
     body('email').isString().isLength({ min: 3, max: 255 }),
     body('firstName').isString().isLength({ min: 1, max: 255 }),
     body('lastName').isString().isLength({ min: 1, max: 255 }),
+    body('relationshipType').optional().isIn(['self', 'guardian', 'proxy']),
     body('relationshipTitle').optional().isString().isLength({ min: 1, max: 100 }),
     body('accessEnabled').optional(),
     body('permissionsJson').optional()

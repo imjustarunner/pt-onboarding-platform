@@ -1,5 +1,6 @@
 import Client from '../models/Client.model.js';
 import ClientPhiDocument from '../models/ClientPhiDocument.model.js';
+import ClientGuardian from '../models/ClientGuardian.model.js';
 import StorageService from '../services/storage.service.js';
 import User from '../models/User.model.js';
 import pool from '../config/database.js';
@@ -19,7 +20,12 @@ const upload = multer({
 });
 
 async function userCanAccessClient({ requestingUserId, requestingUserRole, client }) {
-  if (requestingUserRole === 'super_admin') return true;
+  const normalizedRole = String(requestingUserRole || '').toLowerCase();
+  if (normalizedRole === 'super_admin') return true;
+  if (normalizedRole === 'client_guardian') {
+    const linkedClients = await ClientGuardian.listClientsForGuardian({ guardianUserId: requestingUserId });
+    return (linkedClients || []).some((entry) => Number(entry?.client_id) === Number(client?.id));
+  }
   const userAgencies = await User.getAgencies(requestingUserId);
   const userAgencyIds = userAgencies.map(a => a.id);
   return userAgencyIds.includes(client.agency_id) || userAgencyIds.includes(client.organization_id);
@@ -336,7 +342,7 @@ export const viewPhiDocument = async (req, res, next) => {
     }
 
     // Return a signed URL for the underlying object (do not expose via /uploads without auth)
-    const url = await StorageService.getSignedUrl(doc.storage_path);
+    const url = await StorageService.getSignedUrl(doc.storage_path, 15);
     try {
       const ip = req.headers['x-forwarded-for']?.toString().split(',')[0].trim() || req.ip || null;
       await PhiDocumentAuditLog.create({

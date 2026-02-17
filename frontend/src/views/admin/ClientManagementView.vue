@@ -347,7 +347,7 @@
             <small v-if="!createAgencyEffectiveId">Unable to determine agency for this account.</small>
           </div>
           <div class="form-group">
-            <label>Organization (School / Program / Learning) *</label>
+            <label>Organization (School / Program / Learning / Clinical) *</label>
             <select v-model="newClient.organization_id" required>
               <option value="">Select organization...</option>
               <option v-for="org in availableOrganizations" :key="org.id" :value="org.id">
@@ -356,6 +356,21 @@
             </select>
             <small v-if="loadingOrganizations">Loading organizations…</small>
             <small v-else-if="!availableOrganizations.length">No affiliated organizations found for this agency.</small>
+          </div>
+          <div class="form-group">
+            <label>Client Type *</label>
+            <select v-model="newClient.client_type" required>
+              <option value="" disabled>Select client type...</option>
+              <option v-for="opt in allowedCreateClientTypes" :key="opt.value" :value="opt.value">
+                {{ opt.label }}
+              </option>
+            </select>
+            <small>
+              Available types follow affiliated organizations. Basic (non-clinical) appears only for agencies using the Employee (non-provider) portal variant.
+            </small>
+            <small v-if="!(allowedCreateClientTypes || []).length" style="color: var(--danger, #d92d20);">
+              No client types are enabled for this agency. Configure affiliations and portal variant first.
+            </small>
           </div>
           <div class="form-group">
             <label>Initials *</label>
@@ -553,7 +568,7 @@
             <button
               type="submit"
               class="btn btn-primary"
-              :disabled="creating || !createAgencyEffectiveId || !newClient.organization_id || !String(newClient.initials || '').trim() || !newClient.submission_date || !newClient.insurance_type_id || (newClient.provider_id && !newClient.service_day)"
+              :disabled="creating || !createAgencyEffectiveId || !newClient.organization_id || !newClient.client_type || !String(newClient.initials || '').trim() || !newClient.submission_date || !newClient.insurance_type_id || (newClient.provider_id && !newClient.service_day)"
             >
               {{ creating ? 'Creating...' : 'Create Client' }}
             </button>
@@ -832,6 +847,9 @@ const openCreateClientModal = async () => {
     createAgencyId.value = String(activeAgencyId.value);
   }
   await fetchLinkedOrganizations();
+  if (!(allowedCreateClientTypes.value || []).some((o) => o.value === newClient.value.client_type)) {
+    newClient.value.client_type = allowedCreateClientTypes.value?.[0]?.value || '';
+  }
   await fetchCreatePaperworkStatuses();
   await fetchCreateInsuranceTypes();
   await fetchLanguageOptions();
@@ -1025,6 +1043,7 @@ const bulkPromoteYear = ref('');
 // New client form
 const newClient = ref({
   organization_id: null,
+  client_type: '',
   initials: '',
   provider_id: null,
   provider_make_primary: true,
@@ -1082,6 +1101,24 @@ const createAgencyName = computed(() => {
   const row = (agenciesForCreate.value || []).find((a) => Number(a?.id) === Number(id)) || null;
   return row?.name || String(id);
 });
+const selectedCreateAgency = computed(() => {
+  const id = Number(createAgencyEffectiveId.value || 0);
+  if (!id) return null;
+  return (agenciesForCreate.value || []).find((a) => Number(a?.id) === id) || null;
+});
+const parseAgencyFeatureFlags = (agency) => {
+  const raw = agency?.feature_flags ?? agency?.featureFlags ?? null;
+  if (!raw) return {};
+  if (typeof raw === 'object') return raw;
+  if (typeof raw === 'string' && raw.trim()) {
+    try { return JSON.parse(raw); } catch { return {}; }
+  }
+  return {};
+};
+const currentPortalVariant = computed(() => {
+  const flags = parseAgencyFeatureFlags(selectedCreateAgency.value);
+  return String(flags?.portalVariant || 'healthcare_provider').trim().toLowerCase();
+});
 
 const fetchLinkedOrganizations = async () => {
   try {
@@ -1133,6 +1170,28 @@ const fetchLinkedOrganizations = async () => {
 const availableOrganizations = computed(() => {
   // We intentionally show only orgs linked to the active agency, so client creation is valid.
   return linkedOrganizations.value || [];
+});
+
+const allowedCreateClientTypes = computed(() => {
+  const set = new Set();
+  for (const org of availableOrganizations.value || []) {
+    const t = String(org?.organization_type || '').trim().toLowerCase();
+    if (t === 'school') set.add('school');
+    if (t === 'learning') {
+      set.add('learning');
+      set.add('clinical');
+    }
+    if (t === 'clinical' || t === 'program') set.add('clinical');
+  }
+  if (currentPortalVariant.value === 'employee') set.add('basic_nonclinical');
+  const order = ['school', 'learning', 'clinical', 'basic_nonclinical'];
+  const labels = {
+    basic_nonclinical: 'Basic (Non-Clinical)',
+    school: 'School',
+    learning: 'Learning',
+    clinical: 'Clinical'
+  };
+  return order.filter((k) => set.has(k)).map((value) => ({ value, label: labels[value] || value }));
 });
 
 const availableSchools = computed(() => {
@@ -1827,6 +1886,7 @@ const createClient = async () => {
     // Normalize optional fields
     const payload = {
       ...newClient.value,
+      client_type: String(newClient.value?.client_type || '').toLowerCase(),
       school_year: normalizeSchoolYearLabel(newClient.value.school_year) || null,
       grade: String(newClient.value.grade || '').trim() || null,
       insurance_type_id: newClient.value.insurance_type_id ? Number(newClient.value.insurance_type_id) : null,
@@ -1905,6 +1965,7 @@ const closeCreateModal = () => {
   cancelAddLanguage();
   newClient.value = {
     organization_id: null,
+    client_type: '',
     initials: '',
     provider_id: null,
     provider_make_primary: true,
@@ -2001,6 +2062,9 @@ watch(
     newClient.value.service_day = '';
     newClient.value.insurance_type_id = null;
     await fetchLinkedOrganizations();
+    if (!(allowedCreateClientTypes.value || []).some((o) => o.value === newClient.value.client_type)) {
+      newClient.value.client_type = allowedCreateClientTypes.value?.[0]?.value || '';
+    }
     await fetchClientStatuses();
     await fetchProviders();
     await fetchCreatePaperworkStatuses();
@@ -2018,9 +2082,34 @@ watch(
     deliveryMethods.value = [];
     providerAssignmentsForOrg.value = [];
 
+    const selectedOrg = selectedNewClientOrg.value;
+    const selectedOrgType = String(selectedOrg?.organization_type || '').toLowerCase();
+    const allowed = new Set((allowedCreateClientTypes.value || []).map((o) => String(o.value || '').toLowerCase()));
+    if (selectedOrgType === 'learning' && allowed.has('learning')) {
+      newClient.value.client_type = 'learning';
+    } else if ((selectedOrgType === 'program' || selectedOrgType === 'clinical') && allowed.has('clinical')) {
+      newClient.value.client_type = 'clinical';
+    } else if (selectedOrgType === 'school' && allowed.has('school')) {
+      newClient.value.client_type = 'school';
+    } else if (!allowed.has(String(newClient.value.client_type || '').toLowerCase())) {
+      newClient.value.client_type = allowedCreateClientTypes.value?.[0]?.value || '';
+    }
+
     await fetchProviderAssignmentsForOrg();
     await fetchDeliveryMethodsForSchool();
   }
+);
+
+watch(
+  () => allowedCreateClientTypes.value,
+  (opts) => {
+    const allowed = new Set((opts || []).map((o) => String(o.value || '').toLowerCase()));
+    const cur = String(newClient.value?.client_type || '').toLowerCase();
+    if (!allowed.has(cur)) {
+      newClient.value.client_type = opts?.[0]?.value || '';
+    }
+  },
+  { deep: true }
 );
 
 watch(

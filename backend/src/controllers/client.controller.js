@@ -1,6 +1,7 @@
 import Client from '../models/Client.model.js';
 import ClientStatusHistory from '../models/ClientStatusHistory.model.js';
 import ClientNotes from '../models/ClientNotes.model.js';
+import ClientGuardian from '../models/ClientGuardian.model.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
@@ -23,6 +24,70 @@ function normalizeSixDigitClientCode(value) {
   const digits = raw.replace(/[^\d]/g, '');
   if (digits.length !== 6) return '';
   return digits;
+}
+
+const CLIENT_TYPE_ORDER = ['basic_nonclinical', 'school', 'learning', 'clinical'];
+
+function normalizeClientType(value, fallback = 'basic_nonclinical') {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (CLIENT_TYPE_ORDER.includes(normalized)) return normalized;
+  return fallback;
+}
+
+function isValidSchoolInitials(value) {
+  const cleaned = String(value || '').trim().toUpperCase();
+  return /^[A-Z]{6}$/.test(cleaned);
+}
+
+function getClientTypeTransitionError({ fromType, toType }) {
+  const fromIndex = CLIENT_TYPE_ORDER.indexOf(fromType);
+  const toIndex = CLIENT_TYPE_ORDER.indexOf(toType);
+  if (fromIndex < 0 || toIndex < 0) {
+    return 'Invalid client type. Allowed values: school, learning, clinical.';
+  }
+  if (toIndex < fromIndex) {
+    return 'Client type cannot be downgraded.';
+  }
+  return null;
+}
+
+async function getAgencyEnabledClientTypes(agencyId) {
+  const parsedAgencyId = parseInt(agencyId, 10);
+  const out = new Set();
+  if (!parsedAgencyId) {
+    return out;
+  }
+
+  try {
+    const orgs = await OrganizationAffiliation.listActiveOrganizationsForAgency(parsedAgencyId);
+    for (const org of orgs || []) {
+      const t = String(org?.organization_type || '').trim().toLowerCase();
+      if (t === 'school') out.add('school');
+      if (t === 'learning') {
+        out.add('learning');
+        out.add('clinical');
+      }
+      if (t === 'clinical' || t === 'program') out.add('clinical');
+    }
+  } catch {
+    // ignore
+  }
+
+  // Portal variant gates non-clinical client type availability.
+  // Only "employee" portal agencies should see/use basic_nonclinical.
+  try {
+    const agency = await Agency.findById(parsedAgencyId);
+    let featureFlags = agency?.feature_flags ?? agency?.featureFlags ?? null;
+    if (typeof featureFlags === 'string' && featureFlags.trim()) {
+      try { featureFlags = JSON.parse(featureFlags); } catch { featureFlags = null; }
+    }
+    const portalVariant = String(featureFlags?.portalVariant || 'healthcare_provider').trim().toLowerCase();
+    if (portalVariant === 'employee') out.add('basic_nonclinical');
+  } catch {
+    // ignore
+  }
+
+  return out;
 }
 
 async function generateUniqueSixDigitClientCode({ agencyId }) {
@@ -316,6 +381,10 @@ export const createClient = async (req, res, next) => {
       insurance_type_id,
       paperwork_delivery_method_id,
       doc_date,
+      full_name,
+      contact_phone,
+      guardian_portal_enabled,
+      client_type,
       primary_client_language,
       primary_parent_language,
       skills
@@ -387,7 +456,7 @@ export const createClient = async (req, res, next) => {
       });
     }
 
-    // Verify organization exists and is NOT an agency (allow school/program/learning)
+    // Verify organization exists and is NOT an agency (allow school/program/learning/clinical)
     const organization = await Agency.findById(parsedOrganizationId);
     if (!organization) {
       return res.status(404).json({ 
@@ -397,11 +466,34 @@ export const createClient = async (req, res, next) => {
 
     const orgType = organization.organization_type || 'agency';
     const normalizedOrgType = String(orgType).toLowerCase();
-    const allowedOrgTypes = ['school', 'program', 'learning'];
+    const allowedOrgTypes = ['school', 'program', 'learning', 'clinical'];
     if (!allowedOrgTypes.includes(normalizedOrgType)) {
       return res.status(400).json({ 
         error: { message: `Clients must be associated with an organization of type: ${allowedOrgTypes.join(', ')}` } 
       });
+    }
+
+    let resolvedClientType = normalizeClientType(
+      client_type,
+      (normalizedOrgType === 'school')
+        ? 'school'
+        : (normalizedOrgType === 'learning')
+        ? 'learning'
+        : (normalizedOrgType === 'clinical' || normalizedOrgType === 'program')
+          ? 'clinical'
+          : 'basic_nonclinical'
+    );
+    const enabledTypes = await getAgencyEnabledClientTypes(parsedAgencyId);
+    if (!enabledTypes.has(resolvedClientType)) {
+      return res.status(400).json({
+        error: {
+          message: `client_type "${resolvedClientType}" is not enabled for this agency. Enabled types: ${Array.from(enabledTypes).join(', ')}`
+        }
+      });
+    }
+
+    if (!CLIENT_TYPE_ORDER.includes(resolvedClientType)) {
+      return res.status(400).json({ error: { message: 'Invalid client_type. Allowed: basic_nonclinical, school, learning, clinical.' } });
     }
 
     // Verify organization is linked to the agency (enforces nested/associated rule).
@@ -436,6 +528,11 @@ export const createClient = async (req, res, next) => {
     // IMPORTANT: preserve user-entered casing in storage/display, but use uppercase for matching/dedup checks.
     const initialsForSave = String(initials || '').trim();
     const normalizedInitials = initialsForSave.toUpperCase();
+    if (resolvedClientType === 'school' && !isValidSchoolInitials(normalizedInitials)) {
+      return res.status(400).json({
+        error: { message: 'School clients require exactly 6 initials (first 3 + last 3 letters).' }
+      });
+    }
     try {
       const existingByMatchKey = await Client.findByMatchKey(parsedAgencyId, parsedOrganizationId, normalizedInitials);
       if (existingByMatchKey?.id) {
@@ -557,11 +654,15 @@ export const createClient = async (req, res, next) => {
       resolvedProviderId = parsedProviderId;
     }
 
-    const client = await Client.create({
+    const clientCreatePayload = {
       organization_id: parsedOrganizationId,
       agency_id: parsedAgencyId,
       provider_id: resolvedProviderId,
       initials: initialsForSave,
+      full_name: full_name ? String(full_name).trim() : null,
+      contact_phone: contact_phone ? String(contact_phone).trim() : null,
+      guardian_portal_enabled: guardian_portal_enabled ? 1 : 0,
+      client_type: resolvedClientType,
       identifier_code: clientIdentifierCode,
       // "status" is treated as internal workflow/archive flag; new clients are not archived.
       status: workflowStatus,
@@ -581,7 +682,8 @@ export const createClient = async (req, res, next) => {
       primary_client_language: primary_client_language ? String(primary_client_language).trim() : null,
       primary_parent_language: primary_parent_language ? String(primary_parent_language).trim() : null,
       skills: skills === undefined || skills === null ? undefined : !!skills
-    });
+    };
+    const client = await Client.create(clientCreatePayload);
 
     // Seed multi-agency affiliation table so access control works immediately.
     // Best-effort only: table may not exist in older environments.
@@ -1394,6 +1496,35 @@ export const updateClient = async (req, res, next) => {
       });
     }
 
+    const currentClientType = normalizeClientType(currentClient.client_type, 'basic_nonclinical');
+    const requestedClientTypeRaw =
+      req.body?.client_type === undefined || req.body?.client_type === null
+        ? null
+        : String(req.body.client_type).trim().toLowerCase();
+    const requestedClientType = requestedClientTypeRaw ? normalizeClientType(requestedClientTypeRaw, '') : null;
+    if (requestedClientTypeRaw && !CLIENT_TYPE_ORDER.includes(requestedClientType)) {
+      return res.status(400).json({ error: { message: 'Invalid client_type. Allowed: basic_nonclinical, school, learning, clinical.' } });
+    }
+    if (requestedClientType && requestedClientType !== currentClientType) {
+      const enabledTypes = await getAgencyEnabledClientTypes(currentClient.agency_id);
+      if (!enabledTypes.has(requestedClientType)) {
+        return res.status(400).json({
+          error: {
+            message: `client_type "${requestedClientType}" is not enabled for this agency. Enabled types: ${Array.from(enabledTypes).join(', ')}`
+          }
+        });
+      }
+      const transitionError = getClientTypeTransitionError({
+        fromType: currentClientType,
+        toType: requestedClientType
+      });
+      if (transitionError) {
+        return res.status(400).json({ error: { message: transitionError } });
+      }
+      req.body.client_type_transitioned_at = new Date();
+      req.body.client_type_transitioned_by_user_id = userId;
+    }
+
     // Client identifier code (6-digit, permanent):
     // Use the existing update endpoint so the UI doesn't depend on a brand-new route.
     // - If missing/invalid: allow setting to a provided 6-digit code, or generating a new one.
@@ -1428,7 +1559,7 @@ export const updateClient = async (req, res, next) => {
       );
     }
 
-    // If changing the client's primary organization (school/program/learning), validate the target org up front.
+    // If changing the client's primary organization (school/program/learning/clinical), validate the target org up front.
     // IMPORTANT: School Portal rosters are assignment-driven (client_organization_assignments), so we also
     // sync that table below when this field changes.
     const requestedOrgIdRaw = req.body?.organization_id;
@@ -1444,8 +1575,8 @@ export const updateClient = async (req, res, next) => {
         return res.status(400).json({ error: { message: 'Selected organization not found' } });
       }
       const t = String(org.organization_type || 'agency').toLowerCase();
-      if (!['school', 'program', 'learning'].includes(t)) {
-        return res.status(400).json({ error: { message: 'Clients can only be assigned to a school/program/learning organization' } });
+      if (!['school', 'program', 'learning', 'clinical'].includes(t)) {
+        return res.status(400).json({ error: { message: 'Clients can only be assigned to a school/program/learning/clinical organization' } });
       }
       // Ensure org is linked to the client's agency for non-super-admins.
       if (String(userRole || '').toLowerCase() !== 'super_admin') {
@@ -1693,7 +1824,7 @@ export const updateClient = async (req, res, next) => {
     // Log changes to history (for status and provider changes, use specific methods)
     // For other fields, log here
     const changedFields = Object.keys(req.body).filter(key => 
-      ['organization_id', 'agency_id', 'initials', 'submission_date', 'document_status', 'source'].includes(key)
+      ['organization_id', 'agency_id', 'initials', 'submission_date', 'document_status', 'source', 'client_type'].includes(key)
     );
 
     for (const field of changedFields) {
@@ -1726,6 +1857,70 @@ export const updateClient = async (req, res, next) => {
     res.json(updatedClient);
   } catch (error) {
     console.error('Update client error:', error);
+    next(error);
+  }
+};
+
+/**
+ * Graduate client type in sequence (school -> learning -> clinical)
+ * POST /api/clients/:id/client-type
+ */
+export const graduateClientType = async (req, res, next) => {
+  try {
+    const clientId = parseInt(req.params.id, 10);
+    if (!clientId) return res.status(400).json({ error: { message: 'Invalid client id' } });
+
+    const role = String(req.user?.role || '').toLowerCase();
+    if (!isBackofficeRole(role)) {
+      return res.status(403).json({ error: { message: 'Only admin/staff/support/super_admin can graduate client types' } });
+    }
+
+    const targetClientType = normalizeClientType(req.body?.client_type, '');
+    if (!CLIENT_TYPE_ORDER.includes(targetClientType)) {
+      return res.status(400).json({ error: { message: 'Invalid client_type. Allowed: basic_nonclinical, school, learning, clinical.' } });
+    }
+
+    const access = await ensureAgencyAccessToClient({ userId: req.user.id, role: req.user.role, clientId });
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    const currentClient = access.client;
+    const currentType = normalizeClientType(currentClient?.client_type, 'basic_nonclinical');
+    const enabledTypes = await getAgencyEnabledClientTypes(currentClient?.agency_id);
+    if (!enabledTypes.has(targetClientType)) {
+      return res.status(400).json({
+        error: {
+          message: `client_type "${targetClientType}" is not enabled for this agency. Enabled types: ${Array.from(enabledTypes).join(', ')}`
+        }
+      });
+    }
+    const transitionError = getClientTypeTransitionError({ fromType: currentType, toType: targetClientType });
+    if (transitionError) {
+      return res.status(400).json({ error: { message: transitionError } });
+    }
+    if (targetClientType === currentType) {
+      return res.json({ client: currentClient });
+    }
+
+    const reason = String(req.body?.reason || '').trim().slice(0, 500) || null;
+    const updated = await Client.update(
+      clientId,
+      {
+        client_type: targetClientType,
+        client_type_transitioned_at: new Date(),
+        client_type_transitioned_by_user_id: req.user.id
+      },
+      req.user.id
+    );
+    await ClientStatusHistory.create({
+      client_id: clientId,
+      changed_by_user_id: req.user.id,
+      field_changed: 'client_type',
+      from_value: currentType,
+      to_value: targetClientType,
+      note: reason || `Graduated client type from ${currentType} to ${targetClientType}`
+    });
+    res.json({ client: updated });
+  } catch (error) {
     next(error);
   }
 };
@@ -2676,6 +2871,7 @@ export const getClientNotes = async (req, res, next) => {
     const userId = req.user.id;
     const userRole = req.user.role;
     const roleNorm = String(userRole || '').toLowerCase();
+    const isGuardian = roleNorm === 'client_guardian';
     const canViewInternalNotes = ['super_admin', 'admin', 'support', 'staff'].includes(roleNorm);
 
     // Get current client
@@ -2686,7 +2882,15 @@ export const getClientNotes = async (req, res, next) => {
 
     // Permission check
     let hasAgencyAccess = false;
-    if (userRole !== 'super_admin') {
+    if (isGuardian) {
+      const linkedClients = await ClientGuardian.listClientsForGuardian({ guardianUserId: userId });
+      const linked = (linkedClients || []).some((entry) => Number(entry?.client_id) === Number(id));
+      if (!linked) {
+        return res.status(403).json({
+          error: { message: 'Access denied. You are not linked to this client.' }
+        });
+      }
+    } else if (userRole !== 'super_admin') {
       const userAgencies = await User.getAgencies(userId);
       const userAgencyIds = userAgencies.map(a => a.id);
       const userOrganizationIds = userAgencies.map(a => a.id);
@@ -2819,6 +3023,9 @@ export const createClientNote = async (req, res, next) => {
     const userId = req.user.id;
     const userRole = req.user.role;
     const roleNorm = String(userRole || '').toLowerCase();
+    if (roleNorm === 'client_guardian') {
+      return res.status(403).json({ error: { message: 'Guardians cannot create client notes' } });
+    }
     const canViewInternalNotes = ['super_admin', 'admin', 'support', 'staff'].includes(roleNorm);
 
     // Get current client
@@ -3442,9 +3649,9 @@ export const upsertClientAffiliation = async (req, res, next) => {
         return res.status(404).json({ error: { message: 'Organization not found' } });
       }
       const t = String(org.organization_type || 'agency').toLowerCase();
-      if (!['school', 'program', 'learning'].includes(t)) {
+      if (!['school', 'program', 'learning', 'clinical'].includes(t)) {
         await connection.rollback();
-        return res.status(400).json({ error: { message: 'Affiliations must be school/program/learning organizations' } });
+        return res.status(400).json({ error: { message: 'Affiliations must be school/program/learning/clinical organizations' } });
       }
 
       // Ensure org is linked to the client’s agency

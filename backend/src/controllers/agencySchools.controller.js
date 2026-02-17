@@ -69,7 +69,7 @@ export const linkAgencySchool = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'School organization not found' } });
     }
     const orgType = (school.organization_type || 'agency').toLowerCase();
-    const allowedOrgTypes = ['school', 'program', 'learning'];
+    const allowedOrgTypes = ['school', 'program', 'learning', 'clinical'];
     if (!allowedOrgTypes.includes(orgType)) {
       return res.status(400).json({ error: { message: `Provided organization must be one of: ${allowedOrgTypes.join(', ')}` } });
     }
@@ -121,7 +121,7 @@ export const listSchoolOrganizations = async (req, res, next) => {
   try {
     const search = String(req.query.search || '').trim().toLowerCase();
     const includeInactive = req.user?.role === 'super_admin';
-    const orgTypes = ['school', 'program', 'learning'];
+    const orgTypes = ['school', 'program', 'learning', 'clinical'];
 
     const all = [];
     for (const t of orgTypes) {

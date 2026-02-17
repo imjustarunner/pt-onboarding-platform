@@ -18,6 +18,12 @@ function normalizeEmail(email) {
   return e && e.includes('@') ? e : '';
 }
 
+function normalizeRelationshipType(value) {
+  const k = String(value || '').trim().toLowerCase();
+  if (k === 'self' || k === 'guardian' || k === 'proxy') return k;
+  return 'guardian';
+}
+
 export const listClientGuardians = async (req, res, next) => {
   try {
     const clientId = parseInt(req.params.id, 10);
@@ -45,7 +51,9 @@ export const upsertClientGuardian = async (req, res, next) => {
     const email = normalizeEmail(req.body.email);
     const firstName = String(req.body.firstName || '').trim();
     const lastName = String(req.body.lastName || '').trim();
-    const relationshipTitle = String(req.body.relationshipTitle || 'Guardian').trim() || 'Guardian';
+    const relationshipType = normalizeRelationshipType(req.body.relationshipType);
+    const defaultTitle = relationshipType === 'self' ? 'Self' : 'Guardian';
+    const relationshipTitle = String(req.body.relationshipTitle || defaultTitle).trim() || defaultTitle;
     const accessEnabled = req.body.accessEnabled !== false;
     const permissionsJson =
       safeJson(req.body.permissionsJson, null) ||
@@ -95,6 +103,7 @@ export const upsertClientGuardian = async (req, res, next) => {
     await ClientGuardian.upsertLink({
       clientId,
       guardianUserId: guardian.id,
+      relationshipType,
       relationshipTitle,
       accessEnabled,
       permissionsJson,
@@ -146,6 +155,7 @@ export const updateClientGuardian = async (req, res, next) => {
     if (!clientId || !guardianUserId) return res.status(400).json({ error: { message: 'Invalid ids' } });
 
     const relationshipTitle = req.body.relationshipTitle !== undefined ? String(req.body.relationshipTitle || '').trim() : undefined;
+    const relationshipType = req.body.relationshipType !== undefined ? normalizeRelationshipType(req.body.relationshipType) : undefined;
     const accessEnabled = req.body.accessEnabled !== undefined ? (req.body.accessEnabled !== false) : undefined;
     const permissionsJson = req.body.permissionsJson !== undefined ? safeJson(req.body.permissionsJson, null) : undefined;
 
@@ -155,6 +165,7 @@ export const updateClientGuardian = async (req, res, next) => {
     await ClientGuardian.upsertLink({
       clientId,
       guardianUserId,
+      relationshipType: relationshipType ?? existing.relationship_type ?? 'guardian',
       relationshipTitle: relationshipTitle ?? existing.relationship_title,
       accessEnabled: accessEnabled ?? (existing.access_enabled === 1 || existing.access_enabled === true),
       permissionsJson: permissionsJson ?? existing.permissions_json,

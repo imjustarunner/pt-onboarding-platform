@@ -133,6 +133,7 @@ export const uploadReferralPacket = [
       const identifierCode = await generateUniqueSixDigitClientCode({ agencyId });
       const paperworkStatusId = await resolvePaperworkStatusId({ agencyId });
       const clientStatusId = await getClientStatusIdByKey({ agencyId, statusKey: 'packet' });
+      const clientType = orgType === 'school' ? 'school' : 'clinical';
 
       // Use client-provided submission date (user's local date) to avoid timezone drift.
       // Server UTC date can be a day off for users in US timezones (e.g. evening upload = next day UTC).
@@ -151,6 +152,7 @@ export const uploadReferralPacket = [
         provider_id: null, // No provider assigned yet
         initials: 'TBD', // Placeholder - should be extracted from OCR or form
         identifier_code: identifierCode,
+        client_type: clientType,
         status: 'PACKET',
         submission_date: submissionDate,
         document_status: 'PACKET',

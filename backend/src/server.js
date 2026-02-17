@@ -211,6 +211,13 @@ const uploadsHandler = async (req, res, next) => {
     if (!filePath || filePath === '/') {
       return res.status(404).json({ error: { message: 'File not found' } });
     }
+
+    // HIPAA hardening: block sensitive PHI/intake object prefixes from generic /uploads routing.
+    // These files must be accessed via dedicated authenticated controllers with audit logging.
+    const sensitivePrefixes = ['phi-documents/', 'intake_signed/'];
+    if (sensitivePrefixes.some((prefix) => filePath.startsWith(prefix))) {
+      return res.status(403).json({ error: { message: 'Access denied for sensitive document path' } });
+    }
     
     // Map /uploads/* requests to the correct GCS object keys.
     //

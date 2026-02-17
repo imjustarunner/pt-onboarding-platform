@@ -62,6 +62,7 @@ export const createReferral = async (req, res, next) => {
       agency_id: agencyId,
       provider_id: null, // No provider assigned yet
       initials: student_initials.toUpperCase().trim(),
+      client_type: 'school',
       status: 'PENDING_REVIEW',
       submission_date: new Date().toISOString().split('T')[0],
       document_status: 'NONE',

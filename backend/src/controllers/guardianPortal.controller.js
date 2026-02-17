@@ -8,7 +8,7 @@ function normOrgType(t) {
 
 function isPortalOrgType(t) {
   const k = normOrgType(t);
-  return k === 'school' || k === 'program' || k === 'learning';
+  return k === 'school' || k === 'program' || k === 'learning' || k === 'clinical';
 }
 
 function getOrgSlug(org) {
@@ -27,10 +27,12 @@ export const getGuardianPortalOverview = async (req, res, next) => {
     const uid = req.user?.id;
     if (!uid) return res.status(401).json({ error: { message: 'Unauthorized' } });
 
-    const [children, explicitOrgsRaw] = await Promise.all([
+    const [linkedClients, explicitOrgsRaw] = await Promise.all([
       ClientGuardian.listClientsForGuardian({ guardianUserId: uid }),
       User.getAgencies(uid)
     ]);
+    const me = (linkedClients || []).find((c) => String(c?.relationship_type || '').toLowerCase() === 'self') || null;
+    const dependents = (linkedClients || []).filter((c) => String(c?.relationship_type || '').toLowerCase() !== 'self');
 
     // Explicit org memberships (via user_agencies). Keep only portal org types.
     const explicitOrgs = (explicitOrgsRaw || []).filter((o) => isPortalOrgType(o?.organization_type));
@@ -50,7 +52,7 @@ export const getGuardianPortalOverview = async (req, res, next) => {
       });
     }
 
-    for (const c of children || []) {
+    for (const c of linkedClients || []) {
       const orgId = Number(c?.organization_id);
       if (!orgId) continue;
 
@@ -75,7 +77,10 @@ export const getGuardianPortalOverview = async (req, res, next) => {
 
     res.json({
       refreshedAt: new Date().toISOString(),
-      children: children || [],
+      me,
+      dependents,
+      // Backward-compatible alias consumed by existing UI.
+      children: dependents,
       programs
     });
   } catch (e) {

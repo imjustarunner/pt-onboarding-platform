@@ -63,7 +63,7 @@ export default class OrganizationDuplicationService {
       }
 
       const sourceType = String(sourceOrg.organization_type || 'agency').toLowerCase();
-      if (!['agency', 'school', 'program', 'learning'].includes(sourceType)) {
+      if (!['agency', 'school', 'program', 'learning', 'clinical'].includes(sourceType)) {
         const err = new Error('Unsupported organization type for duplication');
         err.status = 400;
         throw err;

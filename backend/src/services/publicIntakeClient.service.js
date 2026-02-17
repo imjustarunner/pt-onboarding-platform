@@ -38,8 +38,8 @@ const ensureOrganizationIsChild = async (organizationId) => {
   const org = await Agency.findById(organizationId);
   if (!org) throw new Error('Organization not found');
   const orgType = String(org.organization_type || 'agency').toLowerCase();
-  if (!['school', 'program', 'learning'].includes(orgType)) {
-    throw new Error('Organization must be a school, program, or learning org');
+  if (!['school', 'program', 'learning', 'clinical'].includes(orgType)) {
+    throw new Error('Organization must be a school, program, learning, or clinical org');
   }
   return org;
 };
@@ -58,7 +58,8 @@ class PublicIntakeClientService {
       throw new Error('organizationId is required to create a client for this intake link');
     }
 
-    await ensureOrganizationIsChild(organizationId);
+    const organization = await ensureOrganizationIsChild(organizationId);
+    const orgType = String(organization?.organization_type || 'agency').toLowerCase();
     const agencyId = await resolveAgencyId(organizationId);
     if (!agencyId) {
       throw new Error('Unable to resolve agency for intake organization');
@@ -79,6 +80,14 @@ class PublicIntakeClientService {
       const identifierCode = await generateUniqueSixDigitClientCode({ agencyId });
       const paperworkStatusId = await resolvePaperworkStatusId({ agencyId });
       const clientStatusId = await getClientStatusIdByKey({ agencyId, statusKey: 'packet' });
+      const clientType =
+        scopeType === 'school' || orgType === 'school'
+          ? 'school'
+          : orgType === 'learning'
+            ? 'learning'
+            : (orgType === 'program' || orgType === 'clinical')
+              ? 'clinical'
+              : 'basic_nonclinical';
 
       const client = await Client.create({
         organization_id: organizationId,
@@ -93,6 +102,7 @@ class PublicIntakeClientService {
         document_status: 'UPLOADED',
         paperwork_status_id: paperworkStatusId,
         client_status_id: clientStatusId,
+        client_type: clientType,
         source: 'PUBLIC_INTAKE_LINK',
         created_by_user_id: null
       });

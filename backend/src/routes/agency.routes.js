@@ -66,7 +66,7 @@ const validateCreateAgency = [
   body('name').trim().notEmpty().withMessage('Name is required'),
   body('officialName').optional().isLength({ max: 255 }).withMessage('officialName must be 255 characters or less'),
   body('slug').trim().notEmpty().withMessage('Slug is required').matches(/^[a-z0-9-]+$/).withMessage('Slug must be lowercase alphanumeric with hyphens only'),
-  body('organizationType').optional().isIn(['agency', 'school', 'program', 'learning']).withMessage('organizationType must be one of: agency, school, program, learning'),
+  body('organizationType').optional().isIn(['agency', 'school', 'program', 'learning', 'clinical']).withMessage('organizationType must be one of: agency, school, program, learning, clinical'),
   body('affiliatedAgencyId').optional({ nullable: true, checkFalsy: true }).isInt({ min: 1 }).withMessage('affiliatedAgencyId must be a positive integer'),
   body('customDomain').optional({ nullable: true, checkFalsy: true }).custom((value) => {
     if (value === null || value === undefined || value === '') return true;
@@ -134,9 +134,9 @@ const validateCreateAgency = [
     if (value === null || value === undefined || value === '') return true;
     const parsed = typeof value === 'string' ? (() => { try { return JSON.parse(value); } catch { return null; } })() : value;
     if (!Array.isArray(parsed)) return false;
-    const allowed = new Set(['school', 'program', 'learning']);
+    const allowed = new Set(['school', 'program', 'learning', 'clinical']);
     return parsed.every((t) => allowed.has(String(t || '').trim().toLowerCase()));
-  }).withMessage('ticketingNotificationOrgTypes must be an array containing only: school, program, learning'),
+  }).withMessage('ticketingNotificationOrgTypes must be an array containing only: school, program, learning, clinical'),
   body('certificateTemplateUrl').optional().isURL().withMessage('Certificate template URL must be a valid URL'),
   body('onboardingTeamEmail').optional({ nullable: true, checkFalsy: true }).custom((value) => {
     if (!value || value === null || value === '' || value === undefined) return true;
@@ -237,7 +237,7 @@ const validateUpdateAgency = [
   body('name').optional().trim().notEmpty().withMessage('Name cannot be empty'),
   body('officialName').optional().isLength({ max: 255 }).withMessage('officialName must be 255 characters or less'),
   body('slug').optional().trim().notEmpty().withMessage('Slug cannot be empty').matches(/^[a-z0-9-]+$/).withMessage('Slug must be lowercase alphanumeric with hyphens only'),
-  body('organizationType').optional().isIn(['agency', 'school', 'program', 'learning']).withMessage('organizationType must be one of: agency, school, program, learning'),
+  body('organizationType').optional().isIn(['agency', 'school', 'program', 'learning', 'clinical']).withMessage('organizationType must be one of: agency, school, program, learning, clinical'),
   body('affiliatedAgencyId').optional({ nullable: true, checkFalsy: true }).isInt({ min: 1 }).withMessage('affiliatedAgencyId must be a positive integer'),
   body('customDomain').optional({ nullable: true, checkFalsy: true }).custom((value) => {
     if (value === null || value === undefined || value === '') return true;
@@ -305,9 +305,9 @@ const validateUpdateAgency = [
     if (value === null || value === undefined || value === '') return true;
     const parsed = typeof value === 'string' ? (() => { try { return JSON.parse(value); } catch { return null; } })() : value;
     if (!Array.isArray(parsed)) return false;
-    const allowed = new Set(['school', 'program', 'learning']);
+    const allowed = new Set(['school', 'program', 'learning', 'clinical']);
     return parsed.every((t) => allowed.has(String(t || '').trim().toLowerCase()));
-  }).withMessage('ticketingNotificationOrgTypes must be an array containing only: school, program, learning'),
+  }).withMessage('ticketingNotificationOrgTypes must be an array containing only: school, program, learning, clinical'),
   body('certificateTemplateUrl').optional().custom((value) => {
     // Allow null, undefined, or empty string
     if (!value || value === null || value === '' || value === undefined) return true;

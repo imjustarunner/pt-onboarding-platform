@@ -74,7 +74,10 @@ class Client {
       internal_notes,
       service_day,
       paperwork_received_at,
-      cleared_to_start
+      cleared_to_start,
+      client_type = 'basic_nonclinical',
+      client_type_transitioned_at = null,
+      client_type_transitioned_by_user_id = null
     } = clientData;
 
     // Build insert dynamically so older DBs won't break if a column doesn't exist yet.
@@ -119,10 +122,14 @@ class Client {
       ['primary_client_language', primary_client_language],
       ['primary_parent_language', primary_parent_language],
       ['skills', skills !== undefined ? (skills ? 1 : 0) : undefined],
+      ['guardian_portal_enabled', clientData.guardian_portal_enabled !== undefined ? (clientData.guardian_portal_enabled ? 1 : 0) : undefined],
       ['internal_notes', internal_notes],
       ['service_day', service_day],
       ['paperwork_received_at', paperwork_received_at],
-      ['cleared_to_start', cleared_to_start !== undefined ? (cleared_to_start ? 1 : 0) : undefined]
+      ['cleared_to_start', cleared_to_start !== undefined ? (cleared_to_start ? 1 : 0) : undefined],
+      ['client_type', client_type],
+      ['client_type_transitioned_at', client_type_transitioned_at],
+      ['client_type_transitioned_by_user_id', client_type_transitioned_by_user_id]
     ];
 
     for (const [col, val] of optional) {
@@ -469,7 +476,10 @@ class Client {
       'internal_notes',
       'service_day',
       'paperwork_received_at',
-      'cleared_to_start'
+      'cleared_to_start',
+      'client_type',
+      'client_type_transitioned_at',
+      'client_type_transitioned_by_user_id'
     ];
 
     for (const field of allowedFields) {
