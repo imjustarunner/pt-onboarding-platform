@@ -1499,8 +1499,11 @@ export const updateUser = async (req, res, next) => {
             }
           }
         } catch (billingGateError) {
-          if (!isMissingBillingInfraError(billingGateError)) throw billingGateError;
-          console.warn('Admin billing gate unavailable; skipping billing impact check:', billingGateError?.message || billingGateError);
+          const isInfraError = isMissingBillingInfraError(billingGateError);
+          const reason = isInfraError ? 'billing infra unavailable' : 'billing gate runtime error';
+          // Fail open here to avoid blocking role management if billing checks fail.
+          // We still keep visibility via warnings for follow-up.
+          console.warn(`Admin billing gate skipped (${reason}):`, billingGateError?.message || billingGateError);
         }
       }
     }

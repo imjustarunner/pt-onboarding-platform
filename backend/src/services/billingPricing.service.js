@@ -60,6 +60,18 @@ function parseJsonMaybe(v) {
   }
 }
 
+function isMissingBillingSchemaError(e) {
+  const code = String(e?.code || '');
+  if (code === 'ER_NO_SUCH_TABLE' || code === 'ER_BAD_FIELD_ERROR' || code === 'ER_BAD_DB_ERROR') return true;
+  const msg = String(e?.message || '').toLowerCase();
+  return (
+    msg.includes("doesn't exist") ||
+    msg.includes('unknown column') ||
+    msg.includes('agency_billing_accounts') ||
+    msg.includes('platform_billing_pricing')
+  );
+}
+
 function mergePricing(base, override) {
   const b = base || {};
   const o = override || {};
@@ -89,14 +101,33 @@ function mergePricing(base, override) {
 }
 
 export async function getPlatformBillingPricing() {
-  const fromDb = await PlatformBillingPricing.getPricingJson();
-  if (!fromDb) return FALLBACK_PRICING;
-  return mergePricing(FALLBACK_PRICING, fromDb);
+  try {
+    const fromDb = await PlatformBillingPricing.getPricingJson();
+    if (!fromDb) return FALLBACK_PRICING;
+    return mergePricing(FALLBACK_PRICING, fromDb);
+  } catch (e) {
+    // Keep billing/admin flows functional on partially migrated environments.
+    if (!isMissingBillingSchemaError(e)) {
+      console.warn('Billing pricing lookup failed; using fallback pricing:', e?.message || e);
+    } else {
+      console.warn('Billing pricing tables unavailable; using fallback pricing.');
+    }
+    return FALLBACK_PRICING;
+  }
 }
 
 export async function getEffectiveBillingPricingForAgency(agencyId) {
   const platform = await getPlatformBillingPricing();
-  const acct = await AgencyBillingAccount.getByAgencyId(agencyId);
+  let acct = null;
+  try {
+    acct = await AgencyBillingAccount.getByAgencyId(agencyId);
+  } catch (e) {
+    if (!isMissingBillingSchemaError(e)) {
+      console.warn(`Agency billing account lookup failed for agency ${agencyId}; proceeding without override:`, e?.message || e);
+    } else {
+      console.warn(`Agency billing account table unavailable for agency ${agencyId}; proceeding without override.`);
+    }
+  }
   const override = parseJsonMaybe(acct?.pricing_override_json) || null;
   const effective = override ? mergePricing(platform, override) : platform;
   return { platform, override, effective };
