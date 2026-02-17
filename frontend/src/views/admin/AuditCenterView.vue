@@ -9,6 +9,16 @@
 
     <div class="filters">
       <div class="field">
+        <label>Agency</label>
+        <select v-model="selectedAgencyId" @change="handleAgencyChange">
+          <option value="">Select an agency…</option>
+          <option v-for="a in selectableAgencies" :key="a.id" :value="String(a.id)">
+            {{ a.name }}
+          </option>
+        </select>
+        <small v-if="selectableAgencies.length === 0" class="hint">No agencies available for this user.</small>
+      </div>
+      <div class="field">
         <label>Search</label>
         <input v-model="filters.search" type="text" placeholder="User, client initials/name, action, metadata, IP, session" @keyup.enter="reload" />
       </div>
@@ -129,6 +139,11 @@ const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
 const route = useRoute();
 
+const isAgencyOrg = (org) => {
+  const t = String(org?.organization_type || org?.organizationType || 'agency').toLowerCase();
+  return t === 'agency';
+};
+
 const actionOptions = [
   'login',
   'logout',
@@ -195,11 +210,62 @@ const pagination = reactive({
   hasNextPage: false
 });
 
-const agencyId = computed(() => {
-  const fromStore = agencyStore.currentAgency?.id;
-  if (fromStore) return Number(fromStore);
-  return Number(authStore.user?.agencies?.[0]?.id || 0) || null;
+const selectableAgencies = computed(() => {
+  const role = String(authStore.user?.role || '').toLowerCase();
+  // super_admin: can pick from all agencies list (fetchAgencies)
+  // admin: pick from userAgencies (fetchUserAgencies)
+  const list =
+    role === 'super_admin'
+      ? (agencyStore.agencies?.value || agencyStore.agencies || [])
+      : (agencyStore.userAgencies?.value || agencyStore.userAgencies || []);
+  return (Array.isArray(list) ? list : []).filter(isAgencyOrg).sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')));
 });
+
+const selectedAgencyId = ref('');
+
+const selectedAgency = computed(() => {
+  const id = parseInt(String(selectedAgencyId.value || ''), 10);
+  if (!Number.isFinite(id) || id < 1) return null;
+  return (selectableAgencies.value || []).find((a) => Number(a?.id) === id) || null;
+});
+
+const agencyId = computed(() => (selectedAgency.value?.id ? Number(selectedAgency.value.id) : null));
+
+const agencyStorageKey = computed(() => {
+  const u = authStore.user || {};
+  return `auditCenterAgencyId:${String(u.id || u.email || 'unknown')}`;
+});
+
+const hydrateDefaultAgencySelection = () => {
+  // Priority: URL query ?agencyId= > localStorage > currentAgency (if agency) > first selectable agency
+  const fromQuery = route.query?.agencyId ? parseInt(String(route.query.agencyId), 10) : NaN;
+  const queryId = Number.isFinite(fromQuery) && fromQuery > 0 ? fromQuery : null;
+  if (queryId && selectableAgencies.value.some((a) => Number(a?.id) === Number(queryId))) {
+    selectedAgencyId.value = String(queryId);
+    return;
+  }
+
+  try {
+    const stored = localStorage.getItem(agencyStorageKey.value);
+    const storedId = stored ? parseInt(String(stored), 10) : NaN;
+    if (Number.isFinite(storedId) && storedId > 0 && selectableAgencies.value.some((a) => Number(a?.id) === storedId)) {
+      selectedAgencyId.value = String(storedId);
+      return;
+    }
+  } catch {
+    // ignore
+  }
+
+  const cur = agencyStore.currentAgency?.value || agencyStore.currentAgency;
+  const curId = cur?.id ? Number(cur.id) : null;
+  if (curId && isAgencyOrg(cur) && selectableAgencies.value.some((a) => Number(a?.id) === curId)) {
+    selectedAgencyId.value = String(curId);
+    return;
+  }
+
+  const first = selectableAgencies.value?.[0]?.id || null;
+  if (first) selectedAgencyId.value = String(first);
+};
 
 const currentParams = () => ({
   search: filters.search || undefined,
@@ -237,6 +303,15 @@ const reload = async () => {
   } finally {
     loading.value = false;
   }
+};
+
+const handleAgencyChange = async () => {
+  try {
+    if (selectedAgencyId.value) localStorage.setItem(agencyStorageKey.value, String(selectedAgencyId.value));
+  } catch {
+    // ignore
+  }
+  await resetAndReload();
 };
 
 const resetAndReload = async () => {
@@ -353,6 +428,14 @@ const shortenSession = (sessionId) => {
 };
 
 onMounted(async () => {
+  // Ensure agency options are loaded.
+  const role = String(authStore.user?.role || '').toLowerCase();
+  if (role === 'super_admin') {
+    await agencyStore.fetchAgencies();
+  } else {
+    await agencyStore.fetchUserAgencies();
+  }
+  hydrateDefaultAgencySelection();
   await reload();
 });
 </script>
@@ -364,6 +447,7 @@ onMounted(async () => {
 .filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.75rem; margin-bottom: 1rem; }
 .field { display: flex; flex-direction: column; gap: 0.3rem; }
 .field input, .field select { padding: 0.45rem 0.55rem; border: 1px solid var(--border); border-radius: 6px; }
+.hint { color: var(--text-secondary); font-size: 12px; }
 .field-actions { align-self: end; flex-direction: row; gap: 0.5rem; }
 .table-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: auto; }
 .table { width: 100%; border-collapse: collapse; }
