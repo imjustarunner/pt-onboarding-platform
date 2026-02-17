@@ -3139,7 +3139,9 @@ async function recomputeSummaries({ payrollPeriodId, agencyId, periodStart, peri
         agencyId,
         userId,
         serviceCode: code,
-        asOf: periodStart
+        // Policy update: payroll uses the currently listed rates at run time.
+        // Do not date-filter by pay period start for rate selection.
+        asOf: null
       });
       const rateAmount = rate ? Number(rate.rate_amount) : 0;
       // Per-user rate_unit is deprecated; treat "flat" the same as per_unit.
@@ -3483,18 +3485,9 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
     }
     const bestPerCodeRate = (codeKey) => {
       const arr = ratesByCode.get(codeKey) || [];
-      for (const r of arr) {
-        // listForUser is ordered by service_code ASC, effective_start DESC
-        // Apply asOf window if present.
-        if (periodStart) {
-          const start = r.effective_start ? String(r.effective_start) : null;
-          const end = r.effective_end ? String(r.effective_end) : null;
-          if (start && String(start) > String(periodStart)) continue;
-          if (end && String(end) < String(periodStart)) continue;
-        }
-        return r;
-      }
-      return null;
+      // listForUser is ordered by service_code ASC, effective_start DESC.
+      // Policy update: always use the first/currently listed per-code rate at run time.
+      return arr[0] || null;
     };
     const breakdown = {};
     let noNoteUnitsTotal = 0;
