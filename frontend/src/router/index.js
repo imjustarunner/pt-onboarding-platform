@@ -162,16 +162,22 @@ const routes = [
     meta: { requiresAuth: true, organizationSlug: true }
   },
   {
-    path: '/:organizationSlug/provider-plus-dashboard',
-    name: 'OrganizationProviderPlusDashboard',
+    path: '/:organizationSlug/operations-dashboard',
+    name: 'OrganizationOperationsDashboard',
     component: () => import('../views/ProviderPlusDashboardView.vue'),
+    meta: { requiresAuth: true, requiresRole: PROVIDER_PLUS_EXPERIENCE_ROLES, organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/provider-plus-dashboard',
+    name: 'OrganizationProviderPlusDashboardLegacy',
+    redirect: (to) => `/${to.params.organizationSlug}/operations-dashboard`,
     meta: { requiresAuth: true, requiresRole: PROVIDER_PLUS_EXPERIENCE_ROLES, organizationSlug: true }
   },
   {
     path: '/:organizationSlug/providers/:providerUserId',
     name: 'OrganizationSchoolProviderProfile',
     component: () => import('../views/school/ProviderSchoolProfileView.vue'),
-    meta: { requiresAuth: true, organizationSlug: true, requiresRole: ['school_staff', 'provider', 'admin', 'support', 'super_admin'] }
+    meta: { requiresAuth: true, organizationSlug: true, requiresRole: ['school_staff', 'provider', 'admin', 'support', 'super_admin', 'clinical_practice_assistant', 'provider_plus'] }
   },
   {
     path: '/:organizationSlug/mydashboard',
@@ -521,6 +527,12 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['admin', 'support'], organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/admin/audit-center',
+    name: 'OrganizationAuditCenter',
+    component: () => import('../views/admin/AuditCenterView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support'], organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/admin/agencies/:agencyId/progress',
     name: 'OrganizationAgencyProgressById',
     component: () => import('../views/admin/AgencyProgressDashboard.vue'),
@@ -648,9 +660,15 @@ const routes = [
     meta: { requiresAuth: true, blockApprovedEmployees: true }
   },
   {
-    path: '/provider-plus-dashboard',
-    name: 'ProviderPlusDashboard',
+    path: '/operations-dashboard',
+    name: 'OperationsDashboard',
     component: () => import('../views/ProviderPlusDashboardView.vue'),
+    meta: { requiresAuth: true, requiresRole: PROVIDER_PLUS_EXPERIENCE_ROLES }
+  },
+  {
+    path: '/provider-plus-dashboard',
+    name: 'ProviderPlusDashboardLegacy',
+    redirect: '/operations-dashboard',
     meta: { requiresAuth: true, requiresRole: PROVIDER_PLUS_EXPERIENCE_ROLES }
   },
   {
@@ -981,6 +999,12 @@ const routes = [
     path: '/admin/agency-progress',
     name: 'AgencyProgress',
     component: () => import('../views/admin/AgencyProgressDashboard.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support'] }
+  },
+  {
+    path: '/admin/audit-center',
+    name: 'AuditCenter',
+    component: () => import('../views/admin/AuditCenterView.vue'),
     meta: { requiresAuth: true, requiresRole: ['admin', 'support'] }
   },
   {
@@ -1481,12 +1505,19 @@ router.beforeEach(async (to, from, next) => {
     }
   } else if (to.meta.requiresRole) {
     const userRole = authStore.user?.role;
+    const userRoleNorm = String(userRole || '').toLowerCase();
     const requiredRole = to.meta.requiresRole;
     const requiredRoles = Array.isArray(requiredRole) ? requiredRole : [requiredRole];
+
+    // Audit Center is limited to admin/super_admin only.
+    if (String(to.path || '').includes('/admin/audit-center') && userRoleNorm === 'support') {
+      next(getDashboardRoute());
+      return;
+    }
     
     // School staff should not use the employee "Office Schedule" or "Payroll" surfaces.
     // They should stay within their school portal dashboard.
-    if (String(userRole || '').toLowerCase() === 'school_staff') {
+    if (userRoleNorm === 'school_staff') {
       const blockedForSchoolStaff = ['/schedule', '/admin/payroll', '/payroll', '/dashboard'];
       if (blockedForSchoolStaff.some((p) => to.path === p || to.path.startsWith(`${p}/`))) {
         next(getDashboardRoute());
@@ -1540,7 +1571,7 @@ router.beforeEach(async (to, from, next) => {
         : [];
       const caps = authStore.user?.capabilities;
       // Super admins should not be blocked by capability flags.
-      if (String(userRole || '').toLowerCase() === 'super_admin') {
+      if (userRoleNorm === 'super_admin') {
         next();
         return;
       }

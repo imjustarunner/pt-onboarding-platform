@@ -94,7 +94,7 @@ async function ensureOrgAccess(req, schoolOrganizationId) {
         const canSupervisorAccess = await supervisorHasSuperviseeInSchool(req.user?.id, sid);
         if (canSupervisorAccess) return { ok: true, org, schoolOrganizationId: sid, supervisorLimited: true };
       }
-      const canUseAgencyAffiliation = role === 'admin' || role === 'support' || role === 'staff' || role === 'supervisor';
+      const canUseAgencyAffiliation = role === 'admin' || role === 'support' || role === 'staff' || role === 'supervisor' || role === 'clinical_practice_assistant' || role === 'provider_plus';
       if (!canUseAgencyAffiliation) return { ok: false, status: 403, message: 'Access denied' };
       const activeAgencyId = await resolveActiveAgencyIdForOrg(sid);
       const hasAgency = activeAgencyId
@@ -193,7 +193,7 @@ async function listAgencySupportRecipients({ agencyId }) {
      FROM users u
      JOIN user_agencies ua ON ua.user_id = u.id
      WHERE ua.agency_id = ?
-       AND LOWER(COALESCE(u.role, '')) IN ('admin','support','staff','super_admin')
+      AND LOWER(COALESCE(u.role, '')) IN ('admin','support','staff','super_admin','clinical_practice_assistant','provider_plus')
        AND (u.is_archived = FALSE OR u.is_archived IS NULL)
        AND UPPER(COALESCE(u.status, '')) <> 'ARCHIVED'`,
     [aid]
@@ -203,7 +203,7 @@ async function listAgencySupportRecipients({ agencyId }) {
 
 const isAgencyAdminUser = (req) => {
   const r = String(req.user?.role || '').toLowerCase();
-  return r === 'admin' || r === 'super_admin' || r === 'support' || r === 'staff';
+  return r === 'admin' || r === 'super_admin' || r === 'support' || r === 'staff' || r === 'clinical_practice_assistant' || r === 'provider_plus';
 };
 
 async function canSupervisorAccessClientScope({ req, schoolOrganizationId, clientId }) {

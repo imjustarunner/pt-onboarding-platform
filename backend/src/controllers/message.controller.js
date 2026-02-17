@@ -8,6 +8,7 @@ import NotificationGatekeeperService from '../services/notificationGatekeeper.se
 import TwilioService from '../services/twilio.service.js';
 import { resolveOutboundNumber } from '../services/twilioNumberRouting.service.js';
 import SmsThreadEscalation from '../models/SmsThreadEscalation.model.js';
+import { logAuditEvent } from '../services/auditEvent.service.js';
 
 const parseFeatureFlags = (raw) => {
   if (!raw) return {};
@@ -213,10 +214,31 @@ export const sendMessage = async (req, res, next) => {
         body
       });
       const updated = await MessageLog.markSent(outboundLog.id, msg.sid, { provider: 'twilio', status: msg.status, gatekeeper: decision });
+      await logAuditEvent(req, {
+        actionType: 'sms_sent',
+        agencyId: client.agency_id || null,
+        metadata: {
+          clientId: cid,
+          messageLogId: updated?.id || outboundLog?.id || null,
+          numberId,
+          ownerType
+        }
+      });
       await SmsThreadEscalation.resolveActive({ userId: uid, clientId: cid }).catch(() => {});
       res.status(201).json(updated);
     } catch (sendErr) {
       await MessageLog.markFailed(outboundLog.id, sendErr.message);
+      await logAuditEvent(req, {
+        actionType: 'sms_send_failed',
+        agencyId: client.agency_id || null,
+        metadata: {
+          clientId: cid,
+          messageLogId: outboundLog?.id || null,
+          numberId,
+          ownerType,
+          error: String(sendErr?.message || '').slice(0, 400)
+        }
+      });
       return res.status(502).json({ error: { message: 'Failed to send SMS via Twilio', details: sendErr.message } });
     }
   } catch (e) {
@@ -234,6 +256,11 @@ export const deleteThread = async (req, res, next) => {
     await assertClientAgencyAccess(req.user.id, client);
 
     const [r] = await pool.execute('DELETE FROM message_logs WHERE user_id = ? AND client_id = ?', [req.user.id, clientId]);
+    await logAuditEvent(req, {
+      actionType: 'sms_thread_deleted',
+      agencyId: client.agency_id || null,
+      metadata: { clientId, deletedCount: Number(r?.affectedRows || 0) }
+    });
     res.json({ ok: true, deletedCount: r.affectedRows || 0 });
   } catch (e) {
     next(e);
@@ -247,6 +274,10 @@ export const deleteMessageLog = async (req, res, next) => {
 
     const [r] = await pool.execute('DELETE FROM message_logs WHERE id = ? AND user_id = ?', [id, req.user.id]);
     if (!r.affectedRows) return res.status(404).json({ error: { message: 'Message not found' } });
+    await logAuditEvent(req, {
+      actionType: 'sms_message_deleted',
+      metadata: { messageLogId: id }
+    });
     res.json({ ok: true });
   } catch (e) {
     next(e);

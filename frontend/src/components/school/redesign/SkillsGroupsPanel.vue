@@ -237,7 +237,7 @@ const props = defineProps({
 
 const authStore = useAuthStore();
 const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
-const canManage = computed(() => ['super_admin', 'admin', 'staff', 'support'].includes(roleNorm.value));
+const canManage = computed(() => ['super_admin', 'admin', 'staff', 'support', 'clinical_practice_assistant', 'provider_plus'].includes(roleNorm.value));
 
 const groups = ref([]);
 const loading = ref(false);

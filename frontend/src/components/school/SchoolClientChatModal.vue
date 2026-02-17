@@ -240,7 +240,7 @@ defineEmits(['close']);
 const authStore = useAuthStore();
 const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
 const isSchoolStaff = computed(() => roleNorm.value === 'school_staff');
-const canViewClientDocuments = computed(() => ['provider', 'admin', 'staff', 'support', 'super_admin'].includes(roleNorm.value));
+const canViewClientDocuments = computed(() => ['provider', 'admin', 'staff', 'support', 'super_admin', 'clinical_practice_assistant', 'provider_plus'].includes(roleNorm.value));
 
 const isWaitlist = computed(() => {
   const key = String(props.client?.client_status_key || '').toLowerCase().trim();

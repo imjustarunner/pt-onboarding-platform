@@ -249,7 +249,7 @@ async function getUserNotificationsProgress(userId) {
 
 function roleCanUseAgencyAffiliation(role) {
   const r = String(role || '').toLowerCase();
-  return r === 'admin' || r === 'support' || r === 'staff' || r === 'supervisor';
+  return r === 'admin' || r === 'support' || r === 'staff' || r === 'supervisor' || r === 'clinical_practice_assistant' || r === 'provider_plus';
 }
 
 async function providerHasSchoolAccess({ providerUserId, schoolOrganizationId }) {
@@ -1472,7 +1472,7 @@ export const removeSchoolStaff = async (req, res, next) => {
 
     const actorId = req.user?.id;
     const actorRole = String(req.user?.role || '').toLowerCase();
-    const canRemove = actorRole === 'super_admin' || actorRole === 'admin' || actorRole === 'staff' || actorRole === 'support';
+    const canRemove = actorRole === 'super_admin' || actorRole === 'admin' || actorRole === 'staff' || actorRole === 'support' || actorRole === 'clinical_practice_assistant' || actorRole === 'provider_plus';
     if (!canRemove) {
       return res.status(403).json({ error: { message: 'Only admin/staff/support can remove school staff users' } });
     }
@@ -1564,7 +1564,9 @@ function roleCanManageSchoolPortalFaq(userRole) {
     role === 'admin' ||
     role === 'staff' ||
     role === 'support' ||
-    role === 'super_admin'
+    role === 'super_admin' ||
+    role === 'clinical_practice_assistant' ||
+    role === 'provider_plus'
   );
 }
 
@@ -2869,7 +2871,7 @@ export const queryComplianceCorner = async (req, res, next) => {
     const userId = req.user?.id;
     const roleNorm = String(req.user?.role || '').toLowerCase();
     if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
-    if (!['super_admin', 'admin'].includes(roleNorm)) {
+    if (!['super_admin', 'admin', 'clinical_practice_assistant', 'provider_plus'].includes(roleNorm)) {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
 

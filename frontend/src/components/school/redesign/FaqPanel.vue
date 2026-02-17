@@ -100,7 +100,9 @@ const canManageFaq = computed(() => (
   roleNorm.value === 'provider' ||
   roleNorm.value === 'admin' ||
   roleNorm.value === 'staff' ||
-  roleNorm.value === 'super_admin'
+  roleNorm.value === 'super_admin' ||
+  roleNorm.value === 'clinical_practice_assistant' ||
+  roleNorm.value === 'provider_plus'
 ));
 
 const normalizeSubject = (s) => String(s || '').trim();

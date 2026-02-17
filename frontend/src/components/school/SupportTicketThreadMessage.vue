@@ -67,7 +67,7 @@ const isDeleted = computed(() => {
 
 const canDelete = computed(() => {
   const role = String(props.currentUserRole || '').toLowerCase();
-  const isAdminLike = role === 'super_admin' || role === 'admin' || role === 'support' || role === 'staff';
+  const isAdminLike = role === 'super_admin' || role === 'admin' || role === 'support' || role === 'staff' || role === 'clinical_practice_assistant' || role === 'provider_plus';
   const isSchoolStaff = role === 'school_staff';
   const authorRole = String(props.node?.author_role || '').toLowerCase();
   const authorUserId = props.node?.author_user_id;

@@ -1071,6 +1071,26 @@ class StorageService {
   }
 
   /**
+   * Write any object to GCS by key.
+   * Intended for server-side generated artifacts (e.g., cold audit log chunks).
+   */
+  static async writeObject(key, buffer, contentType = 'application/octet-stream', metadata = {}) {
+    const k = String(key || '').trim();
+    if (!k) throw new Error('Missing storage key');
+    if (!buffer || !(buffer instanceof Buffer)) throw new Error('Missing buffer');
+    const bucket = await this.getGCSBucket();
+    const file = bucket.file(k);
+    await file.save(buffer, {
+      contentType,
+      metadata: {
+        uploadedAt: new Date().toISOString(),
+        ...metadata
+      }
+    });
+    return { key: k, path: k };
+  }
+
+  /**
    * Move an object within the same GCS bucket.
    * @param {string} sourceKey
    * @param {string} destinationKey

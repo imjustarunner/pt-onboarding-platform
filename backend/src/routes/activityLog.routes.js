@@ -2,7 +2,9 @@ import express from 'express';
 import {
   getUserActivityLog,
   getActivitySummary,
-  getModuleTimeBreakdown
+  getModuleTimeBreakdown,
+  getAgencyActivityLog,
+  exportAgencyActivityLogCsv
 } from '../controllers/activityLog.controller.js';
 import { authenticate } from '../middleware/auth.middleware.js';
 
@@ -19,5 +21,9 @@ router.get('/user/:userId/summary', getActivitySummary);
 
 // Get module time breakdown for a user
 router.get('/user/:userId/modules', getModuleTimeBreakdown);
+
+// Agency audit-center activity log endpoints (read-only)
+router.get('/agency/:agencyId', getAgencyActivityLog);
+router.get('/agency/:agencyId/export.csv', exportAgencyActivityLogCsv);
 
 export default router;

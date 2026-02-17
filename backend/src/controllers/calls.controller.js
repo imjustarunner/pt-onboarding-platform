@@ -6,6 +6,7 @@ import MessageLog from '../models/MessageLog.model.js';
 import UserCallSettings from '../models/UserCallSettings.model.js';
 import CallLog from '../models/CallLog.model.js';
 import CallVoicemail from '../models/CallVoicemail.model.js';
+import { logAuditEvent } from '../services/auditEvent.service.js';
 import TwilioService from '../services/twilio.service.js';
 import { resolveOutboundNumber } from '../services/twilioNumberRouting.service.js';
 import Agency from '../models/Agency.model.js';
@@ -248,9 +249,23 @@ export const startOutboundCall = async (req, res, next) => {
         twilioStatus: created?.status || null
       }
     });
+    await logAuditEvent(req, {
+      actionType: 'outbound_call_started',
+      agencyId: client.agency_id || null,
+      metadata: {
+        clientId,
+        callLogId: updated?.id || callLog?.id || null,
+        numberId: resolved?.number?.id || null,
+        twilioCallSid: created?.sid || null
+      }
+    });
 
     res.status(201).json(updated);
   } catch (e) {
+    await logAuditEvent(req, {
+      actionType: 'outbound_call_failed',
+      metadata: { error: String(e?.message || '').slice(0, 400) }
+    });
     next(e);
   }
 };
@@ -331,6 +346,11 @@ export const streamVoicemailAudio = async (req, res, next) => {
       format: 'mp3'
     });
     await CallVoicemail.markListened(voicemailId);
+    await logAuditEvent(req, {
+      actionType: 'voicemail_listened',
+      agencyId: row.agency_id || null,
+      metadata: { voicemailId, callLogId: row.call_log_id || null }
+    });
     res.setHeader('Content-Type', 'audio/mpeg');
     res.setHeader('Content-Length', String(buffer.length));
     return res.status(200).send(buffer);

@@ -1,13 +1,13 @@
 <template>
   <div class="provider-plus-dashboard">
     <header class="page-header">
-      <h1>Provider Plus Dashboard</h1>
+      <h1>Operations Dashboard</h1>
       <p class="subtitle">
         Focused operations workspace for schedule coordination and program support.
       </p>
     </header>
 
-    <section class="cards-grid" aria-label="Provider plus quick actions">
+    <section class="cards-grid" aria-label="Operations dashboard quick actions">
       <router-link
         v-for="card in cards"
         :key="card.id"

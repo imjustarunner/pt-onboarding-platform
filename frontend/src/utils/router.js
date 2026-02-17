@@ -29,7 +29,7 @@ export function getDashboardRoute() {
     
     if (orgType === 'school' && slug) {
       if (isProviderPlusExperienceRole) {
-        return `/${slug}/provider-plus-dashboard`;
+        return `/${slug}/operations-dashboard`;
       }
       // School users go to school portal dashboard
       return `/${slug}/dashboard`;
@@ -41,7 +41,7 @@ export function getDashboardRoute() {
   const schoolOrg = userOrgs.find(org => org.organization_type === 'school');
   if (schoolOrg && schoolOrg.slug) {
     if (isProviderPlusExperienceRole) {
-      return `/${schoolOrg.slug}/provider-plus-dashboard`;
+      return `/${schoolOrg.slug}/operations-dashboard`;
     }
     return `/${schoolOrg.slug}/dashboard`;
   }
@@ -83,7 +83,7 @@ export function getDashboardRoute() {
   }
 
   if (isProviderPlusExperienceRole) {
-    return '/provider-plus-dashboard';
+    return '/operations-dashboard';
   }
 
   // Regular users go to regular dashboard

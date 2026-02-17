@@ -1,5 +1,347 @@
 import UserActivityLog from '../models/UserActivityLog.model.js';
+import AdminAuditLog from '../models/AdminAuditLog.model.js';
 import User from '../models/User.model.js';
+import pool from '../config/database.js';
+
+const clamp = (value, min, max, fallback) => {
+  const n = parseInt(value, 10);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(Math.max(n, min), max);
+};
+
+const csvEscape = (value) => {
+  const s = value == null ? '' : String(value);
+  if (s.includes('"') || s.includes(',') || s.includes('\n')) {
+    return `"${s.replace(/"/g, '""')}"`;
+  }
+  return s;
+};
+
+const isAuditCenterRole = (role) => {
+  const r = String(role || '').toLowerCase();
+  return r === 'admin' || r === 'super_admin';
+};
+
+const assertAgencyAuditAccess = async (req, agencyId) => {
+  const roleNorm = String(req.user?.role || '').toLowerCase();
+  if (!isAuditCenterRole(roleNorm)) return { ok: false, status: 403, message: 'Admin access required' };
+  if (roleNorm === 'super_admin') return { ok: true };
+
+  const userAgencies = await User.getAgencies(req.user.id);
+  const hasAccess = (userAgencies || []).some((a) => Number(a.id) === Number(agencyId));
+  if (!hasAccess) return { ok: false, status: 403, message: 'You do not have access to this agency' };
+  return { ok: true };
+};
+
+const parseJsonSafe = (raw) => {
+  if (!raw) return null;
+  if (typeof raw === 'object') return raw;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+};
+
+const sourceLabel = {
+  user_activity: 'User activity',
+  admin_action: 'Admin action',
+  support_ticket: 'Support ticket',
+  client_access: 'Client access',
+  phi_document: 'Document audit'
+};
+
+const asLike = (value) => `%${String(value || '').trim().toLowerCase()}%`;
+
+const toDateRange = (startDate, endDate) => ({
+  start: startDate ? (String(startDate).includes(' ') ? String(startDate) : `${startDate} 00:00:00`) : null,
+  end: endDate ? (String(endDate).includes(' ') ? String(endDate) : `${endDate} 23:59:59`) : null
+});
+
+const addClientSearchWhere = (where, params, search, tableAlias = 'c') => {
+  if (!search) return;
+  const like = asLike(search);
+  where.push(`(
+    LOWER(COALESCE(${tableAlias}.initials, '')) LIKE ?
+    OR LOWER(COALESCE(${tableAlias}.full_name, '')) LIKE ?
+    OR LOWER(COALESCE(${tableAlias}.identifier_code, '')) LIKE ?
+  )`);
+  params.push(like, like, like);
+};
+
+const normalizeAuditRow = (row) => ({
+  ...row,
+  source_label: sourceLabel[row.log_type] || row.log_type || 'Audit',
+  link_path:
+    row.link_path ||
+    (row.log_type === 'admin_action' && row.target_user_id ? `/admin/users/${row.target_user_id}` : null) ||
+    null,
+  client_full_name: String(row.client_full_name || '').trim() || null,
+  client_initials: String(row.client_initials || '').trim() || null,
+  metadata: parseJsonSafe(row.metadata)
+});
+
+const getClientAccessRows = async (filters = {}) => {
+  const { agencyId, userId, actionType, search, limit = 50, offset = 0, sortOrder = 'DESC', startDate, endDate } = filters;
+  const where = ['c.agency_id = ?'];
+  const params = [agencyId];
+  const { start, end } = toDateRange(startDate, endDate);
+  if (userId) { where.push('l.user_id = ?'); params.push(userId); }
+  if (actionType) { where.push('l.action = ?'); params.push(String(actionType)); }
+  if (start) { where.push('l.created_at >= ?'); params.push(start); }
+  if (end) { where.push('l.created_at <= ?'); params.push(end); }
+  addClientSearchWhere(where, params, search, 'c');
+  if (search) {
+    const like = asLike(search);
+    where.push(`(
+      LOWER(COALESCE(u.email, '')) LIKE ?
+      OR LOWER(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))) LIKE ?
+      OR LOWER(COALESCE(l.action, '')) LIKE ?
+      OR LOWER(COALESCE(l.route, '')) LIKE ?
+      OR LOWER(COALESCE(l.method, '')) LIKE ?
+      OR LOWER(COALESCE(l.ip_address, '')) LIKE ?
+    )`);
+    params.push(like, like, like, like, like, like);
+  }
+  const order = String(sortOrder).toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+  const qLimit = Math.max(1, Math.min(parseInt(limit, 10) || 50, 5000));
+  const qOffset = Math.max(0, parseInt(offset, 10) || 0);
+  const [rows] = await pool.execute(
+    `SELECT l.id, l.created_at, l.action AS action_type, l.user_id,
+            u.email AS user_email, u.first_name AS user_first_name, u.last_name AS user_last_name,
+            l.ip_address, NULL AS session_id,
+            JSON_OBJECT('route', l.route, 'method', l.method, 'role', l.user_role) AS metadata,
+            c.id AS client_id, c.initials AS client_initials, c.full_name AS client_full_name,
+            c.client_type, c.identifier_code AS client_identifier_code,
+            c.agency_id, a.name AS agency_name,
+            'client_access' AS log_type,
+            CONCAT('/admin/clients?clientId=', c.id, '&tab=access') AS link_path
+     FROM client_access_logs l
+     JOIN clients c ON c.id = l.client_id
+     LEFT JOIN users u ON u.id = l.user_id
+     LEFT JOIN agencies a ON a.id = c.agency_id
+     WHERE ${where.join(' AND ')}
+     ORDER BY l.created_at ${order}, l.id DESC
+     LIMIT ${qLimit} OFFSET ${qOffset}`,
+    params
+  );
+  return (rows || []).map(normalizeAuditRow);
+};
+
+const countClientAccessRows = async (filters = {}) => {
+  const { agencyId, userId, actionType, search, startDate, endDate } = filters;
+  const where = ['c.agency_id = ?'];
+  const params = [agencyId];
+  const { start, end } = toDateRange(startDate, endDate);
+  if (userId) { where.push('l.user_id = ?'); params.push(userId); }
+  if (actionType) { where.push('l.action = ?'); params.push(String(actionType)); }
+  if (start) { where.push('l.created_at >= ?'); params.push(start); }
+  if (end) { where.push('l.created_at <= ?'); params.push(end); }
+  addClientSearchWhere(where, params, search, 'c');
+  if (search) {
+    const like = asLike(search);
+    where.push(`(
+      LOWER(COALESCE(u.email, '')) LIKE ?
+      OR LOWER(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))) LIKE ?
+      OR LOWER(COALESCE(l.action, '')) LIKE ?
+      OR LOWER(COALESCE(l.route, '')) LIKE ?
+      OR LOWER(COALESCE(l.method, '')) LIKE ?
+      OR LOWER(COALESCE(l.ip_address, '')) LIKE ?
+    )`);
+    params.push(like, like, like, like, like, like);
+  }
+  const [rows] = await pool.execute(
+    `SELECT COUNT(*) AS total
+     FROM client_access_logs l
+     JOIN clients c ON c.id = l.client_id
+     LEFT JOIN users u ON u.id = l.user_id
+     WHERE ${where.join(' AND ')}`,
+    params
+  );
+  return Number(rows?.[0]?.total || 0);
+};
+
+const getSupportTicketRows = async (filters = {}) => {
+  const { agencyId, userId, actionType, search, limit = 50, offset = 0, sortOrder = 'DESC', startDate, endDate } = filters;
+  const where = ['(t.agency_id = ? OR (t.agency_id IS NULL AND c.agency_id = ?))'];
+  const params = [agencyId, agencyId];
+  const { start, end } = toDateRange(startDate, endDate);
+  if (userId) { where.push('x.user_id = ?'); params.push(userId); }
+  if (actionType) { where.push('x.action_type = ?'); params.push(String(actionType)); }
+  if (start) { where.push('x.created_at >= ?'); params.push(start); }
+  if (end) { where.push('x.created_at <= ?'); params.push(end); }
+  addClientSearchWhere(where, params, search, 'c');
+  if (search) {
+    const like = asLike(search);
+    where.push(`(
+      LOWER(COALESCE(x.subject, '')) LIKE ?
+      OR LOWER(COALESCE(x.body_text, '')) LIKE ?
+      OR LOWER(COALESCE(u.email, '')) LIKE ?
+      OR LOWER(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))) LIKE ?
+    )`);
+    params.push(like, like, like, like);
+  }
+  const order = String(sortOrder).toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+  const qLimit = Math.max(1, Math.min(parseInt(limit, 10) || 50, 5000));
+  const qOffset = Math.max(0, parseInt(offset, 10) || 0);
+  const [rows] = await pool.execute(
+    `SELECT x.id, x.created_at, x.action_type, x.user_id,
+            u.email AS user_email, u.first_name AS user_first_name, u.last_name AS user_last_name,
+            NULL AS ip_address, NULL AS session_id,
+            JSON_OBJECT('ticketId', x.ticket_id, 'subject', x.subject, 'messageId', x.message_id, 'status', t.status) AS metadata,
+            c.id AS client_id, c.initials AS client_initials, c.full_name AS client_full_name,
+            c.client_type, c.identifier_code AS client_identifier_code,
+            COALESCE(t.agency_id, c.agency_id) AS agency_id,
+            a.name AS agency_name,
+            'support_ticket' AS log_type,
+            CASE WHEN c.id IS NULL THEN '/admin/tickets' ELSE CONCAT('/admin/clients?clientId=', c.id, '&tab=messages') END AS link_path
+     FROM (
+       SELECT st.id, st.id AS ticket_id, NULL AS message_id, st.created_at,
+              'support_ticket_created' AS action_type, st.created_by_user_id AS user_id,
+              st.subject, st.question AS body_text
+       FROM support_tickets st
+       UNION ALL
+       SELECT stm.id + 1000000000 AS id, stm.ticket_id, stm.id AS message_id, stm.created_at,
+              'support_ticket_message' AS action_type, stm.author_user_id AS user_id,
+              st.subject, stm.body AS body_text
+       FROM support_ticket_messages stm
+       JOIN support_tickets st ON st.id = stm.ticket_id
+     ) x
+     JOIN support_tickets t ON t.id = x.ticket_id
+     LEFT JOIN clients c ON c.id = t.client_id
+     LEFT JOIN users u ON u.id = x.user_id
+     LEFT JOIN agencies a ON a.id = COALESCE(t.agency_id, c.agency_id)
+     WHERE ${where.join(' AND ')}
+     ORDER BY x.created_at ${order}, x.id DESC
+     LIMIT ${qLimit} OFFSET ${qOffset}`,
+    params
+  );
+  return (rows || []).map(normalizeAuditRow);
+};
+
+const countSupportTicketRows = async (filters = {}) => {
+  const { agencyId, userId, actionType, search, startDate, endDate } = filters;
+  const where = ['(t.agency_id = ? OR (t.agency_id IS NULL AND c.agency_id = ?))'];
+  const params = [agencyId, agencyId];
+  const { start, end } = toDateRange(startDate, endDate);
+  if (userId) { where.push('x.user_id = ?'); params.push(userId); }
+  if (actionType) { where.push('x.action_type = ?'); params.push(String(actionType)); }
+  if (start) { where.push('x.created_at >= ?'); params.push(start); }
+  if (end) { where.push('x.created_at <= ?'); params.push(end); }
+  addClientSearchWhere(where, params, search, 'c');
+  if (search) {
+    const like = asLike(search);
+    where.push(`(
+      LOWER(COALESCE(x.subject, '')) LIKE ?
+      OR LOWER(COALESCE(x.body_text, '')) LIKE ?
+      OR LOWER(COALESCE(u.email, '')) LIKE ?
+      OR LOWER(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))) LIKE ?
+    )`);
+    params.push(like, like, like, like);
+  }
+  const [rows] = await pool.execute(
+    `SELECT COUNT(*) AS total
+     FROM (
+       SELECT st.id, st.id AS ticket_id, st.created_at, 'support_ticket_created' AS action_type,
+              st.created_by_user_id AS user_id, st.subject, st.question AS body_text
+       FROM support_tickets st
+       UNION ALL
+       SELECT stm.id + 1000000000 AS id, stm.ticket_id, stm.created_at, 'support_ticket_message' AS action_type,
+              stm.author_user_id AS user_id, st.subject, stm.body AS body_text
+       FROM support_ticket_messages stm
+       JOIN support_tickets st ON st.id = stm.ticket_id
+     ) x
+     JOIN support_tickets t ON t.id = x.ticket_id
+     LEFT JOIN clients c ON c.id = t.client_id
+     LEFT JOIN users u ON u.id = x.user_id
+     WHERE ${where.join(' AND ')}`,
+    params
+  );
+  return Number(rows?.[0]?.total || 0);
+};
+
+const getPhiDocumentRows = async (filters = {}) => {
+  const { agencyId, userId, actionType, search, limit = 50, offset = 0, sortOrder = 'DESC', startDate, endDate } = filters;
+  const where = ['c.agency_id = ?'];
+  const params = [agencyId];
+  const { start, end } = toDateRange(startDate, endDate);
+  if (userId) { where.push('p.actor_user_id = ?'); params.push(userId); }
+  if (actionType) { where.push('p.action = ?'); params.push(String(actionType)); }
+  if (start) { where.push('p.created_at >= ?'); params.push(start); }
+  if (end) { where.push('p.created_at <= ?'); params.push(end); }
+  addClientSearchWhere(where, params, search, 'c');
+  if (search) {
+    const like = asLike(search);
+    where.push(`(
+      LOWER(COALESCE(u.email, '')) LIKE ?
+      OR LOWER(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))) LIKE ?
+      OR LOWER(COALESCE(p.action, '')) LIKE ?
+      OR LOWER(COALESCE(CAST(p.metadata AS CHAR), '')) LIKE ?
+      OR LOWER(COALESCE(d.document_title, '')) LIKE ?
+      OR LOWER(COALESCE(d.original_name, '')) LIKE ?
+    )`);
+    params.push(like, like, like, like, like, like);
+  }
+  const order = String(sortOrder).toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+  const qLimit = Math.max(1, Math.min(parseInt(limit, 10) || 50, 5000));
+  const qOffset = Math.max(0, parseInt(offset, 10) || 0);
+  const [rows] = await pool.execute(
+    `SELECT p.id, p.created_at, p.action AS action_type, p.actor_user_id AS user_id,
+            u.email AS user_email, u.first_name AS user_first_name, u.last_name AS user_last_name,
+            p.ip_address, NULL AS session_id,
+            JSON_OBJECT('documentId', p.document_id, 'documentTitle', d.document_title, 'originalName', d.original_name, 'auditMetadata', p.metadata) AS metadata,
+            c.id AS client_id, c.initials AS client_initials, c.full_name AS client_full_name,
+            c.client_type, c.identifier_code AS client_identifier_code,
+            c.agency_id, a.name AS agency_name,
+            p.document_id AS related_document_id,
+            'phi_document' AS log_type,
+            CONCAT('/admin/clients?clientId=', c.id, '&tab=phi') AS link_path
+     FROM phi_document_audit_logs p
+     LEFT JOIN client_phi_documents d ON d.id = p.document_id
+     LEFT JOIN clients c ON c.id = COALESCE(p.client_id, d.client_id)
+     LEFT JOIN users u ON u.id = p.actor_user_id
+     LEFT JOIN agencies a ON a.id = c.agency_id
+     WHERE ${where.join(' AND ')}
+     ORDER BY p.created_at ${order}, p.id DESC
+     LIMIT ${qLimit} OFFSET ${qOffset}`,
+    params
+  );
+  return (rows || []).map(normalizeAuditRow);
+};
+
+const countPhiDocumentRows = async (filters = {}) => {
+  const { agencyId, userId, actionType, search, startDate, endDate } = filters;
+  const where = ['c.agency_id = ?'];
+  const params = [agencyId];
+  const { start, end } = toDateRange(startDate, endDate);
+  if (userId) { where.push('p.actor_user_id = ?'); params.push(userId); }
+  if (actionType) { where.push('p.action = ?'); params.push(String(actionType)); }
+  if (start) { where.push('p.created_at >= ?'); params.push(start); }
+  if (end) { where.push('p.created_at <= ?'); params.push(end); }
+  addClientSearchWhere(where, params, search, 'c');
+  if (search) {
+    const like = asLike(search);
+    where.push(`(
+      LOWER(COALESCE(u.email, '')) LIKE ?
+      OR LOWER(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))) LIKE ?
+      OR LOWER(COALESCE(p.action, '')) LIKE ?
+      OR LOWER(COALESCE(CAST(p.metadata AS CHAR), '')) LIKE ?
+      OR LOWER(COALESCE(d.document_title, '')) LIKE ?
+      OR LOWER(COALESCE(d.original_name, '')) LIKE ?
+    )`);
+    params.push(like, like, like, like, like, like);
+  }
+  const [rows] = await pool.execute(
+    `SELECT COUNT(*) AS total
+     FROM phi_document_audit_logs p
+     LEFT JOIN client_phi_documents d ON d.id = p.document_id
+     LEFT JOIN clients c ON c.id = COALESCE(p.client_id, d.client_id)
+     LEFT JOIN users u ON u.id = p.actor_user_id
+     WHERE ${where.join(' AND ')}`,
+    params
+  );
+  return Number(rows?.[0]?.total || 0);
+};
 
 /**
  * Check if the requesting user has permission to view activity for the target user
@@ -309,6 +651,210 @@ export const getModuleTimeBreakdown = async (req, res, next) => {
     res.json(breakdown);
   } catch (error) {
     console.error('Error in getModuleTimeBreakdown:', error);
+    next(error);
+  }
+};
+
+export const getAgencyActivityLog = async (req, res, next) => {
+  try {
+    const agencyId = parseInt(req.params.agencyId, 10);
+    if (!agencyId) return res.status(400).json({ error: { message: 'Invalid agencyId' } });
+
+    const access = await assertAgencyAuditAccess(req, agencyId);
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    const limit = clamp(req.query.limit, 1, 500, 50);
+    const offset = clamp(req.query.offset, 0, 200000, 0);
+    const userId = req.query.userId ? parseInt(req.query.userId, 10) : null;
+    const source = String(req.query.source || 'all').toLowerCase();
+    const filters = {
+      agencyId,
+      userId: Number.isFinite(userId) ? userId : null,
+      actionType: String(req.query.actionType || '').trim() || null,
+      startDate: String(req.query.startDate || '').trim() || null,
+      endDate: String(req.query.endDate || '').trim() || null,
+      search: String(req.query.search || '').trim() || null,
+      sortBy: String(req.query.sortBy || '').trim() || 'createdAt',
+      sortOrder: String(req.query.sortOrder || '').trim() || 'DESC',
+      limit,
+      offset
+    };
+    let items = [];
+    let total = 0;
+    if (source === 'user_activity') {
+      [items, total] = await Promise.all([
+        UserActivityLog.getAgencyActivityLog(filters),
+        UserActivityLog.countAgencyActivityLog(filters)
+      ]);
+      items = items.map((r) => normalizeAuditRow({ ...r, log_type: 'user_activity' }));
+    } else if (source === 'admin_action') {
+      [items, total] = await Promise.all([
+        AdminAuditLog.getAgencyAuditLogPaged(filters),
+        AdminAuditLog.countAgencyAuditLog(filters)
+      ]);
+      items = items.map((r) => normalizeAuditRow({ ...r, log_type: 'admin_action' }));
+    } else if (source === 'support_ticket') {
+      [items, total] = await Promise.all([
+        getSupportTicketRows(filters),
+        countSupportTicketRows(filters)
+      ]);
+    } else if (source === 'client_access') {
+      [items, total] = await Promise.all([
+        getClientAccessRows(filters),
+        countClientAccessRows(filters)
+      ]);
+    } else if (source === 'phi_document') {
+      [items, total] = await Promise.all([
+        getPhiDocumentRows(filters),
+        countPhiDocumentRows(filters)
+      ]);
+    } else {
+      const expandedLimit = Math.min(offset + limit, 5000);
+      const scoped = { ...filters, limit: expandedLimit, offset: 0, sortBy: 'createdAt' };
+      const [activityRows, adminRows, supportRows, clientAccessRows, phiRows, activityTotal, adminTotal, supportTotal, clientAccessTotal, phiTotal] = await Promise.all([
+        UserActivityLog.getAgencyActivityLog(scoped),
+        AdminAuditLog.getAgencyAuditLogPaged(scoped),
+        getSupportTicketRows(scoped),
+        getClientAccessRows(scoped),
+        getPhiDocumentRows(scoped),
+        UserActivityLog.countAgencyActivityLog(filters),
+        AdminAuditLog.countAgencyAuditLog(filters),
+        countSupportTicketRows(filters),
+        countClientAccessRows(filters),
+        countPhiDocumentRows(filters)
+      ]);
+      total = activityTotal + adminTotal + supportTotal + clientAccessTotal + phiTotal;
+      items = [
+        ...activityRows.map((r) => normalizeAuditRow({ ...r, log_type: 'user_activity' })),
+        ...adminRows.map((r) => normalizeAuditRow({ ...r, log_type: 'admin_action' })),
+        ...supportRows,
+        ...clientAccessRows,
+        ...phiRows
+      ]
+        .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+        .slice(offset, offset + limit);
+    }
+
+    return res.json({
+      items,
+      pagination: {
+        total,
+        limit,
+        offset,
+        hasNextPage: offset + items.length < total
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const exportAgencyActivityLogCsv = async (req, res, next) => {
+  try {
+    const agencyId = parseInt(req.params.agencyId, 10);
+    if (!agencyId) return res.status(400).json({ error: { message: 'Invalid agencyId' } });
+
+    const access = await assertAgencyAuditAccess(req, agencyId);
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    const userId = req.query.userId ? parseInt(req.query.userId, 10) : null;
+    const source = String(req.query.source || 'all').toLowerCase();
+    const filters = {
+      agencyId,
+      userId: Number.isFinite(userId) ? userId : null,
+      actionType: String(req.query.actionType || '').trim() || null,
+      startDate: String(req.query.startDate || '').trim() || null,
+      endDate: String(req.query.endDate || '').trim() || null,
+      search: String(req.query.search || '').trim() || null,
+      sortBy: String(req.query.sortBy || '').trim() || 'createdAt',
+      sortOrder: String(req.query.sortOrder || '').trim() || 'DESC',
+      limit: 10000,
+      offset: 0
+    };
+    let rows = [];
+    if (source === 'user_activity') {
+      rows = (await UserActivityLog.getAgencyActivityLog(filters)).map((r) => normalizeAuditRow({ ...r, log_type: 'user_activity' }));
+    } else if (source === 'admin_action') {
+      rows = (await AdminAuditLog.getAgencyAuditLogPaged(filters)).map((r) => normalizeAuditRow({ ...r, log_type: 'admin_action' }));
+    } else if (source === 'support_ticket') {
+      rows = await getSupportTicketRows(filters);
+    } else if (source === 'client_access') {
+      rows = await getClientAccessRows(filters);
+    } else if (source === 'phi_document') {
+      rows = await getPhiDocumentRows(filters);
+    } else {
+      const [activityRows, adminRows, supportRows, clientAccessRows, phiRows] = await Promise.all([
+        UserActivityLog.getAgencyActivityLog(filters),
+        AdminAuditLog.getAgencyAuditLogPaged(filters),
+        getSupportTicketRows(filters),
+        getClientAccessRows(filters),
+        getPhiDocumentRows(filters)
+      ]);
+      rows = [
+        ...activityRows.map((r) => normalizeAuditRow({ ...r, log_type: 'user_activity' })),
+        ...adminRows.map((r) => normalizeAuditRow({ ...r, log_type: 'admin_action' })),
+        ...supportRows,
+        ...clientAccessRows,
+        ...phiRows
+      ].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    }
+
+    const headers = [
+      'log_type',
+      'timestamp_utc',
+      'agency_id',
+      'agency_name',
+      'user_id',
+      'user_name',
+      'user_email',
+      'client_id',
+      'client_initials',
+      'client_full_name',
+      'client_type',
+      'action_type',
+      'module_id',
+      'module_title',
+      'duration_seconds',
+      'ip_address',
+      'session_id',
+      'source_label',
+      'link_path',
+      'metadata'
+    ];
+
+    const lines = [headers.join(',')];
+    for (const row of rows) {
+      const userName = `${row.user_first_name || ''} ${row.user_last_name || ''}`.trim();
+      lines.push([
+        csvEscape(row.log_type || 'user_activity'),
+        csvEscape(row.created_at ? new Date(row.created_at).toISOString() : ''),
+        csvEscape(row.agency_id),
+        csvEscape(row.agency_name),
+        csvEscape(row.user_id),
+        csvEscape(userName),
+        csvEscape(row.user_email),
+        csvEscape(row.client_id),
+        csvEscape(row.client_initials),
+        csvEscape(row.client_full_name),
+        csvEscape(row.client_type),
+        csvEscape(row.action_type),
+        csvEscape(row.module_id),
+        csvEscape(row.module_title),
+        csvEscape(row.duration_seconds),
+        csvEscape(row.ip_address),
+        csvEscape(row.session_id),
+        csvEscape(row.source_label || sourceLabel[row.log_type] || ''),
+        csvEscape(row.link_path || ''),
+        csvEscape(row.metadata ? JSON.stringify(row.metadata) : '')
+      ].join(','));
+    }
+
+    const fileAgency = String(agencyId);
+    const filename = `audit-center-agency-${fileAgency}-${new Date().toISOString().slice(0, 10)}.csv`;
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    return res.status(200).send(lines.join('\n'));
+  } catch (error) {
     next(error);
   }
 };

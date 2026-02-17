@@ -14,6 +14,7 @@ import Agency from '../models/Agency.model.js';
 import { resolveInboundRoute } from '../services/twilioNumberRouting.service.js';
 import { handleAgencyCampaignInbound } from './agencyCampaigns.controller.js';
 import { handleCompanyEventInbound } from './companyEvents.controller.js';
+import { logAuditEvent } from '../services/auditEvent.service.js';
 
 function twimlResponse(message) {
   // Minimal TwiML response
@@ -209,6 +210,18 @@ export const inboundSmsWebhook = async (req, res, next) => {
       twilioMessageSid: messageSid,
       metadata: { provider: 'twilio', numberId }
     });
+    await logAuditEvent(req, {
+      actionType: 'sms_inbound_received',
+      agencyId,
+      userId: ownerUser?.id || assignedUserId || null,
+      metadata: {
+        clientId,
+        messageLogId: inboundLog?.id || null,
+        numberId,
+        ownerType,
+        hasKeyword: !!keyword
+      }
+    });
 
     const prefs = ownerUser ? await UserPreferences.findByUserId(ownerUser.id) : null;
     // Provider-level immediate support mirror option.
@@ -243,10 +256,22 @@ export const inboundSmsWebhook = async (req, res, next) => {
     }
 
     if (keyword === 'STOP' && numberId && clientId) {
+      await logAuditEvent(req, {
+        actionType: 'sms_opt_out',
+        agencyId,
+        userId: ownerUser?.id || assignedUserId || null,
+        metadata: { clientId, numberId, messageLogId: inboundLog?.id || null }
+      });
       const msg = await getRuleMessage(numberId, 'opt_out', 'You have been opted out. Reply START to rejoin.');
       return res.status(200).type('text/xml').send(twimlResponse(msg));
     }
     if (keyword === 'START' && numberId && clientId) {
+      await logAuditEvent(req, {
+        actionType: 'sms_opt_in',
+        agencyId,
+        userId: ownerUser?.id || assignedUserId || null,
+        metadata: { clientId, numberId, messageLogId: inboundLog?.id || null }
+      });
       const msg = await getRuleMessage(numberId, 'opt_in', 'You are opted in. Reply STOP to unsubscribe.');
       return res.status(200).type('text/xml').send(twimlResponse(msg));
     }

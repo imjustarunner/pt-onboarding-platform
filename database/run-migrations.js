@@ -102,15 +102,32 @@ async function runMigration(migrationFile, dryRun = false) {
   const migrationName = path.basename(migrationFile, '.sql');
   const sql = await fs.readFile(migrationPath, 'utf-8');
   
-  // Split SQL into individual statements
-  const statements = sql
+  // Split SQL into individual statements.
+  // Important: remove full-line SQL comments first so files that start with
+  // "-- ..." headers do not get accidentally discarded as 0 statements.
+  const sqlWithoutLineComments = sql
+    .split('\n')
+    .map((line) => {
+      const t = line.trimStart();
+      if (t.startsWith('--') || t.startsWith('#')) return '';
+      return line;
+    })
+    .join('\n');
+  const statements = sqlWithoutLineComments
     .split(';')
     .map(s => s.trim())
-    .filter(s => s.length > 0 && !s.startsWith('--'));
+    .filter(s => s.length > 0);
   
   console.log(`\n${dryRun ? '[DRY RUN] ' : ''}Running migration: ${migrationName}`);
   console.log(`  File: ${migrationFile}`);
   console.log(`  Statements: ${statements.length}`);
+
+  if (statements.length === 0) {
+    throw new Error(
+      `No executable SQL statements found in ${migrationFile}. ` +
+      'Refusing to mark migration as successful.'
+    );
+  }
   
   if (dryRun) {
     console.log(`  SQL preview (first 200 chars): ${sql.substring(0, 200)}...`);
@@ -164,12 +181,33 @@ async function runMigration(migrationFile, dryRun = false) {
 }
 
 // Main function
+function parseSpecificMigrationArg(args) {
+  // Support:
+  //   --migration=439
+  //   --migration 439
+  // Prefer last non-empty value if repeated.
+  let specific = null;
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = String(args[i] || '');
+    if (!arg) continue;
+    if (arg.startsWith('--migration=')) {
+      const value = arg.slice('--migration='.length).trim();
+      if (value) specific = value;
+      continue;
+    }
+    if (arg === '--migration') {
+      const value = String(args[i + 1] || '').trim();
+      if (value && !value.startsWith('--')) specific = value;
+    }
+  }
+  return specific;
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const dryRun = args.includes('--dry-run');
   const baselineExisting = args.includes('--baseline-existing');
-  const migrationArg = args.find(arg => arg.startsWith('--migration'));
-  const specificMigration = migrationArg ? migrationArg.split('=')[1] : null;
+  const specificMigration = parseSpecificMigrationArg(args);
   
   try {
     console.log('Database Migration Runner');

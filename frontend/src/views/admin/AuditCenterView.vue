@@ -1,0 +1,377 @@
+<template>
+  <div class="audit-center-page">
+    <div class="page-header">
+      <div>
+        <h1>Audit Center</h1>
+        <p class="subtitle">Agency-scoped immutable audit feed with export support.</p>
+      </div>
+    </div>
+
+    <div class="filters">
+      <div class="field">
+        <label>Search</label>
+        <input v-model="filters.search" type="text" placeholder="User, client initials/name, action, metadata, IP, session" @keyup.enter="reload" />
+      </div>
+      <div class="field">
+        <label>Source</label>
+        <select v-model="filters.source" @change="reload">
+          <option value="all">All logs</option>
+          <option value="user_activity">User activity</option>
+          <option value="admin_action">Admin actions</option>
+          <option value="support_ticket">Support tickets</option>
+          <option value="client_access">Client access</option>
+          <option value="phi_document">Document audit</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Action</label>
+        <select v-model="filters.actionType" @change="reload">
+          <option value="">All actions</option>
+          <option v-for="a in actionOptions" :key="a" :value="a">{{ a }}</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>User ID</label>
+        <input v-model="filters.userId" type="number" min="1" placeholder="Optional user id" @keyup.enter="reload" />
+      </div>
+      <div class="field">
+        <label>Start date</label>
+        <input v-model="filters.startDate" type="date" @change="reload" />
+      </div>
+      <div class="field">
+        <label>End date</label>
+        <input v-model="filters.endDate" type="date" @change="reload" />
+      </div>
+      <div class="field">
+        <label>Limit</label>
+        <select v-model.number="pagination.limit" @change="resetAndReload">
+          <option :value="25">25</option>
+          <option :value="50">50</option>
+          <option :value="100">100</option>
+          <option :value="200">200</option>
+        </select>
+      </div>
+      <div class="field field-actions">
+        <button class="btn btn-secondary" :disabled="loading" @click="reload">Refresh</button>
+        <button class="btn btn-primary" :disabled="loading || exporting" @click="exportCsv">
+          {{ exporting ? 'Exporting...' : 'Export CSV' }}
+        </button>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <div v-if="error" class="error-banner">{{ error }}</div>
+      <table class="table">
+        <thead>
+          <tr>
+            <th class="sortable" @click="toggleSort('createdAt')">Timestamp</th>
+            <th>Source</th>
+            <th class="sortable" @click="toggleSort('userName')">User</th>
+            <th class="sortable" @click="toggleSort('userEmail')">Email</th>
+            <th class="sortable" @click="toggleSort('actionType')">Action</th>
+            <th>Client</th>
+            <th>Details</th>
+            <th class="sortable" @click="toggleSort('ipAddress')">IP</th>
+            <th>Session</th>
+            <th>Link</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-if="loading">
+            <td colspan="10" class="empty">Loading…</td>
+          </tr>
+          <tr v-else-if="rows.length === 0">
+            <td colspan="10" class="empty">No activity found for current filters.</td>
+          </tr>
+          <tr v-for="row in rows" :key="row.id">
+            <td>{{ formatDate(row.created_at) }}</td>
+            <td>{{ row.source_label || sourceLabel(row) }}</td>
+            <td>{{ formatUser(row) }}</td>
+            <td>{{ formatUserEmail(row) }}</td>
+            <td><span class="badge">{{ row.action_type }}</span></td>
+            <td>
+              <div>{{ formatClientInitials(row) }}</div>
+              <small v-if="formatClientName(row) !== '-'">{{ formatClientName(row) }}</small>
+            </td>
+            <td>{{ formatDetails(row) }}</td>
+            <td>{{ row.ip_address || '-' }}</td>
+            <td>{{ shortenSession(row.session_id) }}</td>
+            <td>
+              <router-link v-if="buildRowLink(row)" :to="buildRowLink(row)">Open</router-link>
+              <span v-else>-</span>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="footer-bar">
+      <div class="summary">
+        <span>Total: {{ pagination.total }}</span>
+        <span>Showing {{ rows.length }}</span>
+      </div>
+      <div class="pager">
+        <button class="btn btn-secondary" :disabled="loading || pagination.offset === 0" @click="prevPage">Previous</button>
+        <button class="btn btn-secondary" :disabled="loading || !pagination.hasNextPage" @click="nextPage">Next</button>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { computed, onMounted, reactive, ref } from 'vue';
+import { useRoute } from 'vue-router';
+import { useAuthStore } from '../../store/auth';
+import { useAgencyStore } from '../../store/agency';
+import api from '../../services/api';
+
+const authStore = useAuthStore();
+const agencyStore = useAgencyStore();
+const route = useRoute();
+
+const actionOptions = [
+  'login',
+  'logout',
+  'timeout',
+  'password_change',
+  'module_start',
+  'module_end',
+  'module_complete',
+  'intake_approval',
+  'password_reset_link_sent',
+  'note_aid_execute',
+  'agent_assist',
+  'agent_tool_execute',
+  'reset_module',
+  'reset_track',
+  'mark_module_complete',
+  'mark_track_complete',
+  'grant_payroll_access',
+  'revoke_payroll_access',
+  'support_ticket_created',
+  'support_ticket_message',
+  'view_client',
+  'view_client_restricted',
+  'view_client_notes',
+  'create_client_note',
+  'downloaded',
+  'view',
+  'sms_sent',
+  'sms_send_failed',
+  'sms_inbound_received',
+  'sms_opt_in',
+  'sms_opt_out',
+  'sms_thread_deleted',
+  'sms_message_deleted',
+  'outbound_call_started',
+  'outbound_call_failed',
+  'voicemail_listened'
+];
+
+const rows = ref([]);
+const loading = ref(false);
+const exporting = ref(false);
+const error = ref('');
+
+const filters = reactive({
+  source: 'all',
+  search: '',
+  userId: '',
+  actionType: '',
+  startDate: '',
+  endDate: ''
+});
+
+const sort = reactive({
+  sortBy: 'createdAt',
+  sortOrder: 'DESC'
+});
+
+const pagination = reactive({
+  total: 0,
+  limit: 50,
+  offset: 0,
+  hasNextPage: false
+});
+
+const agencyId = computed(() => {
+  const fromStore = agencyStore.currentAgency?.id;
+  if (fromStore) return Number(fromStore);
+  return Number(authStore.user?.agencies?.[0]?.id || 0) || null;
+});
+
+const currentParams = () => ({
+  search: filters.search || undefined,
+  source: filters.source || undefined,
+  userId: filters.userId || undefined,
+  actionType: filters.actionType || undefined,
+  startDate: filters.startDate || undefined,
+  endDate: filters.endDate || undefined,
+  limit: pagination.limit,
+  offset: pagination.offset,
+  sortBy: sort.sortBy,
+  sortOrder: sort.sortOrder
+});
+
+const reload = async () => {
+  if (!agencyId.value) {
+    error.value = 'No agency context found. Select an agency and retry.';
+    rows.value = [];
+    pagination.total = 0;
+    return;
+  }
+  loading.value = true;
+  error.value = '';
+  try {
+    const resp = await api.get(`/activity-log/agency/${agencyId.value}`, { params: currentParams() });
+    rows.value = Array.isArray(resp.data?.items) ? resp.data.items : [];
+    const pg = resp.data?.pagination || {};
+    pagination.total = Number(pg.total || 0);
+    pagination.hasNextPage = !!pg.hasNextPage;
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to load audit activity.';
+    rows.value = [];
+    pagination.total = 0;
+    pagination.hasNextPage = false;
+  } finally {
+    loading.value = false;
+  }
+};
+
+const resetAndReload = async () => {
+  pagination.offset = 0;
+  await reload();
+};
+
+const toggleSort = async (field) => {
+  if (sort.sortBy === field) {
+    sort.sortOrder = sort.sortOrder === 'ASC' ? 'DESC' : 'ASC';
+  } else {
+    sort.sortBy = field;
+    sort.sortOrder = 'DESC';
+  }
+  pagination.offset = 0;
+  await reload();
+};
+
+const nextPage = async () => {
+  pagination.offset += pagination.limit;
+  await reload();
+};
+
+const prevPage = async () => {
+  pagination.offset = Math.max(0, pagination.offset - pagination.limit);
+  await reload();
+};
+
+const exportCsv = async () => {
+  if (!agencyId.value) return;
+  exporting.value = true;
+  error.value = '';
+  try {
+    const response = await api.get(`/activity-log/agency/${agencyId.value}/export.csv`, {
+      params: currentParams(),
+      responseType: 'blob'
+    });
+    const blob = new Blob([response.data], { type: 'text/csv;charset=utf-8;' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `audit-center-${agencyId.value}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to export CSV.';
+  } finally {
+    exporting.value = false;
+  }
+};
+
+const formatDate = (value) => {
+  if (!value) return '-';
+  return new Date(value).toLocaleString();
+};
+
+const formatUser = (row) => {
+  if (row.log_type === 'admin_action') {
+    const actorName = `${row.actor_first_name || ''} ${row.actor_last_name || ''}`.trim();
+    const targetName = `${row.target_first_name || ''} ${row.target_last_name || ''}`.trim();
+    if (actorName && targetName && actorName !== targetName) return `${actorName} -> ${targetName}`;
+    return actorName || targetName || `User #${row.target_user_id || row.actor_user_id || 'unknown'}`;
+  }
+  const name = `${row.user_first_name || ''} ${row.user_last_name || ''}`.trim();
+  return name || `User #${row.user_id || 'unknown'}`;
+};
+
+const formatUserEmail = (row) => {
+  if (row.log_type === 'admin_action') {
+    if (row.actor_email && row.target_email && row.actor_email !== row.target_email) return `${row.actor_email} -> ${row.target_email}`;
+    return row.actor_email || row.target_email || '-';
+  }
+  return row.user_email || '-';
+};
+
+const formatDetails = (row) => {
+  const base = row.module_title ? `Module: ${row.module_title}` : (row.track_name ? `Track: ${row.track_name}` : '');
+  const meta = row.metadata ? JSON.stringify(row.metadata) : '';
+  return [base, meta].filter(Boolean).join(' | ') || '-';
+};
+
+const sourceLabel = (row) => {
+  if (row.log_type === 'admin_action') return 'Admin action';
+  if (row.log_type === 'support_ticket') return 'Support ticket';
+  if (row.log_type === 'client_access') return 'Client access';
+  if (row.log_type === 'phi_document') return 'Document audit';
+  return 'User activity';
+};
+
+const formatClientInitials = (row) => {
+  if (row.client_initials) return row.client_initials;
+  if (row.client_identifier_code) return `#${row.client_identifier_code}`;
+  return '-';
+};
+
+const formatClientName = (row) => {
+  return row.client_full_name || '-';
+};
+
+const buildRowLink = (row) => {
+  const path = String(row.link_path || '').trim();
+  if (!path) return '';
+  const slug = String(route.params.organizationSlug || '').trim();
+  if (slug && path.startsWith('/admin/')) return `/${slug}${path}`;
+  return path;
+};
+
+const shortenSession = (sessionId) => {
+  if (!sessionId) return '-';
+  const s = String(sessionId);
+  return s.length > 10 ? `${s.slice(0, 10)}...` : s;
+};
+
+onMounted(async () => {
+  await reload();
+});
+</script>
+
+<style scoped>
+.audit-center-page { padding: 1rem; }
+.page-header { margin-bottom: 1rem; }
+.subtitle { color: var(--text-secondary); margin: 0.25rem 0 0; }
+.filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.75rem; margin-bottom: 1rem; }
+.field { display: flex; flex-direction: column; gap: 0.3rem; }
+.field input, .field select { padding: 0.45rem 0.55rem; border: 1px solid var(--border); border-radius: 6px; }
+.field-actions { align-self: end; flex-direction: row; gap: 0.5rem; }
+.table-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: auto; }
+.table { width: 100%; border-collapse: collapse; }
+.table th, .table td { padding: 0.6rem; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
+.sortable { cursor: pointer; user-select: none; }
+.empty { text-align: center; color: var(--text-secondary); padding: 1rem; }
+.badge { font-size: 0.8rem; padding: 0.15rem 0.4rem; border: 1px solid var(--border); border-radius: 999px; }
+.footer-bar { display: flex; justify-content: space-between; align-items: center; margin-top: 0.75rem; }
+.summary { display: flex; gap: 1rem; color: var(--text-secondary); }
+.pager { display: flex; gap: 0.5rem; }
+.error-banner { color: #a33; padding: 0.75rem; }
+</style>

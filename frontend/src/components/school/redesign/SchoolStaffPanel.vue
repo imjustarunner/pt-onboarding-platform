@@ -89,8 +89,8 @@ const route = useRoute();
 const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
 
 const canRequest = computed(() => roleNorm.value === 'school_staff');
-const canRemove = computed(() => ['super_admin', 'admin', 'support', 'staff'].includes(roleNorm.value));
-const canManageTickets = computed(() => ['super_admin', 'admin', 'support', 'staff'].includes(roleNorm.value));
+const canRemove = computed(() => ['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus'].includes(roleNorm.value));
+const canManageTickets = computed(() => ['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus'].includes(roleNorm.value));
 
 const ticketsPath = computed(() => {
   const query = `schoolOrganizationId=${encodeURIComponent(props.schoolOrganizationId)}`;

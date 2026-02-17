@@ -13,7 +13,7 @@
     "sync-form-spec": "node src/scripts/syncFormSpec.js",
     "migrate": "node ../database/run-migrations.js",
     "migrate-dry-run": "node ../database/run-migrations.js --dry-run",
-    "migrate-one": "node ../database/run-migrations.js --migration=",
+    "migrate-one": "node ../database/run-migrations.js",
     "seed": "node src/scripts/seedData.js",
     "seed-documents": "node src/scripts/seedDocuments.js",
     "update-admin": "node src/scripts/updateAdminToSuperAdmin.js",

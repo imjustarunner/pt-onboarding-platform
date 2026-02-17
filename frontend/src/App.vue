@@ -153,6 +153,7 @@
                     <router-link :to="orgTo('/admin/learning-billing')" v-if="canSeePayrollManagement && learningBillingNavEnabled" @click="closeAllNavMenus">Learning Billing</router-link>
                     <router-link :to="orgTo('/admin/psychotherapy-compliance')" v-if="canSeePayrollManagement" @click="closeAllNavMenus">Psychotherapy Compliance</router-link>
                     <router-link :to="orgTo('/admin/compliance-corner')" v-if="isTrueAdmin" @click="closeAllNavMenus">Compliance Corner</router-link>
+                    <router-link :to="orgTo('/admin/audit-center')" v-if="isTrueAdmin" @click="closeAllNavMenus">Audit Center</router-link>
                     <router-link :to="orgTo('/admin/expenses')" v-if="canSeePayrollManagement" @click="closeAllNavMenus">Expense/Reimbursements</router-link>
                     <router-link :to="orgTo('/admin/revenue')" v-if="user?.role === 'super_admin'" @click="closeAllNavMenus">Revenue</router-link>
 
@@ -450,6 +451,7 @@
               <router-link :to="orgTo('/admin/payroll')" v-if="canSeePayrollManagement" @click="closeMobileMenu" class="mobile-nav-link">Payroll</router-link>
               <router-link :to="orgTo('/admin/receivables')" v-if="canSeePayrollManagement" @click="closeMobileMenu" class="mobile-nav-link">Receivables</router-link>
               <router-link :to="orgTo('/admin/learning-billing')" v-if="canSeePayrollManagement && learningBillingNavEnabled" @click="closeMobileMenu" class="mobile-nav-link">Learning Billing</router-link>
+              <router-link :to="orgTo('/admin/audit-center')" v-if="isTrueAdmin" @click="closeMobileMenu" class="mobile-nav-link">Audit Center</router-link>
               <router-link :to="orgTo('/admin/expenses')" v-if="canSeePayrollManagement" @click="closeMobileMenu" class="mobile-nav-link">Expense/Reimbursements</router-link>
               <router-link :to="orgTo('/admin/revenue')" v-if="user?.role === 'super_admin'" @click="closeMobileMenu" class="mobile-nav-link">Revenue</router-link>
 

@@ -265,7 +265,7 @@ const abbreviatedName = computed(() => {
 
 const canRunOcr = computed(() => true);
 const isAuthenticated = computed(() => authStore.isAuthenticated);
-const canUseOcr = computed(() => ['super_admin', 'admin', 'staff', 'support'].includes(roleNorm.value));
+const canUseOcr = computed(() => ['super_admin', 'admin', 'staff', 'support', 'clinical_practice_assistant', 'provider_plus'].includes(roleNorm.value));
 const pdfPreviewUrl = computed(() => {
   if (!phiDocumentId.value) return '';
   const base = String(api.defaults?.baseURL || '').replace(/\/+$/, '');

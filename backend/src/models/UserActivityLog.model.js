@@ -1,6 +1,16 @@
 import pool from '../config/database.js';
 
 class UserActivityLog {
+  static parseMetadata(raw) {
+    if (!raw) return null;
+    if (typeof raw === 'object') return raw;
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+
   static async logActivity(activityData) {
     const {
       actionType,
@@ -132,7 +142,7 @@ class UserActivityLog {
       const [rows] = await pool.execute(query, params);
       return rows.map(row => ({
         ...row,
-        metadata: row.metadata ? (typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata) : null
+        metadata: this.parseMetadata(row.metadata)
       }));
     } catch (error) {
       console.error('Error in getActivityLog:', error);
@@ -167,6 +177,124 @@ class UserActivityLog {
 
   static async getActivityForAgency(agencyId, filters = {}) {
     return this.getActivityLog({ ...filters, agencyId });
+  }
+
+  static normalizeSort(sortBy, sortOrder) {
+    const allowlist = {
+      createdAt: 'ual.created_at',
+      actionType: 'ual.action_type',
+      userEmail: 'u.email',
+      userName: 'u.last_name',
+      ipAddress: 'ual.ip_address'
+    };
+    const field = allowlist[String(sortBy || '').trim()] || allowlist.createdAt;
+    const order = String(sortOrder || '').toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+    return { field, order };
+  }
+
+  static buildAgencyActivityWhere(filters = {}) {
+    const {
+      agencyId,
+      userId,
+      actionType,
+      startDate,
+      endDate,
+      search
+    } = filters;
+    const where = ['ual.agency_id = ?'];
+    const params = [agencyId];
+
+    if (userId) {
+      where.push('ual.user_id = ?');
+      params.push(userId);
+    }
+    if (actionType) {
+      where.push('ual.action_type = ?');
+      params.push(String(actionType));
+    }
+    if (startDate) {
+      const startDateTime = String(startDate).includes(' ') ? String(startDate) : `${startDate} 00:00:00`;
+      where.push('ual.created_at >= ?');
+      params.push(startDateTime);
+    }
+    if (endDate) {
+      const endDateTime = String(endDate).includes(' ') ? String(endDate) : `${endDate} 23:59:59`;
+      where.push('ual.created_at <= ?');
+      params.push(endDateTime);
+    }
+    if (search) {
+      const like = `%${String(search).trim().toLowerCase()}%`;
+      where.push(`(
+        LOWER(COALESCE(u.email, '')) LIKE ? OR
+        LOWER(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))) LIKE ? OR
+        LOWER(COALESCE(ual.action_type, '')) LIKE ? OR
+        LOWER(COALESCE(CAST(ual.metadata AS CHAR), '')) LIKE ? OR
+        LOWER(COALESCE(ual.ip_address, '')) LIKE ? OR
+        LOWER(COALESCE(ual.session_id, '')) LIKE ?
+      )`);
+      params.push(like, like, like, like, like, like);
+    }
+
+    return { where: where.join(' AND '), params };
+  }
+
+  static async getAgencyActivityLog(filters = {}) {
+    const {
+      agencyId,
+      limit = 50,
+      offset = 0,
+      sortBy = 'createdAt',
+      sortOrder = 'DESC'
+    } = filters;
+    const limitValue = Math.max(1, Math.min(parseInt(limit, 10) || 50, 500));
+    const offsetValue = Math.max(0, parseInt(offset, 10) || 0);
+    const { field, order } = this.normalizeSort(sortBy, sortOrder);
+    const { where, params } = this.buildAgencyActivityWhere(filters);
+
+    const [rows] = await pool.execute(
+      `SELECT ual.id,
+              ual.action_type,
+              ual.user_id,
+              ual.ip_address,
+              ual.user_agent,
+              ual.session_id,
+              ual.agency_id,
+              ual.metadata,
+              ual.created_at,
+              ual.duration_seconds,
+              ual.module_id,
+              u.email as user_email,
+              u.first_name as user_first_name,
+              u.last_name as user_last_name,
+              a.name as agency_name,
+              m.title as module_title
+       FROM user_activity_log ual
+       LEFT JOIN users u ON ual.user_id = u.id
+       LEFT JOIN agencies a ON ual.agency_id = a.id
+       LEFT JOIN modules m ON ual.module_id = m.id
+       WHERE ${where}
+       ORDER BY ${field} ${order}, ual.id DESC
+       LIMIT ${limitValue}
+       OFFSET ${offsetValue}`,
+      params
+    );
+
+    return (rows || []).map((row) => ({
+      ...row,
+      metadata: this.parseMetadata(row.metadata)
+    }));
+  }
+
+  static async countAgencyActivityLog(filters = {}) {
+    const { where, params } = this.buildAgencyActivityWhere(filters);
+    const [rows] = await pool.execute(
+      `SELECT COUNT(*) AS total
+       FROM user_activity_log ual
+       LEFT JOIN users u ON ual.user_id = u.id
+       WHERE ${where}`,
+      params
+    );
+    return Number(rows?.[0]?.total || 0);
   }
 
   /**

@@ -801,6 +801,33 @@ app.listen(PORT, HOST, () => {
     setInterval(scheduleIntakeRetentionCleanup, 24 * 60 * 60 * 1000);
   }, getMsUntilMidnight() + (2.5 * 60 * 60 * 1000));
 
+  // Audit cold-storage lifecycle: export older rows to object storage and prune hot tables.
+  // Runs daily at 3:15 AM; exports are chunked by source table.
+  const scheduleAuditColdStorage = async () => {
+    try {
+      const AuditColdStorageService = (await import('./services/auditColdStorage.service.js')).default;
+      const result = await AuditColdStorageService.run();
+      if (result?.enabled && Number(result?.exported || 0) > 0) {
+        console.log(`[audit_cold_storage] exported ${result.exported} rows, deleted ${result.deleted || 0} rows from hot tables`);
+      }
+    } catch (error) {
+      if (error.code === 'ER_NO_SUCH_TABLE') {
+        console.warn('Audit cold-storage metadata table not found. Run migration 439_create_audit_cold_storage_exports.sql');
+      } else {
+        console.error('Error in audit cold-storage scheduler:', error);
+      }
+    }
+  };
+
+  // Run once on startup (best-effort)
+  scheduleAuditColdStorage();
+
+  // Schedule daily at 3:15 AM
+  setTimeout(() => {
+    scheduleAuditColdStorage();
+    setInterval(scheduleAuditColdStorage, 24 * 60 * 60 * 1000);
+  }, getMsUntilMidnight() + (3.25 * 60 * 60 * 1000));
+
   // Set up periodic processing of pending user auto-completion
   // Run every hour to check for pending users who should be auto-completed
   setInterval(async () => {
