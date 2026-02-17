@@ -73,6 +73,16 @@ const isAnyLoginEmailDomainAllowed = ({ loginEmails, featureFlags }) => {
     return !!domain && allowedDomains.includes(domain);
   });
 };
+const getUserLoginIdentifiers = async (userId) => {
+  if (!userId) return [];
+  try {
+    const UserLoginEmail = (await import('../models/UserLoginEmail.model.js')).default;
+    const aliases = await UserLoginEmail.listForUser(userId);
+    return (aliases || []).map((r) => r?.email).filter(Boolean);
+  } catch {
+    return [];
+  }
+};
 const isWorkspaceEligibleForSso = ({ user, identifier, featureFlags, identifierUsedToFindUser, loginIdentifiers }) => {
   const normalizedIdentifier = String(identifier || '').trim().toLowerCase();
   const userRole = String(user?.role || '').toLowerCase();
@@ -89,16 +99,24 @@ const isWorkspaceEligibleForSso = ({ user, identifier, featureFlags, identifierU
   ].filter(Boolean));
   if (!validIds.has(normalizedIdentifier)) return false;
 
+  const loginEmails = [
+    user?.email,
+    user?.work_email,
+    ...(loginIdentifiers || []).filter((e) => e && String(e).includes('@'))
+  ].filter(Boolean);
+
   // Domain check: the identifier they entered must match allowed domain. Prevents SSO with personal@gmail.com etc.
   if (normalizedIdentifier.includes('@')) {
-    if (!isDomainAllowedForOrg({ email: normalizedIdentifier, featureFlags })) return false;
+    // If the entered login alias domain is not allowlisted, still allow Google when
+    // another valid login email on this account is allowlisted for the org.
+    if (
+      !isDomainAllowedForOrg({ email: normalizedIdentifier, featureFlags }) &&
+      !isAnyLoginEmailDomainAllowed({ loginEmails, featureFlags })
+    ) {
+      return false;
+    }
   } else {
     // Username (no @): check if their login emails have an allowed domain; personal_email is excluded.
-    const loginEmails = [
-      user?.email,
-      user?.work_email,
-      ...(loginIdentifiers || []).filter((e) => e && String(e).includes('@'))
-    ].filter(Boolean);
     if (!isAnyLoginEmailDomainAllowed({ loginEmails, featureFlags })) return false;
   }
   return true;
@@ -336,7 +354,8 @@ export const login = async (req, res, next) => {
       try {
         const org = (await Agency.findBySlug(orgSlug)) || (await Agency.findByPortalUrl(orgSlug));
         const featureFlags = parseFeatureFlags(org?.feature_flags ?? null);
-        if (isWorkspaceEligibleForSso({ user, identifier, featureFlags })) {
+        const loginIdentifiers = await getUserLoginIdentifiers(user?.id);
+        if (isWorkspaceEligibleForSso({ user, identifier, featureFlags, identifierUsedToFindUser: identifier, loginIdentifiers })) {
           return res.status(403).json({
             error: {
               message: 'This organization requires Google sign-in. Please continue with Google.',
@@ -859,15 +878,7 @@ export const identifyLogin = async (req, res, next) => {
         const loginIdentifiers = [
           user?.email,
           user?.work_email,
-          ...(await (async () => {
-            try {
-              const UserLoginEmail = (await import('../models/UserLoginEmail.model.js')).default;
-              const aliases = await UserLoginEmail.listForUser(user.id);
-              return (aliases || []).map((r) => r?.email).filter(Boolean);
-            } catch {
-              return [];
-            }
-          })())
+          ...(await getUserLoginIdentifiers(user?.id))
         ].filter(Boolean);
         if (isWorkspaceEligibleForSso({ user, identifier: normalizedUsername, featureFlags: flags, identifierUsedToFindUser: normalizedUsername, loginIdentifiers })) {
           loginMethod = 'google';

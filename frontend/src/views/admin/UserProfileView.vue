@@ -4073,6 +4073,7 @@ const saveAccount = async () => {
   
   try {
     saving.value = true;
+    let credentialSaveWarning = '';
     const updateData = {
       email: accountForm.value.email,
       firstName: accountForm.value.firstName,
@@ -4136,13 +4137,19 @@ const saveAccount = async () => {
         const v = String(accountForm.value.credential || '').trim();
         await api.put(`/users/${userId.value}/user-info/${providerCredentialFieldId.value}`, { value: v || null });
       } catch (e) {
+        credentialSaveWarning = e?.response?.data?.error?.message || 'Failed to save credential field.';
         console.error('Failed to save credential:', e);
       }
+    } else if (providerCredentialLoaded.value && String(accountForm.value.credential || '').trim()) {
+      credentialSaveWarning = 'Credential field is not configured for this user, so the credential value was not saved.';
     }
 
     // Always fetch fresh user data to ensure all fields are up to date
     await fetchUser();
     isEditingAccount.value = false;
+    if (credentialSaveWarning) {
+      alert(`Account updated, but credential update did not save: ${credentialSaveWarning}`);
+    }
   } catch (err) {
     const status = err?.response?.status;
     const data = err?.response?.data;
