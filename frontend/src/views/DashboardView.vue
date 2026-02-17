@@ -1168,7 +1168,10 @@ const loadSupervisionPrompts = async () => {
   try {
     const params = {};
     if (currentAgencyId.value) params.agencyId = Number(currentAgencyId.value);
-    const resp = await api.get('/supervision/my-prompts', { params });
+    const resp = await api.get('/supervision/my-prompts', {
+      params,
+      skipGlobalLoading: true
+    });
     supervisionPromptRows.value = Array.isArray(resp.data?.prompts) ? resp.data.prompts : [];
   } catch {
     supervisionPromptRows.value = [];
@@ -1183,7 +1186,10 @@ const loadPresenterAssignments = async () => {
   try {
     const params = {};
     if (currentAgencyId.value) params.agencyId = Number(currentAgencyId.value);
-    const resp = await api.get('/supervision/my-presenter-assignments', { params });
+    const resp = await api.get('/supervision/my-presenter-assignments', {
+      params,
+      skipGlobalLoading: true
+    });
     presenterAssignmentRows.value = Array.isArray(resp.data?.assignments) ? resp.data.assignments : [];
   } catch {
     presenterAssignmentRows.value = [];
