@@ -645,7 +645,7 @@ app.use((err, req, res, next) => {
     const enumColumnMatch = sqlMessage.match(/column '([^']+)'/i);
     const enumColumn = enumColumnMatch?.[1] || null;
     const enumHint = enumColumn === 'document_type'
-      ? 'Invalid document type enum value. Run the latest DB migrations (including migration 417 for audio_recording_consent).'
+      ? 'Invalid document type enum value. Run the latest DB migrations (including migrations 417 and 440 for document type expansions).'
       : enumColumn === 'document_action_type'
         ? 'Invalid document action type enum value. Run the latest DB migrations to expand supported action types.'
         : 'Invalid enum value provided. Run the latest DB migrations to expand supported values.';

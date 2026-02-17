@@ -239,6 +239,7 @@
               <option value="authorization">Authorization</option>
               <option value="agreement">Agreement</option>
               <option value="audio_recording_consent">Audio Recording Consent</option>
+              <option value="hipaa_security">HIPAA Security</option>
               <option value="compliance">Compliance</option>
               <option value="disclosure">Disclosure</option>
               <option value="consent">Consent</option>
@@ -633,6 +634,7 @@ const formatDocumentType = (type) => {
     authorization: 'Authorization',
     agreement: 'Agreement',
     audio_recording_consent: 'Audio Recording Consent',
+    hipaa_security: 'HIPAA Security',
     compliance: 'Compliance',
     disclosure: 'Disclosure',
     consent: 'Consent',
