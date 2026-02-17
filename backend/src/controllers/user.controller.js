@@ -3404,7 +3404,7 @@ export const sendInitialSetupLink = async (req, res, next) => {
 
     const config = (await import('../config/config.js')).default;
     const frontendBase = (config.frontendUrl || '').replace(/\/$/, '');
-    const userAgencies = await User.getAgencies(userId);
+    const userAgencies = await User.getAgencies(user.id);
     const portalSlug = userAgencies?.[0]?.portal_url || userAgencies?.[0]?.slug || null;
     const link = portalSlug
       ? `${frontendBase}/${portalSlug}/passwordless-login/${tokenResult.token}`
@@ -3448,7 +3448,7 @@ export const resendSetupLink = async (req, res, next) => {
 
     const config = (await import('../config/config.js')).default;
     const frontendBase = (config.frontendUrl || '').replace(/\/$/, '');
-    const userAgencies = await User.getAgencies(userId);
+    const userAgencies = await User.getAgencies(user.id);
     const portalSlug = userAgencies?.[0]?.portal_url || userAgencies?.[0]?.slug || null;
     const link = portalSlug
       ? `${frontendBase}/${portalSlug}/passwordless-login/${tokenResult.token}`
@@ -4643,7 +4643,7 @@ export const createCurrentEmployee = async (req, res, next) => {
     // Generate passwordless token for password setup (48 hours expiration)
     const passwordlessTokenResult = await User.generatePasswordlessToken(user.id, 48);
     const frontendBase = ((await import('../config/config.js')).default.frontendUrl || '').replace(/\/$/, '');
-    const userAgencies = await User.getAgencies(userId);
+    const userAgencies = await User.getAgencies(user.id);
     const portalSlug = userAgencies?.[0]?.portal_url || userAgencies?.[0]?.slug || null;
     const passwordlessTokenLink = portalSlug
       ? `${frontendBase}/${portalSlug}/passwordless-login/${passwordlessTokenResult.token}`
