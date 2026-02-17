@@ -8090,7 +8090,9 @@ export const runPayrollPeriod = async (req, res, next) => {
         });
       }
     } catch (e) {
-      if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+      // Best-effort only: older environments may miss one or more supervision-conflict
+      // tables/columns while migrations roll out. Do not block payroll runs on that.
+      if (e?.code !== 'ER_NO_SUCH_TABLE' && e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
     }
 
     // Block running payroll if H0031/H0032 rows requiring minutes are not processed.
