@@ -879,25 +879,25 @@ const routes = [
     path: '/admin/support-tickets',
     name: 'SupportTicketsQueue',
     component: () => import('../views/admin/SupportTicketsQueueView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin'] }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin', 'clinical_practice_assistant'] }
   },
   {
     path: '/:organizationSlug/admin/support-tickets',
     name: 'OrganizationSupportTicketsQueueLegacy',
     redirect: (to) => `/${to.params.organizationSlug}/tickets`,
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin'], organizationSlug: true }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin', 'clinical_practice_assistant'], organizationSlug: true }
   },
   {
     path: '/tickets',
     name: 'TicketsQueue',
     component: () => import('../views/admin/SupportTicketsQueueView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin'] }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin', 'clinical_practice_assistant'] }
   },
   {
     path: '/:organizationSlug/tickets',
     name: 'OrganizationTicketsQueue',
     component: () => import('../views/admin/SupportTicketsQueueView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin'] }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin', 'clinical_practice_assistant'] }
   },
   {
     path: '/admin/faqs',

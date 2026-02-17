@@ -398,7 +398,13 @@ const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
 const myUserId = authStore.user?.id || null;
 const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
-const canAssignOthers = computed(() => roleNorm.value === 'admin' || roleNorm.value === 'support' || roleNorm.value === 'super_admin');
+const canAssignOthers = computed(() => (
+  roleNorm.value === 'admin' ||
+  roleNorm.value === 'support' ||
+  roleNorm.value === 'super_admin' ||
+  roleNorm.value === 'clinical_practice_assistant' ||
+  roleNorm.value === 'provider_plus'
+));
 const claimLabel = computed(() => (roleNorm.value === 'school_staff' || roleNorm.value === 'staff' ? 'Assign to me' : 'Claim'));
 
 const tickets = ref([]);
