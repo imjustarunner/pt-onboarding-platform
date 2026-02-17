@@ -4,6 +4,34 @@ import { parseUsAddressLoose } from '../utils/addressParsing.js';
 import { formOptionSources } from '../config/formOptionSources.js';
 
 class UserInfoValue {
+  static _usersCredentialColumnExists = null;
+
+  static async _hasUsersCredentialColumn() {
+    if (this._usersCredentialColumnExists !== null) return this._usersCredentialColumnExists;
+    try {
+      const dbName = process.env.DB_NAME || 'onboarding_stage';
+      const [rows] = await pool.execute(
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME = 'credential' LIMIT 1",
+        [dbName]
+      );
+      this._usersCredentialColumnExists = (rows || []).length > 0;
+    } catch {
+      this._usersCredentialColumnExists = false;
+    }
+    return this._usersCredentialColumnExists;
+  }
+
+  static async _syncUsersCredentialColumn({ userId, fieldKey, value }) {
+    if (String(fieldKey || '').trim() !== 'provider_credential') return;
+    const hasColumn = await this._hasUsersCredentialColumn();
+    if (!hasColumn) return;
+    const normalized = value === null || value === undefined ? null : (String(value).trim() || null);
+    await pool.execute(
+      'UPDATE users SET credential = ? WHERE id = ? LIMIT 1',
+      [normalized, Number(userId)]
+    );
+  }
+
   static async _getFieldKeyForDefinitionId(fieldDefinitionId) {
     const id = Number(fieldDefinitionId);
     if (!Number.isInteger(id) || id <= 0) return '';
@@ -118,6 +146,7 @@ class UserInfoValue {
         'UPDATE user_info_values SET value = ? WHERE user_id = ? AND field_definition_id = ?',
         [value, userId, fieldDefinitionId]
       );
+      await this._syncUsersCredentialColumn({ userId, fieldKey: fk, value });
       // Ensure we don't retain duplicate values for the same logical field_key.
       await this._dedupeByFieldKeyKeepDefinition({ userId, fieldKey: fk, keepFieldDefinitionId: fieldDefinitionId });
       return this.findByUserAndField(userId, fieldDefinitionId);
@@ -127,6 +156,7 @@ class UserInfoValue {
         'INSERT INTO user_info_values (user_id, field_definition_id, value) VALUES (?, ?, ?)',
         [userId, fieldDefinitionId, value]
       );
+      await this._syncUsersCredentialColumn({ userId, fieldKey: fk, value });
       
       // Ensure we don't retain duplicate values for the same logical field_key.
       await this._dedupeByFieldKeyKeepDefinition({ userId, fieldKey: fk, keepFieldDefinitionId: fieldDefinitionId });

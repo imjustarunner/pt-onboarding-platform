@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { isBachelorsCredentialText } from '../utils/credentialNormalization.js';
 
 function normalizeMultiSelect(raw) {
   if (raw === null || raw === undefined) return [];
@@ -13,19 +14,6 @@ function normalizeMultiSelect(raw) {
   }
   // fallback: comma-separated
   return s.split(',').map((x) => x.trim()).filter(Boolean);
-}
-
-function isBachelorsCredentialText(raw) {
-  const s = String(raw ?? '').trim();
-  if (!s) return false;
-  const lower = s.toLowerCase();
-  if (lower.includes('bachelor')) return true;
-  // Look for BA/BS tokens as standalone words
-  if (/\bba\b/i.test(s)) return true;
-  if (/\bbs\b/i.test(s)) return true;
-  if (/\bb\.a\.\b/i.test(lower)) return true;
-  if (/\bb\.s\.\b/i.test(lower)) return true;
-  return false;
 }
 
 class ProviderSearchIndex {

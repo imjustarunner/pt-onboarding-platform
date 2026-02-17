@@ -90,7 +90,7 @@ class User {
       // This is more reliable, especially with connection pooling and Unix sockets
       const dbName = process.env.DB_NAME || 'onboarding_stage';
       const [columns] = await pool.execute(
-        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('work_email', 'personal_email', 'username', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'personal_phone', 'work_phone', 'work_phone_extension', 'sso_password_override')",
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('work_email', 'personal_email', 'username', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'personal_phone', 'work_phone', 'work_phone_extension', 'credential', 'sso_password_override')",
         [dbName]
       );
       const existingColumns = columns.map(c => c.COLUMN_NAME);
@@ -104,6 +104,7 @@ class User {
       if (existingColumns.includes('personal_phone')) query += ', personal_phone';
       if (existingColumns.includes('work_phone')) query += ', work_phone';
       if (existingColumns.includes('work_phone_extension')) query += ', work_phone_extension';
+      if (existingColumns.includes('credential')) query += ', credential';
       if (existingColumns.includes('sso_password_override')) query += ', sso_password_override';
     } catch (err) {
       // If we can't check columns, just use the base query
@@ -165,7 +166,7 @@ class User {
     try {
       const dbName = process.env.DB_NAME || 'onboarding_stage';
       const [columns] = await pool.execute(
-        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('work_email', 'personal_email', 'username', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'personal_phone', 'work_phone', 'work_phone_extension', 'sso_password_override')",
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('work_email', 'personal_email', 'username', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'personal_phone', 'work_phone', 'work_phone_extension', 'credential', 'sso_password_override')",
         [dbName]
       );
       const existingColumns = columns.map(c => c.COLUMN_NAME);
@@ -178,6 +179,7 @@ class User {
       if (existingColumns.includes('personal_phone')) query += ', personal_phone';
       if (existingColumns.includes('work_phone')) query += ', work_phone';
       if (existingColumns.includes('work_phone_extension')) query += ', work_phone_extension';
+      if (existingColumns.includes('credential')) query += ', credential';
       if (existingColumns.includes('sso_password_override')) query += ', sso_password_override';
     } catch (err) {
       console.warn('Could not check for columns:', err.message);
@@ -220,7 +222,7 @@ class User {
       // Use explicit database name from environment variable instead of DATABASE() function
       const dbName = process.env.DB_NAME || 'onboarding_stage';
       const [columns] = await pool.execute(
-        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('work_email', 'personal_email', 'has_supervisor_privileges', 'personal_phone', 'work_phone', 'work_phone_extension')",
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('work_email', 'personal_email', 'has_supervisor_privileges', 'personal_phone', 'work_phone', 'work_phone_extension', 'credential')",
         [dbName]
       );
       const existingColumns = columns.map(c => c.COLUMN_NAME);
@@ -232,6 +234,7 @@ class User {
       if (existingColumns.includes('personal_phone')) query += ', personal_phone';
       if (existingColumns.includes('work_phone')) query += ', work_phone';
       if (existingColumns.includes('work_phone_extension')) query += ', work_phone_extension';
+      if (existingColumns.includes('credential')) query += ', credential';
     } catch (err) {
       // If we can't check columns, just use the base query
       console.warn('Could not check for email columns:', err.message);
@@ -289,7 +292,7 @@ class User {
     try {
       const dbName = process.env.DB_NAME || 'onboarding_stage';
       const [columns] = await pool.execute(
-        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('pending_completed_at', 'pending_auto_complete_at', 'pending_identity_verified', 'pending_access_locked', 'pending_completion_notified', 'work_email', 'personal_email', 'preferred_name', 'username', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'has_hiring_access', 'provider_accepting_new_clients', 'personal_phone', 'work_phone', 'work_phone_extension', 'system_phone_number', 'home_street_address', 'home_address_line2', 'home_city', 'home_state', 'home_postal_code', 'medcancel_enabled', 'medcancel_rate_schedule', 'company_card_enabled', 'profile_photo_path', 'password_changed_at', 'title', 'service_focus', 'skill_builder_eligible', 'has_skill_builder_coordinator_access', 'skill_builder_confirm_required_next_login', 'is_hourly_worker', 'sso_password_override')",
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('pending_completed_at', 'pending_auto_complete_at', 'pending_identity_verified', 'pending_access_locked', 'pending_completion_notified', 'work_email', 'personal_email', 'preferred_name', 'username', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'has_hiring_access', 'provider_accepting_new_clients', 'personal_phone', 'work_phone', 'work_phone_extension', 'system_phone_number', 'home_street_address', 'home_address_line2', 'home_city', 'home_state', 'home_postal_code', 'medcancel_enabled', 'medcancel_rate_schedule', 'company_card_enabled', 'profile_photo_path', 'password_changed_at', 'title', 'service_focus', 'credential', 'skill_builder_eligible', 'has_skill_builder_coordinator_access', 'skill_builder_confirm_required_next_login', 'is_hourly_worker', 'sso_password_override')",
         [dbName]
       );
       const existingColumns = columns.map(c => c.COLUMN_NAME);
@@ -322,6 +325,7 @@ class User {
       if (existingColumns.includes('profile_photo_path')) query += ', profile_photo_path';
       if (existingColumns.includes('title')) query += ', title';
       if (existingColumns.includes('service_focus')) query += ', service_focus';
+      if (existingColumns.includes('credential')) query += ', credential';
       if (existingColumns.includes('skill_builder_eligible')) query += ', skill_builder_eligible';
       if (existingColumns.includes('has_skill_builder_coordinator_access')) query += ', has_skill_builder_coordinator_access';
       if (existingColumns.includes('skill_builder_confirm_required_next_login')) query += ', skill_builder_confirm_required_next_login';
@@ -631,6 +635,7 @@ class User {
       personalEmail,
       title,
       serviceFocus,
+      credential,
       firstName,
       lastName,
       role,
@@ -785,6 +790,19 @@ class User {
         if (columns.length > 0) {
           updates.push('service_focus = ?');
           values.push(serviceFocus ? String(serviceFocus).trim() : null);
+        }
+      } catch {
+        // ignore (older DBs)
+      }
+    }
+    if (credential !== undefined) {
+      try {
+        const [columns] = await pool.execute(
+          "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'credential'"
+        );
+        if (columns.length > 0) {
+          updates.push('credential = ?');
+          values.push(credential ? String(credential).trim() : null);
         }
       } catch {
         // ignore (older DBs)

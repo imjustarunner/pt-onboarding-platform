@@ -249,6 +249,9 @@
                   <small class="form-help">
                     Used for classification/display. This does not change permissions.
                   </small>
+                  <small class="form-help" style="display:block; margin-top: 6px;">
+                    Normalized credential tier preview: <strong>{{ credentialTierPreviewLabel }}</strong>
+                  </small>
                 </div>
                 </div>
                 
@@ -2825,7 +2828,8 @@ const saveSchoolAffiliation = async () => {
   }
 };
 
-// Provider credential (classification) stored in user_info_values (field_key: provider_credential)
+// Provider credential source of truth is users.credential.
+// Keep a legacy field id fallback while older environments migrate.
 const providerCredentialFieldId = ref(null);
 const providerCredentialLoaded = ref(false);
 
@@ -2849,6 +2853,64 @@ const canToggleSupervisorPrivileges = computed(() => {
   // Supervisors are represented by this boolean; "provider + supervisor privileges" is the preferred model.
   const eligibleRoles = ['provider', 'admin', 'super_admin', 'clinical_practice_assistant'];
   return eligibleRoles.includes(role);
+});
+
+const containsAnyCredentialToken = (raw, tokens) => {
+  const upper = String(raw ?? '').trim().toUpperCase();
+  return (tokens || []).some((t) => upper.includes(String(t || '').toUpperCase()));
+};
+
+const isBachelorsCredentialText = (raw) => {
+  const s = String(raw ?? '').trim();
+  if (!s) return false;
+  const lower = s.toLowerCase();
+  if (lower.includes('bachelor')) return true;
+  if (/\bba\b/i.test(s)) return true;
+  if (/\bbs\b/i.test(s)) return true;
+  if (/\bb\.a\.\b/i.test(lower)) return true;
+  if (/\bb\.s\.\b/i.test(lower)) return true;
+  return false;
+};
+
+const credentialTierPreview = computed(() => {
+  const role = String(accountForm.value?.role || '').trim().toLowerCase();
+  const credentialText = String(accountForm.value?.credential || '').trim();
+
+  if (role === 'intern') return 'intern_plus';
+  if (role === 'qbha' || role === 'clinical_practice_assistant') return 'qbha';
+
+  if (containsAnyCredentialToken(credentialText, ['QBHA', 'QUALIFIED BEHAVIORAL HEALTH ASSISTANT'])) return 'qbha';
+  if (containsAnyCredentialToken(credentialText, [
+    'INTERN',
+    'UNLICENSED',
+    'PRE-LICENSED',
+    'PRELICENSED',
+    'LPCC',
+    'LSW',
+    'SWC',
+    'MFTC',
+    'LAC',
+    'EDD',
+    'PHD',
+    'PSYD',
+    'LMFT',
+    'LPC',
+    'LCSW',
+    'MFT',
+    'LICENSED'
+  ])) {
+    return 'intern_plus';
+  }
+  if (isBachelorsCredentialText(credentialText)) return 'bachelors';
+  return 'unknown';
+});
+
+const credentialTierPreviewLabel = computed(() => {
+  const tier = String(credentialTierPreview.value || 'unknown');
+  if (tier === 'intern_plus') return 'Intern+ (intern/unlicensed/licensed)';
+  if (tier === 'bachelors') return 'Bachelors';
+  if (tier === 'qbha') return 'QBHA';
+  return 'Unknown (defaults to QBHA-safe rules where applicable)';
 });
 
 // Payroll access toggle: show for staff/provider/etc., not for admin/super_admin (they have payroll by role).
@@ -3376,7 +3438,7 @@ const fetchUser = async () => {
       externalBusyIcsUrl: String(user.value.external_busy_ics_url || '').trim(),
       role: currentRole,
       hasSupervisorPrivileges: currentHasSupervisorPrivileges || String(currentRoleRaw || '').trim().toLowerCase() === 'supervisor',
-      credential: accountForm.value?.credential || '',
+      credential: user.value.credential ?? accountForm.value?.credential ?? '',
       hasProviderAccess: user.value.has_provider_access === true || user.value.has_provider_access === 1 || user.value.has_provider_access === '1' || false,
       hasStaffAccess: user.value.has_staff_access === true || user.value.has_staff_access === 1 || user.value.has_staff_access === '1' || false,
       hasPayrollAccess: accountInfo.value?.hasPayrollAccess === true || accountForm.value?.hasPayrollAccess || false,
@@ -3407,6 +3469,14 @@ const fetchUser = async () => {
 
 const fetchProviderCredential = async () => {
   try {
+    // Primary source is users.credential from /users/:id.
+    const existing = String(accountForm.value?.credential || '').trim();
+    if (existing) {
+      providerCredentialLoaded.value = true;
+      return;
+    }
+
+    // Backward-compatible fallback for environments still storing this in user_info_values.
     const res = await api.get(`/users/${userId.value}/user-info`);
     const rows = Array.isArray(res.data) ? res.data : [];
     const field = rows.find((f) => String(f?.field_key || '').toLowerCase() === 'provider_credential')
@@ -4074,6 +4144,7 @@ const saveAccount = async () => {
   try {
     saving.value = true;
     let credentialSaveWarning = '';
+    const credentialText = String(accountForm.value.credential || '').trim();
     const updateData = {
       email: accountForm.value.email,
       firstName: accountForm.value.firstName,
@@ -4097,6 +4168,7 @@ const saveAccount = async () => {
       hasPayrollAccess: Boolean(accountForm.value.hasPayrollAccess),
       isHourlyWorker: Boolean(accountForm.value.isHourlyWorker),
       hasHiringAccess: Boolean(accountForm.value.hasHiringAccess),
+      credential: credentialText || null,
       role: accountForm.value.role
     };
 
@@ -4131,17 +4203,18 @@ const saveAccount = async () => {
     pendingAccountUpdate.value = updateData;
     const response = await api.put(`/users/${userId.value}`, updateData);
 
-    // Save credential (user info field) if present
-    if (providerCredentialFieldId.value) {
+    // Backward-compatible fallback:
+    // if backend response does not include users.credential yet, persist via legacy user-info.
+    const backendSupportsCredentialColumn = Object.prototype.hasOwnProperty.call(response?.data || {}, 'credential');
+    if (!backendSupportsCredentialColumn && providerCredentialFieldId.value) {
       try {
-        const v = String(accountForm.value.credential || '').trim();
-        await api.put(`/users/${userId.value}/user-info/${providerCredentialFieldId.value}`, { value: v || null });
+        await api.put(`/users/${userId.value}/user-info/${providerCredentialFieldId.value}`, { value: credentialText || null });
       } catch (e) {
         credentialSaveWarning = e?.response?.data?.error?.message || 'Failed to save credential field.';
         console.error('Failed to save credential:', e);
       }
-    } else if (providerCredentialLoaded.value && String(accountForm.value.credential || '').trim()) {
-      credentialSaveWarning = 'Credential field is not configured for this user, so the credential value was not saved.';
+    } else if (!backendSupportsCredentialColumn && credentialText) {
+      credentialSaveWarning = 'Credential column is not available in this environment, so the credential value could not be saved.';
     }
 
     // Always fetch fresh user data to ensure all fields are up to date

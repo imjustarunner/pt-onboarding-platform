@@ -127,6 +127,21 @@ async function requireClinicalNoteGeneratorEnabled(req, res, agencyId) {
 async function getProviderCredentialTextForUserId(userId) {
   const uid = safeInt(userId);
   if (!uid) return null;
+  // Prefer hard users.credential column when available.
+  try {
+    const [rows] = await pool.execute(
+      `SELECT credential
+       FROM users
+       WHERE id = ?
+       LIMIT 1`,
+      [uid]
+    );
+    const v = rows?.[0]?.credential ?? null;
+    if (v !== null && v !== undefined && String(v).trim()) return String(v);
+  } catch {
+    // Older DBs may not have users.credential yet; fall back below.
+  }
+
   try {
     const [rows] = await pool.execute(
       `SELECT uiv.value
@@ -150,20 +165,7 @@ async function getProviderCredentialTextForUserId(userId) {
     if (!missing) throw e;
   }
 
-  // Fallback for environments that store credential directly on users table.
-  try {
-    const [rows] = await pool.execute(
-      `SELECT provider_credential
-       FROM users
-       WHERE id = ?
-       LIMIT 1`,
-      [uid]
-    );
-    const v = rows?.[0]?.provider_credential ?? null;
-    return v === null || v === undefined ? null : String(v);
-  } catch {
-    return null;
-  }
+  return null;
 }
 
 function normalizeAudioFile(file) {

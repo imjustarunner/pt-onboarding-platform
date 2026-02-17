@@ -134,6 +134,26 @@ async function attachAffiliationMeta(orgs) {
   return list;
 }
 
+async function syncLegacyProviderCredentialValue(userId, rawCredential) {
+  const uid = Number(userId);
+  if (!Number.isInteger(uid) || uid <= 0) return;
+  try {
+    const [defs] = await pool.execute(
+      `SELECT id
+       FROM user_info_field_definitions
+       WHERE field_key = 'provider_credential'
+       ORDER BY (is_platform_template = TRUE) DESC, (agency_id IS NULL) DESC, id ASC
+       LIMIT 1`
+    );
+    const fieldDefinitionId = Number(defs?.[0]?.id || 0);
+    if (!Number.isInteger(fieldDefinitionId) || fieldDefinitionId <= 0) return;
+    const v = rawCredential === null || rawCredential === undefined ? null : (String(rawCredential).trim() || null);
+    await UserInfoValue.createOrUpdate(uid, fieldDefinitionId, v);
+  } catch {
+    // Legacy field sync is best-effort.
+  }
+}
+
 export const getCurrentUser = async (req, res, next) => {
   try {
     // Approved employee tokens do not have a users-table record.
@@ -461,6 +481,24 @@ export const getAllUsers = async (req, res, next) => {
         const ids = users.map((u) => parseInt(u.id, 10)).filter(Boolean);
         if (ids.length > 0) {
           const placeholders = ids.map(() => '?').join(',');
+          const usersCredentialById = new Map();
+
+          // Prefer the hard users.credential column when available.
+          try {
+            const [rows] = await pool.execute(
+              `SELECT id, credential
+               FROM users
+               WHERE id IN (${placeholders})`,
+              ids
+            );
+            for (const r of rows || []) {
+              const value = String(r?.credential || '').trim();
+              if (value) usersCredentialById.set(Number(r.id), value);
+            }
+          } catch {
+            // Older DB without users.credential; fall back to user_info_values below.
+          }
+
           const [rows] = await pool.execute(
             `SELECT uiv.user_id,
                     MAX(CASE WHEN uifd.field_key = 'provider_credential' THEN uiv.value END) AS credential,
@@ -473,11 +511,21 @@ export const getAllUsers = async (req, res, next) => {
             ids
           );
           const byUserId = new Map(
-            (rows || []).map((r) => [
-              Number(r.user_id),
-              (r.credential || r.license_type_number || null)
-            ])
+            (rows || []).map((r) => {
+              const userId = Number(r.user_id);
+              return [
+                userId,
+                usersCredentialById.get(userId) || r.credential || r.license_type_number || null
+              ];
+            })
           );
+
+          for (const id of ids) {
+            if (usersCredentialById.has(Number(id)) && !byUserId.has(Number(id))) {
+              byUserId.set(Number(id), usersCredentialById.get(Number(id)));
+            }
+          }
+
           users = users.map((u) => ({
             ...u,
             provider_credential: byUserId.get(Number(u.id)) || null
@@ -1369,6 +1417,7 @@ export const updateUser = async (req, res, next) => {
       personalEmail,
       title,
       serviceFocus,
+      credential,
       firstName,
       lastName,
       role: roleRaw,
@@ -1577,6 +1626,10 @@ export const updateUser = async (req, res, next) => {
     if (serviceFocus !== undefined) {
       const v = String(serviceFocus || '').trim();
       updateData.serviceFocus = v || null;
+    }
+    if (credential !== undefined) {
+      const v = String(credential || '').trim();
+      updateData.credential = v || null;
     }
 
     // Additional login emails (aliases) for multi-agency users.
@@ -1797,6 +1850,12 @@ export const updateUser = async (req, res, next) => {
     } : 'null');
     if (!user) {
       return res.status(404).json({ error: { message: 'User not found' } });
+    }
+
+    // Keep legacy provider_credential user-info value synchronized while older
+    // readers still rely on user_info_values.
+    if (credential !== undefined) {
+      await syncLegacyProviderCredentialValue(id, updateData.credential);
     }
 
     // When hasPayrollAccess was provided, set it for all agencies for this user

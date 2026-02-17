@@ -9,6 +9,7 @@ import {
   isSupervisorActor,
   supervisorHasSuperviseeInSchool
 } from '../utils/supervisorSchoolAccess.js';
+import { isBachelorsCredentialText, normalizeCredentialToken } from '../utils/credentialNormalization.js';
 
 const allowedDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 const missingSchemaError = (e) => {
@@ -19,25 +20,6 @@ const missingSchemaError = (e) => {
     msg.includes('Unknown column') ||
     msg.includes('ER_BAD_FIELD_ERROR')
   );
-};
-
-const normalizeCredentialToken = (raw) =>
-  String(raw ?? '')
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '_')
-    .replace(/^_+|_+$/g, '');
-
-const isBachelorsCredentialText = (raw) => {
-  const s = String(raw ?? '').trim();
-  if (!s) return false;
-  const lower = s.toLowerCase();
-  if (lower.includes('bachelor')) return true;
-  if (/\bba\b/i.test(s)) return true;
-  if (/\bbs\b/i.test(s)) return true;
-  if (/\bb\.a\.\b/i.test(lower)) return true;
-  if (/\bb\.s\.\b/i.test(lower)) return true;
-  return false;
 };
 
 const parseBooleanLike = (raw) => {
