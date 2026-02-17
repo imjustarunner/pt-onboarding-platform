@@ -9,6 +9,46 @@ const clamp = (value, min, max, fallback) => {
   return Math.min(Math.max(n, min), max);
 };
 
+const isMissingDbArtifactError = (error) => {
+  const code = String(error?.code || '');
+  const sqlMessage = String(error?.sqlMessage || error?.message || '');
+  // Common MySQL codes/messages when a deployment is missing migrations.
+  if (code === 'ER_NO_SUCH_TABLE' || code === 'ER_BAD_FIELD_ERROR') return true;
+  if (sqlMessage.includes('ER_NO_SUCH_TABLE') || sqlMessage.includes("doesn't exist")) return true;
+  if (sqlMessage.includes('Unknown column') || sqlMessage.includes('ER_BAD_FIELD_ERROR')) return true;
+  return false;
+};
+
+const parseMissingArtifactHint = (error) => {
+  const code = String(error?.code || '');
+  const msg = String(error?.sqlMessage || error?.message || '');
+  // Table: Table 'db.table' doesn't exist
+  const tableMatch = msg.match(/Table '([^']+)' doesn't exist/i);
+  if (tableMatch?.[1]) return { kind: 'table', value: tableMatch[1], code };
+  // Column: Unknown column 'col' in 'field list'
+  const colMatch = msg.match(/Unknown column '([^']+)'/i);
+  if (colMatch?.[1]) return { kind: 'column', value: colMatch[1], code };
+  return { kind: 'unknown', value: null, code };
+};
+
+const recordDisabledSource = (diagnostics, source, error) => {
+  if (!diagnostics) return;
+  try {
+    const hint = parseMissingArtifactHint(error);
+    const entry = {
+      source,
+      reason: 'missing_db_artifact',
+      artifact_kind: hint.kind,
+      artifact: hint.value,
+      code: hint.code
+    };
+    diagnostics.disabled_sources = Array.isArray(diagnostics.disabled_sources) ? diagnostics.disabled_sources : [];
+    diagnostics.disabled_sources.push(entry);
+  } catch {
+    // ignore
+  }
+};
+
 const csvEscape = (value) => {
   const s = value == null ? '' : String(value);
   if (s.includes('"') || s.includes(',') || s.includes('\n')) {
@@ -81,7 +121,7 @@ const normalizeAuditRow = (row) => ({
   metadata: parseJsonSafe(row.metadata)
 });
 
-const getClientAccessRows = async (filters = {}) => {
+const getClientAccessRows = async (filters = {}, diagnostics = null) => {
   const { agencyId, userId, actionType, search, limit = 50, offset = 0, sortOrder = 'DESC', startDate, endDate } = filters;
   const where = ['c.agency_id = ?'];
   const params = [agencyId];
@@ -106,29 +146,37 @@ const getClientAccessRows = async (filters = {}) => {
   const order = String(sortOrder).toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
   const qLimit = Math.max(1, Math.min(parseInt(limit, 10) || 50, 5000));
   const qOffset = Math.max(0, parseInt(offset, 10) || 0);
-  const [rows] = await pool.execute(
-    `SELECT l.id, l.created_at, l.action AS action_type, l.user_id,
-            u.email AS user_email, u.first_name AS user_first_name, u.last_name AS user_last_name,
-            l.ip_address, NULL AS session_id,
-            JSON_OBJECT('route', l.route, 'method', l.method, 'role', l.user_role) AS metadata,
-            c.id AS client_id, c.initials AS client_initials, c.full_name AS client_full_name,
-            c.client_type, c.identifier_code AS client_identifier_code,
-            c.agency_id, a.name AS agency_name,
-            'client_access' AS log_type,
-            CONCAT('/admin/clients?clientId=', c.id, '&tab=access') AS link_path
-     FROM client_access_logs l
-     JOIN clients c ON c.id = l.client_id
-     LEFT JOIN users u ON u.id = l.user_id
-     LEFT JOIN agencies a ON a.id = c.agency_id
-     WHERE ${where.join(' AND ')}
-     ORDER BY l.created_at ${order}, l.id DESC
-     LIMIT ${qLimit} OFFSET ${qOffset}`,
-    params
-  );
-  return (rows || []).map(normalizeAuditRow);
+  try {
+    const [rows] = await pool.execute(
+      `SELECT l.id, l.created_at, l.action AS action_type, l.user_id,
+              u.email AS user_email, u.first_name AS user_first_name, u.last_name AS user_last_name,
+              l.ip_address, NULL AS session_id,
+              JSON_OBJECT('route', l.route, 'method', l.method, 'role', l.user_role) AS metadata,
+              c.id AS client_id, c.initials AS client_initials, c.full_name AS client_full_name,
+              c.client_type, c.identifier_code AS client_identifier_code,
+              c.agency_id, a.name AS agency_name,
+              'client_access' AS log_type,
+              CONCAT('/admin/clients?clientId=', c.id, '&tab=access') AS link_path
+       FROM client_access_logs l
+       JOIN clients c ON c.id = l.client_id
+       LEFT JOIN users u ON u.id = l.user_id
+       LEFT JOIN agencies a ON a.id = c.agency_id
+       WHERE ${where.join(' AND ')}
+       ORDER BY l.created_at ${order}, l.id DESC
+       LIMIT ${qLimit} OFFSET ${qOffset}`,
+      params
+    );
+    return (rows || []).map(normalizeAuditRow);
+  } catch (e) {
+    if (isMissingDbArtifactError(e)) {
+      recordDisabledSource(diagnostics, 'client_access', e);
+      return [];
+    }
+    throw e;
+  }
 };
 
-const countClientAccessRows = async (filters = {}) => {
+const countClientAccessRows = async (filters = {}, diagnostics = null) => {
   const { agencyId, userId, actionType, search, startDate, endDate } = filters;
   const where = ['c.agency_id = ?'];
   const params = [agencyId];
@@ -150,19 +198,29 @@ const countClientAccessRows = async (filters = {}) => {
     )`);
     params.push(like, like, like, like, like, like);
   }
-  const [rows] = await pool.execute(
-    `SELECT COUNT(*) AS total
-     FROM client_access_logs l
-     JOIN clients c ON c.id = l.client_id
-     LEFT JOIN users u ON u.id = l.user_id
-     WHERE ${where.join(' AND ')}`,
-    params
-  );
-  return Number(rows?.[0]?.total || 0);
+  try {
+    const [rows] = await pool.execute(
+      `SELECT COUNT(*) AS total
+       FROM client_access_logs l
+       JOIN clients c ON c.id = l.client_id
+       LEFT JOIN users u ON u.id = l.user_id
+       WHERE ${where.join(' AND ')}`,
+      params
+    );
+    return Number(rows?.[0]?.total || 0);
+  } catch (e) {
+    if (isMissingDbArtifactError(e)) {
+      recordDisabledSource(diagnostics, 'client_access', e);
+      return 0;
+    }
+    throw e;
+  }
 };
 
-const getSupportTicketRows = async (filters = {}) => {
+const getSupportTicketRows = async (filters = {}, diagnostics = null) => {
   const { agencyId, userId, actionType, search, limit = 50, offset = 0, sortOrder = 'DESC', startDate, endDate } = filters;
+  // If the caller requests an unsupported type, return empty quickly.
+  if (actionType && !['support_ticket_created', 'support_ticket_message'].includes(String(actionType))) return [];
   const where = ['(t.agency_id = ? OR (t.agency_id IS NULL AND c.agency_id = ?))'];
   const params = [agencyId, agencyId];
   const { start, end } = toDateRange(startDate, endDate);
@@ -184,43 +242,101 @@ const getSupportTicketRows = async (filters = {}) => {
   const order = String(sortOrder).toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
   const qLimit = Math.max(1, Math.min(parseInt(limit, 10) || 50, 5000));
   const qOffset = Math.max(0, parseInt(offset, 10) || 0);
-  const [rows] = await pool.execute(
-    `SELECT x.id, x.created_at, x.action_type, x.user_id,
-            u.email AS user_email, u.first_name AS user_first_name, u.last_name AS user_last_name,
-            NULL AS ip_address, NULL AS session_id,
-            JSON_OBJECT('ticketId', x.ticket_id, 'subject', x.subject, 'messageId', x.message_id, 'status', t.status) AS metadata,
-            c.id AS client_id, c.initials AS client_initials, c.full_name AS client_full_name,
-            c.client_type, c.identifier_code AS client_identifier_code,
-            COALESCE(t.agency_id, c.agency_id) AS agency_id,
-            a.name AS agency_name,
-            'support_ticket' AS log_type,
-            CASE WHEN c.id IS NULL THEN '/admin/tickets' ELSE CONCAT('/admin/clients?clientId=', c.id, '&tab=messages') END AS link_path
-     FROM (
-       SELECT st.id, st.id AS ticket_id, NULL AS message_id, st.created_at,
-              'support_ticket_created' AS action_type, st.created_by_user_id AS user_id,
-              st.subject, st.question AS body_text
-       FROM support_tickets st
-       UNION ALL
-       SELECT stm.id + 1000000000 AS id, stm.ticket_id, stm.id AS message_id, stm.created_at,
-              'support_ticket_message' AS action_type, stm.author_user_id AS user_id,
-              st.subject, stm.body AS body_text
-       FROM support_ticket_messages stm
-       JOIN support_tickets st ON st.id = stm.ticket_id
-     ) x
-     JOIN support_tickets t ON t.id = x.ticket_id
-     LEFT JOIN clients c ON c.id = t.client_id
-     LEFT JOIN users u ON u.id = x.user_id
-     LEFT JOIN agencies a ON a.id = COALESCE(t.agency_id, c.agency_id)
-     WHERE ${where.join(' AND ')}
-     ORDER BY x.created_at ${order}, x.id DESC
-     LIMIT ${qLimit} OFFSET ${qOffset}`,
-    params
-  );
-  return (rows || []).map(normalizeAuditRow);
+  try {
+    const [rows] = await pool.execute(
+      `SELECT x.id, x.created_at, x.action_type, x.user_id,
+              u.email AS user_email, u.first_name AS user_first_name, u.last_name AS user_last_name,
+              NULL AS ip_address, NULL AS session_id,
+              JSON_OBJECT('ticketId', x.ticket_id, 'subject', x.subject, 'messageId', x.message_id, 'status', t.status) AS metadata,
+              c.id AS client_id, c.initials AS client_initials, c.full_name AS client_full_name,
+              c.client_type, c.identifier_code AS client_identifier_code,
+              COALESCE(t.agency_id, c.agency_id) AS agency_id,
+              a.name AS agency_name,
+              'support_ticket' AS log_type,
+              CASE WHEN c.id IS NULL THEN '/admin/tickets' ELSE CONCAT('/admin/clients?clientId=', c.id, '&tab=messages') END AS link_path
+       FROM (
+         SELECT st.id, st.id AS ticket_id, NULL AS message_id, st.created_at,
+                'support_ticket_created' AS action_type, st.created_by_user_id AS user_id,
+                st.subject, st.question AS body_text
+         FROM support_tickets st
+         UNION ALL
+         SELECT stm.id + 1000000000 AS id, stm.ticket_id, stm.id AS message_id, stm.created_at,
+                'support_ticket_message' AS action_type, stm.author_user_id AS user_id,
+                st.subject, stm.body AS body_text
+         FROM support_ticket_messages stm
+         JOIN support_tickets st ON st.id = stm.ticket_id
+       ) x
+       JOIN support_tickets t ON t.id = x.ticket_id
+       LEFT JOIN clients c ON c.id = t.client_id
+       LEFT JOIN users u ON u.id = x.user_id
+       LEFT JOIN agencies a ON a.id = COALESCE(t.agency_id, c.agency_id)
+       WHERE ${where.join(' AND ')}
+       ORDER BY x.created_at ${order}, x.id DESC
+       LIMIT ${qLimit} OFFSET ${qOffset}`,
+      params
+    );
+    return (rows || []).map(normalizeAuditRow);
+  } catch (e) {
+    // Graceful fallback: older deployments may not have support_ticket_messages yet.
+    if (!isMissingDbArtifactError(e)) throw e;
+    recordDisabledSource(diagnostics, 'support_ticket', e);
+
+    // If the request specifically asked for messages, return empty.
+    if (String(actionType || '') === 'support_ticket_message') return [];
+
+    const where2 = ['(t.agency_id = ? OR (t.agency_id IS NULL AND c.agency_id = ?))'];
+    const params2 = [agencyId, agencyId];
+    const { start: s2, end: e2 } = toDateRange(startDate, endDate);
+    if (userId) { where2.push('t.created_by_user_id = ?'); params2.push(userId); }
+    if (s2) { where2.push('t.created_at >= ?'); params2.push(s2); }
+    if (e2) { where2.push('t.created_at <= ?'); params2.push(e2); }
+    addClientSearchWhere(where2, params2, search, 'c');
+    if (search) {
+      const like = asLike(search);
+      where2.push(`(
+        LOWER(COALESCE(t.subject, '')) LIKE ?
+        OR LOWER(COALESCE(t.question, '')) LIKE ?
+        OR LOWER(COALESCE(u.email, '')) LIKE ?
+        OR LOWER(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))) LIKE ?
+      )`);
+      params2.push(like, like, like, like);
+    }
+
+    try {
+      const [rows2] = await pool.execute(
+        `SELECT t.id AS id, t.created_at, 'support_ticket_created' AS action_type, t.created_by_user_id AS user_id,
+                u.email AS user_email, u.first_name AS user_first_name, u.last_name AS user_last_name,
+                NULL AS ip_address, NULL AS session_id,
+                JSON_OBJECT('ticketId', t.id, 'subject', t.subject, 'messageId', NULL, 'status', t.status) AS metadata,
+                c.id AS client_id, c.initials AS client_initials, c.full_name AS client_full_name,
+                c.client_type, c.identifier_code AS client_identifier_code,
+                COALESCE(t.agency_id, c.agency_id) AS agency_id,
+                a.name AS agency_name,
+                'support_ticket' AS log_type,
+                CASE WHEN c.id IS NULL THEN '/admin/tickets' ELSE CONCAT('/admin/clients?clientId=', c.id, '&tab=messages') END AS link_path
+         FROM support_tickets t
+         LEFT JOIN clients c ON c.id = t.client_id
+         LEFT JOIN users u ON u.id = t.created_by_user_id
+         LEFT JOIN agencies a ON a.id = COALESCE(t.agency_id, c.agency_id)
+         WHERE ${where2.join(' AND ')}
+         ORDER BY t.created_at ${order}, t.id DESC
+         LIMIT ${qLimit} OFFSET ${qOffset}`,
+        params2
+      );
+      return (rows2 || []).map(normalizeAuditRow);
+    } catch (e2) {
+      if (isMissingDbArtifactError(e2)) {
+        recordDisabledSource(diagnostics, 'support_ticket', e2);
+        return [];
+      }
+      throw e2;
+    }
+  }
 };
 
-const countSupportTicketRows = async (filters = {}) => {
+const countSupportTicketRows = async (filters = {}, diagnostics = null) => {
   const { agencyId, userId, actionType, search, startDate, endDate } = filters;
+  if (actionType && !['support_ticket_created', 'support_ticket_message'].includes(String(actionType))) return 0;
   const where = ['(t.agency_id = ? OR (t.agency_id IS NULL AND c.agency_id = ?))'];
   const params = [agencyId, agencyId];
   const { start, end } = toDateRange(startDate, endDate);
@@ -239,28 +355,71 @@ const countSupportTicketRows = async (filters = {}) => {
     )`);
     params.push(like, like, like, like);
   }
-  const [rows] = await pool.execute(
-    `SELECT COUNT(*) AS total
-     FROM (
-       SELECT st.id, st.id AS ticket_id, st.created_at, 'support_ticket_created' AS action_type,
-              st.created_by_user_id AS user_id, st.subject, st.question AS body_text
-       FROM support_tickets st
-       UNION ALL
-       SELECT stm.id + 1000000000 AS id, stm.ticket_id, stm.created_at, 'support_ticket_message' AS action_type,
-              stm.author_user_id AS user_id, st.subject, stm.body AS body_text
-       FROM support_ticket_messages stm
-       JOIN support_tickets st ON st.id = stm.ticket_id
-     ) x
-     JOIN support_tickets t ON t.id = x.ticket_id
-     LEFT JOIN clients c ON c.id = t.client_id
-     LEFT JOIN users u ON u.id = x.user_id
-     WHERE ${where.join(' AND ')}`,
-    params
-  );
-  return Number(rows?.[0]?.total || 0);
+  try {
+    const [rows] = await pool.execute(
+      `SELECT COUNT(*) AS total
+       FROM (
+         SELECT st.id, st.id AS ticket_id, st.created_at, 'support_ticket_created' AS action_type,
+                st.created_by_user_id AS user_id, st.subject, st.question AS body_text
+         FROM support_tickets st
+         UNION ALL
+         SELECT stm.id + 1000000000 AS id, stm.ticket_id, stm.created_at, 'support_ticket_message' AS action_type,
+                stm.author_user_id AS user_id, st.subject, stm.body AS body_text
+         FROM support_ticket_messages stm
+         JOIN support_tickets st ON st.id = stm.ticket_id
+       ) x
+       JOIN support_tickets t ON t.id = x.ticket_id
+       LEFT JOIN clients c ON c.id = t.client_id
+       LEFT JOIN users u ON u.id = x.user_id
+       WHERE ${where.join(' AND ')}`,
+      params
+    );
+    return Number(rows?.[0]?.total || 0);
+  } catch (e) {
+    if (!isMissingDbArtifactError(e)) throw e;
+    recordDisabledSource(diagnostics, 'support_ticket', e);
+    if (String(actionType || '') === 'support_ticket_message') return 0;
+
+    // Fallback count for created tickets only.
+    const where2 = ['(t.agency_id = ? OR (t.agency_id IS NULL AND c.agency_id = ?))'];
+    const params2 = [agencyId, agencyId];
+    const { start: s2, end: e2 } = toDateRange(startDate, endDate);
+    if (userId) { where2.push('t.created_by_user_id = ?'); params2.push(userId); }
+    if (s2) { where2.push('t.created_at >= ?'); params2.push(s2); }
+    if (e2) { where2.push('t.created_at <= ?'); params2.push(e2); }
+    addClientSearchWhere(where2, params2, search, 'c');
+    if (search) {
+      const like = asLike(search);
+      where2.push(`(
+        LOWER(COALESCE(t.subject, '')) LIKE ?
+        OR LOWER(COALESCE(t.question, '')) LIKE ?
+        OR LOWER(COALESCE(u.email, '')) LIKE ?
+        OR LOWER(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))) LIKE ?
+      )`);
+      params2.push(like, like, like, like);
+    }
+
+    try {
+      const [rows2] = await pool.execute(
+        `SELECT COUNT(*) AS total
+         FROM support_tickets t
+         LEFT JOIN clients c ON c.id = t.client_id
+         LEFT JOIN users u ON u.id = t.created_by_user_id
+         WHERE ${where2.join(' AND ')}`,
+        params2
+      );
+      return Number(rows2?.[0]?.total || 0);
+    } catch (e2) {
+      if (isMissingDbArtifactError(e2)) {
+        recordDisabledSource(diagnostics, 'support_ticket', e2);
+        return 0;
+      }
+      throw e2;
+    }
+  }
 };
 
-const getPhiDocumentRows = async (filters = {}) => {
+const getPhiDocumentRows = async (filters = {}, diagnostics = null) => {
   const { agencyId, userId, actionType, search, limit = 50, offset = 0, sortOrder = 'DESC', startDate, endDate } = filters;
   const where = ['c.agency_id = ?'];
   const params = [agencyId];
@@ -285,31 +444,39 @@ const getPhiDocumentRows = async (filters = {}) => {
   const order = String(sortOrder).toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
   const qLimit = Math.max(1, Math.min(parseInt(limit, 10) || 50, 5000));
   const qOffset = Math.max(0, parseInt(offset, 10) || 0);
-  const [rows] = await pool.execute(
-    `SELECT p.id, p.created_at, p.action AS action_type, p.actor_user_id AS user_id,
-            u.email AS user_email, u.first_name AS user_first_name, u.last_name AS user_last_name,
-            p.ip_address, NULL AS session_id,
-            JSON_OBJECT('documentId', p.document_id, 'documentTitle', d.document_title, 'originalName', d.original_name, 'auditMetadata', p.metadata) AS metadata,
-            c.id AS client_id, c.initials AS client_initials, c.full_name AS client_full_name,
-            c.client_type, c.identifier_code AS client_identifier_code,
-            c.agency_id, a.name AS agency_name,
-            p.document_id AS related_document_id,
-            'phi_document' AS log_type,
-            CONCAT('/admin/clients?clientId=', c.id, '&tab=phi') AS link_path
-     FROM phi_document_audit_logs p
-     LEFT JOIN client_phi_documents d ON d.id = p.document_id
-     LEFT JOIN clients c ON c.id = COALESCE(p.client_id, d.client_id)
-     LEFT JOIN users u ON u.id = p.actor_user_id
-     LEFT JOIN agencies a ON a.id = c.agency_id
-     WHERE ${where.join(' AND ')}
-     ORDER BY p.created_at ${order}, p.id DESC
-     LIMIT ${qLimit} OFFSET ${qOffset}`,
-    params
-  );
-  return (rows || []).map(normalizeAuditRow);
+  try {
+    const [rows] = await pool.execute(
+      `SELECT p.id, p.created_at, p.action AS action_type, p.actor_user_id AS user_id,
+              u.email AS user_email, u.first_name AS user_first_name, u.last_name AS user_last_name,
+              p.ip_address, NULL AS session_id,
+              JSON_OBJECT('documentId', p.document_id, 'documentTitle', d.document_title, 'originalName', d.original_name, 'auditMetadata', p.metadata) AS metadata,
+              c.id AS client_id, c.initials AS client_initials, c.full_name AS client_full_name,
+              c.client_type, c.identifier_code AS client_identifier_code,
+              c.agency_id, a.name AS agency_name,
+              p.document_id AS related_document_id,
+              'phi_document' AS log_type,
+              CONCAT('/admin/clients?clientId=', c.id, '&tab=phi') AS link_path
+       FROM phi_document_audit_logs p
+       LEFT JOIN client_phi_documents d ON d.id = p.document_id
+       LEFT JOIN clients c ON c.id = COALESCE(p.client_id, d.client_id)
+       LEFT JOIN users u ON u.id = p.actor_user_id
+       LEFT JOIN agencies a ON a.id = c.agency_id
+       WHERE ${where.join(' AND ')}
+       ORDER BY p.created_at ${order}, p.id DESC
+       LIMIT ${qLimit} OFFSET ${qOffset}`,
+      params
+    );
+    return (rows || []).map(normalizeAuditRow);
+  } catch (e) {
+    if (isMissingDbArtifactError(e)) {
+      recordDisabledSource(diagnostics, 'phi_document', e);
+      return [];
+    }
+    throw e;
+  }
 };
 
-const countPhiDocumentRows = async (filters = {}) => {
+const countPhiDocumentRows = async (filters = {}, diagnostics = null) => {
   const { agencyId, userId, actionType, search, startDate, endDate } = filters;
   const where = ['c.agency_id = ?'];
   const params = [agencyId];
@@ -331,16 +498,24 @@ const countPhiDocumentRows = async (filters = {}) => {
     )`);
     params.push(like, like, like, like, like, like);
   }
-  const [rows] = await pool.execute(
-    `SELECT COUNT(*) AS total
-     FROM phi_document_audit_logs p
-     LEFT JOIN client_phi_documents d ON d.id = p.document_id
-     LEFT JOIN clients c ON c.id = COALESCE(p.client_id, d.client_id)
-     LEFT JOIN users u ON u.id = p.actor_user_id
-     WHERE ${where.join(' AND ')}`,
-    params
-  );
-  return Number(rows?.[0]?.total || 0);
+  try {
+    const [rows] = await pool.execute(
+      `SELECT COUNT(*) AS total
+       FROM phi_document_audit_logs p
+       LEFT JOIN client_phi_documents d ON d.id = p.document_id
+       LEFT JOIN clients c ON c.id = COALESCE(p.client_id, d.client_id)
+       LEFT JOIN users u ON u.id = p.actor_user_id
+       WHERE ${where.join(' AND ')}`,
+      params
+    );
+    return Number(rows?.[0]?.total || 0);
+  } catch (e) {
+    if (isMissingDbArtifactError(e)) {
+      recordDisabledSource(diagnostics, 'phi_document', e);
+      return 0;
+    }
+    throw e;
+  }
 };
 
 /**
@@ -667,6 +842,7 @@ export const getAgencyActivityLog = async (req, res, next) => {
     const offset = clamp(req.query.offset, 0, 200000, 0);
     const userId = req.query.userId ? parseInt(req.query.userId, 10) : null;
     const source = String(req.query.source || 'all').toLowerCase();
+    const diagnostics = { disabled_sources: [] };
     const filters = {
       agencyId,
       userId: Number.isFinite(userId) ? userId : null,
@@ -695,18 +871,18 @@ export const getAgencyActivityLog = async (req, res, next) => {
       items = items.map((r) => normalizeAuditRow({ ...r, log_type: 'admin_action' }));
     } else if (source === 'support_ticket') {
       [items, total] = await Promise.all([
-        getSupportTicketRows(filters),
-        countSupportTicketRows(filters)
+        getSupportTicketRows(filters, diagnostics),
+        countSupportTicketRows(filters, diagnostics)
       ]);
     } else if (source === 'client_access') {
       [items, total] = await Promise.all([
-        getClientAccessRows(filters),
-        countClientAccessRows(filters)
+        getClientAccessRows(filters, diagnostics),
+        countClientAccessRows(filters, diagnostics)
       ]);
     } else if (source === 'phi_document') {
       [items, total] = await Promise.all([
-        getPhiDocumentRows(filters),
-        countPhiDocumentRows(filters)
+        getPhiDocumentRows(filters, diagnostics),
+        countPhiDocumentRows(filters, diagnostics)
       ]);
     } else {
       const expandedLimit = Math.min(offset + limit, 5000);
@@ -714,14 +890,14 @@ export const getAgencyActivityLog = async (req, res, next) => {
       const [activityRows, adminRows, supportRows, clientAccessRows, phiRows, activityTotal, adminTotal, supportTotal, clientAccessTotal, phiTotal] = await Promise.all([
         UserActivityLog.getAgencyActivityLog(scoped),
         AdminAuditLog.getAgencyAuditLogPaged(scoped),
-        getSupportTicketRows(scoped),
-        getClientAccessRows(scoped),
-        getPhiDocumentRows(scoped),
+        getSupportTicketRows(scoped, diagnostics),
+        getClientAccessRows(scoped, diagnostics),
+        getPhiDocumentRows(scoped, diagnostics),
         UserActivityLog.countAgencyActivityLog(filters),
         AdminAuditLog.countAgencyAuditLog(filters),
-        countSupportTicketRows(filters),
-        countClientAccessRows(filters),
-        countPhiDocumentRows(filters)
+        countSupportTicketRows(filters, diagnostics),
+        countClientAccessRows(filters, diagnostics),
+        countPhiDocumentRows(filters, diagnostics)
       ]);
       total = activityTotal + adminTotal + supportTotal + clientAccessTotal + phiTotal;
       items = [
@@ -742,6 +918,9 @@ export const getAgencyActivityLog = async (req, res, next) => {
         limit,
         offset,
         hasNextPage: offset + items.length < total
+      },
+      diagnostics: {
+        disabled_sources: (diagnostics.disabled_sources || []).filter(Boolean)
       }
     });
   } catch (error) {
