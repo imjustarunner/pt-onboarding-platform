@@ -9,7 +9,36 @@
  */
 
 /** Path segments that are NOT organization slugs (first segment of path) */
-const NON_SLUG_SEGMENTS = ['login', 'schools', 'intake', 'kiosk', 'timeout', 'public', 'public-intake'];
+const NON_SLUG_SEGMENTS = [
+  'login',
+  'logout',
+  'schools',
+  'intake',
+  'kiosk',
+  'timeout',
+  'public',
+  'public-intake',
+  'dashboard',
+  'mydashboard',
+  'admin',
+  'buildings',
+  'office',
+  'schedule',
+  'notifications',
+  'tickets',
+  'guardian',
+  'tracks',
+  'tasks',
+  'preferences',
+  'credentials',
+  'change-password',
+  'reset-password',
+  'initial-setup',
+  'passwordless-login',
+  'onboarding',
+  'on-demand-training',
+  'account-info'
+];
 
 /**
  * Get the current portal slug from the URL path (e.g. /nlu/dashboard → 'nlu').
@@ -36,6 +65,26 @@ export function getCurrentPortalSlugFromStorage() {
     const agency = JSON.parse(raw);
     const slug = String(agency?.portal_url || agency?.portalUrl || agency?.slug || '').trim();
     return slug || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Best-effort portal slug resolved for the current host and cached in sessionStorage
+ * by branding initialization.
+ */
+export function getCurrentPortalSlugFromHostCache() {
+  if (typeof window === 'undefined') return null;
+  try {
+    const host = String(window.location?.hostname || '').trim();
+    if (!host) return null;
+    const cacheKey = `__pt_portal_host__:${host}`;
+    const cachedRaw = sessionStorage.getItem(cacheKey);
+    if (!cachedRaw) return null;
+    const cached = JSON.parse(cachedRaw);
+    const portal = String(cached?.portalUrl || '').trim();
+    return portal || null;
   } catch {
     return null;
   }
@@ -114,6 +163,11 @@ export function getLoginUrlForRedirect(user = null, userAgencies = null, opts = 
   const slug = getCurrentPortalSlugFromPath();
   if (slug) {
     const base = `/${slug}/login`;
+    return opts.timeout ? `${base}?timeout=true` : base;
+  }
+  const hostCachedSlug = getCurrentPortalSlugFromHostCache();
+  if (hostCachedSlug) {
+    const base = `/${hostCachedSlug}/login`;
     return opts.timeout ? `${base}?timeout=true` : base;
   }
   const storedSlug = getCurrentPortalSlugFromStorage();

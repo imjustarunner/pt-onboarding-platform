@@ -392,7 +392,6 @@ const uploadsHandler = async (req, res, next) => {
         res.setHeader('Cache-Control', 'public, max-age=3600');
         
         if (isImageOrFont) {
-          res.setHeader('Access-Control-Allow-Origin', config.cors.origin || '*');
           res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
           res.setHeader('Access-Control-Allow-Credentials', 'true');
         }
@@ -405,7 +404,6 @@ const uploadsHandler = async (req, res, next) => {
           const transparentPng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
           res.setHeader('Content-Type', 'image/png');
           res.setHeader('Cache-Control', 'no-cache');
-          res.setHeader('Access-Control-Allow-Origin', config.cors.origin || '*');
           return res.status(404).send(transparentPng);
         }
         throw proxyError;

@@ -268,7 +268,7 @@ export const listVoicemails = async (req, res, next) => {
     const agencyIdParam = parseIntOrNull(req.query.agencyId);
 
     const agencyIds = await getAgencyIdsForUser(userId);
-    const canAgencyScope = role === 'admin' || role === 'support' || role === 'super_admin' || role === 'clinical_practice_assistant';
+    const canAgencyScope = role === 'admin' || role === 'support' || role === 'super_admin' || role === 'clinical_practice_assistant' || role === 'provider_plus';
 
     let where = `cv.created_at >= DATE_SUB(NOW(), INTERVAL ${days} DAY)`;
     const params = [];
@@ -317,7 +317,7 @@ export const streamVoicemailAudio = async (req, res, next) => {
     if (!row) return res.status(404).json({ error: { message: 'Voicemail not found' } });
 
     const agencyIds = await getAgencyIdsForUser(userId);
-    const canAgencyScope = role === 'admin' || role === 'support' || role === 'super_admin' || role === 'clinical_practice_assistant';
+    const canAgencyScope = role === 'admin' || role === 'support' || role === 'super_admin' || role === 'clinical_practice_assistant' || role === 'provider_plus';
     if (canAgencyScope) {
       if (role !== 'super_admin' && row.agency_id && !agencyIds.includes(Number(row.agency_id))) {
         return res.status(403).json({ error: { message: 'Access denied' } });

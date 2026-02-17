@@ -229,6 +229,7 @@
                 <option value="kiosk">Kiosk</option>
                 <option value="school_staff">School Staff</option>
                 <option value="clinical_practice_assistant">Clinical Practice Assistant</option>
+                <option value="provider_plus">Provider Plus</option>
                 <option value="client_guardian">Guardian</option>
                 <option value="staff">Staff</option>
                 <option value="support">Staff (Admin Tools)</option>
@@ -681,6 +682,7 @@
                   <option v-if="user?.role === 'super_admin' || user?.role === 'admin'" value="admin">Admin</option>
                   <option v-if="user?.role === 'super_admin' || user?.role === 'admin'" value="support">Staff (Admin Tools)</option>
                   <option value="clinical_practice_assistant">Clinical Practice Assistant</option>
+                  <option value="provider_plus">Provider Plus</option>
                   <option value="staff">Staff</option>
                   <option value="provider">Provider</option>
                   <option value="school_staff">School Staff</option>
@@ -998,6 +1000,7 @@
               <option v-if="user?.role === 'super_admin' || user?.role === 'admin'" value="admin">Admin</option>
               <option v-if="user?.role === 'super_admin' || user?.role === 'admin'" value="support">Staff (Admin Tools)</option>
               <option value="clinical_practice_assistant">Clinical Practice Assistant</option>
+              <option value="provider_plus">Provider Plus</option>
               <option value="client_guardian">Guardian</option>
               <option value="staff">Staff</option>
               <option value="provider">Provider</option>

@@ -137,6 +137,7 @@
                   <option value="admin">Admin</option>
                   <option value="support">Support</option>
                   <option value="clinical_practice_assistant">Clinical Practice Assistant</option>
+                  <option value="provider_plus">Provider Plus</option>
                   <option value="school_staff">School Staff</option>
                   <option value="client_guardian">Guardian</option>
                   <option value="facilitator">Facilitator</option>

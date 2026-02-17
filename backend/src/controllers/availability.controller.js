@@ -90,7 +90,7 @@ async function isSupervisorOfProvider({ supervisorId, providerId, agencyId }) {
 
 const canManageAvailability = (role) => {
   const r = String(role || '').toLowerCase();
-  return r === 'super_admin' || r === 'admin' || r === 'support' || r === 'clinical_practice_assistant' || r === 'staff';
+  return r === 'super_admin' || r === 'admin' || r === 'support' || r === 'clinical_practice_assistant' || r === 'provider_plus' || r === 'staff';
 };
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];

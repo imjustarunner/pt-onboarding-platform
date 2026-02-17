@@ -12,7 +12,7 @@ import User from '../models/User.model.js';
 import pool from '../config/database.js';
 
 const canManageOfficeSettingsRole = (role) =>
-  role === 'admin' || role === 'super_admin' || role === 'support' || role === 'clinical_practice_assistant' || role === 'staff';
+  role === 'admin' || role === 'super_admin' || role === 'support' || role === 'clinical_practice_assistant' || role === 'provider_plus' || role === 'staff';
 
 const hasSkillBuilderCoordinatorAccess = (userLike) =>
   userLike?.has_skill_builder_coordinator_access === true ||

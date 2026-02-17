@@ -1009,7 +1009,7 @@ const jumpToSlot = (roomId, date, hour) => {
 
 const canManageSchedule = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
-  return ['clinical_practice_assistant', 'admin', 'super_admin', 'support', 'staff'].includes(role);
+  return ['clinical_practice_assistant', 'admin', 'super_admin', 'superadmin', 'support', 'staff'].includes(role);
 });
 const isSuperAdmin = computed(() => String(authStore.user?.role || '').toLowerCase() === 'super_admin');
 const currentUserId = computed(() => Number(authStore.user?.id || 0));

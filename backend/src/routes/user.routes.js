@@ -9,14 +9,14 @@ import {
   getAgencyProviderPortalSettings,
   upsertAgencyProviderPortalSettings
 } from '../controllers/providerPublicProfile.controller.js';
-import { authenticate, requireBackofficeAdmin } from '../middleware/auth.middleware.js';
+import { authenticate, requireAdmin, requireBackofficeAdmin } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
 
 router.get('/me', authenticate, getCurrentUser);
 router.get('/me/agencies', authenticate, getUserAgencies);
 router.get('/me/supervisee-portal-slugs', authenticate, getSuperviseePortalSlugs);
-router.get('/', authenticate, requireBackofficeAdmin, getAllUsers);
+router.get('/', authenticate, requireAdmin, getAllUsers);
 router.get('/ai-query', authenticate, requireBackofficeAdmin, aiQueryUsers);
 router.get('/archived', authenticate, requireBackofficeAdmin, getArchivedUsers); // Must come before /:id
 router.get('/:id/agencies', authenticate, getUserAgencies);

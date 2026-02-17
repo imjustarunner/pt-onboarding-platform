@@ -17,6 +17,10 @@ export function getDashboardRoute() {
     return '/dashboard'; // Default fallback
   }
   
+  const userRole = String(user.role || '').toLowerCase();
+  const isProviderPlusExperienceRole =
+    userRole === 'provider_plus' || userRole === 'clinical_practice_assistant';
+
   // Check if user is associated with a school organization
   // If organization context is available, use it
   if (organizationStore.organizationContext) {
@@ -24,6 +28,9 @@ export function getDashboardRoute() {
     const slug = organizationStore.organizationContext.slug;
     
     if (orgType === 'school' && slug) {
+      if (isProviderPlusExperienceRole) {
+        return `/${slug}/provider-plus-dashboard`;
+      }
       // School users go to school portal dashboard
       return `/${slug}/dashboard`;
     }
@@ -33,6 +40,9 @@ export function getDashboardRoute() {
   const userOrgs = user.agencies || [];
   const schoolOrg = userOrgs.find(org => org.organization_type === 'school');
   if (schoolOrg && schoolOrg.slug) {
+    if (isProviderPlusExperienceRole) {
+      return `/${schoolOrg.slug}/provider-plus-dashboard`;
+    }
     return `/${schoolOrg.slug}/dashboard`;
   }
   
@@ -56,7 +66,6 @@ export function getDashboardRoute() {
   }
   
   // Supervisors (not admin/super_admin/support) use provider dashboard when they have a slug
-  const userRole = user.role?.toLowerCase();
   const isAdminLike = userRole === 'admin' || userRole === 'super_admin' || userRole === 'superadmin' || userRole === 'support';
   if (isSupervisor(user) && !isAdminLike) {
     const orgs = user.agencies || [];
@@ -66,10 +75,15 @@ export function getDashboardRoute() {
     }
   }
 
-  // Admins, super admins, support, supervisors (with multiple orgs or no slug), and CPAs go to admin dashboard
+  // Admins/super admins/support/supervisors (with multiple orgs or no slug) go to admin dashboard.
+  // CPAs should land on personal dashboard so "My Schedule" is immediately available.
   if (userRole === 'admin' || userRole === 'super_admin' || userRole === 'superadmin' ||
-      user.role === 'support' || isSupervisor(user) || user.role === 'clinical_practice_assistant') {
+      user.role === 'support' || isSupervisor(user)) {
     return '/admin';
+  }
+
+  if (isProviderPlusExperienceRole) {
+    return '/provider-plus-dashboard';
   }
 
   // Regular users go to regular dashboard

@@ -546,6 +546,7 @@ import { useSessionLockStore } from './store/sessionLock';
 import { useRouter, useRoute } from 'vue-router';
 import { startActivityTracking, stopActivityTracking, resetActivityTimer } from './utils/activityTracker';
 import { isSupervisor } from './utils/helpers.js';
+import { getDashboardRoute } from './utils/router';
 import api from './services/api';
 import AgencySelector from './components/AgencySelector.vue';
 import PlatformChatDrawer from './components/PlatformChatDrawer.vue';
@@ -942,7 +943,7 @@ const noteAidEnabled = computed(() => isTruthyFlag(currentAgencyFeatureFlags.val
 const canUseAgencyCampaigns = computed(() => {
   const enabled = isTruthyFlag(currentAgencyFeatureFlags.value?.agency_campaigns_enabled);
   if (!enabled) return false;
-  return isAdmin || user?.role === 'support' || user?.role === 'staff' || user?.role === 'super_admin' || user?.role === 'clinical_practice_assistant';
+  return isAdmin || user?.role === 'support' || user?.role === 'staff' || user?.role === 'super_admin' || user?.role === 'clinical_practice_assistant' || user?.role === 'provider_plus';
 });
 const canUseEngagementFeed = computed(() => {
   const role = String(user?.role || '').toLowerCase();
@@ -951,6 +952,7 @@ const canUseEngagementFeed = computed(() => {
     role === 'support' ||
     role === 'super_admin' ||
     role === 'clinical_practice_assistant' ||
+    role === 'provider_plus' ||
     role === 'schedule_manager' ||
     role === 'provider' ||
     role === 'staff' ||
@@ -1039,7 +1041,7 @@ const canSeePayrollTopNavLink = computed(() => {
 
 const isPrivilegedPortalUser = computed(() => {
   const role = user.value?.role;
-  return role === 'admin' || role === 'super_admin' || role === 'support' || isSupervisor(user.value) || role === 'clinical_practice_assistant';
+  return role === 'admin' || role === 'super_admin' || role === 'support' || isSupervisor(user.value) || role === 'clinical_practice_assistant' || role === 'provider_plus';
 });
 
 const isOnDemandUser = computed(() => {
@@ -1068,14 +1070,14 @@ const canShowSettingsIcon = computed(() => {
   const u = authStore.user;
   if (!u) return false;
   // Mirror Settings link: admin/support keep access regardless of supervisor (supervisor is additive).
-  return (canCreateEdit.value || u?.role === 'support') && u?.role !== 'clinical_practice_assistant';
+  return (canCreateEdit.value || u?.role === 'support') && u?.role !== 'clinical_practice_assistant' && u?.role !== 'provider_plus';
 });
 
 const canShowScheduleIcon = computed(() => {
   const u = authStore.user;
   if (!u) return false;
   const role = String(u?.role || '').toLowerCase();
-  return ['admin', 'super_admin', 'clinical_practice_assistant', 'staff'].includes(role);
+  return ['admin', 'super_admin', 'superadmin', 'clinical_practice_assistant', 'provider_plus', 'staff'].includes(role);
 });
 
 const settingsIconUrl = computed(() => {
@@ -1140,7 +1142,7 @@ const orgTo = (path) => {
 // - Admin (agency): My Dashboard = /itsco/dashboard, Admin = /itsco/admin (orgTo handles slug).
 // - Staff (agency): My Dashboard = /itsco/dashboard, Agency dashboard = /itsco/agencydashboard (see orgTo('/agencydashboard') for staff nav if that route exists).
 const myDashboardTo = computed(() => {
-  return '/dashboard';
+  return getDashboardRoute();
 });
 
 // When already on the target route, router-link does nothing; handle click so the button still does something (e.g. scroll to top).
@@ -1176,7 +1178,7 @@ const onSessionLockLogout = async () => {
 // ---- Buildings pending availability badge (admin/staff/CPA) ----
 const showBuildingsPendingBadge = computed(() => {
   const r = String(authStore.user?.role || '').toLowerCase();
-  return r === 'super_admin' || r === 'admin' || r === 'support' || r === 'clinical_practice_assistant' || r === 'staff';
+  return r === 'super_admin' || r === 'admin' || r === 'support' || r === 'clinical_practice_assistant' || r === 'provider_plus' || r === 'staff';
 });
 
 const buildingsPendingCount = ref(0);

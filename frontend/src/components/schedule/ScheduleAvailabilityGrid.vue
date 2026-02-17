@@ -981,7 +981,7 @@ const agencyLabel = (agencyId) => {
 const isAdminMode = computed(() => props.mode === 'admin');
 const canManageOffices = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
-  return ['clinical_practice_assistant', 'admin', 'super_admin', 'support', 'staff'].includes(role);
+  return ['clinical_practice_assistant', 'admin', 'super_admin', 'superadmin', 'support', 'staff'].includes(role);
 });
 const canBookFromGrid = computed(() => props.mode === 'self' || (isAdminMode.value && canManageOffices.value));
 
@@ -2273,7 +2273,7 @@ const selectedSupvSession = computed(() => {
 
 const canManagePresenterStatus = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
-  const privileged = ['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant'].includes(role);
+  const privileged = ['super_admin', 'superadmin', 'admin', 'support', 'staff', 'clinical_practice_assistant'].includes(role);
   const isSessionSupervisor = String(selectedSupvSession.value?.role || '') === 'supervisor';
   return privileged || isSessionSupervisor || isAdminMode.value;
 });

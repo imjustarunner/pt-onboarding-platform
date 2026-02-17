@@ -4,7 +4,7 @@ import Client from '../models/Client.model.js';
 
 const canViewAgencySms = (role) => {
   const r = String(role || '').toLowerCase();
-  return r === 'support' || r === 'admin' || r === 'super_admin' || r === 'clinical_practice_assistant';
+  return r === 'support' || r === 'admin' || r === 'super_admin' || r === 'clinical_practice_assistant' || r === 'provider_plus';
 };
 
 const canViewOwnSms = (role) => {
@@ -14,6 +14,7 @@ const canViewOwnSms = (role) => {
     r === 'admin' ||
     r === 'super_admin' ||
     r === 'clinical_practice_assistant' ||
+    r === 'provider_plus' ||
     r === 'schedule_manager' ||
     r === 'provider' ||
     r === 'staff' ||
@@ -23,7 +24,7 @@ const canViewOwnSms = (role) => {
 
 const canViewTickets = (role) => {
   const r = String(role || '').toLowerCase();
-  return r === 'support' || r === 'admin' || r === 'super_admin' || r === 'clinical_practice_assistant' || r === 'staff';
+  return r === 'support' || r === 'admin' || r === 'super_admin' || r === 'clinical_practice_assistant' || r === 'provider_plus' || r === 'staff';
 };
 
 const isMissingTableError = (err) => {

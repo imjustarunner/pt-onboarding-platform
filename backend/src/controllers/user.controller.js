@@ -337,8 +337,8 @@ export const getAllUsers = async (req, res, next) => {
           users = rows;
         }
       }
-    } else if (roleNorm === 'clinical_practice_assistant') {
-      // CPAs can view all users in their agencies (same as old supervisor behavior)
+    } else if (roleNorm === 'clinical_practice_assistant' || roleNorm === 'provider_plus') {
+      // CPAs/provider_plus users can view users in their agencies (same operational scope)
       const userAgencies = await User.getAgencies(req.user.id);
       const agencyIds = userAgencies.map(a => a.id);
       
@@ -1277,8 +1277,8 @@ export const getUserById = async (req, res, next) => {
       return res.json({ ...targetUser, profile_photo_url: publicUploadsUrlFromStoredPath(targetUser.profile_photo_path) });
     }
 
-    // CPAs can view all users in their agencies
-    if (req.user.role === 'clinical_practice_assistant') {
+    // CPAs/provider_plus users can view users in their agencies
+    if (req.user.role === 'clinical_practice_assistant' || req.user.role === 'provider_plus') {
       const targetUser = await User.findById(id);
       if (!targetUser) {
         return res.status(404).json({ error: { message: 'User not found' } });
@@ -1469,7 +1469,7 @@ export const updateUser = async (req, res, next) => {
     if (role) {
       // Note: we still accept legacy inputs (clinician/intern/facilitator/supervisor) via roleRaw,
       // but they are normalized above.
-      const validRoles = ['super_admin', 'admin', 'support', 'clinical_practice_assistant', 'staff', 'provider', 'school_staff', 'client_guardian'];
+      const validRoles = ['super_admin', 'admin', 'support', 'clinical_practice_assistant', 'provider_plus', 'staff', 'provider', 'school_staff', 'client_guardian'];
       if (!validRoles.includes(role)) {
         return res.status(400).json({ error: { message: `Invalid role. Must be one of: ${validRoles.join(', ')}` } });
       }
@@ -1557,12 +1557,12 @@ export const updateUser = async (req, res, next) => {
       }
     }
 
-    // Supervisors and CPAs can only view, not edit
+    // Supervisors, CPAs, and provider_plus can only view, not edit
     // Check if requesting user is a supervisor using boolean as source of truth
     const requestingUser = await User.findById(req.user.id);
     const isSupervisor = requestingUser && User.isSupervisor(requestingUser);
-    if (isSupervisor || req.user.role === 'clinical_practice_assistant') {
-      return res.status(403).json({ error: { message: 'Supervisors and Clinical Practice Assistants have view-only access' } });
+    if (isSupervisor || req.user.role === 'clinical_practice_assistant' || req.user.role === 'provider_plus') {
+      return res.status(403).json({ error: { message: 'Supervisors and Provider Plus users have view-only access' } });
     }
     
     // Users can only update their own profile unless they're admin/super_admin/support
@@ -1722,7 +1722,7 @@ export const updateUser = async (req, res, next) => {
         updateData.hasSupervisorPrivileges = true;
       } else {
         // Only allow toggle for eligible roles
-        const eligibleRoles = ['provider', 'admin', 'super_admin', 'clinical_practice_assistant'];
+        const eligibleRoles = ['provider', 'admin', 'super_admin', 'clinical_practice_assistant', 'provider_plus'];
         const currentRole = targetUser.role;
         const newRole = role !== undefined ? role : currentRole;
         
@@ -1925,7 +1925,7 @@ export const updateUser = async (req, res, next) => {
     // Handle MySQL enum errors more gracefully
     if (error.code === 'ER_TRUNCATED_WRONG_VALUE_FOR_FIELD' || error.message?.includes('enum')) {
       console.error('Role enum error:', error.message);
-      return res.status(400).json({ error: { message: `Invalid role value. Valid roles are: super_admin, admin, support, supervisor, clinical_practice_assistant, staff, provider, facilitator, intern` } });
+      return res.status(400).json({ error: { message: `Invalid role value. Valid roles are: super_admin, admin, support, supervisor, clinical_practice_assistant, provider_plus, staff, provider, facilitator, intern` } });
     }
     console.error('Error updating user:', error);
     next(error);
@@ -2034,7 +2034,7 @@ function toMysqlDateTimeWall(value) {
 
 const canViewProviderScheduleSummary = (role) => {
   const r = String(role || '').toLowerCase();
-  return r === 'super_admin' || r === 'admin' || r === 'support' || r === 'staff' || r === 'clinical_practice_assistant';
+  return r === 'super_admin' || r === 'admin' || r === 'support' || r === 'staff' || r === 'clinical_practice_assistant' || r === 'provider_plus';
 };
 
 export const getUserScheduleSummary = async (req, res, next) => {
@@ -2633,7 +2633,7 @@ export const toggleSupervisorPrivileges = async (req, res, next) => {
     }
     
     // Only allow toggle for eligible roles
-    const eligibleRoles = ['admin', 'super_admin', 'clinical_practice_assistant'];
+    const eligibleRoles = ['admin', 'super_admin', 'clinical_practice_assistant', 'provider_plus'];
     if (!eligibleRoles.includes(targetUser.role)) {
       return res.status(400).json({ 
         error: { message: 'Supervisor privileges can only be enabled for admins, super admins, or clinical practice assistants' } 
@@ -2704,14 +2704,14 @@ export const getUserAgencies = async (req, res, next) => {
     // CPAs and supervisors can see agencies for users they supervise
     if (parseInt(userId) !== req.user.id && req.user.role !== 'admin' && req.user.role !== 'super_admin' && req.user.role !== 'support') {
       // Check if CPA or supervisor has access to this user
-      if (req.user.role === 'clinical_practice_assistant' || req.user.role === 'supervisor') {
+      if (req.user.role === 'clinical_practice_assistant' || req.user.role === 'provider_plus' || req.user.role === 'supervisor') {
         const targetUser = await User.findById(userId);
         if (!targetUser) {
           return res.status(404).json({ error: { message: 'User not found' } });
         }
         
         // CPAs can view agencies for all users in their agencies
-        if (req.user.role === 'clinical_practice_assistant') {
+        if (req.user.role === 'clinical_practice_assistant' || req.user.role === 'provider_plus') {
           const cpaAgencies = await User.getAgencies(req.user.id);
           const targetUserAgencies = await User.getAgencies(userId);
           const cpaAgencyIds = cpaAgencies.map(a => a.id);
@@ -4026,7 +4026,7 @@ export const getAccountInfo = async (req, res, next) => {
       ssoPasswordOverride,
       ssoRequired,
       supervisors: supervisors,
-      hasSupervisorPrivileges: (user.role === 'admin' || user.role === 'super_admin' || user.role === 'clinical_practice_assistant') 
+      hasSupervisorPrivileges: (user.role === 'admin' || user.role === 'super_admin' || user.role === 'clinical_practice_assistant' || user.role === 'provider_plus') 
         ? (user.has_supervisor_privileges || false) 
         : undefined, // Only include for eligible roles
       hasPayrollAccess: (await User.listPayrollAgencyIds(userIdInt)).length > 0,

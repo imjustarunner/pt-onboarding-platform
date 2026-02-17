@@ -8,6 +8,9 @@ import { getLoginUrl } from '../utils/loginRedirect';
 import { isSupervisor } from '../utils/helpers';
 import api from '../services/api';
 
+const SCHEDULE_HUB_ROLES = ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'staff'];
+const PROVIDER_PLUS_EXPERIENCE_ROLES = ['provider_plus', 'clinical_practice_assistant'];
+
 const getDefaultOrganizationSlug = () => {
   try {
     const agencyStore = useAgencyStore();
@@ -159,6 +162,12 @@ const routes = [
     meta: { requiresAuth: true, organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/provider-plus-dashboard',
+    name: 'OrganizationProviderPlusDashboard',
+    component: () => import('../views/ProviderPlusDashboardView.vue'),
+    meta: { requiresAuth: true, requiresRole: PROVIDER_PLUS_EXPERIENCE_ROLES, organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/providers/:providerUserId',
     name: 'OrganizationSchoolProviderProfile',
     component: () => import('../views/school/ProviderSchoolProfileView.vue'),
@@ -203,7 +212,7 @@ const routes = [
   {
     path: '/:organizationSlug/buildings',
     component: () => import('../views/OfficeShellView.vue'),
-    meta: { requiresAuth: true, organizationSlug: true },
+    meta: { requiresAuth: true, requiresRole: SCHEDULE_HUB_ROLES, organizationSlug: true },
     children: [
       {
         path: '',
@@ -260,7 +269,7 @@ const routes = [
     path: '/:organizationSlug/schedule',
     name: 'OrganizationScheduleHub',
     component: () => import('../views/ScheduleHubView.vue'),
-    meta: { requiresAuth: true, organizationSlug: true }
+    meta: { requiresAuth: true, requiresRole: SCHEDULE_HUB_ROLES, organizationSlug: true }
   },
   {
     path: '/:organizationSlug/schedule/staff',
@@ -403,7 +412,7 @@ const routes = [
     path: '/:organizationSlug/admin/schools/overview',
     name: 'OrganizationSchoolOverviewDashboard',
     component: () => import('../views/admin/SchoolOverviewDashboard.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin'], organizationSlug: true }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant'], organizationSlug: true }
   },
   {
     path: '/:organizationSlug/admin/settings',
@@ -639,6 +648,12 @@ const routes = [
     meta: { requiresAuth: true, blockApprovedEmployees: true }
   },
   {
+    path: '/provider-plus-dashboard',
+    name: 'ProviderPlusDashboard',
+    component: () => import('../views/ProviderPlusDashboardView.vue'),
+    meta: { requiresAuth: true, requiresRole: PROVIDER_PLUS_EXPERIENCE_ROLES }
+  },
+  {
     path: '/mydashboard',
     name: 'MyDashboardLegacy',
     redirect: '/dashboard',
@@ -665,7 +680,7 @@ const routes = [
   {
     path: '/buildings',
     component: () => import('../views/OfficeShellView.vue'),
-    meta: { requiresAuth: true },
+    meta: { requiresAuth: true, requiresRole: SCHEDULE_HUB_ROLES },
     children: [
       { path: '', name: 'Buildings', redirect: '/buildings/schedule' },
       {
@@ -718,7 +733,7 @@ const routes = [
     path: '/schedule',
     name: 'OfficeScheduleLegacy',
     component: () => import('../views/ScheduleHubView.vue'),
-    meta: { requiresAuth: true }
+    meta: { requiresAuth: true, requiresRole: SCHEDULE_HUB_ROLES }
   },
   {
     path: '/schedule/staff',
@@ -834,7 +849,7 @@ const routes = [
     path: '/admin/schools/overview',
     name: 'SchoolOverviewDashboard',
     component: () => import('../views/admin/SchoolOverviewDashboard.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin'] }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant'] }
   },
   {
     path: '/admin/settings',
@@ -1150,6 +1165,8 @@ const routes = [
   {
     path: '/',
     redirect: () => {
+      const authStore = useAuthStore();
+      if (authStore.isAuthenticated) return getDashboardRoute();
       const slug = getDefaultOrganizationSlug();
       return slug ? `/${slug}/dashboard` : '/login';
     }
@@ -1479,7 +1496,7 @@ router.beforeEach(async (to, from, next) => {
 
     // Block CPAs and supervisors from accessing restricted routes
     const restrictedRoutes = ['/admin/modules', '/admin/documents', '/admin/settings', '/admin/checklist-items'];
-    if ((userRole === 'clinical_practice_assistant' || userRole === 'supervisor') && 
+    if ((userRole === 'clinical_practice_assistant' || userRole === 'provider_plus' || userRole === 'supervisor') && 
         restrictedRoutes.some(route => to.path.includes(route))) {
       next('/admin'); // Redirect (route redirects to slug)
       return;
@@ -1498,6 +1515,7 @@ router.beforeEach(async (to, from, next) => {
       if (role === 'schedule_manager') {
         return (
           userRole === 'clinical_practice_assistant' ||
+          userRole === 'provider_plus' ||
           userRole === 'admin' ||
           userRole === 'super_admin' ||
           userRole === 'support'
@@ -1505,7 +1523,11 @@ router.beforeEach(async (to, from, next) => {
       }
 
       if (role === 'supervisor_or_cpa') {
-        return userRole === 'supervisor' || userRole === 'clinical_practice_assistant';
+        return userRole === 'supervisor' || userRole === 'clinical_practice_assistant' || userRole === 'provider_plus';
+      }
+
+      if (role === 'clinical_practice_assistant') {
+        return userRole === 'clinical_practice_assistant' || userRole === 'provider_plus';
       }
 
       return userRole === role;

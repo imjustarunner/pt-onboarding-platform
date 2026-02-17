@@ -18,7 +18,7 @@ import { encryptBillingSecret } from '../services/billingEncryption.service.js';
 
 const canManageLearningBilling = (role) => {
   const r = String(role || '').toLowerCase();
-  return r === 'super_admin' || r === 'admin' || r === 'staff' || r === 'support' || r === 'clinical_practice_assistant';
+  return r === 'super_admin' || r === 'admin' || r === 'staff' || r === 'support' || r === 'clinical_practice_assistant' || r === 'provider_plus';
 };
 
 async function userHasAgencyAccess(userId, agencyId, role) {

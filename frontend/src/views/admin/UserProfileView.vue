@@ -228,6 +228,7 @@
                     <option v-if="canAssignAdmin" value="admin">Admin</option>
                     <option v-if="canAssignSupport" value="support">Staff (Admin Tools)</option>
                     <option value="clinical_practice_assistant">Clinical Practice Assistant</option>
+                    <option value="provider_plus">Provider Plus</option>
                     <option value="staff">Staff</option>
                     <option value="provider">Provider</option>
                     <option value="school_staff">School Staff</option>

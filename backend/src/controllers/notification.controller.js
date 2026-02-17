@@ -22,7 +22,7 @@ function parseJsonMaybe(v) {
 function viewerAudienceKey(role) {
   const r = String(role || '').trim().toLowerCase();
   if (r === 'supervisor') return 'supervisor';
-  if (r === 'clinical_practice_assistant') return 'clinicalPracticeAssistant';
+  if (r === 'clinical_practice_assistant' || r === 'provider_plus') return 'clinicalPracticeAssistant';
   // Treat internal staff as admin-like for notification audiences.
   if (r === 'admin' || r === 'super_admin' || r === 'support' || r === 'staff') return 'admin';
   return 'provider';

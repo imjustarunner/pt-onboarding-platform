@@ -1339,7 +1339,7 @@ const isSchoolStaff = computed(() => String(authStore.user?.role || '').toLowerC
 const canAccessToolsAids = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
   // Keep role access aligned with router permissions for /admin/tools-aids.
-  return ['admin', 'super_admin', 'support', 'provider', 'staff', 'clinical_practice_assistant'].includes(role);
+  return ['admin', 'super_admin', 'support', 'provider', 'staff', 'clinical_practice_assistant', 'provider_plus'].includes(role);
 });
 
 const dashboardCards = computed(() => {
@@ -1370,17 +1370,15 @@ const dashboardCards = computed(() => {
   if (isOnboardingComplete.value) {
     // School staff should not see payroll/claims submission surfaces.
     if (!isSchoolStaff.value) {
-      // Schedule card is available via Dashboard (not top nav) for providers, supervisors, and limited-access users.
-      if (isProvider || isSup || !!caps?.canManageHiring || !!caps?.canManagePayroll) {
-        cards.push({
-          id: 'my_schedule',
-          label: 'My Schedule',
-          kind: 'content',
-          badgeCount: 0,
-          iconUrl: brandingStore.getDashboardCardIconUrl('my_schedule', cardIconOrgOverride),
-          description: 'View weekly schedule and request availability from the grid.'
-        });
-      }
+      // My Schedule is personal and should be visible to everyone using the dashboard.
+      cards.push({
+        id: 'my_schedule',
+        label: 'My Schedule',
+        kind: 'content',
+        badgeCount: 0,
+        iconUrl: brandingStore.getDashboardCardIconUrl('my_schedule', cardIconOrgOverride),
+        description: 'View weekly schedule and request availability from the grid.'
+      });
 
       // Provider-only surfaces: hide these for limited-access non-provider users.
       if (!isLimitedAccessNonProvider) {

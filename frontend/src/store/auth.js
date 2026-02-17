@@ -248,8 +248,13 @@ export const useAuthStore = defineStore('auth', () => {
       }
     } catch (err) {
       console.error('Error during logout:', err);
-      // Fallback to default login
-      window.location.href = '/login';
+      // Final fallback: still preserve branded portal login when possible.
+      try {
+        const { getLoginUrlForRedirect } = await import('../utils/loginRedirect');
+        window.location.href = getLoginUrlForRedirect(user.value);
+      } catch {
+        window.location.href = '/login';
+      }
     }
   };
 

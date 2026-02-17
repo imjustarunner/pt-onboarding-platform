@@ -233,7 +233,7 @@ const agencies = computed(() => {
 });
 
 const isAdminLike = computed(() => role.value === 'admin' || role.value === 'super_admin' || role.value === 'support');
-const isTeamRole = computed(() => role.value === 'supervisor' || role.value === 'clinical_practice_assistant');
+const isTeamRole = computed(() => role.value === 'supervisor' || role.value === 'clinical_practice_assistant' || role.value === 'provider_plus');
 const showPlatformCard = computed(() => isAdminLike.value || role.value === 'staff');
 
 const showAgencyCards = computed(() => isAdminLike.value);

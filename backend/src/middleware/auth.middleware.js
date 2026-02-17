@@ -121,13 +121,13 @@ export const authenticateOptional = (req, res, next) => {
 };
 
 export const requireAdmin = async (req, res, next) => {
-  // Allow admin, super_admin, support, supervisors, and CPAs
+  // Allow admin, super_admin, support, supervisors, CPAs, and provider_plus.
   // Check if user is a supervisor using boolean as source of truth
   const requestingUser = await User.findById(req.user.id);
   const isSupervisor = requestingUser && User.isSupervisor(requestingUser);
   
   if (req.user.role !== 'admin' && req.user.role !== 'super_admin' && req.user.role !== 'support' && 
-      !isSupervisor && req.user.role !== 'clinical_practice_assistant') {
+      !isSupervisor && req.user.role !== 'clinical_practice_assistant' && req.user.role !== 'provider_plus') {
     return res.status(403).json({ error: { message: 'Admin access required' } });
   }
   next();

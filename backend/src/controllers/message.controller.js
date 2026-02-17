@@ -20,7 +20,7 @@ const parseFeatureFlags = (raw) => {
 };
 
 const canViewSafetyNetFeed = (role) =>
-  role === 'support' || role === 'admin' || role === 'super_admin' || role === 'clinical_practice_assistant';
+  role === 'support' || role === 'admin' || role === 'super_admin' || role === 'clinical_practice_assistant' || role === 'provider_plus';
 
 async function getAgencyIdsForUser(userId) {
   const agencies = await User.getAgencies(userId);
