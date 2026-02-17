@@ -10,6 +10,7 @@ import Agency from '../models/Agency.model.js';
 import SupervisorAssignment from '../models/SupervisorAssignment.model.js';
 import PayrollPeriod from '../models/PayrollPeriod.model.js';
 import PayrollRate from '../models/PayrollRate.model.js';
+import PayrollUserRateSheetVisibility from '../models/PayrollUserRateSheetVisibility.model.js';
 import PayrollImport from '../models/PayrollImport.model.js';
 import PayrollImportRow from '../models/PayrollImportRow.model.js';
 import PayrollStagingOverride from '../models/PayrollStagingOverride.model.js';
@@ -3063,16 +3064,33 @@ export const upsertRate = async (req, res, next) => {
     const agencyIdNum = parseInt(agencyId);
     const resolvedAgencyId = await requirePayrollAccess(req, res, agencyIdNum);
     if (!resolvedAgencyId) return;
+    const normalizedEffectiveStart = effectiveStart || null;
+    const normalizedEffectiveEnd = effectiveEnd || null;
+    const userIdNum = parseInt(userId);
+    const code = String(serviceCode).trim();
+    const hasExplicitWindow = !!(normalizedEffectiveStart || normalizedEffectiveEnd);
+
+    // Policy: when a window is not supplied, treat this as the user's current canonical
+    // per-code override. Replace any legacy effective-dated rows for this code so the
+    // saved value cannot be shadowed by an older dated record.
+    if (!hasExplicitWindow) {
+      await PayrollRate.deleteForUserCode({
+        agencyId: resolvedAgencyId,
+        userId: userIdNum,
+        serviceCode: code
+      });
+    }
+
     const r = await PayrollRate.upsert({
       agencyId: resolvedAgencyId,
-      userId: parseInt(userId),
-      serviceCode: String(serviceCode).trim(),
+      userId: userIdNum,
+      serviceCode: code,
       rateAmount: Number(rateAmount),
       // Rate unit is agency-driven via payroll_service_code_rules.pay_rate_unit.
       // Keep per-user rates stored as per_unit for backward compatibility.
       rateUnit: 'per_unit',
-      effectiveStart: effectiveStart || null,
-      effectiveEnd: effectiveEnd || null
+      effectiveStart: normalizedEffectiveStart,
+      effectiveEnd: normalizedEffectiveEnd
     });
     res.json(r);
   } catch (e) {
@@ -3089,6 +3107,44 @@ export const listRatesForUser = async (req, res, next) => {
     if (!resolvedAgencyId) return;
     const rows = await PayrollRate.listForUser(resolvedAgencyId, userId);
     res.json(rows);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const listUserRateSheetVisibility = async (req, res, next) => {
+  try {
+    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId) : null;
+    const userId = req.query.userId ? parseInt(req.query.userId) : null;
+    if (!agencyId || !userId) return res.status(400).json({ error: { message: 'agencyId and userId are required' } });
+    const resolvedAgencyId = await requirePayrollAccess(req, res, agencyId);
+    if (!resolvedAgencyId) return;
+    const rows = await PayrollUserRateSheetVisibility.listForUser({ agencyId: resolvedAgencyId, userId });
+    res.json(rows);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const upsertUserRateSheetVisibility = async (req, res, next) => {
+  try {
+    const { agencyId, userId, serviceCode, showInRateSheet } = req.body || {};
+    const agencyIdNum = agencyId ? parseInt(agencyId) : null;
+    const userIdNum = userId ? parseInt(userId) : null;
+    const code = String(serviceCode || '').trim();
+    if (!agencyIdNum || !userIdNum || !code || showInRateSheet === undefined || showInRateSheet === null) {
+      return res.status(400).json({ error: { message: 'agencyId, userId, serviceCode, and showInRateSheet are required' } });
+    }
+    const resolvedAgencyId = await requirePayrollAccess(req, res, agencyIdNum);
+    if (!resolvedAgencyId) return;
+    const row = await PayrollUserRateSheetVisibility.upsert({
+      agencyId: resolvedAgencyId,
+      userId: userIdNum,
+      serviceCode: code,
+      showInRateSheet: !!showInRateSheet,
+      updatedByUserId: req.user?.id || null
+    });
+    res.json(row || { ok: true });
   } catch (e) {
     next(e);
   }
@@ -14276,10 +14332,10 @@ export const createPayrollRateTemplateFromUser = async (req, res, next) => {
       });
     }
 
-    const [rateCard, perCodeRates, rules] = await Promise.all([
+    const [rateCard, perCodeRates, visibilityRows] = await Promise.all([
       PayrollRateCard.findForUser(resolvedAgencyId, userIdNum),
       PayrollRate.listForUser(resolvedAgencyId, userIdNum),
-      PayrollServiceCodeRule.listForAgency(resolvedAgencyId)
+      PayrollUserRateSheetVisibility.listForUser({ agencyId: resolvedAgencyId, userId: userIdNum })
     ]);
 
     const isVariable = !rateCard; // Convention: no rate card => fee-for-service template
@@ -14296,13 +14352,13 @@ export const createPayrollRateTemplateFromUser = async (req, res, next) => {
       updatedByUserId: req.user.id
     });
 
-    const ruleByCode = new Map();
-    for (const r of rules || []) {
+    const visibilityByCode = new Map();
+    for (const r of visibilityRows || []) {
       const code = String(r?.service_code || '').trim().toUpperCase();
       if (!code) continue;
       const visRaw = r?.show_in_rate_sheet;
       const vis = visRaw === undefined || visRaw === null ? 1 : (visRaw ? 1 : 0);
-      ruleByCode.set(code, { showInRateSheet: vis });
+      visibilityByCode.set(code, { showInRateSheet: vis });
     }
 
     await PayrollRateTemplateRate.replaceAllForTemplate({
@@ -14313,7 +14369,7 @@ export const createPayrollRateTemplateFromUser = async (req, res, next) => {
         rateAmount: Number(r.rate_amount || 0),
         rateUnit: r.rate_unit || 'per_unit',
         // Persist visibility as part of the template so applying it also hides/shows the same codes.
-        showInRateSheet: (ruleByCode.get(String(r.service_code || '').trim().toUpperCase())?.showInRateSheet ?? 1)
+        showInRateSheet: (visibilityByCode.get(String(r.service_code || '').trim().toUpperCase())?.showInRateSheet ?? 1)
       }))
     });
 
@@ -14423,33 +14479,38 @@ export const applyPayrollRateTemplateToUser = async (req, res, next) => {
       });
     }
 
-    // Also apply rate sheet visibility settings captured in the template (best-effort).
-    // Visibility is stored on the agency-wide service code rules dictionary; only update codes present in the template.
+    // Also apply per-user visibility settings captured in the template (best-effort).
     try {
-      const desiredByCode = new Map();
+      const allowedCodes = new Set();
+      const rules = await PayrollServiceCodeRule.listForAgency(resolvedAgencyId);
+      for (const rule of rules || []) {
+        const code = String(rule?.service_code || '').trim().toUpperCase();
+        if (code) allowedCodes.add(code);
+      }
+
+      const desiredByCode = new Map(); // code -> 0|1
       for (const r of rates || []) {
         const code = String(r?.service_code || '').trim().toUpperCase();
         if (!code) continue;
+        if (!allowedCodes.has(code)) continue;
         if (r.show_in_rate_sheet === undefined || r.show_in_rate_sheet === null) continue; // older DB/template
         desiredByCode.set(code, r.show_in_rate_sheet ? 1 : 0);
       }
-      const codes = Array.from(desiredByCode.keys());
-      if (codes.length) {
-        await ensureServiceCodeRulesExist({ agencyId: resolvedAgencyId, serviceCodes: codes });
+      if (desiredByCode.size) {
         await Promise.all(
-          codes.map((code) =>
-            pool.execute(
-              `UPDATE payroll_service_code_rules
-               SET show_in_rate_sheet = ?
-               WHERE agency_id = ? AND service_code = ?
-               LIMIT 1`,
-              [desiredByCode.get(code) ? 1 : 0, resolvedAgencyId, code]
-            )
+          Array.from(desiredByCode.entries()).map(([code, vis]) =>
+            PayrollUserRateSheetVisibility.upsert({
+              agencyId: resolvedAgencyId,
+              userId: userIdNum,
+              serviceCode: code,
+              showInRateSheet: vis ? 1 : 0,
+              updatedByUserId: req.user.id
+            })
           )
         );
       }
     } catch {
-      // Do not block template application if visibility updates fail or column doesn't exist yet.
+      // Do not block template application if visibility updates fail or migration isn't applied yet.
     }
 
     res.json({ ok: true });

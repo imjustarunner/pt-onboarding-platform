@@ -510,6 +510,7 @@ const hasPayrollAccessForAgency = ref(false);
 const rateCard = ref(null);
 const perCodeRates = ref([]);
 const serviceCodeRules = ref([]);
+const userRateVisibilityRows = ref([]);
 
 const ptoLoading = ref(false);
 const savingPto = ref(false);
@@ -617,6 +618,16 @@ const ruleByCode = computed(() => {
     const code = String(r.service_code || '').trim();
     if (!code) continue;
     m.set(code, r);
+  }
+  return m;
+});
+
+const visibilityByCode = computed(() => {
+  const m = new Map();
+  for (const r of userRateVisibilityRows.value || []) {
+    const code = String(r.service_code || '').trim();
+    if (!code) continue;
+    m.set(code, r.show_in_rate_sheet === undefined || r.show_in_rate_sheet === null ? true : !!r.show_in_rate_sheet);
   }
   return m;
 });
@@ -837,11 +848,11 @@ const fullRateRows = computed(() => {
   }
   return out.map((x) => {
     const r = rateByCode.get(x.serviceCode) || null;
-    const rule = ruleByCode.value.get(x.serviceCode) || null;
+    const vis = visibilityByCode.value.get(x.serviceCode);
     return {
       serviceCode: x.serviceCode,
       rateAmount: r ? Number(r.rate_amount) : null,
-      visible: rule ? (rule.show_in_rate_sheet === undefined || rule.show_in_rate_sheet === null ? true : !!rule.show_in_rate_sheet) : true
+      visible: vis === undefined ? true : !!vis
     };
   });
 });
@@ -880,15 +891,17 @@ const loadComp = async () => {
     compError.value = '';
     hasPayrollAccessForAgency.value = false;
     templateDetails.value = null;
-    const [rc, rates, rules, tmpl] = await Promise.all([
+    const [rc, rates, rules, vis, tmpl] = await Promise.all([
       api.get('/payroll/rate-cards', { params: { agencyId: selectedAgencyId.value, userId: props.userId } }),
       api.get('/payroll/rates', { params: { agencyId: selectedAgencyId.value, userId: props.userId } }),
       api.get('/payroll/service-code-rules', { params: { agencyId: selectedAgencyId.value } }),
+      api.get('/payroll/rate-sheet-visibility', { params: { agencyId: selectedAgencyId.value, userId: props.userId } }),
       api.get('/payroll/rate-templates', { params: { agencyId: selectedAgencyId.value } })
     ]);
     rateCard.value = rc.data || null;
     perCodeRates.value = rates.data || [];
     serviceCodeRules.value = rules.data || [];
+    userRateVisibilityRows.value = vis.data || [];
     templates.value = tmpl.data || [];
     await loadOtherRateTitles();
     await loadSalaryPositions();
@@ -1098,22 +1111,16 @@ const toggleRuleVisibility = async (serviceCode) => {
   if (!selectedAgencyId.value || !canEditRates.value) return;
   const code = String(serviceCode || '').trim();
   if (!code) return;
-  const rule = ruleByCode.value.get(code);
-  // If a rule doesn't exist yet, treat it as visible by default and allow the first click to HIDE it.
-  const currentVisible = rule ? !!rule.show_in_rate_sheet : true;
+  // If no explicit per-user override exists yet, treat as visible by default.
+  const currentVisible = visibilityByCode.value.has(code) ? !!visibilityByCode.value.get(code) : true;
   const next = !currentVisible;
   try {
     savingRates.value = true;
     editError.value = '';
-    await api.post('/payroll/service-code-rules', {
+    await api.put('/payroll/rate-sheet-visibility', {
       agencyId: selectedAgencyId.value,
+      userId: props.userId,
       serviceCode: code,
-      category: rule?.category || 'direct',
-      otherSlot: rule?.other_slot || 1,
-      durationMinutes: rule?.duration_minutes ?? null,
-      countsForTier: rule?.counts_for_tier === 0 ? 0 : 1,
-      payDivisor: rule?.pay_divisor ?? 1,
-      creditValue: rule?.credit_value ?? 0,
       showInRateSheet: next ? 1 : 0
     });
     await loadComp();

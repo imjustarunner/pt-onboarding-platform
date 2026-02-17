@@ -52,6 +52,8 @@ import {
   upsertRate,
   listRatesForUser,
   deleteRateForUser,
+  listUserRateSheetVisibility,
+  upsertUserRateSheetVisibility,
   listUserPayroll,
   requestAdpExport,
   ensureFuturePayrollPeriods,
@@ -204,6 +206,8 @@ router.put('/periods/:id/adjustments/:userId', upsertPayrollAdjustmentsForUser);
 router.post('/rates', upsertRate);
 router.get('/rates', listRatesForUser);
 router.delete('/rates', deleteRateForUser);
+router.get('/rate-sheet-visibility', listUserRateSheetVisibility);
+router.put('/rate-sheet-visibility', upsertUserRateSheetVisibility);
 router.get('/rate-cards', getPayrollRateCard);
 router.post('/rate-cards', upsertPayrollRateCard);
 router.get('/service-code-rules', listServiceCodeRules);
