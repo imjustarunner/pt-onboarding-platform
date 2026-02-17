@@ -14235,7 +14235,15 @@ export const deleteServiceCodeRule = async (req, res, next) => {
     if (!agencyId || !serviceCode) return res.status(400).json({ error: { message: 'agencyId and serviceCode are required' } });
     const resolvedAgencyId = await requirePayrollAccess(req, res, agencyId);
     if (!resolvedAgencyId) return;
-    await PayrollServiceCodeRule.delete({ agencyId: resolvedAgencyId, serviceCode: String(serviceCode).trim() });
+    const code = String(serviceCode).trim();
+    await PayrollServiceCodeRule.delete({ agencyId: resolvedAgencyId, serviceCode: code });
+    // Keep provider rate sheets clean when a code is removed from this agency dictionary.
+    // Blank/removed code should fall back to hourly card; explicit zero remains explicit where code still exists.
+    await pool.execute(
+      `DELETE FROM payroll_rates
+       WHERE agency_id = ? AND service_code = ?`,
+      [resolvedAgencyId, code]
+    );
     res.json({ ok: true });
   } catch (e) {
     next(e);

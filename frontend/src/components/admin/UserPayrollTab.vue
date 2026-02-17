@@ -826,13 +826,15 @@ const fullRateRows = computed(() => {
     if (!code) continue;
     codes.set(code, { serviceCode: code });
   }
+  const out = Array.from(codes.values()).sort((a, b) => a.serviceCode.localeCompare(b.serviceCode));
+  // listForUser is ordered by service_code ASC, effective_start DESC.
+  // Keep the FIRST row for each code so UI matches payroll's "best current" pick.
+  const rateByCode = new Map();
   for (const r of perCodeRates.value || []) {
     const code = String(r.service_code || '').trim();
     if (!code) continue;
-    if (!codes.has(code)) codes.set(code, { serviceCode: code });
+    if (!rateByCode.has(code)) rateByCode.set(code, r);
   }
-  const out = Array.from(codes.values()).sort((a, b) => a.serviceCode.localeCompare(b.serviceCode));
-  const rateByCode = new Map((perCodeRates.value || []).map((r) => [String(r.service_code || '').trim(), r]));
   return out.map((x) => {
     const r = rateByCode.get(x.serviceCode) || null;
     const rule = ruleByCode.value.get(x.serviceCode) || null;
@@ -1033,12 +1035,25 @@ const saveRates = async () => {
       otherRate3Bucket: String(rateCardDraft.value.otherBucket3 || 'other').trim().toLowerCase()
     });
 
-    const current = new Map((perCodeRates.value || []).map((r) => [String(r.service_code || '').trim(), { amount: Number(r.rate_amount) }]));
+    // listForUser is ordered by service_code ASC, effective_start DESC.
+    // Compare against the first (most recent/active) row per code.
+    const current = new Map();
+    for (const r of perCodeRates.value || []) {
+      const code = String(r.service_code || '').trim();
+      if (!code || current.has(code)) continue;
+      current.set(code, { amount: Number(r.rate_amount) });
+    }
     const changes = [];
     const deletes = [];
+    const allowedCodes = new Set((fullRateRows.value || []).map((r) => String(r.serviceCode || '').trim()).filter(Boolean));
+    // Cleanup orphan per-code overrides for service codes no longer in agency rules.
+    for (const code of current.keys()) {
+      if (!allowedCodes.has(code)) deletes.push(code);
+    }
     for (const [code, val] of Object.entries(rateDraftByCode.value || {})) {
       const trimmedCode = String(code || '').trim();
       if (!trimmedCode) continue;
+      if (!allowedCodes.has(trimmedCode)) continue;
       const t = String(val ?? '').trim();
       const prev = current.get(trimmedCode);
       if (!t) {
@@ -1053,6 +1068,7 @@ const saveRates = async () => {
       }
     }
 
+    const dedupDeletes = Array.from(new Set(deletes));
     await Promise.all([
       ...changes.map((c) =>
         api.post('/payroll/rates', {
@@ -1064,7 +1080,7 @@ const saveRates = async () => {
           effectiveEnd: null
         })
       ),
-      ...deletes.map((serviceCode) =>
+      ...dedupDeletes.map((serviceCode) =>
         api.delete('/payroll/rates', { params: { agencyId: selectedAgencyId.value, userId: props.userId, serviceCode } })
       )
     ]);
