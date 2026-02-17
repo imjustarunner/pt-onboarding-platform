@@ -39,6 +39,7 @@
                 <option value="school">School</option>
                 <option value="program">Program</option>
                 <option value="learning">Learning</option>
+                <option value="clinical">Clinical</option>
                 <option value="office">Building</option>
               </select>
               <small>Cannot be changed after creation.</small>

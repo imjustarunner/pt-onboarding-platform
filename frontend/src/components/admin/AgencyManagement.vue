@@ -51,6 +51,7 @@
                 <option value="schools">Schools</option>
                 <option value="programs">Programs</option>
                 <option value="learning">Learning</option>
+                <option value="clinical">Clinical</option>
                 <option value="other">Other</option>
                 <option value="organizations">All non-agency orgs</option>
               </select>
@@ -364,9 +365,10 @@
               <option value="school">School</option>
               <option value="program">Program</option>
               <option value="learning">Learning</option>
+              <option value="clinical">Clinical</option>
               <option v-if="canCreateOffice" value="office">Building</option>
             </select>
-            <small v-if="!editingAgency && userRole !== 'super_admin'">Admins can create schools/programs/learning orgs. Only super admins can create agencies.</small>
+            <small v-if="!editingAgency && userRole !== 'super_admin'">Admins can create schools/programs/learning/clinical orgs. Only super admins can create agencies.</small>
             <small v-if="editingAgency">Organization type cannot be changed after creation</small>
           </div>
 
@@ -1505,6 +1507,10 @@
               <label class="hint" style="display: inline-flex; align-items: center; gap: 8px;">
                 <input type="checkbox" value="learning" v-model="agencyForm.ticketingNotificationOrgTypes" />
                 Learning
+              </label>
+              <label class="hint" style="display: inline-flex; align-items: center; gap: 8px;">
+                <input type="checkbox" value="clinical" v-model="agencyForm.ticketingNotificationOrgTypes" />
+                Clinical
               </label>
             </div>
             <small class="hint" style="display: block; margin-top: 8px;">
@@ -3219,8 +3225,8 @@ const buildings = ref([]); // office_locations (organization_type = 'office')
 const searchQuery = ref('');
 // Two-mode navigation filter:
 // - agencies: show only agencies
-// - organizations: show only non-agency orgs (schools/programs/learning)
-const typeFilter = ref('agencies'); // agencies|buildings|schools|programs|learning|other|organizations
+// - organizations: show only non-agency orgs (schools/programs/learning/clinical)
+const typeFilter = ref('agencies'); // agencies|buildings|schools|programs|learning|clinical|other|organizations
 const sortMode = ref('name_asc'); // name_asc|name_desc|slug_asc|type_asc|status_desc
 const selectedAgencyFilterId = ref(''); // superadmin: parent agency filter
 const affiliatedOrganizations = ref([]); // /agencies/:id/affiliated-organizations results
@@ -5324,9 +5330,12 @@ const organizationsToRender = computed(() => {
   if (view === 'learning') {
     return sortOrganizations(applyFilters((base || []).filter((o) => typeOf(o) === 'learning')));
   }
+  if (view === 'clinical') {
+    return sortOrganizations(applyFilters((base || []).filter((o) => typeOf(o) === 'clinical')));
+  }
   if (view === 'other') {
     return sortOrganizations(
-      applyFilters((base || []).filter((o) => !['agency', 'office', 'school', 'program', 'learning'].includes(typeOf(o))))
+      applyFilters((base || []).filter((o) => !['agency', 'office', 'school', 'program', 'learning', 'clinical'].includes(typeOf(o))))
     );
   }
 
@@ -5374,7 +5383,7 @@ const removeOfficeAdditionalAgency = (idx) => {
 
 const requiresAffiliatedAgency = computed(() => {
   const t = String(agencyForm.value.organizationType || 'agency').toLowerCase();
-  return ['school', 'program', 'learning', 'office'].includes(t);
+  return ['school', 'program', 'learning', 'clinical', 'office'].includes(t);
 });
 
 const affiliatedAgencyLocked = computed(() => {
@@ -5391,7 +5400,8 @@ const selectedAffiliatedAgency = computed(() => {
 const PRICING_UNIT_CENTS = {
   school: 2500,
   program: 1000,
-  learning: 1000
+  learning: 1000,
+  clinical: 1000
 };
 
 const estimatedUnitPriceCents = computed(() => {
@@ -6179,7 +6189,7 @@ const editAgency = async (agency) => {
       if (Array.isArray(parsed) && parsed.length) {
         return parsed.map((t) => String(t || '').trim().toLowerCase()).filter(Boolean);
       }
-      return ['school', 'program', 'learning'];
+      return ['school', 'program', 'learning', 'clinical'];
     })(),
     reviewPromptConfig: (() => {
       const raw = agency.review_prompt_config ?? null;
@@ -6471,7 +6481,7 @@ const toggleAgencyStatus = () => {
 
 const isChildOrgRow = (org) => {
   const t = String(org?.organization_type || 'agency').toLowerCase();
-  return ['school', 'program', 'learning'].includes(t);
+  return ['school', 'program', 'learning', 'clinical'].includes(t);
 };
 
 const openDuplicateModal = (org) => {
