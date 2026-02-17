@@ -37,6 +37,18 @@ async function requireUsersInAgency({ agencyId, supervisorUserId, superviseeUser
   return { supOk, svOk };
 }
 
+async function getUsersInAgencyMap({ agencyId, userIds = [] }) {
+  const aId = Number(agencyId);
+  const ids = Array.from(new Set((userIds || []).map((n) => Number(n)).filter((n) => Number.isFinite(n) && n > 0)));
+  const out = {};
+  if (!ids.length) return out;
+  await Promise.all(ids.map(async (uid) => {
+    const agencies = await User.getAgencies(uid);
+    out[uid] = (agencies || []).some((a) => Number(a?.id) === aId);
+  }));
+  return out;
+}
+
 async function canScheduleSession(req, { agencyId, supervisorUserId, superviseeUserId }) {
   const role = String(req.user?.role || '').toLowerCase();
   const actorId = Number(req.user?.id || 0);
@@ -63,6 +75,13 @@ export const createSupervisionSessionValidators = [
   body('agencyId').isInt({ min: 1 }).withMessage('agencyId is required'),
   body('supervisorUserId').isInt({ min: 1 }).withMessage('supervisorUserId is required'),
   body('superviseeUserId').isInt({ min: 1 }).withMessage('superviseeUserId is required'),
+  body('sessionType').optional().isIn(['individual', 'triadic', 'group']).withMessage('sessionType must be individual, triadic, or group'),
+  body('additionalAttendeeUserIds').optional().isArray().withMessage('additionalAttendeeUserIds must be an array'),
+  body('additionalAttendeeUserIds.*').optional().isInt({ min: 1 }).withMessage('additionalAttendeeUserIds must contain valid user ids'),
+  body('requiredAttendeeUserIds').optional().isArray().withMessage('requiredAttendeeUserIds must be an array'),
+  body('requiredAttendeeUserIds.*').optional().isInt({ min: 1 }).withMessage('requiredAttendeeUserIds must contain valid user ids'),
+  body('optionalAttendeeUserIds').optional().isArray().withMessage('optionalAttendeeUserIds must be an array'),
+  body('optionalAttendeeUserIds.*').optional().isInt({ min: 1 }).withMessage('optionalAttendeeUserIds must contain valid user ids'),
   body('startAt').not().isEmpty().withMessage('startAt is required'),
   body('endAt').not().isEmpty().withMessage('endAt is required'),
   body('createMeetLink').optional().isBoolean().withMessage('createMeetLink must be boolean')
@@ -71,6 +90,7 @@ export const createSupervisionSessionValidators = [
 export const patchSupervisionSessionValidators = [
   body('startAt').optional(),
   body('endAt').optional(),
+  body('sessionType').optional().isIn(['individual', 'triadic', 'group']).withMessage('sessionType must be individual, triadic, or group'),
   body('notes').optional(),
   body('modality').optional(),
   body('locationText').optional(),
@@ -85,10 +105,32 @@ export const createSupervisionSession = async (req, res, next) => {
     const superviseeUserId = parseInt(req.body?.superviseeUserId, 10);
     const startAt = parseDateTimeLocalString(req.body?.startAt);
     const endAt = parseDateTimeLocalString(req.body?.endAt);
+    const sessionType = String(req.body?.sessionType || 'individual').trim().toLowerCase();
     const modality = req.body?.modality ?? null;
     const locationText = req.body?.locationText ?? null;
     const notes = req.body?.notes ?? null;
     const createMeetLink = req.body?.createMeetLink === true;
+    const additionalAttendeeUserIds = Array.from(
+      new Set(
+        (Array.isArray(req.body?.additionalAttendeeUserIds) ? req.body.additionalAttendeeUserIds : [])
+          .map((n) => parseInt(n, 10))
+          .filter((n) => Number.isFinite(n) && n > 0 && n !== supervisorUserId && n !== superviseeUserId)
+      )
+    );
+    const requiredAttendeeUserIds = Array.from(
+      new Set(
+        (Array.isArray(req.body?.requiredAttendeeUserIds) ? req.body.requiredAttendeeUserIds : [])
+          .map((n) => parseInt(n, 10))
+          .filter((n) => Number.isFinite(n) && n > 0 && n !== supervisorUserId && n !== superviseeUserId)
+      )
+    );
+    const optionalAttendeeUserIds = Array.from(
+      new Set(
+        (Array.isArray(req.body?.optionalAttendeeUserIds) ? req.body.optionalAttendeeUserIds : [])
+          .map((n) => parseInt(n, 10))
+          .filter((n) => Number.isFinite(n) && n > 0 && n !== supervisorUserId && n !== superviseeUserId)
+      )
+    );
 
     if (!startAt || !endAt) return res.status(400).json({ error: { message: 'Invalid startAt/endAt' } });
     if (endAt <= startAt) return res.status(400).json({ error: { message: 'endAt must be after startAt' } });
@@ -99,6 +141,18 @@ export const createSupervisionSession = async (req, res, next) => {
     const { supOk, svOk } = await requireUsersInAgency({ agencyId, supervisorUserId, superviseeUserId });
     if (!supOk) return res.status(400).json({ error: { message: 'Supervisor does not belong to this agency' } });
     if (!svOk) return res.status(400).json({ error: { message: 'Supervisee does not belong to this agency' } });
+    const allExtraAttendees = Array.from(new Set([
+      ...additionalAttendeeUserIds,
+      ...requiredAttendeeUserIds,
+      ...optionalAttendeeUserIds
+    ]));
+    if (allExtraAttendees.length) {
+      const agencyMap = await getUsersInAgencyMap({ agencyId, userIds: allExtraAttendees });
+      const missing = allExtraAttendees.filter((uid) => !agencyMap[uid]);
+      if (missing.length) {
+        return res.status(400).json({ error: { message: 'One or more additional attendees do not belong to this agency', userIds: missing } });
+      }
+    }
 
     const supervisor = await User.findById(supervisorUserId);
     const supervisee = await User.findById(superviseeUserId);
@@ -108,6 +162,7 @@ export const createSupervisionSession = async (req, res, next) => {
       agencyId,
       supervisorUserId,
       superviseeUserId,
+      sessionType,
       startAt,
       endAt,
       modality: modality ? String(modality) : null,
@@ -115,6 +170,27 @@ export const createSupervisionSession = async (req, res, next) => {
       notes: notes ? String(notes) : null,
       createdByUserId: req.user.id
     });
+
+    const requiredSet = new Set([superviseeUserId, ...additionalAttendeeUserIds, ...requiredAttendeeUserIds]);
+    const optionalSet = new Set(optionalAttendeeUserIds.filter((uid) => !requiredSet.has(uid)));
+    const superviseeIds = Array.from(new Set([...requiredSet, ...optionalSet]));
+    const compensableMap = await User.getAgencySupervisionCompensableMap(agencyId, superviseeIds);
+    await SupervisionSession.upsertAttendees(created.id, [
+      {
+        userId: supervisorUserId,
+        participantRole: 'supervisor',
+        isRequired: true,
+        isCompensableSnapshot: false,
+        status: 'INVITED'
+      },
+      ...superviseeIds.map((uid) => ({
+        userId: uid,
+        participantRole: 'supervisee',
+        isRequired: !optionalSet.has(uid),
+        isCompensableSnapshot: !!compensableMap[uid],
+        status: 'INVITED'
+      }))
+    ]);
 
     // Best-effort: sync to Google Calendar on supervisor calendar
     const hostEmail = String(supervisor.email || '').trim().toLowerCase();
@@ -181,6 +257,7 @@ export const patchSupervisionSession = async (req, res, next) => {
 
     const startAt = req.body?.startAt !== undefined ? parseDateTimeLocalString(req.body?.startAt) : undefined;
     const endAt = req.body?.endAt !== undefined ? parseDateTimeLocalString(req.body?.endAt) : undefined;
+    const sessionType = req.body?.sessionType !== undefined ? String(req.body?.sessionType || '').trim().toLowerCase() : undefined;
     const notes = req.body?.notes !== undefined ? (req.body?.notes ? String(req.body.notes) : '') : undefined;
     const modality = req.body?.modality !== undefined ? (req.body?.modality ? String(req.body.modality) : null) : undefined;
     const locationText = req.body?.locationText !== undefined ? (req.body?.locationText ? String(req.body.locationText) : null) : undefined;
@@ -194,6 +271,7 @@ export const patchSupervisionSession = async (req, res, next) => {
     const updated = await SupervisionSession.updateById(id, {
       startAt: startAt !== undefined ? startAt : undefined,
       endAt: endAt !== undefined ? endAt : undefined,
+      sessionType,
       notes,
       modality,
       locationText
@@ -313,6 +391,43 @@ export const getSuperviseeHoursSummary = async (req, res, next) => {
       totalSeconds: summary.totalSeconds,
       sessionCount: summary.sessionCount
     });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const getMySupervisionPrompts = async (req, res, next) => {
+  try {
+    const userId = Number(req.user?.id || 0);
+    const agencyId = req.query?.agencyId ? Number(req.query.agencyId) : null;
+    if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+
+    const now = new Date();
+    const rows = await SupervisionSession.listPromptSessionsForUser({
+      userId,
+      agencyId: Number.isFinite(agencyId) && agencyId > 0 ? agencyId : null,
+      now
+    });
+
+    const prompts = (rows || []).map((row) => {
+      const start = new Date(row.startAt || 0);
+      const end = new Date(row.endAt || 0);
+      const startsInMinutes = Number.isFinite(start.getTime())
+        ? Math.round((start.getTime() - now.getTime()) / 60000)
+        : null;
+      const inPromptWindow = Number.isFinite(start.getTime()) && Number.isFinite(end.getTime())
+        ? now >= new Date(start.getTime() - 5 * 60 * 1000) && now <= end
+        : false;
+      return {
+        ...row,
+        startsInMinutes,
+        isLive: Number.isFinite(start.getTime()) && Number.isFinite(end.getTime()) ? now >= start && now <= end : false,
+        inPromptWindow,
+        promptStyle: row.isRequired ? 'required_splash' : 'optional_card'
+      };
+    }).filter((row) => row.inPromptWindow);
+
+    res.json({ ok: true, prompts, now: now.toISOString() });
   } catch (e) {
     next(e);
   }

@@ -81,6 +81,26 @@
         </article>
       </div>
     </div>
+
+    <div
+      v-if="!previewMode && isOnboardingComplete && optionalSupervisionPrompts.length > 0"
+      class="supervision-invite-strip"
+    >
+      <div class="supervision-invite-head">
+        <strong>Optional Group Supervision</strong>
+        <small class="hint">You can dismiss these reminders.</small>
+      </div>
+      <div class="supervision-invite-list">
+        <article v-for="prompt in optionalSupervisionPrompts" :key="`supv-opt-${prompt.id}`" class="supervision-invite-card">
+          <div class="invite-title">{{ prompt.sessionTypeLabel }} with {{ prompt.supervisorName || 'Supervisor' }}</div>
+          <div class="invite-time">{{ prompt.timeLabel }}</div>
+          <div class="invite-actions">
+            <button type="button" class="btn btn-primary btn-sm" @click="joinSupervisionPrompt(prompt)">Join</button>
+            <button type="button" class="btn btn-secondary btn-sm" @click="dismissOptionalSupervisionPrompt(prompt.id)">Dismiss</button>
+          </div>
+        </article>
+      </div>
+    </div>
     
     <!-- Pending Completion Button -->
     <div v-if="isPending && pendingCompletionStatus?.allComplete && !pendingCompletionStatus?.accessLocked && (userStatus === 'PREHIRE_OPEN' || userStatus === 'pending')" class="pending-completion-banner">
@@ -301,10 +321,16 @@
             class="my-panel my-schedule-panel"
             data-tour="dash-my-schedule-panel"
           >
-            <div class="my-schedule-stage">
+            <div ref="myScheduleStageRef" class="my-schedule-stage">
               <div class="section-header">
                 <h2 style="margin: 0;">My Schedule</h2>
                 <div style="display:flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end;">
+                  <button type="button" class="btn btn-secondary btn-sm" @click="toggleScheduleFullscreen">
+                    {{ scheduleFullscreenActive ? 'Exit full screen' : 'Show full screen' }}
+                  </button>
+                  <button type="button" class="btn btn-secondary btn-sm" @click="openScheduleInNewWindow">
+                    Show full screen in new window
+                  </button>
                   <button
                     v-if="isSkillBuilderEligible"
                     type="button"
@@ -673,6 +699,20 @@
       :payroll-period-id="lastPaycheckPayrollPeriodId"
       @close="closeLastPaycheckModal"
     />
+
+    <div v-if="mandatorySupervisionPrompt" class="supervision-splash" role="dialog" aria-modal="true" aria-label="Join group supervision">
+      <div class="supervision-splash-card">
+        <h3>Join Group Supervision Now</h3>
+        <p>
+          {{ mandatorySupervisionPrompt.sessionTypeLabel }} with {{ mandatorySupervisionPrompt.supervisorName || 'your supervisor' }} is active.
+          ({{ mandatorySupervisionPrompt.timeLabel }})
+        </p>
+        <div class="supervision-splash-actions">
+          <button type="button" class="btn btn-secondary btn-sm" @click="activeTab = 'my_schedule'">Open Schedule</button>
+          <button type="button" class="btn btn-primary btn-sm" @click="joinSupervisionPrompt(mandatorySupervisionPrompt)">Join now</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -877,6 +917,8 @@ const closeLastPaycheckModal = () => {
 
 // Supervisor schedule picker (inside My Schedule card)
 const scheduleViewMode = ref('self'); // 'self' | 'supervisee'
+const myScheduleStageRef = ref(null);
+const scheduleFullscreenActive = ref(false);
 const superviseesLoading = ref(false);
 const superviseesError = ref('');
 const supervisees = ref([]); // [{ id, firstName, lastName, agencyName }]
@@ -988,6 +1030,114 @@ const currentAgencyId = computed(() => {
   const a = agencyStore.currentAgency?.value || agencyStore.currentAgency;
   return a?.id || null;
 });
+
+const supervisionPromptRows = ref([]);
+const dismissedOptionalSupervisionPromptIds = ref(new Set());
+const supervisionPromptPollMs = 30000;
+let supervisionPromptTimer = null;
+
+const sessionTypeLabel = (type) => {
+  const t = String(type || 'individual').toLowerCase();
+  if (t === 'group') return 'Group Supervision';
+  if (t === 'triadic') return 'Triadic Supervision';
+  return 'Individual Supervision';
+};
+
+const promptTimeLabel = (row) => {
+  try {
+    const start = new Date(row.startAt || 0);
+    const end = new Date(row.endAt || 0);
+    if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime())) return 'Now';
+    return `${start.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} - ${end.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+  } catch {
+    return 'Now';
+  }
+};
+
+const mandatorySupervisionPrompt = computed(() => {
+  const rows = Array.isArray(supervisionPromptRows.value) ? supervisionPromptRows.value : [];
+  const required = rows.filter((r) => r?.isRequired);
+  if (!required.length) return null;
+  const first = required.slice().sort((a, b) => new Date(a?.startAt || 0).getTime() - new Date(b?.startAt || 0).getTime())[0];
+  return {
+    ...first,
+    sessionTypeLabel: sessionTypeLabel(first?.sessionType),
+    timeLabel: promptTimeLabel(first)
+  };
+});
+
+const optionalSupervisionPrompts = computed(() => {
+  if (mandatorySupervisionPrompt.value) return [];
+  const rows = Array.isArray(supervisionPromptRows.value) ? supervisionPromptRows.value : [];
+  const dismissed = dismissedOptionalSupervisionPromptIds.value || new Set();
+  return rows
+    .filter((r) => !r?.isRequired && !dismissed.has(Number(r?.id || 0)))
+    .slice(0, 4)
+    .map((row) => ({
+      ...row,
+      sessionTypeLabel: sessionTypeLabel(row?.sessionType),
+      timeLabel: promptTimeLabel(row)
+    }));
+});
+
+const dismissOptionalSupervisionPrompt = (sessionId) => {
+  const sid = Number(sessionId || 0);
+  if (!sid) return;
+  dismissedOptionalSupervisionPromptIds.value = new Set([...(dismissedOptionalSupervisionPromptIds.value || new Set()), sid]);
+};
+
+const joinSupervisionPrompt = (prompt) => {
+  const link = String(prompt?.googleMeetLink || '').trim();
+  if (link) {
+    window.open(link, '_blank', 'noreferrer');
+    return;
+  }
+  activeTab.value = 'my_schedule';
+  router.replace({ query: { ...route.query, tab: 'my_schedule' } });
+};
+
+const loadSupervisionPrompts = async () => {
+  if (props.previewMode || !isOnboardingComplete.value || !authStore.user?.id) {
+    supervisionPromptRows.value = [];
+    return;
+  }
+  try {
+    const params = {};
+    if (currentAgencyId.value) params.agencyId = Number(currentAgencyId.value);
+    const resp = await api.get('/supervision/my-prompts', { params });
+    supervisionPromptRows.value = Array.isArray(resp.data?.prompts) ? resp.data.prompts : [];
+  } catch {
+    supervisionPromptRows.value = [];
+  }
+};
+
+const updateScheduleFullscreenState = () => {
+  const root = myScheduleStageRef.value;
+  const fs = document.fullscreenElement;
+  scheduleFullscreenActive.value = !!(fs && root && (fs === root || root.contains(fs)));
+};
+
+const toggleScheduleFullscreen = async () => {
+  try {
+    const root = myScheduleStageRef.value;
+    if (!root) return;
+    if (document.fullscreenElement && (document.fullscreenElement === root || root.contains(document.fullscreenElement))) {
+      await document.exitFullscreen();
+      return;
+    }
+    await root.requestFullscreen();
+  } catch {
+    // Ignore browser restrictions.
+  }
+};
+
+const openScheduleInNewWindow = () => {
+  const url = new URL(window.location.href);
+  url.searchParams.set('tab', 'my_schedule');
+  const w = Math.max(1200, window.screen?.availWidth || window.innerWidth || 1200);
+  const h = Math.max(800, window.screen?.availHeight || window.innerHeight || 800);
+  window.open(url.toString(), '_blank', `noopener,noreferrer,width=${w},height=${h}`);
+};
 
 const fetchSuperviseesForSchedule = async () => {
   try {
@@ -1796,6 +1946,7 @@ onMounted(async () => {
   await loadCurrentTier();
   await loadAgencyDashboardBanner();
   await loadMyCompanyEvents();
+  await loadSupervisionPrompts();
   await loadDashboardSocialFeeds();
 
   updateRailTopMode();
@@ -1804,6 +1955,10 @@ onMounted(async () => {
   railPulseTimer = setTimeout(() => { railPulse.value = false; }, RAIL_PULSE_DURATION_MS);
   document.addEventListener('pointerdown', handleDocumentPointerDown);
   document.addEventListener('keydown', handleDocumentKeydown);
+  document.addEventListener('fullscreenchange', updateScheduleFullscreenState);
+  supervisionPromptTimer = setInterval(() => {
+    loadSupervisionPrompts();
+  }, supervisionPromptPollMs);
 });
 watch(activeTab, updateRailTopMode);
 
@@ -1822,6 +1977,7 @@ watch([currentAgencyId, isOnboardingComplete], async () => {
   await loadMyAssignedSchools();
   await loadAgencyDashboardBanner();
   await loadMyCompanyEvents();
+  await loadSupervisionPrompts();
   await loadDashboardSocialFeeds();
 });
 
@@ -1847,6 +2003,8 @@ onUnmounted(() => {
   if (railPulseTimer) clearTimeout(railPulseTimer);
   document.removeEventListener('pointerdown', handleDocumentPointerDown);
   document.removeEventListener('keydown', handleDocumentKeydown);
+  document.removeEventListener('fullscreenchange', updateScheduleFullscreenState);
+  if (supervisionPromptTimer) clearInterval(supervisionPromptTimer);
 });
 </script>
 
@@ -1864,7 +2022,7 @@ onUnmounted(() => {
 }
 h1 {
   margin-bottom: 30px;
-  color: #2c3e50;
+  color: var(--text-primary);
 }
 
 .onboarding-card {
@@ -2032,7 +2190,7 @@ h1 {
   padding: 0;
 }
 .my-schedule-stage {
-  background: white;
+  background: var(--bg-card);
   border-radius: 12px;
   border: 1px solid var(--border);
   box-shadow: var(--shadow);
@@ -2144,12 +2302,12 @@ h1 {
 }
 
 .rail-card-submit {
-  background: rgba(236, 254, 255, 0.9);
-  border-color: rgba(103, 232, 249, 0.7);
+  background: color-mix(in srgb, var(--primary-light) 18%, var(--bg-card));
+  border-color: color-mix(in srgb, var(--primary) 34%, var(--border));
 }
 .rail-card-submit .rail-card-title,
 .rail-card-submit .rail-card-cta {
-  color: #0e7490;
+  color: var(--primary);
 }
 
 .rail-card-left {
@@ -2216,8 +2374,8 @@ h1 {
   height: 22px;
   padding: 0 8px;
   border-radius: 999px;
-  background: #dc2626;
-  color: white;
+  background: color-mix(in srgb, var(--primary) 80%, #7f1d1d);
+  color: var(--bg-card);
   font-size: 12px;
   font-weight: 800;
 }
@@ -2258,7 +2416,7 @@ h1 {
   right: 0;
   top: calc(100% + 8px);
   width: min(320px, 78vw);
-  background: white;
+  background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 10px;
   box-shadow: var(--shadow-lg);
@@ -2329,7 +2487,7 @@ h1 {
 
 .dash-card {
   text-align: left;
-  background: white;
+  background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 14px;
@@ -2338,14 +2496,14 @@ h1 {
 }
 
 .dash-card-submit {
-  background: #ecfeff;
-  border-color: #67e8f9;
+  background: color-mix(in srgb, var(--primary-light) 18%, var(--bg-card));
+  border-color: color-mix(in srgb, var(--primary) 34%, var(--border));
 }
 .dash-card-submit .dash-card-title {
-  color: #0e7490;
+  color: var(--primary);
 }
 .dash-card-submit .dash-card-cta {
-  color: #0e7490;
+  color: var(--primary);
 }
 
 .dash-card-icon {
@@ -2407,8 +2565,8 @@ h1 {
   height: 22px;
   padding: 0 8px;
   border-radius: 999px;
-  background: #dc2626;
-  color: white;
+  background: color-mix(in srgb, var(--primary) 80%, #7f1d1d);
+  color: var(--bg-card);
   font-size: 12px;
   font-weight: 700;
 }
@@ -2419,7 +2577,7 @@ h1 {
 }
 
 .card-content {
-  background: white;
+  background: var(--bg-card);
   border-radius: 12px;
   padding: 32px;
   box-shadow: var(--shadow);
@@ -2448,7 +2606,7 @@ h1 {
 
 .my-subnav .subtab.active {
   border-color: var(--accent);
-  background: white;
+  background: var(--bg-card);
 }
 
 .my-panel :deep(.container) {
@@ -2462,8 +2620,8 @@ h1 {
 }
 
 .status-warning-banner {
-  background: #fef3c7;
-  border-left: 4px solid #f59e0b;
+  background: color-mix(in srgb, var(--primary-light) 14%, var(--bg-card));
+  border-left: 4px solid var(--primary);
   border-radius: 8px;
   padding: 20px;
   margin-bottom: 24px;
@@ -2474,8 +2632,8 @@ h1 {
 }
 
 .agency-announcement-banner {
-  background: #e0f2fe;
-  border-left: 4px solid #0284c7;
+  background: color-mix(in srgb, var(--primary-light) 16%, var(--bg-card));
+  border-left: 4px solid var(--primary);
   border-radius: 8px;
   padding: 8px 0;
   margin-bottom: 20px;
@@ -2494,7 +2652,7 @@ h1 {
   padding-left: 100%;
   animation: agencyBannerMarquee 28s linear infinite;
   white-space: nowrap;
-  color: #075985;
+  color: var(--primary);
   font-weight: 600;
 }
 
@@ -2567,6 +2725,91 @@ h1 {
   font-size: 13px;
 }
 
+.supervision-invite-strip {
+  border: 1px solid color-mix(in srgb, var(--primary) 34%, transparent);
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 16px;
+  background: color-mix(in srgb, var(--primary-light) 18%, var(--bg-card));
+}
+
+.supervision-invite-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.supervision-invite-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 10px;
+}
+
+.supervision-invite-card {
+  border: 1px solid color-mix(in srgb, var(--primary) 42%, transparent);
+  border-radius: 8px;
+  background: var(--bg-card);
+  padding: 10px;
+  animation: supervisionInvitePulse 1.3s ease-in-out infinite;
+}
+
+@keyframes supervisionInvitePulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary) 30%, transparent); }
+  50% { box-shadow: 0 0 0 8px transparent; }
+}
+
+.invite-title {
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.invite-time {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.invite-actions {
+  margin-top: 8px;
+  display: flex;
+  gap: 8px;
+}
+
+.supervision-splash {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  background: rgba(15, 23, 42, 0.55);
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+
+.supervision-splash-card {
+  width: min(560px, 94vw);
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  padding: 18px;
+  box-shadow: var(--shadow-lg);
+}
+
+.supervision-splash-card h3 {
+  margin: 0 0 8px 0;
+  color: var(--primary);
+}
+
+.supervision-splash-card p {
+  margin: 0;
+}
+
+.supervision-splash-actions {
+  margin-top: 12px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 @keyframes agencyBannerMarquee {
   0% { transform: translateX(0); }
   100% { transform: translateX(-50%); }
@@ -2579,13 +2822,13 @@ h1 {
 .warning-content strong {
   display: block;
   margin-bottom: 8px;
-  color: #92400e;
+  color: var(--text-primary);
   font-size: 16px;
 }
 
 .warning-content p {
   margin: 4px 0;
-  color: #78350f;
+  color: var(--text-secondary);
   font-size: 14px;
 }
 
@@ -2593,12 +2836,12 @@ h1 {
   margin-top: 12px !important;
   font-size: 12px !important;
   font-style: italic;
-  color: #78350f !important;
+  color: var(--text-secondary) !important;
 }
 
 .pending-completion-banner {
-  background: #d1fae5;
-  border-left: 4px solid #10b981;
+  background: color-mix(in srgb, var(--primary-light) 14%, var(--bg-card));
+  border-left: 4px solid var(--primary);
   border-radius: 8px;
   padding: 20px;
   margin-bottom: 24px;
@@ -2606,19 +2849,19 @@ h1 {
 
 .completion-content strong {
   display: block;
-  color: #065f46;
+  color: var(--primary);
   font-size: 18px;
   margin-bottom: 12px;
 }
 
 .completion-content p {
   margin: 8px 0;
-  color: #047857;
+  color: var(--text-secondary);
 }
 
 .ready-for-review-banner {
-  background: #dbeafe;
-  border-left: 4px solid #3b82f6;
+  background: color-mix(in srgb, var(--primary-light) 12%, var(--bg-card));
+  border-left: 4px solid var(--primary);
   border-radius: 8px;
   padding: 20px;
   margin-bottom: 24px;
@@ -2626,18 +2869,18 @@ h1 {
 
 .review-content strong {
   display: block;
-  color: #1e40af;
+  color: var(--primary);
   font-size: 18px;
   margin-bottom: 12px;
 }
 
 .review-content p {
   margin: 8px 0;
-  color: #1e3a8a;
+  color: var(--text-secondary);
 }
 
 .review-content em {
-  color: #64748b;
+  color: var(--text-secondary);
   font-size: 14px;
 }
 

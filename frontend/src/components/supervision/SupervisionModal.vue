@@ -331,6 +331,32 @@
                     </div>
                   </div>
                   <div class="form-group">
+                    <label>Session type</label>
+                    <select v-model="scheduleSessionType" class="input">
+                      <option value="individual">Individual</option>
+                      <option value="triadic">Triadic</option>
+                      <option value="group">Group</option>
+                    </select>
+                  </div>
+                  <div v-if="availableAdditionalAttendees.length > 0 && scheduleSessionType !== 'individual'" class="form-row">
+                    <div class="form-group">
+                      <label>Required attendees</label>
+                      <select v-model="scheduleRequiredAttendeeIds" class="input" multiple size="4">
+                        <option v-for="opt in availableAdditionalAttendees" :key="`req-${opt.id}`" :value="opt.id">
+                          {{ opt.label }}
+                        </option>
+                      </select>
+                    </div>
+                    <div class="form-group">
+                      <label>Optional attendees</label>
+                      <select v-model="scheduleOptionalAttendeeIds" class="input" multiple size="4">
+                        <option v-for="opt in availableAdditionalAttendees" :key="`opt-${opt.id}`" :value="opt.id">
+                          {{ opt.label }}
+                        </option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="form-group">
                     <label>Modality (optional)</label>
                     <input v-model="scheduleModality" type="text" class="input" placeholder="e.g. In-person, Video" />
                   </div>
@@ -421,6 +447,9 @@ const assignableModules = ref([]);
 const showModuleAssignmentDialog = ref(false);
 const scheduleStartAt = ref('');
 const scheduleEndAt = ref('');
+const scheduleSessionType = ref('individual');
+const scheduleRequiredAttendeeIds = ref([]);
+const scheduleOptionalAttendeeIds = ref([]);
 const scheduleModality = ref('');
 const scheduleNotes = ref('');
 const scheduleSaving = ref(false);
@@ -477,9 +506,18 @@ async function submitScheduleMeeting() {
   if (!s?.supervisee_id || !agencyId) return;
   const startAt = scheduleStartAt.value?.trim();
   const endAt = scheduleEndAt.value?.trim();
+  const requiredIds = Array.from(new Set((scheduleRequiredAttendeeIds.value || []).map((n) => Number(n)).filter((n) => Number.isFinite(n) && n > 0)));
+  const optionalIds = Array.from(new Set((scheduleOptionalAttendeeIds.value || []).map((n) => Number(n)).filter((n) => Number.isFinite(n) && n > 0 && !requiredIds.includes(n))));
   if (!startAt || !endAt) {
     scheduleError.value = 'Start and end are required.';
     return;
+  }
+  if (scheduleSessionType.value === 'triadic') {
+    const totalSupervisees = 1 + requiredIds.length + optionalIds.length;
+    if (totalSupervisees !== 2) {
+      scheduleError.value = 'Triadic sessions must include exactly two supervisees total.';
+      return;
+    }
   }
   scheduleSaving.value = true;
   scheduleError.value = '';
@@ -488,6 +526,9 @@ async function submitScheduleMeeting() {
       agencyId,
       supervisorUserId: authStore.user?.id,
       superviseeUserId: s.supervisee_id,
+      sessionType: scheduleSessionType.value,
+      requiredAttendeeUserIds: requiredIds,
+      optionalAttendeeUserIds: optionalIds,
       startAt: startAt.replace('T', ' ').slice(0, 19),
       endAt: endAt.replace('T', ' ').slice(0, 19),
       modality: scheduleModality.value?.trim() || null,
@@ -495,6 +536,9 @@ async function submitScheduleMeeting() {
     });
     scheduleStartAt.value = '';
     scheduleEndAt.value = '';
+    scheduleSessionType.value = 'individual';
+    scheduleRequiredAttendeeIds.value = [];
+    scheduleOptionalAttendeeIds.value = [];
     scheduleModality.value = '';
     scheduleNotes.value = '';
     await fetchScheduleSummary();
@@ -505,6 +549,18 @@ async function submitScheduleMeeting() {
     scheduleSaving.value = false;
   }
 }
+
+watch(scheduleSessionType, (next) => {
+  if (next === 'individual') {
+    scheduleRequiredAttendeeIds.value = [];
+    scheduleOptionalAttendeeIds.value = [];
+  }
+});
+
+watch(scheduleRequiredAttendeeIds, (next) => {
+  const req = new Set((next || []).map((n) => Number(n)));
+  scheduleOptionalAttendeeIds.value = (scheduleOptionalAttendeeIds.value || []).filter((n) => !req.has(Number(n)));
+}, { deep: true });
 
 const selectedModuleForAssignObj = computed(() => {
   const id = selectedModuleForAssign.value ? parseInt(selectedModuleForAssign.value, 10) : null;
@@ -520,6 +576,19 @@ const currentAgencyId = computed(() => {
 const selectedSuperviseeAgencyId = computed(() => {
   const selectedAgencyId = selectedSupervisee.value?.agency_id;
   return selectedAgencyId || currentAgencyId.value || null;
+});
+
+const availableAdditionalAttendees = computed(() => {
+  const selectedId = Number(selectedSupervisee.value?.supervisee_id || 0);
+  const agencyId = Number(selectedSuperviseeAgencyId.value || 0);
+  const rows = Array.isArray(supervisees.value) ? supervisees.value : [];
+  return rows
+    .filter((r) => Number(r?.supervisee_id || 0) !== selectedId && Number(r?.agency_id || 0) === agencyId)
+    .map((r) => ({
+      id: Number(r?.supervisee_id || 0),
+      label: `${String(r?.supervisee_last_name || '').trim()}, ${String(r?.supervisee_first_name || '').trim()}`.replace(/^,\s*/, '').trim()
+    }))
+    .filter((r) => r.id > 0);
 });
 
 const affiliatedPortalsByOrgId = computed(() => {

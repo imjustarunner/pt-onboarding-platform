@@ -2233,13 +2233,24 @@ export const getUserScheduleSummary = async (req, res, next) => {
       });
       supervisionSessions = (rows || []).map((r) => {
         const isSupervisor = Number(r.supervisor_user_id) === Number(providerId);
-        const otherName = isSupervisor
+        const sessionType = String(r.session_type || 'individual').trim().toLowerCase();
+        const superviseeNames = String(r.supervisee_names || '').trim();
+        const oneToOneName = isSupervisor
           ? `${r.supervisee_first_name || ''} ${r.supervisee_last_name || ''}`.trim()
           : `${r.supervisor_first_name || ''} ${r.supervisor_last_name || ''}`.trim();
+        const groupDisplay = isSupervisor
+          ? (superviseeNames || oneToOneName)
+          : `${r.supervisor_first_name || ''} ${r.supervisor_last_name || ''}`.trim();
+        const otherName = sessionType === 'group' || sessionType === 'triadic' ? groupDisplay : oneToOneName;
+        const hasViewerRequired = r?.viewer_is_required !== null && r?.viewer_is_required !== undefined;
+        const isPrimarySupervisee = Number(r?.supervisee_user_id || 0) === Number(providerId);
+        const isRequired = hasViewerRequired ? Number(r.viewer_is_required) === 1 : isPrimarySupervisee;
         return {
           id: r.id,
           role: isSupervisor ? 'supervisor' : 'supervisee',
           counterpartyName: otherName || null,
+          sessionType,
+          isRequired,
           startAt: r.start_at,
           endAt: r.end_at,
           status: r.status,
@@ -2733,6 +2744,7 @@ export const setUserAgencySupervisionPrelicensed = async (req, res, next) => {
     const userId = parseInt(id, 10);
     const agencyId = req.body?.agencyId ? parseInt(req.body.agencyId, 10) : null;
     const isPrelicensed = req.body?.isPrelicensed === true || req.body?.isPrelicensed === 1 || req.body?.isPrelicensed === '1';
+    const isCompensable = req.body?.isCompensable === true || req.body?.isCompensable === 1 || req.body?.isCompensable === '1';
     const startDate = req.body?.startDate ? String(req.body.startDate).slice(0, 10) : null;
     const startIndividualHours = Number(req.body?.startIndividualHours || 0);
     const startGroupHours = Number(req.body?.startGroupHours || 0);
@@ -2757,6 +2769,7 @@ export const setUserAgencySupervisionPrelicensed = async (req, res, next) => {
 
     const updated = await User.setAgencySupervisionPrelicensedSettings(userId, agencyId, {
       isPrelicensed,
+      isCompensable,
       startDate,
       startIndividualHours,
       startGroupHours

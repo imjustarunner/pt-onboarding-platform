@@ -1306,13 +1306,14 @@ class User {
     // Best-effort: include membership fields from user_agencies.
     try {
       const [uaCols] = await pool.execute(
-        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'user_agencies' AND COLUMN_NAME IN ('has_payroll_access','h0032_requires_manual_minutes','supervision_is_prelicensed','supervision_start_date','supervision_start_individual_hours','supervision_start_group_hours')"
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'user_agencies' AND COLUMN_NAME IN ('has_payroll_access','h0032_requires_manual_minutes','supervision_is_prelicensed','supervision_is_compensable','supervision_start_date','supervision_start_individual_hours','supervision_start_group_hours')"
       );
       const names = (uaCols || []).map((c) => c.COLUMN_NAME);
       hasPayrollAccess = names.includes('has_payroll_access');
       hasH0032ManualMinutes = names.includes('h0032_requires_manual_minutes');
       // Prelicensed supervision settings
       var hasSupervisionPrelicensed = names.includes('supervision_is_prelicensed'); // eslint-disable-line no-var
+      var hasSupervisionCompensable = names.includes('supervision_is_compensable'); // eslint-disable-line no-var
       var hasSupervisionStartDate = names.includes('supervision_start_date'); // eslint-disable-line no-var
       var hasSupervisionStartInd = names.includes('supervision_start_individual_hours'); // eslint-disable-line no-var
       var hasSupervisionStartGrp = names.includes('supervision_start_group_hours'); // eslint-disable-line no-var
@@ -1321,6 +1322,7 @@ class User {
       hasH0032ManualMinutes = false;
       // Prelicensed supervision settings
       var hasSupervisionPrelicensed = false; // eslint-disable-line no-var
+      var hasSupervisionCompensable = false; // eslint-disable-line no-var
       var hasSupervisionStartDate = false; // eslint-disable-line no-var
       var hasSupervisionStartInd = false; // eslint-disable-line no-var
       var hasSupervisionStartGrp = false; // eslint-disable-line no-var
@@ -1341,6 +1343,7 @@ class User {
       hasPayrollAccess ? 'ua.has_payroll_access' : null,
       hasH0032ManualMinutes ? 'ua.h0032_requires_manual_minutes' : null,
       hasSupervisionPrelicensed ? 'ua.supervision_is_prelicensed' : null,
+      hasSupervisionCompensable ? 'ua.supervision_is_compensable' : null,
       hasSupervisionStartDate ? 'ua.supervision_start_date' : null,
       hasSupervisionStartInd ? 'ua.supervision_start_individual_hours' : null,
       hasSupervisionStartGrp ? 'ua.supervision_start_group_hours' : null
@@ -1501,24 +1504,54 @@ class User {
 
   static async setAgencySupervisionPrelicensedSettings(userId, agencyId, {
     isPrelicensed,
+    isCompensable,
     startDate,
     startIndividualHours,
     startGroupHours
   }) {
     const pre = isPrelicensed ? 1 : 0;
+    const comp = isCompensable ? 1 : 0;
     const sd = startDate ? String(startDate).slice(0, 10) : null;
     const ind = Number(startIndividualHours || 0);
     const grp = Number(startGroupHours || 0);
     await pool.execute(
       `UPDATE user_agencies
        SET supervision_is_prelicensed = ?,
+           supervision_is_compensable = ?,
            supervision_start_date = ?,
            supervision_start_individual_hours = ?,
            supervision_start_group_hours = ?
        WHERE user_id = ? AND agency_id = ?`,
-      [pre, sd, ind, grp, userId, agencyId]
+      [pre, comp, sd, ind, grp, userId, agencyId]
     );
     return this.getAgencyMembership(userId, agencyId);
+  }
+
+  static async getAgencySupervisionCompensableMap(agencyId, userIds = []) {
+    const ids = Array.from(new Set((userIds || []).map((n) => parseInt(n, 10)).filter((n) => Number.isFinite(n) && n > 0)));
+    if (!ids.length) return {};
+    try {
+      const [cols] = await pool.execute(
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'user_agencies' AND COLUMN_NAME = 'supervision_is_compensable'"
+      );
+      if (!cols?.length) return {};
+    } catch {
+      return {};
+    }
+
+    const placeholders = ids.map(() => '?').join(', ');
+    const [rows] = await pool.execute(
+      `SELECT user_id, supervision_is_compensable
+       FROM user_agencies
+       WHERE agency_id = ?
+         AND user_id IN (${placeholders})`,
+      [agencyId, ...ids]
+    );
+    const out = {};
+    for (const row of rows || []) {
+      out[Number(row.user_id)] = row.supervision_is_compensable === 1 || row.supervision_is_compensable === true || String(row.supervision_is_compensable || '') === '1';
+    }
+    return out;
   }
 
   static async listPayrollAgencyIds(userId) {
