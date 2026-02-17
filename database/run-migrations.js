@@ -6,11 +6,12 @@
  * It tracks which migrations have been run in a migrations_log table.
  * 
  * Usage:
- *   node database/run-migrations.js [--dry-run] [--migration N]
+ *   node database/run-migrations.js [--dry-run] [--migration N] [--baseline-existing]
  * 
  * Options:
  *   --dry-run: Show what would be run without executing
- *   --migration N: Run only migration N (e.g., --migration 091)
+ *   --migration N: Run only migration N (e.g., --migration=091)
+ *   --baseline-existing: Mark all current migration files as already run (safe bootstrap for legacy DBs)
  */
 
 import fs from 'fs/promises';
@@ -43,12 +44,33 @@ async function getMigrationFiles() {
   const files = await fs.readdir(MIGRATIONS_DIR);
   return files
     .filter(file => file.endsWith('.sql'))
+    // Exclude consolidated/fresh snapshot files from normal migration flow.
+    .filter(file => file !== '000_consolidated_fresh_database.sql')
     .sort((a, b) => {
       // Extract number from filename (e.g., "091_add_username_field.sql" -> 91)
       const numA = parseInt(a.match(/^(\d+)/)?.[1] || '0');
       const numB = parseInt(b.match(/^(\d+)/)?.[1] || '0');
-      return numA - numB;
+      if (numA !== numB) return numA - numB;
+      // Tie-break by full filename so duplicate prefixes run deterministically.
+      return a.localeCompare(b);
     });
+}
+
+async function getAppliedMigrationCount() {
+  const [rows] = await pool.execute(
+    'SELECT COUNT(*) AS cnt FROM migrations_log WHERE success = 1'
+  );
+  return Number(rows?.[0]?.cnt || 0);
+}
+
+async function hasExistingAppSchema() {
+  const [rows] = await pool.execute(`
+    SELECT COUNT(*) AS cnt
+    FROM INFORMATION_SCHEMA.TABLES
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME IN ('users', 'agencies', 'organizations')
+  `);
+  return Number(rows?.[0]?.cnt || 0) > 0;
 }
 
 // Check if migration has been run
@@ -145,6 +167,7 @@ async function runMigration(migrationFile, dryRun = false) {
 async function main() {
   const args = process.argv.slice(2);
   const dryRun = args.includes('--dry-run');
+  const baselineExisting = args.includes('--baseline-existing');
   const migrationArg = args.find(arg => arg.startsWith('--migration'));
   const specificMigration = migrationArg ? migrationArg.split('=')[1] : null;
   
@@ -156,12 +179,40 @@ async function main() {
     if (specificMigration) {
       console.log(`Specific migration: ${specificMigration}`);
     }
+    if (baselineExisting) {
+      console.log('Baseline existing: YES');
+    }
     console.log('');
     
     await ensureMigrationsTable();
     
     const migrationFiles = await getMigrationFiles();
     console.log(`Found ${migrationFiles.length} migration files`);
+
+    // Explicit bootstrap mode: mark files as applied without executing SQL.
+    // Use this once for legacy databases that existed before migrations_log tracking.
+    if (!dryRun && !specificMigration && baselineExisting) {
+      console.log('Bootstrapping migrations_log for existing database (no SQL execution)...');
+      for (const migrationFile of migrationFiles) {
+        const migrationName = path.basename(migrationFile, '.sql');
+        await recordMigration(migrationName, true, 0, null);
+      }
+      console.log(`✓ Baseline complete (${migrationFiles.length} migrations marked as applied)\n`);
+      process.exit(0);
+    }
+
+    // Safety guard: if this is an existing DB but migration log is empty, do not replay
+    // all historical migrations unless user explicitly requested baseline bootstrapping.
+    if (!dryRun && !specificMigration) {
+      const appliedCount = await getAppliedMigrationCount();
+      const existingSchema = await hasExistingAppSchema();
+      if (appliedCount === 0 && existingSchema && !baselineExisting) {
+        console.error('\nSafety stop: existing schema detected but migrations_log is empty.');
+        console.error('Running all migrations from the beginning could replay legacy data migrations.');
+        console.error('If this DB is already in use, run with --baseline-existing once, then run migrate again.\n');
+        process.exit(1);
+      }
+    }
     
     if (specificMigration) {
       // Run only specific migration
