@@ -52,11 +52,11 @@
             <div v-if="authError" class="error-message">{{ authError }}</div>
             <div class="form-group">
               <label>Email</label>
-              <input v-model="authEmail" type="email" placeholder="you@school.org" />
+              <input v-model="authEmail" type="email" placeholder="you@school.org" autocomplete="off" />
             </div>
             <div class="form-group">
               <label>Password</label>
-              <input v-model="authPassword" type="password" placeholder="Password" />
+              <input v-model="authPassword" type="password" placeholder="Password" autocomplete="off" />
             </div>
             <button class="btn btn-secondary" type="button" :disabled="authLoading" @click="handleLogin">
               {{ authLoading ? 'Signing in...' : 'Sign in to upload' }}

@@ -131,9 +131,13 @@
             id="kiosk-pin"
             v-model="clockPin"
             type="password"
+            name="kioskPin"
             inputmode="numeric"
             pattern="[0-9]*"
             maxlength="4"
+            autocomplete="one-time-code"
+            autocorrect="off"
+            spellcheck="false"
             placeholder="••••"
             class="pin-input"
             @input="clockPin = ($event.target?.value || '').replace(/\D/g, '').slice(0, 4)"
@@ -245,10 +249,11 @@
               v-if="['text','email','phone'].includes(field.field_type)"
               v-model="answers[field.id]"
               :type="field.field_type === 'email' ? 'email' : (field.field_type === 'phone' ? 'tel' : 'text')"
+              autocomplete="off"
             />
 
-            <input v-else-if="field.field_type === 'number'" v-model="answers[field.id]" type="number" />
-            <input v-else-if="field.field_type === 'date'" v-model="answers[field.id]" type="date" />
+            <input v-else-if="field.field_type === 'number'" v-model="answers[field.id]" type="number" autocomplete="off" />
+            <input v-else-if="field.field_type === 'date'" v-model="answers[field.id]" type="date" autocomplete="off" />
             <textarea v-else-if="field.field_type === 'textarea'" v-model="answers[field.id]" rows="4"></textarea>
 
             <select v-else-if="field.field_type === 'select'" v-model="answers[field.id]">
@@ -272,7 +277,7 @@
               <span>Yes</span>
             </label>
 
-            <input v-else v-model="answers[field.id]" type="text" />
+            <input v-else v-model="answers[field.id]" type="text" autocomplete="off" />
           </div>
         </div>
 
