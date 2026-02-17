@@ -14,7 +14,36 @@ const CHUNK_RELOAD_KEY = '__pt_chunk_reload__';
 
 let pendingChunkReloadPath = null;
 
+const isExtensionUrl = (value) => {
+  const src = String(value || '').trim().toLowerCase();
+  return src.startsWith('chrome-extension://') || src.startsWith('moz-extension://') || src.startsWith('safari-extension://');
+};
+
+const isAppAssetUrl = (value) => {
+  const src = String(value || '').trim();
+  if (!src) return false;
+  if (src.startsWith('/')) return true;
+  if (src.startsWith(window.location.origin)) return true;
+  return false;
+};
+
+const isLikelyExtensionError = (err) => {
+  const msg = String(err?.message || err || '').toLowerCase();
+  const stack = String(err?.stack || '').toLowerCase();
+  return (
+    msg.includes('runtime.lasterror') ||
+    msg.includes('message port closed') ||
+    msg.includes('frame does not exist') ||
+    msg.includes('back/forward cache') ||
+    stack.includes('chrome-extension://') ||
+    stack.includes('moz-extension://') ||
+    stack.includes('safari-extension://')
+  );
+};
+
 const isChunkLoadError = (err) => {
+  if (isLikelyExtensionError(err)) return false;
+
   const msg = String(err?.message || err || '');
   // Standard dynamic import failures
   if (
@@ -22,16 +51,19 @@ const isChunkLoadError = (err) => {
     msg.includes('Importing a module script failed') ||
     msg.includes('ChunkLoadError') ||
     msg.includes('Loading chunk') ||
-    msg.includes('Failed to fetch') ||
-    msg.includes('ERR_ABORTED') ||
-    msg.includes('404') ||
-    msg.includes('Failed to load resource')
+    msg.includes('Loading CSS chunk')
   ) {
     return true;
   }
-  // Network/resource errors often surface differently across browsers
+  // Network/resource chunk errors often surface differently across browsers.
+  // Only treat as chunk-load related if they are app script assets.
   const target = err?.target || err?.srcElement;
-  if (target?.tagName === 'SCRIPT' && (target?.src || '').includes('.js')) {
+  if (
+    target?.tagName === 'SCRIPT' &&
+    (target?.src || '').includes('.js') &&
+    isAppAssetUrl(target?.src) &&
+    !isExtensionUrl(target?.src)
+  ) {
     return true;
   }
   return false;
@@ -76,14 +108,18 @@ async function bootstrap() {
   // Also catch chunk load failures (e.g. script 404). For resource load errors,
   // event.error can be null; event.target is the failing script/link element.
   window.addEventListener('error', (event) => {
+    if (isExtensionUrl(event?.filename) || isExtensionUrl(event?.target?.src) || isLikelyExtensionError(event?.error || event)) {
+      return;
+    }
     const err = event?.error || event;
-    if (!err && event?.target?.tagName === 'SCRIPT') {
+    if (!err && event?.target?.tagName === 'SCRIPT' && isAppAssetUrl(event?.target?.src) && !isExtensionUrl(event?.target?.src)) {
       attemptChunkReload({ target: event.target }, pendingChunkReloadPath);
     } else {
       attemptChunkReload(err, pendingChunkReloadPath);
     }
   });
   window.addEventListener('unhandledrejection', (event) => {
+    if (isLikelyExtensionError(event?.reason || event)) return;
     attemptChunkReload(event?.reason || event, pendingChunkReloadPath);
   });
 
