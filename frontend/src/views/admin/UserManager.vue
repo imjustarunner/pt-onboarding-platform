@@ -19,84 +19,97 @@
       >
         <div style="display:flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 10px;">
           <h3 style="margin: 0; font-size: 16px;">Quick Announcement / Splash</h3>
-          <button type="button" class="btn btn-secondary btn-sm" @click="resetQuickAnnouncementDraft" :disabled="quickAnnouncementSubmitting">
-            Reset
-          </button>
-        </div>
-        <p class="muted" style="margin: 0 0 12px 0;">
-          Post from the directory without opening a user profile. Choose one user or everyone in an agency.
-        </p>
-        <div v-if="quickAnnouncementError" class="error" style="margin-bottom: 10px;">{{ quickAnnouncementError }}</div>
-        <div
-          v-if="quickAnnouncementSuccess"
-          style="margin-bottom: 10px; color: #166534; background: #dcfce7; border: 1px solid #bbf7d0; border-radius: 6px; padding: 10px 12px;"
-        >
-          {{ quickAnnouncementSuccess }}
-        </div>
-        <div style="display:flex; gap: 10px; flex-wrap: wrap; align-items: flex-end;">
-          <div>
-            <label class="muted" style="display:block; margin-bottom: 6px;">Agency</label>
-            <select v-model="quickAnnouncementDraft.agencyId" class="filter-select" :disabled="quickAnnouncementSubmitting">
-              <option value="" disabled>Select agency</option>
-              <option v-for="a in agencyOptions" :key="`qa-agency-${a.id}`" :value="String(a.id)">{{ a.name }}</option>
-            </select>
-          </div>
-          <div>
-            <label class="muted" style="display:block; margin-bottom: 6px;">Type</label>
-            <select v-model="quickAnnouncementDraft.displayType" class="filter-select" :disabled="quickAnnouncementSubmitting">
-              <option value="announcement">Announcement</option>
-              <option value="splash">Splash</option>
-            </select>
-          </div>
-          <div>
-            <label class="muted" style="display:block; margin-bottom: 6px;">Audience</label>
-            <select v-model="quickAnnouncementDraft.scope" class="filter-select" :disabled="quickAnnouncementSubmitting">
-              <option value="single">One user</option>
-              <option value="everyone">Everyone in agency</option>
-            </select>
-          </div>
-          <div v-if="quickAnnouncementDraft.scope === 'single'">
-            <label class="muted" style="display:block; margin-bottom: 6px;">User</label>
-            <select v-model="quickAnnouncementDraft.userId" class="filter-select" :disabled="quickAnnouncementSubmitting">
-              <option value="" disabled>Select user</option>
-              <option v-for="u in quickAnnouncementUserOptions" :key="`qa-user-${u.id}`" :value="String(u.id)">
-                {{ u.label }}
-              </option>
-            </select>
-          </div>
-          <div>
-            <label class="muted" style="display:block; margin-bottom: 6px;">Starts</label>
-            <input v-model="quickAnnouncementDraft.startsAt" class="filter-input" type="datetime-local" :disabled="quickAnnouncementSubmitting" />
-          </div>
-          <div>
-            <label class="muted" style="display:block; margin-bottom: 6px;">Ends</label>
-            <input v-model="quickAnnouncementDraft.endsAt" class="filter-input" type="datetime-local" :disabled="quickAnnouncementSubmitting" />
+          <div style="display:flex; gap: 8px; align-items:center;">
+            <button type="button" class="btn btn-secondary btn-sm" @click="quickAnnouncementCollapsed = !quickAnnouncementCollapsed">
+              {{ quickAnnouncementCollapsed ? 'Expand' : 'Collapse' }}
+            </button>
+            <button
+              v-if="!quickAnnouncementCollapsed"
+              type="button"
+              class="btn btn-secondary btn-sm"
+              @click="resetQuickAnnouncementDraft"
+              :disabled="quickAnnouncementSubmitting"
+            >
+              Reset
+            </button>
           </div>
         </div>
-        <div style="margin-top: 10px;">
-          <label class="muted" style="display:block; margin-bottom: 6px;">Title (optional)</label>
-          <input v-model="quickAnnouncementDraft.title" class="filter-input" type="text" maxlength="255" :disabled="quickAnnouncementSubmitting" />
-        </div>
-        <div style="margin-top: 10px;">
-          <label class="muted" style="display:block; margin-bottom: 6px;">Message</label>
-          <textarea
-            v-model="quickAnnouncementDraft.message"
-            class="filter-input"
-            rows="2"
-            maxlength="1200"
-            placeholder="Type announcement message..."
-            :disabled="quickAnnouncementSubmitting"
-          />
-        </div>
-        <div style="margin-top: 10px;">
-          <button
-            type="button"
-            class="btn btn-primary btn-sm"
-            @click="postQuickAnnouncement"
-            :disabled="quickAnnouncementSubmitting || !canSubmitQuickAnnouncement"
+        <div v-if="!quickAnnouncementCollapsed">
+          <p class="muted" style="margin: 0 0 12px 0;">
+            Post from the directory without opening a user profile. Choose one user or everyone in an agency.
+          </p>
+          <div v-if="quickAnnouncementError" class="error" style="margin-bottom: 10px;">{{ quickAnnouncementError }}</div>
+          <div
+            v-if="quickAnnouncementSuccess"
+            style="margin-bottom: 10px; color: #166534; background: #dcfce7; border: 1px solid #bbf7d0; border-radius: 6px; padding: 10px 12px;"
           >
-            {{ quickAnnouncementSubmitting ? 'Posting…' : 'Post announcement' }}
-          </button>
+            {{ quickAnnouncementSuccess }}
+          </div>
+          <div style="display:flex; gap: 10px; flex-wrap: wrap; align-items: flex-end;">
+            <div>
+              <label class="muted" style="display:block; margin-bottom: 6px;">Agency</label>
+              <select v-model="quickAnnouncementDraft.agencyId" class="filter-select" :disabled="quickAnnouncementSubmitting">
+                <option value="" disabled>Select agency</option>
+                <option v-for="a in agencyOptions" :key="`qa-agency-${a.id}`" :value="String(a.id)">{{ a.name }}</option>
+              </select>
+            </div>
+            <div>
+              <label class="muted" style="display:block; margin-bottom: 6px;">Type</label>
+              <select v-model="quickAnnouncementDraft.displayType" class="filter-select" :disabled="quickAnnouncementSubmitting">
+                <option value="announcement">Announcement</option>
+                <option value="splash">Splash</option>
+              </select>
+            </div>
+            <div>
+              <label class="muted" style="display:block; margin-bottom: 6px;">Audience</label>
+              <select v-model="quickAnnouncementDraft.scope" class="filter-select" :disabled="quickAnnouncementSubmitting">
+                <option value="single">One user</option>
+                <option value="everyone">Everyone in agency</option>
+              </select>
+            </div>
+            <div v-if="quickAnnouncementDraft.scope === 'single'">
+              <label class="muted" style="display:block; margin-bottom: 6px;">User</label>
+              <select v-model="quickAnnouncementDraft.userId" class="filter-select" :disabled="quickAnnouncementSubmitting">
+                <option value="" disabled>Select user</option>
+                <option v-for="u in quickAnnouncementUserOptions" :key="`qa-user-${u.id}`" :value="String(u.id)">
+                  {{ u.label }}
+                </option>
+              </select>
+            </div>
+            <div>
+              <label class="muted" style="display:block; margin-bottom: 6px;">Starts</label>
+              <input v-model="quickAnnouncementDraft.startsAt" class="filter-input" type="datetime-local" :disabled="quickAnnouncementSubmitting" />
+            </div>
+            <div>
+              <label class="muted" style="display:block; margin-bottom: 6px;">Ends</label>
+              <input v-model="quickAnnouncementDraft.endsAt" class="filter-input" type="datetime-local" :disabled="quickAnnouncementSubmitting" />
+            </div>
+          </div>
+          <div style="margin-top: 10px;">
+            <label class="muted" style="display:block; margin-bottom: 6px;">Title (optional)</label>
+            <input v-model="quickAnnouncementDraft.title" class="filter-input" type="text" maxlength="255" :disabled="quickAnnouncementSubmitting" />
+          </div>
+          <div style="margin-top: 10px;">
+            <label class="muted" style="display:block; margin-bottom: 6px;">Message</label>
+            <textarea
+              v-model="quickAnnouncementDraft.message"
+              class="filter-input"
+              rows="2"
+              maxlength="1200"
+              placeholder="Type announcement message..."
+              :disabled="quickAnnouncementSubmitting"
+            />
+          </div>
+          <div style="margin-top: 10px;">
+            <button
+              type="button"
+              class="btn btn-primary btn-sm"
+              @click="postQuickAnnouncement"
+              :disabled="quickAnnouncementSubmitting || !canSubmitQuickAnnouncement"
+            >
+              {{ quickAnnouncementSubmitting ? 'Posting…' : 'Post announcement' }}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1594,6 +1607,24 @@ const toLocalInput = (d) => {
 const quickAnnouncementSubmitting = ref(false);
 const quickAnnouncementError = ref('');
 const quickAnnouncementSuccess = ref('');
+const quickAnnouncementCollapsed = ref(true);
+const quickAnnouncementCollapsedStorageKey = 'user-manager-quick-announcement-collapsed';
+const loadQuickAnnouncementCollapsed = () => {
+  try {
+    const raw = localStorage.getItem(quickAnnouncementCollapsedStorageKey);
+    if (raw === null) return;
+    quickAnnouncementCollapsed.value = raw === 'true';
+  } catch {
+    // ignore storage errors
+  }
+};
+const persistQuickAnnouncementCollapsed = () => {
+  try {
+    localStorage.setItem(quickAnnouncementCollapsedStorageKey, String(quickAnnouncementCollapsed.value));
+  } catch {
+    // ignore storage errors
+  }
+};
 const quickAnnouncementDraft = ref({
   agencyId: '',
   displayType: 'announcement',
@@ -3162,6 +3193,9 @@ watch(
     persistUserFilters();
   }
 );
+watch(quickAnnouncementCollapsed, () => {
+  persistQuickAnnouncementCollapsed();
+});
 
 const formatDate = (dateString) => {
   return new Date(dateString).toLocaleDateString();
@@ -3557,6 +3591,7 @@ const cancelCreation = () => {
 
 onMounted(async () => {
   loadUserFilters();
+  loadQuickAnnouncementCollapsed();
   // Ensure the current brand/agency selection is hydrated (used for default filters).
   try {
     const role = String(authStore.user?.role || '').toLowerCase();
