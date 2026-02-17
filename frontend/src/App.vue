@@ -366,7 +366,7 @@
               class="mobile-nav-link"
             >Payroll</router-link>
             <router-link
-              v-if="hasCapability('canJoinProgramEvents')"
+              v-if="hasCapability('canJoinProgramEvents') && user?.role !== 'provider'"
               :to="orgTo('/office')"
               @click="closeMobileMenu"
               class="mobile-nav-link"
