@@ -37,6 +37,16 @@
         </div>
         <div class="right">
           <div class="panel-title">Ledger</div>
+          <div class="clinical-link-row">
+            <label>Booked clinical event ID</label>
+            <input v-model.number="selectedOfficeEventId" type="number" min="1" class="qty-input" placeholder="Optional for clinical retention panel" />
+          </div>
+          <ClinicalArtifactRetentionPanel
+            v-if="selectedClientId"
+            :agencyId="agencyId"
+            :clientId="Number(selectedClientId || 0)"
+            :officeEventId="Number(selectedOfficeEventId || 0)"
+          />
           <div v-if="!selectedClientId" class="hint">Select a participant to view charges.</div>
           <div v-else-if="ledgerLoading" class="hint">Loading ledger…</div>
           <div v-else class="token-tools">
@@ -133,6 +143,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { useAgencyStore } from '../../store/agency';
 import api from '../../services/api';
+import ClinicalArtifactRetentionPanel from '../../components/clinical/ClinicalArtifactRetentionPanel.vue';
 
 const agencyStore = useAgencyStore();
 const agencyId = computed(() => Number(agencyStore.currentAgency?.id || 0) || null);
@@ -141,6 +152,7 @@ const loading = ref(false);
 const error = ref('');
 const participants = ref([]);
 const selectedClientId = ref(null);
+const selectedOfficeEventId = ref(null);
 const ledgerLoading = ref(false);
 const ledger = ref([]);
 const payingChargeId = ref(0);
@@ -360,6 +372,7 @@ onMounted(() => {
 .item.active { border-color: rgba(59, 130, 246, 0.5); background: rgba(59, 130, 246, 0.06); }
 .name { font-weight: 700; color: var(--text-primary); }
 .meta { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+.clinical-link-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 12px; color: var(--text-secondary); }
 .token-tools { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
 .token-balance { font-size: 13px; color: var(--text-secondary); }
 .token-credit-form { display: flex; align-items: center; gap: 8px; }

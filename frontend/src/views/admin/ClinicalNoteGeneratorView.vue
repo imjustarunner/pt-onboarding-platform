@@ -395,6 +395,8 @@
       </div>
     </div>
 
+    <ClinicalArtifactRetentionPanel />
+
   </div>
 </template>
 
@@ -404,6 +406,7 @@ import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
+import ClinicalArtifactRetentionPanel from '../../components/clinical/ClinicalArtifactRetentionPanel.vue';
 
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();

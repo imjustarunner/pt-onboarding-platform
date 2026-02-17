@@ -6,6 +6,10 @@ import {
   createUserAdminDocNote,
   createUserAdminDocUpload,
   viewUserAdminDoc,
+  deleteUserAdminDoc,
+  restoreUserAdminDoc,
+  setUserAdminDocLegalHold,
+  releaseUserAdminDocLegalHold,
   createAdminDocAccessRequest,
   listAdminDocAccessRequests,
   approveAdminDocAccessRequest,
@@ -41,6 +45,10 @@ router.get('/users/:userId/admin-docs', listUserAdminDocs);
 router.post('/users/:userId/admin-docs', createUserAdminDocNote);
 router.post('/users/:userId/admin-docs/upload', upload.single('file'), createUserAdminDocUpload);
 router.get('/users/:userId/admin-docs/:docId/view', viewUserAdminDoc);
+router.delete('/users/:userId/admin-docs/:docId', deleteUserAdminDoc);
+router.post('/users/:userId/admin-docs/:docId/restore', restoreUserAdminDoc);
+router.post('/users/:userId/admin-docs/:docId/legal-hold', setUserAdminDocLegalHold);
+router.post('/users/:userId/admin-docs/:docId/legal-hold/release', releaseUserAdminDocLegalHold);
 
 router.post('/users/:userId/admin-docs/access-requests', createAdminDocAccessRequest);
 router.get('/users/:userId/admin-docs/access-requests', listAdminDocAccessRequests);

@@ -1,12 +1,15 @@
 import UserAdminDoc from '../models/UserAdminDoc.model.js';
 import UserAdminDocAccess from '../models/UserAdminDocAccess.model.js';
 import User from '../models/User.model.js';
+import AdminAuditLog from '../models/AdminAuditLog.model.js';
 import StorageService from '../services/storage.service.js';
 
 const BACKOFFICE_ROLES = new Set(['admin', 'super_admin', 'support']);
 const DEFAULT_SIGNED_URL_MINUTES = 10;
 const DEFAULT_GRANT_DAYS = 7;
 const MIGRATION_HINT = 'Database tables for Admin Documentation are missing. Run database/migrations/248_user_admin_documentation.sql';
+const SOFT_DELETE_MIGRATION_HINT = 'Admin Documentation soft-delete columns are missing. Run database/migrations/441_user_admin_docs_soft_delete_audit.sql';
+const LEGAL_HOLD_MIGRATION_HINT = 'Admin Documentation legal hold columns are missing. Run database/migrations/442_user_admin_docs_legal_hold.sql';
 
 function isBackoffice(role) {
   return BACKOFFICE_ROLES.has(String(role || '').toLowerCase());
@@ -23,6 +26,22 @@ function handleMissingAdminDocsTables(error, res) {
   if (code === 'ER_NO_SUCH_TABLE' || msg.includes('ER_NO_SUCH_TABLE') || msg.includes("user_admin_docs")) {
     res.status(500).json({ error: { message: MIGRATION_HINT } });
     return true;
+  }
+  return false;
+}
+
+function handleAdminDocsSchemaDrift(error, res) {
+  const code = error?.code || error?.errno;
+  const msg = String(error?.sqlMessage || error?.message || '').toLowerCase();
+  if (code === 'ER_BAD_FIELD_ERROR' || msg.includes('unknown column')) {
+    if (msg.includes('is_deleted') || msg.includes('deleted_at') || msg.includes('deleted_by_user_id')) {
+      res.status(500).json({ error: { message: SOFT_DELETE_MIGRATION_HINT } });
+      return true;
+    }
+    if (msg.includes('is_legal_hold') || msg.includes('legal_hold_')) {
+      res.status(500).json({ error: { message: LEGAL_HOLD_MIGRATION_HINT } });
+      return true;
+    }
   }
   return false;
 }
@@ -74,6 +93,44 @@ async function canViewDocContent(req, docRow) {
   return hasProviderGrant || hasDocGrant;
 }
 
+function canDeleteDoc(req, docRow) {
+  if (!docRow || !req.user?.id) return false;
+  if (docRow.is_deleted) return false;
+  if (docRow.is_legal_hold) return false;
+  if (isBackoffice(req.user.role)) return true;
+  return Number(docRow.created_by_user_id) === Number(req.user.id);
+}
+
+async function resolveAuditAgencyId(targetUserId, actorUserId) {
+  const targetAgencies = await User.getAgencies(targetUserId);
+  const targetAgencyId = targetAgencies?.[0]?.id ? Number(targetAgencies[0].id) : null;
+  if (targetAgencyId) return targetAgencyId;
+  const actorAgencies = await User.getAgencies(actorUserId);
+  const actorAgencyId = actorAgencies?.[0]?.id ? Number(actorAgencies[0].id) : null;
+  return actorAgencyId || null;
+}
+
+async function logAdminDocAudit(req, { actionType, targetUserId, docId, metadata = {} }) {
+  try {
+    if (!req?.user?.id || !targetUserId) return;
+    const agencyId = await resolveAuditAgencyId(targetUserId, req.user.id);
+    if (!agencyId) return;
+    await AdminAuditLog.logAction({
+      actionType,
+      actorUserId: req.user.id,
+      targetUserId,
+      agencyId,
+      metadata: {
+        ...metadata,
+        docId
+      }
+    });
+  } catch (err) {
+    // Best effort: never block primary workflow on audit logging failures.
+    console.error('[userAdminDocs] Failed to write admin audit log:', err?.message || err);
+  }
+}
+
 export const listUserAdminDocs = async (req, res, next) => {
   try {
     const userId = parseIntParam(req.params.userId);
@@ -81,7 +138,8 @@ export const listUserAdminDocs = async (req, res, next) => {
 
     await ensureMetadataAccess(req, userId);
 
-    const docs = await UserAdminDoc.findByUser(userId);
+    const includeDeleted = String(req.query?.includeDeleted || '').toLowerCase() === 'true' && isBackoffice(req.user.role);
+    const docs = await UserAdminDoc.findByUser(userId, { includeDeleted });
     const grants = await UserAdminDocAccess.listActiveGrantsForGrantee({ userId, granteeUserId: req.user.id });
     const latestRequests = await UserAdminDocAccess.findLatestRequestsForRequester({ userId, requestedByUserId: req.user.id });
 
@@ -101,7 +159,17 @@ export const listUserAdminDocs = async (req, res, next) => {
 
       const isCreator = Number(d.created_by_user_id) === Number(req.user.id);
       const g = providerGrant || grantByDocId.get(Number(d.id)) || null;
-      const canView = isBackoffice(req.user.role) || isCreator || !!g;
+      const canView = d.is_deleted ? isBackoffice(req.user.role) : (isBackoffice(req.user.role) || isCreator || !!g);
+      const canDelete = canDeleteDoc(req, d);
+      const deletedByName = [d.deleted_by_first_name, d.deleted_by_last_name].filter(Boolean).join(' ')
+        || d.deleted_by_email
+        || (d.deleted_by_user_id ? `User ${d.deleted_by_user_id}` : null);
+      const legalHoldSetByName = [d.legal_hold_set_by_first_name, d.legal_hold_set_by_last_name].filter(Boolean).join(' ')
+        || d.legal_hold_set_by_email
+        || (d.legal_hold_set_by_user_id ? `User ${d.legal_hold_set_by_user_id}` : null);
+      const legalHoldReleasedByName = [d.legal_hold_released_by_first_name, d.legal_hold_released_by_last_name].filter(Boolean).join(' ')
+        || d.legal_hold_released_by_email
+        || (d.legal_hold_released_by_user_id ? `User ${d.legal_hold_released_by_user_id}` : null);
 
       const r = reqByDocKey.get(Number(d.id)) || providerRequest || null;
 
@@ -116,6 +184,19 @@ export const listUserAdminDocs = async (req, res, next) => {
         hasNote,
         hasFile,
         canView,
+        canDelete,
+        isDeleted: !!d.is_deleted,
+        deletedAt: d.deleted_at || null,
+        deletedByUserId: d.deleted_by_user_id || null,
+        deletedByName,
+        isLegalHold: !!d.is_legal_hold,
+        legalHoldReason: d.legal_hold_reason || null,
+        legalHoldSetAt: d.legal_hold_set_at || null,
+        legalHoldSetByUserId: d.legal_hold_set_by_user_id || null,
+        legalHoldSetByName,
+        legalHoldReleasedAt: d.legal_hold_released_at || null,
+        legalHoldReleasedByUserId: d.legal_hold_released_by_user_id || null,
+        legalHoldReleasedByName,
         accessExpiresAt: g?.expires_at || null,
         myLatestRequest: r ? { id: r.id, docId: r.doc_id, status: r.status, requestedAt: r.requested_at } : null
       };
@@ -124,6 +205,7 @@ export const listUserAdminDocs = async (req, res, next) => {
     res.json(out);
   } catch (error) {
     if (handleMissingAdminDocsTables(error, res)) return;
+    if (handleAdminDocsSchemaDrift(error, res)) return;
     next(error);
   }
 };
@@ -247,6 +329,167 @@ export const viewUserAdminDoc = async (req, res, next) => {
 
     return res.status(404).json({ error: { message: 'No content found for this entry' } });
   } catch (error) {
+    next(error);
+  }
+};
+
+export const deleteUserAdminDoc = async (req, res, next) => {
+  try {
+    const userId = parseIntParam(req.params.userId);
+    const docId = parseIntParam(req.params.docId);
+    if (!userId || !docId) return res.status(400).json({ error: { message: 'Invalid userId or docId' } });
+
+    await ensureMetadataAccess(req, userId);
+
+    const doc = await UserAdminDoc.findById(docId);
+    if (!doc || Number(doc.user_id) !== Number(userId)) {
+      return res.status(404).json({ error: { message: 'Admin documentation not found' } });
+    }
+
+    if (!canDeleteDoc(req, doc)) {
+      return res.status(403).json({ error: { message: 'Delete access denied' } });
+    }
+
+    const deleted = await UserAdminDoc.softDeleteById(doc.id, req.user.id);
+    if (!deleted) {
+      return res.status(400).json({ error: { message: 'Admin documentation was already deleted' } });
+    }
+
+    await logAdminDocAudit(req, {
+      actionType: 'admin_doc_deleted',
+      targetUserId: userId,
+      docId: doc.id,
+      metadata: {
+        title: doc.title || null,
+        hadFile: !!doc.storage_path,
+        hadNote: !!(doc.note_text && String(doc.note_text).trim().length > 0)
+      }
+    });
+
+    return res.json({ success: true });
+  } catch (error) {
+    if (handleMissingAdminDocsTables(error, res)) return;
+    if (handleAdminDocsSchemaDrift(error, res)) return;
+    next(error);
+  }
+};
+
+export const restoreUserAdminDoc = async (req, res, next) => {
+  try {
+    const userId = parseIntParam(req.params.userId);
+    const docId = parseIntParam(req.params.docId);
+    if (!userId || !docId) return res.status(400).json({ error: { message: 'Invalid userId or docId' } });
+    if (!isBackoffice(req.user.role)) {
+      return res.status(403).json({ error: { message: 'Admin access required' } });
+    }
+
+    await ensureMetadataAccess(req, userId);
+
+    const doc = await UserAdminDoc.findById(docId);
+    if (!doc || Number(doc.user_id) !== Number(userId)) {
+      return res.status(404).json({ error: { message: 'Admin documentation not found' } });
+    }
+    if (!doc.is_deleted) {
+      return res.status(400).json({ error: { message: 'Admin documentation is not deleted' } });
+    }
+
+    const restored = await UserAdminDoc.restoreById(doc.id);
+    if (!restored) {
+      return res.status(400).json({ error: { message: 'Admin documentation could not be restored' } });
+    }
+
+    await logAdminDocAudit(req, {
+      actionType: 'admin_doc_restored',
+      targetUserId: userId,
+      docId: doc.id,
+      metadata: { title: doc.title || null }
+    });
+
+    return res.json({ success: true });
+  } catch (error) {
+    if (handleMissingAdminDocsTables(error, res)) return;
+    if (handleAdminDocsSchemaDrift(error, res)) return;
+    next(error);
+  }
+};
+
+export const setUserAdminDocLegalHold = async (req, res, next) => {
+  try {
+    const userId = parseIntParam(req.params.userId);
+    const docId = parseIntParam(req.params.docId);
+    if (!userId || !docId) return res.status(400).json({ error: { message: 'Invalid userId or docId' } });
+    if (!isBackoffice(req.user.role)) {
+      return res.status(403).json({ error: { message: 'Admin access required' } });
+    }
+
+    await ensureMetadataAccess(req, userId);
+
+    const doc = await UserAdminDoc.findById(docId);
+    if (!doc || Number(doc.user_id) !== Number(userId)) {
+      return res.status(404).json({ error: { message: 'Admin documentation not found' } });
+    }
+
+    const reason = String(req.body?.reason || '').trim();
+    if (!reason) {
+      return res.status(400).json({ error: { message: 'Legal hold reason is required' } });
+    }
+
+    await UserAdminDoc.setLegalHoldById(doc.id, { reason, actorUserId: req.user.id });
+    await logAdminDocAudit(req, {
+      actionType: 'admin_doc_legal_hold_set',
+      targetUserId: userId,
+      docId: doc.id,
+      metadata: {
+        title: doc.title || null,
+        reason
+      }
+    });
+
+    return res.json({ success: true });
+  } catch (error) {
+    if (handleMissingAdminDocsTables(error, res)) return;
+    if (handleAdminDocsSchemaDrift(error, res)) return;
+    next(error);
+  }
+};
+
+export const releaseUserAdminDocLegalHold = async (req, res, next) => {
+  try {
+    const userId = parseIntParam(req.params.userId);
+    const docId = parseIntParam(req.params.docId);
+    if (!userId || !docId) return res.status(400).json({ error: { message: 'Invalid userId or docId' } });
+    if (!isBackoffice(req.user.role)) {
+      return res.status(403).json({ error: { message: 'Admin access required' } });
+    }
+
+    await ensureMetadataAccess(req, userId);
+
+    const doc = await UserAdminDoc.findById(docId);
+    if (!doc || Number(doc.user_id) !== Number(userId)) {
+      return res.status(404).json({ error: { message: 'Admin documentation not found' } });
+    }
+    if (!doc.is_legal_hold) {
+      return res.status(400).json({ error: { message: 'Legal hold is not active for this entry' } });
+    }
+
+    const released = await UserAdminDoc.releaseLegalHoldById(doc.id, req.user.id);
+    if (!released) {
+      return res.status(400).json({ error: { message: 'Legal hold could not be released' } });
+    }
+
+    await logAdminDocAudit(req, {
+      actionType: 'admin_doc_legal_hold_released',
+      targetUserId: userId,
+      docId: doc.id,
+      metadata: {
+        title: doc.title || null
+      }
+    });
+
+    return res.json({ success: true });
+  } catch (error) {
+    if (handleMissingAdminDocsTables(error, res)) return;
+    if (handleAdminDocsSchemaDrift(error, res)) return;
     next(error);
   }
 };

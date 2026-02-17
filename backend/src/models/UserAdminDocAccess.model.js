@@ -202,6 +202,12 @@ class UserAdminDocAccess {
     );
     return result.insertId;
   }
+
+  static async purgeByDocId(docId) {
+    await pool.execute('DELETE FROM user_admin_doc_access_log WHERE doc_id = ?', [docId]);
+    await pool.execute('DELETE FROM user_admin_doc_access_grants WHERE doc_id = ?', [docId]);
+    await pool.execute('DELETE FROM user_admin_doc_access_requests WHERE doc_id = ?', [docId]);
+  }
 }
 
 export default UserAdminDocAccess;

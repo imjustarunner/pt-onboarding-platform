@@ -16,6 +16,13 @@
       Track HR/remediation/issue notes and uploaded documents. Content may require admin approval to open.
     </div>
 
+    <div v-if="isBackoffice" class="deleted-toggle-row">
+      <label class="toggle-label">
+        <input type="checkbox" v-model="showDeleted" />
+        Show deleted entries (audit trail)
+      </label>
+    </div>
+
     <div v-if="error" class="error">{{ error }}</div>
 
     <div v-if="loading" class="loading">Loading…</div>
@@ -42,6 +49,15 @@
             <td>
               <div class="title">{{ d.title }}</div>
               <div v-if="d.myLatestRequest?.status === 'pending'" class="badge badge-secondary">Access requested</div>
+              <div v-if="d.isDeleted" class="badge badge-danger">Deleted</div>
+              <div v-if="d.isLegalHold" class="badge badge-warning">Legal hold</div>
+              <div v-if="d.isDeleted" class="muted" style="margin-top: 6px;">
+                {{ formatDateTime(d.deletedAt) }} by {{ d.deletedByName || `User ${d.deletedByUserId}` }}
+              </div>
+              <div v-if="d.isLegalHold" class="muted" style="margin-top: 6px;">
+                Hold set {{ formatDateTime(d.legalHoldSetAt) }} by {{ d.legalHoldSetByName || `User ${d.legalHoldSetByUserId}` }}
+                <span v-if="d.legalHoldReason"> | Reason: {{ d.legalHoldReason }}</span>
+              </div>
             </td>
             <td>{{ d.docType || '-' }}</td>
             <td>{{ formatDateTime(d.createdAt) }}</td>
@@ -55,16 +71,49 @@
                 v-if="d.canView"
                 class="btn btn-primary btn-sm"
                 @click="openDoc(d)"
+                :disabled="d.isDeleted"
               >
                 Open
               </button>
               <button
-                v-else
+                v-else-if="!d.isDeleted"
                 class="btn btn-secondary btn-sm"
                 @click="requestAccess(d)"
                 :disabled="requestingAccessIds.has(d.id) || d.myLatestRequest?.status === 'pending'"
               >
                 {{ requestingAccessIds.has(d.id) ? 'Requesting…' : (d.myLatestRequest?.status === 'pending' ? 'Requested' : 'Request access') }}
+              </button>
+              <button
+                v-if="d.canDelete"
+                class="btn btn-secondary btn-sm"
+                @click="deleteDoc(d)"
+                :disabled="deletingIds.has(d.id)"
+              >
+                {{ deletingIds.has(d.id) ? 'Deleting…' : 'Delete (retain audit copy)' }}
+              </button>
+              <button
+                v-if="isBackoffice && d.isDeleted"
+                class="btn btn-primary btn-sm"
+                @click="restoreDoc(d)"
+                :disabled="restoringIds.has(d.id)"
+              >
+                {{ restoringIds.has(d.id) ? 'Restoring…' : 'Restore' }}
+              </button>
+              <button
+                v-if="isBackoffice && !d.isDeleted && !d.isLegalHold"
+                class="btn btn-secondary btn-sm"
+                @click="setLegalHold(d)"
+                :disabled="legalHoldIds.has(d.id)"
+              >
+                {{ legalHoldIds.has(d.id) ? 'Saving…' : 'Place legal hold' }}
+              </button>
+              <button
+                v-if="isBackoffice && d.isLegalHold"
+                class="btn btn-secondary btn-sm"
+                @click="releaseLegalHold(d)"
+                :disabled="legalHoldIds.has(d.id)"
+              >
+                {{ legalHoldIds.has(d.id) ? 'Saving…' : 'Release legal hold' }}
               </button>
             </td>
           </tr>
@@ -290,6 +339,10 @@ const noteTitle = ref('');
 
 const requestingAccessIds = ref(new Set());
 const requestingProviderAccess = ref(false);
+const deletingIds = ref(new Set());
+const restoringIds = ref(new Set());
+const legalHoldIds = ref(new Set());
+const showDeleted = ref(false);
 
 // Admin review state
 const requestsLoading = ref(false);
@@ -339,7 +392,11 @@ const reload = async () => {
   try {
     loading.value = true;
     error.value = '';
-    const resp = await api.get(`/users/${props.userId}/admin-docs`);
+    const resp = await api.get(`/users/${props.userId}/admin-docs`, {
+      params: {
+        includeDeleted: showDeleted.value ? 'true' : 'false'
+      }
+    });
     docs.value = resp.data || [];
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to load admin documentation';
@@ -488,6 +545,94 @@ const requestProviderAccess = async () => {
   }
 };
 
+const deleteDoc = async (doc) => {
+  if (!doc?.id) return;
+  const ok = window.confirm(`Delete "${doc.title || 'this entry'}"? It will be hidden from normal view but retained with audit metadata.`);
+  if (!ok) return;
+
+  const next = new Set(deletingIds.value);
+  next.add(doc.id);
+  deletingIds.value = next;
+
+  try {
+    await api.delete(`/users/${props.userId}/admin-docs/${doc.id}`);
+    await reload();
+  } catch (e) {
+    alert(e.response?.data?.error?.message || 'Failed to delete entry');
+  } finally {
+    const done = new Set(deletingIds.value);
+    done.delete(doc.id);
+    deletingIds.value = done;
+  }
+};
+
+const restoreDoc = async (doc) => {
+  if (!doc?.id) return;
+  const ok = window.confirm(`Restore "${doc.title || 'this entry'}" to active view?`);
+  if (!ok) return;
+
+  const next = new Set(restoringIds.value);
+  next.add(doc.id);
+  restoringIds.value = next;
+  try {
+    await api.post(`/users/${props.userId}/admin-docs/${doc.id}/restore`, {});
+    await reload();
+  } catch (e) {
+    alert(e.response?.data?.error?.message || 'Failed to restore entry');
+  } finally {
+    const done = new Set(restoringIds.value);
+    done.delete(doc.id);
+    restoringIds.value = done;
+  }
+};
+
+const setLegalHold = async (doc) => {
+  if (!doc?.id) return;
+  const reason = window.prompt('Legal hold reason (required):', doc.legalHoldReason || '');
+  if (reason === null) return;
+  const trimmed = String(reason || '').trim();
+  if (!trimmed) {
+    alert('Legal hold reason is required.');
+    return;
+  }
+
+  const next = new Set(legalHoldIds.value);
+  next.add(doc.id);
+  legalHoldIds.value = next;
+  try {
+    await api.post(`/users/${props.userId}/admin-docs/${doc.id}/legal-hold`, {
+      reason: trimmed
+    });
+    await reload();
+  } catch (e) {
+    alert(e.response?.data?.error?.message || 'Failed to place legal hold');
+  } finally {
+    const done = new Set(legalHoldIds.value);
+    done.delete(doc.id);
+    legalHoldIds.value = done;
+  }
+};
+
+const releaseLegalHold = async (doc) => {
+  if (!doc?.id) return;
+  const ok = window.confirm(`Release legal hold for "${doc.title || 'this entry'}"?`);
+  if (!ok) return;
+
+  const next = new Set(legalHoldIds.value);
+  next.add(doc.id);
+  legalHoldIds.value = next;
+  try {
+    await api.post(`/users/${props.userId}/admin-docs/${doc.id}/legal-hold/release`, {});
+    await reload();
+  } catch (e) {
+    alert(e.response?.data?.error?.message || 'Failed to release legal hold');
+  } finally {
+    const done = new Set(legalHoldIds.value);
+    done.delete(doc.id);
+    legalHoldIds.value = done;
+  }
+};
+
 const openApproveModal = (r) => {
   approveModal.value = r;
   approveDuration.value = '7d';
@@ -546,6 +691,7 @@ const revokeGrant = async (g) => {
 
 onMounted(reload);
 watch(() => props.userId, reload);
+watch(showDeleted, reload);
 </script>
 
 <style scoped>
@@ -563,6 +709,16 @@ watch(() => props.userId, reload);
 }
 .hint {
   margin: 6px 0 12px;
+  color: var(--text-secondary);
+}
+.deleted-toggle-row {
+  margin: 0 0 12px;
+}
+.toggle-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
   color: var(--text-secondary);
 }
 .loading {
@@ -596,6 +752,11 @@ watch(() => props.userId, reload);
 .cell-actions { text-align: right; white-space: nowrap; }
 .title {
   font-weight: 700;
+}
+.badge-warning {
+  background: #fff3cd;
+  color: #856404;
+  border-color: #ffe69c;
 }
 .provider-scope {
   margin-top: 10px;
