@@ -2878,7 +2878,7 @@
                 <button
                   type="button"
                   class="btn btn-secondary btn-sm"
-                  @click="loadPriorStillUnpaidForStage"
+                  @click="loadPriorStillUnpaidForStage(true)"
                   :disabled="loadingPriorStillUnpaidForStage || !selectedPeriodId"
                   title="Reload prior-period still-unpaid snapshot (drives the red indicators)"
                 >
@@ -9251,20 +9251,31 @@ const loadCarryoverRuns = async () => {
   }
 };
 
-const loadPriorStillUnpaidForStage = async () => {
+const loadPriorStillUnpaidForStage = async (force = false) => {
   if (!selectedPeriodId.value) return;
   try {
     loadingPriorStillUnpaidForStage.value = true;
     priorStillUnpaidStageError.value = '';
 
-    const priorId = defaultPriorPeriodId.value || null;
+    // Prefer persisted snapshot context for this selected period (saved from previous preview/apply).
+    // This avoids silently switching to a different prior period when opening Stage.
+    const persistedMeta = (
+      carryoverPriorStillUnpaidMeta.value &&
+      Number(carryoverPriorStillUnpaidMeta.value.currentPeriodId) === Number(selectedPeriodId.value)
+    ) ? carryoverPriorStillUnpaidMeta.value : null;
+    if (!force && persistedMeta?.priorPeriodId) {
+      return;
+    }
+
+    const priorId = Number(persistedMeta?.priorPeriodId || 0) || Number(defaultPriorPeriodId.value || 0) || null;
     if (!priorId) {
       carryoverPriorStillUnpaid.value = [];
       carryoverPriorStillUnpaidMeta.value = null;
       return;
     }
 
-    // Choose baseline+compare runs from the prior period (first and last).
+    // Choose baseline+compare runs from the prior period.
+    // Default is previous -> latest so we compare the most recent Process Changes cycle.
     const runsResp = await api.get(`/payroll/periods/${priorId}/runs`);
     const runs = runsResp.data || [];
     if (!runs.length) {
@@ -9272,8 +9283,13 @@ const loadPriorStillUnpaidForStage = async () => {
       carryoverPriorStillUnpaidMeta.value = { currentPeriodId: Number(selectedPeriodId.value), priorPeriodId: Number(priorId), baselineRunId: null, compareRunId: null };
       return;
     }
-    const baselineId = runs[0].id;
-    const compareId = runs[runs.length - 1].id;
+    let baselineId = Number(persistedMeta?.baselineRunId || 0) || null;
+    let compareId = Number(persistedMeta?.compareRunId || 0) || null;
+    if (!baselineId || !compareId) {
+      const pair = pickDefaultCarryoverRunPair(runs);
+      baselineId = pair.baselineRunId;
+      compareId = pair.compareRunId;
+    }
 
     const previewResp = await api.get(`/payroll/periods/${selectedPeriodId.value}/carryover/preview`, {
       params: { priorPeriodId: priorId, baselineRunId: baselineId, compareRunId: compareId }
