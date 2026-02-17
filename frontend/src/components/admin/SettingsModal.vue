@@ -135,6 +135,7 @@ import NoteAidKnowledgeBaseSettings from './NoteAidKnowledgeBaseSettings.vue';
 import SmsNumbersManagement from './SmsNumbersManagement.vue';
 import IntakeLinksView from '../../views/admin/IntakeLinksView.vue';
 import ShiftProgramManagement from './ShiftProgramManagement.vue';
+import AuditCenterSettingsLink from './AuditCenterSettingsLink.vue';
 
 // Import placeholder components
 import TeamRolesManagement from './TeamRolesManagement.vue';
@@ -444,6 +445,15 @@ const allCategories = [
     label: 'SYSTEM',
     items: [
       {
+        id: 'audit-center',
+        label: 'Audit Center',
+        icon: '🛡️',
+        component: 'AuditCenterSettingsLink',
+        roles: ['super_admin', 'admin'],
+        excludeRoles: ['support', 'clinical_practice_assistant'],
+        excludeSupervisor: true
+      },
+      {
         id: 'viewport-preview',
         label: 'Viewport Preview',
         icon: '📱',
@@ -602,7 +612,8 @@ const componentMap = {
   TeamRolesManagement,
   BillingManagement,
   IntegrationsManagement,
-  IntakeLinksView
+  IntakeLinksView,
+  AuditCenterSettingsLink
 };
 
 const selectedComponent = computed(() => {

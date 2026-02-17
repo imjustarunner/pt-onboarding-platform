@@ -458,6 +458,17 @@ const quickActions = computed(() => {
     capabilities: ['canAccessPlatform']
   },
   {
+    id: 'audit_center',
+    title: 'Audit Center',
+    description: 'Audit exports and operational reports',
+    to: '/admin/audit-center',
+    emoji: '🛡️',
+    iconKey: 'audit_center',
+    category: 'System',
+    roles: ['admin', 'super_admin'],
+    capabilities: ['canAccessPlatform']
+  },
+  {
     id: 'communications',
     title: 'Communications',
     description: 'View communications feed',
@@ -566,6 +577,7 @@ const defaultQuickActionIds = computed(() => ([
   'manage_documents',
   'manage_users',
   'settings',
+  'audit_center',
   'external_calendar_audit',
   'provider_availability_dashboard',
   'skill_builders_availability',
