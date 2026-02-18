@@ -659,6 +659,19 @@
               Starts in-app tracking for opened/closed meeting activity.
             </div>
           </div>
+          <div v-else class="muted" style="margin-top: 8px;">
+            <div>No Google Meet link is attached yet.</div>
+            <div style="margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap;">
+              <button
+                class="btn btn-primary btn-sm"
+                type="button"
+                :disabled="supvSaving || !selectedSupvSessionId"
+                @click="ensureSupvMeetLink"
+              >
+                {{ supvSaving ? 'Creating…' : 'Create Meet link' }}
+              </button>
+            </div>
+          </div>
 
           <div style="margin-top: 10px; border: 1px solid var(--border, #e5e7eb); border-radius: 10px; padding: 10px; background: #fafafa;">
             <label class="lbl">Transcript link</label>
@@ -4147,6 +4160,23 @@ const saveSupvSession = async () => {
   }
 };
 
+const ensureSupvMeetLink = async () => {
+  const id = Number(selectedSupvSessionId.value || 0);
+  if (!id) return;
+  try {
+    supvSaving.value = true;
+    supvModalError.value = '';
+    await api.patch(`/supervision/sessions/${id}`, {
+      createMeetLink: true
+    });
+    await load();
+  } catch (e) {
+    supvModalError.value = e.response?.data?.error?.message || e.message || 'Failed to create meet link';
+  } finally {
+    supvSaving.value = false;
+  }
+};
+
 const cancelSupvSession = async () => {
   const id = Number(selectedSupvSessionId.value || 0);
   if (!id) return;
@@ -4166,6 +4196,14 @@ const cancelSupvSession = async () => {
 const onCellBlockClick = (e, block, dayName, hour) => {
   const kind = String(block?.kind || '');
   if (kind === 'gevt') {
+    const blockText = `${String(block?.shortLabel || '')} ${String(block?.title || '')}`.toLowerCase();
+    const looksLikeSupervision = blockText.includes('supervision') || blockText.includes('practice support');
+    if (looksLikeSupervision && hasSupervision(dayName, hour)) {
+      e?.preventDefault?.();
+      e?.stopPropagation?.();
+      openSupvModal(dayName, hour);
+      return;
+    }
     const link = String(block?.link || '').trim();
     if (!link) return;
     e?.preventDefault?.();
