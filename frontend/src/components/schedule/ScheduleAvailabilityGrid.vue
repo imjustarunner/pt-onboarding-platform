@@ -3706,6 +3706,25 @@ watch(requestType, (t) => {
   }
 });
 
+watch([showRequestModal, requestType, effectiveAgencyId], ([isOpen, type, agencyId], [prevOpen, prevType, prevAgencyId]) => {
+  if (!isOpen) return;
+  if (String(type || '') !== 'supervision') return;
+  const currentAgencyId = Number(agencyId || 0);
+  const previousAgencyId = Number(prevAgencyId || 0);
+  const agencyChanged = currentAgencyId > 0 && currentAgencyId !== previousAgencyId;
+  const stayedOnSupervision = String(prevType || '') === 'supervision' && isOpen === !!prevOpen;
+  if (!agencyChanged || !stayedOnSupervision) return;
+
+  // Reset stale participant/search state when supervision context switches agencies.
+  selectedSupervisionParticipantId.value = 0;
+  supervisionParticipantSearch.value = '';
+  if (!currentAgencyId) {
+    supervisionProviders.value = [];
+    return;
+  }
+  void loadSupervisionProviders();
+});
+
 watch(availableSupervisionParticipants, (rows) => {
   const ids = new Set((rows || []).map((row) => Number(row?.id || 0)).filter((n) => n > 0));
   const selected = Number(selectedSupervisionParticipantId.value || 0);
