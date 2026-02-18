@@ -1360,9 +1360,18 @@ const filteredTabs = computed(() => {
 });
 
 const isSchoolStaff = computed(() => String(authStore.user?.role || '').toLowerCase() === 'school_staff');
+const isAgencyDashboardContext = computed(() => {
+  const currentType = String(
+    agencyStore.currentAgency?.organization_type ||
+    agencyStore.currentAgency?.organizationType ||
+    'agency'
+  ).toLowerCase();
+  return currentType === 'agency';
+});
 const canAccessToolsAids = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
   // Keep role access aligned with router permissions for /admin/tools-aids.
+  if (!isAgencyDashboardContext.value) return false;
   return ['admin', 'super_admin', 'support', 'provider', 'staff', 'clinical_practice_assistant', 'provider_plus'].includes(role);
 });
 

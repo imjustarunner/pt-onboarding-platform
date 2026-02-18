@@ -161,7 +161,6 @@
 
                     <router-link :to="orgTo('/admin/users')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeAllNavMenus">Users</router-link>
                     <router-link :to="orgTo('/admin/clients')" v-if="isAdmin || user?.role === 'provider'" @click="closeAllNavMenus">Clients</router-link>
-                    <router-link :to="orgTo('/admin/note-aid')" v-if="noteAidEnabled && (isAdmin || user?.role === 'provider' || user?.role === 'staff')" @click="closeAllNavMenus">Note Aid</router-link>
                     <router-link :to="orgTo('/admin/credentialing')" v-if="isAdmin || user?.role === 'support' || user?.role === 'staff'" @click="closeAllNavMenus">Credentialing</router-link>
 
                     <div class="nav-dropdown-sep" />
@@ -235,11 +234,6 @@
                     <router-link v-if="user?.role === 'supervisor'" :to="orgTo('/supervisor/availability-lab')" @click="closeAllNavMenus">
                       Find Providers
                     </router-link>
-                    <router-link
-                      :to="orgTo('/admin/tools-aids')"
-                      v-if="noteAidEnabled && (isAdmin || user?.role === 'staff' || user?.role === 'clinical_practice_assistant')"
-                      @click="closeAllNavMenus"
-                    >Tools &amp; Aids</router-link>
                   </div>
                 </div>
               </template>
@@ -390,7 +384,6 @@
               >Documents</router-link>
               <router-link :to="orgTo('/admin/users')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu" class="mobile-nav-link">Users</router-link>
               <router-link :to="orgTo('/admin/clients')" v-if="isAdmin || user?.role === 'provider'" @click="closeMobileMenu" class="mobile-nav-link">Clients</router-link>
-              <router-link :to="orgTo('/admin/note-aid')" v-if="noteAidEnabled && (isAdmin || user?.role === 'provider' || user?.role === 'staff')" @click="closeMobileMenu" class="mobile-nav-link">Note Aid</router-link>
               <router-link
                 :to="orgTo('/admin/communications')"
                 v-if="canUseEngagementFeed"
@@ -442,12 +435,6 @@
                 @click="closeMobileMenu"
                 class="mobile-nav-link"
               >Find Providers</router-link>
-              <router-link
-                :to="orgTo('/admin/tools-aids')"
-                v-if="noteAidEnabled && (isAdmin || user?.role === 'staff' || user?.role === 'clinical_practice_assistant')"
-                @click="closeMobileMenu"
-                class="mobile-nav-link"
-              >Tools &amp; Aids</router-link>
               <router-link :to="orgTo('/admin/payroll')" v-if="canSeePayrollManagement" @click="closeMobileMenu" class="mobile-nav-link">Payroll</router-link>
               <router-link :to="orgTo('/admin/receivables')" v-if="canSeePayrollManagement" @click="closeMobileMenu" class="mobile-nav-link">Receivables</router-link>
               <router-link :to="orgTo('/admin/learning-billing')" v-if="canSeePayrollManagement && learningBillingNavEnabled" @click="closeMobileMenu" class="mobile-nav-link">Learning Billing</router-link>

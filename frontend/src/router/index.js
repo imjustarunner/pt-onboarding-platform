@@ -10,6 +10,17 @@ import api from '../services/api';
 
 const SCHEDULE_HUB_ROLES = ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'staff'];
 const PROVIDER_PLUS_EXPERIENCE_ROLES = ['provider_plus', 'clinical_practice_assistant'];
+const TOOLS_AIDS_ROUTE_SEGMENTS = ['/admin/tools-aids', '/admin/note-aid', '/admin/clinical-note-generator'];
+
+const isNonAgencyOrgType = (value) => {
+  const t = String(value || '').toLowerCase();
+  return t === 'school' || t === 'program' || t === 'learning';
+};
+
+const isToolsAidsRoute = (to) => {
+  const path = String(to?.path || '');
+  return TOOLS_AIDS_ROUTE_SEGMENTS.some((segment) => path.includes(segment));
+};
 
 const getDefaultOrganizationSlug = () => {
   try {
@@ -1362,6 +1373,36 @@ router.beforeEach(async (to, from, next) => {
       } catch (e) {
         // ignore
       }
+    }
+  }
+
+  // Tools & Aids is agency-only and must not run in school/program/learning portals.
+  if (isToolsAidsRoute(to)) {
+    let scopedOrgType = '';
+    const scopedSlug = to.meta.organizationSlug && typeof to.params.organizationSlug === 'string'
+      ? String(to.params.organizationSlug)
+      : '';
+
+    if (scopedSlug) {
+      const currentOrg = organizationStore.currentOrganization;
+      const currentOrgSlug = String(currentOrg?.slug || '');
+      const org =
+        currentOrg && currentOrgSlug === scopedSlug
+          ? currentOrg
+          : await organizationStore.fetchBySlug(scopedSlug);
+      scopedOrgType = String(org?.organization_type || org?.organizationType || '').toLowerCase();
+    } else {
+      const current = agencyStore.currentAgency?.value || agencyStore.currentAgency || null;
+      scopedOrgType = String(current?.organization_type || current?.organizationType || '').toLowerCase();
+    }
+
+    if (isNonAgencyOrgType(scopedOrgType)) {
+      if (scopedSlug) {
+        next(`/${scopedSlug}/dashboard`);
+      } else {
+        next(getSlugAwarePath('/dashboard', to, authStore));
+      }
+      return;
     }
   }
 
