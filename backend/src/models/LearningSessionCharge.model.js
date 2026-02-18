@@ -14,6 +14,10 @@ class LearningSessionCharge {
     chargeStatus = 'PENDING',
     dueAt = null,
     idempotencyKey = null,
+    billingPolicyProfileId = null,
+    serviceCode = null,
+    units = null,
+    serviceDate = null,
     metadataJson = null,
     createdByUserId = null
   }) {
@@ -24,8 +28,8 @@ class LearningSessionCharge {
     const [result] = await pool.execute(
       `INSERT INTO learning_session_charges
          (agency_id, learning_program_session_id, client_id, guardian_user_id, amount_cents, tax_cents, discount_cents, total_cents,
-          currency, charge_status, charge_type, due_at, idempotency_key, metadata_json, created_by_user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          currency, charge_status, charge_type, due_at, idempotency_key, billing_policy_profile_id, service_code, units, service_date, metadata_json, created_by_user_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         agencyId,
         learningProgramSessionId,
@@ -40,6 +44,10 @@ class LearningSessionCharge {
         chargeType,
         dueAt,
         idempotencyKey,
+        billingPolicyProfileId ? Number(billingPolicyProfileId) : null,
+        serviceCode ? String(serviceCode).trim().toUpperCase() : null,
+        Number(units || 0) || null,
+        serviceDate || null,
         metadataJson ? JSON.stringify(metadataJson) : null,
         createdByUserId
       ]

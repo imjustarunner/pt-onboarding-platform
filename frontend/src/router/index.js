@@ -568,6 +568,12 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin', 'clinical_practice_assistant'], organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/admin/billing-policy-rules',
+    name: 'OrganizationBillingPolicyRulesEngine',
+    component: () => import('../views/admin/BillingPolicyRulesEngineView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin'], organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/admin/psychotherapy-compliance',
     name: 'OrganizationPsychotherapyCompliance',
     component: () => import('../views/admin/PsychotherapyComplianceView.vue'),
@@ -1041,6 +1047,12 @@ const routes = [
     name: 'LearningBillingDesk',
     component: () => import('../views/admin/LearningBillingDeskView.vue'),
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin', 'clinical_practice_assistant'] }
+  },
+  {
+    path: '/admin/billing-policy-rules',
+    name: 'BillingPolicyRulesEngine',
+    component: () => import('../views/admin/BillingPolicyRulesEngineView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin'] }
   },
   {
     path: '/admin/revenue',

@@ -470,13 +470,21 @@ export const staffBookEvent = async (req, res, next) => {
         return res.status(404).json({ error: { message: 'Booked provider not found' } });
       }
       const rawSelection = bookingSelectionFromBody(req.body);
+      const policyAgencyId = await resolveAgencyForProviderOffice({
+        providerId: bookedProviderId,
+        officeLocationId,
+        preferredAgencyId: Number(req.body?.agencyId || req.query?.agencyId || 0) || null
+      });
       validatedSelection = await validateSchedulingSelection({
+        agencyId: policyAgencyId,
         userRole: provider.role,
         providerCredentialText: provider.credential,
         appointmentTypeCode: rawSelection.appointmentTypeCode || ev.appointment_type_code || null,
         appointmentSubtypeCode: rawSelection.appointmentSubtypeCode || ev.appointment_subtype_code || null,
         serviceCode: rawSelection.serviceCode || ev.service_code || null,
-        modality: rawSelection.modality || ev.modality || null
+        modality: rawSelection.modality || ev.modality || null,
+        scheduledStartAt: ev.start_at || null,
+        scheduledEndAt: ev.end_at || null
       });
     }
     const updated = shouldBook
@@ -856,13 +864,21 @@ export const setEventBookingPlan = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Assigned provider not found' } });
     }
     const rawSelection = bookingSelectionFromBody(req.body);
+    const policyAgencyId = await resolveAgencyForProviderOffice({
+      providerId,
+      officeLocationId,
+      preferredAgencyId: Number(req.body?.agencyId || req.query?.agencyId || 0) || null
+    });
     const validatedSelection = await validateSchedulingSelection({
+      agencyId: policyAgencyId,
       userRole: provider.role,
       providerCredentialText: provider.credential,
       appointmentTypeCode: rawSelection.appointmentTypeCode || ev.appointment_type_code || null,
       appointmentSubtypeCode: rawSelection.appointmentSubtypeCode || ev.appointment_subtype_code || null,
       serviceCode: rawSelection.serviceCode || ev.service_code || null,
-      modality: rawSelection.modality || ev.modality || null
+      modality: rawSelection.modality || ev.modality || null,
+      scheduledStartAt: ev.start_at || null,
+      scheduledEndAt: ev.end_at || null
     });
     const bookedEvent = await OfficeEvent.markBooked({
       eventId: eid,

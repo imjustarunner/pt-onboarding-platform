@@ -274,12 +274,23 @@
             :key="`c-${d}-${h}`"
             class="sched-cell"
             :class="{ clickable: canBookFromGrid, 'sched-cell-today': isTodayDay(d), 'sched-cell-selected': isActionCellSelected(d, h) }"
+            @mousedown.left.prevent="onCellMouseDown(d, h, $event)"
+            @mouseenter="onCellMouseEnter(d, h)"
             @click="onCellClick(d, h, $event)"
             role="button"
             :tabindex="0"
             @keydown.enter.prevent="onCellClick(d, h, $event)"
             @keydown.space.prevent="onCellClick(d, h, $event)"
           >
+            <button
+              v-if="canBookFromGrid"
+              type="button"
+              class="cell-plus-btn"
+              title="Add or edit schedule actions"
+              @click.stop="openSlotActionModal({ dayName: d, hour: h })"
+            >
+              +
+            </button>
             <div v-if="availabilityClass(d, h)" class="cell-avail" :class="availabilityClass(d, h)"></div>
             <div
               v-if="selectedOfficeLocationId && officeOverlay(d, h)"
@@ -407,7 +418,7 @@
               <select v-model="bookingServiceCode" class="input" :disabled="bookingMetadataLoading">
                 <option value="">Select service code…</option>
                 <option v-for="opt in bookingServiceCodeOptions" :key="`svc-${opt.code}`" :value="opt.code">
-                  {{ opt.code }}{{ opt.label ? ` - ${opt.label}` : '' }}
+                  {{ opt.code }}{{ opt.label ? ` - ${opt.label}` : '' }}{{ serviceCodeOptionHints(opt) }}
                 </option>
               </select>
 
@@ -879,6 +890,7 @@ const showGoogleBusy = ref(true);
 const showGoogleEvents = ref(false);
 const showExternalBusy = ref(true);
 const selectedExternalCalendarIds = ref([]); // populated from available list once loaded
+let schedMouseUpHandler = null;
 const hideWeekend = ref(props.mode === 'self');
 const initializedOverlayDefaults = ref(false);
 
@@ -1049,10 +1061,20 @@ onMounted(() => {
       /* ignore */
     }
   }
+  const handleMouseUp = () => {
+    isCellDragSelecting.value = false;
+    dragAnchorSlot.value = null;
+  };
+  window.addEventListener('mouseup', handleMouseUp);
+  schedMouseUpHandler = handleMouseUp;
 });
 
 onUnmounted(() => {
   clearSupvMeetPolling();
+  if (schedMouseUpHandler) {
+    window.removeEventListener('mouseup', schedMouseUpHandler);
+    schedMouseUpHandler = null;
+  }
 });
 
 const orderedDays = computed(() => (String(props.weekStartsOn || '').toLowerCase() === 'sunday' ? SUNDAY_FIRST_DAYS : ALL_DAYS));
@@ -1923,6 +1945,9 @@ const overlayErrorText = computed(() => {
 
 const selectedActionSlots = ref([]);
 const lastSelectedActionKey = ref('');
+const isCellDragSelecting = ref(false);
+const dragAnchorSlot = ref(null);
+const suppressClickAfterDrag = ref(false);
 const selectedActionKeys = computed(() => selectedActionSlots.value.map((x) => x.key));
 const selectedActionCount = computed(() => selectedActionSlots.value.length);
 const selectedActionKeySet = computed(() => new Set(selectedActionKeys.value));
@@ -1934,6 +1959,8 @@ const isActionCellSelected = (dayName, hour) => {
 const clearSelectedActionSlots = () => {
   selectedActionSlots.value = [];
   lastSelectedActionKey.value = '';
+  dragAnchorSlot.value = null;
+  suppressClickAfterDrag.value = false;
 };
 
 // ---- In-grid request creation (self mode) ----
@@ -1979,15 +2006,14 @@ const availableQuickActions = computed(() => {
   const hasEvent = Number(ctx.officeEventId || 0) > 0;
   const booked = state === 'ASSIGNED_BOOKED';
   const schoolWindowOk = canUseSchool(modalDay.value, modalHour.value, modalEndHour.value);
-  const supervisionOptionVisible =
-    !isAdminMode.value && (supervisionProvidersLoading.value || availableSupervisionParticipants.value.length > 0);
+  const supervisionOptionVisible = !isAdminMode.value;
   return [
     {
       id: 'office',
       label: 'Office booking',
       description: hasOffice ? 'Book/request with room picker' : 'Select office first',
       disabledReason: hasOffice ? '' : 'Select office',
-      visible: hasOffice,
+      visible: true,
       tone: 'blue'
     },
     {
@@ -1995,7 +2021,7 @@ const availableQuickActions = computed(() => {
       label: 'Office request',
       description: 'Separate office request workflow',
       disabledReason: hasOffice ? '' : 'Select office',
-      visible: hasOffice,
+      visible: true,
       tone: 'teal'
     },
     {
@@ -2032,17 +2058,19 @@ const availableQuickActions = computed(() => {
     },
     {
       id: 'school',
-      label: 'School availability',
-      description: 'Weekday daytime only',
-      disabledReason: !isAdminMode.value && schoolWindowOk ? '' : 'Not available in this time range',
-      visible: !isAdminMode.value && schoolWindowOk,
+      label: 'Virtual availability (school)',
+      description: 'Weekday daytime availability block',
+      disabledReason: !isAdminMode.value && schoolWindowOk ? '' : 'Weekday 6AM-6PM only',
+      visible: !isAdminMode.value,
       tone: 'indigo'
     },
     {
       id: 'supervision',
       label: 'Supervision',
-      description: supervisionProvidersLoading.value ? 'Loading providers...' : 'Create supervision session',
-      disabledReason: !supervisionOptionVisible || supervisionProvidersLoading.value ? 'Loading providers' : '',
+      description: supervisionProvidersLoading.value ? 'Loading participants...' : 'Schedule with any provider',
+      disabledReason: !supervisionOptionVisible
+        ? 'Provider self flow only'
+        : (supervisionProvidersLoading.value ? 'Loading providers' : ''),
       visible: supervisionOptionVisible,
       tone: 'violet'
     },
@@ -2061,6 +2089,14 @@ const availableQuickActions = computed(() => {
       disabledReason: booked ? '' : 'Needs booked office slot',
       visible: booked,
       tone: 'rose'
+    },
+    {
+      id: 'forfeit_slot',
+      label: 'Forfeit this slot',
+      description: 'Release this assigned/booked slot to others',
+      disabledReason: hasEvent ? '' : 'Needs assigned/booked slot',
+      visible: hasAssignedOffice || booked,
+      tone: 'slate'
     }
   ];
 });
@@ -2086,6 +2122,7 @@ const submitActionLabel = computed(() => {
     office_request_only: 'Submit office request',
     school: 'Submit school request',
     supervision: 'Submit supervision request',
+    forfeit_slot: 'Forfeit selected slot(s)',
     intake_virtual_on: 'Enable virtual intake',
     intake_virtual_off: 'Disable virtual intake',
     intake_inperson_on: 'Enable in-person intake',
@@ -2130,14 +2167,24 @@ const bookingServiceCodeOptions = computed(() => {
   const rows = Array.isArray(bookingMetadata.value?.serviceCodes) ? bookingMetadata.value.serviceCodes : [];
   const out = rows.map((row) => ({
     code: normalizeCodeValue(row?.code),
-    label: String(row?.label || row?.code || '').trim()
+    label: String(row?.label || row?.code || '').trim(),
+    minDurationMinutes: Number(row?.minDurationMinutes || 0) || null,
+    unitMinutes: Number(row?.unitMinutes || 0) || null,
+    maxUnitsPerDay: Number(row?.maxUnitsPerDay || 0) || null
   })).filter((row) => row.code);
   const selected = normalizeCodeValue(bookingServiceCode.value);
   if (selected && !out.some((row) => row.code === selected)) {
-    out.push({ code: selected, label: `Legacy (${selected})` });
+    out.push({ code: selected, label: `Legacy (${selected})`, minDurationMinutes: null, unitMinutes: null, maxUnitsPerDay: null });
   }
   return out;
 });
+const serviceCodeOptionHints = (opt) => {
+  const hints = [];
+  if (Number(opt?.minDurationMinutes || 0) > 0) hints.push(`min ${Number(opt.minDurationMinutes)}m`);
+  if (Number(opt?.unitMinutes || 0) > 0) hints.push(`${Number(opt.unitMinutes)}m units`);
+  if (Number(opt?.maxUnitsPerDay || 0) > 0) hints.push(`max ${Number(opt.maxUnitsPerDay)}/day`);
+  return hints.length ? ` (${hints.join(', ')})` : '';
+};
 
 const bookingRequiresServiceCode = computed(() => ['SESSION', 'ASSESSMENT'].includes(normalizeCodeValue(bookingAppointmentType.value)));
 const bookingClassificationInvalidReason = computed(() => {
@@ -2427,13 +2474,25 @@ const openSlotActionModal = ({ dayName, hour, roomId = 0, slot = null, dateYmd =
   selectedSupervisionParticipantId.value = 0;
   createSupervisionMeetLink.value = true;
   modalContext.value = buildModalContext({ dayName: modalDay.value, hour: modalHour.value, roomId, slot, dateYmd });
-  if (selectedActionCount.value > 1) {
-    requestType.value = 'office_request_only';
-  } else if (String(modalContext.value.slotState || '').toUpperCase() === 'ASSIGNED_BOOKED') {
+  if (String(modalContext.value.slotState || '').toUpperCase() === 'ASSIGNED_BOOKED') {
     requestType.value = 'booked_note';
+  }
+  // If user selected a contiguous range on one day, use it as the default modal duration.
+  const rows = sortedSelectedActionSlots();
+  if (rows.length > 1) {
+    const sameDay = rows.every((x) => String(x.dateYmd || '') === String(rows[0]?.dateYmd || ''));
+    if (sameDay) {
+      const minHour = Math.min(...rows.map((x) => Number(x.hour || 0)));
+      const maxHour = Math.max(...rows.map((x) => Number(x.hour || 0)));
+      if (Number.isFinite(minHour) && Number.isFinite(maxHour)) {
+        modalHour.value = minHour;
+        modalEndHour.value = Math.min(maxHour + 1, 22);
+      }
+    }
   }
   showRequestModal.value = true;
   void loadBookingMetadataForProvider();
+  void loadSupervisionProviders();
 };
 
 const applyShiftSelection = (current) => {
@@ -2469,6 +2528,10 @@ const applyShiftSelection = (current) => {
 };
 
 const onCellClick = (dayName, hour, event = null, options = {}) => {
+  if (suppressClickAfterDrag.value) {
+    suppressClickAfterDrag.value = false;
+    return;
+  }
   const dateYmd = String(options?.dateYmd || addDaysYmd(weekStart.value, ALL_DAYS.indexOf(String(dayName || '')))).slice(0, 10);
   const roomId = Number(options?.roomId || 0) || 0;
   const slot = options?.slot || null;
@@ -2499,6 +2562,41 @@ const onCellClick = (dayName, hour, event = null, options = {}) => {
   selectedActionSlots.value = [item];
   lastSelectedActionKey.value = item.key;
   openSlotActionModal(item);
+};
+
+const onCellMouseDown = (dayName, hour, event = null) => {
+  if (!canBookFromGrid.value) return;
+  if (Number(event?.button) !== 0) return;
+  const dateYmd = addDaysYmd(weekStart.value, ALL_DAYS.indexOf(String(dayName || '')));
+  const item = {
+    key: actionSlotKey({ dateYmd, hour, roomId: 0 }),
+    dateYmd,
+    dayName: String(dayName),
+    hour: Number(hour),
+    roomId: 0,
+    slot: null
+  };
+  isCellDragSelecting.value = true;
+  dragAnchorSlot.value = item;
+  selectedActionSlots.value = [item];
+  lastSelectedActionKey.value = item.key;
+};
+
+const onCellMouseEnter = (dayName, hour) => {
+  if (!isCellDragSelecting.value || !dragAnchorSlot.value) return;
+  const dateYmd = addDaysYmd(weekStart.value, ALL_DAYS.indexOf(String(dayName || '')));
+  const current = {
+    key: actionSlotKey({ dateYmd, hour, roomId: 0 }),
+    dateYmd,
+    dayName: String(dayName),
+    hour: Number(hour),
+    roomId: 0,
+    slot: null
+  };
+  selectedActionSlots.value = [dragAnchorSlot.value];
+  lastSelectedActionKey.value = dragAnchorSlot.value.key;
+  applyShiftSelection(current);
+  suppressClickAfterDrag.value = true;
 };
 
 const openActionsForSelection = () => {
@@ -2996,14 +3094,51 @@ const submitRequest = async () => {
     } else if (requestType.value === 'school') {
       if (isAdminMode.value) throw new Error('School availability requests must be created from the provider schedule.');
       if (!canUseSchool(dn, h, endH)) throw new Error('School daytime availability must be on weekdays and between 06:00 and 18:00.');
+      const targets = sortedSelectedActionSlots().length ? sortedSelectedActionSlots() : [{
+        dateYmd: addDaysYmd(weekStart.value, ALL_DAYS.indexOf(String(dn))),
+        dayName: dn,
+        hour: h
+      }];
+      const byDay = new Map();
+      for (const t of targets) {
+        const day = String(t.dayName || dayNameForDateYmd(t.dateYmd) || dn);
+        if (!byDay.has(day)) byDay.set(day, []);
+        byDay.get(day).push(Number(t.hour || h));
+      }
+      const blocks = [];
+      for (const [day, hoursList] of byDay.entries()) {
+        const uniq = Array.from(new Set(hoursList)).sort((a, b) => a - b);
+        let start = null;
+        let prev = null;
+        for (const val of uniq) {
+          if (start === null) {
+            start = val;
+            prev = val;
+            continue;
+          }
+          if (val === prev + 1) {
+            prev = val;
+            continue;
+          }
+          const end = prev + 1;
+          if (canUseSchool(day, start, end)) {
+            blocks.push({ dayOfWeek: day, startTime: `${pad2(start)}:00`, endTime: `${pad2(end)}:00` });
+          }
+          start = val;
+          prev = val;
+        }
+        if (start !== null) {
+          const end = prev + 1;
+          if (canUseSchool(day, start, end)) {
+            blocks.push({ dayOfWeek: day, startTime: `${pad2(start)}:00`, endTime: `${pad2(end)}:00` });
+          }
+        }
+      }
+      if (!blocks.length) throw new Error('No selected slots are valid for school daytime availability.');
       await api.post('/availability/school-requests', {
         agencyId: effectiveAgencyId.value,
         notes: requestNotes.value || '',
-        blocks: [{
-          dayOfWeek: dn,
-          startTime: `${pad2(h)}:00`,
-          endTime: `${pad2(endH)}:00`
-        }]
+        blocks
       });
     } else if (requestType.value === 'supervision') {
       if (isAdminMode.value) throw new Error('Supervision requests must be created from the provider schedule.');
@@ -3027,6 +3162,16 @@ const submitRequest = async () => {
         createMeetLink: !!createSupervisionMeetLink.value,
         modality: 'virtual'
       });
+    } else if (requestType.value === 'forfeit_slot') {
+      const contexts = selectedActionContexts().filter((x) => Number(x?.officeEventId || 0) > 0 && Number(x?.officeLocationId || 0) > 0);
+      if (!contexts.length) throw new Error('Select an assigned/booked office slot first.');
+      for (const ctx of contexts) {
+        // eslint-disable-next-line no-await-in-loop
+        await api.post(`/office-slots/${ctx.officeLocationId}/events/${ctx.officeEventId}/forfeit`, {
+          acknowledged: true,
+          scope: 'occurrence'
+        });
+      }
     } else if (requestType.value === 'intake_virtual_on' || requestType.value === 'intake_virtual_off') {
       const enabled = requestType.value === 'intake_virtual_on';
       const contexts = selectedActionContexts().filter((x) => Number(x?.officeEventId || 0) > 0);
@@ -3852,6 +3997,37 @@ watch(modalHour, () => {
 }
 .sched-cell-selected {
   box-shadow: inset 0 0 0 2px rgba(37, 99, 235, 0.9);
+}
+.cell-plus-btn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(15, 23, 42, 0.25);
+  background: rgba(255, 255, 255, 0.86);
+  color: rgba(15, 23, 42, 0.85);
+  font-weight: 800;
+  font-size: 12px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  cursor: pointer;
+  opacity: 0;
+  transform: translateY(-1px);
+  transition: opacity 120ms ease, transform 120ms ease, background 120ms ease;
+  z-index: 3;
+}
+.sched-cell:hover .cell-plus-btn,
+.sched-cell-selected .cell-plus-btn {
+  opacity: 1;
+}
+.cell-plus-btn:hover {
+  background: rgba(219, 234, 254, 0.95);
+  transform: translateY(-2px);
 }
 .selection-toolbar {
   margin-top: 10px;

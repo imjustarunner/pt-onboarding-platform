@@ -462,7 +462,7 @@
               <select v-model="bookingServiceCode" class="select" :disabled="saving || bookingMetadataLoading">
                 <option value="">Select service code…</option>
                 <option v-for="opt in bookingServiceCodeOptions" :key="`svc-${opt.code}`" :value="opt.code">
-                  {{ opt.code }}{{ opt.label ? ` - ${opt.label}` : '' }}
+                  {{ opt.code }}{{ opt.label ? ` - ${opt.label}` : '' }}{{ serviceCodeOptionHints(opt) }}
                 </option>
               </select>
               <label style="font-weight: 700;">Modality</label>
@@ -1298,14 +1298,24 @@ const bookingServiceCodeOptions = computed(() => {
   const rows = Array.isArray(bookingMetadata.value?.serviceCodes) ? bookingMetadata.value.serviceCodes : [];
   const out = rows.map((row) => ({
     code: normalizeCodeValue(row?.code),
-    label: String(row?.label || row?.code || '').trim()
+    label: String(row?.label || row?.code || '').trim(),
+    minDurationMinutes: Number(row?.minDurationMinutes || 0) || null,
+    unitMinutes: Number(row?.unitMinutes || 0) || null,
+    maxUnitsPerDay: Number(row?.maxUnitsPerDay || 0) || null
   })).filter((row) => row.code);
   const selected = normalizeCodeValue(bookingServiceCode.value);
   if (selected && !out.some((row) => row.code === selected)) {
-    out.push({ code: selected, label: `Legacy (${selected})` });
+    out.push({ code: selected, label: `Legacy (${selected})`, minDurationMinutes: null, unitMinutes: null, maxUnitsPerDay: null });
   }
   return out;
 });
+const serviceCodeOptionHints = (opt) => {
+  const hints = [];
+  if (Number(opt?.minDurationMinutes || 0) > 0) hints.push(`min ${Number(opt.minDurationMinutes)}m`);
+  if (Number(opt?.unitMinutes || 0) > 0) hints.push(`${Number(opt.unitMinutes)}m units`);
+  if (Number(opt?.maxUnitsPerDay || 0) > 0) hints.push(`max ${Number(opt.maxUnitsPerDay)}/day`);
+  return hints.length ? ` (${hints.join(', ')})` : '';
+};
 const bookingRequiresServiceCode = computed(() => ['SESSION', 'ASSESSMENT'].includes(normalizeCodeValue(bookingAppointmentType.value)));
 const bookingClassificationInvalidReason = computed(() => {
   if (!normalizeCodeValue(bookingAppointmentType.value)) return 'Select an appointment type.';

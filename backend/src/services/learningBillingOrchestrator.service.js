@@ -4,9 +4,30 @@ import LearningTokenLedger from '../models/LearningTokenLedger.model.js';
 import LearningSubscription from '../models/LearningSubscription.model.js';
 import LearningService from '../models/LearningService.model.js';
 import QuickbooksSyncJob from '../models/QuickbooksSyncJob.model.js';
+import OfficeEvent from '../models/OfficeEvent.model.js';
+import User from '../models/User.model.js';
+import {
+  resolvePolicyRuleForServiceCode,
+  computeUnitsFromRule,
+  enforceDailyUnitsCap
+} from './billingPolicy.service.js';
+import { deriveCredentialTier } from '../utils/clinicalServiceCodeEligibility.js';
 
 function idempotencyKeyForCharge({ agencyId, sessionId, mode }) {
   return `learning_charge:${agencyId}:${sessionId}:${mode}`;
+}
+
+function toDateOnly(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  return raw.slice(0, 10);
+}
+
+function durationMinutes(startAt, endAt) {
+  const start = new Date(String(startAt || '').replace(' ', 'T'));
+  const end = new Date(String(endAt || '').replace(' ', 'T'));
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+  return Math.max(0, Math.round((end.getTime() - start.getTime()) / 60000));
 }
 
 export class LearningBillingOrchestrator {
@@ -76,6 +97,44 @@ export class LearningBillingOrchestrator {
       const svc = (services || []).find((s) => Number(s.id) === Number(learningServiceId));
       amountCents = Number(svc?.default_fee_cents || 0);
     }
+    const session = await LearningProgramSession.findById(sessionId);
+    const officeEvent = Number(session?.office_event_id || 0) > 0
+      ? await OfficeEvent.findById(Number(session.office_event_id))
+      : null;
+    const serviceCode = String(officeEvent?.service_code || '').trim().toUpperCase() || null;
+    let credentialTier = null;
+    if (Number(session?.assigned_provider_id || 0) > 0) {
+      const provider = await User.findById(Number(session.assigned_provider_id));
+      credentialTier = deriveCredentialTier({
+        userRole: provider?.role || null,
+        providerCredentialText: provider?.credential || null
+      });
+    }
+    const minutes = durationMinutes(session?.scheduled_start_at, session?.scheduled_end_at);
+    const serviceDate = toDateOnly(session?.scheduled_start_at);
+    const policyRule = serviceCode
+      ? await resolvePolicyRuleForServiceCode({ agencyId, serviceCode, credentialTier })
+      : null;
+    const units = serviceCode
+      ? computeUnitsFromRule({
+        minutes,
+        minMinutes: policyRule?.minMinutes || null,
+        maxMinutes: policyRule?.maxMinutes || null,
+        unitMinutes: policyRule?.unitMinutes || null,
+        unitCalcMode: policyRule?.unitCalcMode || 'NONE'
+      })
+      : null;
+    if (serviceCode && serviceDate && units > 0) {
+      await enforceDailyUnitsCap({
+        agencyId,
+        clientId,
+        serviceCode,
+        serviceDate,
+        unitsToAdd: units,
+        credentialTier
+      });
+    }
+
     const charge = await LearningSessionCharge.create({
       agencyId,
       learningProgramSessionId: sessionId,
@@ -88,7 +147,18 @@ export class LearningBillingOrchestrator {
       chargeType: 'SESSION_FEE',
       chargeStatus: 'PENDING',
       idempotencyKey: idempotencyKeyForCharge({ agencyId, sessionId, mode: 'PENDING' }),
-      metadataJson: { source: 'SESSION_LINK' },
+      billingPolicyProfileId: Number(policyRule?.policyProfileId || 0) || null,
+      serviceCode,
+      units: Number(units || 0) || null,
+      serviceDate,
+      metadataJson: {
+        source: 'SESSION_LINK',
+        serviceCode,
+        durationMinutes: minutes,
+        units,
+        policyRuleId: Number(policyRule?.ruleId || 0) || null,
+        policyVersionLabel: policyRule?.policyVersionLabel || null
+      },
       createdByUserId
     });
     return charge;

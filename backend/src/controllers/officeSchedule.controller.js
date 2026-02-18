@@ -50,6 +50,17 @@ function bookingSelectionFromBody(body = {}) {
   };
 }
 
+async function resolvePolicyAgencyForProvider({ providerId, fallbackActorUserId = null }) {
+  const agencies = await User.getAgencies(providerId);
+  const primary = Number(agencies?.[0]?.id || 0) || null;
+  if (primary) return primary;
+  if (fallbackActorUserId) {
+    const actorAgencies = await User.getAgencies(fallbackActorUserId);
+    return Number(actorAgencies?.[0]?.id || 0) || null;
+  }
+  return null;
+}
+
 async function resolveProviderTimeZone({ providerId, fallbackTimeZone }) {
   const fallback = isValidTimeZone(fallbackTimeZone) ? String(fallbackTimeZone) : 'America/New_York';
   const pid = Number(providerId || 0);
@@ -1632,13 +1643,17 @@ export const createOfficeBookingRequest = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Requested provider not found' } });
     }
 
+    const policyAgencyId = await resolveAuditAgencyIdForOffice(loc.id, req.user.id);
     const validatedSelection = await validateSchedulingSelection({
+      agencyId: policyAgencyId,
       userRole: requestedProvider.role,
       providerCredentialText: requestedProvider.credential,
       appointmentTypeCode: rawSelection.appointmentTypeCode,
       appointmentSubtypeCode: rawSelection.appointmentSubtypeCode,
       serviceCode: rawSelection.serviceCode,
-      modality: rawSelection.modality
+      modality: rawSelection.modality,
+      scheduledStartAt: startAt,
+      scheduledEndAt: endAt
     });
 
     // Room is optional (open-to-alternative). If provided it must match location.
@@ -1868,13 +1883,17 @@ export const approveOfficeBookingRequest = async (req, res, next) => {
     if (!requestedProvider) {
       return res.status(404).json({ error: { message: 'Requested provider not found' } });
     }
+    const policyAgencyId = await resolveAuditAgencyIdForOffice(loc.id, req.user.id);
     const validatedSelection = await validateSchedulingSelection({
+      agencyId: policyAgencyId,
       userRole: requestedProvider.role,
       providerCredentialText: requestedProvider.credential,
       appointmentTypeCode: reqRow.appointment_type_code,
       appointmentSubtypeCode: reqRow.appointment_subtype_code,
       serviceCode: reqRow.service_code,
-      modality: reqRow.modality
+      modality: reqRow.modality,
+      scheduledStartAt: reqRow.start_at,
+      scheduledEndAt: reqRow.end_at
     });
 
     const requestedRoomId = reqRow.room_id ? Number(reqRow.room_id) : null;
@@ -2013,7 +2032,12 @@ export const getBookingMetadata = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Only schedule managers can request metadata for another provider' } });
     }
 
+    const policyAgencyId = await resolvePolicyAgencyForProvider({
+      providerId: requestedProviderId,
+      fallbackActorUserId: req.user.id
+    });
     const metadata = await getSchedulingBookingMetadata({
+      agencyId: policyAgencyId,
       userRole: requestedProvider.role,
       providerCredentialText: requestedProvider.credential
     });
