@@ -2042,6 +2042,43 @@ const canViewProviderScheduleSummary = (role) => {
   return r === 'super_admin' || r === 'admin' || r === 'support' || r === 'staff' || r === 'clinical_practice_assistant' || r === 'provider_plus';
 };
 
+function toDisplayStatus({ status, slotState }) {
+  const st = String(status || '').trim().toUpperCase();
+  const ss = String(slotState || '').trim().toUpperCase();
+  if (st === 'BOOKED' || ss === 'ASSIGNED_BOOKED') return 'BOOKED';
+  if (ss === 'ASSIGNED_TEMPORARY') return 'TEMPORARY';
+  if (st === 'RELEASED' || ss === 'ASSIGNED_AVAILABLE') return 'AVAILABLE';
+  if (st === 'CANCELLED') return 'CANCELED';
+  return 'UNKNOWN';
+}
+
+function defaultAppointmentTypeForSlot({ status, slotState }) {
+  const displayStatus = toDisplayStatus({ status, slotState });
+  if (displayStatus === 'BOOKED') return 'SESSION';
+  if (displayStatus === 'AVAILABLE') return 'AVAILABLE_SLOT';
+  if (displayStatus === 'TEMPORARY') return 'SCHEDULE_BLOCK';
+  return 'EVENT';
+}
+
+function sanitizeGoogleEventForSchedule(event) {
+  const startAt = event?.start?.dateTime || event?.start?.date || null;
+  const endAt = event?.end?.dateTime || event?.end?.date || null;
+  return {
+    id: event?.id || null,
+    status: String(event?.status || '').trim().toLowerCase() === 'cancelled' ? 'CANCELED' : 'BUSY',
+    displayStatus: 'BUSY',
+    appointmentType: 'EVENT',
+    appointmentSubtype: 'SCHEDULE_HOLD',
+    serviceCode: null,
+    statusOutcome: null,
+    cancellationReason: null,
+    summary: 'Busy',
+    location: null,
+    start: startAt,
+    end: endAt
+  };
+}
+
 export const getUserScheduleSummary = async (req, res, next) => {
   try {
     const pool = (await import('../config/database.js')).default;
@@ -2258,6 +2295,16 @@ export const getUserScheduleSummary = async (req, res, next) => {
            e.end_at,
            e.status,
            e.slot_state,
+           e.appointment_type_code,
+           e.appointment_subtype_code,
+           e.service_code,
+           e.modality,
+           e.status_outcome,
+           e.cancellation_reason,
+           e.client_id,
+           e.clinical_session_id,
+           e.note_context_id,
+           e.billing_context_id,
            EXISTS(
              SELECT 1
              FROM provider_virtual_slot_availability pv
@@ -2291,6 +2338,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
         [agencyId, providerId, agencyId, providerId, agencyId, providerId, providerId, windowEnd, windowStart]
       );
       officeEvents = (rows || []).map((r) => ({
+        displayStatus: toDisplayStatus({ status: r.status, slotState: r.slot_state }),
         id: r.id,
         buildingId: r.office_location_id,
         buildingName: r.building_name,
@@ -2301,11 +2349,91 @@ export const getUserScheduleSummary = async (req, res, next) => {
         endAt: toMysqlDateTimeWall(r.end_at) || r.end_at,
         status: r.status,
         slotState: r.slot_state,
+        appointmentType: String(r.appointment_type_code || '').trim().toUpperCase() || defaultAppointmentTypeForSlot({ status: r.status, slotState: r.slot_state }),
+        appointmentSubtype: String(r.appointment_subtype_code || '').trim().toUpperCase() || null,
+        serviceCode: String(r.service_code || '').trim().toUpperCase() || null,
+        modality: String(r.modality || '').trim().toUpperCase() || null,
+        statusOutcome: String(r.status_outcome || '').trim().toUpperCase() || null,
+        cancellationReason: String(r.cancellation_reason || '').trim() || null,
+        clientId: Number(r.client_id || 0) || null,
+        clinicalSessionId: Number(r.clinical_session_id || 0) || null,
+        noteContextId: Number(r.note_context_id || 0) || null,
+        billingContextId: Number(r.billing_context_id || 0) || null,
         virtualIntakeEnabled: Number(r.virtual_intake_enabled || 0) === 1,
         inPersonIntakeEnabled: Number(r.in_person_intake_enabled || 0) === 1
       }));
     } catch (e) {
-      if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+      if (e?.code !== 'ER_NO_SUCH_TABLE' && e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+      const [rows] = await pool.execute(
+        `SELECT
+           e.id,
+           e.office_location_id,
+           ol.name AS building_name,
+           e.room_id,
+           r.room_number,
+           r.label AS room_label,
+           r.name AS room_name,
+           e.start_at,
+           e.end_at,
+           e.status,
+           e.slot_state,
+           EXISTS(
+             SELECT 1
+             FROM provider_virtual_slot_availability pv
+             WHERE pv.agency_id = ?
+               AND pv.provider_id = ?
+               AND pv.start_at = e.start_at
+               AND pv.end_at = e.end_at
+               AND pv.is_active = TRUE
+               AND UPPER(COALESCE(pv.session_type, 'REGULAR')) IN ('INTAKE', 'BOTH')
+             LIMIT 1
+           ) AS virtual_intake_enabled,
+           EXISTS(
+             SELECT 1
+             FROM provider_in_person_slot_availability ip
+             WHERE ip.agency_id = ?
+               AND ip.provider_id = ?
+               AND ip.start_at = e.start_at
+               AND ip.end_at = e.end_at
+               AND ip.is_active = TRUE
+             LIMIT 1
+           ) AS in_person_intake_enabled
+         FROM office_events e
+         JOIN office_rooms r ON r.id = e.room_id
+         JOIN office_locations ol ON ol.id = e.office_location_id
+         JOIN office_location_agencies ola ON ola.office_location_id = ol.id AND ola.agency_id = ?
+         WHERE (e.assigned_provider_id = ? OR e.booked_provider_id = ?)
+           AND (e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')
+           AND e.start_at < ?
+           AND e.end_at > ?
+         ORDER BY e.start_at ASC`,
+        [agencyId, providerId, agencyId, providerId, agencyId, providerId, providerId, windowEnd, windowStart]
+      );
+      officeEvents = (rows || []).map((r) => ({
+        displayStatus: toDisplayStatus({ status: r.status, slotState: r.slot_state }),
+        id: r.id,
+        buildingId: r.office_location_id,
+        buildingName: r.building_name,
+        roomId: r.room_id,
+        roomNumber: r.room_number,
+        roomLabel: r.room_label || r.room_name,
+        startAt: toMysqlDateTimeWall(r.start_at) || r.start_at,
+        endAt: toMysqlDateTimeWall(r.end_at) || r.end_at,
+        status: r.status,
+        slotState: r.slot_state,
+        appointmentType: defaultAppointmentTypeForSlot({ status: r.status, slotState: r.slot_state }),
+        appointmentSubtype: null,
+        serviceCode: null,
+        modality: null,
+        statusOutcome: null,
+        cancellationReason: null,
+        clientId: null,
+        clinicalSessionId: null,
+        noteContextId: null,
+        billingContextId: null,
+        virtualIntakeEnabled: Number(r.virtual_intake_enabled || 0) === 1,
+        inPersonIntakeEnabled: Number(r.in_person_intake_enabled || 0) === 1
+      }));
     }
 
     // 4b) Supervision sessions (app-scheduled, optionally synced to Google)
@@ -2396,7 +2524,11 @@ export const getUserScheduleSummary = async (req, res, next) => {
           calendarId: 'primary',
           maxItems: 250
         });
-        if (r?.ok) googleEvents = r.events || [];
+        if (r?.ok) {
+          googleEvents = isAdminOrSuperAdmin(req)
+            ? (r.events || [])
+            : (r.events || []).map((event) => sanitizeGoogleEventForSchedule(event));
+        }
         else googleEventsError = r?.error || r?.reason || 'Google events are not available';
       } catch {
         googleEvents = [];

@@ -77,7 +77,8 @@ class LearningSessionCharge {
       `SELECT c.*,
               s.scheduled_start_at,
               s.scheduled_end_at,
-              s.session_status
+              s.session_status,
+              s.office_event_id
        FROM learning_session_charges c
        LEFT JOIN learning_program_sessions s ON s.id = c.learning_program_session_id
        WHERE c.agency_id = ?

@@ -30,33 +30,73 @@ class OfficeEvent {
     status,
     assignedProviderId = null,
     bookedProviderId = null,
+    clientId = null,
+    clinicalSessionId = null,
+    noteContextId = null,
+    billingContextId = null,
     source,
     recurrenceGroupId = null,
     notes = null,
+    appointmentTypeCode = null,
+    appointmentSubtypeCode = null,
+    serviceCode = null,
+    modality = null,
     createdByUserId,
     approvedByUserId = null
   }) {
     const normalizedStartAt = normalizeMySqlDateTime(startAt);
     const normalizedEndAt = normalizeMySqlDateTime(endAt);
-    const [result] = await pool.execute(
-      `INSERT INTO office_events
-       (office_location_id, room_id, start_at, end_at, status, assigned_provider_id, booked_provider_id, source, recurrence_group_id, notes, created_by_user_id, approved_by_user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        officeLocationId,
-        roomId,
-        normalizedStartAt,
-        normalizedEndAt,
-        status,
-        assignedProviderId,
-        bookedProviderId,
-        source,
-        recurrenceGroupId,
-        notes,
-        createdByUserId,
-        approvedByUserId
-      ]
-    );
+    let result;
+    try {
+      [result] = await pool.execute(
+        `INSERT INTO office_events
+         (office_location_id, room_id, start_at, end_at, status, assigned_provider_id, booked_provider_id, client_id, clinical_session_id, note_context_id, billing_context_id, source, recurrence_group_id, notes, appointment_type_code, appointment_subtype_code, service_code, modality, created_by_user_id, approved_by_user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          officeLocationId,
+          roomId,
+          normalizedStartAt,
+          normalizedEndAt,
+          status,
+          assignedProviderId,
+          bookedProviderId,
+          clientId,
+          clinicalSessionId,
+          noteContextId,
+          billingContextId,
+          source,
+          recurrenceGroupId,
+          notes,
+          appointmentTypeCode,
+          appointmentSubtypeCode,
+          serviceCode,
+          modality,
+          createdByUserId,
+          approvedByUserId
+        ]
+      );
+    } catch (e) {
+      if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+      [result] = await pool.execute(
+        `INSERT INTO office_events
+         (office_location_id, room_id, start_at, end_at, status, assigned_provider_id, booked_provider_id, source, recurrence_group_id, notes, created_by_user_id, approved_by_user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          officeLocationId,
+          roomId,
+          normalizedStartAt,
+          normalizedEndAt,
+          status,
+          assignedProviderId,
+          bookedProviderId,
+          source,
+          recurrenceGroupId,
+          notes,
+          createdByUserId,
+          approvedByUserId
+        ]
+      );
+    }
     return this.findById(result.insertId);
   }
 
@@ -168,16 +208,58 @@ class OfficeEvent {
     });
   }
 
-  static async markBooked({ eventId, bookedProviderId }) {
-    await pool.execute(
-      `UPDATE office_events
-       SET status = 'BOOKED',
-           slot_state = 'ASSIGNED_BOOKED',
-           booked_provider_id = ?,
-           updated_at = CURRENT_TIMESTAMP
-       WHERE id = ?`,
-      [bookedProviderId, eventId]
-    );
+  static async markBooked({ eventId, bookedProviderId, appointmentTypeCode = null, appointmentSubtypeCode = null, serviceCode = null, modality = null }) {
+    try {
+      await pool.execute(
+        `UPDATE office_events
+         SET status = 'BOOKED',
+             slot_state = 'ASSIGNED_BOOKED',
+             booked_provider_id = ?,
+             appointment_type_code = COALESCE(?, appointment_type_code),
+             appointment_subtype_code = COALESCE(?, appointment_subtype_code),
+             service_code = COALESCE(?, service_code),
+             modality = COALESCE(?, modality),
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [bookedProviderId, appointmentTypeCode, appointmentSubtypeCode, serviceCode, modality, eventId]
+      );
+    } catch (e) {
+      if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+      await pool.execute(
+        `UPDATE office_events
+         SET status = 'BOOKED',
+             slot_state = 'ASSIGNED_BOOKED',
+             booked_provider_id = ?,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [bookedProviderId, eventId]
+      );
+    }
+    return await this.findById(eventId);
+  }
+
+  static async setContextLinkage({
+    eventId,
+    clientId = null,
+    clinicalSessionId = null,
+    noteContextId = null,
+    billingContextId = null
+  }) {
+    try {
+      await pool.execute(
+        `UPDATE office_events
+         SET client_id = COALESCE(?, client_id),
+             clinical_session_id = ?,
+             note_context_id = ?,
+             billing_context_id = ?,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [clientId, clinicalSessionId, noteContextId, billingContextId, eventId]
+      );
+    } catch (e) {
+      if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+      // Pre-migration fallback: keep existing row untouched.
+    }
     return await this.findById(eventId);
   }
 
@@ -255,6 +337,35 @@ class OfficeEvent {
       [recurrenceGroupId, startAt]
     );
     return Number(result?.affectedRows || 0);
+  }
+
+  static async setOutcome({ eventId, outcome = null, cancellationReason = null }) {
+    const normalizedOutcome = String(outcome || '').trim().toUpperCase() || null;
+    const normalizedReason = String(cancellationReason || '').trim() || null;
+    const allowed = new Set(['MISSED', 'NO_SHOW', 'CANCELED', 'COMPLETED']);
+    if (normalizedOutcome && !allowed.has(normalizedOutcome)) {
+      const err = new Error('Invalid outcome');
+      err.status = 400;
+      throw err;
+    }
+    if (normalizedOutcome === 'CANCELED' && !normalizedReason) {
+      const err = new Error('cancellationReason is required when outcome is CANCELED');
+      err.status = 400;
+      throw err;
+    }
+
+    await pool.execute(
+      `UPDATE office_events
+       SET status_outcome = ?,
+           cancellation_reason = CASE
+             WHEN ? = 'CANCELED' THEN ?
+             ELSE NULL
+           END,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [normalizedOutcome, normalizedOutcome, normalizedReason, eventId]
+    );
+    return await this.findById(eventId);
   }
 }
 

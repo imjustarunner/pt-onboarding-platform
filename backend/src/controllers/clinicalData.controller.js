@@ -183,13 +183,28 @@ export const createSessionNote = async (req, res, next) => {
 
     const title = String(req.body?.title || '').trim();
     if (!title) return res.status(400).json({ error: { message: 'title is required' } });
+    const notePayload =
+      req.body?.notePayload !== undefined && req.body?.notePayload !== null
+        ? String(req.body.notePayload)
+        : null;
+    const metadata = {
+      ...(req.body?.metadata && typeof req.body.metadata === 'object' ? req.body.metadata : {}),
+      noteType: req.body?.noteType ? String(req.body.noteType).trim() : null,
+      templateVersion: req.body?.templateVersion ? String(req.body.templateVersion).trim() : null,
+      serviceCode: req.body?.serviceCode ? String(req.body.serviceCode).trim().toUpperCase() : null,
+      modifiers: Array.isArray(req.body?.modifiers)
+        ? req.body.modifiers.map((m) => String(m || '').trim().toUpperCase()).filter(Boolean)
+        : [],
+      officeEventId: parseIntValue(req.body?.officeEventId) || session.office_event_id || null,
+      source: req.body?.source ? String(req.body.source).trim() : null
+    };
     const note = await ClinicalNote.create({
       clinicalSessionId: session.id,
       agencyId: session.agency_id,
       clientId: session.client_id,
       title,
-      notePayload: req.body?.notePayload ? String(req.body.notePayload) : null,
-      metadataJson: req.body?.metadata || null,
+      notePayload,
+      metadataJson: metadata,
       createdByUserId: req.user.id
     });
 

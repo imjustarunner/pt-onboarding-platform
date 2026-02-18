@@ -11,6 +11,8 @@ import {
   setEventRecurrence,
   setEventVirtualIntakeAvailability,
   setEventInPersonIntakeAvailability,
+  setEventOutcome,
+  getEventContext,
   forfeitEvent,
   cancelEvent,
   deleteEventFromGoogleNow,
@@ -31,8 +33,10 @@ router.post('/:officeId/assignments/:assignmentId/keep-available', keepAvailable
 router.post('/:officeId/assignments/:assignmentId/temporary', setTemporary);
 router.post('/:officeId/assignments/:assignmentId/forfeit', forfeitAssignment);
 router.post('/:officeId/events/:eventId/book', staffBookEvent);
+router.get('/:officeId/events/:eventId/context', getEventContext);
 router.post('/:officeId/events/:eventId/virtual-intake', setEventVirtualIntakeAvailability);
 router.post('/:officeId/events/:eventId/in-person-intake', setEventInPersonIntakeAvailability);
+router.post('/:officeId/events/:eventId/outcome', setEventOutcome);
 router.post('/:officeId/events/:eventId/forfeit', forfeitEvent);
 router.post('/:officeId/events/:eventId/cancel', cancelEvent);
 router.post('/:officeId/events/:eventId/google-delete-now', deleteEventFromGoogleNow);

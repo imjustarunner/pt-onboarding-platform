@@ -8,14 +8,47 @@ import OfficeEvent from '../models/OfficeEvent.model.js';
 import OfficeStandingAssignment from '../models/OfficeStandingAssignment.model.js';
 import OfficeBookingPlan from '../models/OfficeBookingPlan.model.js';
 import OfficeBookingRequest from '../models/OfficeBookingRequest.model.js';
+import ProviderVirtualSlotAvailability from '../models/ProviderVirtualSlotAvailability.model.js';
+import AdminAuditLog from '../models/AdminAuditLog.model.js';
 import User from '../models/User.model.js';
 import UserComplianceDocument from '../models/UserComplianceDocument.model.js';
 import OfficeScheduleMaterializer from '../services/officeScheduleMaterializer.service.js';
 import GoogleCalendarService from '../services/googleCalendar.service.js';
 import ExternalBusyCalendarService from '../services/externalBusyCalendar.service.js';
+import { getSchedulingBookingMetadata, validateSchedulingSelection } from '../services/schedulingTaxonomy.service.js';
+import { ensureAppointmentContext } from '../services/appointmentContext.service.js';
 
 const canManageSchedule = (role) =>
   role === 'clinical_practice_assistant' || role === 'provider_plus' || role === 'admin' || role === 'super_admin' || role === 'superadmin' || role === 'support' || role === 'staff';
+
+const DELETE_EVENT_REQUEST_TYPE = 'DELETE_EVENT';
+
+function parseJsonSafely(value) {
+  if (!value) return null;
+  if (typeof value === 'object') return value;
+  try {
+    return JSON.parse(String(value));
+  } catch {
+    return null;
+  }
+}
+
+async function resolveAuditAgencyIdForOffice(officeLocationId, actorUserId) {
+  const officeAgencies = await OfficeLocationAgency.listAgenciesForOffice(officeLocationId);
+  const officeAgencyId = Number(officeAgencies?.[0]?.id || 0) || null;
+  if (officeAgencyId) return officeAgencyId;
+  const actorAgencies = await User.getAgencies(actorUserId);
+  return Number(actorAgencies?.[0]?.id || 0) || null;
+}
+
+function bookingSelectionFromBody(body = {}) {
+  return {
+    appointmentTypeCode: body?.appointmentTypeCode || body?.appointment_type_code || null,
+    appointmentSubtypeCode: body?.appointmentSubtypeCode || body?.appointment_subtype_code || null,
+    serviceCode: body?.serviceCode || body?.service_code || null,
+    modality: body?.modality || null
+  };
+}
 
 async function resolveProviderTimeZone({ providerId, fallbackTimeZone }) {
   const fallback = isValidTimeZone(fallbackTimeZone) ? String(fallbackTimeZone) : 'America/New_York';
@@ -55,6 +88,24 @@ function formatFullName(firstName, lastName) {
   const f = String(firstName || '').trim();
   const l = String(lastName || '').trim();
   return `${f} ${l}`.trim();
+}
+
+function toDisplayStatus({ status, slotState }) {
+  const st = String(status || '').trim().toUpperCase();
+  const ss = String(slotState || '').trim().toUpperCase();
+  if (st === 'BOOKED' || ss === 'ASSIGNED_BOOKED') return 'BOOKED';
+  if (ss === 'ASSIGNED_TEMPORARY') return 'TEMPORARY';
+  if (st === 'RELEASED' || ss === 'ASSIGNED_AVAILABLE') return 'AVAILABLE';
+  if (st === 'CANCELLED') return 'CANCELED';
+  return 'UNKNOWN';
+}
+
+function defaultAppointmentTypeForSlot({ status, slotState }) {
+  const displayStatus = toDisplayStatus({ status, slotState });
+  if (displayStatus === 'BOOKED') return 'SESSION';
+  if (displayStatus === 'AVAILABLE') return 'AVAILABLE_SLOT';
+  if (displayStatus === 'TEMPORARY') return 'SCHEDULE_BLOCK';
+  return 'EVENT';
 }
 
 function localYmdInTz(dateLike, timeZone) {
@@ -631,6 +682,7 @@ export const getWeeklyGrid = async (req, res, next) => {
               date,
               hour,
               state,
+              displayStatus: toDisplayStatus({ status: e.status, slotState: st }),
               eventId: e.id,
               learningSessionId: learningByOfficeEventId.get(Number(e.id)) || null,
               learningLinked: learningByOfficeEventId.has(Number(e.id)),
@@ -645,6 +697,16 @@ export const getWeeklyGrid = async (req, res, next) => {
               assignedProviderFullName: assignedProviderFullName || null,
               bookedProviderName: bookedProviderName || null,
               bookedProviderFullName: bookedProviderFullName || null,
+              appointmentType: String(e.appointment_type_code || '').trim().toUpperCase() || defaultAppointmentTypeForSlot({ status: e.status, slotState: st }),
+              appointmentSubtype: String(e.appointment_subtype_code || '').trim().toUpperCase() || null,
+              serviceCode: String(e.service_code || '').trim().toUpperCase() || null,
+              modality: String(e.modality || '').trim().toUpperCase() || null,
+              statusOutcome: String(e.status_outcome || '').trim().toUpperCase() || null,
+              cancellationReason: String(e.cancellation_reason || '').trim() || null,
+              clientId: Number(e.client_id || 0) || null,
+              clinicalSessionId: Number(e.clinical_session_id || 0) || null,
+              noteContextId: Number(e.note_context_id || 0) || null,
+              billingContextId: Number(e.billing_context_id || 0) || null,
               virtualIntakeEnabled,
               inPersonIntakeEnabled
             });
@@ -692,6 +754,7 @@ export const getWeeklyGrid = async (req, res, next) => {
               date,
               hour,
               state: 'assigned_available',
+              displayStatus: 'AVAILABLE',
               eventId: assignmentEventId,
               learningSessionId: null,
               learningLinked: false,
@@ -704,6 +767,16 @@ export const getWeeklyGrid = async (req, res, next) => {
               assignedProviderFullName: formatFullName(a.first_name, a.last_name) || null,
               bookedProviderName: null,
               bookedProviderFullName: null,
+              appointmentType: 'AVAILABLE_SLOT',
+              appointmentSubtype: null,
+              serviceCode: null,
+              modality: null,
+              statusOutcome: null,
+              cancellationReason: null,
+              clientId: null,
+              clinicalSessionId: null,
+              noteContextId: null,
+              billingContextId: null,
               virtualIntakeEnabled,
               inPersonIntakeEnabled
             });
@@ -714,6 +787,7 @@ export const getWeeklyGrid = async (req, res, next) => {
             date,
             hour,
             state: 'open',
+            displayStatus: 'OPEN',
             eventId: null,
             learningSessionId: null,
             learningLinked: false,
@@ -726,6 +800,16 @@ export const getWeeklyGrid = async (req, res, next) => {
             assignedProviderFullName: null,
             bookedProviderName: null,
             bookedProviderFullName: null,
+            appointmentType: 'AVAILABLE_SLOT',
+            appointmentSubtype: null,
+            serviceCode: null,
+            modality: null,
+            statusOutcome: null,
+            cancellationReason: null,
+            clientId: null,
+            clinicalSessionId: null,
+            noteContextId: null,
+            billingContextId: null,
             virtualIntakeEnabled: false,
             inPersonIntakeEnabled: false
           });
@@ -1503,11 +1587,13 @@ export const createOfficeBookingRequest = async (req, res, next) => {
 
     const officeLocationId = req.body?.officeLocationId ? parseInt(req.body.officeLocationId, 10) : null;
     const roomId = req.body?.roomId ? parseInt(req.body.roomId, 10) : null;
+    const clientId = req.body?.clientId ? parseInt(req.body.clientId, 10) : null;
     const startAt = req.body?.startAt || null;
     const endAt = req.body?.endAt || null;
     const recurrence = String(req.body?.recurrence || 'ONCE').trim().toUpperCase();
     const openToAlternativeRoom = req.body?.openToAlternativeRoom === true || req.body?.open_to_alternative_room === true;
     const notes = String(req.body?.notes || req.body?.requesterNotes || '').trim().slice(0, 2000) || null;
+    const rawSelection = bookingSelectionFromBody(req.body);
 
     const allowedRecurrence = new Set(['ONCE', 'WEEKLY', 'BIWEEKLY', 'MONTHLY']);
     const normalizedRecurrence = allowedRecurrence.has(recurrence) ? recurrence : 'ONCE';
@@ -1540,6 +1626,20 @@ export const createOfficeBookingRequest = async (req, res, next) => {
         return res.status(403).json({ error: { message: 'Selected provider is not affiliated with this office organization' } });
       }
     }
+
+    const requestedProvider = await User.findById(requestedProviderId);
+    if (!requestedProvider) {
+      return res.status(404).json({ error: { message: 'Requested provider not found' } });
+    }
+
+    const validatedSelection = await validateSchedulingSelection({
+      userRole: requestedProvider.role,
+      providerCredentialText: requestedProvider.credential,
+      appointmentTypeCode: rawSelection.appointmentTypeCode,
+      appointmentSubtypeCode: rawSelection.appointmentSubtypeCode,
+      serviceCode: rawSelection.serviceCode,
+      modality: rawSelection.modality
+    });
 
     // Room is optional (open-to-alternative). If provided it must match location.
     let room = null;
@@ -1612,12 +1712,29 @@ export const createOfficeBookingRequest = async (req, res, next) => {
           status: 'BOOKED',
           assignedProviderId: null,
           bookedProviderId: requestedProviderId,
+          clientId,
           source: 'PROVIDER_REQUEST',
           recurrenceGroupId: null,
           notes,
+          appointmentTypeCode: validatedSelection.appointmentTypeCode,
+          appointmentSubtypeCode: validatedSelection.appointmentSubtypeCode,
+          serviceCode: validatedSelection.serviceCode,
+          modality: validatedSelection.modality,
           createdByUserId: req.user.id,
           approvedByUserId: req.user.id
         });
+        if (clientId) {
+          try {
+            await ensureAppointmentContext({
+              officeEventId: ev?.id,
+              clientId,
+              sourceTimezone: tz,
+              actorUserId: req.user.id
+            });
+          } catch {
+            // best-effort context ensure on booking
+          }
+        }
         return res.status(201).json({ ok: true, kind: 'auto_booked', event: ev });
       }
     }
@@ -1627,9 +1744,14 @@ export const createOfficeBookingRequest = async (req, res, next) => {
       officeLocationId: loc.id,
       roomId: room?.id || null,
       requestedProviderId,
+      clientId,
       startAt,
       endAt,
       recurrence: normalizedRecurrence,
+      appointmentTypeCode: validatedSelection.appointmentTypeCode,
+      appointmentSubtypeCode: validatedSelection.appointmentSubtypeCode,
+      serviceCode: validatedSelection.serviceCode,
+      modality: validatedSelection.modality,
       openToAlternativeRoom: !!openToAlternativeRoom || !room?.id,
       requesterNotes: notes
     });
@@ -1687,9 +1809,73 @@ export const approveOfficeBookingRequest = async (req, res, next) => {
       if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
     }
 
+    if (String(reqRow.request_type || '').toUpperCase() === DELETE_EVENT_REQUEST_TYPE) {
+      const meta = parseJsonSafely(reqRow.requester_notes) || {};
+      const targetEventId = Number(meta?.eventId || 0) || 0;
+      if (!targetEventId) {
+        return res.status(400).json({ error: { message: 'Delete request payload is missing eventId' } });
+      }
+      const targetEvent = await OfficeEvent.findById(targetEventId);
+      if (!targetEvent || Number(targetEvent.office_location_id) !== Number(loc.id)) {
+        return res.status(404).json({ error: { message: 'Target event not found for delete request' } });
+      }
+
+      const updatedEvent = await OfficeEvent.cancelOccurrence({ eventId: targetEventId });
+      await ProviderVirtualSlotAvailability.deactivateBySourceEventId(targetEventId);
+      try {
+        await GoogleCalendarService.cancelBookedOfficeEvent({ officeEventId: targetEventId });
+      } catch {
+        // best-effort external sync
+      }
+
+      const updatedReq = await OfficeBookingRequest.markDecided({
+        requestId: reqRow.id,
+        status: 'APPROVED',
+        decidedByUserId: req.user.id,
+        approverComment: req.body?.approverComment ? String(req.body.approverComment).slice(0, 2000) : null
+      });
+
+      try {
+        const auditAgencyId = await resolveAuditAgencyIdForOffice(loc.id, req.user.id);
+        if (auditAgencyId) {
+          await AdminAuditLog.logAction({
+            actionType: 'OFFICE_EVENT_DELETE_APPROVED',
+            actorUserId: Number(req.user?.id || 0) || null,
+            targetUserId: Number(reqRow.requested_provider_id || targetEvent.booked_provider_id || targetEvent.assigned_provider_id || 0) || null,
+            agencyId: auditAgencyId,
+            metadata: {
+              requestId: Number(reqRow.id || 0) || null,
+              officeEventId: targetEventId,
+              officeLocationId: Number(loc.id || 0) || null
+            }
+          });
+        }
+      } catch {
+        // best-effort audit logging
+      }
+
+      return res.json({
+        ok: true,
+        request: updatedReq,
+        event: updatedEvent
+      });
+    }
+
     const recurrence = String(reqRow.recurrence || 'ONCE').toUpperCase();
     const allowedRecurrence = new Set(['ONCE', 'WEEKLY', 'BIWEEKLY', 'MONTHLY']);
     const normalizedRecurrence = allowedRecurrence.has(recurrence) ? recurrence : 'ONCE';
+    const requestedProvider = await User.findById(reqRow.requested_provider_id);
+    if (!requestedProvider) {
+      return res.status(404).json({ error: { message: 'Requested provider not found' } });
+    }
+    const validatedSelection = await validateSchedulingSelection({
+      userRole: requestedProvider.role,
+      providerCredentialText: requestedProvider.credential,
+      appointmentTypeCode: reqRow.appointment_type_code,
+      appointmentSubtypeCode: reqRow.appointment_subtype_code,
+      serviceCode: reqRow.service_code,
+      modality: reqRow.modality
+    });
 
     const requestedRoomId = reqRow.room_id ? Number(reqRow.room_id) : null;
     const rooms = await OfficeRoom.findByLocation(loc.id);
@@ -1748,12 +1934,29 @@ export const approveOfficeBookingRequest = async (req, res, next) => {
         status: 'BOOKED',
         assignedProviderId: null,
         bookedProviderId: reqRow.requested_provider_id,
+        clientId: Number(reqRow.client_id || 0) || null,
         source: 'PROVIDER_REQUEST',
         recurrenceGroupId: null,
         notes: reqRow.requester_notes || null,
+        appointmentTypeCode: validatedSelection.appointmentTypeCode,
+        appointmentSubtypeCode: validatedSelection.appointmentSubtypeCode,
+        serviceCode: validatedSelection.serviceCode,
+        modality: validatedSelection.modality,
         createdByUserId: req.user.id,
         approvedByUserId: req.user.id
       });
+      if (Number(reqRow.client_id || 0) > 0) {
+        try {
+          await ensureAppointmentContext({
+            officeEventId: createdEvent?.id,
+            clientId: Number(reqRow.client_id),
+            sourceTimezone: String(loc.timezone || 'America/New_York'),
+            actorUserId: req.user.id
+          });
+        } catch {
+          // best-effort context ensure on booking request approval
+        }
+      }
     } else {
       const assignedFrequency = normalizedRecurrence === 'BIWEEKLY' ? 'BIWEEKLY' : 'WEEKLY';
       createdStandingAssignment = await OfficeStandingAssignment.create({
@@ -1798,6 +2001,35 @@ export const approveOfficeBookingRequest = async (req, res, next) => {
   }
 };
 
+export const getBookingMetadata = async (req, res, next) => {
+  try {
+    const requestedProviderIdRaw = req.query?.providerId || req.query?.requestedProviderId || req.user.id;
+    const requestedProviderId = Number(requestedProviderIdRaw || 0) || Number(req.user.id || 0);
+    const requestedProvider = await User.findById(requestedProviderId);
+    if (!requestedProvider) {
+      return res.status(404).json({ error: { message: 'Provider not found' } });
+    }
+    if (requestedProviderId !== Number(req.user.id) && !canManageSchedule(req.user.role)) {
+      return res.status(403).json({ error: { message: 'Only schedule managers can request metadata for another provider' } });
+    }
+
+    const metadata = await getSchedulingBookingMetadata({
+      userRole: requestedProvider.role,
+      providerCredentialText: requestedProvider.credential
+    });
+
+    return res.json({
+      providerId: requestedProviderId,
+      credentialTier: metadata.credentialTier,
+      appointmentTypes: metadata.appointmentTypes,
+      appointmentSubtypes: metadata.appointmentSubtypes,
+      serviceCodes: metadata.eligibleServiceCodes
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const denyOfficeBookingRequest = async (req, res, next) => {
   try {
     if (!canManageSchedule(req.user.role)) {
@@ -1830,6 +2062,27 @@ export const denyOfficeBookingRequest = async (req, res, next) => {
       decidedByUserId: req.user.id,
       approverComment: req.body?.approverComment ? String(req.body.approverComment).slice(0, 2000) : null
     });
+    if (String(reqRow.request_type || '').toUpperCase() === DELETE_EVENT_REQUEST_TYPE) {
+      try {
+        const meta = parseJsonSafely(reqRow.requester_notes) || {};
+        const auditAgencyId = await resolveAuditAgencyIdForOffice(loc.id, req.user.id);
+        if (auditAgencyId) {
+          await AdminAuditLog.logAction({
+            actionType: 'OFFICE_EVENT_DELETE_DENIED',
+            actorUserId: Number(req.user?.id || 0) || null,
+            targetUserId: Number(reqRow.requested_provider_id || 0) || null,
+            agencyId: auditAgencyId,
+            metadata: {
+              requestId: Number(reqRow.id || 0) || null,
+              officeEventId: Number(meta?.eventId || 0) || null,
+              officeLocationId: Number(loc.id || 0) || null
+            }
+          });
+        }
+      } catch {
+        // best-effort audit logging
+      }
+    }
     res.json({ ok: true, request: updatedReq });
   } catch (e) {
     next(e);

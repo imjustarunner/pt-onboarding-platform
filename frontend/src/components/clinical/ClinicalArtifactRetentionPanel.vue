@@ -119,6 +119,10 @@ watch(() => [props.agencyId, props.clientId, props.officeEventId], ([aid, cid, e
   if (Number(eid) > 0) officeEventIdLocal.value = Number(eid);
 });
 
+const fixedContextKey = computed(() =>
+  `${Number(agencyIdLocal.value || 0)}:${Number(clientIdLocal.value || 0)}:${Number(officeEventIdLocal.value || 0)}`
+);
+
 watch(showDeleted, () => {
   if (sessionId.value) loadArtifacts();
 });
@@ -235,9 +239,14 @@ const releaseHold = async (recordType, id) => {
   }
 };
 
-if (hasFixedContext.value) {
-  bootstrapAndLoad();
-}
+watch(
+  [hasFixedContext, canBootstrap, fixedContextKey],
+  async ([fixed, can]) => {
+    if (!fixed || !can) return;
+    await bootstrapAndLoad();
+  },
+  { immediate: true }
+);
 </script>
 
 <style scoped>

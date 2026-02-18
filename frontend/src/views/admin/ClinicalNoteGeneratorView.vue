@@ -243,6 +243,9 @@
         </div>
 
         <div class="actions">
+          <button class="btn btn-primary recording-now-btn" type="button" :disabled="recordingBusy" @click="openRecordSessionModal">
+            {{ recording ? 'Recording in progress' : 'Record Session modal' }}
+          </button>
           <button class="btn btn-secondary" type="button" :disabled="recordingBusy" @click="toggleRecording">
             {{ recording ? 'Stop recording' : (isSessionRecording ? 'Record session audio' : 'Record dictation') }}
           </button>
@@ -311,11 +314,12 @@
           <button class="btn btn-secondary btn-sm" type="button" :disabled="generating || !String(inputText || '').trim()" @click="generateNote">
             {{ generating ? 'Regenerating…' : 'Retry with same transcript' }}
           </button>
-          <button class="btn btn-primary btn-sm" type="button" :disabled="!sectionEntries.length" @click="approveNoteOutput">
-            Approve note output
+          <button class="btn btn-primary btn-sm" type="button" :disabled="!sectionEntries.length || approvingNote" @click="approveNoteOutput">
+            {{ approvingNote ? 'Approving…' : 'Approve note output' }}
           </button>
           <span v-if="copied" class="hint">Copied.</span>
           <span v-if="approvalMessage" class="hint">{{ approvalMessage }}</span>
+          <span v-if="approvalError" class="error">{{ approvalError }}</span>
         </div>
       </div>
 
@@ -395,7 +399,34 @@
       </div>
     </div>
 
-    <ClinicalArtifactRetentionPanel />
+    <div v-if="recordSessionModalOpen" class="record-session-modal-overlay" @click="closeRecordSessionModal">
+      <div class="record-session-modal" @click.stop>
+        <h2 style="margin-top: 0;">Record Session</h2>
+        <p class="muted" style="margin-bottom: 10px;">
+          Use focused recording mode for this booked session. Complete consent selections in the form first if required, then press Recording Now.
+        </p>
+        <button
+          class="btn btn-primary recording-now-btn recording-now-cta"
+          type="button"
+          :disabled="recordingBusy"
+          @click="startRecordingFromModal"
+        >
+          {{ recording ? 'Stop Recording Now' : 'Recording Now' }}
+        </button>
+        <small v-if="recordingConsentError" class="error" style="display: block;">{{ recordingConsentError }}</small>
+        <div class="actions" style="justify-content: flex-end; margin-top: 14px;">
+          <button class="btn btn-secondary" type="button" @click="closeRecordSessionModal">
+            Continue in Note Aid
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <ClinicalArtifactRetentionPanel
+      :agencyId="Number(currentAgencyId || 0)"
+      :clientId="Number(retentionClientId || 0)"
+      :officeEventId="Number(retentionOfficeEventId || 0)"
+    />
 
   </div>
 </template>
@@ -419,6 +450,24 @@ const orgTo = (path) => {
 };
 
 const currentAgencyId = computed(() => agencyStore.currentAgency?.id || null);
+const bookingContext = computed(() => {
+  const officeEventId = Number(route.query?.officeEventId || route.query?.office_event_id || 0) || null;
+  const clientId = Number(route.query?.clientId || route.query?.client_id || 0) || null;
+  const noteType = String(route.query?.noteType || route.query?.note_type || 'PROGRESS_NOTE').trim() || 'PROGRESS_NOTE';
+  const templateVersion = String(route.query?.templateVersion || route.query?.template_version || 'v1').trim() || 'v1';
+  const serviceCode = String(route.query?.serviceCode || route.query?.service_code || '').trim().toUpperCase();
+  return {
+    officeEventId,
+    clientId,
+    noteType,
+    templateVersion,
+    serviceCode
+  };
+});
+const retentionClientId = computed(() => Number(bookingContext.value?.clientId || 0) || null);
+const retentionOfficeEventId = computed(() => Number(bookingContext.value?.officeEventId || 0) || null);
+const launchIntent = computed(() => String(route.query?.launchIntent || route.query?.launch_intent || '').trim().toLowerCase());
+const isRecordSessionIntent = computed(() => launchIntent.value === 'record_session' || launchIntent.value === 'record');
 
 const parseFeatureFlags = (raw) => {
   if (!raw) return {};
@@ -473,6 +522,7 @@ const initials = ref('');
 const inputText = ref('');
 const autoSelectCode = ref(false);
 const forceAutoSelect = computed(() => String(derivedTier.value || '') === 'unknown');
+const bookingPrefillApplied = ref(false);
 const clientPresentInRecording = ref(true);
 const clientConsentOnFile = ref('');
 const clientConsentTaskId = ref(null);
@@ -484,6 +534,8 @@ const recordingConsentError = ref('');
 const downloadingAudioAgreementTemplate = ref(false);
 const recordingPurpose = ref('dictation');
 const isSessionRecording = computed(() => recordingPurpose.value === 'session');
+const recordSessionModalOpen = ref(false);
+const recordSessionIntentHandled = ref(false);
 const consentSessionLaunching = ref(false);
 const consentSessionError = ref('');
 const canLaunchConsentSession = computed(() =>
@@ -516,6 +568,8 @@ const outputObj = ref(null);
 const copied = ref(false);
 const revisionInstruction = ref('');
 const approvalMessage = ref('');
+const approvalError = ref('');
+const approvingNote = ref(false);
 const serverTranscribing = ref(false);
 const serverTranscribeError = ref('');
 const SERVER_TRANSCRIBE_MIN_SECONDS = 75;
@@ -602,6 +656,26 @@ const serviceCodeOptionLabel = (code) => {
   const normalized = String(code || '').trim().toUpperCase();
   const desc = serviceCodeDescription(normalized);
   return desc ? `${normalized} — ${desc}` : normalized;
+};
+
+const applyBookingContextPrefill = () => {
+  if (bookingPrefillApplied.value) return;
+  const prefilledCode = String(bookingContext.value?.serviceCode || '').trim().toUpperCase();
+  if (!prefilledCode) {
+    bookingPrefillApplied.value = true;
+    return;
+  }
+  if (forceAutoSelect.value) return;
+  const options = serviceCodeOptions.value || [];
+  if (options.includes(prefilledCode)) {
+    selectedServiceCode.value = prefilledCode;
+    otherServiceCode.value = '';
+  } else {
+    selectedServiceCode.value = '__other__';
+    otherServiceCode.value = prefilledCode;
+  }
+  autoSelectCode.value = false;
+  bookingPrefillApplied.value = true;
 };
 
 const actualServiceCode = computed(() => {
@@ -1074,6 +1148,21 @@ const clearAudio = () => {
   audioDurationSeconds.value = 0;
 };
 
+const openRecordSessionModal = () => {
+  recordSessionModalOpen.value = true;
+  recordingPurpose.value = 'session';
+  recordingConsentError.value = '';
+};
+
+const closeRecordSessionModal = () => {
+  recordSessionModalOpen.value = false;
+};
+
+const startRecordingFromModal = async () => {
+  recordingPurpose.value = 'session';
+  await toggleRecording();
+};
+
 const transcribeAudioServer = async () => {
   if (!canServerTranscribe.value) return;
   if (!currentAgencyId.value) return;
@@ -1302,16 +1391,78 @@ const generateNote = async () => {
   }
 };
 
-const approveNoteOutput = () => {
+const buildApprovedPayloadText = () => {
+  const sections = Object.fromEntries(sectionEntries.value || []);
+  if (!sections || Object.keys(sections).length === 0) return '';
+  return JSON.stringify(
+    {
+      sections,
+      meta: outputObj.value?.meta || {}
+    },
+    null,
+    2
+  );
+};
+
+const ensureClinicalSessionForApproval = async () => {
+  const agencyId = Number(currentAgencyId.value || 0);
+  const officeEventId = Number(bookingContext.value.officeEventId || 0);
+  const clientId = Number(bookingContext.value.clientId || 0);
+  if (!agencyId || !officeEventId || !clientId) {
+    throw new Error('Missing appointment context (agencyId, officeEventId, or clientId). Open Note Aid from a booked schedule slot.');
+  }
+  const res = await api.post('/clinical-data/sessions/bootstrap', {
+    agencyId,
+    clientId,
+    officeEventId,
+    sourceTimezone: 'America/New_York'
+  });
+  const sessionId = Number(res?.data?.session?.id || 0) || null;
+  if (!sessionId) throw new Error('Could not resolve clinical session context.');
+  return sessionId;
+};
+
+const approveNoteOutput = async () => {
   if (!sectionEntries.value.length) return;
+  if (approvingNote.value) return;
   const ok = window.confirm('Approve this note and clear transcript/audio from this form?');
   if (!ok) return;
-  inputText.value = '';
-  transcriptSource.value = '';
-  liveTranscript.value = '';
-  clearAudio();
-  revisionInstruction.value = '';
-  approvalMessage.value = 'Approved. Transcript/audio cleared from this form.';
+  try {
+    approvingNote.value = true;
+    approvalError.value = '';
+    approvalMessage.value = '';
+    const sessionId = await ensureClinicalSessionForApproval();
+    const approvedPayload = buildApprovedPayloadText();
+    if (!approvedPayload) throw new Error('No approved note content available to persist.');
+    const serviceCodeForMetadata = actualServiceCode.value || null;
+    const title = `${bookingContext.value.noteType} ${serviceCodeForMetadata ? `(${serviceCodeForMetadata}) ` : ''}${new Date().toISOString().slice(0, 10)}`.trim();
+    await api.post(`/clinical-data/sessions/${sessionId}/notes`, {
+      title,
+      notePayload: approvedPayload,
+      noteType: bookingContext.value.noteType,
+      templateVersion: bookingContext.value.templateVersion,
+      serviceCode: serviceCodeForMetadata,
+      officeEventId: bookingContext.value.officeEventId,
+      source: 'note_aid_approval',
+      metadata: {
+        generatedBy: 'clinical_note_generator',
+        model: outputObj.value?.meta?.model || null,
+        toolId: outputObj.value?.meta?.toolId || null,
+        approvedAt: new Date().toISOString()
+      }
+    });
+
+    inputText.value = '';
+    transcriptSource.value = '';
+    liveTranscript.value = '';
+    clearAudio();
+    revisionInstruction.value = '';
+    approvalMessage.value = 'Approved and persisted to clinical records. Transcript/audio cleared from this form.';
+  } catch (e) {
+    approvalError.value = e.response?.data?.error?.message || e.message || 'Failed to persist approved note';
+  } finally {
+    approvingNote.value = false;
+  }
 };
 
 const formatDateTime = (raw) => {
@@ -1410,11 +1561,30 @@ onMounted(async () => {
   if (canUseTool.value) {
     await loadContext();
     await loadPrograms();
+    applyBookingContextPrefill();
   }
 
   autosaveTimer = window.setInterval(() => {
     autosave();
   }, 30_000);
+});
+
+watch([serviceCodeOptions, forceAutoSelect, canUseTool], () => {
+  if (!canUseTool.value) return;
+  applyBookingContextPrefill();
+});
+
+watch(() => route.query, () => {
+  bookingPrefillApplied.value = false;
+  recordSessionIntentHandled.value = false;
+  if (!canUseTool.value) return;
+  applyBookingContextPrefill();
+}, { deep: true });
+
+watch([canUseTool, isRecordSessionIntent], ([enabled, recordIntent]) => {
+  if (!enabled || !recordIntent || recordSessionIntentHandled.value) return;
+  openRecordSessionModal();
+  recordSessionIntentHandled.value = true;
 });
 
 watch([currentAgencyId, clinicalNoteGeneratorEnabled], async () => {
@@ -1432,6 +1602,7 @@ watch([currentAgencyId, clinicalNoteGeneratorEnabled], async () => {
   generateError.value = '';
   revisionInstruction.value = '';
   approvalMessage.value = '';
+  approvalError.value = '';
   recordingConsentError.value = '';
   consentSessionError.value = '';
   recordingPurpose.value = 'dictation';
@@ -1445,9 +1616,13 @@ watch([currentAgencyId, clinicalNoteGeneratorEnabled], async () => {
   downloadingAudioAgreementTemplate.value = false;
   audioDurationSeconds.value = 0;
   outputObj.value = null;
+  bookingPrefillApplied.value = false;
+  recordSessionModalOpen.value = false;
+  recordSessionIntentHandled.value = false;
   if (canUseTool.value) {
     await loadContext();
     await loadPrograms();
+    applyBookingContextPrefill();
     if (showRecent.value) await loadRecent();
   }
 });
@@ -1633,6 +1808,49 @@ select {
 .content-card .btn.btn-sm {
   padding: 6px 10px;
   font-size: 12px;
+}
+
+.recording-now-btn {
+  position: relative;
+}
+
+.recording-now-btn.recording-now-cta,
+.recording-now-btn.recording-now-cta:focus-visible,
+.recording-now-btn.recording-now-cta:focus {
+  animation: recordingPulse 1.3s ease-in-out infinite;
+}
+
+.record-session-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.record-session-modal {
+  width: min(760px, 96vw);
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: white;
+  padding: 20px;
+  box-shadow: 0 20px 60px rgba(15, 23, 42, 0.35);
+}
+
+@keyframes recordingPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.5);
+  }
+  70% {
+    box-shadow: 0 0 0 12px rgba(220, 38, 38, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(220, 38, 38, 0);
+  }
 }
 
 .divider {

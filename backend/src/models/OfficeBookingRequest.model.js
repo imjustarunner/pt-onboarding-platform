@@ -11,28 +11,59 @@ class OfficeBookingRequest {
     officeLocationId,
     roomId = null,
     requestedProviderId,
+    clientId = null,
     startAt,
     endAt,
     recurrence = 'ONCE',
     openToAlternativeRoom = false,
-    requesterNotes = null
+    requesterNotes = null,
+    appointmentTypeCode = null,
+    appointmentSubtypeCode = null,
+    serviceCode = null,
+    modality = null
   }) {
-    const [result] = await pool.execute(
-      `INSERT INTO office_booking_requests
-        (request_type, status, office_location_id, room_id, requested_provider_id, start_at, end_at, recurrence, open_to_alternative_room, requester_notes)
-       VALUES (?, 'PENDING', ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        requestType,
-        officeLocationId,
-        roomId,
-        requestedProviderId,
-        startAt,
-        endAt,
-        recurrence,
-        openToAlternativeRoom ? 1 : 0,
-        requesterNotes
-      ]
-    );
+    let result;
+    try {
+      [result] = await pool.execute(
+        `INSERT INTO office_booking_requests
+          (request_type, status, office_location_id, room_id, requested_provider_id, client_id, start_at, end_at, recurrence, appointment_type_code, appointment_subtype_code, service_code, modality, open_to_alternative_room, requester_notes)
+         VALUES (?, 'PENDING', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          requestType,
+          officeLocationId,
+          roomId,
+          requestedProviderId,
+          clientId,
+          startAt,
+          endAt,
+          recurrence,
+          appointmentTypeCode,
+          appointmentSubtypeCode,
+          serviceCode,
+          modality,
+          openToAlternativeRoom ? 1 : 0,
+          requesterNotes
+        ]
+      );
+    } catch (e) {
+      if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+      [result] = await pool.execute(
+        `INSERT INTO office_booking_requests
+          (request_type, status, office_location_id, room_id, requested_provider_id, start_at, end_at, recurrence, open_to_alternative_room, requester_notes)
+         VALUES (?, 'PENDING', ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          requestType,
+          officeLocationId,
+          roomId,
+          requestedProviderId,
+          startAt,
+          endAt,
+          recurrence,
+          openToAlternativeRoom ? 1 : 0,
+          requesterNotes
+        ]
+      );
+    }
     return this.findById(result.insertId);
   }
 

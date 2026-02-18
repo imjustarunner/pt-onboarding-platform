@@ -430,6 +430,51 @@
             <div class="status-chip" :class="modalSlot?.state === 'assigned_booked' ? 'status-booked' : 'status-assigned'">
               {{ modalSlot?.state === 'assigned_booked' ? 'Currently booked' : 'Currently assigned (not booked)' }}
             </div>
+            <div class="row" v-if="isModalBooked" style="margin-bottom: 10px;">
+              <button class="btn btn-primary" @click="openNoteAidFromModal" :disabled="saving || !canOpenNoteAidFromModal">
+                Write note
+              </button>
+              <button class="btn btn-secondary" @click="openRecordSessionFromModal" :disabled="saving || !canOpenNoteAidFromModal">
+                Record session
+              </button>
+              <div class="muted" v-if="canOpenNoteAidFromModal">Preload: {{ noteAidLaunchContextLabel }}</div>
+              <div class="muted" v-else>Requires booked slot with linked client context.</div>
+            </div>
+
+            <div class="row" style="margin-bottom: 10px;">
+              <label style="font-weight: 700;">Appointment type</label>
+              <select v-model="bookingAppointmentType" class="select" :disabled="saving || bookingMetadataLoading">
+                <option value="">Select type…</option>
+                <option v-for="opt in bookingTypeOptions" :key="`type-${opt.code}`" :value="opt.code">
+                  {{ opt.label }}
+                </option>
+              </select>
+              <label style="font-weight: 700;">Subtype</label>
+              <select v-model="bookingAppointmentSubtype" class="select" :disabled="saving || bookingMetadataLoading || !bookingSubtypeOptions.length">
+                <option value="">Optional subtype…</option>
+                <option v-for="opt in bookingSubtypeOptions" :key="`sub-${opt.code}`" :value="opt.code">
+                  {{ opt.label }}
+                </option>
+              </select>
+            </div>
+            <div class="row" style="margin-bottom: 10px;">
+              <label style="font-weight: 700;">Service code</label>
+              <select v-model="bookingServiceCode" class="select" :disabled="saving || bookingMetadataLoading">
+                <option value="">Select service code…</option>
+                <option v-for="opt in bookingServiceCodeOptions" :key="`svc-${opt.code}`" :value="opt.code">
+                  {{ opt.code }}{{ opt.label ? ` - ${opt.label}` : '' }}
+                </option>
+              </select>
+              <label style="font-weight: 700;">Modality</label>
+              <select v-model="bookingModality" class="select" :disabled="saving || bookingMetadataLoading">
+                <option value="">Optional modality…</option>
+                <option value="IN_PERSON">In person</option>
+                <option value="TELEHEALTH">Telehealth</option>
+              </select>
+            </div>
+            <div class="muted" v-if="bookingMetadataLoading">Loading taxonomy and service code eligibility…</div>
+            <div class="muted" v-else-if="bookingMetadataError">{{ bookingMetadataError }}</div>
+            <div class="muted" v-if="bookingClassificationInvalidReason">{{ bookingClassificationInvalidReason }}</div>
 
             <div class="row">
               <label style="font-weight: 700;">Book frequency</label>
@@ -441,7 +486,7 @@
               </select>
               <label style="font-weight: 700;">Occurrences</label>
               <input v-model.number="bookOccurrenceCount" type="number" min="1" max="104" class="input" style="width: 90px;" />
-              <button class="btn btn-primary" @click="bookSlot" :disabled="saving || !bookFreq || (!modalSlot?.standingAssignmentId && !modalSlot?.eventId)">
+              <button class="btn btn-primary" @click="bookSlot" :disabled="saving || !bookFreq || !canSubmitBookedWithClassification || (!modalSlot?.standingAssignmentId && !modalSlot?.eventId)">
                 Book
               </button>
             </div>
@@ -454,7 +499,7 @@
             </div>
 
             <div class="row" style="margin-top: 10px;">
-              <button class="btn btn-secondary" @click="staffBook(true)" :disabled="saving || !modalSlot?.eventId">
+              <button class="btn btn-secondary" @click="staffBook(true)" :disabled="saving || !canSubmitBookedWithClassification || !modalSlot?.eventId">
                 Set booked (this occurrence)
               </button>
               <button class="btn btn-secondary" @click="staffBook(false)" :disabled="saving || !modalSlot?.eventId || isAssignedUnbooked">
@@ -473,6 +518,29 @@
               </label>
               <button class="btn btn-danger" @click="forfeit" :disabled="saving || !ackForfeit || (!modalSlot?.eventId && !modalSlot?.standingAssignmentId)">
                 Forfeit
+              </button>
+            </div>
+            <div class="row" style="margin-top: 10px;" v-if="isModalBooked">
+              <label style="font-weight: 700;">Session outcome</label>
+              <select v-model="selectedOutcome" class="select" :disabled="saving || !modalSlot?.eventId">
+                <option value="">Select outcome…</option>
+                <option value="MISSED">Missed</option>
+                <option value="NO_SHOW">No-show</option>
+                <option value="CANCELED">Canceled</option>
+                <option value="COMPLETED">Completed</option>
+              </select>
+              <input
+                v-if="outcomeRequiresReason"
+                v-model="outcomeCancellationReason"
+                type="text"
+                maxlength="255"
+                class="input"
+                style="min-width: 280px;"
+                placeholder="Cancellation reason (required)"
+                :disabled="saving || !modalSlot?.eventId"
+              />
+              <button class="btn btn-secondary" @click="setOutcomeForEvent" :disabled="saving || !canSubmitOutcome || !modalSlot?.eventId">
+                Save outcome
               </button>
             </div>
           </div>
@@ -519,7 +587,7 @@
               Booking converts this occurrence to assigned_booked immediately (no approval gate).
             </div>
             <div class="row">
-              <button class="btn btn-primary" @click="staffBook(true)" :disabled="saving || !modalSlot?.eventId">
+              <button class="btn btn-primary" @click="staffBook(true)" :disabled="saving || !canSubmitBookedWithClassification || !modalSlot?.eventId">
                 Mark booked (this occurrence)
               </button>
             </div>
@@ -590,6 +658,19 @@
           </div>
         </template>
 
+        <div class="section" v-if="isModalBooked">
+          <div class="section-title">Clinical retention artifacts</div>
+          <ClinicalArtifactRetentionPanel
+            v-if="canMountModalRetentionContext"
+            :agencyId="Number(currentAgencyId || 0)"
+            :clientId="Number(modalRetentionClientId || 0)"
+            :officeEventId="Number(modalRetentionOfficeEventId || 0)"
+          />
+          <div v-else class="muted">
+            Retention context needs a booked event linked to a client.
+          </div>
+        </div>
+
         <div class="actions">
           <button class="btn btn-secondary" @click="closeModal" :disabled="saving">Close</button>
         </div>
@@ -600,17 +681,48 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import api from '../services/api';
 import { useAuthStore } from '../store/auth';
 import { useAgencyStore } from '../store/agency';
 import PersonSearchSelect from '../components/schedule/PersonSearchSelect.vue';
+import ClinicalArtifactRetentionPanel from '../components/clinical/ClinicalArtifactRetentionPanel.vue';
 const route = useRoute();
+const router = useRouter();
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
 
 const officeId = computed(() => (typeof route.query.officeId === 'string' ? route.query.officeId : ''));
 const currentAgencyId = computed(() => Number(agencyStore.currentAgency?.id || 0) || null);
+const normalizeServiceCode = (value) => String(value || '').trim().toUpperCase();
+const resolveSlotServiceCode = (slot) =>
+  normalizeServiceCode(slot?.serviceCode || slot?.service_code || slot?.appointment?.serviceCode || slot?.appointment?.service_code || '');
+const resolveSlotAppointmentTypeCode = (slot) =>
+  String(
+    slot?.appointmentTypeCode
+    || slot?.appointment_type_code
+    || slot?.appointmentType?.code
+    || slot?.appointment_type?.code
+    || ''
+  ).trim().toUpperCase();
+const resolveSlotNoteType = (slot) => {
+  const serviceCode = resolveSlotServiceCode(slot);
+  const appointmentTypeCode = resolveSlotAppointmentTypeCode(slot);
+  if (serviceCode === '90791' || serviceCode === 'H0031') return 'INTAKE_NOTE';
+  if (appointmentTypeCode.includes('INTAKE')) return 'INTAKE_NOTE';
+  if (appointmentTypeCode.includes('GROUP')) return 'GROUP_NOTE';
+  if (serviceCode === '90846' || serviceCode === '90847') return 'FAMILY_NOTE';
+  return 'PROGRESS_NOTE';
+};
+const resolveSlotTemplateVersion = (slot, noteType) => {
+  const serviceCode = resolveSlotServiceCode(slot);
+  const appointmentTypeCode = resolveSlotAppointmentTypeCode(slot);
+  if (serviceCode) return `${serviceCode.toLowerCase()}_v1`;
+  if (appointmentTypeCode) return `${appointmentTypeCode.toLowerCase()}_v1`;
+  return `${String(noteType || 'progress_note').toLowerCase()}_v1`;
+};
+const normalizeCodeValue = (value) => String(value || '').trim().toUpperCase();
+const DEFAULT_BOOKING_TYPE = 'SESSION';
 
 const loading = ref(false);
 const refreshingEhrBookings = ref(false);
@@ -1088,6 +1200,17 @@ const nextRoom = () => {
 const showModal = ref(false);
 const modalSlot = ref(null);
 const saving = ref(false);
+const bookingMetadataLoading = ref(false);
+const bookingMetadataError = ref('');
+const bookingMetadata = ref({
+  appointmentTypes: [],
+  appointmentSubtypes: [],
+  serviceCodes: []
+});
+const bookingAppointmentType = ref(DEFAULT_BOOKING_TYPE);
+const bookingAppointmentSubtype = ref('');
+const bookingServiceCode = ref('');
+const bookingModality = ref('');
 const purgingFuture = ref(false);
 const deletingGoogleEventIds = ref([]);
 const successToast = ref('');
@@ -1100,6 +1223,8 @@ const ackForfeit = ref(false);
 const cancelScope = ref('occurrence');
 const cancelUntilDate = ref('');
 const forfeitScope = ref('occurrence');
+const selectedOutcome = ref('');
+const outcomeCancellationReason = ref('');
 
 const providers = ref([]);
 const selectedProviderId = ref(0);
@@ -1140,6 +1265,63 @@ const canAssignSubmit = computed(() => {
   if (!selectedProviderId.value || !modalSlot.value?.roomId) return false;
   if (assignRecurrenceFreq.value === 'ONCE') return true;
   return Array.isArray(assignWeekdays.value) && assignWeekdays.value.length > 0;
+});
+const bookingTypeOptions = computed(() => {
+  const rows = Array.isArray(bookingMetadata.value?.appointmentTypes) ? bookingMetadata.value.appointmentTypes : [];
+  const out = rows.map((row) => ({
+    code: normalizeCodeValue(row?.code),
+    label: String(row?.label || row?.code || '').trim()
+  })).filter((row) => row.code);
+  const selected = normalizeCodeValue(bookingAppointmentType.value);
+  if (selected && !out.some((row) => row.code === selected)) {
+    out.push({ code: selected, label: `Legacy (${selected})` });
+  }
+  return out;
+});
+const bookingSubtypeOptions = computed(() => {
+  const typeCode = normalizeCodeValue(bookingAppointmentType.value);
+  const rows = Array.isArray(bookingMetadata.value?.appointmentSubtypes) ? bookingMetadata.value.appointmentSubtypes : [];
+  const out = rows
+    .map((row) => ({
+      code: normalizeCodeValue(row?.code),
+      appointmentTypeCode: normalizeCodeValue(row?.appointmentTypeCode),
+      label: String(row?.label || row?.code || '').trim()
+    }))
+    .filter((row) => row.code && (!typeCode || row.appointmentTypeCode === typeCode));
+  const selected = normalizeCodeValue(bookingAppointmentSubtype.value);
+  if (selected && !out.some((row) => row.code === selected)) {
+    out.push({ code: selected, appointmentTypeCode: typeCode, label: `Legacy (${selected})` });
+  }
+  return out;
+});
+const bookingServiceCodeOptions = computed(() => {
+  const rows = Array.isArray(bookingMetadata.value?.serviceCodes) ? bookingMetadata.value.serviceCodes : [];
+  const out = rows.map((row) => ({
+    code: normalizeCodeValue(row?.code),
+    label: String(row?.label || row?.code || '').trim()
+  })).filter((row) => row.code);
+  const selected = normalizeCodeValue(bookingServiceCode.value);
+  if (selected && !out.some((row) => row.code === selected)) {
+    out.push({ code: selected, label: `Legacy (${selected})` });
+  }
+  return out;
+});
+const bookingRequiresServiceCode = computed(() => ['SESSION', 'ASSESSMENT'].includes(normalizeCodeValue(bookingAppointmentType.value)));
+const bookingClassificationInvalidReason = computed(() => {
+  if (!normalizeCodeValue(bookingAppointmentType.value)) return 'Select an appointment type.';
+  if (bookingRequiresServiceCode.value && !normalizeCodeValue(bookingServiceCode.value)) {
+    return 'A service code is required for this appointment type.';
+  }
+  return '';
+});
+const canSubmitBookedWithClassification = computed(() => !bookingClassificationInvalidReason.value);
+const outcomeRequiresReason = computed(() => String(selectedOutcome.value || '').trim().toUpperCase() === 'CANCELED');
+const canSubmitOutcome = computed(() => {
+  const outcome = String(selectedOutcome.value || '').trim().toUpperCase();
+  if (!outcome) return false;
+  if (!['MISSED', 'NO_SHOW', 'CANCELED', 'COMPLETED'].includes(outcome)) return false;
+  if (outcome === 'CANCELED' && !String(outcomeCancellationReason.value || '').trim()) return false;
+  return true;
 });
 const bulkCanAssign = computed(() => {
   if (!selectedOpenSlots.value.length) return false;
@@ -1202,9 +1384,88 @@ const loadLearningBillingOptions = async () => {
   }
 };
 
+const resetBookingSelectionDefaults = () => {
+  bookingAppointmentType.value = DEFAULT_BOOKING_TYPE;
+  bookingAppointmentSubtype.value = '';
+  bookingServiceCode.value = '';
+  bookingModality.value = '';
+};
+
+const hydrateBookingSelectionFromSlot = (slot = null) => {
+  const s = slot || modalSlot.value || {};
+  const currentType = normalizeCodeValue(s?.appointmentType || s?.appointment_type_code);
+  const currentSubtype = normalizeCodeValue(s?.appointmentSubtype || s?.appointment_subtype_code);
+  const currentServiceCode = normalizeCodeValue(s?.serviceCode || s?.service_code);
+  const currentModality = normalizeCodeValue(s?.modality);
+  const state = String(s?.state || '').trim().toLowerCase();
+  const shouldPromoteToSession =
+    (state === 'assigned_available' || state === 'assigned_temporary' || state === 'assigned_booked')
+    && (!currentType || currentType === 'AVAILABLE_SLOT' || currentType === 'SCHEDULE_BLOCK');
+  bookingAppointmentType.value = shouldPromoteToSession
+    ? 'SESSION'
+    : (currentType || (state === 'assigned_booked' ? 'SESSION' : DEFAULT_BOOKING_TYPE));
+  bookingAppointmentSubtype.value = currentSubtype || '';
+  bookingServiceCode.value = currentServiceCode || '';
+  bookingModality.value = ['IN_PERSON', 'TELEHEALTH'].includes(currentModality) ? currentModality : '';
+};
+
+const normalizeBookingSelectionPayload = () => {
+  const appointmentTypeCode = normalizeCodeValue(bookingAppointmentType.value) || null;
+  const appointmentSubtypeCode = normalizeCodeValue(bookingAppointmentSubtype.value) || null;
+  const serviceCode = normalizeCodeValue(bookingServiceCode.value) || null;
+  const modality = normalizeCodeValue(bookingModality.value) || null;
+  return {
+    appointmentTypeCode,
+    appointmentSubtypeCode,
+    serviceCode,
+    modality
+  };
+};
+
+const loadBookingMetadataForProvider = async (providerId) => {
+  const pid = Number(providerId || 0);
+  bookingMetadataError.value = '';
+  bookingMetadata.value = {
+    appointmentTypes: [],
+    appointmentSubtypes: [],
+    serviceCodes: []
+  };
+  if (!pid || !officeId.value) return;
+  try {
+    bookingMetadataLoading.value = true;
+    const res = await api.get('/office-schedule/booking-metadata', {
+      params: { providerId: pid }
+    });
+    bookingMetadata.value = {
+      appointmentTypes: Array.isArray(res?.data?.appointmentTypes) ? res.data.appointmentTypes : [],
+      appointmentSubtypes: Array.isArray(res?.data?.appointmentSubtypes) ? res.data.appointmentSubtypes : [],
+      serviceCodes: Array.isArray(res?.data?.serviceCodes) ? res.data.serviceCodes : []
+    };
+  } catch (e) {
+    bookingMetadataError.value = e?.response?.data?.error?.message || 'Could not load booking metadata for this provider.';
+  } finally {
+    bookingMetadataLoading.value = false;
+  }
+};
+
+watch(bookingAppointmentType, (nextType) => {
+  const normalizedType = normalizeCodeValue(nextType);
+  if (!normalizedType) return;
+  const subtypeCode = normalizeCodeValue(bookingAppointmentSubtype.value);
+  if (!subtypeCode) return;
+  const matches = bookingSubtypeOptions.value.some(
+    (row) => normalizeCodeValue(row?.code) === subtypeCode && normalizeCodeValue(row?.appointmentTypeCode) === normalizedType
+  );
+  if (!matches) bookingAppointmentSubtype.value = '';
+});
+
 const closeModal = () => {
   showModal.value = false;
   modalSlot.value = null;
+  bookingMetadataLoading.value = false;
+  bookingMetadataError.value = '';
+  bookingMetadata.value = { appointmentTypes: [], appointmentSubtypes: [], serviceCodes: [] };
+  resetBookingSelectionDefaults();
   bookFreq.value = '';
   bookOccurrenceCount.value = 6;
   editRecurrenceFreq.value = '';
@@ -1212,6 +1473,8 @@ const closeModal = () => {
   cancelScope.value = 'occurrence';
   cancelUntilDate.value = '';
   forfeitScope.value = 'occurrence';
+  selectedOutcome.value = '';
+  outcomeCancellationReason.value = '';
   selectedProviderId.value = 0;
   assignEndHour.value = 8;
   assignRecurrenceFreq.value = 'ONCE';
@@ -1278,8 +1541,13 @@ const onSlotClick = (roomId, date, hour) => {
   assignRecurringUntilDate.value = addDaysYmd(String(date || ''), 364);
   assignRecurrenceFreq.value = 'ONCE';
   assignTemporary4Weeks.value = false;
+  selectedOutcome.value = String(s?.statusOutcome || '').trim().toUpperCase();
+  outcomeCancellationReason.value = String(s?.cancellationReason || '').trim();
   const clickedWeekday = weekdayFromYmd(String(date || ''));
   assignWeekdays.value = Number.isInteger(clickedWeekday) ? [clickedWeekday] : [];
+  hydrateBookingSelectionFromSlot(s);
+  const metadataProviderId = Number(s?.bookedProviderId || s?.assignedProviderId || s?.providerId || 0) || 0;
+  void loadBookingMetadataForProvider(metadataProviderId);
   void loadProviders();
   void loadLearningBillingOptions();
 };
@@ -1479,6 +1747,26 @@ const isAssignedUnbooked = computed(() => {
   return s === 'assigned_available' || s === 'assigned_temporary';
 });
 const isModalBooked = computed(() => String(modalSlot.value?.state || '') === 'assigned_booked');
+const modalRetentionClientId = computed(() => Number(modalSlot.value?.clientId || 0) || null);
+const modalRetentionOfficeEventId = computed(() => Number(modalSlot.value?.eventId || 0) || null);
+const canMountModalRetentionContext = computed(() => (
+  isModalBooked.value
+  && Number(currentAgencyId.value || 0) > 0
+  && Number(modalRetentionClientId.value || 0) > 0
+  && Number(modalRetentionOfficeEventId.value || 0) > 0
+));
+const canOpenNoteAidFromModal = computed(() => (
+  isModalBooked.value
+  && Number(modalSlot.value?.eventId || 0) > 0
+  && Number(modalSlot.value?.clientId || 0) > 0
+));
+const noteAidLaunchContextLabel = computed(() => {
+  const s = modalSlot.value || {};
+  const noteType = resolveSlotNoteType(s);
+  const templateVersion = resolveSlotTemplateVersion(s, noteType);
+  const serviceCode = resolveSlotServiceCode(s) || 'none';
+  return `type ${noteType}, template ${templateVersion}, code ${serviceCode}`;
+});
 const modalVirtualIntakeEnabled = computed(() => Boolean(modalSlot.value?.virtualIntakeEnabled));
 const modalInPersonIntakeEnabled = computed(() => Boolean(modalSlot.value?.inPersonIntakeEnabled));
 const canToggleVirtualIntake = computed(() => canSelfManageModalSlot.value && Boolean(modalSlot.value?.eventId));
@@ -1496,6 +1784,37 @@ const refreshModalSlotFromGrid = () => {
   if (!s) return;
   const latest = getSlot(s.roomId, s.date, s.hour);
   if (latest) modalSlot.value = { ...latest };
+};
+
+const openNoteAidFromModal = () => {
+  openNoteAidForModalSlot('note');
+};
+
+const openRecordSessionFromModal = () => {
+  openNoteAidForModalSlot('record_session');
+};
+
+const openNoteAidForModalSlot = (launchIntent = 'note') => {
+  if (!canOpenNoteAidFromModal.value) {
+    error.value = 'Booked slot must be linked to both an event and a client before opening Note Aid.';
+    return;
+  }
+  const slot = modalSlot.value || {};
+  const noteType = resolveSlotNoteType(slot);
+  const templateVersion = resolveSlotTemplateVersion(slot, noteType);
+  const serviceCode = resolveSlotServiceCode(slot);
+  const organizationSlug = typeof route.params.organizationSlug === 'string' ? route.params.organizationSlug : '';
+  const path = organizationSlug ? `/${organizationSlug}/admin/note-aid` : '/admin/note-aid';
+  const query = {
+    officeEventId: String(slot.eventId),
+    clientId: String(slot.clientId),
+    noteType,
+    templateVersion,
+    launchIntent: String(launchIntent || 'note')
+  };
+  if (serviceCode) query.serviceCode = serviceCode;
+  closeModal();
+  router.push({ path, query });
 };
 
 const assignOpenSlot = async () => {
@@ -1533,21 +1852,28 @@ const assignOpenSlot = async () => {
 
 const bookSlot = async () => {
   if (!officeId.value) return;
+  if (!canSubmitBookedWithClassification.value) {
+    error.value = bookingClassificationInvalidReason.value;
+    return;
+  }
   try {
     saving.value = true;
+    const bookingSelection = normalizeBookingSelectionPayload();
     if (modalSlot.value?.standingAssignmentId) {
       await api.post(`/office-slots/${officeId.value}/assignments/${modalSlot.value.standingAssignmentId}/booking-plan`, {
         bookedFrequency: bookFreq.value,
         bookedOccurrenceCount: Number(bookOccurrenceCount.value || 6),
         bookingStartDate: modalSlot.value.date,
-        recurringUntilDate: addDaysYmd(modalSlot.value.date, 364)
+        recurringUntilDate: addDaysYmd(modalSlot.value.date, 364),
+        ...bookingSelection
       });
     } else if (modalSlot.value?.eventId) {
       await api.post(`/office-slots/${officeId.value}/events/${modalSlot.value.eventId}/booking-plan`, {
         bookedFrequency: bookFreq.value,
         bookedOccurrenceCount: Number(bookOccurrenceCount.value || 6),
         bookingStartDate: modalSlot.value.date,
-        recurringUntilDate: addDaysYmd(modalSlot.value.date, 364)
+        recurringUntilDate: addDaysYmd(modalSlot.value.date, 364),
+        ...bookingSelection
       });
     } else {
       return;
@@ -1654,16 +1980,49 @@ const forfeit = async () => {
 
 const staffBook = async (booked = true) => {
   if (!officeId.value || !modalSlot.value?.eventId) return;
+  if (booked && !canSubmitBookedWithClassification.value) {
+    error.value = bookingClassificationInvalidReason.value;
+    return;
+  }
   try {
     saving.value = true;
+    const payload = { booked };
+    if (booked) {
+      Object.assign(payload, normalizeBookingSelectionPayload());
+    }
     await api.post(`/office-slots/${officeId.value}/events/${modalSlot.value.eventId}/book`, {
-      booked
+      ...payload
     });
     setSuccessToast(booked ? 'Occurrence marked booked.' : 'Occurrence marked unbooked.');
     await loadGrid();
     closeModal();
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to update booked status';
+  } finally {
+    saving.value = false;
+  }
+};
+
+const setOutcomeForEvent = async () => {
+  if (!officeId.value || !modalSlot.value?.eventId) return;
+  if (!canSubmitOutcome.value) {
+    error.value = outcomeRequiresReason.value
+      ? 'Cancellation reason is required for canceled outcomes.'
+      : 'Select an outcome before saving.';
+    return;
+  }
+  try {
+    saving.value = true;
+    error.value = '';
+    await api.post(`/office-slots/${officeId.value}/events/${modalSlot.value.eventId}/outcome`, {
+      outcome: String(selectedOutcome.value || '').trim().toUpperCase(),
+      cancellationReason: outcomeRequiresReason.value ? String(outcomeCancellationReason.value || '').trim() : null
+    });
+    setSuccessToast('Session outcome saved.');
+    await loadGrid();
+    closeModal();
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to save session outcome';
   } finally {
     saving.value = false;
   }
@@ -1813,20 +2172,26 @@ const cancelEventAction = async () => {
   if (!ok) return;
   try {
     saving.value = true;
+    let resp = null;
     if (modalSlot.value?.eventId) {
-      await api.post(`/office-slots/${officeId.value}/events/${modalSlot.value.eventId}/cancel`, {
+      resp = await api.post(`/office-slots/${officeId.value}/events/${modalSlot.value.eventId}/cancel`, {
         scope,
         applyToSet,
         untilDate: selected === 'until' ? cancelUntilDate.value : null
       });
     } else {
-      await api.post(`/office-slots/${officeId.value}/assignments/${modalSlot.value.standingAssignmentId}/cancel`, {
+      resp = await api.post(`/office-slots/${officeId.value}/assignments/${modalSlot.value.standingAssignmentId}/cancel`, {
         scope,
         applyToSet,
         date: modalSlot.value.date,
         hour: modalSlot.value.hour,
         untilDate: selected === 'until' ? cancelUntilDate.value : null
       });
+    }
+    if (resp?.data?.requiresApproval) {
+      setSuccessToast('Delete request submitted for supervisor/admin approval.');
+      closeModal();
+      return;
     }
     setSuccessToast('Schedule update saved.');
     await loadGrid();

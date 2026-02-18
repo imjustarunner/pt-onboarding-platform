@@ -42,7 +42,14 @@ router.post(
   [
     param('sessionId').isInt({ min: 1 }),
     body('title').isString().isLength({ min: 1, max: 255 }),
-    body('notePayload').optional().isString()
+    body('notePayload').optional().isString(),
+    body('noteType').optional().isString().isLength({ min: 1, max: 80 }),
+    body('templateVersion').optional().isString().isLength({ min: 1, max: 80 }),
+    body('serviceCode').optional().isString().isLength({ min: 1, max: 32 }),
+    body('modifiers').optional().isArray({ max: 12 }),
+    body('modifiers.*').optional().isString().isLength({ min: 1, max: 12 }),
+    body('officeEventId').optional().isInt({ min: 1 }),
+    body('source').optional().isString().isLength({ min: 1, max: 80 })
   ],
   createSessionNote
 );

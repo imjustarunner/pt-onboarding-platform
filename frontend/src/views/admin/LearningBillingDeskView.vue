@@ -38,14 +38,29 @@
         <div class="right">
           <div class="panel-title">Ledger</div>
           <div class="clinical-link-row">
-            <label>Booked clinical event ID</label>
-            <input v-model.number="selectedOfficeEventId" type="number" min="1" class="qty-input" placeholder="Optional for clinical retention panel" />
+            <label>Clinical retention context</label>
+            <span v-if="selectedRetentionOfficeEventId" class="hint">
+              Using charge #{{ selectedLedgerChargeId || 'n/a' }} -> office event #{{ selectedRetentionOfficeEventId }}
+            </span>
+            <span v-else class="hint">
+              Select a ledger row linked to an office event to enable retention bootstrap context.
+            </span>
+          </div>
+          <div class="clinical-link-row">
+            <label>Manual office event override (optional)</label>
+            <input
+              v-model.number="manualOfficeEventId"
+              type="number"
+              min="1"
+              class="qty-input"
+              placeholder="Use only when no linked row context exists"
+            />
           </div>
           <ClinicalArtifactRetentionPanel
             v-if="selectedClientId"
             :agencyId="agencyId"
             :clientId="Number(selectedClientId || 0)"
-            :officeEventId="Number(selectedOfficeEventId || 0)"
+            :officeEventId="Number(effectiveOfficeEventId || 0)"
           />
           <div v-if="!selectedClientId" class="hint">Select a participant to view charges.</div>
           <div v-else-if="ledgerLoading" class="hint">Loading ledger…</div>
@@ -106,15 +121,30 @@
                 <th>Status</th>
                 <th>Type</th>
                 <th>Amount</th>
+                <th>Context</th>
                 <th>Action</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="x in ledger" :key="`l-${x.id}`">
+              <tr
+                v-for="x in ledger"
+                :key="`l-${x.id}`"
+                :class="{ 'row-selected': Number(selectedLedgerChargeId || 0) === Number(x.id || 0) }"
+              >
                 <td>{{ fmtDate(x.scheduled_start_at || x.created_at) }}</td>
                 <td>{{ x.charge_status || 'PENDING' }}</td>
                 <td>{{ String(x.charge_type || 'SESSION_FEE').replaceAll('_', ' ') }}</td>
                 <td>{{ money(x.total_cents) }}</td>
+                <td>
+                  <button
+                    class="btn btn-secondary btn-sm"
+                    type="button"
+                    :disabled="!Number(x.office_event_id || 0)"
+                    @click="selectLedgerContext(x.id)"
+                  >
+                    {{ Number(x.office_event_id || 0) ? `Use event #${x.office_event_id}` : 'No event link' }}
+                  </button>
+                </td>
                 <td>
                   <button
                     v-if="isPayableStatus(x.charge_status)"
@@ -129,7 +159,7 @@
                 </td>
               </tr>
               <tr v-if="!ledger.length">
-                <td colspan="5" class="hint">No charges yet.</td>
+                <td colspan="6" class="hint">No charges yet.</td>
               </tr>
             </tbody>
           </table>
@@ -152,7 +182,8 @@ const loading = ref(false);
 const error = ref('');
 const participants = ref([]);
 const selectedClientId = ref(null);
-const selectedOfficeEventId = ref(null);
+const selectedLedgerChargeId = ref(null);
+const manualOfficeEventId = ref(null);
 const ledgerLoading = ref(false);
 const ledger = ref([]);
 const payingChargeId = ref(0);
@@ -176,6 +207,18 @@ const fmtDate = (v) => {
   if (Number.isNaN(d.getTime())) return String(v);
   return d.toLocaleString();
 };
+const selectedRetentionOfficeEventId = computed(() => {
+  const targetId = Number(selectedLedgerChargeId.value || 0);
+  const selected = (ledger.value || []).find((row) => Number(row?.id || 0) === targetId) || null;
+  const eid = Number(selected?.office_event_id || 0);
+  return eid > 0 ? eid : null;
+});
+const effectiveOfficeEventId = computed(() => {
+  const derived = Number(selectedRetentionOfficeEventId.value || 0);
+  if (derived > 0) return derived;
+  const manual = Number(manualOfficeEventId.value || 0);
+  return manual > 0 ? manual : null;
+});
 
 const loadParticipants = async () => {
   if (!agencyId.value) return;
@@ -207,6 +250,8 @@ const loadSubscriptionPlans = async () => {
 
 const selectClient = async (clientId) => {
   selectedClientId.value = Number(clientId || 0) || null;
+  selectedLedgerChargeId.value = null;
+  manualOfficeEventId.value = null;
   if (!selectedClientId.value || !agencyId.value) {
     ledger.value = [];
     return;
@@ -217,6 +262,8 @@ const selectClient = async (clientId) => {
       params: { agencyId: agencyId.value }
     });
     ledger.value = Array.isArray(r.data?.ledger) ? r.data.ledger : [];
+    const firstLinked = (ledger.value || []).find((row) => Number(row?.office_event_id || 0) > 0) || null;
+    selectedLedgerChargeId.value = firstLinked ? Number(firstLinked.id || 0) : null;
     const t = await api.get(`/learning-billing/clients/${selectedClientId.value}/tokens`, {
       params: { agencyId: agencyId.value }
     });
@@ -235,6 +282,14 @@ const selectClient = async (clientId) => {
   } finally {
     ledgerLoading.value = false;
   }
+};
+
+const selectLedgerContext = (chargeId) => {
+  const id = Number(chargeId || 0);
+  if (!id) return;
+  const row = (ledger.value || []).find((x) => Number(x?.id || 0) === id) || null;
+  if (!Number(row?.office_event_id || 0)) return;
+  selectedLedgerChargeId.value = id;
 };
 
 const payChargeNow = async (chargeId) => {
@@ -387,4 +442,5 @@ onMounted(() => {
 .ledger-table { width: 100%; border-collapse: collapse; }
 .ledger-table th, .ledger-table td { border-bottom: 1px solid var(--border); padding: 8px; text-align: left; font-size: 13px; }
 .ledger-table th { background: var(--bg-alt); font-weight: 800; }
+.ledger-table tr.row-selected { background: rgba(37, 99, 235, 0.06); }
 </style>
