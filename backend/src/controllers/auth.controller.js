@@ -682,6 +682,18 @@ export const identifyLogin = async (req, res, next) => {
     const userRole = String(user?.role || '').toLowerCase();
     if (userRole === 'super_admin') {
       // Super admins should remain on platform branding by default.
+      // But rescue mode on an org login must still be able to route to Google.
+      if (rescueMode && requestedOrgSlug) {
+        const googleStartUrl = `/auth/google/start?orgSlug=${encodeURIComponent(requestedOrgSlug)}`;
+        notifyRescueAttempt({ matched: true, method: 'google', resolvedSlug: requestedOrgSlug });
+        return res.json({
+          matched: true,
+          normalizedUsername,
+          needsOrgChoice: false,
+          resolvedOrg: null,
+          login: { method: 'google', googleStartUrl }
+        });
+      }
       notifyRescueAttempt({ matched: true, method: 'password', resolvedSlug: requestedOrgSlug });
       return res.json({
         matched: true,
