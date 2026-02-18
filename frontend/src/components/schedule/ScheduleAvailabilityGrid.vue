@@ -312,6 +312,37 @@
                 <option value="MONTHLY">Monthly</option>
               </select>
 
+              <label class="lbl" style="margin-top: 10px;">Appointment type</label>
+              <select v-model="bookingAppointmentType" class="input" :disabled="bookingMetadataLoading">
+                <option value="">Select type…</option>
+                <option v-for="opt in bookingTypeOptions" :key="`type-${opt.code}`" :value="opt.code">
+                  {{ opt.label }}
+                </option>
+              </select>
+
+              <label class="lbl" style="margin-top: 10px;">Subtype (optional)</label>
+              <select v-model="bookingAppointmentSubtype" class="input" :disabled="bookingMetadataLoading || !bookingSubtypeOptions.length">
+                <option value="">Optional subtype…</option>
+                <option v-for="opt in bookingSubtypeOptions" :key="`sub-${opt.code}`" :value="opt.code">
+                  {{ opt.label }}
+                </option>
+              </select>
+
+              <label class="lbl" style="margin-top: 10px;">Service code</label>
+              <select v-model="bookingServiceCode" class="input" :disabled="bookingMetadataLoading">
+                <option value="">Select service code…</option>
+                <option v-for="opt in bookingServiceCodeOptions" :key="`svc-${opt.code}`" :value="opt.code">
+                  {{ opt.code }}{{ opt.label ? ` - ${opt.label}` : '' }}
+                </option>
+              </select>
+
+              <label class="lbl" style="margin-top: 10px;">Modality (optional)</label>
+              <select v-model="bookingModality" class="input" :disabled="bookingMetadataLoading">
+                <option value="">Optional modality…</option>
+                <option value="IN_PERSON">In person</option>
+                <option value="TELEHEALTH">Telehealth</option>
+              </select>
+
               <label class="lbl" style="margin-top: 10px;">Room</label>
               <div v-if="officeGridLoading" class="muted">Loading rooms…</div>
               <div v-else-if="officeGridError" class="error">{{ officeGridError }}</div>
@@ -330,6 +361,11 @@
                   <span class="office-room-label">{{ opt.label }}</span>
                   <span class="office-room-meta">{{ opt.stateLabel }}</span>
                 </label>
+              </div>
+              <div v-if="bookingMetadataLoading" class="muted" style="margin-top: 6px;">Loading appointment type and service code options…</div>
+              <div v-else-if="bookingMetadataError" class="muted" style="margin-top: 6px;">{{ bookingMetadataError }}</div>
+              <div v-if="bookingClassificationInvalidReason" class="muted" style="margin-top: 6px;">
+                {{ bookingClassificationInvalidReason }}
               </div>
               <div v-if="officeBookingHint" class="muted" style="margin-top: 6px;">{{ officeBookingHint }}</div>
             </template>
@@ -355,7 +391,7 @@
             @click="submitRequest"
             :disabled="
               submitting ||
-              (requestType === 'office' && !officeBookingValid) ||
+              (requestType === 'office' && (bookingMetadataLoading || !officeBookingValid || !!bookingClassificationInvalidReason)) ||
               (requestType === 'school' && !canUseSchool(modalDay, modalHour, modalEndHour)) ||
               (requestType === 'supervision' && (supervisorsLoading || supervisors.length === 0 || !selectedSupervisorId))
             "
@@ -1714,10 +1750,124 @@ const requestType = ref('office'); // office | school | supervision
 const requestNotes = ref('');
 const submitting = ref(false);
 const modalError = ref('');
+const normalizeCodeValue = (value) => String(value || '').trim().toUpperCase();
+const DEFAULT_BOOKING_TYPE = 'SESSION';
 
 // Office booking request (office-schedule/booking-requests)
 const officeBookingRecurrence = ref('ONCE'); // ONCE | WEEKLY | BIWEEKLY | MONTHLY
 const selectedOfficeRoomId = ref(0); // 0 = any open room
+const bookingMetadataLoading = ref(false);
+const bookingMetadataError = ref('');
+const bookingMetadata = ref({
+  appointmentTypes: [],
+  appointmentSubtypes: [],
+  serviceCodes: []
+});
+const bookingAppointmentType = ref(DEFAULT_BOOKING_TYPE);
+const bookingAppointmentSubtype = ref('');
+const bookingServiceCode = ref('');
+const bookingModality = ref('');
+
+const bookingTypeOptions = computed(() => {
+  const rows = Array.isArray(bookingMetadata.value?.appointmentTypes) ? bookingMetadata.value.appointmentTypes : [];
+  const out = rows.map((row) => ({
+    code: normalizeCodeValue(row?.code),
+    label: String(row?.label || row?.code || '').trim()
+  })).filter((row) => row.code);
+  const selected = normalizeCodeValue(bookingAppointmentType.value);
+  if (selected && !out.some((row) => row.code === selected)) {
+    out.push({ code: selected, label: `Legacy (${selected})` });
+  }
+  return out;
+});
+
+const bookingSubtypeOptions = computed(() => {
+  const typeCode = normalizeCodeValue(bookingAppointmentType.value);
+  const rows = Array.isArray(bookingMetadata.value?.appointmentSubtypes) ? bookingMetadata.value.appointmentSubtypes : [];
+  const out = rows
+    .map((row) => ({
+      code: normalizeCodeValue(row?.code),
+      appointmentTypeCode: normalizeCodeValue(row?.appointmentTypeCode),
+      label: String(row?.label || row?.code || '').trim()
+    }))
+    .filter((row) => row.code && (!typeCode || row.appointmentTypeCode === typeCode));
+  const selected = normalizeCodeValue(bookingAppointmentSubtype.value);
+  if (selected && !out.some((row) => row.code === selected)) {
+    out.push({ code: selected, appointmentTypeCode: typeCode, label: `Legacy (${selected})` });
+  }
+  return out;
+});
+
+const bookingServiceCodeOptions = computed(() => {
+  const rows = Array.isArray(bookingMetadata.value?.serviceCodes) ? bookingMetadata.value.serviceCodes : [];
+  const out = rows.map((row) => ({
+    code: normalizeCodeValue(row?.code),
+    label: String(row?.label || row?.code || '').trim()
+  })).filter((row) => row.code);
+  const selected = normalizeCodeValue(bookingServiceCode.value);
+  if (selected && !out.some((row) => row.code === selected)) {
+    out.push({ code: selected, label: `Legacy (${selected})` });
+  }
+  return out;
+});
+
+const bookingRequiresServiceCode = computed(() => ['SESSION', 'ASSESSMENT'].includes(normalizeCodeValue(bookingAppointmentType.value)));
+const bookingClassificationInvalidReason = computed(() => {
+  if (requestType.value !== 'office') return '';
+  if (!normalizeCodeValue(bookingAppointmentType.value)) return 'Select an appointment type.';
+  if (bookingRequiresServiceCode.value && !normalizeCodeValue(bookingServiceCode.value)) {
+    return 'A service code is required for this appointment type.';
+  }
+  return '';
+});
+
+const resetBookingSelectionDefaults = () => {
+  bookingAppointmentType.value = DEFAULT_BOOKING_TYPE;
+  bookingAppointmentSubtype.value = '';
+  bookingServiceCode.value = '';
+  bookingModality.value = '';
+};
+
+const resetBookingMetadataState = () => {
+  bookingMetadataLoading.value = false;
+  bookingMetadataError.value = '';
+  bookingMetadata.value = { appointmentTypes: [], appointmentSubtypes: [], serviceCodes: [] };
+};
+
+const normalizeBookingSelectionPayload = () => ({
+  appointmentTypeCode: normalizeCodeValue(bookingAppointmentType.value) || null,
+  appointmentSubtypeCode: normalizeCodeValue(bookingAppointmentSubtype.value) || null,
+  serviceCode: normalizeCodeValue(bookingServiceCode.value) || null,
+  modality: normalizeCodeValue(bookingModality.value) || null
+});
+
+const loadBookingMetadataForProvider = async () => {
+  if (requestType.value !== 'office' || !showRequestModal.value) return;
+  if (!Number(selectedOfficeLocationId.value || 0)) {
+    resetBookingMetadataState();
+    return;
+  }
+  const providerId = Number(props.userId || authStore.user?.id || 0);
+  if (!providerId) {
+    resetBookingMetadataState();
+    return;
+  }
+  try {
+    bookingMetadataLoading.value = true;
+    bookingMetadataError.value = '';
+    const resp = await api.get('/office-schedule/booking-metadata', { params: { providerId } });
+    bookingMetadata.value = {
+      appointmentTypes: Array.isArray(resp?.data?.appointmentTypes) ? resp.data.appointmentTypes : [],
+      appointmentSubtypes: Array.isArray(resp?.data?.appointmentSubtypes) ? resp.data.appointmentSubtypes : [],
+      serviceCodes: Array.isArray(resp?.data?.serviceCodes) ? resp.data.serviceCodes : []
+    };
+  } catch (e) {
+    bookingMetadata.value = { appointmentTypes: [], appointmentSubtypes: [], serviceCodes: [] };
+    bookingMetadataError.value = e?.response?.data?.error?.message || 'Could not load booking metadata for this provider.';
+  } finally {
+    bookingMetadataLoading.value = false;
+  }
+};
 
 const modalOfficeRoomOptions = computed(() => {
   const g = officeGrid.value;
@@ -1876,9 +2026,12 @@ const onCellClick = (dayName, hour) => {
   modalError.value = '';
   officeBookingRecurrence.value = 'ONCE';
   selectedOfficeRoomId.value = 0;
+  resetBookingSelectionDefaults();
+  resetBookingMetadataState();
   selectedSupervisorId.value = 0;
   createMeetLink.value = true;
   showRequestModal.value = true;
+  void loadBookingMetadataForProvider();
 };
 
 // ---- Office assignment modal (admin) ----
@@ -2129,6 +2282,7 @@ const submitRequest = async () => {
       const officeId = Number(selectedOfficeLocationId.value || 0);
       if (!officeId) throw new Error('Select an office first.');
       if (!officeBookingValid.value) throw new Error('Select an available room (or choose “Any open room”).');
+      if (bookingClassificationInvalidReason.value) throw new Error(bookingClassificationInvalidReason.value);
 
       const dayIdx = ALL_DAYS.indexOf(String(dn));
       if (dayIdx < 0) throw new Error('Invalid day');
@@ -2145,6 +2299,7 @@ const submitRequest = async () => {
         recurrence: String(officeBookingRecurrence.value || 'ONCE'),
         openToAlternativeRoom: !roomId,
         notes: requestNotes.value || '',
+        ...normalizeBookingSelectionPayload(),
         ...(isAdminMode.value ? { requestedProviderId: Number(props.userId) } : {})
       });
 
@@ -2200,6 +2355,21 @@ const submitRequest = async () => {
 watch(requestType, (t) => {
   if (t === 'supervision') {
     void loadSupervisors();
+  } else if (t === 'office') {
+    void loadBookingMetadataForProvider();
+  }
+});
+
+watch(bookingAppointmentType, () => {
+  const selectedSubtype = normalizeCodeValue(bookingAppointmentSubtype.value);
+  if (!selectedSubtype) return;
+  const stillValid = bookingSubtypeOptions.value.some((x) => normalizeCodeValue(x?.code) === selectedSubtype);
+  if (!stillValid) bookingAppointmentSubtype.value = '';
+});
+
+watch([selectedOfficeLocationId, showRequestModal], () => {
+  if (requestType.value === 'office' && showRequestModal.value) {
+    void loadBookingMetadataForProvider();
   }
 });
 
