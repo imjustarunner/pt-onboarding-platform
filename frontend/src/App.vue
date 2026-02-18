@@ -548,7 +548,6 @@ import { useSessionLockStore } from './store/sessionLock';
 import { useRouter, useRoute } from 'vue-router';
 import { startActivityTracking, stopActivityTracking, resetActivityTimer } from './utils/activityTracker';
 import { isSupervisor } from './utils/helpers.js';
-import { getDashboardRoute } from './utils/router';
 import api from './services/api';
 import AgencySelector from './components/AgencySelector.vue';
 import PlatformChatDrawer from './components/PlatformChatDrawer.vue';
@@ -1144,13 +1143,27 @@ const orgTo = (path) => {
 // - Admin (agency): My Dashboard = /itsco/dashboard, Admin = /itsco/admin (orgTo handles slug).
 // - Staff (agency): My Dashboard = /itsco/dashboard, Agency dashboard = /itsco/agencydashboard (see orgTo('/agencydashboard') for staff nav if that route exists).
 const myDashboardTo = computed(() => {
-  return getDashboardRoute();
+  const u = authStore.user;
+  if (!u) return '/dashboard';
+  const role = String(u.role || '').toLowerCase();
+  const isProviderPlusExperienceRole =
+    role === 'provider_plus' || role === 'clinical_practice_assistant';
+
+  // "My Dashboard" should always land on the user's personal dashboard, not admin.
+  if (role === 'super_admin' || role === 'superadmin') return '/dashboard';
+  if (isProviderPlusExperienceRole) return orgTo('/operations-dashboard');
+  if (role === 'admin' || role === 'support' || role === 'staff' || role === 'provider' || isSupervisor(u)) {
+    return orgTo('/dashboard');
+  }
+
+  // Keep existing behavior for non-portal roles (guardian, kiosk, etc.).
+  return orgTo('/dashboard');
 });
 
 // When already on the target route, router-link does nothing; handle click so the button still does something (e.g. scroll to top).
 const onMyDashboardClick = (e) => {
   const target = myDashboardTo.value;
-  const current = route.path || '/';
+  const current = route.fullPath || route.path || '/';
   if (current === target) {
     e.preventDefault();
     window.scrollTo({ top: 0, behavior: 'smooth' });
