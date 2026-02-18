@@ -75,6 +75,12 @@ const cards = computed(() => [
     to: orgTo('/admin/communications/chats')
   },
   {
+    id: 'tools_aids',
+    title: 'Tools & Aids',
+    description: 'Open operational tools and clinical support aids.',
+    to: orgTo('/admin/tools-aids')
+  },
+  {
     id: 'notifications',
     title: 'Notifications',
     description: 'Review team and personal notifications.',
