@@ -50,7 +50,12 @@ const isSsoPolicyRequiredForRole = ({ featureFlags, userRole }) => {
   const requiredRoles = Array.isArray(featureFlags?.googleSsoRequiredRoles)
     ? featureFlags.googleSsoRequiredRoles.map((r) => String(r || '').toLowerCase()).filter(Boolean)
     : [];
-  return ssoEnabled && requiredRoles.includes(String(userRole || '').toLowerCase()) && !SSO_EXCLUDED_ROLES.has(String(userRole || '').toLowerCase());
+  const roleNorm = String(userRole || '').toLowerCase();
+  const roleAliases =
+    roleNorm === 'provider_plus' || roleNorm === 'clinical_practice_assistant'
+      ? ['provider_plus', 'clinical_practice_assistant']
+      : [roleNorm];
+  return ssoEnabled && roleAliases.some((r) => requiredRoles.includes(r)) && !SSO_EXCLUDED_ROLES.has(roleNorm);
 };
 const isDomainAllowedForOrg = ({ email, featureFlags }) => {
   const normalizedEmail = String(email || '').trim().toLowerCase();

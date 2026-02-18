@@ -874,6 +874,10 @@
                   <span>Clinical Practice Assistant</span>
                 </label>
                 <label style="display:flex; align-items:center; gap:8px;">
+                  <input type="checkbox" value="provider_plus" v-model="agencyForm.featureFlags.googleSsoRequiredRoles" />
+                  <span>Provider Plus</span>
+                </label>
+                <label style="display:flex; align-items:center; gap:8px;">
                   <input type="checkbox" value="super_admin" v-model="agencyForm.featureFlags.googleSsoRequiredRoles" />
                   <span>Super Admin</span>
                 </label>
@@ -4877,7 +4881,7 @@ const defaultAgencyForm = () => ({
 
     // Google Workspace SSO gate (off by default)
     googleSsoEnabled: false,
-    googleSsoRequiredRoles: ['staff', 'admin', 'provider', 'clinical_practice_assistant'],
+    googleSsoRequiredRoles: ['staff', 'admin', 'provider', 'clinical_practice_assistant', 'provider_plus'],
     googleSsoAllowedDomains: [],
 
     // Workspace provisioning (off by default)
@@ -6160,7 +6164,7 @@ const editAgency = async (agency) => {
       googleSsoEnabled: featureFlags.googleSsoEnabled === true,
       googleSsoRequiredRoles: Array.isArray(featureFlags.googleSsoRequiredRoles)
         ? featureFlags.googleSsoRequiredRoles
-        : ['staff', 'admin', 'provider', 'clinical_practice_assistant'],
+        : ['staff', 'admin', 'provider', 'clinical_practice_assistant', 'provider_plus'],
       googleSsoAllowedDomains: Array.isArray(featureFlags.googleSsoAllowedDomains)
         ? featureFlags.googleSsoAllowedDomains
         : [],
