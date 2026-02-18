@@ -886,6 +886,16 @@ export const identifyLogin = async (req, res, next) => {
     let loginMethod = 'password';
     let googleStartUrl = null;
 
+    // Rescue mode is a fail-safe: after we can match the user and org context,
+    // route to Google start directly instead of depending on normal pre-check heuristics.
+    if (rescueMode) {
+      const rescueSlug = resolvedSlug || requestedOrgSlug;
+      if (rescueSlug) {
+        loginMethod = 'google';
+        googleStartUrl = `/auth/google/start?orgSlug=${encodeURIComponent(rescueSlug)}`;
+      }
+    }
+
     if (resolvedSlug) {
       try {
         const org = (await Agency.findBySlug(resolvedSlug)) || (await Agency.findByPortalUrl(resolvedSlug));
