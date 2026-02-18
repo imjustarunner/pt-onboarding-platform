@@ -2044,6 +2044,21 @@ const canViewProviderScheduleSummary = (role) => {
   return r === 'super_admin' || r === 'admin' || r === 'support' || r === 'staff' || r === 'clinical_practice_assistant' || r === 'provider_plus';
 };
 
+const canCreateProviderScheduleEvent = (role) => {
+  const r = String(role || '').toLowerCase();
+  return [
+    'super_admin',
+    'admin',
+    'support',
+    'staff',
+    'clinical_practice_assistant',
+    'provider_plus',
+    'provider',
+    'supervisor',
+    'supervisee'
+  ].includes(r);
+};
+
 function toDisplayStatus({ status, slotState }) {
   const st = String(status || '').trim().toUpperCase();
   const ss = String(slotState || '').trim().toUpperCase();
@@ -2612,6 +2627,123 @@ export const getUserScheduleSummary = async (req, res, next) => {
       ...(includeGoogleBusy ? { googleBusy, googleBusyError } : {}),
       ...(includeGoogleEvents ? { googleEvents, googleEventsError } : {}),
       ...(includeExternalBusy ? { externalBusy } : {})
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+const SCHEDULE_EVENT_KIND_LABELS = {
+  PERSONAL_EVENT: 'Personal Event',
+  SCHEDULE_HOLD: 'Schedule Hold',
+  INDIRECT_SERVICES: 'Indirect Services'
+};
+
+function nextDateYmd(ymd) {
+  return addDaysYmd(String(ymd || '').slice(0, 10), 1);
+}
+
+function buildScheduleEventSummary({ kind, title, reasonCode }) {
+  const customTitle = String(title || '').trim();
+  if (customTitle) return customTitle.slice(0, 200);
+  const normalizedKind = String(kind || '').trim().toUpperCase();
+  const fallback = SCHEDULE_EVENT_KIND_LABELS[normalizedKind] || 'Schedule Event';
+  const reason = String(reasonCode || '').trim();
+  if (!reason) return fallback;
+  return `${fallback} - ${reason}`.slice(0, 200);
+}
+
+export const createUserScheduleEvent = async (req, res, next) => {
+  try {
+    const userId = parseInt(req.params.id, 10);
+    if (!userId) return res.status(400).json({ error: { message: 'Invalid user id' } });
+
+    const actorUserId = Number(req.user?.id || 0);
+    const actorRole = String(req.user?.role || '').toLowerCase();
+    const isSelf = actorUserId === userId;
+    if (!isSelf && !canCreateProviderScheduleEvent(actorRole)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    if (!isSelf) {
+      const sharedOk = await requireSharedAgencyAccessOrSuperAdmin({
+        actorUserId,
+        targetUserId: userId,
+        actorRole
+      });
+      if (!sharedOk) return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const provider = await User.findById(userId);
+    if (!provider) return res.status(404).json({ error: { message: 'User not found' } });
+    const subjectEmail = String(provider?.email || '').trim().toLowerCase();
+    if (!subjectEmail) return res.status(400).json({ error: { message: 'Provider email is required to create calendar events' } });
+
+    const kind = String(req.body?.kind || '').trim().toUpperCase();
+    if (!['PERSONAL_EVENT', 'SCHEDULE_HOLD', 'INDIRECT_SERVICES'].includes(kind)) {
+      return res.status(400).json({ error: { message: 'kind must be PERSONAL_EVENT, SCHEDULE_HOLD, or INDIRECT_SERVICES' } });
+    }
+
+    const allDay = req.body?.allDay === true;
+    const startAt = allDay ? null : toMysqlDateTimeWall(req.body?.startAt);
+    const endAt = allDay ? null : toMysqlDateTimeWall(req.body?.endAt);
+    const startDate = allDay ? String(req.body?.startDate || '').slice(0, 10) : '';
+    const endDate = allDay ? String(req.body?.endDate || '').slice(0, 10) : '';
+    let endDateExclusive = '';
+    if (allDay) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate)) {
+        return res.status(400).json({ error: { message: 'startDate is required for all-day events (YYYY-MM-DD)' } });
+      }
+      endDateExclusive = /^\d{4}-\d{2}-\d{2}$/.test(endDate) ? endDate : nextDateYmd(startDate);
+      if (endDateExclusive <= startDate) {
+        return res.status(400).json({ error: { message: 'endDate must be after startDate for all-day events' } });
+      }
+    } else {
+      if (!startAt || !endAt) {
+        return res.status(400).json({ error: { message: 'startAt and endAt are required' } });
+      }
+      if (!(new Date(startAt).getTime() < new Date(endAt).getTime())) {
+        return res.status(400).json({ error: { message: 'endAt must be after startAt' } });
+      }
+    }
+
+    const reasonCode = String(req.body?.reasonCode || '').trim().toUpperCase() || null;
+    const summaryText = buildScheduleEventSummary({
+      kind,
+      title: req.body?.title,
+      reasonCode: reasonCode ? reasonCode.replace(/_/g, ' ') : ''
+    });
+    const description = String(req.body?.description || '').trim() || null;
+    const timeZone = String(req.body?.timeZone || 'America/New_York').trim() || 'America/New_York';
+
+    const result = await GoogleCalendarService.createProviderScheduleEvent({
+      subjectEmail,
+      startAt,
+      endAt,
+      allDay,
+      startDate: allDay ? startDate : null,
+      endDate: allDay ? endDateExclusive : null,
+      timeZone,
+      summary: summaryText,
+      description,
+      kind,
+      reasonCode
+    });
+
+    if (!result?.ok) {
+      const msg = String(result?.error || result?.reason || 'Could not create calendar event');
+      return res.status(502).json({ error: { message: msg } });
+    }
+
+    return res.status(201).json({
+      ok: true,
+      event: {
+        id: result.eventId || null,
+        htmlLink: result.htmlLink || null,
+        kind,
+        summary: summaryText,
+        allDay
+      }
     });
   } catch (e) {
     next(e);

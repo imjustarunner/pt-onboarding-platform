@@ -466,11 +466,49 @@
             {{ intakeActionHelpText }}
           </div>
 
+          <div v-if="isScheduleEventRequestType" style="margin-top: 10px;">
+            <div class="modern-help">
+              Creates a calendar event for this provider. It appears in Google titles when enabled.
+            </div>
+
+            <label class="lbl" style="margin-top: 10px;">Event title</label>
+            <input
+              v-model="scheduleEventTitle"
+              class="input"
+              type="text"
+              :placeholder="scheduleEventTitlePlaceholder"
+              maxlength="200"
+            />
+
+            <div v-if="requestType === 'schedule_hold' || requestType === 'schedule_hold_all_day'" style="margin-top: 10px;">
+              <label class="lbl">Hold reason</label>
+              <select v-model="scheduleHoldReasonCode" class="input">
+                <option v-for="opt in scheduleHoldReasonOptions" :key="`hold-reason-${opt.code}`" :value="opt.code">
+                  {{ opt.label }}
+                </option>
+              </select>
+              <input
+                v-if="scheduleHoldReasonCode === 'CUSTOM'"
+                v-model="scheduleHoldCustomReason"
+                class="input"
+                type="text"
+                placeholder="Custom hold reason"
+                maxlength="120"
+                style="margin-top: 8px;"
+              />
+            </div>
+
+            <label class="sched-toggle" style="margin-top: 10px;">
+              <input type="checkbox" v-model="scheduleEventAllDay" />
+              <span>All day</span>
+            </label>
+          </div>
+
           <label class="lbl" style="margin-top: 10px;">End time</label>
           <select
             v-model.number="modalEndHour"
             class="input"
-            :disabled="requestType === 'intake_virtual_on' || requestType === 'intake_virtual_off' || requestType === 'intake_inperson_on' || requestType === 'intake_inperson_off'"
+            :disabled="disableEndTimeInput"
           >
             <option v-for="h in endHourOptions" :key="`end-${h}`" :value="h">
               {{ hourLabel(h) }}
@@ -478,7 +516,7 @@
           </select>
 
           <label class="lbl" style="margin-top: 10px;">Notes (optional)</label>
-          <textarea v-model="requestNotes" class="input" rows="3" placeholder="Any context for staff reviewing this request…" />
+          <textarea v-model="requestNotes" class="input" rows="3" :placeholder="requestNotesPlaceholder" />
 
           <div v-if="modalError" class="error" style="margin-top: 10px;">{{ modalError }}</div>
         </div>
@@ -494,7 +532,8 @@
               ((requestType === 'office' || requestType === 'office_request_only') && (bookingMetadataLoading || !officeBookingValid || !!bookingClassificationInvalidReason)) ||
               (requestType === 'school' && !canUseSchool(modalDay, modalHour, modalEndHour)) ||
               (requestType === 'supervision' && (supervisionProvidersLoading || availableSupervisionParticipants.length === 0 || !selectedSupervisionParticipantId)) ||
-              ((requestType === 'intake_virtual_on' || requestType === 'intake_virtual_off' || requestType === 'intake_inperson_on' || requestType === 'intake_inperson_off') && !modalContext.officeEventId)
+              ((requestType === 'intake_virtual_on' || requestType === 'intake_virtual_off' || requestType === 'intake_inperson_on' || requestType === 'intake_inperson_off') && !modalContext.officeEventId) ||
+              (isScheduleEventRequestType && !scheduleEventCanSubmit)
             "
           >
             {{ submitting ? 'Submitting…' : submitActionLabel }}
@@ -1972,6 +2011,18 @@ const requestType = ref('office'); // office | school | supervision
 const requestNotes = ref('');
 const submitting = ref(false);
 const modalError = ref('');
+const SCHEDULE_EVENT_ACTIONS = new Set(['personal_event', 'schedule_hold', 'schedule_hold_all_day', 'indirect_services']);
+const SCHEDULE_HOLD_REASON_OPTIONS = [
+  { code: 'DOCUMENTATION', label: 'Documentation' },
+  { code: 'TEAM_MEETING', label: 'Team meeting' },
+  { code: 'TRAINING', label: 'Training' },
+  { code: 'ADMIN', label: 'Administrative time' },
+  { code: 'CUSTOM', label: 'Custom reason' }
+];
+const scheduleEventTitle = ref('');
+const scheduleEventAllDay = ref(false);
+const scheduleHoldReasonCode = ref('DOCUMENTATION');
+const scheduleHoldCustomReason = ref('');
 const normalizeCodeValue = (value) => String(value || '').trim().toUpperCase();
 const DEFAULT_BOOKING_TYPE = 'SESSION';
 
@@ -1996,6 +2047,30 @@ const modalContext = ref({
   slotState: '',
   virtualIntakeEnabled: false,
   inPersonIntakeEnabled: false
+});
+
+const isHourlyWorker = computed(() => {
+  const raw = authStore.user?.is_hourly_worker;
+  return raw === true || raw === 1 || raw === '1';
+});
+
+const isScheduleEventRequestType = computed(() => SCHEDULE_EVENT_ACTIONS.has(String(requestType.value || '')));
+const scheduleHoldReasonOptions = computed(() => SCHEDULE_HOLD_REASON_OPTIONS);
+const scheduleEventTitlePlaceholder = computed(() => {
+  const kind = String(requestType.value || '');
+  if (kind === 'schedule_hold' || kind === 'schedule_hold_all_day') return 'Schedule hold';
+  if (kind === 'indirect_services') return 'Indirect services';
+  return 'Personal event';
+});
+const scheduleEventCanSubmit = computed(() => String(scheduleEventTitle.value || '').trim().length > 0);
+const disableEndTimeInput = computed(() => {
+  if (requestType.value === 'intake_virtual_on' || requestType.value === 'intake_virtual_off' || requestType.value === 'intake_inperson_on' || requestType.value === 'intake_inperson_off') return true;
+  if (isScheduleEventRequestType.value && scheduleEventAllDay.value) return true;
+  return false;
+});
+const requestNotesPlaceholder = computed(() => {
+  if (isScheduleEventRequestType.value) return 'Optional event details/description...';
+  return 'Any context for staff reviewing this request...';
 });
 
 const availableQuickActions = computed(() => {
@@ -2075,6 +2150,38 @@ const availableQuickActions = computed(() => {
       tone: 'violet'
     },
     {
+      id: 'personal_event',
+      label: 'Personal event',
+      description: 'Create a personal calendar event',
+      disabledReason: '',
+      visible: true,
+      tone: 'teal'
+    },
+    {
+      id: 'schedule_hold',
+      label: 'Schedule hold',
+      description: 'Block this time with a hold reason',
+      disabledReason: '',
+      visible: true,
+      tone: 'indigo'
+    },
+    {
+      id: 'schedule_hold_all_day',
+      label: 'All-day schedule block',
+      description: 'Create an all-day hold on this date',
+      disabledReason: '',
+      visible: true,
+      tone: 'slate'
+    },
+    {
+      id: 'indirect_services',
+      label: 'Indirect service time',
+      description: isHourlyWorker.value ? 'Track indirect time for hourly work' : 'Use for hourly worker indirect service time',
+      disabledReason: (isAdminMode.value || isHourlyWorker.value) ? '' : 'Hourly worker only',
+      visible: true,
+      tone: 'cyan'
+    },
+    {
       id: 'booked_note',
       label: 'Write note',
       description: 'Open Note Aid with booking context',
@@ -2122,6 +2229,10 @@ const submitActionLabel = computed(() => {
     office_request_only: 'Submit office request',
     school: 'Submit school request',
     supervision: 'Submit supervision request',
+    personal_event: 'Create personal event',
+    schedule_hold: 'Create schedule hold',
+    schedule_hold_all_day: 'Create all-day hold',
+    indirect_services: 'Create indirect service event',
     forfeit_slot: 'Forfeit selected slot(s)',
     intake_virtual_on: 'Enable virtual intake',
     intake_virtual_off: 'Disable virtual intake',
@@ -2466,6 +2577,10 @@ const openSlotActionModal = ({ dayName, hour, roomId = 0, slot = null, dateYmd =
   modalEndHour.value = nextEnd > Number(hour) ? nextEnd : Number(hour) + 1;
   requestType.value = 'office';
   requestNotes.value = '';
+  scheduleEventTitle.value = '';
+  scheduleEventAllDay.value = false;
+  scheduleHoldReasonCode.value = 'DOCUMENTATION';
+  scheduleHoldCustomReason.value = '';
   modalError.value = '';
   officeBookingRecurrence.value = 'ONCE';
   selectedOfficeRoomId.value = Number(roomId || 0) || 0;
@@ -2912,6 +3027,13 @@ const submitOfficeAssign = async () => {
 
 const closeModal = () => {
   showRequestModal.value = false;
+  requestType.value = 'office';
+  requestNotes.value = '';
+  scheduleEventTitle.value = '';
+  scheduleEventAllDay.value = false;
+  scheduleHoldReasonCode.value = 'DOCUMENTATION';
+  scheduleHoldCustomReason.value = '';
+  modalError.value = '';
 };
 
 const toProviderNoteAidPath = () => {
@@ -3005,6 +3127,63 @@ const selectedActionContexts = () => {
   }));
 };
 
+const defaultScheduleEventTitleForAction = (actionId) => {
+  if (actionId === 'schedule_hold' || actionId === 'schedule_hold_all_day') return 'Schedule Hold';
+  if (actionId === 'indirect_services') return 'Indirect Services';
+  return 'Personal Event';
+};
+
+const effectiveScheduleHoldReason = () => {
+  if (String(scheduleHoldReasonCode.value || '').toUpperCase() !== 'CUSTOM') {
+    return String(scheduleHoldReasonCode.value || '').toUpperCase() || null;
+  }
+  const custom = String(scheduleHoldCustomReason.value || '').trim();
+  if (!custom) return 'CUSTOM';
+  return custom.slice(0, 120).replace(/\s+/g, '_').toUpperCase();
+};
+
+const scheduleEventKindForAction = (actionId) => {
+  if (actionId === 'indirect_services') return 'INDIRECT_SERVICES';
+  if (actionId === 'schedule_hold' || actionId === 'schedule_hold_all_day') return 'SCHEDULE_HOLD';
+  return 'PERSONAL_EVENT';
+};
+
+const mergeSelectedSlotsByDay = ({ dayName, startHour, endHour }) => {
+  const selected = sortedSelectedActionSlots();
+  const fallbackDate = addDaysYmd(weekStart.value, ALL_DAYS.indexOf(String(dayName)));
+  const seedRows = selected.length
+    ? selected.map((x) => ({ dateYmd: String(x.dateYmd || fallbackDate).slice(0, 10), hour: Number(x.hour) }))
+    : [{ dateYmd: fallbackDate, hour: Number(startHour) }];
+  const byDate = new Map();
+  for (const row of seedRows) {
+    if (!byDate.has(row.dateYmd)) byDate.set(row.dateYmd, []);
+    byDate.get(row.dateYmd).push(Number(row.hour));
+  }
+  const ranges = [];
+  for (const [dateYmd, list] of byDate.entries()) {
+    const uniq = Array.from(new Set(list)).sort((a, b) => a - b);
+    if (!uniq.length) continue;
+    if (!selected.length) {
+      ranges.push({ dateYmd, startHour: Number(startHour), endHour: Number(endHour) });
+      continue;
+    }
+    let start = uniq[0];
+    let prev = uniq[0];
+    for (let i = 1; i < uniq.length; i += 1) {
+      const cur = uniq[i];
+      if (cur === prev + 1) {
+        prev = cur;
+        continue;
+      }
+      ranges.push({ dateYmd, startHour: start, endHour: prev + 1 });
+      start = cur;
+      prev = cur;
+    }
+    ranges.push({ dateYmd, startHour: start, endHour: prev + 1 });
+  }
+  return ranges;
+};
+
 const submitRequest = async () => {
   if (!effectiveAgencyId.value) return;
   try {
@@ -3014,7 +3193,9 @@ const submitRequest = async () => {
     const dn = modalDay.value;
     const h = Number(modalHour.value);
     const endH = Number(modalEndHour.value);
-    if (!(endH > h)) throw new Error('End time must be after start time.');
+    if (!(isScheduleEventRequestType.value && scheduleEventAllDay.value) && !(endH > h)) {
+      throw new Error('End time must be after start time.');
+    }
 
     if (requestType.value === 'booked_note') {
       openNoteAidFromContext('note');
@@ -3022,6 +3203,49 @@ const submitRequest = async () => {
     } else if (requestType.value === 'booked_record') {
       openNoteAidFromContext('record_session');
       return;
+    } else if (isScheduleEventRequestType.value) {
+      const uid = Number(props.userId || authStore.user?.id || 0);
+      if (!uid) throw new Error('Provider is required.');
+      const normalizedAction = String(requestType.value || '');
+      const eventKind = scheduleEventKindForAction(normalizedAction);
+      const title = String(scheduleEventTitle.value || '').trim() || defaultScheduleEventTitleForAction(normalizedAction);
+      const reasonCode = eventKind === 'SCHEDULE_HOLD' ? effectiveScheduleHoldReason() : null;
+      if (scheduleEventAllDay.value || normalizedAction === 'schedule_hold_all_day') {
+        const ranges = mergeSelectedSlotsByDay({ dayName: dn, startHour: h, endHour: endH });
+        const dates = Array.from(new Set(ranges.map((x) => String(x.dateYmd || '').slice(0, 10)).filter(Boolean)));
+        for (const dateYmd of dates) {
+          const startDate = String(dateYmd).slice(0, 10);
+          const endDate = addDaysYmd(startDate, 1);
+          // eslint-disable-next-line no-await-in-loop
+          await api.post(`/users/${uid}/schedule-events`, {
+            agencyId: effectiveAgencyId.value,
+            kind: eventKind,
+            title,
+            description: requestNotes.value || '',
+            allDay: true,
+            startDate,
+            endDate,
+            reasonCode
+          });
+        }
+      } else {
+        const ranges = mergeSelectedSlotsByDay({ dayName: dn, startHour: h, endHour: endH });
+        for (const row of ranges) {
+          const startAt = `${String(row.dateYmd).slice(0, 10)}T${pad2(Number(row.startHour))}:00:00`;
+          const endAt = `${String(row.dateYmd).slice(0, 10)}T${pad2(Number(row.endHour))}:00:00`;
+          // eslint-disable-next-line no-await-in-loop
+          await api.post(`/users/${uid}/schedule-events`, {
+            agencyId: effectiveAgencyId.value,
+            kind: eventKind,
+            title,
+            description: requestNotes.value || '',
+            allDay: false,
+            startAt,
+            endAt,
+            reasonCode
+          });
+        }
+      }
     } else if (requestType.value === 'office') {
       const officeId = Number(selectedOfficeLocationId.value || 0);
       if (!officeId) throw new Error('Select an office first.');
@@ -3225,6 +3449,15 @@ watch(requestType, (t) => {
     void loadSupervisionProviders();
   } else if (t === 'office' || t === 'office_request_only') {
     void loadBookingMetadataForProvider();
+  } else if (SCHEDULE_EVENT_ACTIONS.has(String(t || ''))) {
+    if (!String(scheduleEventTitle.value || '').trim() || scheduleEventTitle.value === defaultScheduleEventTitleForAction('personal_event')) {
+      scheduleEventTitle.value = defaultScheduleEventTitleForAction(String(t || ''));
+    }
+    if (t === 'schedule_hold_all_day') scheduleEventAllDay.value = true;
+    if (t === 'schedule_hold') scheduleEventAllDay.value = false;
+    if (t === 'personal_event' || t === 'indirect_services') {
+      scheduleEventAllDay.value = false;
+    }
   }
 });
 

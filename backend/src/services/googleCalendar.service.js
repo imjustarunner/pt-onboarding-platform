@@ -139,6 +139,79 @@ export class GoogleCalendarService {
     }
   }
 
+  static async createProviderScheduleEvent({
+    subjectEmail,
+    startAt = null,
+    endAt = null,
+    allDay = false,
+    startDate = null,
+    endDate = null,
+    timeZone = 'America/New_York',
+    summary,
+    description = null,
+    kind = 'PERSONAL_EVENT',
+    reasonCode = null
+  } = {}) {
+    const subject = String(subjectEmail || '').trim().toLowerCase();
+    if (!subject) return { ok: false, reason: 'missing_subject_email' };
+    if (!this.isConfigured()) return { ok: false, reason: 'not_configured' };
+
+    const normalizedSummary = String(summary || '').trim();
+    if (!normalizedSummary) return { ok: false, reason: 'missing_summary' };
+
+    const isAllDay = allDay === true;
+    if (isAllDay) {
+      const sDate = String(startDate || '').slice(0, 10);
+      const eDate = String(endDate || '').slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(sDate) || !/^\d{4}-\d{2}-\d{2}$/.test(eDate)) {
+        return { ok: false, reason: 'missing_start_end' };
+      }
+    } else if (!startAt || !endAt) {
+      return { ok: false, reason: 'missing_start_end' };
+    }
+
+    const cal = this.buildCalendarClientForSubject(subject);
+    const calendarId = 'primary';
+    const normalizedKind = String(kind || 'PERSONAL_EVENT').trim().toUpperCase();
+    const normalizedReason = String(reasonCode || '').trim().toUpperCase() || null;
+
+    const requestBody = {
+      summary: normalizedSummary,
+      description: description ? String(description) : undefined,
+      ...(isAllDay
+        ? {
+            start: { date: String(startDate).slice(0, 10) },
+            end: { date: String(endDate).slice(0, 10) }
+          }
+        : {
+            start: { dateTime: toRfc3339Local(startAt), timeZone },
+            end: { dateTime: toRfc3339Local(endAt), timeZone }
+          }),
+      extendedProperties: {
+        private: {
+          pt_kind: 'PROVIDER_SCHEDULE_EVENT',
+          pt_schedule_event_kind: normalizedKind,
+          ...(normalizedReason ? { pt_schedule_event_reason: normalizedReason } : {})
+        }
+      }
+    };
+
+    try {
+      const ins = await cal.events.insert({
+        calendarId,
+        requestBody
+      });
+      return {
+        ok: true,
+        eventId: ins?.data?.id || null,
+        htmlLink: ins?.data?.htmlLink || null
+      };
+    } catch (e) {
+      logGoogleUnauthorizedHint(e, { context: 'GoogleCalendarService.createProviderScheduleEvent' });
+      return { ok: false, reason: 'google_api_error', error: String(e?.message || e) };
+    }
+  }
+
   static async dryRunBookedOfficeEvent({ officeEventId }) {
     const eid = parseInt(officeEventId, 10);
     if (!eid) return { ok: false, reason: 'invalid_office_event_id' };
