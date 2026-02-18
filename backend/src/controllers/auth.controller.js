@@ -874,13 +874,29 @@ export const identifyLogin = async (req, res, next) => {
       try {
         const org = (await Agency.findBySlug(resolvedSlug)) || (await Agency.findByPortalUrl(resolvedSlug));
         const flags = parseFeatureFlags(org?.feature_flags ?? null);
+        const ssoPolicyRequired = isSsoPolicyRequiredForRole({ featureFlags: flags, userRole });
+        const hasSsoPasswordOverride = isSsoPasswordOverrideEnabled(user);
         // Login identifiers only (email, work_email, login aliases). NOT personal_email.
         const loginIdentifiers = [
           user?.email,
           user?.work_email,
           ...(await getUserLoginIdentifiers(user?.id))
         ].filter(Boolean);
-        if (isWorkspaceEligibleForSso({ user, identifier: normalizedUsername, featureFlags: flags, identifierUsedToFindUser: normalizedUsername, loginIdentifiers })) {
+
+        // IMPORTANT:
+        // If org policy requires Google SSO for this role, do not gate the Google start step on
+        // the typed login identifier. The callback performs the real account/domain authorization.
+        // This avoids "Verify" dead-ends when users type an alternate identifier.
+        const canStartGoogleByPolicy = ssoPolicyRequired && !hasSsoPasswordOverride;
+        const canStartGoogleByEligibility = isWorkspaceEligibleForSso({
+          user,
+          identifier: normalizedUsername,
+          featureFlags: flags,
+          identifierUsedToFindUser: normalizedUsername,
+          loginIdentifiers
+        });
+
+        if (canStartGoogleByPolicy || canStartGoogleByEligibility) {
           loginMethod = 'google';
           googleStartUrl = `/auth/google/start?orgSlug=${encodeURIComponent(resolvedSlug)}`;
         }
