@@ -285,7 +285,7 @@
               type="button"
               class="cell-plus-btn"
               title="Add or edit schedule actions"
-              @click.stop="openSlotActionModal({ dayName: d, hour: h })"
+              @click.stop="openSlotActionModal({ dayName: d, hour: h, preserveSelectionRange: false })"
             >
               +
             </button>
@@ -2245,7 +2245,7 @@ const submitActionLabel = computed(() => {
     office: 'Submit office booking',
     office_request_only: 'Submit office request',
     school: 'Submit school request',
-    supervision: 'Submit supervision request',
+    supervision: 'Schedule supervision',
     personal_event: 'Create personal event',
     schedule_hold: 'Create schedule hold',
     schedule_hold_all_day: 'Create all-day hold',
@@ -2618,7 +2618,7 @@ const maybeAutoOpenSelectionActions = () => {
   openSlotActionModal(rows[0]);
 };
 
-const openSlotActionModal = ({ dayName, hour, roomId = 0, slot = null, dateYmd = null } = {}) => {
+const openSlotActionModal = ({ dayName, hour, roomId = 0, slot = null, dateYmd = null, preserveSelectionRange = true } = {}) => {
   if (!canBookFromGrid.value) return;
   modalDay.value = String(dayName);
   modalHour.value = Number(hour);
@@ -2644,8 +2644,8 @@ const openSlotActionModal = ({ dayName, hour, roomId = 0, slot = null, dateYmd =
     requestType.value = 'booked_note';
   }
   // If user selected a contiguous range on one day, use it as the default modal duration.
-  const rows = sortedSelectedActionSlots();
-  if (rows.length > 1) {
+  const rows = preserveSelectionRange ? sortedSelectedActionSlots() : [];
+  if (preserveSelectionRange && rows.length > 1) {
     const sameDay = rows.every((x) => String(x.dateYmd || '') === String(rows[0]?.dateYmd || ''));
     if (sameDay) {
       const minHour = Math.min(...rows.map((x) => Number(x.hour || 0)));
@@ -2737,7 +2737,7 @@ const onCellClick = (dayName, hour, event = null, options = {}) => {
   }
   selectedActionSlots.value = [item];
   lastSelectedActionKey.value = item.key;
-  openSlotActionModal(item);
+  openSlotActionModal({ ...item, preserveSelectionRange: false });
 };
 
 const onCellMouseDown = (dayName, hour, event = null) => {
