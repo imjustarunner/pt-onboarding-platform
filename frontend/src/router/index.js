@@ -432,6 +432,12 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant'], organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/admin/school-portals',
+    name: 'OrganizationSchoolPortals',
+    component: () => import('../views/admin/SchoolOverviewDashboard.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant'], organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/admin/settings',
     name: 'OrganizationSettings',
     component: () => import('../views/admin/SettingsView.vue'),
@@ -883,6 +889,12 @@ const routes = [
   {
     path: '/admin/schools/overview',
     name: 'SchoolOverviewDashboard',
+    component: () => import('../views/admin/SchoolOverviewDashboard.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant'] }
+  },
+  {
+    path: '/admin/school-portals',
+    name: 'SchoolPortals',
     component: () => import('../views/admin/SchoolOverviewDashboard.vue'),
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant'] }
   },

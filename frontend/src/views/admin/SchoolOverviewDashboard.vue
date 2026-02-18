@@ -7,6 +7,7 @@
       </div>
       <div class="header-actions" data-tour="schools-overview-actions">
         <router-link class="btn btn-secondary" to="/admin/clients">Back to Client Management</router-link>
+        <router-link class="btn btn-secondary" :to="showAllPortalsTo">Show All School Portals</router-link>
         <button class="btn btn-secondary" type="button" :disabled="loading" @click="refresh">
           {{ loading ? 'Refreshing…' : 'Refresh' }}
         </button>
@@ -229,20 +230,28 @@ const orgType = computed(() => {
   if (t === 'school' || t === 'program' || t === 'learning') return t;
   return null;
 });
+const isAllPortalsPage = computed(() => String(route.name || '') === 'SchoolPortals' || String(route.name || '') === 'OrganizationSchoolPortals');
+const showAllPortalsTo = computed(() => {
+  const slug = typeof route.params?.organizationSlug === 'string' ? route.params.organizationSlug : '';
+  return slug ? `/${slug}/admin/school-portals` : '/admin/school-portals';
+});
 
 const pageTitle = computed(() => {
+  if (isAllPortalsPage.value) return 'Show All School Portals';
   if (orgType.value === 'program') return 'Program Overview';
   if (orgType.value === 'learning') return 'Learning Overview';
   return 'School Overview';
 });
 
 const searchPlaceholder = computed(() => {
+  if (isAllPortalsPage.value) return 'Search by school/program/learning portal name…';
   if (orgType.value === 'program') return 'Search by program name…';
   if (orgType.value === 'learning') return 'Search by learning org name…';
   return 'Search by school name…';
 });
 
 const emptyStateText = computed(() => {
+  if (isAllPortalsPage.value) return 'No affiliated school/program/learning portals found for this agency.';
   if (orgType.value === 'program') return 'No affiliated programs or learning orgs found for this agency.';
   if (orgType.value === 'learning') return 'No affiliated learning orgs found for this agency.';
   return 'No affiliated schools found for this agency.';

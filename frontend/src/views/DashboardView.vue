@@ -1533,6 +1533,32 @@ const providerPortalCards = computed(() => {
     })
     .filter(Boolean);
 });
+const shouldCollapseSchoolPortalCards = computed(() => {
+  const role = String(authStore.user?.role || '').toLowerCase();
+  return role === 'admin' || role === 'support' || role === 'super_admin';
+});
+const schoolPortalCardsExpanded = ref(false);
+const schoolPortalToggleCard = computed(() => {
+  const count = providerPortalCards.value.length;
+  if (!count || !shouldCollapseSchoolPortalCards.value) return null;
+  return {
+    id: 'show_all_school_portals',
+    label: schoolPortalCardsExpanded.value ? 'Hide School Portals' : 'Show All School Portals',
+    kind: 'action',
+    badgeCount: count,
+    iconUrl:
+      brandingStore.getDashboardCardIconUrl('my_schedule') ||
+      brandingStore.getDashboardCardIconUrl('my'),
+    description: schoolPortalCardsExpanded.value
+      ? 'Collapse portal cards.'
+      : 'Expand all school/program/learning portal cards.'
+  };
+});
+const visibleProviderPortalCards = computed(() => {
+  if (!providerPortalCards.value.length) return [];
+  if (!shouldCollapseSchoolPortalCards.value) return providerPortalCards.value;
+  return schoolPortalCardsExpanded.value ? providerPortalCards.value : [];
+});
 
 const dashboardCards = computed(() => {
   const u = authStore.user;
@@ -1571,7 +1597,8 @@ const dashboardCards = computed(() => {
         iconUrl: brandingStore.getDashboardCardIconUrl('my_schedule', cardIconOrgOverride),
         description: 'View weekly schedule and request availability from the grid.'
       });
-      cards.push(...providerPortalCards.value);
+      if (schoolPortalToggleCard.value) cards.push(schoolPortalToggleCard.value);
+      cards.push(...visibleProviderPortalCards.value);
 
       // Provider-only surfaces: hide these for limited-access non-provider users.
       if (!isLimitedAccessNonProvider) {
@@ -1733,6 +1760,7 @@ const railCards = computed(() => {
 
   const orderIndex = (id) => {
     const k = String(id || '');
+    if (k === 'show_all_school_portals') return hasMy ? 2 : 4;
     if (hasMy && k.startsWith('portal_org_')) return 2;
     if (!hasMy && k.startsWith('portal_org_')) return 4;
     // Stable rail order:
@@ -1848,6 +1876,10 @@ const handleCardClick = (card) => {
   if (props.previewMode) return;
   if (card.kind === 'link' && card.to) {
     router.push(String(card.to));
+    return;
+  }
+  if (card.id === 'show_all_school_portals') {
+    schoolPortalCardsExpanded.value = !schoolPortalCardsExpanded.value;
     return;
   }
   if (card.id === 'skill_builders_availability') {
