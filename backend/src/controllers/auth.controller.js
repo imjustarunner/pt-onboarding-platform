@@ -628,8 +628,22 @@ export const identifyLogin = async (req, res, next) => {
     const normalizedUsername = String(usernameRaw || '').trim().toLowerCase();
     const orgSlugRaw = req.body?.organizationSlug || req.body?.orgSlug || null;
     const requestedOrgSlug = orgSlugRaw ? String(orgSlugRaw).trim().toLowerCase() : null;
+    const rescueMode = req.body?.rescue === true || String(req.body?.rescue || '').trim() === '1';
+
+    const notifyRescueAttempt = ({ matched = false, method = 'password', resolvedSlug = null }) => {
+      if (!rescueMode) return;
+      notifyCurrentEmployeeRescue({
+        orgSlug: requestedOrgSlug || resolvedSlug || null,
+        username: normalizedUsername,
+        matched,
+        method,
+        ipAddress: req.ip || req.headers['x-forwarded-for'] || req.connection?.remoteAddress || 'unknown',
+        userAgent: req.headers['user-agent'] || 'unknown'
+      }).catch(() => {});
+    };
 
     if (!normalizedUsername) {
+      notifyRescueAttempt({ matched: false, method: 'password', resolvedSlug: requestedOrgSlug });
       return res.json({
         matched: false,
         normalizedUsername,
@@ -655,6 +669,7 @@ export const identifyLogin = async (req, res, next) => {
     }
 
     if (!user?.id) {
+      notifyRescueAttempt({ matched: false, method: 'password', resolvedSlug: requestedOrgSlug });
       return res.json({
         matched: false,
         normalizedUsername,
@@ -667,6 +682,7 @@ export const identifyLogin = async (req, res, next) => {
     const userRole = String(user?.role || '').toLowerCase();
     if (userRole === 'super_admin') {
       // Super admins should remain on platform branding by default.
+      notifyRescueAttempt({ matched: true, method: 'password', resolvedSlug: requestedOrgSlug });
       return res.json({
         matched: true,
         normalizedUsername,
@@ -905,6 +921,7 @@ export const identifyLogin = async (req, res, next) => {
       }
     }
 
+    notifyRescueAttempt({ matched: true, method: loginMethod, resolvedSlug });
     return res.json({
       matched: true,
       normalizedUsername,
@@ -1996,6 +2013,51 @@ const sendRecoveryEmail = async ({
     source,
     agencyId: agencyId || null
   });
+};
+
+const notifyCurrentEmployeeRescue = async ({
+  orgSlug,
+  username,
+  matched = false,
+  method = 'password',
+  ipAddress = 'unknown',
+  userAgent = 'unknown'
+}) => {
+  try {
+    const agency = await resolveAgencyFromOrgSlug(orgSlug);
+    const adminEmail = getOrgAdminEmail(agency);
+    if (!adminEmail) return;
+
+    const safeUsername = String(username || '').trim().toLowerCase();
+    const masked =
+      safeUsername && safeUsername.includes('@')
+        ? `${safeUsername.slice(0, 2)}***@${safeUsername.split('@')[1]}`
+        : (safeUsername ? `${safeUsername.slice(0, 2)}***` : '(empty)');
+
+    const subject = `Login rescue clicked (${agency?.name || orgSlug || 'unknown org'})`;
+    const body = [
+      'A user clicked the "Are you a current employee? Click here" login rescue button.',
+      '',
+      `Org slug: ${orgSlug || '(none)'}`,
+      `Org name: ${agency?.name || '(unknown)'}`,
+      `Entered username: ${masked}`,
+      `Matched user: ${matched ? 'yes' : 'no'}`,
+      `Suggested route: ${String(method || 'password')}`,
+      `IP: ${ipAddress || 'unknown'}`,
+      `User-Agent: ${userAgent || 'unknown'}`
+    ].join('\n');
+
+    await sendRecoveryEmail({
+      agencyId: agency?.id || null,
+      to: adminEmail,
+      subject,
+      text: body,
+      html: null,
+      source: 'auto'
+    });
+  } catch {
+    // best-effort alerting; never block auth flow
+  }
 };
 
 export const getRecoveryStatus = async (req, res, next) => {

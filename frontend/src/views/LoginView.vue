@@ -95,6 +95,16 @@
                 <label for="forgotEmail">Email</label>
                 <input id="forgotEmail" v-model="forgotPasswordEmail" type="email" required placeholder="name@company.com" />
               </div>
+              <div v-if="canShowCurrentEmployeeRescue" class="employee-rescue">
+                <button
+                  type="button"
+                  class="btn btn-secondary"
+                  :disabled="recoveryLoading || currentEmployeeRescueLoading"
+                  @click="submitCurrentEmployeeRescue"
+                >
+                  {{ currentEmployeeRescueLoading ? 'Checking…' : 'Are you a current employee? Click here' }}
+                </button>
+              </div>
               <div v-if="recoveryError" class="error">{{ recoveryError }}</div>
               <div v-if="recoverySuccess" class="success">{{ recoverySuccess }}</div>
               <div v-if="recoveryDebug?.resetLink" class="debug">
@@ -341,6 +351,10 @@ const forgotPasswordEmail = ref('');
 const recoverFirstName = ref('');
 const recoverLastName = ref('');
 const recoverRole = ref('');
+const currentEmployeeRescueLoading = ref(false);
+const canShowCurrentEmployeeRescue = computed(() =>
+  isOrgLogin.value && String(username.value || '').trim().length > 0
+);
 
 const continueWithGoogle = () => {
   if (!loginSlug.value) return;
@@ -582,6 +596,42 @@ const submitForgotPassword = async () => {
     recoveryDebug.value = e?.response?.data?.debug || null;
   } finally {
     recoveryLoading.value = false;
+  }
+};
+
+const submitCurrentEmployeeRescue = async () => {
+  currentEmployeeRescueLoading.value = true;
+  recoveryError.value = '';
+  recoverySuccess.value = '';
+  recoveryDebug.value = null;
+  try {
+    const u = String(username.value || '').trim();
+    if (!u) {
+      recoveryError.value = 'Enter your username first, then click current employee.';
+      return;
+    }
+    const resp = await api.post('/auth/identify', {
+      username: u,
+      organizationSlug: loginSlug.value || undefined,
+      rescue: true
+    }, { skipGlobalLoading: true, skipAuthRedirect: true });
+
+    const method = String(resp?.data?.login?.method || 'password').toLowerCase();
+    if (method === 'google') {
+      const path = String(resp?.data?.login?.googleStartUrl || '').trim();
+      if (path) {
+        const base = getBackendBaseUrl();
+        window.location.href = `${base}${path.startsWith('/') ? '' : '/'}${path}`;
+        return;
+      }
+      continueWithGoogle();
+      return;
+    }
+    recoveryError.value = 'This account is set to password login. Use reset password or sign in with your password.';
+  } catch {
+    recoveryError.value = 'We could not route your sign-in right now. Please try again or use reset password.';
+  } finally {
+    currentEmployeeRescueLoading.value = false;
   }
 };
 
@@ -836,6 +886,10 @@ const handleLogoError = (event) => {
 
 .modal-form .btn {
   margin-top: 12px;
+}
+
+.employee-rescue {
+  margin-top: 6px;
 }
 
 .form-row {
