@@ -724,6 +724,35 @@
       @close="closeLastPaycheckModal"
     />
 
+    <div
+      v-if="currentSplashAnnouncement && !mandatorySupervisionPrompt"
+      class="blocking-splash"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Announcement splash"
+    >
+      <div class="blocking-splash-card">
+        <div class="blocking-splash-head">
+          <BrandingLogo size="medium" class="blocking-splash-logo" />
+          <div class="blocking-splash-brand">{{ brandingStore.displayName || currentAgency?.name || 'Organization' }}</div>
+        </div>
+        <h3 class="blocking-splash-title">
+          {{ splashTitleText }}
+        </h3>
+        <p class="blocking-splash-message">
+          {{ currentSplashAnnouncement.message || '' }}
+        </p>
+        <div class="blocking-splash-meta" v-if="currentSplashAnnouncement.ends_at">
+          Visible until {{ formatSplashEndsAt(currentSplashAnnouncement.ends_at) }}
+        </div>
+        <div class="blocking-splash-actions">
+          <button type="button" class="btn btn-primary" @click="dismissCurrentSplash">
+            Dismiss
+          </button>
+        </div>
+      </div>
+    </div>
+
     <div v-if="mandatorySupervisionPrompt" class="supervision-splash" role="dialog" aria-modal="true" aria-label="Join group supervision">
       <div class="supervision-splash-card">
         <h3>Join Group Supervision Now</h3>
@@ -1018,18 +1047,90 @@ const companyEvents = ref([]);
 const dashboardBannerTexts = computed(() => {
   const scheduled = Array.isArray(scheduledBannerItems.value) ? scheduledBannerItems.value : [];
   const scheduledTexts = scheduled
+    .filter((a) => String(a?.display_type || 'announcement').trim().toLowerCase() !== 'splash')
     .map((a) => {
       const title = String(a?.title || '').trim();
       const msg = String(a?.message || '').trim();
-      const kind = String(a?.display_type || 'announcement').trim().toLowerCase();
       const base = title && title.toLowerCase() !== 'announcement' ? `${title}: ${msg}` : msg;
-      const t = kind === 'splash' ? `Splash: ${base}` : base;
-      return String(t || '').trim();
+      return String(base || '').trim();
     })
     .filter(Boolean);
   const birthdayText = String(dashboardBanner.value?.message || '').trim();
   return [...scheduledTexts, birthdayText].filter(Boolean).slice(0, 10);
 });
+
+const SPLASH_DISMISS_STORAGE_PREFIX = 'dashboardSplashDismissed.v1';
+const splashDismissVersion = ref(0);
+
+const splashAnnouncements = computed(() => {
+  const scheduled = Array.isArray(scheduledBannerItems.value) ? scheduledBannerItems.value : [];
+  return scheduled
+    .filter((a) => String(a?.display_type || 'announcement').trim().toLowerCase() === 'splash')
+    .sort((a, b) => {
+      const aTime = new Date(a?.starts_at || 0).getTime();
+      const bTime = new Date(b?.starts_at || 0).getTime();
+      return aTime - bTime;
+    });
+});
+
+const splashDismissKey = (item) => {
+  const userId = Number(authStore.user?.id || 0);
+  const orgId = Number(announcementAgencyId.value || 0);
+  const splashId = Number(item?.id || 0);
+  if (!userId || !orgId || !splashId) return null;
+  return `${SPLASH_DISMISS_STORAGE_PREFIX}:${userId}:${orgId}:${splashId}`;
+};
+
+const isSplashDismissed = (item) => {
+  const key = splashDismissKey(item);
+  if (!key) return false;
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return false;
+    const untilTs = Number.parseInt(String(raw), 10);
+    if (!Number.isFinite(untilTs) || untilTs <= Date.now()) {
+      localStorage.removeItem(key);
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const openSplashAnnouncements = computed(() => {
+  // Reactive bump when local dismissal state changes.
+  void splashDismissVersion.value;
+  return splashAnnouncements.value.filter((item) => !isSplashDismissed(item));
+});
+const currentSplashAnnouncement = computed(() => openSplashAnnouncements.value[0] || null);
+const splashTitleText = computed(() => {
+  const title = String(currentSplashAnnouncement.value?.title || '').trim();
+  if (title && title.toLowerCase() !== 'announcement') return title;
+  return 'Important announcement';
+});
+
+const formatSplashEndsAt = (dateLike) => {
+  const dt = new Date(dateLike || 0);
+  if (!Number.isFinite(dt.getTime())) return '';
+  return dt.toLocaleString();
+};
+
+const dismissCurrentSplash = () => {
+  const item = currentSplashAnnouncement.value;
+  if (!item) return;
+  const key = splashDismissKey(item);
+  if (!key) return;
+  const endTs = new Date(item?.ends_at || 0).getTime();
+  const fallbackTs = Date.now() + (24 * 60 * 60 * 1000);
+  const persistUntil = Number.isFinite(endTs) ? endTs : fallbackTs;
+  try {
+    localStorage.setItem(key, String(persistUntil));
+  } catch {
+    // ignore persistence errors; user can still continue in-memory
+  }
+  splashDismissVersion.value += 1;
+};
 
 const formatCompanyEventWhen = (event) => {
   const startsAt = new Date(event?.nextOccurrenceStart || event?.startsAt || 0);
@@ -2927,6 +3028,63 @@ h1 {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.blocking-splash {
+  position: fixed;
+  inset: 0;
+  z-index: 1300;
+  background: rgba(15, 23, 42, 0.7);
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+
+.blocking-splash-card {
+  width: min(700px, 96vw);
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  padding: 20px;
+  box-shadow: var(--shadow-lg);
+}
+
+.blocking-splash-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.blocking-splash-brand {
+  font-weight: 800;
+  color: var(--text-secondary);
+}
+
+.blocking-splash-title {
+  margin: 0 0 8px 0;
+  color: var(--primary);
+  font-size: 28px;
+}
+
+.blocking-splash-message {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 18px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+}
+
+.blocking-splash-meta {
+  margin-top: 10px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.blocking-splash-actions {
+  margin-top: 16px;
+  display: flex;
+  justify-content: flex-end;
 }
 
 @keyframes agencyBannerMarquee {
