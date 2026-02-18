@@ -338,9 +338,10 @@ export const listSupervisionProviderCandidates = async (req, res, next) => {
     if (!actorAgencyIds.includes(agencyId)) {
       return res.status(403).json({ error: { message: 'Access denied for this agency' } });
     }
+    const onlyAssigned = String(req.query?.onlyAssigned || '').trim().toLowerCase() === 'true';
 
     const isPrivilegedScheduler = ['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant'].includes(role);
-    if (!isPrivilegedScheduler) {
+    if (!isPrivilegedScheduler || onlyAssigned) {
       const assigned = await SupervisorAssignment.findBySupervisor(actorId, agencyId);
       const deduped = new Map();
       for (const row of (assigned || [])) {

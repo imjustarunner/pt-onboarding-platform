@@ -205,9 +205,7 @@
     <div v-if="selectedActionCount > 0" class="selection-toolbar">
       <div class="selection-count">{{ selectedActionCount }} slot{{ selectedActionCount === 1 ? '' : 's' }} selected</div>
       <div class="selection-actions">
-        <button class="btn btn-secondary btn-sm" type="button" @click="openActionsForSelection">
-          Open actions
-        </button>
+        <span class="muted" style="font-size: 12px;">Actions open automatically after highlight.</span>
         <button class="btn btn-secondary btn-sm" type="button" @click="clearSelectedActionSlots">
           Clear
         </button>
@@ -357,14 +355,22 @@
             Loading providers…
           </div>
           <div v-if="requestType === 'supervision' && !supervisionProvidersLoading && availableSupervisionParticipants.length === 0" class="muted" style="margin-top: 6px;">
-            No providers are available for supervision in this agency.
+            No supervisees are assigned to you in this agency.
           </div>
 
           <div v-if="requestType === 'supervision' && availableSupervisionParticipants.length" style="margin-top: 10px;">
             <label class="lbl">Supervision participant</label>
-            <div class="participant-grid">
+            <input
+              v-model="supervisionParticipantSearch"
+              class="input"
+              type="text"
+              placeholder="Search supervisees by name or email"
+              style="margin-bottom: 8px;"
+            />
+            <div class="participant-scroll">
+              <div class="participant-grid">
               <button
-                v-for="p in availableSupervisionParticipants"
+                v-for="p in filteredSupervisionParticipants"
                 :key="`supv-provider-${p.id}`"
                 type="button"
                 class="participant-card"
@@ -374,6 +380,10 @@
                 <span class="participant-name">{{ supervisionParticipantLabel(p) }}</span>
                 <span class="participant-role">{{ String(p.role || '').trim() || 'provider' }}</span>
               </button>
+              </div>
+            </div>
+            <div v-if="supervisionParticipantSearch.trim() && filteredSupervisionParticipants.length === 0" class="muted" style="margin-top: 6px;">
+              No supervisees match your search.
             </div>
 
             <label class="sched-toggle" style="margin-top: 8px;">
@@ -531,7 +541,7 @@
               !requestType ||
               ((requestType === 'office' || requestType === 'office_request_only') && (bookingMetadataLoading || !officeBookingValid || !!bookingClassificationInvalidReason)) ||
               (requestType === 'school' && !canUseSchool(modalDay, modalHour, modalEndHour)) ||
-              (requestType === 'supervision' && (supervisionProvidersLoading || availableSupervisionParticipants.length === 0 || !selectedSupervisionParticipantId)) ||
+              (requestType === 'supervision' && (supervisionProvidersLoading || filteredSupervisionParticipants.length === 0 || !selectedSupervisionParticipantId)) ||
               ((requestType === 'intake_virtual_on' || requestType === 'intake_virtual_off' || requestType === 'intake_inperson_on' || requestType === 'intake_inperson_off') && !modalContext.officeEventId) ||
               (isScheduleEventRequestType && !scheduleEventCanSubmit)
             "
@@ -1101,8 +1111,13 @@ onMounted(() => {
     }
   }
   const handleMouseUp = () => {
+    const wasDragging = isCellDragSelecting.value;
     isCellDragSelecting.value = false;
     dragAnchorSlot.value = null;
+    if (wasDragging) {
+      maybeAutoOpenSelectionActions();
+      suppressClickAfterDrag.value = false;
+    }
   };
   window.addEventListener('mouseup', handleMouseUp);
   schedMouseUpHandler = handleMouseUp;
@@ -1987,6 +2002,7 @@ const lastSelectedActionKey = ref('');
 const isCellDragSelecting = ref(false);
 const dragAnchorSlot = ref(null);
 const suppressClickAfterDrag = ref(false);
+const lastAutoOpenedSelectionSignature = ref('');
 const selectedActionKeys = computed(() => selectedActionSlots.value.map((x) => x.key));
 const selectedActionCount = computed(() => selectedActionSlots.value.length);
 const selectedActionKeySet = computed(() => new Set(selectedActionKeys.value));
@@ -2000,6 +2016,7 @@ const clearSelectedActionSlots = () => {
   lastSelectedActionKey.value = '';
   dragAnchorSlot.value = null;
   suppressClickAfterDrag.value = false;
+  lastAutoOpenedSelectionSignature.value = '';
 };
 
 // ---- In-grid request creation (self mode) ----
@@ -2461,11 +2478,25 @@ const supervisionProvidersLoading = ref(false);
 const supervisionProviders = ref([]);
 const selectedSupervisionParticipantId = ref(0);
 const createSupervisionMeetLink = ref(true);
+const supervisionParticipantSearch = ref('');
 
 const availableSupervisionParticipants = computed(() => {
   const actorId = Number(authStore.user?.id || 0);
   const rows = Array.isArray(supervisionProviders.value) ? supervisionProviders.value : [];
   return rows.filter((row) => Number(row?.id || 0) !== actorId);
+});
+
+const filteredSupervisionParticipants = computed(() => {
+  const q = String(supervisionParticipantSearch.value || '').trim().toLowerCase();
+  const rows = availableSupervisionParticipants.value || [];
+  if (!q) return rows;
+  return rows.filter((row) => {
+    const first = String(row?.firstName || '').trim().toLowerCase();
+    const last = String(row?.lastName || '').trim().toLowerCase();
+    const email = String(row?.email || '').trim().toLowerCase();
+    const full = `${first} ${last}`.trim();
+    return first.includes(q) || last.includes(q) || full.includes(q) || email.includes(q);
+  });
 });
 
 const supervisionParticipantLabel = (row) => {
@@ -2485,7 +2516,7 @@ const loadSupervisionProviders = async () => {
   try {
     supervisionProvidersLoading.value = true;
     const r = await api.get('/supervision/providers', {
-      params: { agencyId: effectiveAgencyId.value }
+      params: { agencyId: effectiveAgencyId.value, onlyAssigned: 'true' }
     });
     supervisionProviders.value = Array.isArray(r?.data?.providers) ? r.data.providers : [];
     if (!selectedSupervisionParticipantId.value && availableSupervisionParticipants.value.length === 1) {
@@ -2568,6 +2599,25 @@ const sortedSelectedActionSlots = () => {
   return rows;
 };
 
+const selectedActionSignature = (rows) => {
+  const list = Array.isArray(rows) ? rows : [];
+  return list
+    .map((x) => String(x?.key || ''))
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b))
+    .join('|');
+};
+
+const maybeAutoOpenSelectionActions = () => {
+  if (!canBookFromGrid.value || showRequestModal.value) return;
+  const rows = sortedSelectedActionSlots();
+  if (rows.length <= 1) return;
+  const sig = selectedActionSignature(rows);
+  if (!sig || sig === lastAutoOpenedSelectionSignature.value) return;
+  lastAutoOpenedSelectionSignature.value = sig;
+  openSlotActionModal(rows[0]);
+};
+
 const openSlotActionModal = ({ dayName, hour, roomId = 0, slot = null, dateYmd = null } = {}) => {
   if (!canBookFromGrid.value) return;
   modalDay.value = String(dayName);
@@ -2586,6 +2636,7 @@ const openSlotActionModal = ({ dayName, hour, roomId = 0, slot = null, dateYmd =
   selectedOfficeRoomId.value = Number(roomId || 0) || 0;
   resetBookingSelectionDefaults();
   resetBookingMetadataState();
+  supervisionParticipantSearch.value = '';
   selectedSupervisionParticipantId.value = 0;
   createSupervisionMeetLink.value = true;
   modalContext.value = buildModalContext({ dayName: modalDay.value, hour: modalHour.value, roomId, slot, dateYmd });
@@ -2605,6 +2656,15 @@ const openSlotActionModal = ({ dayName, hour, roomId = 0, slot = null, dateYmd =
       }
     }
   }
+  const fallbackDate = String(dateYmd || addDaysYmd(weekStart.value, ALL_DAYS.indexOf(String(dayName || '')))).slice(0, 10);
+  const fallbackRow = {
+    key: actionSlotKey({ dateYmd: fallbackDate, hour, roomId }),
+    dateYmd: fallbackDate,
+    dayName: String(dayName || ''),
+    hour: Number(hour || 0),
+    roomId: Number(roomId || 0)
+  };
+  lastAutoOpenedSelectionSignature.value = selectedActionSignature(rows.length ? rows : [fallbackRow]);
   showRequestModal.value = true;
   void loadBookingMetadataForProvider();
   void loadSupervisionProviders();
@@ -2672,6 +2732,7 @@ const onCellClick = (dayName, hour, event = null, options = {}) => {
       selectedActionSlots.value = Array.from(next.values());
     }
     lastSelectedActionKey.value = item.key;
+    if (event?.shiftKey) maybeAutoOpenSelectionActions();
     return;
   }
   selectedActionSlots.value = [item];
@@ -2695,6 +2756,7 @@ const onCellMouseDown = (dayName, hour, event = null) => {
   dragAnchorSlot.value = item;
   selectedActionSlots.value = [item];
   lastSelectedActionKey.value = item.key;
+  lastAutoOpenedSelectionSignature.value = '';
 };
 
 const onCellMouseEnter = (dayName, hour) => {
@@ -2712,13 +2774,6 @@ const onCellMouseEnter = (dayName, hour) => {
   lastSelectedActionKey.value = dragAnchorSlot.value.key;
   applyShiftSelection(current);
   suppressClickAfterDrag.value = true;
-};
-
-const openActionsForSelection = () => {
-  const rows = sortedSelectedActionSlots();
-  if (!rows.length) return;
-  const first = rows[0];
-  openSlotActionModal(first);
 };
 
 // ---- Office assignment modal (admin) ----
@@ -3459,6 +3514,12 @@ watch(requestType, (t) => {
       scheduleEventAllDay.value = false;
     }
   }
+});
+
+watch(availableSupervisionParticipants, (rows) => {
+  const ids = new Set((rows || []).map((row) => Number(row?.id || 0)).filter((n) => n > 0));
+  const selected = Number(selectedSupervisionParticipantId.value || 0);
+  if (selected && !ids.has(selected)) selectedSupervisionParticipantId.value = 0;
 });
 
 watch([showRequestModal, visibleQuickActions], ([isOpen, actions]) => {
@@ -4476,6 +4537,11 @@ watch(modalHour, () => {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
+}
+.participant-scroll {
+  max-height: 320px;
+  overflow: auto;
+  padding-right: 2px;
 }
 .participant-card {
   border: 1px solid rgba(148, 163, 184, 0.36);
