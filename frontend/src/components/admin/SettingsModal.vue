@@ -527,7 +527,11 @@ const allCategories = [
 // Filter categories and items based on user role
 const visibleCategories = computed(() => {
   const userRole = authStore.user?.role;
+  const userRoleNorm = String(userRole || '').toLowerCase();
   const isUserSupervisor = isSupervisor(authStore.user);
+  const shouldApplySupervisorExclusion =
+    isUserSupervisor &&
+    ['supervisor', 'clinical_practice_assistant', 'provider_plus'].includes(userRoleNorm);
   const flags = parseFeatureFlags(agencyStore.currentAgency?.feature_flags);
   const noteAidEnabled = isTruthyFlag(flags?.noteAidEnabled);
   const shiftProgramsEnabled = isTruthyFlag(flags?.shiftProgramsEnabled);
@@ -546,8 +550,9 @@ const visibleCategories = computed(() => {
           return false;
         }
         
-        // Check supervisor exclusion
-        if (item.excludeSupervisor && isUserSupervisor) {
+        // Supervisor capability is additive. Only apply supervisor exclusions
+        // when the primary role itself is supervisor-like.
+        if (item.excludeSupervisor && shouldApplySupervisorExclusion) {
           return false;
         }
         
