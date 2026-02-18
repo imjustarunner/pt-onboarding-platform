@@ -138,6 +138,45 @@
         Loading office availability…
       </div>
 
+      <div v-if="selectedOfficeLocationId && officeGrid && !officeGridLoading" class="office-quick-glance">
+        <div class="office-quick-glance-head">
+          <div class="office-quick-glance-title">Office at this time</div>
+          <div class="office-quick-glance-controls">
+            <label class="sched-inline compact">
+              <span>Day</span>
+              <select v-model="quickGlanceDateYmd" class="sched-select compact">
+                <option v-for="opt in quickGlanceDayOptions" :key="`qg-day-${opt.value}`" :value="opt.value">{{ opt.label }}</option>
+              </select>
+            </label>
+            <label class="sched-inline compact">
+              <span>Hour</span>
+              <select v-model.number="quickGlanceHour" class="sched-select compact">
+                <option v-for="h in quickGlanceHourOptions" :key="`qg-hour-${h}`" :value="h">{{ hourLabel(h) }}</option>
+              </select>
+            </label>
+            <label class="sched-inline compact">
+              <span>Filter</span>
+              <select v-model="quickGlanceStateFilter" class="sched-select compact">
+                <option value="all">All</option>
+                <option value="booked">Booked only</option>
+                <option value="assigned">Assigned only</option>
+                <option value="open">Open only</option>
+              </select>
+            </label>
+          </div>
+        </div>
+        <div class="office-quick-glance-list">
+          <div v-for="row in quickGlanceRows" :key="`qg-row-${row.roomId}`" class="office-quick-glance-row">
+            <div class="office-quick-glance-room">{{ row.roomLabel }}</div>
+            <div class="office-quick-glance-status" :class="`state-${row.state}`">{{ row.statusLabel }}</div>
+            <div class="office-quick-glance-provider">{{ row.providerLabel }}</div>
+          </div>
+          <div v-if="!quickGlanceRows.length" class="muted" style="font-size: 12px;">
+            No matching rooms for this filter at the selected time.
+          </div>
+        </div>
+      </div>
+
       <div class="sched-toolbar-secondary">
         <div class="sched-calendars" data-tour="my-schedule-ehr-calendars">
           <div class="sched-calendars-label">EHR calendars</div>
@@ -163,6 +202,18 @@
       </div>
     </div>
 
+    <div v-if="selectedActionCount > 0" class="selection-toolbar">
+      <div class="selection-count">{{ selectedActionCount }} slot{{ selectedActionCount === 1 ? '' : 's' }} selected</div>
+      <div class="selection-actions">
+        <button class="btn btn-secondary btn-sm" type="button" @click="openActionsForSelection">
+          Open actions
+        </button>
+        <button class="btn btn-secondary btn-sm" type="button" @click="clearSelectedActionSlots">
+          Clear
+        </button>
+      </div>
+    </div>
+
     <!-- Office layout view (room-by-room weekly board) -->
     <div v-if="viewMode === 'office_layout'" class="sched-grid-wrap" data-tour="my-schedule-office-layout-panel">
       <div v-if="!selectedOfficeLocationId" class="hint" style="margin-top: 10px;">
@@ -175,6 +226,7 @@
         :office-grid="officeGrid"
         :today-ymd="todayLocalYmd"
         :can-book="canBookFromGrid"
+        :selected-keys="selectedActionKeys"
         @cell-click="onOfficeLayoutCellClick"
       />
     </div>
@@ -221,12 +273,12 @@
             v-for="d in visibleDays"
             :key="`c-${d}-${h}`"
             class="sched-cell"
-            :class="{ clickable: canBookFromGrid, 'sched-cell-today': isTodayDay(d) }"
-            @click="onCellClick(d, h)"
+            :class="{ clickable: canBookFromGrid, 'sched-cell-today': isTodayDay(d), 'sched-cell-selected': isActionCellSelected(d, h) }"
+            @click="onCellClick(d, h, $event)"
             role="button"
             :tabindex="0"
-            @keydown.enter.prevent="onCellClick(d, h)"
-            @keydown.space.prevent="onCellClick(d, h)"
+            @keydown.enter.prevent="onCellClick(d, h, $event)"
+            @keydown.space.prevent="onCellClick(d, h, $event)"
           >
             <div v-if="availabilityClass(d, h)" class="cell-avail" :class="availabilityClass(d, h)"></div>
             <div
@@ -268,11 +320,40 @@
         </div>
 
         <div class="modal-body">
-          <label class="lbl">Request type</label>
+          <div class="action-grid">
+            <button
+              v-for="act in availableQuickActions"
+              :key="`act-${act.id}`"
+              type="button"
+              class="action-chip"
+              :class="{ on: requestType === act.id }"
+              :disabled="!!act.disabledReason"
+              :title="act.disabledReason || act.description"
+              @click="requestType = act.id"
+            >
+              <span class="action-chip-label">{{ act.label }}</span>
+              <span v-if="act.disabledReason" class="action-chip-note">{{ act.disabledReason }}</span>
+              <span v-else-if="act.description" class="action-chip-note">{{ act.description }}</span>
+            </button>
+          </div>
+
+          <label class="lbl" style="margin-top: 10px;">Action</label>
           <select v-model="requestType" class="input">
-            <option value="office">Office booking</option>
+            <option value="office">Office booking / request (room picker)</option>
+            <option value="office_request_only">Office request (separate process)</option>
             <option v-if="!isAdminMode" value="school" :disabled="!canUseSchool(modalDay, modalHour, modalEndHour)">School daytime availability</option>
             <option v-if="!isAdminMode" value="supervision" :disabled="supervisorsLoading || supervisors.length === 0">Supervision (adds to Google Calendar)</option>
+            <option value="booked_note" :disabled="String(modalContext.slotState || '').toUpperCase() !== 'ASSIGNED_BOOKED'">Write note (booked slot)</option>
+            <option value="booked_record" :disabled="String(modalContext.slotState || '').toUpperCase() !== 'ASSIGNED_BOOKED'">Record session (booked slot)</option>
+            <option value="intake_virtual_on" :disabled="!Number(modalContext.officeEventId || 0) || !!modalContext.virtualIntakeEnabled">Enable virtual intake</option>
+            <option value="intake_virtual_off" :disabled="!Number(modalContext.officeEventId || 0) || !modalContext.virtualIntakeEnabled">Disable virtual intake</option>
+            <option
+              value="intake_inperson_on"
+              :disabled="!Number(modalContext.officeEventId || 0) || !!modalContext.inPersonIntakeEnabled || !['ASSIGNED_AVAILABLE','ASSIGNED_TEMPORARY','ASSIGNED_BOOKED'].includes(String(modalContext.slotState || '').toUpperCase())"
+            >
+              Enable in-person intake
+            </option>
+            <option value="intake_inperson_off" :disabled="!Number(modalContext.officeEventId || 0) || !modalContext.inPersonIntakeEnabled">Disable in-person intake</option>
           </select>
           <div v-if="requestType === 'school' && !canUseSchool(modalDay, modalHour, modalEndHour)" class="muted" style="margin-top: 6px;">
             School daytime availability must be on weekdays and between 06:00 and 18:00.
@@ -299,11 +380,14 @@
             </label>
           </div>
 
-          <div v-if="requestType === 'office'" style="margin-top: 10px;">
+          <div v-if="requestType === 'office' || requestType === 'office_request_only'" style="margin-top: 10px;">
             <div v-if="!selectedOfficeLocationId" class="muted">
               Select an office from the toolbar above to view open/assigned/booked time and place a booking request.
             </div>
             <template v-else>
+              <div v-if="requestType === 'office_request_only'" class="modern-help">
+                Separate office request path: this submits a provider office-availability request for staff assignment workflow.
+              </div>
               <label class="lbl">Frequency</label>
               <select v-model="officeBookingRecurrence" class="input">
                 <option value="ONCE">Once</option>
@@ -346,7 +430,7 @@
               <label class="lbl" style="margin-top: 10px;">Room</label>
               <div v-if="officeGridLoading" class="muted">Loading rooms…</div>
               <div v-else-if="officeGridError" class="error">{{ officeGridError }}</div>
-              <div v-else class="office-room-picker">
+              <div v-else-if="requestType === 'office'" class="office-room-picker">
                 <label class="office-room-option">
                   <input type="radio" name="office-room" :value="0" v-model.number="selectedOfficeRoomId" />
                   <span class="office-room-label">Any open room</span>
@@ -362,6 +446,7 @@
                   <span class="office-room-meta">{{ opt.stateLabel }}</span>
                 </label>
               </div>
+              <div v-else class="muted">Separate office request mode does not require room selection.</div>
               <div v-if="bookingMetadataLoading" class="muted" style="margin-top: 6px;">Loading appointment type and service code options…</div>
               <div v-else-if="bookingMetadataError" class="muted" style="margin-top: 6px;">{{ bookingMetadataError }}</div>
               <div v-if="bookingClassificationInvalidReason" class="muted" style="margin-top: 6px;">
@@ -371,8 +456,20 @@
             </template>
           </div>
 
+          <div
+            v-if="requestType === 'intake_virtual_on' || requestType === 'intake_virtual_off' || requestType === 'intake_inperson_on' || requestType === 'intake_inperson_off'"
+            class="modern-help"
+            style="margin-top: 10px;"
+          >
+            {{ intakeActionHelpText }}
+          </div>
+
           <label class="lbl" style="margin-top: 10px;">End time</label>
-          <select v-model.number="modalEndHour" class="input">
+          <select
+            v-model.number="modalEndHour"
+            class="input"
+            :disabled="requestType === 'intake_virtual_on' || requestType === 'intake_virtual_off' || requestType === 'intake_inperson_on' || requestType === 'intake_inperson_off'"
+          >
             <option v-for="h in endHourOptions" :key="`end-${h}`" :value="h">
               {{ hourLabel(h) }}
             </option>
@@ -391,12 +488,13 @@
             @click="submitRequest"
             :disabled="
               submitting ||
-              (requestType === 'office' && (bookingMetadataLoading || !officeBookingValid || !!bookingClassificationInvalidReason)) ||
+              ((requestType === 'office' || requestType === 'office_request_only') && (bookingMetadataLoading || !officeBookingValid || !!bookingClassificationInvalidReason)) ||
               (requestType === 'school' && !canUseSchool(modalDay, modalHour, modalEndHour)) ||
-              (requestType === 'supervision' && (supervisorsLoading || supervisors.length === 0 || !selectedSupervisorId))
+              (requestType === 'supervision' && (supervisorsLoading || supervisors.length === 0 || !selectedSupervisorId)) ||
+              ((requestType === 'intake_virtual_on' || requestType === 'intake_virtual_off' || requestType === 'intake_inperson_on' || requestType === 'intake_inperson_off') && !modalContext.officeEventId)
             "
           >
-            {{ submitting ? 'Submitting…' : 'Submit request' }}
+            {{ submitting ? 'Submitting…' : submitActionLabel }}
           </button>
         </div>
       </div>
@@ -975,14 +1073,11 @@ const dayNameForDateYmd = (dateYmd) => {
   return ALL_DAYS[diff] || null;
 };
 
-const onOfficeLayoutCellClick = ({ dateYmd, hour, roomId }) => {
+const onOfficeLayoutCellClick = ({ dateYmd, hour, roomId, slot, event }) => {
   if (!canBookFromGrid.value) return;
   const dn = dayNameForDateYmd(dateYmd);
   if (!dn) return;
-  // Reuse existing booking modal behavior (supports multi-hour + recurrence).
-  onCellClick(dn, Number(hour));
-  // Preselect the clicked room (if it's requestable for the default 1-hour range, it will remain valid).
-  selectedOfficeRoomId.value = Number(roomId || 0) || 0;
+  onCellClick(dn, Number(hour), event, { dateYmd, roomId, slot });
 };
 
 const effectiveAgencyId = computed(() => {
@@ -1741,6 +1836,21 @@ const overlayErrorText = computed(() => {
   return parts.length ? `Calendar overlay error: ${parts.join(' • ')}` : '';
 });
 
+const selectedActionSlots = ref([]);
+const lastSelectedActionKey = ref('');
+const selectedActionKeys = computed(() => selectedActionSlots.value.map((x) => x.key));
+const selectedActionCount = computed(() => selectedActionSlots.value.length);
+const selectedActionKeySet = computed(() => new Set(selectedActionKeys.value));
+const isActionCellSelected = (dayName, hour) => {
+  const dateYmd = addDaysYmd(weekStart.value, ALL_DAYS.indexOf(String(dayName || '')));
+  const key = `${String(dateYmd).slice(0, 10)}|${Number(hour)}|0`;
+  return selectedActionKeySet.value.has(key);
+};
+const clearSelectedActionSlots = () => {
+  selectedActionSlots.value = [];
+  lastSelectedActionKey.value = '';
+};
+
 // ---- In-grid request creation (self mode) ----
 const showRequestModal = ref(false);
 const modalDay = ref('Monday');
@@ -1767,6 +1877,111 @@ const bookingAppointmentType = ref(DEFAULT_BOOKING_TYPE);
 const bookingAppointmentSubtype = ref('');
 const bookingServiceCode = ref('');
 const bookingModality = ref('');
+const modalContext = ref({
+  officeEventId: null,
+  officeLocationId: null,
+  roomId: null,
+  slotState: '',
+  virtualIntakeEnabled: false,
+  inPersonIntakeEnabled: false
+});
+
+const availableQuickActions = computed(() => {
+  const ctx = modalContext.value || {};
+  const hasOffice = Number(selectedOfficeLocationId.value || 0) > 0;
+  const state = String(ctx.slotState || '').toUpperCase();
+  const hasAssignedOffice = ['ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY', 'ASSIGNED_BOOKED'].includes(state);
+  const hasEvent = Number(ctx.officeEventId || 0) > 0;
+  const booked = state === 'ASSIGNED_BOOKED';
+  return [
+    {
+      id: 'office',
+      label: 'Office booking',
+      description: hasOffice ? 'Book/request with room picker' : 'Select office first',
+      disabledReason: hasOffice ? '' : 'Select office'
+    },
+    {
+      id: 'office_request_only',
+      label: 'Office request',
+      description: 'Separate office request workflow',
+      disabledReason: hasOffice ? '' : 'Select office'
+    },
+    {
+      id: 'intake_virtual_on',
+      label: 'Enable virtual intake',
+      description: 'Auto-add virtual work hours if missing',
+      disabledReason: hasEvent && !ctx.virtualIntakeEnabled ? '' : 'Needs assigned office slot'
+    },
+    {
+      id: 'intake_inperson_on',
+      label: 'Enable in-person intake',
+      description: 'Only on assigned office slots',
+      disabledReason: hasEvent && hasAssignedOffice && !ctx.inPersonIntakeEnabled ? '' : 'Needs assigned office slot'
+    },
+    {
+      id: 'intake_virtual_off',
+      label: 'Disable virtual intake',
+      description: 'Keep regular virtual availability',
+      disabledReason: hasEvent && !!ctx.virtualIntakeEnabled ? '' : 'Virtual intake not enabled'
+    },
+    {
+      id: 'intake_inperson_off',
+      label: 'Disable in-person intake',
+      description: 'Remove in-person intake availability',
+      disabledReason: hasEvent && !!ctx.inPersonIntakeEnabled ? '' : 'In-person intake not enabled'
+    },
+    {
+      id: 'school',
+      label: 'School availability',
+      description: 'Weekday daytime only',
+      disabledReason: !isAdminMode.value ? '' : 'Provider self flow only'
+    },
+    {
+      id: 'supervision',
+      label: 'Supervision',
+      description: 'Create supervision session',
+      disabledReason: !isAdminMode.value ? '' : 'Provider self flow only'
+    },
+    {
+      id: 'booked_note',
+      label: 'Write note',
+      description: 'Open Note Aid with booking context',
+      disabledReason: booked ? '' : 'Needs booked office slot'
+    },
+    {
+      id: 'booked_record',
+      label: 'Record session',
+      description: 'Open Note Aid record-session mode',
+      disabledReason: booked ? '' : 'Needs booked office slot'
+    }
+  ];
+});
+
+const intakeActionHelpText = computed(() => {
+  const labels = {
+    intake_virtual_on: 'Enable virtual intake for this office slot. If virtual working hours are missing, they will be auto-created.',
+    intake_virtual_off: 'Disable virtual intake for this office slot (regular virtual availability stays active).',
+    intake_inperson_on: 'Enable in-person intake for this assigned office slot.',
+    intake_inperson_off: 'Disable in-person intake for this slot.'
+  };
+  return labels[String(requestType.value || '')] || '';
+});
+
+const submitActionLabel = computed(() => {
+  const labels = {
+    office: 'Submit office booking',
+    office_request_only: 'Submit office request',
+    school: 'Submit school request',
+    supervision: 'Submit supervision request',
+    intake_virtual_on: 'Enable virtual intake',
+    intake_virtual_off: 'Disable virtual intake',
+    intake_inperson_on: 'Enable in-person intake',
+    intake_inperson_off: 'Disable in-person intake',
+    booked_note: 'Open Note Aid',
+    booked_record: 'Open recorder'
+  };
+  return labels[String(requestType.value || '')] || 'Submit request';
+});
 
 const bookingTypeOptions = computed(() => {
   const rows = Array.isArray(bookingMetadata.value?.appointmentTypes) ? bookingMetadata.value.appointmentTypes : [];
@@ -1813,7 +2028,7 @@ const bookingServiceCodeOptions = computed(() => {
 
 const bookingRequiresServiceCode = computed(() => ['SESSION', 'ASSESSMENT'].includes(normalizeCodeValue(bookingAppointmentType.value)));
 const bookingClassificationInvalidReason = computed(() => {
-  if (requestType.value !== 'office') return '';
+  if (!['office', 'office_request_only'].includes(String(requestType.value || ''))) return '';
   if (!normalizeCodeValue(bookingAppointmentType.value)) return 'Select an appointment type.';
   if (bookingRequiresServiceCode.value && !normalizeCodeValue(bookingServiceCode.value)) {
     return 'A service code is required for this appointment type.';
@@ -1842,7 +2057,7 @@ const normalizeBookingSelectionPayload = () => ({
 });
 
 const loadBookingMetadataForProvider = async () => {
-  if (requestType.value !== 'office' || !showRequestModal.value) return;
+  if (!['office', 'office_request_only'].includes(String(requestType.value || '')) || !showRequestModal.value) return;
   if (!Number(selectedOfficeLocationId.value || 0)) {
     resetBookingMetadataState();
     return;
@@ -2014,9 +2229,60 @@ const canUseSchool = (dayName, startHour, endHour) => {
   return sh >= 6 && eh <= 18;
 };
 
-const onCellClick = (dayName, hour) => {
+const actionSlotKey = ({ dateYmd, hour, roomId = 0 }) => `${String(dateYmd).slice(0, 10)}|${Number(hour)}|${Number(roomId || 0)}`;
+const parseActionSlotKey = (key) => {
+  const [d, h, r] = String(key || '').split('|');
+  return {
+    dateYmd: String(d || ''),
+    hour: Number(h || 0),
+    roomId: Number(r || 0)
+  };
+};
+
+const buildModalContext = ({ dayName, hour, roomId = 0, slot = null, dateYmd = null }) => {
+  const top = officeTopEvent(dayName, hour) || null;
+  const rawState = String(
+    slot?.state
+    || slot?.slotState
+    || slot?.slot_state
+    || top?.slotState
+    || top?.slot_state
+    || ''
+  ).trim().toUpperCase();
+  return {
+    dayName: String(dayName),
+    dateYmd: String(dateYmd || addDaysYmd(weekStart.value, ALL_DAYS.indexOf(String(dayName || '')))).slice(0, 10),
+    hour: Number(hour),
+    officeEventId: Number(slot?.eventId || slot?.officeEventId || top?.id || 0) || null,
+    officeLocationId: Number(
+      slot?.officeLocationId
+      || slot?.office_location_id
+      || top?.buildingId
+      || selectedOfficeLocationId.value
+      || 0
+    ) || null,
+    roomId: Number(roomId || slot?.roomId || slot?.room_id || top?.roomId || 0) || null,
+    slotState: rawState,
+    virtualIntakeEnabled: (slot?.virtualIntakeEnabled === true) || (top?.virtualIntakeEnabled === true),
+    inPersonIntakeEnabled: (slot?.inPersonIntakeEnabled === true) || (top?.inPersonIntakeEnabled === true)
+  };
+};
+
+const sortedSelectedActionSlots = () => {
+  const rows = (selectedActionSlots.value || []).slice();
+  rows.sort((a, b) => {
+    const da = String(a.dateYmd || '');
+    const db = String(b.dateYmd || '');
+    if (da !== db) return da.localeCompare(db);
+    if (Number(a.hour || 0) !== Number(b.hour || 0)) return Number(a.hour || 0) - Number(b.hour || 0);
+    return Number(a.roomId || 0) - Number(b.roomId || 0);
+  });
+  return rows;
+};
+
+const openSlotActionModal = ({ dayName, hour, roomId = 0, slot = null, dateYmd = null } = {}) => {
   if (!canBookFromGrid.value) return;
-  modalDay.value = dayName;
+  modalDay.value = String(dayName);
   modalHour.value = Number(hour);
   // Default to a 1-hour range; clamp to end-of-grid.
   const nextEnd = Math.min(Number(hour) + 1, 22);
@@ -2025,13 +2291,91 @@ const onCellClick = (dayName, hour) => {
   requestNotes.value = '';
   modalError.value = '';
   officeBookingRecurrence.value = 'ONCE';
-  selectedOfficeRoomId.value = 0;
+  selectedOfficeRoomId.value = Number(roomId || 0) || 0;
   resetBookingSelectionDefaults();
   resetBookingMetadataState();
   selectedSupervisorId.value = 0;
   createMeetLink.value = true;
+  modalContext.value = buildModalContext({ dayName: modalDay.value, hour: modalHour.value, roomId, slot, dateYmd });
+  if (selectedActionCount.value > 1) {
+    requestType.value = 'office_request_only';
+  } else if (String(modalContext.value.slotState || '').toUpperCase() === 'ASSIGNED_BOOKED') {
+    requestType.value = 'booked_note';
+  }
   showRequestModal.value = true;
   void loadBookingMetadataForProvider();
+};
+
+const applyShiftSelection = (current) => {
+  const last = parseActionSlotKey(lastSelectedActionKey.value);
+  if (!last.dateYmd) return false;
+  if (Number(last.roomId || 0) !== Number(current.roomId || 0)) return false;
+  const startDate = String(last.dateYmd || '');
+  const endDate = String(current.dateYmd || '');
+  const minDate = startDate <= endDate ? startDate : endDate;
+  const maxDate = startDate <= endDate ? endDate : startDate;
+  const minHour = Math.min(Number(last.hour || 0), Number(current.hour || 0));
+  const maxHour = Math.max(Number(last.hour || 0), Number(current.hour || 0));
+  const next = new Map((selectedActionSlots.value || []).map((x) => [x.key, x]));
+  let added = 0;
+  for (let d = new Date(`${minDate}T00:00:00`); !Number.isNaN(d.getTime()) && String(localYmd(d)) <= maxDate; d.setDate(d.getDate() + 1)) {
+    const ymd = localYmd(d);
+    for (let h = minHour; h <= maxHour; h += 1) {
+      const key = actionSlotKey({ dateYmd: ymd, hour: h, roomId: current.roomId });
+      if (next.has(key)) continue;
+      next.set(key, {
+        key,
+        dateYmd: ymd,
+        dayName: dayNameForDateYmd(ymd) || current.dayName,
+        hour: h,
+        roomId: Number(current.roomId || 0),
+        slot: null
+      });
+      added += 1;
+    }
+  }
+  selectedActionSlots.value = Array.from(next.values());
+  return added > 0;
+};
+
+const onCellClick = (dayName, hour, event = null, options = {}) => {
+  const dateYmd = String(options?.dateYmd || addDaysYmd(weekStart.value, ALL_DAYS.indexOf(String(dayName || '')))).slice(0, 10);
+  const roomId = Number(options?.roomId || 0) || 0;
+  const slot = options?.slot || null;
+  const item = {
+    key: actionSlotKey({ dateYmd, hour, roomId }),
+    dateYmd,
+    dayName: String(dayName),
+    hour: Number(hour),
+    roomId,
+    slot
+  };
+  const withSelection = !!(event?.metaKey || event?.ctrlKey || event?.shiftKey);
+  if (withSelection) {
+    if (event?.shiftKey) {
+      const changed = applyShiftSelection(item);
+      if (!changed) {
+        selectedActionSlots.value = [item];
+      }
+    } else {
+      const next = new Map((selectedActionSlots.value || []).map((x) => [x.key, x]));
+      if (next.has(item.key)) next.delete(item.key);
+      else next.set(item.key, item);
+      selectedActionSlots.value = Array.from(next.values());
+    }
+    lastSelectedActionKey.value = item.key;
+    return;
+  }
+  selectedActionSlots.value = [item];
+  lastSelectedActionKey.value = item.key;
+  openSlotActionModal(item);
+};
+
+const openActionsForSelection = () => {
+  const rows = sortedSelectedActionSlots();
+  if (!rows.length) return;
+  const first = rows[0];
+  openSlotActionModal(first);
 };
 
 // ---- Office assignment modal (admin) ----
@@ -2074,6 +2418,65 @@ const officeOverlayStyle = computed(() => {
   return { '--officeOverlayColor': officeColorById(id) };
 });
 
+const quickGlanceDateYmd = ref('');
+const quickGlanceHour = ref(0);
+const quickGlanceStateFilter = ref('all'); // all|booked|assigned|open
+
+const quickGlanceDayOptions = computed(() => {
+  const days = Array.isArray(officeGrid.value?.days) ? officeGrid.value.days : [];
+  return days.map((d) => ({
+    value: String(d).slice(0, 10),
+    label: `${dayNameForDateYmd(d) || ''} ${String(d || '').slice(5, 10)}`
+  }));
+});
+
+const quickGlanceHourOptions = computed(() => {
+  const hours = Array.isArray(officeGrid.value?.hours) ? officeGrid.value.hours : [];
+  return hours.map((h) => Number(h)).filter((h) => Number.isFinite(h));
+});
+
+const quickGlanceRows = computed(() => {
+  const g = officeGrid.value;
+  const date = String(quickGlanceDateYmd.value || '').slice(0, 10);
+  const hour = Number(quickGlanceHour.value || 0);
+  if (!g || !date || !Number.isFinite(hour)) return [];
+  const rooms = Array.isArray(g.rooms) ? g.rooms : [];
+  const slots = Array.isArray(g.slots) ? g.slots : [];
+  const byRoom = new Map();
+  for (const s of slots) {
+    if (String(s?.date || '').slice(0, 10) !== date) continue;
+    if (Number(s?.hour || -1) !== hour) continue;
+    byRoom.set(Number(s.roomId), s);
+  }
+  const out = rooms.map((r) => {
+    const slot = byRoom.get(Number(r.id)) || null;
+    const st = String(slot?.state || 'open');
+    const statusLabel =
+      st === 'assigned_booked' ? 'Booked'
+        : st === 'assigned_available' ? 'Assigned available'
+          : st === 'assigned_temporary' ? 'Assigned temporary'
+            : 'Open';
+    const providerLabel = String(slot?.bookedProviderName || slot?.assignedProviderName || slot?.providerInitials || '').trim() || '—';
+    const roomLabel = `${r?.roomNumber ? `#${r.roomNumber} ` : ''}${r?.label || r?.name || `Room ${r?.id || ''}`}`.trim();
+    return {
+      roomId: Number(r.id),
+      roomLabel,
+      state: st,
+      statusLabel,
+      providerLabel
+    };
+  });
+  const filter = String(quickGlanceStateFilter.value || 'all');
+  const filtered = out.filter((row) => {
+    if (filter === 'booked') return row.state === 'assigned_booked';
+    if (filter === 'assigned') return row.state === 'assigned_available' || row.state === 'assigned_temporary';
+    if (filter === 'open') return row.state === 'open';
+    return true;
+  });
+  filtered.sort((a, b) => String(a.roomLabel).localeCompare(String(b.roomLabel)));
+  return filtered;
+});
+
 const loadSelectedOfficeGrid = async () => {
   const id = Number(selectedOfficeLocationId.value || 0);
   if (!id) {
@@ -2100,6 +2503,22 @@ const loadSelectedOfficeGrid = async () => {
 watch([selectedOfficeLocationId, weekStart], () => {
   void loadSelectedOfficeGrid();
 });
+
+watch([officeGrid, quickGlanceDayOptions, quickGlanceHourOptions], () => {
+  const dayValues = quickGlanceDayOptions.value.map((x) => x.value);
+  const hourValues = quickGlanceHourOptions.value;
+  if (!dayValues.length || !hourValues.length) {
+    quickGlanceDateYmd.value = '';
+    quickGlanceHour.value = 0;
+    return;
+  }
+  if (!dayValues.includes(String(quickGlanceDateYmd.value || ''))) {
+    quickGlanceDateYmd.value = dayValues[0];
+  }
+  if (!hourValues.includes(Number(quickGlanceHour.value || 0))) {
+    quickGlanceHour.value = Number(hourValues[0]);
+  }
+}, { immediate: true });
 
 const officeOverlayKey = (dateYmd, hour) => `${String(dateYmd).slice(0, 10)}|${Number(hour)}`;
 
@@ -2267,6 +2686,97 @@ const closeModal = () => {
   showRequestModal.value = false;
 };
 
+const toProviderNoteAidPath = () => {
+  const path = typeof window !== 'undefined' ? String(window.location?.pathname || '') : '';
+  const m = path.match(/^\/([^/]+)\//);
+  return m?.[1] ? `/${m[1]}/admin/note-aid` : '/admin/note-aid';
+};
+
+const openNoteAidFromContext = (launchIntent = 'note') => {
+  const ctx = modalContext.value || {};
+  const officeEventId = Number(ctx.officeEventId || 0);
+  if (!officeEventId) throw new Error('Booked office event context is required for Note Aid.');
+  const top = officeTopEvent(modalDay.value, modalHour.value) || null;
+  const clientId = Number(top?.clientId || 0);
+  if (!clientId) throw new Error('Booked slot needs a client before opening Note Aid.');
+  const query = new URLSearchParams({
+    officeEventId: String(officeEventId),
+    clientId: String(clientId),
+    launchIntent: String(launchIntent || 'note'),
+    noteType: String(top?.appointmentType || 'PROGRESS_NOTE'),
+    templateVersion: 'v1'
+  });
+  const serviceCode = String(top?.serviceCode || '').trim().toUpperCase();
+  if (serviceCode) query.set('serviceCode', serviceCode);
+  window.location.href = `${toProviderNoteAidPath()}?${query.toString()}`;
+};
+
+const minuteFromTime = (t) => {
+  const m = String(t || '').match(/^(\d{2}):(\d{2})$/);
+  if (!m) return null;
+  return Number(m[1]) * 60 + Number(m[2]);
+};
+
+const ensureVirtualWorkingHoursForRange = async ({ dayName, startHour, endHour }) => {
+  const agencyId = Number(effectiveAgencyId.value || 0);
+  if (!agencyId) return;
+  const day = String(dayName || '');
+  const targetStart = `${pad2(startHour)}:00`;
+  const targetEnd = `${pad2(endHour)}:00`;
+  const resp = await api.get('/availability/me/virtual-working-hours', { params: { agencyId } });
+  const rows = Array.isArray(resp?.data?.rows) ? resp.data.rows : [];
+  const normalized = rows.map((r) => ({
+    dayOfWeek: String(r.dayOfWeek || ''),
+    startTime: String(r.startTime || ''),
+    endTime: String(r.endTime || ''),
+    sessionType: String(r.sessionType || 'REGULAR').toUpperCase(),
+    frequency: String(r.frequency || 'WEEKLY').toUpperCase()
+  })).filter((r) => r.dayOfWeek && r.startTime && r.endTime);
+
+  const targetStartMin = minuteFromTime(targetStart);
+  const targetEndMin = minuteFromTime(targetEnd);
+  const sameDay = normalized.filter((r) => r.dayOfWeek === day);
+  const overlaps = sameDay.filter((r) => {
+    const s = minuteFromTime(r.startTime);
+    const e = minuteFromTime(r.endTime);
+    return s !== null && e !== null && !(e < targetStartMin || s > targetEndMin);
+  });
+
+  if (overlaps.some((r) => ['INTAKE', 'BOTH'].includes(r.sessionType))) return;
+
+  const rowsWithoutOverlaps = normalized.filter((r) => !overlaps.includes(r));
+  const allMins = [targetStartMin, targetEndMin];
+  for (const r of overlaps) {
+    const s = minuteFromTime(r.startTime);
+    const e = minuteFromTime(r.endTime);
+    if (s !== null) allMins.push(s);
+    if (e !== null) allMins.push(e);
+  }
+  const mergedStart = Math.min(...allMins);
+  const mergedEnd = Math.max(...allMins);
+  const mergedRow = {
+    dayOfWeek: day,
+    startTime: `${pad2(Math.floor(mergedStart / 60))}:${pad2(mergedStart % 60)}`,
+    endTime: `${pad2(Math.floor(mergedEnd / 60))}:${pad2(mergedEnd % 60)}`,
+    sessionType: 'BOTH',
+    frequency: overlaps[0]?.frequency || 'WEEKLY'
+  };
+  const nextRows = [...rowsWithoutOverlaps, mergedRow];
+  await api.put('/availability/me/virtual-working-hours', { agencyId, rows: nextRows });
+};
+
+const selectedActionContexts = () => {
+  const rows = sortedSelectedActionSlots();
+  if (!rows.length) return [modalContext.value];
+  return rows.map((x) => buildModalContext({
+    dayName: x.dayName,
+    hour: x.hour,
+    roomId: x.roomId,
+    slot: x.slot,
+    dateYmd: x.dateYmd
+  }));
+};
+
 const submitRequest = async () => {
   if (!effectiveAgencyId.value) return;
   try {
@@ -2278,35 +2788,81 @@ const submitRequest = async () => {
     const endH = Number(modalEndHour.value);
     if (!(endH > h)) throw new Error('End time must be after start time.');
 
-    if (requestType.value === 'office') {
+    if (requestType.value === 'booked_note') {
+      openNoteAidFromContext('note');
+      return;
+    } else if (requestType.value === 'booked_record') {
+      openNoteAidFromContext('record_session');
+      return;
+    } else if (requestType.value === 'office') {
       const officeId = Number(selectedOfficeLocationId.value || 0);
       if (!officeId) throw new Error('Select an office first.');
       if (!officeBookingValid.value) throw new Error('Select an available room (or choose “Any open room”).');
       if (bookingClassificationInvalidReason.value) throw new Error(bookingClassificationInvalidReason.value);
-
-      const dayIdx = ALL_DAYS.indexOf(String(dn));
-      if (dayIdx < 0) throw new Error('Invalid day');
-      const dateYmd = addDaysYmd(weekStart.value, dayIdx);
-      const startAt = `${dateYmd}T${pad2(h)}:00:00`;
-      const endAt = `${dateYmd}T${pad2(endH)}:00:00`;
       const roomId = Number(selectedOfficeRoomId.value || 0) || null;
-
-      const r = await api.post('/office-schedule/booking-requests', {
-        officeLocationId: officeId,
-        roomId,
-        startAt,
-        endAt,
-        recurrence: String(officeBookingRecurrence.value || 'ONCE'),
-        openToAlternativeRoom: !roomId,
-        notes: requestNotes.value || '',
-        ...normalizeBookingSelectionPayload(),
-        ...(isAdminMode.value ? { requestedProviderId: Number(props.userId) } : {})
-      });
-
-      // If it auto-booked, refresh the office grid immediately so the overlay updates.
-      if (r?.data?.kind === 'auto_booked') {
-        await loadSelectedOfficeGrid();
+      const targets = sortedSelectedActionSlots().length ? sortedSelectedActionSlots() : [{
+        dateYmd: addDaysYmd(weekStart.value, ALL_DAYS.indexOf(String(dn))),
+        hour: h
+      }];
+      for (const t of targets) {
+        const startAt = `${String(t.dateYmd).slice(0, 10)}T${pad2(Number(t.hour || h))}:00:00`;
+        const endAt = `${String(t.dateYmd).slice(0, 10)}T${pad2(Math.min(Number(t.hour || h) + Math.max(1, endH - h), 22))}:00:00`;
+        // eslint-disable-next-line no-await-in-loop
+        const r = await api.post('/office-schedule/booking-requests', {
+          officeLocationId: officeId,
+          roomId,
+          startAt,
+          endAt,
+          recurrence: String(officeBookingRecurrence.value || 'ONCE'),
+          openToAlternativeRoom: !roomId,
+          notes: requestNotes.value || '',
+          ...normalizeBookingSelectionPayload(),
+          ...(isAdminMode.value ? { requestedProviderId: Number(props.userId) } : {})
+        });
+        if (r?.data?.kind === 'auto_booked') {
+          // eslint-disable-next-line no-await-in-loop
+          await loadSelectedOfficeGrid();
+        }
       }
+    } else if (requestType.value === 'office_request_only') {
+      const dayToHours = new Map();
+      const targets = sortedSelectedActionSlots().length ? sortedSelectedActionSlots() : [{
+        dateYmd: addDaysYmd(weekStart.value, ALL_DAYS.indexOf(String(dn))),
+        dayName: dn,
+        hour: h
+      }];
+      for (const t of targets) {
+        const day = String(t.dayName || dayNameForDateYmd(t.dateYmd) || dn);
+        if (!dayToHours.has(day)) dayToHours.set(day, []);
+        dayToHours.get(day).push(Number(t.hour || h));
+      }
+      const slots = [];
+      for (const [day, hoursList] of dayToHours.entries()) {
+        const uniq = Array.from(new Set(hoursList)).sort((a, b) => a - b);
+        let start = null;
+        let prev = null;
+        for (const val of uniq) {
+          if (start === null) {
+            start = val;
+            prev = val;
+            continue;
+          }
+          if (val === prev + 1) {
+            prev = val;
+            continue;
+          }
+          slots.push({ weekday: ((ALL_DAYS.indexOf(day) + 1) % 7), startHour: start, endHour: prev + 1 });
+          start = val;
+          prev = val;
+        }
+        if (start !== null) slots.push({ weekday: ((ALL_DAYS.indexOf(day) + 1) % 7), startHour: start, endHour: prev + 1 });
+      }
+      await api.post('/availability/office-requests', {
+        agencyId: effectiveAgencyId.value,
+        notes: requestNotes.value || '',
+        officeLocationIds: Number(selectedOfficeLocationId.value || 0) ? [Number(selectedOfficeLocationId.value)] : [],
+        slots
+      });
     } else if (requestType.value === 'school') {
       if (isAdminMode.value) throw new Error('School availability requests must be created from the provider schedule.');
       if (!canUseSchool(dn, h, endH)) throw new Error('School daytime availability must be on weekdays and between 06:00 and 18:00.');
@@ -2339,11 +2895,46 @@ const submitRequest = async () => {
         createMeetLink: !!createMeetLink.value,
         modality: 'virtual'
       });
+    } else if (requestType.value === 'intake_virtual_on' || requestType.value === 'intake_virtual_off') {
+      const enabled = requestType.value === 'intake_virtual_on';
+      const contexts = selectedActionContexts().filter((x) => Number(x?.officeEventId || 0) > 0);
+      if (!contexts.length) throw new Error('Select an assigned office slot first.');
+      for (const ctx of contexts) {
+        if (enabled) {
+          // eslint-disable-next-line no-await-in-loop
+          await ensureVirtualWorkingHoursForRange({
+            dayName: ctx.dayName,
+            startHour: Number(ctx.hour || h),
+            endHour: Number(ctx.hour || h) + 1
+          });
+        }
+        // eslint-disable-next-line no-await-in-loop
+        await api.post(`/office-slots/${ctx.officeLocationId}/events/${ctx.officeEventId}/virtual-intake`, {
+          enabled,
+          agencyId: effectiveAgencyId.value
+        });
+      }
+    } else if (requestType.value === 'intake_inperson_on' || requestType.value === 'intake_inperson_off') {
+      const enabled = requestType.value === 'intake_inperson_on';
+      const contexts = selectedActionContexts().filter((x) => Number(x?.officeEventId || 0) > 0);
+      if (!contexts.length) throw new Error('Select an assigned office slot first.');
+      for (const ctx of contexts) {
+        const state = String(ctx.slotState || '').toUpperCase();
+        if (enabled && !['ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY', 'ASSIGNED_BOOKED'].includes(state)) {
+          throw new Error('In-person intake can only be enabled on assigned office slots.');
+        }
+        // eslint-disable-next-line no-await-in-loop
+        await api.post(`/office-slots/${ctx.officeLocationId}/events/${ctx.officeEventId}/in-person-intake`, {
+          enabled,
+          agencyId: effectiveAgencyId.value
+        });
+      }
     } else {
       throw new Error('Invalid request type.');
     }
 
     closeModal();
+    clearSelectedActionSlots();
     await load();
   } catch (e) {
     modalError.value = e.response?.data?.error?.message || e.message || 'Failed to submit request';
@@ -2355,7 +2946,7 @@ const submitRequest = async () => {
 watch(requestType, (t) => {
   if (t === 'supervision') {
     void loadSupervisors();
-  } else if (t === 'office') {
+  } else if (t === 'office' || t === 'office_request_only') {
     void loadBookingMetadataForProvider();
   }
 });
@@ -2368,7 +2959,7 @@ watch(bookingAppointmentType, () => {
 });
 
 watch([selectedOfficeLocationId, showRequestModal], () => {
-  if (requestType.value === 'office' && showRequestModal.value) {
+  if ((requestType.value === 'office' || requestType.value === 'office_request_only') && showRequestModal.value) {
     void loadBookingMetadataForProvider();
   }
 });
@@ -2579,10 +3170,21 @@ const onCellBlockClick = (e, block, dayName, hour) => {
     window.open(link, '_blank', 'noreferrer');
     return;
   }
-  if (kind !== 'supv') return;
+  if (kind === 'supv') {
+    e?.preventDefault?.();
+    e?.stopPropagation?.();
+    openSupvModal(dayName, hour);
+    return;
+  }
+  if (!['oa', 'ot', 'ob', 'intake-ip', 'intake-vi'].includes(kind)) return;
   e?.preventDefault?.();
   e?.stopPropagation?.();
-  openSupvModal(dayName, hour);
+  const top = officeTopEvent(dayName, hour) || null;
+  onCellClick(dayName, hour, e, {
+    roomId: Number(top?.roomId || 0) || 0,
+    dateYmd: addDaysYmd(weekStart.value, ALL_DAYS.indexOf(String(dayName || ''))),
+    slot: top
+  });
 };
 
 watch(modalHour, () => {
@@ -2773,6 +3375,80 @@ watch(modalHour, () => {
   color: var(--text-primary);
   min-width: 220px;
 }
+.sched-inline.compact {
+  gap: 6px;
+}
+.sched-select.compact {
+  min-width: 120px;
+}
+.office-quick-glance {
+  margin-top: 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.86);
+  padding: 10px;
+}
+.office-quick-glance-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.office-quick-glance-title {
+  font-weight: 900;
+  color: var(--text-primary);
+}
+.office-quick-glance-controls {
+  display: inline-flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.office-quick-glance-list {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 220px;
+  overflow: auto;
+}
+.office-quick-glance-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) 130px minmax(120px, 1fr);
+  gap: 10px;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 6px 8px;
+}
+.office-quick-glance-room {
+  font-weight: 800;
+}
+.office-quick-glance-status {
+  font-size: 12px;
+  font-weight: 900;
+  border-radius: 999px;
+  padding: 3px 8px;
+  width: fit-content;
+}
+.office-quick-glance-status.state-assigned_booked {
+  background: rgba(220, 38, 38, 0.12);
+  color: rgba(153, 27, 27, 0.95);
+}
+.office-quick-glance-status.state-assigned_available,
+.office-quick-glance-status.state-assigned_temporary {
+  background: rgba(22, 163, 74, 0.12);
+  color: rgba(21, 128, 61, 0.95);
+}
+.office-quick-glance-status.state-open {
+  background: rgba(37, 99, 235, 0.12);
+  color: rgba(30, 64, 175, 0.95);
+}
+.office-quick-glance-provider {
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-weight: 700;
+}
 .sched-calendars {
   display: inline-flex;
   align-items: center;
@@ -2887,6 +3563,28 @@ watch(modalHour, () => {
 }
 .sched-cell.clickable:hover {
   background: rgba(2, 132, 199, 0.06);
+}
+.sched-cell-selected {
+  box-shadow: inset 0 0 0 2px rgba(37, 99, 235, 0.9);
+}
+.selection-toolbar {
+  margin-top: 10px;
+  margin-bottom: 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(59, 130, 246, 0.06);
+}
+.selection-count {
+  font-weight: 800;
+  color: var(--text-primary);
+}
+.selection-actions {
+  display: inline-flex;
+  gap: 8px;
 }
 .cell-blocks {
   display: flex;
@@ -3011,12 +3709,12 @@ watch(modalHour, () => {
 }
 .modal {
   width: 100%;
-  max-width: 520px;
+  max-width: 640px;
   background: white;
-  border-radius: 12px;
+  border-radius: 16px;
   border: 1px solid var(--border);
   box-shadow: 0 18px 44px rgba(0,0,0,0.18);
-  padding: 14px;
+  padding: 16px;
 }
 .modal-head {
   display: flex;
@@ -3029,6 +3727,46 @@ watch(modalHour, () => {
 }
 .modal-body {
   margin-top: 10px;
+}
+.action-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.action-chip {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px;
+  text-align: left;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  cursor: pointer;
+}
+.action-chip.on {
+  border-color: rgba(37, 99, 235, 0.5);
+  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.3);
+  background: rgba(59, 130, 246, 0.07);
+}
+.action-chip:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.action-chip-label {
+  font-weight: 800;
+}
+.action-chip-note {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.modern-help {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: var(--bg-alt);
+  color: var(--text-secondary);
+  font-size: 13px;
 }
 .lbl {
   display: block;
@@ -3052,6 +3790,13 @@ watch(modalHour, () => {
 @media (max-width: 640px) {
   .field-grid {
     grid-template-columns: 1fr;
+  }
+  .action-grid {
+    grid-template-columns: 1fr;
+  }
+  .office-quick-glance-row {
+    grid-template-columns: 1fr;
+    gap: 6px;
   }
 }
 

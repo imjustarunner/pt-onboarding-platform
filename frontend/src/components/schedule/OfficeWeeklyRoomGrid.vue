@@ -27,9 +27,9 @@
               :title="slotTitle(dateYmd, h, r.id)"
               :role="canBook ? 'button' : undefined"
               :tabindex="canBook ? 0 : undefined"
-              @click="onCellClick(dateYmd, h, r.id)"
-              @keydown.enter.prevent="onCellClick(dateYmd, h, r.id)"
-              @keydown.space.prevent="onCellClick(dateYmd, h, r.id)"
+              @click="onCellClick(dateYmd, h, r.id, $event)"
+              @keydown.enter.prevent="onCellClick(dateYmd, h, r.id, $event)"
+              @keydown.space.prevent="onCellClick(dateYmd, h, r.id, $event)"
             >
               <div class="cell-main">
                 <div class="cell-name">{{ slotName(dateYmd, h, r.id) }}</div>
@@ -50,7 +50,8 @@ import { computed } from 'vue';
 const props = defineProps({
   officeGrid: { type: Object, default: null },
   todayYmd: { type: String, default: null },
-  canBook: { type: Boolean, default: false }
+  canBook: { type: Boolean, default: false },
+  selectedKeys: { type: Array, default: () => [] }
 });
 
 const emit = defineEmits(['cell-click']);
@@ -97,6 +98,7 @@ const roomLabel = (r) => {
 };
 
 const slotKey = (dateYmd, hour, roomId) => `${String(dateYmd).slice(0, 10)}|${Number(hour)}|${Number(roomId)}`;
+const selectedKeySet = computed(() => new Set((props.selectedKeys || []).map((x) => String(x))));
 const slotsByKey = computed(() => {
   const m = new Map();
   const slots = Array.isArray(grid.value?.slots) ? grid.value.slots : [];
@@ -110,7 +112,7 @@ const getSlot = (dateYmd, hour, roomId) => slotsByKey.value.get(slotKey(dateYmd,
 
 const isRequestableState = (st) => st === 'open' || st === 'assigned_available';
 
-const onCellClick = (dateYmd, hour, roomId) => {
+const onCellClick = (dateYmd, hour, roomId, event = null) => {
   if (!props.canBook) return;
   const slot = getSlot(dateYmd, hour, roomId);
   emit('cell-click', {
@@ -118,6 +120,7 @@ const onCellClick = (dateYmd, hour, roomId) => {
     hour: Number(hour),
     roomId: Number(roomId),
     slot,
+    event,
     requestable: isRequestableState(String(slot?.state || ''))
   });
 };
@@ -163,7 +166,9 @@ const slotTitle = (dateYmd, hour, roomId) => {
 const slotClass = (dateYmd, hour, roomId) => {
   const s = getSlot(dateYmd, hour, roomId);
   const st = String(s?.state || '');
-  return st ? `state-${st}` : '';
+  const base = st ? `state-${st}` : '';
+  const key = slotKey(dateYmd, hour, roomId);
+  return selectedKeySet.value.has(key) ? `${base} selected` : base;
 };
 
 const dayGridStyle = computed(() => ({
@@ -199,6 +204,9 @@ const dayGridStyle = computed(() => ({
 }
 .cell.today {
   box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.16);
+}
+.cell.selected {
+  box-shadow: inset 0 0 0 2px rgba(37, 99, 235, 0.9);
 }
 
 .cell-main { display: flex; gap: 8px; align-items: center; justify-content: space-between; }
