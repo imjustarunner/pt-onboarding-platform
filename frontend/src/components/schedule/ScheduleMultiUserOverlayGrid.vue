@@ -21,7 +21,7 @@
             :class="{ on: showGoogleBusy }"
             role="switch"
             :aria-checked="String(!!showGoogleBusy)"
-            @click="showGoogleBusy = !showGoogleBusy"
+            @click="toggleGoogleBusy"
           >
             Google busy
           </button>
@@ -31,7 +31,7 @@
             :class="{ on: showGoogleEvents }"
             role="switch"
             :aria-checked="String(!!showGoogleEvents)"
-            @click="showGoogleEvents = !showGoogleEvents"
+            @click="toggleGoogleEvents"
             title="Shows event titles (sensitive)"
           >
             Google titles
@@ -156,6 +156,18 @@ const effectiveAgencyIds = computed(() => {
 
 const showGoogleBusy = ref(true);
 const showGoogleEvents = ref(false);
+
+const toggleGoogleBusy = () => {
+  const next = !showGoogleBusy.value;
+  showGoogleBusy.value = next;
+  if (next) showGoogleEvents.value = false;
+};
+
+const toggleGoogleEvents = () => {
+  const next = !showGoogleEvents.value;
+  showGoogleEvents.value = next;
+  if (next) showGoogleBusy.value = false;
+};
 
 const loading = ref(false);
 const error = ref('');

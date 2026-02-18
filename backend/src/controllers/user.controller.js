@@ -2165,8 +2165,10 @@ export const getUserScheduleSummary = async (req, res, next) => {
     const timeMinIso = `${weekStart}T00:00:00Z`;
     const timeMaxIso = `${weekEnd}T00:00:00Z`;
 
-    const includeGoogleBusy = String(req.query.includeGoogleBusy || '').toLowerCase() === 'true';
+    const includeGoogleBusyRequested = String(req.query.includeGoogleBusy || '').toLowerCase() === 'true';
     const includeGoogleEvents = String(req.query.includeGoogleEvents || '').toLowerCase() === 'true';
+    // Google overlays are mutually exclusive: titles mode wins when both are requested.
+    const includeGoogleBusy = includeGoogleBusyRequested && !includeGoogleEvents;
     const includeExternalBusy = String(req.query.includeExternalBusy || '').toLowerCase() === 'true';
     const externalCalendarIdsRaw = String(req.query.externalCalendarIds || '').trim();
     const externalCalendarIds = externalCalendarIdsRaw

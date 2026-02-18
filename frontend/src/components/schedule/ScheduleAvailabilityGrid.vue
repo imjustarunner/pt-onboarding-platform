@@ -58,7 +58,7 @@
             role="switch"
             :aria-checked="String(!!showGoogleBusy)"
             :disabled="loading"
-            @click="showGoogleBusy = !showGoogleBusy"
+            @click="toggleGoogleBusy"
             data-tour="my-schedule-google-busy-toggle"
           >
             Google busy
@@ -71,7 +71,7 @@
             role="switch"
             :aria-checked="String(!!showGoogleEvents)"
             :disabled="loading"
-            @click="showGoogleEvents = !showGoogleEvents"
+            @click="toggleGoogleEvents"
             title="Shows event titles (sensitive)"
             data-tour="my-schedule-google-titles-toggle"
           >
@@ -318,7 +318,7 @@
               v-if="canBookFromGrid"
               type="button"
               class="cell-plus-btn"
-              title="Add or edit schedule actions"
+              title="Add or edit this hour"
               @click.stop="openSlotActionModal({ dayName: d, hour: h, preserveSelectionRange: false })"
             >
               +
@@ -341,6 +341,7 @@
                 :title="b.title"
                 :style="cellBlockStyle(b)"
                 @click="onCellBlockClick($event, b, d, h)"
+                @dblclick="onCellBlockDoubleClick($event, b, d, h)"
               >
                 <span class="cell-block-text">{{ b.shortLabel }}</span>
               </div>
@@ -791,6 +792,31 @@
       </div>
     </div>
 
+    <div v-if="showStackDetailsModal" class="modal-backdrop" @click.self="closeStackDetailsModal">
+      <div class="modal" style="max-width: 560px;">
+        <div class="modal-head">
+          <div class="modal-title">{{ stackDetailsTitle }}</div>
+          <button class="btn btn-secondary btn-sm" type="button" @click="closeStackDetailsModal">Close</button>
+        </div>
+        <div class="modal-body">
+          <div v-if="!stackDetailsItems.length" class="muted">No overlapping details available for this block.</div>
+          <div v-else class="stack-details-list">
+            <button
+              v-for="item in stackDetailsItems"
+              :key="`stack-item-${item.id}`"
+              class="stack-details-item"
+              type="button"
+              :disabled="!item.link && !item.sessionId"
+              @click="openStackDetailsItem(item)"
+            >
+              <div class="stack-details-label">{{ item.label }}</div>
+              <div v-if="item.subLabel" class="stack-details-sub">{{ item.subLabel }}</div>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div v-if="showOfficeAssignModal" class="modal-backdrop" @click.self="closeOfficeAssignModal">
       <div class="modal">
         <div class="modal-head">
@@ -1092,6 +1118,24 @@ const toggleExternalCalendar = (id) => {
   selectedExternalCalendarIds.value = Array.from(cur.values());
 };
 
+const normalizeGoogleOverlayMode = (prefer = 'events') => {
+  if (!(showGoogleBusy.value && showGoogleEvents.value)) return;
+  if (prefer === 'busy') showGoogleEvents.value = false;
+  else showGoogleBusy.value = false;
+};
+
+const toggleGoogleBusy = () => {
+  const next = !showGoogleBusy.value;
+  showGoogleBusy.value = next;
+  if (next) showGoogleEvents.value = false;
+};
+
+const toggleGoogleEvents = () => {
+  const next = !showGoogleEvents.value;
+  showGoogleEvents.value = next;
+  if (next) showGoogleBusy.value = false;
+};
+
 const hideAllCalendars = () => {
   // Preserve the last visible configuration so "Show calendars" can restore it.
   lastCalendarPrefs.value = {
@@ -1111,6 +1155,7 @@ const showAllCalendars = () => {
   if (p) {
     showGoogleBusy.value = p.showGoogleBusy !== undefined ? !!p.showGoogleBusy : true;
     showGoogleEvents.value = p.showGoogleEvents !== undefined ? !!p.showGoogleEvents : false;
+    normalizeGoogleOverlayMode('events');
     showExternalBusy.value = p.showExternalBusy !== undefined ? !!p.showExternalBusy : true;
     selectedExternalCalendarIds.value = coerceIdArray(p.selectedExternalCalendarIds);
     // If the restored selection is empty, default to ALL externals so "show" actually shows something.
@@ -1168,6 +1213,7 @@ try {
       hadSavedOverlayPrefs = true;
       showGoogleBusy.value = saved.showGoogleBusy !== undefined ? !!saved.showGoogleBusy : true;
       showGoogleEvents.value = saved.showGoogleEvents !== undefined ? !!saved.showGoogleEvents : false;
+      normalizeGoogleOverlayMode('events');
       showExternalBusy.value = saved.showExternalBusy !== undefined ? !!saved.showExternalBusy : true;
       selectedExternalCalendarIds.value = coerceIdArray(saved.selectedExternalCalendarIds);
       hideWeekend.value = saved.hideWeekend !== undefined ? !!saved.hideWeekend : true;
@@ -1221,6 +1267,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   clearSupvMeetPolling();
+  clearGevtClickTimer();
   if (joinPromptTimer) {
     clearInterval(joinPromptTimer);
     joinPromptTimer = null;
@@ -2808,14 +2855,23 @@ const maybeAutoOpenSelectionActions = () => {
   openSlotActionModal(rows[0]);
 };
 
-const openSlotActionModal = ({ dayName, hour, roomId = 0, slot = null, dateYmd = null, preserveSelectionRange = true } = {}) => {
+const openSlotActionModal = ({
+  dayName,
+  hour,
+  roomId = 0,
+  slot = null,
+  dateYmd = null,
+  preserveSelectionRange = true,
+  initialRequestType = ''
+} = {}) => {
   if (!canBookFromGrid.value) return;
   modalDay.value = String(dayName);
   modalHour.value = Number(hour);
   // Default to a 1-hour range; clamp to end-of-grid.
   const nextEnd = Math.min(Number(hour) + 1, 22);
   modalEndHour.value = nextEnd > Number(hour) ? nextEnd : Number(hour) + 1;
-  requestType.value = 'office';
+  const normalizedInitialRequestType = String(initialRequestType || '').trim();
+  requestType.value = normalizedInitialRequestType || 'office';
   requestNotes.value = '';
   scheduleEventTitle.value = '';
   scheduleEventAllDay.value = false;
@@ -2836,7 +2892,7 @@ const openSlotActionModal = ({ dayName, hour, roomId = 0, slot = null, dateYmd =
   } else if (!selectedActionAgencyId.value || !effectiveAgencyIds.value.includes(Number(selectedActionAgencyId.value))) {
     selectedActionAgencyId.value = Number(effectiveAgencyIds.value[0] || 0) || 0;
   }
-  if (String(modalContext.value.slotState || '').toUpperCase() === 'ASSIGNED_BOOKED') {
+  if (!normalizedInitialRequestType && String(modalContext.value.slotState || '').toUpperCase() === 'ASSIGNED_BOOKED') {
     requestType.value = 'booked_note';
   }
   // If user selected a contiguous range on one day, use it as the default modal duration.
@@ -2933,7 +2989,6 @@ const onCellClick = (dayName, hour, event = null, options = {}) => {
   }
   selectedActionSlots.value = [item];
   lastSelectedActionKey.value = item.key;
-  openSlotActionModal({ ...item, preserveSelectionRange: false });
 };
 
 const onCellMouseDown = (dayName, hour, event = null) => {
@@ -4195,37 +4250,190 @@ const cancelSupvSession = async () => {
 
 const onCellBlockClick = (e, block, dayName, hour) => {
   const kind = String(block?.kind || '');
+  e?.preventDefault?.();
+  e?.stopPropagation?.();
+  const stackDetails = buildStackDetailsForBlock(block, dayName, hour);
+  if (stackDetails) {
+    openStackDetailsModal(stackDetails);
+    return;
+  }
   if (kind === 'gevt') {
     const blockText = `${String(block?.shortLabel || '')} ${String(block?.title || '')}`.toLowerCase();
-    const looksLikeSupervision = blockText.includes('supervision') || blockText.includes('practice support');
-    if (looksLikeSupervision && hasSupervision(dayName, hour)) {
-      e?.preventDefault?.();
-      e?.stopPropagation?.();
-      openSupvModal(dayName, hour);
+    const looksLikeSupervision =
+      blockText.includes('supervision') ||
+      blockText.includes('practice support') ||
+      blockText.includes('google meet') ||
+      blockText.includes('meet');
+    const hasMeetSessionInCell = supervisionSessionsInCell(dayName, hour)
+      .some((s) => String(s?.googleMeetLink || '').trim());
+    const shouldRouteToSupv = looksLikeSupervision || hasMeetSessionInCell;
+    if (shouldRouteToSupv) {
+      clearGevtClickTimer();
+      gevtClickTimer.value = window.setTimeout(() => {
+        openSupvModal(dayName, hour);
+        gevtClickTimer.value = null;
+      }, 240);
       return;
     }
     const link = String(block?.link || '').trim();
     if (!link) return;
-    e?.preventDefault?.();
-    e?.stopPropagation?.();
     window.open(link, '_blank', 'noreferrer');
     return;
   }
   if (kind === 'supv') {
-    e?.preventDefault?.();
-    e?.stopPropagation?.();
     openSupvModal(dayName, hour);
     return;
   }
-  if (!['oa', 'ot', 'ob', 'intake-ip', 'intake-vi'].includes(kind)) return;
+  const top = officeTopEvent(dayName, hour) || null;
+  if (['oa', 'ot', 'ob', 'intake-ip', 'intake-vi'].includes(kind)) {
+    const slotState = String(top?.slotState || '').toUpperCase();
+    const initialRequestType = slotState === 'ASSIGNED_BOOKED' ? 'booked_note' : 'forfeit_slot';
+    openSlotActionModal({
+      dayName,
+      hour,
+      roomId: Number(top?.roomId || 0) || 0,
+      dateYmd: addDaysYmd(weekStart.value, ALL_DAYS.indexOf(String(dayName || ''))),
+      slot: top,
+      preserveSelectionRange: false,
+      initialRequestType
+    });
+    return;
+  }
+  if (kind === 'school') {
+    openSlotActionModal({
+      dayName,
+      hour,
+      preserveSelectionRange: false,
+      initialRequestType: 'school'
+    });
+    return;
+  }
+  if (kind === 'request') {
+    openSlotActionModal({
+      dayName,
+      hour,
+      preserveSelectionRange: false,
+      initialRequestType: 'office_request_only'
+    });
+  }
+};
+
+const gevtClickTimer = ref(null);
+const clearGevtClickTimer = () => {
+  if (gevtClickTimer.value) {
+    clearTimeout(gevtClickTimer.value);
+    gevtClickTimer.value = null;
+  }
+};
+
+const showStackDetailsModal = ref(false);
+const stackDetailsTitle = ref('');
+const stackDetailsItems = ref([]);
+const closeStackDetailsModal = () => {
+  showStackDetailsModal.value = false;
+  stackDetailsTitle.value = '';
+  stackDetailsItems.value = [];
+};
+const openStackDetailsModal = ({ title = '', items = [] } = {}) => {
+  stackDetailsTitle.value = String(title || '').trim() || 'Overlapping items';
+  stackDetailsItems.value = Array.isArray(items) ? items : [];
+  showStackDetailsModal.value = true;
+};
+
+const formatRangeFromRaw = (startAt, endAt) => {
+  const st = parseMaybeDate(startAt);
+  const en = parseMaybeDate(endAt);
+  if (!st || !en) return '';
+  const sLabel = st.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const eLabel = en.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  return `${sLabel}-${eLabel}`;
+};
+
+const buildStackDetailsForBlock = (block, dayName, hour) => {
+  const kind = String(block?.kind || '');
+  if (kind === 'supv') {
+    const sessions = supervisionSessionsInCell(dayName, hour);
+    if (sessions.length <= 1) return null;
+    return {
+      title: `Supervision sessions — ${dayName} ${hourLabel(hour)}`,
+      items: sessions.map((s) => ({
+        id: `supv-${Number(s?.id || 0)}`,
+        label: String(s?.counterpartyName || '').trim() || `Session ${Number(s?.id || 0)}`,
+        subLabel: formatRangeFromRaw(s?.startAt, s?.endAt),
+        sessionId: Number(s?.id || 0),
+        dayName,
+        hour
+      }))
+    };
+  }
+  if (kind === 'school') {
+    const names = schoolNamesInCell(dayName, hour);
+    if (names.length <= 1) return null;
+    return {
+      title: `School assignments — ${dayName} ${hourLabel(hour)}`,
+      items: names.map((name, idx) => ({
+        id: `school-${idx}`,
+        label: String(name || '').trim(),
+        subLabel: ''
+      }))
+    };
+  }
+  if (kind === 'gevt' || kind === 'more') {
+    const events = googleEventsInCell(dayName, hour);
+    const titleText = String(block?.title || '').toLowerCase();
+    const isGoogleOverflow = kind === 'gevt' || titleText.includes('google event');
+    if (!isGoogleOverflow || events.length <= 1) return null;
+    return {
+      title: `Google events — ${dayName} ${hourLabel(hour)}`,
+      items: events.map((ev, idx) => ({
+        id: `gevt-${String(ev?.id || idx)}`,
+        label: String(ev?.summary || '').trim() || 'Google event',
+        subLabel: formatRangeFromRaw(ev?.startAt, ev?.endAt),
+        link: String(ev?.htmlLink || '').trim() || ''
+      }))
+    };
+  }
+  if (kind === 'ebusy') {
+    const labels = externalBusyLabels(dayName, hour);
+    if (labels.length <= 1) return null;
+    return {
+      title: `EHR busy sources — ${dayName} ${hourLabel(hour)}`,
+      items: labels.map((label, idx) => ({
+        id: `ebusy-${idx}`,
+        label: String(label || '').trim(),
+        subLabel: ''
+      }))
+    };
+  }
+  return null;
+};
+
+const openStackDetailsItem = (item) => {
+  const link = String(item?.link || '').trim();
+  if (link) {
+    window.open(link, '_blank', 'noreferrer');
+    return;
+  }
+  const sessionId = Number(item?.sessionId || 0);
+  if (sessionId > 0) {
+    closeStackDetailsModal();
+    openSupvModal(String(item?.dayName || ''), Number(item?.hour || 0));
+    selectedSupvSessionId.value = sessionId;
+  }
+};
+
+const onCellBlockDoubleClick = (e, block, dayName, hour) => {
+  const kind = String(block?.kind || '');
+  if (kind !== 'gevt') return;
+  const hasMeetSessionInCell = supervisionSessionsInCell(dayName, hour)
+    .some((s) => String(s?.googleMeetLink || '').trim());
+  if (!hasMeetSessionInCell) return;
+  const link = String(block?.link || '').trim();
+  if (!link) return;
   e?.preventDefault?.();
   e?.stopPropagation?.();
-  const top = officeTopEvent(dayName, hour) || null;
-  onCellClick(dayName, hour, e, {
-    roomId: Number(top?.roomId || 0) || 0,
-    dateYmd: addDaysYmd(weekStart.value, ALL_DAYS.indexOf(String(dayName || ''))),
-    slot: top
-  });
+  clearGevtClickTimer();
+  window.open(link, '_blank', 'noreferrer');
 };
 
 watch(modalHour, () => {
@@ -4689,6 +4897,33 @@ watch(modalHour, () => {
   display: inline-flex;
   gap: 8px;
   flex: 0 0 auto;
+}
+.stack-details-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.stack-details-item {
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--border);
+  background: #fff;
+  border-radius: 10px;
+  padding: 10px;
+  cursor: pointer;
+}
+.stack-details-item:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+.stack-details-label {
+  font-weight: 800;
+  color: var(--text-primary);
+}
+.stack-details-sub {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 .cell-blocks {
   display: flex;
