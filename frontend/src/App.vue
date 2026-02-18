@@ -56,6 +56,16 @@
               <router-link :to="myDashboardTo" @click="(e) => { onMyDashboardClick(e); closeMobileMenu(); }">
                 {{ isPrivilegedPortalUser ? 'My Dashboard' : 'Dashboard' }}
               </router-link>
+              <router-link
+                v-for="portal in portalQuickLinks"
+                :key="`top-portal-${portal.id}`"
+                :to="portal.to"
+                class="nav-portal-link"
+                :title="`Open ${portal.name}`"
+                @click="openPortalQuickLink(portal)"
+              >
+                {{ portal.shortTitle }}
+              </router-link>
               <!-- Minimal top-nav for non-admin users with limited access -->
               <router-link
                 v-if="canSeeApplicantsTopNavLink"
@@ -347,6 +357,16 @@
             <router-link v-if="showOnDemandLink" :to="orgTo('/on-demand-training')" @click="closeMobileMenu" class="mobile-nav-link">On-Demand Training</router-link>
             <router-link :to="myDashboardTo" @click="(e) => { onMyDashboardClick(e); closeMobileMenu(); }" class="mobile-nav-link">
               {{ isPrivilegedPortalUser ? 'My Dashboard' : 'Dashboard' }}
+            </router-link>
+            <router-link
+              v-for="portal in portalQuickLinks"
+              :key="`mobile-portal-${portal.id}`"
+              :to="portal.to"
+              class="mobile-nav-link"
+              :title="`Open ${portal.name}`"
+              @click="openPortalQuickLink(portal)"
+            >
+              {{ portal.shortTitle }}
             </router-link>
             <router-link
               v-if="canSeeApplicantsTopNavLink"
@@ -700,6 +720,44 @@ const canSwitchBrand = computed(() => {
   const list = (agencyStore.userAgencies || []).filter((a) => String(a.organization_type || 'agency').toLowerCase() === 'agency');
   return list.length > 1;
 });
+
+const isAgencyOrgType = (org) => String(org?.organization_type || org?.organizationType || 'agency').toLowerCase() === 'agency';
+const portalQuickLinks = computed(() => {
+  const list = Array.isArray(agencyStore.userAgencies) ? agencyStore.userAgencies : [];
+  return list
+    .filter((org) => !isAgencyOrgType(org))
+    .map((org) => {
+      const slug = String(org?.slug || org?.portal_url || org?.portalUrl || '').trim();
+      if (!slug) return null;
+      const shortTitle = String(
+        org?.portal_short_title ||
+        org?.portalShortTitle ||
+        org?.short_title ||
+        org?.shortTitle ||
+        org?.portal_url ||
+        org?.portalUrl ||
+        org?.slug ||
+        org?.name ||
+        'Portal'
+      ).trim();
+      return {
+        id: Number(org?.id || 0) || slug,
+        name: String(org?.name || shortTitle || 'Portal').trim(),
+        shortTitle,
+        to: `/${slug}/dashboard`,
+        org
+      };
+    })
+    .filter(Boolean);
+});
+
+const openPortalQuickLink = (portal) => {
+  closeAllNavMenus();
+  closeMobileMenu();
+  if (portal?.org) {
+    agencyStore.setCurrentAgency(portal.org);
+  }
+};
 
 const brandAgencies = computed(() => {
   const list = brandingStore.isSuperAdmin ? (agencyStore.agencies || []) : (agencyStore.userAgencies || []);
