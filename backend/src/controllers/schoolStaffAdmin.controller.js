@@ -1,5 +1,4 @@
 import pool from '../config/database.js';
-import config from '../config/config.js';
 import Agency from '../models/Agency.model.js';
 import User from '../models/User.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
@@ -300,7 +299,7 @@ export const createSchoolStaffUserFromContact = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Invalid id' } });
     }
 
-    const org = await assertManageableSchoolOrg(req, orgId);
+    await assertManageableSchoolOrg(req, orgId);
 
     let contact = null;
     try {
@@ -319,6 +318,16 @@ export const createSchoolStaffUserFromContact = async (req, res, next) => {
 
     const email = normalizeEmail(contact.email);
     if (!email) return res.status(400).json({ error: { message: 'Contact must have a valid email to create an account' } });
+    const temporaryPassword = String(req.body?.temporaryPassword || '').trim();
+    if (!temporaryPassword) {
+      return res.status(400).json({ error: { message: 'Temporary password is required' } });
+    }
+    if (temporaryPassword.length < 6) {
+      return res.status(400).json({ error: { message: 'Temporary password must be at least 6 characters' } });
+    }
+    if (temporaryPassword.length > 128) {
+      return res.status(400).json({ error: { message: 'Temporary password must be 128 characters or less' } });
+    }
 
     // If the user exists, it must already be a school_staff user.
     const existing = await User.findByEmail(email);
@@ -366,13 +375,8 @@ export const createSchoolStaffUserFromContact = async (req, res, next) => {
     // Ensure membership exists.
     await User.assignToAgency(user.id, orgId);
 
-    // Create passwordless setup link (48 hours).
-    const passwordlessTokenResult = await User.generatePasswordlessToken(user.id, 48);
-    const frontendBase = String(config?.frontendUrl || process.env.FRONTEND_URL || '').replace(/\/$/, '');
-    const portalSlug = String(org.portal_url || org.slug || '').trim();
-    const setupLink = portalSlug
-      ? `${frontendBase}/${portalSlug}/passwordless-login/${passwordlessTokenResult.token}`
-      : `${frontendBase}/passwordless-login/${passwordlessTokenResult.token}`;
+    // School-specific setup: admin provides temporary password, valid for 7 days.
+    const temporaryPasswordResult = await User.setTemporaryPassword(user.id, temporaryPassword, 24 * 7);
 
     res.status(201).json({
       ok: true,
@@ -384,7 +388,7 @@ export const createSchoolStaffUserFromContact = async (req, res, next) => {
         role: user.role,
         status: user.status
       },
-      setupLink
+      temporaryPasswordExpiresAt: temporaryPasswordResult?.expiresAt || null
     });
   } catch (error) {
     next(error);

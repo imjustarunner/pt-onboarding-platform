@@ -1151,7 +1151,7 @@
                             @click="createSchoolStaffUserForContact(c)"
                             :disabled="creatingSchoolStaffUserContactId === c.id"
                           >
-                            {{ creatingSchoolStaffUserContactId === c.id ? 'Creating…' : 'Create user' }}
+                            {{ creatingSchoolStaffUserContactId === c.id ? 'Creating…' : 'Create user + temp password' }}
                           </button>
                           <button
                             v-else-if="c.email && schoolStaffUsersByEmail[String(c.email || '').trim().toLowerCase()]"
@@ -5106,20 +5106,25 @@ const createSchoolStaffUserForContact = async (c) => {
     alert('This contact needs an email to create a user account.');
     return;
   }
+  const temporaryPassword = window.prompt(
+    'Enter a temporary password for this school staff account. It will expire in 7 days.'
+  );
+  if (temporaryPassword === null) return;
+  const trimmedPassword = String(temporaryPassword || '').trim();
+  if (!trimmedPassword) {
+    alert('Temporary password is required.');
+    return;
+  }
+  if (trimmedPassword.length < 6) {
+    alert('Temporary password must be at least 6 characters.');
+    return;
+  }
   try {
     creatingSchoolStaffUserContactId.value = c.id;
-    const res = await api.post(`/agencies/${editingAgency.value.id}/school-contacts/${c.id}/create-user`);
-    const setupLink = res?.data?.setupLink || '';
-    if (setupLink) {
-      try {
-        await navigator.clipboard.writeText(setupLink);
-        alert('School staff user created. Setup link copied to clipboard.');
-      } catch {
-        alert(`School staff user created. Setup link:\n\n${setupLink}`);
-      }
-    } else {
-      alert('School staff user created.');
-    }
+    await api.post(`/agencies/${editingAgency.value.id}/school-contacts/${c.id}/create-user`, {
+      temporaryPassword: trimmedPassword
+    });
+    alert('School staff user created. Temporary password is active for 7 days; user will set a new password after login.');
     await loadSchoolStaffUsers();
   } catch (e) {
     alert(e.response?.data?.error?.message || 'Failed to create user account');
