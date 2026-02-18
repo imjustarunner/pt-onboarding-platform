@@ -1556,11 +1556,13 @@ export const updateUser = async (req, res, next) => {
       }
     }
 
-    // Supervisors, CPAs, and provider_plus can only view, not edit
-    // Check if requesting user is a supervisor using boolean as source of truth
+    // Supervisors, CPAs, and provider_plus can only view, not edit.
+    // Backoffice roles keep edit access even if they also hold supervisor privileges.
     const requestingUser = await User.findById(req.user.id);
+    const requestingUserRole = String(requestingUser?.role || req.user.role || '').toLowerCase();
     const isSupervisor = requestingUser && User.isSupervisor(requestingUser);
-    if (isSupervisor || req.user.role === 'clinical_practice_assistant' || req.user.role === 'provider_plus') {
+    const isBackofficeActor = requestingUserRole === 'admin' || requestingUserRole === 'super_admin' || requestingUserRole === 'support';
+    if (!isBackofficeActor && (isSupervisor || requestingUserRole === 'clinical_practice_assistant' || requestingUserRole === 'provider_plus')) {
       return res.status(403).json({ error: { message: 'Supervisors and Provider Plus users have view-only access' } });
     }
     
