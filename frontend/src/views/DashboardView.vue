@@ -803,6 +803,7 @@ import SocialFeedsPanel from '../components/dashboard/SocialFeedsPanel.vue';
 import PresenceStatusWidget from '../components/dashboard/PresenceStatusWidget.vue';
 import { isSupervisor } from '../utils/helpers.js';
 import { getDashboardRailCardDescriptors } from '../tutorial/tours/dashboard.tour';
+import { toUploadsUrl } from '../utils/uploadsUrl';
 
 const props = defineProps({
   previewMode: {
@@ -1476,6 +1477,63 @@ const canAccessToolsAids = computed(() => {
   return ['admin', 'super_admin', 'support', 'provider', 'staff', 'clinical_practice_assistant', 'provider_plus'].includes(role);
 });
 
+const isAgencyOrgType = (org) => String(org?.organization_type || org?.organizationType || 'agency').toLowerCase() === 'agency';
+const portalShortTitle = (org) => {
+  return String(
+    org?.portal_short_title ||
+      org?.portalShortTitle ||
+      org?.short_title ||
+      org?.shortTitle ||
+      org?.portal_url ||
+      org?.portalUrl ||
+      org?.slug ||
+      org?.name ||
+      'Portal'
+  ).trim();
+};
+const portalLogoUrl = (org) => {
+  const candidates = [
+    org?.logo_path,
+    org?.logoPath,
+    org?.icon_file_path,
+    org?.iconFilePath,
+    org?.logo_url,
+    org?.logoUrl,
+    org?.icon_url,
+    org?.iconUrl
+  ];
+  const raw = candidates.find((v) => String(v || '').trim());
+  if (!raw) return null;
+  const value = String(raw).trim();
+  if (value.startsWith('http://') || value.startsWith('https://')) return value;
+  if (value.startsWith('/uploads/') || value.startsWith('uploads/')) return toUploadsUrl(value);
+  return value;
+};
+const providerPortalCards = computed(() => {
+  const list = Array.isArray(agencyStore.userAgencies) ? agencyStore.userAgencies : [];
+  return list
+    .filter((org) => !isAgencyOrgType(org))
+    .map((org) => {
+      const slug = String(org?.slug || org?.portal_url || org?.portalUrl || '').trim();
+      if (!slug) return null;
+      const label = portalShortTitle(org);
+      return {
+        id: `portal_org_${String(org?.id || slug)}`,
+        label,
+        kind: 'link',
+        to: `/${slug}/dashboard`,
+        badgeCount: 0,
+        iconUrl:
+          portalLogoUrl(org) ||
+          brandingStore.getDashboardCardIconUrl('my_schedule', org) ||
+          brandingStore.getDashboardCardIconUrl('my', org) ||
+          brandingStore.getDashboardCardIconUrl('my_schedule'),
+        description: `Open ${String(org?.name || label)} portal.`
+      };
+    })
+    .filter(Boolean);
+});
+
 const dashboardCards = computed(() => {
   const u = authStore.user;
   const role = String(u?.role || '').toLowerCase();
@@ -1513,6 +1571,7 @@ const dashboardCards = computed(() => {
         iconUrl: brandingStore.getDashboardCardIconUrl('my_schedule', cardIconOrgOverride),
         description: 'View weekly schedule and request availability from the grid.'
       });
+      cards.push(...providerPortalCards.value);
 
       // Provider-only surfaces: hide these for limited-access non-provider users.
       if (!isLimitedAccessNonProvider) {
@@ -1674,6 +1733,8 @@ const railCards = computed(() => {
 
   const orderIndex = (id) => {
     const k = String(id || '');
+    if (hasMy && k.startsWith('portal_org_')) return 2;
+    if (!hasMy && k.startsWith('portal_org_')) return 4;
     // Stable rail order:
     // - If My Account exists (post-onboarding), keep it first and Checklist second.
     // - If My Account doesn't exist yet (during onboarding), Checklist stays first.
