@@ -411,7 +411,7 @@
               <div v-if="!providerSurfacesEnabled" class="hint" style="margin-top: 8px;">
                 Scheduling is disabled for this organization.
               </div>
-              <div v-else-if="!currentAgencyId" class="hint" style="margin-top: 8px;">
+              <div v-else-if="scheduleViewMode !== 'self' && !currentAgencyId" class="hint" style="margin-top: 8px;">
                 Select an organization to view your schedule.
               </div>
               <div
@@ -424,7 +424,7 @@
               <ScheduleAvailabilityGrid
                 v-else-if="authStore.user?.id && scheduleGridUserId"
                 :user-id="scheduleGridUserId"
-                :agency-id="Number(currentAgencyId)"
+                :agency-id="scheduleViewMode === 'self' ? null : Number(currentAgencyId)"
                 :mode="scheduleGridMode"
               />
             </div>
@@ -1050,9 +1050,33 @@ const respondToCompanyEvent = async (event, responseKey) => {
   }
 };
 
+const currentAgency = computed(() => agencyStore.currentAgency?.value || agencyStore.currentAgency || null);
+
 const currentAgencyId = computed(() => {
-  const a = agencyStore.currentAgency?.value || agencyStore.currentAgency;
-  return a?.id || null;
+  return currentAgency.value?.id || null;
+});
+
+const announcementAgencyId = computed(() => {
+  const org = currentAgency.value;
+  if (!org) return null;
+
+  const orgType = String(org.organization_type || org.organizationType || 'agency').toLowerCase();
+  const parentFromCurrent = Number(org.affiliated_agency_id || org.affiliatedAgencyId || 0);
+  if (['school', 'program', 'learning', 'clinical'].includes(orgType) && parentFromCurrent > 0) {
+    return parentFromCurrent;
+  }
+
+  // Fallback: sometimes currentAgency is a partial record; try matching against loaded user organizations.
+  const orgId = Number(org.id || 0);
+  if (orgId > 0) {
+    const match = (agencyStore.userAgencies || []).find((item) => Number(item?.id || 0) === orgId);
+    const parentFromList = Number(match?.affiliated_agency_id || match?.affiliatedAgencyId || 0);
+    if (['school', 'program', 'learning', 'clinical'].includes(orgType) && parentFromList > 0) {
+      return parentFromList;
+    }
+  }
+
+  return Number(org.id || 0) || null;
 });
 
 const supervisionPromptRows = ref([]);
@@ -1941,7 +1965,7 @@ const loadAgencyDashboardBanner = async () => {
     scheduledBannerItems.value = [];
     return;
   }
-  if (!currentAgencyId.value) {
+  if (!announcementAgencyId.value) {
     dashboardBanner.value = null;
     scheduledBannerItems.value = [];
     return;
@@ -1950,8 +1974,8 @@ const loadAgencyDashboardBanner = async () => {
     dashboardBannerLoading.value = true;
     dashboardBannerError.value = '';
     const [birthdayResp, scheduledResp] = await Promise.allSettled([
-      api.get(`/agencies/${currentAgencyId.value}/dashboard-banner`),
-      api.get(`/agencies/${currentAgencyId.value}/announcements/banner`)
+      api.get(`/agencies/${announcementAgencyId.value}/dashboard-banner`),
+      api.get(`/agencies/${announcementAgencyId.value}/announcements/banner`)
     ]);
 
     if (birthdayResp.status === 'fulfilled') {

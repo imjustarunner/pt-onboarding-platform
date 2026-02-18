@@ -199,6 +199,25 @@
             No EHR calendars connected for this provider.
           </div>
         </div>
+
+        <div v-if="agencyFilterOptions.length > 1" class="sched-org-filters">
+          <div class="sched-calendars-label">Organizations shown</div>
+          <div class="sched-calendars-actions">
+            <button type="button" class="sched-chip" :disabled="loading" @click="selectAllScheduleAgencies">All</button>
+          </div>
+          <button
+            v-for="opt in agencyFilterOptions"
+            :key="`org-chip-${opt.id}`"
+            type="button"
+            class="sched-chip"
+            :class="{ on: activeScheduleAgencyIdSet.has(Number(opt.id)) }"
+            :disabled="loading"
+            @click="toggleScheduleAgencyFilter(Number(opt.id))"
+            :title="activeScheduleAgencyIdSet.has(Number(opt.id)) ? 'Hide organization from schedule' : 'Show organization in schedule'"
+          >
+            {{ opt.label }}
+          </button>
+        </div>
       </div>
     </div>
 
@@ -288,7 +307,7 @@
             class="sched-cell"
             :class="{ clickable: canBookFromGrid, 'sched-cell-today': isTodayDay(d), 'sched-cell-selected': isActionCellSelected(d, h) }"
             @mousedown.left.prevent="onCellMouseDown(d, h, $event)"
-            @mouseenter="onCellMouseEnter(d, h)"
+            @mouseenter="onCellMouseEnter(d, h, $event)"
             @click="onCellClick(d, h, $event)"
             role="button"
             :tabindex="0"
@@ -489,6 +508,18 @@
             style="margin-top: 10px;"
           >
             {{ intakeActionHelpText }}
+          </div>
+
+          <div v-if="actionAgencyOptions.length > 1" style="margin-top: 10px;">
+            <label class="lbl">Organization for this action</label>
+            <select v-model.number="selectedActionAgencyId" class="input">
+              <option v-for="opt in actionAgencyOptions" :key="`action-agency-${opt.id}`" :value="Number(opt.id)">
+                {{ opt.label }}
+              </option>
+            </select>
+            <div class="muted" style="margin-top: 6px; font-size: 12px;">
+              Schedule view can include multiple organizations; this chooses where the new item is created.
+            </div>
           </div>
 
           <div v-if="isScheduleEventRequestType" style="margin-top: 10px;">
@@ -1087,6 +1118,34 @@ const viewModeOptions = [
   { id: 'office_layout', label: 'Office layout' }
 ];
 
+const loadSelfScheduleAgencies = async () => {
+  if (props.mode !== 'self') {
+    selfScheduleAgencyOptions.value = [];
+    selfScheduleAgenciesLoaded.value = true;
+    return;
+  }
+  try {
+    const resp = await api.get('/users/me/agencies');
+    const rows = Array.isArray(resp?.data) ? resp.data : [];
+    const deduped = [];
+    const seen = new Set();
+    for (const row of rows) {
+      const id = Number(row?.id || 0);
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      deduped.push({
+        id,
+        name: String(row?.name || row?.agency_name || `Agency ${id}`).trim()
+      });
+    }
+    selfScheduleAgencyOptions.value = deduped;
+  } catch {
+    selfScheduleAgencyOptions.value = [];
+  } finally {
+    selfScheduleAgenciesLoaded.value = true;
+  }
+};
+
 // Load persisted overlay prefs once (provider view only).
 let hadSavedOverlayPrefs = false;
 try {
@@ -1128,10 +1187,12 @@ onMounted(() => {
       /* ignore */
     }
   }
+  void loadSelfScheduleAgencies();
   const handleMouseUp = () => {
     const wasDragging = isCellDragSelecting.value;
     isCellDragSelecting.value = false;
     dragAnchorSlot.value = null;
+    mouseDownCellKey.value = '';
     if (wasDragging) {
       maybeAutoOpenSelectionActions();
       suppressClickAfterDrag.value = false;
@@ -1267,14 +1328,14 @@ const onOfficeLayoutCellClick = ({ dateYmd, hour, roomId, slot, event }) => {
   onCellClick(dn, Number(hour), event, { dateYmd, roomId, slot });
 };
 
-const effectiveAgencyId = computed(() => {
+const propAgencyId = computed(() => {
   const n = Number(props.agencyId || 0);
   return Number.isFinite(n) && n > 0 ? n : null;
 });
 
-const effectiveAgencyIds = computed(() => {
+const propAgencyIds = computed(() => {
   const fromList = Array.isArray(props.agencyIds) ? props.agencyIds : null;
-  const ids = (fromList && fromList.length ? fromList : (effectiveAgencyId.value ? [effectiveAgencyId.value] : []))
+  const ids = (fromList && fromList.length ? fromList : (propAgencyId.value ? [propAgencyId.value] : []))
     .map((x) => Number(x))
     .filter((n) => Number.isFinite(n) && n > 0);
   // De-dupe while preserving order
@@ -1288,15 +1349,74 @@ const effectiveAgencyIds = computed(() => {
   return out;
 });
 
+const selfScheduleAgencyOptions = ref([]);
+const activeScheduleAgencyIds = ref([]);
+const selectedActionAgencyId = ref(0);
+const selfScheduleAgenciesLoaded = ref(false);
+
+const isAdminMode = computed(() => props.mode === 'admin');
+
 const agencyLabel = (agencyId) => {
   const id = Number(agencyId || 0);
   if (!id) return '';
+  const local = (selfScheduleAgencyOptions.value || []).find((row) => Number(row?.id || 0) === id);
+  if (local?.name) return String(local.name);
   const map = props.agencyLabelById && typeof props.agencyLabelById === 'object' ? props.agencyLabelById : null;
   const label = map ? map[String(id)] || map[id] : '';
   return String(label || '').trim();
 };
 
-const isAdminMode = computed(() => props.mode === 'admin');
+const agencyFilterOptions = computed(() => {
+  if (props.mode === 'self' && (selfScheduleAgencyOptions.value || []).length) {
+    return selfScheduleAgencyOptions.value
+      .map((row) => ({ id: Number(row.id), label: String(row.name || `Agency ${row.id}`) }))
+      .filter((row) => Number.isFinite(row.id) && row.id > 0);
+  }
+  return propAgencyIds.value.map((id) => ({ id: Number(id), label: agencyLabel(id) || `Agency ${id}` }));
+});
+
+const actionAgencyOptions = computed(() => {
+  const active = new Set((activeScheduleAgencyIds.value || []).map((n) => Number(n || 0)).filter((n) => n > 0));
+  const rows = agencyFilterOptions.value.filter((row) => active.has(Number(row.id)));
+  return rows.length ? rows : agencyFilterOptions.value;
+});
+
+const activeScheduleAgencyIdSet = computed(
+  () => new Set((activeScheduleAgencyIds.value || []).map((n) => Number(n || 0)).filter((n) => n > 0))
+);
+
+const effectiveAgencyIds = computed(() => {
+  if (props.mode === 'self' && agencyFilterOptions.value.length) {
+    const active = (activeScheduleAgencyIds.value || []).map((n) => Number(n || 0)).filter((n) => n > 0);
+    if (active.length) return Array.from(new Set(active));
+    return agencyFilterOptions.value.map((row) => Number(row.id));
+  }
+  return propAgencyIds.value;
+});
+
+const effectiveAgencyId = computed(() => {
+  const selected = Number(selectedActionAgencyId.value || 0);
+  if (selected && effectiveAgencyIds.value.includes(selected)) return selected;
+  return Number(effectiveAgencyIds.value[0] || 0) || null;
+});
+
+const selectAllScheduleAgencies = () => {
+  activeScheduleAgencyIds.value = agencyFilterOptions.value.map((row) => Number(row.id));
+};
+
+const toggleScheduleAgencyFilter = (agencyId) => {
+  const id = Number(agencyId || 0);
+  if (!id) return;
+  const next = new Set((activeScheduleAgencyIds.value || []).map((n) => Number(n || 0)).filter((n) => n > 0));
+  if (next.has(id)) {
+    // Keep at least one active organization visible.
+    if (next.size <= 1) return;
+    next.delete(id);
+  } else {
+    next.add(id);
+  }
+  activeScheduleAgencyIds.value = Array.from(next.values());
+};
 const canManageOffices = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
   return ['clinical_practice_assistant', 'admin', 'super_admin', 'superadmin', 'support', 'staff'].includes(role);
@@ -1340,8 +1460,15 @@ const isGoogleInvalidGrant = (msg) => String(msg || '').toLowerCase().includes('
 const load = async () => {
   if (!props.userId) return;
   if (!effectiveAgencyIds.value.length) {
+    if (props.mode === 'self' && !selfScheduleAgenciesLoaded.value) {
+      error.value = '';
+      summary.value = null;
+      return;
+    }
     summary.value = null;
-    error.value = 'Select an organization first.';
+    error.value = props.mode === 'self'
+      ? 'No organizations are attached to this account.'
+      : 'Select an organization first.';
     return;
   }
 
@@ -1466,6 +1593,27 @@ const load = async () => {
 
 watch([() => props.userId, effectiveAgencyIds], () => load(), { immediate: true });
 watch([showGoogleBusy, showGoogleEvents, showExternalBusy, selectedExternalCalendarIds], () => load(), { deep: true });
+
+watch([() => props.mode, () => props.userId], () => {
+  void loadSelfScheduleAgencies();
+}, { immediate: true });
+
+watch(agencyFilterOptions, (rows) => {
+  const availableIds = new Set((rows || []).map((row) => Number(row?.id || 0)).filter((n) => n > 0));
+  const currentActive = (activeScheduleAgencyIds.value || []).map((n) => Number(n || 0)).filter((n) => availableIds.has(n));
+  if (currentActive.length) {
+    activeScheduleAgencyIds.value = currentActive;
+  } else if (availableIds.size) {
+    activeScheduleAgencyIds.value = Array.from(availableIds.values());
+  } else {
+    activeScheduleAgencyIds.value = [];
+  }
+
+  const selected = Number(selectedActionAgencyId.value || 0);
+  if (!selected || !activeScheduleAgencyIds.value.includes(selected)) {
+    selectedActionAgencyId.value = Number(activeScheduleAgencyIds.value[0] || 0) || Number((rows || [])[0]?.id || 0) || 0;
+  }
+}, { immediate: true, deep: true });
 
 watch(
   () => props.weekStartYmd,
@@ -2029,6 +2177,7 @@ const isCellDragSelecting = ref(false);
 const dragAnchorSlot = ref(null);
 const suppressClickAfterDrag = ref(false);
 const lastAutoOpenedSelectionSignature = ref('');
+const mouseDownCellKey = ref('');
 const selectedActionKeys = computed(() => selectedActionSlots.value.map((x) => x.key));
 const selectedActionCount = computed(() => selectedActionSlots.value.length);
 const selectedActionKeySet = computed(() => new Set(selectedActionKeys.value));
@@ -2043,6 +2192,7 @@ const clearSelectedActionSlots = () => {
   dragAnchorSlot.value = null;
   suppressClickAfterDrag.value = false;
   lastAutoOpenedSelectionSignature.value = '';
+  mouseDownCellKey.value = '';
 };
 
 // ---- In-grid request creation (self mode) ----
@@ -2598,6 +2748,7 @@ const buildModalContext = ({ dayName, hour, roomId = 0, slot = null, dateYmd = n
     dayName: String(dayName),
     dateYmd: String(dateYmd || addDaysYmd(weekStart.value, ALL_DAYS.indexOf(String(dayName || '')))).slice(0, 10),
     hour: Number(hour),
+    agencyId: Number(slot?._agencyId || top?._agencyId || 0) || null,
     officeEventId: Number(slot?.eventId || slot?.officeEventId || top?.id || 0) || null,
     officeLocationId: Number(
       slot?.officeLocationId
@@ -2666,6 +2817,12 @@ const openSlotActionModal = ({ dayName, hour, roomId = 0, slot = null, dateYmd =
   selectedSupervisionParticipantId.value = 0;
   createSupervisionMeetLink.value = true;
   modalContext.value = buildModalContext({ dayName: modalDay.value, hour: modalHour.value, roomId, slot, dateYmd });
+  const contextAgencyId = Number(modalContext.value?.agencyId || 0);
+  if (contextAgencyId && effectiveAgencyIds.value.includes(contextAgencyId)) {
+    selectedActionAgencyId.value = contextAgencyId;
+  } else if (!selectedActionAgencyId.value || !effectiveAgencyIds.value.includes(Number(selectedActionAgencyId.value))) {
+    selectedActionAgencyId.value = Number(effectiveAgencyIds.value[0] || 0) || 0;
+  }
   if (String(modalContext.value.slotState || '').toUpperCase() === 'ASSIGNED_BOOKED') {
     requestType.value = 'booked_note';
   }
@@ -2778,15 +2935,16 @@ const onCellMouseDown = (dayName, hour, event = null) => {
     roomId: 0,
     slot: null
   };
-  isCellDragSelecting.value = true;
+  isCellDragSelecting.value = false;
   dragAnchorSlot.value = item;
-  selectedActionSlots.value = [item];
-  lastSelectedActionKey.value = item.key;
+  mouseDownCellKey.value = item.key;
+  suppressClickAfterDrag.value = false;
   lastAutoOpenedSelectionSignature.value = '';
 };
 
-const onCellMouseEnter = (dayName, hour) => {
-  if (!isCellDragSelecting.value || !dragAnchorSlot.value) return;
+const onCellMouseEnter = (dayName, hour, event = null) => {
+  if (!dragAnchorSlot.value) return;
+  if (Number(event?.buttons || 0) !== 1) return;
   const dateYmd = addDaysYmd(weekStart.value, ALL_DAYS.indexOf(String(dayName || '')));
   const current = {
     key: actionSlotKey({ dateYmd, hour, roomId: 0 }),
@@ -2796,6 +2954,12 @@ const onCellMouseEnter = (dayName, hour) => {
     roomId: 0,
     slot: null
   };
+  if (current.key === dragAnchorSlot.value.key) return;
+  if (!isCellDragSelecting.value) {
+    isCellDragSelecting.value = true;
+    selectedActionSlots.value = [dragAnchorSlot.value];
+    lastSelectedActionKey.value = dragAnchorSlot.value.key;
+  }
   selectedActionSlots.value = [dragAnchorSlot.value];
   lastSelectedActionKey.value = dragAnchorSlot.value.key;
   applyShiftSelection(current);
@@ -4274,6 +4438,15 @@ watch(modalHour, () => {
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+  padding-left: 6px;
+  border-left: 1px solid var(--border);
+}
+.sched-org-filters {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 8px;
   padding-left: 6px;
   border-left: 1px solid var(--border);
 }
