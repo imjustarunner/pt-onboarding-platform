@@ -2,6 +2,7 @@ import { body, validationResult } from 'express-validator';
 import User from '../models/User.model.js';
 import SupervisionSession from '../models/SupervisionSession.model.js';
 import SupervisionSessionArtifact from '../models/SupervisionSessionArtifact.model.js';
+import SupervisorAssignment from '../models/SupervisorAssignment.model.js';
 import GoogleCalendarService from '../services/googleCalendar.service.js';
 import PayrollRateCard from '../models/PayrollRateCard.model.js';
 import PayrollRate from '../models/PayrollRate.model.js';
@@ -321,6 +322,7 @@ async function resolveSupervisionPayForParticipant({
 export const listSupervisionProviderCandidates = async (req, res, next) => {
   try {
     const actorId = Number(req.user?.id || 0);
+    const role = String(req.user?.role || '').trim().toLowerCase();
     if (!actorId) return res.status(401).json({ error: { message: 'Not authenticated' } });
 
     const actorAgencies = await User.getAgencies(actorId);
@@ -335,6 +337,24 @@ export const listSupervisionProviderCandidates = async (req, res, next) => {
     const agencyId = requestedAgencyId > 0 ? requestedAgencyId : actorAgencyIds[0];
     if (!actorAgencyIds.includes(agencyId)) {
       return res.status(403).json({ error: { message: 'Access denied for this agency' } });
+    }
+
+    const isPrivilegedScheduler = ['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant'].includes(role);
+    if (!isPrivilegedScheduler) {
+      const assigned = await SupervisorAssignment.findBySupervisor(actorId, agencyId);
+      const deduped = new Map();
+      for (const row of (assigned || [])) {
+        const id = Number(row?.supervisee_id || 0);
+        if (!id || deduped.has(id)) continue;
+        deduped.set(id, {
+          id,
+          firstName: String(row?.supervisee_first_name || '').trim(),
+          lastName: String(row?.supervisee_last_name || '').trim(),
+          email: String(row?.supervisee_email || '').trim().toLowerCase(),
+          role: String(row?.supervisee_role || '').trim().toLowerCase()
+        });
+      }
+      return res.json({ ok: true, agencyId, providers: Array.from(deduped.values()) });
     }
 
     const [rows] = await pool.execute(

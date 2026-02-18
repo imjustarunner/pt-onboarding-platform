@@ -1011,7 +1011,7 @@
             <small v-else-if="userForm.role === 'admin' && user?.role !== 'super_admin' && user?.role !== 'admin'" class="form-help">Only super admins and admins can assign the admin role</small>
             <small v-else-if="userForm.role === 'support' && user?.role !== 'super_admin' && user?.role !== 'admin'" class="form-help">Only super admins and admins can assign the staff role</small>
           </div>
-          <div v-if="userForm.role === 'provider' || userForm.role === 'admin' || userForm.role === 'super_admin' || userForm.role === 'clinical_practice_assistant'" class="form-group">
+          <div v-if="userForm.role === 'provider' || userForm.role === 'admin' || userForm.role === 'super_admin' || userForm.role === 'clinical_practice_assistant' || userForm.role === 'provider_plus'" class="form-group">
             <label class="toggle-label">
               <span>Supervisor Privileges</span>
               <div class="toggle-switch">
@@ -2386,7 +2386,7 @@ const saveUser = async () => {
       }
       
       // Include supervisor privileges if user has eligible role
-      if (userForm.value.role === 'provider' || userForm.value.role === 'admin' || userForm.value.role === 'super_admin' || userForm.value.role === 'clinical_practice_assistant') {
+      if (userForm.value.role === 'provider' || userForm.value.role === 'admin' || userForm.value.role === 'super_admin' || userForm.value.role === 'clinical_practice_assistant' || userForm.value.role === 'provider_plus') {
         updateData.hasSupervisorPrivileges = Boolean(userForm.value.hasSupervisorPrivileges);
       }
       
@@ -2532,7 +2532,7 @@ const saveUser = async () => {
         }
         
         // Include supervisor privileges if user has eligible role
-        if (userForm.value.role === 'admin' || userForm.value.role === 'super_admin' || userForm.value.role === 'clinical_practice_assistant') {
+        if (userForm.value.role === 'provider' || userForm.value.role === 'admin' || userForm.value.role === 'super_admin' || userForm.value.role === 'clinical_practice_assistant' || userForm.value.role === 'provider_plus') {
           createData.hasSupervisorPrivileges = Boolean(userForm.value.hasSupervisorPrivileges);
         }
         

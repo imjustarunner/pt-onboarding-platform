@@ -2852,7 +2852,7 @@ const canToggleSupervisorPrivileges = computed(() => {
     return false;
   }
   // Supervisors are represented by this boolean; "provider + supervisor privileges" is the preferred model.
-  const eligibleRoles = ['provider', 'admin', 'super_admin', 'clinical_practice_assistant'];
+  const eligibleRoles = ['provider', 'admin', 'super_admin', 'clinical_practice_assistant', 'provider_plus'];
   return eligibleRoles.includes(role);
 });
 
@@ -2922,7 +2922,7 @@ const showPayrollAccessToggle = computed(() => {
 
 // Watch for role changes to reset supervisor privileges if role becomes ineligible
 watch(() => accountForm.value.role, (newRole) => {
-  const eligibleRoles = ['provider', 'admin', 'super_admin', 'clinical_practice_assistant'];
+  const eligibleRoles = ['provider', 'admin', 'super_admin', 'clinical_practice_assistant', 'provider_plus'];
   if (!eligibleRoles.includes(newRole)) {
     accountForm.value.hasSupervisorPrivileges = false;
   }
