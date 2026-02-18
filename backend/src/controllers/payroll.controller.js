@@ -2654,19 +2654,19 @@ export const getPayrollReportSupervisionConflicts = async (req, res, next) => {
     const [appRows] = await pool.execute(
       `SELECT
          ssar.user_id,
-         DATE_FORMAT(ss.start_time, '%Y-%m-%d') AS service_date,
+         DATE_FORMAT(ss.start_at, '%Y-%m-%d') AS service_date,
          LOWER(TRIM(COALESCE(ss.session_type, 'individual'))) AS session_type,
-         SUM(COALESCE(ssar.attended_minutes, 0)) AS attended_minutes,
+         SUM(COALESCE(ssar.total_seconds, 0)) / 60.0 AS attended_minutes,
          COUNT(*) AS attendance_row_count
        FROM supervision_session_attendance_rollups ssar
        JOIN supervision_sessions ss ON ss.id = ssar.session_id
        WHERE ss.agency_id = ?
          AND ssar.user_id IS NOT NULL
-         AND ss.start_time >= ?
-         AND ss.start_time < DATE_ADD(?, INTERVAL 1 DAY)
+         AND ss.start_at >= ?
+         AND ss.start_at < DATE_ADD(?, INTERVAL 1 DAY)
          ${providerIds.length ? ` AND ssar.user_id IN (${providerIds.map(() => '?').join(',')})` : ''}
-       GROUP BY ssar.user_id, DATE(ss.start_time), LOWER(TRIM(COALESCE(ss.session_type, 'individual')))
-       ORDER BY ss.start_time ASC, ssar.user_id ASC`,
+       GROUP BY ssar.user_id, DATE(ss.start_at), LOWER(TRIM(COALESCE(ss.session_type, 'individual')))
+       ORDER BY ss.start_at ASC, ssar.user_id ASC`,
       [
         period.agency_id,
         period.period_start,
@@ -3226,7 +3226,180 @@ async function recomputeSummaries({ payrollPeriodId, agencyId, periodStart, peri
   }
 }
 
-async function getEffectiveStagingAggregates(payrollPeriodId) {
+function isInternRole(roleRaw) {
+  return String(roleRaw || '').trim().toLowerCase() === 'intern';
+}
+
+function isProviderPlusRole(roleRaw) {
+  return String(roleRaw || '').trim().toLowerCase() === 'provider_plus';
+}
+
+function mapSupervisionServiceCodeForPayroll({ participantRole, sessionType, participantUserRole }) {
+  const role = String(participantRole || '').trim().toLowerCase();
+  const st = String(sessionType || 'individual').trim().toLowerCase();
+  if (role === 'supervisor') return '99415';
+  if (isProviderPlusRole(participantUserRole)) return '99415';
+  if (st === 'group' || st === 'triadic') return '99416';
+  return '99414';
+}
+
+function isSupervisionMeetingCode(codeRaw) {
+  const code = String(codeRaw || '').trim().toUpperCase();
+  return code === '99414' || code === '99415' || code === '99416';
+}
+
+async function buildResolvedSupervisionUnitsByUserCode({
+  payrollPeriodId,
+  agencyId,
+  periodStart,
+  periodEnd
+}) {
+  const payableClause = `(pir.note_status = 'FINALIZED' OR (pir.note_status = 'DRAFT' AND COALESCE(pir.draft_payable, 1) = 1))`;
+  const supervisionCodes = ['99414', '99415', '99416'];
+
+  // Legacy import (payable) by user/date/code.
+  const [legacyRows] = await pool.execute(
+    `SELECT
+       pir.user_id,
+       DATE_FORMAT(pir.service_date, '%Y-%m-%d') AS service_date,
+       UPPER(TRIM(pir.service_code)) AS service_code,
+       SUM(COALESCE(pir.unit_count, 0)) AS units_total
+     FROM payroll_import_rows pir
+     WHERE pir.payroll_period_id = ?
+       AND pir.agency_id = ?
+       AND pir.user_id IS NOT NULL
+       AND UPPER(TRIM(pir.service_code)) IN (${supervisionCodes.map(() => '?').join(',')})
+       AND ${payableClause}
+     GROUP BY pir.user_id, DATE(pir.service_date), UPPER(TRIM(pir.service_code))`,
+    [payrollPeriodId, agencyId, ...supervisionCodes]
+  );
+
+  // App attendance by user/date/session role/type.
+  const [appRows] = await pool.execute(
+    `SELECT
+       ssar.user_id,
+       DATE_FORMAT(ss.start_at, '%Y-%m-%d') AS service_date,
+       LOWER(TRIM(COALESCE(ss.session_type, 'individual'))) AS session_type,
+       LOWER(TRIM(COALESCE(ssa.participant_role,
+         CASE WHEN ssar.user_id = ss.supervisor_user_id THEN 'supervisor' ELSE 'supervisee' END
+       ))) AS participant_role,
+       LOWER(TRIM(COALESCE(u.role, ''))) AS participant_user_role,
+       SUM(COALESCE(ssar.total_seconds, 0)) AS total_seconds
+     FROM supervision_session_attendance_rollups ssar
+     JOIN supervision_sessions ss ON ss.id = ssar.session_id
+     LEFT JOIN supervision_session_attendees ssa
+       ON ssa.session_id = ssar.session_id
+      AND ssa.user_id = ssar.user_id
+     LEFT JOIN users u ON u.id = ssar.user_id
+     WHERE ss.agency_id = ?
+       AND ssar.user_id IS NOT NULL
+       AND (ss.status IS NULL OR UPPER(ss.status) <> 'CANCELLED')
+       AND ss.start_at >= ?
+       AND ss.start_at < DATE_ADD(?, INTERVAL 1 DAY)
+       AND COALESCE(ssar.total_seconds, 0) > 0
+     GROUP BY
+       ssar.user_id,
+       DATE(ss.start_at),
+       LOWER(TRIM(COALESCE(ss.session_type, 'individual'))),
+       LOWER(TRIM(COALESCE(ssa.participant_role,
+         CASE WHEN ssar.user_id = ss.supervisor_user_id THEN 'supervisor' ELSE 'supervisee' END
+       ))),
+       LOWER(TRIM(COALESCE(u.role, '')))` ,
+    [agencyId, String(periodStart || '').slice(0, 10), String(periodEnd || '').slice(0, 10)]
+  );
+
+  const appByUserDateCode = new Map();
+  for (const r of appRows || []) {
+    const uid = Number(r.user_id || 0);
+    const serviceDate = String(r.service_date || '').slice(0, 10);
+    if (!uid || !serviceDate) continue;
+    if (isInternRole(r.participant_user_role)) {
+      // Interns are never paid for supervision/practice-support meetings.
+      continue;
+    }
+    const serviceCode = mapSupervisionServiceCodeForPayroll({
+      participantRole: r.participant_role,
+      sessionType: r.session_type,
+      participantUserRole: r.participant_user_role
+    });
+    const minutes = Number(r.total_seconds || 0) / 60;
+    if (!(Number.isFinite(minutes) && minutes > 0)) continue;
+    const key = `${uid}:${serviceDate}:${serviceCode}`;
+    appByUserDateCode.set(key, (appByUserDateCode.get(key) || 0) + minutes);
+  }
+
+  const legacyByUserDateCode = new Map();
+  for (const r of legacyRows || []) {
+    const uid = Number(r.user_id || 0);
+    const serviceDate = String(r.service_date || '').slice(0, 10);
+    const serviceCode = String(r.service_code || '').trim().toUpperCase();
+    if (!uid || !serviceDate || !serviceCode) continue;
+    const key = `${uid}:${serviceDate}:${serviceCode}`;
+    legacyByUserDateCode.set(key, Number(r.units_total || 0));
+  }
+
+  const [resolutionRows] = await pool.execute(
+    `SELECT
+       user_id,
+       DATE_FORMAT(service_date, '%Y-%m-%d') AS service_date,
+       resolution
+     FROM payroll_supervision_conflict_resolutions
+     WHERE payroll_period_id = ?
+       AND agency_id = ?`,
+    [payrollPeriodId, agencyId]
+  );
+  const resolutionByUserDate = new Map(
+    (resolutionRows || []).map((r) => [
+      `${Number(r.user_id || 0)}:${String(r.service_date || '').slice(0, 10)}`,
+      String(r.resolution || '').trim().toLowerCase()
+    ])
+  );
+
+  const userDateHasApp = new Set();
+  const userDateHasLegacy = new Set();
+  for (const k of appByUserDateCode.keys()) {
+    const [uid, d] = String(k).split(':');
+    userDateHasApp.add(`${uid}:${d}`);
+  }
+  for (const k of legacyByUserDateCode.keys()) {
+    const [uid, d] = String(k).split(':');
+    userDateHasLegacy.add(`${uid}:${d}`);
+  }
+  const allUserDates = new Set([...userDateHasApp, ...userDateHasLegacy]);
+
+  // Selected source by user/date with backwards-compatible defaults.
+  // - unresolved mixed sources: keep legacy by default (runPayroll still blocks unresolved conflicts)
+  // - app-only dates: include app automatically
+  // - legacy-only dates: include legacy automatically
+  // - resolved dates: obey resolution
+  const selectedByUserDateCode = new Map();
+  for (const userDate of allUserDates) {
+    const [uid, d] = String(userDate).split(':');
+    const resolution = resolutionByUserDate.get(userDate) || null;
+    const hasApp = userDateHasApp.has(userDate);
+    const hasLegacy = userDateHasLegacy.has(userDate);
+    let source = null;
+    if (resolution === 'ignore') source = 'none';
+    else if (resolution === 'use_app_attendance') source = 'app';
+    else if (resolution === 'use_legacy_import') source = 'legacy';
+    else if (hasApp && !hasLegacy) source = 'app';
+    else source = 'legacy';
+
+    if (source === 'none') continue;
+    const sourceMap = source === 'app' ? appByUserDateCode : legacyByUserDateCode;
+    for (const code of supervisionCodes) {
+      const key = `${uid}:${d}:${code}`;
+      const units = Number(sourceMap.get(key) || 0);
+      if (!(Number.isFinite(units) && units > 0)) continue;
+      const userCodeKey = `${uid}:${code}`;
+      selectedByUserDateCode.set(userCodeKey, (selectedByUserDateCode.get(userCodeKey) || 0) + units);
+    }
+  }
+
+  return selectedByUserDateCode;
+}
+
+async function getEffectiveStagingAggregates(payrollPeriodId, { agencyId = null, periodStart = null, periodEnd = null } = {}) {
   const aggregates = await PayrollImportRow.listAggregatedForPeriod(payrollPeriodId);
   const overrides = await PayrollStagingOverride.listForPeriod(payrollPeriodId);
   const carryovers = await PayrollStageCarryover.listForPeriod(payrollPeriodId);
@@ -3308,11 +3481,71 @@ async function getEffectiveStagingAggregates(payrollPeriodId) {
       finalizedUnits: Number(eff.finalizedUnits || 0) + Number(carry.oldDoneNotesUnits || 0)
     });
   }
+  // Overlay supervision units from app attendance + conflict resolution while keeping
+  // legacy import logic in place for unresolved/legacy-selected dates.
+  if (agencyId && periodStart && periodEnd) {
+    try {
+      const supervisionCodes = new Set(['99414', '99415', '99416']);
+      const selectedByUserCode = await buildResolvedSupervisionUnitsByUserCode({
+        payrollPeriodId,
+        agencyId,
+        periodStart,
+        periodEnd
+      });
+
+      const outMap = new Map((out || []).map((row) => [`${row.userId}:${String(row.serviceCode || '').trim().toUpperCase()}`, row]));
+      for (const [key, unitsRaw] of selectedByUserCode.entries()) {
+        const units = Number(unitsRaw || 0);
+        if (!(Number.isFinite(units) && units > 0)) continue;
+        if (outMap.has(key)) {
+          const row = outMap.get(key);
+          row.noNoteUnits = 0;
+          row.draftUnits = 0;
+          row.oldDoneNotesUnits = Number(row.oldDoneNotesUnits || 0);
+          row.finalizedUnits = Number(row.oldDoneNotesUnits || 0) + units;
+          row.supervisionSource = 'resolved_app_or_legacy';
+        } else {
+          const [uid, code] = String(key).split(':');
+          out.push({
+            userId: Number(uid || 0),
+            providerName: null,
+            serviceCode: String(code || '').trim().toUpperCase(),
+            noNoteUnits: 0,
+            draftUnits: 0,
+            oldDoneNotesUnits: 0,
+            oldDoneNotesNotes: 0,
+            carryoverMeta: null,
+            finalizedUnits: units,
+            supervisionSource: 'resolved_app_or_legacy'
+          });
+        }
+      }
+
+      // For any pre-existing supervision rows not selected by resolved source, zero them out
+      // so they do not double-pay when app source is selected at date-level.
+      for (const row of out || []) {
+        const code = String(row?.serviceCode || '').trim().toUpperCase();
+        if (!supervisionCodes.has(code)) continue;
+        const uid = Number(row?.userId || 0);
+        if (!uid) continue;
+        const k = `${uid}:${code}`;
+        if (!selectedByUserCode.has(k)) {
+          row.noNoteUnits = 0;
+          row.draftUnits = 0;
+          row.finalizedUnits = Number(row.oldDoneNotesUnits || 0);
+          row.supervisionSource = 'not_selected';
+        }
+      }
+    } catch {
+      // Best-effort: if any supervision app-attendance query fails, keep legacy rows.
+    }
+  }
+
   return out;
 }
 
 async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, periodStart, periodEnd }) {
-  const rows = await getEffectiveStagingAggregates(payrollPeriodId);
+  const rows = await getEffectiveStagingAggregates(payrollPeriodId, { agencyId, periodStart, periodEnd });
   // Count unpaid notes (rows) from the latest import for this pay period.
   // This is informational only (used for provider-facing notices), and does not affect pay math.
   const unpaidNotesCountsByUserId = new Map(); // userId -> { noNoteNotes, draftNotes, totalNotes }
@@ -3352,6 +3585,25 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
   for (const r of rows) {
     if (!byUser.has(r.userId)) byUser.set(r.userId, []);
     byUser.get(r.userId).push(r);
+  }
+
+  // User role cache for role-specific payroll rules.
+  const userRoleById = new Map();
+  try {
+    const userIds = Array.from(byUser.keys()).map((n) => Number(n)).filter((n) => Number.isFinite(n) && n > 0);
+    if (userIds.length) {
+      const [uRows] = await pool.execute(
+        `SELECT id, role
+         FROM users
+         WHERE id IN (${userIds.map(() => '?').join(',')})`,
+        userIds
+      );
+      for (const u of uRows || []) {
+        userRoleById.set(Number(u.id), String(u.role || '').trim().toLowerCase());
+      }
+    }
+  } catch {
+    // best-effort only
   }
 
   // Manual pay lines (one-off corrections): include in totals + posted breakdown.
@@ -3530,6 +3782,9 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
   }
 
   for (const [userId, userRows] of byUser.entries()) {
+    const userRole = String(userRoleById.get(Number(userId)) || '').trim().toLowerCase();
+    const userIsIntern = userRole === 'intern';
+    const userIsProviderPlus = userRole === 'provider_plus';
     const rateCard = await PayrollRateCard.findForUser(agencyId, userId);
     const userPerCodeRates = await PayrollRate.listForUser(agencyId, userId);
     const ratesByCode = new Map();
@@ -3563,6 +3818,8 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
     let directHours = 0; // direct credits/hours
     let indirectHours = 0; // indirect credits/hours
     let otherHours = 0; // other credits/hours (computed for UI/export)
+    let practiceSupportMeetingHours = 0;
+    let practiceSupportMeetingAmount = 0;
 
     for (const row of userRows) {
       const code = row.serviceCode;
@@ -3656,10 +3913,14 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
       const rulePayUnitRaw = String(rule?.pay_rate_unit || '').trim().toLowerCase();
       const rulePayUnit = (rulePayUnitRaw === 'per_hour') ? 'per_hour' : 'per_unit';
       const legacyPerCodeUnit = perCode ? String(perCode.rate_unit || 'per_unit').trim().toLowerCase() : null;
-      const perCodePayUnit =
+      let perCodePayUnit =
         rulePayUnitRaw
           ? rulePayUnit
           : (legacyPerCodeUnit === 'per_hour' ? 'per_hour' : 'per_unit');
+      // Supervision/practice-support meeting rates are hourly.
+      if (isSupervisionMeetingCode(codeKey)) {
+        perCodePayUnit = 'per_hour';
+      }
       if (perCode) {
         rateSource = 'per_code_rate';
         rateAmount = Number(perCode.rate_amount || 0);
@@ -3681,6 +3942,9 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
 
       // Always compute wage math on pay-hours for non-flat categories.
       const computeLineAmount = ({ units, payHours }) => {
+        if ((codeKey === '99414' || codeKey === '99415' || codeKey === '99416') && userIsIntern) {
+          return 0;
+        }
         // Prelicensed pay gate for supervision codes.
         if (codeKey === '99414' || codeKey === '99416') {
           // Only apply if we know this user is prelicensed; non-prelicensed users aren't in the map.
@@ -3701,6 +3965,10 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
       };
 
       const lineAmount = computeLineAmount({ units: finalizedUnits, payHours });
+      if (userIsProviderPlus && codeKey === '99415' && finalizedUnits > 1e-9) {
+        practiceSupportMeetingHours += creditsHours;
+        practiceSupportMeetingAmount += lineAmount;
+      }
 
       noNoteUnitsTotal += noNoteUnits;
       draftUnitsTotal += draftUnits;
@@ -3832,6 +4100,15 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
       tierCreditsFinal = tierCreditsCurrent;
     } else {
       tierCreditsCurrent = 0;
+    }
+
+    if (userIsProviderPlus && (practiceSupportMeetingHours > 1e-9 || practiceSupportMeetingAmount > 1e-9)) {
+      breakdown.__practiceSupportMeeting = {
+        label: 'Practice Support Meeting',
+        serviceCode: '99415',
+        units: Number(practiceSupportMeetingHours.toFixed(2)),
+        amount: Number(practiceSupportMeetingAmount.toFixed(2))
+      };
     }
 
     // Adjustments (v1)
@@ -8064,13 +8341,13 @@ export const runPayrollPeriod = async (req, res, next) => {
            SELECT pir.user_id, DATE(pir.service_date) AS service_date
            FROM payroll_import_rows pir
            JOIN (
-             SELECT ssar.user_id, DATE(ss.start_time) AS service_date
+             SELECT ssar.user_id, DATE(ss.start_at) AS service_date
              FROM supervision_session_attendance_rollups ssar
              JOIN supervision_sessions ss ON ss.id = ssar.session_id
              WHERE ss.agency_id = ?
-               AND ss.start_time >= ?
-               AND ss.start_time < DATE_ADD(?, INTERVAL 1 DAY)
-             GROUP BY ssar.user_id, DATE(ss.start_time)
+               AND ss.start_at >= ?
+               AND ss.start_at < DATE_ADD(?, INTERVAL 1 DAY)
+             GROUP BY ssar.user_id, DATE(ss.start_at)
            ) app
              ON app.user_id = pir.user_id
             AND app.service_date = DATE(pir.service_date)
@@ -8098,13 +8375,13 @@ export const runPayrollPeriod = async (req, res, next) => {
              MIN(pir.provider_name) AS provider_name
            FROM payroll_import_rows pir
            JOIN (
-             SELECT ssar.user_id, DATE(ss.start_time) AS service_date
+             SELECT ssar.user_id, DATE(ss.start_at) AS service_date
              FROM supervision_session_attendance_rollups ssar
              JOIN supervision_sessions ss ON ss.id = ssar.session_id
              WHERE ss.agency_id = ?
-               AND ss.start_time >= ?
-               AND ss.start_time < DATE_ADD(?, INTERVAL 1 DAY)
-             GROUP BY ssar.user_id, DATE(ss.start_time)
+               AND ss.start_at >= ?
+               AND ss.start_at < DATE_ADD(?, INTERVAL 1 DAY)
+             GROUP BY ssar.user_id, DATE(ss.start_at)
            ) app
              ON app.user_id = pir.user_id
             AND app.service_date = DATE(pir.service_date)

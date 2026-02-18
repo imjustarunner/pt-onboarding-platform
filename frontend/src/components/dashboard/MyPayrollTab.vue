@@ -666,6 +666,23 @@
           <div class="row"><strong>Status:</strong> {{ expanded.breakdown.__tier.status }}</div>
         </div>
 
+        <div
+          class="card"
+          style="margin-top: 10px;"
+          v-if="expanded.breakdown && expanded.breakdown.__practiceSupportMeeting && Number(expanded.breakdown.__practiceSupportMeeting.amount || 0) > 0"
+        >
+          <h3 class="card-title" style="margin: 0 0 6px 0;">Practice Support Meeting</h3>
+          <div class="row">
+            <strong>Hours:</strong> {{ fmtNum(expanded.breakdown.__practiceSupportMeeting.units || 0) }}
+          </div>
+          <div class="row">
+            <strong>Pay:</strong> {{ fmtMoney(expanded.breakdown.__practiceSupportMeeting.amount || 0) }}
+          </div>
+          <div class="muted" style="margin-top: 6px;">
+            Paid at your supervision meeting rate.
+          </div>
+        </div>
+
         <h3 class="card-title" style="margin-top: 12px;">Totals</h3>
         <div class="row"><strong>Total Pay:</strong> {{ fmtMoney(expanded.total_amount ?? 0) }}</div>
         <div class="row"><strong>Total Credits/Hours:</strong> {{ fmtNum(expanded.total_hours ?? 0) }}</div>

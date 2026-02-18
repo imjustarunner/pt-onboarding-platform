@@ -84,6 +84,35 @@ class SupervisionSession {
     return rows || [];
   }
 
+  static async findAttendeeBySessionUser(sessionId, userId) {
+    const sid = parseInt(sessionId, 10);
+    const uid = parseInt(userId, 10);
+    if (!sid || !uid) return null;
+    const [rows] = await pool.execute(
+      `SELECT *
+       FROM supervision_session_attendees
+       WHERE session_id = ? AND user_id = ?
+       LIMIT 1`,
+      [sid, uid]
+    );
+    return rows?.[0] || null;
+  }
+
+  static async setAttendeeStatus({ sessionId, userId, status }) {
+    const sid = parseInt(sessionId, 10);
+    const uid = parseInt(userId, 10);
+    const st = String(status || '').trim().toUpperCase();
+    if (!sid || !uid || !st) return false;
+    const [result] = await pool.execute(
+      `UPDATE supervision_session_attendees
+       SET status = ?,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE session_id = ? AND user_id = ?`,
+      [st, sid, uid]
+    );
+    return (result?.affectedRows || 0) > 0;
+  }
+
   static async listPromptSessionsForUser({ userId, agencyId = null, now = new Date() }) {
     const uid = parseInt(userId, 10);
     const nowDate = now instanceof Date ? now : new Date(now);
@@ -210,6 +239,93 @@ class SupervisionSession {
         isFinalized ? 1 : 0
       ]
     );
+  }
+
+  static async listAttendanceEventsForSessionUser({ sessionId, userId }) {
+    const sid = parseInt(sessionId, 10);
+    const uid = parseInt(userId, 10);
+    if (!sid || !uid) return [];
+    const [rows] = await pool.execute(
+      `SELECT event_type, event_at, participant_session_key
+       FROM supervision_session_attendance_events
+       WHERE session_id = ?
+         AND user_id = ?
+       ORDER BY event_at ASC, id ASC`,
+      [sid, uid]
+    );
+    return rows || [];
+  }
+
+  static async listAttendanceLogsForAgency({
+    agencyId,
+    startDate = null,
+    endDate = null,
+    sessionId = null,
+    userId = null
+  }) {
+    const aId = parseInt(agencyId, 10);
+    if (!aId) return [];
+    const sid = sessionId ? parseInt(sessionId, 10) : null;
+    const uid = userId ? parseInt(userId, 10) : null;
+    const start = String(startDate || '').slice(0, 10);
+    const end = String(endDate || '').slice(0, 10);
+
+    const where = ['ss.agency_id = ?'];
+    const params = [aId];
+    if (sid) {
+      where.push('ss.id = ?');
+      params.push(sid);
+    }
+    if (uid) {
+      where.push('ssar.user_id = ?');
+      params.push(uid);
+    }
+    if (start) {
+      where.push('DATE(ss.start_at) >= ?');
+      params.push(start);
+    }
+    if (end) {
+      where.push('DATE(ss.start_at) <= ?');
+      params.push(end);
+    }
+
+    const [rows] = await pool.execute(
+      `SELECT
+         ss.id AS session_id,
+         ss.agency_id,
+         ss.session_type,
+         ss.start_at,
+         ss.end_at,
+         ss.status AS session_status,
+         ss.google_meet_link,
+         ssa2.tagged_at AS artifact_tagged_at,
+         ssa2.transcript_url AS artifact_transcript_url,
+         ssa2.summary_text AS artifact_summary_text,
+         ssar.user_id,
+         ssar.first_joined_at,
+         ssar.last_left_at,
+         ssar.total_seconds,
+         ssar.segment_count,
+         ssar.is_finalized,
+         ssa.participant_role,
+         ssa.is_required,
+         CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, '')) AS participant_name,
+         u.email AS participant_email,
+         CONCAT(COALESCE(sup.first_name, ''), ' ', COALESCE(sup.last_name, '')) AS supervisor_name,
+         sup.email AS supervisor_email
+       FROM supervision_session_attendance_rollups ssar
+       JOIN supervision_sessions ss ON ss.id = ssar.session_id
+       LEFT JOIN supervision_session_artifacts ssa2 ON ssa2.session_id = ss.id
+       LEFT JOIN supervision_session_attendees ssa
+         ON ssa.session_id = ssar.session_id
+        AND ssa.user_id = ssar.user_id
+       LEFT JOIN users u ON u.id = ssar.user_id
+       LEFT JOIN users sup ON sup.id = ss.supervisor_user_id
+       WHERE ${where.join(' AND ')}
+       ORDER BY ss.start_at DESC, ss.id DESC, participant_name ASC`,
+      params
+    );
+    return rows || [];
   }
 
   static async setPresenters({

@@ -342,7 +342,7 @@
             <option value="office">Office booking / request (room picker)</option>
             <option value="office_request_only">Office request (separate process)</option>
             <option v-if="!isAdminMode" value="school" :disabled="!canUseSchool(modalDay, modalHour, modalEndHour)">School daytime availability</option>
-            <option v-if="!isAdminMode" value="supervision" :disabled="supervisorsLoading || supervisors.length === 0">Supervision (adds to Google Calendar)</option>
+            <option v-if="!isAdminMode" value="supervision" :disabled="supervisionProvidersLoading || availableSupervisionParticipants.length === 0">Supervision (adds to Google Calendar)</option>
             <option value="booked_note" :disabled="String(modalContext.slotState || '').toUpperCase() !== 'ASSIGNED_BOOKED'">Write note (booked slot)</option>
             <option value="booked_record" :disabled="String(modalContext.slotState || '').toUpperCase() !== 'ASSIGNED_BOOKED'">Record session (booked slot)</option>
             <option value="intake_virtual_on" :disabled="!Number(modalContext.officeEventId || 0) || !!modalContext.virtualIntakeEnabled">Enable virtual intake</option>
@@ -358,24 +358,28 @@
           <div v-if="requestType === 'school' && !canUseSchool(modalDay, modalHour, modalEndHour)" class="muted" style="margin-top: 6px;">
             School daytime availability must be on weekdays and between 06:00 and 18:00.
           </div>
-          <div v-if="requestType === 'supervision' && supervisorsLoading" class="muted" style="margin-top: 6px;">
-            Loading supervisors…
+          <div v-if="requestType === 'supervision' && supervisionProvidersLoading" class="muted" style="margin-top: 6px;">
+            Loading providers…
           </div>
-          <div v-if="requestType === 'supervision' && !supervisorsLoading && supervisors.length === 0" class="muted" style="margin-top: 6px;">
-            No supervisor is assigned. Ask an admin to add a supervisor assignment first.
+          <div v-if="requestType === 'supervision' && !supervisionProvidersLoading && availableSupervisionParticipants.length === 0" class="muted" style="margin-top: 6px;">
+            No providers are available for supervision in this agency.
           </div>
 
-          <div v-if="requestType === 'supervision' && supervisors.length" style="margin-top: 10px;">
-            <label class="lbl">Supervisor</label>
-            <select v-model.number="selectedSupervisorId" class="input">
+          <div v-if="requestType === 'supervision' && availableSupervisionParticipants.length" style="margin-top: 10px;">
+            <label class="lbl">Supervision participant</label>
+            <select v-model.number="selectedSupervisionParticipantId" class="input">
               <option :value="0">Select…</option>
-              <option v-for="s in supervisors" :key="`sup-${s.supervisor_id}`" :value="Number(s.supervisor_id)">
-                {{ (s.supervisor_first_name || '') + ' ' + (s.supervisor_last_name || '') }}
+              <option
+                v-for="p in availableSupervisionParticipants"
+                :key="`supv-provider-${p.id}`"
+                :value="Number(p.id)"
+              >
+                {{ supervisionParticipantLabel(p) }}
               </option>
             </select>
 
             <label class="sched-toggle" style="margin-top: 8px;">
-              <input type="checkbox" v-model="createMeetLink" />
+              <input type="checkbox" v-model="createSupervisionMeetLink" />
               <span>Create Google Meet link</span>
             </label>
           </div>
@@ -490,7 +494,7 @@
               submitting ||
               ((requestType === 'office' || requestType === 'office_request_only') && (bookingMetadataLoading || !officeBookingValid || !!bookingClassificationInvalidReason)) ||
               (requestType === 'school' && !canUseSchool(modalDay, modalHour, modalEndHour)) ||
-              (requestType === 'supervision' && (supervisorsLoading || supervisors.length === 0 || !selectedSupervisorId)) ||
+              (requestType === 'supervision' && (supervisionProvidersLoading || availableSupervisionParticipants.length === 0 || !selectedSupervisionParticipantId)) ||
               ((requestType === 'intake_virtual_on' || requestType === 'intake_virtual_off' || requestType === 'intake_inperson_on' || requestType === 'intake_inperson_off') && !modalContext.officeEventId)
             "
           >
@@ -540,10 +544,74 @@
           </div>
 
           <div v-if="selectedSupvSession?.googleMeetLink" class="muted" style="margin-top: 8px;">
-            Meet:
+            <div>Meet link:</div>
             <a :href="selectedSupvSession.googleMeetLink" target="_blank" rel="noreferrer">
               {{ selectedSupvSession.googleMeetLink }}
             </a>
+            <div style="margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap;">
+              <button
+                class="btn btn-primary btn-sm"
+                type="button"
+                :disabled="supvMeetOpening"
+                @click="startTrackedSupvMeet"
+              >
+                {{ supvMeetOpening ? 'Starting…' : 'Start Meet (tracked)' }}
+              </button>
+              <a class="btn btn-secondary btn-sm" :href="selectedSupvSession.googleMeetLink" target="_blank" rel="noreferrer">
+                Open in new tab
+              </a>
+            </div>
+            <div class="muted" style="margin-top: 6px; font-size: 12px;">
+              Starts in-app tracking for opened/closed meeting activity.
+            </div>
+          </div>
+
+          <div style="margin-top: 10px; border: 1px solid var(--border, #e5e7eb); border-radius: 10px; padding: 10px; background: #fafafa;">
+            <label class="lbl">Transcript link</label>
+            <input v-model="supvTranscriptUrl" class="input" type="url" placeholder="https://... transcript link" />
+            <label class="lbl" style="margin-top: 8px;">Transcript text</label>
+            <textarea
+              v-model="supvTranscriptText"
+              class="input"
+              rows="4"
+              placeholder="Paste transcript text so Gemini can generate a summary."
+            />
+            <label class="lbl" style="margin-top: 8px;">Summary</label>
+            <textarea
+              v-model="supvSummaryText"
+              class="input"
+              rows="4"
+              placeholder="Session summary"
+            />
+            <div class="modal-actions" style="margin-top: 8px; justify-content: flex-start;">
+              <button
+                class="btn btn-secondary btn-sm"
+                type="button"
+                :disabled="supvArtifactSaving || supvArtifactLoading || !selectedSupvSessionId"
+                @click="saveSupvArtifact({ autoSummarize: false })"
+              >
+                {{ supvArtifactSaving ? 'Saving…' : 'Save transcript + summary' }}
+              </button>
+              <button
+                class="btn btn-primary btn-sm"
+                type="button"
+                :disabled="supvArtifactSaving || supvArtifactLoading || !selectedSupvSessionId || !supvTranscriptText.trim()"
+                @click="saveSupvArtifact({ autoSummarize: true })"
+              >
+                Generate summary with Gemini
+              </button>
+              <a
+                v-if="supvTranscriptUrl"
+                class="btn btn-secondary btn-sm"
+                :href="supvTranscriptUrl"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Open transcript
+              </a>
+            </div>
+            <div v-if="supvArtifactLoading" class="muted" style="margin-top: 6px;">Loading transcript/summary...</div>
+            <div v-if="supvArtifactError" class="error" style="margin-top: 6px;">{{ supvArtifactError }}</div>
           </div>
 
           <label class="sched-toggle" style="margin-top: 10px;">
@@ -582,6 +650,31 @@
             </button>
             <button class="btn btn-primary" type="button" @click="saveSupvSession" :disabled="supvSaving || !selectedSupvSessionId">
               {{ supvSaving ? 'Saving…' : 'Save changes' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="showSupvMeetTrackerModal" class="modal-backdrop" @click.self="endTrackedSupvMeet">
+      <div class="modal" style="max-width: 560px;">
+        <div class="modal-head">
+          <div class="modal-title">Supervision Meet in progress</div>
+          <button class="btn btn-secondary btn-sm" type="button" @click="endTrackedSupvMeet">Close</button>
+        </div>
+        <div class="modal-body">
+          <p class="muted" style="margin-top: 0;">
+            Keep this modal open while meeting is active. We log when it starts and when it closes.
+          </p>
+          <p class="muted" style="margin: 0;">
+            Google Meet opens in a separate window due browser security limits.
+          </p>
+          <div v-if="supvMeetTrackerError" class="error" style="margin-top: 10px;">
+            {{ supvMeetTrackerError }}
+          </div>
+          <div class="modal-actions" style="margin-top: 12px; justify-content: flex-end;">
+            <button class="btn btn-danger" type="button" :disabled="supvMeetClosing" @click="endTrackedSupvMeet">
+              {{ supvMeetClosing ? 'Ending…' : 'I ended the meeting' }}
             </button>
           </div>
         </div>
@@ -645,7 +738,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import { useUserPreferencesStore } from '../../store/userPreferences';
@@ -968,6 +1061,10 @@ onMounted(() => {
       /* ignore */
     }
   }
+});
+
+onUnmounted(() => {
+  clearSupvMeetPolling();
 });
 
 const orderedDays = computed(() => (String(props.weekStartsOn || '').toLowerCase() === 'sunday' ? SUNDAY_FIRST_DAYS : ALL_DAYS));
@@ -2186,27 +2283,44 @@ const officeBookingHint = computed(() => {
   return 'Weekly/Biweekly/Monthly requests go to approvals and will create a booking plan on approval.';
 });
 
-const supervisorsLoading = ref(false);
-const supervisors = ref([]);
-const selectedSupervisorId = ref(0);
-const createMeetLink = ref(true);
+const supervisionProvidersLoading = ref(false);
+const supervisionProviders = ref([]);
+const selectedSupervisionParticipantId = ref(0);
+const createSupervisionMeetLink = ref(true);
 
-const loadSupervisors = async () => {
-  if (!props.userId) return;
+const availableSupervisionParticipants = computed(() => {
+  const actorId = Number(authStore.user?.id || 0);
+  const rows = Array.isArray(supervisionProviders.value) ? supervisionProviders.value : [];
+  return rows.filter((row) => Number(row?.id || 0) !== actorId);
+});
+
+const supervisionParticipantLabel = (row) => {
+  const first = String(row?.firstName || '').trim();
+  const last = String(row?.lastName || '').trim();
+  const name = [first, last].filter(Boolean).join(' ').trim();
+  const email = String(row?.email || '').trim();
+  if (name && email) return `${name} (${email})`;
+  if (name) return name;
+  if (email) return email;
+  return `User ${Number(row?.id || 0) || ''}`.trim();
+};
+
+const loadSupervisionProviders = async () => {
+  if (!authStore.user?.id) return;
   if (!effectiveAgencyId.value) return;
   try {
-    supervisorsLoading.value = true;
-    const r = await api.get(`/supervisor-assignments/supervisee/${props.userId}`, {
+    supervisionProvidersLoading.value = true;
+    const r = await api.get('/supervision/providers', {
       params: { agencyId: effectiveAgencyId.value }
     });
-    supervisors.value = Array.isArray(r.data) ? r.data : [];
-    if (!selectedSupervisorId.value && supervisors.value.length === 1) {
-      selectedSupervisorId.value = Number(supervisors.value[0].supervisor_id || 0);
+    supervisionProviders.value = Array.isArray(r?.data?.providers) ? r.data.providers : [];
+    if (!selectedSupervisionParticipantId.value && availableSupervisionParticipants.value.length === 1) {
+      selectedSupervisionParticipantId.value = Number(availableSupervisionParticipants.value[0].id || 0);
     }
   } catch {
-    supervisors.value = [];
+    supervisionProviders.value = [];
   } finally {
-    supervisorsLoading.value = false;
+    supervisionProvidersLoading.value = false;
   }
 };
 
@@ -2294,8 +2408,8 @@ const openSlotActionModal = ({ dayName, hour, roomId = 0, slot = null, dateYmd =
   selectedOfficeRoomId.value = Number(roomId || 0) || 0;
   resetBookingSelectionDefaults();
   resetBookingMetadataState();
-  selectedSupervisorId.value = 0;
-  createMeetLink.value = true;
+  selectedSupervisionParticipantId.value = 0;
+  createSupervisionMeetLink.value = true;
   modalContext.value = buildModalContext({ dayName: modalDay.value, hour: modalHour.value, roomId, slot, dateYmd });
   if (selectedActionCount.value > 1) {
     requestType.value = 'office_request_only';
@@ -2877,9 +2991,11 @@ const submitRequest = async () => {
       });
     } else if (requestType.value === 'supervision') {
       if (isAdminMode.value) throw new Error('Supervision requests must be created from the provider schedule.');
-      if (supervisorsLoading.value) throw new Error('Supervisors are still loading.');
-      const supId = Number(selectedSupervisorId.value || 0);
-      if (!supId) throw new Error('Please select a supervisor.');
+      if (supervisionProvidersLoading.value) throw new Error('Providers are still loading.');
+      const participantId = Number(selectedSupervisionParticipantId.value || 0);
+      const actorId = Number(authStore.user?.id || 0);
+      if (!actorId) throw new Error('Not signed in.');
+      if (!participantId) throw new Error('Please select a participant.');
       const dayIdx = ALL_DAYS.indexOf(String(dn));
       if (dayIdx < 0) throw new Error('Invalid day');
       const dateYmd = addDaysYmd(weekStart.value, dayIdx);
@@ -2887,12 +3003,12 @@ const submitRequest = async () => {
       const endAt = `${dateYmd}T${pad2(endH)}:00:00`;
       await api.post('/supervision/sessions', {
         agencyId: effectiveAgencyId.value,
-        supervisorUserId: supId,
-        superviseeUserId: Number(props.userId),
+        supervisorUserId: actorId,
+        superviseeUserId: participantId,
         startAt,
         endAt,
         notes: requestNotes.value || '',
-        createMeetLink: !!createMeetLink.value,
+        createMeetLink: !!createSupervisionMeetLink.value,
         modality: 'virtual'
       });
     } else if (requestType.value === 'intake_virtual_on' || requestType.value === 'intake_virtual_off') {
@@ -2945,7 +3061,7 @@ const submitRequest = async () => {
 
 watch(requestType, (t) => {
   if (t === 'supervision') {
-    void loadSupervisors();
+    void loadSupervisionProviders();
   } else if (t === 'office' || t === 'office_request_only') {
     void loadBookingMetadataForProvider();
   }
@@ -2980,6 +3096,88 @@ const supvEndHour = ref(8);
 const supvPresenters = ref([]);
 const supvPresentersLoading = ref(false);
 const supvPresentersError = ref('');
+const showSupvMeetTrackerModal = ref(false);
+const supvMeetOpening = ref(false);
+const supvMeetClosing = ref(false);
+const supvMeetTrackerError = ref('');
+const supvMeetWindowRef = ref(null);
+const supvMeetPollTimer = ref(null);
+const supvMeetClientSessionKey = ref('');
+const supvArtifactLoading = ref(false);
+const supvArtifactSaving = ref(false);
+const supvArtifactError = ref('');
+const supvTranscriptUrl = ref('');
+const supvTranscriptText = ref('');
+const supvSummaryText = ref('');
+
+const clearSupvMeetPolling = () => {
+  if (supvMeetPollTimer.value) {
+    clearInterval(supvMeetPollTimer.value);
+    supvMeetPollTimer.value = null;
+  }
+};
+
+const logSupvMeetingLifecycle = async (eventType) => {
+  const sid = Number(selectedSupvSessionId.value || 0);
+  if (!sid) return;
+  await api.post(`/supervision/sessions/${sid}/meeting-lifecycle`, {
+    eventType,
+    clientSessionKey: supvMeetClientSessionKey.value || undefined
+  });
+};
+
+const endTrackedSupvMeet = async () => {
+  if (!showSupvMeetTrackerModal.value) return;
+  try {
+    supvMeetClosing.value = true;
+    supvMeetTrackerError.value = '';
+    clearSupvMeetPolling();
+    await logSupvMeetingLifecycle('closed');
+    if (supvMeetWindowRef.value && !supvMeetWindowRef.value.closed) {
+      try {
+        supvMeetWindowRef.value.close();
+      } catch {
+        // ignore cross-window close issues
+      }
+    }
+    supvMeetWindowRef.value = null;
+    supvMeetClientSessionKey.value = '';
+    showSupvMeetTrackerModal.value = false;
+  } catch (e) {
+    supvMeetTrackerError.value = e?.response?.data?.error?.message || e?.message || 'Failed to log meeting end.';
+  } finally {
+    supvMeetClosing.value = false;
+  }
+};
+
+const startTrackedSupvMeet = async () => {
+  const link = String(selectedSupvSession.value?.googleMeetLink || '').trim();
+  const sid = Number(selectedSupvSessionId.value || 0);
+  if (!link || !sid) return;
+  try {
+    supvMeetOpening.value = true;
+    supvMeetTrackerError.value = '';
+    clearSupvMeetPolling();
+    supvMeetClientSessionKey.value = `web-${sid}-${Number(authStore.user?.id || 0)}-${Date.now()}`;
+    await logSupvMeetingLifecycle('opened');
+    const popup = window.open(link, '_blank', 'noopener,noreferrer,width=1200,height=850');
+    if (!popup) {
+      throw new Error('Pop-up blocked. Allow pop-ups for this site, then try again.');
+    }
+    supvMeetWindowRef.value = popup;
+    showSupvMeetTrackerModal.value = true;
+    supvMeetPollTimer.value = setInterval(() => {
+      const w = supvMeetWindowRef.value;
+      if (!w || w.closed) {
+        void endTrackedSupvMeet();
+      }
+    }, 1200);
+  } catch (e) {
+    supvMeetTrackerError.value = e?.response?.data?.error?.message || e?.message || 'Failed to start tracked Meet.';
+  } finally {
+    supvMeetOpening.value = false;
+  }
+};
 
 const parseMaybeDate = (raw) => {
   const s = String(raw || '').trim();
@@ -3059,6 +3257,53 @@ const loadSupvPresenters = async (sessionId) => {
   }
 };
 
+const loadSupvArtifact = async (sessionId) => {
+  const sid = Number(sessionId || 0);
+  if (!sid) {
+    supvTranscriptUrl.value = '';
+    supvTranscriptText.value = '';
+    supvSummaryText.value = '';
+    supvArtifactError.value = '';
+    return;
+  }
+  try {
+    supvArtifactLoading.value = true;
+    supvArtifactError.value = '';
+    const resp = await api.get(`/supervision/sessions/${sid}/artifacts`);
+    const artifact = resp?.data?.artifact || null;
+    supvTranscriptUrl.value = String(artifact?.transcript_url || '');
+    supvTranscriptText.value = String(artifact?.transcript_text || '');
+    supvSummaryText.value = String(artifact?.summary_text || '');
+  } catch (e) {
+    supvArtifactError.value = e.response?.data?.error?.message || e.message || 'Failed to load transcript/summary';
+  } finally {
+    supvArtifactLoading.value = false;
+  }
+};
+
+const saveSupvArtifact = async ({ autoSummarize = false } = {}) => {
+  const sid = Number(selectedSupvSessionId.value || 0);
+  if (!sid) return;
+  try {
+    supvArtifactSaving.value = true;
+    supvArtifactError.value = '';
+    const resp = await api.post(`/supervision/sessions/${sid}/artifacts`, {
+      transcriptUrl: supvTranscriptUrl.value || null,
+      transcriptText: supvTranscriptText.value || null,
+      summaryText: autoSummarize ? undefined : (supvSummaryText.value || null),
+      autoSummarize
+    });
+    const artifact = resp?.data?.artifact || null;
+    supvTranscriptUrl.value = String(artifact?.transcript_url || '');
+    supvTranscriptText.value = String(artifact?.transcript_text || '');
+    supvSummaryText.value = String(artifact?.summary_text || '');
+  } catch (e) {
+    supvArtifactError.value = e.response?.data?.error?.message || e.message || 'Failed to save transcript/summary';
+  } finally {
+    supvArtifactSaving.value = false;
+  }
+};
+
 const openSupvModal = (dayName, hour) => {
   const hits = supervisionSessionsInCell(dayName, hour);
   if (!hits.length) return;
@@ -3076,9 +3321,13 @@ const openSupvModal = (dayName, hour) => {
   supvNotes.value = String(first.notes || '');
   supvCreateMeetLink.value = false;
   void loadSupvPresenters(selectedSupvSessionId.value);
+  void loadSupvArtifact(selectedSupvSessionId.value);
 };
 
 const closeSupvModal = () => {
+  if (showSupvMeetTrackerModal.value) {
+    void endTrackedSupvMeet();
+  }
   showSupvModal.value = false;
   supvModalError.value = '';
   selectedSupvSessionId.value = 0;
@@ -3089,6 +3338,13 @@ const closeSupvModal = () => {
   supvPresenters.value = [];
   supvPresentersLoading.value = false;
   supvPresentersError.value = '';
+  supvMeetTrackerError.value = '';
+  supvArtifactLoading.value = false;
+  supvArtifactSaving.value = false;
+  supvArtifactError.value = '';
+  supvTranscriptUrl.value = '';
+  supvTranscriptText.value = '';
+  supvSummaryText.value = '';
 };
 
 watch(selectedSupvSessionId, (id) => {
@@ -3099,6 +3355,7 @@ watch(selectedSupvSessionId, (id) => {
   supvStartIsoLocal.value = toDatetimeLocalValue(parseMaybeDate(ev.startAt));
   supvEndIsoLocal.value = toDatetimeLocalValue(parseMaybeDate(ev.endAt));
   void loadSupvPresenters(id);
+  void loadSupvArtifact(id);
 });
 
 const togglePresenterPresented = async (presenter) => {

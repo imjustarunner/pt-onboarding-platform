@@ -1724,6 +1724,100 @@
               </div>
             </div>
           </div>
+
+          <div v-if="showSupervisionAttendanceModal" class="modal-backdrop">
+            <div class="modal" style="width: min(1200px, 100%);">
+              <div class="modal-header">
+                <div>
+                  <div class="modal-title">Supervision attendance & pay</div>
+                  <div class="hint">Tracked supervision rows with transcript links and session summaries.</div>
+                </div>
+                <div class="actions" style="margin: 0;">
+                  <button class="btn btn-secondary btn-sm" type="button" @click="loadSupervisionAttendanceReport" :disabled="supervisionAttendanceLoading || !selectedPeriodId">
+                    Refresh
+                  </button>
+                  <button class="btn btn-secondary btn-sm" type="button" @click="showSupervisionAttendanceModal = false" style="margin-left: 8px;">
+                    Close
+                  </button>
+                </div>
+              </div>
+
+              <div v-if="supervisionAttendanceError" class="warn-box" style="margin-top: 12px;">{{ supervisionAttendanceError }}</div>
+              <div v-if="supervisionAttendanceLoading" class="muted" style="margin-top: 12px;">Loading supervision attendance…</div>
+
+              <div v-else style="margin-top: 12px;">
+                <div class="hint" style="margin-bottom: 8px;">
+                  Rows: <strong>{{ (supervisionAttendanceRows || []).length }}</strong>
+                  <span v-if="supervisionAttendanceStartDate && supervisionAttendanceEndDate"> • {{ supervisionAttendanceStartDate }} → {{ supervisionAttendanceEndDate }}</span>
+                </div>
+                <div v-if="!(supervisionAttendanceRows || []).length" class="muted">
+                  No tracked supervision attendance rows found for this period.
+                </div>
+
+                <div v-else class="table-wrap">
+                  <table class="table">
+                    <thead>
+                      <tr>
+                        <th>Session</th>
+                        <th>Participant</th>
+                        <th>Date</th>
+                        <th class="right">Hours</th>
+                        <th>Service code</th>
+                        <th class="right">Rate</th>
+                        <th class="right">Amount</th>
+                        <th>Transcript</th>
+                        <th>Summary</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="r in supervisionAttendanceRows" :key="`supv-att-${r.sessionId}-${r.userId}`">
+                        <td>
+                          <div><strong>#{{ Number(r.sessionId || 0) }}</strong></div>
+                          <div class="muted">{{ r.sessionType || 'individual' }}</div>
+                        </td>
+                        <td>
+                          <div>{{ r.participantName || nameForUserId(Number(r.userId || 0)) }}</div>
+                          <div class="muted">{{ r.participantRole || 'supervisee' }}</div>
+                        </td>
+                        <td>
+                          <div>{{ fmtDateTime(r.startAt) }}</div>
+                          <div class="muted">to {{ fmtDateTime(r.endAt) }}</div>
+                        </td>
+                        <td class="right">{{ fmtNum(Number(r.totalHours || 0)) }}</td>
+                        <td>{{ r?.pay?.serviceCode || '—' }}</td>
+                        <td class="right">
+                          <span v-if="Number(r?.pay?.rateAmount || 0) > 0">{{ fmtMoney(Number(r?.pay?.rateAmount || 0)) }}</span>
+                          <span v-else class="muted">—</span>
+                        </td>
+                        <td class="right">
+                          <span v-if="Number(r?.pay?.computedAmount || 0) > 0">{{ fmtMoney(Number(r?.pay?.computedAmount || 0)) }}</span>
+                          <span v-else class="muted">{{ r?.pay?.payable ? '$0.00' : 'Not payable' }}</span>
+                        </td>
+                        <td>
+                          <a
+                            v-if="r.transcriptUrl"
+                            :href="r.transcriptUrl"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            Open transcript
+                          </a>
+                          <span v-else class="muted">—</span>
+                        </td>
+                        <td>
+                          <details v-if="r.summaryText">
+                            <summary>View summary</summary>
+                            <div class="muted" style="white-space: pre-wrap; margin-top: 6px;">{{ r.summaryText }}</div>
+                          </details>
+                          <span v-else class="muted">—</span>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
         </teleport>
 
         <!-- Payroll Stage modal -->
@@ -1753,6 +1847,16 @@
                   title="Review payable imported services that occurred on configured holiday dates (latest import)."
                 >
                   Review holiday hours
+                </button>
+                <button
+                  class="btn btn-secondary btn-sm"
+                  type="button"
+                  @click="openSupervisionAttendanceModal"
+                  :disabled="!selectedPeriodId"
+                  style="margin-left: 8px;"
+                  title="View tracked supervision attendance, transcript links, and session summaries for this pay period."
+                >
+                  Supervision attendance & pay
                 </button>
                 <button
                   class="btn btn-secondary btn-sm"
@@ -4672,6 +4776,7 @@ const showPayrollToolsModal = ref(false);
 const showSubmitOnBehalfModal = ref(false);
 const showTodoModal = ref(false);
 const showHolidayHoursModal = ref(false);
+const showSupervisionAttendanceModal = ref(false);
 const showSupervisionConflictsModal = ref(false);
 const showPayrollWizardModal = ref(false);
 const payrollToolsTab = ref('compare'); // compare | viewer
@@ -4687,6 +4792,11 @@ const holidayHoursLoading = ref(false);
 const holidayHoursError = ref('');
 const holidayHoursMatched = ref([]);
 const holidayHoursUnmatched = ref([]);
+const supervisionAttendanceLoading = ref(false);
+const supervisionAttendanceError = ref('');
+const supervisionAttendanceRows = ref([]);
+const supervisionAttendanceStartDate = ref('');
+const supervisionAttendanceEndDate = ref('');
 const supervisionConflictsLoading = ref(false);
 const supervisionConflictsError = ref('');
 const supervisionConflictsRows = ref([]);
@@ -7466,6 +7576,12 @@ const isCpaUserId = (uid) => {
   return String(u.role || '').toLowerCase() === 'clinical_practice_assistant';
 };
 
+const isProviderPlusUserId = (uid) => {
+  const u = agencyUserById.value.get(Number(uid)) || null;
+  if (!u) return false;
+  return String(u.role || '').toLowerCase() === 'provider_plus';
+};
+
 const median = (nums) => {
   const a = (nums || []).filter((n) => Number.isFinite(n)).slice().sort((x, y) => x - y);
   if (!a.length) return 0;
@@ -7510,15 +7626,15 @@ const auditProviders = computed(() => {
       }
     } catch { /* ignore */ }
 
-    // 99415 should only be used by supervisors / CPA.
+    // 99415 should only be used by supervisors / CPA / provider_plus.
     try {
       const b = s?.breakdown || null;
       const has99415 = b && typeof b === 'object' && Object.prototype.hasOwnProperty.call(b, '99415');
       const v = has99415 ? b['99415'] : null;
       const amt = Number(v?.amount || 0);
       const units = Number(v?.finalizedUnits ?? v?.units ?? 0);
-      if (has99415 && !isSupervisorUserId(uid) && !isCpaUserId(uid) && (amt > 1e-9 || units > 1e-9)) {
-        flags.push('Non-supervisor/CPA has service code 99415 (review recommended)');
+      if (has99415 && !isSupervisorUserId(uid) && !isCpaUserId(uid) && !isProviderPlusUserId(uid) && (amt > 1e-9 || units > 1e-9)) {
+        flags.push('Non-supervisor/CPA/provider_plus has service code 99415 (review recommended)');
         score += 3;
       }
     } catch { /* ignore */ }
@@ -7609,15 +7725,15 @@ const auditProvidersV2 = computed(() => {
       }
     } catch { /* ignore */ }
 
-    // 99415 should only be used by supervisors / CPA.
+    // 99415 should only be used by supervisors / CPA / provider_plus.
     try {
       const b = s?.breakdown || null;
       const has99415 = b && typeof b === 'object' && Object.prototype.hasOwnProperty.call(b, '99415');
       const v = has99415 ? b['99415'] : null;
       const amt = Number(v?.amount || 0);
       const units = Number(v?.finalizedUnits ?? v?.units ?? 0);
-      if (has99415 && !isSupervisorUserId(uid) && !isCpaUserId(uid) && (amt > 1e-9 || units > 1e-9)) {
-        flags.push('Non-supervisor/CPA has service code 99415 (review recommended)');
+      if (has99415 && !isSupervisorUserId(uid) && !isCpaUserId(uid) && !isProviderPlusUserId(uid) && (amt > 1e-9 || units > 1e-9)) {
+        flags.push('Non-supervisor/CPA/provider_plus has service code 99415 (review recommended)');
         score += 3;
       }
     } catch { /* ignore */ }
@@ -8828,6 +8944,31 @@ const openHolidayHoursModal = async () => {
   await loadHolidayHoursReport();
 };
 
+const loadSupervisionAttendanceReport = async () => {
+  if (!agencyId.value || !selectedPeriod.value) return;
+  try {
+    supervisionAttendanceLoading.value = true;
+    supervisionAttendanceError.value = '';
+    const startDate = String(selectedPeriod.value?.period_start || '').slice(0, 10);
+    const endDate = String(selectedPeriod.value?.period_end || '').slice(0, 10);
+    supervisionAttendanceStartDate.value = startDate;
+    supervisionAttendanceEndDate.value = endDate;
+    const resp = await api.get('/supervision/attendance-logs', {
+      params: {
+        agencyId: Number(agencyId.value),
+        startDate,
+        endDate
+      }
+    });
+    supervisionAttendanceRows.value = (resp.data?.logs || []).filter((r) => !!r && typeof r === 'object');
+  } catch (e) {
+    supervisionAttendanceError.value = e.response?.data?.error?.message || e.message || 'Failed to load supervision attendance report';
+    supervisionAttendanceRows.value = [];
+  } finally {
+    supervisionAttendanceLoading.value = false;
+  }
+};
+
 const loadSupervisionConflictsReport = async () => {
   if (!selectedPeriodId.value) return;
   try {
@@ -8888,6 +9029,11 @@ const saveSupervisionConflictResolution = async (row, resolution) => {
 const openSupervisionConflictsModal = async () => {
   showSupervisionConflictsModal.value = true;
   await loadSupervisionConflictsReport();
+};
+
+const openSupervisionAttendanceModal = async () => {
+  showSupervisionAttendanceModal.value = true;
+  await loadSupervisionAttendanceReport();
 };
 
 const holidayHoursProviderLabel = (r) => {

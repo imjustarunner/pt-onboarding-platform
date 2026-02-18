@@ -1,8 +1,12 @@
 import { body, validationResult } from 'express-validator';
 import User from '../models/User.model.js';
-import SupervisorAssignment from '../models/SupervisorAssignment.model.js';
 import SupervisionSession from '../models/SupervisionSession.model.js';
+import SupervisionSessionArtifact from '../models/SupervisionSessionArtifact.model.js';
 import GoogleCalendarService from '../services/googleCalendar.service.js';
+import PayrollRateCard from '../models/PayrollRateCard.model.js';
+import PayrollRate from '../models/PayrollRate.model.js';
+import { callGeminiText } from '../services/geminiText.service.js';
+import pool from '../config/database.js';
 
 function requireValid(req, res) {
   const errors = validationResult(req);
@@ -61,15 +65,572 @@ async function canScheduleSession(req, { agencyId, supervisorUserId, superviseeU
     return hasAccess;
   }
 
-  // Provider/school staff etc: allow only if actor participates and assignment exists.
-  if (actorId === Number(superviseeUserId)) {
-    return await SupervisorAssignment.isAssigned(supervisorUserId, superviseeUserId, aId);
-  }
-  if (actorId === Number(supervisorUserId)) {
-    return await SupervisorAssignment.isAssigned(supervisorUserId, superviseeUserId, aId);
+  // Provider/school staff etc: allow if actor is one of the participants and belongs to this agency.
+  if (actorId === Number(superviseeUserId) || actorId === Number(supervisorUserId)) {
+    const actorAgencies = await User.getAgencies(actorId);
+    return (actorAgencies || []).some((a) => Number(a?.id) === aId);
   }
   return false;
 }
+
+function canViewAgencySupervisionLogs(roleRaw) {
+  const role = String(roleRaw || '').toLowerCase();
+  return ['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant'].includes(role);
+}
+
+function supervisionServiceCodeForParticipant({ participantRole, sessionType }) {
+  const role = String(participantRole || '').trim().toLowerCase();
+  const st = String(sessionType || 'individual').trim().toLowerCase();
+  if (role === 'supervisor') return '99415';
+  if (st === 'group' || st === 'triadic') return '99416';
+  return '99414';
+}
+
+function isSupervisionMeetingCode(codeRaw) {
+  const code = String(codeRaw || '').trim().toUpperCase();
+  return code === '99414' || code === '99415' || code === '99416';
+}
+
+function parseAsDate(input) {
+  const raw = String(input || '').trim();
+  if (!raw) return null;
+  const d = new Date(raw);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function mysqlNowDateTime() {
+  const d = new Date();
+  const p2 = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`;
+}
+
+function canViewSessionArtifacts(roleRaw) {
+  const role = String(roleRaw || '').toLowerCase();
+  return [
+    'super_admin',
+    'admin',
+    'support',
+    'staff',
+    'clinical_practice_assistant',
+    'provider',
+    'provider_plus',
+    'supervisor',
+    'supervisee'
+  ].includes(role);
+}
+
+function buildSupervisionSummaryPrompt(transcriptText) {
+  const cleaned = String(transcriptText || '').trim().slice(0, 15000);
+  return [
+    'You are generating a supervision meeting summary for internal documentation.',
+    'Return concise markdown with these sections only:',
+    '- Key updates',
+    '- Clinical/operational decisions',
+    '- Action items (with owner)',
+    '- Risks/follow-ups',
+    '',
+    'Rules:',
+    '- Be factual, no invented details.',
+    '- Keep each section to 2-5 bullets.',
+    '- If information is missing, state "Not discussed".',
+    '',
+    'Transcript:',
+    cleaned
+  ].join('\n');
+}
+
+async function recomputeAttendanceRollupForUser({ sessionId, userId }) {
+  const sid = Number(sessionId || 0);
+  const uid = Number(userId || 0);
+  if (!sid || !uid) return null;
+
+  const events = await SupervisionSession.listAttendanceEventsForSessionUser({ sessionId: sid, userId: uid });
+  const openedStack = [];
+  let firstJoinedAt = null;
+  let lastLeftAt = null;
+  let totalSeconds = 0;
+  let segmentCount = 0;
+  const nowMs = Date.now();
+
+  for (const ev of events || []) {
+    const evType = String(ev?.event_type || '').trim().toLowerCase();
+    const atMs = parseAsDate(ev?.event_at)?.getTime();
+    if (!Number.isFinite(atMs)) continue;
+    if (evType === 'joined' || evType === 'opened') {
+      openedStack.push(atMs);
+      if (!firstJoinedAt || atMs < firstJoinedAt.getTime()) firstJoinedAt = new Date(atMs);
+      continue;
+    }
+    if ((evType === 'left' || evType === 'closed') && openedStack.length) {
+      const openedAtMs = openedStack.pop();
+      if (atMs > openedAtMs) {
+        totalSeconds += Math.round((atMs - openedAtMs) / 1000);
+        segmentCount += 1;
+        if (!lastLeftAt || atMs > lastLeftAt.getTime()) lastLeftAt = new Date(atMs);
+      }
+    }
+  }
+
+  // Provisional open segments count toward running totals until closed.
+  for (const openedAtMs of openedStack) {
+    if (nowMs > openedAtMs) {
+      totalSeconds += Math.round((nowMs - openedAtMs) / 1000);
+      segmentCount += 1;
+    }
+  }
+
+  await SupervisionSession.upsertAttendanceRollup({
+    sessionId: sid,
+    userId: uid,
+    firstJoinedAt: firstJoinedAt ? parseDateTimeLocalString(firstJoinedAt.toISOString()) : null,
+    lastLeftAt: lastLeftAt ? parseDateTimeLocalString(lastLeftAt.toISOString()) : null,
+    totalSeconds,
+    segmentCount,
+    isFinalized: openedStack.length === 0
+  });
+  return {
+    sessionId: sid,
+    userId: uid,
+    firstJoinedAt: firstJoinedAt ? firstJoinedAt.toISOString() : null,
+    lastLeftAt: lastLeftAt ? lastLeftAt.toISOString() : null,
+    totalSeconds,
+    segmentCount,
+    isFinalized: openedStack.length === 0
+  };
+}
+
+async function getSupervisionPayEligibility({ agencyId, userId }) {
+  const uid = Number(userId || 0);
+  const aId = Number(agencyId || 0);
+  if (!uid || !aId) return { eligible: false, isHourlyWorker: false, totalSupervisionHours: 0 };
+
+  const u = await User.findById(uid);
+  const isHourlyWorker = !!(u?.is_hourly_worker === 1 || u?.is_hourly_worker === true || u?.is_hourly_worker === '1');
+
+  let totalSupervisionHours = 0;
+  try {
+    const [rows] = await pool.execute(
+      `SELECT COALESCE(individual_hours, 0) + COALESCE(group_hours, 0) AS total_hours
+       FROM supervision_accounts
+       WHERE agency_id = ? AND user_id = ?
+       LIMIT 1`,
+      [aId, uid]
+    );
+    totalSupervisionHours = Number(rows?.[0]?.total_hours || 0);
+  } catch (e) {
+    if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+    totalSupervisionHours = 0;
+  }
+
+  const eligible = isHourlyWorker || totalSupervisionHours >= 100 - 1e-9;
+  return { eligible, isHourlyWorker, totalSupervisionHours };
+}
+
+async function resolveSupervisionPayForParticipant({
+  agencyId,
+  userId,
+  participantRole,
+  sessionType,
+  asOfDate
+}) {
+  const uid = Number(userId || 0);
+  const aId = Number(agencyId || 0);
+  if (!uid || !aId) {
+    return {
+      serviceCode: null,
+      rateAmount: 0,
+      rateUnit: 'per_hour',
+      rateSource: 'none',
+      payable: false,
+      reason: 'missing_ids'
+    };
+  }
+
+  const serviceCode = supervisionServiceCodeForParticipant({ participantRole, sessionType });
+  const asOf = String(asOfDate || '').slice(0, 10) || null;
+  const rateCard = await PayrollRateCard.findForUser(aId, uid);
+  const perCodeRate = await PayrollRate.findBestRate({
+    agencyId: aId,
+    userId: uid,
+    serviceCode,
+    asOf
+  });
+
+  if (String(participantRole || '').toLowerCase() === 'supervisor') {
+    // Supervisors: always paid at Supervision rate (99415); fall back to indirect for resilience.
+    if (perCodeRate) {
+      return {
+        serviceCode,
+        rateAmount: Number(perCodeRate.rate_amount || 0),
+        rateUnit: isSupervisionMeetingCode(serviceCode)
+          ? 'per_hour'
+          : (String(perCodeRate.rate_unit || 'per_hour').trim().toLowerCase() || 'per_hour'),
+        rateSource: 'per_code_rate',
+        payable: true,
+        reason: null
+      };
+    }
+    return {
+      serviceCode,
+      rateAmount: Number(rateCard?.indirect_rate || 0),
+      rateUnit: 'per_hour',
+      rateSource: rateCard ? 'indirect_rate_fallback' : 'none',
+      payable: true,
+      reason: rateCard ? 'missing_supervision_rate_used_indirect' : 'missing_supervision_rate'
+    };
+  }
+
+  const eligibility = await getSupervisionPayEligibility({ agencyId: aId, userId: uid });
+  if (!eligibility.eligible) {
+    return {
+      serviceCode,
+      rateAmount: 0,
+      rateUnit: 'per_hour',
+      rateSource: 'none',
+      payable: false,
+      reason: 'requires_100_hours_or_hourly_worker',
+      eligibility
+    };
+  }
+
+  if (perCodeRate) {
+    return {
+      serviceCode,
+      rateAmount: Number(perCodeRate.rate_amount || 0),
+      rateUnit: isSupervisionMeetingCode(serviceCode)
+        ? 'per_hour'
+        : (String(perCodeRate.rate_unit || 'per_hour').trim().toLowerCase() || 'per_hour'),
+      rateSource: 'per_code_rate',
+      payable: true,
+      reason: null,
+      eligibility
+    };
+  }
+
+  return {
+    serviceCode,
+    rateAmount: Number(rateCard?.indirect_rate || 0),
+    rateUnit: 'per_hour',
+    rateSource: rateCard ? 'indirect_rate_fallback' : 'none',
+    payable: true,
+    reason: rateCard ? 'missing_meeting_rate_used_indirect' : 'missing_meeting_rate',
+    eligibility
+  };
+}
+
+export const listSupervisionProviderCandidates = async (req, res, next) => {
+  try {
+    const actorId = Number(req.user?.id || 0);
+    if (!actorId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+
+    const actorAgencies = await User.getAgencies(actorId);
+    const actorAgencyIds = Array.from(
+      new Set((actorAgencies || []).map((a) => Number(a?.id)).filter((n) => Number.isFinite(n) && n > 0))
+    );
+    if (!actorAgencyIds.length) {
+      return res.json({ ok: true, agencyId: null, providers: [] });
+    }
+
+    const requestedAgencyId = Number(req.query?.agencyId || 0);
+    const agencyId = requestedAgencyId > 0 ? requestedAgencyId : actorAgencyIds[0];
+    if (!actorAgencyIds.includes(agencyId)) {
+      return res.status(403).json({ error: { message: 'Access denied for this agency' } });
+    }
+
+    const [rows] = await pool.execute(
+      `SELECT DISTINCT
+         u.id,
+         u.first_name,
+         u.last_name,
+         u.email,
+         u.role
+       FROM users u
+       JOIN user_agencies ua ON ua.user_id = u.id
+       WHERE ua.agency_id = ?
+         AND (u.is_active IS NULL OR u.is_active = TRUE)
+         AND (u.is_archived IS NULL OR u.is_archived = FALSE)
+         AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED', 'PROSPECTIVE'))
+         AND (
+           u.role IN ('provider', 'supervisor', 'clinical_practice_assistant', 'provider_plus', 'staff', 'admin', 'super_admin')
+           OR (u.has_provider_access = TRUE)
+         )
+         AND LOWER(COALESCE(u.role, '')) NOT IN ('guardian', 'school_support')
+       ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC`,
+      [agencyId]
+    );
+
+    const providers = (rows || []).map((r) => ({
+      id: Number(r.id),
+      firstName: String(r.first_name || '').trim(),
+      lastName: String(r.last_name || '').trim(),
+      email: String(r.email || '').trim().toLowerCase(),
+      role: String(r.role || '').trim().toLowerCase()
+    }));
+
+    res.json({ ok: true, agencyId, providers });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const markSupervisionMeetingLifecycle = async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ error: { message: 'Invalid session id' } });
+    const row = await SupervisionSession.findById(id);
+    if (!row) return res.status(404).json({ error: { message: 'Session not found' } });
+
+    const ok = await canScheduleSession(req, {
+      agencyId: row.agency_id,
+      supervisorUserId: row.supervisor_user_id,
+      superviseeUserId: row.supervisee_user_id
+    });
+    if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const actorUserId = Number(req.user?.id || 0);
+    if (!actorUserId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+
+    const eventTypeRaw = String(req.body?.eventType || '').trim().toLowerCase();
+    if (!['opened', 'closed', 'joined', 'left'].includes(eventTypeRaw)) {
+      return res.status(400).json({ error: { message: 'eventType must be opened, closed, joined, or left' } });
+    }
+    const eventType = (eventTypeRaw === 'opened')
+      ? 'joined'
+      : (eventTypeRaw === 'closed' ? 'left' : eventTypeRaw);
+    const eventAt = parseDateTimeLocalString(req.body?.eventAt) || mysqlNowDateTime();
+    const clientSessionKey = String(req.body?.clientSessionKey || '').trim()
+      || `web-${id}-${actorUserId}-${Date.now()}`;
+
+    let attendee = await SupervisionSession.findAttendeeBySessionUser(id, actorUserId);
+    if (!attendee) {
+      const role = Number(row.supervisor_user_id) === actorUserId ? 'supervisor' : 'supervisee';
+      await SupervisionSession.upsertAttendees(id, [{
+        userId: actorUserId,
+        participantRole: role,
+        isRequired: true,
+        isCompensableSnapshot: false,
+        status: 'INVITED'
+      }]);
+      attendee = await SupervisionSession.findAttendeeBySessionUser(id, actorUserId);
+    }
+
+    await SupervisionSession.recordAttendanceEvent({
+      sessionId: id,
+      attendeeId: Number(attendee?.id || 0) || null,
+      userId: actorUserId,
+      participantSessionKey: clientSessionKey,
+      eventType,
+      eventAt,
+      rawPayload: {
+        source: 'web_app_modal',
+        eventTypeRaw,
+        actorUserId
+      }
+    });
+
+    await SupervisionSession.setAttendeeStatus({
+      sessionId: id,
+      userId: actorUserId,
+      status: eventType === 'joined' ? 'JOINED' : 'LEFT'
+    });
+
+    // Ensure each tracked meeting has an artifact shell tied to the session.
+    if (eventTypeRaw === 'opened' || eventTypeRaw === 'closed') {
+      await SupervisionSessionArtifact.ensureTagged({
+        sessionId: id,
+        updatedByUserId: actorUserId
+      });
+    }
+
+    const rollup = await recomputeAttendanceRollupForUser({ sessionId: id, userId: actorUserId });
+    res.json({
+      ok: true,
+      sessionId: id,
+      userId: actorUserId,
+      eventType,
+      eventAt,
+      clientSessionKey,
+      rollup
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const listSupervisionAttendanceLogs = async (req, res, next) => {
+  try {
+    const actorId = Number(req.user?.id || 0);
+    if (!actorId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+    const role = String(req.user?.role || '').toLowerCase();
+
+    const agencyId = Number(req.query?.agencyId || 0);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+
+    const actorAgencies = await User.getAgencies(actorId);
+    const hasAgencyAccess = (actorAgencies || []).some((a) => Number(a?.id) === agencyId);
+    if (!hasAgencyAccess) return res.status(403).json({ error: { message: 'Access denied for this agency' } });
+    if (!canViewAgencySupervisionLogs(role)) {
+      return res.status(403).json({ error: { message: 'Only admin/staff roles can view supervision attendance logs' } });
+    }
+
+    const startDate = String(req.query?.startDate || '').slice(0, 10) || null;
+    const endDate = String(req.query?.endDate || '').slice(0, 10) || null;
+    const sessionId = req.query?.sessionId ? Number(req.query.sessionId) : null;
+    const userId = req.query?.userId ? Number(req.query.userId) : null;
+
+    const rows = await SupervisionSession.listAttendanceLogsForAgency({
+      agencyId,
+      startDate,
+      endDate,
+      sessionId,
+      userId
+    });
+
+    const logs = [];
+    for (const r of (rows || [])) {
+      const participantRole = String(r.participant_role || '').trim().toLowerCase() || 'supervisee';
+      const pay = await resolveSupervisionPayForParticipant({
+        agencyId,
+        userId: Number(r.user_id),
+        participantRole,
+        sessionType: String(r.session_type || 'individual'),
+        asOfDate: String(r.start_at || '').slice(0, 10)
+      });
+      const hours = Number(r.total_seconds || 0) / 3600;
+      const unitHours = Number.isFinite(hours) ? Math.round(hours * 100) / 100 : 0;
+      const rate = Number(pay.rateAmount || 0);
+      const amount = pay.payable ? Math.round(unitHours * rate * 100) / 100 : 0;
+
+      logs.push({
+        sessionId: Number(r.session_id),
+        agencyId: Number(r.agency_id),
+        sessionType: String(r.session_type || 'individual'),
+        sessionStatus: r.session_status || null,
+        startAt: r.start_at,
+        endAt: r.end_at,
+        googleMeetLink: r.google_meet_link || null,
+        artifactTaggedAt: r.artifact_tagged_at || null,
+        transcriptUrl: r.artifact_transcript_url || null,
+        summaryText: r.artifact_summary_text || null,
+        supervisorName: String(r.supervisor_name || '').trim() || null,
+        supervisorEmail: String(r.supervisor_email || '').trim() || null,
+        userId: Number(r.user_id),
+        participantName: String(r.participant_name || '').trim() || null,
+        participantEmail: String(r.participant_email || '').trim() || null,
+        participantRole,
+        isRequired: Number(r.is_required || 0) === 1,
+        firstJoinedAt: r.first_joined_at || null,
+        lastLeftAt: r.last_left_at || null,
+        totalSeconds: Number(r.total_seconds || 0),
+        totalHours: unitHours,
+        segmentCount: Number(r.segment_count || 0),
+        isFinalized: Number(r.is_finalized || 0) === 1,
+        pay: {
+          payable: !!pay.payable,
+          reason: pay.reason || null,
+          serviceCode: pay.serviceCode || null,
+          rateAmount: rate,
+          rateUnit: pay.rateUnit || 'per_hour',
+          rateSource: pay.rateSource || 'none',
+          computedAmount: amount,
+          eligibility: pay.eligibility || null
+        }
+      });
+    }
+
+    res.json({ ok: true, agencyId, count: logs.length, logs });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const getSupervisionSessionArtifacts = async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ error: { message: 'Invalid session id' } });
+    const row = await SupervisionSession.findById(id);
+    if (!row) return res.status(404).json({ error: { message: 'Session not found' } });
+
+    const role = String(req.user?.role || '').toLowerCase();
+    if (!canViewSessionArtifacts(role)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const ok = await canScheduleSession(req, {
+      agencyId: row.agency_id,
+      supervisorUserId: row.supervisor_user_id,
+      superviseeUserId: row.supervisee_user_id
+    });
+    if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const artifact = await SupervisionSessionArtifact.findBySessionId(id);
+    res.json({ ok: true, sessionId: id, artifact: artifact || null });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const upsertSupervisionSessionArtifacts = async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ error: { message: 'Invalid session id' } });
+    const row = await SupervisionSession.findById(id);
+    if (!row) return res.status(404).json({ error: { message: 'Session not found' } });
+
+    const role = String(req.user?.role || '').toLowerCase();
+    if (!canViewSessionArtifacts(role)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const ok = await canScheduleSession(req, {
+      agencyId: row.agency_id,
+      supervisorUserId: row.supervisor_user_id,
+      superviseeUserId: row.supervisee_user_id
+    });
+    if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const transcriptUrlInput = req.body?.transcriptUrl;
+    const transcriptTextInput = req.body?.transcriptText;
+    const summaryTextInput = req.body?.summaryText;
+    const autoSummarize = req.body?.autoSummarize === true;
+
+    const transcriptUrl = transcriptUrlInput === undefined ? undefined : String(transcriptUrlInput || '').trim().slice(0, 2048);
+    const transcriptText = transcriptTextInput === undefined ? undefined : String(transcriptTextInput || '').trim().slice(0, 120000);
+    let summaryText = summaryTextInput === undefined ? undefined : String(summaryTextInput || '').trim().slice(0, 120000);
+    let summaryModel = undefined;
+    let summaryGeneratedAt = undefined;
+
+    if (autoSummarize && transcriptText) {
+      const prompt = buildSupervisionSummaryPrompt(transcriptText);
+      const summaryResp = await callGeminiText({
+        prompt,
+        temperature: 0.1,
+        maxOutputTokens: 900
+      });
+      summaryText = String(summaryResp?.text || '').trim();
+      summaryModel = String(summaryResp?.modelName || '').trim() || null;
+      summaryGeneratedAt = mysqlNowDateTime();
+    }
+
+    const artifact = await SupervisionSessionArtifact.upsertBySessionId({
+      sessionId: id,
+      taggedAt: mysqlNowDateTime(),
+      transcriptUrl,
+      transcriptText,
+      summaryText,
+      summaryModel,
+      summaryGeneratedAt,
+      updatedByUserId: Number(req.user?.id || 0) || null
+    });
+
+    res.json({ ok: true, sessionId: id, artifact });
+  } catch (e) {
+    if (e?.status) {
+      return res.status(e.status).json({ error: { message: e.message || 'Failed to save supervision artifacts' } });
+    }
+    next(e);
+  }
+};
 
 export const createSupervisionSessionValidators = [
   body('agencyId').isInt({ min: 1 }).withMessage('agencyId is required'),

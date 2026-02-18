@@ -382,6 +382,91 @@
                   <li v-for="s in upcomingSessions" :key="s.id">
                     {{ formatSessionDate(s.startAt) }} – {{ formatSessionDate(s.endAt) }}
                     <span v-if="s.modality" class="summary-meta"> ({{ s.modality }})</span>
+                    <span v-if="s.googleMeetLink" class="summary-meta"> · </span>
+                    <a
+                      v-if="s.googleMeetLink"
+                      :href="s.googleMeetLink"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="summary-meta"
+                    >
+                      Open Meet
+                    </a>
+                    <button
+                      v-if="s.googleMeetLink"
+                      type="button"
+                      class="btn btn-secondary btn-sm"
+                      style="margin-left: 0.5rem;"
+                      :disabled="meetingTrackerSaving"
+                      @click="startTrackedMeeting(s)"
+                    >
+                      Start tracked
+                    </button>
+                    <div class="supervision-artifact-box">
+                      <div v-if="artifactLoadingById[s.id]" class="summary-meta">Loading meeting transcript/summary...</div>
+                      <div v-else>
+                        <div class="form-group">
+                          <label class="summary-meta">Transcript link</label>
+                          <input
+                            :value="artifactDraftForSession(s.id).transcriptUrl"
+                            type="url"
+                            class="input"
+                            placeholder="https://... transcript/doc link"
+                            @input="setArtifactDraft(s.id, { transcriptUrl: $event?.target?.value || '' })"
+                          />
+                        </div>
+                        <div class="form-group">
+                          <label class="summary-meta">Transcript text</label>
+                          <textarea
+                            :value="artifactDraftForSession(s.id).transcriptText"
+                            class="input"
+                            rows="4"
+                            placeholder="Paste transcript text (Gemini summary will use this)"
+                            @input="setArtifactDraft(s.id, { transcriptText: $event?.target?.value || '' })"
+                          />
+                        </div>
+                        <div class="form-group">
+                          <label class="summary-meta">Summary</label>
+                          <textarea
+                            :value="artifactDraftForSession(s.id).summaryText"
+                            class="input"
+                            rows="4"
+                            placeholder="Session summary"
+                            @input="setArtifactDraft(s.id, { summaryText: $event?.target?.value || '' })"
+                          />
+                        </div>
+                        <div class="supervision-actions-row">
+                          <button
+                            type="button"
+                            class="btn btn-secondary btn-sm"
+                            :disabled="artifactSavingById[s.id]"
+                            @click="saveSessionArtifact(s.id, { autoSummarize: false })"
+                          >
+                            Save transcript + summary
+                          </button>
+                          <button
+                            type="button"
+                            class="btn btn-primary btn-sm"
+                            :disabled="artifactSavingById[s.id]"
+                            @click="saveSessionArtifact(s.id, { autoSummarize: true })"
+                          >
+                            Generate summary with Gemini
+                          </button>
+                          <a
+                            v-if="artifactForSession(s.id)?.transcript_url"
+                            :href="artifactForSession(s.id).transcript_url"
+                            class="btn btn-secondary btn-sm"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            Open transcript link
+                          </a>
+                        </div>
+                        <div v-if="artifactErrorById[s.id]" class="supervision-error-inline">
+                          {{ artifactErrorById[s.id] }}
+                        </div>
+                      </div>
+                    </div>
                   </li>
                 </ul>
               </div>
@@ -399,7 +484,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
@@ -462,6 +547,16 @@ const schedulePresenterIds = ref([]);
 const scheduleModality = ref('');
 const scheduleNotes = ref('');
 const scheduleSaving = ref(false);
+const meetingTrackerSaving = ref(false);
+const trackedMeetingWindow = ref(null);
+const trackedMeetingPoll = ref(null);
+const trackedMeetingSessionId = ref(null);
+const trackedMeetingClientSessionKey = ref('');
+const sessionArtifactsById = ref({});
+const artifactDraftById = ref({});
+const artifactLoadingById = ref({});
+const artifactSavingById = ref({});
+const artifactErrorById = ref({});
 
 // Link to user's own dashboard; chat drawer will open a thread with the supervisee via openChatWith/agencyId (avoids admin-only chats page).
 const chatsLink = computed(() => {
@@ -506,6 +601,164 @@ function formatSessionDate(iso) {
     return d.toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' });
   } catch {
     return String(iso);
+  }
+}
+
+function artifactForSession(sessionId) {
+  return sessionArtifactsById.value?.[Number(sessionId)] || null;
+}
+
+function artifactDraftForSession(sessionId) {
+  const sid = Number(sessionId || 0);
+  if (!sid) return { transcriptUrl: '', transcriptText: '', summaryText: '' };
+  const existing = artifactDraftById.value?.[sid];
+  if (existing) return existing;
+  const fromArtifact = artifactForSession(sid);
+  return {
+    transcriptUrl: String(fromArtifact?.transcript_url || ''),
+    transcriptText: String(fromArtifact?.transcript_text || ''),
+    summaryText: String(fromArtifact?.summary_text || '')
+  };
+}
+
+function setArtifactDraft(sessionId, patch) {
+  const sid = Number(sessionId || 0);
+  if (!sid) return;
+  const prev = artifactDraftForSession(sid);
+  artifactDraftById.value = {
+    ...artifactDraftById.value,
+    [sid]: {
+      ...prev,
+      ...patch
+    }
+  };
+}
+
+async function loadSessionArtifact(sessionId, { force = false } = {}) {
+  const sid = Number(sessionId || 0);
+  if (!sid) return;
+  if (!force && sessionArtifactsById.value?.[sid]) return;
+  artifactLoadingById.value = { ...artifactLoadingById.value, [sid]: true };
+  artifactErrorById.value = { ...artifactErrorById.value, [sid]: '' };
+  try {
+    const resp = await api.get(`/supervision/sessions/${sid}/artifacts`);
+    const artifact = resp?.data?.artifact || null;
+    sessionArtifactsById.value = {
+      ...sessionArtifactsById.value,
+      [sid]: artifact
+    };
+    if (artifact) {
+      setArtifactDraft(sid, {
+        transcriptUrl: String(artifact.transcript_url || ''),
+        transcriptText: String(artifact.transcript_text || ''),
+        summaryText: String(artifact.summary_text || '')
+      });
+    }
+  } catch (err) {
+    artifactErrorById.value = {
+      ...artifactErrorById.value,
+      [sid]: err?.response?.data?.error?.message || 'Failed to load meeting transcript/summary.'
+    };
+  } finally {
+    artifactLoadingById.value = { ...artifactLoadingById.value, [sid]: false };
+  }
+}
+
+async function saveSessionArtifact(sessionId, { autoSummarize = false } = {}) {
+  const sid = Number(sessionId || 0);
+  if (!sid) return;
+  const draft = artifactDraftForSession(sid);
+  artifactSavingById.value = { ...artifactSavingById.value, [sid]: true };
+  artifactErrorById.value = { ...artifactErrorById.value, [sid]: '' };
+  try {
+    const resp = await api.post(`/supervision/sessions/${sid}/artifacts`, {
+      transcriptUrl: String(draft.transcriptUrl || '').trim() || null,
+      transcriptText: String(draft.transcriptText || '').trim() || null,
+      summaryText: autoSummarize ? undefined : (String(draft.summaryText || '').trim() || null),
+      autoSummarize
+    });
+    const artifact = resp?.data?.artifact || null;
+    sessionArtifactsById.value = {
+      ...sessionArtifactsById.value,
+      [sid]: artifact
+    };
+    if (artifact) {
+      setArtifactDraft(sid, {
+        transcriptUrl: String(artifact.transcript_url || ''),
+        transcriptText: String(artifact.transcript_text || ''),
+        summaryText: String(artifact.summary_text || '')
+      });
+    }
+  } catch (err) {
+    artifactErrorById.value = {
+      ...artifactErrorById.value,
+      [sid]: err?.response?.data?.error?.message || 'Failed to save meeting transcript/summary.'
+    };
+  } finally {
+    artifactSavingById.value = { ...artifactSavingById.value, [sid]: false };
+  }
+}
+
+function clearTrackedMeetingPoll() {
+  if (trackedMeetingPoll.value) {
+    clearInterval(trackedMeetingPoll.value);
+    trackedMeetingPoll.value = null;
+  }
+}
+
+async function logMeetingLifecycle(sessionId, eventType) {
+  const sid = Number(sessionId || 0);
+  if (!sid) return;
+  await api.post(`/supervision/sessions/${sid}/meeting-lifecycle`, {
+    eventType,
+    clientSessionKey: trackedMeetingClientSessionKey.value || undefined
+  });
+}
+
+async function endTrackedMeeting() {
+  if (!trackedMeetingSessionId.value) return;
+  try {
+    meetingTrackerSaving.value = true;
+    const sid = Number(trackedMeetingSessionId.value || 0);
+    clearTrackedMeetingPoll();
+    await logMeetingLifecycle(sid, 'closed');
+    if (trackedMeetingWindow.value && !trackedMeetingWindow.value.closed) {
+      try { trackedMeetingWindow.value.close(); } catch { /* ignore */ }
+    }
+  } catch {
+    // best-effort lifecycle close
+  } finally {
+    trackedMeetingWindow.value = null;
+    trackedMeetingSessionId.value = null;
+    trackedMeetingClientSessionKey.value = '';
+    meetingTrackerSaving.value = false;
+  }
+}
+
+async function startTrackedMeeting(session) {
+  const sid = Number(session?.id || 0);
+  const meetLink = String(session?.googleMeetLink || '').trim();
+  if (!sid || !meetLink) return;
+  try {
+    meetingTrackerSaving.value = true;
+    clearTrackedMeetingPoll();
+    trackedMeetingSessionId.value = sid;
+    trackedMeetingClientSessionKey.value = `web-${sid}-${Number(authStore.user?.id || 0)}-${Date.now()}`;
+    await logMeetingLifecycle(sid, 'opened');
+    const popup = window.open(meetLink, '_blank', 'noopener,noreferrer,width=1200,height=850');
+    if (!popup) throw new Error('Pop-up blocked');
+    trackedMeetingWindow.value = popup;
+    trackedMeetingPoll.value = setInterval(() => {
+      if (!trackedMeetingWindow.value || trackedMeetingWindow.value.closed) {
+        void endTrackedMeeting();
+      }
+    }, 1200);
+  } catch {
+    // Ignore and allow regular link usage
+    trackedMeetingSessionId.value = null;
+    trackedMeetingClientSessionKey.value = '';
+  } finally {
+    meetingTrackerSaving.value = false;
   }
 }
 
@@ -582,6 +835,13 @@ watch([scheduleRequiredAttendeeIds, scheduleOptionalAttendeeIds, selectedSupervi
     .filter((n) => allowed.has(n))
     .slice(0, 2);
 }, { deep: true });
+
+watch(upcomingSessions, (list) => {
+  for (const row of list || []) {
+    const sid = Number(row?.id || 0);
+    if (sid) loadSessionArtifact(sid);
+  }
+}, { immediate: true });
 
 const selectedModuleForAssignObj = computed(() => {
   const id = selectedModuleForAssign.value ? parseInt(selectedModuleForAssign.value, 10) : null;
@@ -1191,6 +1451,11 @@ watch(selectedSupervisee, (v) => {
   showModuleAssignmentDialog.value = false;
   showUploadDocumentDialog.value = false;
   selectedModuleForAssign.value = '';
+  sessionArtifactsById.value = {};
+  artifactDraftById.value = {};
+  artifactLoadingById.value = {};
+  artifactSavingById.value = {};
+  artifactErrorById.value = {};
   if (v) {
     fetchSuperviseeSummary();
     fetchSuperviseeExtras();
@@ -1207,6 +1472,10 @@ watch(selectedSupervisee, (v) => {
 
 onMounted(() => {
   fetchSupervisees();
+});
+
+onUnmounted(() => {
+  clearTrackedMeetingPoll();
 });
 </script>
 
@@ -1564,6 +1833,19 @@ onMounted(() => {
 }
 .supervision-docs-list li {
   margin-bottom: 0.25rem;
+}
+.supervision-artifact-box {
+  margin-top: 0.5rem;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 10px;
+  padding: 0.6rem;
+  background: #fafafa;
+}
+.supervision-artifact-box .form-group {
+  margin-bottom: 0.4rem;
+}
+.supervision-artifact-box .input {
+  width: 100%;
 }
 .supervision-actions-row {
   display: flex;
