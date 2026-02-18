@@ -64,17 +64,6 @@ export function getDashboardRoute() {
       null;
     return slug ? `/${slug}/guardian` : '/guardian';
   }
-
-  // Provider Plus/CPA users should always land on Operations Dashboard.
-  // This must run before supervisor checks because supervisor privileges are additive.
-  if (isProviderPlusExperienceRole) {
-    const slug =
-      organizationStore.organizationContext?.slug ||
-      user.agencies?.[0]?.portal_url ||
-      user.agencies?.[0]?.slug ||
-      null;
-    return slug ? `/${slug}/operations-dashboard` : '/operations-dashboard';
-  }
   
   // Supervisors (not admin/super_admin/support) use provider dashboard when they have a slug
   const isAdminLike = userRole === 'admin' || userRole === 'super_admin' || userRole === 'superadmin' || userRole === 'support';
@@ -91,6 +80,17 @@ export function getDashboardRoute() {
   if (userRole === 'admin' || userRole === 'super_admin' || userRole === 'superadmin' ||
       user.role === 'support' || isSupervisor(user)) {
     return '/admin';
+  }
+
+  // Provider Plus/CPA default to the personal My Dashboard.
+  // Operations dashboard is available as a separate destination in navigation.
+  if (isProviderPlusExperienceRole) {
+    const slug =
+      organizationStore.organizationContext?.slug ||
+      user.agencies?.[0]?.portal_url ||
+      user.agencies?.[0]?.slug ||
+      null;
+    return slug ? `/${slug}/dashboard` : '/dashboard';
   }
 
   // Regular users go to regular dashboard

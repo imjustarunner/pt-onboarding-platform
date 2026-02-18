@@ -57,6 +57,13 @@
                 {{ isPrivilegedPortalUser ? 'My Dashboard' : 'Dashboard' }}
               </router-link>
               <router-link
+                v-if="showOperationsDashboardLink"
+                :to="operationsDashboardTo"
+                @click="closeMobileMenu"
+              >
+                Operations
+              </router-link>
+              <router-link
                 v-for="portal in portalQuickLinks"
                 :key="`top-portal-${portal.id}`"
                 :to="portal.to"
@@ -357,6 +364,14 @@
             <router-link v-if="showOnDemandLink" :to="orgTo('/on-demand-training')" @click="closeMobileMenu" class="mobile-nav-link">On-Demand Training</router-link>
             <router-link :to="myDashboardTo" @click="(e) => { onMyDashboardClick(e); closeMobileMenu(); }" class="mobile-nav-link">
               {{ isPrivilegedPortalUser ? 'My Dashboard' : 'Dashboard' }}
+            </router-link>
+            <router-link
+              v-if="showOperationsDashboardLink"
+              :to="operationsDashboardTo"
+              @click="closeMobileMenu"
+              class="mobile-nav-link"
+            >
+              Operations Dashboard
             </router-link>
             <router-link
               v-for="portal in portalQuickLinks"
@@ -1196,7 +1211,7 @@ const myDashboardTo = computed(() => {
 
   // "My Dashboard" should always land on the user's personal dashboard, not admin.
   if (role === 'super_admin' || role === 'superadmin') return '/dashboard';
-  if (isProviderPlusExperienceRole) return orgTo('/operations-dashboard');
+  if (isProviderPlusExperienceRole) return orgTo('/dashboard');
   if (role === 'admin' || role === 'support' || role === 'staff' || role === 'provider' || isSupervisor(u)) {
     return orgTo('/dashboard');
   }
@@ -1204,6 +1219,13 @@ const myDashboardTo = computed(() => {
   // Keep existing behavior for non-portal roles (guardian, kiosk, etc.).
   return orgTo('/dashboard');
 });
+
+const showOperationsDashboardLink = computed(() => {
+  const role = String(authStore.user?.role || '').toLowerCase();
+  return role === 'provider_plus' || role === 'clinical_practice_assistant';
+});
+
+const operationsDashboardTo = computed(() => orgTo('/operations-dashboard'));
 
 // When already on the target route, router-link does nothing; handle click so the button still does something (e.g. scroll to top).
 const onMyDashboardClick = (e) => {
