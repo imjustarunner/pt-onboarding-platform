@@ -1072,32 +1072,46 @@ export const getSessionLockConfig = async (req, res, next) => {
 
 export const googleOAuthStart = async (req, res, next) => {
   try {
-    const getRequestHost = () => {
-      const xfHost = req.get('x-forwarded-host');
-      const raw = (xfHost || req.get('host') || req.hostname || '').toString();
+    const normalizeHost = (value) => {
+      const raw = String(value || '').trim().toLowerCase();
       if (!raw) return null;
-      return raw.split(',')[0].trim().toLowerCase();
+      const host = raw.split(',')[0].trim();
+      if (!host) return null;
+      if (host.startsWith('[')) return host; // IPv6-style host; keep as-is.
+      return host.replace(/:443$/, '').replace(/:80$/, '');
     };
+    const getRequestHost = () => normalizeHost(req.get('x-forwarded-host') || req.get('host') || req.hostname || '');
     const getRequestProto = () => {
       const xfProto = req.get('x-forwarded-proto');
       const raw = (xfProto || req.protocol || 'https').toString();
       const p = raw.split(',')[0].trim().toLowerCase();
       return p === 'http' || p === 'https' ? p : 'https';
     };
+    const addHostFromUrl = (set, rawUrl) => {
+      const value = String(rawUrl || '').trim();
+      if (!value) return;
+      try {
+        const u = new URL(value);
+        const h = normalizeHost(u.host);
+        if (h) set.add(h);
+      } catch {
+        // ignore malformed URL
+      }
+    };
+    const addHostsFromCsv = (set, csv) => {
+      const value = String(csv || '').trim();
+      if (!value) return;
+      for (const part of value.split(',').map((v) => normalizeHost(v)).filter(Boolean)) {
+        set.add(part);
+      }
+    };
     const getAllowedRedirectHosts = () => {
       const out = new Set();
-      try {
-        const base = String(process.env.GOOGLE_OAUTH_REDIRECT_URI || '').trim();
-        if (base) out.add(new URL(base).host.toLowerCase());
-      } catch {
-        // ignore
-      }
-      const extra = String(process.env.GOOGLE_OAUTH_ALLOWED_REDIRECT_HOSTS || '').trim();
-      if (extra) {
-        for (const h of extra.split(',').map((v) => v.trim().toLowerCase()).filter(Boolean)) {
-          out.add(h);
-        }
-      }
+      addHostFromUrl(out, process.env.GOOGLE_OAUTH_REDIRECT_URI);
+      addHostFromUrl(out, process.env.FRONTEND_URL);
+      addHostFromUrl(out, process.env.BACKEND_PUBLIC_URL);
+      addHostsFromCsv(out, process.env.GOOGLE_OAUTH_ALLOWED_REDIRECT_HOSTS);
+      addHostsFromCsv(out, process.env.CORS_ORIGIN);
       return out;
     };
     const buildOAuthRedirectUriForRequest = () => {
@@ -1140,32 +1154,46 @@ export const googleOAuthCallback = async (req, res, next) => {
   try {
     const { code, state, error: oauthError, error_description } = req.query;
 
-    const getRequestHost = () => {
-      const xfHost = req.get('x-forwarded-host');
-      const raw = (xfHost || req.get('host') || req.hostname || '').toString();
+    const normalizeHost = (value) => {
+      const raw = String(value || '').trim().toLowerCase();
       if (!raw) return null;
-      return raw.split(',')[0].trim().toLowerCase();
+      const host = raw.split(',')[0].trim();
+      if (!host) return null;
+      if (host.startsWith('[')) return host; // IPv6-style host; keep as-is.
+      return host.replace(/:443$/, '').replace(/:80$/, '');
     };
+    const getRequestHost = () => normalizeHost(req.get('x-forwarded-host') || req.get('host') || req.hostname || '');
     const getRequestProto = () => {
       const xfProto = req.get('x-forwarded-proto');
       const raw = (xfProto || req.protocol || 'https').toString();
       const p = raw.split(',')[0].trim().toLowerCase();
       return p === 'http' || p === 'https' ? p : 'https';
     };
+    const addHostFromUrl = (set, rawUrl) => {
+      const value = String(rawUrl || '').trim();
+      if (!value) return;
+      try {
+        const u = new URL(value);
+        const h = normalizeHost(u.host);
+        if (h) set.add(h);
+      } catch {
+        // ignore malformed URL
+      }
+    };
+    const addHostsFromCsv = (set, csv) => {
+      const value = String(csv || '').trim();
+      if (!value) return;
+      for (const part of value.split(',').map((v) => normalizeHost(v)).filter(Boolean)) {
+        set.add(part);
+      }
+    };
     const getAllowedRedirectHosts = () => {
       const out = new Set();
-      try {
-        const base = String(process.env.GOOGLE_OAUTH_REDIRECT_URI || '').trim();
-        if (base) out.add(new URL(base).host.toLowerCase());
-      } catch {
-        // ignore
-      }
-      const extra = String(process.env.GOOGLE_OAUTH_ALLOWED_REDIRECT_HOSTS || '').trim();
-      if (extra) {
-        for (const h of extra.split(',').map((v) => v.trim().toLowerCase()).filter(Boolean)) {
-          out.add(h);
-        }
-      }
+      addHostFromUrl(out, process.env.GOOGLE_OAUTH_REDIRECT_URI);
+      addHostFromUrl(out, process.env.FRONTEND_URL);
+      addHostFromUrl(out, process.env.BACKEND_PUBLIC_URL);
+      addHostsFromCsv(out, process.env.GOOGLE_OAUTH_ALLOWED_REDIRECT_HOSTS);
+      addHostsFromCsv(out, process.env.CORS_ORIGIN);
       return out;
     };
     const buildOAuthRedirectUriForRequest = () => {
