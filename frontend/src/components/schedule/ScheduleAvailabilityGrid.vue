@@ -322,11 +322,11 @@
         <div class="modal-body">
           <div class="action-grid">
             <button
-              v-for="act in availableQuickActions"
+              v-for="act in visibleQuickActions"
               :key="`act-${act.id}`"
               type="button"
               class="action-chip"
-              :class="{ on: requestType === act.id }"
+              :class="[ `tone-${act.tone || 'slate'}`, { on: requestType === act.id } ]"
               :disabled="!!act.disabledReason"
               :title="act.disabledReason || act.description"
               @click="requestType = act.id"
@@ -336,25 +336,9 @@
               <span v-else-if="act.description" class="action-chip-note">{{ act.description }}</span>
             </button>
           </div>
-
-          <label class="lbl" style="margin-top: 10px;">Action</label>
-          <select v-model="requestType" class="input">
-            <option value="office">Office booking / request (room picker)</option>
-            <option value="office_request_only">Office request (separate process)</option>
-            <option v-if="!isAdminMode" value="school" :disabled="!canUseSchool(modalDay, modalHour, modalEndHour)">School daytime availability</option>
-            <option v-if="!isAdminMode" value="supervision" :disabled="supervisionProvidersLoading || availableSupervisionParticipants.length === 0">Supervision (adds to Google Calendar)</option>
-            <option value="booked_note" :disabled="String(modalContext.slotState || '').toUpperCase() !== 'ASSIGNED_BOOKED'">Write note (booked slot)</option>
-            <option value="booked_record" :disabled="String(modalContext.slotState || '').toUpperCase() !== 'ASSIGNED_BOOKED'">Record session (booked slot)</option>
-            <option value="intake_virtual_on" :disabled="!Number(modalContext.officeEventId || 0) || !!modalContext.virtualIntakeEnabled">Enable virtual intake</option>
-            <option value="intake_virtual_off" :disabled="!Number(modalContext.officeEventId || 0) || !modalContext.virtualIntakeEnabled">Disable virtual intake</option>
-            <option
-              value="intake_inperson_on"
-              :disabled="!Number(modalContext.officeEventId || 0) || !!modalContext.inPersonIntakeEnabled || !['ASSIGNED_AVAILABLE','ASSIGNED_TEMPORARY','ASSIGNED_BOOKED'].includes(String(modalContext.slotState || '').toUpperCase())"
-            >
-              Enable in-person intake
-            </option>
-            <option value="intake_inperson_off" :disabled="!Number(modalContext.officeEventId || 0) || !modalContext.inPersonIntakeEnabled">Disable in-person intake</option>
-          </select>
+          <div v-if="!visibleQuickActions.length" class="modern-help" style="margin-top: 10px;">
+            No actions are available for this slot. Choose an assigned/booked office slot or select an office from the toolbar.
+          </div>
           <div v-if="requestType === 'school' && !canUseSchool(modalDay, modalHour, modalEndHour)" class="muted" style="margin-top: 6px;">
             School daytime availability must be on weekdays and between 06:00 and 18:00.
           </div>
@@ -367,16 +351,19 @@
 
           <div v-if="requestType === 'supervision' && availableSupervisionParticipants.length" style="margin-top: 10px;">
             <label class="lbl">Supervision participant</label>
-            <select v-model.number="selectedSupervisionParticipantId" class="input">
-              <option :value="0">Select…</option>
-              <option
+            <div class="participant-grid">
+              <button
                 v-for="p in availableSupervisionParticipants"
                 :key="`supv-provider-${p.id}`"
-                :value="Number(p.id)"
+                type="button"
+                class="participant-card"
+                :class="{ on: Number(selectedSupervisionParticipantId || 0) === Number(p.id) }"
+                @click="selectedSupervisionParticipantId = Number(p.id)"
               >
-                {{ supervisionParticipantLabel(p) }}
-              </option>
-            </select>
+                <span class="participant-name">{{ supervisionParticipantLabel(p) }}</span>
+                <span class="participant-role">{{ String(p.role || '').trim() || 'provider' }}</span>
+              </button>
+            </div>
 
             <label class="sched-toggle" style="margin-top: 8px;">
               <input type="checkbox" v-model="createSupervisionMeetLink" />
@@ -492,6 +479,7 @@
             @click="submitRequest"
             :disabled="
               submitting ||
+              !requestType ||
               ((requestType === 'office' || requestType === 'office_request_only') && (bookingMetadataLoading || !officeBookingValid || !!bookingClassificationInvalidReason)) ||
               (requestType === 'school' && !canUseSchool(modalDay, modalHour, modalEndHour)) ||
               (requestType === 'supervision' && (supervisionProvidersLoading || availableSupervisionParticipants.length === 0 || !selectedSupervisionParticipantId)) ||
@@ -1990,68 +1978,96 @@ const availableQuickActions = computed(() => {
   const hasAssignedOffice = ['ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY', 'ASSIGNED_BOOKED'].includes(state);
   const hasEvent = Number(ctx.officeEventId || 0) > 0;
   const booked = state === 'ASSIGNED_BOOKED';
+  const schoolWindowOk = canUseSchool(modalDay.value, modalHour.value, modalEndHour.value);
+  const supervisionOptionVisible =
+    !isAdminMode.value && (supervisionProvidersLoading.value || availableSupervisionParticipants.value.length > 0);
   return [
     {
       id: 'office',
       label: 'Office booking',
       description: hasOffice ? 'Book/request with room picker' : 'Select office first',
-      disabledReason: hasOffice ? '' : 'Select office'
+      disabledReason: hasOffice ? '' : 'Select office',
+      visible: hasOffice,
+      tone: 'blue'
     },
     {
       id: 'office_request_only',
       label: 'Office request',
       description: 'Separate office request workflow',
-      disabledReason: hasOffice ? '' : 'Select office'
+      disabledReason: hasOffice ? '' : 'Select office',
+      visible: hasOffice,
+      tone: 'teal'
     },
     {
       id: 'intake_virtual_on',
       label: 'Enable virtual intake',
       description: 'Auto-add virtual work hours if missing',
-      disabledReason: hasEvent && !ctx.virtualIntakeEnabled ? '' : 'Needs assigned office slot'
+      disabledReason: hasEvent && !ctx.virtualIntakeEnabled ? '' : 'Needs assigned office slot',
+      visible: hasEvent && !ctx.virtualIntakeEnabled,
+      tone: 'cyan'
     },
     {
       id: 'intake_inperson_on',
       label: 'Enable in-person intake',
       description: 'Only on assigned office slots',
-      disabledReason: hasEvent && hasAssignedOffice && !ctx.inPersonIntakeEnabled ? '' : 'Needs assigned office slot'
+      disabledReason: hasEvent && hasAssignedOffice && !ctx.inPersonIntakeEnabled ? '' : 'Needs assigned office slot',
+      visible: hasEvent && hasAssignedOffice && !ctx.inPersonIntakeEnabled,
+      tone: 'green'
     },
     {
       id: 'intake_virtual_off',
       label: 'Disable virtual intake',
       description: 'Keep regular virtual availability',
-      disabledReason: hasEvent && !!ctx.virtualIntakeEnabled ? '' : 'Virtual intake not enabled'
+      disabledReason: hasEvent && !!ctx.virtualIntakeEnabled ? '' : 'Virtual intake not enabled',
+      visible: hasEvent && !!ctx.virtualIntakeEnabled,
+      tone: 'slate'
     },
     {
       id: 'intake_inperson_off',
       label: 'Disable in-person intake',
       description: 'Remove in-person intake availability',
-      disabledReason: hasEvent && !!ctx.inPersonIntakeEnabled ? '' : 'In-person intake not enabled'
+      disabledReason: hasEvent && !!ctx.inPersonIntakeEnabled ? '' : 'In-person intake not enabled',
+      visible: hasEvent && !!ctx.inPersonIntakeEnabled,
+      tone: 'slate'
     },
     {
       id: 'school',
       label: 'School availability',
       description: 'Weekday daytime only',
-      disabledReason: !isAdminMode.value ? '' : 'Provider self flow only'
+      disabledReason: !isAdminMode.value && schoolWindowOk ? '' : 'Not available in this time range',
+      visible: !isAdminMode.value && schoolWindowOk,
+      tone: 'indigo'
     },
     {
       id: 'supervision',
       label: 'Supervision',
-      description: 'Create supervision session',
-      disabledReason: !isAdminMode.value ? '' : 'Provider self flow only'
+      description: supervisionProvidersLoading.value ? 'Loading providers...' : 'Create supervision session',
+      disabledReason: !supervisionOptionVisible || supervisionProvidersLoading.value ? 'Loading providers' : '',
+      visible: supervisionOptionVisible,
+      tone: 'violet'
     },
     {
       id: 'booked_note',
       label: 'Write note',
       description: 'Open Note Aid with booking context',
-      disabledReason: booked ? '' : 'Needs booked office slot'
+      disabledReason: booked ? '' : 'Needs booked office slot',
+      visible: booked,
+      tone: 'amber'
     },
     {
       id: 'booked_record',
       label: 'Record session',
       description: 'Open Note Aid record-session mode',
-      disabledReason: booked ? '' : 'Needs booked office slot'
+      disabledReason: booked ? '' : 'Needs booked office slot',
+      visible: booked,
+      tone: 'rose'
     }
   ];
+});
+
+const visibleQuickActions = computed(() => {
+  const rows = Array.isArray(availableQuickActions.value) ? availableQuickActions.value : [];
+  return rows.filter((row) => row?.visible !== false);
 });
 
 const intakeActionHelpText = computed(() => {
@@ -3067,6 +3083,19 @@ watch(requestType, (t) => {
   }
 });
 
+watch([showRequestModal, visibleQuickActions], ([isOpen, actions]) => {
+  if (!isOpen) return;
+  const rows = Array.isArray(actions) ? actions : [];
+  if (!rows.length) {
+    requestType.value = '';
+    return;
+  }
+  const ids = new Set(rows.map((row) => String(row?.id || '')).filter(Boolean));
+  if (!ids.has(String(requestType.value || ''))) {
+    requestType.value = String(rows[0]?.id || '');
+  }
+}, { deep: true });
+
 watch(bookingAppointmentType, () => {
   const selectedSubtype = normalizeCodeValue(bookingAppointmentSubtype.value);
   if (!selectedSubtype) return;
@@ -3957,7 +3986,8 @@ watch(modalHour, () => {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.35);
+  background: radial-gradient(circle at top right, rgba(59, 130, 246, 0.14), rgba(17, 24, 39, 0.58));
+  backdrop-filter: blur(10px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3967,10 +3997,10 @@ watch(modalHour, () => {
 .modal {
   width: 100%;
   max-width: 640px;
-  background: white;
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.92), rgba(248, 250, 252, 0.84));
   border-radius: 16px;
-  border: 1px solid var(--border);
-  box-shadow: 0 18px 44px rgba(0,0,0,0.18);
+  border: 1px solid rgba(255, 255, 255, 0.65);
+  box-shadow: 0 22px 60px rgba(15, 23, 42, 0.34);
   padding: 16px;
 }
 .modal-head {
@@ -3988,40 +4018,90 @@ watch(modalHour, () => {
 .action-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+  gap: 10px;
 }
 .action-chip {
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.36);
+  border-radius: 14px;
+  padding: 12px;
   text-align: left;
-  background: #fff;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.54));
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.08);
   display: flex;
   flex-direction: column;
   gap: 4px;
   cursor: pointer;
+  transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease, background 140ms ease;
+}
+.action-chip:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 26px rgba(15, 23, 42, 0.13);
 }
 .action-chip.on {
-  border-color: rgba(37, 99, 235, 0.5);
-  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.3);
-  background: rgba(59, 130, 246, 0.07);
+  border-color: rgba(30, 64, 175, 0.55);
+  box-shadow: inset 0 0 0 1px rgba(30, 64, 175, 0.22), 0 12px 26px rgba(30, 64, 175, 0.17);
+  background: linear-gradient(155deg, rgba(239, 246, 255, 0.9), rgba(224, 242, 254, 0.75));
 }
 .action-chip:disabled {
-  opacity: 0.55;
+  opacity: 0.62;
   cursor: not-allowed;
 }
 .action-chip-label {
   font-weight: 800;
+  letter-spacing: 0.01em;
 }
 .action-chip-note {
   font-size: 12px;
-  color: var(--text-secondary);
+  color: rgba(51, 65, 85, 0.92);
+}
+.action-chip.tone-blue { border-color: rgba(37, 99, 235, 0.25); }
+.action-chip.tone-teal { border-color: rgba(13, 148, 136, 0.24); }
+.action-chip.tone-cyan { border-color: rgba(8, 145, 178, 0.24); }
+.action-chip.tone-green { border-color: rgba(22, 163, 74, 0.24); }
+.action-chip.tone-indigo { border-color: rgba(79, 70, 229, 0.26); }
+.action-chip.tone-violet { border-color: rgba(124, 58, 237, 0.28); }
+.action-chip.tone-amber { border-color: rgba(217, 119, 6, 0.28); }
+.action-chip.tone-rose { border-color: rgba(225, 29, 72, 0.26); }
+.action-chip.tone-slate { border-color: rgba(100, 116, 139, 0.28); }
+.participant-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.participant-card {
+  border: 1px solid rgba(148, 163, 184, 0.36);
+  border-radius: 12px;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.72);
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  cursor: pointer;
+  transition: transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
+}
+.participant-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.12);
+}
+.participant-card.on {
+  border-color: rgba(37, 99, 235, 0.56);
+  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.2);
+  background: rgba(239, 246, 255, 0.88);
+}
+.participant-name {
+  font-weight: 700;
+}
+.participant-role {
+  font-size: 12px;
+  color: rgba(71, 85, 105, 0.92);
+  text-transform: capitalize;
 }
 .modern-help {
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 8px 10px;
-  background: var(--bg-alt);
+  border: 1px solid rgba(148, 163, 184, 0.34);
+  border-radius: 12px;
+  padding: 9px 11px;
+  background: rgba(255, 255, 255, 0.64);
   color: var(--text-secondary);
   font-size: 13px;
 }
@@ -4049,6 +4129,9 @@ watch(modalHour, () => {
     grid-template-columns: 1fr;
   }
   .action-grid {
+    grid-template-columns: 1fr;
+  }
+  .participant-grid {
     grid-template-columns: 1fr;
   }
   .office-quick-glance-row {
