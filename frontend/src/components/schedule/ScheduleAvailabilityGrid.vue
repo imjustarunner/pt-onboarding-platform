@@ -212,6 +212,21 @@
       </div>
     </div>
 
+    <div v-if="joinPromptSession && !showSupvMeetTrackerModal" class="join-prompt">
+      <div class="join-prompt-copy">
+        <strong>Supervision starts soon:</strong>
+        <span>{{ joinPromptSessionLabel }}</span>
+      </div>
+      <div class="join-prompt-actions">
+        <button class="btn btn-primary btn-sm" type="button" :disabled="supvMeetOpening" @click="joinPromptSessionNow">
+          {{ supvMeetOpening ? 'Joining…' : 'Join now' }}
+        </button>
+        <button class="btn btn-secondary btn-sm" type="button" @click="dismissJoinPromptForSession(joinPromptSession.id)">
+          Dismiss
+        </button>
+      </div>
+    </div>
+
     <!-- Office layout view (room-by-room weekly board) -->
     <div v-if="viewMode === 'office_layout'" class="sched-grid-wrap" data-tour="my-schedule-office-layout-panel">
       <div v-if="!selectedOfficeLocationId" class="hint" style="margin-top: 10px;">
@@ -603,7 +618,7 @@
                 :disabled="supvMeetOpening"
                 @click="startTrackedSupvMeet"
               >
-                {{ supvMeetOpening ? 'Starting…' : 'Start Meet (tracked)' }}
+                {{ supvMeetOpening ? 'Joining…' : 'Join Meet (tracked)' }}
               </button>
               <a class="btn btn-secondary btn-sm" :href="selectedSupvSession.googleMeetLink" target="_blank" rel="noreferrer">
                 Open in new tab
@@ -711,6 +726,9 @@
           <button class="btn btn-secondary btn-sm" type="button" @click="endTrackedSupvMeet">Close</button>
         </div>
         <div class="modal-body">
+          <p v-if="supvMeetTrackedSessionLabel" class="muted" style="margin-top: 0;">
+            {{ supvMeetTrackedSessionLabel }}
+          </p>
           <p class="muted" style="margin-top: 0;">
             Keep this modal open while meeting is active. We log when it starts and when it closes.
           </p>
@@ -1121,10 +1139,18 @@ onMounted(() => {
   };
   window.addEventListener('mouseup', handleMouseUp);
   schedMouseUpHandler = handleMouseUp;
+  joinPromptNowMs.value = Date.now();
+  joinPromptTimer = setInterval(() => {
+    joinPromptNowMs.value = Date.now();
+  }, 30000);
 });
 
 onUnmounted(() => {
   clearSupvMeetPolling();
+  if (joinPromptTimer) {
+    clearInterval(joinPromptTimer);
+    joinPromptTimer = null;
+  }
   if (schedMouseUpHandler) {
     window.removeEventListener('mouseup', schedMouseUpHandler);
     schedMouseUpHandler = null;
@@ -3522,6 +3548,13 @@ watch(availableSupervisionParticipants, (rows) => {
   if (selected && !ids.has(selected)) selectedSupervisionParticipantId.value = 0;
 });
 
+watch(() => summary.value?.supervisionSessions, (rows) => {
+  const liveIds = new Set((Array.isArray(rows) ? rows : []).map((row) => Number(row?.id || 0)).filter((n) => n > 0));
+  dismissedJoinPromptSessionIds.value = (dismissedJoinPromptSessionIds.value || [])
+    .map((n) => Number(n || 0))
+    .filter((n) => n > 0 && liveIds.has(n));
+}, { deep: true });
+
 watch([showRequestModal, visibleQuickActions], ([isOpen, actions]) => {
   if (!isOpen) return;
   const rows = Array.isArray(actions) ? actions : [];
@@ -3571,6 +3604,8 @@ const supvMeetTrackerError = ref('');
 const supvMeetWindowRef = ref(null);
 const supvMeetPollTimer = ref(null);
 const supvMeetClientSessionKey = ref('');
+const supvMeetTrackedSessionId = ref(0);
+const supvMeetTrackedSessionLabel = ref('');
 const supvArtifactLoading = ref(false);
 const supvArtifactSaving = ref(false);
 const supvArtifactError = ref('');
@@ -3585,8 +3620,12 @@ const clearSupvMeetPolling = () => {
   }
 };
 
-const logSupvMeetingLifecycle = async (eventType) => {
-  const sid = Number(selectedSupvSessionId.value || 0);
+const joinPromptNowMs = ref(Date.now());
+let joinPromptTimer = null;
+const dismissedJoinPromptSessionIds = ref([]);
+
+const logSupvMeetingLifecycle = async ({ sessionId, eventType }) => {
+  const sid = Number(sessionId || selectedSupvSessionId.value || 0);
   if (!sid) return;
   await api.post(`/supervision/sessions/${sid}/meeting-lifecycle`, {
     eventType,
@@ -3600,7 +3639,7 @@ const endTrackedSupvMeet = async () => {
     supvMeetClosing.value = true;
     supvMeetTrackerError.value = '';
     clearSupvMeetPolling();
-    await logSupvMeetingLifecycle('closed');
+    await logSupvMeetingLifecycle({ sessionId: supvMeetTrackedSessionId.value, eventType: 'closed' });
     if (supvMeetWindowRef.value && !supvMeetWindowRef.value.closed) {
       try {
         supvMeetWindowRef.value.close();
@@ -3610,6 +3649,8 @@ const endTrackedSupvMeet = async () => {
     }
     supvMeetWindowRef.value = null;
     supvMeetClientSessionKey.value = '';
+    supvMeetTrackedSessionId.value = 0;
+    supvMeetTrackedSessionLabel.value = '';
     showSupvMeetTrackerModal.value = false;
   } catch (e) {
     supvMeetTrackerError.value = e?.response?.data?.error?.message || e?.message || 'Failed to log meeting end.';
@@ -3618,20 +3659,22 @@ const endTrackedSupvMeet = async () => {
   }
 };
 
-const startTrackedSupvMeet = async () => {
-  const link = String(selectedSupvSession.value?.googleMeetLink || '').trim();
-  const sid = Number(selectedSupvSessionId.value || 0);
+const startTrackedSupvMeetForSession = async (session) => {
+  const link = String(session?.googleMeetLink || '').trim();
+  const sid = Number(session?.id || 0);
   if (!link || !sid) return;
   try {
     supvMeetOpening.value = true;
     supvMeetTrackerError.value = '';
     clearSupvMeetPolling();
     supvMeetClientSessionKey.value = `web-${sid}-${Number(authStore.user?.id || 0)}-${Date.now()}`;
-    await logSupvMeetingLifecycle('opened');
+    await logSupvMeetingLifecycle({ sessionId: sid, eventType: 'opened' });
     const popup = window.open(link, '_blank', 'noopener,noreferrer,width=1200,height=850');
     if (!popup) {
       throw new Error('Pop-up blocked. Allow pop-ups for this site, then try again.');
     }
+    supvMeetTrackedSessionId.value = sid;
+    supvMeetTrackedSessionLabel.value = String(session?.counterpartyName || session?.label || `Session ${sid}`);
     supvMeetWindowRef.value = popup;
     showSupvMeetTrackerModal.value = true;
     supvMeetPollTimer.value = setInterval(() => {
@@ -3647,6 +3690,10 @@ const startTrackedSupvMeet = async () => {
   }
 };
 
+const startTrackedSupvMeet = async () => {
+  await startTrackedSupvMeetForSession(selectedSupvSession.value || null);
+};
+
 const parseMaybeDate = (raw) => {
   const s = String(raw || '').trim();
   if (!s) return null;
@@ -3657,6 +3704,54 @@ const toDatetimeLocalValue = (d) => {
   if (!d) return '';
   const p2 = (n) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}T${p2(d.getHours())}:${p2(d.getMinutes())}`;
+};
+
+const joinPromptSession = computed(() => {
+  const sessions = Array.isArray(summary.value?.supervisionSessions) ? summary.value.supervisionSessions : [];
+  const now = Number(joinPromptNowMs.value || Date.now());
+  const dismissed = new Set((dismissedJoinPromptSessionIds.value || []).map((n) => Number(n || 0)));
+  const candidates = [];
+  for (const s of sessions) {
+    const sid = Number(s?.id || 0);
+    if (!sid || dismissed.has(sid)) continue;
+    const meet = String(s?.googleMeetLink || '').trim();
+    if (!meet) continue;
+    const status = String(s?.status || '').trim().toUpperCase();
+    if (status === 'CANCELLED') continue;
+    const start = parseMaybeDate(s?.startAt);
+    const end = parseMaybeDate(s?.endAt);
+    if (!start || !end) continue;
+    const startMs = start.getTime();
+    const endMs = end.getTime();
+    const promptStartMs = startMs - (5 * 60 * 1000);
+    if (now >= promptStartMs && now <= endMs) {
+      candidates.push({ ...s, _startMs: startMs });
+    }
+  }
+  candidates.sort((a, b) => Number(a._startMs || 0) - Number(b._startMs || 0));
+  return candidates[0] || null;
+});
+
+const joinPromptSessionLabel = computed(() => {
+  const s = joinPromptSession.value;
+  if (!s) return '';
+  const who = String(s.counterpartyName || '').trim() || 'Session';
+  const st = parseMaybeDate(s.startAt);
+  const startLabel = st ? st.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
+  return `${who}${startLabel ? ` at ${startLabel}` : ''}`;
+});
+
+const dismissJoinPromptForSession = (sessionId) => {
+  const sid = Number(sessionId || 0);
+  if (!sid) return;
+  const next = new Set((dismissedJoinPromptSessionIds.value || []).map((n) => Number(n || 0)).filter((n) => n > 0));
+  next.add(sid);
+  dismissedJoinPromptSessionIds.value = Array.from(next.values());
+};
+
+const joinPromptSessionNow = async () => {
+  if (!joinPromptSession.value) return;
+  await startTrackedSupvMeetForSession(joinPromptSession.value);
 };
 
 const supervisionSessionsInCell = (dayName, hour) => {
@@ -4341,6 +4436,29 @@ watch(modalHour, () => {
 .selection-actions {
   display: inline-flex;
   gap: 8px;
+}
+.join-prompt {
+  margin-bottom: 10px;
+  border: 1px solid rgba(37, 99, 235, 0.35);
+  border-radius: 12px;
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: linear-gradient(120deg, rgba(219, 234, 254, 0.72), rgba(238, 242, 255, 0.74));
+}
+.join-prompt-copy {
+  display: inline-flex;
+  gap: 6px;
+  align-items: baseline;
+  color: var(--text-primary);
+  flex-wrap: wrap;
+}
+.join-prompt-actions {
+  display: inline-flex;
+  gap: 8px;
+  flex: 0 0 auto;
 }
 .cell-blocks {
   display: flex;
