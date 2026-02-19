@@ -122,20 +122,50 @@ function isPotentialRuleLine(line = '') {
 }
 
 function detectMinMaxMinutes(line = '') {
-  const minMax = String(line || '').match(
-    /(?:min(?:imum)?\s*:?\s*(\d{1,3}).*max(?:imum)?\s*:?\s*(\d{1,3}))|(?:(\d{1,3})\s*-\s*(\d{1,3})\s*(?:min|minute))/i
+  const raw = String(line || '');
+  const minMax = raw.match(
+    /(?:min(?:imum)?\s*:?\s*(\d{1,3}).*max(?:imum)?\s*:?\s*(\d{1,3}))|(?:(\d{1,3})\s*-\s*(\d{1,3})\s*(?:min|mins|minute|minutes))/i
   );
+  const minOnly = raw.match(/min(?:imum)?\s*:?\s*(\d{1,3})\s*(?:min|mins|minute|minutes)?/i);
+  const maxOnly = raw.match(/max(?:imum)?\s*:?\s*(\d{1,3})\s*(?:min|mins|minute|minutes)?/i);
   return {
-    minMinutes: toInt(minMax?.[1] || minMax?.[3] || 0, 0) || null,
-    maxMinutes: toInt(minMax?.[2] || minMax?.[4] || 0, 0) || null
+    minMinutes: toInt(minMax?.[1] || minMax?.[3] || minOnly?.[1] || 0, 0) || null,
+    maxMinutes: toInt(minMax?.[2] || minMax?.[4] || maxOnly?.[1] || 0, 0) || null
   };
 }
 
 function detectUnitMinutes(line = '') {
   const unitMatch = String(line || '').match(
-    /(?:unit(?:s)?\s*(?:every|per)\s*(\d{1,3})\s*(?:min|minute))|(?:\b(\d{1,3})\s*(?:min|minute)\s*unit)/i
+    /(?:unit(?:s)?\s*(?:every|per)\s*(\d{1,3})\s*(?:min|mins|minute|minutes))|(?:\b(\d{1,3})\s*(?:min|mins|minute|minutes)\s*unit)/i
   );
   return toInt(unitMatch?.[1] || unitMatch?.[2] || 0, 0) || null;
+}
+
+function normalizeCodeToken(token = '') {
+  const t = String(token || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (!t) return '';
+  if (/^[A-Z]\d{4}$/.test(t)) return t;
+  if (/^(90\d{3}|99\d{3})$/.test(t)) return t;
+  return '';
+}
+
+function extractLineCodes(line = '') {
+  const out = new Set();
+  const raw = String(line || '');
+  const codeRegex = /\b((?:[A-Z]\d{4})|(?:90\d{3})|(?:99\d{3}))\b/g;
+  for (const m of raw.matchAll(codeRegex)) {
+    const code = normalizeCodeToken(m[1]);
+    if (code) out.add(code);
+  }
+  // Also capture simple ranges like 90839-90840 or H2014/H2015.
+  const rangeRegex = /\b([A-Z]?\d{4,5})\s*[-/]\s*([A-Z]?\d{4,5})\b/g;
+  for (const m of raw.matchAll(rangeRegex)) {
+    const c1 = normalizeCodeToken(m[1]);
+    const c2 = normalizeCodeToken(m[2]);
+    if (c1) out.add(c1);
+    if (c2) out.add(c2);
+  }
+  return Array.from(out);
 }
 
 function detectEncounterBasis(line = '') {
@@ -170,7 +200,6 @@ function mergeLinePreview(existing, line, maxLen = 1000) {
 
 function parseCandidateRowsFromExtractedText(text = '') {
   const lines = String(text || '').split('\n').map((l) => l.trim()).filter(Boolean);
-  const codeRegex = /\b((?:[A-Z]\d{4})|(?:90\d{3})|(?:99\d{3}))\b/g;
   const byCode = new Map();
   let activeCodes = [];
 
@@ -196,7 +225,7 @@ function parseCandidateRowsFromExtractedText(text = '') {
   };
 
   for (const line of lines) {
-    const lineCodes = Array.from(new Set(Array.from(line.matchAll(codeRegex)).map((m) => normalizeCode(m[1])).filter(Boolean)));
+    const lineCodes = extractLineCodes(line);
     if (lineCodes.length) activeCodes = lineCodes;
     const targetCodes = lineCodes.length ? lineCodes : activeCodes;
     if (!targetCodes.length) continue;
@@ -213,15 +242,19 @@ function parseCandidateRowsFromExtractedText(text = '') {
     for (const code of targetCodes) {
       const row = ensure(code);
       if (!row) continue;
+      const codeMentionedInLine = lineCodes.includes(code);
+      const allowSharedRuleFields = codeMentionedInLine || targetCodes.length === 1;
       const serviceDescription = detectServiceDescriptionFromLine(line, code);
       if (!row.serviceDescription && serviceDescription) row.serviceDescription = serviceDescription;
-      if (!row.minMinutes && minMinutes) row.minMinutes = minMinutes;
-      if (!row.maxMinutes && maxMinutes) row.maxMinutes = maxMinutes;
-      if (!row.unitMinutes && unitMinutes) row.unitMinutes = unitMinutes;
-      if (encounterBasis) row.unitCalcMode = 'NONE';
-      else if (unitCalcMode === 'MEDICAID_8_MINUTE_LADDER') row.unitCalcMode = 'MEDICAID_8_MINUTE_LADDER';
-      else if (unitCalcMode === 'FIXED_BLOCK' && row.unitCalcMode !== 'MEDICAID_8_MINUTE_LADDER') row.unitCalcMode = 'FIXED_BLOCK';
-      if (!row.maxUnitsPerDay && maxUnitsPerDay) row.maxUnitsPerDay = maxUnitsPerDay;
+      if (allowSharedRuleFields) {
+        if (!row.minMinutes && minMinutes) row.minMinutes = minMinutes;
+        if (!row.maxMinutes && maxMinutes) row.maxMinutes = maxMinutes;
+        if (!row.unitMinutes && unitMinutes) row.unitMinutes = unitMinutes;
+        if (encounterBasis) row.unitCalcMode = 'NONE';
+        else if (unitCalcMode === 'MEDICAID_8_MINUTE_LADDER') row.unitCalcMode = 'MEDICAID_8_MINUTE_LADDER';
+        else if (unitCalcMode === 'FIXED_BLOCK' && row.unitCalcMode !== 'MEDICAID_8_MINUTE_LADDER') row.unitCalcMode = 'FIXED_BLOCK';
+        if (!row.maxUnitsPerDay && maxUnitsPerDay) row.maxUnitsPerDay = maxUnitsPerDay;
+      }
       if (!row.credentialTier && credentialTier) row.credentialTier = credentialTier;
       if (!row.providerType && providerType) row.providerType = providerType;
       row.sourceSnippet = summarizeSourceSnippet(mergeLinePreview(row.sourceSnippet, line, 400));
