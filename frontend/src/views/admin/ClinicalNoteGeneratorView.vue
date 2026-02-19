@@ -483,8 +483,8 @@ const isTruthyFlag = (v) => {
   return s === '1' || s === 'true' || s === 'yes' || s === 'on';
 };
 const clinicalNoteGeneratorEnabled = computed(() => {
+  if (agencyStore.currentAgency?.hasClinicalOrg !== true) return false;
   const flags = parseFeatureFlags(agencyStore.currentAgency?.feature_flags);
-  // Back-compat: paid toggle may be stored as noteAidEnabled or clinicalNoteGeneratorEnabled.
   return isTruthyFlag(flags?.noteAidEnabled) || isTruthyFlag(flags?.clinicalNoteGeneratorEnabled);
 });
 const canUseTool = computed(() => !!currentAgencyId.value && clinicalNoteGeneratorEnabled.value);

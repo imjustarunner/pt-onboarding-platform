@@ -65,6 +65,17 @@ class SupervisorAssignment {
   }
 
   /**
+   * Check if user has any supervisees (for notes-to-sign gating)
+   */
+  static async hasSupervisees(supervisorId) {
+    const [rows] = await pool.execute(
+      'SELECT 1 FROM supervisor_assignments WHERE supervisor_id = ? LIMIT 1',
+      [supervisorId]
+    );
+    return rows.length > 0;
+  }
+
+  /**
    * Find all supervisees for a supervisor in an agency
    */
   static async findBySupervisor(supervisorId, agencyId = null) {

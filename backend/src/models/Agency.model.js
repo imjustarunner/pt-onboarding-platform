@@ -1308,7 +1308,7 @@ class Agency {
   }
 
   static async update(id, agencyData) {
-    const { name, officialName, slug, logoUrl, logoPath, colorPalette, terminologySettings, intakeRetentionPolicy, isActive, iconId, chatIconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, companyDefaultPasswordHash, useDefaultPassword, manageAgenciesIconId, manageModulesIconId, manageDocumentsIconId, manageUsersIconId, platformSettingsIconId, viewAllProgressIconId, progressDashboardIconId, settingsIconId, externalCalendarAuditIconId, skillBuildersAvailabilityIconId, myDashboardChecklistIconId, myDashboardTrainingIconId, myDashboardDocumentsIconId, myDashboardMyAccountIconId, myDashboardMyScheduleIconId, myDashboardClientsIconId, myDashboardOnDemandTrainingIconId, myDashboardPayrollIconId, myDashboardSubmitIconId, myDashboardCommunicationsIconId, myDashboardChatsIconId, myDashboardNotificationsIconId, myDashboardSupervisionIconId, myDashboardClinicalNoteGeneratorIconId, certificateTemplateUrl, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, customDomain, themeSettings, customParameters, featureFlags, publicAvailabilityEnabled, organizationType, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId, supportTicketCreatedIconId, ticketingNotificationOrgTypes, streetAddress, city, state, postalCode, tierSystemEnabled, tierThresholds,
+    const { name, officialName, slug, logoUrl, logoPath, colorPalette, terminologySettings, intakeRetentionPolicy, isActive, iconId, chatIconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, companyDefaultPasswordHash, useDefaultPassword, manageAgenciesIconId, manageModulesIconId, manageDocumentsIconId, manageUsersIconId, platformSettingsIconId, viewAllProgressIconId, progressDashboardIconId, settingsIconId, externalCalendarAuditIconId, skillBuildersAvailabilityIconId, myDashboardChecklistIconId, myDashboardMomentumListIconId, myDashboardMomentumStickiesIconId, myDashboardTrainingIconId, myDashboardDocumentsIconId, myDashboardMyAccountIconId, myDashboardMyScheduleIconId, myDashboardClientsIconId, myDashboardOnDemandTrainingIconId, myDashboardPayrollIconId, myDashboardSubmitIconId, myDashboardCommunicationsIconId, myDashboardChatsIconId, myDashboardNotificationsIconId, myDashboardSupervisionIconId, myDashboardClinicalNoteGeneratorIconId, certificateTemplateUrl, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, customDomain, themeSettings, customParameters, featureFlags, publicAvailabilityEnabled, organizationType, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId, supportTicketCreatedIconId, ticketingNotificationOrgTypes, streetAddress, city, state, postalCode, tierSystemEnabled, tierThresholds,
       schoolPortalProvidersIconId, schoolPortalDaysIconId, schoolPortalRosterIconId, schoolPortalSkillsGroupsIconId, schoolPortalContactAdminIconId, schoolPortalFaqIconId, schoolPortalSchoolStaffIconId, schoolPortalParentQrIconId, schoolPortalParentSignIconId, schoolPortalUploadPacketIconId,
       schoolPortalPublicDocumentsIconId,
       schoolPortalAnnouncementsIconId,
@@ -1825,6 +1825,8 @@ class Agency {
     // Check if "My Dashboard" card icon columns exist
     if (
       myDashboardChecklistIconId !== undefined ||
+      myDashboardMomentumListIconId !== undefined ||
+      myDashboardMomentumStickiesIconId !== undefined ||
       myDashboardTrainingIconId !== undefined ||
       myDashboardDocumentsIconId !== undefined ||
       myDashboardMyAccountIconId !== undefined ||
@@ -1853,16 +1855,22 @@ class Agency {
         // Optional My Dashboard columns added later.
         let hasMyDashboardSupervisionIcon = false;
         let hasMyDashboardClinicalNoteGeneratorIcon = false;
+        let hasMyDashboardMomentumListIcon = false;
+        let hasMyDashboardMomentumStickiesIcon = false;
         try {
           const [cols] = await pool.execute(
-            "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME IN ('my_dashboard_supervision_icon_id','my_dashboard_clinical_note_generator_icon_id')"
+            "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME IN ('my_dashboard_supervision_icon_id','my_dashboard_clinical_note_generator_icon_id','my_dashboard_momentum_list_icon_id','my_dashboard_momentum_stickies_icon_id')"
           );
           const names = new Set((cols || []).map((c) => c.COLUMN_NAME));
           hasMyDashboardSupervisionIcon = names.has('my_dashboard_supervision_icon_id');
           hasMyDashboardClinicalNoteGeneratorIcon = names.has('my_dashboard_clinical_note_generator_icon_id');
+          hasMyDashboardMomentumListIcon = names.has('my_dashboard_momentum_list_icon_id');
+          hasMyDashboardMomentumStickiesIcon = names.has('my_dashboard_momentum_stickies_icon_id');
         } catch {
           hasMyDashboardSupervisionIcon = false;
           hasMyDashboardClinicalNoteGeneratorIcon = false;
+          hasMyDashboardMomentumListIcon = false;
+          hasMyDashboardMomentumStickiesIcon = false;
         }
 
         if (myDashboardChecklistIconId !== undefined) {
@@ -1920,6 +1928,14 @@ class Agency {
         if (hasMyDashboardClinicalNoteGeneratorIcon && myDashboardClinicalNoteGeneratorIconId !== undefined) {
           updates.push('my_dashboard_clinical_note_generator_icon_id = ?');
           values.push(myDashboardClinicalNoteGeneratorIconId || null);
+        }
+        if (hasMyDashboardMomentumListIcon && myDashboardMomentumListIconId !== undefined) {
+          updates.push('my_dashboard_momentum_list_icon_id = ?');
+          values.push(myDashboardMomentumListIconId || null);
+        }
+        if (hasMyDashboardMomentumStickiesIcon && myDashboardMomentumStickiesIconId !== undefined) {
+          updates.push('my_dashboard_momentum_stickies_icon_id = ?');
+          values.push(myDashboardMomentumStickiesIconId || null);
         }
       }
 

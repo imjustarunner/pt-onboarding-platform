@@ -140,12 +140,8 @@ class Task {
     `;
     const params = [userId, userId, userId, userId];
 
-    // Safety: hiring tasks are intended for the hiring UI and should not appear in the general task list
-    // unless explicitly requested.
-    if (!filters.taskType) {
-      query += ` AND t.task_type != 'hiring'`;
-    }
-
+    // Include hiring tasks (e.g. "Call candidate X" from applicant flow) in user's task list
+    // so they appear in Momentum List and Checklist.
     if (filters.taskType) {
       query += ' AND t.task_type = ?';
       params.push(filters.taskType);
@@ -234,10 +230,34 @@ class Task {
 
   static async updateDueDate(taskId, dueDate) {
     const dueDateMySQL = this.toMySQLDateTime(dueDate);
-    
+
     await pool.execute(
       'UPDATE tasks SET due_date = ? WHERE id = ?',
       [dueDateMySQL, taskId]
+    );
+    return this.findById(taskId);
+  }
+
+  static async updateCustomTask(taskId, { title, description, dueDate }) {
+    const parts = [];
+    const params = [];
+    if (title !== undefined) {
+      parts.push('title = ?');
+      params.push(title);
+    }
+    if (description !== undefined) {
+      parts.push('description = ?');
+      params.push(description);
+    }
+    if (dueDate !== undefined) {
+      parts.push('due_date = ?');
+      params.push(this.toMySQLDateTime(dueDate));
+    }
+    if (parts.length === 0) return this.findById(taskId);
+    params.push(parseInt(taskId, 10));
+    await pool.execute(
+      `UPDATE tasks SET ${parts.join(', ')} WHERE id = ?`,
+      params
     );
     return this.findById(taskId);
   }

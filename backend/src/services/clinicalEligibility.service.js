@@ -1,10 +1,23 @@
 import User from '../models/User.model.js';
 import Client from '../models/Client.model.js';
 import OfficeEvent from '../models/OfficeEvent.model.js';
+import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 
 const BACKOFFICE_ROLES = new Set(['admin', 'super_admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus']);
 
 class ClinicalEligibilityService {
+  /**
+   * Ensure agency has a clinical organization attached (notes/billing features are clinical-org only).
+   */
+  static async assertAgencyHasClinicalOrg(agencyId) {
+    const has = await OrganizationAffiliation.agencyHasClinicalOrg(agencyId);
+    if (!has) {
+      const err = new Error('Clinical notes and billing are only available for agencies with a clinical organization attached');
+      err.status = 403;
+      throw err;
+    }
+    return true;
+  }
   static isBackoffice(role) {
     return BACKOFFICE_ROLES.has(String(role || '').toLowerCase());
   }

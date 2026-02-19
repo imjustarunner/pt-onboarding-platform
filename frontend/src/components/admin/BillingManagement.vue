@@ -96,6 +96,10 @@
             <div class="label">Add-on: Public Availability ($/month)</div>
             <input v-model.number="platformDraft.publicAvailabilityAddonMonthlyDollars" class="input" type="number" step="0.01" min="0" :disabled="pricingLoading || pricingSaving" />
           </div>
+          <div class="form-group">
+            <div class="label">Add-on: Momentum List ($/person/month)</div>
+            <input v-model.number="platformDraft.momentumListAddonUnitDollars" class="input" type="number" step="0.01" min="0" :disabled="pricingLoading || pricingSaving" />
+          </div>
         </div>
 
         <div style="display:flex; gap: 10px; margin-top: 12px;">
@@ -196,6 +200,13 @@
             <select v-model="agencyDraft.publicAvailabilityAddonEnabled" class="select" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving">
               <option :value="false">Disabled</option>
               <option :value="true">Enabled (billed monthly)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <div class="label">Add-on: Momentum List</div>
+            <select v-model="agencyDraft.momentumListAddonEnabled" class="select" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving">
+              <option :value="false">Disabled</option>
+              <option :value="true">Enabled ($5/person, active employees)</option>
             </select>
           </div>
         </div>
@@ -484,7 +495,9 @@ const platformDraft = ref({
   smsOutboundClientDollars: 0,
   smsInboundClientDollars: 0,
   smsNotificationDollars: 0,
-  publicAvailabilityAddonMonthlyDollars: 0
+  publicAvailabilityAddonMonthlyDollars: 0,
+  momentumListAddonUnitDollars: 5,
+  momentumListAddonEnabled: false
 });
 
 const agencyOverrideEnabled = ref(false);
@@ -502,7 +515,8 @@ const agencyDraft = ref({
   smsOutboundClientDollars: 0,
   smsInboundClientDollars: 0,
   smsNotificationDollars: 0,
-  publicAvailabilityAddonEnabled: false
+  publicAvailabilityAddonEnabled: false,
+  momentumListAddonEnabled: false
 });
 
 const linkedSchools = ref([]);
@@ -542,7 +556,9 @@ const setDraftFromPricing = (draftRef, pricing) => {
     smsInboundClientDollars: Number(p.smsUnitCents?.inboundClient || 0) / 100,
     smsNotificationDollars: Number(p.smsUnitCents?.notification || 0) / 100,
     publicAvailabilityAddonMonthlyDollars: Number(p.addonsUnitCents?.publicAvailability || 0) / 100,
-    publicAvailabilityAddonEnabled: Boolean(p.addonsEnabled?.publicAvailability)
+    publicAvailabilityAddonEnabled: Boolean(p.addonsEnabled?.publicAvailability),
+    momentumListAddonUnitDollars: Number(p.addonsUnitCents?.momentumList || 0) / 100,
+    momentumListAddonEnabled: Boolean(p.addonsEnabled?.momentumList)
   };
 };
 
@@ -569,10 +585,12 @@ const buildPricingPayloadFromDraft = (draft) => {
       notification: dollarsToCents(d.smsNotificationDollars)
     },
     addonsUnitCents: {
-      publicAvailability: dollarsToCents(d.publicAvailabilityAddonMonthlyDollars)
+      publicAvailability: dollarsToCents(d.publicAvailabilityAddonMonthlyDollars),
+      momentumList: dollarsToCents(d.momentumListAddonUnitDollars)
     },
     addonsEnabled: {
-      publicAvailability: Boolean(d.publicAvailabilityAddonEnabled)
+      publicAvailability: Boolean(d.publicAvailabilityAddonEnabled),
+      momentumList: Boolean(d.momentumListAddonEnabled)
     }
   };
 };
@@ -657,8 +675,8 @@ const saveAgencyPricingOverride = async () => {
   if (!currentAgencyId.value) return;
   pricingSaving.value = true;
   try {
-    // If the add-on is being enabled, we must persist an override payload (billing gate).
-    if (agencyDraft.value?.publicAvailabilityAddonEnabled && !agencyOverrideEnabled.value) {
+    // If an add-on is being enabled, we must persist an override payload (billing gate).
+    if ((agencyDraft.value?.publicAvailabilityAddonEnabled || agencyDraft.value?.momentumListAddonEnabled) && !agencyOverrideEnabled.value) {
       agencyOverrideEnabled.value = true;
     }
     const payload = agencyOverrideEnabled.value ? buildPricingPayloadFromDraft(agencyDraft.value) : null;

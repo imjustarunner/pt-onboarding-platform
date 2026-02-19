@@ -12,6 +12,7 @@
             v-for="item in checklist.trainingItems"
             :key="item.id"
             class="checklist-item"
+            :data-add-to-sticky="item.title"
             @click="goToTraining(item.task_id, item.agency_id)"
           >
             <div class="item-icon training-icon">📚</div>
@@ -41,6 +42,7 @@
             :key="item.id"
             class="checklist-item"
             :class="{ overdue: isOverdue(item.due_date) }"
+            :data-add-to-sticky="item.title"
             @click="handleDocumentAction(item)"
           >
             <div class="item-icon document-icon">📄</div>
@@ -82,6 +84,7 @@
                 :key="item.id"
                 class="checklist-item nested-item"
                 :class="{ completed: item.is_completed }"
+                :data-add-to-sticky="item.title"
               >
                 <div class="item-checkbox" @click.stop="toggleCustomItem(item)">
                   <span v-if="item.is_completed" class="checkmark">✓</span>
@@ -114,6 +117,7 @@
             :key="item.id"
             class="checklist-item"
             :class="{ completed: item.is_completed }"
+            :data-add-to-sticky="item.title"
           >
             <div class="item-checkbox" @click.stop="toggleCustomItem(item)">
               <span v-if="item.is_completed" class="checkmark">✓</span>

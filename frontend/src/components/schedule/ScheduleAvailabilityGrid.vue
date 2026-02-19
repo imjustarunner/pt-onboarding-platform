@@ -392,16 +392,21 @@
             Loading providers…
           </div>
           <div v-if="requestType === 'supervision' && !supervisionProvidersLoading && availableSupervisionParticipants.length === 0" class="muted" style="margin-top: 6px;">
-            No supervisees are assigned to you in this agency.
+            No eligible participants are available in this agency.
           </div>
 
           <div v-if="requestType === 'supervision' && availableSupervisionParticipants.length" style="margin-top: 10px;">
-            <label class="lbl">Supervision participant</label>
+            <label class="lbl">Supervision type</label>
+            <select v-model="supervisionSessionType" class="input" style="margin-bottom: 8px;">
+              <option value="individual">Individual supervision</option>
+              <option value="group">Group supervision</option>
+            </select>
+            <label class="lbl">Primary participant</label>
             <input
               v-model="supervisionParticipantSearch"
               class="input"
               type="text"
-              placeholder="Search supervisees by name or email"
+              placeholder="Search participants by name or email"
               style="margin-bottom: 8px;"
             />
             <div class="participant-scroll">
@@ -412,7 +417,7 @@
                 type="button"
                 class="participant-card"
                 :class="{ on: Number(selectedSupervisionParticipantId || 0) === Number(p.id) }"
-                @click="selectedSupervisionParticipantId = Number(p.id)"
+                @click="togglePrimarySupervisionParticipant(Number(p.id))"
               >
                 <span class="participant-name">{{ supervisionParticipantLabel(p) }}</span>
                 <span class="participant-role">{{ String(p.role || '').trim() || 'provider' }}</span>
@@ -420,7 +425,54 @@
               </div>
             </div>
             <div v-if="supervisionParticipantSearch.trim() && filteredSupervisionParticipants.length === 0" class="muted" style="margin-top: 6px;">
-              No supervisees match your search.
+              No participants match your search.
+            </div>
+            <div
+              v-if="isViewingOtherUserSchedule && availableSupervisionParticipants.length > 1 && !selectedSupervisionParticipantId"
+              class="muted"
+              style="margin-top: 6px;"
+            >
+              Select who this supervision meeting is for.
+            </div>
+
+            <div style="margin-top: 8px;">
+              <label class="lbl">Additional participants (optional)</label>
+              <div class="row" style="gap: 8px; margin-top: 6px; flex-wrap: wrap;">
+                <button class="btn btn-secondary btn-sm" type="button" @click="selectAllFilteredSupervisionAdditionalParticipants">
+                  Add all shown
+                </button>
+                <button class="btn btn-secondary btn-sm" type="button" @click="selectAllAvailableSupervisionAdditionalParticipants">
+                  Add everyone in list
+                </button>
+                <button class="btn btn-secondary btn-sm" type="button" @click="clearSupervisionAdditionalParticipants">
+                  Clear additional
+                </button>
+              </div>
+              <div class="participant-scroll" style="margin-top: 6px;">
+                <div class="participant-grid">
+                  <button
+                    v-for="p in filteredSupervisionAdditionalParticipants"
+                    :key="`supv-extra-${p.id}`"
+                    type="button"
+                    class="participant-card"
+                    :class="{ on: selectedSupervisionAdditionalParticipantIdSet.has(Number(p.id)) }"
+                    @click="toggleSupervisionAdditionalParticipant(Number(p.id))"
+                  >
+                    <span class="participant-name">{{ supervisionParticipantLabel(p) }}</span>
+                    <span class="participant-role">{{ String(p.role || '').trim() || 'provider' }}</span>
+                  </button>
+                </div>
+              </div>
+              <div class="muted" style="margin-top: 6px;">
+                Selected participants: {{ supervisionSelectedParticipantCount }}
+              </div>
+              <div
+                v-if="requestType === 'supervision' && supervisionSessionType === 'group' && supervisionSelectedParticipantCount < 2"
+                class="muted"
+                style="margin-top: 6px;"
+              >
+                Group supervision requires at least 2 participants.
+              </div>
             </div>
 
             <label class="sched-toggle" style="margin-top: 8px;">
@@ -594,7 +646,7 @@
               !requestType ||
               ((requestType === 'office' || requestType === 'office_request_only') && (bookingMetadataLoading || !officeBookingValid || !!bookingClassificationInvalidReason)) ||
               (requestType === 'school' && !canUseSchool(modalDay, modalHour, modalEndHour)) ||
-              (requestType === 'supervision' && (supervisionProvidersLoading || filteredSupervisionParticipants.length === 0 || !selectedSupervisionParticipantId)) ||
+              (requestType === 'supervision' && !supervisionCanSubmit) ||
               ((requestType === 'intake_virtual_on' || requestType === 'intake_virtual_off' || requestType === 'intake_inperson_on' || requestType === 'intake_inperson_off') && !modalContext.officeEventId) ||
               (isScheduleEventRequestType && !scheduleEventCanSubmit)
             "
@@ -1525,7 +1577,31 @@ const canManageOffices = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
   return ['clinical_practice_assistant', 'admin', 'super_admin', 'superadmin', 'support', 'staff'].includes(role);
 });
-const canBookFromGrid = computed(() => props.mode === 'self' || (isAdminMode.value && canManageOffices.value));
+const currentUserRole = computed(() => String(authStore.user?.role || '').trim().toLowerCase());
+const canScheduleSupervisionFromGrid = computed(() => {
+  const role = currentUserRole.value;
+  return [
+    'super_admin',
+    'superadmin',
+    'admin',
+    'clinical_practice_assistant',
+    'staff',
+    'support',
+    'provider_plus',
+    'provider',
+    'supervisor'
+  ].includes(role);
+});
+const isViewingOtherUserSchedule = computed(() => {
+  if (!isAdminMode.value) return false;
+  const actorId = Number(authStore.user?.id || 0);
+  const targetId = Number(props.userId || 0);
+  return !!actorId && !!targetId && actorId !== targetId;
+});
+const canBookFromGrid = computed(
+  () => props.mode === 'self'
+    || (isAdminMode.value && (canManageOffices.value || canScheduleSupervisionFromGrid.value))
+);
 
 const availabilityClass = (dayName, hour) => {
   const a = props.availabilityOverlay && typeof props.availabilityOverlay === 'object' ? props.availabilityOverlay : null;
@@ -2450,14 +2526,15 @@ const availableQuickActions = computed(() => {
   const hasEvent = Number(ctx.officeEventId || 0) > 0;
   const booked = state === 'ASSIGNED_BOOKED';
   const schoolWindowOk = canUseSchool(modalDay.value, modalHour.value, modalEndHour.value);
-  const supervisionOptionVisible = !isAdminMode.value;
+  const supervisionOptionVisible = canScheduleSupervisionFromGrid.value;
+  const supervisionOnlyMode = isViewingOtherUserSchedule.value;
   return [
     {
       id: 'office',
       label: 'Office booking',
       description: hasOffice ? 'Book/request with room picker' : 'Select office first',
       disabledReason: hasOffice ? '' : 'Select office',
-      visible: true,
+      visible: !supervisionOnlyMode,
       tone: 'blue'
     },
     {
@@ -2465,7 +2542,7 @@ const availableQuickActions = computed(() => {
       label: 'Office request',
       description: 'Separate office request workflow',
       disabledReason: hasOffice ? '' : 'Select office',
-      visible: true,
+      visible: !supervisionOnlyMode,
       tone: 'teal'
     },
     {
@@ -2505,13 +2582,13 @@ const availableQuickActions = computed(() => {
       label: 'Virtual availability (school)',
       description: 'Weekday daytime availability block',
       disabledReason: !isAdminMode.value && schoolWindowOk ? '' : 'Weekday 6AM-6PM only',
-      visible: !isAdminMode.value,
+      visible: !supervisionOnlyMode && !isAdminMode.value,
       tone: 'indigo'
     },
     {
       id: 'supervision',
       label: 'Supervision',
-      description: supervisionProvidersLoading.value ? 'Loading participants...' : 'Schedule with any provider',
+      description: supervisionProvidersLoading.value ? 'Loading participants...' : 'Schedule individual supervision',
       disabledReason: !supervisionOptionVisible
         ? 'Provider self flow only'
         : (supervisionProvidersLoading.value ? 'Loading providers' : ''),
@@ -2523,7 +2600,7 @@ const availableQuickActions = computed(() => {
       label: 'Personal event',
       description: 'Create a personal calendar event',
       disabledReason: '',
-      visible: true,
+      visible: !supervisionOnlyMode,
       tone: 'teal'
     },
     {
@@ -2531,7 +2608,7 @@ const availableQuickActions = computed(() => {
       label: 'Schedule hold',
       description: 'Block this time with a hold reason',
       disabledReason: '',
-      visible: true,
+      visible: !supervisionOnlyMode,
       tone: 'indigo'
     },
     {
@@ -2539,7 +2616,7 @@ const availableQuickActions = computed(() => {
       label: 'All-day schedule block',
       description: 'Create an all-day hold on this date',
       disabledReason: '',
-      visible: true,
+      visible: !supervisionOnlyMode,
       tone: 'slate'
     },
     {
@@ -2547,7 +2624,7 @@ const availableQuickActions = computed(() => {
       label: 'Indirect service time',
       description: isHourlyWorker.value ? 'Track indirect time for hourly work' : 'Use for hourly worker indirect service time',
       disabledReason: (isAdminMode.value || isHourlyWorker.value) ? '' : 'Hourly worker only',
-      visible: true,
+      visible: !supervisionOnlyMode,
       tone: 'cyan'
     },
     {
@@ -2555,7 +2632,7 @@ const availableQuickActions = computed(() => {
       label: 'Write note',
       description: 'Open Note Aid with booking context',
       disabledReason: booked ? '' : 'Needs booked office slot',
-      visible: booked,
+      visible: !supervisionOnlyMode && booked,
       tone: 'amber'
     },
     {
@@ -2563,7 +2640,7 @@ const availableQuickActions = computed(() => {
       label: 'Record session',
       description: 'Open Note Aid record-session mode',
       disabledReason: booked ? '' : 'Needs booked office slot',
-      visible: booked,
+      visible: !supervisionOnlyMode && booked,
       tone: 'rose'
     },
     {
@@ -2571,7 +2648,7 @@ const availableQuickActions = computed(() => {
       label: 'Forfeit this slot',
       description: 'Release this assigned/booked slot to others',
       disabledReason: hasEvent ? '' : 'Needs assigned/booked slot',
-      visible: hasAssignedOffice || booked,
+      visible: !supervisionOnlyMode && (hasAssignedOffice || booked),
       tone: 'slate'
     }
   ];
@@ -2597,7 +2674,7 @@ const submitActionLabel = computed(() => {
     office: 'Submit office booking',
     office_request_only: 'Submit office request',
     school: 'Submit school request',
-    supervision: 'Schedule supervision',
+    supervision: isGroupSupervisionType.value ? 'Schedule group supervision' : 'Schedule supervision',
     personal_event: 'Create personal event',
     schedule_hold: 'Create schedule hold',
     schedule_hold_all_day: 'Create all-day hold',
@@ -2828,7 +2905,9 @@ const officeBookingHint = computed(() => {
 
 const supervisionProvidersLoading = ref(false);
 const supervisionProviders = ref([]);
+const supervisionSessionType = ref('individual');
 const selectedSupervisionParticipantId = ref(0);
+const selectedSupervisionAdditionalParticipantIds = ref([]);
 const createSupervisionMeetLink = ref(true);
 const supervisionParticipantSearch = ref('');
 
@@ -2851,6 +2930,68 @@ const filteredSupervisionParticipants = computed(() => {
   });
 });
 
+const selectedSupervisionAdditionalParticipantIdSet = computed(
+  () => new Set((selectedSupervisionAdditionalParticipantIds.value || []).map((n) => Number(n || 0)).filter((n) => n > 0))
+);
+const supervisionSelectedParticipantCount = computed(() => {
+  const primary = Number(selectedSupervisionParticipantId.value || 0) > 0 ? 1 : 0;
+  const extras = selectedSupervisionAdditionalParticipantIdSet.value.size;
+  return primary + extras;
+});
+const isGroupSupervisionType = computed(() => String(supervisionSessionType.value || '').toLowerCase() === 'group');
+const supervisionCanSubmit = computed(() => {
+  if (supervisionProvidersLoading.value) return false;
+  if ((availableSupervisionParticipants.value || []).length === 0) return false;
+  if (!Number(selectedSupervisionParticipantId.value || 0)) return false;
+  if (isGroupSupervisionType.value && supervisionSelectedParticipantCount.value < 2) return false;
+  return true;
+});
+
+const filteredSupervisionAdditionalParticipants = computed(() => {
+  const primaryId = Number(selectedSupervisionParticipantId.value || 0);
+  return (filteredSupervisionParticipants.value || []).filter((row) => Number(row?.id || 0) !== primaryId);
+});
+
+const toggleSupervisionAdditionalParticipant = (userId) => {
+  const id = Number(userId || 0);
+  if (!id) return;
+  const primaryId = Number(selectedSupervisionParticipantId.value || 0);
+  if (id === primaryId) return;
+  const next = new Set((selectedSupervisionAdditionalParticipantIds.value || []).map((n) => Number(n || 0)).filter((n) => n > 0 && n !== primaryId));
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  selectedSupervisionAdditionalParticipantIds.value = Array.from(next.values());
+};
+
+const togglePrimarySupervisionParticipant = (userId) => {
+  const id = Number(userId || 0);
+  if (!id) return;
+  const current = Number(selectedSupervisionParticipantId.value || 0);
+  selectedSupervisionParticipantId.value = current === id ? 0 : id;
+};
+
+const selectAllFilteredSupervisionAdditionalParticipants = () => {
+  const primaryId = Number(selectedSupervisionParticipantId.value || 0);
+  const next = new Set((selectedSupervisionAdditionalParticipantIds.value || []).map((n) => Number(n || 0)).filter((n) => n > 0 && n !== primaryId));
+  for (const row of (filteredSupervisionAdditionalParticipants.value || [])) {
+    const id = Number(row?.id || 0);
+    if (id > 0 && id !== primaryId) next.add(id);
+  }
+  selectedSupervisionAdditionalParticipantIds.value = Array.from(next.values());
+};
+
+const selectAllAvailableSupervisionAdditionalParticipants = () => {
+  const primaryId = Number(selectedSupervisionParticipantId.value || 0);
+  const next = (availableSupervisionParticipants.value || [])
+    .map((row) => Number(row?.id || 0))
+    .filter((id) => id > 0 && id !== primaryId);
+  selectedSupervisionAdditionalParticipantIds.value = Array.from(new Set(next));
+};
+
+const clearSupervisionAdditionalParticipants = () => {
+  selectedSupervisionAdditionalParticipantIds.value = [];
+};
+
 const supervisionParticipantLabel = (row) => {
   const first = String(row?.firstName || '').trim();
   const last = String(row?.lastName || '').trim();
@@ -2865,14 +3006,24 @@ const supervisionParticipantLabel = (row) => {
 const loadSupervisionProviders = async () => {
   if (!authStore.user?.id) return;
   if (!effectiveAgencyId.value) return;
+  const role = currentUserRole.value;
+  const onlyAssigned = props.mode === 'self' && role === 'supervisor';
   try {
     supervisionProvidersLoading.value = true;
     const r = await api.get('/supervision/providers', {
-      params: { agencyId: effectiveAgencyId.value, onlyAssigned: 'true' }
+      params: { agencyId: effectiveAgencyId.value, onlyAssigned: onlyAssigned ? 'true' : 'false' }
     });
     supervisionProviders.value = Array.isArray(r?.data?.providers) ? r.data.providers : [];
-    if (!selectedSupervisionParticipantId.value && availableSupervisionParticipants.value.length === 1) {
-      selectedSupervisionParticipantId.value = Number(availableSupervisionParticipants.value[0].id || 0);
+    const candidates = availableSupervisionParticipants.value;
+    const viewedUserId = Number(props.userId || 0);
+    const actorId = Number(authStore.user?.id || 0);
+    const viewedIsSelectable = viewedUserId > 0 && viewedUserId !== actorId && candidates.some((row) => Number(row?.id || 0) === viewedUserId);
+    if (!selectedSupervisionParticipantId.value) {
+      if (viewedIsSelectable) {
+        selectedSupervisionParticipantId.value = viewedUserId;
+      } else if (candidates.length === 1) {
+        selectedSupervisionParticipantId.value = Number(candidates[0].id || 0);
+      }
     }
   } catch {
     supervisionProviders.value = [];
@@ -3000,7 +3151,9 @@ const openSlotActionModal = ({
   resetBookingSelectionDefaults();
   resetBookingMetadataState();
   supervisionParticipantSearch.value = '';
+  supervisionSessionType.value = 'individual';
   selectedSupervisionParticipantId.value = 0;
+  selectedSupervisionAdditionalParticipantIds.value = [];
   createSupervisionMeetLink.value = true;
   modalContext.value = buildModalContext({ dayName: modalDay.value, hour: modalHour.value, roomId, slot, dateYmd });
   const contextAgencyId = Number(modalContext.value?.agencyId || 0);
@@ -3832,12 +3985,22 @@ const submitRequest = async () => {
         blocks
       });
     } else if (requestType.value === 'supervision') {
-      if (isAdminMode.value) throw new Error('Supervision requests must be created from the provider schedule.');
       if (supervisionProvidersLoading.value) throw new Error('Providers are still loading.');
+      const sessionType = isGroupSupervisionType.value ? 'group' : 'individual';
       const participantId = Number(selectedSupervisionParticipantId.value || 0);
+      const additionalAttendeeUserIds = Array.from(
+        new Set(
+          (selectedSupervisionAdditionalParticipantIds.value || [])
+            .map((n) => Number(n || 0))
+            .filter((n) => n > 0 && n !== participantId)
+        )
+      );
       const actorId = Number(authStore.user?.id || 0);
       if (!actorId) throw new Error('Not signed in.');
       if (!participantId) throw new Error('Please select a participant.');
+      if (sessionType === 'group' && additionalAttendeeUserIds.length < 1) {
+        throw new Error('Group supervision requires selecting at least one additional participant.');
+      }
       const dayIdx = ALL_DAYS.indexOf(String(dn));
       if (dayIdx < 0) throw new Error('Invalid day');
       const dateYmd = addDaysYmd(weekStart.value, dayIdx);
@@ -3847,6 +4010,8 @@ const submitRequest = async () => {
         agencyId: effectiveAgencyId.value,
         supervisorUserId: actorId,
         superviseeUserId: participantId,
+        sessionType,
+        additionalAttendeeUserIds,
         startAt,
         endAt,
         notes: requestNotes.value || '',
@@ -3962,6 +4127,7 @@ watch([showRequestModal, requestType, effectiveAgencyId], ([isOpen, type, agency
 
   // Reset stale participant/search state when supervision context switches agencies.
   selectedSupervisionParticipantId.value = 0;
+  selectedSupervisionAdditionalParticipantIds.value = [];
   supervisionParticipantSearch.value = '';
   if (!currentAgencyId) {
     supervisionProviders.value = [];
@@ -3974,6 +4140,17 @@ watch(availableSupervisionParticipants, (rows) => {
   const ids = new Set((rows || []).map((row) => Number(row?.id || 0)).filter((n) => n > 0));
   const selected = Number(selectedSupervisionParticipantId.value || 0);
   if (selected && !ids.has(selected)) selectedSupervisionParticipantId.value = 0;
+  selectedSupervisionAdditionalParticipantIds.value = (selectedSupervisionAdditionalParticipantIds.value || [])
+    .map((n) => Number(n || 0))
+    .filter((n) => n > 0 && ids.has(n) && n !== Number(selectedSupervisionParticipantId.value || 0));
+});
+
+watch(selectedSupervisionParticipantId, (nextId) => {
+  const primaryId = Number(nextId || 0);
+  if (!primaryId) return;
+  selectedSupervisionAdditionalParticipantIds.value = (selectedSupervisionAdditionalParticipantIds.value || [])
+    .map((n) => Number(n || 0))
+    .filter((n) => n > 0 && n !== primaryId);
 });
 
 watch(() => summary.value?.supervisionSessions, (rows) => {

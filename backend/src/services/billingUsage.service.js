@@ -118,6 +118,18 @@ class BillingUsageService {
       [parsedAgencyId]
     );
 
+    // Momentum List add-on: active employees (billable per person at $5)
+    const [momentumListRows] = await pool.execute(
+      `SELECT COUNT(DISTINCT u.id) AS cnt
+       FROM users u
+       INNER JOIN user_agencies ua ON u.id = ua.user_id
+       WHERE ua.agency_id = ?
+         AND UPPER(COALESCE(u.status,'')) = 'ACTIVE_EMPLOYEE'
+         AND u.is_active = TRUE
+         AND (u.is_archived = FALSE OR u.is_archived IS NULL)`,
+      [parsedAgencyId]
+    );
+
     return {
       schoolsUsed: Number(schoolsRows?.[0]?.cnt || 0),
       programsUsed: Number(programRows?.[0]?.cnt || 0),
@@ -126,7 +138,8 @@ class BillingUsageService {
       outboundSmsUsed: Number(outboundSmsRows?.[0]?.cnt || 0),
       inboundSmsUsed: Number(inboundSmsRows?.[0]?.cnt || 0),
       notificationSmsUsed: Number(notificationSmsRows?.[0]?.cnt || 0),
-      phoneNumbersUsed: Number(phoneRows?.[0]?.cnt || 0)
+      phoneNumbersUsed: Number(phoneRows?.[0]?.cnt || 0),
+      momentumListUsersUsed: Number(momentumListRows?.[0]?.cnt || 0)
     };
   }
 }

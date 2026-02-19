@@ -110,6 +110,12 @@ async function requireUserHasAgencyAccess(req, res, agencyId) {
 
 async function requireClinicalNoteGeneratorEnabled(req, res, agencyId) {
   try {
+    const { OrganizationAffiliation } = await import('../models/OrganizationAffiliation.model.js');
+    const hasClinicalOrg = await OrganizationAffiliation.agencyHasClinicalOrg(agencyId);
+    if (!hasClinicalOrg) {
+      res.status(403).json({ error: { message: 'Clinical Note Generator is only available for agencies with a clinical organization attached' } });
+      return false;
+    }
     const agency = await Agency.findById(agencyId);
     const flags = parseFlags(agency?.feature_flags);
     // Back-compat: treat Note Aid as the paid feature toggle.
@@ -119,7 +125,7 @@ async function requireClinicalNoteGeneratorEnabled(req, res, agencyId) {
       return false;
     }
     return true;
-  } catch {
+  } catch (e) {
     res.status(403).json({ error: { message: 'Clinical Note Generator is disabled for this organization' } });
     return false;
   }

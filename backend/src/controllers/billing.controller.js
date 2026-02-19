@@ -2,6 +2,24 @@ import BillingUsageService from '../services/billingUsage.service.js';
 import { buildEstimate, getEffectiveBillingPricingForAgency } from '../services/billingPricing.service.js';
 import { formatPeriodLabel, getCurrentBillingPeriod } from '../utils/billingPeriod.js';
 
+export const getAgencyAddons = async (req, res, next) => {
+  try {
+    const { agencyId } = req.params;
+    const parsedAgencyId = parseInt(agencyId, 10);
+    if (!parsedAgencyId || Number.isNaN(parsedAgencyId)) {
+      return res.status(400).json({ error: { message: 'Invalid agencyId' } });
+    }
+    const pricingBundle = await getEffectiveBillingPricingForAgency(parsedAgencyId);
+    const addons = pricingBundle?.effective?.addonsEnabled || {};
+    res.json({
+      agencyId: parsedAgencyId,
+      momentumList: Boolean(addons.momentumList)
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const getAgencyBillingEstimate = async (req, res, next) => {
   try {
     const { agencyId } = req.params;

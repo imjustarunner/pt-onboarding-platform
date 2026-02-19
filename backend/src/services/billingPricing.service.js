@@ -28,13 +28,15 @@ const FALLBACK_PRICING = {
     outboundClient: 0,
     notification: 0
   },
-  // Paid add-ons (flat monthly fees), gated per agency.
+  // Paid add-ons (flat monthly fees or per-seat), gated per agency.
   // NOTE: keep default at 0/off so existing agencies are unaffected.
   addonsUnitCents: {
-    publicAvailability: 0
+    publicAvailability: 0,
+    momentumList: 500  // $5 per person (active employee) per month
   },
   addonsEnabled: {
-    publicAvailability: false
+    publicAvailability: false,
+    momentumList: false
   }
 };
 
@@ -139,6 +141,7 @@ export function buildEstimate(usage, pricingConfig = null) {
   const programsUsed = Number(usage?.programsUsed || 0);
   const adminsUsed = Number(usage?.adminsUsed || 0);
   const activeOnboardeesUsed = Number(usage?.activeOnboardeesUsed || 0);
+  const momentumListUsersUsed = Number(usage?.momentumListUsersUsed || 0);
   const outboundSmsUsed = Number(usage?.outboundSmsUsed || 0);
   const inboundSmsUsed = Number(usage?.inboundSmsUsed || 0);
   const notificationSmsUsed = Number(usage?.notificationSmsUsed || 0);
@@ -168,6 +171,12 @@ export function buildEstimate(usage, pricingConfig = null) {
     ? Math.max(0, Number(PRICING?.addonsUnitCents?.publicAvailability || 0))
     : 0;
 
+  const momentumListAddonEnabled = Boolean(PRICING?.addonsEnabled?.momentumList);
+  const momentumListUnitCents = Math.max(0, Number(PRICING?.addonsUnitCents?.momentumList || 0));
+  const momentumListAddonCents = momentumListAddonEnabled
+    ? momentumListUsersUsed * momentumListUnitCents
+    : 0;
+
   const totalCents =
     PRICING.baseFeeCents +
     extraSchoolsCents +
@@ -178,7 +187,8 @@ export function buildEstimate(usage, pricingConfig = null) {
     extraSmsInboundCents +
     extraSmsNotificationCents +
     extraPhoneNumberCents +
-    publicAvailabilityAddonCents;
+    publicAvailabilityAddonCents +
+    momentumListAddonCents;
 
   const lineItems = [
     {
@@ -261,6 +271,15 @@ export function buildEstimate(usage, pricingConfig = null) {
       overage: publicAvailabilityAddonEnabled ? 1 : 0,
       unitCostCents: publicAvailabilityAddonCents,
       extraCents: publicAvailabilityAddonCents
+    },
+    {
+      key: 'addon_momentum_list',
+      label: 'Add-on: Momentum List',
+      included: 0,
+      used: momentumListUsersUsed,
+      overage: momentumListAddonEnabled ? momentumListUsersUsed : 0,
+      unitCostCents: momentumListUnitCents,
+      extraCents: momentumListAddonCents
     }
   ];
 
@@ -274,7 +293,8 @@ export function buildEstimate(usage, pricingConfig = null) {
       outboundSmsUsed,
       inboundSmsUsed,
       notificationSmsUsed,
-      phoneNumbersUsed
+      phoneNumbersUsed,
+      momentumListUsersUsed
     },
     totals: {
       baseFeeCents: PRICING.baseFeeCents,
@@ -287,6 +307,7 @@ export function buildEstimate(usage, pricingConfig = null) {
       extraSmsNotificationCents,
       extraPhoneNumberCents,
       publicAvailabilityAddonCents,
+      momentumListAddonCents,
       totalCents
     },
     lineItems

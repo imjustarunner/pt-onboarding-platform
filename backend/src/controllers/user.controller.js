@@ -129,6 +129,24 @@ async function attachAffiliationMeta(orgs) {
       if (!o || !o.id) continue;
       o.affiliated_agency_id = byOrg.get(Number(o.id)) || null;
     }
+
+    const OrgAffModel = (await import('../models/OrganizationAffiliation.model.js')).default;
+    if (OrgAffModel?.agencyHasClinicalOrg) {
+      for (const o of list) {
+        if (!o || !o.id) continue;
+        const t = String(o.organization_type || '').toLowerCase();
+        if (t === 'clinical') {
+          o.hasClinicalOrg = true;
+          continue;
+        }
+        const agencyIdForCheck = t === 'agency' ? Number(o.id) : Number(o.affiliated_agency_id || o.id);
+        if (agencyIdForCheck) {
+          o.hasClinicalOrg = await OrgAffModel.agencyHasClinicalOrg(agencyIdForCheck);
+        } else {
+          o.hasClinicalOrg = false;
+        }
+      }
+    }
   } catch {
     // ignore; best-effort only
   }

@@ -60,7 +60,7 @@ async function canScheduleSession(req, { agencyId, supervisorUserId, superviseeU
   const actorId = Number(req.user?.id || 0);
   const aId = Number(agencyId);
 
-  if (role === 'super_admin' || role === 'admin' || role === 'support' || role === 'staff' || role === 'clinical_practice_assistant') {
+  if (role === 'super_admin' || role === 'admin' || role === 'support' || role === 'staff' || role === 'clinical_practice_assistant' || role === 'provider_plus') {
     // Must share agency with both (best-effort)
     const actorAgencies = await User.getAgencies(actorId);
     const hasAccess = (actorAgencies || []).some((a) => Number(a?.id) === aId);
@@ -341,8 +341,17 @@ export const listSupervisionProviderCandidates = async (req, res, next) => {
     }
     const onlyAssigned = String(req.query?.onlyAssigned || '').trim().toLowerCase() === 'true';
 
-    const isPrivilegedScheduler = ['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant'].includes(role);
-    if (!isPrivilegedScheduler || onlyAssigned) {
+    const canListAllAgencyParticipants = [
+      'super_admin',
+      'admin',
+      'support',
+      'staff',
+      'clinical_practice_assistant',
+      'provider_plus',
+      'provider',
+      'supervisor'
+    ].includes(role);
+    if (!canListAllAgencyParticipants || onlyAssigned) {
       const assigned = await SupervisorAssignment.findBySupervisor(actorId, agencyId);
       const deduped = new Map();
       for (const row of (assigned || [])) {
@@ -819,12 +828,23 @@ export const createSupervisionSession = async (req, res, next) => {
     // Best-effort: sync to Google Calendar on supervisor calendar
     const hostEmail = String(supervisor.email || '').trim().toLowerCase();
     const attendeeEmail = String(supervisee.email || '').trim().toLowerCase();
-    const summary = `Supervision — ${(supervisee.first_name || '').trim()} ${(supervisee.last_name || '').trim()}`.trim();
+    const extraAttendeeEmails = [];
+    for (const uid of allExtraAttendees) {
+      // eslint-disable-next-line no-await-in-loop
+      const extraUser = await User.findById(uid);
+      const email = String(extraUser?.email || '').trim().toLowerCase();
+      if (email) extraAttendeeEmails.push(email);
+    }
+    const participantCount = 1 + extraAttendeeEmails.length;
+    const summary = sessionType === 'group'
+      ? `Group supervision (${participantCount})`
+      : `Supervision — ${(supervisee.first_name || '').trim()} ${(supervisee.last_name || '').trim()}`.trim();
     const desc = notes ? String(notes) : null;
     const sync = await GoogleCalendarService.upsertSupervisionSession({
       supervisionSessionId: created.id,
       hostEmail,
       attendeeEmail,
+      additionalAttendeeEmails: extraAttendeeEmails,
       startAt,
       endAt,
       summary,

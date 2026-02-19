@@ -333,9 +333,18 @@
             @update-count="updateDocumentsCount"
           />
           
-          <UnifiedChecklistTab
-            v-if="!previewMode"
+          <MomentumListTab
+            v-if="!previewMode && momentumListEnabled"
             v-show="activeTab === 'checklist'"
+            :program-id="route.query?.programId ? parseInt(route.query.programId, 10) : null"
+            :agency-id="currentAgencyId"
+            @update-count="updateChecklistCount"
+          />
+          <UnifiedChecklistTab
+            v-if="!previewMode && !momentumListEnabled"
+            v-show="activeTab === 'checklist'"
+            :program-id="route.query?.programId ? parseInt(route.query.programId, 10) : null"
+            :agency-id="currentAgencyId"
             @update-count="updateChecklistCount"
           />
 
@@ -445,35 +454,21 @@
               <div v-else-if="isSupervisor(authStore.user) && scheduleViewMode === 'supervisee' && superviseeScheduleUsers.length === 0" class="hint" style="margin-top: 8px;">
                 No supervisees match the current filter.
               </div>
-              <div v-else-if="scheduleViewMode === 'supervisee' && selectedSuperviseeId === 0" class="supervisee-schedule-stack" style="margin-top: 8px;">
-                <section
-                  v-for="s in superviseeScheduleUsers"
-                  :key="`sup-schedule-${s.id}`"
-                  class="supervisee-schedule-section"
-                >
-                  <div class="supervisee-schedule-head">
-                    <span class="supervisee-chip-avatar" :class="{ 'has-photo': !!superviseePhotoUrl(s) }">
-                      <img v-if="superviseePhotoUrl(s)" :src="superviseePhotoUrl(s)" :alt="superviseeName(s)" />
-                      <span v-else>{{ superviseeInitials(s) }}</span>
-                    </span>
-                    <div>
-                      <div class="supervisee-schedule-name">{{ superviseeName(s) }}</div>
-                      <div v-if="s.agencyName" class="hint">{{ s.agencyName }}</div>
-                    </div>
-                  </div>
-                  <ScheduleAvailabilityGrid
-                    :key="`sup-grid-${s.id}-${currentAgencyId || 0}`"
-                    :user-id="s.id"
-                    :agency-id="Number(currentAgencyId)"
-                    :mode="'admin'"
-                  />
-                </section>
-              </div>
+              <ScheduleMultiUserOverlayGrid
+                v-else-if="scheduleViewMode === 'supervisee' && selectedSuperviseeId === 0 && superviseeScheduleUsers.length"
+                :user-ids="allSuperviseeUserIds"
+                :user-label-by-id="superviseeLabelById"
+                :agency-ids="[Number(currentAgencyId)]"
+                :week-start-ymd="activeScheduleWeekStartYmd || null"
+                @update:weekStartYmd="onScheduleWeekStartUpdate"
+              />
               <ScheduleAvailabilityGrid
                 v-else-if="authStore.user?.id && scheduleGridUserId"
                 :user-id="scheduleGridUserId"
                 :agency-id="scheduleViewMode === 'self' ? null : Number(currentAgencyId)"
                 :mode="scheduleGridMode"
+                :week-start-ymd="activeScheduleWeekStartYmd || null"
+                @update:weekStartYmd="onScheduleWeekStartUpdate"
               />
             </div>
           </div>
@@ -828,7 +823,9 @@ import { useTutorialStore } from '../store/tutorial';
 import api from '../services/api';
 import TrainingFocusTab from '../components/dashboard/TrainingFocusTab.vue';
 import DocumentsTab from '../components/dashboard/DocumentsTab.vue';
+import MomentumListTab from '../components/dashboard/MomentumListTab.vue';
 import UnifiedChecklistTab from '../components/dashboard/UnifiedChecklistTab.vue';
+import { useMomentumListAddon } from '../composables/useMomentumListAddon';
 import ProviderTopSummaryCard from '../components/dashboard/ProviderTopSummaryCard.vue';
 import PendingCompletionButton from '../components/PendingCompletionButton.vue';
 import BrandingLogo from '../components/BrandingLogo.vue';
@@ -836,6 +833,7 @@ import UserPreferencesHub from '../components/UserPreferencesHub.vue';
 import AdditionalAvailabilitySubmit from '../components/AdditionalAvailabilitySubmit.vue';
 import VirtualWorkingHoursEditor from '../components/availability/VirtualWorkingHoursEditor.vue';
 import ScheduleAvailabilityGrid from '../components/schedule/ScheduleAvailabilityGrid.vue';
+import ScheduleMultiUserOverlayGrid from '../components/schedule/ScheduleMultiUserOverlayGrid.vue';
 import CredentialsView from './CredentialsView.vue';
 import AccountInfoView from './AccountInfoView.vue';
 import MyPayrollTab from '../components/dashboard/MyPayrollTab.vue';
@@ -955,11 +953,13 @@ const providerSurfacesEnabled = computed(() => portalVariant.value !== 'employee
 const inSchoolEnabled = computed(() => agencyFlags.value?.inSchoolSubmissionsEnabled !== false);
 const medcancelEnabledForAgency = computed(() => inSchoolEnabled.value && agencyFlags.value?.medcancelEnabled !== false);
 const clinicalNoteGeneratorEnabledForAgency = computed(() => {
+  // Clinical notes/billing are only for agencies with a clinical organization attached
+  const hasClinicalOrg = agencyStore.currentAgency?.hasClinicalOrg === true;
+  if (!hasClinicalOrg) return false;
   const base =
     isTruthyFlag(agencyFlags.value?.noteAidEnabled) || isTruthyFlag(agencyFlags.value?.clinicalNoteGeneratorEnabled);
   if (base) return true;
   // For providers/interns: default to showing Tools & Aids when feature flags are not explicitly disabled
-  // (agency may be school org without flags, or agency context not yet loaded)
   const role = String(authStore.user?.role || '').toLowerCase();
   if (role === 'provider' || role === 'intern') {
     const flags = agencyFlags.value;
@@ -1028,6 +1028,8 @@ const selectedSuperviseeId = ref(0); // 0 = all supervisees
 const superviseeSortKey = ref('name'); // 'name' | 'agency'
 const superviseeSortDir = ref('asc'); // 'asc' | 'desc'
 const superviseeQuery = ref('');
+const selfScheduleWeekStartYmd = ref('');
+const superviseeScheduleWeekStartYmd = ref('');
 const SCHEDULE_VIEW_PREF_PREFIX = 'dashboard.scheduleViewPref.v1';
 
 // If an icon URL 404s (or otherwise fails to load), show a simple fallback glyph.
@@ -1206,6 +1208,8 @@ const currentAgency = computed(() => agencyStore.currentAgency?.value || agencyS
 const currentAgencyId = computed(() => {
   return currentAgency.value?.id || null;
 });
+
+const { momentumListEnabled } = useMomentumListAddon(currentAgencyId);
 
 const announcementAgencyId = computed(() => {
   const org = currentAgency.value;
@@ -1455,6 +1459,10 @@ const loadScheduleViewPrefs = () => {
     const sortDir = String(parsed?.sortDir || '').toLowerCase();
     if (sortDir === 'asc' || sortDir === 'desc') superviseeSortDir.value = sortDir;
     superviseeQuery.value = String(parsed?.query || '');
+    const selfWeek = String(parsed?.selfWeekStartYmd || '').slice(0, 10);
+    const superviseeWeek = String(parsed?.superviseeWeekStartYmd || '').slice(0, 10);
+    selfScheduleWeekStartYmd.value = /^\d{4}-\d{2}-\d{2}$/.test(selfWeek) ? selfWeek : '';
+    superviseeScheduleWeekStartYmd.value = /^\d{4}-\d{2}-\d{2}$/.test(superviseeWeek) ? superviseeWeek : '';
   } catch {
     // ignore malformed local preferences
   }
@@ -1469,7 +1477,9 @@ const saveScheduleViewPrefs = () => {
       superviseeId: Number(selectedSuperviseeId.value || 0),
       sortKey: superviseeSortKey.value,
       sortDir: superviseeSortDir.value,
-      query: superviseeQuery.value
+      query: superviseeQuery.value,
+      selfWeekStartYmd: selfScheduleWeekStartYmd.value || null,
+      superviseeWeekStartYmd: superviseeScheduleWeekStartYmd.value || null
     }));
   } catch {
     // ignore storage limits/private mode
@@ -1539,10 +1549,42 @@ const superviseeScheduleUsers = computed(() => {
   return rows.filter((s) => Number(s.id) === selectedId);
 });
 
+const allSuperviseeUserIds = computed(() =>
+  (superviseeScheduleUsers.value || [])
+    .map((s) => Number(s.id || 0))
+    .filter((n) => Number.isFinite(n) && n > 0)
+);
+
+const superviseeLabelById = computed(() => {
+  const out = {};
+  for (const s of (superviseeScheduleUsers.value || [])) {
+    const id = Number(s?.id || 0);
+    if (!id) continue;
+    out[id] = superviseeName(s);
+  }
+  return out;
+});
+
+const activeScheduleWeekStartYmd = computed(() => (
+  scheduleViewMode.value === 'supervisee'
+    ? String(superviseeScheduleWeekStartYmd.value || '').trim()
+    : String(selfScheduleWeekStartYmd.value || '').trim()
+));
+
+const onScheduleWeekStartUpdate = (nextYmd) => {
+  const next = String(nextYmd || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(next)) return;
+  if (scheduleViewMode.value === 'supervisee') {
+    superviseeScheduleWeekStartYmd.value = next;
+  } else {
+    selfScheduleWeekStartYmd.value = next;
+  }
+};
+
 const scheduleGridMode = computed(() => (scheduleViewMode.value === 'self' ? 'self' : 'admin'));
 
 const tabs = computed(() => [
-  { id: 'checklist', label: 'Checklist', badgeCount: checklistCount.value },
+  { id: 'checklist', label: momentumListEnabled.value ? 'Momentum List' : 'Checklist', badgeCount: checklistCount.value },
   { id: 'training', label: 'Training', badgeCount: trainingCount.value },
   { id: 'documents', label: 'Documents', badgeCount: documentsCount.value }
 ]);
@@ -1697,10 +1739,13 @@ const dashboardCards = computed(() => {
   const cards = filteredTabs.value.map((t) => ({
     ...t,
     kind: 'content',
-    iconUrl: brandingStore.getDashboardCardIconUrl(t.id, cardIconOrgOverride),
+    iconUrl: brandingStore.getDashboardCardIconUrl(
+      t.id === 'checklist' && momentumListEnabled.value ? 'momentum_list' : t.id,
+      cardIconOrgOverride
+    ),
     description:
       t.id === 'checklist'
-        ? 'Your required onboarding and checklist items.'
+        ? (momentumListEnabled.value ? 'Your focus digest, checklist, and actionable items.' : 'Training, documents, and custom checklist items.')
         : t.id === 'training'
           ? 'Assigned training modules and progress.'
           : 'Documents that need review or signature.'
@@ -2283,7 +2328,15 @@ watch(() => [route.query?.tab, route.query?.my, route.query?.scheduleMode, route
   syncFromQuery();
 });
 
-watch([scheduleViewMode, selectedSuperviseeId, superviseeSortKey, superviseeSortDir, superviseeQuery], () => {
+watch([
+  scheduleViewMode,
+  selectedSuperviseeId,
+  superviseeSortKey,
+  superviseeSortDir,
+  superviseeQuery,
+  selfScheduleWeekStartYmd,
+  superviseeScheduleWeekStartYmd
+], () => {
   saveScheduleViewPrefs();
 });
 

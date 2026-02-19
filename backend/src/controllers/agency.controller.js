@@ -46,6 +46,22 @@ async function attachAffiliationMeta(orgs) {
       if (!o || !o.id) continue;
       o.affiliated_agency_id = byOrg.get(Number(o.id)) || null;
     }
+
+    // Add hasClinicalOrg: true if org is clinical or its parent agency has a clinical org (gates notes/billing).
+    for (const o of list) {
+      if (!o || !o.id) continue;
+      const t = String(o.organization_type || '').toLowerCase();
+      if (t === 'clinical') {
+        o.hasClinicalOrg = true;
+        continue;
+      }
+      const agencyIdForCheck = t === 'agency' ? Number(o.id) : Number(o.affiliated_agency_id || o.id);
+      if (agencyIdForCheck) {
+        o.hasClinicalOrg = await OrganizationAffiliation.agencyHasClinicalOrg(agencyIdForCheck);
+      } else {
+        o.hasClinicalOrg = false;
+      }
+    }
   } catch {
     // ignore; best-effort only
   }
@@ -124,12 +140,12 @@ export const createAgency = async (req, res, next) => {
     }
 
     // For child org types, affiliated agency is required and must be allowed for this user.
-    const isChildOrgType = ['school', 'program', 'learning'].includes(requestedType);
+    const isChildOrgType = ['school', 'program', 'learning', 'clinical'].includes(requestedType);
     let resolvedAffiliatedAgencyId = null;
     if (isChildOrgType) {
       resolvedAffiliatedAgencyId = parseInt(affiliatedAgencyId, 10);
       if (!resolvedAffiliatedAgencyId) {
-        return res.status(400).json({ error: { message: 'affiliatedAgencyId is required for school/program/learning organizations' } });
+        return res.status(400).json({ error: { message: 'affiliatedAgencyId is required for school/program/learning/clinical organizations' } });
       }
 
       const parentAgency = await Agency.findById(resolvedAffiliatedAgencyId);
@@ -301,7 +317,7 @@ export const updateAgency = async (req, res, next) => {
     }
 
     const { id } = req.params;
-    const { name, slug, officialName, logoUrl, logoPath, colorPalette, terminologySettings, intakeRetentionPolicy, sessionSettings, isActive, iconId, chatIconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, manageAgenciesIconId, manageClientsIconId, schoolOverviewIconId, programOverviewIconId, providerAvailabilityDashboardIconId, executiveReportIconId, manageModulesIconId, manageDocumentsIconId, manageUsersIconId, platformSettingsIconId, viewAllProgressIconId, progressDashboardIconId, settingsIconId, dashboardNotificationsIconId, dashboardCommunicationsIconId, dashboardChatsIconId, dashboardPayrollIconId, dashboardBillingIconId, externalCalendarAuditIconId, certificateTemplateUrl, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, customDomain, themeSettings, customParameters, featureFlags, publicAvailabilityEnabled, organizationType, affiliatedAgencyId, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId, supportTicketCreatedIconId, ticketingNotificationOrgTypes, myDashboardChecklistIconId, myDashboardTrainingIconId, myDashboardDocumentsIconId, myDashboardMyAccountIconId, myDashboardMyScheduleIconId, myDashboardClientsIconId, myDashboardSupervisionIconId, myDashboardClinicalNoteGeneratorIconId, myDashboardOnDemandTrainingIconId, myDashboardPayrollIconId, myDashboardSubmitIconId, myDashboardCommunicationsIconId, myDashboardChatsIconId, myDashboardNotificationsIconId, schoolPortalProvidersIconId, schoolPortalDaysIconId, schoolPortalRosterIconId, schoolPortalSkillsGroupsIconId, schoolPortalContactAdminIconId, schoolPortalFaqIconId, schoolPortalSchoolStaffIconId, schoolPortalParentQrIconId, schoolPortalParentSignIconId, schoolPortalUploadPacketIconId, schoolPortalPublicDocumentsIconId, schoolPortalAnnouncementsIconId, streetAddress, city, state, postalCode, tierSystemEnabled, tierThresholds,
+    const { name, slug, officialName, logoUrl, logoPath, colorPalette, terminologySettings, intakeRetentionPolicy, sessionSettings, isActive, iconId, chatIconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, manageAgenciesIconId, manageClientsIconId, schoolOverviewIconId, programOverviewIconId, providerAvailabilityDashboardIconId, executiveReportIconId, manageModulesIconId, manageDocumentsIconId, manageUsersIconId, platformSettingsIconId, viewAllProgressIconId, progressDashboardIconId, settingsIconId, dashboardNotificationsIconId, dashboardCommunicationsIconId, dashboardChatsIconId, dashboardPayrollIconId, dashboardBillingIconId, externalCalendarAuditIconId, certificateTemplateUrl, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, customDomain, themeSettings, customParameters, featureFlags, publicAvailabilityEnabled, organizationType, affiliatedAgencyId, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId, supportTicketCreatedIconId, ticketingNotificationOrgTypes, myDashboardChecklistIconId, myDashboardMomentumListIconId, myDashboardMomentumStickiesIconId, myDashboardTrainingIconId, myDashboardDocumentsIconId, myDashboardMyAccountIconId, myDashboardMyScheduleIconId, myDashboardClientsIconId, myDashboardSupervisionIconId, myDashboardClinicalNoteGeneratorIconId, myDashboardOnDemandTrainingIconId, myDashboardPayrollIconId, myDashboardSubmitIconId, myDashboardCommunicationsIconId, myDashboardChatsIconId, myDashboardNotificationsIconId, schoolPortalProvidersIconId, schoolPortalDaysIconId, schoolPortalRosterIconId, schoolPortalSkillsGroupsIconId, schoolPortalContactAdminIconId, schoolPortalFaqIconId, schoolPortalSchoolStaffIconId, schoolPortalParentQrIconId, schoolPortalParentSignIconId, schoolPortalUploadPacketIconId, schoolPortalPublicDocumentsIconId, schoolPortalAnnouncementsIconId, streetAddress, city, state, postalCode, tierSystemEnabled, tierThresholds,
       companyProfileIconId, teamRolesIconId, billingIconId, packagesIconId, checklistItemsIconId, fieldDefinitionsIconId, brandingTemplatesIconId, assetsIconId, communicationsIconId, integrationsIconId, archiveIconId,
       reviewPromptConfig
     } = req.body;
@@ -610,9 +626,9 @@ export const updateAgency = async (req, res, next) => {
       }
 
       const type = String(agency.organization_type || organizationType || 'agency').toLowerCase();
-      const isChildOrgType = ['school', 'program', 'learning'].includes(type);
+      const isChildOrgType = ['school', 'program', 'learning', 'clinical'].includes(type);
       if (!isChildOrgType) {
-        return res.status(400).json({ error: { message: 'Affiliation can only be set for school/program/learning organizations' } });
+        return res.status(400).json({ error: { message: 'Affiliation can only be set for school/program/learning/clinical organizations' } });
       }
 
       const newAffId = parseInt(affiliatedAgencyId, 10);

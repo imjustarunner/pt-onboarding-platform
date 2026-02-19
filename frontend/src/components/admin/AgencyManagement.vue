@@ -2269,9 +2269,19 @@
 
             <div class="dashboard-icons-grid">
               <div class="dashboard-icon-item">
-                <label>Checklist Card Icon</label>
+                <label>Checklist / Momentum List Card Icon</label>
                 <IconSelector v-model="agencyForm.myDashboardChecklistIconId" :defaultAgencyId="editingAgency?.id || null" />
-                <small>Icon for the "Checklist" card</small>
+                <small>Icon for the Checklist card (or Momentum List when addon is enabled)</small>
+              </div>
+              <div class="dashboard-icon-item">
+                <label>Momentum List Card Icon</label>
+                <IconSelector v-model="agencyForm.myDashboardMomentumListIconId" :defaultAgencyId="editingAgency?.id || null" />
+                <small>Optional override when Momentum List addon is enabled; falls back to Checklist icon if not set</small>
+              </div>
+              <div class="dashboard-icon-item">
+                <label>Momentum Stickies Icon</label>
+                <IconSelector v-model="agencyForm.myDashboardMomentumStickiesIconId" :defaultAgencyId="editingAgency?.id || null" />
+                <small>Icon for the Momentum Stickies overlay bar (when addon is enabled)</small>
               </div>
               <div class="dashboard-icon-item">
                 <label>Training Card Icon</label>
@@ -4710,6 +4720,8 @@ const ICON_TEMPLATE_FIELDS = [
   'platformSettingsIconId',
   'settingsIconId',
   'myDashboardChecklistIconId',
+  'myDashboardMomentumListIconId',
+  'myDashboardMomentumStickiesIconId',
   'myDashboardTrainingIconId',
   'myDashboardDocumentsIconId',
   'myDashboardMyScheduleIconId',
@@ -4784,6 +4796,8 @@ const defaultAgencyForm = () => ({
   platformSettingsIconId: null,
   settingsIconId: null,
   myDashboardChecklistIconId: null,
+  myDashboardMomentumListIconId: null,
+  myDashboardMomentumStickiesIconId: null,
   myDashboardTrainingIconId: null,
   myDashboardDocumentsIconId: null,
   myDashboardSubmitIconId: null,
@@ -6085,6 +6099,8 @@ const editAgency = async (agency) => {
     platformSettingsIconId: agency.platform_settings_icon_id ?? null,
     settingsIconId: agency.settings_icon_id ?? null,
     myDashboardChecklistIconId: agency.my_dashboard_checklist_icon_id ?? null,
+    myDashboardMomentumListIconId: agency.my_dashboard_momentum_list_icon_id ?? null,
+    myDashboardMomentumStickiesIconId: agency.my_dashboard_momentum_stickies_icon_id ?? null,
     myDashboardTrainingIconId: agency.my_dashboard_training_icon_id ?? null,
     myDashboardDocumentsIconId: agency.my_dashboard_documents_icon_id ?? null,
     myDashboardMyAccountIconId: agency.my_dashboard_my_account_icon_id ?? null,
@@ -6862,6 +6878,8 @@ const saveAgency = async () => {
       platformSettingsIconId: agencyForm.value.platformSettingsIconId ?? null,
       settingsIconId: agencyForm.value.settingsIconId ?? null,
       myDashboardChecklistIconId: agencyForm.value.myDashboardChecklistIconId ?? null,
+      myDashboardMomentumListIconId: agencyForm.value.myDashboardMomentumListIconId ?? null,
+      myDashboardMomentumStickiesIconId: agencyForm.value.myDashboardMomentumStickiesIconId ?? null,
       myDashboardTrainingIconId: agencyForm.value.myDashboardTrainingIconId ?? null,
       myDashboardDocumentsIconId: agencyForm.value.myDashboardDocumentsIconId ?? null,
       myDashboardMyAccountIconId: agencyForm.value.myDashboardMyAccountIconId ?? null,

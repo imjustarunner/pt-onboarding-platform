@@ -67,6 +67,7 @@ import OfficeLocation from '../models/OfficeLocation.model.js';
 import { getDrivingDistanceMeters, metersToMiles } from '../services/googleDistance.service.js';
 import NotificationService from '../services/notification.service.js';
 import PayrollNotesAgingService from '../services/payrollNotesAging.service.js';
+import { getScore as getDelinquencyScore } from '../services/payrollDelinquencyScore.service.js';
 import PayrollHolidayBonusApprovalAlertService from '../services/payrollHolidayBonusApprovalAlert.service.js';
 import { OfficeScheduleReviewService } from '../services/officeScheduleReview.service.js';
 import GoogleCalendarService from '../services/googleCalendar.service.js';
@@ -14389,6 +14390,7 @@ async function buildDashboardSummaryPayload(userId, resolvedAgencyId) {
       priorStillUnpaid: priorStill,
       twoPeriodsOld
     },
+    delinquencyScore: await getDelinquencyScore(userId, resolvedAgencyId),
     directIndirect: ratio,
     supervision,
     pto,

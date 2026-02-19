@@ -108,6 +108,7 @@ export const bootstrapClinicalSession = async (req, res, next) => {
     }
 
     await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
+    await ClinicalEligibilityService.assertAgencyHasClinicalOrg(agencyId);
     const { event } = await ClinicalEligibilityService.assertBookedClinicalSession({ agencyId, clientId, officeEventId });
 
     const session = await ClinicalSession.upsert({
@@ -141,6 +142,7 @@ export const listSessionArtifacts = async (req, res, next) => {
     const session = await ClinicalSession.findById(sessionId);
     if (!session) return res.status(404).json({ error: { message: 'Clinical session not found' } });
     await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId: session.agency_id });
+    await ClinicalEligibilityService.assertAgencyHasClinicalOrg(session.agency_id);
 
     const [notes, claims, documents, refs] = await Promise.all([
       ClinicalNote.listBySession({ clinicalSessionId: session.id, includeDeleted }),
@@ -175,6 +177,7 @@ export const createSessionNote = async (req, res, next) => {
     const session = await ClinicalSession.findById(sessionId);
     if (!session) return res.status(404).json({ error: { message: 'Clinical session not found' } });
     await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId: session.agency_id });
+    await ClinicalEligibilityService.assertAgencyHasClinicalOrg(session.agency_id);
     await ClinicalEligibilityService.assertBookedClinicalSession({
       agencyId: session.agency_id,
       clientId: session.client_id,
@@ -234,6 +237,7 @@ export const createSessionClaim = async (req, res, next) => {
     const session = await ClinicalSession.findById(sessionId);
     if (!session) return res.status(404).json({ error: { message: 'Clinical session not found' } });
     await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId: session.agency_id });
+    await ClinicalEligibilityService.assertAgencyHasClinicalOrg(session.agency_id);
     await ClinicalEligibilityService.assertBookedClinicalSession({
       agencyId: session.agency_id,
       clientId: session.client_id,
@@ -279,6 +283,7 @@ export const createSessionDocument = async (req, res, next) => {
     const session = await ClinicalSession.findById(sessionId);
     if (!session) return res.status(404).json({ error: { message: 'Clinical session not found' } });
     await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId: session.agency_id });
+    await ClinicalEligibilityService.assertAgencyHasClinicalOrg(session.agency_id);
     await ClinicalEligibilityService.assertBookedClinicalSession({
       agencyId: session.agency_id,
       clientId: session.client_id,
@@ -339,6 +344,7 @@ async function getRecordForMutation(req, res) {
     return null;
   }
   await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId: session.agency_id });
+  await ClinicalEligibilityService.assertAgencyHasClinicalOrg(session.agency_id);
   return { model, record, session, recordType };
 }
 

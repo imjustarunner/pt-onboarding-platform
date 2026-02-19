@@ -1,6 +1,7 @@
 import pool from '../config/database.js';
 import PayrollPeriod from '../models/PayrollPeriod.model.js';
 import Notification from '../models/Notification.model.js';
+import { incrementScore, decrementScore } from './payrollDelinquencyScore.service.js';
 import NotificationTrigger from '../models/NotificationTrigger.model.js';
 import AgencyNotificationTriggerSetting from '../models/AgencyNotificationTriggerSetting.model.js';
 import NotificationEvent from '../models/NotificationEvent.model.js';
@@ -42,6 +43,17 @@ class PayrollNotesAgingService {
       [payrollPeriodId]
     );
     return rows?.[0]?.id || null;
+  }
+
+  static async getUnpaidCountForUser({ agencyId, payrollPeriodId, providerUserId }) {
+    const rows = await this._listUnpaidNoteCountsForPeriod({
+      agencyId,
+      payrollPeriodId,
+      providerUserId: providerUserId || null
+    });
+    const r = rows?.[0] || null;
+    if (!r) return 0;
+    return (Number(r.no_note_notes || 0) + Number(r.draft_notes || 0)) || 0;
   }
 
   static async _listUnpaidNoteCountsForPeriod({ agencyId, payrollPeriodId, providerUserId = null }) {
@@ -218,9 +230,11 @@ class PayrollNotesAgingService {
         relatedEntityId: providerUserId
       });
 
+      await incrementScore(providerUserId, agencyId);
       createdCount += 1;
     }
 
+    await this._reconcileDelinquencyScores(agencyId, stalePeriodId);
     return { ok: true, createdCount, stalePeriodId };
   }
 
@@ -288,10 +302,28 @@ class PayrollNotesAgingService {
         relatedEntityId: providerUserId
       });
 
+      await incrementScore(providerUserId, agencyId);
       createdCount += 1;
     }
 
+    await this._reconcileDelinquencyScores(agencyId, payrollPeriodId);
     return { ok: true, createdCount };
+  }
+
+  static async _reconcileDelinquencyScores(agencyId, payrollPeriodId) {
+    const [rows] = await pool.execute(
+      'SELECT user_id FROM user_payroll_delinquency_scores WHERE agency_id = ? AND score > 0',
+      [agencyId]
+    ).catch(() => []);
+    for (const r of rows || []) {
+      const userId = Number(r.user_id);
+      const unpaid = await this.getUnpaidCountForUser({
+        agencyId,
+        payrollPeriodId,
+        providerUserId: userId
+      });
+      if (unpaid === 0) await decrementScore(userId, agencyId);
+    }
   }
 }
 

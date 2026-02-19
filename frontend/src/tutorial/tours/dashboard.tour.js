@@ -115,8 +115,8 @@ const dashboardTour = {
     {
       element: '[data-tour="dash-rail-card-checklist"]',
       popover: {
-        title: 'Checklist',
-        description: 'Start here to view required items and track completion.',
+        title: 'Momentum List',
+        description: 'Your focus digest, checklist, and actionable items.',
         side: 'right',
         align: 'center'
       }

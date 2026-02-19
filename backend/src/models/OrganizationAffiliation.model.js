@@ -1,6 +1,15 @@
 import pool from '../config/database.js';
 
 class OrganizationAffiliation {
+  /**
+   * True if agency has at least one affiliated org with organization_type = 'clinical'.
+   * Used to gate clinical notes/billing features to agencies with clinical org context.
+   */
+  static async agencyHasClinicalOrg(agencyId) {
+    const orgs = await this.listActiveOrganizationsForAgency(agencyId);
+    return (orgs || []).some((o) => String(o?.organization_type || '').toLowerCase() === 'clinical');
+  }
+
   static async listActiveOrganizationsForAgency(agencyId) {
     const aId = parseInt(agencyId, 10);
     if (!aId) return [];

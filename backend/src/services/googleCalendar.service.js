@@ -442,6 +442,7 @@ export class GoogleCalendarService {
     supervisionSessionId,
     hostEmail,
     attendeeEmail,
+    additionalAttendeeEmails = [],
     startAt,
     endAt,
     timeZone = 'America/New_York',
@@ -460,12 +461,21 @@ export class GoogleCalendarService {
     const cal = this.buildCalendarClientForSubject(subject);
     const calendarId = 'primary';
 
+    const extraAttendees = Array.from(
+      new Set(
+        (Array.isArray(additionalAttendeeEmails) ? additionalAttendeeEmails : [])
+          .map((raw) => String(raw || '').trim().toLowerCase())
+          .filter((email) => email && email !== attendee && email !== subject)
+      )
+    );
+    const attendees = [{ email: attendee }, ...extraAttendees.map((email) => ({ email }))];
+
     const requestBody = {
       summary: String(summary || 'Supervision').trim() || 'Supervision',
       description: description ? String(description) : undefined,
       start: { dateTime: toRfc3339Local(startAt), timeZone },
       end: { dateTime: toRfc3339Local(endAt), timeZone },
-      attendees: [{ email: attendee }],
+      attendees,
       extendedProperties: {
         private: {
           pt_supervision_session_id: String(supervisionSessionId || ''),

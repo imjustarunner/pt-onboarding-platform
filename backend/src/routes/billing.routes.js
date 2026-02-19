@@ -1,6 +1,6 @@
 import express from 'express';
 import { authenticate, requireAgencyAccess, requireAgencyAdmin, requireSuperAdmin } from '../middleware/auth.middleware.js';
-import { getAgencyBillingEstimate } from '../controllers/billing.controller.js';
+import { getAgencyBillingEstimate, getAgencyAddons } from '../controllers/billing.controller.js';
 import { disconnectQuickBooks, getQuickBooksConnectUrl, getQuickBooksStatus, quickBooksOAuthCallback } from '../controllers/quickbooks.controller.js';
 import { downloadInvoicePdf, generateAgencyInvoice, listAgencyInvoices } from '../controllers/billingInvoices.controller.js';
 import { billingSettingsValidators, getBillingSettings, updateBillingSettings } from '../controllers/billingSettings.controller.js';
@@ -26,6 +26,9 @@ router.post('/run-monthly', (req, res, next) => {
 // NOTE: must be defined before '/:agencyId/*' routes to avoid route param capture.
 router.get('/pricing/default', authenticate, requireSuperAdmin, getPlatformPricing);
 router.put('/pricing/default', authenticate, requireSuperAdmin, platformPricingValidators, updatePlatformPricing);
+
+// Billing addon status (for feature gating)
+router.get('/:agencyId/addons', authenticate, requireAgencyAccess, getAgencyAddons);
 
 // Billing estimate + usage breakdown
 router.get('/:agencyId/estimate', authenticate, requireAgencyAccess, getAgencyBillingEstimate);

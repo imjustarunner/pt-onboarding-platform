@@ -492,6 +492,9 @@
         <AgencySelector v-if="isAuthenticated && !brandingStore.isSuperAdmin && !hideGlobalNavForSchoolStaff" />
         <router-view />
       </main>
+      <MomentumStickiesOverlay v-if="isAuthenticated && !hideGlobalNavForSchoolStaff && momentumListEnabled" />
+      <AddStickyFab v-if="isAuthenticated && !hideGlobalNavForSchoolStaff && momentumListEnabled" />
+      <AddToStickyContextMenu v-if="isAuthenticated && momentumListEnabled" />
       <HelperWidget v-if="isAuthenticated" />
       <BetaFeedbackWidget v-if="isAuthenticated" />
       <SuperAdminBuilderPanel v-if="isAuthenticated && brandingStore.isSuperAdmin" />
@@ -514,15 +517,37 @@
             You have {{ notificationsUnreadCount }} {{ notificationsUnreadLabel }}
           </div>
           <div class="notifications-alert-body">
-            Review what needs your attention, or circle back when you are ready.
+            Review what needs your attention, or snooze until you're ready.
           </div>
-          <div class="notifications-alert-actions">
+          <div class="notifications-alert-actions notifications-alert-actions-column">
             <button class="btn btn-primary" type="button" @click="goToNotifications">
               View notifications
             </button>
-            <button class="btn btn-secondary" type="button" @click="dismissLoginNotifications">
-              Dismiss for now
-            </button>
+            <div class="snooze-row">
+              <span class="snooze-label">Snooze:</span>
+              <button class="btn btn-secondary btn-sm" type="button" @click="snoozeReminder1h">
+                1 hour
+              </button>
+              <button class="btn btn-secondary btn-sm" type="button" @click="snoozeReminder3h">
+                3 hours
+              </button>
+              <button class="btn btn-secondary btn-sm" type="button" @click="snoozeReminderTomorrow">
+                Tomorrow
+              </button>
+            </div>
+            <div class="snooze-row">
+              <button class="btn btn-secondary btn-sm" type="button" @click="dismissLoginNotifications">
+                Remind me later (next login)
+              </button>
+              <button
+                class="btn btn-secondary btn-sm"
+                type="button"
+                :disabled="sendingTextReminder"
+                @click="textMeReminder"
+              >
+                {{ sendingTextReminder ? 'Sending…' : 'Text me this' }}
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -567,6 +592,11 @@ import TourManager from './components/TourManager.vue';
 import SuperAdminBuilderPanel from './components/SuperAdminBuilderPanel.vue';
 import HelperWidget from './components/HelperWidget.vue';
 import BetaFeedbackWidget from './components/BetaFeedbackWidget.vue';
+import MomentumStickiesOverlay from './components/momentum/MomentumStickiesOverlay.vue';
+import AddStickyFab from './components/momentum/AddStickyFab.vue';
+import AddToStickyContextMenu from './components/momentum/AddToStickyContextMenu.vue';
+import { useMomentumListAddon } from './composables/useMomentumListAddon';
+import { useReminderSnooze } from './composables/useReminderSnooze';
 import WeatherChip from './components/WeatherChip.vue';
 import SessionLockScreen from './components/SessionLockScreen.vue';
 import { toUploadsUrl } from './utils/uploadsUrl';
@@ -575,6 +605,12 @@ import { begin as beginLoading, end as endLoading, isLoading as globalLoading, g
 const authStore = useAuthStore();
 const brandingStore = useBrandingStore();
 const agencyStore = useAgencyStore();
+
+const currentAgencyIdForAddon = computed(() => agencyStore.currentAgency?.id ?? null);
+const { momentumListEnabled } = useMomentumListAddon(currentAgencyIdForAddon);
+const userIdForSnooze = computed(() => authStore.user?.id ?? null);
+const { isSnoozed, snooze1h, snooze3h, snoozeTomorrow } = useReminderSnooze(userIdForSnooze);
+const sendingTextReminder = ref(false);
 const organizationStore = useOrganizationStore();
 const tutorialStore = useTutorialStore();
 const builderStore = useSuperadminBuilderStore();
@@ -1306,6 +1342,7 @@ const maybeShowLoginNotificationsModal = () => {
     justLoggedIn = false;
   }
   if (!justLoggedIn) return;
+  if (isSnoozed.value) return;
   if (shouldUseLoginNotificationsModal.value && notificationsUnreadCount.value > 0 && !isOnNotificationsRoute.value) {
     showLoginNotificationsModal.value = true;
     notificationsNudgeVisible.value = false;
@@ -1318,6 +1355,35 @@ const dismissLoginNotifications = () => {
   if (notificationsUnreadCount.value > 0) {
     notificationsNudgeVisible.value = true;
     triggerNotificationsNudgeFlash();
+  }
+};
+
+const snoozeReminder1h = () => {
+  snooze1h();
+  dismissLoginNotifications();
+};
+
+const snoozeReminder3h = () => {
+  snooze3h();
+  dismissLoginNotifications();
+};
+
+const snoozeReminderTomorrow = () => {
+  snoozeTomorrow();
+  dismissLoginNotifications();
+};
+
+const textMeReminder = async () => {
+  if (sendingTextReminder.value) return;
+  sendingTextReminder.value = true;
+  try {
+    await api.post('/me/send-reminder-sms', { useDigest: true });
+    dismissLoginNotifications();
+  } catch (e) {
+    const msg = e?.response?.data?.error?.message || 'Failed to send text';
+    window.alert(msg);
+  } finally {
+    sendingTextReminder.value = false;
   }
 };
 
@@ -2036,6 +2102,24 @@ onUnmounted(() => {
   justify-content: flex-end;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+.notifications-alert-actions-column {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.snooze-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.snooze-label {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-right: 4px;
 }
 
 .notifications-nudge {

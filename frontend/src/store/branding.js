@@ -730,6 +730,7 @@ export const useBrandingStore = defineStore('branding', () => {
   const getDashboardCardIconUrl = (cardId, organization = undefined) => {
     const iconFieldMap = {
       checklist: 'my_dashboard_checklist_icon_path',
+      momentum_list: 'my_dashboard_momentum_list_icon_path',
       training: 'my_dashboard_training_icon_path',
       documents: 'my_dashboard_documents_icon_path',
       my: 'my_dashboard_my_account_icon_path',
@@ -743,7 +744,8 @@ export const useBrandingStore = defineStore('branding', () => {
       notifications: 'my_dashboard_notifications_icon_path',
       supervision: 'my_dashboard_supervision_icon_path',
       clinical_note_generator: 'my_dashboard_clinical_note_generator_icon_path',
-      tools_aids: 'my_dashboard_clinical_note_generator_icon_path'
+      tools_aids: 'my_dashboard_clinical_note_generator_icon_path',
+      momentum_stickies: 'my_dashboard_momentum_stickies_icon_path'
     };
 
     const field = iconFieldMap[cardId];
@@ -760,6 +762,10 @@ export const useBrandingStore = defineStore('branding', () => {
     if (platformBranding.value?.[idField]) {
       const url = iconUrlById(platformBranding.value[idField]);
       if (url) return url;
+    }
+    // momentum_list falls back to checklist when no dedicated icon set
+    if (cardId === 'momentum_list') {
+      return getDashboardCardIconUrl('checklist', organization);
     }
     return null;
   };

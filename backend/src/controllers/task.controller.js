@@ -16,9 +16,9 @@ export const getTask = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Task not found' } });
     }
 
-    // Verify user has access to this task
-    const userTasks = await Task.findByUser(userId);
-    const hasAccess = userTasks.some(t => t.id === parseInt(id)) || 
+    // Verify user has access to this task (includes hiring tasks assigned to user)
+    const userTasks = await Task.findByUser(userId, { includeHiring: true });
+    const hasAccess = userTasks.some(t => t.id === parseInt(id)) ||
                       (req.user.role === 'admin' || req.user.role === 'super_admin');
 
     if (!hasAccess) {
@@ -50,8 +50,8 @@ export const renderTaskDocumentHtml = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Task is not a document task' } });
     }
 
-    // Verify user has access to this task
-    const userTasks = await Task.findByUser(userId);
+    // Verify user has access to this task (includes hiring tasks assigned to user)
+    const userTasks = await Task.findByUser(userId, { includeHiring: true });
     const hasAccess =
       userTasks.some((t) => t.id === parseInt(id, 10)) || req.user.role === 'admin' || req.user.role === 'super_admin';
     if (!hasAccess) {
