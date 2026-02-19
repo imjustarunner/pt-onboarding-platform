@@ -444,6 +444,16 @@ const quickActions = computed(() => {
     capabilities: ['canAccessPlatform']
   },
   {
+    id: 'provider_scheduling_settings',
+    title: 'Provider Scheduling',
+    description: 'Configure provider scheduling preferences and rules',
+    to: '/admin/settings?category=workflow&item=provider-scheduling',
+    emoji: '🗓️',
+    category: 'Scheduling',
+    roles: ['admin', 'super_admin'],
+    capabilities: ['canAccessPlatform']
+  },
+  {
     id: 'skill_builders_availability',
     title: 'Skill Builders Availability',
     description: 'Review Skill Builders availability by day',
@@ -588,6 +598,7 @@ const defaultQuickActionIds = computed(() => ([
   'audit_center',
   'external_calendar_audit',
   'provider_availability_dashboard',
+  'provider_scheduling_settings',
   'skill_builders_availability',
   'notifications',
   'communications',
