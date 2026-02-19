@@ -220,7 +220,7 @@
                 </button>
               </div>
               <small class="hint" style="display: block; margin-top: 4px;">
-                Download, complete, and upload the signed document to the client record in your EHR. This tool does not store signed agreements.
+                Download, complete, and upload the signed document to the client record in Therapy Notes. This tool does not store signed agreements.
               </small>
             </div>
 

@@ -256,7 +256,7 @@
                   i
                 </button>
                 <div v-if="showAvailabilityHint" class="nav-availability-hint">
-                  <strong>Reminder:</strong> Please ensure your schedule is open in the EHR system for the times you are available via “Extra availability”.
+                  <strong>Reminder:</strong> Please ensure your schedule is open in the Therapy Notes for the times you are available via “Extra availability”.
                 </div>
               </div>
               <button

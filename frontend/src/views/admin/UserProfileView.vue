@@ -37,7 +37,7 @@
               i
             </button>
             <div v-if="showGlobalAvailabilityHint" class="header-availability-hint">
-              <strong>Reminder:</strong> Please ensure your schedule is open in the EHR system for the times that you are available via “Extra availability”.
+              <strong>Reminder:</strong> Please ensure your schedule is open in Therapy Notes for the times that you are available via “Extra availability”.
             </div>
           </div>
 
@@ -279,16 +279,16 @@
                       </div>
                     </div>
                     <p class="hint" style="margin: 8px 0 14px;">
-                      Add one or more named calendars (e.g., “Bachelors EHR”). Each calendar can have multiple ICS feed URLs.
+                      Add one or more named calendars (e.g., “Therapy Notes”). Each calendar can have multiple ICS feed URLs.
                     </p>
 
                     <div style="border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; background: white;">
-                      <div style="font-weight: 900;">EHR calendar (paste URL only)</div>
+                      <div style="font-weight: 900;">Therapy Notes calendar (paste URL only)</div>
                       <p class="hint" style="margin: 6px 0 10px;">
-                        Paste this user’s personal ICS feed URL from the EHR. You don’t need to create or name a calendar — we save it under this user automatically.
+                        Paste this user’s personal ICS feed URL from Therapy Notes. You don’t need to create or name a calendar — we save it under this user automatically.
                       </p>
                       <div class="muted small" style="margin: -6px 0 10px;">
-                        If your EHR gives you a <strong>webcal://</strong> link, that’s OK — we’ll fetch it as <strong>https://</strong>.
+                        If Therapy Notes gives you a <strong>webcal://</strong> link, that’s OK — we’ll fetch it as <strong>https://</strong>.
                       </div>
                       <div style="display:flex; gap: 8px; align-items: end; flex-wrap: wrap;">
                         <div style="flex: 1; min-width: 260px;">
@@ -312,7 +312,7 @@
                       </div>
                       <div v-if="ehrIcsError" class="error" style="margin-top: 8px;">{{ ehrIcsError }}</div>
                       <div class="muted small" style="margin-top: 8px;">
-                        Tip: pasting a new URL will automatically make it the only active EHR feed for this user.
+                        Tip: pasting a new URL will automatically make it the only active Therapy Notes feed for this user.
                       </div>
                     </div>
 
@@ -323,7 +323,7 @@
                       <div style="display:flex; gap: 8px; align-items: end; flex-wrap: wrap;">
                         <div style="flex: 1; min-width: 240px;">
                           <label class="lbl">New calendar label</label>
-                          <input class="agency-select" v-model="newExternalCalendarLabel" placeholder="e.g. Bachelors EHR" />
+                          <input class="agency-select" v-model="newExternalCalendarLabel" placeholder="e.g. Therapy Notes" />
                         </div>
                         <button
                           type="button"
@@ -2377,15 +2377,15 @@ const newExternalFeedUrlByCalendarId = ref({});
 const editExternalCalendarLabelById = ref({});
 const showExternalCalendarsModal = ref(false);
 
-const EHR_DEFAULT_CALENDAR_LABEL = 'EHR';
+const THERAPY_NOTES_DEFAULT_CALENDAR_LABEL = 'Therapy Notes';
 
-const ehrCalendar = computed(() => {
+const therapyNotesCalendar = computed(() => {
   const list = Array.isArray(externalCalendars.value) ? externalCalendars.value : [];
-  return list.find((c) => String(c?.label || '').trim().toLowerCase() === EHR_DEFAULT_CALENDAR_LABEL.toLowerCase()) || null;
+  return list.find((c) => String(c?.label || '').trim().toLowerCase() === THERAPY_NOTES_DEFAULT_CALENDAR_LABEL.toLowerCase()) || null;
 });
 
 const syncEhrIcsFromCalendars = () => {
-  const cal = ehrCalendar.value;
+  const cal = therapyNotesCalendar.value;
   if (!cal) {
     ehrIcsUrl.value = '';
     return;
@@ -2402,7 +2402,7 @@ const loadExternalCalendars = async () => {
     externalCalendarsError.value = '';
     const r = await api.get(`/users/${userId.value}/external-calendars`);
     externalCalendars.value = Array.isArray(r.data?.calendars) ? r.data.calendars : [];
-    // Keep the simple EHR ICS field in sync with loaded calendars.
+    // Keep the simple Therapy Notes ICS field in sync with loaded calendars.
     if (!ehrIcsSaving.value) syncEhrIcsFromCalendars();
   } catch (e) {
     externalCalendars.value = [];
@@ -2434,19 +2434,19 @@ const saveEhrIcsUrl = async () => {
     ehrIcsSaving.value = true;
     ehrIcsError.value = '';
 
-    // Ensure calendars are loaded so we can find existing EHR feed(s).
+    // Ensure calendars are loaded so we can find existing Therapy Notes feed(s).
     if (!externalCalendarsLoading.value && (!Array.isArray(externalCalendars.value) || externalCalendars.value.length === 0)) {
       await loadExternalCalendars();
     }
 
-    let cal = ehrCalendar.value;
+    let cal = therapyNotesCalendar.value;
     let calendarId = Number(cal?.id || 0);
 
     if (!calendarId && url) {
-      const created = await api.post(`/users/${userId.value}/external-calendars`, { label: EHR_DEFAULT_CALENDAR_LABEL });
+      const created = await api.post(`/users/${userId.value}/external-calendars`, { label: THERAPY_NOTES_DEFAULT_CALENDAR_LABEL });
       calendarId = Number(created.data?.calendar?.id || 0);
       await loadExternalCalendars();
-      cal = ehrCalendar.value;
+      cal = therapyNotesCalendar.value;
       calendarId = Number(cal?.id || calendarId || 0);
     }
 
@@ -2463,7 +2463,7 @@ const saveEhrIcsUrl = async () => {
     const feeds = Array.isArray(cal?.feeds) ? cal.feeds : [];
 
     if (!url) {
-      // Blank URL means disable all feeds for the EHR calendar.
+      // Blank URL means disable all feeds for the Therapy Notes calendar.
       for (const f of feeds) {
         const feedId = Number(f?.id || 0);
         if (!feedId) continue;
@@ -2499,7 +2499,7 @@ const saveEhrIcsUrl = async () => {
 
     // Refresh so we have the latest feed list, then deactivate all but the new one.
     await loadExternalCalendars();
-    const nextCal = ehrCalendar.value;
+    const nextCal = therapyNotesCalendar.value;
     const nextFeeds = Array.isArray(nextCal?.feeds) ? nextCal.feeds : [];
     for (const f of nextFeeds) {
       const feedId = Number(f?.id || 0);

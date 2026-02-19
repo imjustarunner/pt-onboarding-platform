@@ -99,9 +99,9 @@
             :aria-checked="String(!!showExternalBusy)"
             :disabled="loading || !externalCalendarsAvailable.length"
             @click="toggleExternalBusy"
-            title="Show or hide EHR busy overlays"
+            title="Show or hide Therapy Notes busy overlays"
           >
-            EHR busy
+            Therapy Notes busy
           </button>
 
           <button
@@ -179,7 +179,7 @@
 
       <div class="sched-toolbar-secondary">
         <div class="sched-calendars" data-tour="my-schedule-ehr-calendars">
-          <div class="sched-calendars-label">EHR calendars</div>
+          <div class="sched-calendars-label">Therapy Notes calendars</div>
           <div class="sched-calendars-actions">
             <button type="button" class="sched-chip" :disabled="loading || !externalCalendarsAvailable.length" @click="selectAllExternalCalendars">All</button>
             <button type="button" class="sched-chip" :disabled="loading || !externalCalendarsAvailable.length" @click="clearExternalCalendars">None</button>
@@ -196,7 +196,7 @@
             {{ c.label }}
           </button>
           <div v-if="!externalCalendarsAvailable.length" class="muted" style="font-size: 12px;">
-            No EHR calendars connected for this provider.
+            No Therapy Notes calendars connected for this provider.
           </div>
         </div>
 
@@ -287,7 +287,7 @@
         <div class="legend-item"><span class="swatch swatch-intake-vi"></span> Virtual intake</div>
         <div class="legend-item" v-if="showGoogleBusy"><span class="swatch swatch-gbusy"></span> Google busy</div>
         <div class="legend-item" v-if="showGoogleEvents"><span class="swatch swatch-gevt"></span> Google event</div>
-        <div class="legend-item" v-if="showExternalBusy && selectedExternalCalendarIds.length"><span class="swatch swatch-ebusy"></span> EHR busy</div>
+        <div class="legend-item" v-if="showExternalBusy && selectedExternalCalendarIds.length"><span class="swatch swatch-ebusy"></span> Therapy Notes busy</div>
       </div>
 
       <div class="sched-grid" :style="gridStyle">
@@ -1080,7 +1080,7 @@ const summary = ref(null);
 // Defaults for provider UX:
 // - Google busy: ON
 // - Google titles: OFF (sensitive)
-// - External/EHR calendars: ALL ON (once available list is loaded)
+// - External/Therapy Notes calendars: ALL ON (once available list is loaded)
 const showGoogleBusy = ref(true);
 const showGoogleEvents = ref(false);
 const showExternalBusy = ref(true);
@@ -2296,7 +2296,7 @@ const externalBusyLabels = (dayName, hour) => {
 const externalBusyTitle = (dayName, hour) => {
   const labels = externalBusyLabels(dayName, hour);
   const suffix = labels.length ? ` (${labels.join(', ')})` : '';
-  return `EHR busy${suffix} — ${dayName} ${hourLabel(hour)}`;
+  return `Therapy Notes busy${suffix} — ${dayName} ${hourLabel(hour)}`;
 };
 
 const externalBusyShortLabel = (dayName, hour) => {
@@ -2418,7 +2418,7 @@ const overlayErrorText = computed(() => {
   const parts = [];
   if (googleErr) parts.push(`Google busy: ${googleErr}`);
   if (googleEventsErr) parts.push(`Google events: ${googleEventsErr}`);
-  if (errors.length) parts.push(`EHR: ${errors.map((e) => (e.label ? `${e.label}: ${e.err}` : e.err)).join(' • ')}`);
+  if (errors.length) parts.push(`Therapy Notes: ${errors.map((e) => (e.label ? `${e.label}: ${e.err}` : e.err)).join(' • ')}`);
   return parts.length ? `Calendar overlay error: ${parts.join(' • ')}` : '';
 });
 
@@ -4771,7 +4771,7 @@ const buildStackDetailsForBlock = (block, dayName, hour) => {
     const labels = externalBusyLabels(dayName, hour);
     if (labels.length <= 1) return null;
     return {
-      title: `EHR busy sources — ${dayName} ${hourLabel(hour)}`,
+      title: `Therapy Notes busy sources — ${dayName} ${hourLabel(hour)}`,
       items: labels.map((label, idx) => ({
         id: `ebusy-${idx}`,
         label: String(label || '').trim(),

@@ -33,7 +33,7 @@
 
         <div class="group-save">
           <label class="lbl" style="margin-top: 10px;">Save current selection</label>
-          <input v-model="newGroupLabel" class="input" type="text" placeholder="e.g. Bachelors EHR (Team A)" />
+          <input v-model="newGroupLabel" class="input" type="text" placeholder="e.g. Therapy Notes (Team A)" />
           <div class="group-save-actions">
             <button class="btn btn-primary btn-sm" type="button" @click="saveGroup" :disabled="!canSaveGroup">
               Save group

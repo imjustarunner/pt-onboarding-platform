@@ -1050,7 +1050,7 @@ export const refreshEhrAssignedRoomBookings = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Scheduling is restricted due to an expired blocking credential' } });
     }
     if (!canManageSchedule(req.user?.role)) {
-      return res.status(403).json({ error: { message: 'Only schedule managers can refresh EHR-linked room bookings' } });
+      return res.status(403).json({ error: { message: 'Only schedule managers can refresh Therapy Notes-linked room bookings' } });
     }
 
     const officeLocationId = parseInt(req.params.locationId, 10);

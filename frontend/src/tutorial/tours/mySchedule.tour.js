@@ -49,8 +49,8 @@ export default {
     {
       element: '[data-tour="my-schedule-ehr-calendars"]',
       popover: {
-        title: 'EHR calendars',
-        description: 'Use chips to toggle EHR busy overlays. “All/None” are quick filters, and “Hide calendars” hides Google+EHR overlays while keeping office overlays.',
+        title: 'Therapy Notes calendars',
+        description: 'Use chips to toggle Therapy Notes busy overlays. “All/None” are quick filters, and “Hide calendars” hides Google+Therapy Notes overlays while keeping office overlays.',
         side: 'bottom',
         align: 'start'
       }

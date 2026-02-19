@@ -454,7 +454,7 @@ export class ProviderAvailabilityService {
       if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
     }
 
-    // 4) External EHR busy (ICS) blocks both modalities
+    // 4) External Therapy Notes busy (ICS) blocks both modalities
     let externalBusy = [];
     if (includeExternalBusy) {
       try {

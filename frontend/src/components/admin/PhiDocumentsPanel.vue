@@ -99,7 +99,7 @@
           <div v-if="s.documentType" class="audit-line">Type: {{ s.documentType }}</div>
           <div class="audit-line">Uploaded: {{ formatDateTime(s.uploadedAt) }}{{ s.uploadedBy ? ` by ${s.uploadedBy}` : '' }}</div>
           <div class="audit-line">Downloaded: {{ s.downloadedAt ? formatDateTime(s.downloadedAt) : '—' }}{{ s.downloadedBy ? ` by ${s.downloadedBy}` : '' }}</div>
-          <div class="audit-line">Exported to EHR: {{ s.exportedToEhrAt ? formatDateTime(s.exportedToEhrAt) : '—' }}{{ s.exportedToEhrBy ? ` by ${s.exportedToEhrBy}` : '' }}</div>
+          <div class="audit-line">Exported to Therapy Notes: {{ s.exportedToEhrAt ? formatDateTime(s.exportedToEhrAt) : '—' }}{{ s.exportedToEhrBy ? ` by ${s.exportedToEhrBy}` : '' }}</div>
           <div class="audit-line">
             Removed: {{ s.removedAt ? formatDateTime(s.removedAt) : '—' }}{{ s.removedBy ? ` by ${s.removedBy}` : '' }}
             <span v-if="s.removedReason"> · {{ s.removedReason }}</span>
@@ -321,7 +321,7 @@ const openDoc = async (doc) => {
 
 const markExported = async (doc) => {
   if (!doc?.id) return;
-  if (!window.confirm('Mark this document as exported to EHR?')) return;
+  if (!window.confirm('Mark this document as exported to Therapy Notes?')) return;
   try {
     await api.post(`/phi-documents/${doc.id}/export`);
     await reload();

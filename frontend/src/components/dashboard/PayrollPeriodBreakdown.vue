@@ -67,7 +67,7 @@
           These notes were not paid this period. Complete outstanding notes to be included in a future payroll.
         </div>
         <div class="muted" style="margin-top: 6px;">
-          Due to our EHR system, we are unable to differentiate a note that is incomplete for a session that did occur from a note that is incomplete for a session that did not occur.
+          Due to Therapy Notes, we are unable to differentiate a note that is incomplete for a session that did occur from a note that is incomplete for a session that did not occur.
         </div>
       </div>
 

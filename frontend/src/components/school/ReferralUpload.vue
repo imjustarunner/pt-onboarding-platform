@@ -65,7 +65,7 @@
 
           <div v-if="canUseOcr && clientId && phiDocumentId" class="ocr-panel">
             <h3>Extract Handwritten Data</h3>
-            <p class="muted">Use OCR to extract text and quickly copy details for EHR entry.</p>
+            <p class="muted">Use OCR to extract text and quickly copy details for Therapy Notes entry.</p>
             <div class="ocr-actions">
               <button class="btn btn-secondary" type="button" :disabled="ocrLoading || !canRunOcr" @click="runOcr">
                 {{ ocrLoading ? 'Extracting...' : 'Extract Text' }}
@@ -94,7 +94,7 @@
                   {{ ocrClearing ? 'Wiping…' : 'Wipe Text' }}
                 </button>
               </div>
-              <p class="muted">Copy each section into your EHR. Text is stored for 7 days unless wiped.</p>
+              <p class="muted">Copy each section into Therapy Notes. Text is stored for 7 days unless wiped.</p>
               <div class="ocr-toggle">
                 <label class="checkbox-row">
                   <input type="checkbox" v-model="showRawOcr" />

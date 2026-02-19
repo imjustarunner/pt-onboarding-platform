@@ -25,7 +25,7 @@
           @click="refreshEhrAssignedBookings"
           :disabled="refreshingEhrBookings || !officeId"
         >
-          {{ refreshingEhrBookings ? 'Refreshing…' : 'Refresh EHR' }}
+          {{ refreshingEhrBookings ? 'Refreshing…' : 'Refresh Therapy Notes' }}
         </button>
         <button class="btn btn-secondary btn-sm" @click="loadGrid" :disabled="loading || !officeId">Refresh</button>
       </div>
@@ -1009,10 +1009,10 @@ const refreshEhrAssignedBookings = async () => {
     const resp = await api.post(`/office-schedule/locations/${officeId.value}/refresh-ehr-assigned-bookings`, {});
     const booked = Number(resp?.data?.bookedFromEhr || 0);
     const scanned = Number(resp?.data?.scannedAssigned || 0);
-    setSuccessToast(`EHR refresh complete: ${booked} booked from ${scanned} assigned slot${scanned === 1 ? '' : 's'}.`);
+    setSuccessToast(`Therapy Notes refresh complete: ${booked} booked from ${scanned} assigned slot${scanned === 1 ? '' : 's'}.`);
     await loadGrid();
   } catch (e) {
-    error.value = e.response?.data?.error?.message || 'Failed to refresh EHR/assigned room booking';
+    error.value = e.response?.data?.error?.message || 'Failed to refresh Therapy Notes/assigned room booking';
   } finally {
     refreshingEhrBookings.value = false;
   }

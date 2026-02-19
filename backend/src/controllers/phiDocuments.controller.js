@@ -446,7 +446,7 @@ export const markPhiDocumentExported = async (req, res, next) => {
     if (!allowed) return res.status(403).json({ error: { message: 'Access denied' } });
 
     const exportedAt = new Date();
-    const removedReason = 'Exported to EHR';
+    const removedReason = 'Exported to Therapy Notes';
     const updated = await ClientPhiDocument.updateLifecycleById({
       id: doc.id,
       exportedToEhrAt: exportedAt,
@@ -509,7 +509,7 @@ export const removePhiDocument = async (req, res, next) => {
     if (!allowed) return res.status(403).json({ error: { message: 'Access denied' } });
 
     const removedAt = new Date();
-    const reason = String(req.body?.reason || '').trim().slice(0, 255) || 'Shipped to EHR';
+    const reason = String(req.body?.reason || '').trim().slice(0, 255) || 'Shipped to Therapy Notes';
     const updated = await ClientPhiDocument.updateLifecycleById({
       id: doc.id,
       removedAt,

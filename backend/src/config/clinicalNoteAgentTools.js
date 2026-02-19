@@ -506,7 +506,7 @@ SECTION II – PROGRESS NOTE DOCUMENTATION (Skill Development Session Format)
 `,
   TERMINATION: String.raw`
 Termination Note Writer
-The following will organize information provided to generate a termination note in the format required in our EHR system.
+The following will organize information provided to generate a termination note in the format required in Therapy Notes.
 
 Guidelines:
 - You will write two sections.

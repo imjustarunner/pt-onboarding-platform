@@ -67,7 +67,7 @@ export class ExternalBusyCalendarService {
   static normalizeIcsFetchUrl(icsUrl) {
     const raw = String(icsUrl || '').trim();
     if (!raw) return '';
-    // Many EHRs provide `webcal://` links intended for calendar clients.
+    // Therapy Notes and similar systems provide `webcal://` links intended for calendar clients.
     // Our server fetcher must use http(s).
     if (raw.startsWith('webcal://')) return `https://${raw.slice('webcal://'.length)}`;
     if (raw.startsWith('webcals://')) return `https://${raw.slice('webcals://'.length)}`;

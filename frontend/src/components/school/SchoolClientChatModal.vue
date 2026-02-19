@@ -36,7 +36,7 @@
       </div>
 
       <div class="phi-warning">
-        <strong>Reminder:</strong> Use initials only. Do not include PHI. This is not an EHR.
+        <strong>Reminder:</strong> Use initials only. Do not include PHI. This is not Therapy Notes.
       </div>
 
       <div class="status-bar">
@@ -202,7 +202,7 @@
               <div class="packet-audit-name">{{ s.originalName || `Document ${s.documentId}` }}</div>
               <div class="packet-audit-line">Uploaded: {{ formatDateTime(s.uploadedAt) }}{{ s.uploadedBy ? ` by ${s.uploadedBy}` : '' }}</div>
               <div class="packet-audit-line">Downloaded: {{ s.downloadedAt ? formatDateTime(s.downloadedAt) : '—' }}{{ s.downloadedBy ? ` by ${s.downloadedBy}` : '' }}</div>
-              <div class="packet-audit-line">Exported to EHR: {{ s.exportedToEhrAt ? formatDateTime(s.exportedToEhrAt) : '—' }}{{ s.exportedToEhrBy ? ` by ${s.exportedToEhrBy}` : '' }}</div>
+              <div class="packet-audit-line">Exported to Therapy Notes: {{ s.exportedToEhrAt ? formatDateTime(s.exportedToEhrAt) : '—' }}{{ s.exportedToEhrBy ? ` by ${s.exportedToEhrBy}` : '' }}</div>
               <div class="packet-audit-line">
                 Removed: {{ s.removedAt ? formatDateTime(s.removedAt) : '—' }}{{ s.removedBy ? ` by ${s.removedBy}` : '' }}
                 <span v-if="s.removedReason"> · {{ s.removedReason }}</span>

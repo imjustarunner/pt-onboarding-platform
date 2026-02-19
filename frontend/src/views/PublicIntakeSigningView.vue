@@ -529,7 +529,7 @@
       <div v-else-if="step === 3" class="step">
         <h3>All Set</h3>
         <p>Your documents were completed successfully. A copy will be emailed to the guardian.</p>
-        <p class="muted">Download links expire in 14 days. After that, the files are deleted once uploaded to the EHR.</p>
+        <p class="muted">Download links expire in 14 days. After that, the files are deleted once uploaded to Therapy Notes.</p>
         <div v-if="downloadUrl" class="actions">
           <a class="btn btn-primary" :href="downloadUrl" target="_blank" rel="noopener">View Packet PDF</a>
           <a class="btn btn-secondary" :href="downloadUrl" download>Download Packet PDF</a>

@@ -2,7 +2,7 @@
   <div class="vwh">
     <div class="vwh-head">
       <h3 style="margin:0;">Virtual Working Hours</h3>
-      <div class="muted">Weekly template. These hours are used to compute virtual availability (after removing EHR/Google/office/school blocks).</div>
+      <div class="muted">Weekly template. These hours are used to compute virtual availability (after removing Therapy Notes/Google/office/school blocks).</div>
     </div>
 
     <div v-if="loading" class="muted" style="margin-top:10px;">Loading…</div>

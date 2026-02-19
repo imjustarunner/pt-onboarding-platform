@@ -563,7 +563,7 @@
           <div v-else-if="notesError" class="error">{{ notesError }}</div>
           <div v-else class="messages-container">
             <div class="phi-warning">
-              <strong>Reminder:</strong> Use initials only. Do not include PHI. This is not an EHR.
+              <strong>Reminder:</strong> Use initials only. Do not include PHI. This is not Therapy Notes.
             </div>
 
             <div class="messages-header-row">
