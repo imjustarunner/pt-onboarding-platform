@@ -140,6 +140,138 @@ export class GoogleCalendarService {
     }
   }
 
+  static async getEvent({ subjectEmail, calendarId = 'primary', eventId } = {}) {
+    const subject = String(subjectEmail || '').trim().toLowerCase();
+    const eid = String(eventId || '').trim();
+    if (!subject) return { ok: false, reason: 'missing_subject_email' };
+    if (!eid) return { ok: false, reason: 'missing_event_id' };
+    if (!this.isConfigured()) return { ok: false, reason: 'not_configured' };
+
+    try {
+      const { calendar } = await getWorkspaceClientsForEmployee({ subjectEmail: subject });
+      const r = await calendar.events.get({
+        calendarId,
+        eventId: eid,
+        fields: 'id,summary,description,location,htmlLink,start,end,status,conferenceData,hangoutLink'
+      });
+      const ev = r?.data;
+      if (!ev) return { ok: false, reason: 'event_not_found' };
+
+      const startAt = ev?.start?.dateTime || ev?.start?.date || null;
+      const endAt = ev?.end?.dateTime || ev?.end?.date || null;
+      const allDay = !!(ev?.start?.date && !ev?.start?.dateTime);
+      const meetLink =
+        ev?.conferenceData?.entryPoints?.find((e) => e?.entryPointType === 'video')?.uri ||
+        ev?.hangoutLink ||
+        null;
+
+      return {
+        ok: true,
+        event: {
+          id: ev?.id || null,
+          summary: ev?.summary || null,
+          description: ev?.description || null,
+          location: ev?.location || null,
+          htmlLink: ev?.htmlLink || null,
+          startAt,
+          endAt,
+          allDay,
+          meetLink,
+          status: String(ev?.status || 'confirmed').toLowerCase()
+        }
+      };
+    } catch (e) {
+      const code = Number(e?.code || e?.response?.status || 0);
+      if (code === 404) return { ok: false, reason: 'event_not_found', error: 'Event not found or deleted' };
+      logGoogleUnauthorizedHint(e, { context: 'GoogleCalendarService.getEvent' });
+      return { ok: false, reason: 'google_api_error', error: String(e?.message || e) };
+    }
+  }
+
+  static async patchEvent({ subjectEmail, calendarId = 'primary', eventId, summary, description, location, startAt, endAt } = {}) {
+    const subject = String(subjectEmail || '').trim().toLowerCase();
+    const eid = String(eventId || '').trim();
+    if (!subject) return { ok: false, reason: 'missing_subject_email' };
+    if (!eid) return { ok: false, reason: 'missing_event_id' };
+    if (!this.isConfigured()) return { ok: false, reason: 'not_configured' };
+
+    const requestBody = {};
+    if (summary !== undefined && summary !== null) requestBody.summary = String(summary).trim() || '';
+    if (description !== undefined && description !== null) requestBody.description = String(description).trim() || '';
+    if (location !== undefined && location !== null) requestBody.location = String(location).trim() || '';
+
+    if (startAt !== undefined && startAt !== null) {
+      const s = String(startAt).trim();
+      if (s) requestBody.start = { dateTime: s.includes('T') ? s : `${s}T00:00:00`, timeZone: 'America/New_York' };
+    }
+    if (endAt !== undefined && endAt !== null) {
+      const s = String(endAt).trim();
+      if (s) requestBody.end = { dateTime: s.includes('T') ? s : `${s}T00:00:00`, timeZone: 'America/New_York' };
+    }
+
+    if (Object.keys(requestBody).length === 0) {
+      return { ok: false, reason: 'no_updates', error: 'No fields to update' };
+    }
+
+    try {
+      const cal = this.buildCalendarClientForSubject(subject);
+      const upd = await cal.events.patch({
+        calendarId,
+        eventId: eid,
+        requestBody,
+        sendUpdates: 'all'
+      });
+      const ev = upd?.data;
+      const startAtOut = ev?.start?.dateTime || ev?.start?.date || null;
+      const endAtOut = ev?.end?.dateTime || ev?.end?.date || null;
+      const allDay = !!(ev?.start?.date && !ev?.start?.dateTime);
+      const meetLink =
+        ev?.conferenceData?.entryPoints?.find((e) => e?.entryPointType === 'video')?.uri ||
+        ev?.hangoutLink ||
+        null;
+
+      return {
+        ok: true,
+        event: {
+          id: ev?.id || null,
+          summary: ev?.summary || null,
+          description: ev?.description || null,
+          location: ev?.location || null,
+          htmlLink: ev?.htmlLink || null,
+          startAt: startAtOut,
+          endAt: endAtOut,
+          allDay,
+          meetLink,
+          status: String(ev?.status || 'confirmed').toLowerCase()
+        }
+      };
+    } catch (e) {
+      const code = Number(e?.code || e?.response?.status || 0);
+      if (code === 404) return { ok: false, reason: 'event_not_found', error: 'Event not found or deleted' };
+      logGoogleUnauthorizedHint(e, { context: 'GoogleCalendarService.patchEvent' });
+      return { ok: false, reason: 'google_api_error', error: String(e?.message || e) };
+    }
+  }
+
+  static async deleteEvent({ subjectEmail, calendarId = 'primary', eventId } = {}) {
+    const subject = String(subjectEmail || '').trim().toLowerCase();
+    const eid = String(eventId || '').trim();
+    if (!subject) return { ok: false, reason: 'missing_subject_email' };
+    if (!eid) return { ok: false, reason: 'missing_event_id' };
+    if (!this.isConfigured()) return { ok: false, reason: 'not_configured' };
+
+    try {
+      const cal = this.buildCalendarClientForSubject(subject);
+      await cal.events.delete({ calendarId, eventId: eid, sendUpdates: 'all' });
+      return { ok: true };
+    } catch (e) {
+      const code = Number(e?.code || e?.response?.status || 0);
+      if (code === 404) return { ok: true, skipped: true, reason: 'already_deleted' };
+      logGoogleUnauthorizedHint(e, { context: 'GoogleCalendarService.deleteEvent' });
+      return { ok: false, reason: 'google_api_error', error: String(e?.message || e) };
+    }
+  }
+
   static async createProviderScheduleEvent({
     subjectEmail,
     startAt = null,

@@ -2851,6 +2851,138 @@ export const createUserScheduleEvent = async (req, res, next) => {
   }
 };
 
+export const getUserGoogleEvent = async (req, res, next) => {
+  try {
+    const providerId = parseInt(req.params.id, 10);
+    const eventId = String(req.params.eventId || '').trim();
+    if (!providerId) return res.status(400).json({ error: { message: 'Invalid user id' } });
+    if (!eventId) return res.status(400).json({ error: { message: 'Invalid event id' } });
+
+    const isSelf = Number(req.user?.id || 0) === Number(providerId);
+    if (!isSelf && !canViewProviderScheduleSummary(req.user?.role)) {
+      const requestingUser = await User.findById(req.user?.id);
+      const isSupervisor = requestingUser && User.isSupervisor(requestingUser);
+      if (!isSupervisor) return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const provider = await User.findById(providerId);
+    if (!provider) return res.status(404).json({ error: { message: 'User not found' } });
+
+    if (!isSelf && String(req.user?.role || '').toLowerCase() !== 'super_admin') {
+      const ok = await requireSharedAgencyAccessOrSuperAdmin({
+        actorUserId: req.user.id,
+        targetUserId: providerId,
+        actorRole: req.user.role
+      });
+      if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const providerEmail = String(provider?.email || '').trim().toLowerCase();
+    if (!providerEmail) return res.status(400).json({ error: { message: 'Provider email is required' } });
+
+    const result = await GoogleCalendarService.getEvent({
+      subjectEmail: providerEmail,
+      calendarId: 'primary',
+      eventId
+    });
+
+    if (!result?.ok) {
+      if (result?.reason === 'event_not_found') return res.status(404).json({ error: { message: 'Event not found or deleted' } });
+      return res.status(502).json({ error: { message: result?.error || result?.reason || 'Failed to fetch event' } });
+    }
+
+    res.json(result.event);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const patchUserGoogleEvent = async (req, res, next) => {
+  try {
+    const providerId = parseInt(req.params.id, 10);
+    const eventId = String(req.params.eventId || '').trim();
+    if (!providerId) return res.status(400).json({ error: { message: 'Invalid user id' } });
+    if (!eventId) return res.status(400).json({ error: { message: 'Invalid event id' } });
+
+    if (Number(req.user?.id || 0) !== Number(providerId)) {
+      return res.status(403).json({ error: { message: 'You can only edit your own calendar events' } });
+    }
+
+    const provider = await User.findById(providerId);
+    if (!provider) return res.status(404).json({ error: { message: 'User not found' } });
+
+    const providerEmail = String(provider?.email || '').trim().toLowerCase();
+    if (!providerEmail) return res.status(400).json({ error: { message: 'Provider email is required' } });
+
+    const { summary, description, location, startAt, endAt } = req.body || {};
+
+    if (startAt != null && endAt != null) {
+      const st = new Date(startAt).getTime();
+      const en = new Date(endAt).getTime();
+      if (Number.isNaN(st) || Number.isNaN(en)) {
+        return res.status(400).json({ error: { message: 'startAt and endAt must be valid date/time values' } });
+      }
+      if (en <= st) {
+        return res.status(400).json({ error: { message: 'endAt must be after startAt' } });
+      }
+    }
+
+    const result = await GoogleCalendarService.patchEvent({
+      subjectEmail: providerEmail,
+      calendarId: 'primary',
+      eventId,
+      summary,
+      description,
+      location,
+      startAt,
+      endAt
+    });
+
+    if (!result?.ok) {
+      if (result?.reason === 'event_not_found') return res.status(404).json({ error: { message: 'Event not found or deleted' } });
+      if (result?.reason === 'no_updates') return res.status(400).json({ error: { message: result?.error || 'No fields to update' } });
+      return res.status(502).json({ error: { message: result?.error || result?.reason || 'Failed to update event' } });
+    }
+
+    res.json({ ok: true, event: result.event });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const deleteUserGoogleEvent = async (req, res, next) => {
+  try {
+    const providerId = parseInt(req.params.id, 10);
+    const eventId = String(req.params.eventId || '').trim();
+    if (!providerId) return res.status(400).json({ error: { message: 'Invalid user id' } });
+    if (!eventId) return res.status(400).json({ error: { message: 'Invalid event id' } });
+
+    if (Number(req.user?.id || 0) !== Number(providerId)) {
+      return res.status(403).json({ error: { message: 'You can only delete your own calendar events' } });
+    }
+
+    const provider = await User.findById(providerId);
+    if (!provider) return res.status(404).json({ error: { message: 'User not found' } });
+
+    const providerEmail = String(provider?.email || '').trim().toLowerCase();
+    if (!providerEmail) return res.status(400).json({ error: { message: 'Provider email is required' } });
+
+    const result = await GoogleCalendarService.deleteEvent({
+      subjectEmail: providerEmail,
+      calendarId: 'primary',
+      eventId
+    });
+
+    if (!result?.ok && !result?.skipped) {
+      return res.status(502).json({ error: { message: result?.error || result?.reason || 'Failed to delete event' } });
+    }
+
+    res.json({ ok: true, deleted: !result?.skipped });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const getUserExternalCalendars = async (req, res, next) => {
   try {
     const userId = parseInt(req.params.id, 10);

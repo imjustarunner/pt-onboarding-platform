@@ -864,12 +864,109 @@
               :key="`stack-item-${item.id}`"
               class="stack-details-item"
               type="button"
-              :disabled="!item.link && !item.sessionId"
+              :disabled="!item.link && !item.sessionId && !item.googleEvent"
               @click="openStackDetailsItem(item)"
             >
               <div class="stack-details-label">{{ item.label }}</div>
               <div v-if="item.subLabel" class="stack-details-sub">{{ item.subLabel }}</div>
             </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="showGoogleEventModal" class="modal-backdrop" @click.self="closeGoogleEventModal">
+      <div class="modal google-event-modal" style="max-width: 480px;">
+        <div class="modal-head">
+          <div class="modal-title">{{ googleEventEditMode ? 'Edit event' : (selectedGoogleEvent?.summary || 'Google event') }}</div>
+          <button class="btn btn-secondary btn-sm" type="button" @click="closeGoogleEventModal">Close</button>
+        </div>
+        <div class="modal-body">
+          <div v-if="selectedGoogleEvent" class="google-event-details">
+            <template v-if="googleEventEditMode">
+              <div v-if="googleEventSaveError" class="error" style="margin-bottom: 10px;">{{ googleEventSaveError }}</div>
+              <div class="field" style="margin-bottom: 10px;">
+                <label class="lbl">Title</label>
+                <input v-model="googleEventEditForm.summary" type="text" class="input" placeholder="Event title" />
+              </div>
+              <div class="field" style="margin-bottom: 10px;">
+                <label class="lbl">Description</label>
+                <textarea v-model="googleEventEditForm.description" class="input" rows="3" placeholder="Description" />
+              </div>
+              <div class="field" style="margin-bottom: 10px;">
+                <label class="lbl">Location</label>
+                <input v-model="googleEventEditForm.location" type="text" class="input" placeholder="Location" />
+              </div>
+              <div class="field-grid" style="margin-bottom: 12px;">
+                <div class="field">
+                  <label class="lbl">Start</label>
+                  <input v-model="googleEventEditForm.startAt" type="datetime-local" class="input" />
+                </div>
+                <div class="field">
+                  <label class="lbl">End</label>
+                  <input v-model="googleEventEditForm.endAt" type="datetime-local" class="input" />
+                </div>
+              </div>
+              <div class="google-event-actions" style="display: flex; justify-content: space-between; align-items: center;">
+                <button type="button" class="btn btn-danger btn-sm" :disabled="googleEventSaving" @click="deleteGoogleEvent">Delete</button>
+                <div style="display: flex; gap: 8px;">
+                  <button type="button" class="btn btn-secondary btn-sm" :disabled="googleEventSaving" @click="cancelEditGoogleEvent">Cancel</button>
+                  <button type="button" class="btn btn-primary btn-sm" :disabled="googleEventSaving" @click="saveGoogleEvent">Save</button>
+                </div>
+              </div>
+            </template>
+            <template v-else>
+              <div v-if="googleEventSaveError" class="error" style="margin-bottom: 10px;">{{ googleEventSaveError }}</div>
+              <div v-if="googleEventFetching" class="muted">Loading…</div>
+              <template v-else>
+                <div class="google-event-time">
+                  {{ formatRangeFromRaw(selectedGoogleEvent.startAt, selectedGoogleEvent.endAt) }}
+                </div>
+                <div v-if="selectedGoogleEvent.location" class="google-event-location muted" style="margin-top: 6px;">
+                  {{ selectedGoogleEvent.location }}
+                </div>
+                <div class="google-event-actions" style="margin-top: 12px;">
+                  <button
+                    v-if="selectedGoogleEvent.meetLink"
+                    type="button"
+                    class="btn btn-primary btn-sm"
+                    style="margin-right: 8px;"
+                    @click="openMeetInPopup(selectedGoogleEvent.meetLink)"
+                  >
+                    Join meeting
+                  </button>
+                  <button
+                    v-if="selectedGoogleEvent.htmlLink"
+                    type="button"
+                    class="btn btn-secondary btn-sm"
+                    style="margin-right: 8px;"
+                    @click="openGoogleEventInPopup(selectedGoogleEvent)"
+                  >
+                    Open in Google Calendar
+                  </button>
+                  <button
+                    v-if="canEditGoogleEvent"
+                    type="button"
+                    class="btn btn-secondary btn-sm"
+                    style="margin-right: 8px;"
+                    @click="startEditGoogleEvent"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    v-if="canEditGoogleEvent"
+                    type="button"
+                    class="btn btn-danger btn-sm"
+                    @click="deleteGoogleEvent"
+                  >
+                    Delete
+                  </button>
+                </div>
+                <span v-if="selectedGoogleEvent.htmlLink && !canEditGoogleEvent" class="hint" style="margin-top: 8px; display: block;">
+                  Edit the event or join a meeting from Google Calendar. Opens in a popup so you stay in the app.
+                </span>
+              </template>
+            </template>
           </div>
         </div>
       </div>
@@ -4646,9 +4743,14 @@ const onCellBlockClick = (e, block, dayName, hour) => {
       }, 240);
       return;
     }
-    const link = String(block?.link || '').trim();
-    if (!link) return;
-    window.open(link, '_blank', 'noreferrer');
+    const events = googleEventsInCell(dayName, hour);
+    const ev = events.find((e) => block?.key === `gevt-${String(e?.id || e?.summary || '')}` || e?.htmlLink === block?.link) || events[0];
+    if (ev) {
+      openGoogleEventModal(ev);
+    } else {
+      const link = String(block?.link || '').trim();
+      if (link) window.open(link, '_blank', 'noreferrer');
+    }
     return;
   }
   if (kind === 'supv') {
@@ -4709,6 +4811,153 @@ const openStackDetailsModal = ({ title = '', items = [] } = {}) => {
   stackDetailsTitle.value = String(title || '').trim() || 'Overlapping items';
   stackDetailsItems.value = Array.isArray(items) ? items : [];
   showStackDetailsModal.value = true;
+};
+
+const showGoogleEventModal = ref(false);
+const selectedGoogleEvent = ref(null);
+const googleEventEditMode = ref(false);
+const googleEventFetching = ref(false);
+const googleEventSaving = ref(false);
+const googleEventSaveError = ref('');
+const googleEventEditForm = ref({
+  summary: '',
+  description: '',
+  location: '',
+  startAt: '',
+  endAt: ''
+});
+
+const canEditGoogleEvent = computed(() => {
+  const uid = Number(authStore.user?.id || 0);
+  const targetId = Number(props.userId || 0);
+  return uid > 0 && targetId > 0 && uid === targetId;
+});
+
+const closeGoogleEventModal = () => {
+  showGoogleEventModal.value = false;
+  selectedGoogleEvent.value = null;
+  googleEventEditMode.value = false;
+  googleEventFetching.value = false;
+  googleEventSaving.value = false;
+  googleEventSaveError.value = '';
+};
+
+const openGoogleEventModal = (ev) => {
+  if (!ev) return;
+  selectedGoogleEvent.value = ev;
+  googleEventEditMode.value = false;
+  googleEventFetching.value = false;
+  googleEventSaveError.value = '';
+  showGoogleEventModal.value = true;
+};
+
+const openGoogleEventInPopup = (ev) => {
+  const link = String(ev?.htmlLink || '').trim();
+  if (!link) return;
+  const popup = window.open(link, '_blank', 'noopener,noreferrer,width=900,height=700');
+  if (!popup) {
+    window.open(link, '_blank', 'noreferrer');
+  }
+};
+
+const openMeetInPopup = (meetLink) => {
+  const link = String(meetLink || '').trim();
+  if (!link) return;
+  const popup = window.open(link, '_blank', 'noopener,noreferrer,width=1200,height=850');
+  if (!popup) {
+    window.open(link, '_blank', 'noreferrer');
+  }
+};
+
+const startEditGoogleEvent = async () => {
+  const ev = selectedGoogleEvent.value;
+  const uid = Number(props.userId || 0);
+  const eventId = String(ev?.id || '').trim();
+  if (!ev || !uid || !eventId) return;
+  try {
+    googleEventFetching.value = true;
+    const resp = await api.get(`/users/${uid}/google-events/${encodeURIComponent(eventId)}`);
+    const full = resp.data || {};
+    selectedGoogleEvent.value = { ...ev, ...full };
+    const st = parseMaybeDate(full.startAt || ev.startAt);
+    const en = parseMaybeDate(full.endAt || ev.endAt);
+    googleEventEditForm.value = {
+      summary: String(full.summary || ev.summary || '').trim(),
+      description: String(full.description || '').trim(),
+      location: String(full.location || '').trim(),
+      startAt: st ? toDatetimeLocalValue(st) : '',
+      endAt: en ? toDatetimeLocalValue(en) : ''
+    };
+    googleEventEditMode.value = true;
+    googleEventSaveError.value = '';
+  } catch (e) {
+    googleEventSaveError.value = e?.response?.data?.error?.message || e?.message || 'Failed to load event';
+  } finally {
+    googleEventFetching.value = false;
+  }
+};
+
+const cancelEditGoogleEvent = () => {
+  googleEventEditMode.value = false;
+  googleEventSaveError.value = '';
+};
+
+const saveGoogleEvent = async () => {
+  const ev = selectedGoogleEvent.value;
+  const uid = Number(props.userId || 0);
+  const eventId = String(ev?.id || '').trim();
+  const form = googleEventEditForm.value;
+  if (!ev || !uid || !eventId) return;
+  const startAt = form.startAt
+    ? (form.startAt.length === 16 ? `${form.startAt}:00` : form.startAt.includes('T') ? form.startAt : `${form.startAt}T00:00:00`)
+    : undefined;
+  const endAt = form.endAt
+    ? (form.endAt.length === 16 ? `${form.endAt}:00` : form.endAt.includes('T') ? form.endAt : `${form.endAt}T00:00:00`)
+    : undefined;
+  if (startAt && endAt && new Date(endAt).getTime() <= new Date(startAt).getTime()) {
+    googleEventSaveError.value = 'End time must be after start time';
+    return;
+  }
+  try {
+    googleEventSaving.value = true;
+    googleEventSaveError.value = '';
+    const payload = {};
+    if (form.summary !== undefined) payload.summary = form.summary;
+    if (form.description !== undefined) payload.description = form.description;
+    if (form.location !== undefined) payload.location = form.location;
+    if (startAt) payload.startAt = startAt;
+    if (endAt) payload.endAt = endAt;
+    const resp = await api.patch(`/users/${uid}/google-events/${encodeURIComponent(eventId)}`, payload);
+    const updated = resp.data?.event || resp.data;
+    if (updated) {
+      selectedGoogleEvent.value = { ...ev, ...updated };
+    }
+    googleEventEditMode.value = false;
+    await load();
+  } catch (e) {
+    googleEventSaveError.value = e?.response?.data?.error?.message || e?.message || 'Failed to save event';
+  } finally {
+    googleEventSaving.value = false;
+  }
+};
+
+const deleteGoogleEvent = async () => {
+  const ev = selectedGoogleEvent.value;
+  const uid = Number(props.userId || 0);
+  const eventId = String(ev?.id || '').trim();
+  if (!ev || !uid || !eventId) return;
+  if (!confirm('Delete this event from your Google Calendar? This cannot be undone.')) return;
+  try {
+    googleEventSaving.value = true;
+    googleEventSaveError.value = '';
+    await api.delete(`/users/${uid}/google-events/${encodeURIComponent(eventId)}`);
+    closeGoogleEventModal();
+    await load();
+  } catch (e) {
+    googleEventSaveError.value = e?.response?.data?.error?.message || e?.message || 'Failed to delete event';
+  } finally {
+    googleEventSaving.value = false;
+  }
 };
 
 const formatRangeFromRaw = (startAt, endAt) => {
@@ -4775,7 +5024,8 @@ const buildStackDetailsForBlock = (block, dayName, hour) => {
         id: `gevt-${String(ev?.id || idx)}`,
         label: String(ev?.summary || '').trim() || 'Google event',
         subLabel: formatRangeFromRaw(ev?.startAt, ev?.endAt),
-        link: String(ev?.htmlLink || '').trim() || ''
+        link: String(ev?.htmlLink || '').trim() || '',
+        googleEvent: ev
       }))
     };
   }
@@ -4795,6 +5045,11 @@ const buildStackDetailsForBlock = (block, dayName, hour) => {
 };
 
 const openStackDetailsItem = (item) => {
+  if (item?.googleEvent) {
+    closeStackDetailsModal();
+    openGoogleEventModal(item.googleEvent);
+    return;
+  }
   const link = String(item?.link || '').trim();
   if (link) {
     window.open(link, '_blank', 'noreferrer');
@@ -5316,6 +5571,21 @@ watch(modalHour, () => {
 .stack-details-item:disabled {
   opacity: 0.7;
   cursor: default;
+}
+
+.google-event-modal .google-event-details {
+  padding: 4px 0;
+}
+.google-event-modal .google-event-time {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 12px;
+}
+.google-event-modal .google-event-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 .stack-details-label {
   font-weight: 800;
