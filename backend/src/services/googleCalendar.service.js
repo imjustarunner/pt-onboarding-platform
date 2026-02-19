@@ -151,7 +151,8 @@ export class GoogleCalendarService {
     summary,
     description = null,
     kind = 'PERSONAL_EVENT',
-    reasonCode = null
+    reasonCode = null,
+    isPrivate = false
   } = {}) {
     const subject = String(subjectEmail || '').trim().toLowerCase();
     if (!subject) return { ok: false, reason: 'missing_subject_email' };
@@ -179,6 +180,7 @@ export class GoogleCalendarService {
     const requestBody = {
       summary: normalizedSummary,
       description: description ? String(description) : undefined,
+      visibility: isPrivate ? 'private' : undefined,
       ...(isAllDay
         ? {
             start: { date: String(startDate).slice(0, 10) },

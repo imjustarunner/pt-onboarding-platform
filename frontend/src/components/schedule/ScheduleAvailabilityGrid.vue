@@ -279,6 +279,7 @@
         <div class="legend-item"><span class="swatch swatch-request"></span> Pending request</div>
         <div class="legend-item"><span class="swatch swatch-school"></span> School assigned</div>
         <div class="legend-item"><span class="swatch swatch-supv"></span> Supervision</div>
+        <div class="legend-item"><span class="swatch swatch-sevt"></span> Schedule event</div>
         <div class="legend-item"><span class="swatch swatch-oa"></span> Office assigned</div>
         <div class="legend-item"><span class="swatch swatch-ot"></span> Office temporary</div>
         <div class="legend-item"><span class="swatch swatch-ob"></span> Office booked</div>
@@ -559,6 +560,10 @@
             <label class="sched-toggle" style="margin-top: 10px;">
               <input type="checkbox" v-model="scheduleEventAllDay" />
               <span>All day</span>
+            </label>
+            <label class="sched-toggle" style="margin-top: 6px;">
+              <input type="checkbox" v-model="scheduleEventPrivate" />
+              <span>Private (others only see Busy)</span>
             </label>
           </div>
 
@@ -1634,7 +1639,8 @@ const load = async () => {
         schoolRequests: [],
         schoolAssignments: [],
         officeEvents: [],
-        supervisionSessions: []
+        supervisionSessions: [],
+        scheduleEvents: []
       };
 
       // Union calendars available (per-user, but keep stable)
@@ -1655,6 +1661,7 @@ const load = async () => {
         merged.schoolAssignments.push(...(r.data?.schoolAssignments || []).map((x) => tag(x, aId)));
         merged.officeEvents.push(...(r.data?.officeEvents || []).map((x) => tag(x, aId)));
         merged.supervisionSessions.push(...(r.data?.supervisionSessions || []).map((x) => tag(x, aId)));
+        merged.scheduleEvents.push(...(r.data?.scheduleEvents || []).map((x) => tag(x, aId)));
       }
 
       // Prefer overlay info from the first successful result (per-user; not agency-scoped).
@@ -1920,6 +1927,48 @@ const supervisionTitle = (dayName, hour) => {
     ? ` • Presenter (${presenterRows.map((ev) => String(ev.presenterRole || 'primary')).join(', ')})`
     : '';
   return `Supervision — ${who} — ${dayName} ${hourLabel(hour)}${presenterText}`;
+};
+
+const scheduleEventsInCell = (dayName, hour) => {
+  const s = summary.value;
+  if (!s) return [];
+  const ws = s.weekStart || weekStart.value;
+  const dayIdx = ALL_DAYS.indexOf(String(dayName));
+  if (dayIdx < 0) return [];
+  const cellDate = addDaysYmd(ws, dayIdx);
+  const cellStart = new Date(`${cellDate}T${pad2(hour)}:00:00`);
+  const cellEnd = new Date(`${cellDate}T${pad2(Number(hour) + 1)}:00:00`);
+  const list = Array.isArray(s.scheduleEvents) ? s.scheduleEvents : [];
+  const hits = [];
+  for (const ev of list) {
+    if (ev?.allDay) {
+      const startDate = String(ev?.startDate || '').slice(0, 10);
+      const endDate = String(ev?.endDate || '').slice(0, 10);
+      if (!startDate || !endDate) continue;
+      if (cellDate >= startDate && cellDate < endDate) hits.push(ev);
+      continue;
+    }
+    const stRaw = String(ev?.startAt || '').trim();
+    const enRaw = String(ev?.endAt || '').trim();
+    if (!stRaw || !enRaw) continue;
+    const st = new Date(stRaw.includes('T') ? stRaw : stRaw.replace(' ', 'T'));
+    const en = new Date(enRaw.includes('T') ? enRaw : enRaw.replace(' ', 'T'));
+    if (Number.isNaN(st.getTime()) || Number.isNaN(en.getTime())) continue;
+    if (en > cellStart && st < cellEnd) hits.push(ev);
+  }
+  return hits;
+};
+
+const scheduleEventShortLabel = (ev) => {
+  const raw = String(ev?.title || '').trim();
+  if (!raw) return 'Event';
+  return raw.length > 16 ? `${raw.slice(0, 16)}…` : raw;
+};
+
+const scheduleEventBlockTitle = (ev, dayName, hour) => {
+  const raw = String(ev?.title || '').trim() || 'Schedule event';
+  const privateTag = ev?.isPrivate ? ' • Private' : '';
+  return `${raw}${privateTag} — ${dayName} ${hourLabel(hour)}`;
 };
 
 const hasSchool = (dayName, hour) => {
@@ -2221,6 +2270,22 @@ const cellBlocks = (dayName, hour) => {
     blocks.push({ key: 'supv', kind: 'supv', shortLabel: supervisionLabel(dayName, hour), title: supervisionTitle(dayName, hour) });
   }
 
+  // App-scheduled provider events (personal/hold/indirect), visible without Google overlays.
+  const scheduleHits = scheduleEventsInCell(dayName, hour).slice(0, 2);
+  for (const ev of scheduleHits) {
+    blocks.push({
+      key: `sevt-${String(ev?.id || ev?.googleEventId || ev?.title || 'event')}`,
+      kind: 'sevt',
+      shortLabel: scheduleEventShortLabel(ev),
+      title: scheduleEventBlockTitle(ev, dayName, hour),
+      link: String(ev?.htmlLink || '').trim() || null
+    });
+  }
+  const scheduleExtra = Math.max(0, scheduleEventsInCell(dayName, hour).length - scheduleHits.length);
+  if (scheduleExtra) {
+    blocks.push({ key: 'sevt-more', kind: 'more', shortLabel: `+${scheduleExtra}`, title: `${scheduleExtra} more schedule events in this hour` });
+  }
+
   // Pending request
   if (hasRequest(dayName, hour)) {
     blocks.push({ key: 'request', kind: 'request', shortLabel: 'Req', title: requestTitle(dayName, hour) });
@@ -2324,6 +2389,7 @@ const SCHEDULE_HOLD_REASON_OPTIONS = [
 ];
 const scheduleEventTitle = ref('');
 const scheduleEventAllDay = ref(false);
+const scheduleEventPrivate = ref(false);
 const scheduleHoldReasonCode = ref('DOCUMENTATION');
 const scheduleHoldCustomReason = ref('');
 const normalizeCodeValue = (value) => String(value || '').trim().toUpperCase();
@@ -2925,6 +2991,7 @@ const openSlotActionModal = ({
   requestNotes.value = '';
   scheduleEventTitle.value = '';
   scheduleEventAllDay.value = false;
+  scheduleEventPrivate.value = false;
   scheduleHoldReasonCode.value = 'DOCUMENTATION';
   scheduleHoldCustomReason.value = '';
   modalError.value = '';
@@ -3418,6 +3485,7 @@ const closeModal = () => {
   requestNotes.value = '';
   scheduleEventTitle.value = '';
   scheduleEventAllDay.value = false;
+  scheduleEventPrivate.value = false;
   scheduleHoldReasonCode.value = 'DOCUMENTATION';
   scheduleHoldCustomReason.value = '';
   modalError.value = '';
@@ -3576,6 +3644,8 @@ const submitRequest = async () => {
   try {
     submitting.value = true;
     modalError.value = '';
+    let createdScheduleEvents = [];
+    let refreshInBackground = false;
 
     const dn = modalDay.value;
     const h = Number(modalHour.value);
@@ -3597,6 +3667,7 @@ const submitRequest = async () => {
       const eventKind = scheduleEventKindForAction(normalizedAction);
       const title = String(scheduleEventTitle.value || '').trim() || defaultScheduleEventTitleForAction(normalizedAction);
       const reasonCode = eventKind === 'SCHEDULE_HOLD' ? effectiveScheduleHoldReason() : null;
+      const isPrivate = !!scheduleEventPrivate.value;
       if (scheduleEventAllDay.value || normalizedAction === 'schedule_hold_all_day') {
         const ranges = mergeSelectedSlotsByDay({ dayName: dn, startHour: h, endHour: endH });
         const dates = Array.from(new Set(ranges.map((x) => String(x.dateYmd || '').slice(0, 10)).filter(Boolean)));
@@ -3604,7 +3675,7 @@ const submitRequest = async () => {
           const startDate = String(dateYmd).slice(0, 10);
           const endDate = addDaysYmd(startDate, 1);
           // eslint-disable-next-line no-await-in-loop
-          await api.post(`/users/${uid}/schedule-events`, {
+          const resp = await api.post(`/users/${uid}/schedule-events`, {
             agencyId: effectiveAgencyId.value,
             kind: eventKind,
             title,
@@ -3612,8 +3683,11 @@ const submitRequest = async () => {
             allDay: true,
             startDate,
             endDate,
-            reasonCode
+            reasonCode,
+            isPrivate
           });
+          const created = resp?.data?.event || null;
+          if (created) createdScheduleEvents.push(created);
         }
       } else {
         const ranges = mergeSelectedSlotsByDay({ dayName: dn, startHour: h, endHour: endH });
@@ -3621,7 +3695,7 @@ const submitRequest = async () => {
           const startAt = `${String(row.dateYmd).slice(0, 10)}T${pad2(Number(row.startHour))}:00:00`;
           const endAt = `${String(row.dateYmd).slice(0, 10)}T${pad2(Number(row.endHour))}:00:00`;
           // eslint-disable-next-line no-await-in-loop
-          await api.post(`/users/${uid}/schedule-events`, {
+          const resp = await api.post(`/users/${uid}/schedule-events`, {
             agencyId: effectiveAgencyId.value,
             kind: eventKind,
             title,
@@ -3629,9 +3703,15 @@ const submitRequest = async () => {
             allDay: false,
             startAt,
             endAt,
-            reasonCode
+            reasonCode,
+            isPrivate
           });
+          const created = resp?.data?.event || null;
+          if (created) createdScheduleEvents.push(created);
         }
+      }
+      if (createdScheduleEvents.length) {
+        refreshInBackground = true;
       }
     } else if (requestType.value === 'office') {
       const officeId = Number(selectedOfficeLocationId.value || 0);
@@ -3823,7 +3903,30 @@ const submitRequest = async () => {
 
     closeModal();
     clearSelectedActionSlots();
-    await load();
+    if (refreshInBackground) {
+      const current = summary.value && typeof summary.value === 'object' ? summary.value : null;
+      if (current) {
+        const mapped = createdScheduleEvents.map((ev) => ({
+          id: Number(ev?.providerScheduleEventId || ev?.id || 0) || Date.now(),
+          kind: String(ev?.kind || '').trim().toUpperCase() || 'PERSONAL_EVENT',
+          title: String(ev?.title || '').trim() || 'Schedule event',
+          isPrivate: !!ev?.isPrivate,
+          allDay: !!ev?.allDay,
+          startAt: ev?.startAt || null,
+          endAt: ev?.endAt || null,
+          startDate: ev?.startDate || null,
+          endDate: ev?.endDate || null,
+          reasonCode: ev?.reasonCode || null,
+          htmlLink: ev?.htmlLink || null,
+          _agencyId: Number(effectiveAgencyId.value || 0) || null
+        }));
+        current.scheduleEvents = [...(Array.isArray(current.scheduleEvents) ? current.scheduleEvents : []), ...mapped];
+        summary.value = { ...current };
+      }
+      void load();
+    } else {
+      await load();
+    }
   } catch (e) {
     modalError.value = e.response?.data?.error?.message || e.message || 'Failed to submit request';
   } finally {
@@ -4331,6 +4434,11 @@ const onCellBlockClick = (e, block, dayName, hour) => {
     openStackDetailsModal(stackDetails);
     return;
   }
+  if (kind === 'sevt') {
+    const link = String(block?.link || '').trim();
+    if (link) window.open(link, '_blank', 'noreferrer');
+    return;
+  }
   if (kind === 'gevt') {
     const blockText = `${String(block?.shortLabel || '')} ${String(block?.title || '')}`.toLowerCase();
     const looksLikeSupervision =
@@ -4449,6 +4557,21 @@ const buildStackDetailsForBlock = (block, dayName, hour) => {
         id: `school-${idx}`,
         label: String(name || '').trim(),
         subLabel: ''
+      }))
+    };
+  }
+  if (kind === 'sevt' || kind === 'more') {
+    const events = scheduleEventsInCell(dayName, hour);
+    const titleText = String(block?.title || '').toLowerCase();
+    const isScheduleOverflow = kind === 'sevt' || titleText.includes('schedule event');
+    if (!isScheduleOverflow || events.length <= 1) return null;
+    return {
+      title: `Schedule events — ${dayName} ${hourLabel(hour)}`,
+      items: events.map((ev, idx) => ({
+        id: `sevt-${String(ev?.id || ev?.googleEventId || idx)}`,
+        label: String(ev?.title || '').trim() || 'Schedule event',
+        subLabel: ev?.allDay ? 'All day' : formatRangeFromRaw(ev?.startAt, ev?.endAt),
+        link: String(ev?.htmlLink || '').trim() || ''
       }))
     };
   }
@@ -4836,6 +4959,7 @@ watch(modalHour, () => {
 .swatch-request { background: var(--sched-request-bg, rgba(242, 201, 76, 0.35)); border-color: var(--sched-request-border, rgba(242, 201, 76, 0.65)); }
 .swatch-school { background: var(--sched-school-bg, rgba(45, 156, 219, 0.28)); border-color: var(--sched-school-border, rgba(45, 156, 219, 0.60)); }
 .swatch-supv { background: var(--sched-supv-bg, rgba(155, 81, 224, 0.20)); border-color: var(--sched-supv-border, rgba(155, 81, 224, 0.55)); }
+.swatch-sevt { background: rgba(16, 185, 129, 0.18); border-color: rgba(5, 150, 105, 0.45); }
 .swatch-oa { background: var(--sched-oa-bg, rgba(39, 174, 96, 0.22)); border-color: var(--sched-oa-border, rgba(39, 174, 96, 0.55)); }
 .swatch-ot { background: var(--sched-ot-bg, rgba(242, 153, 74, 0.24)); border-color: var(--sched-ot-border, rgba(242, 153, 74, 0.58)); }
 .swatch-ob { background: var(--sched-ob-bg, rgba(235, 87, 87, 0.22)); border-color: var(--sched-ob-border, rgba(235, 87, 87, 0.58)); }
@@ -5119,6 +5243,7 @@ watch(modalHour, () => {
 }
 .cell-block-gbusy { background: var(--sched-gbusy-bg, rgba(17, 24, 39, 0.14)); border-color: var(--sched-gbusy-border, rgba(17, 24, 39, 0.42)); color: rgba(17, 24, 39, 0.9); }
 .cell-block-gevt { background: rgba(59, 130, 246, 0.14); border-color: rgba(59, 130, 246, 0.35); cursor: pointer; }
+.cell-block-sevt { background: rgba(16, 185, 129, 0.18); border-color: rgba(5, 150, 105, 0.45); color: rgba(4, 120, 87, 0.96); cursor: pointer; }
 .cell-block-ebusy { background: var(--sched-ebusy-bg, rgba(107, 114, 128, 0.16)); border-color: var(--sched-ebusy-border, rgba(107, 114, 128, 0.45)); color: rgba(17, 24, 39, 0.9); }
 .cell-block-intake-ip { background: rgba(34, 197, 94, 0.20); border-color: rgba(21, 128, 61, 0.45); color: rgba(21, 128, 61, 0.95); }
 .cell-block-intake-vi { background: rgba(59, 130, 246, 0.20); border-color: rgba(29, 78, 216, 0.45); color: rgba(29, 78, 216, 0.95); }

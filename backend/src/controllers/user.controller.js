@@ -17,6 +17,7 @@ import GoogleCalendarService from '../services/googleCalendar.service.js';
 import ExternalBusyCalendarService from '../services/externalBusyCalendar.service.js';
 import UserExternalCalendar from '../models/UserExternalCalendar.model.js';
 import SupervisionSession from '../models/SupervisionSession.model.js';
+import ProviderScheduleEvent from '../models/ProviderScheduleEvent.model.js';
 import pool from '../config/database.js';
 import { adjustProviderSlots } from '../services/providerSlots.service.js';
 
@@ -2019,24 +2020,29 @@ function addDaysYmd(ymd, days) {
 function toMysqlDateTimeWall(value) {
   if (value === null || value === undefined) return null;
   const pad2 = (n) => String(n).padStart(2, '0');
-  const formatUtcParts = (d) =>
-    `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())} ${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}:${pad2(d.getUTCSeconds())}`;
+  const formatLocalParts = (d) =>
+    `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
 
   if (value instanceof Date) {
     if (Number.isNaN(value.getTime())) return null;
-    return formatUtcParts(value);
+    return formatLocalParts(value);
   }
 
   const raw = String(value || '').trim();
   if (!raw) return null;
   if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(raw)) return raw.slice(0, 19);
+  // Preserve local wall-time strings from datetime-local inputs.
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(raw)) {
+    const normalized = raw.length === 16 ? `${raw}:00` : raw;
+    return normalized.replace('T', ' ');
+  }
   if (/^\d{4}-\d{2}-\d{2}T/.test(raw)) {
     const d = new Date(raw);
-    if (!Number.isNaN(d.getTime())) return formatUtcParts(d);
+    if (!Number.isNaN(d.getTime())) return formatLocalParts(d);
   }
   const d = new Date(raw);
   if (Number.isNaN(d.getTime())) return null;
-  return formatUtcParts(d);
+  return formatLocalParts(d);
 }
 
 const canViewProviderScheduleSummary = (role) => {
@@ -2500,6 +2506,43 @@ export const getUserScheduleSummary = async (req, res, next) => {
       supervisionSessions = [];
     }
 
+    // 4c) Provider schedule events (personal/hold/indirect)
+    let scheduleEvents = [];
+    try {
+      const rows = await ProviderScheduleEvent.listForUserInWindow({
+        agencyId,
+        providerId,
+        windowStart,
+        windowEnd
+      });
+      const actorId = Number(req.user?.id || 0);
+      const canSeePrivateTitle = actorId === Number(providerId);
+      scheduleEvents = (rows || []).map((r) => {
+        const isPrivate = Number(r.is_private || 0) === 1;
+        const titleRaw = String(r.title || '').trim();
+        const title = isPrivate && !canSeePrivateTitle
+          ? 'Busy'
+          : (titleRaw || (SCHEDULE_EVENT_KIND_LABELS[String(r.kind || '').toUpperCase()] || 'Schedule Event'));
+        return {
+          id: Number(r.id || 0),
+          kind: String(r.kind || '').trim().toUpperCase() || 'PERSONAL_EVENT',
+          title,
+          isPrivate,
+          allDay: Number(r.all_day || 0) === 1,
+          startAt: toMysqlDateTimeWall(r.start_at) || r.start_at || null,
+          endAt: toMysqlDateTimeWall(r.end_at) || r.end_at || null,
+          startDate: r.start_date ? String(r.start_date).slice(0, 10) : null,
+          endDate: r.end_date ? String(r.end_date).slice(0, 10) : null,
+          reasonCode: String(r.reason_code || '').trim().toUpperCase() || null,
+          googleEventId: r.google_event_id || null,
+          htmlLink: r.google_html_link || null
+        };
+      });
+    } catch (e) {
+      if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+      scheduleEvents = [];
+    }
+
     // 5) Optional busy overlays (busy blocks only)
     let googleBusy = [];
     let googleBusyError = null;
@@ -2624,6 +2667,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
       schoolAssignments,
       officeEvents,
       supervisionSessions,
+      scheduleEvents,
       externalCalendarsAvailable,
       ...(externalCalendarIds.length ? { externalCalendars } : {}),
       ...(includeGoogleBusy ? { googleBusy, googleBusyError } : {}),
@@ -2685,6 +2729,7 @@ export const createUserScheduleEvent = async (req, res, next) => {
     if (!['PERSONAL_EVENT', 'SCHEDULE_HOLD', 'INDIRECT_SERVICES'].includes(kind)) {
       return res.status(400).json({ error: { message: 'kind must be PERSONAL_EVENT, SCHEDULE_HOLD, or INDIRECT_SERVICES' } });
     }
+    const isPrivate = req.body?.isPrivate === true;
 
     const allDay = req.body?.allDay === true;
     const startAt = allDay ? null : toMysqlDateTimeWall(req.body?.startAt);
@@ -2710,6 +2755,10 @@ export const createUserScheduleEvent = async (req, res, next) => {
     }
 
     const reasonCode = String(req.body?.reasonCode || '').trim().toUpperCase() || null;
+    const agencyId = Number(req.body?.agencyId || 0);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    const membership = await User.getAgencyMembership(userId, agencyId);
+    if (!membership) return res.status(403).json({ error: { message: 'Provider is not assigned to this agency' } });
     const summaryText = buildScheduleEventSummary({
       kind,
       title: req.body?.title,
@@ -2729,7 +2778,8 @@ export const createUserScheduleEvent = async (req, res, next) => {
       summary: summaryText,
       description,
       kind,
-      reasonCode
+      reasonCode,
+      isPrivate
     });
 
     if (!result?.ok) {
@@ -2737,14 +2787,45 @@ export const createUserScheduleEvent = async (req, res, next) => {
       return res.status(502).json({ error: { message: msg } });
     }
 
+    let saved = null;
+    try {
+      saved = await ProviderScheduleEvent.create({
+        agencyId,
+        providerId: userId,
+        kind,
+        title: summaryText,
+        description,
+        reasonCode,
+        isPrivate,
+        allDay,
+        startAt: allDay ? null : startAt,
+        endAt: allDay ? null : endAt,
+        startDate: allDay ? startDate : null,
+        endDate: allDay ? endDateExclusive : null,
+        googleEventId: result.eventId || null,
+        googleHtmlLink: result.htmlLink || null,
+        createdByUserId: actorUserId
+      });
+    } catch (e) {
+      if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+    }
+
     return res.status(201).json({
       ok: true,
       event: {
-        id: result.eventId || null,
+        id: saved?.id ? Number(saved.id) : null,
+        providerScheduleEventId: saved?.id ? Number(saved.id) : null,
+        googleEventId: result.eventId || null,
         htmlLink: result.htmlLink || null,
+        agencyId,
         kind,
-        summary: summaryText,
-        allDay
+        title: summaryText,
+        isPrivate,
+        allDay,
+        startAt: allDay ? null : startAt,
+        endAt: allDay ? null : endAt,
+        startDate: allDay ? startDate : null,
+        endDate: allDay ? endDateExclusive : null
       }
     });
   } catch (e) {
