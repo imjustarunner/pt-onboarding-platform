@@ -850,6 +850,7 @@ import PresenceStatusWidget from '../components/dashboard/PresenceStatusWidget.v
 import { isSupervisor } from '../utils/helpers.js';
 import { getDashboardRailCardDescriptors } from '../tutorial/tours/dashboard.tour';
 import { toUploadsUrl } from '../utils/uploadsUrl';
+import { setRememberedGoogleLogin } from '../utils/loginRemember';
 
 const props = defineProps({
   previewMode: {
@@ -2436,6 +2437,18 @@ const loadMyCompanyEvents = async () => {
 };
 
 onMounted(async () => {
+  // Remember Google quick-login only after a successful OAuth callback hit dashboard.
+  if (String(route.query?.sso || '') === '1') {
+    const orgSlug = String(route.params?.organizationSlug || '').trim().toLowerCase();
+    const username = String(authStore.user?.username || authStore.user?.email || '').trim();
+    if (orgSlug && username) {
+      setRememberedGoogleLogin({ username, orgSlug });
+    }
+    const nextQuery = { ...route.query };
+    delete nextQuery.sso;
+    router.replace({ query: nextQuery }).catch(() => {});
+  }
+
   // Always start expanded on each visit so users do not lose visibility.
   topCardCollapsed.value = false;
   loadSocialFeedsCollapsed();
@@ -2460,12 +2473,15 @@ onMounted(async () => {
       }
     }
   }
-  await loadCurrentTier();
-  await loadAgencyDashboardBanner();
-  await loadMyCompanyEvents();
-  await loadSupervisionPrompts();
-  await loadPresenterAssignments();
-  await loadDashboardSocialFeeds();
+  // Run secondary loads in parallel (was sequential, causing slow dashboard load)
+  await Promise.all([
+    loadCurrentTier(),
+    loadAgencyDashboardBanner(),
+    loadMyCompanyEvents(),
+    loadSupervisionPrompts(),
+    loadPresenterAssignments(),
+    loadDashboardSocialFeeds()
+  ]);
 
   updateRailCollapsedMode();
   railMediaQuery = typeof window !== 'undefined' && window.matchMedia('(max-width: 980px)');
@@ -2492,13 +2508,15 @@ watch(dashboardCards, () => {
 }, { deep: true });
 
 watch([currentAgencyId, isOnboardingComplete], async () => {
-  await loadCurrentTier();
-  await loadMyAssignedSchools();
-  await loadAgencyDashboardBanner();
-  await loadMyCompanyEvents();
-  await loadSupervisionPrompts();
-  await loadPresenterAssignments();
-  await loadDashboardSocialFeeds();
+  await Promise.all([
+    loadCurrentTier(),
+    loadMyAssignedSchools(),
+    loadAgencyDashboardBanner(),
+    loadMyCompanyEvents(),
+    loadSupervisionPrompts(),
+    loadPresenterAssignments(),
+    loadDashboardSocialFeeds()
+  ]);
 });
 
 // Supervisor: load supervisees for schedule sorting/selection.

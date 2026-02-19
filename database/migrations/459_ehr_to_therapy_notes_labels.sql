@@ -7,22 +7,20 @@ Purpose:
 */
 
 -- Step 1: When user has both "EHR" and "Legacy EHR (ICS)", merge EHR feeds into Legacy, then delete EHR row
-INSERT INTO user_external_calendar_feeds (calendar_id, ics_url, is_active, created_at, updated_at)
+-- Use INSERT IGNORE to skip duplicates (unique on calendar_id, ics_url)
+INSERT IGNORE INTO user_external_calendar_feeds (calendar_id, ics_url, is_active, created_at, updated_at)
 SELECT leg.id, f.ics_url, f.is_active, f.created_at, f.updated_at
 FROM user_external_calendars ehr
 JOIN user_external_calendars leg ON leg.user_id = ehr.user_id AND leg.label = 'Legacy EHR (ICS)'
 JOIN user_external_calendar_feeds f ON f.calendar_id = ehr.id
-WHERE ehr.label = 'EHR'
-  AND NOT EXISTS (
-    SELECT 1 FROM user_external_calendar_feeds f2
-    WHERE f2.calendar_id = leg.id AND f2.ics_url = f.ics_url
-  );
+WHERE ehr.label = 'EHR';
 
 DELETE c FROM user_external_calendars c
 WHERE c.label = 'EHR'
-  AND EXISTS (
-    SELECT 1 FROM user_external_calendars leg
-    WHERE leg.user_id = c.user_id AND leg.label = 'Legacy EHR (ICS)'
+  AND c.user_id IN (
+    SELECT user_id FROM (
+      SELECT user_id FROM user_external_calendars WHERE label = 'Legacy EHR (ICS)'
+    ) AS leg
   );
 
 -- Step 2: Rename "Legacy EHR (ICS)" to "Therapy Notes"

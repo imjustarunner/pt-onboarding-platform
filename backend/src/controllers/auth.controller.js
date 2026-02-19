@@ -1397,6 +1397,8 @@ export const googleOAuthCallback = async (req, res, next) => {
 
     const url = new URL(frontendBase || config.frontendUrl);
     url.pathname = `/${orgSlug}/dashboard`;
+    // Mark successful Google OAuth return so frontend can remember quick-login only after real use.
+    url.searchParams.set('sso', '1');
     return res.redirect(302, url.toString());
   } catch (error) {
     next(error);

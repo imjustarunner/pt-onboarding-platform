@@ -10,6 +10,16 @@
         
         <div v-if="error" class="error" v-html="formatError(error)"></div>
 
+        <button
+          v-if="showRememberedGoogleButton"
+          type="button"
+          class="btn btn-secondary google-quick-login"
+          :disabled="loading || verifying"
+          @click="startRememberedGoogleLogin"
+        >
+          Continue as {{ rememberedGoogleLogin?.username }} with Google
+        </button>
+
         <form @submit.prevent="handleSubmit" class="login-form">
           <div class="form-group">
             <label for="username">Username</label>
@@ -180,7 +190,13 @@ import PoweredByFooter from '../components/PoweredByFooter.vue';
 import api from '../services/api';
 import { getBackendBaseUrl } from '../utils/uploadsUrl';
 import { getDashboardRoute } from '../utils/router';
-import { getRememberedLogin, setRememberedLogin, clearRememberedLogin } from '../utils/loginRemember';
+import {
+  getRememberedLogin,
+  setRememberedLogin,
+  clearRememberedLogin,
+  getRememberedGoogleLogin,
+  setRememberedGoogleLogin
+} from '../utils/loginRemember';
 
 // Removed hardcoded credentials for security
 const router = useRouter();
@@ -310,6 +326,16 @@ onMounted(async () => {
       await verifyUsername({ orgSlugOverride: remembered.orgSlug, reason: 'remembered' });
     }
   }
+
+  const rememberedGoogle = getRememberedGoogleLogin();
+  const rememberedGoogleSlug = String(rememberedGoogle?.orgSlug || '').trim().toLowerCase();
+  const currentSlug = String(loginSlug.value || '').trim().toLowerCase();
+  if (rememberedGoogle && currentSlug && rememberedGoogleSlug === currentSlug) {
+    rememberedGoogleLogin.value = rememberedGoogle;
+    if (!String(username.value || '').trim()) {
+      username.value = rememberedGoogle.username;
+    }
+  }
 });
 
 // If the slug changes while this view is mounted, refresh the login theme
@@ -338,6 +364,7 @@ const needsOrgChoice = ref(false);
 const orgOptions = ref([]);
 const selectedOrgSlug = ref('');
 const rememberLogin = ref(false);
+const rememberedGoogleLogin = ref(null);
 const lastVerifiedUsername = ref('');
 const lastUsernameInputAt = ref(0);
 const showForgotPasswordMessage = ref(false);
@@ -357,11 +384,22 @@ const currentEmployeeRescueLoading = ref(false);
 const canShowCurrentEmployeeRescue = computed(() =>
   isOrgLogin.value && String(username.value || '').trim().length > 0
 );
+const showRememberedGoogleButton = computed(() => {
+  if (showPassword.value || needsOrgChoice.value) return false;
+  return !!rememberedGoogleLogin.value?.orgSlug;
+});
 
 const continueWithGoogle = () => {
   if (!loginSlug.value) return;
   const base = getBackendBaseUrl();
   window.location.href = `${base}/auth/google/start?orgSlug=${encodeURIComponent(String(loginSlug.value).trim().toLowerCase())}`;
+};
+
+const startRememberedGoogleLogin = () => {
+  const rememberedOrg = String(rememberedGoogleLogin.value?.orgSlug || '').trim().toLowerCase();
+  if (!rememberedOrg) return;
+  const base = getBackendBaseUrl();
+  window.location.href = `${base}/auth/google/start?orgSlug=${encodeURIComponent(rememberedOrg)}`;
 };
 
 const onUsernameInput = () => {
@@ -785,6 +823,10 @@ const handleLogoError = (event) => {
 .btn {
   width: 100%;
   margin-top: 10px;
+}
+
+.google-quick-login {
+  margin-bottom: 8px;
 }
 
 .btn-secondary {
