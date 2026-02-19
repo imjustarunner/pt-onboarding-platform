@@ -612,7 +612,7 @@ const fetchData = async () => {
     loading.value = true;
     const [linksResp, templatesResp, orgsResp] = await Promise.all([
       api.get('/intake-links'),
-      api.get('/document-templates'),
+      api.get('/document-templates', { params: { limit: 1000 } }),
       api.get('/agencies')
     ]);
     links.value = linksResp.data || [];
@@ -872,8 +872,18 @@ const agencyOnlyTemplates = computed(() => {
   return list.filter((t) => t && t.agency_id !== null && t.agency_id !== undefined);
 });
 
-const templateGroups = computed(() => {
+/** When scope is school, only show templates with document_type='school' */
+const scopeFilteredTemplates = computed(() => {
   const list = agencyOnlyTemplates.value;
+  const scope = form.scopeType || 'school';
+  if (scope === 'school') {
+    return list.filter((t) => String(t?.document_type || '') === 'school');
+  }
+  return list;
+});
+
+const templateGroups = computed(() => {
+  const list = scopeFilteredTemplates.value;
   const scope = form.scopeType || 'school';
   const orgId = scope === 'agency' ? null : form.organizationId;
   const agencyTemplates = [];
@@ -902,7 +912,7 @@ const selectableTemplates = computed(() => [
 ]);
 
 const documentStepTemplates = computed(() => {
-  const list = agencyOnlyTemplates.value;
+  const list = scopeFilteredTemplates.value;
   const sorted = list.filter((t) => t && t.id);
   sorted.sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || ''), undefined, { sensitivity: 'base' }));
   return sorted;

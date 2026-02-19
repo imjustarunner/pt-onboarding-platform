@@ -51,7 +51,7 @@ const validateTemplate = [
     const intValue = typeof value === 'string' ? parseInt(value) : value;
     return Number.isInteger(intValue) && intValue > 0;
   }).withMessage('Organization ID must be null or a positive integer'),
-  body('documentType').optional().isIn(['acknowledgment', 'authorization', 'agreement', 'compliance', 'disclosure', 'consent', 'audio_recording_consent', 'hipaa_security', 'administrative']).withMessage('Invalid document type'),
+  body('documentType').optional().isIn(['acknowledgment', 'authorization', 'agreement', 'compliance', 'disclosure', 'consent', 'audio_recording_consent', 'hipaa_security', 'school', 'administrative']).withMessage('Invalid document type'),
   body('isUserSpecific').optional().isBoolean().withMessage('isUserSpecific must be a boolean'),
   body('userId').optional().isInt().withMessage('User ID must be an integer')
 ];
@@ -141,7 +141,7 @@ const validateTemplateUpdate = [
     const intValue = typeof value === 'string' ? parseInt(value) : value;
     return Number.isInteger(intValue) && intValue > 0;
   }).withMessage('Signature page must be null or a positive integer'),
-  body('documentType').optional().isIn(['acknowledgment', 'authorization', 'agreement', 'compliance', 'disclosure', 'consent', 'audio_recording_consent', 'hipaa_security', 'administrative']).withMessage('Invalid document type'),
+  body('documentType').optional().isIn(['acknowledgment', 'authorization', 'agreement', 'compliance', 'disclosure', 'consent', 'audio_recording_consent', 'hipaa_security', 'school', 'administrative']).withMessage('Invalid document type'),
   body('isUserSpecific').optional().isBoolean().withMessage('isUserSpecific must be a boolean'),
   body('userId').optional().isInt().withMessage('User ID must be an integer')
 ];
@@ -149,7 +149,7 @@ const validateTemplateUpdate = [
 const validateUserSpecificUpload = [
   body('name').notEmpty().withMessage('Template name is required'),
   body('userId').isInt().withMessage('User ID is required and must be an integer'),
-  body('documentType').isIn(['acknowledgment', 'authorization', 'agreement', 'compliance', 'disclosure', 'consent', 'audio_recording_consent', 'hipaa_security', 'administrative']).withMessage('Invalid document type'),
+  body('documentType').isIn(['acknowledgment', 'authorization', 'agreement', 'compliance', 'disclosure', 'consent', 'audio_recording_consent', 'hipaa_security', 'school', 'administrative']).withMessage('Invalid document type'),
   body('documentActionType').isIn(['signature', 'review']).withMessage('Document action type must be signature or review'),
   body('dueDate').optional().isISO8601().withMessage('Due date must be a valid ISO 8601 date')
 ];

@@ -34,6 +34,7 @@
                 <option value="compliance">Compliance</option>
                 <option value="disclosure">Disclosure</option>
                 <option value="consent">Consent</option>
+                <option value="school">School</option>
                 <option value="administrative">Administrative</option>
               </select>
             </div>
