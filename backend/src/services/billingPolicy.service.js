@@ -48,21 +48,47 @@ function summarizeSourceSnippet(raw = '') {
 function detectCredentialTier(line = '') {
   const s = String(line || '').toLowerCase();
   if (!s) return null;
-  if (s.includes('qbha')) return 'qbha';
-  if (s.includes('bachelor')) return 'bachelors';
-  if (s.includes('licensed') || s.includes('lcsw') || s.includes('lpc') || s.includes('lmft') || s.includes('psychologist') || s.includes('intern')) {
-    return 'intern_plus';
-  }
-  return null;
+  if (hasDisallowedCue(s)) return null;
+  const hasQbha =
+    /\bqbha\b/.test(s) ||
+    /\bqualified\s+behavioral\s+health\s+(assistant|provider)\b/.test(s);
+  const hasBachelors =
+    /\bbachelor'?s?\b/.test(s) ||
+    /\bba\b/.test(s) ||
+    /\bbs\b/.test(s);
+  const hasInternPlus =
+    /\bintern\b/.test(s) ||
+    /\blicensed\b/.test(s) ||
+    /\blcsw\b/.test(s) ||
+    /\blpc\b/.test(s) ||
+    /\blmft\b/.test(s) ||
+    /\blpcc\b/.test(s) ||
+    /\bpsychologist\b/.test(s) ||
+    /\bdoctorate\b/.test(s);
+
+  const tiers = [];
+  if (hasQbha) tiers.push('qbha');
+  if (hasBachelors) tiers.push('bachelors');
+  if (hasInternPlus) tiers.push('intern_plus');
+
+  // If a line references multiple tiers, keep tier null and rely on manual review.
+  if (tiers.length !== 1) return null;
+  return tiers[0];
+}
+
+function hasDisallowedCue(line = '') {
+  const s = String(line || '').toLowerCase();
+  return /\b(not|cannot|can't|excluded|ineligible|not\s+eligible)\b/.test(s);
 }
 
 function detectProviderType(line = '') {
   const s = String(line || '').toLowerCase();
   if (!s) return null;
-  if (s.includes('licensed')) return 'licensed';
-  if (s.includes('intern')) return 'intern';
-  if (s.includes('bachelor')) return 'bachelors';
-  if (s.includes('qbha')) return 'qbha';
+  if (hasDisallowedCue(s)) return null;
+  if (/\blicensed\b|\blcsw\b|\blpc\b|\blmft\b|\blpcc\b|\bpsychologist\b/.test(s)) return 'licensed';
+  if (/\bintern\b/.test(s)) return 'intern';
+  if (/\bbachelor'?s?\b|\bba\b|\bbs\b/.test(s)) return 'bachelors';
+  if (/\bqbha\b|\bqualified\s+behavioral\s+health\s+(assistant|provider)\b/.test(s)) return 'qbha';
   return null;
 }
 
@@ -89,50 +115,121 @@ function detectMaxUnitsPerDay(line = '') {
   return null;
 }
 
+function isPotentialRuleLine(line = '') {
+  const s = String(line || '').toLowerCase();
+  if (!s) return false;
+  return /\b(min|minute|max|unit|encounter|visit|per\s+day|daily|qbha|intern|licensed|bachelor|credential|tier|lcsw|lpc|lmft|lpcc|psychologist)\b/.test(s);
+}
+
+function detectMinMaxMinutes(line = '') {
+  const minMax = String(line || '').match(
+    /(?:min(?:imum)?\s*:?\s*(\d{1,3}).*max(?:imum)?\s*:?\s*(\d{1,3}))|(?:(\d{1,3})\s*-\s*(\d{1,3})\s*(?:min|minute))/i
+  );
+  return {
+    minMinutes: toInt(minMax?.[1] || minMax?.[3] || 0, 0) || null,
+    maxMinutes: toInt(minMax?.[2] || minMax?.[4] || 0, 0) || null
+  };
+}
+
+function detectUnitMinutes(line = '') {
+  const unitMatch = String(line || '').match(
+    /(?:unit(?:s)?\s*(?:every|per)\s*(\d{1,3})\s*(?:min|minute))|(?:\b(\d{1,3})\s*(?:min|minute)\s*unit)/i
+  );
+  return toInt(unitMatch?.[1] || unitMatch?.[2] || 0, 0) || null;
+}
+
+function detectEncounterBasis(line = '') {
+  const s = String(line || '').toLowerCase();
+  return /\b(per\s+encounter|per\s+visit|each\s+encounter|encounter\s+based|visit\s+based)\b/.test(s);
+}
+
+function detectServiceDescriptionFromLine(line = '', serviceCode = '') {
+  const code = normalizeCode(serviceCode);
+  if (!code) return null;
+  const raw = String(line || '');
+  if (!raw) return null;
+  const stripped = raw
+    .replace(new RegExp(`\\b${code}\\b`, 'ig'), '')
+    .replace(/^[\s:|\-–—,.;]+/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!stripped) return null;
+  // Avoid using pure rule fragments as descriptions.
+  if (isPotentialRuleLine(stripped) && stripped.split(/\s+/).length < 4) return null;
+  return stripped.slice(0, 220);
+}
+
+function mergeLinePreview(existing, line, maxLen = 1000) {
+  const e = String(existing || '').trim();
+  const l = String(line || '').trim();
+  if (!l) return e || null;
+  if (!e) return l.slice(0, maxLen);
+  if (e.includes(l)) return e;
+  return `${e} | ${l}`.slice(0, maxLen);
+}
+
 function parseCandidateRowsFromExtractedText(text = '') {
-  const out = [];
   const lines = String(text || '').split('\n').map((l) => l.trim()).filter(Boolean);
   const codeRegex = /\b((?:[A-Z]\d{4})|(?:90\d{3})|(?:99\d{3}))\b/g;
+  const byCode = new Map();
+  let activeCodes = [];
+
+  const ensure = (code) => {
+    const key = normalizeCode(code);
+    if (!key) return null;
+    if (!byCode.has(key)) {
+      byCode.set(key, {
+        serviceCode: key,
+        serviceDescription: null,
+        minMinutes: null,
+        maxMinutes: null,
+        unitMinutes: null,
+        unitCalcMode: 'NONE',
+        maxUnitsPerDay: null,
+        credentialTier: null,
+        providerType: null,
+        sourceSnippet: null,
+        rawTextLine: null
+      });
+    }
+    return byCode.get(key);
+  };
 
   for (const line of lines) {
-    const codes = Array.from(line.matchAll(codeRegex)).map((m) => normalizeCode(m[1]));
-    if (!codes.length) continue;
+    const lineCodes = Array.from(new Set(Array.from(line.matchAll(codeRegex)).map((m) => normalizeCode(m[1])).filter(Boolean)));
+    if (lineCodes.length) activeCodes = lineCodes;
+    const targetCodes = lineCodes.length ? lineCodes : activeCodes;
+    if (!targetCodes.length) continue;
+    if (!lineCodes.length && !isPotentialRuleLine(line)) continue;
 
-    // Examples:
-    // "Min 8 Max 15"
-    // "8-15 minutes"
-    const minMax = line.match(/(?:min(?:imum)?\s*:?\s*(\d{1,3}).*max(?:imum)?\s*:?\s*(\d{1,3}))|(?:(\d{1,3})\s*-\s*(\d{1,3})\s*(?:min|minute))/i);
-    const minMinutes = toInt(minMax?.[1] || minMax?.[3] || 0, 0) || null;
-    const maxMinutes = toInt(minMax?.[2] || minMax?.[4] || 0, 0) || null;
-
-    // "unit every 15 min"
-    const unitMatch = line.match(/(?:unit(?:s)?\s*(?:every|per)\s*(\d{1,3})\s*(?:min|minute))|(?:\b(\d{1,3})\s*(?:min|minute)\s*unit)/i);
-    const unitMinutes = toInt(unitMatch?.[1] || unitMatch?.[2] || 0, 0) || null;
-
-    // "max 12 units" style daily cap hints.
+    const { minMinutes, maxMinutes } = detectMinMaxMinutes(line);
+    const unitMinutes = detectUnitMinutes(line);
     const maxUnitsPerDay = detectMaxUnitsPerDay(line);
     const credentialTier = detectCredentialTier(line);
     const providerType = detectProviderType(line);
-    const unitCalcMode = detectUnitCalcMode(line, unitMinutes);
+    const encounterBasis = detectEncounterBasis(line);
+    const unitCalcMode = encounterBasis ? 'NONE' : detectUnitCalcMode(line, unitMinutes);
 
-    for (const serviceCode of codes) {
-      out.push({
-        serviceCode,
-        serviceDescription: null,
-        minMinutes,
-        maxMinutes,
-        unitMinutes,
-        unitCalcMode,
-        maxUnitsPerDay,
-        credentialTier,
-        providerType,
-        sourceSnippet: summarizeSourceSnippet(line),
-        rawTextLine: line
-      });
+    for (const code of targetCodes) {
+      const row = ensure(code);
+      if (!row) continue;
+      const serviceDescription = detectServiceDescriptionFromLine(line, code);
+      if (!row.serviceDescription && serviceDescription) row.serviceDescription = serviceDescription;
+      if (!row.minMinutes && minMinutes) row.minMinutes = minMinutes;
+      if (!row.maxMinutes && maxMinutes) row.maxMinutes = maxMinutes;
+      if (!row.unitMinutes && unitMinutes) row.unitMinutes = unitMinutes;
+      if (encounterBasis) row.unitCalcMode = 'NONE';
+      else if (unitCalcMode === 'MEDICAID_8_MINUTE_LADDER') row.unitCalcMode = 'MEDICAID_8_MINUTE_LADDER';
+      else if (unitCalcMode === 'FIXED_BLOCK' && row.unitCalcMode !== 'MEDICAID_8_MINUTE_LADDER') row.unitCalcMode = 'FIXED_BLOCK';
+      if (!row.maxUnitsPerDay && maxUnitsPerDay) row.maxUnitsPerDay = maxUnitsPerDay;
+      if (!row.credentialTier && credentialTier) row.credentialTier = credentialTier;
+      if (!row.providerType && providerType) row.providerType = providerType;
+      row.sourceSnippet = summarizeSourceSnippet(mergeLinePreview(row.sourceSnippet, line, 400));
+      row.rawTextLine = mergeLinePreview(row.rawTextLine, line, 1000);
     }
   }
 
-  return out;
+  return Array.from(byCode.values());
 }
 
 export async function listBillingPolicyProfiles({ stateCode = null, status = null } = {}) {
@@ -1056,4 +1153,19 @@ export async function publishApprovedIngestionJob({ ingestionJobId, publishedByU
   );
 
   return await getIngestionJobDetail(id);
+}
+
+export async function deleteIngestionJob(ingestionJobId) {
+  const id = toInt(ingestionJobId, 0);
+  if (!id) {
+    const err = new Error('ingestionJobId is required');
+    err.status = 400;
+    throw err;
+  }
+  const [result] = await pool.execute(
+    `DELETE FROM billing_policy_ingestion_jobs
+     WHERE id = ?`,
+    [id]
+  );
+  return Number(result?.affectedRows || 0) > 0;
 }

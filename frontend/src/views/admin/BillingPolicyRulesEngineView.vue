@@ -149,6 +149,7 @@
             <td>{{ job.candidate_count }}</td>
             <td>
               <button class="btn btn-secondary btn-sm" @click="selectJob(job.id)">Review</button>
+              <button class="btn btn-secondary btn-sm" style="margin-left: 6px;" @click="deleteJob(job.id)">Delete</button>
             </td>
           </tr>
         </tbody>
@@ -157,9 +158,12 @@
       <div v-if="jobDetail" class="job-detail">
         <div class="row split">
           <h3>Job #{{ jobDetail.id }} candidates</h3>
-          <button class="btn btn-secondary btn-sm" @click="publishJob" :disabled="publishingJob">
-            {{ publishingJob ? 'Publishing…' : 'Publish approved candidates' }}
-          </button>
+          <div class="row gap">
+            <button class="btn btn-secondary btn-sm" @click="deleteJob(jobDetail.id)">Delete job</button>
+            <button class="btn btn-secondary btn-sm" @click="publishJob" :disabled="publishingJob">
+              {{ publishingJob ? 'Publishing…' : 'Publish approved candidates' }}
+            </button>
+          </div>
         </div>
         <details style="margin-bottom: 10px;">
           <summary class="strong">Extracted manual text preview</summary>
@@ -169,6 +173,7 @@
           <thead>
             <tr>
               <th>Code</th>
+              <th>Basis</th>
               <th>Duration</th>
               <th>Calc mode</th>
               <th>Units/day</th>
@@ -182,6 +187,7 @@
           <tbody>
             <tr v-for="c in jobDetail.candidates || []" :key="`cand-${c.id}`">
               <td>{{ c.service_code }}</td>
+              <td>{{ billingBasisLabel(c) }}</td>
               <td>{{ c.min_minutes || '-' }} - {{ c.max_minutes || '-' }}</td>
               <td>{{ c.unit_calc_mode }}{{ c.unit_minutes ? ` / ${c.unit_minutes} min` : '' }}</td>
               <td>{{ c.max_units_per_day || '-' }}</td>
@@ -454,6 +460,31 @@ const publishJob = async () => {
   } finally {
     publishingJob.value = false;
   }
+};
+
+const deleteJob = async (jobId) => {
+  const id = Number(jobId || 0);
+  if (!id) return;
+  const ok = window.confirm(`Delete ingestion job #${id}? This removes extracted candidates for this manual upload.`);
+  if (!ok) return;
+  try {
+    await api.delete(`/billing-policy/ingestion/jobs/${id}`);
+    if (Number(selectedJobId.value) === id) {
+      selectedJobId.value = 0;
+      jobDetail.value = null;
+    }
+    await loadJobs();
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to delete ingestion job';
+  }
+};
+
+const billingBasisLabel = (candidate) => {
+  const mode = String(candidate?.unit_calc_mode || '').toUpperCase();
+  if (mode === 'NONE') return 'Encounter';
+  if (mode === 'MEDICAID_8_MINUTE_LADDER') return 'Unit (8-15)';
+  if (mode === 'FIXED_BLOCK') return 'Unit (fixed)';
+  return candidate?.max_units_per_day ? 'Day' : '-';
 };
 
 onMounted(loadAll);

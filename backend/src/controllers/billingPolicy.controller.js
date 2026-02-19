@@ -20,7 +20,8 @@ import {
   listIngestionJobs,
   getIngestionJobDetail,
   reviewIngestionCandidate,
-  publishApprovedIngestionJob
+  publishApprovedIngestionJob,
+  deleteIngestionJob
 } from '../services/billingPolicy.service.js';
 
 const ADMIN_ROLES = new Set(['admin', 'super_admin', 'support', 'staff']);
@@ -419,6 +420,19 @@ export const postPolicyIngestionPublishController = async (req, res, next) => {
       });
     }
     return res.json({ ok: true, job: detail, profile });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const deletePolicyIngestionJobController = async (req, res, next) => {
+  try {
+    if (!(await requirePolicyAdmin(req, res))) return;
+    const jobId = Number(req.params.jobId || 0);
+    if (!jobId) return res.status(400).json({ error: { message: 'jobId is required' } });
+    const deleted = await deleteIngestionJob(jobId);
+    if (!deleted) return res.status(404).json({ error: { message: 'Ingestion job not found' } });
+    return res.json({ ok: true, deleted: true, jobId });
   } catch (e) {
     next(e);
   }

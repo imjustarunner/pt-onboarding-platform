@@ -19,7 +19,8 @@ import {
   getPolicyIngestionJobsController,
   getPolicyIngestionJobDetailController,
   postPolicyIngestionCandidateReviewController,
-  postPolicyIngestionPublishController
+  postPolicyIngestionPublishController,
+  deletePolicyIngestionJobController
 } from '../controllers/billingPolicy.controller.js';
 
 const upload = multer({
@@ -53,5 +54,6 @@ router.get('/ingestion/jobs', getPolicyIngestionJobsController);
 router.get('/ingestion/jobs/:jobId', getPolicyIngestionJobDetailController);
 router.post('/ingestion/candidates/:candidateId/review', postPolicyIngestionCandidateReviewController);
 router.post('/ingestion/jobs/:jobId/publish', postPolicyIngestionPublishController);
+router.delete('/ingestion/jobs/:jobId', deletePolicyIngestionJobController);
 
 export default router;
