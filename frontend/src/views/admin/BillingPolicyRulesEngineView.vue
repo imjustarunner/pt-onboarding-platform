@@ -161,14 +161,21 @@
             {{ publishingJob ? 'Publishing…' : 'Publish approved candidates' }}
           </button>
         </div>
+        <details style="margin-bottom: 10px;">
+          <summary class="strong">Extracted manual text preview</summary>
+          <pre class="extract-preview">{{ String(jobDetail.extracted_text || '').slice(0, 6000) || 'No extracted text.' }}</pre>
+        </details>
         <table class="table compact">
           <thead>
             <tr>
               <th>Code</th>
               <th>Duration</th>
+              <th>Calc mode</th>
               <th>Units/day</th>
+              <th>Eligibility hint</th>
               <th>Status</th>
               <th>Citation</th>
+              <th>Extracted line</th>
               <th>Review</th>
             </tr>
           </thead>
@@ -176,9 +183,12 @@
             <tr v-for="c in jobDetail.candidates || []" :key="`cand-${c.id}`">
               <td>{{ c.service_code }}</td>
               <td>{{ c.min_minutes || '-' }} - {{ c.max_minutes || '-' }}</td>
+              <td>{{ c.unit_calc_mode }}{{ c.unit_minutes ? ` / ${c.unit_minutes} min` : '' }}</td>
               <td>{{ c.max_units_per_day || '-' }}</td>
+              <td>{{ [c.credential_tier, c.provider_type].filter(Boolean).join(' / ') || '-' }}</td>
               <td>{{ c.status }}</td>
               <td class="citation">{{ c.source_snippet || '-' }}</td>
+              <td class="citation">{{ c.raw_text_line || '-' }}</td>
               <td class="row gap">
                 <button class="btn btn-secondary btn-sm" @click="reviewCandidate(c, 'APPROVED')">Approve</button>
                 <button class="btn btn-secondary btn-sm" @click="reviewCandidate(c, 'REJECTED')">Reject</button>
@@ -478,5 +488,15 @@ h1 { margin: 0; }
 .clickable { cursor: pointer; }
 .citation { max-width: 360px; white-space: normal; }
 .job-detail { margin-top: 12px; border-top: 1px dashed #d1d5db; padding-top: 12px; }
+.extract-preview {
+  max-height: 220px;
+  overflow: auto;
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 10px;
+  white-space: pre-wrap;
+  margin-top: 8px;
+}
 @media (max-width: 980px) { .grid { grid-template-columns: 1fr; } }
 </style>

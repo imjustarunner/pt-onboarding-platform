@@ -571,6 +571,17 @@ const quickActions = computed(() => {
     category: 'System',
     roles: ['admin', 'super_admin'],
     capabilities: ['canAccessPlatform']
+  },
+  {
+    id: 'billing_policy_rules',
+    title: 'Billing Policy Rules',
+    description: 'Upload billing manual and manage code eligibility/unit rules',
+    to: '/admin/billing-policy-rules',
+    emoji: '📘',
+    iconKey: 'dashboard_billing',
+    category: 'System',
+    roles: ['admin', 'support', 'super_admin', 'staff'],
+    capabilities: ['canAccessPlatform']
   }
   ];
 
@@ -605,6 +616,7 @@ const defaultQuickActionIds = computed(() => ([
   'chats',
   'payroll',
   'billing',
+  'billing_policy_rules',
   'all_progress'
 ]));
 

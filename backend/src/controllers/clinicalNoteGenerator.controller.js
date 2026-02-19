@@ -5,6 +5,7 @@ import ClinicalNoteDraft from '../models/ClinicalNoteDraft.model.js';
 import { deriveCredentialTier, eligibleServiceCodesForTier, assertServiceCodeAllowed } from '../utils/clinicalServiceCodeEligibility.js';
 import { getNoteAidToolById } from '../config/noteAidTools.js';
 import { getKnowledgeBaseContext } from '../services/clinicalKnowledgeBase.service.js';
+import { listEligiblePolicyServiceCodes, resolvePolicyRuleForServiceCode } from '../services/billingPolicy.service.js';
 import { callGeminiText } from '../services/geminiText.service.js';
 import { transcribeLongAudio } from '../services/speechTranscription.service.js';
 import { decryptChatText, encryptChatText, isChatEncryptionConfigured } from '../services/chatEncryption.service.js';
@@ -255,6 +256,12 @@ function resolveClinicalToolId({ serviceCode, programId }) {
   return 'clinical_code_decider';
 }
 
+function extractToolCodeHints(tool) {
+  const haystack = `${tool?.id || ''} ${tool?.name || ''} ${tool?.description || ''}`.toUpperCase();
+  const matches = haystack.match(/\b(?:[A-Z]\d{4}|90\d{3}|99\d{3})\b/g) || [];
+  return Array.from(new Set(matches));
+}
+
 function normalizeSectionTitle(raw) {
   const t = String(raw || '')
     .replace(/^\s*\d+[\).\s-]+/, '')
@@ -445,10 +452,12 @@ export const getClinicalNotesContext = async (req, res, next) => {
       userRole: req.user?.role,
       providerCredentialText
     });
+    const policyEligibleCodes = await listEligiblePolicyServiceCodes({ agencyId, credentialTier: tier });
     const serviceCodeCatalog = await getAgencyServiceCodeCatalog({ agencyId });
-    // If the agency has a defined service-code dictionary, prefer it for the dropdown.
-    // This makes the UI show "many" codes without hardcoding them in the frontend.
-    const eligibleServiceCodes = serviceCodeCatalog.length ? serviceCodeCatalog : eligibleServiceCodesForTier(tier); // null means "all"
+    // Prefer policy-derived eligibility when present; otherwise fallback to catalog/tier rules.
+    const eligibleServiceCodes = policyEligibleCodes.length
+      ? policyEligibleCodes
+      : (serviceCodeCatalog.length ? serviceCodeCatalog : eligibleServiceCodesForTier(tier)); // null means "all"
     const audioAgreementTemplates = await listAgencyAudioAgreementTemplates({ agencyId });
     res.json({
       providerCredentialText: providerCredentialText || '',
@@ -721,7 +730,29 @@ export const generateClinicalNote = async (req, res, next) => {
     }
 
     if (!effectiveAutoSelect) {
-      assertServiceCodeAllowed({ tier, serviceCode, allowedCodes });
+      const policyEligibleCodes = await listEligiblePolicyServiceCodes({ agencyId, credentialTier: tier });
+      if (policyEligibleCodes.length) {
+        if (!policyEligibleCodes.includes(serviceCode)) {
+          return res.status(403).json({
+            error: {
+              message: `Service code ${serviceCode} is not allowed for your credential classification under the active billing policy`
+            }
+          });
+        }
+      } else {
+        assertServiceCodeAllowed({ tier, serviceCode, allowedCodes });
+      }
+      const policyRule = await resolvePolicyRuleForServiceCode({ agencyId, serviceCode, credentialTier: tier });
+      if (policyRule) {
+        if (!policyRule.enabledForAgency) {
+          return res.status(403).json({ error: { message: `Service code ${serviceCode} is disabled for this agency` } });
+        }
+        if (!policyRule.allowedForCredentialTier) {
+          return res.status(403).json({
+            error: { message: `Service code ${serviceCode} is not allowed for your credential classification` }
+          });
+        }
+      }
     }
 
     let usedAudioTranscript = false;
@@ -783,10 +814,18 @@ export const generateClinicalNote = async (req, res, next) => {
     }
     if (tool?.includeKnowledgeBase) {
       try {
+        const codeHints = Array.from(
+          new Set([
+            ...(serviceCode ? [String(serviceCode).toUpperCase()] : []),
+            ...extractToolCodeHints(tool)
+          ])
+        );
         const kbContext = await getKnowledgeBaseContext({
           query: inputText,
           maxChars: 4000,
-          folders: getKbFoldersForTool(tool, featureFlags)
+          folders: getKbFoldersForTool(tool, featureFlags),
+          codeHints,
+          titleHints: [tool?.name || '', tool?.description || '', programLabel || '']
         });
         if (kbContext) {
           prompt = [

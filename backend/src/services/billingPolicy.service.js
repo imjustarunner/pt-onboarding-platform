@@ -45,10 +45,54 @@ function summarizeSourceSnippet(raw = '') {
   return String(raw || '').replace(/\s+/g, ' ').trim().slice(0, 400);
 }
 
+function detectCredentialTier(line = '') {
+  const s = String(line || '').toLowerCase();
+  if (!s) return null;
+  if (s.includes('qbha')) return 'qbha';
+  if (s.includes('bachelor')) return 'bachelors';
+  if (s.includes('licensed') || s.includes('lcsw') || s.includes('lpc') || s.includes('lmft') || s.includes('psychologist') || s.includes('intern')) {
+    return 'intern_plus';
+  }
+  return null;
+}
+
+function detectProviderType(line = '') {
+  const s = String(line || '').toLowerCase();
+  if (!s) return null;
+  if (s.includes('licensed')) return 'licensed';
+  if (s.includes('intern')) return 'intern';
+  if (s.includes('bachelor')) return 'bachelors';
+  if (s.includes('qbha')) return 'qbha';
+  return null;
+}
+
+function detectUnitCalcMode(line = '', unitMinutes = null) {
+  const s = String(line || '').toLowerCase();
+  if (!s) return unitMinutes ? 'MEDICAID_8_MINUTE_LADDER' : 'NONE';
+  if (/\bper\s+encounter\b|\bper\s+visit\b|\beach\s+encounter\b/.test(s)) return 'NONE';
+  if (/\b8\s*minute\b|\b8[-\s]?min\b|\bmedicaid\b/.test(s)) return 'MEDICAID_8_MINUTE_LADDER';
+  if (/\bper\s+unit\b|\bunit\b/.test(s) && (unitMinutes || /\b15\s*(min|minute)\b/.test(s))) return 'MEDICAID_8_MINUTE_LADDER';
+  return unitMinutes ? 'MEDICAID_8_MINUTE_LADDER' : 'NONE';
+}
+
+function detectMaxUnitsPerDay(line = '') {
+  const s = String(line || '');
+  const patterns = [
+    /(?:can(?:not|'t)|cannot|do\s+not|not)\s+bill\s+(?:more\s+than|over)\s+(\d{1,3})\s+units?/i,
+    /(?:no\s+more\s+than|up\s+to|maximum|max)\s+(\d{1,3})\s+units?(?:\s+per\s+day|\s+daily)?/i,
+    /(\d{1,3})\s+units?\s+(?:max(?:imum)?|daily\s+max)/i
+  ];
+  for (const rx of patterns) {
+    const m = s.match(rx);
+    if (m?.[1]) return toInt(m[1], 0) || null;
+  }
+  return null;
+}
+
 function parseCandidateRowsFromExtractedText(text = '') {
   const out = [];
   const lines = String(text || '').split('\n').map((l) => l.trim()).filter(Boolean);
-  const codeRegex = /\b([A-Z]\d{4})\b/g;
+  const codeRegex = /\b((?:[A-Z]\d{4})|(?:90\d{3})|(?:99\d{3}))\b/g;
 
   for (const line of lines) {
     const codes = Array.from(line.matchAll(codeRegex)).map((m) => normalizeCode(m[1]));
@@ -66,8 +110,10 @@ function parseCandidateRowsFromExtractedText(text = '') {
     const unitMinutes = toInt(unitMatch?.[1] || unitMatch?.[2] || 0, 0) || null;
 
     // "max 12 units" style daily cap hints.
-    const maxUnitsMatch = line.match(/max(?:imum)?\s*(?:daily\s*)?(?:units?)?\s*:?\s*(\d{1,3})\s*units?/i);
-    const maxUnitsPerDay = toInt(maxUnitsMatch?.[1] || 0, 0) || null;
+    const maxUnitsPerDay = detectMaxUnitsPerDay(line);
+    const credentialTier = detectCredentialTier(line);
+    const providerType = detectProviderType(line);
+    const unitCalcMode = detectUnitCalcMode(line, unitMinutes);
 
     for (const serviceCode of codes) {
       out.push({
@@ -76,8 +122,10 @@ function parseCandidateRowsFromExtractedText(text = '') {
         minMinutes,
         maxMinutes,
         unitMinutes,
-        unitCalcMode: unitMinutes ? 'MEDICAID_8_MINUTE_LADDER' : 'NONE',
+        unitCalcMode,
         maxUnitsPerDay,
+        credentialTier,
+        providerType,
         sourceSnippet: summarizeSourceSnippet(line),
         rawTextLine: line
       });
@@ -592,6 +640,70 @@ export async function resolvePolicyRuleForServiceCode({ agencyId, serviceCode, c
   }
 }
 
+export async function listEligiblePolicyServiceCodes({ agencyId, credentialTier = null }) {
+  const aid = toInt(agencyId, 0);
+  if (!aid) return [];
+  const profile = await resolvePolicyProfileForAgency({ agencyId: aid });
+  if (!profile?.id) return [];
+  try {
+    const [ruleRows] = await pool.execute(
+      `SELECT id, service_code
+       FROM billing_policy_service_rules
+       WHERE billing_policy_profile_id = ?
+         AND is_active = TRUE
+       ORDER BY service_code ASC`,
+      [profile.id]
+    );
+    if (!Array.isArray(ruleRows) || !ruleRows.length) return [];
+    const ruleIds = ruleRows.map((r) => toInt(r.id, 0)).filter(Boolean);
+    const placeholders = ruleIds.map(() => '?').join(',');
+    const [eligibilityRows] = ruleIds.length
+      ? await pool.execute(
+          `SELECT service_rule_id, credential_tier, allowed
+           FROM billing_policy_eligibility_rules
+           WHERE service_rule_id IN (${placeholders})`,
+          ruleIds
+        )
+      : [[]];
+    const byRule = new Map();
+    for (const row of eligibilityRows || []) {
+      const key = toInt(row?.service_rule_id, 0);
+      if (!key) continue;
+      if (!byRule.has(key)) byRule.set(key, []);
+      byRule.get(key).push(row);
+    }
+    const [agencyRows] = await pool.execute(
+      `SELECT service_code, is_enabled
+       FROM agency_service_code_activation
+       WHERE agency_id = ?`,
+      [aid]
+    );
+    const agencyCodeEnabled = new Map(
+      (agencyRows || []).map((r) => [normalizeCode(r?.service_code), Boolean(r?.is_enabled)])
+    );
+    const tier = normalizeCredentialTier(credentialTier);
+    const out = [];
+    for (const rule of ruleRows) {
+      const code = normalizeCode(rule?.service_code);
+      if (!code) continue;
+      const ruleEligibility = byRule.get(toInt(rule?.id, 0)) || [];
+      let allowedForTier = true;
+      if (tier && ruleEligibility.length) {
+        const tierRows = ruleEligibility.filter((r) => normalizeCredentialTier(r?.credential_tier) === tier);
+        if (tierRows.length) {
+          allowedForTier = tierRows.some((r) => Boolean(r?.allowed));
+        }
+      }
+      const enabled = agencyCodeEnabled.has(code) ? agencyCodeEnabled.get(code) : true;
+      if (enabled && allowedForTier) out.push(code);
+    }
+    return out;
+  } catch (error) {
+    if (isMissingPolicySchemaError(error)) return [];
+    throw error;
+  }
+}
+
 export function computeUnitsFromRule({ minutes, minMinutes = null, maxMinutes = null, unitMinutes = null, unitCalcMode = 'NONE' }) {
   const m = toInt(minutes, 0);
   const min = toInt(minMinutes, 0) || null;
@@ -736,8 +848,8 @@ export async function createIngestionJobFromUpload({
     for (const row of parsed) {
       await pool.execute(
         `INSERT INTO billing_policy_ingestion_candidates
-           (ingestion_job_id, service_code, service_description, min_minutes, max_minutes, unit_minutes, unit_calc_mode, max_units_per_day, source_snippet, raw_text_line)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           (ingestion_job_id, service_code, service_description, min_minutes, max_minutes, unit_minutes, unit_calc_mode, max_units_per_day, credential_tier, provider_type, source_snippet, raw_text_line)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           ingestionJobId,
           row.serviceCode,
@@ -747,6 +859,8 @@ export async function createIngestionJobFromUpload({
           row.unitMinutes,
           row.unitCalcMode,
           row.maxUnitsPerDay,
+          row.credentialTier,
+          row.providerType,
           row.sourceSnippet,
           row.rawTextLine
         ]
