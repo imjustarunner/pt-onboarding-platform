@@ -12,7 +12,7 @@
       </select>
     </div>
 
-    <div v-if="organizationPortalCards.length > 0" class="portal-cards-wrap">
+    <div v-if="!hidePortalCards && organizationPortalCards.length > 0" class="portal-cards-wrap">
       <div class="portal-cards-header">Assigned portals</div>
       <div class="portal-cards-grid">
         <button
@@ -62,6 +62,10 @@ const selectedAgencyId = ref(agencyStore.currentAgency?.id || null);
 const failedCardLogoIds = ref(new Set());
 
 const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
+const hidePortalCards = computed(() => {
+  const r = roleNorm.value;
+  return r === 'admin' || r === 'support' || r === 'super_admin';
+});
 const isPortalOrg = (a) => {
   const t = String(a?.organization_type || a?.organizationType || '').toLowerCase();
   return t === 'school' || t === 'program' || t === 'learning';
