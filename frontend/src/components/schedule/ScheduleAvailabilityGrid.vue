@@ -309,6 +309,7 @@
             @mousedown.left.prevent="onCellMouseDown(d, h, $event)"
             @mouseenter="onCellMouseEnter(d, h, $event)"
             @click="onCellClick(d, h, $event)"
+            @dblclick="onCellDoubleClick(d, h, $event)"
             role="button"
             :tabindex="0"
             @keydown.enter.prevent="onCellClick(d, h, $event)"
@@ -1036,9 +1037,19 @@ const viewMode = ref('open_finder'); // 'open_finder' | 'office_layout' (office_
 const overlayPrefsKey = computed(() => {
   if (props.mode !== 'self') return '';
   const uid = Number(authStore.user?.id || props.userId || 0);
+  if (!uid) return '';
   const agencyId = Number(props.agencyId || 0);
-  if (!uid || !agencyId) return '';
-  return `schedule.overlayPrefs.v1:${uid}:${agencyId}`;
+  // In self multi-organization mode, props.agencyId is intentionally null.
+  // Persist under a stable user-scoped key so overlay selections do not reset.
+  const scope = agencyId > 0 ? String(agencyId) : 'multi';
+  return `schedule.overlayPrefs.v2:${uid}:${scope}`;
+});
+
+const hideWeekendPrefsKey = computed(() => {
+  if (props.mode !== 'self') return '';
+  const uid = Number(authStore.user?.id || props.userId || 0);
+  if (!uid) return '';
+  return `schedule.hideWeekend.v1:${uid}`;
 });
 
 const lastCalendarPrefs = ref(null); // { showGoogleBusy, showGoogleEvents, selectedExternalCalendarIds }
@@ -1059,6 +1070,29 @@ const loadOverlayPrefs = () => {
     return parsed && typeof parsed === 'object' ? parsed : null;
   } catch {
     return null;
+  }
+};
+
+const loadHideWeekendPref = () => {
+  if (!hideWeekendPrefsKey.value) return null;
+  try {
+    const raw = window?.localStorage?.getItem?.(hideWeekendPrefsKey.value);
+    if (raw === null || raw === undefined) return null;
+    const value = String(raw).trim().toLowerCase();
+    if (value === '1' || value === 'true') return true;
+    if (value === '0' || value === 'false') return false;
+    return null;
+  } catch {
+    return null;
+  }
+};
+
+const saveHideWeekendPref = () => {
+  if (!hideWeekendPrefsKey.value) return;
+  try {
+    window?.localStorage?.setItem?.(hideWeekendPrefsKey.value, hideWeekend.value ? '1' : '0');
+  } catch {
+    // ignore best-effort persistence
   }
 };
 
@@ -1216,7 +1250,10 @@ try {
       normalizeGoogleOverlayMode('events');
       showExternalBusy.value = saved.showExternalBusy !== undefined ? !!saved.showExternalBusy : true;
       selectedExternalCalendarIds.value = coerceIdArray(saved.selectedExternalCalendarIds);
-      hideWeekend.value = saved.hideWeekend !== undefined ? !!saved.hideWeekend : true;
+      const dedicatedHideWeekend = loadHideWeekendPref();
+      hideWeekend.value = dedicatedHideWeekend !== null
+        ? dedicatedHideWeekend
+        : (saved.hideWeekend !== undefined ? !!saved.hideWeekend : true);
       viewMode.value = saved.viewMode === 'office_layout' ? 'office_layout' : 'open_finder';
       lastCalendarPrefs.value = saved.lastCalendarPrefs ? { ...saved.lastCalendarPrefs } : null;
       // If saved selection is empty, we do NOT auto-select all — user explicitly hid calendars.
@@ -1226,6 +1263,8 @@ try {
       showGoogleBusy.value = true;
       showGoogleEvents.value = false;
       showExternalBusy.value = true;
+      const dedicatedHideWeekend = loadHideWeekendPref();
+      hideWeekend.value = dedicatedHideWeekend !== null ? dedicatedHideWeekend : true;
       shouldDefaultSelectAllExternal.value = true;
     }
   }
@@ -1691,6 +1730,10 @@ watch(externalCalendarsAvailable, (next) => {
   // Drop selections that no longer exist in the available list.
   const allowed = new Set((next || []).map((c) => Number(c.id)));
 
+  // Avoid clearing persisted selections during transient empty states
+  // (for example while self agencies are still loading).
+  if (props.mode === 'self' && allowed.size === 0) return;
+
   // Provider defaults: if no saved prefs exist, default ALL external calendars on once we know what's available.
   if (
     props.mode === 'self' &&
@@ -1728,6 +1771,11 @@ watch([showGoogleBusy, showGoogleEvents, showExternalBusy, selectedExternalCalen
   if (props.mode !== 'self' || !overlayPrefsLoaded.value) return;
   saveOverlayPrefs();
 }, { deep: true });
+
+watch(hideWeekend, () => {
+  if (props.mode !== 'self') return;
+  saveHideWeekendPref();
+});
 
 const prevWeek = () => {
   weekStart.value = addDaysYmd(weekStart.value, -7);
@@ -2213,6 +2261,8 @@ const cellBlocks = (dayName, hour) => {
   }
   return blocks;
 };
+
+const isCellVisuallyBlank = (dayName, hour) => cellBlocks(dayName, hour).length === 0;
 
 const overlayErrorText = computed(() => {
   const s = summary.value;
@@ -2989,6 +3039,30 @@ const onCellClick = (dayName, hour, event = null, options = {}) => {
   }
   selectedActionSlots.value = [item];
   lastSelectedActionKey.value = item.key;
+  if (isCellVisuallyBlank(dayName, hour)) {
+    openSlotActionModal({ ...item, preserveSelectionRange: false });
+  }
+};
+
+const onCellDoubleClick = (dayName, hour, event = null, options = {}) => {
+  if (!canBookFromGrid.value) return;
+  event?.preventDefault?.();
+  event?.stopPropagation?.();
+  const dateYmd = String(options?.dateYmd || addDaysYmd(weekStart.value, ALL_DAYS.indexOf(String(dayName || '')))).slice(0, 10);
+  const roomId = Number(options?.roomId || 0) || 0;
+  const slot = options?.slot || null;
+  if (!isCellVisuallyBlank(dayName, hour)) return;
+  const item = {
+    key: actionSlotKey({ dateYmd, hour, roomId }),
+    dateYmd,
+    dayName: String(dayName),
+    hour: Number(hour),
+    roomId,
+    slot
+  };
+  selectedActionSlots.value = [item];
+  lastSelectedActionKey.value = item.key;
+  openSlotActionModal({ ...item, preserveSelectionRange: false });
 };
 
 const onCellMouseDown = (dayName, hour, event = null) => {
@@ -4423,6 +4497,8 @@ const openStackDetailsItem = (item) => {
 };
 
 const onCellBlockDoubleClick = (e, block, dayName, hour) => {
+  e?.preventDefault?.();
+  e?.stopPropagation?.();
   const kind = String(block?.kind || '');
   if (kind !== 'gevt') return;
   const hasMeetSessionInCell = supervisionSessionsInCell(dayName, hour)
@@ -4430,8 +4506,6 @@ const onCellBlockDoubleClick = (e, block, dayName, hour) => {
   if (!hasMeetSessionInCell) return;
   const link = String(block?.link || '').trim();
   if (!link) return;
-  e?.preventDefault?.();
-  e?.stopPropagation?.();
   clearGevtClickTimer();
   window.open(link, '_blank', 'noreferrer');
 };
@@ -4478,17 +4552,19 @@ watch(modalHour, () => {
 }
 .sched-toolbar-main {
   display: flex;
-  gap: 10px;
+  gap: 8px;
   align-items: center;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   justify-content: space-between;
 }
 .sched-toolbar-left,
 .sched-toolbar-right {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
-  flex: 0 0 auto;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-wrap: wrap;
 }
 .sched-btn {
   width: auto;
@@ -4499,6 +4575,12 @@ watch(modalHour, () => {
 }
 .sched-toolbar-secondary {
   margin-top: 8px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: thin;
 }
 .sched-toggle {
   display: inline-flex;
@@ -4701,19 +4783,25 @@ watch(modalHour, () => {
 .sched-calendars {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  padding-left: 6px;
-  border-left: 1px solid var(--border);
+  gap: 8px;
+  flex-wrap: nowrap;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-alt) 88%, white);
+  flex: 0 0 auto;
 }
 .sched-org-filters {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  margin-top: 8px;
-  padding-left: 6px;
-  border-left: 1px solid var(--border);
+  gap: 8px;
+  flex-wrap: nowrap;
+  margin-top: 0;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-alt) 88%, white);
+  flex: 0 0 auto;
 }
 .sched-calendars-label {
   font-size: 12px;

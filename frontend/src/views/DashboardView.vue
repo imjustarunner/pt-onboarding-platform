@@ -247,11 +247,10 @@
       <div
         data-tour="dash-rail"
         class="dashboard-rail"
-        :class="{ disabled: previewMode, 'rail-top-mode': railTopMode, 'rail-pulse': railPulse }"
+        :class="{ disabled: previewMode, 'rail-collapsed': railCollapsedMode, 'rail-pulse': railPulse }"
         role="navigation"
         aria-label="Dashboard sections"
       >
-        <div v-if="railTopMode" class="rail-top-label">Your Dashboard — your source of information</div>
         <div
           v-for="card in railCards"
           :key="card.id"
@@ -269,6 +268,8 @@
             }"
             :aria-current="(card.kind === 'content' && activeTab === card.id) ? 'page' : undefined"
             :disabled="previewMode"
+            :title="card.label"
+            :data-label="card.label"
             @click="handleCardClick(card)"
           >
             <div class="rail-card-left">
@@ -367,43 +368,70 @@
               </div>
               <div
                 v-if="isSupervisor(authStore.user)"
-                style="display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; align-items: flex-end;"
+                class="schedule-supervisor-toolbar"
               >
-                <div class="form-group" style="min-width: 220px;">
-                  <label class="lbl">View</label>
-                  <select v-model="scheduleViewMode" class="input">
-                    <option value="self">My schedule</option>
-                    <option value="supervisee">Supervisee schedule</option>
-                  </select>
+                <div class="schedule-view-toggle">
+                  <button
+                    type="button"
+                    class="btn btn-secondary btn-sm"
+                    :class="{ active: scheduleViewMode === 'self' }"
+                    @click="scheduleViewMode = 'self'"
+                  >
+                    My schedule
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-secondary btn-sm"
+                    :class="{ active: scheduleViewMode === 'supervisee' }"
+                    @click="scheduleViewMode = 'supervisee'"
+                  >
+                    Supervisee schedules
+                  </button>
                 </div>
 
                 <template v-if="scheduleViewMode === 'supervisee'">
-                  <div class="form-group" style="min-width: 260px;">
-                    <label class="lbl">Supervisee</label>
-                    <select v-model.number="selectedSuperviseeId" class="input" :disabled="superviseesLoading">
-                      <option :value="0">Select…</option>
-                      <option v-for="s in superviseesFilteredSorted" :key="`supv-${s.id}`" :value="s.id">
-                        {{ s.label }}
-                      </option>
-                    </select>
-                  </div>
-                  <div class="form-group" style="min-width: 180px;">
-                    <label class="lbl">Sort</label>
-                    <select v-model="superviseeSortKey" class="input">
+                  <div class="schedule-inline-controls">
+                    <select v-model="superviseeSortKey" class="input compact-input" title="Sort supervisees by">
                       <option value="name">Name</option>
                       <option value="agency">Agency</option>
                     </select>
-                  </div>
-                  <div class="form-group" style="min-width: 140px;">
-                    <label class="lbl">Order</label>
-                    <select v-model="superviseeSortDir" class="input">
+                    <select v-model="superviseeSortDir" class="input compact-input" title="Sort order">
                       <option value="asc">A → Z</option>
                       <option value="desc">Z → A</option>
                     </select>
+                    <input
+                      v-model="superviseeQuery"
+                      class="input compact-input supervisee-search-input"
+                      placeholder="Search supervisees..."
+                      title="Search supervisees by name or agency"
+                    />
                   </div>
-                  <div class="form-group" style="min-width: 220px;">
-                    <label class="lbl">Filter</label>
-                    <input v-model="superviseeQuery" class="input" placeholder="Search name or agency…" />
+                  <div class="supervisee-chip-row">
+                    <button
+                      type="button"
+                      class="supervisee-chip all-chip"
+                      :class="{ active: selectedSuperviseeId === 0 }"
+                      :disabled="superviseesLoading"
+                      @click="selectedSuperviseeId = 0"
+                    >
+                      All supervisees
+                    </button>
+                    <button
+                      v-for="s in superviseesFilteredSorted"
+                      :key="`sup-chip-${s.id}`"
+                      type="button"
+                      class="supervisee-chip"
+                      :class="{ active: selectedSuperviseeId === s.id }"
+                      :title="s.label"
+                      :disabled="superviseesLoading"
+                      @click="selectedSuperviseeId = s.id"
+                    >
+                      <span class="supervisee-chip-avatar" :class="{ 'has-photo': !!superviseePhotoUrl(s) }">
+                        <img v-if="superviseePhotoUrl(s)" :src="superviseePhotoUrl(s)" :alt="superviseeName(s)" />
+                        <span v-else>{{ superviseeInitials(s) }}</span>
+                      </span>
+                      <span class="supervisee-chip-name">{{ superviseeName(s) }}</span>
+                    </button>
                   </div>
                 </template>
               </div>
@@ -414,12 +442,32 @@
               <div v-else-if="scheduleViewMode !== 'self' && !currentAgencyId" class="hint" style="margin-top: 8px;">
                 Select an organization to view your schedule.
               </div>
-              <div
-                v-else-if="isSupervisor(authStore.user) && scheduleViewMode === 'supervisee' && selectedSuperviseeId === 0"
-                class="hint"
-                style="margin-top: 8px;"
-              >
-                Select a supervisee to view their schedule.
+              <div v-else-if="isSupervisor(authStore.user) && scheduleViewMode === 'supervisee' && superviseeScheduleUsers.length === 0" class="hint" style="margin-top: 8px;">
+                No supervisees match the current filter.
+              </div>
+              <div v-else-if="scheduleViewMode === 'supervisee' && selectedSuperviseeId === 0" class="supervisee-schedule-stack" style="margin-top: 8px;">
+                <section
+                  v-for="s in superviseeScheduleUsers"
+                  :key="`sup-schedule-${s.id}`"
+                  class="supervisee-schedule-section"
+                >
+                  <div class="supervisee-schedule-head">
+                    <span class="supervisee-chip-avatar" :class="{ 'has-photo': !!superviseePhotoUrl(s) }">
+                      <img v-if="superviseePhotoUrl(s)" :src="superviseePhotoUrl(s)" :alt="superviseeName(s)" />
+                      <span v-else>{{ superviseeInitials(s) }}</span>
+                    </span>
+                    <div>
+                      <div class="supervisee-schedule-name">{{ superviseeName(s) }}</div>
+                      <div v-if="s.agencyName" class="hint">{{ s.agencyName }}</div>
+                    </div>
+                  </div>
+                  <ScheduleAvailabilityGrid
+                    :key="`sup-grid-${s.id}-${currentAgencyId || 0}`"
+                    :user-id="s.id"
+                    :agency-id="Number(currentAgencyId)"
+                    :mode="'admin'"
+                  />
+                </section>
               </div>
               <ScheduleAvailabilityGrid
                 v-else-if="authStore.user?.id && scheduleGridUserId"
@@ -845,7 +893,7 @@ const clientsNeedsAttentionCount = ref(0);
 const showSkillBuilderModal = ref(false);
 const showSkillBuildersAvailabilityModal = ref(false);
 
-const railTopMode = ref(false);
+const railCollapsedMode = ref(false);
 const prefersReducedMotion = typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const railPulse = ref(!prefersReducedMotion);
 const RAIL_PULSE_DURATION_MS = 2500;
@@ -975,11 +1023,12 @@ const myScheduleStageRef = ref(null);
 const scheduleFullscreenActive = ref(false);
 const superviseesLoading = ref(false);
 const superviseesError = ref('');
-const supervisees = ref([]); // [{ id, firstName, lastName, agencyName }]
-const selectedSuperviseeId = ref(0);
+const supervisees = ref([]); // [{ id, firstName, lastName, agencyName, profilePhotoUrl }]
+const selectedSuperviseeId = ref(0); // 0 = all supervisees
 const superviseeSortKey = ref('name'); // 'name' | 'agency'
 const superviseeSortDir = ref('asc'); // 'asc' | 'desc'
 const superviseeQuery = ref('');
+const SCHEDULE_VIEW_PREF_PREFIX = 'dashboard.scheduleViewPref.v1';
 
 // If an icon URL 404s (or otherwise fails to load), show a simple fallback glyph.
 const failedRailIconIds = ref(new Set());
@@ -1366,12 +1415,14 @@ const fetchSuperviseesForSchedule = async () => {
         id: Number(r?.supervisee_id || 0),
         firstName: String(r?.supervisee_first_name || '').trim(),
         lastName: String(r?.supervisee_last_name || '').trim(),
-        agencyName: String(r?.agency_name || '').trim()
+        agencyName: String(r?.agency_name || '').trim(),
+        profilePhotoUrl: String(r?.supervisee_profile_photo_url || '').trim() || null
       }))
       .filter((s) => Number.isFinite(s.id) && s.id > 0);
 
-    if (scheduleViewMode.value === 'supervisee' && selectedSuperviseeId.value === 0 && supervisees.value.length > 0) {
-      selectedSuperviseeId.value = supervisees.value[0].id;
+    if (scheduleViewMode.value === 'supervisee' && selectedSuperviseeId.value > 0) {
+      const exists = supervisees.value.some((s) => Number(s.id) === Number(selectedSuperviseeId.value));
+      if (!exists) selectedSuperviseeId.value = 0;
     }
   } catch (e) {
     supervisees.value = [];
@@ -1380,6 +1431,69 @@ const fetchSuperviseesForSchedule = async () => {
   } finally {
     superviseesLoading.value = false;
   }
+};
+
+const scheduleViewPrefKey = computed(() => {
+  const userId = Number(authStore.user?.id || 0);
+  if (!userId) return '';
+  return `${SCHEDULE_VIEW_PREF_PREFIX}:${userId}`;
+});
+
+const loadScheduleViewPrefs = () => {
+  const key = String(scheduleViewPrefKey.value || '');
+  if (!key) return;
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    const mode = String(parsed?.mode || '').toLowerCase();
+    if (mode === 'self' || mode === 'supervisee') scheduleViewMode.value = mode;
+    const sid = Number(parsed?.superviseeId ?? 0);
+    selectedSuperviseeId.value = Number.isFinite(sid) && sid >= 0 ? sid : 0;
+    const sortKey = String(parsed?.sortKey || '').toLowerCase();
+    if (sortKey === 'name' || sortKey === 'agency') superviseeSortKey.value = sortKey;
+    const sortDir = String(parsed?.sortDir || '').toLowerCase();
+    if (sortDir === 'asc' || sortDir === 'desc') superviseeSortDir.value = sortDir;
+    superviseeQuery.value = String(parsed?.query || '');
+  } catch {
+    // ignore malformed local preferences
+  }
+};
+
+const saveScheduleViewPrefs = () => {
+  const key = String(scheduleViewPrefKey.value || '');
+  if (!key || !isSupervisor(authStore.user)) return;
+  try {
+    window.localStorage.setItem(key, JSON.stringify({
+      mode: scheduleViewMode.value,
+      superviseeId: Number(selectedSuperviseeId.value || 0),
+      sortKey: superviseeSortKey.value,
+      sortDir: superviseeSortDir.value,
+      query: superviseeQuery.value
+    }));
+  } catch {
+    // ignore storage limits/private mode
+  }
+};
+
+const superviseeName = (s) => {
+  const first = String(s?.firstName || '').trim();
+  const last = String(s?.lastName || '').trim();
+  return `${first} ${last}`.trim() || `User ${Number(s?.id || 0)}`;
+};
+
+const superviseeInitials = (s) => {
+  const first = String(s?.firstName || '').trim();
+  const last = String(s?.lastName || '').trim();
+  return `${first.slice(0, 1)}${last.slice(0, 1)}`.toUpperCase() || '?';
+};
+
+const superviseePhotoUrl = (s) => {
+  const raw = String(s?.profilePhotoUrl || '').trim();
+  if (!raw) return '';
+  if (raw.startsWith('http://') || raw.startsWith('https://')) return raw;
+  if (raw.startsWith('/uploads/') || raw.startsWith('uploads/')) return toUploadsUrl(raw);
+  return raw;
 };
 
 const superviseeLabel = (s) => {
@@ -1415,6 +1529,14 @@ const scheduleGridUserId = computed(() => {
   if (scheduleViewMode.value === 'self') return Number(authStore.user?.id || 0);
   if (scheduleViewMode.value === 'supervisee') return Number(selectedSuperviseeId.value || 0);
   return 0;
+});
+
+const superviseeScheduleUsers = computed(() => {
+  const rows = superviseesFilteredSorted.value || [];
+  const selectedId = Number(selectedSuperviseeId.value || 0);
+  if (scheduleViewMode.value !== 'supervisee') return [];
+  if (selectedId <= 0) return rows;
+  return rows.filter((s) => Number(s.id) === selectedId);
 });
 
 const scheduleGridMode = computed(() => (scheduleViewMode.value === 'self' ? 'self' : 'admin'));
@@ -1929,11 +2051,17 @@ const syncFromQuery = () => {
 
   if (String(qTab || '') === 'my_schedule') {
     const qScheduleMode = String(route.query?.scheduleMode || '').toLowerCase();
+    if (qScheduleMode === 'self') scheduleViewMode.value = 'self';
     if (qScheduleMode === 'supervisee') {
       scheduleViewMode.value = 'supervisee';
-      const qSuperviseeId = Number.parseInt(String(route.query?.superviseeId || ''), 10);
-      if (Number.isFinite(qSuperviseeId) && qSuperviseeId > 0) {
-        selectedSuperviseeId.value = qSuperviseeId;
+      const qSuperviseeRaw = String(route.query?.superviseeId || '').trim().toLowerCase();
+      if (qSuperviseeRaw === 'all') {
+        selectedSuperviseeId.value = 0;
+      } else {
+        const qSuperviseeId = Number.parseInt(qSuperviseeRaw, 10);
+        if (Number.isFinite(qSuperviseeId) && qSuperviseeId > 0) {
+          selectedSuperviseeId.value = qSuperviseeId;
+        }
       }
     }
   }
@@ -2155,6 +2283,31 @@ watch(() => [route.query?.tab, route.query?.my, route.query?.scheduleMode, route
   syncFromQuery();
 });
 
+watch([scheduleViewMode, selectedSuperviseeId, superviseeSortKey, superviseeSortDir, superviseeQuery], () => {
+  saveScheduleViewPrefs();
+});
+
+watch([activeTab, scheduleViewMode, selectedSuperviseeId], () => {
+  if (props.previewMode) return;
+  if (activeTab.value !== 'my_schedule') return;
+  const nextQuery = { ...route.query, tab: 'my_schedule' };
+  if (scheduleViewMode.value === 'supervisee') {
+    nextQuery.scheduleMode = 'supervisee';
+    nextQuery.superviseeId = Number(selectedSuperviseeId.value || 0) > 0
+      ? String(Number(selectedSuperviseeId.value || 0))
+      : 'all';
+  } else {
+    delete nextQuery.scheduleMode;
+    delete nextQuery.superviseeId;
+  }
+  const currentMode = String(route.query?.scheduleMode || '');
+  const currentId = String(route.query?.superviseeId || '');
+  const nextMode = String(nextQuery.scheduleMode || '');
+  const nextId = String(nextQuery.superviseeId || '');
+  if (currentMode === nextMode && currentId === nextId) return;
+  router.replace({ query: nextQuery });
+});
+
 watch(
   () => tutorialStore.enabled,
   (enabled) => {
@@ -2234,6 +2387,7 @@ onMounted(async () => {
   topCardCollapsed.value = false;
   loadSocialFeedsCollapsed();
   await fetchOnboardingStatus();
+  loadScheduleViewPrefs();
   syncFromQuery();
   // When no tab in URL, apply default_landing_page preference or fall back to existing logic.
   if (!route.query?.tab && !route.query?.my) {
@@ -2260,9 +2414,9 @@ onMounted(async () => {
   await loadPresenterAssignments();
   await loadDashboardSocialFeeds();
 
-  updateRailTopMode();
+  updateRailCollapsedMode();
   railMediaQuery = typeof window !== 'undefined' && window.matchMedia('(max-width: 980px)');
-  if (railMediaQuery) railMediaQuery.addEventListener('change', updateRailTopMode);
+  if (railMediaQuery) railMediaQuery.addEventListener('change', updateRailCollapsedMode);
   railPulseTimer = setTimeout(() => { railPulse.value = false; }, RAIL_PULSE_DURATION_MS);
   document.addEventListener('pointerdown', handleDocumentPointerDown);
   document.addEventListener('keydown', handleDocumentKeydown);
@@ -2272,7 +2426,7 @@ onMounted(async () => {
     loadPresenterAssignments();
   }, supervisionPromptPollMs);
 });
-watch(activeTab, updateRailTopMode);
+watch(activeTab, updateRailCollapsedMode);
 
 // If available cards change (role/status), keep activeTab on a valid content card.
 watch(dashboardCards, () => {
@@ -2300,19 +2454,18 @@ watch([activeTab, currentAgencyId, () => authStore.user?.id], async () => {
   if (activeTab.value !== 'my_schedule') return;
   if (!isOnboardingComplete.value) return;
   if (!isSupervisor(authStore.user)) return;
-  if (!currentAgencyId.value) return;
   await fetchSuperviseesForSchedule();
 }, { immediate: true });
 
-// Rail top mode: when rail moves to top (narrow viewport or schedule focus)
-function updateRailTopMode() {
+// Collapse rail to icon-only when schedule needs more width or viewport is narrow.
+function updateRailCollapsedMode() {
   const narrow = typeof window !== 'undefined' && window.matchMedia('(max-width: 980px)').matches;
-  railTopMode.value = narrow || activeTab.value === 'my_schedule';
+  railCollapsedMode.value = narrow || activeTab.value === 'my_schedule';
 }
 let railPulseTimer = null;
 let railMediaQuery = null;
 onUnmounted(() => {
-  if (railMediaQuery) railMediaQuery.removeEventListener('change', updateRailTopMode);
+  if (railMediaQuery) railMediaQuery.removeEventListener('change', updateRailCollapsedMode);
   if (railPulseTimer) clearTimeout(railPulseTimer);
   document.removeEventListener('pointerdown', handleDocumentPointerDown);
   document.removeEventListener('keydown', handleDocumentKeydown);
@@ -2480,21 +2633,14 @@ h1 {
   width: 100%;
 }
 .dashboard-shell.schedule-focus {
-  grid-template-columns: 1fr;
+  grid-template-columns: 88px minmax(0, 1fr);
 }
 .dashboard-shell.schedule-focus .dashboard-rail {
-  position: static;
-  max-height: none;
-  overflow: visible;
-  flex-direction: row;
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  padding-bottom: 6px;
+  max-height: calc(100vh - 24px);
+  overflow: auto;
 }
 .dashboard-shell.schedule-focus .rail-card-row {
-  width: auto;
-  min-width: auto;
-  flex: 0 0 auto;
+  width: 100%;
 }
 .card-content.card-content-schedule {
   background: transparent;
@@ -2508,6 +2654,132 @@ h1 {
   border: 1px solid var(--border);
   box-shadow: var(--shadow);
   padding: 14px;
+}
+.schedule-supervisor-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+  align-items: center;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bg-alt) 84%, white);
+}
+.schedule-view-toggle {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  flex: 0 0 auto;
+}
+.schedule-view-toggle .btn.active {
+  background: color-mix(in srgb, var(--primary) 16%, var(--bg-alt));
+  border-color: color-mix(in srgb, var(--primary) 60%, var(--border));
+  color: var(--primary);
+}
+.schedule-inline-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 320px;
+  min-width: 260px;
+}
+.compact-input {
+  min-height: 34px;
+  padding: 6px 9px;
+}
+.schedule-inline-controls .compact-input {
+  width: auto;
+  min-width: 120px;
+}
+.supervisee-search-input {
+  flex: 1 1 220px;
+  min-width: 160px;
+}
+.supervisee-chip-row {
+  width: 100%;
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: thin;
+}
+.supervisee-chip {
+  border: 1px solid var(--border);
+  background: var(--bg-alt);
+  color: var(--text-primary);
+  border-radius: 999px;
+  padding: 6px 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.supervisee-chip.active {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary) 50%, transparent);
+  background: color-mix(in srgb, var(--primary) 14%, var(--bg-alt));
+}
+.supervisee-chip.all-chip {
+  font-weight: 700;
+}
+.supervisee-chip-avatar {
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--primary) 28%, var(--bg-alt));
+  color: var(--text-primary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 800;
+  overflow: hidden;
+}
+.supervisee-chip-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.supervisee-chip-name {
+  max-width: 130px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.supervisee-schedule-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.supervisee-schedule-section {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px;
+  background: var(--bg-alt);
+}
+.supervisee-schedule-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.supervisee-schedule-name {
+  font-weight: 800;
+  color: var(--text-primary);
+}
+@media (max-width: 900px) {
+  .schedule-supervisor-toolbar {
+    padding: 8px;
+  }
+  .schedule-inline-controls {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+  .schedule-inline-controls .compact-input {
+    min-width: 0;
+  }
 }
 
 .dashboard-rail {
@@ -2528,31 +2800,61 @@ h1 {
   gap: 8px;
 }
 
-/* Rail in top mode: prominent bar with label */
-.dashboard-rail.rail-top-mode {
-  background: linear-gradient(135deg, rgba(255,255,255,0.92) 0%, rgba(243,246,250,0.95) 100%);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255,255,255,0.6);
-  border-radius: 14px;
-  padding: 12px 14px;
-  box-shadow: 0 4px 20px rgba(0,0,0,0.08), 0 0 0 1px rgba(29,38,51,0.06);
+.dashboard-rail.rail-collapsed {
+  width: 84px;
+  min-width: 84px;
+  overflow: visible;
 }
-[data-theme="dark"] .dashboard-rail.rail-top-mode {
-  background: linear-gradient(135deg, rgba(26,29,33,0.92) 0%, rgba(37,40,44,0.95) 100%);
-  border-color: rgba(255,255,255,0.08);
-  box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+.dashboard-rail.rail-collapsed .rail-card {
+  padding: 8px 6px;
+  justify-content: center;
+  border-left-width: 2px;
+  position: relative;
 }
-.rail-top-label {
+.dashboard-rail.rail-collapsed .rail-card-left {
+  justify-content: center;
+}
+.dashboard-rail.rail-collapsed .rail-card-text,
+.dashboard-rail.rail-collapsed .rail-card-cta {
+  display: none;
+}
+.dashboard-rail.rail-collapsed .rail-card-meta {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+}
+.dashboard-rail.rail-collapsed .rail-card-badge {
+  min-width: 18px;
+  height: 18px;
   font-size: 11px;
-  font-weight: 800;
-  color: var(--primary);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  padding: 2px 8px 2px 0;
+  padding: 0 5px;
+}
+.dashboard-rail.rail-collapsed .rail-card-help {
+  display: none;
+}
+.dashboard-rail.rail-collapsed .rail-card::after {
+  content: attr(data-label);
+  position: absolute;
+  left: calc(100% + 8px);
+  top: 50%;
+  transform: translateY(-50%);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 12px;
+  font-weight: 700;
   white-space: nowrap;
-  flex-shrink: 0;
-  align-self: center;
+  box-shadow: var(--shadow);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+  z-index: 30;
+}
+.dashboard-rail.rail-collapsed .rail-card:hover::after,
+.dashboard-rail.rail-collapsed .rail-card:focus-visible::after {
+  opacity: 1;
 }
 
 /* Pulse animation for rail cards (draws attention on load) */
@@ -2770,24 +3072,14 @@ h1 {
 
 @media (max-width: 980px) {
   .dashboard-shell {
-    grid-template-columns: 1fr;
+    grid-template-columns: 72px minmax(0, 1fr);
   }
   .dashboard-rail {
-    position: static;
-    max-height: none;
-    overflow: visible;
-    flex-direction: row;
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    padding-bottom: 6px;
-    margin-bottom: 4px;
-  }
-  .dashboard-rail.rail-top-mode {
-    margin-bottom: 12px;
-    padding: 14px 16px;
+    width: 72px;
+    min-width: 72px;
   }
   .rail-card {
-    min-width: 220px;
+    min-width: 0;
   }
 }
 
