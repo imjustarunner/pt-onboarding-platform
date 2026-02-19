@@ -258,6 +258,40 @@
             <textarea v-model="editForm.description" rows="3"></textarea>
           </div>
           <div class="form-group">
+            <label>Document Type *</label>
+            <select v-model="editForm.documentType" required class="form-control">
+              <option value="acknowledgment">Acknowledgment</option>
+              <option value="authorization">Authorization</option>
+              <option value="agreement">Agreement</option>
+              <option value="audio_recording_consent">Audio Recording Consent</option>
+              <option value="hipaa_security">HIPAA Security</option>
+              <option value="compliance">Compliance</option>
+              <option value="disclosure">Disclosure</option>
+              <option value="consent">Consent</option>
+              <option value="school">School</option>
+              <option value="administrative">Administrative</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Document Action Type *</label>
+            <div class="action-type-buttons" style="display: flex; gap: 8px; flex-wrap: wrap;">
+              <button
+                type="button"
+                @click="editForm.documentActionType = 'signature'"
+                :class="['btn', 'btn-sm', editForm.documentActionType === 'signature' ? 'btn-primary' : 'btn-secondary']"
+              >
+                Require Electronic Signature
+              </button>
+              <button
+                type="button"
+                @click="editForm.documentActionType = 'review'"
+                :class="['btn', 'btn-sm', editForm.documentActionType === 'review' ? 'btn-primary' : 'btn-secondary']"
+              >
+                Review/Acknowledgment Only
+              </button>
+            </div>
+          </div>
+          <div class="form-group">
             <label>PDF Document</label>
             <p v-if="editingTemplate.document_action_type !== 'review'" class="info-text">
               To upload a new version of this PDF, use the "Upload New Version" button.
@@ -618,6 +652,8 @@ const loadingEditLetterheads = ref(false);
 const editForm = ref({
   name: '',
   description: '',
+  documentType: 'administrative',
+  documentActionType: 'signature',
   htmlContent: '',
   layoutType: 'standard',
   letterheadTemplateId: null,
@@ -712,6 +748,8 @@ const handleEdit = (template) => {
   editForm.value = {
     name: template.name || '',
     description: template.description !== undefined && template.description !== null ? template.description : '',
+    documentType: template.document_type || 'administrative',
+    documentActionType: template.document_action_type || 'signature',
     htmlContent: template.html_content !== undefined && template.html_content !== null ? template.html_content : '',
     layoutType: template.layout_type || 'standard',
     letterheadTemplateId: template.letterhead_template_id ?? null,
@@ -752,6 +790,8 @@ const handleDuplicate = async (template) => {
       editForm.value = {
         name: newTemplate.name,
         description: newTemplate.description || '',
+        documentType: newTemplate.document_type || 'administrative',
+        documentActionType: newTemplate.document_action_type || 'signature',
         htmlContent: newTemplate.html_content || '',
         layoutType: newTemplate.layout_type || 'standard',
         letterheadTemplateId: newTemplate.letterhead_template_id ?? null,
@@ -818,6 +858,10 @@ const saveEdit = async () => {
     
     // Always include description (can be empty string or null)
     updateData.description = editForm.value.description !== undefined ? (editForm.value.description || null) : null;
+    
+    // Always include documentType and documentActionType
+    updateData.documentType = editForm.value.documentType || 'administrative';
+    updateData.documentActionType = editForm.value.documentActionType || 'signature';
     
     // Always include isActive (boolean)
     updateData.isActive = editForm.value.isActive !== undefined ? (editForm.value.isActive === true || editForm.value.isActive === 1) : true;

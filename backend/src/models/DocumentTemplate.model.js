@@ -771,6 +771,21 @@ class DocumentTemplate {
       safePush(val, 'agencyId');
     }
 
+    if ('documentType' in templateData) {
+      updates.push('document_type = ?');
+      const val = templateData.documentType !== undefined && templateData.documentType !== null
+        ? String(templateData.documentType).trim()
+        : (existing.document_type || 'administrative');
+      safePush(val, 'documentType');
+    }
+    if ('documentActionType' in templateData) {
+      updates.push('document_action_type = ?');
+      const val = templateData.documentActionType !== undefined && templateData.documentActionType !== null
+        ? String(templateData.documentActionType).trim()
+        : (existing.document_action_type || 'signature');
+      safePush(val, 'documentActionType');
+    }
+
     if (hasOrganizationColumn && 'organizationId' in templateData) {
       updates.push('organization_id = ?');
       const val = normOrganizationId !== null && normOrganizationId !== undefined ? normOrganizationId : null;

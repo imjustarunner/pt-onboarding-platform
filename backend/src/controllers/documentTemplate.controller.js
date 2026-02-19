@@ -576,6 +576,8 @@ export const updateTemplate = async (req, res, next) => {
     const {
       name,
       description,
+      documentType,
+      documentActionType,
       htmlContent,
       layoutType,
       letterheadTemplateId,
@@ -615,6 +617,21 @@ export const updateTemplate = async (req, res, next) => {
 
     if (name !== undefined) updateData.name = name !== null && name !== '' ? name : null;
     if (description !== undefined) updateData.description = description !== null && description !== '' ? description : null;
+    if (documentType !== undefined) {
+      const validTypes = ['acknowledgment', 'authorization', 'agreement', 'compliance', 'disclosure', 'consent', 'audio_recording_consent', 'hipaa_security', 'school', 'administrative'];
+      const dt = documentType ? String(documentType).trim().toLowerCase() : null;
+      if (dt && !validTypes.includes(dt)) {
+        return res.status(400).json({ error: { message: `Invalid document type. Must be one of: ${validTypes.join(', ')}` } });
+      }
+      updateData.documentType = dt || 'administrative';
+    }
+    if (documentActionType !== undefined) {
+      const da = documentActionType ? String(documentActionType).trim().toLowerCase() : null;
+      if (da && !['signature', 'review'].includes(da)) {
+        return res.status(400).json({ error: { message: 'documentActionType must be "signature" or "review"' } });
+      }
+      updateData.documentActionType = da || 'signature';
+    }
     if (htmlContent !== undefined) updateData.htmlContent = htmlContent !== null && htmlContent !== '' ? htmlContent : null;
 
     if (layoutType !== undefined) {

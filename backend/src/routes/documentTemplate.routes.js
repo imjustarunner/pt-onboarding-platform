@@ -142,6 +142,7 @@ const validateTemplateUpdate = [
     return Number.isInteger(intValue) && intValue > 0;
   }).withMessage('Signature page must be null or a positive integer'),
   body('documentType').optional().isIn(['acknowledgment', 'authorization', 'agreement', 'compliance', 'disclosure', 'consent', 'audio_recording_consent', 'hipaa_security', 'school', 'administrative']).withMessage('Invalid document type'),
+  body('documentActionType').optional().isIn(['signature', 'review']).withMessage('Document action type must be signature or review'),
   body('isUserSpecific').optional().isBoolean().withMessage('isUserSpecific must be a boolean'),
   body('userId').optional().isInt().withMessage('User ID must be an integer')
 ];
