@@ -361,6 +361,7 @@ const onMouseUp = () => {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   z-index: 100;
   transition: box-shadow 0.2s;
+  overflow: hidden;
 }
 
 .momentum-sticky-card:hover {
@@ -406,16 +407,21 @@ const onMouseUp = () => {
   padding: 8px 10px;
   border-bottom: 1px solid rgba(0, 0, 0, 0.08);
   border-radius: 8px 8px 0 0;
+  min-width: 0;
 }
 
 .sticky-title-input {
   flex: 1;
+  min-width: 0;
   border: none;
   background: transparent;
   font-size: 14px;
   font-weight: 600;
   color: #1a1a1a;
   outline: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .sticky-title-input::placeholder {
@@ -426,6 +432,7 @@ const onMouseUp = () => {
   display: flex;
   align-items: center;
   gap: 4px;
+  flex-shrink: 0;
 }
 
 .color-picker {

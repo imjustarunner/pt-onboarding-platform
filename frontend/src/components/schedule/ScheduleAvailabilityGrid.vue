@@ -481,7 +481,7 @@
             </label>
           </div>
 
-          <div v-if="requestType === 'office' || requestType === 'office_request_only'" style="margin-top: 10px;">
+          <div v-if="requestType === 'office' || requestType === 'office_request_only' || requestType === 'add_session'" style="margin-top: 10px;">
             <div v-if="!selectedOfficeLocationId" class="muted">
               Select an office from the toolbar above to view open/assigned/booked time and place a booking request.
             </div>
@@ -531,7 +531,7 @@
               <label class="lbl" style="margin-top: 10px;">Room</label>
               <div v-if="officeGridLoading" class="muted">Loading rooms…</div>
               <div v-else-if="officeGridError" class="error">{{ officeGridError }}</div>
-              <div v-else-if="requestType === 'office'" class="office-room-picker">
+              <div v-else-if="requestType === 'office' || requestType === 'add_session'" class="office-room-picker">
                 <label class="office-room-option">
                   <input type="radio" name="office-room" :value="0" v-model.number="selectedOfficeRoomId" />
                   <span class="office-room-label">Any open room</span>
@@ -644,7 +644,7 @@
             :disabled="
               submitting ||
               !requestType ||
-              ((requestType === 'office' || requestType === 'office_request_only') && (bookingMetadataLoading || !officeBookingValid || !!bookingClassificationInvalidReason)) ||
+              ((requestType === 'office' || requestType === 'office_request_only' || requestType === 'add_session') && (bookingMetadataLoading || !officeBookingValid || !!bookingClassificationInvalidReason)) ||
               (requestType === 'school' && !canUseSchool(modalDay, modalHour, modalEndHour)) ||
               (requestType === 'supervision' && !supervisionCanSubmit) ||
               ((requestType === 'intake_virtual_on' || requestType === 'intake_virtual_off' || requestType === 'intake_inperson_on' || requestType === 'intake_inperson_off') && !modalContext.officeEventId) ||
@@ -935,6 +935,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
+import { useAgencyStore } from '../../store/agency';
 import { useUserPreferencesStore } from '../../store/userPreferences';
 import OfficeWeeklyRoomGrid from './OfficeWeeklyRoomGrid.vue';
 
@@ -956,6 +957,7 @@ const props = defineProps({
 const emit = defineEmits(['update:weekStartYmd']);
 
 const authStore = useAuthStore();
+const agencyStore = useAgencyStore();
 
 const defaultScheduleColors = () => ({
   request: '#F2C94C',
@@ -2528,7 +2530,16 @@ const availableQuickActions = computed(() => {
   const schoolWindowOk = canUseSchool(modalDay.value, modalHour.value, modalEndHour.value);
   const supervisionOptionVisible = canScheduleSupervisionFromGrid.value;
   const supervisionOnlyMode = isViewingOtherUserSchedule.value;
+  const hasClinicalOrg = agencyStore.currentAgency?.hasClinicalOrg === true;
   return [
+    {
+      id: 'add_session',
+      label: 'Add session',
+      description: hasOffice ? 'Book a clinical session' : 'Select office from toolbar above first',
+      disabledReason: hasOffice ? '' : 'Select office',
+      visible: !supervisionOnlyMode && hasClinicalOrg,
+      tone: 'blue'
+    },
     {
       id: 'office',
       label: 'Office booking',
@@ -2671,6 +2682,7 @@ const intakeActionHelpText = computed(() => {
 
 const submitActionLabel = computed(() => {
   const labels = {
+    add_session: 'Add session',
     office: 'Submit office booking',
     office_request_only: 'Submit office request',
     school: 'Submit school request',
@@ -3866,7 +3878,7 @@ const submitRequest = async () => {
       if (createdScheduleEvents.length) {
         refreshInBackground = true;
       }
-    } else if (requestType.value === 'office') {
+    } else if (requestType.value === 'office' || requestType.value === 'add_session') {
       const officeId = Number(selectedOfficeLocationId.value || 0);
       if (!officeId) throw new Error('Select an office first.');
       if (!officeBookingValid.value) throw new Error('Select an available room (or choose “Any open room”).');
@@ -4180,8 +4192,8 @@ watch(bookingAppointmentType, () => {
   if (!stillValid) bookingAppointmentSubtype.value = '';
 });
 
-watch([selectedOfficeLocationId, showRequestModal], () => {
-  if ((requestType.value === 'office' || requestType.value === 'office_request_only') && showRequestModal.value) {
+watch([selectedOfficeLocationId, showRequestModal, requestType], () => {
+  if ((requestType.value === 'office' || requestType.value === 'office_request_only' || requestType.value === 'add_session') && showRequestModal.value) {
     void loadBookingMetadataForProvider();
   }
 });
