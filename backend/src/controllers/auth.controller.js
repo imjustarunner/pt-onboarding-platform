@@ -686,19 +686,34 @@ export const identifyLogin = async (req, res, next) => {
 
     const userRole = String(user?.role || '').toLowerCase();
     if (userRole === 'super_admin') {
-      // Super admins should remain on platform branding by default.
-      // But rescue mode on an org login must still be able to route to Google.
-      if (rescueMode && requestedOrgSlug) {
-        const googleStartUrl = `/auth/google/start?orgSlug=${encodeURIComponent(requestedOrgSlug)}`;
-        notifyRescueAttempt({ matched: true, method: 'google', resolvedSlug: requestedOrgSlug });
-        return res.json({
-          matched: true,
-          normalizedUsername,
-          needsOrgChoice: false,
-          resolvedOrg: null,
-          login: { method: 'google', googleStartUrl }
-        });
+      // Keep platform /login username-first + password by default.
+      // On org-branded login pages, allow Google routing when org SSO is enabled,
+      // so super admins are not blocked behind password-only verify flow.
+      if (requestedOrgSlug) {
+        let useGoogle = rescueMode;
+        try {
+          const org = (await Agency.findBySlug(requestedOrgSlug)) || (await Agency.findByPortalUrl(requestedOrgSlug));
+          const flags = parseFeatureFlags(org?.feature_flags ?? null);
+          if (flags?.googleSsoEnabled === true) {
+            useGoogle = true;
+          }
+        } catch {
+          // best-effort: fall back to default behavior below
+        }
+
+        if (useGoogle) {
+          const googleStartUrl = `/auth/google/start?orgSlug=${encodeURIComponent(requestedOrgSlug)}`;
+          notifyRescueAttempt({ matched: true, method: 'google', resolvedSlug: requestedOrgSlug });
+          return res.json({
+            matched: true,
+            normalizedUsername,
+            needsOrgChoice: false,
+            resolvedOrg: null,
+            login: { method: 'google', googleStartUrl }
+          });
+        }
       }
+
       notifyRescueAttempt({ matched: true, method: 'password', resolvedSlug: requestedOrgSlug });
       return res.json({
         matched: true,
@@ -1327,6 +1342,11 @@ export const googleOAuthCallback = async (req, res, next) => {
       return redirectToLogin(orgSlug, 'Google sign-in could not be verified', frontendBase);
     }
 
+    const user = await User.findByEmail(email);
+    if (!user) {
+      return redirectToLogin(orgSlug, 'No user account matches this Google email', frontendBase);
+    }
+
     // Domain enforcement (multi-domain allowlist)
     const rawFlags = org?.feature_flags ?? null;
     const featureFlags =
@@ -1334,23 +1354,18 @@ export const googleOAuthCallback = async (req, res, next) => {
         ? (() => { try { return JSON.parse(rawFlags); } catch { return {}; } })()
         : (rawFlags && typeof rawFlags === 'object' ? rawFlags : {});
 
+    const userRole = String(user.role || '').toLowerCase();
     const allowedDomains = Array.isArray(featureFlags?.googleSsoAllowedDomains)
       ? featureFlags.googleSsoAllowedDomains.map((d) => String(d || '').trim().toLowerCase()).filter(Boolean)
       : [];
-    if (allowedDomains.length > 0) {
+    if (allowedDomains.length > 0 && userRole !== 'super_admin') {
       const domain = email.includes('@') ? email.split('@')[1] : '';
       if (!domain || !allowedDomains.includes(domain)) {
         return redirectToLogin(orgSlug, 'Your Google account is not allowed for this organization', frontendBase);
       }
     }
 
-    const user = await User.findByEmail(email);
-    if (!user) {
-      return redirectToLogin(orgSlug, 'No user account matches this Google email', frontendBase);
-    }
-
     // Enforce org membership (unless super admin)
-    const userRole = String(user.role || '').toLowerCase();
     if (userRole !== 'super_admin') {
       const userOrgs = await User.getAgencies(user.id);
       const ok = (userOrgs || []).some((o) => String(o?.slug || o?.portal_url || '').toLowerCase() === orgSlug || Number(o?.id) === Number(org?.id));
