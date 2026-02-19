@@ -16,6 +16,26 @@
         @keydown.enter="saveTitle"
       />
       <div class="sticky-actions">
+        <div class="color-picker">
+          <button
+            type="button"
+            class="color-btn"
+            :title="`Color: ${sticky.color || 'yellow'}`"
+            :style="{ background: colorHex(sticky.color) }"
+            @click.stop="showColorMenu = !showColorMenu"
+          />
+          <div v-if="showColorMenu" class="color-menu" @click.stop>
+            <button
+              v-for="c in colorOptions"
+              :key="c.id"
+              type="button"
+              class="color-option"
+              :style="{ background: c.hex }"
+              :title="c.id"
+              @click="changeColor(c.id)"
+            />
+          </div>
+        </div>
         <button
           type="button"
           class="sticky-btn"
@@ -95,18 +115,51 @@
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, onUnmounted } from 'vue';
 
 const props = defineProps({
   sticky: { type: Object, required: true },
-  userId: { type: Number, required: true }
+  userId: { type: Number, default: null }
 });
 
 const emit = defineEmits(['update', 'delete', 'position-change', 'add-entry', 'update-entry', 'delete-entry', 'promote-entry']);
 
 const localTitle = ref(props.sticky.title);
 const entryTexts = ref([]);
+const showColorMenu = ref(false);
 let saveEntryTimer = null;
+
+const colorOptions = [
+  { id: 'yellow', hex: '#fef08a' },
+  { id: 'pink', hex: '#fbcfe8' },
+  { id: 'blue', hex: '#bfdbfe' },
+  { id: 'green', hex: '#bbf7d0' },
+  { id: 'purple', hex: '#e9d5ff' },
+  { id: 'orange', hex: '#fed7aa' }
+];
+
+const colorHex = (id) => colorOptions.find((c) => c.id === (id || 'yellow'))?.hex ?? '#fef08a';
+
+const changeColor = (id) => {
+  showColorMenu.value = false;
+  emit('update', { color: id });
+};
+
+const closeColorMenu = () => {
+  showColorMenu.value = false;
+};
+
+watch(showColorMenu, (open) => {
+  if (open) {
+    setTimeout(() => document.addEventListener('click', closeColorMenu), 0);
+  } else {
+    document.removeEventListener('click', closeColorMenu);
+  }
+});
+
+onUnmounted(() => {
+  document.removeEventListener('click', closeColorMenu);
+});
 
 watch(
   () => props.sticky,
@@ -119,7 +172,8 @@ watch(
 
 const cardStyle = computed(() => ({
   left: `${props.sticky.position_x ?? 0}px`,
-  top: `${props.sticky.position_y ?? 0}px`
+  top: `${props.sticky.position_y ?? 0}px`,
+  '--sticky-bg': colorHex(props.sticky.color)
 }));
 
 const toggleCollapse = () => {
@@ -185,10 +239,10 @@ const onDragEnd = (e) => {
 
 <style scoped>
 .momentum-sticky-card {
-  position: absolute;
+  position: fixed;
   min-width: 220px;
   max-width: 280px;
-  background: linear-gradient(135deg, #fef9c3 0%, #fef08a 50%, #fde047 100%);
+  background: var(--sticky-bg, #fef08a);
   border: 1px solid rgba(0, 0, 0, 0.12);
   border-radius: 8px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
@@ -239,7 +293,55 @@ const onDragEnd = (e) => {
 
 .sticky-actions {
   display: flex;
-  gap: 2px;
+  align-items: center;
+  gap: 4px;
+}
+
+.color-picker {
+  position: relative;
+}
+
+.color-btn {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.color-btn:hover {
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.2);
+}
+
+.color-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  padding: 6px;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  z-index: 1000;
+}
+
+.color-option {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.color-option:hover {
+  transform: scale(1.1);
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.3);
 }
 
 .sticky-btn {

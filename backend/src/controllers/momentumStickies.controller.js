@@ -37,7 +37,7 @@ export const getSticky = async (req, res, next) => {
 export const createSticky = async (req, res, next) => {
   try {
     const userId = parseInt(req.params.userId, 10);
-    const { title, is_pinned, position_x, position_y, is_collapsed, sort_order } = req.body;
+    const { title, is_pinned, position_x, position_y, is_collapsed, sort_order, color } = req.body;
     if (!title || typeof title !== 'string' || title.trim().length === 0) {
       return res.status(400).json({ error: { message: 'title is required' } });
     }
@@ -48,7 +48,8 @@ export const createSticky = async (req, res, next) => {
       positionX: typeof position_x === 'number' ? position_x : 0,
       positionY: typeof position_y === 'number' ? position_y : 0,
       isCollapsed: !!is_collapsed,
-      sortOrder: typeof sort_order === 'number' ? sort_order : 0
+      sortOrder: typeof sort_order === 'number' ? sort_order : 0,
+      color: color || 'yellow'
     });
     res.status(201).json(sticky);
   } catch (err) {
@@ -60,14 +61,15 @@ export const updateSticky = async (req, res, next) => {
   try {
     const userId = parseInt(req.params.userId, 10);
     const stickyId = parseInt(req.params.stickyId, 10);
-    const { title, is_pinned, position_x, position_y, is_collapsed, sort_order } = req.body;
+    const { title, is_pinned, position_x, position_y, is_collapsed, sort_order, color } = req.body;
     const sticky = await MomentumSticky.update(stickyId, userId, {
       title: title !== undefined ? String(title).trim() : undefined,
       isPinned: is_pinned !== undefined ? !!is_pinned : undefined,
       positionX: position_x !== undefined ? position_x : undefined,
       positionY: position_y !== undefined ? position_y : undefined,
       isCollapsed: is_collapsed !== undefined ? !!is_collapsed : undefined,
-      sortOrder: sort_order !== undefined ? sort_order : undefined
+      sortOrder: sort_order !== undefined ? sort_order : undefined,
+      color: color !== undefined ? color : undefined
     });
     if (!sticky) {
       return res.status(404).json({ error: { message: 'Momentum Sticky not found' } });
