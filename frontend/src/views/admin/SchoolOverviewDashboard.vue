@@ -68,6 +68,41 @@
         {{ emptyStateText }}
       </div>
 
+      <!-- Show All School Portals: small cards (school name + icon) like My Dashboard -->
+      <div
+        v-else-if="isAllPortalsPage"
+        class="portal-cards-grid"
+        data-tour="schools-overview-cards"
+      >
+        <button
+          v-for="s in filteredSchools"
+          :key="s.school_id"
+          type="button"
+          class="portal-card"
+          data-tour="schools-overview-card"
+          @click="openSchool(s)"
+        >
+          <div class="portal-card-logo">
+            <img
+              v-if="schoolLogoUrl(s) && !failedCardLogoIds.has(String(s.school_id))"
+              :src="schoolLogoUrl(s)"
+              :alt="`${s.school_name} logo`"
+              class="portal-card-logo-img"
+              @error="onCardLogoError(s.school_id)"
+            />
+            <div v-else class="portal-card-logo-fallback" aria-hidden="true">
+              {{ schoolInitials(s) }}
+            </div>
+          </div>
+          <div class="portal-card-body">
+            <div class="portal-card-name">{{ s.school_name }}</div>
+            <div class="portal-card-type">{{ formatOrgType(s.organization_type) }}</div>
+          </div>
+          <div class="portal-card-cta">Open portal</div>
+        </button>
+      </div>
+
+      <!-- School Overview: full stats cards -->
       <div v-else class="cards-grid" data-tour="schools-overview-cards">
         <div
           v-for="s in filteredSchools"
@@ -209,6 +244,7 @@ import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import { useBrandingStore } from '../../store/branding';
+import { toUploadsUrl } from '../../utils/uploadsUrl';
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
@@ -222,6 +258,33 @@ const schools = ref([]);
 const searchQuery = ref('');
 const sortBy = ref('school_name-asc');
 const selectedDistrict = ref('all');
+const failedCardLogoIds = ref(new Set());
+
+function schoolLogoUrl(school) {
+  const candidates = [
+    school?.logo_path,
+    school?.icon_file_path
+  ];
+  const raw = candidates.find((v) => String(v || '').trim());
+  if (!raw) return null;
+  const s = String(raw).trim();
+  if (s.startsWith('http://') || s.startsWith('https://')) return s;
+  return toUploadsUrl(s);
+}
+
+function schoolInitials(school) {
+  const parts = String(school?.school_name || '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (parts.length === 0) return 'OR';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0] || ''}${parts[1][0] || ''}`.toUpperCase();
+}
+
+function onCardLogoError(schoolId) {
+  failedCardLogoIds.value = new Set([...failedCardLogoIds.value, String(schoolId)]);
+}
 
 const isSuperAdmin = computed(() => String(authStore.user?.role || '').toLowerCase() === 'super_admin');
 
@@ -551,6 +614,84 @@ onMounted(async () => {
 .cards-wrap {
   margin-top: 10px;
 }
+
+/* Small portal cards (Show All School Portals) - matches My Dashboard / AgencySelector */
+.portal-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 12px;
+}
+.portal-card {
+  border: 1px solid var(--border);
+  background: #fff;
+  border-radius: 10px;
+  padding: 12px;
+  display: grid;
+  grid-template-columns: 40px 1fr auto;
+  gap: 10px;
+  align-items: center;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+.portal-card:hover {
+  border-color: var(--primary);
+  box-shadow: var(--shadow);
+  transform: translateY(-1px);
+}
+.portal-card-logo {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.portal-card-logo-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.portal-card-logo-fallback {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+}
+.portal-card-body {
+  min-width: 0;
+}
+.portal-card-name {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.portal-card-type {
+  margin-top: 2px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.portal-card-cta {
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 .cards-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

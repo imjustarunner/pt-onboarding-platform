@@ -196,7 +196,22 @@ export const listArchivedOffices = async (req, res, next) => {
   try {
     if (!(await canManageOfficeSettings(req))) return res.status(403).json({ error: { message: 'Access denied' } });
 
-    const rows = await OfficeLocation.listAll({ includeInactive: true });
+    let rows;
+    if (req.user.role === 'super_admin') {
+      rows = await OfficeLocation.listAll({ includeInactive: true });
+    } else {
+      const agencies = await User.getAgencies(req.user.id);
+      const agencyIds = agencies.map((a) => a.id);
+      const all = [];
+      for (const agencyId of agencyIds) {
+        const officeRows = await OfficeLocation.findByAgencyMembership(agencyId, { includeInactive: true });
+        all.push(...officeRows);
+      }
+      const byId = new Map();
+      for (const r of all) byId.set(r.id, r);
+      rows = Array.from(byId.values());
+    }
+
     const archived = (rows || [])
       .filter((r) => r && (r.is_active === 0 || r.is_active === false))
       .map((r) => ({

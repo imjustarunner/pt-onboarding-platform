@@ -365,6 +365,7 @@
                 </td>
                 <td class="actions-cell">
                   <button @click="restoreAgency(agency.id)" class="btn btn-success btn-sm">Restore</button>
+                  <button @click="permanentlyDeleteAgency(agency.id)" class="btn btn-danger btn-sm">Delete</button>
                 </td>
               </tr>
             </tbody>
@@ -486,10 +487,12 @@ const tabs = computed(() => {
     { id: 'clients', label: 'Clients', count: archivedClients.value.length }
   ];
   
-  // Only show agencies tab for super admins
+  // Buildings tab: admins and super admins (admins see buildings from their org)
+  allTabs.push({ id: 'buildings', label: 'Buildings', count: archivedBuildings.value.length });
+  
+  // Agencies tab: super admins only
   if (authStore.user?.role === 'super_admin') {
     allTabs.push({ id: 'agencies', label: 'Agencies', count: archivedAgencies.value.length });
-    allTabs.push({ id: 'buildings', label: 'Buildings', count: archivedBuildings.value.length });
   }
   
   return allTabs;
@@ -667,12 +670,6 @@ const fetchArchivedAgencies = async () => {
 };
 
 const fetchArchivedBuildings = async () => {
-  // Only super admins can view archived buildings
-  if (authStore.user?.role !== 'super_admin') {
-    archivedBuildings.value = [];
-    return;
-  }
-
   try {
     loadingBuildings.value = true;
     const response = await api.get('/offices/archived');
@@ -692,13 +689,13 @@ const fetchAllArchived = async () => {
     fetchArchivedModules(),
     fetchArchivedUsers(),
     fetchArchivedDocuments(),
-    fetchArchivedClients()
+    fetchArchivedClients(),
+    fetchArchivedBuildings()
   ];
   
   // Only fetch agencies for super admins
   if (authStore.user?.role === 'super_admin') {
     promises.push(fetchArchivedAgencies());
-    promises.push(fetchArchivedBuildings());
   }
   
   await Promise.all(promises);
@@ -951,6 +948,21 @@ const restoreAgency = async (id) => {
     alert('Agency restored successfully');
   } catch (err) {
     alert(err.response?.data?.error?.message || 'Failed to restore agency');
+  }
+};
+
+const permanentlyDeleteAgency = async (id) => {
+  if (!confirm('Are you sure you want to permanently delete this agency? This action CANNOT be undone.')) {
+    return;
+  }
+  
+  try {
+    await api.delete(`/agencies/${id}`);
+    await fetchArchivedAgencies();
+    await agencyStore.fetchAgencies();
+    alert('Agency permanently deleted');
+  } catch (err) {
+    alert(err.response?.data?.error?.message || 'Failed to delete agency');
   }
 };
 

@@ -280,16 +280,48 @@
                 <div v-if="step.type === 'document'" class="form-grid">
                   <div class="form-group">
                     <label>Document Template</label>
-                    <select v-model.number="step.templateId">
-                      <option :value="null">Select document</option>
-                      <option
-                        v-for="t in documentStepTemplates"
-                        :key="t.id"
-                        :value="t.id"
+                    <div
+                      class="document-step-select-wrap"
+                      :ref="(el) => openDocumentStepSelectId === step.id && (documentStepSelectRef = el)"
+                    >
+                      <button
+                        type="button"
+                        class="document-step-trigger"
+                        @click="toggleDocumentStepSelect(step.id)"
                       >
-                        {{ t.name }} ({{ t.document_action_type }})
-                      </option>
-                    </select>
+                        {{ getSelectedTemplateLabel(step.templateId) || 'Select document' }}
+                      </button>
+                      <div v-if="openDocumentStepSelectId === step.id" class="document-step-dropdown">
+                        <input
+                          ref="documentStepFilterInputRef"
+                          v-model="documentStepFilter"
+                          type="text"
+                          class="document-step-filter"
+                          placeholder="Type to filter (e.g. P for documents starting with P)"
+                          @keydown.escape="closeDocumentStepSelect"
+                        />
+                        <div class="document-step-list">
+                          <button
+                            type="button"
+                            class="document-step-option"
+                            :class="{ selected: step.templateId === null }"
+                            @click="selectDocumentTemplate(step, null)"
+                          >
+                            Select document
+                          </button>
+                          <button
+                            v-for="t in filteredDocumentStepTemplates"
+                            :key="t.id"
+                            type="button"
+                            class="document-step-option"
+                            :class="{ selected: step.templateId === t.id }"
+                            @click="selectDocumentTemplate(step, t.id)"
+                          >
+                            {{ t.name }} ({{ t.document_action_type }})
+                          </button>
+                        </div>
+                      </div>
+                    </div>
                     <div v-if="!templates.length" class="muted">
                       No document templates available. Create one in Documents Library.
                     </div>
@@ -395,7 +427,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import api from '../../services/api';
 import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 
@@ -442,6 +474,10 @@ const quickError = ref('');
 const selectedAgencyId = ref(null);
 const fieldTemplateName = ref('');
 const fieldTemplateJson = ref('');
+const openDocumentStepSelectId = ref(null);
+const documentStepFilter = ref('');
+const documentStepSelectRef = ref(null);
+const documentStepFilterInputRef = ref(null);
 
 const organizationsForScope = computed(() => {
   const type = form.scopeType;
@@ -621,12 +657,27 @@ const handleBeforeUnload = () => {
   if (showForm.value) saveDraft();
 };
 
+const handleDocumentClick = (e) => {
+  if (openDocumentStepSelectId.value && documentStepSelectRef.value && !documentStepSelectRef.value.contains(e.target)) {
+    closeDocumentStepSelect();
+  }
+};
+
 onMounted(() => {
   window.addEventListener('beforeunload', handleBeforeUnload);
 });
 
+watch(openDocumentStepSelectId, (open) => {
+  if (open) {
+    nextTick(() => document.addEventListener('click', handleDocumentClick));
+  } else {
+    document.removeEventListener('click', handleDocumentClick);
+  }
+});
+
 onBeforeUnmount(() => {
   window.removeEventListener('beforeunload', handleBeforeUnload);
+  document.removeEventListener('click', handleDocumentClick);
   if (autosaveTimer.value) {
     clearInterval(autosaveTimer.value);
     autosaveTimer.value = null;
@@ -856,6 +907,41 @@ const documentStepTemplates = computed(() => {
   sorted.sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || ''), undefined, { sensitivity: 'base' }));
   return sorted;
 });
+
+const filteredDocumentStepTemplates = computed(() => {
+  const list = documentStepTemplates.value;
+  const q = String(documentStepFilter.value || '').trim().toLowerCase();
+  if (!q) return list;
+  return list.filter((t) => String(t?.name || '').toLowerCase().includes(q));
+});
+
+const getSelectedTemplateLabel = (templateId) => {
+  if (templateId == null) return '';
+  const t = documentStepTemplates.value.find((x) => Number(x.id) === Number(templateId));
+  return t ? `${t.name} (${t.document_action_type})` : '';
+};
+
+const toggleDocumentStepSelect = (stepId) => {
+  if (openDocumentStepSelectId.value === stepId) {
+    closeDocumentStepSelect();
+  } else {
+    openDocumentStepSelectId.value = stepId;
+    documentStepFilter.value = '';
+    nextTick(() => {
+      documentStepFilterInputRef.value?.focus();
+    });
+  }
+};
+
+const closeDocumentStepSelect = () => {
+  openDocumentStepSelectId.value = null;
+  documentStepFilter.value = '';
+};
+
+const selectDocumentTemplate = (step, templateId) => {
+  step.templateId = templateId;
+  closeDocumentStepSelect();
+};
 
 const orderedAllowedTemplates = computed(() => {
   const ids = Array.isArray(form.allowedDocumentTemplateIds) ? form.allowedDocumentTemplateIds : [];
@@ -1276,5 +1362,74 @@ onMounted(fetchData);
 .muted {
   color: var(--text-secondary);
   font-size: 12px;
+}
+
+/* Searchable document template dropdown */
+.document-step-select-wrap {
+  position: relative;
+}
+.document-step-trigger {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  text-align: left;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: white;
+  font-size: 14px;
+  cursor: pointer;
+  color: var(--text-primary);
+}
+.document-step-trigger:hover {
+  border-color: var(--primary, #2563eb);
+}
+.document-step-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: white;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  z-index: 100;
+  overflow: hidden;
+}
+.document-step-filter {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  box-sizing: border-box;
+}
+.document-step-filter:focus {
+  outline: 2px solid var(--primary, #2563eb);
+  outline-offset: -2px;
+}
+.document-step-list {
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+.document-step-option {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  text-align: left;
+  border: none;
+  background: none;
+  font-size: 13px;
+  cursor: pointer;
+  color: var(--text-primary);
+}
+.document-step-option:hover {
+  background: var(--bg-alt, #f3f4f6);
+}
+.document-step-option.selected {
+  background: rgba(37, 99, 235, 0.1);
+  color: var(--primary, #2563eb);
 }
 </style>
