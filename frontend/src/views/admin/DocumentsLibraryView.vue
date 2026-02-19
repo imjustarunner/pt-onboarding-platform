@@ -274,22 +274,10 @@
           </div>
           <div class="form-group">
             <label>Document Action Type *</label>
-            <div class="action-type-buttons" style="display: flex; gap: 8px; flex-wrap: wrap;">
-              <button
-                type="button"
-                @click="editForm.documentActionType = 'signature'"
-                :class="['btn', 'btn-sm', editForm.documentActionType === 'signature' ? 'btn-primary' : 'btn-secondary']"
-              >
-                Require Electronic Signature
-              </button>
-              <button
-                type="button"
-                @click="editForm.documentActionType = 'review'"
-                :class="['btn', 'btn-sm', editForm.documentActionType === 'review' ? 'btn-primary' : 'btn-secondary']"
-              >
-                Review/Acknowledgment Only
-              </button>
-            </div>
+            <select v-model="editForm.documentActionType" required class="form-control">
+              <option value="signature">Require Electronic Signature</option>
+              <option value="review">Review/Acknowledgment Only</option>
+            </select>
           </div>
           <div class="form-group">
             <label>PDF Document</label>
