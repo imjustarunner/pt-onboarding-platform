@@ -213,6 +213,17 @@ class PayrollTimeClaim {
     return PayrollTimeClaim.findById(id);
   }
 
+  static async updatePayload({ id, payload }) {
+    await pool.execute(
+      `UPDATE payroll_time_claims
+       SET payload_json = ?
+       WHERE id = ?
+       LIMIT 1`,
+      [JSON.stringify(payload || {}), id]
+    );
+    return PayrollTimeClaim.findById(id);
+  }
+
   static async sumApprovedForPeriodUser({ payrollPeriodId, agencyId, userId }) {
     const [rows] = await pool.execute(
       `SELECT SUM(applied_amount) AS total

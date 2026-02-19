@@ -6,6 +6,7 @@ import {
   getWorkspaceClientsForEmployee,
   logGoogleUnauthorizedHint
 } from './googleWorkspaceAuth.service.js';
+import { ensureMeetAutoTranscriptionEnabled } from './googleMeetTranscript.service.js';
 
 function parseServiceAccountJson() {
   const raw = process.env.GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON;
@@ -509,9 +510,71 @@ export class GoogleCalendarService {
         data?.hangoutLink ||
         null;
 
+      // Best-effort: keep Meet spaces defaulted to auto-transcription ON whenever a Meet link exists.
+      if (meetLink) {
+        await ensureMeetAutoTranscriptionEnabled({
+          hostEmail: subject,
+          meetLink
+        });
+      }
+
       return { ok: true, googleEventId, calendarId, meetLink };
     } catch (e) {
       logGoogleUnauthorizedHint(e, { context: 'GoogleCalendarService.upsertSupervisionSession' });
+      return { ok: false, reason: 'google_api_error', error: String(e?.message || e) };
+    }
+  }
+
+  static async createTimeClaimMeetEvent({
+    hostEmail,
+    startAt,
+    endAt,
+    timeZone = 'America/New_York',
+    summary = 'Meeting/Training',
+    description = null
+  } = {}) {
+    const subject = String(hostEmail || '').trim().toLowerCase();
+    if (!subject) return { ok: false, reason: 'missing_host_email' };
+    if (!startAt || !endAt) return { ok: false, reason: 'missing_start_end' };
+
+    const cal = this.buildCalendarClientForSubject(subject);
+    const calendarId = 'primary';
+    const requestBody = {
+      summary: String(summary || 'Meeting/Training').trim() || 'Meeting/Training',
+      description: description ? String(description) : undefined,
+      start: { dateTime: toRfc3339Local(startAt), timeZone },
+      end: { dateTime: toRfc3339Local(endAt), timeZone }
+    };
+    requestBody.conferenceData = {
+      createRequest: {
+        requestId: `pt-time-claim-${Date.now()}-${Math.floor(Math.random() * 100000)}`
+      }
+    };
+
+    try {
+      const ins = await cal.events.insert({
+        calendarId,
+        requestBody,
+        sendUpdates: 'all',
+        conferenceDataVersion: 1
+      });
+      const data = ins?.data || {};
+      const meetLink =
+        data?.conferenceData?.entryPoints?.find((e) => e?.entryPointType === 'video')?.uri ||
+        data?.hangoutLink ||
+        null;
+      const googleEventId = data?.id || null;
+
+      if (meetLink) {
+        await ensureMeetAutoTranscriptionEnabled({
+          hostEmail: subject,
+          meetLink
+        });
+      }
+
+      return { ok: true, googleEventId, calendarId, meetLink };
+    } catch (e) {
+      logGoogleUnauthorizedHint(e, { context: 'GoogleCalendarService.createTimeClaimMeetEvent' });
       return { ok: false, reason: 'google_api_error', error: String(e?.message || e) };
     }
   }

@@ -153,6 +153,20 @@
                 </td>
                 <td>
                   <div>{{ String(c.status || '').toUpperCase() }}</div>
+                  <div
+                    v-if="['meeting_training','mentor_cpa_meeting'].includes(String(c.claim_type || '').toLowerCase()) && c.payload?.googleMeetLink"
+                    class="muted"
+                    style="margin-top: 4px;"
+                  >
+                    <a :href="c.payload.googleMeetLink" target="_blank" rel="noreferrer">Open Meet link</a>
+                  </div>
+                  <div
+                    v-if="['meeting_training','mentor_cpa_meeting'].includes(String(c.claim_type || '').toLowerCase()) && c.payload?.transcriptUrl"
+                    class="muted"
+                    style="margin-top: 2px;"
+                  >
+                    <a :href="c.payload.transcriptUrl" target="_blank" rel="noreferrer">Open transcript</a>
+                  </div>
                   <div v-if="String(c.status||'').toLowerCase()==='deferred' && c.rejection_reason" class="muted" style="margin-top: 4px;">
                     Needs changes: {{ c.rejection_reason }}
                   </div>

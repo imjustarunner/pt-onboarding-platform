@@ -4,6 +4,7 @@ import SupervisionSession from '../models/SupervisionSession.model.js';
 import SupervisionSessionArtifact from '../models/SupervisionSessionArtifact.model.js';
 import SupervisorAssignment from '../models/SupervisorAssignment.model.js';
 import GoogleCalendarService from '../services/googleCalendar.service.js';
+import { fetchMeetTranscriptForSession } from '../services/googleMeetTranscript.service.js';
 import PayrollRateCard from '../models/PayrollRateCard.model.js';
 import PayrollRate from '../models/PayrollRate.model.js';
 import { callGeminiText } from '../services/geminiText.service.js';
@@ -584,7 +585,31 @@ export const getSupervisionSessionArtifacts = async (req, res, next) => {
     });
     if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
 
-    const artifact = await SupervisionSessionArtifact.findBySessionId(id);
+    let artifact = await SupervisionSessionArtifact.findBySessionId(id);
+
+    const hasTranscriptUrl = !!String(artifact?.transcript_url || '').trim();
+    const hasTranscriptText = !!String(artifact?.transcript_text || '').trim();
+    const canAttemptAutoPull = !hasTranscriptUrl && !hasTranscriptText
+      && (!!String(row.google_meet_link || '').trim() || !!String(row.google_event_id || '').trim());
+
+    if (canAttemptAutoPull) {
+      const auto = await fetchMeetTranscriptForSession({
+        hostEmail: row.google_host_email,
+        meetLink: row.google_meet_link,
+        googleEventId: row.google_event_id,
+        sessionStartAt: row.start_at
+      });
+      if (auto?.ok && (String(auto.transcriptUrl || '').trim() || String(auto.transcriptText || '').trim())) {
+        artifact = await SupervisionSessionArtifact.upsertBySessionId({
+          sessionId: id,
+          taggedAt: mysqlNowDateTime(),
+          transcriptUrl: auto.transcriptUrl || null,
+          transcriptText: auto.transcriptText || null,
+          updatedByUserId: Number(req.user?.id || 0) || null
+        });
+      }
+    }
+
     res.json({ ok: true, sessionId: id, artifact: artifact || null });
   } catch (e) {
     next(e);

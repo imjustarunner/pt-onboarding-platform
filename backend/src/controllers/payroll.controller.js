@@ -69,6 +69,8 @@ import NotificationService from '../services/notification.service.js';
 import PayrollNotesAgingService from '../services/payrollNotesAging.service.js';
 import PayrollHolidayBonusApprovalAlertService from '../services/payrollHolidayBonusApprovalAlert.service.js';
 import { OfficeScheduleReviewService } from '../services/officeScheduleReview.service.js';
+import GoogleCalendarService from '../services/googleCalendar.service.js';
+import { fetchMeetTranscriptForSession } from '../services/googleMeetTranscript.service.js';
 import {
   getAgencySupervisionPolicy,
   upsertAgencySupervisionPolicy,
@@ -12128,6 +12130,185 @@ function toMinutes(v) {
   return Math.round(n);
 }
 
+function isTimeClaimMeetingType(claimTypeRaw) {
+  const t = String(claimTypeRaw || '').trim().toLowerCase();
+  return t === 'meeting_training' || t === 'mentor_cpa_meeting';
+}
+
+function isGoogleMeetPlatform(platformRaw) {
+  const p = String(platformRaw || '').trim().toLowerCase();
+  return p === 'google meet' || p === 'google_meet' || p === 'meet';
+}
+
+function parseTimeHm(raw) {
+  const s = String(raw || '').trim();
+  const m = s.match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return null;
+  const hh = Number(m[1]);
+  const mm = Number(m[2]);
+  if (!Number.isFinite(hh) || !Number.isFinite(mm) || hh < 0 || hh > 23 || mm < 0 || mm > 59) return null;
+  return { hh, mm };
+}
+
+function pad2(n) {
+  return String(Number(n || 0)).padStart(2, '0');
+}
+
+function formatMysqlDateTime(dateObj) {
+  if (!(dateObj instanceof Date) || Number.isNaN(dateObj.getTime())) return null;
+  return `${dateObj.getFullYear()}-${pad2(dateObj.getMonth() + 1)}-${pad2(dateObj.getDate())} ${pad2(dateObj.getHours())}:${pad2(dateObj.getMinutes())}:${pad2(dateObj.getSeconds())}`;
+}
+
+function deriveMeetingWindowFromClaim({ claimDate, payload }) {
+  const ymd = String(claimDate || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return null;
+  const startHm = parseTimeHm(payload?.startTime);
+  if (!startHm) return null;
+  const start = new Date(`${ymd}T${pad2(startHm.hh)}:${pad2(startHm.mm)}:00`);
+  if (Number.isNaN(start.getTime())) return null;
+
+  const endHm = parseTimeHm(payload?.endTime);
+  let end = null;
+  if (endHm) {
+    end = new Date(`${ymd}T${pad2(endHm.hh)}:${pad2(endHm.mm)}:00`);
+  } else {
+    const mins = toMinutes(payload?.totalMinutes);
+    if (mins && mins > 0) end = new Date(start.getTime() + mins * 60 * 1000);
+  }
+  if (!(end instanceof Date) || Number.isNaN(end.getTime()) || end <= start) return null;
+  return {
+    startAt: formatMysqlDateTime(start),
+    endAt: formatMysqlDateTime(end),
+    sessionStartAt: start.toISOString()
+  };
+}
+
+async function maybeAttachMeetToTimeClaimPayload({
+  claimType,
+  claimDate,
+  payload,
+  userId
+}) {
+  if (!isTimeClaimMeetingType(claimType)) return payload;
+  if (!isGoogleMeetPlatform(payload?.platform)) return payload;
+  if (String(payload?.googleMeetLink || '').trim()) return payload;
+  if (String(payload?.googleEventId || '').trim()) return payload;
+
+  const window = deriveMeetingWindowFromClaim({ claimDate, payload });
+  if (!window) return payload;
+
+  const user = await User.findById(userId);
+  const hostEmail = String(user?.email || '').trim().toLowerCase();
+  if (!hostEmail) return payload;
+
+  const summaryPrefix = claimType === 'mentor_cpa_meeting' ? 'Mentor/CPA Meeting' : 'Meeting/Training';
+  const meetingType = String(payload?.meetingType || '').trim();
+  const summary = meetingType ? `${summaryPrefix} — ${meetingType}` : summaryPrefix;
+  const description = String(payload?.summary || '').trim() || null;
+
+  const sync = await GoogleCalendarService.createTimeClaimMeetEvent({
+    hostEmail,
+    startAt: window.startAt,
+    endAt: window.endAt,
+    summary,
+    description
+  });
+  if (!sync?.ok) return payload;
+
+  return {
+    ...payload,
+    googleMeetLink: sync.meetLink || null,
+    googleEventId: sync.googleEventId || null,
+    googleCalendarId: sync.calendarId || 'primary',
+    googleHostEmail: hostEmail
+  };
+}
+
+async function maybeHydrateTimeClaimTranscript(claim, hostEmailCache = new Map()) {
+  const claimType = String(claim?.claim_type || '').trim().toLowerCase();
+  if (!isTimeClaimMeetingType(claimType)) return claim;
+
+  const payload = claim?.payload || {};
+  const hasTranscriptText = !!String(payload?.transcriptText || '').trim();
+  const hasTranscriptUrl = !!String(payload?.transcriptUrl || '').trim();
+  if (hasTranscriptText || hasTranscriptUrl) return claim;
+
+  const meetLink = String(payload?.googleMeetLink || '').trim();
+  const googleEventId = String(payload?.googleEventId || '').trim();
+  if (!meetLink && !googleEventId) return claim;
+
+  const claimDate = String(claim?.claim_date || '').slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(claimDate)) {
+    const today = new Date().toISOString().slice(0, 10);
+    if (claimDate > today) return claim;
+  }
+
+  const ownerUserId = Number(claim?.user_id || 0);
+  let hostEmail = String(payload?.googleHostEmail || '').trim().toLowerCase();
+  if (!hostEmail && ownerUserId > 0) {
+    if (hostEmailCache.has(ownerUserId)) {
+      hostEmail = hostEmailCache.get(ownerUserId);
+    } else {
+      const owner = await User.findById(ownerUserId);
+      hostEmail = String(owner?.email || '').trim().toLowerCase();
+      hostEmailCache.set(ownerUserId, hostEmail);
+    }
+  }
+  if (!hostEmail) return claim;
+
+  const window = deriveMeetingWindowFromClaim({
+    claimDate,
+    payload
+  });
+  const auto = await fetchMeetTranscriptForSession({
+    hostEmail,
+    meetLink: meetLink || null,
+    googleEventId: googleEventId || null,
+    sessionStartAt: window?.sessionStartAt || claimDate
+  });
+  if (!auto?.ok) return claim;
+
+  const transcriptText = String(auto?.transcriptText || '').trim();
+  const transcriptUrl = String(auto?.transcriptUrl || '').trim();
+  if (!transcriptText && !transcriptUrl) return claim;
+
+  const nextPayload = {
+    ...payload,
+    googleHostEmail: hostEmail,
+    transcriptText: transcriptText || null,
+    transcriptUrl: transcriptUrl || null
+  };
+  return PayrollTimeClaim.updatePayload({
+    id: claim.id,
+    payload: nextPayload
+  });
+}
+
+async function hydrateTimeClaimListTranscripts(rows) {
+  const claims = Array.isArray(rows) ? rows : [];
+  if (!claims.length) return claims;
+  const hostEmailCache = new Map();
+  let attempts = 0;
+  const out = [];
+  for (const row of claims) {
+    if (attempts >= 10) {
+      out.push(row);
+      continue;
+    }
+    const canAttempt = isTimeClaimMeetingType(row?.claim_type)
+      && !String(row?.payload?.transcriptText || '').trim()
+      && !String(row?.payload?.transcriptUrl || '').trim()
+      && (String(row?.payload?.googleMeetLink || '').trim() || String(row?.payload?.googleEventId || '').trim());
+    if (!canAttempt) {
+      out.push(row);
+      continue;
+    }
+    attempts += 1;
+    out.push(await maybeHydrateTimeClaimTranscript(row, hostEmailCache));
+  }
+  return out;
+}
+
 export const createMyTimeClaim = async (req, res, next) => {
   try {
     const userId = req.user?.id;
@@ -12149,7 +12330,7 @@ export const createMyTimeClaim = async (req, res, next) => {
 
     const claimType = timeClaimAllowedType(body.claimType);
     const claimDate = String(body.claimDate || '').slice(0, 10);
-    const payload = body.payload || {};
+    let payload = body.payload || {};
     const attestation = payload?.attestation === true || payload?.attestation === 1 || payload?.attestation === '1';
 
     if (!claimType) return res.status(400).json({ error: { message: 'claimType is invalid' } });
@@ -12213,6 +12394,13 @@ export const createMyTimeClaim = async (req, res, next) => {
     // Auditing: who actually submitted this request (provider vs admin-on-behalf).
     const submittedByUserId = req.actorUser?.id ? Number(req.actorUser.id) : userId;
 
+    payload = await maybeAttachMeetToTimeClaimPayload({
+      claimType,
+      claimDate,
+      payload,
+      userId
+    });
+
     const claim = await PayrollTimeClaim.create({
       agencyId,
       userId,
@@ -12270,7 +12458,8 @@ export const listMyTimeClaims = async (req, res, next) => {
     }
 
     const rows = await PayrollTimeClaim.listForUser({ agencyId, userId, limit: 200, offset: 0 });
-    res.json(rows || []);
+    const hydrated = await hydrateTimeClaimListTranscripts(rows || []);
+    res.json(hydrated || []);
   } catch (e) {
     next(e);
   }
@@ -12316,7 +12505,8 @@ export const listTimeClaims = async (req, res, next) => {
       targetPayrollPeriodId,
       userId
     });
-    res.json(rows || []);
+    const hydrated = await hydrateTimeClaimListTranscripts(rows || []);
+    res.json(hydrated || []);
   } catch (e) {
     next(e);
   }
