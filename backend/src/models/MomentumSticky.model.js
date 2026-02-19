@@ -1,11 +1,11 @@
 import pool from '../config/database.js';
 
 class MomentumSticky {
-  static async listByUserId(userId) {
+  static async listByUserId(userId, { includeHidden = false } = {}) {
     const [rows] = await pool.execute(
-      `SELECT id, user_id, title, is_pinned, position_x, position_y, is_collapsed, sort_order, color, created_at, updated_at
+      `SELECT id, user_id, title, is_pinned, position_x, position_y, is_collapsed, sort_order, color, is_hidden, created_at, updated_at
        FROM momentum_stickies
-       WHERE user_id = ?
+       WHERE user_id = ? ${includeHidden ? '' : 'AND (is_hidden = 0 OR is_hidden IS NULL)'}
        ORDER BY is_pinned DESC, sort_order ASC, created_at ASC`,
       [userId]
     );
@@ -47,16 +47,16 @@ class MomentumSticky {
     return sticky;
   }
 
-  static async create({ userId, title, isPinned = false, positionX = 0, positionY = 0, isCollapsed = false, sortOrder = 0, color = 'yellow' }) {
+  static async create({ userId, title, isPinned = false, positionX = 0, positionY = 0, isCollapsed = false, sortOrder = 0, color = 'yellow', isHidden = false }) {
     const [result] = await pool.execute(
-      `INSERT INTO momentum_stickies (user_id, title, is_pinned, position_x, position_y, is_collapsed, sort_order, color)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [userId, title, isPinned ? 1 : 0, positionX, positionY, isCollapsed ? 1 : 0, sortOrder, color || 'yellow']
+      `INSERT INTO momentum_stickies (user_id, title, is_pinned, position_x, position_y, is_collapsed, sort_order, color, is_hidden)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [userId, title, isPinned ? 1 : 0, positionX, positionY, isCollapsed ? 1 : 0, sortOrder, color || 'yellow', isHidden ? 1 : 0]
     );
     return this.findById(result.insertId, userId);
   }
 
-  static async update(id, userId, { title, isPinned, positionX, positionY, isCollapsed, sortOrder, color }) {
+  static async update(id, userId, { title, isPinned, positionX, positionY, isCollapsed, sortOrder, color, isHidden }) {
     const sticky = await this.findById(id, userId);
     if (!sticky) return null;
     const updates = [];
@@ -68,6 +68,7 @@ class MomentumSticky {
     if (isCollapsed !== undefined) { updates.push('is_collapsed = ?'); values.push(isCollapsed ? 1 : 0); }
     if (sortOrder !== undefined) { updates.push('sort_order = ?'); values.push(sortOrder); }
     if (color !== undefined) { updates.push('color = ?'); values.push(color || 'yellow'); }
+    if (isHidden !== undefined) { updates.push('is_hidden = ?'); values.push(isHidden ? 1 : 0); }
     if (updates.length === 0) return sticky;
     values.push(id, userId);
     await pool.execute(
@@ -141,6 +142,7 @@ class MomentumSticky {
       is_collapsed: !!r.is_collapsed,
       sort_order: r.sort_order ?? 0,
       color: r.color || 'yellow',
+      is_hidden: !!(r.is_hidden),
       created_at: r.created_at,
       updated_at: r.updated_at,
       entries: []

@@ -74,6 +74,17 @@ class TaskAuditLog {
     }));
   }
 
+  static async findTaskIdsPromotedFromSticky(stickyId) {
+    const [rows] = await pool.execute(
+      `SELECT task_id FROM task_audit_log
+       WHERE JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.source')) = 'momentum_promote_sticky'
+       AND CAST(JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.stickyId')) AS UNSIGNED) = ?
+       AND task_id IS NOT NULL`,
+      [stickyId]
+    );
+    return rows.map((r) => r.task_id).filter(Boolean);
+  }
+
   static async getAuditLogForUser(userId) {
     const [rows] = await pool.execute(
       `SELECT tal.*, 

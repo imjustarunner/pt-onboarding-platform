@@ -1,13 +1,17 @@
 <template>
   <div
     class="momentum-sticky-card"
-    :class="{ collapsed: sticky.is_collapsed, pinned: sticky.is_pinned }"
+    :class="{ collapsed: sticky.is_collapsed, pinned: sticky.is_pinned, dragging: isDragging }"
     :style="cardStyle"
-    draggable="true"
-    @dragstart="onDragStart"
-    @dragend="onDragEnd"
   >
     <div class="sticky-header" @dblclick="toggleCollapse">
+      <div
+        class="drag-handle"
+        title="Drag to move"
+        @mousedown="onHeaderMouseDown"
+      >
+        ⋮⋮
+      </div>
       <input
         v-model="localTitle"
         class="sticky-title-input"
@@ -52,16 +56,59 @@
         >
           {{ sticky.is_collapsed ? '▼' : '▲' }}
         </button>
-        <button
-          type="button"
-          class="sticky-btn sticky-btn-delete"
-          title="Delete"
-          @click.stop="deleteSticky"
-        >
-          ×
-        </button>
+        <div class="more-menu-wrap">
+          <button
+            type="button"
+            class="sticky-btn more-btn"
+            title="More options"
+            @click.stop="showMoreMenu = !showMoreMenu"
+          >
+            ⋮
+          </button>
+          <div v-if="showMoreMenu" class="more-menu" @click.stop>
+            <button type="button" class="more-menu-item" @click="hideSticky">
+              👁‍🗨 Hide
+            </button>
+            <button type="button" class="more-menu-item more-menu-item-danger" @click="openDeleteConfirm">
+              Delete permanently…
+            </button>
+          </div>
+        </div>
       </div>
     </div>
+    <!-- Delete confirmation modal -->
+    <Teleport to="body">
+      <div v-if="showDeleteModal" class="delete-modal-backdrop" @click.self="showDeleteModal = false">
+        <div class="delete-modal">
+          <h3 class="delete-modal-title">{{ hasContent ? 'Delete sticky permanently?' : 'Delete this sticky?' }}</h3>
+          <p v-if="hasContent" class="delete-modal-warn">
+            This sticky has content. Deleting will also remove any tasks promoted from it from your Momentum List.
+          </p>
+          <p v-if="hasContent" class="delete-modal-hint">Type <strong>delete</strong> to confirm.</p>
+          <input
+            v-if="hasContent"
+            v-model="deleteConfirmText"
+            type="text"
+            class="delete-modal-input"
+            placeholder="Type delete"
+            autocomplete="off"
+          />
+          <div class="delete-modal-actions">
+            <button type="button" class="delete-modal-btn cancel" @click="showDeleteModal = false">
+              Cancel
+            </button>
+            <button
+              type="button"
+              class="delete-modal-btn danger"
+              :disabled="hasContent && deleteConfirmText.toLowerCase() !== 'delete'"
+              @click="confirmDelete"
+            >
+              Delete permanently
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
     <div v-show="!sticky.is_collapsed" class="sticky-body">
       <div class="entries">
         <div
@@ -122,11 +169,17 @@ const props = defineProps({
   userId: { type: Number, default: null }
 });
 
-const emit = defineEmits(['update', 'delete', 'position-change', 'add-entry', 'update-entry', 'delete-entry', 'promote-entry']);
+const emit = defineEmits(['update', 'delete', 'hide', 'position-change', 'add-entry', 'update-entry', 'delete-entry', 'promote-entry']);
 
 const localTitle = ref(props.sticky.title);
 const entryTexts = ref([]);
 const showColorMenu = ref(false);
+const showMoreMenu = ref(false);
+const showDeleteModal = ref(false);
+const deleteConfirmText = ref('');
+const isDragging = ref(false);
+const dragX = ref(0);
+const dragY = ref(0);
 let saveEntryTimer = null;
 
 const colorOptions = [
@@ -140,6 +193,28 @@ const colorOptions = [
 
 const colorHex = (id) => colorOptions.find((c) => c.id === (id || 'yellow'))?.hex ?? '#fef08a';
 
+const hasContent = computed(() => {
+  const entries = props.sticky?.entries ?? [];
+  return entries.some((e) => String(e?.text || '').trim().length > 0);
+});
+
+const hideSticky = () => {
+  showMoreMenu.value = false;
+  emit('hide');
+};
+
+const openDeleteConfirm = () => {
+  showMoreMenu.value = false;
+  deleteConfirmText.value = '';
+  showDeleteModal.value = true;
+};
+
+const confirmDelete = () => {
+  if (hasContent.value && deleteConfirmText.value.toLowerCase() !== 'delete') return;
+  showDeleteModal.value = false;
+  emit('delete');
+};
+
 const changeColor = (id) => {
   showColorMenu.value = false;
   emit('update', { color: id });
@@ -147,6 +222,10 @@ const changeColor = (id) => {
 
 const closeColorMenu = () => {
   showColorMenu.value = false;
+};
+
+const closeMoreMenu = () => {
+  showMoreMenu.value = false;
 };
 
 watch(showColorMenu, (open) => {
@@ -157,8 +236,17 @@ watch(showColorMenu, (open) => {
   }
 });
 
+watch(showMoreMenu, (open) => {
+  if (open) {
+    setTimeout(() => document.addEventListener('click', closeMoreMenu), 0);
+  } else {
+    document.removeEventListener('click', closeMoreMenu);
+  }
+});
+
 onUnmounted(() => {
   document.removeEventListener('click', closeColorMenu);
+  document.removeEventListener('click', closeMoreMenu);
 });
 
 watch(
@@ -170,11 +258,15 @@ watch(
   { immediate: true, deep: true }
 );
 
-const cardStyle = computed(() => ({
-  left: `${props.sticky.position_x ?? 0}px`,
-  top: `${props.sticky.position_y ?? 0}px`,
-  '--sticky-bg': colorHex(props.sticky.color)
-}));
+const cardStyle = computed(() => {
+  const x = isDragging.value ? dragX.value : (props.sticky.position_x ?? 0);
+  const y = isDragging.value ? dragY.value : (props.sticky.position_y ?? 0);
+  return {
+    left: `${x}px`,
+    top: `${y}px`,
+    '--sticky-bg': colorHex(props.sticky.color)
+  };
+});
 
 const toggleCollapse = () => {
   emit('update', { is_collapsed: !props.sticky.is_collapsed });
@@ -211,9 +303,6 @@ const promoteEntry = (entry) => {
   emit('promote-entry', entry);
 };
 
-const deleteSticky = () => {
-  emit('delete');
-};
 
 const saveEntry = (entry, idx) => {
   if (saveEntryTimer) clearTimeout(saveEntryTimer);
@@ -226,14 +315,38 @@ const saveEntry = (entry, idx) => {
   }, 400);
 };
 
-const onDragStart = (e) => {
-  e.dataTransfer.effectAllowed = 'move';
-  e.dataTransfer.setData('text/plain', props.sticky.id);
-  e.target.classList.add('dragging');
+let dragStartX = 0;
+let dragStartY = 0;
+let posStartX = 0;
+let posStartY = 0;
+
+const onHeaderMouseDown = (e) => {
+  e.preventDefault();
+  isDragging.value = true;
+  dragStartX = e.clientX;
+  dragStartY = e.clientY;
+  posStartX = props.sticky.position_x ?? 0;
+  posStartY = props.sticky.position_y ?? 0;
+  dragX.value = posStartX;
+  dragY.value = posStartY;
+  document.addEventListener('mousemove', onMouseMove);
+  document.addEventListener('mouseup', onMouseUp);
 };
 
-const onDragEnd = (e) => {
-  e.target.classList.remove('dragging');
+const onMouseMove = (e) => {
+  if (!isDragging.value) return;
+  const dx = e.clientX - dragStartX;
+  const dy = e.clientY - dragStartY;
+  dragX.value = Math.max(0, posStartX + dx);
+  dragY.value = Math.max(0, posStartY + dy);
+};
+
+const onMouseUp = () => {
+  if (!isDragging.value) return;
+  document.removeEventListener('mousemove', onMouseMove);
+  document.removeEventListener('mouseup', onMouseUp);
+  isDragging.value = false;
+  emit('update', { position_x: Math.round(dragX.value), position_y: Math.round(dragY.value) });
 };
 </script>
 
@@ -246,7 +359,6 @@ const onDragEnd = (e) => {
   border: 1px solid rgba(0, 0, 0, 0.12);
   border-radius: 8px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  cursor: grab;
   z-index: 100;
   transition: box-shadow 0.2s;
 }
@@ -257,7 +369,26 @@ const onDragEnd = (e) => {
 
 .momentum-sticky-card.dragging {
   cursor: grabbing;
-  opacity: 0.9;
+  opacity: 0.95;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+}
+
+.drag-handle {
+  flex-shrink: 0;
+  padding: 2px 6px;
+  cursor: grab;
+  color: rgba(0, 0, 0, 0.4);
+  font-size: 12px;
+  line-height: 1;
+  user-select: none;
+}
+
+.drag-handle:hover {
+  color: rgba(0, 0, 0, 0.7);
+}
+
+.momentum-sticky-card.dragging .drag-handle {
+  cursor: grabbing;
 }
 
 .momentum-sticky-card.collapsed {
@@ -271,7 +402,7 @@ const onDragEnd = (e) => {
 .sticky-header {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   padding: 8px 10px;
   border-bottom: 1px solid rgba(0, 0, 0, 0.08);
   border-radius: 8px 8px 0 0;
@@ -361,9 +492,138 @@ const onDragEnd = (e) => {
   background: rgba(0, 0, 0, 0.08);
 }
 
-.sticky-btn-delete {
-  font-size: 18px;
-  line-height: 1;
+.more-menu-wrap {
+  position: relative;
+}
+
+.more-btn {
+  font-size: 16px;
+  font-weight: bold;
+}
+
+.more-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  min-width: 160px;
+  padding: 4px 0;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 1001;
+}
+
+.more-menu-item {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  background: none;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.more-menu-item:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.more-menu-item-danger {
+  color: #b91c1c;
+}
+
+.more-menu-item-danger:hover {
+  background: rgba(185, 28, 28, 0.1);
+}
+
+.delete-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+}
+
+.delete-modal {
+  background: white;
+  border-radius: 12px;
+  padding: 20px;
+  max-width: 360px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+}
+
+.delete-modal-title {
+  margin: 0 0 12px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.delete-modal-warn {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: #374151;
+}
+
+.delete-modal-hint {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.delete-modal-input {
+  width: 100%;
+  padding: 8px 12px;
+  margin-bottom: 16px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.delete-modal-input:focus {
+  outline: none;
+  border-color: #f59e0b;
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.2);
+}
+
+.delete-modal-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.delete-modal-btn {
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.delete-modal-btn.cancel {
+  border: 1px solid #d1d5db;
+  background: white;
+  color: #374151;
+}
+
+.delete-modal-btn.cancel:hover {
+  background: #f3f4f6;
+}
+
+.delete-modal-btn.danger {
+  border: none;
+  background: #b91c1c;
+  color: white;
+}
+
+.delete-modal-btn.danger:hover:not(:disabled) {
+  background: #991b1b;
+}
+
+.delete-modal-btn.danger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .sticky-body {

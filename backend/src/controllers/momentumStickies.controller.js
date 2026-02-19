@@ -13,7 +13,8 @@ function ensureOwnUser(req, res, next) {
 export const listStickies = async (req, res, next) => {
   try {
     const userId = parseInt(req.params.userId, 10);
-    const stickies = await MomentumSticky.listByUserId(userId);
+    const includeHidden = req.query.includeHidden === 'true' || req.query.include_hidden === 'true';
+    const stickies = await MomentumSticky.listByUserId(userId, { includeHidden });
     res.json(stickies);
   } catch (err) {
     next(err);
@@ -69,7 +70,8 @@ export const updateSticky = async (req, res, next) => {
       positionY: position_y !== undefined ? position_y : undefined,
       isCollapsed: is_collapsed !== undefined ? !!is_collapsed : undefined,
       sortOrder: sort_order !== undefined ? sort_order : undefined,
-      color: color !== undefined ? color : undefined
+      color: color !== undefined ? color : undefined,
+      isHidden: is_hidden !== undefined ? !!is_hidden : undefined
     });
     if (!sticky) {
       return res.status(404).json({ error: { message: 'Momentum Sticky not found' } });
@@ -103,6 +105,15 @@ export const deleteSticky = async (req, res, next) => {
   try {
     const userId = parseInt(req.params.userId, 10);
     const stickyId = parseInt(req.params.stickyId, 10);
+    // Delete tasks that were promoted from this sticky (they live on the momentum list)
+    const promotedTaskIds = await TaskAuditLog.findTaskIdsPromotedFromSticky(stickyId);
+    for (const taskId of promotedTaskIds) {
+      try {
+        await Task.deleteById(taskId);
+      } catch (e) {
+        // Task may already be deleted; continue
+      }
+    }
     const deleted = await MomentumSticky.delete(stickyId, userId);
     if (!deleted) {
       return res.status(404).json({ error: { message: 'Momentum Sticky not found' } });
