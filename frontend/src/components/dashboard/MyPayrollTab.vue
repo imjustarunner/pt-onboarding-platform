@@ -153,20 +153,6 @@
                 </td>
                 <td>
                   <div>{{ String(c.status || '').toUpperCase() }}</div>
-                  <div
-                    v-if="['meeting_training','mentor_cpa_meeting'].includes(String(c.claim_type || '').toLowerCase()) && c.payload?.googleMeetLink"
-                    class="muted"
-                    style="margin-top: 4px;"
-                  >
-                    <a :href="c.payload.googleMeetLink" target="_blank" rel="noreferrer">Open Meet link</a>
-                  </div>
-                  <div
-                    v-if="['meeting_training','mentor_cpa_meeting'].includes(String(c.claim_type || '').toLowerCase()) && c.payload?.transcriptUrl"
-                    class="muted"
-                    style="margin-top: 2px;"
-                  >
-                    <a :href="c.payload.transcriptUrl" target="_blank" rel="noreferrer">Open transcript</a>
-                  </div>
                   <div v-if="String(c.status||'').toLowerCase()==='deferred' && c.rejection_reason" class="muted" style="margin-top: 4px;">
                     Needs changes: {{ c.rejection_reason }}
                   </div>
@@ -470,6 +456,34 @@
                 <td>{{ timeClaimTypeLabel(c) }}</td>
                 <td>
                   <div>{{ String(c.status || '').toUpperCase() }}</div>
+                  <div
+                    v-if="isMeetingTimeClaim(c) && String(c?.payload?.googleMeetLink || '').trim()"
+                    class="muted"
+                    style="margin-top: 4px;"
+                  >
+                    <a :href="c.payload.googleMeetLink" target="_blank" rel="noreferrer">Open Meet link</a>
+                  </div>
+                  <div
+                    v-if="isMeetingTimeClaim(c) && String(c?.payload?.transcriptUrl || '').trim()"
+                    class="muted"
+                    style="margin-top: 2px;"
+                  >
+                    <a :href="c.payload.transcriptUrl" target="_blank" rel="noreferrer">Open transcript</a>
+                  </div>
+                  <div
+                    v-else-if="isMeetingTimeClaim(c) && String(c?.payload?.googleMeetLink || '').trim() && isNoTranscriptAvailableYet(c)"
+                    class="muted"
+                    style="margin-top: 2px;"
+                  >
+                    No transcript available yet. If Meet transcription was off, add it manually.
+                  </div>
+                  <div
+                    v-else-if="isMeetingTimeClaim(c) && String(c?.payload?.googleMeetLink || '').trim()"
+                    class="muted"
+                    style="margin-top: 2px;"
+                  >
+                    Transcript is processing from Google Meet...
+                  </div>
                   <div v-if="String(c.status||'').toLowerCase()==='deferred' && c.rejection_reason" class="muted" style="margin-top: 4px;">
                     Needs changes: {{ c.rejection_reason }}
                   </div>
@@ -3330,6 +3344,20 @@ const timeClaimTypeLabel = (c) => {
   if (t === 'service_correction') return 'Service correction';
   if (t === 'overtime_evaluation') return 'Overtime eval';
   return t || 'Time';
+};
+
+const isMeetingTimeClaim = (c) => {
+  const t = String(c?.claim_type || '').toLowerCase();
+  return t === 'meeting_training' || t === 'mentor_cpa_meeting';
+};
+
+const isNoTranscriptAvailableYet = (c) => {
+  if (!isMeetingTimeClaim(c)) return false;
+  const claimDate = String(c?.claim_date || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(claimDate)) return false;
+  const ageMs = Date.now() - new Date(`${claimDate}T00:00:00`).getTime();
+  const oneDayMs = 24 * 60 * 60 * 1000;
+  return Number.isFinite(ageMs) && ageMs >= oneDayMs;
 };
 
 const submitTimeClaim = async ({ claimType, claimDate, payload }) => {
