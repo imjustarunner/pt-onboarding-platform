@@ -6,12 +6,13 @@
  * It tracks which migrations have been run in a migrations_log table.
  * 
  * Usage:
- *   node database/run-migrations.js [--dry-run] [--migration N] [--baseline-existing]
+ *   node database/run-migrations.js [--dry-run] [--migration N] [--baseline-existing] [--unlog N]
  * 
  * Options:
  *   --dry-run: Show what would be run without executing
  *   --migration N: Run only migration N (e.g., --migration=091)
  *   --baseline-existing: Mark all current migration files as already run (safe bootstrap for legacy DBs)
+ *   --unlog N: Remove migration N from migrations_log so it can be run again (e.g., --unlog=461)
  */
 
 import fs from 'fs/promises';
@@ -71,6 +72,23 @@ async function hasExistingAppSchema() {
       AND TABLE_NAME IN ('users', 'agencies', 'organizations')
   `);
   return Number(rows?.[0]?.cnt || 0) > 0;
+}
+
+// Remove a migration from the log so it can be run again
+async function unlogMigration(migrationSpec) {
+  const migrationFiles = await getMigrationFiles();
+  const match = migrationFiles.find(
+    (f) => f.startsWith(migrationSpec) || path.basename(f, '.sql') === migrationSpec
+  );
+  if (!match) {
+    throw new Error(`Migration not found: ${migrationSpec}`);
+  }
+  const migrationName = path.basename(match, '.sql');
+  const [result] = await pool.execute(
+    'DELETE FROM migrations_log WHERE migration_name = ?',
+    [migrationName]
+  );
+  return { migrationName, deleted: result.affectedRows };
 }
 
 // Check if migration has been run
@@ -203,13 +221,42 @@ function parseSpecificMigrationArg(args) {
   return specific;
 }
 
+function parseUnlogArg(args) {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === '--unlog') {
+      const value = String(args[i + 1] || '').trim();
+      if (value && !value.startsWith('--')) return value;
+    }
+    if (arg.startsWith('--unlog=')) {
+      return arg.slice(8).trim();
+    }
+  }
+  return null;
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const dryRun = args.includes('--dry-run');
   const baselineExisting = args.includes('--baseline-existing');
   const specificMigration = parseSpecificMigrationArg(args);
-  
+  const unlogSpec = parseUnlogArg(args);
+
   try {
+    await ensureMigrationsTable();
+
+    if (unlogSpec) {
+      const { migrationName, deleted } = await unlogMigration(unlogSpec);
+      console.log(
+        deleted > 0
+          ? `✓ Removed ${migrationName} from migrations_log (${deleted} row(s) deleted)`
+          : `Migration ${migrationName} was not in migrations_log (nothing to remove)`
+      );
+      if (!specificMigration && !args.includes('--migration')) {
+        process.exit(0);
+      }
+    }
+
     console.log('Database Migration Runner');
     console.log('========================');
     console.log(`Database: ${process.env.DB_NAME || 'onboarding_stage'}`);
@@ -221,9 +268,7 @@ async function main() {
       console.log('Baseline existing: YES');
     }
     console.log('');
-    
-    await ensureMigrationsTable();
-    
+
     const migrationFiles = await getMigrationFiles();
     console.log(`Found ${migrationFiles.length} migration files`);
 
