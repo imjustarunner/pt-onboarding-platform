@@ -11,9 +11,18 @@ export const getAgencyAddons = async (req, res, next) => {
     }
     const pricingBundle = await getEffectiveBillingPricingForAgency(parsedAgencyId);
     const addons = pricingBundle?.effective?.addonsEnabled || {};
+    const billingMomentumList = Boolean(addons.momentumList);
+
+    const Agency = (await import('../models/Agency.model.js')).default;
+    const agency = await Agency.findById(parsedAgencyId);
+    const flags = agency?.feature_flags
+      ? (typeof agency.feature_flags === 'string' ? (() => { try { return JSON.parse(agency.feature_flags); } catch { return {}; } })() : agency.feature_flags)
+      : {};
+    const featureFlagMomentumList = Boolean(flags.momentumListEnabled);
+
     res.json({
       agencyId: parsedAgencyId,
-      momentumList: Boolean(addons.momentumList)
+      momentumList: billingMomentumList || featureFlagMomentumList
     });
   } catch (error) {
     next(error);

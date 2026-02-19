@@ -848,6 +848,12 @@
             </div>
             <small class="hint">Enables external/public Find a Provider availability for this agency (requires pricing add-on entitlement).</small>
 
+            <div class="toggle-row" style="margin-top: 10px;">
+              <span>Enable Momentum List</span>
+              <ToggleSwitch v-model="agencyForm.featureFlags.momentumListEnabled" compact />
+            </div>
+            <small class="hint">Focus digest, Momentum Stickies, and Focus Assistant on the dashboard. Can also be enabled via Billing add-on.</small>
+
             <div class="toggle-row" style="margin-top: 14px;">
               <span>Enable Google Workspace login rules</span>
               <ToggleSwitch v-model="agencyForm.featureFlags.googleSsoEnabled" compact />
@@ -4893,6 +4899,9 @@ const defaultAgencyForm = () => ({
     // Default OFF until explicitly enabled (agency-paid)
     publicProviderFinderEnabled: false,
 
+    // Momentum List: digest, stickies, Focus Assistant (can also enable via Billing add-on)
+    momentumListEnabled: false,
+
     // Google Workspace SSO gate (off by default)
     googleSsoEnabled: false,
     googleSsoRequiredRoles: ['staff', 'admin', 'provider', 'clinical_practice_assistant', 'provider_plus'],
@@ -6181,6 +6190,7 @@ const editAgency = async (agency) => {
       noteAidEnabled: featureFlags.noteAidEnabled === true,
       clinicalNoteGeneratorEnabled: featureFlags.clinicalNoteGeneratorEnabled === true,
       publicProviderFinderEnabled: featureFlags.publicProviderFinderEnabled === true,
+      momentumListEnabled: featureFlags.momentumListEnabled === true,
 
       googleSsoEnabled: featureFlags.googleSsoEnabled === true,
       googleSsoRequiredRoles: Array.isArray(featureFlags.googleSsoRequiredRoles)
