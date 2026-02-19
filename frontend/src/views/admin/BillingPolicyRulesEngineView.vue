@@ -187,15 +187,48 @@
           <tbody>
             <tr v-for="c in jobDetail.candidates || []" :key="`cand-${c.id}`">
               <td>{{ c.service_code }}</td>
-              <td>{{ billingBasisLabel(c) }}</td>
-              <td>{{ c.min_minutes || '-' }} - {{ c.max_minutes || '-' }}</td>
-              <td>{{ c.unit_calc_mode }}{{ c.unit_minutes ? ` / ${c.unit_minutes} min` : '' }}</td>
-              <td>{{ c.max_units_per_day || '-' }}</td>
-              <td>{{ [c.credential_tier, c.provider_type].filter(Boolean).join(' / ') || '-' }}</td>
-              <td>{{ c.status }}</td>
+              <td>{{ billingBasisLabel(editFor(c)) }}</td>
+              <td class="row gap wrap">
+                <input v-model.number="editFor(c).minMinutes" type="number" class="input tiny" placeholder="Min" />
+                <input v-model.number="editFor(c).maxMinutes" type="number" class="input tiny" placeholder="Max" />
+              </td>
+              <td class="row gap wrap">
+                <select v-model="editFor(c).unitCalcMode" class="input short">
+                  <option value="NONE">NONE</option>
+                  <option value="MEDICAID_8_MINUTE_LADDER">MEDICAID_8_MINUTE_LADDER</option>
+                  <option value="FIXED_BLOCK">FIXED_BLOCK</option>
+                </select>
+                <input v-model.number="editFor(c).unitMinutes" type="number" class="input tiny" placeholder="Unit min" />
+              </td>
+              <td>
+                <input v-model.number="editFor(c).maxUnitsPerDay" type="number" class="input tiny" placeholder="Cap/day" />
+              </td>
+              <td class="row gap wrap">
+                <select v-model="editFor(c).credentialTier" class="input short">
+                  <option value="">- tier -</option>
+                  <option value="qbha">qbha</option>
+                  <option value="bachelors">bachelors</option>
+                  <option value="intern_plus">intern_plus</option>
+                </select>
+                <select v-model="editFor(c).providerType" class="input short">
+                  <option value="">- provider -</option>
+                  <option value="qbha">qbha</option>
+                  <option value="bachelors">bachelors</option>
+                  <option value="intern">intern</option>
+                  <option value="licensed">licensed</option>
+                </select>
+              </td>
+              <td>
+                <select v-model="editFor(c).status" class="input short">
+                  <option value="PENDING">PENDING</option>
+                  <option value="APPROVED">APPROVED</option>
+                  <option value="REJECTED">REJECTED</option>
+                </select>
+              </td>
               <td class="citation">{{ c.source_snippet || '-' }}</td>
               <td class="citation">{{ c.raw_text_line || '-' }}</td>
               <td class="row gap">
+                <button class="btn btn-secondary btn-sm" @click="reviewCandidate(c, editFor(c).status || 'PENDING')">Save</button>
                 <button class="btn btn-secondary btn-sm" @click="reviewCandidate(c, 'APPROVED')">Approve</button>
                 <button class="btn btn-secondary btn-sm" @click="reviewCandidate(c, 'REJECTED')">Reject</button>
               </td>
@@ -240,6 +273,7 @@ const ruleEditor = ref({
 const jobs = ref([]);
 const selectedJobId = ref(0);
 const jobDetail = ref(null);
+const candidateEdits = ref({});
 const uploadInput = ref(null);
 
 const savingProfile = ref(false);
@@ -313,10 +347,27 @@ const selectJob = async (jobId) => {
   selectedJobId.value = Number(jobId || 0);
   if (!selectedJobId.value) {
     jobDetail.value = null;
+    candidateEdits.value = {};
     return;
   }
   const r = await api.get(`/billing-policy/ingestion/jobs/${selectedJobId.value}`);
   jobDetail.value = r.data?.job || null;
+  const nextEdits = {};
+  for (const c of (jobDetail.value?.candidates || [])) {
+    nextEdits[c.id] = {
+      serviceDescription: c.service_description || '',
+      minMinutes: c.min_minutes ?? null,
+      maxMinutes: c.max_minutes ?? null,
+      unitMinutes: c.unit_minutes ?? null,
+      unitCalcMode: c.unit_calc_mode || 'NONE',
+      maxUnitsPerDay: c.max_units_per_day ?? null,
+      credentialTier: c.credential_tier || '',
+      providerType: c.provider_type || '',
+      reviewNotes: c.review_notes || '',
+      status: c.status || 'PENDING'
+    };
+  }
+  candidateEdits.value = nextEdits;
 };
 
 const loadAll = async () => {
@@ -436,8 +487,18 @@ const uploadPolicyPdf = async () => {
 
 const reviewCandidate = async (candidate, status) => {
   try {
+    const edit = editFor(candidate);
     await api.post(`/billing-policy/ingestion/candidates/${candidate.id}/review`, {
-      status
+      status,
+      serviceDescription: String(edit.serviceDescription || '').trim() || null,
+      minMinutes: edit.minMinutes ?? null,
+      maxMinutes: edit.maxMinutes ?? null,
+      unitMinutes: edit.unitMinutes ?? null,
+      unitCalcMode: String(edit.unitCalcMode || 'NONE').toUpperCase(),
+      maxUnitsPerDay: edit.maxUnitsPerDay ?? null,
+      credentialTier: String(edit.credentialTier || '').trim() || null,
+      providerType: String(edit.providerType || '').trim() || null,
+      reviewNotes: String(edit.reviewNotes || '').trim() || null
     });
     if (selectedJobId.value) await selectJob(selectedJobId.value);
   } catch (e) {
@@ -480,11 +541,31 @@ const deleteJob = async (jobId) => {
 };
 
 const billingBasisLabel = (candidate) => {
-  const mode = String(candidate?.unit_calc_mode || '').toUpperCase();
+  const mode = String(candidate?.unitCalcMode || candidate?.unit_calc_mode || '').toUpperCase();
   if (mode === 'NONE') return 'Encounter';
   if (mode === 'MEDICAID_8_MINUTE_LADDER') return 'Unit (8-15)';
   if (mode === 'FIXED_BLOCK') return 'Unit (fixed)';
-  return candidate?.max_units_per_day ? 'Day' : '-';
+  return (candidate?.maxUnitsPerDay || candidate?.max_units_per_day) ? 'Day' : '-';
+};
+
+const editFor = (candidate) => {
+  const id = Number(candidate?.id || 0);
+  if (!id) return {};
+  if (!candidateEdits.value[id]) {
+    candidateEdits.value[id] = {
+      serviceDescription: candidate?.service_description || '',
+      minMinutes: candidate?.min_minutes ?? null,
+      maxMinutes: candidate?.max_minutes ?? null,
+      unitMinutes: candidate?.unit_minutes ?? null,
+      unitCalcMode: candidate?.unit_calc_mode || 'NONE',
+      maxUnitsPerDay: candidate?.max_units_per_day ?? null,
+      credentialTier: candidate?.credential_tier || '',
+      providerType: candidate?.provider_type || '',
+      reviewNotes: candidate?.review_notes || '',
+      status: candidate?.status || 'PENDING'
+    };
+  }
+  return candidateEdits.value[id];
 };
 
 onMounted(loadAll);
