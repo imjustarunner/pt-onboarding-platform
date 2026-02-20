@@ -2547,6 +2547,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
           : (titleRaw || (SCHEDULE_EVENT_KIND_LABELS[String(r.kind || '').toUpperCase()] || 'Schedule Event'));
         return {
           id: Number(r.id || 0),
+          agencyId: Number(r.agency_id || 0) || null,
           kind: String(r.kind || '').trim().toUpperCase() || 'PERSONAL_EVENT',
           title,
           isPrivate,
@@ -2777,10 +2778,16 @@ export const createUserScheduleEvent = async (req, res, next) => {
     }
 
     const reasonCode = String(req.body?.reasonCode || '').trim().toUpperCase() || null;
-    const agencyId = Number(req.body?.agencyId || 0);
-    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
-    const membership = await User.getAgencyMembership(userId, agencyId);
-    if (!membership) return res.status(403).json({ error: { message: 'Provider is not assigned to this agency' } });
+    const isAgencyOptionalEvent = ['PERSONAL_EVENT', 'SCHEDULE_HOLD'].includes(kind);
+    const requestedAgencyId = Number(req.body?.agencyId || 0);
+    const agencyId = requestedAgencyId > 0 ? requestedAgencyId : null;
+    if (!isAgencyOptionalEvent && !agencyId) {
+      return res.status(400).json({ error: { message: 'agencyId is required' } });
+    }
+    if (agencyId) {
+      const membership = await User.getAgencyMembership(userId, agencyId);
+      if (!membership) return res.status(403).json({ error: { message: 'Provider is not assigned to this agency' } });
+    }
     const summaryText = buildScheduleEventSummary({
       kind,
       title: req.body?.title,

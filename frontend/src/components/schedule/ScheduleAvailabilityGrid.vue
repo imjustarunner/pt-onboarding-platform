@@ -322,7 +322,7 @@
               type="button"
               class="cell-plus-btn"
               title="Add or edit this hour"
-              @click.stop="openSlotActionModal({ dayName: d, hour: h, preserveSelectionRange: false })"
+              @click.stop="openSlotActionModal({ dayName: d, hour: h, preserveSelectionRange: false, actionSource: 'plus_or_blank' })"
             >
               +
             </button>
@@ -613,15 +613,15 @@
             </div>
           </div>
 
-          <div v-if="actionAgencyOptions.length > 1" style="margin-top: 10px;">
-            <label class="lbl">Organization for this action</label>
+          <div v-if="actionRequiresAgency && actionAgencyOptions.length > 1" style="margin-top: 10px;">
+            <label class="lbl">Agency for this action</label>
             <select v-model.number="selectedActionAgencyId" class="input">
               <option v-for="opt in actionAgencyOptions" :key="`action-agency-${opt.id}`" :value="Number(opt.id)">
                 {{ opt.label }}
               </option>
             </select>
             <div class="muted" style="margin-top: 6px; font-size: 12px;">
-              Schedule view can include multiple organizations; this chooses where the new item is created.
+              Schedule view can include multiple agencies; this chooses where the new item is created.
             </div>
           </div>
 
@@ -1879,7 +1879,13 @@ const load = async () => {
         return;
       }
 
-      const tag = (row, agencyId) => ({ ...row, _agencyId: agencyId });
+      const tag = (row, agencyId) => {
+        const hasRowAgency = row && Object.prototype.hasOwnProperty.call(row, 'agencyId');
+        const taggedAgencyId = hasRowAgency
+          ? (Number(row?.agencyId || 0) || null)
+          : (Number(agencyId || 0) || null);
+        return { ...row, _agencyId: taggedAgencyId };
+      };
       const merged = {
         ...first,
         // Preserve one “current” agencyId for legacy consumers, but include the full list too.
@@ -1908,6 +1914,14 @@ const load = async () => {
       // agencies, the same event is returned per agency. Deduplicate by (roomId, startAt, endAt).
       const officeEventKey = (e) => `${Number(e?.roomId || 0)}|${String(e?.startAt || '').slice(0, 19)}|${String(e?.endAt || '').slice(0, 19)}`;
       const seenOfficeKeys = new Set();
+      // Person-level schedule events (agencyId NULL) can appear in each agency response.
+      // Deduplicate by stable event id (fallback to kind/time signature for safety).
+      const scheduleEventKey = (e) => {
+        const id = Number(e?.id || 0);
+        if (id > 0) return `id:${id}`;
+        return `sig:${String(e?.kind || '').toUpperCase()}|${String(e?.startAt || e?.startDate || '')}|${String(e?.endAt || e?.endDate || '')}|${String(e?.title || '')}`;
+      };
+      const seenScheduleEventKeys = new Set();
       for (const r of okOnes) {
         const aId = r.agencyId;
         merged.officeRequests.push(...(r.data?.officeRequests || []).map((x) => tag(x, aId)));
@@ -1921,7 +1935,12 @@ const load = async () => {
           }
         }
         merged.supervisionSessions.push(...(r.data?.supervisionSessions || []).map((x) => tag(x, aId)));
-        merged.scheduleEvents.push(...(r.data?.scheduleEvents || []).map((x) => tag(x, aId)));
+        for (const e of (r.data?.scheduleEvents || []).map((x) => tag(x, aId))) {
+          const k = scheduleEventKey(e);
+          if (seenScheduleEventKeys.has(k)) continue;
+          seenScheduleEventKeys.add(k);
+          merged.scheduleEvents.push(e);
+        }
       }
 
       // Prefer overlay info from the first successful result (per-user; not agency-scoped).
@@ -2782,10 +2801,12 @@ const modalDay = ref('Monday');
 const modalHour = ref(7);
 const modalEndHour = ref(8);
 const requestType = ref('office'); // office | school | supervision
+const modalActionSource = ref('general'); // general | plus_or_blank | office_block | other_block
 const requestNotes = ref('');
 const submitting = ref(false);
 const modalError = ref('');
 const SCHEDULE_EVENT_ACTIONS = new Set(['personal_event', 'schedule_hold', 'schedule_hold_all_day', 'indirect_services']);
+const AGENCY_OPTIONAL_ACTIONS = new Set(['forfeit_slot', 'personal_event', 'schedule_hold', 'schedule_hold_all_day']);
 const SCHEDULE_HOLD_REASON_OPTIONS = [
   { code: 'DOCUMENTATION', label: 'Documentation' },
   { code: 'TEAM_MEETING', label: 'Team meeting' },
@@ -3019,7 +3040,19 @@ const OFFICE_LAYOUT_ONLY_ACTIONS = new Set([
   'intake_virtual_off',
   'intake_inperson_off',
   'office',
-  'office_request_only',
+  'add_session',
+  'booked_note',
+  'booked_record'
+]);
+
+const OFFICE_BLOCK_ONLY_ACTIONS = new Set([
+  'forfeit_slot',
+  'extend_assignment',
+  'intake_virtual_on',
+  'intake_inperson_on',
+  'intake_virtual_off',
+  'intake_inperson_off',
+  'office',
   'add_session',
   'booked_note',
   'booked_record'
@@ -3028,11 +3061,17 @@ const OFFICE_LAYOUT_ONLY_ACTIONS = new Set([
 const visibleQuickActions = computed(() => {
   const rows = Array.isArray(availableQuickActions.value) ? availableQuickActions.value : [];
   const filtered = rows.filter((row) => row?.visible !== false);
+  if (modalActionSource.value === 'office_block') {
+    return filtered.filter((row) => row?.id && OFFICE_BLOCK_ONLY_ACTIONS.has(row.id));
+  }
   if (viewMode.value === 'office_layout') {
     return filtered.filter((row) => row?.id && OFFICE_LAYOUT_ONLY_ACTIONS.has(row.id));
   }
   return filtered;
 });
+
+const actionRequiresAgency = computed(() => !AGENCY_OPTIONAL_ACTIONS.has(String(requestType.value || '')));
+const scheduleEventRequiresAgency = computed(() => String(requestType.value || '') === 'indirect_services');
 
 const intakeActionHelpText = computed(() => {
   const labels = {
@@ -3507,7 +3546,7 @@ const maybeAutoOpenSelectionActions = () => {
   const sig = selectedActionSignature(rows);
   if (!sig || sig === lastAutoOpenedSelectionSignature.value) return;
   lastAutoOpenedSelectionSignature.value = sig;
-  openSlotActionModal(rows[0]);
+  openSlotActionModal({ ...rows[0], actionSource: 'plus_or_blank' });
 };
 
 const openSlotActionModal = ({
@@ -3517,9 +3556,11 @@ const openSlotActionModal = ({
   slot = null,
   dateYmd = null,
   preserveSelectionRange = true,
-  initialRequestType = ''
+  initialRequestType = '',
+  actionSource = 'general'
 } = {}) => {
   if (!canBookFromGrid.value) return;
+  modalActionSource.value = String(actionSource || 'general');
   modalDay.value = String(dayName);
   modalHour.value = Number(hour);
   // Default to a 1-hour range; clamp to end-of-grid.
@@ -3653,7 +3694,7 @@ const onCellClick = (dayName, hour, event = null, options = {}) => {
   selectedActionSlots.value = [item];
   lastSelectedActionKey.value = item.key;
   if (isCellVisuallyBlank(dayName, hour)) {
-    openSlotActionModal({ ...item, preserveSelectionRange: false });
+    openSlotActionModal({ ...item, preserveSelectionRange: false, actionSource: 'plus_or_blank' });
   }
 };
 
@@ -3675,7 +3716,7 @@ const onCellDoubleClick = (dayName, hour, event = null, options = {}) => {
   };
   selectedActionSlots.value = [item];
   lastSelectedActionKey.value = item.key;
-  openSlotActionModal({ ...item, preserveSelectionRange: false });
+  openSlotActionModal({ ...item, preserveSelectionRange: false, actionSource: 'plus_or_blank' });
 };
 
 const onCellMouseDown = (dayName, hour, event = null) => {
@@ -4057,6 +4098,7 @@ const submitOfficeAssign = async () => {
 
 const closeModal = () => {
   showRequestModal.value = false;
+  modalActionSource.value = 'general';
   requestType.value = 'office';
   requestNotes.value = '';
   scheduleEventTitle.value = '';
@@ -4230,7 +4272,7 @@ const mergeSelectedSlotsByDay = ({ dayName, startHour, endHour }) => {
 };
 
 const submitRequest = async () => {
-  if (!effectiveAgencyId.value) return;
+  if (actionRequiresAgency.value && !effectiveAgencyId.value) return;
 
   // Intake confirmation step (in-person office assigned slots only)
   if (requestType.value === 'intake_inperson_on' && !intakeConfirmStep.value) {
@@ -4266,6 +4308,12 @@ const submitRequest = async () => {
       if (!uid) throw new Error('Provider is required.');
       const normalizedAction = String(requestType.value || '');
       const eventKind = scheduleEventKindForAction(normalizedAction);
+      const eventAgencyId = scheduleEventRequiresAgency.value
+        ? (Number(effectiveAgencyId.value || 0) || null)
+        : null;
+      if (scheduleEventRequiresAgency.value && !eventAgencyId) {
+        throw new Error('Select an agency for this event type.');
+      }
       const title = String(scheduleEventTitle.value || '').trim() || defaultScheduleEventTitleForAction(normalizedAction);
       const reasonCode = eventKind === 'SCHEDULE_HOLD' ? effectiveScheduleHoldReason() : null;
       const isPrivate = !!scheduleEventPrivate.value;
@@ -4277,7 +4325,7 @@ const submitRequest = async () => {
           const endDate = addDaysYmd(startDate, 1);
           // eslint-disable-next-line no-await-in-loop
           const resp = await api.post(`/users/${uid}/schedule-events`, {
-            agencyId: effectiveAgencyId.value,
+            agencyId: eventAgencyId,
             kind: eventKind,
             title,
             description: requestNotes.value || '',
@@ -4297,7 +4345,7 @@ const submitRequest = async () => {
           const endAt = `${String(row.dateYmd).slice(0, 10)}T${pad2(Number(row.endHour))}:00:00`;
           // eslint-disable-next-line no-await-in-loop
           const resp = await api.post(`/users/${uid}/schedule-events`, {
-            agencyId: effectiveAgencyId.value,
+            agencyId: eventAgencyId,
             kind: eventKind,
             title,
             description: requestNotes.value || '',
@@ -4583,7 +4631,7 @@ const submitRequest = async () => {
           endDate: ev?.endDate || null,
           reasonCode: ev?.reasonCode || null,
           htmlLink: ev?.htmlLink || null,
-          _agencyId: Number(effectiveAgencyId.value || 0) || null
+          _agencyId: Number(ev?.agencyId || 0) || null
         }));
         current.scheduleEvents = [...(Array.isArray(current.scheduleEvents) ? current.scheduleEvents : []), ...mapped];
         summary.value = { ...current };
@@ -5153,7 +5201,8 @@ const onCellBlockClick = (e, block, dayName, hour) => {
       dateYmd: addDaysYmd(weekStart.value, ALL_DAYS.indexOf(String(dayName || ''))),
       slot: officeTop,
       preserveSelectionRange: false,
-      initialRequestType
+      initialRequestType,
+      actionSource: 'office_block'
     });
     return;
   }
@@ -5162,7 +5211,8 @@ const onCellBlockClick = (e, block, dayName, hour) => {
       dayName,
       hour,
       preserveSelectionRange: false,
-      initialRequestType: 'school'
+      initialRequestType: 'school',
+      actionSource: 'other_block'
     });
     return;
   }
@@ -5171,7 +5221,8 @@ const onCellBlockClick = (e, block, dayName, hour) => {
       dayName,
       hour,
       preserveSelectionRange: false,
-      initialRequestType: 'office_request_only'
+      initialRequestType: 'office_request_only',
+      actionSource: 'other_block'
     });
   }
 };

@@ -23,7 +23,7 @@ class ProviderScheduleEvent {
         (agency_id, provider_id, kind, title, description, reason_code, is_private, all_day, start_at, end_at, start_date, end_date, status, google_event_id, google_html_link, created_by_user_id, updated_by_user_id)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?)`,
       [
-        Number(agencyId),
+        agencyId == null ? null : Number(agencyId),
         Number(providerId),
         String(kind || '').trim().toUpperCase(),
         String(title || '').trim(),
@@ -60,11 +60,15 @@ class ProviderScheduleEvent {
   static async listForUserInWindow({ agencyId, providerId, windowStart, windowEnd }) {
     const aId = Number(agencyId || 0);
     const pId = Number(providerId || 0);
-    if (!aId || !pId || !windowStart || !windowEnd) return [];
+    if (!pId || !windowStart || !windowEnd) return [];
+    const scopeClause = aId > 0 ? '(pse.agency_id = ? OR pse.agency_id IS NULL)' : 'pse.agency_id IS NULL';
+    const params = aId > 0
+      ? [aId, pId, windowEnd, windowStart, windowEnd, windowStart]
+      : [pId, windowEnd, windowStart, windowEnd, windowStart];
     const [rows] = await pool.execute(
       `SELECT *
        FROM provider_schedule_events pse
-       WHERE pse.agency_id = ?
+       WHERE ${scopeClause}
          AND pse.provider_id = ?
          AND UPPER(COALESCE(pse.status, 'ACTIVE')) <> 'CANCELLED'
          AND (
@@ -75,7 +79,7 @@ class ProviderScheduleEvent {
        ORDER BY
          CASE WHEN pse.all_day = 1 THEN CONCAT(pse.start_date, ' 00:00:00') ELSE pse.start_at END ASC,
          pse.id ASC`,
-      [aId, pId, windowEnd, windowStart, windowEnd, windowStart]
+      params
     );
     return rows || [];
   }
