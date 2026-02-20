@@ -483,7 +483,9 @@ const isTruthyFlag = (v) => {
   return s === '1' || s === 'true' || s === 'yes' || s === 'on';
 };
 const clinicalNoteGeneratorEnabled = computed(() => {
-  if (agencyStore.currentAgency?.hasClinicalOrg !== true) return false;
+  const role = String(authStore.user?.role || '').toLowerCase();
+  // Super admin can use Note Aid even when agency has no clinical org (for support/testing).
+  if (role !== 'super_admin' && agencyStore.currentAgency?.hasClinicalOrg !== true) return false;
   const flags = parseFeatureFlags(agencyStore.currentAgency?.feature_flags);
   return isTruthyFlag(flags?.noteAidEnabled) || isTruthyFlag(flags?.clinicalNoteGeneratorEnabled);
 });
@@ -942,7 +944,7 @@ const loadContext = async () => {
     if (!canUseTool.value) return;
     loadingContext.value = true;
     contextError.value = '';
-    const res = await api.get('/clinical-notes/context', { params: { agencyId: currentAgencyId.value } });
+    const res = await api.get('/clinical-notes/context', { params: { agencyId: currentAgencyId.value }, skipGlobalLoading: true });
     providerCredentialText.value = String(res?.data?.providerCredentialText || '');
     derivedTier.value = String(res?.data?.derivedTier || 'unknown');
     eligibleServiceCodes.value = res?.data?.eligibleServiceCodes ?? null;
@@ -961,7 +963,7 @@ const loadContext = async () => {
 const loadPrograms = async () => {
   try {
     if (!canUseTool.value) return;
-    const res = await api.get('/clinical-notes/programs', { params: { agencyId: currentAgencyId.value } });
+    const res = await api.get('/clinical-notes/programs', { params: { agencyId: currentAgencyId.value }, skipGlobalLoading: true });
     programs.value = Array.isArray(res?.data?.programs) ? res.data.programs : [];
   } catch {
     programs.value = [];
@@ -1174,7 +1176,7 @@ const transcribeAudioServer = async () => {
     fd.append('recordingPurpose', String(recordingPurpose.value || 'dictation'));
     const name = `audio.${(audioBlob.value.type || '').includes('webm') ? 'webm' : 'blob'}`;
     fd.append('audio', audioBlob.value, name);
-    const res = await api.post('/clinical-notes/transcribe', fd);
+    const res = await api.post('/clinical-notes/transcribe', fd, { skipGlobalLoading: true });
     const transcript = String(res?.data?.transcriptText || '').trim();
     if (transcript) {
       appendTranscript(transcript);
@@ -1375,7 +1377,7 @@ const generateNote = async () => {
       fd.append('audio', audioBlob.value, name);
     }
 
-    const res = await api.post('/clinical-notes/generate', fd);
+    const res = await api.post('/clinical-notes/generate', fd, { skipGlobalLoading: true });
     outputObj.value = res?.data?.outputJson || null;
     if (res?.data?.draftId) draftId.value = res.data.draftId;
     approvalMessage.value = '';
@@ -1479,7 +1481,7 @@ const loadRecent = async () => {
   try {
     recentLoading.value = true;
     recentError.value = '';
-    const res = await api.get('/clinical-notes/recent', { params: { agencyId: currentAgencyId.value, days: 7 } });
+    const res = await api.get('/clinical-notes/recent', { params: { agencyId: currentAgencyId.value, days: 7 }, skipGlobalLoading: true });
     recentDrafts.value = Array.isArray(res?.data?.drafts) ? res.data.drafts : [];
     selectedDraftIds.value = selectedDraftIds.value.filter((id) =>
       recentDrafts.value.some((d) => String(d.id) === String(id))
@@ -1529,7 +1531,7 @@ const deleteSelectedDrafts = async () => {
     await api.post('/clinical-notes/drafts/delete', {
       agencyId: currentAgencyId.value,
       draftIds: selectedDraftIds.value.map((id) => parseInt(id, 10))
-    });
+    }, { skipGlobalLoading: true });
     await loadRecent();
     selectedDraftIds.value = [];
   } catch (e) {
