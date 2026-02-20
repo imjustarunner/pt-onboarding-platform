@@ -20,7 +20,7 @@
         @keydown.enter="saveTitle"
       />
       <div class="sticky-actions">
-        <div class="color-picker">
+        <div class="color-picker" ref="colorPickerWrapRef">
           <button
             type="button"
             class="color-btn"
@@ -28,17 +28,24 @@
             :style="{ background: colorHex(sticky.color) }"
             @click.stop="showColorMenu = !showColorMenu"
           />
-          <div v-if="showColorMenu" class="color-menu" @click.stop>
-            <button
-              v-for="c in colorOptions"
-              :key="c.id"
-              type="button"
-              class="color-option"
-              :style="{ background: c.hex }"
-              :title="c.id"
-              @click="changeColor(c.id)"
-            />
-          </div>
+          <Teleport to="body">
+            <div
+              v-if="showColorMenu"
+              class="color-menu color-menu-teleported"
+              :style="colorMenuStyle"
+              @click.stop
+            >
+              <button
+                v-for="c in colorOptions"
+                :key="c.id"
+                type="button"
+                class="color-option"
+                :style="{ background: c.hex }"
+                :title="c.id"
+                @click="changeColor(c.id)"
+              />
+            </div>
+          </Teleport>
         </div>
         <button
           type="button"
@@ -172,6 +179,7 @@
 import { ref, computed, watch, onUnmounted } from 'vue';
 
 const moreMenuWrapRef = ref(null);
+const colorPickerWrapRef = ref(null);
 
 const props = defineProps({
   sticky: { type: Object, required: true },
@@ -286,6 +294,16 @@ const moreMenuStyle = computed(() => {
     left: `${rect.right}px`,
     transform: 'translateX(-100%)',
     width: '160px'
+  };
+});
+
+const colorMenuStyle = computed(() => {
+  if (!colorPickerWrapRef.value || !showColorMenu.value) return {};
+  const rect = colorPickerWrapRef.value.getBoundingClientRect();
+  return {
+    position: 'fixed',
+    top: `${rect.bottom + 4}px`,
+    left: `${rect.left}px`
   };
 });
 
@@ -493,12 +511,21 @@ const onMouseUp = () => {
   z-index: 1000;
 }
 
+.color-menu-teleported {
+  position: fixed;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  padding: 10px;
+  z-index: 10001;
+}
+
 .color-option {
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   padding: 0;
-  border: 1px solid rgba(0, 0, 0, 0.15);
-  border-radius: 4px;
+  border: 2px solid rgba(0, 0, 0, 0.2);
+  border-radius: 6px;
   cursor: pointer;
 }
 
