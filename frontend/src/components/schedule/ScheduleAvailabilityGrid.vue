@@ -490,7 +490,7 @@
             </div>
             <template v-else>
               <div v-if="!showClinicalBookingFields && (requestType === 'office' || requestType === 'add_session')" class="muted" style="margin-bottom: 10px;">
-                Agency must have a clinical organization to book appointments with service codes. Select an agency with a clinical org, or use Office request for availability-only requests.
+                Agency must have a clinical organization to book appointments with service codes. Booking still works and will mark the office slot as booked/busy.
               </div>
               <div v-if="requestType === 'office_request_only'" class="modern-help">
                 Separate office request path: this submits a provider office-availability request for staff assignment workflow.
@@ -3161,6 +3161,7 @@ const serviceCodeOptionHints = (opt) => {
 
 const bookingRequiresServiceCode = computed(() => ['SESSION', 'ASSESSMENT'].includes(normalizeCodeValue(bookingAppointmentType.value)));
 const bookingClassificationInvalidReason = computed(() => {
+  if (!showClinicalBookingFields.value) return '';
   if (!['office', 'office_request_only'].includes(String(requestType.value || ''))) return '';
   if (!normalizeCodeValue(bookingAppointmentType.value)) return 'Select an appointment type.';
   if (bookingRequiresServiceCode.value && !normalizeCodeValue(bookingServiceCode.value)) {
@@ -3183,10 +3184,10 @@ const resetBookingMetadataState = () => {
 };
 
 const normalizeBookingSelectionPayload = () => ({
-  appointmentTypeCode: normalizeCodeValue(bookingAppointmentType.value) || null,
-  appointmentSubtypeCode: normalizeCodeValue(bookingAppointmentSubtype.value) || null,
-  serviceCode: normalizeCodeValue(bookingServiceCode.value) || null,
-  modality: normalizeCodeValue(bookingModality.value) || null
+  appointmentTypeCode: showClinicalBookingFields.value ? (normalizeCodeValue(bookingAppointmentType.value) || null) : null,
+  appointmentSubtypeCode: showClinicalBookingFields.value ? (normalizeCodeValue(bookingAppointmentSubtype.value) || null) : null,
+  serviceCode: showClinicalBookingFields.value ? (normalizeCodeValue(bookingServiceCode.value) || null) : null,
+  modality: showClinicalBookingFields.value ? (normalizeCodeValue(bookingModality.value) || null) : null
 });
 
 const loadBookingMetadataForProvider = async () => {
@@ -4366,7 +4367,9 @@ const submitRequest = async () => {
       const officeId = Number(selectedOfficeLocationId.value || 0);
       if (!officeId) throw new Error('Select an office first.');
       if (!officeBookingValid.value) throw new Error('Select an available room (or choose “Any open room”).');
-      if (bookingClassificationInvalidReason.value) throw new Error(bookingClassificationInvalidReason.value);
+      if (showClinicalBookingFields.value && bookingClassificationInvalidReason.value) {
+        throw new Error(bookingClassificationInvalidReason.value);
+      }
       const roomId = viewMode.value === 'office_layout'
         ? (Number(selectedOfficeRoomId.value || 0) || null)
         : null;
