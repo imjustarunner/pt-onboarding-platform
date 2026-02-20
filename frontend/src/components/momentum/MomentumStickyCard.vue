@@ -192,7 +192,7 @@ const dragY = ref(0);
 let saveEntryTimer = null;
 
 const colorOptions = [
-  { id: 'yellow', hex: '#fef08a' },
+  { id: 'yellow', hex: '#fef9c3' },
   { id: 'pink', hex: '#fbcfe8' },
   { id: 'blue', hex: '#bfdbfe' },
   { id: 'green', hex: '#bbf7d0' },
@@ -200,7 +200,7 @@ const colorOptions = [
   { id: 'orange', hex: '#fed7aa' }
 ];
 
-const colorHex = (id) => colorOptions.find((c) => c.id === (id || 'yellow'))?.hex ?? '#fef08a';
+const colorHex = (id) => colorOptions.find((c) => c.id === (id || 'yellow'))?.hex ?? '#fef9c3';
 
 const hasContent = computed(() => {
   const entries = props.sticky?.entries ?? [];
@@ -283,8 +283,9 @@ const moreMenuStyle = computed(() => {
   return {
     position: 'fixed',
     top: `${rect.bottom + 4}px`,
-    left: `${rect.right - 160}px`,
-    minWidth: '160px'
+    left: `${rect.right}px`,
+    transform: 'translateX(-100%)',
+    width: '160px'
   };
 });
 
@@ -379,7 +380,7 @@ const onMouseUp = () => {
   position: fixed;
   min-width: 220px;
   max-width: 280px;
-  background: var(--sticky-bg, #fef08a);
+  background: var(--sticky-bg, #fef9c3);
   border: 1px solid rgba(0, 0, 0, 0.12);
   border-radius: 8px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
@@ -525,6 +526,7 @@ const onMouseUp = () => {
 
 .more-menu-wrap {
   position: relative;
+  flex-shrink: 0;
 }
 
 .more-btn {
@@ -537,7 +539,8 @@ const onMouseUp = () => {
   top: 100%;
   right: 0;
   margin-top: 4px;
-  min-width: 160px;
+  width: 160px;
+  max-width: 160px;
   padding: 4px 0;
   background: white;
   border-radius: 8px;
@@ -548,6 +551,8 @@ const onMouseUp = () => {
 .more-menu-teleported {
   z-index: 10001;
   border: 1px solid rgba(0, 0, 0, 0.1);
+  width: 160px;
+  max-width: 160px;
 }
 
 .more-menu-item {
@@ -691,9 +696,10 @@ const onMouseUp = () => {
   width: 20px;
   height: 20px;
   padding: 0;
-  border: 1px solid rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(0, 0, 0, 0.35);
   border-radius: 4px;
   background: white;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
   cursor: pointer;
   display: flex;
   align-items: center;
