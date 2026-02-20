@@ -158,6 +158,17 @@ class OfficeEvent {
 
     const existing = await this.findByRoomAndStart(roomId, normalizedStartAt);
     if (existing?.id) {
+      const existingIsBooked =
+        String(existing.status || '').toUpperCase() === 'BOOKED'
+        || String(existing.slot_state || '').toUpperCase() === 'ASSIGNED_BOOKED';
+      // Materialization should never downgrade a booked occurrence back to assigned_available/temporary.
+      // Explicit endpoints (markAvailable/forfeit/cancel) own unbooking transitions.
+      const preserveBooked = existingIsBooked && String(slotState || '').toUpperCase() !== 'ASSIGNED_BOOKED';
+      const effectiveSlotState = preserveBooked ? 'ASSIGNED_BOOKED' : slotState;
+      const effectiveStatus = preserveBooked ? 'BOOKED' : legacyStatus;
+      const effectiveBookedProviderId = preserveBooked
+        ? (existing.booked_provider_id || bookedProviderId || assignedProviderId || null)
+        : bookedProviderId;
       await pool.execute(
         `UPDATE office_events
          SET office_location_id = ?,
@@ -178,13 +189,13 @@ class OfficeEvent {
           roomId,
           normalizedStartAt,
           normalizedEndAt,
-          legacyStatus,
-          slotState,
+          effectiveStatus,
+          effectiveSlotState,
           standingAssignmentId,
           bookingPlanId,
           recurrenceGroupId,
           assignedProviderId,
-          bookedProviderId,
+          effectiveBookedProviderId,
           existing.id
         ]
       );
