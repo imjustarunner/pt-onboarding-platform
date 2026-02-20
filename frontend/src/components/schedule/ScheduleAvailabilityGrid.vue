@@ -1464,6 +1464,7 @@ onMounted(() => {
 onUnmounted(() => {
   clearSupvMeetPolling();
   clearGevtClickTimer();
+  clearDeferredLoad();
   if (joinPromptTimer) {
     clearInterval(joinPromptTimer);
     joinPromptTimer = null;
@@ -1886,13 +1887,32 @@ const load = async () => {
   }
 };
 
-// Defer load so dashboard/tab shell can render first (schedule loads in background)
-const deferredLoad = () => {
-  if (typeof requestIdleCallback !== 'undefined') {
-    requestIdleCallback(() => load(), { timeout: 50 });
-  } else {
-    setTimeout(() => load(), 0);
+// Defer + debounce load so startup/watcher bursts do not spam schedule-summary.
+let deferredLoadTimer = null;
+let deferredLoadIdleHandle = null;
+const clearDeferredLoad = () => {
+  if (deferredLoadTimer) {
+    clearTimeout(deferredLoadTimer);
+    deferredLoadTimer = null;
   }
+  if (deferredLoadIdleHandle && typeof cancelIdleCallback !== 'undefined') {
+    cancelIdleCallback(deferredLoadIdleHandle);
+    deferredLoadIdleHandle = null;
+  }
+};
+const deferredLoad = () => {
+  clearDeferredLoad();
+  deferredLoadTimer = setTimeout(() => {
+    deferredLoadTimer = null;
+    if (typeof requestIdleCallback !== 'undefined') {
+      deferredLoadIdleHandle = requestIdleCallback(() => {
+        deferredLoadIdleHandle = null;
+        void load();
+      }, { timeout: 120 });
+    } else {
+      void load();
+    }
+  }, 150);
 };
 watch([() => props.userId, effectiveAgencyIds], deferredLoad, { immediate: true });
 watch([showGoogleBusy, showGoogleEvents, showExternalBusy, selectedExternalCalendarIds], deferredLoad, { deep: true });
@@ -4751,10 +4771,12 @@ const cancelSupvSession = async () => {
 
 const onCellBlockClick = (e, block, dayName, hour) => {
   const kind = String(block?.kind || '');
+  const clickedKey = blockKey(dayName, hour, block);
+  const wasAlreadySelected = selectedBlockKey.value === clickedKey;
   e?.preventDefault?.();
   e?.stopPropagation?.();
   // Light up the clicked block and select the cell
-  selectedBlockKey.value = blockKey(dayName, hour, block);
+  selectedBlockKey.value = clickedKey;
   const dateYmd = addDaysYmd(weekStart.value, ALL_DAYS.indexOf(String(dayName || '')));
   const officeTop = officeTopEvent(dayName, hour) || null;
   const roomId = Number(officeTop?.roomId || block?.buildingId || block?.roomId || 0) || 0;
@@ -4810,6 +4832,12 @@ const onCellBlockClick = (e, block, dayName, hour) => {
     return;
   }
   if (['oa', 'ot', 'ob', 'intake-ip', 'intake-vi'].includes(kind)) {
+    const officeLocationId = Number(officeTop?.buildingId || 0);
+    if (officeLocationId > 0 && Number(selectedOfficeLocationId.value || 0) !== officeLocationId) {
+      selectedOfficeLocationId.value = officeLocationId;
+    }
+    // First click = highlight only. Second click = open modal.
+    if (!wasAlreadySelected) return;
     const slotState = String(officeTop?.slotState || '').toUpperCase();
     // Assigned (available/temporary): default to Office booking so user can book weekly/biweekly/monthly
     const initialRequestType =
@@ -4826,6 +4854,7 @@ const onCellBlockClick = (e, block, dayName, hour) => {
     return;
   }
   if (kind === 'school') {
+    if (!wasAlreadySelected) return;
     openSlotActionModal({
       dayName,
       hour,
@@ -4835,6 +4864,7 @@ const onCellBlockClick = (e, block, dayName, hour) => {
     return;
   }
   if (kind === 'request') {
+    if (!wasAlreadySelected) return;
     openSlotActionModal({
       dayName,
       hour,
