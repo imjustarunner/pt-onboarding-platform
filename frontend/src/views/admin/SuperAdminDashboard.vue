@@ -313,6 +313,17 @@ const quickActions = computed(() => {
     capabilities: ['canAccessPlatform']
   },
   {
+    id: 'tools_aids',
+    title: 'Tools & Aids',
+    description: 'Note Aid and upcoming clinical tools',
+    to: '/admin/tools-aids',
+    emoji: '🩺',
+    iconKey: 'tools_aids',
+    category: 'Clinical',
+    roles: ['admin', 'support', 'super_admin', 'staff', 'provider', 'intern', 'clinical_practice_assistant', 'supervisor'],
+    capabilities: ['canAccessPlatform']
+  },
+  {
     id: 'clinical_note_generator',
     title: 'Note Aid',
     description: 'Clinical Director Agent (audio + text)',
@@ -588,7 +599,9 @@ const quickActions = computed(() => {
   return base.filter((a) => {
     if (String(a?.id) === 'school_overview') return hasAffiliatedSchools.value;
     if (String(a?.id) === 'program_overview') return hasAffiliatedPrograms.value;
-    if (String(a?.id) === 'clinical_note_generator') return clinicalNoteGeneratorEnabledForAgency.value;
+    // Super admin always sees Tools & Aids / Note Aid when no agency; others need agency feature flag
+    const showToolsOrNoteAid = clinicalNoteGeneratorEnabledForAgency.value || !currentAgency.value;
+    if (String(a?.id) === 'tools_aids' || String(a?.id) === 'clinical_note_generator') return showToolsOrNoteAid;
     return true;
   });
 });
@@ -599,7 +612,7 @@ const defaultQuickActionIds = computed(() => ([
   'beta_feedback',
   'manage_organizations',
   'manage_clients',
-  ...(clinicalNoteGeneratorEnabledForAgency.value ? ['clinical_note_generator'] : []),
+  ...((clinicalNoteGeneratorEnabledForAgency.value || !currentAgency.value) ? ['tools_aids', 'clinical_note_generator'] : []),
   ...(hasAffiliatedSchools.value ? ['school_overview'] : []),
   ...(hasAffiliatedPrograms.value ? ['program_overview'] : []),
   'manage_modules',

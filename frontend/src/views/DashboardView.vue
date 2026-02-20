@@ -1639,7 +1639,7 @@ const canAccessToolsAids = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
   // Keep role access aligned with router permissions for /admin/tools-aids.
   if (!isAgencyDashboardContext.value) return false;
-  return ['admin', 'super_admin', 'support', 'provider', 'staff', 'clinical_practice_assistant', 'provider_plus'].includes(role);
+  return ['admin', 'super_admin', 'support', 'provider', 'staff', 'clinical_practice_assistant', 'provider_plus', 'supervisor'].includes(role);
 });
 
 const isAgencyOrgType = (org) => String(org?.organization_type || org?.organizationType || 'agency').toLowerCase() === 'agency';
@@ -1807,7 +1807,13 @@ const dashboardCards = computed(() => {
           });
         }
       }
-      if (clinicalNoteGeneratorEnabledForAgency.value && canAccessToolsAids.value) {
+      // Show Tools & Aids for eligible roles. Privileged roles (admin/super_admin/support) always see it
+      // even when no agency is selected; others require the feature flag on current agency.
+      const showToolsAids =
+        canAccessToolsAids.value &&
+        (clinicalNoteGeneratorEnabledForAgency.value ||
+          ['admin', 'super_admin', 'support'].includes(role));
+      if (showToolsAids) {
         const slug = route.params?.organizationSlug;
         cards.push({
           id: 'tools_aids',

@@ -467,7 +467,7 @@ const routes = [
     path: '/:organizationSlug/admin/tools-aids',
     name: 'OrganizationToolsAids',
     component: () => import('../views/admin/ToolsAidsView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'provider', 'staff', 'clinical_practice_assistant'], organizationSlug: true }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin', 'provider', 'staff', 'clinical_practice_assistant', 'supervisor'], organizationSlug: true }
   },
   {
     path: '/:organizationSlug/admin/communications/chats',
@@ -953,7 +953,7 @@ const routes = [
     path: '/admin/tools-aids',
     name: 'ToolsAids',
     component: () => import('../views/admin/ToolsAidsView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'provider', 'staff', 'clinical_practice_assistant'] }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin', 'provider', 'staff', 'clinical_practice_assistant', 'supervisor'] }
   },
   {
     path: '/admin/communications/chats',
