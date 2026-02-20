@@ -378,7 +378,7 @@
               :class="[ `tone-${act.tone || 'slate'}`, { on: requestType === act.id } ]"
               :disabled="!!act.disabledReason"
               :title="act.disabledReason || act.description"
-              @click="requestType = act.id"
+              @click="requestType = act.id; requestTypeChosenByUser = true"
             >
               <span class="action-chip-label">{{ act.label }}</span>
               <span v-if="act.disabledReason" class="action-chip-note">{{ act.disabledReason }}</span>
@@ -2814,7 +2814,8 @@ const showRequestModal = ref(false);
 const modalDay = ref('Monday');
 const modalHour = ref(7);
 const modalEndHour = ref(8);
-const requestType = ref('office'); // office | school | supervision
+const requestType = ref(''); // selected action in request modal
+const requestTypeChosenByUser = ref(false);
 const modalActionSource = ref('general'); // general | plus_or_blank | office_block | other_block
 const requestNotes = ref('');
 const submitting = ref(false);
@@ -2824,6 +2825,7 @@ const AGENCY_OPTIONAL_ACTIONS = new Set([
   'office',
   'individual_session',
   'group_session',
+  'unbook_slot',
   'forfeit_slot',
   'personal_event',
   'schedule_hold',
@@ -3044,6 +3046,14 @@ const availableQuickActions = computed(() => {
       tone: 'rose'
     },
     {
+      id: 'unbook_slot',
+      label: 'Unbook slot',
+      description: 'Return this to assigned office availability',
+      disabledReason: hasEvent && booked ? '' : 'Needs booked office slot',
+      visible: !supervisionOnlyMode && hasEvent && booked,
+      tone: 'slate'
+    },
+    {
       id: 'forfeit_slot',
       label: 'Forfeit this slot',
       description: 'Release this assigned/booked slot to others',
@@ -3072,6 +3082,7 @@ const OFFICE_LAYOUT_ONLY_ACTIONS = new Set([
   'office',
   'individual_session',
   'group_session',
+  'unbook_slot',
   'booked_note',
   'booked_record'
 ]);
@@ -3086,6 +3097,7 @@ const OFFICE_BLOCK_ONLY_ACTIONS = new Set([
   'office',
   'individual_session',
   'group_session',
+  'unbook_slot',
   'booked_note',
   'booked_record'
 ]);
@@ -3134,7 +3146,8 @@ const submitActionLabel = computed(() => {
     intake_inperson_on: 'Enable in-person intake',
     intake_inperson_off: 'Disable in-person intake',
     booked_note: 'Open Note Aid',
-    booked_record: 'Open recorder'
+    booked_record: 'Open recorder',
+    unbook_slot: 'Unbook selected slot(s)'
   };
   return labels[String(requestType.value || '')] || 'Submit request';
 });
@@ -3603,7 +3616,8 @@ const openSlotActionModal = ({
   const nextEnd = Math.min(Number(hour) + 1, 22);
   modalEndHour.value = nextEnd > Number(hour) ? nextEnd : Number(hour) + 1;
   const normalizedInitialRequestType = String(initialRequestType || '').trim();
-  requestType.value = normalizedInitialRequestType || 'office';
+  requestType.value = normalizedInitialRequestType || '';
+  requestTypeChosenByUser.value = Boolean(normalizedInitialRequestType);
   requestNotes.value = '';
   scheduleEventTitle.value = '';
   scheduleEventAllDay.value = false;
@@ -4135,7 +4149,8 @@ const submitOfficeAssign = async () => {
 const closeModal = () => {
   showRequestModal.value = false;
   modalActionSource.value = 'general';
-  requestType.value = 'office';
+  requestType.value = '';
+  requestTypeChosenByUser.value = false;
   requestNotes.value = '';
   scheduleEventTitle.value = '';
   scheduleEventAllDay.value = false;
@@ -4339,6 +4354,18 @@ const submitRequest = async () => {
     } else if (requestType.value === 'booked_record') {
       openNoteAidFromContext('record_session');
       return;
+    } else if (requestType.value === 'unbook_slot') {
+      const contexts = selectedActionContexts().filter(
+        (x) => Number(x?.officeLocationId || 0) > 0 && Number(x?.officeEventId || 0) > 0
+      );
+      if (!contexts.length) throw new Error('Select a booked office slot first.');
+      for (const ctx of contexts) {
+        // eslint-disable-next-line no-await-in-loop
+        await api.post(`/office-slots/${ctx.officeLocationId}/events/${ctx.officeEventId}/book`, {
+          booked: false
+        });
+      }
+      refreshInBackground = true;
     } else if (isScheduleEventRequestType.value) {
       const uid = Number(props.userId || authStore.user?.id || 0);
       if (!uid) throw new Error('Provider is required.');
@@ -4751,11 +4778,19 @@ watch([showRequestModal, visibleQuickActions], ([isOpen, actions]) => {
   const rows = Array.isArray(actions) ? actions : [];
   if (!rows.length) {
     requestType.value = '';
+    requestTypeChosenByUser.value = false;
     return;
   }
   const ids = new Set(rows.map((row) => String(row?.id || '')).filter(Boolean));
   if (!ids.has(String(requestType.value || ''))) {
-    requestType.value = String(rows[0]?.id || '');
+    if (rows.length === 1) {
+      requestType.value = String(rows[0]?.id || '');
+      requestTypeChosenByUser.value = false;
+    } else if (requestTypeChosenByUser.value) {
+      requestType.value = String(rows[0]?.id || '');
+    } else {
+      requestType.value = '';
+    }
   }
 }, { deep: true });
 
