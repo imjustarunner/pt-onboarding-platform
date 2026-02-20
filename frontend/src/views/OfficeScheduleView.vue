@@ -441,7 +441,7 @@
               <div class="muted" v-else>Requires booked slot with linked client context.</div>
             </div>
 
-            <div class="row" style="margin-bottom: 10px;">
+            <div v-if="showClinicalSessionControls" class="row" style="margin-bottom: 10px;">
               <label style="font-weight: 700;">Appointment type</label>
               <select v-model="bookingAppointmentType" class="select" :disabled="saving || bookingMetadataLoading">
                 <option value="">Select type…</option>
@@ -457,7 +457,7 @@
                 </option>
               </select>
             </div>
-            <div class="row" style="margin-bottom: 10px;">
+            <div v-if="showClinicalSessionControls" class="row" style="margin-bottom: 10px;">
               <label style="font-weight: 700;">Service code</label>
               <select v-model="bookingServiceCode" class="select" :disabled="saving || bookingMetadataLoading">
                 <option value="">Select service code…</option>
@@ -472,9 +472,9 @@
                 <option value="TELEHEALTH">Telehealth</option>
               </select>
             </div>
-            <div class="muted" v-if="bookingMetadataLoading">Loading taxonomy and service code eligibility…</div>
-            <div class="muted" v-else-if="bookingMetadataError">{{ bookingMetadataError }}</div>
-            <div class="muted" v-if="bookingClassificationInvalidReason">{{ bookingClassificationInvalidReason }}</div>
+            <div class="muted" v-if="showClinicalSessionControls && bookingMetadataLoading">Loading taxonomy and service code eligibility…</div>
+            <div class="muted" v-else-if="showClinicalSessionControls && bookingMetadataError">{{ bookingMetadataError }}</div>
+            <div class="muted" v-if="showClinicalSessionControls && bookingClassificationInvalidReason">{{ bookingClassificationInvalidReason }}</div>
 
             <div class="row">
               <label style="font-weight: 700;">Book frequency</label>
@@ -486,7 +486,7 @@
               </select>
               <label style="font-weight: 700;">Occurrences</label>
               <input v-model.number="bookOccurrenceCount" type="number" min="1" max="104" class="input" style="width: 90px;" />
-              <button class="btn btn-primary" @click="bookSlot" :disabled="saving || !bookFreq || !canSubmitBookedWithClassification || (!modalSlot?.standingAssignmentId && !modalSlot?.eventId)">
+              <button class="btn btn-primary" @click="bookSlot" :disabled="saving || !bookFreq || (!modalSlot?.standingAssignmentId && !modalSlot?.eventId)">
                 Book
               </button>
             </div>
@@ -774,7 +774,10 @@ const formatDateOnly = (value) => {
 const formatDateTime = (value) => {
   const raw = String(value || '').trim();
   if (!raw) return '';
-  const normalized = raw.includes('T') ? raw : raw.replace(' ', 'T');
+  const mysqlUtcNoZone = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}$/.test(raw);
+  const normalizedBase = raw.includes('T') ? raw : raw.replace(' ', 'T');
+  // Backend often returns MySQL datetime strings without timezone; treat them as UTC.
+  const normalized = mysqlUtcNoZone ? `${normalizedBase}Z` : normalizedBase;
   const dt = new Date(normalized);
   if (Number.isNaN(dt.getTime())) return raw.slice(0, 16).replace('T', ' ');
   return dt.toLocaleString([], {
@@ -1317,6 +1320,8 @@ const serviceCodeOptionHints = (opt) => {
   return hints.length ? ` (${hints.join(', ')})` : '';
 };
 const bookingRequiresServiceCode = computed(() => ['SESSION', 'ASSESSMENT'].includes(normalizeCodeValue(bookingAppointmentType.value)));
+// Building modal "Book" is office availability booking; clinical-session taxonomy will live in a separate action.
+const showClinicalSessionControls = computed(() => false);
 const bookingClassificationInvalidReason = computed(() => {
   const hasAnyClassificationInput = Boolean(
     normalizeCodeValue(bookingAppointmentType.value)
