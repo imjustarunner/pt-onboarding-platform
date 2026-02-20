@@ -4435,34 +4435,55 @@ const submitRequest = async () => {
       const roomId = viewMode.value === 'office_layout'
         ? (Number(selectedOfficeRoomId.value || 0) || null)
         : null;
-      const targets = sortedSelectedActionSlots().length ? sortedSelectedActionSlots() : [{
+      const recurrence = String(officeBookingRecurrence.value || 'ONCE');
+      const recurringRecurrences = ['WEEKLY', 'BIWEEKLY', 'MONTHLY'];
+      const occurrenceCount = recurringRecurrences.includes(recurrence)
+        ? Math.min(104, Math.max(1, Number(officeBookingOccurrenceCount.value) || 6))
+        : null;
+      const contexts = selectedActionContexts();
+      const directBookContexts = recurrence === 'ONCE'
+        ? contexts.filter((ctx) => {
+          const officeLocationId = Number(ctx?.officeLocationId || 0);
+          const officeEventId = Number(ctx?.officeEventId || 0);
+          const state = String(ctx?.slotState || '').toUpperCase();
+          return officeLocationId > 0 && officeEventId > 0 && ['ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY'].includes(state);
+        })
+        : [];
+      if (directBookContexts.length) {
+        for (const ctx of directBookContexts) {
+          // eslint-disable-next-line no-await-in-loop
+          await api.post(`/office-slots/${ctx.officeLocationId}/events/${ctx.officeEventId}/book`, {
+            booked: true,
+            agencyId: effectiveAgencyId.value || undefined,
+            ...normalizeBookingSelectionPayload()
+          });
+        }
+        refreshInBackground = true;
+      } else {
+        const targets = sortedSelectedActionSlots().length ? sortedSelectedActionSlots() : [{
         dateYmd: addDaysYmd(weekStart.value, ALL_DAYS.indexOf(String(dn))),
         hour: h
       }];
-      for (const t of targets) {
-        const startAt = `${String(t.dateYmd).slice(0, 10)}T${pad2(Number(t.hour || h))}:00:00`;
-        const endAt = `${String(t.dateYmd).slice(0, 10)}T${pad2(Math.min(Number(t.hour || h) + Math.max(1, endH - h), 22))}:00:00`;
-        // eslint-disable-next-line no-await-in-loop
-        const recurrence = String(officeBookingRecurrence.value || 'ONCE');
-        const recurringRecurrences = ['WEEKLY', 'BIWEEKLY', 'MONTHLY'];
-        const occurrenceCount = recurringRecurrences.includes(recurrence)
-          ? Math.min(104, Math.max(1, Number(officeBookingOccurrenceCount.value) || 6))
-          : null;
-        const r = await api.post('/office-schedule/booking-requests', {
-          officeLocationId: officeId,
-          roomId,
-          startAt,
-          endAt,
-          recurrence,
-          ...(occurrenceCount ? { bookedOccurrenceCount: occurrenceCount } : {}),
-          openToAlternativeRoom: !roomId,
-          notes: requestNotes.value || '',
-          ...normalizeBookingSelectionPayload(),
-          ...(isAdminMode.value ? { requestedProviderId: Number(props.userId) } : {})
-        });
-        if (r?.data?.kind === 'auto_booked') {
+        for (const t of targets) {
+          const startAt = `${String(t.dateYmd).slice(0, 10)}T${pad2(Number(t.hour || h))}:00:00`;
+          const endAt = `${String(t.dateYmd).slice(0, 10)}T${pad2(Math.min(Number(t.hour || h) + Math.max(1, endH - h), 22))}:00:00`;
           // eslint-disable-next-line no-await-in-loop
-          await loadSelectedOfficeGrid();
+          const r = await api.post('/office-schedule/booking-requests', {
+            officeLocationId: officeId,
+            roomId,
+            startAt,
+            endAt,
+            recurrence,
+            ...(occurrenceCount ? { bookedOccurrenceCount: occurrenceCount } : {}),
+            openToAlternativeRoom: !roomId,
+            notes: requestNotes.value || '',
+            ...normalizeBookingSelectionPayload(),
+            ...(isAdminMode.value ? { requestedProviderId: Number(props.userId) } : {})
+          });
+          if (r?.data?.kind === 'auto_booked') {
+            // eslint-disable-next-line no-await-in-loop
+            await loadSelectedOfficeGrid();
+          }
         }
       }
     } else if (requestType.value === 'office_request_only') {
