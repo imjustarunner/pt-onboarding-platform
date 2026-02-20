@@ -56,7 +56,7 @@
         >
           {{ sticky.is_collapsed ? '▼' : '▲' }}
         </button>
-        <div class="more-menu-wrap">
+        <div class="more-menu-wrap" ref="moreMenuWrapRef">
           <button
             type="button"
             class="sticky-btn more-btn"
@@ -65,14 +65,21 @@
           >
             ⋮
           </button>
-          <div v-if="showMoreMenu" class="more-menu" @click.stop>
-            <button type="button" class="more-menu-item" @click="hideSticky">
-              👁‍🗨 Hide
-            </button>
-            <button type="button" class="more-menu-item more-menu-item-danger" @click="openDeleteConfirm">
-              Delete permanently…
-            </button>
-          </div>
+          <Teleport to="body">
+            <div
+              v-if="showMoreMenu"
+              class="more-menu more-menu-teleported"
+              :style="moreMenuStyle"
+              @click.stop
+            >
+              <button type="button" class="more-menu-item" @click="hideSticky">
+                👁‍🗨 Hide
+              </button>
+              <button type="button" class="more-menu-item more-menu-item-danger" @click="openDeleteConfirm">
+                Delete permanently…
+              </button>
+            </div>
+          </Teleport>
         </div>
       </div>
     </div>
@@ -163,6 +170,8 @@
 
 <script setup>
 import { ref, computed, watch, onUnmounted } from 'vue';
+
+const moreMenuWrapRef = ref(null);
 
 const props = defineProps({
   sticky: { type: Object, required: true },
@@ -268,6 +277,17 @@ const cardStyle = computed(() => {
   };
 });
 
+const moreMenuStyle = computed(() => {
+  if (!moreMenuWrapRef.value || !showMoreMenu.value) return {};
+  const rect = moreMenuWrapRef.value.getBoundingClientRect();
+  return {
+    position: 'fixed',
+    top: `${rect.bottom + 4}px`,
+    left: `${rect.right - 160}px`,
+    minWidth: '160px'
+  };
+});
+
 const toggleCollapse = () => {
   emit('update', { is_collapsed: !props.sticky.is_collapsed });
 };
@@ -346,7 +366,11 @@ const onMouseUp = () => {
   document.removeEventListener('mousemove', onMouseMove);
   document.removeEventListener('mouseup', onMouseUp);
   isDragging.value = false;
-  emit('update', { position_x: Math.round(dragX.value), position_y: Math.round(dragY.value) });
+  const x = Math.round(Number(dragX.value));
+  const y = Math.round(Number(dragY.value));
+  if (!Number.isNaN(x) && !Number.isNaN(y)) {
+    emit('update', { position_x: x, position_y: y });
+  }
 };
 </script>
 
@@ -519,6 +543,11 @@ const onMouseUp = () => {
   border-radius: 8px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   z-index: 1001;
+}
+
+.more-menu-teleported {
+  z-index: 10001;
+  border: 1px solid rgba(0, 0, 0, 0.1);
 }
 
 .more-menu-item {

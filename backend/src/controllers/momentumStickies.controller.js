@@ -58,6 +58,12 @@ export const createSticky = async (req, res, next) => {
   }
 };
 
+function toInt(val) {
+  if (val === undefined || val === null) return undefined;
+  const n = Number(val);
+  return Number.isNaN(n) ? undefined : Math.floor(n);
+}
+
 export const updateSticky = async (req, res, next) => {
   try {
     const userId = parseInt(req.params.userId, 10);
@@ -66,10 +72,10 @@ export const updateSticky = async (req, res, next) => {
     const sticky = await MomentumSticky.update(stickyId, userId, {
       title: title !== undefined ? String(title).trim() : undefined,
       isPinned: is_pinned !== undefined ? !!is_pinned : undefined,
-      positionX: position_x !== undefined ? position_x : undefined,
-      positionY: position_y !== undefined ? position_y : undefined,
+      positionX: position_x !== undefined ? toInt(position_x) : undefined,
+      positionY: position_y !== undefined ? toInt(position_y) : undefined,
       isCollapsed: is_collapsed !== undefined ? !!is_collapsed : undefined,
-      sortOrder: sort_order !== undefined ? sort_order : undefined,
+      sortOrder: sort_order !== undefined ? toInt(sort_order) : undefined,
       color: color !== undefined ? color : undefined,
       isHidden: is_hidden !== undefined ? !!is_hidden : undefined
     });
@@ -88,9 +94,9 @@ export const updateStickyPosition = async (req, res, next) => {
     const stickyId = parseInt(req.params.stickyId, 10);
     const { position_x, position_y, is_collapsed } = req.body;
     const sticky = await MomentumSticky.updatePosition(stickyId, userId, {
-      positionX: position_x,
-      positionY: position_y,
-      isCollapsed: is_collapsed
+      positionX: position_x !== undefined ? toInt(position_x) : undefined,
+      positionY: position_y !== undefined ? toInt(position_y) : undefined,
+      isCollapsed: is_collapsed !== undefined ? !!is_collapsed : undefined
     });
     if (!sticky) {
       return res.status(404).json({ error: { message: 'Momentum Sticky not found' } });

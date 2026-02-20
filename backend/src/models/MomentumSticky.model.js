@@ -63,8 +63,8 @@ class MomentumSticky {
     const values = [];
     if (title !== undefined) { updates.push('title = ?'); values.push(title); }
     if (isPinned !== undefined) { updates.push('is_pinned = ?'); values.push(isPinned ? 1 : 0); }
-    if (positionX !== undefined) { updates.push('position_x = ?'); values.push(positionX); }
-    if (positionY !== undefined) { updates.push('position_y = ?'); values.push(positionY); }
+    if (positionX !== undefined && Number.isFinite(Number(positionX))) { updates.push('position_x = ?'); values.push(Math.floor(Number(positionX))); }
+    if (positionY !== undefined && Number.isFinite(Number(positionY))) { updates.push('position_y = ?'); values.push(Math.floor(Number(positionY))); }
     if (isCollapsed !== undefined) { updates.push('is_collapsed = ?'); values.push(isCollapsed ? 1 : 0); }
     if (sortOrder !== undefined) { updates.push('sort_order = ?'); values.push(sortOrder); }
     if (color !== undefined) { updates.push('color = ?'); values.push(color || 'yellow'); }
