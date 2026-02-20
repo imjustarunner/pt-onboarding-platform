@@ -1,5 +1,17 @@
 import pool from '../config/database.js';
 
+// Cached agency schema columns (avoids 10+ information_schema queries per findById)
+let _agencySchemaColumns = null;
+async function getAgencySchemaColumns() {
+  if (_agencySchemaColumns) return _agencySchemaColumns;
+  const [rows] = await pool.execute(
+    `SELECT COLUMN_NAME FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies'`
+  );
+  _agencySchemaColumns = new Set((rows || []).map((r) => r.COLUMN_NAME));
+  return _agencySchemaColumns;
+}
+
 /**
  * Agency Model
  * 
@@ -109,121 +121,26 @@ class Agency {
   }
 
   static async findById(id) {
-    // Check if dashboard action icon columns exist
-    let hasDashboardIcons = false;
-    try {
-      const [columns] = await pool.execute(
-        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'manage_agencies_icon_id'"
-      );
-      hasDashboardIcons = columns.length > 0;
-    } catch (e) {
-      hasDashboardIcons = false;
-    }
+    const cols = await getAgencySchemaColumns();
+    const has = (name) => cols.has(name);
 
-    // Check if company_default_password_hash column exists
-    let hasCompanyDefaultPassword = false;
-    try {
-      const [columns] = await pool.execute(
-        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'company_default_password_hash'"
-      );
-      hasCompanyDefaultPassword = columns.length > 0;
-    } catch (e) {
-      hasCompanyDefaultPassword = false;
-    }
-
-    // Check if icon_id column exists
-    let hasIconId = false;
-    try {
-      const [iconColumns] = await pool.execute(
-        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'icon_id'"
-      );
-      hasIconId = iconColumns.length > 0;
-    } catch (e) {
-      hasIconId = false;
-    }
-
-    // Check if chat_icon_id column exists
-    let hasChatIconId = false;
-    try {
-      const [chatCols] = await pool.execute(
-        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'chat_icon_id'"
-      );
-      hasChatIconId = chatCols.length > 0;
-    } catch (e) {
-      hasChatIconId = false;
-    }
-
-    // Check if "My Dashboard" card icon columns exist
-    let hasMyDashboardIcons = false;
-    try {
-      const [columns] = await pool.execute(
-        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'my_dashboard_checklist_icon_id'"
-      );
-      hasMyDashboardIcons = columns.length > 0;
-    } catch (e) {
-      hasMyDashboardIcons = false;
-    }
-    // Optional My Dashboard: Clinical Note Generator card icon (added later than the base my_dashboard_* set)
-    let hasMyDashboardClinicalNoteGeneratorIcon = false;
-    try {
-      const [cols] = await pool.execute(
-        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'my_dashboard_clinical_note_generator_icon_id'"
-      );
-      hasMyDashboardClinicalNoteGeneratorIcon = (cols || []).length > 0;
-    } catch (e) {
-      hasMyDashboardClinicalNoteGeneratorIcon = false;
-    }
+    const hasDashboardIcons = has('manage_agencies_icon_id');
+    const hasCompanyDefaultPassword = has('company_default_password_hash');
+    const hasIconId = has('icon_id');
+    const hasChatIconId = has('chat_icon_id');
+    const hasMyDashboardIcons = has('my_dashboard_checklist_icon_id');
+    const hasMyDashboardClinicalNoteGeneratorIcon = has('my_dashboard_clinical_note_generator_icon_id');
 
     let query;
     if (hasDashboardIcons) {
-      // Check if manage_clients_icon_id column exists (optional)
-      let hasManageClientsIcon = false;
-      try {
-        const [cols] = await pool.execute(
-          "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'manage_clients_icon_id'"
-        );
-        hasManageClientsIcon = cols.length > 0;
-      } catch (e) {
-        hasManageClientsIcon = false;
-      }
-
-      // Check if extra dashboard quick-action icons exist (optional)
-      let hasExtraDashboardQuickActionIcons = false;
-      try {
-        const [cols] = await pool.execute(
-          "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'dashboard_notifications_icon_id'"
-        );
-        hasExtraDashboardQuickActionIcons = (cols || []).length > 0;
-      } catch (e) {
-        hasExtraDashboardQuickActionIcons = false;
-      }
-
-      // Optional quick action icons (added over time via migrations)
-      let hasExternalCalendarAuditIcon = false;
-      let hasSkillBuildersAvailabilityIcon = false;
-      let hasSchoolOverviewIcon = false;
-      let hasProgramOverviewIcon = false;
-      let hasProviderAvailabilityDashboardIcon = false;
-      let hasExecutiveReportIcon = false;
-      try {
-        const [cols] = await pool.execute(
-          "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME IN ('external_calendar_audit_icon_id','skill_builders_availability_icon_id','school_overview_icon_id','program_overview_icon_id','provider_availability_dashboard_icon_id','executive_report_icon_id')"
-        );
-        const names = new Set((cols || []).map((c) => c.COLUMN_NAME));
-        hasExternalCalendarAuditIcon = names.has('external_calendar_audit_icon_id');
-        hasSkillBuildersAvailabilityIcon = names.has('skill_builders_availability_icon_id');
-        hasSchoolOverviewIcon = names.has('school_overview_icon_id');
-        hasProgramOverviewIcon = names.has('program_overview_icon_id');
-        hasProviderAvailabilityDashboardIcon = names.has('provider_availability_dashboard_icon_id');
-        hasExecutiveReportIcon = names.has('executive_report_icon_id');
-      } catch (e) {
-        hasExternalCalendarAuditIcon = false;
-        hasSkillBuildersAvailabilityIcon = false;
-        hasSchoolOverviewIcon = false;
-        hasProgramOverviewIcon = false;
-        hasProviderAvailabilityDashboardIcon = false;
-        hasExecutiveReportIcon = false;
-      }
+      const hasManageClientsIcon = has('manage_clients_icon_id');
+      const hasExtraDashboardQuickActionIcons = has('dashboard_notifications_icon_id');
+      const hasExternalCalendarAuditIcon = has('external_calendar_audit_icon_id');
+      const hasSkillBuildersAvailabilityIcon = has('skill_builders_availability_icon_id');
+      const hasSchoolOverviewIcon = has('school_overview_icon_id');
+      const hasProgramOverviewIcon = has('program_overview_icon_id');
+      const hasProviderAvailabilityDashboardIcon = has('provider_availability_dashboard_icon_id');
+      const hasExecutiveReportIcon = has('executive_report_icon_id');
 
       const schoolOverviewSelects = hasSchoolOverviewIcon
         ? `,
@@ -294,42 +211,28 @@ class Agency {
         : '';
 
       // School Portal home card icons (optional; needed for School Portal users who cannot call /icons)
+      const want = [
+        { col: 'school_portal_providers_icon_id', alias: 'sp_prov_i', path: 'school_portal_providers_icon_path', name: 'school_portal_providers_icon_name' },
+        { col: 'school_portal_days_icon_id', alias: 'sp_days_i', path: 'school_portal_days_icon_path', name: 'school_portal_days_icon_name' },
+        { col: 'school_portal_roster_icon_id', alias: 'sp_roster_i', path: 'school_portal_roster_icon_path', name: 'school_portal_roster_icon_name' },
+        { col: 'school_portal_skills_groups_icon_id', alias: 'sp_sk_i', path: 'school_portal_skills_groups_icon_path', name: 'school_portal_skills_groups_icon_name' },
+        { col: 'school_portal_contact_admin_icon_id', alias: 'sp_ca_i', path: 'school_portal_contact_admin_icon_path', name: 'school_portal_contact_admin_icon_name' },
+        { col: 'school_portal_faq_icon_id', alias: 'sp_faq_i', path: 'school_portal_faq_icon_path', name: 'school_portal_faq_icon_name' },
+        { col: 'school_portal_school_staff_icon_id', alias: 'sp_staff_i', path: 'school_portal_school_staff_icon_path', name: 'school_portal_school_staff_icon_name' },
+        { col: 'school_portal_parent_qr_icon_id', alias: 'sp_pqr_i', path: 'school_portal_parent_qr_icon_path', name: 'school_portal_parent_qr_icon_name' },
+        { col: 'school_portal_parent_sign_icon_id', alias: 'sp_psign_i', path: 'school_portal_parent_sign_icon_path', name: 'school_portal_parent_sign_icon_name' },
+        { col: 'school_portal_upload_packet_icon_id', alias: 'sp_up_i', path: 'school_portal_upload_packet_icon_path', name: 'school_portal_upload_packet_icon_name' },
+        { col: 'school_portal_public_documents_icon_id', alias: 'sp_docs_i', path: 'school_portal_public_documents_icon_path', name: 'school_portal_public_documents_icon_name' },
+        { col: 'school_portal_announcements_icon_id', alias: 'sp_ann_i', path: 'school_portal_announcements_icon_path', name: 'school_portal_announcements_icon_name' }
+      ];
+      const present = want.filter((x) => cols.has(x.col));
       let schoolPortalSelects = '';
       let schoolPortalJoins = '';
-      try {
-        const want = [
-          { col: 'school_portal_providers_icon_id', alias: 'sp_prov_i', path: 'school_portal_providers_icon_path', name: 'school_portal_providers_icon_name' },
-          { col: 'school_portal_days_icon_id', alias: 'sp_days_i', path: 'school_portal_days_icon_path', name: 'school_portal_days_icon_name' },
-          { col: 'school_portal_roster_icon_id', alias: 'sp_roster_i', path: 'school_portal_roster_icon_path', name: 'school_portal_roster_icon_name' },
-          { col: 'school_portal_skills_groups_icon_id', alias: 'sp_sk_i', path: 'school_portal_skills_groups_icon_path', name: 'school_portal_skills_groups_icon_name' },
-          { col: 'school_portal_contact_admin_icon_id', alias: 'sp_ca_i', path: 'school_portal_contact_admin_icon_path', name: 'school_portal_contact_admin_icon_name' },
-          { col: 'school_portal_faq_icon_id', alias: 'sp_faq_i', path: 'school_portal_faq_icon_path', name: 'school_portal_faq_icon_name' },
-          { col: 'school_portal_school_staff_icon_id', alias: 'sp_staff_i', path: 'school_portal_school_staff_icon_path', name: 'school_portal_school_staff_icon_name' },
-          { col: 'school_portal_parent_qr_icon_id', alias: 'sp_pqr_i', path: 'school_portal_parent_qr_icon_path', name: 'school_portal_parent_qr_icon_name' },
-          { col: 'school_portal_parent_sign_icon_id', alias: 'sp_psign_i', path: 'school_portal_parent_sign_icon_path', name: 'school_portal_parent_sign_icon_name' },
-          { col: 'school_portal_upload_packet_icon_id', alias: 'sp_up_i', path: 'school_portal_upload_packet_icon_path', name: 'school_portal_upload_packet_icon_name' },
-          { col: 'school_portal_public_documents_icon_id', alias: 'sp_docs_i', path: 'school_portal_public_documents_icon_path', name: 'school_portal_public_documents_icon_name' },
-          { col: 'school_portal_announcements_icon_id', alias: 'sp_ann_i', path: 'school_portal_announcements_icon_path', name: 'school_portal_announcements_icon_name' }
-        ];
-        const ph = want.map(() => '?').join(',');
-        const [cols] = await pool.execute(
-          `SELECT COLUMN_NAME
-           FROM information_schema.COLUMNS
-           WHERE TABLE_SCHEMA = DATABASE()
-             AND TABLE_NAME = 'agencies'
-             AND COLUMN_NAME IN (${ph})`,
-          want.map((x) => x.col)
-        );
-        const names = new Set((cols || []).map((c) => c.COLUMN_NAME));
-        const present = want.filter((x) => names.has(x.col));
-        if (present.length) {
-          schoolPortalSelects = `,
+      if (present.length) {
+        schoolPortalSelects = `,
         ${present.map((x) => `${x.alias}.file_path as ${x.path}, ${x.alias}.name as ${x.name}`).join(',\n        ')}`;
-          schoolPortalJoins = `
+        schoolPortalJoins = `
         ${present.map((x) => `LEFT JOIN icons ${x.alias} ON a.${x.col} = ${x.alias}.id`).join('\n        ')}`;
-        }
-      } catch {
-        // ignore
       }
 
       const skillBuildersSelects = hasSkillBuildersAvailabilityIcon
