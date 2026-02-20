@@ -47,19 +47,24 @@ async function attachAffiliationMeta(orgs) {
       o.affiliated_agency_id = byOrg.get(Number(o.id)) || null;
     }
 
-    // Add hasClinicalOrg: true if org is clinical or its parent agency has a clinical org (gates notes/billing).
+    // Add hasClinicalOrg/hasLearningOrg from affiliation context for schedule gates.
     for (const o of list) {
       if (!o || !o.id) continue;
       const t = String(o.organization_type || '').toLowerCase();
       if (t === 'clinical') {
         o.hasClinicalOrg = true;
+        o.hasLearningOrg = false;
         continue;
       }
       const agencyIdForCheck = t === 'agency' ? Number(o.id) : Number(o.affiliated_agency_id || o.id);
       if (agencyIdForCheck) {
         o.hasClinicalOrg = await OrganizationAffiliation.agencyHasClinicalOrg(agencyIdForCheck);
+        o.hasLearningOrg = OrganizationAffiliation?.agencyHasLearningOrg
+          ? await OrganizationAffiliation.agencyHasLearningOrg(agencyIdForCheck)
+          : false;
       } else {
         o.hasClinicalOrg = false;
+        o.hasLearningOrg = false;
       }
     }
   } catch {

@@ -10,6 +10,15 @@ class OrganizationAffiliation {
     return (orgs || []).some((o) => String(o?.organization_type || '').toLowerCase() === 'clinical');
   }
 
+  /**
+   * True if agency has at least one affiliated org with organization_type
+   * that supports session workflows outside pure school-only programs.
+   */
+  static async agencyHasLearningOrg(agencyId) {
+    const orgs = await this.listActiveOrganizationsForAgency(agencyId);
+    return (orgs || []).some((o) => ['learning', 'program'].includes(String(o?.organization_type || '').toLowerCase()));
+  }
+
   static async listActiveOrganizationsForAgency(agencyId) {
     const aId = parseInt(agencyId, 10);
     if (!aId) return [];

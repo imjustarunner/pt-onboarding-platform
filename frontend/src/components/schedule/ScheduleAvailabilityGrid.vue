@@ -484,14 +484,11 @@
             </label>
           </div>
 
-          <div v-if="requestType === 'office' || requestType === 'office_request_only' || requestType === 'add_session'" style="margin-top: 10px;">
+          <div v-if="requestType === 'office' || requestType === 'office_request_only' || requestType === 'individual_session' || requestType === 'group_session'" style="margin-top: 10px;">
             <div v-if="!selectedOfficeLocationId" class="muted">
               Select an office from the toolbar above to view open/assigned/booked time and place a booking request.
             </div>
             <template v-else>
-              <div v-if="!showClinicalBookingFields && (requestType === 'office' || requestType === 'add_session')" class="muted" style="margin-bottom: 10px;">
-                Agency must have a clinical organization to book appointments with service codes. Booking still works and will mark the office slot as booked/busy.
-              </div>
               <div v-if="requestType === 'office_request_only'" class="modern-help">
                 Separate office request path: this submits a provider office-availability request for staff assignment workflow.
               </div>
@@ -549,7 +546,7 @@
               <label v-if="viewMode === 'office_layout'" class="lbl" style="margin-top: 10px;">Room</label>
               <div v-if="viewMode === 'office_layout' && officeGridLoading" class="muted">Loading rooms…</div>
               <div v-else-if="viewMode === 'office_layout' && officeGridError" class="error">{{ officeGridError }}</div>
-              <div v-else-if="viewMode === 'office_layout' && (requestType === 'office' || requestType === 'add_session')" class="office-room-picker">
+              <div v-else-if="viewMode === 'office_layout' && (requestType === 'office' || requestType === 'individual_session' || requestType === 'group_session')" class="office-room-picker">
                 <label class="office-room-option">
                   <input type="radio" name="office-room" :value="0" v-model.number="selectedOfficeRoomId" />
                   <span class="office-room-label">Any open room</span>
@@ -566,7 +563,7 @@
                 </label>
               </div>
               <div v-else-if="viewMode === 'office_layout'" class="muted">Separate office request mode does not require room selection.</div>
-              <div v-else-if="(requestType === 'office' || requestType === 'add_session') && viewMode === 'open_finder'" class="muted">Any open room will be used. Switch to Office layout for specific room selection.</div>
+              <div v-else-if="(requestType === 'office' || requestType === 'individual_session' || requestType === 'group_session') && viewMode === 'open_finder'" class="muted">Any open room will be used. Switch to Office layout for specific room selection.</div>
               <div v-if="showClinicalBookingFields && bookingMetadataLoading" class="muted" style="margin-top: 6px;">Loading appointment type and service code options…</div>
               <div v-else-if="bookingMetadataError" class="muted" style="margin-top: 6px;">{{ bookingMetadataError }}</div>
               <div v-if="bookingClassificationInvalidReason" class="muted" style="margin-top: 6px;">
@@ -692,7 +689,7 @@
             :disabled="
               submitting ||
               !requestType ||
-              ((requestType === 'office' || requestType === 'office_request_only' || requestType === 'add_session') && (bookingMetadataLoading || !officeBookingValid || !!bookingClassificationInvalidReason)) ||
+              ((requestType === 'office' || requestType === 'office_request_only' || requestType === 'individual_session' || requestType === 'group_session') && (bookingMetadataLoading || !officeBookingValid || !!bookingClassificationInvalidReason)) ||
               (requestType === 'school' && !canUseSchool(modalDay, modalHour, modalEndHour)) ||
               (requestType === 'supervision' && !supervisionCanSubmit) ||
               ((requestType === 'intake_virtual_on' || requestType === 'intake_virtual_off' || requestType === 'intake_inperson_on' || requestType === 'intake_inperson_off') && !modalContext.officeEventId) ||
@@ -1435,7 +1432,8 @@ const loadSelfScheduleAgencies = async () => {
       deduped.push({
         id,
         name: String(row?.name || row?.agency_name || `Agency ${id}`).trim(),
-        hasClinicalOrg: !!row?.hasClinicalOrg
+        hasClinicalOrg: !!row?.hasClinicalOrg,
+        hasLearningOrg: !!row?.hasLearningOrg
       });
     }
     selfScheduleAgencyOptions.value = deduped;
@@ -1680,11 +1678,17 @@ const agencyFilterOptions = computed(() => {
       .map((row) => ({
         id: Number(row.id),
         label: String(row.name || `Agency ${row.id}`),
-        hasClinicalOrg: !!row?.hasClinicalOrg
+        hasClinicalOrg: !!row?.hasClinicalOrg,
+        hasLearningOrg: !!row?.hasLearningOrg
       }))
       .filter((row) => Number.isFinite(row.id) && row.id > 0);
   }
-  return propAgencyIds.value.map((id) => ({ id: Number(id), label: agencyLabel(id) || `Agency ${id}`, hasClinicalOrg: agencyStore.currentAgency?.id === id ? !!agencyStore.currentAgency?.hasClinicalOrg : null }));
+  return propAgencyIds.value.map((id) => ({
+    id: Number(id),
+    label: agencyLabel(id) || `Agency ${id}`,
+    hasClinicalOrg: agencyStore.currentAgency?.id === id ? !!agencyStore.currentAgency?.hasClinicalOrg : null,
+    hasLearningOrg: agencyStore.currentAgency?.id === id ? !!agencyStore.currentAgency?.hasLearningOrg : null
+  }));
 });
 
 const showClinicalBookingFields = computed(() => {
@@ -1694,6 +1698,16 @@ const showClinicalBookingFields = computed(() => {
   if (opt?.hasClinicalOrg === true) return true;
   if (opt?.hasClinicalOrg === false) return false;
   return !!agencyStore.currentAgency?.hasClinicalOrg && Number(agencyStore.currentAgency?.id) === effId;
+});
+
+const effectiveAgencyFeatureFlags = computed(() => {
+  const effId = Number(effectiveAgencyId.value || 0);
+  const opt = (agencyFilterOptions.value || []).find((r) => Number(r?.id) === effId);
+  const fallbackMatches = Number(agencyStore.currentAgency?.id || 0) === effId;
+  return {
+    hasClinicalOrg: opt?.hasClinicalOrg === true || (opt?.hasClinicalOrg == null && fallbackMatches && !!agencyStore.currentAgency?.hasClinicalOrg),
+    hasLearningOrg: opt?.hasLearningOrg === true || (opt?.hasLearningOrg == null && fallbackMatches && !!agencyStore.currentAgency?.hasLearningOrg)
+  };
 });
 
 const actionAgencyOptions = computed(() => {
@@ -2806,7 +2820,15 @@ const requestNotes = ref('');
 const submitting = ref(false);
 const modalError = ref('');
 const SCHEDULE_EVENT_ACTIONS = new Set(['personal_event', 'schedule_hold', 'schedule_hold_all_day', 'indirect_services']);
-const AGENCY_OPTIONAL_ACTIONS = new Set(['forfeit_slot', 'personal_event', 'schedule_hold', 'schedule_hold_all_day']);
+const AGENCY_OPTIONAL_ACTIONS = new Set([
+  'office',
+  'individual_session',
+  'group_session',
+  'forfeit_slot',
+  'personal_event',
+  'schedule_hold',
+  'schedule_hold_all_day'
+]);
 const SCHEDULE_HOLD_REASON_OPTIONS = [
   { code: 'DOCUMENTATION', label: 'Documentation' },
   { code: 'TEAM_MEETING', label: 'Team meeting' },
@@ -2889,20 +2911,28 @@ const availableQuickActions = computed(() => {
   const schoolWindowOk = canUseSchool(modalDay.value, modalHour.value, modalEndHour.value);
   const supervisionOptionVisible = canScheduleSupervisionFromGrid.value;
   const supervisionOnlyMode = isViewingOtherUserSchedule.value;
-  const hasClinicalOrg = agencyStore.currentAgency?.hasClinicalOrg === true;
+  const hasClinicalOrLearningOrg = effectiveAgencyFeatureFlags.value.hasClinicalOrg || effectiveAgencyFeatureFlags.value.hasLearningOrg;
   return [
     {
-      id: 'add_session',
-      label: 'Add session',
-      description: hasOffice ? 'Book a clinical session' : 'Select office from toolbar above first',
+      id: 'individual_session',
+      label: 'Individual session',
+      description: hasOffice ? 'Book individual session and office together' : 'Select office first',
       disabledReason: hasOffice ? '' : 'Select office',
-      visible: !supervisionOnlyMode && hasClinicalOrg,
+      visible: !supervisionOnlyMode && hasClinicalOrLearningOrg,
       tone: 'sky'
+    },
+    {
+      id: 'group_session',
+      label: 'Group session',
+      description: hasOffice ? 'Book group session and office together' : 'Select office first',
+      disabledReason: hasOffice ? '' : 'Select office',
+      visible: !supervisionOnlyMode && hasClinicalOrLearningOrg,
+      tone: 'violet'
     },
     {
       id: 'office',
       label: 'Office booking',
-      description: hasOffice ? 'Book/request with room picker' : 'Select office first',
+      description: hasOffice ? 'Mark office slot as booked/busy' : 'Select office first',
       disabledReason: hasOffice ? '' : 'Select office',
       visible: !supervisionOnlyMode,
       tone: 'blue'
@@ -3040,7 +3070,8 @@ const OFFICE_LAYOUT_ONLY_ACTIONS = new Set([
   'intake_virtual_off',
   'intake_inperson_off',
   'office',
-  'add_session',
+  'individual_session',
+  'group_session',
   'booked_note',
   'booked_record'
 ]);
@@ -3053,7 +3084,8 @@ const OFFICE_BLOCK_ONLY_ACTIONS = new Set([
   'intake_virtual_off',
   'intake_inperson_off',
   'office',
-  'add_session',
+  'individual_session',
+  'group_session',
   'booked_note',
   'booked_record'
 ]);
@@ -3085,7 +3117,8 @@ const intakeActionHelpText = computed(() => {
 
 const submitActionLabel = computed(() => {
   const labels = {
-    add_session: 'Add session',
+    individual_session: 'Book individual session',
+    group_session: 'Book group session',
     office: 'Submit office booking',
     office_request_only: 'Submit office request',
     school: 'Submit school request',
@@ -3191,7 +3224,7 @@ const normalizeBookingSelectionPayload = () => ({
 });
 
 const loadBookingMetadataForProvider = async () => {
-  if (!['office', 'office_request_only', 'add_session'].includes(String(requestType.value || '')) || !showRequestModal.value) return;
+  if (!['office', 'office_request_only', 'individual_session', 'group_session'].includes(String(requestType.value || '')) || !showRequestModal.value) return;
   if (!showClinicalBookingFields.value) return;
   if (!Number(selectedOfficeLocationId.value || 0)) {
     resetBookingMetadataState();
@@ -3307,12 +3340,14 @@ const modalOfficeRoomOptions = computed(() => {
 });
 
 const officeBookingValid = computed(() => {
-  if (requestType.value !== 'office') return true;
+  if (!['office', 'individual_session', 'group_session'].includes(String(requestType.value || ''))) return true;
   const officeId = Number(selectedOfficeLocationId.value || 0);
   if (!officeId) return false;
   const endH = Number(modalEndHour.value);
   const startH = Number(modalHour.value);
   if (!(endH > startH)) return false;
+  // In Open Finder, room picker is intentionally hidden and booking uses any open room.
+  if (viewMode.value !== 'office_layout') return true;
   // If a specific room is picked, it must be requestable in the options list.
   const rid = Number(selectedOfficeRoomId.value || 0);
   if (!rid) return true; // any open room
@@ -3321,7 +3356,7 @@ const officeBookingValid = computed(() => {
 });
 
 const officeBookingHint = computed(() => {
-  if (requestType.value !== 'office') return '';
+  if (!['office', 'individual_session', 'group_session'].includes(String(requestType.value || ''))) return '';
   const officeId = Number(selectedOfficeLocationId.value || 0);
   if (!officeId) return '';
   if (officeBookingRecurrence.value === 'ONCE') {
@@ -3580,7 +3615,7 @@ const openSlotActionModal = ({
   ackForfeit.value = false;
   officeBookingRecurrence.value = 'ONCE';
   officeBookingOccurrenceCount.value = 6;
-  selectedOfficeRoomId.value = Number(roomId || 0) || 0;
+  selectedOfficeRoomId.value = viewMode.value === 'office_layout' ? (Number(roomId || 0) || 0) : 0;
   resetBookingSelectionDefaults();
   resetBookingMetadataState();
   supervisionParticipantSearch.value = '';
@@ -4363,7 +4398,7 @@ const submitRequest = async () => {
       if (createdScheduleEvents.length) {
         refreshInBackground = true;
       }
-    } else if (requestType.value === 'office' || requestType.value === 'add_session') {
+    } else if (requestType.value === 'office' || requestType.value === 'individual_session' || requestType.value === 'group_session') {
       const officeId = Number(selectedOfficeLocationId.value || 0);
       if (!officeId) throw new Error('Select an office first.');
       if (!officeBookingValid.value) throw new Error('Select an available room (or choose “Any open room”).');
@@ -4653,7 +4688,7 @@ const submitRequest = async () => {
 watch(requestType, (t) => {
   if (t === 'supervision') {
     void loadSupervisionProviders();
-  } else if ((t === 'office' || t === 'office_request_only' || t === 'add_session') && showClinicalBookingFields.value) {
+  } else if ((t === 'office' || t === 'office_request_only' || t === 'individual_session' || t === 'group_session') && showClinicalBookingFields.value) {
     void loadBookingMetadataForProvider();
   } else if (SCHEDULE_EVENT_ACTIONS.has(String(t || ''))) {
     if (!String(scheduleEventTitle.value || '').trim() || scheduleEventTitle.value === defaultScheduleEventTitleForAction('personal_event')) {
@@ -4732,7 +4767,7 @@ watch(bookingAppointmentType, () => {
 });
 
 watch([selectedOfficeLocationId, showRequestModal, requestType, showClinicalBookingFields], () => {
-  if ((requestType.value === 'office' || requestType.value === 'office_request_only' || requestType.value === 'add_session') && showRequestModal.value && showClinicalBookingFields.value) {
+  if ((requestType.value === 'office' || requestType.value === 'office_request_only' || requestType.value === 'individual_session' || requestType.value === 'group_session') && showRequestModal.value && showClinicalBookingFields.value) {
     void loadBookingMetadataForProvider();
   }
 });

@@ -137,13 +137,18 @@ async function attachAffiliationMeta(orgs) {
         const t = String(o.organization_type || '').toLowerCase();
         if (t === 'clinical') {
           o.hasClinicalOrg = true;
+          o.hasLearningOrg = false;
           continue;
         }
         const agencyIdForCheck = t === 'agency' ? Number(o.id) : Number(o.affiliated_agency_id || o.id);
         if (agencyIdForCheck) {
           o.hasClinicalOrg = await OrgAffModel.agencyHasClinicalOrg(agencyIdForCheck);
+          o.hasLearningOrg = OrgAffModel?.agencyHasLearningOrg
+            ? await OrgAffModel.agencyHasLearningOrg(agencyIdForCheck)
+            : false;
         } else {
           o.hasClinicalOrg = false;
+          o.hasLearningOrg = false;
         }
       }
     }
