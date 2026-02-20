@@ -4756,8 +4756,8 @@ const onCellBlockClick = (e, block, dayName, hour) => {
   // Light up the clicked block and select the cell
   selectedBlockKey.value = blockKey(dayName, hour, block);
   const dateYmd = addDaysYmd(weekStart.value, ALL_DAYS.indexOf(String(dayName || '')));
-  const top = ['oa', 'ot', 'ob', 'intake-ip', 'intake-vi'].includes(kind) ? officeTopEvent(dayName, hour) : null;
-  const roomId = Number(top?.roomId || block?.buildingId || block?.roomId || 0) || 0;
+  const officeTop = officeTopEvent(dayName, hour) || null;
+  const roomId = Number(officeTop?.roomId || block?.buildingId || block?.roomId || 0) || 0;
   selectedActionSlots.value = [{
     key: actionSlotKey({ dateYmd, hour, roomId }),
     dateYmd,
@@ -4809,18 +4809,17 @@ const onCellBlockClick = (e, block, dayName, hour) => {
     openSupvModal(dayName, hour);
     return;
   }
-  const top = officeTopEvent(dayName, hour) || null;
   if (['oa', 'ot', 'ob', 'intake-ip', 'intake-vi'].includes(kind)) {
-    const slotState = String(top?.slotState || '').toUpperCase();
+    const slotState = String(officeTop?.slotState || '').toUpperCase();
     // Assigned (available/temporary): default to Office booking so user can book weekly/biweekly/monthly
     const initialRequestType =
       slotState === 'ASSIGNED_BOOKED' ? 'booked_note' : ['ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY'].includes(slotState) ? 'office' : 'forfeit_slot';
     openSlotActionModal({
       dayName,
       hour,
-      roomId: Number(top?.roomId || 0) || 0,
+      roomId: Number(officeTop?.roomId || 0) || 0,
       dateYmd: addDaysYmd(weekStart.value, ALL_DAYS.indexOf(String(dayName || ''))),
-      slot: top,
+      slot: officeTop,
       preserveSelectionRange: false,
       initialRequestType
     });
