@@ -22,6 +22,24 @@ export async function getSupervisorSuperviseeIds(supervisorUserId, agencyId = nu
   }
 }
 
+/** Roles that have full access to all clients; supervisor is additive for these (My Schedule only). */
+const ADMIN_LIKE_ROLES = ['admin', 'super_admin', 'superadmin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus'];
+
+export function isAdminLikeRole(role) {
+  const roleNorm = String(role || '').toLowerCase();
+  return ADMIN_LIKE_ROLES.includes(roleNorm);
+}
+
+/**
+ * True when user is a supervisor actor but NOT admin-like.
+ * Use this when deciding whether to restrict client access to supervisees only.
+ * Admin/super_admin/support with supervisor privileges get full access; supervisor-only gets restricted.
+ */
+export async function isSupervisorOnlyActor({ userId, role, user = null }) {
+  if (isAdminLikeRole(role)) return false;
+  return isSupervisorActor({ userId, role, user });
+}
+
 export async function isSupervisorActor({ userId, role, user = null }) {
   const roleNorm = String(role || '').toLowerCase();
   if (roleNorm === 'supervisor') return true;
