@@ -2329,6 +2329,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
         `SELECT
            e.id,
            e.office_location_id,
+           e.standing_assignment_id,
            ol.name AS building_name,
            e.room_id,
            r.room_number,
@@ -2384,6 +2385,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
         displayStatus: toDisplayStatus({ status: r.status, slotState: r.slot_state }),
         id: r.id,
         buildingId: r.office_location_id,
+        standingAssignmentId: Number(r.standing_assignment_id || 0) || null,
         buildingName: r.building_name,
         roomId: r.room_id,
         roomNumber: r.room_number,
@@ -2411,6 +2413,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
         `SELECT
            e.id,
            e.office_location_id,
+           e.standing_assignment_id,
            ol.name AS building_name,
            e.room_id,
            r.room_number,
@@ -2456,6 +2459,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
         displayStatus: toDisplayStatus({ status: r.status, slotState: r.slot_state }),
         id: r.id,
         buildingId: r.office_location_id,
+        standingAssignmentId: Number(r.standing_assignment_id || 0) || null,
         buildingName: r.building_name,
         roomId: r.room_id,
         roomNumber: r.room_number,

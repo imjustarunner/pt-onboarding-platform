@@ -339,9 +339,11 @@
                 v-for="b in cellBlocks(d, h)"
                 :key="b.key"
                 class="cell-block"
-                :class="[`cell-block-${b.kind}`, { 'cell-block-selected': isBlockSelected(d, h, b) }]"
+                :class="[`cell-block-${b.kind}`, { 'cell-block-hovered': isBlockHovered(d, h, b) }]"
                 :title="b.title"
                 :style="cellBlockStyle(b)"
+                @mouseenter="hoveredBlockKey = blockKey(d, h, b)"
+                @mouseleave="hoveredBlockKey = ''"
                 @click="onCellBlockClick($event, b, d, h)"
                 @dblclick="onCellBlockDoubleClick($event, b, d, h)"
               >
@@ -497,6 +499,17 @@
                 <option value="MONTHLY">Monthly</option>
               </select>
 
+              <label v-if="['WEEKLY','BIWEEKLY','MONTHLY'].includes(officeBookingRecurrence)" class="lbl" style="margin-top: 10px;">Occurrences</label>
+              <input
+                v-if="['WEEKLY','BIWEEKLY','MONTHLY'].includes(officeBookingRecurrence)"
+                v-model.number="officeBookingOccurrenceCount"
+                type="number"
+                min="1"
+                max="104"
+                class="input"
+                style="margin-top: 4px; width: 80px;"
+              />
+
               <label class="lbl" style="margin-top: 10px;">Appointment type</label>
               <select v-model="bookingAppointmentType" class="input" :disabled="bookingMetadataLoading">
                 <option value="">Select type…</option>
@@ -563,6 +576,22 @@
             style="margin-top: 10px;"
           >
             {{ intakeActionHelpText }}
+          </div>
+
+          <div v-if="intakeConfirmStep === 'ask_inperson'" class="intake-confirm" style="margin-top: 12px; padding: 12px; background: var(--surface-2); border-radius: 8px;">
+            <div class="lbl" style="margin-bottom: 8px;">Set as available for virtual intake also?</div>
+            <div style="display: flex; gap: 8px;">
+              <button type="button" class="btn btn-primary" @click="confirmIntakeInPerson(true)">Yes, both</button>
+              <button type="button" class="btn btn-secondary" @click="confirmIntakeInPerson(false)">In-person only</button>
+              <button type="button" class="btn btn-secondary" @click="intakeConfirmStep = null">Cancel</button>
+            </div>
+          </div>
+          <div v-else-if="intakeConfirmStep === 'ask_virtual'" class="intake-confirm" style="margin-top: 12px; padding: 12px; background: var(--surface-2); border-radius: 8px;">
+            <div class="lbl" style="margin-bottom: 8px;">Virtual intake only – are you sure?</div>
+            <div style="display: flex; gap: 8px;">
+              <button type="button" class="btn btn-primary" @click="confirmIntakeVirtual()">Yes</button>
+              <button type="button" class="btn btn-secondary" @click="intakeConfirmStep = null">Cancel</button>
+            </div>
           </div>
 
           <div v-if="actionAgencyOptions.length > 1" style="margin-top: 10px;">
@@ -636,7 +665,7 @@
           <div v-if="modalError" class="error" style="margin-top: 10px;">{{ modalError }}</div>
         </div>
 
-        <div class="modal-actions">
+        <div v-if="!intakeConfirmStep" class="modal-actions">
           <button
             class="btn btn-primary"
             type="button"
@@ -648,6 +677,7 @@
               (requestType === 'school' && !canUseSchool(modalDay, modalHour, modalEndHour)) ||
               (requestType === 'supervision' && !supervisionCanSubmit) ||
               ((requestType === 'intake_virtual_on' || requestType === 'intake_virtual_off' || requestType === 'intake_inperson_on' || requestType === 'intake_inperson_off') && !modalContext.officeEventId) ||
+              (requestType === 'extend_assignment' && !(modalContext.standingAssignmentId > 0)) ||
               (isScheduleEventRequestType && !scheduleEventCanSubmit)
             "
           >
@@ -2462,12 +2492,16 @@ const cellBlocks = (dayName, hour) => {
   const st = String(officeState(dayName, hour) || '').toUpperCase();
   const top = ['ASSIGNED_BOOKED', 'ASSIGNED_TEMPORARY', 'ASSIGNED_AVAILABLE'].includes(st) ? officeTopEvent(dayName, hour) : null;
   const buildingId = top?.buildingId ? Number(top.buildingId) : null;
+  const intakeSuffix = [
+    top?.inPersonIntakeEnabled ? ' IP' : '',
+    top?.virtualIntakeEnabled ? ' VI' : ''
+  ].join('');
   if (st === 'ASSIGNED_BOOKED') {
-    blocks.push({ key: 'office-booked', kind: 'ob', shortLabel: shortOfficeLabel(top, 'Booked'), title: officeTitle(dayName, hour), buildingId });
+    blocks.push({ key: 'office-booked', kind: 'ob', shortLabel: shortOfficeLabel(top, 'Booked') + intakeSuffix, title: officeTitle(dayName, hour), buildingId });
   } else if (st === 'ASSIGNED_TEMPORARY') {
-    blocks.push({ key: 'office-temp', kind: 'ot', shortLabel: shortOfficeLabel(top, 'Temp'), title: officeTitle(dayName, hour), buildingId });
+    blocks.push({ key: 'office-temp', kind: 'ot', shortLabel: shortOfficeLabel(top, 'Temp') + intakeSuffix, title: officeTitle(dayName, hour), buildingId });
   } else if (st === 'ASSIGNED_AVAILABLE') {
-    blocks.push({ key: 'office-assigned', kind: 'oa', shortLabel: shortOfficeLabel(top, 'Office'), title: officeTitle(dayName, hour), buildingId });
+    blocks.push({ key: 'office-assigned', kind: 'oa', shortLabel: shortOfficeLabel(top, 'Office') + intakeSuffix, title: officeTitle(dayName, hour), buildingId });
   }
 
   if (top?.inPersonIntakeEnabled) {
@@ -2564,7 +2598,8 @@ const overlayErrorText = computed(() => {
 });
 
 const selectedActionSlots = ref([]);
-const selectedBlockKey = ref(''); // `${dayName}|${hour}|${block.key}` – which block is highlighted
+const selectedBlockKey = ref(''); // legacy, used for selection context
+const hoveredBlockKey = ref(''); // `${dayName}|${hour}|${block.key}` – which block is hovered (highlight)
 const lastSelectedActionKey = ref('');
 const isCellDragSelecting = ref(false);
 const dragAnchorSlot = ref(null);
@@ -2581,10 +2616,11 @@ const isActionCellSelected = (dayName, hour) => {
 };
 
 const blockKey = (dayName, hour, block) => `${String(dayName || '')}|${Number(hour)}|${String(block?.key || '')}`;
-const isBlockSelected = (dayName, hour, block) => selectedBlockKey.value === blockKey(dayName, hour, block);
+const isBlockHovered = (dayName, hour, block) => hoveredBlockKey.value === blockKey(dayName, hour, block);
 const clearSelectedActionSlots = () => {
   selectedActionSlots.value = [];
   selectedBlockKey.value = '';
+  hoveredBlockKey.value = '';
   lastSelectedActionKey.value = '';
   dragAnchorSlot.value = null;
   suppressClickAfterDrag.value = false;
@@ -2619,7 +2655,10 @@ const DEFAULT_BOOKING_TYPE = 'SESSION';
 
 // Office booking request (office-schedule/booking-requests)
 const officeBookingRecurrence = ref('ONCE'); // ONCE | WEEKLY | BIWEEKLY | MONTHLY
+const officeBookingOccurrenceCount = ref(6); // 1–104 when recurrence is WEEKLY/BIWEEKLY/MONTHLY
 const selectedOfficeRoomId = ref(0); // 0 = any open room
+const intakeConfirmStep = ref(null); // 'ask_inperson' | 'ask_virtual' | null – confirmation before intake submit
+const intakeConfirmChoice = ref(null); // 'both' | 'ip_only' | 'vi_yes' – set by confirm buttons, read by submit
 const bookingMetadataLoading = ref(false);
 const bookingMetadataError = ref('');
 const bookingMetadata = ref({
@@ -2805,6 +2844,14 @@ const availableQuickActions = computed(() => {
       disabledReason: hasEvent ? '' : 'Needs assigned/booked slot',
       visible: !supervisionOnlyMode && (hasAssignedOffice || booked),
       tone: 'slate'
+    },
+    {
+      id: 'extend_assignment',
+      label: 'Extend assignment',
+      description: 'Confirm assigned slot (keep available)',
+      disabledReason: hasEvent && hasAssignedOffice && Number(ctx.standingAssignmentId || 0) > 0 ? '' : 'Needs assigned office slot with standing assignment',
+      visible: !supervisionOnlyMode && hasEvent && hasAssignedOffice && Number(ctx.standingAssignmentId || 0) > 0,
+      tone: 'green'
     }
   ];
 });
@@ -2836,6 +2883,7 @@ const submitActionLabel = computed(() => {
     schedule_hold_all_day: 'Create all-day hold',
     indirect_services: 'Create indirect service event',
     forfeit_slot: 'Forfeit selected slot(s)',
+    extend_assignment: 'Extend assignment',
     intake_virtual_on: 'Enable virtual intake',
     intake_virtual_off: 'Disable virtual intake',
     intake_inperson_on: 'Enable in-person intake',
@@ -3250,6 +3298,7 @@ const buildModalContext = ({ dayName, hour, roomId = 0, slot = null, dateYmd = n
       || 0
     ) || null,
     roomId: Number(roomId || slot?.roomId || slot?.room_id || top?.roomId || 0) || null,
+    standingAssignmentId: Number(slot?.standingAssignmentId || top?.standingAssignmentId || 0) || null,
     slotState: rawState,
     virtualIntakeEnabled: (slot?.virtualIntakeEnabled === true) || (top?.virtualIntakeEnabled === true),
     inPersonIntakeEnabled: (slot?.inPersonIntakeEnabled === true) || (top?.inPersonIntakeEnabled === true)
@@ -3312,6 +3361,7 @@ const openSlotActionModal = ({
   scheduleHoldCustomReason.value = '';
   modalError.value = '';
   officeBookingRecurrence.value = 'ONCE';
+  officeBookingOccurrenceCount.value = 6;
   selectedOfficeRoomId.value = Number(roomId || 0) || 0;
   resetBookingSelectionDefaults();
   resetBookingMetadataState();
@@ -3809,6 +3859,20 @@ const closeModal = () => {
   scheduleHoldReasonCode.value = 'DOCUMENTATION';
   scheduleHoldCustomReason.value = '';
   modalError.value = '';
+  intakeConfirmStep.value = null;
+  intakeConfirmChoice.value = null;
+};
+
+const confirmIntakeInPerson = (enableBoth) => {
+  intakeConfirmChoice.value = enableBoth ? 'both' : 'ip_only';
+  intakeConfirmStep.value = null;
+  void submitRequest();
+};
+
+const confirmIntakeVirtual = () => {
+  intakeConfirmChoice.value = 'vi_yes';
+  intakeConfirmStep.value = null;
+  void submitRequest();
 };
 
 const toProviderNoteAidPath = () => {
@@ -3961,6 +4025,17 @@ const mergeSelectedSlotsByDay = ({ dayName, startHour, endHour }) => {
 
 const submitRequest = async () => {
   if (!effectiveAgencyId.value) return;
+
+  // Intake confirmation step (in-person office assigned slots only)
+  if (requestType.value === 'intake_inperson_on' && !intakeConfirmStep.value) {
+    intakeConfirmStep.value = 'ask_inperson';
+    return;
+  }
+  if (requestType.value === 'intake_virtual_on' && !intakeConfirmStep.value) {
+    intakeConfirmStep.value = 'ask_virtual';
+    return;
+  }
+
   try {
     submitting.value = true;
     modalError.value = '';
@@ -4047,12 +4122,18 @@ const submitRequest = async () => {
         const startAt = `${String(t.dateYmd).slice(0, 10)}T${pad2(Number(t.hour || h))}:00:00`;
         const endAt = `${String(t.dateYmd).slice(0, 10)}T${pad2(Math.min(Number(t.hour || h) + Math.max(1, endH - h), 22))}:00:00`;
         // eslint-disable-next-line no-await-in-loop
+        const recurrence = String(officeBookingRecurrence.value || 'ONCE');
+        const recurringRecurrences = ['WEEKLY', 'BIWEEKLY', 'MONTHLY'];
+        const occurrenceCount = recurringRecurrences.includes(recurrence)
+          ? Math.min(104, Math.max(1, Number(officeBookingOccurrenceCount.value) || 6))
+          : null;
         const r = await api.post('/office-schedule/booking-requests', {
           officeLocationId: officeId,
           roomId,
           startAt,
           endAt,
-          recurrence: String(officeBookingRecurrence.value || 'ONCE'),
+          recurrence,
+          ...(occurrenceCount ? { bookedOccurrenceCount: occurrenceCount } : {}),
           openToAlternativeRoom: !roomId,
           notes: requestNotes.value || '',
           ...normalizeBookingSelectionPayload(),
@@ -4185,6 +4266,17 @@ const submitRequest = async () => {
         createMeetLink: !!createSupervisionMeetLink.value,
         modality: 'virtual'
       });
+    } else if (requestType.value === 'extend_assignment') {
+      const contexts = selectedActionContexts().filter(
+        (x) => Number(x?.officeLocationId || 0) > 0 && Number(x?.standingAssignmentId || 0) > 0
+      );
+      if (!contexts.length) throw new Error('Select an assigned office slot with standing assignment first.');
+      for (const ctx of contexts) {
+        // eslint-disable-next-line no-await-in-loop
+        await api.post(`/office-slots/${ctx.officeLocationId}/assignments/${ctx.standingAssignmentId}/keep-available`, {
+          acknowledged: true
+        });
+      }
     } else if (requestType.value === 'forfeit_slot') {
       const contexts = selectedActionContexts().filter((x) => Number(x?.officeEventId || 0) > 0 && Number(x?.officeLocationId || 0) > 0);
       if (!contexts.length) throw new Error('Select an assigned/booked office slot first.');
@@ -4214,8 +4306,10 @@ const submitRequest = async () => {
           agencyId: effectiveAgencyId.value
         });
       }
+      intakeConfirmChoice.value = null;
     } else if (requestType.value === 'intake_inperson_on' || requestType.value === 'intake_inperson_off') {
       const enabled = requestType.value === 'intake_inperson_on';
+      const enableBoth = enabled && intakeConfirmChoice.value === 'both';
       const contexts = selectedActionContexts().filter((x) => Number(x?.officeEventId || 0) > 0);
       if (!contexts.length) throw new Error('Select an assigned office slot first.');
       for (const ctx of contexts) {
@@ -4223,12 +4317,26 @@ const submitRequest = async () => {
         if (enabled && !['ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY', 'ASSIGNED_BOOKED'].includes(state)) {
           throw new Error('In-person intake can only be enabled on assigned office slots.');
         }
+        if (enableBoth) {
+          // eslint-disable-next-line no-await-in-loop
+          await ensureVirtualWorkingHoursForRange({
+            dayName: ctx.dayName,
+            startHour: Number(ctx.hour || h),
+            endHour: Number(ctx.hour || h) + 1
+          });
+          // eslint-disable-next-line no-await-in-loop
+          await api.post(`/office-slots/${ctx.officeLocationId}/events/${ctx.officeEventId}/virtual-intake`, {
+            enabled: true,
+            agencyId: effectiveAgencyId.value
+          });
+        }
         // eslint-disable-next-line no-await-in-loop
         await api.post(`/office-slots/${ctx.officeLocationId}/events/${ctx.officeEventId}/in-person-intake`, {
           enabled,
           agencyId: effectiveAgencyId.value
         });
       }
+      intakeConfirmChoice.value = null;
     } else {
       throw new Error('Invalid request type.');
     }
@@ -4771,12 +4879,8 @@ const cancelSupvSession = async () => {
 
 const onCellBlockClick = (e, block, dayName, hour) => {
   const kind = String(block?.kind || '');
-  const clickedKey = blockKey(dayName, hour, block);
-  const wasAlreadySelected = selectedBlockKey.value === clickedKey;
   e?.preventDefault?.();
   e?.stopPropagation?.();
-  // Light up the clicked block and select the cell
-  selectedBlockKey.value = clickedKey;
   const dateYmd = addDaysYmd(weekStart.value, ALL_DAYS.indexOf(String(dayName || '')));
   const officeTop = officeTopEvent(dayName, hour) || null;
   const roomId = Number(officeTop?.roomId || block?.buildingId || block?.roomId || 0) || 0;
@@ -4836,8 +4940,6 @@ const onCellBlockClick = (e, block, dayName, hour) => {
     if (officeLocationId > 0 && Number(selectedOfficeLocationId.value || 0) !== officeLocationId) {
       selectedOfficeLocationId.value = officeLocationId;
     }
-    // First click = highlight only. Second click = open modal.
-    if (!wasAlreadySelected) return;
     const slotState = String(officeTop?.slotState || '').toUpperCase();
     // Assigned (available/temporary): default to Office booking so user can book weekly/biweekly/monthly
     const initialRequestType =
@@ -4854,7 +4956,6 @@ const onCellBlockClick = (e, block, dayName, hour) => {
     return;
   }
   if (kind === 'school') {
-    if (!wasAlreadySelected) return;
     openSlotActionModal({
       dayName,
       hour,
@@ -4864,7 +4965,6 @@ const onCellBlockClick = (e, block, dayName, hour) => {
     return;
   }
   if (kind === 'request') {
-    if (!wasAlreadySelected) return;
     openSlotActionModal({
       dayName,
       hour,
@@ -5791,7 +5891,8 @@ watch(modalHour, () => {
 .cell-block-intake-vi { background: rgba(59, 130, 246, 0.20); border-color: rgba(29, 78, 216, 0.45); color: rgba(29, 78, 216, 0.95); }
 .cell-block-more { background: rgba(148, 163, 184, 0.18); border-color: rgba(148, 163, 184, 0.45); color: rgba(51, 65, 85, 0.92); }
 
-.cell-block-selected {
+.cell-block-selected,
+.cell-block-hovered {
   box-shadow: inset 0 0 0 2px rgba(37, 99, 235, 0.9);
   outline: 2px solid rgba(37, 99, 235, 0.5);
   outline-offset: 1px;

@@ -1608,6 +1608,11 @@ export const createOfficeBookingRequest = async (req, res, next) => {
 
     const allowedRecurrence = new Set(['ONCE', 'WEEKLY', 'BIWEEKLY', 'MONTHLY']);
     const normalizedRecurrence = allowedRecurrence.has(recurrence) ? recurrence : 'ONCE';
+    const recurringRecurrences = new Set(['WEEKLY', 'BIWEEKLY', 'MONTHLY']);
+    const rawOccurrenceCount = req.body?.bookedOccurrenceCount ?? req.body?.booked_occurrence_count;
+    const bookedOccurrenceCount = recurringRecurrences.has(normalizedRecurrence)
+      ? (Number.isInteger(Number(rawOccurrenceCount)) && Number(rawOccurrenceCount) > 0 ? Number(rawOccurrenceCount) : 6)
+      : null;
 
     if (!officeLocationId || !startAt || !endAt) {
       return res.status(400).json({ error: { message: 'officeLocationId, startAt, and endAt are required' } });
@@ -1763,6 +1768,7 @@ export const createOfficeBookingRequest = async (req, res, next) => {
       startAt,
       endAt,
       recurrence: normalizedRecurrence,
+      bookedOccurrenceCount,
       appointmentTypeCode: validatedSelection.appointmentTypeCode,
       appointmentSubtypeCode: validatedSelection.appointmentSubtypeCode,
       serviceCode: validatedSelection.serviceCode,
@@ -1987,10 +1993,14 @@ export const approveOfficeBookingRequest = async (req, res, next) => {
         assignedFrequency,
         createdByUserId: req.user.id
       });
+      const reqOccurrenceCount = Number.isInteger(Number(reqRow.booked_occurrence_count)) && Number(reqRow.booked_occurrence_count) > 0
+        ? Number(reqRow.booked_occurrence_count)
+        : null;
       createdBookingPlan = await OfficeBookingPlan.upsertActive({
         standingAssignmentId: createdStandingAssignment.id,
         bookedFrequency: normalizedRecurrence,
         bookingStartDate: String(reqRow.start_at || '').slice(0, 10),
+        bookedOccurrenceCount: reqOccurrenceCount,
         createdByUserId: req.user.id
       });
     }

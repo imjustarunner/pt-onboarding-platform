@@ -15,6 +15,7 @@ class OfficeBookingRequest {
     startAt,
     endAt,
     recurrence = 'ONCE',
+    bookedOccurrenceCount = null,
     openToAlternativeRoom = false,
     requesterNotes = null,
     appointmentTypeCode = null,
@@ -22,12 +23,15 @@ class OfficeBookingRequest {
     serviceCode = null,
     modality = null
   }) {
+    const occurrenceCount = Number.isInteger(Number(bookedOccurrenceCount)) && Number(bookedOccurrenceCount) > 0
+      ? Number(bookedOccurrenceCount)
+      : null;
     let result;
     try {
       [result] = await pool.execute(
         `INSERT INTO office_booking_requests
-          (request_type, status, office_location_id, room_id, requested_provider_id, client_id, start_at, end_at, recurrence, appointment_type_code, appointment_subtype_code, service_code, modality, open_to_alternative_room, requester_notes)
-         VALUES (?, 'PENDING', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          (request_type, status, office_location_id, room_id, requested_provider_id, client_id, start_at, end_at, recurrence, booked_occurrence_count, appointment_type_code, appointment_subtype_code, service_code, modality, open_to_alternative_room, requester_notes)
+         VALUES (?, 'PENDING', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           requestType,
           officeLocationId,
@@ -37,6 +41,7 @@ class OfficeBookingRequest {
           startAt,
           endAt,
           recurrence,
+          occurrenceCount,
           appointmentTypeCode,
           appointmentSubtypeCode,
           serviceCode,
