@@ -511,7 +511,7 @@
                 style="margin-top: 4px; width: 80px;"
               />
 
-              <template v-if="showClinicalBookingFields">
+              <template v-if="showClinicalBookingFields && isSessionBookingRequestType">
                 <label class="lbl" style="margin-top: 10px;">Appointment type</label>
                 <select v-model="bookingAppointmentType" class="input" :disabled="bookingMetadataLoading">
                   <option value="">Select type…</option>
@@ -565,9 +565,9 @@
               </div>
               <div v-else-if="viewMode === 'office_layout'" class="muted">Separate office request mode does not require room selection.</div>
               <div v-else-if="(requestType === 'office' || requestType === 'individual_session' || requestType === 'group_session') && viewMode === 'open_finder'" class="muted">Any open room will be used. Switch to Office layout for specific room selection.</div>
-              <div v-if="showClinicalBookingFields && bookingMetadataLoading" class="muted" style="margin-top: 6px;">Loading appointment type and service code options…</div>
+              <div v-if="showClinicalBookingFields && isSessionBookingRequestType && bookingMetadataLoading" class="muted" style="margin-top: 6px;">Loading appointment type and service code options…</div>
               <div v-else-if="bookingMetadataError" class="muted" style="margin-top: 6px;">{{ bookingMetadataError }}</div>
-              <div v-if="showClinicalBookingFields && bookingClassificationInvalidReason" class="muted" style="margin-top: 6px;">
+              <div v-if="showClinicalBookingFields && isSessionBookingRequestType && bookingClassificationInvalidReason" class="muted" style="margin-top: 6px;">
                 {{ bookingClassificationInvalidReason }}
               </div>
               <div v-if="officeBookingHint" class="muted" style="margin-top: 6px;">{{ officeBookingHint }}</div>
@@ -3208,9 +3208,10 @@ const serviceCodeOptionHints = (opt) => {
 };
 
 const bookingRequiresServiceCode = computed(() => ['SESSION', 'ASSESSMENT'].includes(normalizeCodeValue(bookingAppointmentType.value)));
+const isSessionBookingRequestType = computed(() => ['individual_session', 'group_session'].includes(String(requestType.value || '')));
 const bookingClassificationInvalidReason = computed(() => {
   if (!showClinicalBookingFields.value) return '';
-  if (!['office', 'office_request_only'].includes(String(requestType.value || ''))) return '';
+  if (!isSessionBookingRequestType.value) return '';
   if (!normalizeCodeValue(bookingAppointmentType.value)) return 'Select an appointment type.';
   if (bookingRequiresServiceCode.value && !normalizeCodeValue(bookingServiceCode.value)) {
     return 'A service code is required for this appointment type.';
@@ -4437,9 +4438,6 @@ const submitRequest = async () => {
       const officeId = Number(selectedOfficeLocationId.value || 0);
       if (!officeId) throw new Error('Select an office first.');
       if (!officeBookingValid.value) throw new Error('Select an available room (or choose “Any open room”).');
-      if (showClinicalBookingFields.value && bookingClassificationInvalidReason.value) {
-        throw new Error(bookingClassificationInvalidReason.value);
-      }
       const recurrence = String(officeBookingRecurrence.value || 'ONCE');
       const recurringRecurrences = ['WEEKLY', 'BIWEEKLY', 'MONTHLY'];
       const occurrenceCount = recurringRecurrences.includes(recurrence)
@@ -4480,6 +4478,14 @@ const submitRequest = async () => {
               recurringUntilDate: addDaysYmd(String(ctx?.dateYmd || '').slice(0, 10) || addDaysYmd(weekStart.value, ALL_DAYS.indexOf(String(dn))), 364),
               ...normalizeBookingSelectionPayload()
             });
+            if (officeEventId > 0) {
+              // eslint-disable-next-line no-await-in-loop
+              await api.post(`/office-slots/${ctx.officeLocationId}/events/${officeEventId}/book`, {
+                booked: true,
+                agencyId: effectiveAgencyId.value || undefined,
+                ...normalizeBookingSelectionPayload()
+              });
+            }
             continue;
           }
           if (officeEventId > 0) {
@@ -4489,6 +4495,12 @@ const submitRequest = async () => {
               bookedOccurrenceCount: Number(occurrenceCount || 6),
               bookingStartDate: String(ctx?.dateYmd || '').slice(0, 10) || addDaysYmd(weekStart.value, ALL_DAYS.indexOf(String(dn))),
               recurringUntilDate: addDaysYmd(String(ctx?.dateYmd || '').slice(0, 10) || addDaysYmd(weekStart.value, ALL_DAYS.indexOf(String(dn))), 364),
+              ...normalizeBookingSelectionPayload()
+            });
+            // eslint-disable-next-line no-await-in-loop
+            await api.post(`/office-slots/${ctx.officeLocationId}/events/${officeEventId}/book`, {
+              booked: true,
+              agencyId: effectiveAgencyId.value || undefined,
               ...normalizeBookingSelectionPayload()
             });
             continue;
@@ -4501,6 +4513,9 @@ const submitRequest = async () => {
       const officeId = Number(selectedOfficeLocationId.value || 0);
       if (!officeId) throw new Error('Select an office first.');
       if (!officeBookingValid.value) throw new Error('Select an available room (or choose “Any open room”).');
+      if (showClinicalBookingFields.value && bookingClassificationInvalidReason.value) {
+        throw new Error(bookingClassificationInvalidReason.value);
+      }
       const roomId = viewMode.value === 'office_layout'
         ? (Number(selectedOfficeRoomId.value || 0) || null)
         : null;

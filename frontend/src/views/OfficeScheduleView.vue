@@ -1869,10 +1869,6 @@ const assignOpenSlot = async () => {
 
 const bookSlot = async () => {
   if (!officeId.value) return;
-  if (!canSubmitBookedWithClassification.value) {
-    error.value = bookingClassificationInvalidReason.value;
-    return;
-  }
   try {
     saving.value = true;
     const bookingSelection = normalizeBookingSelectionPayload();
@@ -1884,6 +1880,12 @@ const bookSlot = async () => {
         recurringUntilDate: addDaysYmd(modalSlot.value.date, 364),
         ...bookingSelection
       });
+      if (modalSlot.value?.eventId) {
+        await api.post(`/office-slots/${officeId.value}/events/${modalSlot.value.eventId}/book`, {
+          booked: true,
+          ...bookingSelection
+        });
+      }
     } else if (modalSlot.value?.eventId) {
       await api.post(`/office-slots/${officeId.value}/events/${modalSlot.value.eventId}/booking-plan`, {
         bookedFrequency: bookFreq.value,
@@ -1892,10 +1894,14 @@ const bookSlot = async () => {
         recurringUntilDate: addDaysYmd(modalSlot.value.date, 364),
         ...bookingSelection
       });
+      await api.post(`/office-slots/${officeId.value}/events/${modalSlot.value.eventId}/book`, {
+        booked: true,
+        ...bookingSelection
+      });
     } else {
       return;
     }
-    setSuccessToast('Booking plan saved.');
+    setSuccessToast('Booking saved and current occurrence marked booked.');
     await loadGrid();
     closeModal();
   } catch (e) {
@@ -1997,10 +2003,6 @@ const forfeit = async () => {
 
 const staffBook = async (booked = true) => {
   if (!officeId.value || !modalSlot.value?.eventId) return;
-  if (booked && !canSubmitBookedWithClassification.value) {
-    error.value = bookingClassificationInvalidReason.value;
-    return;
-  }
   try {
     saving.value = true;
     const payload = { booked };
