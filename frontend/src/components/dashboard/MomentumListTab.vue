@@ -49,6 +49,19 @@
       </div>
     </section>
 
+    <!-- Shared lists -->
+    <section v-if="agencyId" class="momentum-shared-lists-section" aria-label="Shared lists">
+      <div class="shared-lists-head" @click="sharedListsExpanded = !sharedListsExpanded">
+        <h2 class="section-title">Shared lists</h2>
+        <span class="shared-lists-toggle">{{ sharedListsExpanded ? '▼' : '▶' }}</span>
+      </div>
+      <SharedListsView
+        v-show="sharedListsExpanded"
+        :agency-id="agencyId"
+        @task-changed="fetchDigest"
+      />
+    </section>
+
     <!-- Focus Assistant (Gemini chat) -->
     <section class="momentum-chat-section" aria-label="Focus Assistant">
       <MomentumChatPanel
@@ -139,6 +152,7 @@ import { useNotificationStore } from '../../store/notifications';
 import UnifiedChecklistTab from './UnifiedChecklistTab.vue';
 import MomentumChatPanel from '../momentum/MomentumChatPanel.vue';
 import NotesToSignSection from './NotesToSignSection.vue';
+import SharedListsView from './SharedListsView.vue';
 
 const props = defineProps({
   programId: { type: Number, default: null },
@@ -152,6 +166,7 @@ const authStore = useAuthStore();
 const notificationStore = useNotificationStore();
 const userId = computed(() => authStore.user?.id);
 
+const sharedListsExpanded = ref(false);
 const digestLoading = ref(true);
 const checklistCount = ref(0);
 const checklistIncompleteCount = ref(0);
@@ -528,6 +543,31 @@ watch([() => props.programId, () => props.agencyId], () => {
 
 .digest-all-clear {
   font-style: italic;
+}
+
+.momentum-shared-lists-section {
+  background: white;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 8px;
+  padding: 12px 16px;
+}
+
+.shared-lists-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+}
+
+.shared-lists-head .section-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.shared-lists-toggle {
+  font-size: 12px;
+  color: #6b7280;
 }
 
 .momentum-checklist-section .section-title {

@@ -37,7 +37,13 @@ class Task {
       dueDate,
       referenceId,
       metadata,
-      documentActionType
+      documentActionType,
+      taskListId,
+      urgency,
+      isRecurring,
+      recurringRule,
+      typicalDayOfWeek,
+      typicalTime
     } = taskData;
 
     console.log('Task.create: Creating task with data', {
@@ -52,13 +58,16 @@ class Task {
     });
 
     const dueDateMySQL = this.toMySQLDateTime(dueDate);
+    const urgencyVal = urgency && ['low', 'medium', 'high'].includes(urgency) ? urgency : 'medium';
+    const typicalTimeVal = typicalTime != null ? String(typicalTime) : null; // e.g. "09:00" or "09:00:00"
 
     const [result] = await pool.execute(
       `INSERT INTO tasks (
         task_type, document_action_type, title, description, assigned_to_user_id, 
         assigned_to_role, assigned_to_agency_id, assigned_by_user_id, 
-        due_date, reference_id, metadata
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        due_date, reference_id, metadata,
+        task_list_id, urgency, is_recurring, recurring_rule, typical_day_of_week, typical_time
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         taskType,
         documentActionType ?? (taskType === 'document' ? 'signature' : null),
@@ -70,7 +79,13 @@ class Task {
         assignedByUserId ?? null,
         dueDateMySQL,
         referenceId ?? null,
-        metadata ? JSON.stringify(metadata) : null
+        metadata ? JSON.stringify(metadata) : null,
+        taskListId ?? null,
+        urgencyVal,
+        !!isRecurring,
+        recurringRule ? JSON.stringify(recurringRule) : null,
+        typicalDayOfWeek ?? null,
+        typicalTimeVal
       ]
     );
 
@@ -136,9 +151,13 @@ class Task {
           SELECT 1 FROM user_agencies ua 
           WHERE ua.user_id = ? AND ua.agency_id = t.assigned_to_agency_id
         ))
+        OR (t.task_list_id IS NOT NULL AND EXISTS (
+          SELECT 1 FROM task_list_members tlm
+          WHERE tlm.task_list_id = t.task_list_id AND tlm.user_id = ?
+        ))
       )
     `;
-    const params = [userId, userId, userId, userId];
+    const params = [userId, userId, userId, userId, userId];
 
     // Include hiring tasks (e.g. "Call candidate X" from applicant flow) in user's task list
     // so they appear in Momentum List and Checklist.
@@ -152,7 +171,10 @@ class Task {
       params.push(filters.status);
     }
 
-    query += ' ORDER BY t.due_date ASC, t.created_at DESC';
+    query += ` ORDER BY 
+      CASE COALESCE(t.urgency, 'medium') WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
+      (t.due_date IS NULL), t.due_date ASC,
+      t.created_at DESC`;
 
     const [rows] = await pool.execute(query, params);
     return rows.map(row => ({
@@ -238,7 +260,17 @@ class Task {
     return this.findById(taskId);
   }
 
-  static async updateCustomTask(taskId, { title, description, dueDate }) {
+  static async updateCustomTask(taskId, {
+    title,
+    description,
+    dueDate,
+    taskListId,
+    urgency,
+    isRecurring,
+    recurringRule,
+    typicalDayOfWeek,
+    typicalTime
+  }) {
     const parts = [];
     const params = [];
     if (title !== undefined) {
@@ -252,6 +284,30 @@ class Task {
     if (dueDate !== undefined) {
       parts.push('due_date = ?');
       params.push(this.toMySQLDateTime(dueDate));
+    }
+    if (taskListId !== undefined) {
+      parts.push('task_list_id = ?');
+      params.push(taskListId ?? null);
+    }
+    if (urgency !== undefined && ['low', 'medium', 'high'].includes(urgency)) {
+      parts.push('urgency = ?');
+      params.push(urgency);
+    }
+    if (isRecurring !== undefined) {
+      parts.push('is_recurring = ?');
+      params.push(!!isRecurring);
+    }
+    if (recurringRule !== undefined) {
+      parts.push('recurring_rule = ?');
+      params.push(recurringRule ? JSON.stringify(recurringRule) : null);
+    }
+    if (typicalDayOfWeek !== undefined) {
+      parts.push('typical_day_of_week = ?');
+      params.push(typicalDayOfWeek ?? null);
+    }
+    if (typicalTime !== undefined) {
+      parts.push('typical_time = ?');
+      params.push(typicalTime != null ? String(typicalTime) : null);
     }
     if (parts.length === 0) return this.findById(taskId);
     params.push(parseInt(taskId, 10));

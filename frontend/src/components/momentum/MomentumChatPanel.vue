@@ -6,7 +6,7 @@
     </div>
     <div v-show="expanded" class="chat-body">
       <div class="chat-messages">
-        <div v-if="responseItems.length > 0 || suggestedTasks.length > 0 || suggestedUpdates.length > 0 || suggestedDeletes.length > 0" class="message assistant">
+        <div v-if="responseItems.length > 0 || suggestedTasks.length > 0 || suggestedUpdates.length > 0 || suggestedDeletes.length > 0 || createdInList.length > 0" class="message assistant">
           <ol v-if="responseItems.length > 0" class="focus-list">
             <li v-for="(item, i) in responseItems" :key="i" class="focus-item">{{ item }}</li>
           </ol>
@@ -36,6 +36,12 @@
               >
                 {{ updatingTaskId === `update-${i}` ? '…' : 'Update' }}
               </button>
+            </div>
+          </div>
+          <div v-if="createdInList.length > 0" class="suggested-tasks">
+            <div class="suggested-tasks-label">Added to shared lists:</div>
+            <div v-for="(c, i) in createdInList" :key="`created-${i}`" class="suggested-task-row">
+              <span class="suggested-task-title">{{ c.listName }}: {{ c.task?.title }}</span>
             </div>
           </div>
           <div v-if="suggestedDeletes.length > 0" class="suggested-tasks">
@@ -159,6 +165,7 @@ const responseItems = ref([]);
 const suggestedTasks = ref([]);
 const suggestedUpdates = ref([]);
 const suggestedDeletes = ref([]);
+const createdInList = ref([]);
 const creatingTaskId = ref(null);
 const updatingTaskId = ref(null);
 const deletingTaskId = ref(null);
@@ -177,6 +184,7 @@ const send = async () => {
   suggestedTasks.value = [];
   suggestedUpdates.value = [];
   suggestedDeletes.value = [];
+  createdInList.value = [];
   try {
     const { data } = await api.post(`/users/${userId.value}/momentum-chat`, {
       message: msg,
@@ -187,6 +195,8 @@ const send = async () => {
     suggestedTasks.value = data.suggestedTasks || [];
     suggestedUpdates.value = data.suggestedUpdates || [];
     suggestedDeletes.value = data.suggestedDeletes || [];
+    createdInList.value = data.createdInList || [];
+    if (createdInList.value.length > 0) emit('task-changed');
     inputMessage.value = '';
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Failed to get focus recommendations';

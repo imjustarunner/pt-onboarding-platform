@@ -13,20 +13,24 @@ export const chat = async (req, res, next) => {
     const userId = parseInt(req.params.userId, 10);
     const { message, agencyId, programId } = req.body || {};
 
-    const { items, suggestedTasks, suggestedUpdates, suggestedDeletes, rawText } = await getFocusRecommendations(
-      userId,
-      message || 'What should I focus on now?',
-      {
-        agencyId: agencyId ? parseInt(agencyId, 10) : null,
-        programId: programId ? parseInt(programId, 10) : null
-      }
-    );
+    const {
+      items,
+      suggestedTasks,
+      suggestedUpdates,
+      suggestedDeletes,
+      createdInList,
+      rawText
+    } = await getFocusRecommendations(userId, message || 'What should I focus on now?', {
+      agencyId: agencyId ? parseInt(agencyId, 10) : null,
+      programId: programId ? parseInt(programId, 10) : null
+    });
 
     res.json({
       items,
       suggestedTasks: suggestedTasks || [],
       suggestedUpdates: suggestedUpdates || [],
       suggestedDeletes: suggestedDeletes || [],
+      createdInList: createdInList || [],
       rawText,
       message: message || 'What should I focus on now?'
     });
