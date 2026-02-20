@@ -72,6 +72,13 @@
               </label>
               <div class="field-help">Show notifications when the app tab is in the background.</div>
             </div>
+            <div class="field checkbox">
+              <label>
+                <input v-model="prefs.notification_sound_enabled" type="checkbox" :disabled="notificationDisabled" />
+                Play sound when new notification arrives
+              </label>
+              <div class="field-help">Plays a short sound in the browser when a new in-app notification appears.</div>
+            </div>
           </div>
 
           <div class="card">
@@ -838,6 +845,7 @@ const prefs = ref({
   date_format: 'MM/DD',
   time_format: '12h',
   push_notifications_enabled: false,
+  notification_sound_enabled: true,
   helper_enabled: true,
   default_landing_page: 'dashboard',
 
@@ -1145,6 +1153,7 @@ const save = async () => {
       date_format: prefs.value.date_format || 'MM/DD',
       time_format: prefs.value.time_format || '12h',
       push_notifications_enabled: !!prefs.value.push_notifications_enabled,
+      notification_sound_enabled: !!prefs.value.notification_sound_enabled,
       helper_enabled: !!prefs.value.helper_enabled,
       default_landing_page: prefs.value.default_landing_page || 'dashboard',
 

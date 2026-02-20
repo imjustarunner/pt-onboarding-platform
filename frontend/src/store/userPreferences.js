@@ -13,6 +13,7 @@ export const useUserPreferencesStore = defineStore('userPreferences', () => {
   const layoutDensity = ref('standard');
   const scheduleDefaultView = ref('open_finder');
   const pushNotificationsEnabled = ref(false);
+  const notificationSoundEnabled = ref(true);
   const defaultLandingPage = ref('dashboard');
 
   function setFromApi(data) {
@@ -23,6 +24,8 @@ export const useUserPreferencesStore = defineStore('userPreferences', () => {
     if (data.layout_density != null) layoutDensity.value = data.layout_density || 'standard';
     if (data.schedule_default_view != null) scheduleDefaultView.value = data.schedule_default_view || 'open_finder';
     if (data.push_notifications_enabled != null) pushNotificationsEnabled.value = !!data.push_notifications_enabled;
+    if (data.notification_sound_enabled != null) notificationSoundEnabled.value = !!data.notification_sound_enabled;
+    else notificationSoundEnabled.value = true; // default true when not set (legacy users)
     if (data.default_landing_page != null) defaultLandingPage.value = data.default_landing_page || 'dashboard';
   }
 
@@ -33,6 +36,7 @@ export const useUserPreferencesStore = defineStore('userPreferences', () => {
     layoutDensity.value = 'standard';
     scheduleDefaultView.value = 'open_finder';
     pushNotificationsEnabled.value = false;
+    notificationSoundEnabled.value = true;
     defaultLandingPage.value = 'dashboard';
   }
 
@@ -43,6 +47,7 @@ export const useUserPreferencesStore = defineStore('userPreferences', () => {
     layoutDensity,
     scheduleDefaultView,
     pushNotificationsEnabled,
+    notificationSoundEnabled,
     defaultLandingPage,
     setFromApi,
     clear

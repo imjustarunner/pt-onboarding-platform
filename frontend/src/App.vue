@@ -564,6 +564,15 @@
           {{ notificationsUnreadCount }}
         </span>
       </button>
+      <button
+        v-if="newNotificationToastVisible"
+        type="button"
+        class="new-notification-toast"
+        @click="goToNotifications"
+      >
+        <span class="new-notification-toast-icon" aria-hidden="true">🔔</span>
+        <span>New notification{{ notificationsUnreadCount > 1 ? 's' : '' }}</span>
+      </button>
       </div>
     </div>
   </BrandingProvider>
@@ -579,6 +588,7 @@ import { useTutorialStore } from './store/tutorial';
 import { useSuperadminBuilderStore } from './store/superadminBuilder';
 import { useNotificationStore } from './store/notifications';
 import { useSessionLockStore } from './store/sessionLock';
+import { useUserPreferencesStore } from './store/userPreferences';
 import { useRouter, useRoute } from 'vue-router';
 import { startActivityTracking, stopActivityTracking, resetActivityTimer } from './utils/activityTracker';
 import { isSupervisor } from './utils/helpers.js';
@@ -616,6 +626,7 @@ const tutorialStore = useTutorialStore();
 const builderStore = useSuperadminBuilderStore();
 const notificationStore = useNotificationStore();
 const sessionLockStore = useSessionLockStore();
+const userPreferencesStore = useUserPreferencesStore();
 const router = useRouter();
 const route = useRoute();
 const mobileMenuOpen = ref(false);
@@ -1332,6 +1343,37 @@ const triggerNotificationsNudgeFlash = () => {
   }, 1800);
 };
 
+// Play a short notification sound when new notifications arrive (browser may require prior user interaction)
+const playNotificationSound = () => {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.frequency.value = 880;
+    osc.type = 'sine';
+    gain.gain.setValueAtTime(0.15, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.15);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.15);
+  } catch {
+    // Autoplay blocked or unsupported; ignore
+  }
+};
+
+// Live toast when new notification arrives (shown to all authenticated users)
+const newNotificationToastVisible = ref(false);
+const newNotificationToastTimer = ref(null);
+const showNewNotificationToast = () => {
+  newNotificationToastVisible.value = true;
+  if (newNotificationToastTimer.value) clearTimeout(newNotificationToastTimer.value);
+  newNotificationToastTimer.value = setTimeout(() => {
+    newNotificationToastVisible.value = false;
+    newNotificationToastTimer.value = null;
+  }, 5000);
+};
+
 const maybeShowLoginNotificationsModal = () => {
   if (!isAuthenticated.value) return;
   if (!notificationsCountsLoadedOnce.value) return;
@@ -1390,6 +1432,11 @@ const textMeReminder = async () => {
 const goToNotifications = () => {
   showLoginNotificationsModal.value = false;
   notificationsNudgeVisible.value = false;
+  newNotificationToastVisible.value = false;
+  if (newNotificationToastTimer.value) {
+    clearTimeout(newNotificationToastTimer.value);
+    newNotificationToastTimer.value = null;
+  }
   closeAllNavMenus();
   router.push(orgTo('/notifications'));
 };
@@ -1429,19 +1476,32 @@ watch(isOnNotificationsRoute, (onNotifications) => {
   if (onNotifications) {
     showLoginNotificationsModal.value = false;
     notificationsNudgeVisible.value = false;
+    newNotificationToastVisible.value = false;
+    if (newNotificationToastTimer.value) {
+      clearTimeout(newNotificationToastTimer.value);
+      newNotificationToastTimer.value = null;
+    }
   }
 });
 
 watch(notificationsUnreadCount, (next, prev) => {
-  if (!shouldUseLoginNotificationsModal.value) return;
+  // When count drops to zero, clear modals/nudges
   if (next <= 0) {
     showLoginNotificationsModal.value = false;
     notificationsNudgeVisible.value = false;
     return;
   }
-  if (notificationsNudgeVisible.value && next > prev) {
-    triggerNotificationsNudgeFlash();
+  // Only for non-admin: manage login modal and nudge
+  if (shouldUseLoginNotificationsModal.value) {
+    if (notificationsNudgeVisible.value && next > prev) {
+      triggerNotificationsNudgeFlash();
+    }
   }
+  // For ALL authenticated users: sound + live toast when NEW notification arrives
+  if (!isAuthenticated.value || isOnNotificationsRoute.value) return;
+  if (prev === undefined || next <= prev) return;
+  if (userPreferencesStore.notificationSoundEnabled) playNotificationSound();
+  showNewNotificationToast();
 });
 
 // Watch for route changes to load organization context
@@ -2179,6 +2239,43 @@ onUnmounted(() => {
   100% {
     transform: scale(1);
     box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+  }
+}
+
+.new-notification-toast {
+  position: fixed;
+  top: 16px;
+  right: 20px;
+  z-index: 1550;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 18px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: white;
+  color: var(--text-primary);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.22);
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 14px;
+  animation: newNotificationToastIn 0.3s ease-out;
+}
+.new-notification-toast:hover {
+  background: var(--bg-secondary);
+  transform: translateY(-1px);
+}
+.new-notification-toast-icon {
+  font-size: 18px;
+}
+@keyframes newNotificationToastIn {
+  from {
+    opacity: 0;
+    transform: translateY(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }
 

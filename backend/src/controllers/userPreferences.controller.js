@@ -134,6 +134,7 @@ const buildDefaultPreferences = (userRole) => {
     date_format: 'MM/DD',
     time_format: '12h',
     push_notifications_enabled: false,
+    notification_sound_enabled: true,
     helper_enabled: true,
     tutorial_progress: null,
     school_portal_notifications_progress: null,
