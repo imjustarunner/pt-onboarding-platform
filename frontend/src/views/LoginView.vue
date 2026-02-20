@@ -13,11 +13,13 @@
         <button
           v-if="showRememberedGoogleButton"
           type="button"
-          class="btn btn-secondary google-quick-login"
+          class="btn google-quick-login"
           :disabled="loading || verifying"
           @click="startRememberedGoogleLogin"
         >
-          Continue as {{ rememberedGoogleLogin?.username }} with Google
+          <span class="google-quick-login-text">
+            Continue as <strong>{{ rememberedGoogleLogin?.username }}</strong> with Google
+          </span>
         </button>
 
         <form @submit.prevent="handleSubmit" class="login-form">
@@ -826,7 +828,28 @@ const handleLogoError = (event) => {
 }
 
 .google-quick-login {
-  margin-bottom: 8px;
+  margin-bottom: 12px;
+  padding: 12px 16px;
+  font-size: 15px;
+  line-height: 1.4;
+  font-weight: 500;
+  background: rgba(255, 255, 255, 0.98);
+  color: var(--primary-color, var(--primary, #166534));
+  border: 2px solid var(--primary-color, var(--primary, #166534));
+  border-radius: 8px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.google-quick-login:hover:not(:disabled) {
+  background: #fff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+}
+
+.google-quick-login .google-quick-login-text strong {
+  font-weight: 600;
 }
 
 .btn-secondary {
