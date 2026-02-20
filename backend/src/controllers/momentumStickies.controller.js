@@ -68,7 +68,7 @@ export const updateSticky = async (req, res, next) => {
   try {
     const userId = parseInt(req.params.userId, 10);
     const stickyId = parseInt(req.params.stickyId, 10);
-    const { title, is_pinned, position_x, position_y, is_collapsed, sort_order, color } = req.body;
+    const { title, is_pinned, position_x, position_y, is_collapsed, sort_order, color, is_hidden } = req.body;
     const sticky = await MomentumSticky.update(stickyId, userId, {
       title: title !== undefined ? String(title).trim() : undefined,
       isPinned: is_pinned !== undefined ? !!is_pinned : undefined,
@@ -84,6 +84,14 @@ export const updateSticky = async (req, res, next) => {
     }
     res.json(sticky);
   } catch (err) {
+    console.error('[momentumStickies.updateSticky]', {
+      userId: req.params.userId,
+      stickyId: req.params.stickyId,
+      body: req.body,
+      message: err.message,
+      code: err.code,
+      sqlMessage: err.sqlMessage
+    });
     next(err);
   }
 };
