@@ -4810,29 +4810,6 @@ const joinPromptSessionNow = async () => {
   await startTrackedSupvMeetForSession(joinPromptSession.value);
 };
 
-const supervisionSessionsInCell = (dayName, hour) => {
-  const s = summary.value;
-  if (!s) return [];
-  const list = Array.isArray(s.supervisionSessions) ? s.supervisionSessions : [];
-  const out = [];
-  const week = s.weekStart || weekStart.value;
-  const dayIdx = ALL_DAYS.indexOf(String(dayName));
-  if (dayIdx < 0) return [];
-  const cellDate = addDaysYmd(week, dayIdx);
-  const cellStart = new Date(`${cellDate}T${pad2(hour)}:00:00`);
-  const cellEnd = new Date(`${cellDate}T${pad2(hour + 1)}:00:00`);
-  for (const ev of list) {
-    const startLocal = parseMaybeDate(ev.startAt);
-    const endLocal = parseMaybeDate(ev.endAt);
-    if (!startLocal || !endLocal) continue;
-    const idx = dayIndexForDateLocal(localYmd(startLocal), week);
-    const dn = ALL_DAYS[idx] || null;
-    if (dn !== dayName) continue;
-    if (endLocal > cellStart && startLocal < cellEnd) out.push(ev);
-  }
-  return out;
-};
-
 const supvOptions = computed(() => {
   const list = supervisionSessionsInCell(supvDayLabel.value, supvStartHour.value);
   return list.map((ev) => {
