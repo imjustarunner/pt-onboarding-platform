@@ -287,6 +287,34 @@ export const setBookingPlan = async (req, res, next) => {
     // the materializer will mark occurrences as booked.
     await OfficeStandingAssignment.update(sid, { last_two_week_confirmed_at: new Date() });
 
+    // Also mark the selected occurrence booked immediately so UI reflects assigned_booked now.
+    // If no concrete event exists yet for that date/hour, booking-plan still remains active.
+    try {
+      const [rows] = await pool.execute(
+        `SELECT id
+         FROM office_events
+         WHERE standing_assignment_id = ?
+           AND DATE(start_at) = ?
+           AND (status IS NULL OR UPPER(status) <> 'CANCELLED')
+         ORDER BY start_at ASC
+         LIMIT 1`,
+        [sid, bookingStartDate]
+      );
+      const eventId = Number(rows?.[0]?.id || 0) || 0;
+      if (eventId > 0) {
+        await OfficeEvent.markBooked({
+          eventId,
+          bookedProviderId: assignment.provider_id,
+          appointmentTypeCode: bookingSelectionFromBody(req.body).appointmentTypeCode,
+          appointmentSubtypeCode: bookingSelectionFromBody(req.body).appointmentSubtypeCode,
+          serviceCode: bookingSelectionFromBody(req.body).serviceCode,
+          modality: bookingSelectionFromBody(req.body).modality
+        });
+      }
+    } catch {
+      // Best-effort immediate occurrence mark; plan save remains source of truth.
+    }
+
     res.json({ ok: true, bookingPlan: plan });
   } catch (e) {
     next(e);
