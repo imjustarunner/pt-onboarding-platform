@@ -492,7 +492,6 @@
               <div v-if="requestType === 'office_request_only'" class="modern-help">
                 Separate office request path: this submits a provider office-availability request for staff assignment workflow.
               </div>
-              <template v-if="showClinicalBookingFields || requestType === 'office_request_only'">
               <label class="lbl">Frequency</label>
               <select v-model="officeBookingRecurrence" class="input">
                 <option value="ONCE">Once</option>
@@ -512,36 +511,38 @@
                 style="margin-top: 4px; width: 80px;"
               />
 
-              <label class="lbl" style="margin-top: 10px;">Appointment type</label>
-              <select v-model="bookingAppointmentType" class="input" :disabled="bookingMetadataLoading">
-                <option value="">Select type…</option>
-                <option v-for="opt in bookingTypeOptions" :key="`type-${opt.code}`" :value="opt.code">
-                  {{ opt.label }}
-                </option>
-              </select>
+              <template v-if="showClinicalBookingFields">
+                <label class="lbl" style="margin-top: 10px;">Appointment type</label>
+                <select v-model="bookingAppointmentType" class="input" :disabled="bookingMetadataLoading">
+                  <option value="">Select type…</option>
+                  <option v-for="opt in bookingTypeOptions" :key="`type-${opt.code}`" :value="opt.code">
+                    {{ opt.label }}
+                  </option>
+                </select>
 
-              <label class="lbl" style="margin-top: 10px;">Subtype (optional)</label>
-              <select v-model="bookingAppointmentSubtype" class="input" :disabled="bookingMetadataLoading || !bookingSubtypeOptions.length">
-                <option value="">Optional subtype…</option>
-                <option v-for="opt in bookingSubtypeOptions" :key="`sub-${opt.code}`" :value="opt.code">
-                  {{ opt.label }}
-                </option>
-              </select>
+                <label class="lbl" style="margin-top: 10px;">Subtype (optional)</label>
+                <select v-model="bookingAppointmentSubtype" class="input" :disabled="bookingMetadataLoading || !bookingSubtypeOptions.length">
+                  <option value="">Optional subtype…</option>
+                  <option v-for="opt in bookingSubtypeOptions" :key="`sub-${opt.code}`" :value="opt.code">
+                    {{ opt.label }}
+                  </option>
+                </select>
 
-              <label class="lbl" style="margin-top: 10px;">Service code</label>
-              <select v-model="bookingServiceCode" class="input" :disabled="bookingMetadataLoading">
-                <option value="">Select service code…</option>
-                <option v-for="opt in bookingServiceCodeOptions" :key="`svc-${opt.code}`" :value="opt.code">
-                  {{ opt.code }}{{ opt.label ? ` - ${opt.label}` : '' }}{{ serviceCodeOptionHints(opt) }}
-                </option>
-              </select>
+                <label class="lbl" style="margin-top: 10px;">Service code</label>
+                <select v-model="bookingServiceCode" class="input" :disabled="bookingMetadataLoading">
+                  <option value="">Select service code…</option>
+                  <option v-for="opt in bookingServiceCodeOptions" :key="`svc-${opt.code}`" :value="opt.code">
+                    {{ opt.code }}{{ opt.label ? ` - ${opt.label}` : '' }}{{ serviceCodeOptionHints(opt) }}
+                  </option>
+                </select>
 
-              <label class="lbl" style="margin-top: 10px;">Modality (optional)</label>
-              <select v-model="bookingModality" class="input" :disabled="bookingMetadataLoading">
-                <option value="">Optional modality…</option>
-                <option value="IN_PERSON">In person</option>
-                <option value="TELEHEALTH">Telehealth</option>
-              </select>
+                <label class="lbl" style="margin-top: 10px;">Modality (optional)</label>
+                <select v-model="bookingModality" class="input" :disabled="bookingMetadataLoading">
+                  <option value="">Optional modality…</option>
+                  <option value="IN_PERSON">In person</option>
+                  <option value="TELEHEALTH">Telehealth</option>
+                </select>
+              </template>
 
               <label v-if="viewMode === 'office_layout'" class="lbl" style="margin-top: 10px;">Room</label>
               <div v-if="viewMode === 'office_layout' && officeGridLoading" class="muted">Loading rooms…</div>
@@ -566,11 +567,10 @@
               <div v-else-if="(requestType === 'office' || requestType === 'individual_session' || requestType === 'group_session') && viewMode === 'open_finder'" class="muted">Any open room will be used. Switch to Office layout for specific room selection.</div>
               <div v-if="showClinicalBookingFields && bookingMetadataLoading" class="muted" style="margin-top: 6px;">Loading appointment type and service code options…</div>
               <div v-else-if="bookingMetadataError" class="muted" style="margin-top: 6px;">{{ bookingMetadataError }}</div>
-              <div v-if="bookingClassificationInvalidReason" class="muted" style="margin-top: 6px;">
+              <div v-if="showClinicalBookingFields && bookingClassificationInvalidReason" class="muted" style="margin-top: 6px;">
                 {{ bookingClassificationInvalidReason }}
               </div>
               <div v-if="officeBookingHint" class="muted" style="margin-top: 6px;">{{ officeBookingHint }}</div>
-              </template>
             </template>
           </div>
 
