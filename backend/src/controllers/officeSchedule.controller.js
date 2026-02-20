@@ -640,7 +640,11 @@ export const getWeeklyGrid = async (req, res, next) => {
           const k = key(room.id, date, hour);
           const e = eventBySlot.get(k);
           if (e) {
-            const st = e.slot_state || (e.status === 'BOOKED' ? 'ASSIGNED_BOOKED' : 'ASSIGNED_AVAILABLE');
+            const statusUpper = String(e.status || '').toUpperCase();
+            const slotStateUpper = String(e.slot_state || '').toUpperCase();
+            const st = statusUpper === 'BOOKED'
+              ? 'ASSIGNED_BOOKED'
+              : (slotStateUpper || 'ASSIGNED_AVAILABLE');
             const state =
               st === 'ASSIGNED_BOOKED'
                 ? 'assigned_booked'

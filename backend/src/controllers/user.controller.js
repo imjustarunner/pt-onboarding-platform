@@ -2386,8 +2386,12 @@ export const getUserScheduleSummary = async (req, res, next) => {
          ORDER BY e.start_at ASC`,
         [agencyId, providerId, agencyId, providerId, agencyId, providerId, providerId, windowEnd, windowStart]
       );
-      officeEvents = (rows || []).map((r) => ({
-        displayStatus: toDisplayStatus({ status: r.status, slotState: r.slot_state }),
+      officeEvents = (rows || []).map((r) => {
+        const normalizedSlotState = String(r.status || '').trim().toUpperCase() === 'BOOKED'
+          ? 'ASSIGNED_BOOKED'
+          : r.slot_state;
+        return {
+        displayStatus: toDisplayStatus({ status: r.status, slotState: normalizedSlotState }),
         id: r.id,
         buildingId: r.office_location_id,
         standingAssignmentId: Number(r.standing_assignment_id || 0) || null,
@@ -2398,8 +2402,8 @@ export const getUserScheduleSummary = async (req, res, next) => {
         startAt: toMysqlDateTimeWall(r.start_at) || r.start_at,
         endAt: toMysqlDateTimeWall(r.end_at) || r.end_at,
         status: r.status,
-        slotState: r.slot_state,
-        appointmentType: String(r.appointment_type_code || '').trim().toUpperCase() || defaultAppointmentTypeForSlot({ status: r.status, slotState: r.slot_state }),
+        slotState: normalizedSlotState,
+        appointmentType: String(r.appointment_type_code || '').trim().toUpperCase() || defaultAppointmentTypeForSlot({ status: r.status, slotState: normalizedSlotState }),
         appointmentSubtype: String(r.appointment_subtype_code || '').trim().toUpperCase() || null,
         serviceCode: String(r.service_code || '').trim().toUpperCase() || null,
         modality: String(r.modality || '').trim().toUpperCase() || null,
@@ -2411,7 +2415,8 @@ export const getUserScheduleSummary = async (req, res, next) => {
         billingContextId: Number(r.billing_context_id || 0) || null,
         virtualIntakeEnabled: Number(r.virtual_intake_enabled || 0) === 1,
         inPersonIntakeEnabled: Number(r.in_person_intake_enabled || 0) === 1
-      }));
+      };
+      });
     } catch (e) {
       if (e?.code !== 'ER_NO_SUCH_TABLE' && e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
       const [rows] = await pool.execute(
@@ -2460,8 +2465,12 @@ export const getUserScheduleSummary = async (req, res, next) => {
          ORDER BY e.start_at ASC`,
         [agencyId, providerId, agencyId, providerId, agencyId, providerId, providerId, windowEnd, windowStart]
       );
-      officeEvents = (rows || []).map((r) => ({
-        displayStatus: toDisplayStatus({ status: r.status, slotState: r.slot_state }),
+      officeEvents = (rows || []).map((r) => {
+        const normalizedSlotState = String(r.status || '').trim().toUpperCase() === 'BOOKED'
+          ? 'ASSIGNED_BOOKED'
+          : r.slot_state;
+        return {
+        displayStatus: toDisplayStatus({ status: r.status, slotState: normalizedSlotState }),
         id: r.id,
         buildingId: r.office_location_id,
         standingAssignmentId: Number(r.standing_assignment_id || 0) || null,
@@ -2472,8 +2481,8 @@ export const getUserScheduleSummary = async (req, res, next) => {
         startAt: toMysqlDateTimeWall(r.start_at) || r.start_at,
         endAt: toMysqlDateTimeWall(r.end_at) || r.end_at,
         status: r.status,
-        slotState: r.slot_state,
-        appointmentType: defaultAppointmentTypeForSlot({ status: r.status, slotState: r.slot_state }),
+        slotState: normalizedSlotState,
+        appointmentType: defaultAppointmentTypeForSlot({ status: r.status, slotState: normalizedSlotState }),
         appointmentSubtype: null,
         serviceCode: null,
         modality: null,
@@ -2485,7 +2494,8 @@ export const getUserScheduleSummary = async (req, res, next) => {
         billingContextId: null,
         virtualIntakeEnabled: Number(r.virtual_intake_enabled || 0) === 1,
         inPersonIntakeEnabled: Number(r.in_person_intake_enabled || 0) === 1
-      }));
+      };
+      });
     }
 
     // 4b) Supervision sessions (app-scheduled, optionally synced to Google)
