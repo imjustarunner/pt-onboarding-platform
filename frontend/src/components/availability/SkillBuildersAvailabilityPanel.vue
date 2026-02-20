@@ -53,8 +53,8 @@
     <div v-else class="results">
       <div class="summary">
         <div class="pill">Providers: <strong>{{ filteredProviders.length }}</strong></div>
-        <div class="pill">Available blocks: <strong>{{ availableCount }}</strong></div>
-        <div class="pill">Booked blocks: <strong>{{ bookedCount }}</strong></div>
+        <div class="pill">Available blocks: <strong>{{ rows.filter((r) => !r.isBooked).length }}</strong></div>
+        <div class="pill">Booked blocks: <strong>{{ rows.filter((r) => r.isBooked).length }}</strong></div>
       </div>
 
       <div v-if="rows.length === 0" class="empty">
@@ -209,8 +209,6 @@ const rows = computed(() => {
   return out;
 });
 
-const availableCount = computed(() => rows.value.filter((r) => !r.isBooked).length);
-const bookedCount = computed(() => rows.value.filter((r) => r.isBooked).length);
 </script>
 
 <style scoped>

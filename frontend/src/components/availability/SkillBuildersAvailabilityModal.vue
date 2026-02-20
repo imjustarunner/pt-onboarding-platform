@@ -6,7 +6,7 @@
         <button type="button" class="sbam-close" aria-label="Close" @click="$emit('close')">×</button>
       </div>
       <div class="sbam-body">
-        <SkillBuildersAvailabilityPanel :agency-id="agencyId" :show-title="false" />
+        <SkillBuildersAvailabilityPanel :agency-id="props.agencyId" :show-title="false" />
       </div>
     </div>
   </div>
@@ -15,7 +15,7 @@
 <script setup>
 import SkillBuildersAvailabilityPanel from './SkillBuildersAvailabilityPanel.vue';
 
-defineProps({
+const props = defineProps({
   agencyId: { type: [Number, String, null], default: null }
 });
 

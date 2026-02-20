@@ -201,7 +201,7 @@
         </div>
 
         <div v-if="agencyFilterOptions.length > 1" class="sched-org-filters">
-          <div class="sched-calendars-label">Organizations shown</div>
+          <div class="sched-calendars-label">Agencies shown</div>
           <div class="sched-calendars-actions">
             <button type="button" class="sched-chip" :disabled="loading" @click="selectAllScheduleAgencies">All</button>
           </div>
@@ -276,6 +276,7 @@
 
       <div v-else-if="summary" class="sched-grid-wrap">
       <div class="legend">
+        <div class="legend-note muted" style="font-size: 11px; margin-bottom: 6px;">Shade = agency; outline = event type</div>
         <div class="legend-item"><span class="swatch swatch-request"></span> Pending request</div>
         <div class="legend-item"><span class="swatch swatch-school"></span> School assigned</div>
         <div class="legend-item"><span class="swatch swatch-supv"></span> Supervision</div>
@@ -488,9 +489,13 @@
               Select an office from the toolbar above to view open/assigned/booked time and place a booking request.
             </div>
             <template v-else>
+              <div v-if="!showClinicalBookingFields && (requestType === 'office' || requestType === 'add_session')" class="muted" style="margin-bottom: 10px;">
+                Agency must have a clinical organization to book appointments with service codes. Select an agency with a clinical org, or use Office request for availability-only requests.
+              </div>
               <div v-if="requestType === 'office_request_only'" class="modern-help">
                 Separate office request path: this submits a provider office-availability request for staff assignment workflow.
               </div>
+              <template v-if="showClinicalBookingFields || requestType === 'office_request_only'">
               <label class="lbl">Frequency</label>
               <select v-model="officeBookingRecurrence" class="input">
                 <option value="ONCE">Once</option>
@@ -541,10 +546,10 @@
                 <option value="TELEHEALTH">Telehealth</option>
               </select>
 
-              <label class="lbl" style="margin-top: 10px;">Room</label>
-              <div v-if="officeGridLoading" class="muted">Loading rooms…</div>
-              <div v-else-if="officeGridError" class="error">{{ officeGridError }}</div>
-              <div v-else-if="requestType === 'office' || requestType === 'add_session'" class="office-room-picker">
+              <label v-if="viewMode === 'office_layout'" class="lbl" style="margin-top: 10px;">Room</label>
+              <div v-if="viewMode === 'office_layout' && officeGridLoading" class="muted">Loading rooms…</div>
+              <div v-else-if="viewMode === 'office_layout' && officeGridError" class="error">{{ officeGridError }}</div>
+              <div v-else-if="viewMode === 'office_layout' && (requestType === 'office' || requestType === 'add_session')" class="office-room-picker">
                 <label class="office-room-option">
                   <input type="radio" name="office-room" :value="0" v-model.number="selectedOfficeRoomId" />
                   <span class="office-room-label">Any open room</span>
@@ -560,13 +565,15 @@
                   <span class="office-room-meta">{{ opt.stateLabel }}</span>
                 </label>
               </div>
-              <div v-else class="muted">Separate office request mode does not require room selection.</div>
-              <div v-if="bookingMetadataLoading" class="muted" style="margin-top: 6px;">Loading appointment type and service code options…</div>
+              <div v-else-if="viewMode === 'office_layout'" class="muted">Separate office request mode does not require room selection.</div>
+              <div v-else-if="(requestType === 'office' || requestType === 'add_session') && viewMode === 'open_finder'" class="muted">Any open room will be used. Switch to Office layout for specific room selection.</div>
+              <div v-if="showClinicalBookingFields && bookingMetadataLoading" class="muted" style="margin-top: 6px;">Loading appointment type and service code options…</div>
               <div v-else-if="bookingMetadataError" class="muted" style="margin-top: 6px;">{{ bookingMetadataError }}</div>
               <div v-if="bookingClassificationInvalidReason" class="muted" style="margin-top: 6px;">
                 {{ bookingClassificationInvalidReason }}
               </div>
               <div v-if="officeBookingHint" class="muted" style="margin-top: 6px;">{{ officeBookingHint }}</div>
+              </template>
             </template>
           </div>
 
@@ -1414,7 +1421,8 @@ const loadSelfScheduleAgencies = async () => {
       seen.add(id);
       deduped.push({
         id,
-        name: String(row?.name || row?.agency_name || `Agency ${id}`).trim()
+        name: String(row?.name || row?.agency_name || `Agency ${id}`).trim(),
+        hasClinicalOrg: !!row?.hasClinicalOrg
       });
     }
     selfScheduleAgencyOptions.value = deduped;
@@ -1656,10 +1664,23 @@ const agencyLabel = (agencyId) => {
 const agencyFilterOptions = computed(() => {
   if (props.mode === 'self' && (selfScheduleAgencyOptions.value || []).length) {
     return selfScheduleAgencyOptions.value
-      .map((row) => ({ id: Number(row.id), label: String(row.name || `Agency ${row.id}`) }))
+      .map((row) => ({
+        id: Number(row.id),
+        label: String(row.name || `Agency ${row.id}`),
+        hasClinicalOrg: !!row?.hasClinicalOrg
+      }))
       .filter((row) => Number.isFinite(row.id) && row.id > 0);
   }
-  return propAgencyIds.value.map((id) => ({ id: Number(id), label: agencyLabel(id) || `Agency ${id}` }));
+  return propAgencyIds.value.map((id) => ({ id: Number(id), label: agencyLabel(id) || `Agency ${id}`, hasClinicalOrg: agencyStore.currentAgency?.id === id ? !!agencyStore.currentAgency?.hasClinicalOrg : null }));
+});
+
+const showClinicalBookingFields = computed(() => {
+  const effId = Number(effectiveAgencyId.value || 0);
+  if (!effId) return false;
+  const opt = (agencyFilterOptions.value || []).find((r) => Number(r?.id) === effId);
+  if (opt?.hasClinicalOrg === true) return true;
+  if (opt?.hasClinicalOrg === false) return false;
+  return !!agencyStore.currentAgency?.hasClinicalOrg && Number(agencyStore.currentAgency?.id) === effId;
 });
 
 const actionAgencyOptions = computed(() => {
@@ -2424,9 +2445,9 @@ const schoolTitle = (dayName, hour) => {
   const nameSuffix = names.length ? ` (${names.join(', ')})` : '';
   return `School assigned${agencySuffix(ids)}${nameSuffix} — ${dayName} ${hourLabel(hour)}`;
 };
-const officeTopEvent = (dayName, hour) => {
+const officeEventsInCell = (dayName, hour) => {
   const s = summary.value;
-  if (!s) return null;
+  if (!s) return [];
   const hits = (s?.officeEvents || []).filter((e) => {
     const startRaw = String(e.startAt || '').trim();
     if (!startRaw) return false;
@@ -2436,8 +2457,70 @@ const officeTopEvent = (dayName, hour) => {
     const dn = ALL_DAYS[idx] || null;
     return dn === dayName && startLocal.getHours() === Number(hour);
   });
+  return hits;
+};
+
+const officeTopEvent = (dayName, hour) => {
+  const hits = officeEventsInCell(dayName, hour);
   const top = hits.sort((a, b) => stateRank(b.slotState) - stateRank(a.slotState))[0] || null;
   return top;
+};
+
+const schoolAssignmentsInCell = (dayName, hour) => {
+  const s = summary.value;
+  if (!s) return [];
+  return (s.schoolAssignments || []).filter((a) => {
+    if (String(a.dayOfWeek) !== dayName) return false;
+    return overlapsHour(a.startTime, a.endTime, hour);
+  });
+};
+
+const supervisionSessionsInCell = (dayName, hour) => {
+  const s = summary.value;
+  if (!s) return [];
+  const ws = s.weekStart || weekStart.value;
+  const dayIdx = ALL_DAYS.indexOf(String(dayName));
+  if (dayIdx < 0) return [];
+  const cellDate = addDaysYmd(ws, dayIdx);
+  const cellStart = new Date(`${cellDate}T${pad2(hour)}:00:00`);
+  const cellEnd = new Date(`${cellDate}T${pad2(Number(hour) + 1)}:00:00`);
+  const hits = [];
+  for (const ev of s.supervisionSessions || []) {
+    const startRaw = String(ev.startAt || '').trim();
+    const endRaw = String(ev.endAt || '').trim();
+    if (!startRaw || !endRaw) continue;
+    const startLocal = new Date(startRaw.includes('T') ? startRaw : startRaw.replace(' ', 'T'));
+    const endLocal = new Date(endRaw.includes('T') ? endRaw : endRaw.replace(' ', 'T'));
+    if (Number.isNaN(startLocal.getTime()) || Number.isNaN(endLocal.getTime())) continue;
+    if (endLocal > cellStart && startLocal < cellEnd) hits.push(ev);
+  }
+  return hits;
+};
+
+const requestsInCell = (dayName, hour) => {
+  const s = summary.value;
+  if (!s) return [];
+  const out = [];
+  for (const r of s.officeRequests || []) {
+    for (const slot of r.slots || []) {
+      const dn = ALL_DAYS[((Number(slot.weekday) + 6) % 7)] || null;
+      if (dn !== dayName) continue;
+      if (Number(hour) >= Number(slot.startHour) && Number(hour) < Number(slot.endHour)) {
+        out.push(r);
+        break;
+      }
+    }
+  }
+  for (const r of s.schoolRequests || []) {
+    for (const b of r.blocks || []) {
+      if (String(b.dayOfWeek) !== dayName) continue;
+      if (overlapsHour(b.startTime, b.endTime, hour)) {
+        out.push(r);
+        break;
+      }
+    }
+  }
+  return out;
 };
 const officeTitle = (dayName, hour) => {
   const top = officeTopEvent(dayName, hour);
@@ -2488,40 +2571,72 @@ const shortOfficeLabel = (topEvent, fallback) => {
 const cellBlocks = (dayName, hour) => {
   const blocks = [];
 
-  // Office assignment state
-  const st = String(officeState(dayName, hour) || '').toUpperCase();
-  const top = ['ASSIGNED_BOOKED', 'ASSIGNED_TEMPORARY', 'ASSIGNED_AVAILABLE'].includes(st) ? officeTopEvent(dayName, hour) : null;
-  const buildingId = top?.buildingId ? Number(top.buildingId) : null;
-  const intakeSuffix = [
-    top?.inPersonIntakeEnabled ? ' IP' : '',
-    top?.virtualIntakeEnabled ? ' VI' : ''
-  ].join('');
-  if (st === 'ASSIGNED_BOOKED') {
-    blocks.push({ key: 'office-booked', kind: 'ob', shortLabel: shortOfficeLabel(top, 'Booked') + intakeSuffix, title: officeTitle(dayName, hour), buildingId });
-  } else if (st === 'ASSIGNED_TEMPORARY') {
-    blocks.push({ key: 'office-temp', kind: 'ot', shortLabel: shortOfficeLabel(top, 'Temp') + intakeSuffix, title: officeTitle(dayName, hour), buildingId });
-  } else if (st === 'ASSIGNED_AVAILABLE') {
-    blocks.push({ key: 'office-assigned', kind: 'oa', shortLabel: shortOfficeLabel(top, 'Office') + intakeSuffix, title: officeTitle(dayName, hour), buildingId });
+  // Office assignment state — one block per agency
+  const officeHits = officeEventsInCell(dayName, hour);
+  const officeByAgency = new Map();
+  for (const e of officeHits) {
+    const aid = Number(e?._agencyId || 0) || null;
+    const key = aid || 'none';
+    if (!officeByAgency.has(key)) officeByAgency.set(key, []);
+    officeByAgency.get(key).push(e);
   }
-
+  for (const [, events] of officeByAgency) {
+    const top = events.sort((a, b) => stateRank(b.slotState) - stateRank(a.slotState))[0] || null;
+    const agencyId = Number(top?._agencyId || 0) || null;
+    const buildingId = top?.buildingId ? Number(top.buildingId) : null;
+    const intakeSuffix = [
+      top?.inPersonIntakeEnabled ? ' IP' : '',
+      top?.virtualIntakeEnabled ? ' VI' : ''
+    ].join('');
+    const st = String(top?.slotState || '').toUpperCase();
+    if (st === 'ASSIGNED_BOOKED') {
+      blocks.push({ key: `office-booked-${agencyId || 'x'}`, kind: 'ob', shortLabel: shortOfficeLabel(top, 'Booked') + intakeSuffix, title: officeTitle(dayName, hour), buildingId, agencyId });
+    } else if (st === 'ASSIGNED_TEMPORARY') {
+      blocks.push({ key: `office-temp-${agencyId || 'x'}`, kind: 'ot', shortLabel: shortOfficeLabel(top, 'Temp') + intakeSuffix, title: officeTitle(dayName, hour), buildingId, agencyId });
+    } else if (st === 'ASSIGNED_AVAILABLE') {
+      blocks.push({ key: `office-assigned-${agencyId || 'x'}`, kind: 'oa', shortLabel: shortOfficeLabel(top, 'Office') + intakeSuffix, title: officeTitle(dayName, hour), buildingId, agencyId });
+    }
+  }
+  const top = officeTopEvent(dayName, hour);
   if (top?.inPersonIntakeEnabled) {
-    blocks.push({ key: 'intake-ip', kind: 'intake-ip', shortLabel: 'IP', title: `In-person intake enabled — ${officeTitle(dayName, hour)}` });
+    blocks.push({ key: 'intake-ip', kind: 'intake-ip', shortLabel: 'IP', title: `In-person intake enabled — ${officeTitle(dayName, hour)}`, agencyId: Number(top?._agencyId || 0) || null });
   }
   if (top?.virtualIntakeEnabled) {
-    blocks.push({ key: 'intake-vi', kind: 'intake-vi', shortLabel: 'VI', title: `Virtual intake enabled — ${officeTitle(dayName, hour)}` });
+    blocks.push({ key: 'intake-vi', kind: 'intake-vi', shortLabel: 'VI', title: `Virtual intake enabled — ${officeTitle(dayName, hour)}`, agencyId: Number(top?._agencyId || 0) || null });
   }
 
-  // Assigned school
-  if (hasSchool(dayName, hour)) {
-    blocks.push({ key: 'school-assigned', kind: 'school', shortLabel: schoolShortLabel(dayName, hour), title: schoolTitle(dayName, hour) });
+  // Assigned school — one block per agency
+  const schoolHits = schoolAssignmentsInCell(dayName, hour);
+  const schoolByAgency = new Map();
+  for (const a of schoolHits) {
+    const aid = Number(a?._agencyId || 0) || null;
+    const key = aid || 'none';
+    if (!schoolByAgency.has(key)) schoolByAgency.set(key, []);
+    schoolByAgency.get(key).push(a);
+  }
+  for (const [aid, assignments] of schoolByAgency) {
+    const agencyId = (aid === 'none' || !aid) ? null : Number(aid);
+    const names = assignments.flatMap((a) => (a?.schoolName ? [String(a.schoolName).trim()] : [])).filter(Boolean);
+    const shortLabel = names.length <= 1 ? (names[0] || 'School') : `${names[0]}+${names.length - 1}`;
+    const ids = agencyId ? [agencyId] : [];
+    blocks.push({ key: `school-${agencyId || 'x'}`, kind: 'school', shortLabel, title: `School assigned${agencySuffix(ids)} — ${dayName} ${hourLabel(hour)}`, agencyId });
   }
 
-  // Supervision sessions
-  if (hasSupervision(dayName, hour)) {
-    blocks.push({ key: 'supv', kind: 'supv', shortLabel: supervisionLabel(dayName, hour), title: supervisionTitle(dayName, hour) });
+  // Supervision sessions — one block per agency
+  const supvHits = supervisionSessionsInCell(dayName, hour);
+  const supvByAgency = new Map();
+  for (const ev of supvHits) {
+    const aid = Number(ev?._agencyId || 0) || null;
+    const key = aid || 'none';
+    if (!supvByAgency.has(key)) supvByAgency.set(key, []);
+    supvByAgency.get(key).push(ev);
+  }
+  for (const [aid] of supvByAgency) {
+    const agencyId = (aid === 'none' || !aid) ? null : Number(aid);
+    blocks.push({ key: `supv-${agencyId || 'x'}`, kind: 'supv', shortLabel: supervisionLabel(dayName, hour), title: supervisionTitle(dayName, hour), agencyId });
   }
 
-  // App-scheduled provider events (personal/hold/indirect), visible without Google overlays.
+  // App-scheduled provider events (personal/hold/indirect) — include agencyId per event
   const scheduleHits = scheduleEventsInCell(dayName, hour).slice(0, 2);
   for (const ev of scheduleHits) {
     blocks.push({
@@ -2529,7 +2644,8 @@ const cellBlocks = (dayName, hour) => {
       kind: 'sevt',
       shortLabel: scheduleEventShortLabel(ev),
       title: scheduleEventBlockTitle(ev, dayName, hour),
-      link: String(ev?.htmlLink || '').trim() || null
+      link: String(ev?.htmlLink || '').trim() || null,
+      agencyId: Number(ev?._agencyId || 0) || null
     });
   }
   const scheduleExtra = Math.max(0, scheduleEventsInCell(dayName, hour).length - scheduleHits.length);
@@ -2537,9 +2653,18 @@ const cellBlocks = (dayName, hour) => {
     blocks.push({ key: 'sevt-more', kind: 'more', shortLabel: `+${scheduleExtra}`, title: `${scheduleExtra} more schedule events in this hour` });
   }
 
-  // Pending request
-  if (hasRequest(dayName, hour)) {
-    blocks.push({ key: 'request', kind: 'request', shortLabel: 'Req', title: requestTitle(dayName, hour) });
+  // Pending request — one block per agency
+  const reqHits = requestsInCell(dayName, hour);
+  const reqByAgency = new Map();
+  for (const r of reqHits) {
+    const aid = Number(r?._agencyId || 0) || null;
+    const key = aid || 'none';
+    if (!reqByAgency.has(key)) reqByAgency.set(key, []);
+    reqByAgency.get(key).push(r);
+  }
+  for (const [aid] of reqByAgency) {
+    const agencyId = (aid === 'none' || !aid) ? null : Number(aid);
+    blocks.push({ key: `request-${agencyId || 'x'}`, kind: 'request', shortLabel: 'Req', title: requestTitle(dayName, hour), agencyId });
   }
 
   // Busy overlays
@@ -2996,7 +3121,8 @@ const normalizeBookingSelectionPayload = () => ({
 });
 
 const loadBookingMetadataForProvider = async () => {
-  if (!['office', 'office_request_only'].includes(String(requestType.value || '')) || !showRequestModal.value) return;
+  if (!['office', 'office_request_only', 'add_session'].includes(String(requestType.value || '')) || !showRequestModal.value) return;
+  if (!showClinicalBookingFields.value) return;
   if (!Number(selectedOfficeLocationId.value || 0)) {
     resetBookingMetadataState();
     return;
@@ -3598,6 +3724,23 @@ const officeColorById = (id) => {
   return officePalette[n % officePalette.length];
 };
 
+const agencyFillPalette = [
+  'rgba(235, 87, 87, 0.28)',   // light red
+  'rgba(59, 130, 246, 0.22)',  // light blue
+  'rgba(34, 197, 94, 0.24)',   // light green
+  'rgba(168, 85, 247, 0.22)',  // light purple
+  'rgba(249, 115, 22, 0.24)',  // light orange
+  'rgba(20, 184, 166, 0.22)',  // light teal
+  'rgba(234, 179, 8, 0.26)',    // light amber
+  'rgba(236, 72, 153, 0.22)'    // light pink
+];
+
+const agencyColorById = (agencyId) => {
+  const n = Number(agencyId || 0);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return agencyFillPalette[n % agencyFillPalette.length];
+};
+
 const officeOverlayStyle = computed(() => {
   const id = Number(selectedOfficeLocationId.value || 0);
   return { '--officeOverlayColor': officeColorById(id) };
@@ -3685,7 +3828,13 @@ const loadSelectedOfficeGrid = async () => {
   }
 };
 
-watch([selectedOfficeLocationId, weekStart], () => {
+watch([selectedOfficeLocationId, weekStart, viewMode], () => {
+  if (viewMode.value !== 'office_layout') {
+    officeGrid.value = null;
+    officeGridError.value = '';
+    officeGridLoading.value = false;
+    return;
+  }
   void loadSelectedOfficeGrid();
 });
 
@@ -3759,10 +3908,17 @@ const officeOverlayTitle = (dayName, hour) => {
 
 const cellBlockStyle = (b) => {
   const kind = String(b?.kind || '');
-  if (!['oa', 'ot', 'ob'].includes(kind)) return {};
-  const id = Number(b?.buildingId || 0);
-  if (!id) return {};
-  return { '--officeAccent': officeColorById(id) };
+  const style = {};
+  const agencyId = Number(b?.agencyId || 0);
+  if (agencyId > 0) {
+    const fill = agencyColorById(agencyId);
+    if (fill) style['--agencyFill'] = fill;
+  }
+  if (['oa', 'ot', 'ob'].includes(kind)) {
+    const id = Number(b?.buildingId || 0);
+    if (id) style['--officeAccent'] = officeColorById(id);
+  }
+  return style;
 };
 
 const officeAssignEndHourOptions = computed(() => {
@@ -4131,7 +4287,9 @@ const submitRequest = async () => {
       if (!officeId) throw new Error('Select an office first.');
       if (!officeBookingValid.value) throw new Error('Select an available room (or choose “Any open room”).');
       if (bookingClassificationInvalidReason.value) throw new Error(bookingClassificationInvalidReason.value);
-      const roomId = Number(selectedOfficeRoomId.value || 0) || null;
+      const roomId = viewMode.value === 'office_layout'
+        ? (Number(selectedOfficeRoomId.value || 0) || null)
+        : null;
       const targets = sortedSelectedActionSlots().length ? sortedSelectedActionSlots() : [{
         dateYmd: addDaysYmd(weekStart.value, ALL_DAYS.indexOf(String(dn))),
         hour: h
@@ -4395,7 +4553,7 @@ const submitRequest = async () => {
 watch(requestType, (t) => {
   if (t === 'supervision') {
     void loadSupervisionProviders();
-  } else if (t === 'office' || t === 'office_request_only') {
+  } else if ((t === 'office' || t === 'office_request_only' || t === 'add_session') && showClinicalBookingFields.value) {
     void loadBookingMetadataForProvider();
   } else if (SCHEDULE_EVENT_ACTIONS.has(String(t || ''))) {
     if (!String(scheduleEventTitle.value || '').trim() || scheduleEventTitle.value === defaultScheduleEventTitleForAction('personal_event')) {
@@ -4473,8 +4631,8 @@ watch(bookingAppointmentType, () => {
   if (!stillValid) bookingAppointmentSubtype.value = '';
 });
 
-watch([selectedOfficeLocationId, showRequestModal, requestType], () => {
-  if ((requestType.value === 'office' || requestType.value === 'office_request_only' || requestType.value === 'add_session') && showRequestModal.value) {
+watch([selectedOfficeLocationId, showRequestModal, requestType, showClinicalBookingFields], () => {
+  if ((requestType.value === 'office' || requestType.value === 'office_request_only' || requestType.value === 'add_session') && showRequestModal.value && showClinicalBookingFields.value) {
     void loadBookingMetadataForProvider();
   }
 });
@@ -5859,12 +6017,12 @@ watch(modalHour, () => {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.cell-block-request { background: var(--sched-request-bg, rgba(242, 201, 76, 0.35)); border-color: var(--sched-request-border, rgba(242, 201, 76, 0.65)); }
-.cell-block-school { background: var(--sched-school-bg, rgba(45, 156, 219, 0.28)); border-color: var(--sched-school-border, rgba(45, 156, 219, 0.60)); }
-.cell-block-supv { background: var(--sched-supv-bg, rgba(155, 81, 224, 0.20)); border-color: var(--sched-supv-border, rgba(155, 81, 224, 0.55)); }
-.cell-block-oa { background: var(--sched-oa-bg, rgba(39, 174, 96, 0.22)); border-color: var(--sched-oa-border, rgba(39, 174, 96, 0.55)); }
-.cell-block-ot { background: var(--sched-ot-bg, rgba(242, 153, 74, 0.24)); border-color: var(--sched-ot-border, rgba(242, 153, 74, 0.58)); }
-.cell-block-ob { background: var(--sched-ob-bg, rgba(235, 87, 87, 0.22)); border-color: var(--sched-ob-border, rgba(235, 87, 87, 0.58)); }
+.cell-block-request { background: var(--agencyFill, var(--sched-request-bg, rgba(242, 201, 76, 0.35))); border-color: var(--sched-request-border, rgba(242, 201, 76, 0.65)); }
+.cell-block-school { background: var(--agencyFill, var(--sched-school-bg, rgba(45, 156, 219, 0.28))); border-color: var(--sched-school-border, rgba(45, 156, 219, 0.60)); }
+.cell-block-supv { background: var(--agencyFill, var(--sched-supv-bg, rgba(155, 81, 224, 0.20))); border-color: var(--sched-supv-border, rgba(155, 81, 224, 0.55)); }
+.cell-block-oa { background: var(--agencyFill, var(--sched-oa-bg, rgba(39, 174, 96, 0.22))); border-color: var(--sched-oa-border, rgba(39, 174, 96, 0.55)); }
+.cell-block-ot { background: var(--agencyFill, var(--sched-ot-bg, rgba(242, 153, 74, 0.24))); border-color: var(--sched-ot-border, rgba(242, 153, 74, 0.58)); }
+.cell-block-ob { background: var(--agencyFill, var(--sched-ob-bg, rgba(235, 87, 87, 0.22))); border-color: var(--sched-ob-border, rgba(235, 87, 87, 0.58)); }
 .cell-block-oa,
 .cell-block-ot,
 .cell-block-ob {
@@ -5903,10 +6061,10 @@ watch(modalHour, () => {
 }
 .cell-block-gbusy { background: var(--sched-gbusy-bg, rgba(17, 24, 39, 0.14)); border-color: var(--sched-gbusy-border, rgba(17, 24, 39, 0.42)); color: rgba(17, 24, 39, 0.9); }
 .cell-block-gevt { background: rgba(59, 130, 246, 0.14); border-color: rgba(59, 130, 246, 0.35); cursor: pointer; }
-.cell-block-sevt { background: rgba(16, 185, 129, 0.18); border-color: rgba(5, 150, 105, 0.45); color: rgba(4, 120, 87, 0.96); cursor: pointer; }
+.cell-block-sevt { background: var(--agencyFill, rgba(16, 185, 129, 0.18)); border-color: rgba(5, 150, 105, 0.45); color: rgba(4, 120, 87, 0.96); cursor: pointer; }
 .cell-block-ebusy { background: var(--sched-ebusy-bg, rgba(107, 114, 128, 0.16)); border-color: var(--sched-ebusy-border, rgba(107, 114, 128, 0.45)); color: rgba(17, 24, 39, 0.9); }
-.cell-block-intake-ip { background: rgba(34, 197, 94, 0.20); border-color: rgba(21, 128, 61, 0.45); color: rgba(21, 128, 61, 0.95); }
-.cell-block-intake-vi { background: rgba(59, 130, 246, 0.20); border-color: rgba(29, 78, 216, 0.45); color: rgba(29, 78, 216, 0.95); }
+.cell-block-intake-ip { background: var(--agencyFill, rgba(34, 197, 94, 0.20)); border-color: rgba(21, 128, 61, 0.45); color: rgba(21, 128, 61, 0.95); }
+.cell-block-intake-vi { background: var(--agencyFill, rgba(59, 130, 246, 0.20)); border-color: rgba(29, 78, 216, 0.45); color: rgba(29, 78, 216, 0.95); }
 .cell-block-more { background: rgba(148, 163, 184, 0.18); border-color: rgba(148, 163, 184, 0.45); color: rgba(51, 65, 85, 0.92); }
 
 .cell-block-selected,

@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import api from '../services/api';
+import { getCached, setCached } from '../utils/adminApiCache';
 
 export const useAgencyStore = defineStore('agency', () => {
   const agencies = ref([]);
@@ -19,8 +20,28 @@ export const useAgencyStore = defineStore('agency', () => {
   const hydrateAgencyById = async (agencyId) => {
     const id = Number(agencyId);
     if (!Number.isInteger(id) || id < 1) return null;
+    const url = `/agencies/${id}`;
+    const cached = getCached(url);
+    if (cached) {
+      const full = cached;
+      const replaceIn = (arrRef) => {
+        const arr = Array.isArray(arrRef.value) ? arrRef.value.slice() : [];
+        const idx = arr.findIndex((a) => Number(a?.id) === Number(full.id));
+        if (idx >= 0) {
+          arr[idx] = { ...arr[idx], ...full };
+          arrRef.value = arr;
+        }
+      };
+      replaceIn(agencies);
+      replaceIn(userAgencies);
+      if (Number(currentAgency.value?.id) === Number(full.id)) {
+        currentAgency.value = { ...currentAgency.value, ...full };
+        localStorage.setItem('currentAgency', JSON.stringify(currentAgency.value));
+      }
+      return full;
+    }
     try {
-      const res = await api.get(`/agencies/${id}`);
+      const res = await api.get(url);
       const full = res.data;
       if (!full?.id) return null;
 
@@ -41,6 +62,7 @@ export const useAgencyStore = defineStore('agency', () => {
         currentAgency.value = { ...currentAgency.value, ...full };
         localStorage.setItem('currentAgency', JSON.stringify(currentAgency.value));
       }
+      setCached(url, {}, full);
       return full;
     } catch (e) {
       console.error('Failed to hydrate agency:', e);
@@ -72,9 +94,11 @@ export const useAgencyStore = defineStore('agency', () => {
         }
       } else {
         // For admins/super admins, fetch agencies.
-        // Note: backend returns ALL agencies for super_admin, but ONLY the user's agencies for admin.
-        const response = await api.get('/agencies');
+        const url = '/agencies';
+        const cached = getCached(url);
+        const response = cached ? { data: cached } : await api.get(url);
         agencies.value = response.data;
+        if (!cached) setCached(url, {}, response.data);
 
         // If this user is NOT a super_admin, treat this as their user-agency list too,
         // and ensure we set a default current agency for downstream UI (e.g. Quick Actions icon overrides).

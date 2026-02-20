@@ -19,6 +19,7 @@
             :src="avatarUrl(person.profile_photo_url)"
             :alt="person.display_name"
             class="avatar-img"
+            loading="lazy"
           />
           <span v-else class="avatar-initial">{{ avatarInitial(person) }}</span>
         </div>

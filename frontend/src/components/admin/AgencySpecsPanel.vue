@@ -71,6 +71,7 @@
 import { computed, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
+import { getCached, setCached } from '../../utils/adminApiCache';
 
 const props = defineProps({
   title: { type: String, default: 'Agency Specs' },
@@ -142,11 +143,22 @@ const fetchSpecs = async () => {
     stats.value = null;
     return;
   }
+  const url = '/dashboard/agency-specs';
+  const params = { agencyId: id };
+  const cached = getCached(url, params);
+  if (cached) {
+    stats.value = cached;
+    loading.value = false;
+    error.value = '';
+    return;
+  }
   try {
     loading.value = true;
     error.value = '';
-    const resp = await api.get('/dashboard/agency-specs', { params: { agencyId: id } });
-    stats.value = resp.data || null;
+    const resp = await api.get(url, { params });
+    const data = resp.data || null;
+    stats.value = data;
+    setCached(url, params, data);
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load agency specs';
     stats.value = null;

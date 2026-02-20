@@ -122,6 +122,7 @@
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue';
 import api from '../../services/api';
+import { getCached, setCached } from '../../utils/adminApiCache';
 import { useAgencyStore } from '../../store/agency';
 import { useBrandingStore } from '../../store/branding';
 import { useAuthStore } from '../../store/auth';
@@ -275,9 +276,18 @@ const fetchOrgOverviewSummary = async () => {
     orgOverviewSummary.value = { counts: { school: 0, program: 0, learning: 0, other: 0 } };
     return;
   }
+  const url = '/dashboard/org-overview-summary';
+  const params = { agencyId };
+  const cached = getCached(url, params);
+  if (cached) {
+    orgOverviewSummary.value = cached;
+    return;
+  }
   try {
-    const res = await api.get('/dashboard/org-overview-summary', { params: { agencyId } });
-    orgOverviewSummary.value = res.data || { counts: { school: 0, program: 0, learning: 0, other: 0 } };
+    const res = await api.get(url, { params: { agencyId } });
+    const data = res.data || { counts: { school: 0, program: 0, learning: 0, other: 0 } };
+    orgOverviewSummary.value = data;
+    setCached(url, params, data);
   } catch {
     orgOverviewSummary.value = { counts: { school: 0, program: 0, learning: 0, other: 0 } };
   }
