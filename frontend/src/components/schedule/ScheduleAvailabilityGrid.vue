@@ -276,7 +276,7 @@
 
       <div v-else-if="summary" class="sched-grid-wrap">
       <div class="legend">
-        <div class="legend-note muted" style="font-size: 11px; margin-bottom: 6px;">Shade = agency; outline = event type</div>
+        <div class="legend-note muted" style="font-size: 11px; margin-bottom: 6px;">Block color = booking/event type; dot = agency</div>
         <div class="legend-item"><span class="swatch swatch-request"></span> Pending request</div>
         <div class="legend-item"><span class="swatch swatch-school"></span> School assigned</div>
         <div class="legend-item"><span class="swatch swatch-supv"></span> Supervision</div>
@@ -289,6 +289,7 @@
         <div class="legend-item" v-if="showGoogleBusy"><span class="swatch swatch-gbusy"></span> Google busy</div>
         <div class="legend-item" v-if="showGoogleEvents"><span class="swatch swatch-gevt"></span> Google event</div>
         <div class="legend-item" v-if="showExternalBusy && selectedExternalCalendarIds.length"><span class="swatch swatch-ebusy"></span> Therapy Notes busy</div>
+        <div class="legend-item"><span class="cell-block-agency-dot"></span> Agency marker</div>
       </div>
 
       <div class="sched-grid" :style="gridStyle">
@@ -348,6 +349,12 @@
                 @click="onCellBlockClick($event, b, d, h)"
                 @dblclick="onCellBlockDoubleClick($event, b, d, h)"
               >
+                <span
+                  v-if="hasAgencyBadge(b)"
+                  class="cell-block-agency-dot"
+                  :style="agencyBadgeStyle(b)"
+                  :title="agencyBadgeTitle(b)"
+                ></span>
                 <span class="cell-block-text">{{ b.shortLabel }}</span>
               </div>
             </div>
@@ -3864,21 +3871,21 @@ const officeColorById = (id) => {
   return officePalette[n % officePalette.length];
 };
 
-const agencyFillPalette = [
-  'rgba(235, 87, 87, 0.28)',   // light red
-  'rgba(59, 130, 246, 0.22)',  // light blue
-  'rgba(34, 197, 94, 0.24)',   // light green
-  'rgba(168, 85, 247, 0.22)',  // light purple
-  'rgba(249, 115, 22, 0.24)',  // light orange
-  'rgba(20, 184, 166, 0.22)',  // light teal
-  'rgba(234, 179, 8, 0.26)',    // light amber
-  'rgba(236, 72, 153, 0.22)'    // light pink
+const agencyBadgePalette = [
+  '#1d4ed8', // blue
+  '#047857', // emerald
+  '#b91c1c', // red
+  '#7c3aed', // violet
+  '#c2410c', // orange
+  '#0f766e', // teal
+  '#a16207', // amber
+  '#be185d' // pink
 ];
 
-const agencyColorById = (agencyId) => {
+const agencyBadgeColorById = (agencyId) => {
   const n = Number(agencyId || 0);
   if (!Number.isFinite(n) || n <= 0) return null;
-  return agencyFillPalette[n % agencyFillPalette.length];
+  return agencyBadgePalette[n % agencyBadgePalette.length];
 };
 
 const officeOverlayStyle = computed(() => {
@@ -4049,7 +4056,6 @@ const officeOverlayTitle = (dayName, hour) => {
 const cellBlockStyle = (b) => {
   const kind = String(b?.kind || '');
   const style = {};
-  const agencyId = Number(b?.agencyId || 0);
   const officeKindFillMap = {
     oa: { fill: 'rgba(59, 130, 246, 0.24)', border: 'rgba(37, 99, 235, 0.60)' }, // assigned
     ot: { fill: 'rgba(249, 115, 22, 0.24)', border: 'rgba(194, 65, 12, 0.62)' }, // temporary
@@ -4058,15 +4064,22 @@ const cellBlockStyle = (b) => {
   if (officeKindFillMap[kind]) {
     style['--blockFill'] = officeKindFillMap[kind].fill;
     style['--blockBorder'] = officeKindFillMap[kind].border;
-  } else if (agencyId > 0) {
-    const fill = agencyColorById(agencyId);
-    if (fill) style['--agencyFill'] = fill;
-  }
-  if (['oa', 'ot', 'ob'].includes(kind)) {
-    const id = Number(b?.buildingId || 0);
-    if (id) style['--officeAccent'] = officeColorById(id);
   }
   return style;
+};
+
+const hasAgencyBadge = (block) => Number(block?.agencyId || 0) > 0;
+
+const agencyBadgeStyle = (block) => {
+  const color = agencyBadgeColorById(block?.agencyId);
+  if (!color) return {};
+  return { '--agencyDot': color };
+};
+
+const agencyBadgeTitle = (block) => {
+  const id = Number(block?.agencyId || 0);
+  if (!id) return '';
+  return `Agency: ${agencyLabel(id) || `Agency ${id}`}`;
 };
 
 const officeAssignEndHourOptions = computed(() => {
@@ -6254,30 +6267,34 @@ watch(modalHour, () => {
   padding: 2px 6px;
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
+  gap: 6px;
   font-size: 11px;
   font-weight: 800;
   letter-spacing: -0.01em;
   color: rgba(15, 23, 42, 0.92);
   backdrop-filter: blur(1px);
 }
+.cell-block-agency-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  flex: 0 0 7px;
+  background: var(--agencyDot, rgba(71, 85, 105, 0.85));
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.9), 0 0 0 2px rgba(15, 23, 42, 0.18);
+}
 .cell-block-text {
-  max-width: 100%;
+  max-width: calc(100% - 14px);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.cell-block-request { background: var(--blockFill, var(--agencyFill, var(--sched-request-bg, rgba(242, 201, 76, 0.35)))); border-color: var(--blockBorder, var(--sched-request-border, rgba(242, 201, 76, 0.65))); }
-.cell-block-school { background: var(--blockFill, var(--agencyFill, var(--sched-school-bg, rgba(45, 156, 219, 0.28)))); border-color: var(--blockBorder, var(--sched-school-border, rgba(45, 156, 219, 0.60))); }
-.cell-block-supv { background: var(--blockFill, var(--agencyFill, var(--sched-supv-bg, rgba(147, 51, 234, 0.24)))); border-color: var(--blockBorder, var(--sched-supv-border, rgba(126, 34, 206, 0.60))); }
-.cell-block-oa { background: var(--blockFill, var(--agencyFill, var(--sched-oa-bg, rgba(59, 130, 246, 0.24)))); border-color: var(--blockBorder, var(--sched-oa-border, rgba(37, 99, 235, 0.60))); }
-.cell-block-ot { background: var(--blockFill, var(--agencyFill, var(--sched-ot-bg, rgba(249, 115, 22, 0.24)))); border-color: var(--blockBorder, var(--sched-ot-border, rgba(194, 65, 12, 0.62))); }
-.cell-block-ob { background: var(--blockFill, var(--agencyFill, var(--sched-ob-bg, rgba(239, 68, 68, 0.24)))); border-color: var(--blockBorder, var(--sched-ob-border, rgba(185, 28, 28, 0.62))); }
-.cell-block-oa,
-.cell-block-ot,
-.cell-block-ob {
-  box-shadow: inset 3px 0 0 var(--officeAccent, transparent);
-}
+.cell-block-request { background: var(--blockFill, var(--sched-request-bg, rgba(242, 201, 76, 0.35))); border-color: var(--blockBorder, var(--sched-request-border, rgba(242, 201, 76, 0.65))); }
+.cell-block-school { background: var(--blockFill, var(--sched-school-bg, rgba(45, 156, 219, 0.28))); border-color: var(--blockBorder, var(--sched-school-border, rgba(45, 156, 219, 0.60))); }
+.cell-block-supv { background: var(--blockFill, var(--sched-supv-bg, rgba(147, 51, 234, 0.24))); border-color: var(--blockBorder, var(--sched-supv-border, rgba(126, 34, 206, 0.60))); }
+.cell-block-oa { background: var(--blockFill, var(--sched-oa-bg, rgba(59, 130, 246, 0.24))); border-color: var(--blockBorder, var(--sched-oa-border, rgba(37, 99, 235, 0.60))); }
+.cell-block-ot { background: var(--blockFill, var(--sched-ot-bg, rgba(249, 115, 22, 0.24))); border-color: var(--blockBorder, var(--sched-ot-border, rgba(194, 65, 12, 0.62))); }
+.cell-block-ob { background: var(--blockFill, var(--sched-ob-bg, rgba(239, 68, 68, 0.24))); border-color: var(--blockBorder, var(--sched-ob-border, rgba(185, 28, 28, 0.62))); }
 
 .office-room-picker {
   display: flex;
@@ -6311,10 +6328,10 @@ watch(modalHour, () => {
 }
 .cell-block-gbusy { background: var(--sched-gbusy-bg, rgba(17, 24, 39, 0.14)); border-color: var(--sched-gbusy-border, rgba(17, 24, 39, 0.42)); color: rgba(17, 24, 39, 0.9); }
 .cell-block-gevt { background: rgba(59, 130, 246, 0.14); border-color: rgba(59, 130, 246, 0.35); cursor: pointer; }
-.cell-block-sevt { background: var(--blockFill, var(--agencyFill, rgba(20, 184, 166, 0.20))); border-color: var(--blockBorder, rgba(13, 148, 136, 0.50)); color: rgba(15, 118, 110, 0.96); cursor: pointer; }
+.cell-block-sevt { background: var(--blockFill, rgba(20, 184, 166, 0.20)); border-color: var(--blockBorder, rgba(13, 148, 136, 0.50)); color: rgba(15, 118, 110, 0.96); cursor: pointer; }
 .cell-block-ebusy { background: var(--sched-ebusy-bg, rgba(107, 114, 128, 0.16)); border-color: var(--sched-ebusy-border, rgba(107, 114, 128, 0.45)); color: rgba(17, 24, 39, 0.9); }
-.cell-block-intake-ip { background: var(--agencyFill, rgba(34, 197, 94, 0.20)); border-color: rgba(21, 128, 61, 0.45); color: rgba(21, 128, 61, 0.95); }
-.cell-block-intake-vi { background: var(--agencyFill, rgba(59, 130, 246, 0.20)); border-color: rgba(29, 78, 216, 0.45); color: rgba(29, 78, 216, 0.95); }
+.cell-block-intake-ip { background: rgba(34, 197, 94, 0.20); border-color: rgba(21, 128, 61, 0.45); color: rgba(21, 128, 61, 0.95); }
+.cell-block-intake-vi { background: rgba(59, 130, 246, 0.20); border-color: rgba(29, 78, 216, 0.45); color: rgba(29, 78, 216, 0.95); }
 .cell-block-more { background: rgba(148, 163, 184, 0.18); border-color: rgba(148, 163, 184, 0.45); color: rgba(51, 65, 85, 0.92); }
 
 .cell-block-selected,
