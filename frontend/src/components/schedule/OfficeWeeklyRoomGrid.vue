@@ -33,7 +33,11 @@
             >
               <div class="cell-main">
                 <div class="cell-name">{{ slotName(dateYmd, h, r.id) }}</div>
-                <div v-if="slotBadge(dateYmd, h, r.id)" class="cell-badge">{{ slotBadge(dateYmd, h, r.id) }}</div>
+                <div class="cell-badges">
+                  <span v-if="slotBadge(dateYmd, h, r.id)" class="cell-badge">{{ slotBadge(dateYmd, h, r.id) }}</span>
+                  <span v-if="slotHasInPersonIntake(dateYmd, h, r.id)" class="cell-pill ip-pill" title="In-person intake enabled">IP</span>
+                  <span v-if="slotHasVirtualIntake(dateYmd, h, r.id)" class="cell-pill vi-pill" title="Virtual intake enabled">VI</span>
+                </div>
               </div>
               <div v-if="slotMeta(dateYmd, h, r.id)" class="cell-meta">{{ slotMeta(dateYmd, h, r.id) }}</div>
             </div>
@@ -141,6 +145,16 @@ const slotBadge = (dateYmd, hour, roomId) => {
   return badge || '';
 };
 
+const slotHasInPersonIntake = (dateYmd, hour, roomId) => {
+  const s = getSlot(dateYmd, hour, roomId);
+  return Boolean(s?.inPersonIntakeEnabled);
+};
+
+const slotHasVirtualIntake = (dateYmd, hour, roomId) => {
+  const s = getSlot(dateYmd, hour, roomId);
+  return Boolean(s?.virtualIntakeEnabled);
+};
+
 const slotMeta = (dateYmd, hour, roomId) => {
   const s = getSlot(dateYmd, hour, roomId);
   if (!s) return '';
@@ -211,7 +225,11 @@ const dayGridStyle = computed(() => ({
 
 .cell-main { display: flex; gap: 8px; align-items: center; justify-content: space-between; }
 .cell-name { font-weight: 900; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cell-badges { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
 .cell-badge { font-size: 11px; font-weight: 900; padding: 2px 6px; border-radius: 999px; border: 1px solid rgba(15, 23, 42, 0.16); background: rgba(15, 23, 42, 0.06); color: rgba(15, 23, 42, 0.78); }
+.cell-pill { font-size: 10px; font-weight: 900; padding: 1px 4px; border-radius: 4px; }
+.cell-pill.ip-pill { background: rgba(34, 197, 94, 0.2); border: 1px solid rgba(34, 197, 94, 0.4); color: #15803d; }
+.cell-pill.vi-pill { background: rgba(6, 182, 212, 0.2); border: 1px solid rgba(6, 182, 212, 0.4); color: #0e7490; }
 .cell-meta { font-size: 11px; color: var(--text-secondary); font-weight: 800; }
 
 .state-open { background: rgba(16, 185, 129, 0.06); }

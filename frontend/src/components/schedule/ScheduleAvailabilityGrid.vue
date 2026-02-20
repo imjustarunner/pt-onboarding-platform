@@ -339,7 +339,7 @@
                 v-for="b in cellBlocks(d, h)"
                 :key="b.key"
                 class="cell-block"
-                :class="`cell-block-${b.kind}`"
+                :class="[`cell-block-${b.kind}`, { 'cell-block-selected': isBlockSelected(d, h, b) }]"
                 :title="b.title"
                 :style="cellBlockStyle(b)"
                 @click="onCellBlockClick($event, b, d, h)"
@@ -2544,6 +2544,7 @@ const overlayErrorText = computed(() => {
 });
 
 const selectedActionSlots = ref([]);
+const selectedBlockKey = ref(''); // `${dayName}|${hour}|${block.key}` – which block is highlighted
 const lastSelectedActionKey = ref('');
 const isCellDragSelecting = ref(false);
 const dragAnchorSlot = ref(null);
@@ -2558,8 +2559,12 @@ const isActionCellSelected = (dayName, hour) => {
   const key = `${String(dateYmd).slice(0, 10)}|${Number(hour)}|0`;
   return selectedActionKeySet.value.has(key);
 };
+
+const blockKey = (dayName, hour, block) => `${String(dayName || '')}|${Number(hour)}|${String(block?.key || '')}`;
+const isBlockSelected = (dayName, hour, block) => selectedBlockKey.value === blockKey(dayName, hour, block);
 const clearSelectedActionSlots = () => {
   selectedActionSlots.value = [];
+  selectedBlockKey.value = '';
   lastSelectedActionKey.value = '';
   dragAnchorSlot.value = null;
   suppressClickAfterDrag.value = false;
@@ -2967,7 +2972,16 @@ const modalOfficeRoomOptions = computed(() => {
     return st || '—';
   };
 
-  const isRequestableState = (st) => st === 'open' || st === 'assigned_available';
+  const currentUserId = Number(authStore.user?.id || 0);
+  const isRequestableState = (st, slot) => {
+    if (st === 'open' || st === 'assigned_available') return true;
+    // Assigned to me: allow booking my assigned_temporary slot (convert to booked)
+    if (st === 'assigned_temporary' && currentUserId > 0) {
+      const slotProviderId = Number(slot?.providerId || slot?.assignedProviderId || 0);
+      return slotProviderId === currentUserId;
+    }
+    return false;
+  };
 
   const out = (g.rooms || []).map((r) => {
     const roomId = Number(r.id);
@@ -2991,7 +3005,7 @@ const modalOfficeRoomOptions = computed(() => {
         // Mixed states across the range – treat as not requestable to avoid partial bookings.
         requestable = false;
       }
-      if (!isRequestableState(st)) requestable = false;
+      if (!isRequestableState(st, s)) requestable = false;
       if (!requestable) {
         // still finish loop to determine a meaningful representative slot
       }
@@ -3373,6 +3387,7 @@ const onCellClick = (dayName, hour, event = null, options = {}) => {
   };
   const withSelection = !!(event?.metaKey || event?.ctrlKey || event?.shiftKey);
   if (withSelection) {
+    selectedBlockKey.value = ''; // whole-cell selection, not a specific block
     if (event?.shiftKey) {
       const changed = applyShiftSelection(item);
       if (!changed) {
@@ -3388,6 +3403,7 @@ const onCellClick = (dayName, hour, event = null, options = {}) => {
     if (event?.shiftKey) maybeAutoOpenSelectionActions();
     return;
   }
+  selectedBlockKey.value = ''; // whole-cell selection
   selectedActionSlots.value = [item];
   lastSelectedActionKey.value = item.key;
   if (isCellVisuallyBlank(dayName, hour)) {
@@ -4737,6 +4753,20 @@ const onCellBlockClick = (e, block, dayName, hour) => {
   const kind = String(block?.kind || '');
   e?.preventDefault?.();
   e?.stopPropagation?.();
+  // Light up the clicked block and select the cell
+  selectedBlockKey.value = blockKey(dayName, hour, block);
+  const dateYmd = addDaysYmd(weekStart.value, ALL_DAYS.indexOf(String(dayName || '')));
+  const top = ['oa', 'ot', 'ob', 'intake-ip', 'intake-vi'].includes(kind) ? officeTopEvent(dayName, hour) : null;
+  const roomId = Number(top?.roomId || block?.buildingId || block?.roomId || 0) || 0;
+  selectedActionSlots.value = [{
+    key: actionSlotKey({ dateYmd, hour, roomId }),
+    dateYmd,
+    dayName: String(dayName),
+    hour: Number(hour),
+    roomId,
+    slot: null
+  }];
+  lastSelectedActionKey.value = selectedActionSlots.value[0]?.key || '';
   const stackDetails = buildStackDetailsForBlock(block, dayName, hour);
   if (stackDetails) {
     openStackDetailsModal(stackDetails);
@@ -4782,7 +4812,9 @@ const onCellBlockClick = (e, block, dayName, hour) => {
   const top = officeTopEvent(dayName, hour) || null;
   if (['oa', 'ot', 'ob', 'intake-ip', 'intake-vi'].includes(kind)) {
     const slotState = String(top?.slotState || '').toUpperCase();
-    const initialRequestType = slotState === 'ASSIGNED_BOOKED' ? 'booked_note' : 'forfeit_slot';
+    // Assigned (available/temporary): default to Office booking so user can book weekly/biweekly/monthly
+    const initialRequestType =
+      slotState === 'ASSIGNED_BOOKED' ? 'booked_note' : ['ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY'].includes(slotState) ? 'office' : 'forfeit_slot';
     openSlotActionModal({
       dayName,
       hour,
@@ -5729,6 +5761,13 @@ watch(modalHour, () => {
 .cell-block-intake-ip { background: rgba(34, 197, 94, 0.20); border-color: rgba(21, 128, 61, 0.45); color: rgba(21, 128, 61, 0.95); }
 .cell-block-intake-vi { background: rgba(59, 130, 246, 0.20); border-color: rgba(29, 78, 216, 0.45); color: rgba(29, 78, 216, 0.95); }
 .cell-block-more { background: rgba(148, 163, 184, 0.18); border-color: rgba(148, 163, 184, 0.45); color: rgba(51, 65, 85, 0.92); }
+
+.cell-block-selected {
+  box-shadow: inset 0 0 0 2px rgba(37, 99, 235, 0.9);
+  outline: 2px solid rgba(37, 99, 235, 0.5);
+  outline-offset: 1px;
+  z-index: 1;
+}
 
 .modal-backdrop {
   position: fixed;
