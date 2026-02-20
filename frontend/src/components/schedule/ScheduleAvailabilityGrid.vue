@@ -356,8 +356,8 @@
       </div>
     </template>
 
-    <div v-if="showRequestModal" class="modal-backdrop" @click.self="closeModal">
-      <div class="modal">
+    <div v-if="showRequestModal" class="modal-backdrop modal-backdrop--request" @click.self="closeModal">
+      <div class="modal modal--request">
         <div class="modal-head">
           <div class="modal-title">Request / book time</div>
           <button class="btn btn-secondary btn-sm" type="button" @click="closeModal">Close</button>
@@ -2856,9 +2856,27 @@ const availableQuickActions = computed(() => {
   ];
 });
 
+const OFFICE_LAYOUT_ONLY_ACTIONS = new Set([
+  'forfeit_slot',
+  'extend_assignment',
+  'intake_virtual_on',
+  'intake_inperson_on',
+  'intake_virtual_off',
+  'intake_inperson_off',
+  'office',
+  'office_request_only',
+  'add_session',
+  'booked_note',
+  'booked_record'
+]);
+
 const visibleQuickActions = computed(() => {
   const rows = Array.isArray(availableQuickActions.value) ? availableQuickActions.value : [];
-  return rows.filter((row) => row?.visible !== false);
+  const filtered = rows.filter((row) => row?.visible !== false);
+  if (viewMode.value === 'office_layout') {
+    return filtered.filter((row) => row?.id && OFFICE_LAYOUT_ONLY_ACTIONS.has(row.id));
+  }
+  return filtered;
 });
 
 const intakeActionHelpText = computed(() => {
@@ -5910,6 +5928,17 @@ watch(modalHour, () => {
   padding: 18px;
   z-index: 5000;
 }
+.modal-backdrop--request {
+  padding: 12px;
+  align-items: flex-start;
+  overflow-y: auto;
+}
+@media (min-width: 480px) {
+  .modal-backdrop--request {
+    padding: 16px;
+    align-items: center;
+  }
+}
 .modal {
   width: 100%;
   max-width: 640px;
@@ -5918,6 +5947,17 @@ watch(modalHour, () => {
   border: 1px solid rgba(255, 255, 255, 0.65);
   box-shadow: 0 22px 60px rgba(15, 23, 42, 0.34);
   padding: 16px;
+}
+.modal--request {
+  max-width: 720px;
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+@media (min-width: 768px) {
+  .modal--request {
+    max-height: calc(100vh - 32px);
+  }
 }
 .modal-head {
   display: flex;
@@ -5970,15 +6010,42 @@ watch(modalHour, () => {
   font-size: 12px;
   color: rgba(51, 65, 85, 0.92);
 }
-.action-chip.tone-blue { border-color: rgba(37, 99, 235, 0.25); }
-.action-chip.tone-teal { border-color: rgba(13, 148, 136, 0.24); }
-.action-chip.tone-cyan { border-color: rgba(8, 145, 178, 0.24); }
-.action-chip.tone-green { border-color: rgba(22, 163, 74, 0.24); }
-.action-chip.tone-indigo { border-color: rgba(79, 70, 229, 0.26); }
-.action-chip.tone-violet { border-color: rgba(124, 58, 237, 0.28); }
-.action-chip.tone-amber { border-color: rgba(217, 119, 6, 0.28); }
-.action-chip.tone-rose { border-color: rgba(225, 29, 72, 0.26); }
-.action-chip.tone-slate { border-color: rgba(100, 116, 139, 0.28); }
+.action-chip.tone-blue {
+  border-color: rgba(37, 99, 235, 0.35);
+  background: linear-gradient(145deg, rgba(239, 246, 255, 0.95), rgba(219, 234, 254, 0.85));
+}
+.action-chip.tone-teal {
+  border-color: rgba(13, 148, 136, 0.35);
+  background: linear-gradient(145deg, rgba(240, 253, 250, 0.95), rgba(204, 251, 241, 0.85));
+}
+.action-chip.tone-cyan {
+  border-color: rgba(8, 145, 178, 0.35);
+  background: linear-gradient(145deg, rgba(236, 254, 255, 0.95), rgba(207, 250, 254, 0.85));
+}
+.action-chip.tone-green {
+  border-color: rgba(22, 163, 74, 0.35);
+  background: linear-gradient(145deg, rgba(240, 253, 244, 0.95), rgba(220, 252, 231, 0.85));
+}
+.action-chip.tone-indigo {
+  border-color: rgba(79, 70, 229, 0.35);
+  background: linear-gradient(145deg, rgba(238, 242, 255, 0.95), rgba(224, 231, 255, 0.85));
+}
+.action-chip.tone-violet {
+  border-color: rgba(124, 58, 237, 0.35);
+  background: linear-gradient(145deg, rgba(245, 243, 255, 0.95), rgba(237, 233, 254, 0.85));
+}
+.action-chip.tone-amber {
+  border-color: rgba(217, 119, 6, 0.35);
+  background: linear-gradient(145deg, rgba(255, 251, 235, 0.95), rgba(254, 243, 199, 0.85));
+}
+.action-chip.tone-rose {
+  border-color: rgba(225, 29, 72, 0.35);
+  background: linear-gradient(145deg, rgba(255, 241, 242, 0.95), rgba(254, 226, 226, 0.85));
+}
+.action-chip.tone-slate {
+  border-color: rgba(100, 116, 139, 0.35);
+  background: linear-gradient(145deg, rgba(248, 250, 252, 0.95), rgba(241, 245, 249, 0.85));
+}
 .participant-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
