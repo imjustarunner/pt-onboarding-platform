@@ -499,7 +499,7 @@
             </div>
 
             <div class="row" style="margin-top: 10px;">
-              <button class="btn btn-secondary" @click="staffBook(true)" :disabled="saving || !canSubmitBookedWithClassification || !modalSlot?.eventId">
+              <button class="btn btn-secondary" @click="staffBook(true)" :disabled="saving || !modalSlot?.eventId">
                 Set booked (this occurrence)
               </button>
               <button class="btn btn-secondary" @click="staffBook(false)" :disabled="saving || !modalSlot?.eventId || isAssignedUnbooked">
@@ -587,7 +587,7 @@
               Booking converts this occurrence to assigned_booked immediately (no approval gate).
             </div>
             <div class="row">
-              <button class="btn btn-primary" @click="staffBook(true)" :disabled="saving || !canSubmitBookedWithClassification || !modalSlot?.eventId">
+              <button class="btn btn-primary" @click="staffBook(true)" :disabled="saving || !modalSlot?.eventId">
                 Mark booked (this occurrence)
               </button>
             </div>
@@ -722,7 +722,7 @@ const resolveSlotTemplateVersion = (slot, noteType) => {
   return `${String(noteType || 'progress_note').toLowerCase()}_v1`;
 };
 const normalizeCodeValue = (value) => String(value || '').trim().toUpperCase();
-const DEFAULT_BOOKING_TYPE = 'SESSION';
+const DEFAULT_BOOKING_TYPE = '';
 
 const loading = ref(false);
 const refreshingEhrBookings = ref(false);
@@ -1318,6 +1318,13 @@ const serviceCodeOptionHints = (opt) => {
 };
 const bookingRequiresServiceCode = computed(() => ['SESSION', 'ASSESSMENT'].includes(normalizeCodeValue(bookingAppointmentType.value)));
 const bookingClassificationInvalidReason = computed(() => {
+  const hasAnyClassificationInput = Boolean(
+    normalizeCodeValue(bookingAppointmentType.value)
+    || normalizeCodeValue(bookingAppointmentSubtype.value)
+    || normalizeCodeValue(bookingServiceCode.value)
+    || normalizeCodeValue(bookingModality.value)
+  );
+  if (!hasAnyClassificationInput) return '';
   if (!normalizeCodeValue(bookingAppointmentType.value)) return 'Select an appointment type.';
   if (bookingRequiresServiceCode.value && !normalizeCodeValue(bookingServiceCode.value)) {
     return 'A service code is required for this appointment type.';

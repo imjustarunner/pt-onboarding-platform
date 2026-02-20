@@ -4446,10 +4446,10 @@ const submitRequest = async () => {
           const officeLocationId = Number(ctx?.officeLocationId || 0);
           const officeEventId = Number(ctx?.officeEventId || 0);
           const state = String(ctx?.slotState || '').toUpperCase();
-          return officeLocationId > 0 && officeEventId > 0 && ['ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY'].includes(state);
+          return officeLocationId > 0 && officeEventId > 0 && state !== 'ASSIGNED_BOOKED';
         })
         : [];
-      if (directBookContexts.length) {
+      if (directBookContexts.length && directBookContexts.length === contexts.length) {
         for (const ctx of directBookContexts) {
           // eslint-disable-next-line no-await-in-loop
           await api.post(`/office-slots/${ctx.officeLocationId}/events/${ctx.officeEventId}/book`, {
