@@ -1421,6 +1421,7 @@ const hydrateBookingSelectionFromSlot = (slot = null) => {
   const currentModality = normalizeCodeValue(s?.modality);
   const state = String(s?.state || '').trim().toLowerCase();
   const shouldPromoteToSession =
+    showClinicalSessionControls.value &&
     (state === 'assigned_available' || state === 'assigned_temporary' || state === 'assigned_booked')
     && (!currentType || currentType === 'AVAILABLE_SLOT' || currentType === 'SCHEDULE_BLOCK');
   bookingAppointmentType.value = shouldPromoteToSession
@@ -1432,6 +1433,14 @@ const hydrateBookingSelectionFromSlot = (slot = null) => {
 };
 
 const normalizeBookingSelectionPayload = () => {
+  if (!showClinicalSessionControls.value) {
+    return {
+      appointmentTypeCode: 'AVAILABLE_SLOT',
+      appointmentSubtypeCode: null,
+      serviceCode: null,
+      modality: null
+    };
+  }
   const appointmentTypeCode = normalizeCodeValue(bookingAppointmentType.value) || null;
   const appointmentSubtypeCode = normalizeCodeValue(bookingAppointmentSubtype.value) || null;
   const serviceCode = normalizeCodeValue(bookingServiceCode.value) || null;

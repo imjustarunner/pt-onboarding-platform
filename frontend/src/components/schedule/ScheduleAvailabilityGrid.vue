@@ -3233,10 +3233,18 @@ const resetBookingMetadataState = () => {
 };
 
 const normalizeBookingSelectionPayload = () => ({
-  appointmentTypeCode: showClinicalBookingFields.value ? (normalizeCodeValue(bookingAppointmentType.value) || null) : null,
-  appointmentSubtypeCode: showClinicalBookingFields.value ? (normalizeCodeValue(bookingAppointmentSubtype.value) || null) : null,
-  serviceCode: showClinicalBookingFields.value ? (normalizeCodeValue(bookingServiceCode.value) || null) : null,
-  modality: showClinicalBookingFields.value ? (normalizeCodeValue(bookingModality.value) || null) : null
+  appointmentTypeCode: (showClinicalBookingFields.value && isSessionBookingRequestType.value)
+    ? (normalizeCodeValue(bookingAppointmentType.value) || null)
+    : 'AVAILABLE_SLOT',
+  appointmentSubtypeCode: (showClinicalBookingFields.value && isSessionBookingRequestType.value)
+    ? (normalizeCodeValue(bookingAppointmentSubtype.value) || null)
+    : null,
+  serviceCode: (showClinicalBookingFields.value && isSessionBookingRequestType.value)
+    ? (normalizeCodeValue(bookingServiceCode.value) || null)
+    : null,
+  modality: (showClinicalBookingFields.value && isSessionBookingRequestType.value)
+    ? (normalizeCodeValue(bookingModality.value) || null)
+    : null
 });
 
 const loadBookingMetadataForProvider = async () => {
