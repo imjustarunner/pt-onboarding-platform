@@ -2934,9 +2934,11 @@ const availableQuickActions = computed(() => {
     {
       id: 'office',
       label: 'Office booking',
-      description: hasOffice ? 'Mark office slot as booked/busy' : 'Select office first',
-      disabledReason: hasOffice ? '' : 'Select office',
-      visible: !supervisionOnlyMode,
+      description: 'Mark assigned office slot as booked/busy',
+      disabledReason: hasEvent && ['ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY'].includes(state)
+        ? ''
+        : 'Select an assigned office slot',
+      visible: !supervisionOnlyMode && hasEvent && ['ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY'].includes(state),
       tone: 'blue'
     },
     {
@@ -3372,6 +3374,12 @@ const officeBookingHint = computed(() => {
   if (!['office', 'individual_session', 'group_session'].includes(String(requestType.value || ''))) return '';
   const officeId = Number(selectedOfficeLocationId.value || 0);
   if (!officeId) return '';
+  if (requestType.value === 'office') {
+    if (officeBookingRecurrence.value === 'ONCE') {
+      return 'Office booking marks the selected assigned slot as booked immediately.';
+    }
+    return 'Recurring office booking updates the assigned slot booking plan immediately.';
+  }
   if (officeBookingRecurrence.value === 'ONCE') {
     return 'Same-day “Once” requests auto-book if an open room exists; otherwise they go to approvals.';
   }
@@ -4425,32 +4433,32 @@ const submitRequest = async () => {
       if (createdScheduleEvents.length) {
         refreshInBackground = true;
       }
-    } else if (requestType.value === 'office' || requestType.value === 'individual_session' || requestType.value === 'group_session') {
+    } else if (requestType.value === 'office') {
       const officeId = Number(selectedOfficeLocationId.value || 0);
       if (!officeId) throw new Error('Select an office first.');
       if (!officeBookingValid.value) throw new Error('Select an available room (or choose “Any open room”).');
       if (showClinicalBookingFields.value && bookingClassificationInvalidReason.value) {
         throw new Error(bookingClassificationInvalidReason.value);
       }
-      const roomId = viewMode.value === 'office_layout'
-        ? (Number(selectedOfficeRoomId.value || 0) || null)
-        : null;
       const recurrence = String(officeBookingRecurrence.value || 'ONCE');
       const recurringRecurrences = ['WEEKLY', 'BIWEEKLY', 'MONTHLY'];
       const occurrenceCount = recurringRecurrences.includes(recurrence)
         ? Math.min(104, Math.max(1, Number(officeBookingOccurrenceCount.value) || 6))
         : null;
-      const contexts = selectedActionContexts();
-      const directBookContexts = recurrence === 'ONCE'
-        ? contexts.filter((ctx) => {
-          const officeLocationId = Number(ctx?.officeLocationId || 0);
+      const contexts = selectedActionContexts().filter((ctx) => Number(ctx?.officeLocationId || 0) > 0);
+      if (!contexts.length) {
+        throw new Error('Select an assigned office slot to mark booked. Use Office request for request workflow.');
+      }
+      if (recurrence === 'ONCE') {
+        const bookableContexts = contexts.filter((ctx) => {
           const officeEventId = Number(ctx?.officeEventId || 0);
           const state = String(ctx?.slotState || '').toUpperCase();
-          return officeLocationId > 0 && officeEventId > 0 && state !== 'ASSIGNED_BOOKED';
-        })
-        : [];
-      if (directBookContexts.length && directBookContexts.length === contexts.length) {
-        for (const ctx of directBookContexts) {
+          return officeEventId > 0 && ['ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY'].includes(state);
+        });
+        if (bookableContexts.length !== contexts.length) {
+          throw new Error('Office booking requires an assigned slot occurrence. Use Office request for request workflow.');
+        }
+        for (const ctx of bookableContexts) {
           // eslint-disable-next-line no-await-in-loop
           await api.post(`/office-slots/${ctx.officeLocationId}/events/${ctx.officeEventId}/book`, {
             booked: true,
@@ -4460,30 +4468,70 @@ const submitRequest = async () => {
         }
         refreshInBackground = true;
       } else {
-        const targets = sortedSelectedActionSlots().length ? sortedSelectedActionSlots() : [{
+        for (const ctx of contexts) {
+          const standingAssignmentId = Number(ctx?.standingAssignmentId || 0);
+          const officeEventId = Number(ctx?.officeEventId || 0);
+          if (standingAssignmentId > 0) {
+            // eslint-disable-next-line no-await-in-loop
+            await api.post(`/office-slots/${ctx.officeLocationId}/assignments/${standingAssignmentId}/booking-plan`, {
+              bookedFrequency: recurrence,
+              bookedOccurrenceCount: Number(occurrenceCount || 6),
+              bookingStartDate: String(ctx?.dateYmd || '').slice(0, 10) || addDaysYmd(weekStart.value, ALL_DAYS.indexOf(String(dn))),
+              recurringUntilDate: addDaysYmd(String(ctx?.dateYmd || '').slice(0, 10) || addDaysYmd(weekStart.value, ALL_DAYS.indexOf(String(dn))), 364),
+              ...normalizeBookingSelectionPayload()
+            });
+            continue;
+          }
+          if (officeEventId > 0) {
+            // eslint-disable-next-line no-await-in-loop
+            await api.post(`/office-slots/${ctx.officeLocationId}/events/${officeEventId}/booking-plan`, {
+              bookedFrequency: recurrence,
+              bookedOccurrenceCount: Number(occurrenceCount || 6),
+              bookingStartDate: String(ctx?.dateYmd || '').slice(0, 10) || addDaysYmd(weekStart.value, ALL_DAYS.indexOf(String(dn))),
+              recurringUntilDate: addDaysYmd(String(ctx?.dateYmd || '').slice(0, 10) || addDaysYmd(weekStart.value, ALL_DAYS.indexOf(String(dn))), 364),
+              ...normalizeBookingSelectionPayload()
+            });
+            continue;
+          }
+          throw new Error('Office booking requires an assigned slot occurrence. Use Office request for request workflow.');
+        }
+        refreshInBackground = true;
+      }
+    } else if (requestType.value === 'individual_session' || requestType.value === 'group_session') {
+      const officeId = Number(selectedOfficeLocationId.value || 0);
+      if (!officeId) throw new Error('Select an office first.');
+      if (!officeBookingValid.value) throw new Error('Select an available room (or choose “Any open room”).');
+      const roomId = viewMode.value === 'office_layout'
+        ? (Number(selectedOfficeRoomId.value || 0) || null)
+        : null;
+      const recurrence = String(officeBookingRecurrence.value || 'ONCE');
+      const recurringRecurrences = ['WEEKLY', 'BIWEEKLY', 'MONTHLY'];
+      const occurrenceCount = recurringRecurrences.includes(recurrence)
+        ? Math.min(104, Math.max(1, Number(officeBookingOccurrenceCount.value) || 6))
+        : null;
+      const targets = sortedSelectedActionSlots().length ? sortedSelectedActionSlots() : [{
         dateYmd: addDaysYmd(weekStart.value, ALL_DAYS.indexOf(String(dn))),
         hour: h
       }];
-        for (const t of targets) {
-          const startAt = `${String(t.dateYmd).slice(0, 10)}T${pad2(Number(t.hour || h))}:00:00`;
-          const endAt = `${String(t.dateYmd).slice(0, 10)}T${pad2(Math.min(Number(t.hour || h) + Math.max(1, endH - h), 22))}:00:00`;
+      for (const t of targets) {
+        const startAt = `${String(t.dateYmd).slice(0, 10)}T${pad2(Number(t.hour || h))}:00:00`;
+        const endAt = `${String(t.dateYmd).slice(0, 10)}T${pad2(Math.min(Number(t.hour || h) + Math.max(1, endH - h), 22))}:00:00`;
+        // eslint-disable-next-line no-await-in-loop
+        const r = await api.post('/office-schedule/booking-requests', {
+          officeLocationId: officeId,
+          roomId,
+          startAt,
+          endAt,
+          recurrence,
+          ...(occurrenceCount ? { bookedOccurrenceCount: occurrenceCount } : {}),
+          openToAlternativeRoom: !roomId,
+          notes: requestNotes.value || '',
+          ...normalizeBookingSelectionPayload(),
+          ...(isAdminMode.value ? { requestedProviderId: Number(props.userId) } : {})
+        });
+        if (r?.data?.kind === 'auto_booked') {
           // eslint-disable-next-line no-await-in-loop
-          const r = await api.post('/office-schedule/booking-requests', {
-            officeLocationId: officeId,
-            roomId,
-            startAt,
-            endAt,
-            recurrence,
-            ...(occurrenceCount ? { bookedOccurrenceCount: occurrenceCount } : {}),
-            openToAlternativeRoom: !roomId,
-            notes: requestNotes.value || '',
-            ...normalizeBookingSelectionPayload(),
-            ...(isAdminMode.value ? { requestedProviderId: Number(props.userId) } : {})
-          });
-          if (r?.data?.kind === 'auto_booked') {
-            // eslint-disable-next-line no-await-in-loop
-            await loadSelectedOfficeGrid();
-          }
+          await loadSelectedOfficeGrid();
         }
       }
     } else if (requestType.value === 'office_request_only') {
