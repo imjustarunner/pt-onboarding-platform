@@ -577,6 +577,18 @@
             </template>
           </div>
 
+          <div v-if="requestType === 'forfeit_slot'" style="margin-top: 10px;">
+            <label class="lbl">Forfeit scope</label>
+            <select v-model="forfeitScope" class="input" style="margin-bottom: 8px;">
+              <option value="occurrence">Forfeit this occurrence only</option>
+              <option value="future" :disabled="!hasRecurringOfficeSlot">Forfeit this and all future recurring</option>
+            </select>
+            <label class="sched-toggle" style="display: flex; align-items: flex-start; gap: 8px; margin-top: 8px;">
+              <input type="checkbox" v-model="ackForfeit" />
+              <span>I understand this slot's day/time/frequency is forfeit at this time and available to others.</span>
+            </label>
+          </div>
+
           <div
             v-if="requestType === 'intake_virtual_on' || requestType === 'intake_virtual_off' || requestType === 'intake_inperson_on' || requestType === 'intake_inperson_off'"
             class="modern-help"
@@ -685,6 +697,7 @@
               (requestType === 'supervision' && !supervisionCanSubmit) ||
               ((requestType === 'intake_virtual_on' || requestType === 'intake_virtual_off' || requestType === 'intake_inperson_on' || requestType === 'intake_inperson_off') && !modalContext.officeEventId) ||
               (requestType === 'extend_assignment' && !(modalContext.standingAssignmentId > 0)) ||
+              (requestType === 'forfeit_slot' && (!ackForfeit || !selectedActionContexts().some((x) => (Number(x?.officeEventId || 0) > 0 || Number(x?.standingAssignmentId || 0) > 0) && Number(x?.officeLocationId || 0) > 0))) ||
               (isScheduleEventRequestType && !scheduleEventCanSubmit)
             "
           >
@@ -1891,12 +1904,22 @@ const load = async () => {
       }
       merged.externalCalendarsAvailable = Array.from(calMap.values());
 
+      // Office events are assigned to the user, not the agency. When a building is shared across
+      // agencies, the same event is returned per agency. Deduplicate by (roomId, startAt, endAt).
+      const officeEventKey = (e) => `${Number(e?.roomId || 0)}|${String(e?.startAt || '').slice(0, 19)}|${String(e?.endAt || '').slice(0, 19)}`;
+      const seenOfficeKeys = new Set();
       for (const r of okOnes) {
         const aId = r.agencyId;
         merged.officeRequests.push(...(r.data?.officeRequests || []).map((x) => tag(x, aId)));
         merged.schoolRequests.push(...(r.data?.schoolRequests || []).map((x) => tag(x, aId)));
         merged.schoolAssignments.push(...(r.data?.schoolAssignments || []).map((x) => tag(x, aId)));
-        merged.officeEvents.push(...(r.data?.officeEvents || []).map((x) => tag(x, aId)));
+        for (const e of (r.data?.officeEvents || []).map((x) => tag(x, aId))) {
+          const k = officeEventKey(e);
+          if (!seenOfficeKeys.has(k)) {
+            seenOfficeKeys.add(k);
+            merged.officeEvents.push(e);
+          }
+        }
         merged.supervisionSessions.push(...(r.data?.supervisionSessions || []).map((x) => tag(x, aId)));
         merged.scheduleEvents.push(...(r.data?.scheduleEvents || []).map((x) => tag(x, aId)));
       }
@@ -2571,7 +2594,7 @@ const shortOfficeLabel = (topEvent, fallback) => {
 const cellBlocks = (dayName, hour) => {
   const blocks = [];
 
-  // Office assignment state — one block per agency
+  // Office assignment state — one block per unique assignment (office is assigned to user, not agency)
   const officeHits = officeEventsInCell(dayName, hour);
   const officeByAgency = new Map();
   for (const e of officeHits) {
@@ -2784,6 +2807,8 @@ const officeBookingOccurrenceCount = ref(6); // 1–104 when recurrence is WEEKL
 const selectedOfficeRoomId = ref(0); // 0 = any open room
 const intakeConfirmStep = ref(null); // 'ask_inperson' | 'ask_virtual' | null – confirmation before intake submit
 const intakeConfirmChoice = ref(null); // 'both' | 'ip_only' | 'vi_yes' – set by confirm buttons, read by submit
+const forfeitScope = ref('occurrence'); // 'occurrence' | 'future'
+const ackForfeit = ref(false);
 const bookingMetadataLoading = ref(false);
 const bookingMetadataError = ref('');
 const bookingMetadata = ref({
@@ -2828,6 +2853,11 @@ const requestNotesPlaceholder = computed(() => {
   return 'Any context for staff reviewing this request...';
 });
 
+const hasRecurringOfficeSlot = computed(() => {
+  const rows = requestType.value === 'forfeit_slot' ? selectedActionContexts() : [modalContext.value];
+  return rows.some((x) => Number(x?.standingAssignmentId || 0) > 0);
+});
+
 const availableQuickActions = computed(() => {
   const ctx = modalContext.value || {};
   const hasOffice = Number(selectedOfficeLocationId.value || 0) > 0;
@@ -2846,7 +2876,7 @@ const availableQuickActions = computed(() => {
       description: hasOffice ? 'Book a clinical session' : 'Select office from toolbar above first',
       disabledReason: hasOffice ? '' : 'Select office',
       visible: !supervisionOnlyMode && hasClinicalOrg,
-      tone: 'blue'
+      tone: 'sky'
     },
     {
       id: 'office',
@@ -2920,7 +2950,7 @@ const availableQuickActions = computed(() => {
       description: 'Create a personal calendar event',
       disabledReason: '',
       visible: !supervisionOnlyMode,
-      tone: 'teal'
+      tone: 'emerald'
     },
     {
       id: 'schedule_hold',
@@ -2928,7 +2958,7 @@ const availableQuickActions = computed(() => {
       description: 'Block this time with a hold reason',
       disabledReason: '',
       visible: !supervisionOnlyMode,
-      tone: 'indigo'
+      tone: 'orange'
     },
     {
       id: 'schedule_hold_all_day',
@@ -2944,7 +2974,7 @@ const availableQuickActions = computed(() => {
       description: isHourlyWorker.value ? 'Track indirect time for hourly work' : 'Use for hourly worker indirect service time',
       disabledReason: (isAdminMode.value || isHourlyWorker.value) ? '' : 'Hourly worker only',
       visible: !supervisionOnlyMode,
-      tone: 'cyan'
+      tone: 'amber'
     },
     {
       id: 'booked_note',
@@ -2968,7 +2998,7 @@ const availableQuickActions = computed(() => {
       description: 'Release this assigned/booked slot to others',
       disabledReason: hasEvent ? '' : 'Needs assigned/booked slot',
       visible: !supervisionOnlyMode && (hasAssignedOffice || booked),
-      tone: 'slate'
+      tone: 'red'
     },
     {
       id: 'extend_assignment',
@@ -2976,7 +3006,7 @@ const availableQuickActions = computed(() => {
       description: 'Confirm assigned slot (keep available)',
       disabledReason: hasEvent && hasAssignedOffice && Number(ctx.standingAssignmentId || 0) > 0 ? '' : 'Needs assigned office slot with standing assignment',
       visible: !supervisionOnlyMode && hasEvent && hasAssignedOffice && Number(ctx.standingAssignmentId || 0) > 0,
-      tone: 'green'
+      tone: 'emerald'
     }
   ];
 });
@@ -3504,6 +3534,8 @@ const openSlotActionModal = ({
   scheduleHoldReasonCode.value = 'DOCUMENTATION';
   scheduleHoldCustomReason.value = '';
   modalError.value = '';
+  forfeitScope.value = 'occurrence';
+  ackForfeit.value = false;
   officeBookingRecurrence.value = 'ONCE';
   officeBookingOccurrenceCount.value = 6;
   selectedOfficeRoomId.value = Number(roomId || 0) || 0;
@@ -4454,14 +4486,31 @@ const submitRequest = async () => {
         });
       }
     } else if (requestType.value === 'forfeit_slot') {
-      const contexts = selectedActionContexts().filter((x) => Number(x?.officeEventId || 0) > 0 && Number(x?.officeLocationId || 0) > 0);
+      const scope = forfeitScope.value === 'future' && hasRecurringOfficeSlot.value ? 'future' : 'occurrence';
+      const contexts = selectedActionContexts().filter(
+        (x) => Number(x?.officeLocationId || 0) > 0 && (Number(x?.officeEventId || 0) > 0 || Number(x?.standingAssignmentId || 0) > 0)
+      );
       if (!contexts.length) throw new Error('Select an assigned/booked office slot first.');
+      if (!ackForfeit.value) throw new Error('Please acknowledge that you understand this slot will be forfeit.');
       for (const ctx of contexts) {
-        // eslint-disable-next-line no-await-in-loop
-        await api.post(`/office-slots/${ctx.officeLocationId}/events/${ctx.officeEventId}/forfeit`, {
-          acknowledged: true,
-          scope: 'occurrence'
-        });
+        const officeLocationId = Number(ctx.officeLocationId || 0);
+        const officeEventId = Number(ctx.officeEventId || 0);
+        const standingAssignmentId = Number(ctx.standingAssignmentId || 0);
+        if (officeEventId > 0) {
+          // eslint-disable-next-line no-await-in-loop
+          await api.post(`/office-slots/${officeLocationId}/events/${officeEventId}/forfeit`, {
+            acknowledged: true,
+            scope
+          });
+        } else if (standingAssignmentId > 0 && scope === 'future') {
+          // eslint-disable-next-line no-await-in-loop
+          await api.post(`/office-slots/${officeLocationId}/assignments/${standingAssignmentId}/forfeit`, {
+            acknowledged: true,
+            scope: 'future'
+          });
+        } else if (standingAssignmentId > 0) {
+          throw new Error('This slot only supports forfeit all future (no single occurrence).');
+        }
       }
     } else if (requestType.value === 'intake_virtual_on' || requestType.value === 'intake_virtual_off') {
       const enabled = requestType.value === 'intake_virtual_on';
@@ -6176,6 +6225,22 @@ watch(modalHour, () => {
 .action-chip.tone-rose {
   border-color: rgba(225, 29, 72, 0.35);
   background: linear-gradient(145deg, rgba(255, 241, 242, 0.95), rgba(254, 226, 226, 0.85));
+}
+.action-chip.tone-red {
+  border-color: rgba(220, 38, 38, 0.4);
+  background: linear-gradient(145deg, rgba(254, 242, 242, 0.98), rgba(254, 202, 202, 0.9));
+}
+.action-chip.tone-sky {
+  border-color: rgba(14, 165, 233, 0.4);
+  background: linear-gradient(145deg, rgba(240, 249, 255, 0.98), rgba(224, 242, 254, 0.9));
+}
+.action-chip.tone-emerald {
+  border-color: rgba(5, 150, 105, 0.4);
+  background: linear-gradient(145deg, rgba(236, 253, 245, 0.98), rgba(209, 250, 229, 0.9));
+}
+.action-chip.tone-orange {
+  border-color: rgba(234, 88, 12, 0.4);
+  background: linear-gradient(145deg, rgba(255, 247, 237, 0.98), rgba(255, 237, 213, 0.9));
 }
 .action-chip.tone-slate {
   border-color: rgba(100, 116, 139, 0.35);
