@@ -1031,6 +1031,7 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import api from '../../services/api';
+import { getScheduleSummary, setScheduleSummary } from '../../utils/scheduleSummaryCache';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import { useUserPreferencesStore } from '../../store/userPreferences';
@@ -1751,11 +1752,19 @@ const load = async () => {
     return;
   }
 
+  const ids = effectiveAgencyIds.value;
+  const cacheKey = `${props.userId}|${[...ids].sort((a, b) => a - b).join(',')}|${weekStart.value}|${showGoogleBusy.value}|${showGoogleEvents.value}|${showExternalBusy.value}|${(selectedExternalCalendarIds.value || []).slice().sort((a, b) => a - b).join(',')}`;
+  const cached = getScheduleSummary(cacheKey);
+  if (cached) {
+    summary.value = cached;
+    error.value = '';
+    loading.value = false;
+  }
+
   try {
-    loading.value = true;
+    if (!cached) loading.value = true;
     error.value = '';
 
-    const ids = effectiveAgencyIds.value;
     if (ids.length === 1) {
       const resp = await api.get(`/users/${props.userId}/schedule-summary`, {
         params: {
@@ -1769,6 +1778,7 @@ const load = async () => {
         }
       });
       summary.value = resp.data || null;
+      setScheduleSummary(cacheKey, summary.value);
     } else {
       const results = await Promise.all(
         ids.map((agencyId) =>
@@ -1845,6 +1855,7 @@ const load = async () => {
       merged.externalCalendars = first.externalCalendars || [];
 
       summary.value = merged;
+      setScheduleSummary(cacheKey, summary.value);
     }
 
     // Fail-soft Google busy: if the user’s email cannot be impersonated (invalid_grant),
@@ -1865,15 +1876,26 @@ const load = async () => {
       }
     }
   } catch (e) {
-    summary.value = null;
-    error.value = e.response?.data?.error?.message || 'Failed to load schedule';
+    if (!cached) {
+      summary.value = null;
+      error.value = e.response?.data?.error?.message || 'Failed to load schedule';
+    }
+    // If we had cache, keep showing it on fetch failure
   } finally {
     loading.value = false;
   }
 };
 
-watch([() => props.userId, effectiveAgencyIds], () => load(), { immediate: true });
-watch([showGoogleBusy, showGoogleEvents, showExternalBusy, selectedExternalCalendarIds], () => load(), { deep: true });
+// Defer load so dashboard/tab shell can render first (schedule loads in background)
+const deferredLoad = () => {
+  if (typeof requestIdleCallback !== 'undefined') {
+    requestIdleCallback(() => load(), { timeout: 50 });
+  } else {
+    setTimeout(() => load(), 0);
+  }
+};
+watch([() => props.userId, effectiveAgencyIds], deferredLoad, { immediate: true });
+watch([showGoogleBusy, showGoogleEvents, showExternalBusy, selectedExternalCalendarIds], deferredLoad, { deep: true });
 
 watch([() => props.mode, () => props.userId], () => {
   void loadSelfScheduleAgencies();

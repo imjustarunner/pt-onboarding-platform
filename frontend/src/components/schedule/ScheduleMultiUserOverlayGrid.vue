@@ -292,7 +292,15 @@ const load = async () => {
   }
 };
 
-watch([() => props.userIds, effectiveWeekStart, showGoogleBusy, showGoogleEvents, effectiveAgencyIds], () => void load(), { deep: true, immediate: true });
+// Defer load so dashboard/tab shell can render first (schedule loads in background)
+const deferredLoad = () => {
+  if (typeof requestIdleCallback !== 'undefined') {
+    requestIdleCallback(() => void load(), { timeout: 50 });
+  } else {
+    setTimeout(() => void load(), 0);
+  }
+};
+watch([() => props.userIds, effectiveWeekStart, showGoogleBusy, showGoogleEvents, effectiveAgencyIds], deferredLoad, { deep: true, immediate: true });
 
 const gridStyle = computed(() => ({
   gridTemplateColumns: `64px repeat(${orderedDays.value.length}, minmax(0, 1fr))`

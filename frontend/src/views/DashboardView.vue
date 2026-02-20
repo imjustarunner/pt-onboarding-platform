@@ -322,27 +322,23 @@
         <!-- Card Content (for content cards) -->
         <div class="card-content" :class="{ 'card-content-schedule': activeTab === 'my_schedule' }">
           <TrainingFocusTab
-            v-if="!previewMode"
-            v-show="activeTab === 'training' && !isPending"
+            v-if="!previewMode && activeTab === 'training' && !isPending"
             @update-count="updateTrainingCount"
           />
           
           <DocumentsTab
-            v-if="!previewMode"
-            v-show="activeTab === 'documents'"
+            v-if="!previewMode && activeTab === 'documents'"
             @update-count="updateDocumentsCount"
           />
           
           <MomentumListTab
-            v-if="!previewMode && momentumListEnabled"
-            v-show="activeTab === 'checklist'"
+            v-if="!previewMode && momentumListEnabled && activeTab === 'checklist'"
             :program-id="route.query?.programId ? parseInt(route.query.programId, 10) : null"
             :agency-id="currentAgencyId"
             @update-count="updateChecklistCount"
           />
           <UnifiedChecklistTab
-            v-if="!previewMode && !momentumListEnabled"
-            v-show="activeTab === 'checklist'"
+            v-if="!previewMode && !momentumListEnabled && activeTab === 'checklist'"
             :program-id="route.query?.programId ? parseInt(route.query.programId, 10) : null"
             :agency-id="currentAgencyId"
             @update-count="updateChecklistCount"
@@ -350,8 +346,7 @@
 
           <!-- My Schedule (full-width focus panel) -->
           <div
-            v-if="!previewMode && isOnboardingComplete && !isSchoolStaff"
-            v-show="activeTab === 'my_schedule'"
+            v-if="!previewMode && isOnboardingComplete && !isSchoolStaff && activeTab === 'my_schedule'"
             class="my-panel my-schedule-panel"
             data-tour="dash-my-schedule-panel"
           >
@@ -473,14 +468,13 @@
             </div>
           </div>
 
-          <div v-if="!previewMode && isOnboardingComplete && !isSchoolStaff" v-show="activeTab === 'clients'" class="my-panel">
+          <div v-if="!previewMode && isOnboardingComplete && !isSchoolStaff && activeTab === 'clients'" class="my-panel">
             <ProviderClientsTab @update:needsAttentionCount="clientsNeedsAttentionCount = $event" />
           </div>
 
           <!-- Submit (right panel) -->
           <div
-            v-if="!previewMode && isOnboardingComplete && !isSchoolStaff && providerSurfacesEnabled"
-            v-show="activeTab === 'submit'"
+            v-if="!previewMode && isOnboardingComplete && !isSchoolStaff && providerSurfacesEnabled && activeTab === 'submit'"
             class="my-panel"
             data-tour="dash-submit-panel"
           >
@@ -638,35 +632,34 @@
             </div>
           </div>
 
-          <div v-if="!previewMode && isOnboardingComplete" v-show="activeTab === 'payroll'" class="my-panel">
+          <div v-if="!previewMode && isOnboardingComplete && activeTab === 'payroll'" class="my-panel">
             <MyPayrollTab />
           </div>
 
-          <div v-if="!previewMode && isOnboardingComplete && !isSchoolStaff" v-show="activeTab === 'program_shifts'" class="my-panel">
+          <div v-if="!previewMode && isOnboardingComplete && !isSchoolStaff && activeTab === 'program_shifts'" class="my-panel">
             <ProgramShiftsTab />
           </div>
 
           <!-- On-Demand Training (right panel) -->
-          <div v-if="!previewMode && isOnboardingComplete" v-show="activeTab === 'on_demand_training'" class="my-panel">
+          <div v-if="!previewMode && isOnboardingComplete && activeTab === 'on_demand_training'" class="my-panel">
             <OnDemandTrainingLibraryView />
           </div>
 
           <!-- Social feeds (right panel) – super_admin only until full release -->
-          <div v-if="!previewMode && isOnboardingComplete && authStore.user?.role === 'super_admin'" v-show="activeTab === 'social_feeds'" class="my-panel">
+          <div v-if="!previewMode && isOnboardingComplete && authStore.user?.role === 'super_admin' && activeTab === 'social_feeds'" class="my-panel">
             <SocialFeedsPanel
               :agency-id="currentAgencyId"
               :selected-feed-id-from-parent="selectedSocialFeedId"
             />
           </div>
 
-          <div v-if="!previewMode && isOnboardingComplete" v-show="activeTab === 'supervision'" class="my-panel">
+          <div v-if="!previewMode && isOnboardingComplete && activeTab === 'supervision'" class="my-panel">
             <SupervisionModal />
           </div>
 
           <!-- My Account (nested inside dashboard) -->
           <div
-            v-if="!previewMode && isOnboardingComplete"
-            v-show="activeTab === 'my'"
+            v-if="!previewMode && isOnboardingComplete && activeTab === 'my'"
             class="my-panel"
           >
             <div class="my-subnav" data-tour="dash-my-subnav">
@@ -2469,8 +2462,16 @@ onMounted(async () => {
       activeTab.value = 'clients';
       router.replace({ query: { ...route.query, tab: 'clients' } });
     } else if (landing === 'schedule' && allowed.has('my_schedule')) {
-      activeTab.value = 'my_schedule';
-      router.replace({ query: { ...route.query, tab: 'my_schedule' } });
+      // Defer schedule tab so dashboard shell renders first; schedule loads in background
+      const defer = () => {
+        activeTab.value = 'my_schedule';
+        router.replace({ query: { ...route.query, tab: 'my_schedule' } });
+      };
+      if (typeof requestIdleCallback !== 'undefined') {
+        requestIdleCallback(defer, { timeout: 100 });
+      } else {
+        setTimeout(defer, 0);
+      }
     } else if (landing === 'dashboard' || !allowed.has(landing)) {
       // Default: My Account when onboarding complete, else first content card
       if (onboardingCompletion.value >= 100 && isOnboardingComplete.value) {
