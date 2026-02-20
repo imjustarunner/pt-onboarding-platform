@@ -844,6 +844,7 @@ import { isSupervisor } from '../utils/helpers.js';
 import { getDashboardRailCardDescriptors } from '../tutorial/tours/dashboard.tour';
 import { toUploadsUrl } from '../utils/uploadsUrl';
 import { setRememberedGoogleLogin } from '../utils/loginRemember';
+import { preloadScheduleSummary } from '../utils/scheduleSummaryCache';
 
 const props = defineProps({
   previewMode: {
@@ -2489,6 +2490,17 @@ onMounted(async () => {
     loadPresenterAssignments(),
     loadDashboardSocialFeeds()
   ]);
+
+  // Preload schedule in background so it's ready when user switches to schedule tab
+  const uid = authStore.user?.id;
+  if (uid && isOnboardingComplete.value && !props.previewMode) {
+    const doPreload = () => void preloadScheduleSummary(uid);
+    if (typeof requestIdleCallback !== 'undefined') {
+      requestIdleCallback(doPreload, { timeout: 2000 });
+    } else {
+      setTimeout(doPreload, 500);
+    }
+  }
 
   updateRailCollapsedMode();
   railMediaQuery = typeof window !== 'undefined' && window.matchMedia('(max-width: 980px)');
