@@ -308,7 +308,7 @@ const allCategories = [
         icon: '🧭',
         component: 'AvailabilityIntakeManagement',
         requiresAgency: true,
-        roles: ['super_admin', 'admin', 'support', 'clinical_practice_assistant', 'staff'],
+        roles: ['super_admin', 'admin', 'support', 'clinical_practice_assistant', 'provider_plus', 'staff'],
         excludeSupervisor: true
       },
       {

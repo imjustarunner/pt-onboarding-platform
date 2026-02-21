@@ -28,6 +28,7 @@
           <option value="first_login_pending">First Login (Pending)</option>
           <option value="password_changed">Password Changed</option>
           <option value="support_ticket_created">Support Tickets</option>
+          <option value="office_availability_request_pending">Office Requests</option>
         </select>
       </div>
       <div class="filter-group">
@@ -450,6 +451,11 @@ const getNotificationNavigationPath = async (notification) => {
   } else if (notification.type === 'support_ticket_created' && notification.related_entity_type === 'support_ticket' && notification.related_entity_id) {
     // Ticketing: open the support ticket queue and auto-open the ticket.
     return `/admin/support-tickets?status=open&ticketId=${encodeURIComponent(String(notification.related_entity_id))}`;
+  } else if (notification.type === 'office_availability_request_pending' && notification.agency_id) {
+    // Office request: navigate to Availability Intake (Office Requests tab)
+    const agencyId = notification.agency_id;
+    const base = route.params.organizationSlug ? `/${route.params.organizationSlug}/admin/settings` : '/admin/settings';
+    return `${base}?category=workflow&item=availability-intake&agencyId=${agencyId}`;
   } else if (notification.related_entity_type === 'chat_thread' && notification.related_entity_id) {
     // Platform chat deeplink
     try {
@@ -586,6 +592,12 @@ const handleNotificationClick = async (notification) => {
   }
 
   // Navigate based on notification type
+  if (notification.type === 'office_availability_request_pending' && notification.agency_id) {
+    const agencyId = notification.agency_id;
+    const base = route.params.organizationSlug ? `/${route.params.organizationSlug}/admin/settings` : '/admin/settings';
+    router.push(`${base}?category=workflow&item=availability-intake&agencyId=${agencyId}`);
+    return;
+  }
   if (notification.related_entity_type === 'user' && notification.user_id) {
     router.push(`/admin/users/${notification.user_id}`);
   } else if (notification.related_entity_type === 'task' && notification.related_entity_id) {

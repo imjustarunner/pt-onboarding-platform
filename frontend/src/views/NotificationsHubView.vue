@@ -462,6 +462,11 @@ const openNotification = async (notification) => {
     router.push(`${base}/tickets`);
     return;
   }
+  if (notification.type === 'office_availability_request_pending' && notification.agency_id) {
+    const agencyId = notification.agency_id;
+    router.push(`${base}/admin/settings?category=workflow&item=availability-intake&agencyId=${agencyId}`);
+    return;
+  }
   if (isAdminLikeRole && userIdTarget) {
     router.push(`${base}/admin/users/${userIdTarget}`);
   }
@@ -485,6 +490,7 @@ const isUrgent = (n) => String(n?.severity || '').toLowerCase() === 'urgent';
 
 const typeLabelMap = {
   support_ticket_created: 'Support ticket',
+  office_availability_request_pending: 'Office request',
   task_overdue: 'Task overdue',
   status_expired: 'Status expired',
   temp_password_expired: 'Temp password expired',

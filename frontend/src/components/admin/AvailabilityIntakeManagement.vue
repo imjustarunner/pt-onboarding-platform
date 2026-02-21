@@ -60,7 +60,10 @@
                   <option value="">Day/time…</option>
                   <option v-for="opt in expandOfficeSlots(r)" :key="opt.key" :value="opt.key">{{ opt.label }}</option>
                 </select>
-                <button class="btn btn-primary btn-sm" @click="assignOffice(r)" :disabled="saving">Assign</button>
+                <div class="row-inline" style="gap: 8px; margin-top: 6px;">
+                  <button class="btn btn-primary btn-sm" @click="assignOffice(r)" :disabled="saving">Assign</button>
+                  <button class="btn btn-secondary btn-sm" @click="denyOffice(r)" :disabled="saving">Deny</button>
+                </div>
               </div>
             </div>
           </div>
@@ -498,6 +501,21 @@ const assignOffice = async (r) => {
     await reload();
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to assign office temporary slot';
+  } finally {
+    saving.value = false;
+  }
+};
+
+const denyOffice = async (r) => {
+  try {
+    saving.value = true;
+    error.value = '';
+    await api.post(`/availability/admin/office-requests/${r.id}/deny`, {
+      agencyId: agencyId.value
+    });
+    await reload();
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to deny request';
   } finally {
     saving.value = false;
   }

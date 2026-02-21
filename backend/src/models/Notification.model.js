@@ -77,7 +77,9 @@ class Notification {
     'user_login',
     'user_logout',
     // Kudos
-    'kudos_received'
+    'kudos_received',
+    // Office availability request (provider requesting office space)
+    'office_availability_request_pending'
   ];
 
   static async create(notificationData) {

@@ -706,6 +706,32 @@ export const createMyOfficeAvailabilityRequest = async (req, res, next) => {
     }
 
     await conn.commit();
+
+    // Notify admin/CPA/provider_plus/staff who can approve
+    try {
+      const [userRows] = await pool.execute(
+        `SELECT first_name, last_name FROM users WHERE id = ? LIMIT 1`,
+        [providerId]
+      );
+      const providerName = userRows?.[0]
+        ? `${userRows[0].first_name || ''} ${userRows[0].last_name || ''}`.trim() || `Provider #${providerId}`
+        : `Provider #${providerId}`;
+      await Notification.create({
+        type: 'office_availability_request_pending',
+        severity: 'info',
+        title: 'Office request pending',
+        message: `${providerName} requested office availability. Assign or deny in Availability Intake.`,
+        audienceJson: { admin: true, clinicalPracticeAssistant: true, schoolStaff: false },
+        userId: null,
+        agencyId,
+        relatedEntityType: 'provider_office_availability_request',
+        relatedEntityId: requestId,
+        actorUserId: providerId
+      });
+    } catch {
+      /* non-blocking */
+    }
+
     res.status(201).json({ ok: true, id: requestId });
   } catch (e) {
     if (conn) {
@@ -1350,6 +1376,42 @@ export const assignTemporaryOfficeFromRequest = async (req, res, next) => {
     next(e);
   } finally {
     if (conn) conn.release();
+  }
+};
+
+export const denyOfficeAvailabilityRequest = async (req, res, next) => {
+  try {
+    const agencyId = await resolveAgencyId(req);
+    if (!(await requireAgencyMembership(req, res, agencyId))) return;
+    if (!canManageAvailability(req.user?.role)) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const requestId = parseIntSafe(req.params.id);
+    if (!requestId) return res.status(400).json({ error: { message: 'Request ID is required' } });
+
+    const [reqRows] = await pool.execute(
+      `SELECT id, status FROM provider_office_availability_requests
+       WHERE id = ? AND agency_id = ? LIMIT 1`,
+      [requestId, agencyId]
+    );
+    const reqRow = reqRows?.[0] || null;
+    if (!reqRow) return res.status(404).json({ error: { message: 'Request not found' } });
+    if (String(reqRow.status || '').toUpperCase() !== 'PENDING') {
+      return res.status(409).json({ error: { message: 'Request is not pending (already approved or denied)' } });
+    }
+
+    await pool.execute(
+      `UPDATE provider_office_availability_requests
+       SET status = 'CANCELLED',
+           resolved_at = NOW(),
+           resolved_by_user_id = ?,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [req.user.id, requestId]
+    );
+
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
   }
 };
 

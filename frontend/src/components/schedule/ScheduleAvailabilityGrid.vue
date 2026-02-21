@@ -693,7 +693,7 @@
             </div>
             <template v-else>
               <div v-if="requestType === 'office_request_only'" class="modern-help">
-                Separate office request path: this submits a provider office-availability request for staff assignment workflow.
+                Request permission to use office space. Staff will assign you when available.
               </div>
               <label class="lbl">Frequency</label>
               <select v-model="officeBookingRecurrence" class="input">
@@ -911,7 +911,7 @@
             :disabled="
               submitting ||
               !requestType ||
-              ((requestType === 'office' || requestType === 'office_request_only' || requestType === 'individual_session' || requestType === 'group_session') && (bookingMetadataLoading || !officeBookingValid || !!bookingClassificationInvalidReason)) ||
+              ((requestType === 'office' || requestType === 'individual_session' || requestType === 'group_session') && (bookingMetadataLoading || !officeBookingValid || !!bookingClassificationInvalidReason)) ||
               (requestType === 'school' && !canUseSchool(modalDay, modalHour, modalEndHour)) ||
               (requestType === 'supervision' && !supervisionCanSubmit) ||
               (requestType === 'agency_meeting' && !meetingCanSubmit) ||
@@ -3478,8 +3478,8 @@ const availableQuickActions = computed(() => {
     },
     {
       id: 'office_request_only',
-      label: 'Office request',
-      description: 'Separate office request workflow',
+      label: 'Request office',
+      description: 'Request permission to use office space',
       disabledReason: hasOffice ? '' : 'Select office',
       visible: !supervisionOnlyMode,
       tone: 'teal'
@@ -3626,8 +3626,7 @@ const OFFICE_LAYOUT_ONLY_ACTIONS = new Set([
   'intake_virtual_off',
   'intake_inperson_off',
   'office',
-  'individual_session',
-  'group_session',
+  'office_request_only',
   'unbook_slot',
   'booked_note',
   'booked_record'
@@ -3794,7 +3793,7 @@ const normalizeBookingSelectionPayload = () => ({
 });
 
 const loadBookingMetadataForProvider = async () => {
-  if (!['office', 'office_request_only', 'individual_session', 'group_session'].includes(String(requestType.value || '')) || !showRequestModal.value) return;
+  if (!['office', 'individual_session', 'group_session'].includes(String(requestType.value || '')) || !showRequestModal.value) return;
   if (!showClinicalBookingFields.value) return;
   if (!Number(selectedOfficeLocationId.value || 0)) {
     resetBookingMetadataState();
@@ -4515,6 +4514,9 @@ const openSlotActionModal = ({
   }
   if (!normalizedInitialRequestType && String(modalContext.value.slotState || '').toUpperCase() === 'ASSIGNED_BOOKED') {
     requestType.value = 'booked_note';
+  }
+  if (!normalizedInitialRequestType && viewMode.value === 'office_layout' && ['OPEN', 'ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY'].includes(String(modalContext.value.slotState || '').toUpperCase())) {
+    requestType.value = 'office_request_only';
   }
   // If user selected a contiguous range on one day, use it as the default modal duration.
   const rows = preserveSelectionRange ? sortedSelectedActionSlots() : [];
@@ -5736,7 +5738,7 @@ watch(requestType, (t) => {
     void loadSupervisionProviders();
   } else if (t === 'agency_meeting') {
     void loadMeetingCandidates();
-  } else if ((t === 'office' || t === 'office_request_only' || t === 'individual_session' || t === 'group_session') && showClinicalBookingFields.value) {
+  } else if ((t === 'office' || t === 'individual_session' || t === 'group_session') && showClinicalBookingFields.value) {
     void loadBookingMetadataForProvider();
   } else if (SCHEDULE_EVENT_ACTIONS.has(String(t || ''))) {
     if (!String(scheduleEventTitle.value || '').trim() || scheduleEventTitle.value === defaultScheduleEventTitleForAction('personal_event')) {
@@ -5884,7 +5886,7 @@ watch(bookingAppointmentType, () => {
 });
 
 watch([selectedOfficeLocationId, showRequestModal, requestType, showClinicalBookingFields], () => {
-  if ((requestType.value === 'office' || requestType.value === 'office_request_only' || requestType.value === 'individual_session' || requestType.value === 'group_session') && showRequestModal.value && showClinicalBookingFields.value) {
+  if ((requestType.value === 'office' || requestType.value === 'individual_session' || requestType.value === 'group_session') && showRequestModal.value && showClinicalBookingFields.value) {
     void loadBookingMetadataForProvider();
   }
 });
@@ -6354,9 +6356,9 @@ const onCellBlockClick = (e, block, dayName, hour) => {
       selectedOfficeLocationId.value = officeLocationId;
     }
     const slotState = String(officeTop?.slotState || '').toUpperCase();
-    // Assigned (available/temporary): default to Office booking so user can book weekly/biweekly/monthly
+    // Assigned (available/temporary): default to Office request (permission request, not booking)
     const initialRequestType =
-      slotState === 'ASSIGNED_BOOKED' ? 'booked_note' : ['ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY'].includes(slotState) ? 'office' : 'forfeit_slot';
+      slotState === 'ASSIGNED_BOOKED' ? 'booked_note' : ['ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY'].includes(slotState) ? 'office_request_only' : 'forfeit_slot';
     openSlotActionModal({
       dayName,
       hour,
