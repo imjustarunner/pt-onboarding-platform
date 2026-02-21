@@ -32,8 +32,8 @@
                 <div class="title">{{ r.providerName }}</div>
                 <div class="meta">
                   Preferred offices:
-                  <span v-if="(r.preferredOfficeIds || []).length === 0">Any</span>
-                  <span v-else>{{ r.preferredOfficeIds.map((id) => officeName(id)).join(', ') }}</span>
+                  <span v-if="!(Array.isArray(r.preferredOfficeIds) && r.preferredOfficeIds.length)">Any</span>
+                  <span v-else>{{ (Array.isArray(r.preferredOfficeIds) ? r.preferredOfficeIds : []).map((id) => officeName(id)).join(', ') }}</span>
                 </div>
                 <div class="meta" v-if="r.notes">Notes: {{ r.notes }}</div>
                 <div class="meta">
@@ -347,7 +347,8 @@ const schoolName = (id) => schools.value.find((s) => Number(s.id) === Number(id)
 
 const expandOfficeSlots = (r) => {
   const out = [];
-  for (const s of r.slots || []) {
+  const slots = Array.isArray(r?.slots) ? r.slots : [];
+  for (const s of slots) {
     const start = Number(s.startHour);
     const end = Number(s.endHour);
     for (let h = start; h < end; h++) {
@@ -421,7 +422,7 @@ const reload = async () => {
 
     // Init assignment form state, pre-fill from request when provider selected building/room/time
     for (const r of officeRequests.value) {
-      const prefOffices = r.preferredOfficeIds || [];
+      const prefOffices = Array.isArray(r.preferredOfficeIds) ? r.preferredOfficeIds : [];
       const slots = r.slots || [];
       const firstSlot = slots[0];
       const officeId = firstSlot?.officeLocationId

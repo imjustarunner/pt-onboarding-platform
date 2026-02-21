@@ -1252,12 +1252,20 @@ export const listOfficeAvailabilityRequests = async (req, res, next) => {
           throw slotErr;
         }
       }
+      const prefIds = (() => {
+        try {
+          const parsed = r.preferred_office_ids_json ? JSON.parse(r.preferred_office_ids_json) : [];
+          return Array.isArray(parsed) ? parsed : [];
+        } catch {
+          return [];
+        }
+      })();
       out.push({
         id: r.id,
         agencyId: r.agency_id,
         providerId: r.provider_id,
         providerName: `${r.provider_first_name || ''} ${r.provider_last_name || ''}`.trim(),
-        preferredOfficeIds: r.preferred_office_ids_json ? JSON.parse(r.preferred_office_ids_json) : [],
+        preferredOfficeIds: prefIds,
         notes: r.notes || '',
         status: r.status,
         createdAt: r.created_at,
