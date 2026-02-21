@@ -2157,9 +2157,8 @@ export const updateClientComplianceChecklist = async (req, res, next) => {
       oldConsumesSlot = false;
     }
 
-    const intakePassed = !!(intakeAt && intakeAt <= todayStr);
     const firstServicePassed = !!(firstServiceAt && firstServiceAt <= todayStr);
-    const shouldPromote = intakePassed || firstServicePassed;
+    const shouldPromote = firstServicePassed;
     let promotedToCurrent = false;
     if (shouldPromote) {
       try {

@@ -1060,7 +1060,7 @@ export const getProviderMyRoster = async (req, res, next) => {
       const statusKey = String(client?.client_status_key || '').toLowerCase();
       const workflow = String(client?.status || '').toUpperCase();
       const isPendingStatus = statusKey === 'pending' || workflow === 'PENDING_REVIEW';
-      const isCurrentByDates = intakePassed || firstServicePassed;
+      const isCurrentByDates = firstServicePassed;
       const compliancePending = isPendingStatus && !isCurrentByDates;
       const assignedAt = client.provider_assigned_at ? new Date(client.provider_assigned_at) : null;
       const daysSinceAssigned = assignedAt

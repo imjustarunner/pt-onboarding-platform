@@ -462,6 +462,9 @@
               <label>First Date of Service</label>
               <div class="info-value">
                 <input type="date" v-model="checklist.firstServiceAt" class="inline-input" />
+                <p class="hint" style="margin-top: 6px; font-size: 12px;">
+                  Do not list the date of first service unless the appointment has actually occurred, as this will mark the client as current.
+                </p>
               </div>
             </div>
           </div>

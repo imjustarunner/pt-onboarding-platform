@@ -90,11 +90,7 @@ export const listPendingComplianceClients = async (req, res, next) => {
       "(c.status IS NULL OR UPPER(c.status) <> 'ARCHIVED')",
       "(cs.status_key IS NULL OR LOWER(cs.status_key) <> 'archived')",
       "(LOWER(cs.status_key) = 'pending' OR UPPER(c.status) = 'PENDING_REVIEW')",
-      `NOT (
-        (c.intake_at IS NOT NULL AND c.intake_at <= CURDATE())
-        OR
-        (c.first_service_at IS NOT NULL AND c.first_service_at <= CURDATE())
-      )`
+      `NOT (c.first_service_at IS NOT NULL AND c.first_service_at <= CURDATE())`
     ];
     const params = [];
 

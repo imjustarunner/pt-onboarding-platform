@@ -33,6 +33,9 @@
               <input v-model="form.firstServiceAt" type="date" class="input" />
               <button type="button" class="btn-today" @click="setFirstServiceToday">Today</button>
             </div>
+            <p class="hint" style="margin-top: 6px; font-size: 12px;">
+              Do not list the date of first service unless the appointment has actually occurred, as this will mark the client as current.
+            </p>
           </div>
         </div>
         <div v-if="error" class="error" style="margin-top: 10px;">{{ error }}</div>
@@ -220,6 +223,10 @@ const save = async () => {
 .error {
   color: #c33;
   font-size: 13px;
+}
+.hint {
+  color: var(--text-secondary, #666);
+  margin: 0;
 }
 
 @media (max-width: 640px) {
