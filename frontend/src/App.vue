@@ -217,6 +217,11 @@
                       :to="orgTo('/admin/communications/campaigns')"
                       @click="closeAllNavMenus"
                     >Campaigns</router-link>
+                    <router-link
+                      v-if="canUseEngagementFeed"
+                      :to="orgTo('/admin/contacts')"
+                      @click="closeAllNavMenus"
+                    >Contacts</router-link>
                     <router-link :to="orgTo('/notifications')" @click="closeAllNavMenus">
                       Notifications
                       <span
@@ -1182,9 +1187,12 @@ const activeOrganizationSlug = computed(() => {
   if (typeof slugFromRoute === 'string' && slugFromRoute) return slugFromRoute;
   // Super admins should not be implicitly forced into an agency context via persisted currentAgency.
   if (String(authStore.user?.role || '').toLowerCase() === 'super_admin') return null;
-  const slugFromAgency = agencyStore.currentAgency?.slug || agencyStore.currentAgency?.portal_url;
+  // Pinia refs: currentAgency and organizationContext are refs, use .value to access the underlying object
+  const agency = agencyStore.currentAgency?.value ?? agencyStore.currentAgency;
+  const slugFromAgency = agency?.slug || agency?.portal_url;
   if (slugFromAgency) return slugFromAgency;
-  const slugFromOrg = organizationStore.organizationContext?.slug;
+  const orgContext = organizationStore.organizationContext?.value ?? organizationStore.organizationContext;
+  const slugFromOrg = orgContext?.slug;
   if (slugFromOrg) return slugFromOrg;
   return null;
 });

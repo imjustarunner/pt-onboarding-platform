@@ -3,9 +3,11 @@ import Agency from '../models/Agency.model.js';
 import User from '../models/User.model.js';
 import MessageLog from '../models/MessageLog.model.js';
 import SupervisorAssignment from '../models/SupervisorAssignment.model.js';
+import ContactCommunicationLog from '../models/ContactCommunicationLog.model.js';
 import { createNotificationAndDispatch } from '../services/notificationDispatcher.service.js';
 import TwilioService from '../services/twilio.service.js';
 import { resolveOutboundNumber } from '../services/twilioNumberRouting.service.js';
+import { resolveContactsForAudience } from '../services/contactCampaignAudience.service.js';
 
 const DEFAULT_RESPONSE_OPTIONS = [
   { key: 'Y', label: 'Yes' },
@@ -189,6 +191,7 @@ export const listAgencyCampaigns = async (req, res, next) => {
     const [rows] = await pool.execute(
       `SELECT ac.*,
               (SELECT COUNT(*) FROM agency_campaign_recipients acr WHERE acr.campaign_id = ac.id) AS recipient_count,
+              (SELECT COUNT(*) FROM agency_campaign_contact_deliveries accd WHERE accd.campaign_id = ac.id) AS contact_recipient_count,
               (SELECT COUNT(*) FROM agency_campaign_responses ar WHERE ar.campaign_id = ac.id) AS response_count
        FROM agency_campaigns ac
        WHERE ac.agency_id = ?
@@ -246,21 +249,25 @@ export const createAgencyCampaign = async (req, res, next) => {
     if (!title || !question) {
       return res.status(400).json({ error: { message: 'title and question are required' } });
     }
-    const audienceMode = String(req.body?.audienceMode || 'all').toLowerCase() === 'selected' ? 'selected' : 'all';
+    const rawAudienceMode = String(req.body?.audienceMode || 'all').toLowerCase();
+    const audienceMode =
+      rawAudienceMode === 'selected' ? 'selected' : rawAudienceMode === 'contacts' ? 'contacts' : 'all';
+    const audienceTarget = audienceMode === 'contacts' ? req.body?.audienceTarget || {} : null;
     const endsAt = req.body?.endsAt ? new Date(req.body.endsAt) : null;
     const responseOptions = parseOptions(req.body?.responseOptions);
     const shortCode = normalizeShortCode(flags?.agency_campaigns_short_code || flags?.agency_campaigns_shortcode);
 
     const [result] = await pool.execute(
       `INSERT INTO agency_campaigns
-       (agency_id, created_by_user_id, title, question, status, audience_mode, starts_at, ends_at, response_options, short_code)
-       VALUES (?, ?, ?, ?, 'draft', ?, NULL, ?, ?, ?)`,
+       (agency_id, created_by_user_id, title, question, status, audience_mode, audience_target, starts_at, ends_at, response_options, short_code)
+       VALUES (?, ?, ?, ?, 'draft', ?, ?, NULL, ?, ?, ?)`,
       [
         agencyId,
         req.user.id,
         title,
         question,
         audienceMode,
+        audienceTarget ? JSON.stringify(audienceTarget) : null,
         endsAt ? new Date(endsAt) : null,
         JSON.stringify(responseOptions),
         shortCode
@@ -331,6 +338,27 @@ export const sendAgencyCampaign = async (req, res, next) => {
           [values]
         );
       }
+    } else if (campaign.audience_mode === 'contacts') {
+      const target = campaign.audience_target && typeof campaign.audience_target === 'object'
+        ? campaign.audience_target
+        : typeof campaign.audience_target === 'string'
+          ? (() => { try { return JSON.parse(campaign.audience_target); } catch { return {}; } })()
+          : {};
+      const contactList = await resolveContactsForAudience(campaign.agency_id, target);
+      if (contactList.length === 0) {
+        return res.status(400).json({ error: { message: 'No contacts found for the selected audience.' } });
+      }
+      const contactRecipients = contactList
+        .filter((c) => c.phone)
+        .map((c) => ({ contact_id: c.id, phone_number: MessageLog.normalizePhone(c.phone) }));
+      if (contactRecipients.length === 0) {
+        return res.status(400).json({ error: { message: 'No contacts with phone numbers found for the selected audience.' } });
+      }
+      const contactValues = contactRecipients.map((r) => [campaignId, r.contact_id, r.phone_number]);
+      await pool.query(
+        `INSERT IGNORE INTO agency_campaign_contact_deliveries (campaign_id, contact_id, phone_number) VALUES ?`,
+        [contactValues]
+      );
     } else {
       const [recRows] = await pool.execute(
         `SELECT acr.user_id, u.phone_number, u.personal_phone, u.work_phone
@@ -349,6 +377,48 @@ export const sendAgencyCampaign = async (req, res, next) => {
     }
 
     let sentCount = 0;
+
+    if (campaign.audience_mode === 'contacts') {
+      const [contactRows] = await pool.execute(
+        `SELECT contact_id, phone_number FROM agency_campaign_contact_deliveries WHERE campaign_id = ? AND delivery_status = 'pending'`,
+        [campaignId]
+      );
+      for (const row of contactRows || []) {
+        const to = MessageLog.normalizePhone(row.phone_number);
+        if (!to) {
+          await pool.execute(
+            `UPDATE agency_campaign_contact_deliveries SET delivery_status = 'skipped', status_reason = 'no_phone' WHERE campaign_id = ? AND contact_id = ?`,
+            [campaignId, row.contact_id]
+          );
+          continue;
+        }
+        try {
+          const result = await TwilioService.sendSms({ to, from: fromNumber, body });
+          await pool.execute(
+            `UPDATE agency_campaign_contact_deliveries SET delivery_status = 'sent', status_reason = NULL WHERE campaign_id = ? AND contact_id = ?`,
+            [campaignId, row.contact_id]
+          );
+          sentCount += 1;
+          try {
+            await ContactCommunicationLog.create({
+              contactId: row.contact_id,
+              channel: 'sms',
+              direction: 'outbound',
+              body,
+              externalRefId: null,
+              metadata: { from_number: fromNumber, to_number: to, campaign_id: campaignId }
+            });
+          } catch (e) {
+            console.warn('Contact comm log (campaign) failed:', e.message);
+          }
+        } catch (e) {
+          await pool.execute(
+            `UPDATE agency_campaign_contact_deliveries SET delivery_status = 'failed', status_reason = ? WHERE campaign_id = ? AND contact_id = ?`,
+            [String(e.message || 'failed').slice(0, 240), campaignId, row.contact_id]
+          );
+        }
+      }
+    } else {
     for (const recipient of recipients) {
       const userId = recipient.user_id;
       const to = MessageLog.normalizePhone(recipient.phone_number);
@@ -402,6 +472,7 @@ export const sendAgencyCampaign = async (req, res, next) => {
           [String(e.message || 'failed').slice(0, 240), campaignId, userId]
         );
       }
+    }
     }
 
     await pool.execute(

@@ -69,6 +69,16 @@ class CallVoicemail {
     );
     return this.findById(id);
   }
+
+  static async updateTranscription(id, transcriptionText) {
+    await pool.execute(
+      `UPDATE call_voicemails
+       SET transcription_text = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [transcriptionText || null, id]
+    );
+    return this.findById(id);
+  }
 }
 
 export default CallVoicemail;

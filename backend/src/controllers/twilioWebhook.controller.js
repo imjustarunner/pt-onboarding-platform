@@ -15,6 +15,8 @@ import { resolveInboundRoute } from '../services/twilioNumberRouting.service.js'
 import { handleAgencyCampaignInbound } from './agencyCampaigns.controller.js';
 import { handleCompanyEventInbound } from './companyEvents.controller.js';
 import { logAuditEvent } from '../services/auditEvent.service.js';
+import AgencyContact from '../models/AgencyContact.model.js';
+import ContactCommunicationLog from '../models/ContactCommunicationLog.model.js';
 
 function twimlResponse(message) {
   // Minimal TwiML response
@@ -160,6 +162,7 @@ export const inboundSmsWebhook = async (req, res, next) => {
     const numberId = number?.id || null;
     const ownerType = route.ownerType || null;
     const assignedUserId = route.assignment?.user_id || ownerUser?.id || null;
+    const eligibleUserIds = route.eligibleUserIds || (ownerUser ? [ownerUser.id] : []);
     if (!ownerUser && !number) {
       // Unknown number: acknowledge to prevent retries
       return res.status(200).type('text/xml').send(twimlResponse('Thanks. We could not route your message.'));
@@ -211,6 +214,26 @@ export const inboundSmsWebhook = async (req, res, next) => {
       twilioMessageSid: messageSid,
       metadata: { provider: 'twilio', numberId }
     });
+
+    // Log to contact_communication_logs if sender maps to an agency contact
+    if (agencyId && from && inboundLog?.id) {
+      try {
+        const contact = await AgencyContact.findByPhone(from, agencyId);
+        if (contact) {
+          await ContactCommunicationLog.create({
+            contactId: contact.id,
+            channel: 'sms',
+            direction: 'inbound',
+            body: body || '',
+            externalRefId: String(inboundLog.id),
+            metadata: { from_number: from, to_number: to, message_log_id: inboundLog.id }
+          });
+        }
+      } catch (e) {
+        console.warn('Contact comm log (inbound) failed:', e.message);
+      }
+    }
+
     await logAuditEvent(req, {
       actionType: 'sms_inbound_received',
       agencyId,
@@ -298,36 +321,41 @@ export const inboundSmsWebhook = async (req, res, next) => {
       }
     }
 
-    // Safety net notifications (in-app only for support staff)
-    if (agencyId && ownerUser?.id) {
-      // Primary clinician gets notification too (in-app)
-      await createNotificationAndDispatch(
-        {
-          type: 'inbound_client_message',
-          severity: 'urgent',
-          title: 'New inbound client message',
-          message: client?.initials
-            ? `New message from client ${client.initials}.`
-            : 'New inbound message received.',
-          userId: ownerUser.id,
-          agencyId,
-          relatedEntityType: 'message_log',
-          relatedEntityId: inboundLog.id,
-          actorSource: 'Twilio'
-        },
-        { context: { isUrgent: true } }
-      );
+    // Notify all eligible users (multi-recipient SMS pool) or primary owner
+    if (agencyId && eligibleUserIds.length > 0) {
+      const clinicianName = ownerUser ? `${ownerUser.first_name} ${ownerUser.last_name?.slice(0, 1) || ''}.` : 'assigned clinician';
+      for (const userId of eligibleUserIds) {
+        await createNotificationAndDispatch(
+          {
+            type: 'inbound_client_message',
+            severity: 'urgent',
+            title: 'New inbound client message',
+            message: client?.initials
+              ? `New message from client ${client.initials}.`
+              : 'New inbound message received.',
+            userId,
+            agencyId,
+            relatedEntityType: 'message_log',
+            relatedEntityId: inboundLog.id,
+            actorSource: 'Twilio'
+          },
+          { context: { isUrgent: true } }
+        );
+      }
 
+      // Safety net: notify support staff who are NOT already in the eligible pool
+      const eligibleSet = new Set(eligibleUserIds.map(Number));
       const supportIds = await listSupportStaffIdsForAgency(agencyId);
       for (const supportUserId of supportIds) {
+        if (eligibleSet.has(Number(supportUserId))) continue;
         await createNotificationAndDispatch(
           {
             type: 'support_safety_net_alert',
             severity: 'urgent',
             title: 'Safety Net: inbound client message',
             message: client?.initials
-              ? `Inbound message from ${client.initials} (assigned clinician: ${ownerUser.first_name} ${ownerUser.last_name?.slice(0, 1) || ''}.)`
-              : `Inbound message (assigned clinician: ${ownerUser.first_name} ${ownerUser.last_name?.slice(0, 1) || ''}.)`,
+              ? `Inbound message from ${client.initials} (${clinicianName})`
+              : `Inbound message (${clinicianName})`,
             userId: supportUserId,
             agencyId,
             relatedEntityType: 'message_log',

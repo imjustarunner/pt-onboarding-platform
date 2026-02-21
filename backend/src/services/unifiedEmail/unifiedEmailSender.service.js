@@ -4,6 +4,7 @@ import EmailSenderIdentity from '../../models/EmailSenderIdentity.model.js';
 import NotificationTrigger from '../../models/NotificationTrigger.model.js';
 import AgencyNotificationTriggerSetting from '../../models/AgencyNotificationTriggerSetting.model.js';
 import CommunicationLoggingService from '../communicationLogging.service.js';
+import { logContactCommunicationIfApplicable } from '../contactCommsLogging.service.js';
 import { getEmailSendingMode, isEmailNotificationsEnabled } from '../emailSettings.service.js';
 
 async function canSendEmail({ source, agencyId } = {}) {
@@ -125,6 +126,18 @@ export async function sendNotificationEmail({
     }).catch(() => {});
   }
 
+  if (agencyId && to) {
+    await logContactCommunicationIfApplicable({
+      agencyId,
+      channel: 'email',
+      direction: 'outbound',
+      recipient: to,
+      body: html || text || '',
+      externalRefId: messageId,
+      metadata: { subject, threadId }
+    }).catch(() => {});
+  }
+
   return { id: messageId, threadId, senderIdentityId: identity.id };
 }
 
@@ -160,6 +173,20 @@ export async function sendEmailFromIdentity({
   const requestBody = threadId ? { raw, threadId } : { raw };
   const result = await gmail.users.messages.send({ userId: 'me', requestBody });
 
-  return { id: result.data?.id || null, threadId: result.data?.threadId || threadId || null };
+  const messageId = result.data?.id || null;
+  const agencyId = identity?.agency_id || null;
+  if (agencyId && to) {
+    await logContactCommunicationIfApplicable({
+      agencyId,
+      channel: 'email',
+      direction: 'outbound',
+      recipient: to,
+      body: html || text || '',
+      externalRefId: messageId,
+      metadata: { subject, threadId }
+    }).catch(() => {});
+  }
+
+  return { id: messageId, threadId: result.data?.threadId || threadId || null };
 }
 

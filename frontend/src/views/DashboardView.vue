@@ -1886,6 +1886,15 @@ const dashboardCards = computed(() => {
         iconUrl: brandingStore.getDashboardCardIconUrl('chats', cardIconOrgOverride),
         description: 'Direct messages in the platform.'
       });
+      cards.push({
+        id: 'contacts',
+        label: 'Contacts',
+        kind: 'link',
+        to: '/admin/contacts',
+        badgeCount: 0,
+        iconUrl: brandingStore.getDashboardCardIconUrl('contacts', cardIconOrgOverride),
+        description: 'Agency contacts for mass communications and outreach.'
+      });
     }
 
     // Notifications: show for all users and route to the unified hub.

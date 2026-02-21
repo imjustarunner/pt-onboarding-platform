@@ -81,14 +81,16 @@ export async function resolveOutboundNumber({ userId, clientId, requestedNumberI
       return { error: 'number_unavailable' };
     }
     const assigned = await findAssignedUserForNumber(number.id);
-    if (assigned && Number(assigned.user_id) !== Number(userId)) {
+    const eligibleIds = await TwilioNumberAssignment.listEligibleUserIdsForNumber(number.id);
+    const userInPool = eligibleIds.some((id) => Number(id) === Number(userId));
+    if (assigned && Number(assigned.user_id) !== Number(userId) && !userInPool) {
       return { error: 'number_not_assigned' };
     }
-    if (!assigned) {
+    if (!assigned && !userInPool) {
       const ok = await userHasAgency(userId, number.agency_id);
       if (!ok) return { error: 'number_not_accessible' };
     }
-    return { number, assignment: assigned || null, ownerType: assigned ? 'staff' : 'agency' };
+    return { number, assignment: assigned || null, ownerType: assigned || userInPool ? 'staff' : 'agency' };
   }
 
   const primary = await TwilioNumberAssignment.findPrimaryForUser(userId);
@@ -135,19 +137,30 @@ export async function resolveInboundRoute({ toNumber, fromNumber }) {
   let ownerUser = null;
   let assignment = null;
   let ownerType = null;
+  /** Eligible user IDs for multi-recipient SMS. When set, all receive notifications. */
+  let eligibleUserIds = [];
 
   if (number) {
-    assignment = await findAssignedUserForNumber(number.id);
-    if (assignment?.user_id) {
-      ownerUser = await User.findById(assignment.user_id);
+    // Multi-recipient: check for users with SMS access on this number
+    eligibleUserIds = await TwilioNumberAssignment.listEligibleUserIdsForNumber(number.id);
+    if (eligibleUserIds.length > 0) {
+      ownerUser = await User.findById(eligibleUserIds[0]);
+      assignment = await findAssignedUserForNumber(number.id);
       ownerType = 'staff';
     } else {
-      ownerType = 'agency';
+      assignment = await findAssignedUserForNumber(number.id);
+      if (assignment?.user_id) {
+        ownerUser = await User.findById(assignment.user_id);
+        ownerType = 'staff';
+      } else {
+        ownerType = 'agency';
+      }
     }
   } else {
     // Legacy fallback: system phone number on users table
     ownerUser = await User.findBySystemPhoneNumber(toNumber);
     ownerType = ownerUser ? 'staff' : null;
+    if (ownerUser?.id) eligibleUserIds = [ownerUser.id];
   }
 
   const client = await Client.findByContactPhone(fromNumber);
@@ -158,6 +171,7 @@ export async function resolveInboundRoute({ toNumber, fromNumber }) {
     if (provider?.id && (await userHasAgency(provider.id, agencyId))) {
       ownerUser = provider;
       ownerType = 'staff';
+      eligibleUserIds = [provider.id];
     }
   }
 
@@ -168,6 +182,7 @@ export async function resolveInboundRoute({ toNumber, fromNumber }) {
     if (defaultUserId && (await userHasAgency(defaultUserId, agencyId))) {
       ownerUser = await User.findById(defaultUserId);
       ownerType = 'agency';
+      eligibleUserIds = [defaultUserId];
     }
   }
 
@@ -176,11 +191,13 @@ export async function resolveInboundRoute({ toNumber, fromNumber }) {
     if (supportIds?.length) {
       ownerUser = await User.findById(supportIds[0]);
       ownerType = 'agency';
+      eligibleUserIds = supportIds;
     } else {
       const adminId = await findAnyAdminForAgency(agencyId);
       if (adminId) {
         ownerUser = await User.findById(adminId);
         ownerType = 'agency';
+        eligibleUserIds = [adminId];
       }
     }
   }
@@ -190,6 +207,7 @@ export async function resolveInboundRoute({ toNumber, fromNumber }) {
     assignment,
     ownerUser,
     ownerType,
+    eligibleUserIds: eligibleUserIds.length > 0 ? eligibleUserIds : (ownerUser ? [ownerUser.id] : []),
     agencyId,
     client,
     clientId: client?.id || null

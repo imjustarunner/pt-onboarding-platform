@@ -5,9 +5,11 @@ import MessageLog from '../models/MessageLog.model.js';
 import CallLog from '../models/CallLog.model.js';
 import CallVoicemail from '../models/CallVoicemail.model.js';
 import UserCallSettings from '../models/UserCallSettings.model.js';
+import UserExtension from '../models/UserExtension.model.js';
 import { resolveInboundRoute } from '../services/twilioNumberRouting.service.js';
 import { verifySignedPayload } from './calls.controller.js';
 import TwilioService from '../services/twilio.service.js';
+import { transcribeVoicemail } from '../services/voicemailTranscription.service.js';
 
 function twimlXml(builder) {
   const vr = new twilio.twiml.VoiceResponse();
@@ -138,6 +140,8 @@ export const inboundVoiceWebhook = async (req, res, next) => {
   try {
     const from = req.body?.From;
     const to = req.body?.To;
+    const digits = String(req.body?.Digits || '').trim();
+    const mainLine = req.query?.mainLine === '1' || req.body?.mainLine === '1';
     if (!from || !to) {
       return res.status(200).type('text/xml').send(twimlXml((vr) => {
         vr.say('We could not process your call.');
@@ -146,11 +150,84 @@ export const inboundVoiceWebhook = async (req, res, next) => {
     }
 
     const route = await resolveInboundRoute({ toNumber: to, fromNumber: from });
+    const agencyId = route?.agencyId || null;
+    const numberId = route?.number?.id || null;
+    const base = voiceBaseFromRequest(req);
+    const inboundUrl = `${base}/inbound`;
+
+    // Extension dialed: resolve and route to that user
+    if (digits && digits !== '0') {
+      const extRecord = await UserExtension.resolveExtension({
+        agencyId,
+        numberId,
+        extension: digits
+      });
+      if (extRecord?.user_id) {
+        const extUser = await User.findById(extRecord.user_id);
+        const extSettings = await UserCallSettings.getByUserId(extRecord.user_id);
+        const inboundEnabled = boolOrDefault(extSettings?.inbound_enabled, true);
+        if (inboundEnabled && extUser) {
+          const targetPhone = MessageLog.normalizePhone(
+            extSettings?.forward_to_phone || extUser.personal_phone || extUser.work_phone || extUser.phone_number
+          ) || extSettings?.forward_to_phone || extUser.personal_phone || extUser.work_phone || extUser.phone_number || null;
+          if (targetPhone) {
+            const created = await CallLog.create({
+              agencyId,
+              numberId,
+              userId: extUser.id,
+              clientId: route?.clientId || null,
+              direction: 'INBOUND',
+              fromNumber: from,
+              toNumber: to,
+              targetPhone,
+              twilioCallSid: req.body?.CallSid || null,
+              status: 'inbound_received',
+              startedAt: nowSql(),
+              metadata: { provider: 'twilio', ownerType: 'staff', extension: digits }
+            });
+            const cfg = await getAgencyVoiceConfig(agencyId);
+            const dialAction = `${base}/dial-complete?callLogId=${created.id}`;
+            return res.status(200).type('text/xml').send(twimlXml((vr) => {
+              if (cfg.providerPreConnectMessage) vr.say(cfg.providerPreConnectMessage);
+              const dial = vr.dial({
+                callerId: MessageLog.normalizePhone(to) || to,
+                action: dialAction,
+                method: 'POST',
+                timeout: cfg.providerRingTimeoutSeconds,
+                record: boolOrDefault(extSettings?.allow_call_recording, false) ? 'record-from-answer' : undefined
+              });
+              dial.number({}, targetPhone);
+            }));
+          }
+        }
+      }
+      return res.status(200).type('text/xml').send(twimlXml((vr) => {
+        vr.say('Extension not found. Connecting you to the main line.');
+        vr.redirect(inboundUrl);
+      }));
+    }
+
+    // No digits or "0" = main line. Check for IVR first (first-time call, no extension pressed).
     const ownerUser = route?.ownerUser || null;
     if (!ownerUser?.id) {
       return res.status(200).type('text/xml').send(twimlXml((vr) => {
         vr.say('This number is not configured for voice calls.');
         vr.hangup();
+      }));
+    }
+
+    const hasExtensions = agencyId && (await UserExtension.agencyHasExtensions(agencyId, numberId));
+    if (hasExtensions && !digits && !mainLine) {
+      return res.status(200).type('text/xml').send(twimlXml((vr) => {
+        const gather = vr.gather({
+          numDigits: 4,
+          timeout: 5,
+          action: inboundUrl,
+          method: 'POST',
+          finishOnKey: '#'
+        });
+        gather.say('Press the extension you wish to reach, or stay on the line for the main line.');
+        vr.redirect({ method: 'POST' }, `${inboundUrl}?mainLine=1`);
       }));
     }
 
@@ -190,7 +267,6 @@ export const inboundVoiceWebhook = async (req, res, next) => {
       }
     });
 
-    const base = voiceBaseFromRequest(req);
     const cfg = await getAgencyVoiceConfig(route?.agencyId || null);
     const dialAction = `${base}/dial-complete?callLogId=${created.id}`;
     const xml = twimlXml((vr) => {
@@ -380,6 +456,16 @@ export const voiceVoicemailCompleteWebhook = async (req, res, next) => {
           },
           ended_at: nowSql()
         });
+        // Fire-and-forget: transcribe voicemail with Google Speech-to-Text
+        if (vm?.id) {
+          transcribeVoicemail({
+            voicemailId: vm.id,
+            recordingSid,
+            userId: callLog.user_id || null
+          }).catch((err) => {
+            console.error('[voicemail-transcription] Failed:', vm.id, err?.message || err);
+          });
+        }
       }
     }
     return res.status(200).type('text/xml').send(twimlXml((vr) => vr.hangup()));

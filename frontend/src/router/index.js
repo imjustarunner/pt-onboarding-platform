@@ -496,6 +496,16 @@ const routes = [
     }
   },
   {
+    path: '/:organizationSlug/admin/contacts',
+    name: 'OrganizationContacts',
+    component: () => import('../views/admin/ContactsView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider', 'provider_plus', 'clinical_practice_assistant', 'schedule_manager'],
+      organizationSlug: true
+    }
+  },
+  {
     path: '/:organizationSlug/admin/schedule-approvals',
     name: 'OrganizationOfficeScheduleApprovals',
     component: () => import('../views/admin/OfficeScheduleApprovalsView.vue'),
@@ -966,6 +976,12 @@ const routes = [
     name: 'AgencyCampaigns',
     component: () => import('../views/admin/AgencyCampaignsView.vue'),
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin', 'school_staff', 'provider', 'clinical_practice_assistant', 'supervisor', 'schedule_manager'] }
+  },
+  {
+    path: '/admin/contacts',
+    name: 'Contacts',
+    component: () => import('../views/admin/ContactsView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider', 'provider_plus', 'clinical_practice_assistant', 'schedule_manager'] }
   },
   {
     path: '/admin/communications/thread/:userId/:clientId',

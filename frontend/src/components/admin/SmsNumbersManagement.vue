@@ -10,6 +10,18 @@
     </div>
 
     <div v-else class="content">
+      <div v-if="numbers.length === 0" class="card get-started-card">
+        <h3>Get started with Twilio</h3>
+        <p class="muted">You need Twilio numbers to use SMS and voice. Here's how to set up:</p>
+        <ol class="setup-steps">
+          <li><strong>Create a Twilio account</strong> at <a href="https://www.twilio.com/try-twilio" target="_blank" rel="noopener">twilio.com</a></li>
+          <li><strong>Get credentials</strong> from the Twilio Console (Account SID, Auth Token)</li>
+          <li><strong>Set backend env vars</strong>: <code>TWILIO_ACCOUNT_SID</code>, <code>TWILIO_AUTH_TOKEN</code>, <code>TWILIO_SMS_WEBHOOK_URL</code>, <code>TWILIO_VOICE_WEBHOOK_URL</code>, <code>TWILIO_VALIDATE_SIGNATURE=true</code></li>
+          <li><strong>Add a number</strong> below: search & buy via Twilio, or add a number you already own</li>
+        </ol>
+        <p class="muted">See <code>TWILIO_SETUP.md</code> in the project root for full details.</p>
+      </div>
+
       <div class="card">
         <h3>Agency SMS Settings</h3>
         <div v-if="settingsError" class="error">{{ settingsError }}</div>
@@ -117,6 +129,42 @@
             {{ savingSettings ? 'Saving…' : 'Save settings' }}
           </button>
         </div>
+
+        <div class="usage-card">
+          <div class="usage-header">
+            <strong>Usage (last 30 days)</strong>
+            <button class="btn btn-secondary btn-sm" :disabled="loadingUsage" @click="loadUsage">
+              {{ loadingUsage ? 'Loading…' : 'Refresh' }}
+            </button>
+          </div>
+          <div v-if="usageError" class="error">{{ usageError }}</div>
+          <div v-else-if="usage" class="usage-grid">
+            <div class="usage-item">
+              <span class="usage-value">{{ usage.outboundSms }}</span>
+              <span class="usage-label">Outbound SMS</span>
+            </div>
+            <div class="usage-item">
+              <span class="usage-value">{{ usage.inboundSms }}</span>
+              <span class="usage-label">Inbound SMS</span>
+            </div>
+            <div class="usage-item">
+              <span class="usage-value">{{ usage.notificationSms }}</span>
+              <span class="usage-label">Notification SMS</span>
+            </div>
+            <div class="usage-item">
+              <span class="usage-value">{{ usage.callMinutes }}</span>
+              <span class="usage-label">Call minutes</span>
+            </div>
+            <div class="usage-item" v-if="usage.phoneNumbers !== null">
+              <span class="usage-value">{{ usage.phoneNumbers }}</span>
+              <span class="usage-label">Phone numbers</span>
+            </div>
+          </div>
+          <div v-if="usage && thresholds?.overThreshold" class="usage-alerts">
+            <span class="alert-badge">Alerts:</span>
+            <span v-for="a in thresholds.alerts" :key="a" class="alert-item">{{ a }}</span>
+          </div>
+        </div>
       </div>
 
       <div class="card">
@@ -171,9 +219,20 @@
                 </span>
               </div>
               <div class="muted" v-if="n.assignments?.length">
-                Assigned to: {{ assignmentLabel(n.assignments[0]) }}
+                <span v-if="n.assignments.length === 1">Assigned to: {{ assignmentLabel(n.assignments[0]) }}</span>
+                <span v-else>Pool: {{ n.assignments.length }} users ({{ smsAccessCount(n) }} with SMS access)</span>
               </div>
-              <div class="muted" v-else>Assigned to: Agency pool</div>
+              <div v-if="n.assignments?.length" class="sms-access-list">
+                <div v-for="a in n.assignments" :key="a.user_id" class="sms-access-row">
+                  <span>{{ assignmentLabel(a) }}</span>
+                  <label class="toggle-label">
+                    <span class="toggle-text">SMS</span>
+                    <input type="checkbox" :checked="a.sms_access_enabled !== 0 && a.sms_access_enabled !== false" @change="toggleSmsAccess(n, a)" />
+                  </label>
+                  <button v-if="n.assignments.length > 1" class="btn btn-small" @click="unassignUser(n, a)">Remove</button>
+                </div>
+              </div>
+              <div class="muted" v-else-if="!n.assignments?.length">Assigned to: Agency pool</div>
             </div>
             <div class="right">
               <select v-model="assignmentDraft[n.id]" class="select">
@@ -182,10 +241,14 @@
                   {{ u.first_name }} {{ u.last_name }} ({{ u.role }})
                 </option>
               </select>
+              <label v-if="n.assignments?.length" class="checkbox-inline">
+                <input type="checkbox" v-model="addToPoolDraft[n.id]" />
+                Add to pool
+              </label>
               <button class="btn btn-secondary" @click="assignNumber(n)">
-                Assign
+                {{ addToPoolDraft[n.id] ? 'Add' : 'Assign' }}
               </button>
-              <button v-if="n.assignments?.length" class="btn btn-secondary" @click="unassignNumber(n)">
+              <button v-if="n.assignments?.length === 1" class="btn btn-secondary" @click="unassignNumber(n)">
                 Unassign
               </button>
               <button class="btn btn-secondary" @click="selectRules(n)">
@@ -284,6 +347,42 @@
           <button class="btn btn-secondary" @click="clearSelectedRules">Close</button>
         </div>
       </div>
+
+      <div class="card">
+        <h3>Voice Extensions</h3>
+        <p class="muted">Assign extensions (e.g., 101, 102) so callers can reach staff directly. Callers hear "Press the extension you wish to reach" when calling your numbers.</p>
+        <div class="toolbar">
+          <div class="inline">
+            <select v-model="newExtUser" class="select">
+              <option :value="null">Select user…</option>
+              <option v-for="u in agencyUsers" :key="u.id" :value="u.id">
+                {{ u.first_name }} {{ u.last_name }} ({{ u.role }})
+              </option>
+            </select>
+            <input v-model="newExtNumber" class="input" placeholder="Extension (e.g. 101)" />
+            <select v-model="newExtNumberId" class="select">
+              <option :value="null">Any agency number</option>
+              <option v-for="n in activeAgencyNumbers" :key="n.id" :value="n.id">
+                {{ n.phone_number }}{{ n.friendly_name ? ` (${n.friendly_name})` : '' }}
+              </option>
+            </select>
+            <button class="btn" :disabled="addingExt || !newExtUser || !newExtNumber" @click="addExtension">
+              {{ addingExt ? 'Adding…' : 'Add extension' }}
+            </button>
+          </div>
+        </div>
+        <div v-if="extensions.length === 0" class="empty-state">No extensions yet.</div>
+        <div v-else class="list">
+          <div v-for="e in extensions" :key="e.id" class="row">
+            <div class="left">
+              <span class="ext-badge">{{ e.extension }}</span>
+              {{ e.first_name }} {{ e.last_name }}
+              <span class="muted">→ {{ e.phone_number || 'Any number' }}</span>
+            </div>
+            <button class="btn btn-secondary" @click="removeExtension(e)">Remove</button>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -316,6 +415,10 @@ const webhookExpected = ref({ smsUrl: null, voiceUrl: null });
 const webhookStatuses = ref([]);
 const webhookError = ref('');
 const loadingWebhookStatus = ref(false);
+const usage = ref(null);
+const usageError = ref('');
+const loadingUsage = ref(false);
+const thresholds = ref(null);
 const syncingWebhooks = ref(false);
 
 const numbers = ref([]);
@@ -329,6 +432,13 @@ const searchResults = ref([]);
 const searchingNumbers = ref(false);
 
 const assignmentDraft = ref({});
+const addToPoolDraft = ref({});
+
+const extensions = ref([]);
+const newExtUser = ref(null);
+const newExtNumber = ref('');
+const newExtNumberId = ref(null);
+const addingExt = ref(false);
 
 const selectedNumber = ref(null);
 const ruleDraft = ref({
@@ -395,6 +505,31 @@ const loadWebhookStatus = async () => {
     webhookStatuses.value = [];
   } finally {
     loadingWebhookStatus.value = false;
+  }
+};
+
+const loadUsage = async () => {
+  if (!agencyId.value) return;
+  loadingUsage.value = true;
+  usageError.value = '';
+  try {
+    const end = new Date();
+    const start = new Date();
+    start.setDate(start.getDate() - 30);
+    const res = await api.get(`/sms-numbers/agency/${agencyId.value}/usage`, {
+      params: {
+        periodStart: start.toISOString().slice(0, 10),
+        periodEnd: end.toISOString().slice(0, 10)
+      }
+    });
+    usage.value = res.data?.usage || null;
+    thresholds.value = res.data?.thresholds || null;
+  } catch (e) {
+    usageError.value = e?.response?.data?.error?.message || 'Failed to load usage';
+    usage.value = null;
+    thresholds.value = null;
+  } finally {
+    loadingUsage.value = false;
   }
 };
 
@@ -480,12 +615,38 @@ const buyNumber = async (phoneNumber) => {
 const assignNumber = async (number) => {
   const userId = assignmentDraft.value[number.id];
   if (!userId) return;
+  const addToPool = addToPoolDraft.value[number.id] === true;
   await api.post('/sms-numbers/assign', {
     numberId: number.id,
     userId: parseInt(userId, 10),
-    isPrimary: true
+    isPrimary: !addToPool,
+    addToPool
   });
   assignmentDraft.value[number.id] = '';
+  addToPoolDraft.value[number.id] = false;
+  await loadNumbers();
+};
+
+const smsAccessCount = (number) => {
+  const assignments = number.assignments || [];
+  return assignments.filter((a) => a.sms_access_enabled !== 0 && a.sms_access_enabled !== false).length;
+};
+
+const toggleSmsAccess = async (number, assignment) => {
+  const enabled = !(assignment.sms_access_enabled !== 0 && assignment.sms_access_enabled !== false);
+  await api.post('/sms-numbers/set-sms-access', {
+    numberId: number.id,
+    userId: assignment.user_id,
+    enabled
+  });
+  await loadNumbers();
+};
+
+const unassignUser = async (number, assignment) => {
+  await api.post('/sms-numbers/unassign', {
+    numberId: number.id,
+    userId: assignment.user_id
+  });
   await loadNumbers();
 };
 
@@ -573,8 +734,47 @@ const statusClass = (matches) => {
   return '';
 };
 
+const loadExtensions = async () => {
+  if (!agencyId.value) return;
+  try {
+    const res = await api.get(`/extensions/agency/${agencyId.value}`);
+    extensions.value = Array.isArray(res.data) ? res.data : [];
+  } catch {
+    extensions.value = [];
+  }
+};
+
+const addExtension = async () => {
+  if (!agencyId.value || !newExtUser.value || !newExtNumber.value) return;
+  addingExt.value = true;
+  try {
+    await api.post('/extensions', {
+      agencyId: agencyId.value,
+      userId: newExtUser.value,
+      extension: newExtNumber.value.trim(),
+      numberId: newExtNumberId.value
+    });
+    newExtUser.value = null;
+    newExtNumber.value = '';
+    newExtNumberId.value = null;
+    await loadExtensions();
+  } finally {
+    addingExt.value = false;
+  }
+};
+
+const removeExtension = async (ext) => {
+  if (!ext?.id) return;
+  try {
+    await api.delete(`/extensions/${ext.id}`);
+    await loadExtensions();
+  } catch {
+    // ignore
+  }
+};
+
 const init = async () => {
-  await Promise.all([loadSettings(), loadNumbers(), loadUsers(), loadWebhookStatus()]);
+  await Promise.all([loadSettings(), loadNumbers(), loadUsers(), loadWebhookStatus(), loadExtensions(), loadUsage()]);
 };
 
 watch(agencyId, async (val) => {
@@ -679,9 +879,112 @@ onMounted(async () => {
   align-items: center;
   gap: 6px;
 }
+.checkbox-inline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.9em;
+}
+.get-started-card {
+  border-color: var(--primary, #2563eb);
+  background: linear-gradient(to bottom, rgba(37, 99, 235, 0.04), transparent);
+}
+.setup-steps {
+  margin: 12px 0;
+  padding-left: 20px;
+}
+.setup-steps li {
+  margin-bottom: 8px;
+}
+.setup-steps code {
+  background: var(--bg-secondary);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.9em;
+}
+.sms-access-list {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.sms-access-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.9em;
+}
+.toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.toggle-text {
+  font-size: 0.85em;
+  color: var(--text-secondary);
+}
+.btn-small {
+  padding: 4px 8px;
+  font-size: 0.85em;
+}
+.ext-badge {
+  display: inline-block;
+  background: var(--primary, #2563eb);
+  color: white;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-weight: 600;
+  margin-right: 8px;
+}
 .textarea {
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 8px;
+}
+.usage-card {
+  margin-top: 16px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-secondary, #f8fafc);
+}
+.usage-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.usage-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+.usage-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.usage-value {
+  font-weight: 600;
+  font-size: 1.1em;
+}
+.usage-label {
+  font-size: 0.85em;
+  color: var(--text-secondary);
+}
+.usage-alerts {
+  margin-top: 12px;
+  padding: 8px;
+  background: #fef3c7;
+  border-radius: 6px;
+  font-size: 0.9em;
+}
+.alert-badge {
+  font-weight: 600;
+  margin-right: 8px;
+}
+.alert-item {
+  display: block;
+  margin-top: 4px;
 }
 </style>

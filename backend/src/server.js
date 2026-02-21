@@ -75,6 +75,8 @@ import officeScheduleRoutes from './routes/officeSchedule.routes.js';
 import twilioRoutes from './routes/twilio.routes.js';
 import messageRoutes from './routes/message.routes.js';
 import smsNumbersRoutes from './routes/smsNumbers.routes.js';
+import extensionsRoutes from './routes/extensions.routes.js';
+import contactsRoutes from './routes/contacts.routes.js';
 import presenceRoutes from './routes/presence.routes.js';
 import chatRoutes from './routes/chat.routes.js';
 import kioskRoutes from './routes/kiosk.routes.js';
@@ -591,6 +593,8 @@ app.use('/api', researchCandidateRoutes);
 app.use('/api/twilio', twilioRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/sms-numbers', smsNumbersRoutes);
+app.use('/api/extensions', extensionsRoutes);
+app.use('/api/contacts', contactsRoutes);
 app.use('/api/presence', presenceRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/kiosk', kioskRoutes);
@@ -812,6 +816,34 @@ app.listen(PORT, HOST, () => {
     scheduleIntakeRetentionCleanup();
     setInterval(scheduleIntakeRetentionCleanup, 24 * 60 * 60 * 1000);
   }, getMsUntilMidnight() + (2.5 * 60 * 60 * 1000));
+
+  // SMS/Voice retention cleanup (message_logs, call_logs, call_voicemails, notification_sms_logs)
+  // Runs daily at 3:00 AM. Set SMS_VOICE_RETENTION_DAYS=365 (default) or 0 to keep indefinitely.
+  const scheduleSmsVoiceRetentionCleanup = async () => {
+    try {
+      const SmsVoiceRetentionCleanupService = (await import('./services/smsVoiceRetentionCleanup.service.js')).default;
+      const result = await SmsVoiceRetentionCleanupService.run({ limit: 500 });
+      if (result?.skipped) return;
+      const total = Number(result?.total || 0);
+      if (total > 0) {
+        console.log(
+          `[sms_voice_retention] purged ${total} rows (voicemails: ${result?.deletedVoicemails || 0}, calls: ${result?.deletedCallLogs || 0}, messages: ${result?.deletedMessageLogs || 0}, notifications: ${result?.deletedNotificationSms || 0})`
+        );
+      }
+    } catch (error) {
+      if (error.code === 'ER_NO_SUCH_TABLE') {
+        console.warn('SMS/voice retention tables not found. Run Twilio migrations.');
+      } else {
+        console.error('Error in SMS/voice retention cleanup:', error);
+      }
+    }
+  };
+
+  scheduleSmsVoiceRetentionCleanup();
+  setTimeout(() => {
+    scheduleSmsVoiceRetentionCleanup();
+    setInterval(scheduleSmsVoiceRetentionCleanup, 24 * 60 * 60 * 1000);
+  }, getMsUntilMidnight() + (3 * 60 * 60 * 1000));
 
   // Audit cold-storage lifecycle: export older rows to object storage and prune hot tables.
   // Runs daily at 3:15 AM; exports are chunked by source table.

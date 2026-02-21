@@ -8,6 +8,7 @@ import TwilioNumberRule from '../models/TwilioNumberRule.model.js';
 import TwilioOptInState from '../models/TwilioOptInState.model.js';
 import TwilioService from '../services/twilio.service.js';
 import { resolveOutboundNumber, resolveReminderNumber } from '../services/twilioNumberRouting.service.js';
+import { getTwilioUsage, checkUsageThresholds } from '../services/twilioUsageMonitoring.service.js';
 
 const parseFeatureFlags = (raw) => {
   if (!raw) return {};
@@ -49,6 +50,21 @@ async function assertNumberAccess(req, numberId, { requireAdmin = false } = {}) 
   }
   return number;
 }
+
+export const getAgencyTwilioUsage = async (req, res, next) => {
+  try {
+    const agencyId = parseInt(req.params.agencyId, 10);
+    if (!agencyId) return res.status(400).json({ error: { message: 'Invalid agencyId' } });
+    const agency = await Agency.findById(agencyId);
+    if (!agency) return res.status(404).json({ error: { message: 'Agency not found' } });
+    const { periodStart, periodEnd } = req.query || {};
+    const usage = await getTwilioUsage(agencyId, { periodStart, periodEnd });
+    const thresholds = await checkUsageThresholds(agencyId, usage);
+    res.json({ agencyId, usage, thresholds });
+  } catch (e) {
+    next(e);
+  }
+};
 
 export const getAgencySmsSettings = async (req, res, next) => {
   try {
@@ -260,7 +276,7 @@ export const releaseNumber = async (req, res, next) => {
 
 export const assignNumber = async (req, res, next) => {
   try {
-    const { numberId, userId, isPrimary } = req.body || {};
+    const { numberId, userId, isPrimary, addToPool } = req.body || {};
     const numId = parseInt(numberId, 10);
     const uid = parseInt(userId, 10);
     if (!numId || !uid) return res.status(400).json({ error: { message: 'numberId and userId are required' } });
@@ -269,7 +285,35 @@ export const assignNumber = async (req, res, next) => {
     const user = await User.findById(uid);
     if (!user) return res.status(404).json({ error: { message: 'User not found' } });
 
-    const assignment = await TwilioNumberAssignment.assign({ numberId: numId, userId: uid, isPrimary: isPrimary !== false });
+    const assignment = addToPool
+      ? await TwilioNumberAssignment.addToPool({
+          numberId: numId,
+          userId: uid,
+          smsAccessEnabled: true,
+          isPrimary: isPrimary === true
+        })
+      : await TwilioNumberAssignment.assign({
+          numberId: numId,
+          userId: uid,
+          isPrimary: isPrimary !== false,
+          replaceExisting: true
+        });
+    res.json({ assignment });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const setSmsAccess = async (req, res, next) => {
+  try {
+    const { numberId, userId, enabled } = req.body || {};
+    const numId = parseInt(numberId, 10);
+    const uid = parseInt(userId, 10);
+    if (!numId || !uid) return res.status(400).json({ error: { message: 'numberId and userId are required' } });
+    if (typeof enabled !== 'boolean') return res.status(400).json({ error: { message: 'enabled must be a boolean' } });
+
+    await assertNumberAccess(req, numId, { requireAdmin: true });
+    const assignment = await TwilioNumberAssignment.setSmsAccess({ numberId: numId, userId: uid, enabled });
     res.json({ assignment });
   } catch (e) {
     next(e);

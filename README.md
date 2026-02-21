@@ -270,6 +270,13 @@ docker-compose exec mysql mysql -u onboarding_user -ponboarding_pass onboarding_
 - CORS configuration
 - Role-based access control
 
+## Documentation
+
+- **`SMS_VOICE_BUILD_INSTRUCTIONS.md`** — SMS/voice setup, HIPAA, usage monitoring, Google transcription (continuation guide)
+- **`TWILIO_SETUP.md`** — Twilio account, credentials, webhooks
+- **`TWILIO_HIPAA_COMPLIANCE.md`** — HIPAA checklist for Twilio
+- **`GOOGLE_TRANSCRIPTION_INTEGRATION.md`** — Speech-to-Text integration for voicemail/clinical notes
+
 ## Future Enhancements
 
 - Google OAuth integration

@@ -391,3 +391,5 @@ Run the database migrations before enabling the feature flags:
 - `356_add_sms_forwarding_pref.sql`
 - `357_create_program_reminder_schedules.sql`
 - `358_create_agency_notification_preferences.sql`
+- `473_twilio_assignments_sms_access_enabled.sql` (multi-recipient SMS pool)
+- `474_create_user_extensions.sql` (voice extension dialing)

@@ -6,6 +6,7 @@ import Agency from '../models/Agency.model.js';
 import CommunicationLoggingService from '../services/communicationLogging.service.js';
 import EmailService from '../services/email.service.js';
 import { sendEmailFromIdentity } from '../services/unifiedEmail/unifiedEmailSender.service.js';
+import { logContactCommunicationIfApplicable } from '../services/contactCommsLogging.service.js';
 import { callGeminiText } from '../services/geminiText.service.js';
 
 export const getTemplates = async (req, res, next) => {
@@ -406,6 +407,18 @@ export const sendTemplateEmail = async (req, res, next) => {
         await CommunicationLoggingService.markAsSent(comm.id, sendResult.id, {
           senderIdentityId: senderIdentityId || null,
           fromEmail: senderIdentityId ? undefined : (process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || null)
+        }).catch(() => {});
+      }
+
+      if (agencyId && to && sendResult?.id) {
+        await logContactCommunicationIfApplicable({
+          agencyId,
+          channel: 'email',
+          direction: 'outbound',
+          recipient: to,
+          body: rendered.body || '',
+          externalRefId: String(sendResult.id),
+          metadata: { subject: rendered.subject }
         }).catch(() => {});
       }
 

@@ -9,6 +9,8 @@ import TwilioService from '../services/twilio.service.js';
 import { resolveOutboundNumber } from '../services/twilioNumberRouting.service.js';
 import SmsThreadEscalation from '../models/SmsThreadEscalation.model.js';
 import { logAuditEvent } from '../services/auditEvent.service.js';
+import AgencyContact from '../models/AgencyContact.model.js';
+import ContactCommunicationLog from '../models/ContactCommunicationLog.model.js';
 
 const parseFeatureFlags = (raw) => {
   if (!raw) return {};
@@ -214,6 +216,24 @@ export const sendMessage = async (req, res, next) => {
         body
       });
       const updated = await MessageLog.markSent(outboundLog.id, msg.sid, { provider: 'twilio', status: msg.status, gatekeeper: decision });
+      try {
+        const contact = await AgencyContact.findByPhone(client.contact_phone, client.agency_id);
+        if (contact) {
+          const existing = await ContactCommunicationLog.findByExternalRefId(String(outboundLog.id));
+          if (!existing) {
+            await ContactCommunicationLog.create({
+              contactId: contact.id,
+              channel: 'sms',
+              direction: 'outbound',
+              body,
+              externalRefId: String(outboundLog.id),
+              metadata: { fromNumber, toNumber: client.contact_phone, messageLogId: outboundLog.id }
+            });
+          }
+        }
+      } catch {
+        // Best-effort; do not fail send
+      }
       await logAuditEvent(req, {
         actionType: 'sms_sent',
         agencyId: client.agency_id || null,

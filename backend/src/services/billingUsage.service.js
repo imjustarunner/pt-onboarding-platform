@@ -118,6 +118,17 @@ class BillingUsageService {
       [parsedAgencyId]
     );
 
+    // Voice call minutes (call_logs) within billing period
+    const [callMinutesRows] = await pool.execute(
+      `SELECT COALESCE(SUM(cl.duration_seconds), 0) AS total_seconds
+       FROM call_logs cl
+       WHERE cl.agency_id = ?
+         AND cl.duration_seconds IS NOT NULL
+         AND cl.duration_seconds > 0
+         AND (? = FALSE OR (cl.started_at >= ? AND cl.started_at < DATE_ADD(?, INTERVAL 1 DAY)))`,
+      [parsedAgencyId, hasWindow ? 1 : 0, startStr || '1970-01-01', endStr || '1970-01-01']
+    );
+
     // Momentum List add-on: active employees (billable per person at $5)
     const [momentumListRows] = await pool.execute(
       `SELECT COUNT(DISTINCT u.id) AS cnt
@@ -130,6 +141,9 @@ class BillingUsageService {
       [parsedAgencyId]
     );
 
+    const callTotalSeconds = Number(callMinutesRows?.[0]?.total_seconds || 0);
+    const callMinutesUsed = Math.ceil(callTotalSeconds / 60);
+
     return {
       schoolsUsed: Number(schoolsRows?.[0]?.cnt || 0),
       programsUsed: Number(programRows?.[0]?.cnt || 0),
@@ -139,6 +153,7 @@ class BillingUsageService {
       inboundSmsUsed: Number(inboundSmsRows?.[0]?.cnt || 0),
       notificationSmsUsed: Number(notificationSmsRows?.[0]?.cnt || 0),
       phoneNumbersUsed: Number(phoneRows?.[0]?.cnt || 0),
+      callMinutesUsed,
       momentumListUsersUsed: Number(momentumListRows?.[0]?.cnt || 0)
     };
   }

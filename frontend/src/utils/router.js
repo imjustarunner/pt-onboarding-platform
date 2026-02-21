@@ -1,4 +1,5 @@
 import { useAuthStore } from '../store/auth';
+import { useAgencyStore } from '../store/agency';
 import { useOrganizationStore } from '../store/organization';
 import { isSupervisor } from './helpers.js';
 import { getOrganizationDashboardRoute } from './organizationContext.js';
@@ -9,6 +10,7 @@ import { getOrganizationDashboardRoute } from './organizationContext.js';
  */
 export function getDashboardRoute() {
   const authStore = useAuthStore();
+  const agencyStore = useAgencyStore();
   const organizationStore = useOrganizationStore();
   const user = authStore.user;
   
@@ -91,6 +93,17 @@ export function getDashboardRoute() {
       user.agencies?.[0]?.slug ||
       null;
     return slug ? `/${slug}/dashboard` : '/dashboard';
+  }
+
+  // Providers with a single agency should land on org-scoped dashboard for consistent branding/nav
+  if (userRole === 'provider') {
+    const fromUser = user.agencies || [];
+    const fromStore = agencyStore.userAgencies?.value ?? agencyStore.userAgencies ?? [];
+    const orgs = fromUser.length > 0 ? fromUser : (Array.isArray(fromStore) ? fromStore : []);
+    if (orgs.length === 1 && (orgs[0]?.slug || orgs[0]?.portal_url)) {
+      const slug = orgs[0].slug || orgs[0].portal_url;
+      if (slug && String(slug).trim()) return `/${slug}/dashboard`;
+    }
   }
 
   // Regular users go to regular dashboard

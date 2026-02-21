@@ -3,7 +3,9 @@ import { authenticate, requireAgencyAccess, requireAgencyAdmin } from '../middle
 import {
   addManualNumber,
   assignNumber,
+  setSmsAccess,
   getAgencySmsSettings,
+  getAgencyTwilioUsage,
   getNumberRules,
   listAgencyNumbers,
   getAgencyWebhookStatus,
@@ -36,10 +38,12 @@ router.post('/agency/:agencyId/buy', requireAgencyAdmin, purchaseNumber);
 router.post('/agency/:agencyId/add', requireAgencyAdmin, addManualNumber);
 router.get('/agency/:agencyId/webhooks/status', requireAgencyAdmin, getAgencyWebhookStatus);
 router.post('/agency/:agencyId/webhooks/sync', requireAgencyAdmin, syncAgencyWebhooks);
+router.get('/agency/:agencyId/usage', requireAgencyAccess, getAgencyTwilioUsage);
 
 // Number lifecycle
 router.delete('/:numberId', releaseNumber);
 router.post('/assign', assignNumber);
+router.post('/set-sms-access', setSmsAccess);
 router.post('/unassign', unassignNumber);
 
 // Rules

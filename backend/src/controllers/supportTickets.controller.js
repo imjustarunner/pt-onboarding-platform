@@ -94,7 +94,7 @@ async function ensureOrgAccess(req, schoolOrganizationId) {
         const canSupervisorAccess = await supervisorHasSuperviseeInSchool(req.user?.id, sid);
         if (canSupervisorAccess) return { ok: true, org, schoolOrganizationId: sid, supervisorLimited: true };
       }
-      const canUseAgencyAffiliation = role === 'admin' || role === 'support' || role === 'staff' || role === 'supervisor' || role === 'clinical_practice_assistant' || role === 'provider_plus';
+      const canUseAgencyAffiliation = role === 'admin' || role === 'support' || role === 'staff' || role === 'supervisor' || role === 'clinical_practice_assistant' || role === 'provider_plus' || role === 'provider';
       if (!canUseAgencyAffiliation) return { ok: false, status: 403, message: 'Access denied' };
       const activeAgencyId = await resolveActiveAgencyIdForOrg(sid);
       const hasAgency = activeAgencyId
@@ -206,6 +206,48 @@ const isAgencyAdminUser = (req) => {
   return r === 'admin' || r === 'super_admin' || r === 'support' || r === 'staff' || r === 'clinical_practice_assistant' || r === 'provider_plus';
 };
 
+async function providerAssignedToClientInOrg({ providerUserId, clientId, orgId }) {
+  const pid = parseInt(String(providerUserId), 10);
+  const cid = parseInt(String(clientId), 10);
+  const oid = parseInt(String(orgId), 10);
+  if (!pid || !cid || !oid) return false;
+  try {
+    const [rows] = await pool.execute(
+      `SELECT 1
+       FROM client_provider_assignments cpa
+       WHERE cpa.client_id = ?
+         AND cpa.organization_id = ?
+         AND cpa.provider_user_id = ?
+         AND cpa.is_active = TRUE
+       LIMIT 1`,
+      [cid, oid, pid]
+    );
+    if (rows?.[0]) return true;
+  } catch (e) {
+    const msg = String(e?.message || '');
+    const missing =
+      msg.includes("doesn't exist") ||
+      msg.includes('ER_NO_SUCH_TABLE') ||
+      msg.includes('Unknown column') ||
+      msg.includes('ER_BAD_FIELD_ERROR');
+    if (!missing) throw e;
+  }
+  try {
+    const [rows] = await pool.execute(
+      `SELECT 1
+       FROM clients c
+       WHERE c.id = ?
+         AND c.provider_id = ?
+         AND c.organization_id = ?
+       LIMIT 1`,
+      [cid, pid, oid]
+    );
+    return !!rows?.[0];
+  } catch {
+    return false;
+  }
+}
+
 async function canSupervisorAccessClientScope({ req, schoolOrganizationId, clientId }) {
   const userId = Number(req.user?.id || 0);
   const sid = Number(schoolOrganizationId || 0);
@@ -222,6 +264,9 @@ async function canSupervisorAccessClientScope({ req, schoolOrganizationId, clien
 async function canViewClientTicketScope({ req, schoolOrganizationId, clientId }) {
   const role = String(req.user?.role || '').toLowerCase();
   if (role === 'super_admin' || role === 'school_staff' || isAgencyAdminUser(req)) return true;
+  if (role === 'provider') {
+    return await providerAssignedToClientInOrg({ providerUserId: req.user?.id, clientId, orgId: schoolOrganizationId });
+  }
   return await canSupervisorAccessClientScope({ req, schoolOrganizationId, clientId });
 }
 
@@ -456,15 +501,23 @@ export const createSupportTicket = async (req, res, next) => {
     const access = await ensureOrgAccess(req, schoolOrganizationId);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
 
-    // School Portal: allow school_staff and providers to create tickets to admin/staff/support.
+    // School Portal: allow school_staff and providers (for their assigned clients) to create tickets.
     const role = String(req.user?.role || '').toLowerCase();
     if (clientId) {
-      // Client-scoped tickets: school staff only (per product decision).
-      if (role !== 'school_staff') {
-        return res.status(403).json({ error: { message: 'Only school staff can submit client tickets' } });
+      // Client-scoped tickets: school staff or providers assigned to the client.
+      if (role === 'school_staff') {
+        const okClient = await ensureClientInOrg({ clientId, schoolOrganizationId });
+        if (!okClient.ok) return res.status(okClient.status).json({ error: { message: okClient.message } });
+      } else if (role === 'provider') {
+        const assigned = await providerAssignedToClientInOrg({
+          providerUserId: req.user?.id,
+          clientId,
+          orgId: schoolOrganizationId
+        });
+        if (!assigned) return res.status(403).json({ error: { message: 'Access denied. You can only create tickets for clients assigned to you.' } });
+      } else {
+        return res.status(403).json({ error: { message: 'Only school staff and assigned providers can submit client tickets' } });
       }
-      const okClient = await ensureClientInOrg({ clientId, schoolOrganizationId });
-      if (!okClient.ok) return res.status(okClient.status).json({ error: { message: okClient.message } });
     } else if (role !== 'school_staff' && role !== 'provider') {
       return res.status(403).json({ error: { message: 'Only school staff and providers can submit support tickets here' } });
     }
@@ -717,11 +770,18 @@ export const listSupportTicketMessages = async (req, res, next) => {
     const role = String(req.user?.role || '').toLowerCase();
     let canView = role === 'school_staff' || isAgencyAdminUser(req) || role === 'super_admin';
     if (!canView && ticket.client_id) {
-      canView = await canSupervisorAccessClientScope({
-        req,
-        schoolOrganizationId: ticket.school_organization_id,
-        clientId: ticket.client_id
-      });
+      canView =
+        (await canSupervisorAccessClientScope({
+          req,
+          schoolOrganizationId: ticket.school_organization_id,
+          clientId: ticket.client_id
+        })) ||
+        (role === 'provider' &&
+          (await providerAssignedToClientInOrg({
+            providerUserId: req.user?.id,
+            clientId: ticket.client_id,
+            orgId: ticket.school_organization_id
+          })));
     }
     if (!canView) return res.status(403).json({ error: { message: 'Access denied' } });
 
@@ -785,15 +845,22 @@ export const createSupportTicketMessage = async (req, res, next) => {
 
     const role = String(req.user?.role || '').toLowerCase();
 
-    // Client-scoped tickets: allow school_staff and agency admin/support/staff to post.
+    // Client-scoped tickets: allow school_staff, agency admin/support/staff, and assigned providers to post.
     if (ticket.client_id) {
       let canPost = role === 'school_staff' || isAgencyAdminUser(req) || role === 'super_admin';
       if (!canPost) {
-        canPost = await canSupervisorAccessClientScope({
-          req,
-          schoolOrganizationId: ticket.school_organization_id,
-          clientId: ticket.client_id
-        });
+        canPost =
+          (await canSupervisorAccessClientScope({
+            req,
+            schoolOrganizationId: ticket.school_organization_id,
+            clientId: ticket.client_id
+          })) ||
+          (role === 'provider' &&
+            (await providerAssignedToClientInOrg({
+              providerUserId: req.user?.id,
+              clientId: ticket.client_id,
+              orgId: ticket.school_organization_id
+            })));
       }
       if (!canPost) return res.status(403).json({ error: { message: 'Access denied' } });
       // Validate client still belongs to org (avoids cross-org leakage)

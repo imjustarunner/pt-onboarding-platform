@@ -39,6 +39,23 @@
           <div class="audience">
             <label><input type="radio" value="all" v-model="form.audienceMode" /> All staff</label>
             <label><input type="radio" value="selected" v-model="form.audienceMode" /> Selected staff</label>
+            <label><input type="radio" value="contacts" v-model="form.audienceMode" /> Contacts</label>
+          </div>
+        </div>
+        <div v-if="form.audienceMode === 'contacts'" class="field contacts-audience">
+          <div class="audience-target">
+            <select v-model="form.audienceTarget.schoolId" class="filter-select">
+              <option value="">All schools</option>
+              <option v-for="s in audienceSchools" :key="s.id" :value="String(s.id)">{{ s.name }}</option>
+            </select>
+            <select v-model="form.audienceTarget.providerId" class="filter-select">
+              <option value="">All providers</option>
+              <option v-for="p in audienceProviders" :key="p.id" :value="String(p.id)">{{ p.first_name }} {{ p.last_name }}</option>
+            </select>
+            <input v-model="form.audienceTarget.clientId" type="text" placeholder="Client ID (optional)" class="filter-select" />
+          </div>
+          <div v-if="contactsAudienceCount !== null" class="muted">
+            {{ contactsAudienceCount }} contact(s) with phone numbers
           </div>
         </div>
         <div v-if="form.audienceMode === 'selected'" class="field staff-list">
@@ -76,7 +93,7 @@
               <div class="row-meta">
                 <span class="pill" :class="c.status">{{ c.status }}</span>
                 <span class="muted">{{ formatDate(c.created_at) }}</span>
-                <span class="muted">Recipients: {{ c.recipient_count || 0 }}</span>
+                <span class="muted">Recipients: {{ (c.contact_recipient_count ?? c.recipient_count) || 0 }}</span>
                 <span class="muted">Responses: {{ c.response_count || 0 }}</span>
               </div>
             </div>
@@ -154,8 +171,13 @@ const form = ref({
   question: '',
   endsAtLocal: '',
   audienceMode: 'all',
-  recipientIds: []
+  recipientIds: [],
+  audienceTarget: { schoolId: '', providerId: '', clientId: '' }
 });
+
+const audienceSchools = ref([]);
+const audienceProviders = ref([]);
+const contactsAudienceCount = ref(null);
 
 const parseFeatureFlags = (raw) => {
   if (!raw) return {};
@@ -231,6 +253,13 @@ const createCampaign = async (sendNow) => {
     error.value = 'Title and question are required.';
     return;
   }
+  if (form.value.audienceMode === 'contacts') {
+    const t = form.value.audienceTarget || {};
+    if (!t.schoolId && !t.providerId && !t.clientId) {
+      error.value = 'Select at least one target: school, provider, or client.';
+      return;
+    }
+  }
   error.value = '';
   loading.value = true;
   try {
@@ -242,12 +271,20 @@ const createCampaign = async (sendNow) => {
       audienceMode: form.value.audienceMode,
       recipientIds: form.value.audienceMode === 'selected' ? form.value.recipientIds : []
     };
+    if (form.value.audienceMode === 'contacts') {
+      const t = form.value.audienceTarget || {};
+      payload.audienceTarget = {
+        schoolId: t.schoolId ? parseInt(t.schoolId, 10) : undefined,
+        providerId: t.providerId ? parseInt(t.providerId, 10) : undefined,
+        clientId: t.clientId ? parseInt(t.clientId, 10) : undefined
+      };
+    }
     const res = await api.post('/agency-campaigns', payload);
     const created = res.data;
     if (sendNow && created?.id) {
       await api.post(`/agency-campaigns/${created.id}/send`);
     }
-    form.value = { title: '', question: '', endsAtLocal: '', audienceMode: 'all', recipientIds: [] };
+    form.value = { title: '', question: '', endsAtLocal: '', audienceMode: 'all', recipientIds: [], audienceTarget: { schoolId: '', providerId: '', clientId: '' } };
     await refreshAll();
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Failed to create campaign.';
@@ -294,14 +331,62 @@ const selectCampaign = async (campaign) => {
   }
 };
 
+const loadAudienceOptions = async () => {
+  if (!agencyId.value) return;
+  try {
+    const [schoolsRes, providersRes] = await Promise.all([
+      api.get(`/agencies/${agencyId.value}/affiliated-organizations`),
+      api.get('/provider-scheduling/providers', { params: { agencyId: agencyId.value } })
+    ]);
+    const schoolRows = Array.isArray(schoolsRes.data) ? schoolsRes.data : [];
+    audienceSchools.value = schoolRows
+      .filter((o) => String(o?.organization_type || '').toLowerCase() !== 'agency')
+      .map((o) => ({ id: o.id, name: o.name || `Org ${o.id}` }));
+    audienceProviders.value = providersRes.data || [];
+  } catch {
+    audienceSchools.value = [];
+    audienceProviders.value = [];
+  }
+};
+
+const fetchContactsAudienceCount = async () => {
+  if (!agencyId.value || form.value.audienceMode !== 'contacts') {
+    contactsAudienceCount.value = null;
+    return;
+  }
+  const t = form.value.audienceTarget || {};
+  if (!t.schoolId && !t.providerId && !t.clientId) {
+    contactsAudienceCount.value = null;
+    return;
+  }
+  try {
+    const params = {};
+    if (t.schoolId) params.schoolId = t.schoolId;
+    if (t.providerId) params.providerId = t.providerId;
+    if (t.clientId) params.clientId = t.clientId;
+    const res = await api.get(`/contacts/agency/${agencyId.value}/audience`, { params });
+    const list = res.data || [];
+    contactsAudienceCount.value = list.filter((c) => c.phone).length;
+  } catch {
+    contactsAudienceCount.value = null;
+  }
+};
+
 watch(
   () => agencyId.value,
   async (id) => {
     if (!id) return;
     await refreshAll();
     await loadStaff();
+    await loadAudienceOptions();
   },
   { immediate: true }
+);
+
+watch(
+  () => [form.value.audienceMode, form.value.audienceTarget?.schoolId, form.value.audienceTarget?.providerId, form.value.audienceTarget?.clientId],
+  () => fetchContactsAudienceCount(),
+  { deep: true }
 );
 
 onMounted(async () => {

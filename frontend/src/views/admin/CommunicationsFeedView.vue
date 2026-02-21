@@ -162,6 +162,9 @@
                 <div class="body">
                   Duration: {{ vm.duration_seconds || 0 }}s · Status: {{ String(vm.status || 'recorded').toUpperCase() }}
                 </div>
+                <div v-if="vm.transcription_text" class="transcription">
+                  {{ vm.transcription_text }}
+                </div>
               </div>
               <div class="right">
                 <div class="time">{{ formatTime(vm.created_at) }}</div>
@@ -983,6 +986,15 @@ onBeforeUnmount(() => {
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+.transcription {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: rgba(0, 0, 0, 0.04);
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.4;
 }
 .right {
   min-width: 220px;
