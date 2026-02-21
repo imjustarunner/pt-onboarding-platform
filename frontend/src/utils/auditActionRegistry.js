@@ -58,6 +58,13 @@ export const AUDIT_ACTION_REGISTRY = {
   view_client_notes: { label: 'Client notes viewed', category: 'Client Access' },
   create_client_note: { label: 'Client note created', category: 'Client Access' },
 
+  // School Portal
+  school_portal_roster_viewed: { label: 'School portal roster viewed', category: 'School Portal' },
+  school_portal_comments_viewed: { label: 'School portal comments viewed', category: 'School Portal' },
+  school_portal_comment_posted: { label: 'School portal comment posted', category: 'School Portal' },
+  school_portal_waitlist_viewed: { label: 'School portal waitlist note viewed', category: 'School Portal' },
+  school_portal_waitlist_updated: { label: 'School portal waitlist note updated', category: 'School Portal' },
+
   // Communications
   sms_sent: { label: 'SMS message sent', category: 'Communications' },
   sms_send_failed: { label: 'SMS send failed', category: 'Communications' },
@@ -114,6 +121,7 @@ export const AUDIT_CATEGORIES = [
   'Training',
   'Documents',
   'Client Access',
+  'School Portal',
   'Communications',
   'Support',
   'Billing & Payroll',

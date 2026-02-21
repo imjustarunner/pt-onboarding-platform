@@ -6,6 +6,8 @@
 import Client from '../models/Client.model.js';
 import ClientNotes from '../models/ClientNotes.model.js';
 import User from '../models/User.model.js';
+import { logClientAccess } from '../services/clientAccessLog.service.js';
+import { logAuditEvent } from '../services/auditEvent.service.js';
 import Agency from '../models/Agency.model.js';
 import UserPreferences from '../models/UserPreferences.model.js';
 import pool from '../config/database.js';
@@ -781,6 +783,9 @@ export const getSchoolClients = async (req, res, next) => {
       // ignore
     }
 
+    const agencyId = await resolveActiveAgencyIdForOrg(orgId);
+    logAuditEvent(req, { actionType: 'school_portal_roster_viewed', agencyId: agencyId || undefined }).catch(() => {});
+
     res.json(restrictedClients);
   } catch (error) {
     console.error('School portal clients error:', error);
@@ -1144,6 +1149,9 @@ export const getProviderMyRoster = async (req, res, next) => {
     } catch {
       // ignore
     }
+
+    const agencyId = await resolveActiveAgencyIdForOrg(orgId);
+    logAuditEvent(req, { actionType: 'school_portal_roster_viewed', agencyId: agencyId || undefined }).catch(() => {});
 
     res.json(restrictedClients);
   } catch (e) {
@@ -1819,6 +1827,8 @@ export const getClientWaitlistNote = async (req, res, next) => {
     const note = await ClientNotes.findLatestSharedByClientAndCategory(clientId, 'waitlist');
     if (!note) return res.json({ note: null });
 
+    logClientAccess(req, clientId, 'school_portal_waitlist_viewed').catch(() => {});
+
     res.json({
       note: {
         id: note.id,
@@ -1878,6 +1888,8 @@ export const upsertClientWaitlistNote = async (req, res, next) => {
       message,
       actorUserId: userId
     });
+
+    logClientAccess(req, clientId, 'school_portal_waitlist_updated').catch(() => {});
 
     res.status(201).json({
       note: saved
@@ -1943,6 +1955,8 @@ export const listClientComments = async (req, res, next) => {
         author_name: n.author_name || null
       }));
 
+    logClientAccess(req, clientId, 'school_portal_comments_viewed').catch(() => {});
+
     res.json(out);
   } catch (e) {
     next(e);
@@ -1992,6 +2006,8 @@ export const createClientComment = async (req, res, next) => {
       { client_id: clientId, author_id: userId, message, is_internal_only: false, category: 'comment', urgency: 'low' },
       { hasAgencyAccess: false, canViewInternalNotes: false }
     );
+
+    logClientAccess(req, clientId, 'school_portal_comment_posted').catch(() => {});
 
     res.status(201).json({
       comment: saved

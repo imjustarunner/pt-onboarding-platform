@@ -118,18 +118,29 @@
           <tr v-for="row in rows" :key="row.id">
             <td>{{ formatDate(row.created_at) }}</td>
             <td>{{ row.source_label || sourceLabel(row) }}</td>
-            <td>{{ formatUser(row) }}</td>
+            <td>
+              <router-link v-if="buildRowLink(row.user_link)" :to="buildRowLink(row.user_link)" class="audit-link">{{ formatUser(row) }}</router-link>
+              <span v-else>{{ formatUser(row) }}</span>
+            </td>
             <td>{{ formatUserEmail(row) }}</td>
             <td><span class="badge">{{ getActionLabel(row.action_type) }}</span></td>
             <td>
-              <div>{{ formatClientInitials(row) }}</div>
-              <small v-if="formatClientName(row) !== '-'">{{ formatClientName(row) }}</small>
+              <template v-if="buildRowLink(row.client_link)">
+                <router-link :to="buildRowLink(row.client_link)" class="audit-link">
+                  <div>{{ formatClientInitials(row) }}</div>
+                  <small v-if="formatClientName(row) !== '-'">{{ formatClientName(row) }}</small>
+                </router-link>
+              </template>
+              <template v-else>
+                <div>{{ formatClientInitials(row) }}</div>
+                <small v-if="formatClientName(row) !== '-'">{{ formatClientName(row) }}</small>
+              </template>
             </td>
             <td>{{ formatDetails(row) }}</td>
             <td>{{ row.ip_address || '-' }}</td>
             <td>{{ shortenSession(row.session_id) }}</td>
             <td>
-              <router-link v-if="buildRowLink(row)" :to="buildRowLink(row)">Open</router-link>
+              <router-link v-if="buildRowLink(row.link_path)" :to="buildRowLink(row.link_path)" class="audit-link">Open</router-link>
               <span v-else>-</span>
             </td>
           </tr>
@@ -157,8 +168,14 @@
               <span class="action-label">{{ getActionLabel(row.action_type) }}</span>
               <span class="action-meta">
                 {{ formatDate(row.created_at) }}
-                <template v-if="formatUser(row)"> · {{ formatUser(row) }}</template>
-                <template v-if="formatClientInitials(row) !== '-'"> · {{ formatClientInitials(row) }}</template>
+                <template v-if="formatUser(row)">
+                  · <router-link v-if="buildRowLink(row.user_link)" :to="buildRowLink(row.user_link)" class="audit-link">{{ formatUser(row) }}</router-link>
+                  <template v-else>{{ formatUser(row) }}</template>
+                </template>
+                <template v-if="formatClientInitials(row) !== '-'">
+                  · <router-link v-if="buildRowLink(row.client_link)" :to="buildRowLink(row.client_link)" class="audit-link">{{ formatClientInitials(row) }}</router-link>
+                  <template v-else>{{ formatClientInitials(row) }}</template>
+                </template>
               </span>
             </li>
           </ul>
@@ -451,8 +468,8 @@ const formatClientName = (row) => {
   return row.client_full_name || '-';
 };
 
-const buildRowLink = (row) => {
-  const path = String(row.link_path || '').trim();
+const buildRowLink = (pathOrRow) => {
+  const path = typeof pathOrRow === 'string' ? pathOrRow : String(pathOrRow?.link_path || '').trim();
   if (!path) return '';
   const slug = String(route.params.organizationSlug || '').trim();
   if (slug && path.startsWith('/admin/')) return `/${slug}${path}`;
@@ -507,4 +524,6 @@ onMounted(async () => {
 .audit-action-item:last-child { border-bottom: none; }
 .action-label { font-weight: 500; }
 .action-meta { font-size: 0.8rem; color: var(--text-secondary); }
+.audit-link { color: var(--link-color, #0066cc); text-decoration: none; }
+.audit-link:hover { text-decoration: underline; }
 </style>

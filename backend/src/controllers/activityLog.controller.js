@@ -124,17 +124,25 @@ const addClientSearchWhere = (where, params, search, tableAlias = 'c') => {
   params.push(like, like, like);
 };
 
-const normalizeAuditRow = (row) => ({
-  ...row,
-  source_label: sourceLabel[row.log_type] || row.log_type || 'Audit',
-  link_path:
-    row.link_path ||
-    (row.log_type === 'admin_action' && row.target_user_id ? `/admin/users/${row.target_user_id}` : null) ||
-    null,
-  client_full_name: String(row.client_full_name || '').trim() || null,
-  client_initials: String(row.client_initials || '').trim() || null,
-  metadata: parseJsonSafe(row.metadata)
-});
+const normalizeAuditRow = (row) => {
+  let link_path = row.link_path;
+  if (!link_path) {
+    if (row.log_type === 'admin_action' && row.target_user_id) link_path = `/admin/users/${row.target_user_id}`;
+    else if (row.log_type === 'user_activity' && row.user_id) link_path = `/admin/users/${row.user_id}`;
+    else if (row.client_id) link_path = `/admin/clients?clientId=${row.client_id}`;
+  }
+  const user_id = row.user_id ?? row.actor_user_id ?? row.target_user_id;
+  return {
+    ...row,
+    source_label: sourceLabel[row.log_type] || row.log_type || 'Audit',
+    link_path: link_path || null,
+    user_link: user_id ? `/admin/users/${user_id}` : null,
+    client_link: row.client_id ? `/admin/clients?clientId=${row.client_id}` : null,
+    client_full_name: String(row.client_full_name || '').trim() || null,
+    client_initials: String(row.client_initials || '').trim() || null,
+    metadata: parseJsonSafe(row.metadata)
+  };
+};
 
 const addActionTypeWhere = (where, params, actionTypes, column = 'l.action') => {
   if (!actionTypes || actionTypes.length === 0) return;
