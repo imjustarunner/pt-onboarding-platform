@@ -212,25 +212,28 @@
         <ProviderTopSummaryCard v-if="!topCardCollapsed" @open-last-paycheck="openLastPaycheckModal" />
       </div>
 
-      <!-- Presence status widget – staff can update their status -->
+      <!-- My Status + Your Team stacked (compact column beside My Snapshot) -->
       <div
-        v-if="canSeePresenceWidget"
-        class="top-snapshot-wrap top-snapshot-cell"
-        data-tour="dash-presence-status"
+        v-if="canSeePresenceWidget || (currentAgencyId && canSeeKudosWidget)"
+        class="top-snapshot-status-team-stack"
       >
-        <PresenceStatusWidget />
-      </div>
-
-      <!-- Staff / Team card – coworkers and management (when kudos enabled) -->
-      <div
-        v-if="currentAgencyId && canSeeKudosWidget"
-        class="top-snapshot-wrap top-snapshot-cell"
-        data-tour="dash-staff-card"
-      >
-        <StaffCard
-          :agency-id="Number(currentAgencyId)"
-          :icon-url="brandingStore.getDashboardCardIconUrl('staff', cardIconOrgOverride)"
-        />
+        <div
+          v-if="canSeePresenceWidget"
+          class="top-snapshot-wrap"
+          data-tour="dash-presence-status"
+        >
+          <PresenceStatusWidget />
+        </div>
+        <div
+          v-if="currentAgencyId && canSeeKudosWidget"
+          class="top-snapshot-wrap"
+          data-tour="dash-staff-card"
+        >
+          <StaffCard
+            :agency-id="Number(currentAgencyId)"
+            :icon-url="brandingStore.getDashboardCardIconUrl('staff', cardIconOrgOverride)"
+          />
+        </div>
       </div>
     </div>
 
@@ -2716,7 +2719,17 @@ h1 {
   flex: 1 1 200px;
   min-width: 0;
 }
+.top-snapshot-status-team-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex: 0 1 260px;
+  min-width: 0;
+}
 .top-snapshot-row .top-snapshot-wrap {
+  margin-bottom: 0;
+}
+.top-snapshot-status-team-stack .top-snapshot-wrap {
   margin-bottom: 0;
 }
 .top-snapshot-wrap {
