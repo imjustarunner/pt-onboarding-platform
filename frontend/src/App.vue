@@ -57,7 +57,7 @@
                 {{ isPrivilegedPortalUser ? 'My Dashboard' : 'Dashboard' }}
               </router-link>
               <router-link
-                v-if="showOperationsDashboardLink"
+                v-if="showOperationsDashboardLink && user?.role === 'provider_plus'"
                 :to="operationsDashboardTo"
                 @click="closeMobileMenu"
               >
@@ -363,12 +363,12 @@
               {{ isPrivilegedPortalUser ? 'My Dashboard' : 'Dashboard' }}
             </router-link>
             <router-link
-              v-if="showOperationsDashboardLink"
+              v-if="showOperationsDashboardLink && user?.role === 'provider_plus'"
               :to="operationsDashboardTo"
               @click="closeMobileMenu"
               class="mobile-nav-link"
             >
-              Operations Dashboard
+              Operations
             </router-link>
             <router-link
               v-if="canSeeApplicantsTopNavLink"
@@ -391,6 +391,7 @@
 
             <template v-if="canSeePortalNav && canSeeFullPortalNav">
               <router-link :to="orgTo('/admin')" v-if="isTrueAdmin" @click="closeMobileMenu" class="mobile-nav-link">Admin Dashboard</router-link>
+              <router-link :to="orgTo('/operations-dashboard')" v-if="showOperationsDashboardLink && user?.role !== 'provider_plus'" @click="closeMobileMenu" class="mobile-nav-link">Operations Dashboard</router-link>
 
               <router-link
                 :to="orgTo('/admin/modules')"

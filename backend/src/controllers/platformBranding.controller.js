@@ -98,6 +98,23 @@ function exportedToUpdatePayload(data) {
   return out;
 }
 
+const DEFAULT_BRANDING = {
+  id: null,
+  tagline: 'The gold standard for behavioral health workflows.',
+  primary_color: '#C69A2B',
+  secondary_color: '#1D2633',
+  accent_color: '#3A4C6B',
+  success_color: '#2F8F83',
+  background_color: '#F3F6FA',
+  error_color: '#CC3D3D',
+  warning_color: '#E6A700',
+  header_font: 'Inter',
+  body_font: 'Source Sans 3',
+  numeric_font: 'IBM Plex Mono',
+  display_font: 'Montserrat',
+  people_ops_term: 'People Operations'
+};
+
 export const getPlatformBranding = async (req, res, next) => {
   try {
     console.log('getPlatformBranding: Fetching platform branding...');
@@ -107,27 +124,10 @@ export const getPlatformBranding = async (req, res, next) => {
   } catch (error) {
     console.error('getPlatformBranding: Error:', error);
     console.error('getPlatformBranding: Error stack:', error.stack);
-    // Return default branding if table doesn't exist or query fails
-    if (error.code === 'ER_NO_SUCH_TABLE' || error.message.includes('doesn\'t exist')) {
-      console.warn('getPlatformBranding: platform_branding table does not exist, returning defaults');
-      res.json({
-        id: null,
-        tagline: 'The gold standard for behavioral health workflows.',
-        primary_color: '#C69A2B',
-        secondary_color: '#1D2633',
-        accent_color: '#3A4C6B',
-        success_color: '#2F8F83',
-        background_color: '#F3F6FA',
-        error_color: '#CC3D3D',
-        warning_color: '#E6A700',
-        header_font: 'Inter',
-        body_font: 'Source Sans 3',
-        numeric_font: 'IBM Plex Mono',
-        display_font: 'Montserrat'
-      });
-    } else {
-      next(error);
-    }
+    console.error('getPlatformBranding: Error code:', error.code, 'message:', error.message);
+    // Return default branding on any failure so the app can load (e.g. missing icons/fonts tables, schema mismatch)
+    console.warn('getPlatformBranding: Returning defaults due to error');
+    res.json(DEFAULT_BRANDING);
   }
 };
 
