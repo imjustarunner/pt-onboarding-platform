@@ -285,7 +285,15 @@
     <div v-if="selectedActionCount > 0" class="selection-toolbar">
       <div class="selection-count">{{ selectedActionCount }} slot{{ selectedActionCount === 1 ? '' : 's' }} selected</div>
       <div class="selection-actions">
-        <span class="muted" style="font-size: 12px;">Actions open automatically after highlight.</span>
+        <span class="muted" style="font-size: 12px;">Shift-click or drag to select multiple. Actions open automatically.</span>
+        <button
+          v-if="selectedActionCount > 1"
+          class="btn btn-primary btn-sm"
+          type="button"
+          @click="openSlotActionModal({ ...sortedSelectedActionSlots()[0], preserveSelectionRange: true, actionSource: 'plus_or_blank' })"
+        >
+          Open actions
+        </button>
         <button class="btn btn-secondary btn-sm" type="button" @click="clearSelectedActionSlots">
           Clear
         </button>
@@ -1789,7 +1797,7 @@ onMounted(() => {
     dragAnchorSlot.value = null;
     mouseDownCellKey.value = '';
     if (wasDragging) {
-      maybeAutoOpenSelectionActions();
+      nextTick(() => maybeAutoOpenSelectionActions());
       suppressClickAfterDrag.value = false;
     }
   };
@@ -4633,7 +4641,7 @@ const onCellClick = (dayName, hour, event = null, options = {}) => {
       selectedActionSlots.value = Array.from(next.values());
     }
     lastSelectedActionKey.value = item.key;
-    if (event?.shiftKey) maybeAutoOpenSelectionActions();
+    if (event?.shiftKey) nextTick(() => maybeAutoOpenSelectionActions());
     return;
   }
   selectedBlockKey.value = ''; // whole-cell selection

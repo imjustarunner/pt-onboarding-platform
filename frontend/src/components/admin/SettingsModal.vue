@@ -307,6 +307,7 @@ const allCategories = [
         label: 'Availability Intake',
         icon: '🧭',
         component: 'AvailabilityIntakeManagement',
+        agencyOnly: true,
         requiresAgency: true,
         roles: ['super_admin', 'admin', 'support', 'clinical_practice_assistant', 'provider_plus', 'staff'],
         excludeSupervisor: true
@@ -645,7 +646,8 @@ const selectableAgencies = computed(() => {
   const activeItem = selectedItem.value;
   const activeIsPayroll = activeCategory === 'workflow' && activeItem === 'payroll-schedule';
   const activeIsManagementTeam = activeItem === 'management-team-config';
-  const needsAgencyOnly = activeIsPayroll || activeIsManagementTeam;
+  const activeIsAvailabilityIntake = activeCategory === 'workflow' && activeItem === 'availability-intake';
+  const needsAgencyOnly = activeIsPayroll || activeIsManagementTeam || activeIsAvailabilityIntake;
   const filtered = needsAgencyOnly ? (list || []).filter(isAgencyOrg) : (list || []);
   return [...filtered].sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')));
 });

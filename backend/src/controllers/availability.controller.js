@@ -1227,15 +1227,31 @@ export const listOfficeAvailabilityRequests = async (req, res, next) => {
 
     const out = [];
     for (const r of rows || []) {
-      const [slotRows] = await pool.execute(
-        `SELECT s.weekday, s.start_hour, s.end_hour, s.room_id,
-                r.office_location_id AS room_office_location_id
-         FROM provider_office_availability_request_slots s
-         LEFT JOIN office_rooms r ON r.id = s.room_id
-         WHERE s.request_id = ?
-         ORDER BY s.weekday ASC, s.start_hour ASC`,
-        [r.id]
-      );
+      let slotRows = [];
+      try {
+        [slotRows] = await pool.execute(
+          `SELECT s.weekday, s.start_hour, s.end_hour, s.room_id,
+                  rm.office_location_id AS room_office_location_id
+           FROM provider_office_availability_request_slots s
+           LEFT JOIN office_rooms rm ON rm.id = s.room_id
+           WHERE s.request_id = ?
+           ORDER BY s.weekday ASC, s.start_hour ASC`,
+          [r.id]
+        );
+      } catch (slotErr) {
+        if (slotErr?.code === 'ER_BAD_FIELD_ERROR' || slotErr?.errno === 1054) {
+          [slotRows] = await pool.execute(
+            `SELECT s.weekday, s.start_hour, s.end_hour
+             FROM provider_office_availability_request_slots s
+             WHERE s.request_id = ?
+             ORDER BY s.weekday ASC, s.start_hour ASC`,
+            [r.id]
+          );
+          slotRows = (slotRows || []).map((s) => ({ ...s, room_id: null, room_office_location_id: null }));
+        } else {
+          throw slotErr;
+        }
+      }
       out.push({
         id: r.id,
         agencyId: r.agency_id,
