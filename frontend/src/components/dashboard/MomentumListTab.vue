@@ -35,7 +35,7 @@
           </ul>
         </div>
         <div class="digest-counts">
-          <span v-if="payrollNotesCount > 0">Clinical notes: {{ payrollNotesCount }} unpaid</span>
+          <span v-if="payrollNotesCount > 0">Unpaid notes when payroll ran: {{ payrollNotesCount }} (you're behind)</span>
           <span v-if="notesToSignCount > 0">Notes to sign: {{ notesToSignCount }}</span>
           <span v-if="taskCount > 0">Open tasks: {{ taskCount }}</span>
           <span v-if="notificationCount > 0">Action required: {{ notificationCount }}</span>
@@ -71,8 +71,8 @@
       />
     </section>
 
-    <!-- Notes to sign (supervisors only) -->
-    <NotesToSignSection :count="notesToSignCount" @signed="refreshNotesToSignCount" />
+    <!-- Notes to sign (supervisors only, clinical users only) -->
+    <NotesToSignSection v-if="clinicalNotesEligible" :count="notesToSignCount" @signed="refreshNotesToSignCount" />
 
     <!-- Checklist Section (embedded) -->
     <section class="momentum-checklist-section" aria-label="Checklist">
@@ -119,8 +119,8 @@
           <span class="quick-link-badge">{{ ticketCount }}</span>
         </router-link>
         <router-link
-          v-if="payrollNotesCount > 0"
-          :to="payrollRoute"
+          v-if="clinicalNotesEligible && payrollNotesCount > 0"
+          :to="fullListRoute"
           class="quick-link-card quick-link-card-warn"
           data-add-to-sticky="Complete notes"
         >
@@ -138,8 +138,110 @@
           <span class="quick-link-label">Notes to sign</span>
           <span class="quick-link-badge">{{ notesToSignCount }}</span>
         </router-link>
+        <button
+          v-if="fullListItems.length > 0"
+          type="button"
+          class="quick-link-card quick-link-card-full"
+          @click="fullListExpanded = !fullListExpanded"
+          :aria-expanded="fullListExpanded"
+        >
+          <span class="quick-link-icon">📋</span>
+          <span class="quick-link-label">Full running list</span>
+          <span class="quick-link-badge">{{ fullListItems.length }}</span>
+        </button>
       </div>
     </section>
+
+    <!-- Full running list (expandable) -->
+    <section v-if="fullListItems.length > 0 && fullListExpanded" class="momentum-full-list-section" aria-label="Full running list">
+      <div class="full-list-header">
+        <h2 class="section-title">Full running list</h2>
+        <button
+          v-if="selectedFullListCount > 0"
+          type="button"
+          class="btn btn-primary btn-sm add-selected-btn"
+          @click="openAddSelectedToSticky"
+        >
+          Add {{ selectedFullListCount }} to sticky
+        </button>
+      </div>
+      <div class="full-list-table-wrap">
+        <table class="full-list-table" aria-label="Full running list">
+          <thead>
+            <tr>
+              <th class="col-check"><span class="sr-only">Select</span></th>
+              <th class="col-item">Item</th>
+              <th class="col-urgency">Urgency</th>
+              <th class="col-category">Category</th>
+              <th class="col-project">Project</th>
+              <th class="col-due">Due</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="(item, i) in fullListItems"
+              :key="`full-${i}`"
+              class="full-list-row"
+              :data-add-to-sticky="(typeof item === 'object' ? item.label : item) || ''"
+            >
+              <td class="col-check">
+                <label class="full-list-item-row">
+                  <input
+                    type="checkbox"
+                    class="full-list-checkbox"
+                    :checked="selectedFullListIndices.has(i)"
+                    @change="toggleFullListSelection(i)"
+                  />
+                </label>
+              </td>
+              <td class="col-item">
+                <span class="full-list-item-text">{{ typeof item === 'object' ? item.label : item }}</span>
+              </td>
+              <td class="col-urgency">
+                <span v-if="item.urgency" class="urgency-badge" :class="`urgency-${item.urgency}`">{{ item.urgency }}</span>
+                <span v-else class="muted">—</span>
+              </td>
+              <td class="col-category">{{ formatFullListCategory(item) }}</td>
+              <td class="col-project">{{ item.task_list_name || '—' }}</td>
+              <td class="col-due">{{ formatFullListDue(item) }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Sticky picker modal (for Add selected to sticky) -->
+    <Teleport to="body">
+      <div v-if="showStickyPicker" class="sticky-picker-backdrop" @click.self="showStickyPicker = false">
+        <div class="sticky-picker-modal">
+          <h3 class="sticky-picker-title">Add to Momentum Sticky</h3>
+          <p v-if="stickyPickerPendingItems.length > 0" class="sticky-picker-hint">
+            Adding {{ stickyPickerPendingItems.length }} item(s)
+          </p>
+          <div class="sticky-picker-list">
+            <button
+              v-for="s in momentumStore.stickies"
+              :key="s.id"
+              type="button"
+              class="sticky-picker-item"
+              @click="addSelectedToSticky(s.id)"
+            >
+              {{ s.title || 'Untitled' }}
+            </button>
+            <button
+              type="button"
+              class="sticky-picker-item sticky-picker-new"
+              @click="addSelectedToSticky(null)"
+            >
+              + New sticky
+            </button>
+          </div>
+          <button type="button" class="btn btn-secondary btn-sm" @click="showStickyPicker = false">
+            Cancel
+          </button>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -149,6 +251,7 @@ import { useRoute } from 'vue-router';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import { useNotificationStore } from '../../store/notifications';
+import { useMomentumStickiesStore } from '../../store/momentumStickies';
 import UnifiedChecklistTab from './UnifiedChecklistTab.vue';
 import MomentumChatPanel from '../momentum/MomentumChatPanel.vue';
 import NotesToSignSection from './NotesToSignSection.vue';
@@ -180,6 +283,7 @@ const tasks = ref([]);
 const tickets = ref([]);
 const payrollNotesSummary = ref(null);
 const geminiDigest = ref(null);
+const clinicalNotesEligible = ref(false);
 
 const digestLabel = computed(() => {
   const hour = new Date().getHours();
@@ -200,10 +304,10 @@ const payrollNotesItems = computed(() => {
   const total = (Number(unpaid.totalNotes) || 0) + (Number(twoOld.totalNotes) || 0);
   if (total > 0) {
     if (Number(twoOld.totalNotes) > 0) {
-      items.push({ label: `Complete notes from 2 pay periods ago (${twoOld.totalNotes} unpaid)`, source: 'payroll', priority: 1 });
+      items.push({ label: `You had ${twoOld.totalNotes} unpaid notes when payroll ran (2 periods ago) - you're behind`, source: 'payroll', priority: 1 });
     }
     if (Number(unpaid.totalNotes) > 0) {
-      items.push({ label: `Complete clinical notes for current pay period (${unpaid.totalNotes} unpaid)`, source: 'payroll', priority: 2 });
+      items.push({ label: `You had ${unpaid.totalNotes} unpaid notes when payroll ran - you're behind`, source: 'payroll', priority: 2 });
     }
   }
   return items;
@@ -228,7 +332,7 @@ const topFocusItems = computed(() => {
   const escalateNotes = delinquencyScore.value >= 2 && payrollNotesCount.value > 0;
   if (escalateNotes) {
     items.push({
-      label: `Complete clinical notes (${payrollNotesCount.value} unpaid) - Did you do your notes today?`,
+      label: `You had ${payrollNotesCount.value} unpaid notes when payroll ran - you're behind. Did you do your notes today?`,
       source: 'payroll'
     });
   }
@@ -312,19 +416,134 @@ const showQuickLinks = computed(
     notificationCount.value > 0 ||
     ticketCount.value > 0 ||
     payrollNotesCount.value > 0 ||
-    notesToSignCount.value > 0
+    notesToSignCount.value > 0 ||
+    checklistIncompleteCount.value > 0 ||
+    undoneStickyEntries.value.length > 0
 );
 
-const payrollRoute = computed(() => {
+const fullListItems = computed(() => {
+  const seen = new Set();
+  const out = [];
+  const add = (item) => {
+    const label = typeof item === 'string' ? item : (item?.label || item?.title || '');
+    if (label && !seen.has(label)) {
+      seen.add(label);
+      out.push(typeof item === 'object' ? item : { label, source: 'other' });
+    }
+  };
+  for (const i of topFocusItems.value || []) add(i);
+  for (const i of alsoOnRadar.value || []) add(i);
+  const payroll = payrollNotesItems.value || [];
+  for (const i of payroll) add(i);
+  if (notesToSignCount.value > 0) add({ label: `Sign supervisee notes (${notesToSignCount.value} pending)`, source: 'notes-to-sign' });
+  for (const i of checklistIncompleteItems.value || []) add({ label: i.title || i.label, source: 'checklist' });
+  for (const i of undoneStickyEntries.value || []) add(i);
+  for (const t of tasks.value || []) {
+    if (t.status !== 'completed') {
+      add({
+        label: t.title || t.task,
+        source: 'task',
+        urgency: t.urgency,
+        due_date: t.due_date,
+        task_list_name: t.task_list_name,
+        task_type: t.task_type
+      });
+    }
+  }
+  for (const tk of tickets.value || []) {
+    if (String(tk.status || '').toLowerCase() === 'open') {
+      add({
+        label: tk.subject || tk.question?.slice(0, 80) || 'Support ticket',
+        source: 'ticket'
+      });
+    }
+  }
+  if (notificationCount.value > 0) add({ label: `Action required: ${notificationCount.value} notification(s)`, source: 'notification' });
+  return out;
+});
+
+const fullListExpanded = ref(false);
+const momentumStore = useMomentumStickiesStore();
+const selectedFullListIndices = ref(new Set());
+const showStickyPicker = ref(false);
+const stickyPickerMode = ref('single');
+const stickyPickerPendingItems = ref([]);
+
+const selectedFullListCount = computed(() => selectedFullListIndices.value.size);
+
+const formatFullListCategory = (item) => {
+  if (!item) return '—';
+  if (item.task_type) {
+    const t = String(item.task_type);
+    if (t === 'training') return 'Training';
+    if (t === 'document') return 'Document';
+    if (t === 'custom') return 'Custom';
+    return t;
+  }
+  const src = item.source || '';
+  if (src === 'checklist') return 'Checklist';
+  if (src === 'ticket') return 'Ticket';
+  if (src === 'payroll') return 'Payroll';
+  if (src === 'notes-to-sign') return 'Notes';
+  if (src === 'sticky') return 'Sticky';
+  if (src === 'notification') return 'Notification';
+  if (src === 'gemini') return 'Focus';
+  return src || '—';
+};
+
+const formatFullListDue = (item) => {
+  if (!item?.due_date) return '—';
+  try {
+    const d = new Date(item.due_date);
+    return isNaN(d.getTime()) ? '—' : d.toLocaleDateString(undefined, { dateStyle: 'short' });
+  } catch {
+    return '—';
+  }
+};
+
+const toggleFullListSelection = (index) => {
+  const next = new Set(selectedFullListIndices.value);
+  if (next.has(index)) next.delete(index);
+  else next.add(index);
+  selectedFullListIndices.value = next;
+};
+
+const openAddSelectedToSticky = async () => {
+  const items = fullListItems.value
+    .filter((_, i) => selectedFullListIndices.value.has(i))
+    .map((item) => (typeof item === 'object' ? item.label : item));
+  if (items.length === 0) return;
+  stickyPickerMode.value = 'multiple';
+  stickyPickerPendingItems.value = items;
+  showStickyPicker.value = true;
+  try {
+    const { data } = await api.get(`/users/${userId.value}/momentum-stickies`);
+    momentumStore.setStickies(data || []);
+  } catch {
+    momentumStore.setStickies([]);
+  }
+};
+
+const addSelectedToSticky = (stickyId) => {
+  if (stickyPickerMode.value === 'multiple' && stickyPickerPendingItems.value.length > 0) {
+    momentumStore.triggerAddMultipleToSticky(stickyPickerPendingItems.value, stickyId);
+    selectedFullListIndices.value = new Set();
+  }
+  showStickyPicker.value = false;
+  stickyPickerPendingItems.value = [];
+  fetchDigest();
+};
+
+const fullListRoute = computed(() => {
   const slug = route.params?.organizationSlug;
   const base = slug ? `/${slug}/dashboard` : '/dashboard';
-  return `${base}?tab=my&my=payroll`;
+  return `${base}?tab=checklist&section=full-list`;
 });
 
 const notesToSignRoute = computed(() => {
   const slug = route.params?.organizationSlug;
   const base = slug ? `/${slug}/dashboard` : '/dashboard';
-  return `${base}?tab=momentum&section=notes-to-sign`;
+  return `${base}?tab=checklist&section=notes-to-sign`;
 });
 
 const notificationsRoute = computed(() => {
@@ -425,6 +644,17 @@ const fetchDigest = async () => {
       payrollNotesSummary.value = null;
     }
 
+    if (props.agencyId) {
+      try {
+        const eligRes = await api.get('/me/clinical-notes-eligible', { params: { agencyId: props.agencyId } });
+        clinicalNotesEligible.value = !!eligRes?.data?.eligible;
+      } catch {
+        clinicalNotesEligible.value = false;
+      }
+    } else {
+      clinicalNotesEligible.value = false;
+    }
+
     await notificationStore.fetchCounts?.();
 
     geminiDigest.value = null;
@@ -466,6 +696,16 @@ const refreshNotesToSignCount = async () => {
     notesToSignCount.value = 0;
   }
 };
+
+watch(
+  () => route.query?.section,
+  (section) => {
+    if (String(section || '').toLowerCase() === 'full-list') {
+      fullListExpanded.value = true;
+    }
+  },
+  { immediate: true }
+);
 
 onMounted(() => {
   fetchDigest();
@@ -635,5 +875,219 @@ watch([() => props.programId, () => props.agencyId], () => {
 
 .quick-link-card-sign .quick-link-badge {
   background: #059669;
+}
+
+.quick-link-card-full {
+  cursor: pointer;
+  border: 1px solid var(--border, #e5e7eb);
+  font: inherit;
+  text-align: left;
+}
+
+.full-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.full-list-header .section-title {
+  margin: 0;
+}
+
+.add-selected-btn {
+  flex-shrink: 0;
+}
+
+.full-list-item-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: default;
+}
+
+.full-list-checkbox {
+  flex-shrink: 0;
+  margin: 0;
+}
+
+.full-list-item-text {
+  flex: 1;
+}
+
+.sticky-picker-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background: rgba(0, 0, 0, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sticky-picker-modal {
+  background: white;
+  border-radius: 12px;
+  padding: 20px;
+  min-width: 260px;
+  max-width: 90vw;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+}
+
+.sticky-picker-title {
+  margin: 0 0 8px 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.sticky-picker-hint {
+  margin: 0 0 12px 0;
+  font-size: 13px;
+  color: #6b7280;
+}
+
+.sticky-picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 16px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.sticky-picker-item {
+  padding: 10px 14px;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 8px;
+  background: white;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.sticky-picker-item:hover {
+  background: rgba(254, 249, 195, 0.5);
+}
+
+.sticky-picker-new {
+  border-style: dashed;
+  color: #6b7280;
+}
+
+.momentum-full-list-section {
+  margin-top: 16px;
+  padding: 16px;
+  background: #f9fafb;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 8px;
+}
+
+.momentum-full-list-section .section-title {
+  margin: 0 0 12px 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.muted {
+  color: #9ca3af;
+}
+
+.full-list-table-wrap {
+  max-height: 400px;
+  overflow: auto;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 8px;
+  background: white;
+}
+
+.full-list-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.full-list-table th {
+  text-align: left;
+  padding: 10px 12px;
+  font-weight: 600;
+  font-size: 12px;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  background: #f3f4f6;
+  border-bottom: 1px solid var(--border, #e5e7eb);
+}
+
+.full-list-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  color: #1a1a1a;
+  vertical-align: middle;
+}
+
+.full-list-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.full-list-table tbody tr:hover {
+  background: rgba(254, 249, 195, 0.3);
+}
+
+.col-check {
+  width: 40px;
+}
+
+.col-urgency {
+  width: 90px;
+}
+
+.col-category {
+  width: 100px;
+}
+
+.col-project {
+  width: 120px;
+}
+
+.col-due {
+  width: 90px;
+}
+
+.urgency-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.urgency-high {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.urgency-medium {
+  background: #fef9c3;
+  color: #854d0e;
+}
+
+.urgency-low {
+  background: #f0fdf4;
+  color: #166534;
 }
 </style>

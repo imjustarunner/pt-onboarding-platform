@@ -4,6 +4,7 @@
 import { callGeminiText } from './geminiText.service.js';
 import UserChecklistAssignment from '../models/UserChecklistAssignment.model.js';
 import Task from '../models/Task.model.js';
+import TaskAuditLog from '../models/TaskAuditLog.model.js';
 import TaskList from '../models/TaskList.model.js';
 import TaskListMember from '../models/TaskListMember.model.js';
 import MomentumSticky from '../models/MomentumSticky.model.js';
@@ -110,12 +111,18 @@ function parseAddToListFromResponse(text) {
   const raw = String(text || '');
   const entries = [];
   for (const line of raw.split(/\n/)) {
-    const m = line.match(/^ADD_TO_LIST:\s*(.+?)\s*\|\s*(.+?)\s*\|\s*(.+)$/i);
+    const m = line.match(/^ADD_TO_LIST:\s*(.+)$/i);
     if (m) {
-      const listName = String(m[1] || '').trim();
-      const assignee = String(m[2] || '').trim();
-      const title = String(m[3] || '').trim();
-      if (listName && title) entries.push({ listName, assignee: assignee || null, title });
+      const rest = String(m[1] || '').trim();
+      const parts = rest.split('|').map((p) => String(p || '').trim());
+      const listName = parts[0] || '';
+      const assignee = parts[1] || null;
+      const title = parts[2] || '';
+      const urgency = ['low', 'medium', 'high'].includes(parts[3]?.toLowerCase())
+        ? parts[3].toLowerCase()
+        : 'medium';
+      const dueDate = parts[4] && /^\d{4}-\d{2}-\d{2}$/.test(parts[4]) ? parts[4] : null;
+      if (listName && title) entries.push({ listName, assignee, title, urgency, dueDate });
     }
   }
   return entries.slice(0, 5);
@@ -127,8 +134,15 @@ function parseSuggestedTasksFromResponse(text) {
   for (const line of raw.split(/\n/)) {
     const m = line.match(/^TASK:\s*(.+)$/i);
     if (m) {
-      const title = String(m[1] || '').trim();
-      if (title) tasks.push({ title });
+      const rest = String(m[1] || '').trim();
+      const parts = rest.split('|').map((p) => String(p || '').trim());
+      const title = parts[0] || '';
+      const urgency = ['low', 'medium', 'high'].includes(parts[1]?.toLowerCase())
+        ? parts[1].toLowerCase()
+        : null;
+      const dueDate = parts[2] && /^\d{4}-\d{2}-\d{2}$/.test(parts[2]) ? parts[2] : null;
+      const listName = parts[3] || null;
+      if (title) tasks.push({ title, urgency, dueDate, listName });
     }
   }
   return tasks.slice(0, 5);
@@ -169,7 +183,7 @@ export async function getFocusRecommendations(userId, userMessage, contextOption
 
   const sharedListsBlock =
     context.sharedLists?.length > 0
-      ? `\nSHARED LISTS (user is member): ${context.sharedLists.map((l) => l.name).join('; ')}\nIf the user mentions a list name (e.g. Skill Builders) and wants to add tasks for that list, use:\nADD_TO_LIST: <listName>|<assignee first name or "me">|<task title>\nOne per line. Assignee can be a first name, "me" for current user, or leave empty for unassigned.`
+      ? `\nSHARED LISTS (user is member): ${context.sharedLists.map((l) => l.name).join('; ')}\nIf the user mentions a list/project name and wants to add tasks there, use:\nADD_TO_LIST: <listName>|<assignee first name or "me">|<task title>|<urgency>|<due_date>\nUrgency: low|medium|high. Due date: YYYY-MM-DD or empty. Assignee: first name, "me", or empty.`
       : '';
 
   const systemPrompt = `You are an ADHD-friendly focus assistant. The user is asking what they should focus on.
@@ -179,23 +193,36 @@ Be direct and practical. Use short phrases (e.g. "Complete training module X", "
 Do not add preamble or explanation—just the numbered list.
 If they have little on their plate, suggest 1-2 items and one gentle reminder like "Take a short break" or "Review your calendar."
 
-TASK CREATION: If the user explicitly asks to add, create, or record a task (e.g. "add task: Call parent"), include:
-TASK: <task title>
+TASK CREATION: When the user asks to add, create, or record a task, be INTELLIGENT about urgency, due date, and project:
+- Infer urgency from words: "urgent", "asap", "critical" → high; "when you can", "low priority" → low; else medium.
+- Infer due date: "tomorrow" → tomorrow's date (YYYY-MM-DD); "next week" → approximate; "by Friday" → that Friday.
+- If they mention a shared list/project name, use ADD_TO_LIST with that list.
+Format: TASK: <title>|<urgency>|<due_date>|<list_name>
+Example: TASK: Call parent tomorrow|high|2025-02-22|
+Example: TASK: Review notes when you can|low||
+Omit optional parts (use empty between pipes). Urgency: low|medium|high. Due: YYYY-MM-DD.
 
-TASK UPDATE: If the user asks to change, edit, or update an existing task, include (only for custom tasks from the TASKS list):
+TASK UPDATE: If the user asks to change an existing task (only for custom tasks from TASKS list):
 UPDATE_TASK: <taskId>|<new title>
 
-TASK DELETE: If the user asks to remove, delete, or cancel an existing task, include (only for custom tasks):
+TASK DELETE: If the user asks to remove a task (only for custom tasks):
 DELETE_TASK: <taskId>
 ${sharedListsBlock}
 
-Use the exact task IDs from the TASKS list. One action per line. Otherwise omit these lines.`;
+Use exact task IDs from the TASKS list. One action per line. Otherwise omit.`;
+
+  const today = new Date();
+  const todayStr = today.toISOString().slice(0, 10);
+  const tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const tomorrowStr = tomorrow.toISOString().slice(0, 10);
 
   const tasksWithId = context.tasks
     .filter((t) => t.task_type === 'custom')
     .map((t) => `${t.id}|${t.title}`)
     .join('; ');
   const contextBlock = `
+TODAY: ${todayStr}. TOMORROW: ${tomorrowStr}. Use these for due dates when user says "today" or "tomorrow".
 CHECKLIST (incomplete): ${context.checklistItems.join('; ') || 'None'}
 TASKS (open, id|title for custom only): ${tasksWithId || 'None'}
 ALL TASKS (open): ${context.tasks.map((t) => t.title).join('; ') || 'None'}
@@ -224,6 +251,52 @@ Respond with ONLY a numbered list (1. 2. 3. ...), no other text.`;
   const suggestedUpdates = parseSuggestedUpdatesFromResponse(text);
   const suggestedDeletes = parseSuggestedDeletesFromResponse(text);
   const addToListEntries = parseAddToListFromResponse(text);
+
+  const createdTasks = [];
+  let listsForTask = [];
+  if (contextOptions.agencyId) {
+    listsForTask = await TaskList.listByUserMembership(userId, { agencyId: contextOptions.agencyId });
+  }
+  for (const t of suggestedTasks) {
+    let taskListId = null;
+    let listName = null;
+    if (t.listName && listsForTask.length > 0) {
+      const match = listsForTask.find(
+        (l) => String(l.name || '').toLowerCase() === String(t.listName || '').toLowerCase()
+      );
+      if (match && TaskListMember.canEdit(match.my_role)) {
+        taskListId = match.id;
+        listName = match.name;
+      }
+    }
+    const dueDateVal = t.dueDate && /^\d{4}-\d{2}-\d{2}$/.test(t.dueDate)
+      ? `${t.dueDate} 23:59:59`
+      : null;
+    const urgencyVal = ['low', 'medium', 'high'].includes(t.urgency) ? t.urgency : 'medium';
+    try {
+      const task = await Task.create({
+        taskType: 'custom',
+        title: t.title,
+        description: null,
+        assignedToUserId: userId,
+        assignedByUserId: userId,
+        dueDate: dueDateVal,
+        referenceId: null,
+        taskListId,
+        urgency: urgencyVal
+      });
+      await TaskAuditLog.logAction({
+        taskId: task.id,
+        actionType: 'assigned',
+        actorUserId: userId,
+        targetUserId: userId,
+        metadata: { source: 'focus_assistant', createdVia: 'momentum_chat' }
+      });
+      createdTasks.push({ task, listName });
+    } catch (err) {
+      console.error('momentumChat: Failed to create task:', err);
+    }
+  }
 
   const createdInList = [];
   if (addToListEntries.length > 0 && contextOptions.agencyId) {
@@ -265,6 +338,10 @@ Respond with ONLY a numbered list (1. 2. 3. ...), no other text.`;
       const member = await TaskListMember.findByListAndUser(list.id, assigneeId);
       const finalAssignee = member ? assigneeId : userId;
 
+      const dueDateVal = entry.dueDate && /^\d{4}-\d{2}-\d{2}$/.test(entry.dueDate)
+        ? `${entry.dueDate} 23:59:59`
+        : null;
+      const urgencyVal = ['low', 'medium', 'high'].includes(entry.urgency) ? entry.urgency : 'medium';
       try {
         const task = await Task.create({
           taskType: 'custom',
@@ -272,10 +349,10 @@ Respond with ONLY a numbered list (1. 2. 3. ...), no other text.`;
           description: null,
           assignedToUserId: finalAssignee,
           assignedByUserId: userId,
-          dueDate: null,
+          dueDate: dueDateVal,
           referenceId: null,
           taskListId: list.id,
-          urgency: 'medium'
+          urgency: urgencyVal
         });
         createdInList.push({ task, listName: list.name });
       } catch (err) {
@@ -284,11 +361,15 @@ Respond with ONLY a numbered list (1. 2. 3. ...), no other text.`;
     }
   }
 
+  const createdTitles = new Set(createdTasks.map((c) => c.task?.title).filter(Boolean));
+  const remainingSuggested = suggestedTasks.filter((t) => !createdTitles.has(t.title));
+
   return {
     items,
-    suggestedTasks,
+    suggestedTasks: remainingSuggested,
     suggestedUpdates,
     suggestedDeletes,
+    createdTasks,
     createdInList,
     rawText: text
   };

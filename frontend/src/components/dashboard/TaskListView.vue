@@ -7,13 +7,30 @@
       </div>
 
       <div v-if="canEdit" class="add-task-form">
-        <input
-          v-model="newTaskTitle"
-          type="text"
-          class="form-control"
-          placeholder="Add a task…"
-          @keydown.enter="addTask"
-        />
+        <div class="add-task-input-row">
+          <input
+            v-model="newTaskTitle"
+            type="text"
+            class="form-control"
+            placeholder="Add a task…"
+            @keydown.enter="addTask"
+          />
+          <button
+            v-if="speechSupported"
+            type="button"
+            class="btn-mic"
+            :class="{ 'btn-mic-active': speechListening }"
+            :title="speechListening ? 'Stop recording' : 'Record voice'"
+            @click="toggleSpeech"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+              <line x1="12" y1="19" x2="12" y2="23"/>
+              <line x1="8" y1="23" x2="16" y2="23"/>
+            </svg>
+          </button>
+        </div>
         <div class="add-task-fields">
           <select v-model="newTaskAssignee" class="form-control form-control-sm">
             <option :value="null">Assign to…</option>
@@ -114,6 +131,7 @@
 import { ref, computed, onMounted, watch } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
+import { useSpeechToText } from '../../composables/useSpeechToText';
 
 const props = defineProps({
   list: { type: Object, required: true }
@@ -138,6 +156,23 @@ const newTaskTitle = ref('');
 const newTaskUrgency = ref('medium');
 const newTaskAssignee = ref(null);
 const newTaskDueDate = ref('');
+
+const {
+  isListening: speechListening,
+  isSupported: speechSupported,
+  startListening: speechStart,
+  stopListening: speechStop
+} = useSpeechToText({
+  onFinal: (text) => {
+    const cur = String(newTaskTitle.value || '').trim();
+    newTaskTitle.value = cur ? `${cur} ${text}` : text;
+  }
+});
+
+const toggleSpeech = () => {
+  if (speechListening.value) speechStop();
+  else speechStart();
+};
 
 const canEdit = computed(() => {
   const r = props.list?.my_role;
@@ -329,9 +364,43 @@ watch(() => props.list?.id, () => fetchTasks());
   border-radius: 8px;
 }
 
-.add-task-form input[type='text'] {
-  width: 100%;
+.add-task-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
   margin-bottom: 8px;
+}
+
+.add-task-input-row input[type='text'] {
+  flex: 1;
+  min-width: 0;
+}
+
+.btn-mic {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: white;
+  color: #6b7280;
+  cursor: pointer;
+  transition: color 0.2s, background 0.2s, border-color 0.2s;
+}
+
+.btn-mic:hover {
+  color: #374151;
+  background: #f3f4f6;
+}
+
+.btn-mic-active {
+  color: #dc2626;
+  background: #fef2f2;
+  border-color: #fecaca;
 }
 
 .add-task-fields {

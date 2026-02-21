@@ -52,7 +52,7 @@ import MomentumStickyCard from './MomentumStickyCard.vue';
 const authStore = useAuthStore();
 const momentumStore = useMomentumStickiesStore();
 const userId = computed(() => authStore.user?.id ?? null);
-const stickies = ref([]);
+const stickies = computed(() => momentumStore.stickies);
 const overlayRef = ref(null);
 const loading = ref(false);
 const showRestorePopover = ref(false);
@@ -71,10 +71,11 @@ watch(() => momentumStore.pendingConvertList, async (items) => {
   if (!items?.length || !userId.value) return;
   momentumStore.clearPendingConvertList();
   try {
+    const current = momentumStore.stickies;
     const { data } = await api.post(`/users/${userId.value}/momentum-stickies`, {
       title: 'Focus list',
-      position_x: 80 + stickies.value.length * 40,
-      position_y: 80 + stickies.value.length * 40
+      position_x: 80 + current.length * 40,
+      position_y: 80 + current.length * 40
     });
     for (const text of items) {
       const t = String(text || '').trim();
@@ -91,24 +92,30 @@ watch(() => momentumStore.pendingConvertList, async (items) => {
   }
 });
 
-watch(() => momentumStore.pendingAddText, async (text) => {
-  if (!text || !userId.value) return;
+watch(() => momentumStore.pendingAddToSticky, async (payload) => {
+  if (!payload?.text || !userId.value) return;
   momentumStore.clearPendingAdd();
   try {
-    if (stickies.value.length === 0) {
+    const stickyId = payload.stickyId;
+    if (stickyId != null) {
+      await api.post(`/users/${userId.value}/momentum-stickies/${stickyId}/entries`, {
+        text: payload.text,
+        is_expanded: true
+      });
+    } else if (momentumStore.stickies.length === 0) {
       const { data } = await api.post(`/users/${userId.value}/momentum-stickies`, {
         title: 'Quick capture',
         position_x: 80,
         position_y: 80
       });
       await api.post(`/users/${userId.value}/momentum-stickies/${data.id}/entries`, {
-        text,
+        text: payload.text,
         is_expanded: true
       });
     } else {
-      const first = stickies.value[0];
+      const first = momentumStore.stickies[0];
       await api.post(`/users/${userId.value}/momentum-stickies/${first.id}/entries`, {
-        text,
+        text: payload.text,
         is_expanded: true
       });
     }
@@ -118,12 +125,40 @@ watch(() => momentumStore.pendingAddText, async (text) => {
   }
 });
 
+watch(() => momentumStore.pendingAddMultipleToSticky, async (payload) => {
+  if (!payload?.items?.length || !userId.value) return;
+  momentumStore.clearPendingAddMultiple();
+  try {
+    let targetStickyId = payload.stickyId;
+    if (targetStickyId == null) {
+      const { data } = await api.post(`/users/${userId.value}/momentum-stickies`, {
+        title: 'Focus list',
+        position_x: 80 + momentumStore.stickies.length * 40,
+        position_y: 80 + momentumStore.stickies.length * 40
+      });
+      targetStickyId = data.id;
+    }
+    for (const text of payload.items) {
+      const t = String(text || '').trim();
+      if (t) {
+        await api.post(`/users/${userId.value}/momentum-stickies/${targetStickyId}/entries`, {
+          text: t,
+          is_expanded: true
+        });
+      }
+    }
+    await fetchStickies();
+  } catch (err) {
+    console.error('Failed to add multiple to sticky:', err);
+  }
+});
+
 const fetchStickies = async () => {
   if (!userId.value) return;
   try {
     loading.value = true;
     const { data } = await api.get(`/users/${userId.value}/momentum-stickies`);
-    stickies.value = data || [];
+    momentumStore.setStickies(data || []);
   } catch (err) {
     console.error('Failed to fetch Momentum Stickies:', err);
   } finally {
@@ -134,12 +169,13 @@ const fetchStickies = async () => {
 const createSticky = async () => {
   if (!userId.value) return;
   try {
+    const current = momentumStore.stickies;
     const { data } = await api.post(`/users/${userId.value}/momentum-stickies`, {
       title: 'New Sticky',
-      position_x: 80 + stickies.value.length * 40,
-      position_y: 80 + stickies.value.length * 40
+      position_x: 80 + current.length * 40,
+      position_y: 80 + current.length * 40
     });
-    stickies.value = [...stickies.value, data];
+    momentumStore.setStickies([...current, data]);
   } catch (err) {
     console.error('Failed to create Momentum Sticky:', err);
   }
@@ -149,8 +185,8 @@ const updateSticky = async (sticky, patch) => {
   if (!userId.value) return;
   try {
     const { data } = await api.patch(`/users/${userId.value}/momentum-stickies/${sticky.id}`, patch);
-    const idx = stickies.value.findIndex((s) => s.id === sticky.id);
-    if (idx >= 0) stickies.value[idx] = data;
+    const list = momentumStore.stickies.map((s) => (s.id === sticky.id ? data : s));
+    momentumStore.setStickies(list);
   } catch (err) {
     console.error('Failed to update Momentum Sticky:', err);
   }
@@ -160,7 +196,7 @@ const deleteSticky = async (sticky) => {
   if (!userId.value) return;
   try {
     await api.delete(`/users/${userId.value}/momentum-stickies/${sticky.id}`);
-    stickies.value = stickies.value.filter((s) => s.id !== sticky.id);
+    momentumStore.setStickies(momentumStore.stickies.filter((s) => s.id !== sticky.id));
   } catch (err) {
     console.error('Failed to delete Momentum Sticky:', err);
   }
@@ -170,7 +206,7 @@ const hideSticky = async (sticky) => {
   if (!userId.value) return;
   try {
     await api.patch(`/users/${userId.value}/momentum-stickies/${sticky.id}`, { is_hidden: true });
-    stickies.value = stickies.value.filter((s) => s.id !== sticky.id);
+    momentumStore.setStickies(momentumStore.stickies.filter((s) => s.id !== sticky.id));
   } catch (err) {
     console.error('Failed to hide Momentum Sticky:', err);
   }
@@ -199,7 +235,7 @@ const restoreSticky = async (sticky) => {
   try {
     const { data } = await api.patch(`/users/${userId.value}/momentum-stickies/${sticky.id}`, { is_hidden: false });
     hiddenStickies.value = hiddenStickies.value.filter((s) => s.id !== sticky.id);
-    stickies.value = [...stickies.value, data];
+    momentumStore.setStickies([...momentumStore.stickies, data]);
     if (hiddenStickies.value.length === 0) showRestorePopover.value = false;
   } catch (err) {
     console.error('Failed to restore Momentum Sticky:', err);
@@ -213,8 +249,10 @@ const addEntry = async (sticky) => {
       text: '',
       is_expanded: true
     });
-    const s = stickies.value.find((x) => x.id === sticky.id);
-    if (s) s.entries = [...(s.entries || []), data];
+    const list = momentumStore.stickies.map((s) =>
+      s.id === sticky.id ? { ...s, entries: [...(s.entries || []), data] } : s
+    );
+    momentumStore.setStickies(list);
   } catch (err) {
     console.error('Failed to add entry:', err);
   }
@@ -227,11 +265,15 @@ const updateEntry = async (sticky, entry) => {
       `/users/${userId.value}/momentum-stickies/${sticky.id}/entries/${entry.id}`,
       { text: entry.text, is_checked: entry.is_checked, is_expanded: entry.is_expanded }
     );
-    const s = stickies.value.find((x) => x.id === sticky.id);
-    if (s?.entries) {
+    const list = momentumStore.stickies.map((s) => {
+      if (s.id !== sticky.id || !s.entries) return s;
       const i = s.entries.findIndex((e) => e.id === entry.id);
-      if (i >= 0) s.entries[i] = data;
-    }
+      if (i < 0) return s;
+      const entries = [...s.entries];
+      entries[i] = data;
+      return { ...s, entries };
+    });
+    momentumStore.setStickies(list);
   } catch (err) {
     console.error('Failed to update entry:', err);
   }
@@ -241,8 +283,12 @@ const deleteEntry = async (sticky, entry) => {
   if (!userId.value) return;
   try {
     await api.delete(`/users/${userId.value}/momentum-stickies/${sticky.id}/entries/${entry.id}`);
-    const s = stickies.value.find((x) => x.id === sticky.id);
-    if (s?.entries) s.entries = s.entries.filter((e) => e.id !== entry.id);
+    const list = momentumStore.stickies.map((s) =>
+      s.id === sticky.id && s.entries
+        ? { ...s, entries: s.entries.filter((e) => e.id !== entry.id) }
+        : s
+    );
+    momentumStore.setStickies(list);
   } catch (err) {
     console.error('Failed to delete entry:', err);
   }
@@ -256,11 +302,15 @@ const promoteEntry = async (sticky, entry) => {
       { markChecked: true }
     );
     if (data?.entryUpdated) {
-      const s = stickies.value.find((x) => x.id === sticky.id);
-      if (s?.entries) {
+      const list = momentumStore.stickies.map((s) => {
+        if (s.id !== sticky.id || !s.entries) return s;
         const i = s.entries.findIndex((e) => e.id === entry.id);
-        if (i >= 0) s.entries[i] = { ...s.entries[i], is_checked: true };
-      }
+        if (i < 0) return s;
+        const entries = [...s.entries];
+        entries[i] = { ...entries[i], is_checked: true };
+        return { ...s, entries };
+      });
+      momentumStore.setStickies(list);
     }
   } catch (err) {
     console.error('Failed to promote entry to task:', err);

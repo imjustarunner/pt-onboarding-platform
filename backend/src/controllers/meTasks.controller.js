@@ -33,6 +33,8 @@ export const createCustomTask = async (req, res, next) => {
       description,
       dueDate,
       task_list_id,
+      listName,
+      agencyId,
       urgency,
       is_recurring,
       recurring_rule,
@@ -45,6 +47,15 @@ export const createCustomTask = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'title is required' } });
     }
 
+    let resolvedListId = task_list_id ?? null;
+    if (!resolvedListId && listName && agencyId) {
+      const lists = await TaskList.listByUserMembership(userId, { agencyId: parseInt(agencyId, 10) });
+      const match = lists.find(
+        (l) => String(l.name || '').toLowerCase() === String(listName || '').toLowerCase()
+      );
+      if (match) resolvedListId = match.id;
+    }
+
     const task = await Task.create({
       taskType: 'custom',
       title: titleStr,
@@ -53,8 +64,8 @@ export const createCustomTask = async (req, res, next) => {
       assignedByUserId: userId,
       dueDate: dueDate || null,
       referenceId: null,
-      taskListId: task_list_id ?? null,
-      urgency: urgency || 'medium',
+      taskListId: resolvedListId,
+      urgency: urgency && ['low', 'medium', 'high'].includes(urgency) ? urgency : 'medium',
       isRecurring: !!is_recurring,
       recurringRule: recurring_rule || null,
       typicalDayOfWeek: typical_day_of_week ?? null,

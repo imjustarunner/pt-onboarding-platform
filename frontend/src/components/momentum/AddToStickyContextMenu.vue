@@ -7,22 +7,38 @@
       role="menu"
       @click.stop
     >
+      <template v-if="stickies.length > 0">
+        <button
+          v-for="s in stickies"
+          :key="s.id"
+          type="button"
+          class="menu-item"
+          @click="addToSticky(s.id)"
+        >
+          {{ s.title || 'Untitled' }}
+        </button>
+        <div class="menu-divider" />
+      </template>
       <button
         type="button"
         class="menu-item"
-        @click="addToSticky"
+        @click="addToSticky(null)"
       >
-        Add to Momentum Sticky
+        {{ stickies.length > 0 ? '+ New sticky' : 'Add to Momentum Sticky' }}
       </button>
     </div>
   </Teleport>
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useMomentumStickiesStore } from '../../store/momentumStickies';
+import { useAuthStore } from '../../store/auth';
+import api from '../../services/api';
 
 const momentumStore = useMomentumStickiesStore();
+const authStore = useAuthStore();
+const stickies = computed(() => momentumStore.stickies || []);
 const visible = ref(false);
 const menuStyle = ref({});
 let pendingText = '';
@@ -39,10 +55,19 @@ const getTextFromTarget = (el) => {
   return String(addAttr?.textContent || el?.textContent || '').trim().slice(0, 500);
 };
 
-const show = (e, el) => {
+const show = async (e, el) => {
   targetEl = el || e?.target;
   pendingText = getTextFromTarget(targetEl);
   if (!pendingText) return;
+  const uid = authStore.user?.id;
+  if (uid && momentumStore.stickies.length === 0) {
+    try {
+      const { data } = await api.get(`/users/${uid}/momentum-stickies`);
+      momentumStore.setStickies(data || []);
+    } catch {
+      momentumStore.setStickies([]);
+    }
+  }
   visible.value = true;
   const x = e?.clientX ?? 0;
   const y = e?.clientY ?? 0;
@@ -58,9 +83,9 @@ const hide = () => {
   targetEl = null;
 };
 
-const addToSticky = () => {
+const addToSticky = (stickyId) => {
   if (pendingText) {
-    momentumStore.triggerAddToSticky(pendingText);
+    momentumStore.triggerAddToSticky(pendingText, stickyId);
   }
   hide();
 };
@@ -118,5 +143,11 @@ onUnmounted(() => {
 
 .menu-item:hover {
   background: rgba(254, 249, 195, 0.4);
+}
+
+.menu-divider {
+  height: 1px;
+  margin: 4px 0;
+  background: rgba(0, 0, 0, 0.1);
 }
 </style>

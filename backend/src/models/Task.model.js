@@ -131,7 +131,8 @@ class Task {
 
   static async findByUser(userId, filters = {}) {
     let query = `
-      SELECT t.*, 
+      SELECT t.*,
+        tl.name as task_list_name,
         CASE 
           WHEN t.assigned_to_user_id = ? THEN 'direct'
           WHEN t.assigned_to_role IS NOT NULL THEN 'role'
@@ -139,6 +140,7 @@ class Task {
           ELSE 'unknown'
         END as assignment_type
       FROM tasks t
+      LEFT JOIN task_lists tl ON tl.id = t.task_list_id
       WHERE (
         t.assigned_to_user_id = ?
         OR (t.assigned_to_role IS NOT NULL AND t.assigned_to_user_id IS NULL AND EXISTS (

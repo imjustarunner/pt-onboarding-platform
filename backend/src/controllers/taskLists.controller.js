@@ -150,6 +150,8 @@ export const listAgencyUsers = async (req, res, next) => {
        JOIN user_agencies ua ON u.id = ua.user_id
        WHERE ua.agency_id = ?
        AND (u.is_archived = FALSE OR u.is_archived IS NULL)
+       AND (u.role IS NULL OR u.role != 'school_staff')
+       AND (u.status IS NULL OR UPPER(u.status) != 'PROSPECTIVE')
        ORDER BY u.last_name, u.first_name`,
       [list.agency_id]
     );

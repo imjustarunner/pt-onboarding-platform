@@ -6,10 +6,16 @@
     </div>
     <div v-show="expanded" class="chat-body">
       <div class="chat-messages">
-        <div v-if="responseItems.length > 0 || suggestedTasks.length > 0 || suggestedUpdates.length > 0 || suggestedDeletes.length > 0 || createdInList.length > 0" class="message assistant">
+        <div v-if="responseItems.length > 0 || suggestedTasks.length > 0 || suggestedUpdates.length > 0 || suggestedDeletes.length > 0 || createdInList.length > 0 || createdTasks.length > 0" class="message assistant">
           <ol v-if="responseItems.length > 0" class="focus-list">
             <li v-for="(item, i) in responseItems" :key="i" class="focus-item">{{ item }}</li>
           </ol>
+          <div v-if="createdTasks.length > 0" class="suggested-tasks">
+            <div class="suggested-tasks-label">Added to your task list:</div>
+            <div v-for="(c, i) in createdTasks" :key="`created-task-${i}`" class="suggested-task-row">
+              <span class="suggested-task-title">{{ c.listName ? `${c.listName}: ` : '' }}{{ c.task?.title }}</span>
+            </div>
+          </div>
           <div v-if="suggestedTasks.length > 0" class="suggested-tasks">
             <div class="suggested-tasks-label">Create tasks:</div>
             <div v-for="(t, i) in suggestedTasks" :key="`create-${i}`" class="suggested-task-row">
@@ -86,6 +92,21 @@
           @keydown.enter="send"
         />
         <button
+          v-if="speechSupported"
+          type="button"
+          class="btn-mic"
+          :class="{ 'btn-mic-active': speechListening }"
+          :title="speechListening ? 'Stop recording' : 'Record voice'"
+          @click="toggleSpeech"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+            <line x1="12" y1="19" x2="12" y2="23"/>
+            <line x1="8" y1="23" x2="16" y2="23"/>
+          </svg>
+        </button>
+        <button
           type="button"
           class="btn btn-primary btn-sm send-btn"
           :disabled="loading"
@@ -145,6 +166,7 @@ import { ref, computed } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import { useMomentumStickiesStore } from '../../store/momentumStickies';
+import { useSpeechToText } from '../../composables/useSpeechToText';
 
 const props = defineProps({
   programId: { type: Number, default: null },
@@ -160,12 +182,30 @@ const userId = computed(() => authStore.user?.id);
 const expanded = ref(true);
 const inputMessage = ref('');
 const loading = ref(false);
+
+const {
+  isListening: speechListening,
+  isSupported: speechSupported,
+  startListening: speechStart,
+  stopListening: speechStop
+} = useSpeechToText({
+  onFinal: (text) => {
+    const cur = String(inputMessage.value || '').trim();
+    inputMessage.value = cur ? `${cur} ${text}` : text;
+  }
+});
+
+const toggleSpeech = () => {
+  if (speechListening.value) speechStop();
+  else speechStart();
+};
 const error = ref('');
 const responseItems = ref([]);
 const suggestedTasks = ref([]);
 const suggestedUpdates = ref([]);
 const suggestedDeletes = ref([]);
 const createdInList = ref([]);
+const createdTasks = ref([]);
 const creatingTaskId = ref(null);
 const updatingTaskId = ref(null);
 const deletingTaskId = ref(null);
@@ -180,11 +220,12 @@ const send = async () => {
   if (!msg || !userId.value || loading.value) return;
   loading.value = true;
   error.value = '';
-  responseItems.value = [];
-  suggestedTasks.value = [];
-  suggestedUpdates.value = [];
-  suggestedDeletes.value = [];
-  createdInList.value = [];
+    responseItems.value = [];
+    suggestedTasks.value = [];
+    suggestedUpdates.value = [];
+    suggestedDeletes.value = [];
+    createdInList.value = [];
+    createdTasks.value = [];
   try {
     const { data } = await api.post(`/users/${userId.value}/momentum-chat`, {
       message: msg,
@@ -196,7 +237,8 @@ const send = async () => {
     suggestedUpdates.value = data.suggestedUpdates || [];
     suggestedDeletes.value = data.suggestedDeletes || [];
     createdInList.value = data.createdInList || [];
-    if (createdInList.value.length > 0) emit('task-changed');
+    createdTasks.value = data.createdTasks || [];
+    if (createdInList.value.length > 0 || createdTasks.value.length > 0) emit('task-changed');
     inputMessage.value = '';
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Failed to get focus recommendations';
@@ -215,7 +257,15 @@ const createTask = async (task, idx) => {
   if (!userId.value || !task?.title?.trim()) return;
   creatingTaskId.value = `create-${idx}`;
   try {
-    await api.post('/me/tasks', { title: task.title.trim(), description: task.description || null });
+    const body = {
+      title: task.title.trim(),
+      description: task.description || null,
+      urgency: task.urgency && ['low', 'medium', 'high'].includes(task.urgency) ? task.urgency : undefined,
+      dueDate: task.dueDate || undefined,
+      listName: task.listName || undefined,
+      agencyId: props.agencyId || undefined
+    };
+    await api.post('/me/tasks', body);
     suggestedTasks.value = suggestedTasks.value.filter((_, i) => i !== idx);
     emit('task-changed');
   } catch (e) {
@@ -380,6 +430,33 @@ const deleteTask = async (d, idx) => {
   outline: none;
   border-color: #fde047;
   box-shadow: 0 0 0 2px rgba(253, 224, 71, 0.3);
+}
+
+.btn-mic {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: white;
+  color: #6b7280;
+  cursor: pointer;
+  transition: color 0.2s, background 0.2s, border-color 0.2s;
+}
+
+.btn-mic:hover {
+  color: #374151;
+  background: #f3f4f6;
+}
+
+.btn-mic-active {
+  color: #dc2626;
+  background: #fef2f2;
+  border-color: #fecaca;
 }
 
 .send-btn {
