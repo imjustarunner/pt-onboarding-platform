@@ -537,18 +537,14 @@ export const login = async (req, res, next) => {
       }, 0);
     }
 
-    // Notify admin/staff/provider_plus/super_admin of every login (per agency)
+    // Notify admin/staff/provider/provider_plus of login (main agency only, one notification)
     setTimeout(async () => {
       try {
         const NotificationService = (await import('../services/notification.service.js')).default;
-        const agencies = await User.getAgencies(user.id);
-        for (const agency of agencies || []) {
-          NotificationService.createUserLoginNotification(user.id, agency.id).catch(err => {
-            console.error('Failed to create user login notification:', err);
-          });
-        }
-        if (!agencies?.length && agencyId) {
-          NotificationService.createUserLoginNotification(user.id, agencyId).catch(err => {
+        const mainAgencyId = await NotificationService.getMainAgencyIdForUser(user.id);
+        const targetAgencyId = mainAgencyId || agencyId;
+        if (targetAgencyId) {
+          NotificationService.createUserLoginNotification(user.id, targetAgencyId).catch(err => {
             console.error('Failed to create user login notification:', err);
           });
         }
@@ -1061,15 +1057,15 @@ export const logout = async (req, res, next) => {
       }, req);
     }
 
-    // Notify admin/staff/provider_plus/super_admin of logout (per agency)
+    // Notify admin/staff/provider/provider_plus of logout (main agency only, one notification)
     const logoutUserId = userId ?? req.user?.id;
     if (logoutUserId && Number.isFinite(Number(logoutUserId))) {
       setTimeout(async () => {
         try {
           const NotificationService = (await import('../services/notification.service.js')).default;
-          const agencies = await User.getAgencies(logoutUserId);
-          for (const agency of agencies || []) {
-            NotificationService.createUserLogoutNotification(logoutUserId, agency.id).catch(err => {
+          const mainAgencyId = await NotificationService.getMainAgencyIdForUser(logoutUserId);
+          if (mainAgencyId) {
+            NotificationService.createUserLogoutNotification(logoutUserId, mainAgencyId).catch(err => {
               console.error('Failed to create user logout notification:', err);
             });
           }
@@ -1433,13 +1429,13 @@ export const googleOAuthCallback = async (req, res, next) => {
       }
     }, req);
 
-    // Notify admin/staff/provider_plus/super_admin of login
+    // Notify admin/staff/provider/provider_plus of login (main agency only)
     setTimeout(async () => {
       try {
         const NotificationService = (await import('../services/notification.service.js')).default;
-        const agencies = await User.getAgencies(user.id);
-        for (const agency of agencies || []) {
-          NotificationService.createUserLoginNotification(user.id, agency.id).catch(err => {
+        const mainAgencyId = await NotificationService.getMainAgencyIdForUser(user.id);
+        if (mainAgencyId) {
+          NotificationService.createUserLoginNotification(user.id, mainAgencyId).catch(err => {
             console.error('Failed to create user login notification:', err);
           });
         }
@@ -1646,13 +1642,13 @@ export const passwordlessTokenLogin = async (req, res, next) => {
         }
       }, req);
 
-      // Notify admin/staff/provider_plus/super_admin of login
+      // Notify admin/staff/provider/provider_plus of login (main agency only)
       setTimeout(async () => {
         try {
           const NotificationService = (await import('../services/notification.service.js')).default;
-          const agencies = await User.getAgencies(user.id);
-          for (const agency of agencies || []) {
-            NotificationService.createUserLoginNotification(user.id, agency.id).catch(err => {
+          const mainAgencyId = await NotificationService.getMainAgencyIdForUser(user.id);
+          if (mainAgencyId) {
+            NotificationService.createUserLoginNotification(user.id, mainAgencyId).catch(err => {
               console.error('Failed to create user login notification:', err);
             });
           }
@@ -1870,13 +1866,13 @@ export const passwordlessTokenLoginFromBody = async (req, res, next) => {
         }
       }, req);
 
-      // Notify admin/staff/provider_plus/super_admin of login
+      // Notify admin/staff/provider/provider_plus of login (main agency only)
       setTimeout(async () => {
         try {
           const NotificationService = (await import('../services/notification.service.js')).default;
-          const agencies = await User.getAgencies(user.id);
-          for (const agency of agencies || []) {
-            NotificationService.createUserLoginNotification(user.id, agency.id).catch(err => {
+          const mainAgencyId = await NotificationService.getMainAgencyIdForUser(user.id);
+          if (mainAgencyId) {
+            NotificationService.createUserLoginNotification(user.id, mainAgencyId).catch(err => {
               console.error('Failed to create user login notification:', err);
             });
           }
@@ -2513,13 +2509,13 @@ export const resetPasswordWithToken = async (req, res, next) => {
       }
     }, req);
 
-    // Notify admin/staff/provider_plus/super_admin of login
+    // Notify admin/staff/provider/provider_plus of login (main agency only)
     setTimeout(async () => {
       try {
         const NotificationService = (await import('../services/notification.service.js')).default;
-        const agencies = await User.getAgencies(user.id);
-        for (const agency of agencies || []) {
-          NotificationService.createUserLoginNotification(user.id, agency.id).catch(err => {
+        const mainAgencyId = await NotificationService.getMainAgencyIdForUser(user.id);
+        if (mainAgencyId) {
+          NotificationService.createUserLoginNotification(user.id, mainAgencyId).catch(err => {
             console.error('Failed to create user login notification:', err);
           });
         }
@@ -2621,13 +2617,13 @@ export const initialSetup = async (req, res, next) => {
       }
     }, req);
 
-    // Notify admin/staff/provider_plus/super_admin of login
+    // Notify admin/staff/provider/provider_plus of login (main agency only)
     setTimeout(async () => {
       try {
         const NotificationService = (await import('../services/notification.service.js')).default;
-        const agencies = await User.getAgencies(user.id);
-        for (const agency of agencies || []) {
-          NotificationService.createUserLoginNotification(user.id, agency.id).catch(err => {
+        const mainAgencyId = await NotificationService.getMainAgencyIdForUser(user.id);
+        if (mainAgencyId) {
+          NotificationService.createUserLoginNotification(user.id, mainAgencyId).catch(err => {
             console.error('Failed to create user login notification:', err);
           });
         }

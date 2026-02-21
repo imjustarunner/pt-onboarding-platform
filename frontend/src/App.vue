@@ -1426,7 +1426,9 @@ const showNewNotificationToast = async () => {
       }, 6000);
       return;
     }
-    const loginLogout = (latest || []).filter((n) => n.type === 'user_login' || n.type === 'user_logout');
+    // School staff never see login/logout activity
+    const isSchoolStaff = String(user.value?.role || '').toLowerCase() === 'school_staff';
+    const loginLogout = isSchoolStaff ? [] : (latest || []).filter((n) => n.type === 'user_login' || n.type === 'user_logout');
     const first = loginLogout[0];
     if (first?.message) {
       loginActivityToast.value = {

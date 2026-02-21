@@ -766,7 +766,24 @@ class NotificationService {
   }
 
   /**
-   * Create notification when a user logs in. Visible to admin, staff, provider_plus, super_admin only.
+   * Get the main agency ID for a user (first agency-type org, not schools/subagencies).
+   * Used to create only one login/logout notification per user instead of one per affiliated org.
+   */
+  static async getMainAgencyIdForUser(userId) {
+    try {
+      const agencies = await User.getAgencies(userId);
+      const main = (agencies || []).find(
+        (a) => String(a?.organization_type || 'agency').toLowerCase() === 'agency'
+      );
+      return main?.id ? Number(main.id) : agencies?.[0]?.id ? Number(agencies[0].id) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Create notification when a user logs in. Visible to admin, staff, provider, provider_plus only.
+   * School staff never see login activity. One notification per user, main agency only.
    */
   static async createUserLoginNotification(userId, agencyId) {
     const user = await User.findById(userId);
@@ -781,8 +798,9 @@ class NotificationService {
       audienceJson: {
         admin: true,
         clinicalPracticeAssistant: true,
-        provider: false,
-        supervisor: false
+        provider: true,
+        supervisor: false,
+        schoolStaff: false
       },
       userId,
       agencyId,
@@ -794,7 +812,8 @@ class NotificationService {
   }
 
   /**
-   * Create notification when a user logs out. Visible to admin, staff, provider_plus, super_admin only.
+   * Create notification when a user logs out. Visible to admin, staff, provider, provider_plus only.
+   * School staff never see logout activity. One notification per user, main agency only.
    */
   static async createUserLogoutNotification(userId, agencyId) {
     const user = await User.findById(userId);
@@ -809,8 +828,9 @@ class NotificationService {
       audienceJson: {
         admin: true,
         clinicalPracticeAssistant: true,
-        provider: false,
-        supervisor: false
+        provider: true,
+        supervisor: false,
+        schoolStaff: false
       },
       userId,
       agencyId,
