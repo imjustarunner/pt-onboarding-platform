@@ -1957,14 +1957,16 @@ const dayNameForDateYmd = (dateYmd) => {
   const d = String(dateYmd || '').slice(0, 10);
   if (g && Array.isArray(g.days)) {
     const idx = g.days.findIndex((x) => String(x || '').slice(0, 10) === d);
-    if (idx >= 0) return ALL_DAYS[idx] || null;
+    if (idx >= 0) return SUNDAY_FIRST_DAYS[idx] || null;
   }
-  // Fallback: compute from weekStart (assumes same week)
+  // Fallback: compute from weekStart (assumes same week; backend weekStart is Sunday)
   const ws = String(weekStart.value || '').slice(0, 10);
-  const a = new Date(`${ws}T00:00:00`);
-  const b = new Date(`${d}T00:00:00`);
+  const [y1, m1, d1] = ws.split('-').map(Number);
+  const [y2, m2, d2] = d.split('-').map(Number);
+  const a = new Date(y1, (m1 || 1) - 1, d1 || 1);
+  const b = new Date(y2, (m2 || 1) - 1, d2 || 1);
   const diff = Math.floor((b - a) / (1000 * 60 * 60 * 24));
-  return ALL_DAYS[diff] || null;
+  return SUNDAY_FIRST_DAYS[diff] ?? null;
 };
 
 const onOfficeLayoutCellClick = ({ dateYmd, hour, roomId, slot, event }) => {
