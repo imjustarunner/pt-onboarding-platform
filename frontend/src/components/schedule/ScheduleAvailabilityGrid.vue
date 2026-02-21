@@ -7035,6 +7035,11 @@ watch([modalHour, modalEndHour, modalStartMinute, modalEndMinute, canUseQuarterH
   padding-top: 2px;
   padding-bottom: 2px;
 }
+.sched-wrap-quarter .sched-cell-quarter {
+  border-top-color: rgba(15, 23, 42, 0.08);
+  padding-top: 0;
+  padding-bottom: 0;
+}
 .sched-cell-today {
   background: rgba(59, 130, 246, 0.05);
   box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.18);
@@ -7222,18 +7227,22 @@ watch([modalHour, modalEndHour, modalStartMinute, modalEndMinute, canUseQuarterH
 }
 .sched-wrap-quarter .cell-blocks {
   gap: 0;
-  align-items: center;
+  align-items: stretch;
+  height: 100%;
 }
 .sched-wrap-quarter .cell-block {
-  border-radius: 5px;
-  border-color: color-mix(in srgb, currentColor 20%, transparent);
-  padding: 1px 5px;
+  height: 100%;
+  border-radius: 6px;
+  border-color: transparent;
+  padding: 0 6px;
   font-size: 10px;
   font-weight: 700;
-  margin-right: -5px;
+  margin-right: 0;
+  margin-top: -1px;
+  margin-bottom: -1px;
   backdrop-filter: none;
   box-shadow: none;
-  opacity: 0.94;
+  opacity: 0.98;
 }
 .sched-wrap-quarter .cell-block:last-child {
   margin-right: 0;
@@ -7254,16 +7263,22 @@ watch([modalHour, modalEndHour, modalStartMinute, modalEndMinute, canUseQuarterH
 .sched-wrap-quarter .cell-block-segment-start {
   border-bottom-left-radius: 0;
   border-bottom-right-radius: 0;
+  margin-top: 0;
 }
 .sched-wrap-quarter .cell-block-segment-middle {
   border-radius: 0;
-  border-top-color: transparent;
-  border-bottom-color: transparent;
+  margin-top: 0;
+  margin-bottom: 0;
 }
 .sched-wrap-quarter .cell-block-segment-end {
   border-top-left-radius: 0;
   border-top-right-radius: 0;
-  border-top-color: transparent;
+  margin-bottom: 0;
+}
+.sched-wrap-quarter .cell-block-segment-single {
+  margin-top: 0;
+  margin-bottom: 0;
+  border-radius: 6px;
 }
 .cell-block-agency-dot {
   width: 7px;
