@@ -4,6 +4,7 @@ import Client from '../models/Client.model.js';
 import MessageLog from '../models/MessageLog.model.js';
 import Agency from '../models/Agency.model.js';
 import TwilioOptInState from '../models/TwilioOptInState.model.js';
+import TwilioNumberAssignment from '../models/TwilioNumberAssignment.model.js';
 import NotificationGatekeeperService from '../services/notificationGatekeeper.service.js';
 import TwilioService from '../services/twilio.service.js';
 import { resolveOutboundNumber } from '../services/twilioNumberRouting.service.js';
@@ -55,34 +56,48 @@ export const getRecentMessages = async (req, res, next) => {
     const uid = parseIntOrNull(req.user?.id);
     if (!uid) return res.status(401).json({ error: { message: 'Not authenticated' } });
 
-    // Privacy rule: users can only see their own message logs (no cross-user safety net feed).
     const rawLimit = req.query.limit ? parseInt(req.query.limit, 10) : 50;
     const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 200) : 50;
     const safeUid = Number(uid);
     const safeLimit = Number(limit);
-    const sql = `
-      SELECT ml.*,
+    const role = String(req.user?.role || '').toLowerCase();
+    const isProviderOrSchoolStaff = role === 'provider' || role === 'school_staff';
+
+    let userClause = `ml.user_id = ${safeUid}`;
+    const params = [];
+    if (isProviderOrSchoolStaff) {
+      const assignments = await TwilioNumberAssignment.listByUserId(uid);
+      const assignedNumberIds = (assignments || []).map((a) => Number(a.number_id)).filter(Boolean);
+      if (assignedNumberIds.length > 0) {
+        const placeholders = assignedNumberIds.map(() => '?').join(',');
+        userClause = `(ml.user_id = ? OR ml.number_id IN (${placeholders}))`;
+        params.push(safeUid, ...assignedNumberIds);
+      }
+    }
+
+    const [rows] = await pool.execute(
+      `SELECT ml.*,
              c.initials AS client_initials,
              u.first_name AS user_first_name,
              u.last_name AS user_last_name
       FROM message_logs ml
       LEFT JOIN clients c ON ml.client_id = c.id
       LEFT JOIN users u ON ml.user_id = u.id
-      WHERE ml.user_id = ${safeUid}
+      WHERE ${userClause}
         AND (
           ml.agency_id IS NULL
           OR EXISTS (
             SELECT 1
             FROM user_agencies ua
-            WHERE ua.user_id = ${safeUid}
+            WHERE ua.user_id = ?
               AND ua.agency_id = ml.agency_id
           )
         )
       ORDER BY ml.created_at DESC
-      LIMIT ${safeLimit}
-    `;
-    const [rows] = await pool.query(sql);
-    res.json(rows);
+      LIMIT ?`,
+      params.length > 0 ? [...params, safeUid, safeLimit] : [safeUid, safeLimit]
+    );
+    res.json(rows || []);
   } catch (e) {
     next(e);
   }
@@ -106,7 +121,19 @@ export const getThread = async (req, res, next) => {
 
     const rawLimit = req.query.limit ? parseInt(req.query.limit, 10) : 100;
     const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 200) : 100;
-    const rows = await MessageLog.listThread({ userId: req.user.id, clientId: cid, limit });
+    const role = String(req.user?.role || '').toLowerCase();
+    const isProviderOrSchoolStaff = role === 'provider' || role === 'school_staff';
+    let assignedNumberIds = [];
+    if (isProviderOrSchoolStaff) {
+      const assignments = await TwilioNumberAssignment.listByUserId(req.user.id);
+      assignedNumberIds = (assignments || []).map((a) => Number(a.number_id)).filter(Boolean);
+    }
+    const rows = await MessageLog.listThread({
+      userId: req.user.id,
+      clientId: cid,
+      limit,
+      assignedNumberIds: assignedNumberIds.length > 0 ? assignedNumberIds : undefined
+    });
     res.json({ client, messages: rows });
   } catch (e) {
     next(e);

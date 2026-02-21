@@ -19,12 +19,25 @@ const ensureAgencyAccess = async (req, agencyId) => {
   return ok ? { ok: true } : { ok: false, status: 403, message: 'Access denied' };
 };
 
+const isProviderOrSchoolStaff = (role) => {
+  const r = String(role || '').toLowerCase();
+  return r === 'provider' || r === 'school_staff';
+};
+
 export const getUserCommunications = async (req, res, next) => {
   try {
     const { userId } = req.params;
     const { agencyId, templateType, limit, offset } = req.query;
     const currentUserId = req.user.id;
     const userRole = req.user.role;
+    const targetUserId = parseInt(userId, 10);
+
+    // Providers and school staff may only view their own communications.
+    if (isProviderOrSchoolStaff(userRole)) {
+      if (targetUserId !== currentUserId) {
+        return res.status(403).json({ error: { message: 'Access denied' } });
+      }
+    }
 
     // Verify access - user can view communications for users in their agencies
     if (userRole !== 'super_admin') {
@@ -32,7 +45,7 @@ export const getUserCommunications = async (req, res, next) => {
       const userAgencyIds = userAgencies.map(a => a.id);
       
       // Get target user's agencies
-      const targetUserAgencies = await User.getAgencies(parseInt(userId));
+      const targetUserAgencies = await User.getAgencies(targetUserId);
       const targetUserAgencyIds = targetUserAgencies.map(a => a.id);
       
       // Check if there's any overlap
@@ -43,7 +56,7 @@ export const getUserCommunications = async (req, res, next) => {
       }
     }
 
-    const communications = await UserCommunication.findByUser(parseInt(userId), {
+    const communications = await UserCommunication.findByUser(targetUserId, {
       agencyId: agencyId ? parseInt(agencyId) : undefined,
       templateType,
       limit: limit ? parseInt(limit) : undefined,

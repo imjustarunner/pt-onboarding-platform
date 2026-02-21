@@ -127,14 +127,30 @@ class MessageLog {
     return rows;
   }
 
-  static async listThread({ userId, clientId, limit = 100 }) {
+  /**
+   * @param {number} userId - Current user loading the thread
+   * @param {number} clientId - Client for the thread
+   * @param {number} limit - Max messages to return
+   * @param {number[]} [assignedNumberIds] - For providers: include messages to/from these number_ids (multi-recipient pools)
+   */
+  static async listThread({ userId, clientId, limit = 100, assignedNumberIds = [] }) {
+    const ids = (assignedNumberIds || []).map(Number).filter(Boolean);
+    let whereClause = 'user_id = ? AND client_id = ?';
+    const params = [userId, clientId];
+    if (ids.length > 0) {
+      const placeholders = ids.map(() => '?').join(',');
+      whereClause = `(user_id = ? OR number_id IN (${placeholders})) AND client_id = ?`;
+      params.length = 0;
+      params.push(userId, ...ids, clientId);
+    }
+    params.push(limit);
     const [rows] = await pool.execute(
       `SELECT *
        FROM message_logs
-       WHERE user_id = ? AND client_id = ?
+       WHERE ${whereClause}
        ORDER BY created_at DESC
        LIMIT ?`,
-      [userId, clientId, limit]
+      params
     );
     return rows;
   }

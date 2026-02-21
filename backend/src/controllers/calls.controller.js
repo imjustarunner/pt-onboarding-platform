@@ -6,6 +6,7 @@ import MessageLog from '../models/MessageLog.model.js';
 import UserCallSettings from '../models/UserCallSettings.model.js';
 import CallLog from '../models/CallLog.model.js';
 import CallVoicemail from '../models/CallVoicemail.model.js';
+import TwilioNumberAssignment from '../models/TwilioNumberAssignment.model.js';
 import { logAuditEvent } from '../services/auditEvent.service.js';
 import TwilioService from '../services/twilio.service.js';
 import { resolveOutboundNumber } from '../services/twilioNumberRouting.service.js';
@@ -298,8 +299,22 @@ export const listVoicemails = async (req, res, next) => {
         params.push(...agencyIds);
       }
     } else {
-      where += ' AND cv.user_id = ?';
-      params.push(userId);
+      const isProviderOrSchoolStaff = role === 'provider' || role === 'school_staff';
+      let assignedNumberIds = [];
+      if (isProviderOrSchoolStaff) {
+        const assignments = await TwilioNumberAssignment.listByUserId(userId);
+        assignedNumberIds = (assignments || []).map((a) => Number(a.number_id)).filter(Boolean);
+      }
+      if (assignedNumberIds.length > 0) {
+        where += ` AND (cv.user_id = ? OR EXISTS (
+          SELECT 1 FROM call_logs cl
+          WHERE cl.id = cv.call_log_id AND cl.number_id IN (${assignedNumberIds.map(() => '?').join(',')})
+        ))`;
+        params.push(userId, ...assignedNumberIds);
+      } else {
+        where += ' AND cv.user_id = ?';
+        params.push(userId);
+      }
       if (agencyIds.length) {
         where += ` AND (cv.agency_id IN (${agencyIds.map(() => '?').join(',')}) OR cv.agency_id IS NULL)`;
         params.push(...agencyIds);
@@ -337,8 +352,19 @@ export const streamVoicemailAudio = async (req, res, next) => {
       if (role !== 'super_admin' && row.agency_id && !agencyIds.includes(Number(row.agency_id))) {
         return res.status(403).json({ error: { message: 'Access denied' } });
       }
-    } else if (Number(row.user_id) !== Number(userId)) {
-      return res.status(403).json({ error: { message: 'Access denied' } });
+    } else {
+      const isProviderOrSchoolStaff = role === 'provider' || role === 'school_staff';
+      let canAccess = Number(row.user_id) === Number(userId);
+      if (!canAccess && isProviderOrSchoolStaff && row.call_log_id) {
+        const [clRows] = await pool.execute('SELECT number_id FROM call_logs WHERE id = ?', [row.call_log_id]);
+        const callLog = clRows?.[0];
+        if (callLog?.number_id) {
+          const assignments = await TwilioNumberAssignment.listByUserId(userId);
+          const assignedIds = new Set((assignments || []).map((a) => Number(a.number_id)));
+          canAccess = assignedIds.has(Number(callLog.number_id));
+        }
+      }
+      if (!canAccess) return res.status(403).json({ error: { message: 'Access denied' } });
     }
 
     const buffer = await TwilioService.downloadRecordingMedia({

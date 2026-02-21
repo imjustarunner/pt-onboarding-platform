@@ -1,6 +1,7 @@
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import Client from '../models/Client.model.js';
+import TwilioNumberAssignment from '../models/TwilioNumberAssignment.model.js';
 
 const canViewAgencySms = (role) => {
   const r = String(role || '').toLowerCase();
@@ -233,7 +234,20 @@ export const getCommunicationsFeed = async (req, res, next) => {
           );
           rows = r || [];
         } else {
-          // Provider/staff visibility is scoped to their own messages only.
+          // Provider/staff visibility: own messages + messages to/from their assigned Twilio numbers.
+          const roleNorm = String(role || '').toLowerCase();
+          const isProviderOrSchoolStaff = roleNorm === 'provider' || roleNorm === 'school_staff';
+          let assignedNumberIds = [];
+          if (isProviderOrSchoolStaff) {
+            const assignments = await TwilioNumberAssignment.listByUserId(userId);
+            assignedNumberIds = (assignments || []).map((a) => Number(a.number_id)).filter(Boolean);
+          }
+          const smsUserClause =
+            assignedNumberIds.length > 0
+              ? `(ml.user_id = ? OR ml.number_id IN (${assignedNumberIds.map(() => '?').join(',')}))`
+              : 'ml.user_id = ?';
+          const smsUserParams = assignedNumberIds.length > 0 ? [userId, ...assignedNumberIds] : [userId];
+
           if (!agencyIds.length) {
             const [r] = await pool.execute(
               `SELECT ml.*,
@@ -243,10 +257,10 @@ export const getCommunicationsFeed = async (req, res, next) => {
                FROM message_logs ml
                LEFT JOIN clients c ON ml.client_id = c.id
                LEFT JOIN users u ON ml.user_id = u.id
-               WHERE ml.user_id = ?
+               WHERE ${smsUserClause}
                ORDER BY ml.created_at DESC
                LIMIT ?`,
-              [userId, limit]
+              [...smsUserParams, limit]
             );
             rows = r || [];
           } else {
@@ -259,11 +273,11 @@ export const getCommunicationsFeed = async (req, res, next) => {
                FROM message_logs ml
                LEFT JOIN clients c ON ml.client_id = c.id
                LEFT JOIN users u ON ml.user_id = u.id
-               WHERE ml.user_id = ?
+               WHERE ${smsUserClause}
                  AND (ml.agency_id IN (${placeholders}) OR ml.agency_id IS NULL)
                ORDER BY ml.created_at DESC
                LIMIT ?`,
-              [userId, ...agencyIds, limit]
+              [...smsUserParams, ...agencyIds, limit]
             );
             rows = r || [];
           }
@@ -382,15 +396,29 @@ export const getCallsFeed = async (req, res, next) => {
       return res.json({ enabled: true, items: rows || [] });
     }
 
-    // Provider/staff users: own call rows only.
+    // Provider/staff users: own call rows + calls to/from their assigned Twilio numbers.
+    const roleNorm = String(role || '').toLowerCase();
+    const isProviderOrSchoolStaff = roleNorm === 'provider' || roleNorm === 'school_staff';
+    let assignedNumberIds = [];
+    if (isProviderOrSchoolStaff) {
+      const assignments = await TwilioNumberAssignment.listByUserId(userId);
+      assignedNumberIds = (assignments || []).map((a) => Number(a.number_id)).filter(Boolean);
+    }
+
+    const numberIdCondition =
+      assignedNumberIds.length > 0
+        ? ` OR cl.number_id IN (${assignedNumberIds.map(() => '?').join(',')})`
+        : '';
+    const numberIdParams = assignedNumberIds.length > 0 ? assignedNumberIds : [];
+
     if (!agencyIds.length) {
       const [rows] = await pool.execute(
         `SELECT cl.*
          FROM call_logs cl
-         WHERE cl.user_id = ?
+         WHERE cl.user_id = ?${numberIdCondition}
          ORDER BY COALESCE(cl.started_at, cl.created_at) DESC
          LIMIT ?`,
-        [userId, limit]
+        [userId, ...numberIdParams, limit]
       );
       return res.json({ enabled: true, items: rows || [] });
     }
@@ -399,11 +427,11 @@ export const getCallsFeed = async (req, res, next) => {
     const [rows] = await pool.execute(
       `SELECT cl.*
        FROM call_logs cl
-       WHERE cl.user_id = ?
+       WHERE (cl.user_id = ?${numberIdCondition})
          AND (cl.agency_id IN (${placeholders}) OR cl.agency_id IS NULL)
        ORDER BY COALESCE(cl.started_at, cl.created_at) DESC
        LIMIT ?`,
-      [userId, ...agencyIds, limit]
+      [userId, ...numberIdParams, ...agencyIds, limit]
     );
     return res.json({ enabled: true, items: rows || [] });
   } catch (e) {
@@ -456,10 +484,29 @@ export const getCallsAnalytics = async (req, res, next) => {
         voicemailParams.push(...agencyIds);
       }
     } else {
-      where += ` AND cl.user_id = ?`;
-      params.push(userId);
+      const roleNorm = String(role || '').toLowerCase();
+      const isProviderOrSchoolStaff = roleNorm === 'provider' || roleNorm === 'school_staff';
+      let assignedNumberIds = [];
+      if (isProviderOrSchoolStaff) {
+        const assignments = await TwilioNumberAssignment.listByUserId(userId);
+        assignedNumberIds = (assignments || []).map((a) => Number(a.number_id)).filter(Boolean);
+      }
+      const numberIdClause =
+        assignedNumberIds.length > 0
+          ? `(cl.user_id = ? OR cl.number_id IN (${assignedNumberIds.map(() => '?').join(',')}))`
+          : 'cl.user_id = ?';
+      const numberIdParams = assignedNumberIds.length > 0 ? [userId, ...assignedNumberIds] : [userId];
+      where += ` AND ${numberIdClause}`;
+      params.push(...numberIdParams);
       voicemailWhere += ` AND cv.user_id = ?`;
       voicemailParams.push(userId);
+      if (assignedNumberIds.length > 0) {
+        voicemailWhere = voicemailWhere.replace(
+          'cv.user_id = ?',
+          `(cv.user_id = ? OR EXISTS (SELECT 1 FROM call_logs cl2 WHERE cl2.id = cv.call_log_id AND cl2.number_id IN (${assignedNumberIds.map(() => '?').join(',')})))`
+        );
+        voicemailParams.push(...assignedNumberIds);
+      }
       if (agencyIds.length) {
         where += ` AND (cl.agency_id IN (${agencyIds.map(() => '?').join(',')}) OR cl.agency_id IS NULL)`;
         params.push(...agencyIds);

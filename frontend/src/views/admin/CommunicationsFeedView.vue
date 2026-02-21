@@ -10,7 +10,9 @@
           <button class="tab" :class="{ active: activeTab === 'all' }" @click="setTab('all')">All</button>
           <button class="tab" :class="{ active: activeTab === 'texts' }" @click="setTab('texts')">Texting</button>
           <button class="tab" :class="{ active: activeTab === 'calls' }" @click="setTab('calls')">Calls</button>
-          <button class="tab" :class="{ active: activeTab === 'automation' }" @click="setTab('automation')">Automation</button>
+          <button class="tab" :class="{ active: activeTab === 'automation' }" @click="setTab('automation')">
+            {{ isProviderOrSchoolStaff ? 'My messages' : 'Automation' }}
+          </button>
           <button class="tab" :class="{ active: activeTab === 'school' }" @click="setTab('school')">School alerts</button>
         </div>
         <router-link class="btn btn-secondary" :to="smsInboxLink">SMS Inbox</router-link>
@@ -202,7 +204,7 @@
         </div>
       </div>
       <div v-else-if="activeTab === 'automation'">
-        <div class="toolbar">
+        <div v-if="!isProviderOrSchoolStaff" class="toolbar">
           <div class="inline">
             <select v-model="platformChannel" class="select">
               <option value="email">Email</option>
@@ -217,21 +219,33 @@
             </button>
           </div>
         </div>
+        <div v-else class="toolbar">
+          <button class="btn btn-secondary" @click="loadPlatform" :disabled="platformLoading">
+            {{ platformLoading ? 'Loading…' : 'Refresh' }}
+          </button>
+        </div>
         <div v-if="platformError" class="error-box">{{ platformError }}</div>
-        <div v-else-if="platformLoading" class="loading">Loading delivery queue…</div>
-        <div v-else-if="platformRows.length === 0" class="empty">No platform communications found.</div>
+        <div v-else-if="platformLoading" class="loading">
+          {{ isProviderOrSchoolStaff ? 'Loading your messages…' : 'Loading delivery queue…' }}
+        </div>
+        <div v-else-if="platformRows.length === 0" class="empty">
+          {{ isProviderOrSchoolStaff ? 'No platform messages sent to you yet.' : 'No platform communications found.' }}
+        </div>
         <div v-else class="list">
           <div v-for="c in platformRows" :key="`automation-${c.id}`" class="row">
             <div class="left">
               <div class="top">
                 <span class="badge">{{ String(c.channel || 'msg').toUpperCase() }}</span>
-                <span class="client">{{ c.subject || c.template_type || 'Message' }}</span>
-                <span class="owner">{{ c.recipient_address || c.user_email || '—' }}</span>
+                <span class="client">{{ c.subject || formatTemplateType(c.template_type) || 'Message' }}</span>
+                <span class="owner">
+                  {{ isProviderOrSchoolStaff ? 'To: me' : (c.recipient_address || c.user_email || '—') }}
+                </span>
               </div>
               <div class="body">{{ c.body }}</div>
             </div>
             <div class="right">
               <div class="time">{{ formatTime(c.generated_at || c.created_at) }}</div>
+              <span v-if="isProviderOrSchoolStaff" class="badge status">{{ String(c.delivery_status || 'sent').toUpperCase() }}</span>
             </div>
           </div>
         </div>
@@ -364,6 +378,10 @@ const canManageTexting = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
   return role === 'admin' || role === 'support' || role === 'super_admin' || role === 'clinical_practice_assistant';
 });
+const isProviderOrSchoolStaff = computed(() => {
+  const role = String(authStore.user?.role || '').toLowerCase();
+  return role === 'provider' || role === 'school_staff';
+});
 const currentAgencyId = computed(() => {
   const direct = agencyStore.currentAgency?.id || agencyStore.currentAgency?.value?.id;
   if (direct) return Number(direct);
@@ -403,6 +421,14 @@ const formatTime = (d) => {
 const formatOwner = (m) => {
   const li = (m.user_last_name || '').slice(0, 1);
   return `${m.user_first_name || ''} ${li ? li + '.' : ''}`.trim() || '—';
+};
+
+const formatTemplateType = (t) => {
+  if (!t) return null;
+  const s = String(t);
+  if (s === 'company_event_vote') return 'Event vote / RSVP';
+  if (s === 'reminder_sms') return 'Reminder text';
+  return s.replace(/_/g, ' ');
 };
 
 const load = async () => {
@@ -554,17 +580,29 @@ const loadPlatform = async () => {
   try {
     platformLoading.value = true;
     platformError.value = '';
-    if (!currentAgencyId.value) {
-      platformRows.value = [];
-      return;
+    if (isProviderOrSchoolStaff.value) {
+      const userId = authStore.user?.id;
+      if (!userId) {
+        platformRows.value = [];
+        return;
+      }
+      const params = { limit: 100 };
+      if (currentAgencyId.value) params.agencyId = currentAgencyId.value;
+      const resp = await api.get(`/users/${userId}/communications`, { params });
+      platformRows.value = Array.isArray(resp.data) ? resp.data : [];
+    } else {
+      if (!currentAgencyId.value) {
+        platformRows.value = [];
+        return;
+      }
+      const params = {
+        agencyId: currentAgencyId.value,
+        channel: platformChannel.value,
+        status: platformStatus.value
+      };
+      const resp = await api.get('/communications/pending', { params });
+      platformRows.value = Array.isArray(resp.data) ? resp.data : [];
     }
-    const params = {
-      agencyId: currentAgencyId.value,
-      channel: platformChannel.value,
-      status: platformStatus.value
-    };
-    const resp = await api.get('/communications/pending', { params });
-    platformRows.value = Array.isArray(resp.data) ? resp.data : [];
   } catch (e) {
     platformError.value = e.response?.data?.error?.message || 'Failed to load platform communications';
     platformRows.value = [];
@@ -1001,6 +1039,14 @@ onBeforeUnmount(() => {
   text-align: right;
   color: var(--text-secondary);
   font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+.badge.status {
+  font-size: 10px;
+  padding: 2px 6px;
 }
 .time { font-weight: 600; color: var(--text-primary); }
 .numbers { margin-top: 6px; }

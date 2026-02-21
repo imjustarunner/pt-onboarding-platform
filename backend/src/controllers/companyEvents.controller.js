@@ -2,6 +2,7 @@ import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
 import MessageLog from '../models/MessageLog.model.js';
+import UserCommunication from '../models/UserCommunication.model.js';
 import TwilioService from '../services/twilio.service.js';
 import { createNotificationAndDispatch } from '../services/notificationDispatcher.service.js';
 import {
@@ -1124,6 +1125,23 @@ export const sendCompanyEventVotingSms = async (req, res, next) => {
         });
         continue;
       }
+      let comm = null;
+      try {
+        comm = await UserCommunication.create({
+          userId: Number(userId),
+          agencyId,
+          templateType: 'company_event_vote',
+          templateId: eventId,
+          subject: null,
+          body,
+          generatedByUserId: req.user?.id || null,
+          channel: 'sms',
+          recipientAddress: to,
+          deliveryStatus: 'pending'
+        });
+      } catch (e) {
+        console.warn('UserCommunication create (vote SMS) failed:', e?.message);
+      }
       try {
         const sendResult = await TwilioService.sendSms({ to, from: fromNumber, body });
         await writeDispatchLog({
@@ -1137,6 +1155,9 @@ export const sendCompanyEventVotingSms = async (req, res, next) => {
           payload: { body, to },
           sentAt: new Date()
         });
+        if (comm?.id) {
+          await UserCommunication.updateDeliveryStatus(comm.id, 'sent', sendResult?.sid || null);
+        }
         sentCount += 1;
       } catch (error) {
         await writeDispatchLog({
@@ -1149,6 +1170,15 @@ export const sendCompanyEventVotingSms = async (req, res, next) => {
           statusReason: String(error?.message || 'send_failed').slice(0, 255),
           payload: { body, to }
         });
+        if (comm?.id) {
+          await UserCommunication.updateDeliveryStatus(
+            comm.id,
+            'failed',
+            null,
+            null,
+            String(error?.message || 'send_failed').slice(0, 500)
+          );
+        }
       }
     }
     res.json({ ok: true, sentCount });

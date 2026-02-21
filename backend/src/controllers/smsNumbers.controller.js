@@ -337,15 +337,20 @@ export const unassignNumber = async (req, res, next) => {
 export const listUserAvailableNumbers = async (req, res, next) => {
   try {
     const userId = req.user?.id;
+    const role = String(req.user?.role || '').toLowerCase();
     if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
     const assignments = await TwilioNumberAssignment.listByUserId(userId);
     const assignedNumberIds = new Set(assignments.map((a) => Number(a.number_id)));
 
-    const agencyIds = await User.getAgencies(userId);
-    const agencyId = agencyIds?.[0]?.id || null;
-    const agencyNumbers = agencyId ? await TwilioNumber.listByAgency(agencyId, { includeInactive: false }) : [];
-
-    const availableAgencyNumbers = (agencyNumbers || []).filter((n) => !assignedNumberIds.has(Number(n.id)));
+    // Providers see only their assigned numbers (no agency/platform numbers they are not assigned to)
+    const isProviderOnly = role === 'provider' || role === 'school_staff';
+    let agencyNumbers = [];
+    if (!isProviderOnly) {
+      const agencyIds = await User.getAgencies(userId);
+      const agencyId = agencyIds?.[0]?.id || null;
+      const numbers = agencyId ? await TwilioNumber.listByAgency(agencyId, { includeInactive: false }) : [];
+      agencyNumbers = (numbers || []).filter((n) => !assignedNumberIds.has(Number(n.id)));
+    }
 
     res.json({
       assigned: assignments.map((a) => ({
@@ -355,7 +360,7 @@ export const listUserAvailableNumbers = async (req, res, next) => {
         is_primary: a.is_primary === 1 || a.is_primary === true,
         owner_type: 'staff'
       })),
-      agency: availableAgencyNumbers.map((n) => ({
+      agency: agencyNumbers.map((n) => ({
         id: n.id,
         phone_number: n.phone_number,
         agency_id: n.agency_id,
