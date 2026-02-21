@@ -1091,6 +1091,7 @@
             <button class="btn btn-primary" type="button" @click="saveSupvSession" :disabled="supvSaving || !selectedSupvSessionId">
               {{ supvSaving ? 'Saving…' : 'Save changes' }}
             </button>
+          </div>
         </div>
       </div>
 
