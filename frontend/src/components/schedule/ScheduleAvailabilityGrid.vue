@@ -1,5 +1,5 @@
 <template>
-  <div class="sched-wrap" :style="scheduleWrapVars" data-tour="my-schedule-grid">
+  <div class="sched-wrap" :class="{ 'sched-wrap-quarter': showQuarterDetail }" :style="scheduleWrapVars" data-tour="my-schedule-grid">
     <div class="sched-toolbar" data-tour="my-schedule-toolbar">
       <div class="sched-toolbar-top" data-tour="my-schedule-week-nav">
         <h2 class="sched-week-title">Week of {{ weekStart }}</h2>
@@ -359,53 +359,55 @@
           </div>
         </div>
 
-        <template v-for="h in hours" :key="`h-${h}`">
-          <div class="sched-hour">{{ hourLabel(h) }}</div>
+        <template v-for="slot in displayTimeSlots" :key="`h-${slot.key}`">
+          <div class="sched-hour" :class="{ 'sched-hour-quarter': slot.minute !== 0 }">
+            {{ slot.label }}
+          </div>
 
           <div
             v-for="d in visibleDays"
-            :key="`c-${d}-${h}`"
+            :key="`c-${d}-${slot.key}`"
             class="sched-cell"
-            :class="{ clickable: canBookFromGrid, 'sched-cell-today': isTodayDay(d), 'sched-cell-selected': isActionCellSelected(d, h) }"
-            @mousedown.left.prevent="onCellMouseDown(d, h, $event)"
-            @mouseenter="onCellMouseEnter(d, h, $event)"
-            @click="onCellClick(d, h, $event)"
-            @dblclick="onCellDoubleClick(d, h, $event)"
+            :class="{ clickable: canBookFromGrid && slot.minute === 0, 'sched-cell-quarter': slot.minute !== 0, 'sched-cell-today': isTodayDay(d), 'sched-cell-selected': isActionCellSelected(d, slot.hour) && slot.minute === 0 }"
+            @mousedown.left.prevent="slot.minute === 0 && onCellMouseDown(d, slot.hour, $event)"
+            @mouseenter="slot.minute === 0 && onCellMouseEnter(d, slot.hour, $event)"
+            @click="slot.minute === 0 && onCellClick(d, slot.hour, $event)"
+            @dblclick="slot.minute === 0 && onCellDoubleClick(d, slot.hour, $event)"
             role="button"
             :tabindex="0"
-            @keydown.enter.prevent="onCellClick(d, h, $event)"
-            @keydown.space.prevent="onCellClick(d, h, $event)"
+            @keydown.enter.prevent="slot.minute === 0 && onCellClick(d, slot.hour, $event)"
+            @keydown.space.prevent="slot.minute === 0 && onCellClick(d, slot.hour, $event)"
           >
             <button
-              v-if="canBookFromGrid"
+              v-if="canBookFromGrid && slot.minute === 0"
               type="button"
               class="cell-plus-btn"
               title="Add or edit this hour"
-              @click.stop="openSlotActionModal({ dayName: d, hour: h, preserveSelectionRange: false, actionSource: 'plus_or_blank' })"
+              @click.stop="openSlotActionModal({ dayName: d, hour: slot.hour, preserveSelectionRange: false, actionSource: 'plus_or_blank' })"
             >
               +
             </button>
-            <div v-if="availabilityClass(d, h)" class="cell-avail" :class="availabilityClass(d, h)"></div>
+            <div v-if="availabilityClass(d, slot.hour, slot.minute)" class="cell-avail" :class="availabilityClass(d, slot.hour, slot.minute)"></div>
             <div
-              v-if="selectedOfficeLocationId && officeOverlay(d, h)"
+              v-if="selectedOfficeLocationId && officeOverlay(d, slot.hour)"
               class="cell-office-overlay"
               :style="officeOverlayStyle"
-              :title="officeOverlayTitle(d, h)"
+              :title="officeOverlayTitle(d, slot.hour)"
             >
-              {{ officeOverlay(d, h) }}
+              {{ officeOverlay(d, slot.hour) }}
             </div>
             <div class="cell-blocks">
               <div
-                v-for="b in cellBlocks(d, h)"
+                v-for="b in cellBlocks(d, slot.hour, slot.minute)"
                 :key="b.key"
                 class="cell-block"
-                :class="[`cell-block-${b.kind}`, { 'cell-block-hovered': isBlockHovered(d, h, b) }]"
+                :class="[`cell-block-${b.kind}`, { 'cell-block-hovered': isBlockHovered(d, slot.hour, b) }]"
                 :title="b.title"
                 :style="cellBlockStyle(b)"
-                @mouseenter="hoveredBlockKey = blockKey(d, h, b)"
+                @mouseenter="hoveredBlockKey = blockKey(d, slot.hour, b)"
                 @mouseleave="hoveredBlockKey = ''"
-                @click="onCellBlockClick($event, b, d, h)"
-                @dblclick="onCellBlockDoubleClick($event, b, d, h)"
+                @click="onCellBlockClick($event, b, d, slot.hour)"
+                @dblclick="onCellBlockDoubleClick($event, b, d, slot.hour)"
               >
                 <span
                   v-if="hasAgencyBadge(b)"
@@ -1725,6 +1727,28 @@ const visibleDays = computed(() => {
   const selected = (focusedDays.value || []).filter((d) => baseDays.includes(String(d)));
   return selected.length ? selected : baseDays;
 });
+const displayTimeSlots = computed(() => {
+  if (!showQuarterDetail.value) {
+    return hours.map((h) => ({
+      key: `${h}:00`,
+      hour: Number(h),
+      minute: 0,
+      label: hourLabel(h)
+    }));
+  }
+  const slots = [];
+  for (const h of hours) {
+    for (const m of quarterMinuteOptions) {
+      slots.push({
+        key: `${h}:${pad2(m)}`,
+        hour: Number(h),
+        minute: Number(m),
+        label: hourMinuteLabel(h, m)
+      });
+    }
+  }
+  return slots;
+});
 
 const gridStyle = computed(() => {
   const cols = visibleDays.value.length;
@@ -2000,7 +2024,7 @@ const canBookFromGrid = computed(
     || (isAdminMode.value && (canManageOffices.value || canScheduleSupervisionFromGrid.value))
 );
 
-const availabilityClass = (dayName, hour) => {
+const availabilityClass = (dayName, hour, minute = 0) => {
   const a = props.availabilityOverlay && typeof props.availabilityOverlay === 'object' ? props.availabilityOverlay : null;
   if (!a) return '';
   const virtual = Array.isArray(a.virtualSlots) ? a.virtualSlots : [];
@@ -2009,8 +2033,9 @@ const availabilityClass = (dayName, hour) => {
   const dayIdx = ALL_DAYS.indexOf(String(dayName));
   if (dayIdx < 0) return '';
   const cellDate = addDaysYmd(weekStart.value, dayIdx);
-  const cellStart = new Date(`${cellDate}T${pad2(hour)}:00:00`);
-  const cellEnd = new Date(`${cellDate}T${pad2(Number(hour) + 1)}:00:00`);
+  const cellStart = new Date(`${cellDate}T${pad2(hour)}:${pad2(minute)}:00`);
+  const duration = showQuarterDetail.value ? 15 : 60;
+  const cellEnd = new Date(cellStart.getTime() + (duration * 60 * 1000));
   if (Number.isNaN(cellStart.getTime()) || Number.isNaN(cellEnd.getTime())) return '';
 
   const overlaps = (slot) => {
@@ -2476,15 +2501,15 @@ const supervisionTitle = (dayName, hour) => {
   return `Supervision — ${who} — ${dayName} ${hourLabel(hour)}${presenterText}`;
 };
 
-const scheduleEventsInCell = (dayName, hour) => {
+const scheduleEventsInCell = (dayName, hour, minute = 0) => {
   const s = summary.value;
   if (!s) return [];
   const ws = s.weekStart || weekStart.value;
   const dayIdx = ALL_DAYS.indexOf(String(dayName));
   if (dayIdx < 0) return [];
   const cellDate = addDaysYmd(ws, dayIdx);
-  const cellStart = new Date(`${cellDate}T${pad2(hour)}:00:00`);
-  const cellEnd = new Date(`${cellDate}T${pad2(Number(hour) + 1)}:00:00`);
+  const cellStart = new Date(`${cellDate}T${pad2(hour)}:${pad2(minute)}:00`);
+  const cellEnd = new Date(cellStart.getTime() + ((showQuarterDetail.value ? 15 : 60) * 60 * 1000));
   const list = Array.isArray(s.scheduleEvents) ? s.scheduleEvents : [];
   const hits = [];
   for (const ev of list) {
@@ -2618,7 +2643,7 @@ const officeState = (dayName, hour) => {
   return best;
 };
 
-const hasBusyIntervals = (busyList, dayName, hour, ws) => {
+const hasBusyIntervals = (busyList, dayName, hour, ws, minute = 0) => {
   for (const b of busyList || []) {
     const start = new Date(b.startAt);
     const end = new Date(b.endAt);
@@ -2632,28 +2657,28 @@ const hasBusyIntervals = (busyList, dayName, hour, ws) => {
 
     // Check overlap against the cell’s local hour window.
     const cellDate = addDaysYmd(ws, ALL_DAYS.indexOf(dayName));
-    const cellStart = new Date(`${cellDate}T${pad2(hour)}:00:00`);
-    const cellEnd = new Date(`${cellDate}T${pad2(hour + 1)}:00:00`);
+    const cellStart = new Date(`${cellDate}T${pad2(hour)}:${pad2(minute)}:00`);
+    const cellEnd = new Date(cellStart.getTime() + ((showQuarterDetail.value ? 15 : 60) * 60 * 1000));
     if (end > cellStart && start < cellEnd) return true;
   }
   return false;
 };
 
-const hasGoogleBusy = (dayName, hour) => {
+const hasGoogleBusy = (dayName, hour, minute = 0) => {
   const s = summary.value;
   if (!s) return false;
-  return hasBusyIntervals(s.googleBusy || [], dayName, hour, s.weekStart || weekStart.value);
+  return hasBusyIntervals(s.googleBusy || [], dayName, hour, s.weekStart || weekStart.value, minute);
 };
 
-const googleEventsInCell = (dayName, hour) => {
+const googleEventsInCell = (dayName, hour, minute = 0) => {
   const s = summary.value;
   if (!s) return [];
   const ws = s.weekStart || weekStart.value;
   const dayIdx = ALL_DAYS.indexOf(String(dayName));
   if (dayIdx < 0) return [];
   const cellDate = addDaysYmd(ws, dayIdx);
-  const cellStart = new Date(`${cellDate}T${pad2(hour)}:00:00`);
-  const cellEnd = new Date(`${cellDate}T${pad2(Number(hour) + 1)}:00:00`);
+  const cellStart = new Date(`${cellDate}T${pad2(hour)}:${pad2(minute)}:00`);
+  const cellEnd = new Date(cellStart.getTime() + ((showQuarterDetail.value ? 15 : 60) * 60 * 1000));
   const list = Array.isArray(s.googleEvents) ? s.googleEvents : [];
   const hits = [];
   for (const ev of list) {
@@ -2675,12 +2700,12 @@ const googleEventTitle = (ev, dayName, hour) => {
   const s = String(ev?.summary || '').trim() || 'Google event';
   return `${s} — ${dayName} ${hourLabel(hour)}`;
 };
-const hasExternalBusy = (dayName, hour) => {
+const hasExternalBusy = (dayName, hour, minute = 0) => {
   const s = summary.value;
   if (!s) return false;
   const cals = Array.isArray(s.externalCalendars) ? s.externalCalendars : [];
   for (const c of cals) {
-    if (hasBusyIntervals(c?.busy || [], dayName, hour, s.weekStart || weekStart.value)) return true;
+    if (hasBusyIntervals(c?.busy || [], dayName, hour, s.weekStart || weekStart.value, minute)) return true;
   }
   return false;
 };
@@ -2758,7 +2783,7 @@ const schoolTitle = (dayName, hour) => {
   const nameSuffix = names.length ? ` (${names.join(', ')})` : '';
   return `School assigned${agencySuffix(ids)}${nameSuffix} — ${dayName} ${hourLabel(hour)}`;
 };
-const officeEventsInCell = (dayName, hour) => {
+const officeEventsInCell = (dayName, hour, minute = 0) => {
   const s = summary.value;
   if (!s) return [];
   const hits = (s?.officeEvents || []).filter((e) => {
@@ -2768,7 +2793,9 @@ const officeEventsInCell = (dayName, hour) => {
     if (Number.isNaN(startLocal.getTime())) return false;
     const idx = dayIndexForDateLocal(localYmd(startLocal), s.weekStart || weekStart.value);
     const dn = ALL_DAYS[idx] || null;
-    return dn === dayName && startLocal.getHours() === Number(hour);
+    if (dn !== dayName) return false;
+    if (!showQuarterDetail.value) return startLocal.getHours() === Number(hour);
+    return startLocal.getHours() === Number(hour) && startLocal.getMinutes() === Number(minute);
   });
   return hits;
 };
@@ -2788,15 +2815,15 @@ const schoolAssignmentsInCell = (dayName, hour) => {
   });
 };
 
-const supervisionSessionsInCell = (dayName, hour) => {
+const supervisionSessionsInCell = (dayName, hour, minute = 0) => {
   const s = summary.value;
   if (!s) return [];
   const ws = s.weekStart || weekStart.value;
   const dayIdx = ALL_DAYS.indexOf(String(dayName));
   if (dayIdx < 0) return [];
   const cellDate = addDaysYmd(ws, dayIdx);
-  const cellStart = new Date(`${cellDate}T${pad2(hour)}:00:00`);
-  const cellEnd = new Date(`${cellDate}T${pad2(Number(hour) + 1)}:00:00`);
+  const cellStart = new Date(`${cellDate}T${pad2(hour)}:${pad2(minute)}:00`);
+  const cellEnd = new Date(cellStart.getTime() + ((showQuarterDetail.value ? 15 : 60) * 60 * 1000));
   const hits = [];
   for (const ev of s.supervisionSessions || []) {
     const startRaw = String(ev.startAt || '').trim();
@@ -2893,8 +2920,12 @@ const externalBusyShortLabel = (dayName, hour) => {
   const labels = externalBusyLabels(dayName, hour);
   const prefix = showQuarterDetail.value ? firstExternalBusyQuarter(dayName, hour) : '';
   if (!labels.length) return prefix ? `${prefix} Busy` : 'Busy';
-  const base = labels.length === 1 ? labels[0] : `${labels[0]}+${labels.length - 1}`;
-  return prefix ? `${prefix} ${base}` : base;
+  const singleDayFocused = visibleDays.value.length === 1;
+  const base = singleDayFocused
+    ? labels.join(', ')
+    : (labels.length === 1 ? labels[0] : `${labels[0]}+${labels.length - 1}`);
+  const clippedBase = base.length > 28 ? `${base.slice(0, 28)}…` : base;
+  return prefix ? `${prefix} ${clippedBase}` : clippedBase;
 };
 
 const shortOfficeLabel = (topEvent, fallback) => {
@@ -2905,7 +2936,7 @@ const shortOfficeLabel = (topEvent, fallback) => {
   return fallback;
 };
 
-const cellBlocks = (dayName, hour) => {
+const cellBlocks = (dayName, hour, minute = 0) => {
   const blocks = [];
   const singleDayFocused = visibleDays.value.length === 1;
   const perTypeInlineLimit = singleDayFocused ? Number.MAX_SAFE_INTEGER : 2;
@@ -2913,7 +2944,7 @@ const cellBlocks = (dayName, hour) => {
   // Office assignment state — one block per unique assignment (office is assigned to user, not agency)
   const selectedOfficeId = Number(selectedOfficeLocationId.value || 0);
   const officeHits = selectedOfficeId > 0
-    ? officeEventsInCell(dayName, hour).filter((e) => Number(e?.buildingId || 0) === selectedOfficeId)
+    ? officeEventsInCell(dayName, hour, minute).filter((e) => Number(e?.buildingId || 0) === selectedOfficeId)
     : [];
   const officeByAgency = new Map();
   for (const e of officeHits) {
@@ -2959,13 +2990,15 @@ const cellBlocks = (dayName, hour) => {
   for (const [aid, assignments] of schoolByAgency) {
     const agencyId = (aid === 'none' || !aid) ? null : Number(aid);
     const names = assignments.flatMap((a) => (a?.schoolName ? [String(a.schoolName).trim()] : [])).filter(Boolean);
-    const shortLabel = names.length <= 1 ? (names[0] || 'School') : `${names[0]}+${names.length - 1}`;
+    const shortLabel = singleDayFocused
+      ? ((names.join(', ') || 'School').length > 28 ? `${(names.join(', ') || 'School').slice(0, 28)}…` : (names.join(', ') || 'School'))
+      : (names.length <= 1 ? (names[0] || 'School') : `${names[0]}+${names.length - 1}`);
     const ids = agencyId ? [agencyId] : [];
     blocks.push({ key: `school-${agencyId || 'x'}`, kind: 'school', shortLabel, title: `School assigned${agencySuffix(ids)} — ${dayName} ${hourLabel(hour)}`, agencyId });
   }
 
   // Supervision sessions — one block per agency
-  const supvHits = supervisionSessionsInCell(dayName, hour);
+  const supvHits = supervisionSessionsInCell(dayName, hour, minute);
   const supvByAgency = new Map();
   for (const ev of supvHits) {
     const aid = Number(ev?._agencyId || 0) || null;
@@ -2979,7 +3012,7 @@ const cellBlocks = (dayName, hour) => {
   }
 
   // App-scheduled provider events (personal/hold/indirect) — include agencyId per event
-  const scheduleHits = scheduleEventsInCell(dayName, hour).slice(0, perTypeInlineLimit);
+  const scheduleHits = scheduleEventsInCell(dayName, hour, minute).slice(0, perTypeInlineLimit);
   for (const ev of scheduleHits) {
     blocks.push({
       key: `sevt-${String(ev?.id || ev?.googleEventId || ev?.title || 'event')}`,
@@ -2990,7 +3023,7 @@ const cellBlocks = (dayName, hour) => {
       agencyId: Number(ev?._agencyId || 0) || null
     });
   }
-  const scheduleExtra = Math.max(0, scheduleEventsInCell(dayName, hour).length - scheduleHits.length);
+  const scheduleExtra = Math.max(0, scheduleEventsInCell(dayName, hour, minute).length - scheduleHits.length);
   if (scheduleExtra) {
     blocks.push({ key: 'sevt-more', kind: 'more', shortLabel: `+${scheduleExtra}`, title: `${scheduleExtra} more schedule events in this hour` });
   }
@@ -3010,11 +3043,11 @@ const cellBlocks = (dayName, hour) => {
   }
 
   // Busy overlays
-  if (showGoogleBusy.value && hasGoogleBusy(dayName, hour)) {
+  if (showGoogleBusy.value && hasGoogleBusy(dayName, hour, minute)) {
     blocks.push({ key: 'gbusy', kind: 'gbusy', shortLabel: 'G', title: googleBusyTitle(dayName, hour) });
   }
   if (showGoogleEvents.value) {
-    const events = googleEventsInCell(dayName, hour).slice(0, perTypeInlineLimit);
+    const events = googleEventsInCell(dayName, hour, minute).slice(0, perTypeInlineLimit);
     for (const ev of events) {
       blocks.push({
         key: `gevt-${String(ev?.id || ev?.summary || 'event')}`,
@@ -3024,17 +3057,17 @@ const cellBlocks = (dayName, hour) => {
         link: String(ev?.htmlLink || '').trim() || null
       });
     }
-    const extra = Math.max(0, googleEventsInCell(dayName, hour).length - events.length);
+    const extra = Math.max(0, googleEventsInCell(dayName, hour, minute).length - events.length);
     if (extra) {
       blocks.push({ key: 'gevt-more', kind: 'more', shortLabel: `+${extra}`, title: `${extra} more Google events in this hour` });
     }
   }
-  if (showExternalBusy.value && selectedExternalCalendarIds.value.length && hasExternalBusy(dayName, hour)) {
+  if (showExternalBusy.value && selectedExternalCalendarIds.value.length && hasExternalBusy(dayName, hour, minute)) {
     blocks.push({ key: 'ebusy', kind: 'ebusy', shortLabel: externalBusyShortLabel(dayName, hour), title: externalBusyTitle(dayName, hour) });
   }
 
   // Side-by-side if multiple; keep it readable: show at most 3 blocks, then "+N".
-  if (blocks.length > 3) {
+  if (!singleDayFocused && blocks.length > 3) {
     const extra = blocks.length - 2;
     return [
       blocks[0],
@@ -6787,6 +6820,14 @@ watch([modalHour, modalEndHour, modalStartMinute, modalEndMinute, canUseQuarterH
   border-top: 1px solid var(--border);
   background: var(--bg-alt);
 }
+.sched-hour-quarter {
+  font-weight: 650;
+  font-size: 11px;
+  color: var(--text-secondary);
+  border-top: 1px solid rgba(15, 23, 42, 0.12);
+  padding-top: 5px;
+  padding-bottom: 5px;
+}
 .sched-cell {
   border-top: 1px solid rgba(15, 23, 42, 0.08);
   border-left: 1px solid rgba(15, 23, 42, 0.08);
@@ -6796,6 +6837,12 @@ watch([modalHour, modalEndHour, modalStartMinute, modalEndMinute, canUseQuarterH
   text-align: left;
   position: relative;
   overflow: hidden;
+}
+.sched-cell-quarter {
+  border-top: 1px solid rgba(15, 23, 42, 0.12);
+  min-height: max(18px, calc(var(--sched-cell-min-height, 32px) * 0.7));
+  padding-top: 2px;
+  padding-bottom: 2px;
 }
 .sched-cell-today {
   background: rgba(59, 130, 246, 0.05);
@@ -6981,6 +7028,37 @@ watch([modalHour, modalEndHour, modalStartMinute, modalEndMinute, canUseQuarterH
   letter-spacing: -0.01em;
   color: rgba(15, 23, 42, 0.92);
   backdrop-filter: blur(1px);
+}
+.sched-wrap-quarter .cell-blocks {
+  gap: 0;
+  align-items: center;
+}
+.sched-wrap-quarter .cell-block {
+  border-radius: 5px;
+  border-color: color-mix(in srgb, currentColor 20%, transparent);
+  padding: 1px 5px;
+  font-size: 10px;
+  font-weight: 700;
+  margin-right: -5px;
+  backdrop-filter: none;
+  box-shadow: none;
+  opacity: 0.94;
+}
+.sched-wrap-quarter .cell-block:last-child {
+  margin-right: 0;
+}
+.sched-wrap-quarter .cell-block:hover,
+.sched-wrap-quarter .cell-block-hovered {
+  opacity: 1;
+}
+.sched-wrap-quarter .cell-block-agency-dot {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 6px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.75);
+}
+.sched-wrap-quarter .cell-block-text {
+  max-width: calc(100% - 10px);
 }
 .cell-block-agency-dot {
   width: 7px;
