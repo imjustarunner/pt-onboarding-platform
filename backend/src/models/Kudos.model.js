@@ -52,6 +52,8 @@ class Kudos {
    * List pending peer kudos for admin approval (agency-scoped)
    */
   static async listPending(agencyId, { limit = 50, offset = 0 } = {}) {
+    const lim = Math.max(0, Math.min(100, Number(limit) || 50));
+    const off = Math.max(0, Number(offset) || 0);
     const [rows] = await pool.execute(
       `SELECT k.*,
               f.first_name AS from_first_name,
@@ -66,8 +68,8 @@ class Kudos {
        LEFT JOIN users t ON k.to_user_id = t.id
        WHERE k.agency_id = ? AND k.approval_status = 'pending' AND k.source = 'peer'
        ORDER BY k.created_at ASC
-       LIMIT ? OFFSET ?`,
-      [agencyId, limit, offset]
+       LIMIT ${lim} OFFSET ${off}`,
+      [agencyId]
     );
     return rows || [];
   }
@@ -120,6 +122,8 @@ class Kudos {
    * List kudos received by a user in an agency (paginated)
    */
   static async listReceivedByUser(userId, agencyId, { limit = 20, offset = 0 } = {}) {
+    const lim = Math.max(0, Math.min(100, Number(limit) || 20));
+    const off = Math.max(0, Number(offset) || 0);
     const [rows] = await pool.execute(
       `SELECT k.*,
               f.first_name AS from_first_name,
@@ -130,8 +134,8 @@ class Kudos {
        LEFT JOIN users f ON k.from_user_id = f.id
        WHERE k.to_user_id = ? AND k.agency_id = ?
        ORDER BY k.created_at DESC
-       LIMIT ? OFFSET ?`,
-      [userId, agencyId, limit, offset]
+       LIMIT ${lim} OFFSET ${off}`,
+      [userId, agencyId]
     );
     return rows || [];
   }

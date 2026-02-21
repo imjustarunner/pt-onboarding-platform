@@ -13,16 +13,6 @@
       <h1 data-tour="dash-header-title">{{ isPending ? 'Pre-Hire Checklist' : 'My Dashboard' }}</h1>
       <span class="badge badge-user">Personal</span>
       <span v-if="tierBadgeText" class="badge badge-tier" :class="tierBadgeKind">{{ tierBadgeText }}</span>
-      <button
-        type="button"
-        class="btn btn-secondary btn-sm tutorial-toggle"
-        :class="{ active: tutorialStore.enabled }"
-        :aria-pressed="tutorialStore.enabled ? 'true' : 'false'"
-        @click="tutorialStore.setEnabled(!tutorialStore.enabled)"
-        title="Turn tutorials on/off"
-      >
-        Tutorial {{ tutorialStore.enabled ? 'On' : 'Off' }}
-      </button>
     </div>
 
     <!-- Agency announcement banner (Dashboard) -->
@@ -196,6 +186,7 @@
     <div
       v-if="!previewMode && isOnboardingComplete && !isSchoolStaff && (providerSurfacesEnabled || canSeePresenceWidget || (currentAgencyId && canSeeKudosWidget))"
       class="top-snapshot-row"
+      :class="{ 'snapshot-collapsed': topCardCollapsed && providerSurfacesEnabled }"
     >
       <!-- Provider top summary card -->
       <div
@@ -2719,11 +2710,25 @@ h1 {
   flex: 1 1 200px;
   min-width: 0;
 }
+/* When snapshot collapsed: shrink cell to header only, let status/team slide over and go side-by-side */
+.top-snapshot-row.snapshot-collapsed .top-snapshot-cell {
+  flex: 0 0 auto;
+  min-width: 0;
+}
 .top-snapshot-status-team-stack {
   display: flex;
   flex-direction: column;
   gap: 12px;
   flex: 0 1 260px;
+  min-width: 0;
+}
+.top-snapshot-row.snapshot-collapsed .top-snapshot-status-team-stack {
+  flex: 1 1 auto;
+  flex-direction: row;
+  flex-wrap: wrap;
+}
+.top-snapshot-row.snapshot-collapsed .top-snapshot-status-team-stack .top-snapshot-wrap {
+  flex: 1 1 240px;
   min-width: 0;
 }
 .top-snapshot-row .top-snapshot-wrap {
@@ -3769,11 +3774,6 @@ h1 {
 .dashboard-header-user h1 {
   margin: 0;
   color: var(--text-primary);
-}
-
-.tutorial-toggle {
-  margin-left: auto;
-  white-space: nowrap;
 }
 
 .badge-user {

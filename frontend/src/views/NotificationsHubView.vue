@@ -24,9 +24,17 @@
               v-if="myUnreadCount > 0"
               class="btn btn-primary btn-sm"
               type="button"
-              @click="markVisibleUnreadAsRead"
+              @click="markAllAsRead"
             >
-              Mark visible unread
+              Mark all read
+            </button>
+            <button
+              v-if="selectedUnreadCount > 0"
+              class="btn btn-secondary btn-sm"
+              type="button"
+              @click="markSelectedAsRead"
+            >
+              Mark {{ selectedUnreadCount }} selected read
             </button>
             <router-link v-if="isAdminLike" class="btn btn-secondary btn-sm" :to="ticketsLink">
               Tickets
@@ -64,6 +72,15 @@
             class="notif-row"
             :class="{ unread: isUnread(n), urgent: isUrgent(n) }"
           >
+            <div class="col col-check">
+              <label v-if="isUnread(n)" class="notif-checkbox-wrap" :title="selectedIds.has(n.id) ? 'Deselect' : 'Select'">
+                <input
+                  type="checkbox"
+                  :checked="selectedIds.has(n.id)"
+                  @change="toggleSelect(n.id)"
+                />
+              </label>
+            </div>
             <div class="col col-title">
               <span v-if="isUnread(n)" class="unread-dot" aria-hidden="true"></span>
               <span v-if="isUrgent(n)" class="badge badge-urgent">URGENT</span>
@@ -225,6 +242,7 @@ const clientLabelMode = ref('initials'); // 'initials' | 'codes'
 const adminSelectedClient = ref(null);
 const adminClientLoading = ref(false);
 const activeTypeFilter = ref('all');
+const selectedIds = ref(new Set());
 
 const userId = computed(() => authStore.user?.id);
 const role = computed(() => authStore.user?.role);
@@ -375,10 +393,34 @@ const dismissNotification = async (n) => {
   }
 };
 
-const markVisibleUnreadAsRead = async () => {
-  const unread = displayedMyNotifications.value.filter((n) => isUnread(n));
+const markAllAsRead = async () => {
+  const unread = myNotifications.value.filter((n) => isUnread(n));
   if (!unread.length) return;
   await Promise.allSettled(unread.map((n) => markRead(n)));
+  selectedIds.value = new Set();
+};
+
+const toggleSelect = (id) => {
+  const next = new Set(selectedIds.value);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  selectedIds.value = next;
+};
+
+const selectedUnreadCount = computed(() => {
+  let count = 0;
+  for (const id of selectedIds.value) {
+    const n = myNotifications.value.find((x) => x.id === id);
+    if (n && isUnread(n)) count++;
+  }
+  return count;
+});
+
+const markSelectedAsRead = async () => {
+  const toMark = myNotifications.value.filter((n) => selectedIds.value.has(n.id) && isUnread(n));
+  if (!toMark.length) return;
+  await Promise.allSettled(toMark.map((n) => markRead(n)));
+  selectedIds.value = new Set();
 };
 
 const openNotification = async (notification) => {
@@ -621,10 +663,10 @@ watch(
 }
 .notif-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   grid-template-areas:
-    "title meta"
-    "msg meta";
+    "check title meta"
+    "check msg meta";
   align-items: start;
   gap: 12px;
   padding: 8px 10px;
@@ -644,6 +686,20 @@ watch(
   background: #fff7f7;
 }
 .col { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.col-check {
+  grid-area: check;
+  padding-top: 2px;
+}
+.notif-checkbox-wrap {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+}
+.notif-checkbox-wrap input {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
 .col-title {
   grid-area: title;
   flex-wrap: wrap;
@@ -817,11 +873,11 @@ watch(
 }
 @media (max-width: 900px) {
   .notif-row {
-    grid-template-columns: 1fr;
+    grid-template-columns: auto 1fr;
     grid-template-areas:
-      "title"
-      "msg"
-      "meta";
+      "check title"
+      "check msg"
+      "check meta";
     gap: 6px;
   }
   .col-meta {
