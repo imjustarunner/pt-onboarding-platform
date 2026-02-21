@@ -2648,6 +2648,14 @@ const quarterSegmentForRange = (dayName, hour, minute, startRaw, endRaw) => {
   if (hasPrev && !hasNext) return 'end';
   return 'middle';
 };
+const shouldShowQuarterBlockLabel = (segmentClass, minute = 0) => {
+  if (!showQuarterDetail.value) return true;
+  return segmentClass === 'single' || segmentClass === 'start' || Number(minute) === 0;
+};
+const shouldHideQuarterAgencyDot = (segmentClass, minute = 0) => {
+  if (!showQuarterDetail.value) return false;
+  return (segmentClass === 'middle' || segmentClass === 'end') && Number(minute) !== 0;
+};
 
 const scheduleEventShortLabel = (ev) => {
   const raw = String(ev?.title || '').trim() || 'Event';
@@ -3124,7 +3132,7 @@ const cellBlocks = (dayName, hour, minute = 0) => {
     const first = sortedEvents[0] || null;
     const last = sortedEvents[sortedEvents.length - 1] || null;
     const segmentClass = quarterSegmentForRange(dayName, hour, minute, first?.startAt, last?.endAt);
-    const showLabel = !showQuarterDetail.value || segmentClass === 'single' || segmentClass === 'start';
+    const showLabel = shouldShowQuarterBlockLabel(segmentClass, minute);
     blocks.push({
       key: `supv-${agencyId || 'x'}`,
       kind: 'supv',
@@ -3132,7 +3140,7 @@ const cellBlocks = (dayName, hour, minute = 0) => {
       title: supervisionTitle(dayName, hour),
       agencyId,
       segmentClass,
-      hideAgencyDot: showQuarterDetail.value && (segmentClass === 'middle' || segmentClass === 'end')
+      hideAgencyDot: shouldHideQuarterAgencyDot(segmentClass, minute)
     });
   }
 
@@ -3140,7 +3148,7 @@ const cellBlocks = (dayName, hour, minute = 0) => {
   const scheduleHits = scheduleEventsInCell(dayName, hour, minute).slice(0, perTypeInlineLimit);
   for (const ev of scheduleHits) {
     const segmentClass = quarterSegmentForRange(dayName, hour, minute, ev?.startAt, ev?.endAt);
-    const showLabel = !showQuarterDetail.value || segmentClass === 'single' || segmentClass === 'start';
+    const showLabel = shouldShowQuarterBlockLabel(segmentClass, minute);
     blocks.push({
       key: `sevt-${String(ev?.id || ev?.googleEventId || ev?.title || 'event')}`,
       kind: 'sevt',
@@ -3149,7 +3157,7 @@ const cellBlocks = (dayName, hour, minute = 0) => {
       link: String(ev?.htmlLink || '').trim() || null,
       agencyId: Number(ev?._agencyId || 0) || null,
       segmentClass,
-      hideAgencyDot: showQuarterDetail.value && (segmentClass === 'middle' || segmentClass === 'end')
+      hideAgencyDot: shouldHideQuarterAgencyDot(segmentClass, minute)
     });
   }
   const scheduleExtra = Math.max(0, scheduleEventsInCell(dayName, hour, minute).length - scheduleHits.length);
@@ -3176,7 +3184,7 @@ const cellBlocks = (dayName, hour, minute = 0) => {
     const ws = summary.value?.weekStart || weekStart.value;
     const range = busyRangeForCell(summary.value?.googleBusy || [], dayName, hour, ws, minute);
     const segmentClass = range ? quarterSegmentForRange(dayName, hour, minute, range.startAt, range.endAt) : 'single';
-    const showLabel = !showQuarterDetail.value || segmentClass === 'single' || segmentClass === 'start';
+    const showLabel = shouldShowQuarterBlockLabel(segmentClass, minute);
     blocks.push({
       key: 'gbusy',
       kind: 'gbusy',
@@ -3189,7 +3197,7 @@ const cellBlocks = (dayName, hour, minute = 0) => {
     const events = googleEventsInCell(dayName, hour, minute).slice(0, perTypeInlineLimit);
     for (const ev of events) {
       const segmentClass = quarterSegmentForRange(dayName, hour, minute, ev?.startAt, ev?.endAt);
-      const showLabel = !showQuarterDetail.value || segmentClass === 'single' || segmentClass === 'start';
+      const showLabel = shouldShowQuarterBlockLabel(segmentClass, minute);
       blocks.push({
         key: `gevt-${String(ev?.id || ev?.summary || 'event')}`,
         kind: 'gevt',
@@ -3213,7 +3221,7 @@ const cellBlocks = (dayName, hour, minute = 0) => {
       .flatMap((c) => (Array.isArray(c?.busy) ? c.busy : []));
     const range = busyRangeForCell(busyList, dayName, hour, ws, minute);
     const segmentClass = range ? quarterSegmentForRange(dayName, hour, minute, range.startAt, range.endAt) : 'single';
-    const showLabel = !showQuarterDetail.value || segmentClass === 'single' || segmentClass === 'start';
+    const showLabel = shouldShowQuarterBlockLabel(segmentClass, minute);
     blocks.push({
       key: 'ebusy',
       kind: 'ebusy',
@@ -7242,7 +7250,7 @@ watch([modalHour, modalEndHour, modalStartMinute, modalEndMinute, canUseQuarterH
   border-radius: 6px;
   border-color: transparent;
   padding: 0 6px;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   margin-right: 0;
   margin-top: -1px;
