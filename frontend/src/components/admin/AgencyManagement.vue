@@ -800,6 +800,18 @@
               </small>
             </div>
 
+            <div
+              v-if="agencyForm.featureFlags.portalVariant === 'employee'"
+              class="toggle-row"
+              style="margin-top: 10px;"
+            >
+              <span>Enable Submit for Employee portal</span>
+              <ToggleSwitch v-model="agencyForm.featureFlags.submitEnabledForEmployeePortal" compact />
+            </div>
+            <small v-if="agencyForm.featureFlags.portalVariant === 'employee'" class="hint">
+              When enabled, shows the Submit card (mileage, expenses, etc.) even for Employee portals.
+            </small>
+
             <div class="toggle-row" style="margin-top: 8px;">
               <span>Enable In‑School submissions</span>
               <ToggleSwitch v-model="agencyForm.featureFlags.inSchoolSubmissionsEnabled" compact />
@@ -4882,6 +4894,8 @@ const defaultAgencyForm = () => ({
   featureFlags: {
     // Controls dashboard module set + certain provider-only surfaces
     portalVariant: 'healthcare_provider',
+    // When portalVariant is 'employee', enables Submit (mileage, expenses, etc.)
+    submitEnabledForEmployeePortal: false,
     // Defaults are "enabled" to preserve existing behavior until an admin turns them off.
     inSchoolSubmissionsEnabled: true,
     medcancelEnabled: true,
@@ -6182,6 +6196,7 @@ const editAgency = async (agency) => {
     },
     featureFlags: {
       portalVariant: String(featureFlags.portalVariant || 'healthcare_provider'),
+      submitEnabledForEmployeePortal: featureFlags.submitEnabledForEmployeePortal === true,
       inSchoolSubmissionsEnabled: featureFlags.inSchoolSubmissionsEnabled !== false,
       medcancelEnabled: featureFlags.medcancelEnabled !== false,
       shiftProgramsEnabled: featureFlags.shiftProgramsEnabled === true,

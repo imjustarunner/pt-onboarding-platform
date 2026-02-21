@@ -104,6 +104,66 @@
             </table>
           </div>
           <div v-else class="muted">No breakdown available.</div>
+
+          <div v-if="hasAdjustments" class="adjustments-section" style="margin-top: 16px;">
+            <h4 class="breakdown-title">Additional Pay / Overrides</h4>
+            <div v-if="visibleAdjustmentLines.length">
+              <div v-for="(l, i) in visibleAdjustmentLines" :key="`adj:${l.type}:${i}`" class="row">
+                <strong>{{ l.label }}:</strong>
+                {{ fmtMoney(l.amount ?? 0) }}
+                <span class="muted" v-if="l.meta && (l.meta.hours || l.meta.rate)">
+                  • {{ fmtNum(l.meta.hours ?? 0) }} hrs @ {{ fmtMoney(l.meta.rate ?? 0) }}
+                </span>
+                <span class="muted" v-if="l.taxable === false"> • non-taxable</span>
+                <span class="muted" v-else> • taxable</span>
+              </div>
+            </div>
+            <div v-else>
+              <div class="row" v-if="showOverrideRow('mileageAmount')">
+                <strong>Mileage:</strong> {{ fmtMoney(openPeriodAdjustments.mileageAmount ?? 0) }}
+              </div>
+              <div class="row" v-if="showOverrideRow('medcancelAmount')">
+                <strong>Med Cancel:</strong> {{ fmtMoney(openPeriodAdjustments.medcancelAmount ?? 0) }}
+              </div>
+              <div class="row" v-if="showOverrideRow('otherTaxableAmount')">
+                <strong>Other taxable:</strong> {{ fmtMoney(openPeriodAdjustments.otherTaxableAmount ?? 0) }}
+              </div>
+              <div class="row" v-if="showOverrideRow('imatterAmount')">
+                <strong>IMatter:</strong> {{ fmtMoney(openPeriodAdjustments.imatterAmount ?? 0) }}
+              </div>
+              <div class="row" v-if="showOverrideRow('missedAppointmentsAmount')">
+                <strong>Missed appointments:</strong> {{ fmtMoney(openPeriodAdjustments.missedAppointmentsAmount ?? 0) }}
+              </div>
+              <div class="row" v-if="showOverrideRow('bonusAmount')">
+                <strong>Bonus:</strong> {{ fmtMoney(openPeriodAdjustments.bonusAmount ?? 0) }}
+              </div>
+              <div class="row" v-if="showOverrideRow('reimbursementAmount')">
+                <strong>Reimbursement:</strong> {{ fmtMoney(openPeriodAdjustments.reimbursementAmount ?? 0) }}
+              </div>
+              <div class="row" v-if="showOverrideRow('tuitionReimbursementAmount')">
+                <strong>Tuition reimbursement (tax-exempt):</strong> {{ fmtMoney(openPeriodAdjustments.tuitionReimbursementAmount ?? 0) }}
+              </div>
+              <div class="row" v-if="showOverrideRow('timeClaimsAmount')">
+                <strong>Time claims:</strong> {{ fmtMoney(openPeriodAdjustments.timeClaimsAmount ?? 0) }}
+              </div>
+              <div class="row" v-if="showManualPayLinesRow">
+                <strong>Manual pay lines:</strong> {{ fmtMoney(openPeriodAdjustments.manualPayLinesAmount ?? 0) }}
+              </div>
+              <div v-if="manualPayLines.length" class="muted" style="margin-top: 6px;">
+                <div v-for="(ml, j) in manualPayLines" :key="`${ml.id || j}`">
+                  - {{ ml.label }}: {{ fmtMoney(ml.amount ?? 0) }}
+                </div>
+              </div>
+              <div class="row" v-if="showPtoRow">
+                <strong>PTO:</strong>
+                {{ fmtNum(openPeriodAdjustments.ptoHours ?? 0) }} hrs @ {{ fmtMoney(openPeriodAdjustments.ptoRate ?? 0) }} =
+                {{ fmtMoney(openPeriodAdjustments.ptoPay ?? 0) }}
+              </div>
+              <div class="row" v-if="showOverrideRow('salaryAmount')">
+                <strong>Salary override:</strong> {{ fmtMoney(openPeriodAdjustments.salaryAmount ?? 0) }}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -820,6 +880,60 @@ const splitBreakdownForDisplay = (breakdown) => {
 };
 
 const openPeriodServiceLines = computed(() => splitBreakdownForDisplay(openPeriod.value?.breakdown || null));
+
+const openPeriodBreakdown = computed(() => {
+  const b = openPeriod.value?.breakdown;
+  return b && typeof b === 'object' ? b : null;
+});
+const openPeriodAdjustments = computed(() => {
+  const adj = openPeriodBreakdown.value?.__adjustments;
+  return adj && typeof adj === 'object' ? adj : {};
+});
+const manualPayLines = computed(() => {
+  const adj = openPeriodAdjustments.value;
+  const b = openPeriodBreakdown.value;
+  const list = adj?.manualPayLines || b?.__manualPayLines || [];
+  return Array.isArray(list) ? list : [];
+});
+const absGtZero = (n) => Math.abs(Number(n || 0)) > 1e-9;
+const visibleAdjustmentLines = computed(() => {
+  const lines = openPeriodAdjustments.value?.lines;
+  const arr = Array.isArray(lines) ? lines : [];
+  return arr.filter((l) => {
+    const amount = Number(l?.amount || 0);
+    const hours = Number(l?.meta?.hours || 0);
+    const rate = Number(l?.meta?.rate || 0);
+    return absGtZero(amount) || absGtZero(hours) || absGtZero(rate);
+  });
+});
+const showOverrideRow = (field) => absGtZero(openPeriodAdjustments.value?.[field]);
+const showManualPayLinesRow = computed(() => {
+  if (manualPayLines.value.length) return true;
+  return absGtZero(openPeriodAdjustments.value?.manualPayLinesAmount);
+});
+const showPtoRow = computed(
+  () => absGtZero(openPeriodAdjustments.value?.ptoHours) || absGtZero(openPeriodAdjustments.value?.ptoPay)
+);
+const hasAdjustments = computed(() => {
+  const adj = openPeriodAdjustments.value;
+  if (!adj || typeof adj !== 'object') return false;
+  if (visibleAdjustmentLines.value.length) return true;
+  if (manualPayLines.value.length) return true;
+  return (
+    showOverrideRow('mileageAmount') ||
+    showOverrideRow('medcancelAmount') ||
+    showOverrideRow('otherTaxableAmount') ||
+    showOverrideRow('imatterAmount') ||
+    showOverrideRow('missedAppointmentsAmount') ||
+    showOverrideRow('bonusAmount') ||
+    showOverrideRow('reimbursementAmount') ||
+    showOverrideRow('tuitionReimbursementAmount') ||
+    showOverrideRow('timeClaimsAmount') ||
+    showManualPayLinesRow.value ||
+    showPtoRow.value ||
+    showOverrideRow('salaryAmount')
+  );
+});
 
 const fmtMoney = (v) => {
   const n = Number(v || 0);

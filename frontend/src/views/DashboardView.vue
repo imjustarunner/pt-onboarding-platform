@@ -949,7 +949,11 @@ function isTruthyFlag(v) {
 
 const agencyFlags = computed(() => parseFeatureFlags(agencyStore.currentAgency?.feature_flags));
 const portalVariant = computed(() => String(agencyFlags.value?.portalVariant || 'healthcare_provider'));
-const providerSurfacesEnabled = computed(() => portalVariant.value !== 'employee');
+const providerSurfacesEnabled = computed(
+  () =>
+    portalVariant.value !== 'employee' ||
+    isTruthyFlag(agencyFlags.value?.submitEnabledForEmployeePortal)
+);
 const inSchoolEnabled = computed(() => agencyFlags.value?.inSchoolSubmissionsEnabled !== false);
 const medcancelEnabledForAgency = computed(() => inSchoolEnabled.value && agencyFlags.value?.medcancelEnabled !== false);
 const clinicalNoteGeneratorEnabledForAgency = computed(() => {
