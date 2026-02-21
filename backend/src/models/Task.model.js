@@ -269,7 +269,8 @@ class Task {
     isRecurring,
     recurringRule,
     typicalDayOfWeek,
-    typicalTime
+    typicalTime,
+    metadata
   }) {
     const parts = [];
     const params = [];
@@ -308,6 +309,10 @@ class Task {
     if (typicalTime !== undefined) {
       parts.push('typical_time = ?');
       params.push(typicalTime != null ? String(typicalTime) : null);
+    }
+    if (metadata !== undefined && metadata !== null) {
+      parts.push('metadata = ?');
+      params.push(typeof metadata === 'string' ? metadata : JSON.stringify(metadata));
     }
     if (parts.length === 0) return this.findById(taskId);
     params.push(parseInt(taskId, 10));

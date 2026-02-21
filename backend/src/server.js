@@ -36,6 +36,7 @@ import userChecklistAssignmentRoutes from './routes/userChecklistAssignment.rout
 import momentumStickiesRoutes from './routes/momentumStickies.routes.js';
 import momentumChatRoutes from './routes/momentumChat.routes.js';
 import taskListsRoutes from './routes/taskLists.routes.js';
+import meetingAgendasRoutes from './routes/meetingAgendas.routes.js';
 import approvedEmployeeRoutes from './routes/approvedEmployee.routes.js';
 import publicTrainingRoutes from './routes/publicTraining.routes.js';
 import agencyOnDemandTrainingRoutes from './routes/agencyOnDemandTraining.routes.js';
@@ -537,6 +538,7 @@ app.use('/api', userChecklistAssignmentRoutes);
 app.use('/api', momentumStickiesRoutes);
 app.use('/api', momentumChatRoutes);
 app.use('/api', taskListsRoutes);
+app.use('/api/meeting-agendas', meetingAgendasRoutes);
 app.use('/api/approved-employees', approvedEmployeeRoutes);
 app.use('/api/on-demand-training', publicTrainingRoutes);
 app.use('/api/agency-on-demand-training', agencyOnDemandTrainingRoutes);

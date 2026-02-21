@@ -1,5 +1,6 @@
 import pool from '../config/database.js';
 import { createNotificationAndDispatch } from './notificationDispatcher.service.js';
+import { createClientOnboardingTaskForProvider } from './clientOnboardingTask.service.js';
 
 async function alreadyNotified({ agencyId, userId, type, relatedEntityId }) {
   const [rows] = await pool.execute(
@@ -142,9 +143,10 @@ export async function notifyClientBecameCurrent({
     Array.from(recipients).map((userId) =>
       (async () => {
         if (await alreadyNotified({ agencyId, userId, type: 'client_became_current', relatedEntityId: clientId })) return null;
+        const severity = userId === providerUserId ? 'warning' : 'info';
         return await createNotificationAndDispatch({
           type: 'client_became_current',
-          severity: 'info',
+          severity,
           title,
           message,
           userId,
@@ -156,6 +158,17 @@ export async function notifyClientBecameCurrent({
       })().catch(() => null)
     )
   );
+
+  // Create onboarding task for provider (with subtasks) so they must engage and complete
+  if (providerUserId) {
+    createClientOnboardingTaskForProvider({
+      providerUserId,
+      clientId,
+      clientLabel: clientNameOrIdentifier,
+      serviceDay,
+      assignedByUserId: actorUserId
+    }).catch(() => {});
+  }
 }
 
 export async function notifyClientChecklistUpdated({

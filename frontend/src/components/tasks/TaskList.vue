@@ -40,6 +40,27 @@
           </div>
         </div>
         <p class="task-description">{{ task.description || 'No description' }}</p>
+        <div
+          v-if="getSubtasks(task).length > 0"
+          class="task-subtasks"
+          @click.stop
+        >
+          <div class="subtasks-label">Steps to complete:</div>
+          <label
+            v-for="st in getSubtasks(task)"
+            :key="st.id"
+            class="subtask-item"
+            :class="{ 'subtask-done': st.is_completed }"
+          >
+            <input
+              type="checkbox"
+              :checked="!!st.is_completed"
+              :disabled="togglingSubtaskId === task.id"
+              @change="toggleSubtask(task, st)"
+            />
+            <span>{{ st.title }}</span>
+          </label>
+        </div>
         <div class="task-footer">
           <span class="task-type">{{ task.task_type }}</span>
           <span v-if="task.task_list_id" class="task-list-badge">Shared list</span>
@@ -116,6 +137,7 @@ const filterType = ref('all');
 const filterStatus = ref('all');
 const editingTask = ref(null);
 const saving = ref(false);
+const togglingSubtaskId = ref(null);
 const editForm = ref({ urgency: 'medium', dueDate: '', isRecurring: false });
 
 const tasks = computed(() => tasksStore.tasks);
@@ -153,6 +175,28 @@ const handleTaskClick = (task) => {
 
 const openPrint = (task) => {
   router.push(`/tasks/documents/${task.id}/print`);
+};
+
+const getSubtasks = (task) => {
+  const subs = task?.metadata?.subtasks;
+  return Array.isArray(subs) ? subs : [];
+};
+
+const toggleSubtask = async (task, subtask) => {
+  if (togglingSubtaskId.value === task.id) return;
+  const subs = getSubtasks(task);
+  const updated = subs.map((s) =>
+    s.id === subtask.id ? { ...s, is_completed: !s.is_completed } : s
+  );
+  togglingSubtaskId.value = task.id;
+  try {
+    await api.put(`/me/tasks/${task.id}`, { subtasks: updated });
+    await tasksStore.fetchTasks();
+  } catch (e) {
+    console.error('Failed to update subtask:', e);
+  } finally {
+    togglingSubtaskId.value = null;
+  }
 };
 
 const openEditTask = (task) => {
@@ -276,6 +320,38 @@ onMounted(async () => {
   font-size: 14px;
   margin: 0 0 16px 0;
   line-height: 1.5;
+}
+
+.task-subtasks {
+  margin: 12px 0;
+  padding: 12px;
+  background: #f9fafb;
+  border-radius: 8px;
+}
+
+.subtasks-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.subtask-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 4px 0;
+}
+
+.subtask-item input[type='checkbox'] {
+  flex-shrink: 0;
+}
+
+.subtask-item.subtask-done span {
+  text-decoration: line-through;
+  color: var(--text-secondary);
 }
 
 .task-footer {

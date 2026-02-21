@@ -88,7 +88,9 @@ export const updateCustomTask = async (req, res, next) => {
       is_recurring,
       recurring_rule,
       typical_day_of_week,
-      typical_time
+      typical_time,
+      metadata,
+      subtasks
     } = body;
     const dueDate = body.dueDate ?? body.due_date;
 
@@ -113,6 +115,14 @@ export const updateCustomTask = async (req, res, next) => {
     if (recurring_rule !== undefined) updates.recurringRule = recurring_rule || null;
     if (typical_day_of_week !== undefined) updates.typicalDayOfWeek = typical_day_of_week ?? null;
     if (typical_time !== undefined) updates.typicalTime = typical_time || null;
+
+    if (metadata !== undefined || subtasks !== undefined) {
+      const existing = typeof task.metadata === 'object' ? task.metadata : Task.parseMetadata(task.metadata);
+      const merged = { ...(existing || {}) };
+      if (metadata !== undefined && typeof metadata === 'object') Object.assign(merged, metadata);
+      if (subtasks !== undefined && Array.isArray(subtasks)) merged.subtasks = subtasks;
+      updates.metadata = merged;
+    }
 
     const updated = await Task.updateCustomTask(taskId, updates);
 

@@ -9,6 +9,7 @@ import AgencySchool from '../models/AgencySchool.model.js';
 import pool from '../config/database.js';
 import { adjustProviderSlots } from '../services/providerSlots.service.js';
 import { notifyClientBecameCurrent, notifyClientChecklistUpdated, notifyPaperworkReceived } from '../services/clientNotifications.service.js';
+import { createClientOnboardingTaskForProvider } from '../services/clientOnboardingTask.service.js';
 import { logClientAccess } from '../services/clientAccessLog.service.js';
 import Notification from '../models/Notification.model.js';
 import NotificationDispatcherService from '../services/notificationDispatcher.service.js';
@@ -4027,7 +4028,7 @@ export const upsertClientProviderAssignment = async (req, res, next) => {
 
           const notification = await Notification.create({
             type: 'client_assigned',
-            severity: 'info',
+            severity: 'warning',
             title,
             message,
             userId: providerUserId,
@@ -4037,7 +4038,7 @@ export const upsertClientProviderAssignment = async (req, res, next) => {
             actorUserId: userId
           });
 
-          await NotificationDispatcherService.dispatchForNotification(notification, { context: { severity: 'info' } }).catch(() => {});
+          await NotificationDispatcherService.dispatchForNotification(notification, { context: { severity: 'warning' } }).catch(() => {});
 
           const categoryOk = await isCategoryEnabledForUser({
             userId: providerUserId,
@@ -4047,7 +4048,7 @@ export const upsertClientProviderAssignment = async (req, res, next) => {
           if (categoryOk) {
             const decision = await NotificationGatekeeperService.decideChannels({
               userId: providerUserId,
-              context: { severity: 'info' }
+              context: { severity: 'warning' }
             });
             if (decision?.email) {
               const provider = await User.findById(providerUserId);
@@ -4071,6 +4072,17 @@ export const upsertClientProviderAssignment = async (req, res, next) => {
         } catch {
           // best effort; do not block assignment
         }
+
+        // Create onboarding task with subtasks so provider must engage and complete
+        createClientOnboardingTaskForProvider({
+          providerUserId,
+          clientId,
+          clientLabel: [client?.first_name, client?.last_name].filter(Boolean).join(' ').trim()
+            || client?.full_name
+            || `Client #${clientId}`,
+          serviceDay,
+          assignedByUserId: userId
+        }).catch(() => {});
       }
 
       res.status(201).json({ ok: true });

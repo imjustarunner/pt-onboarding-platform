@@ -66,6 +66,15 @@
             <button
               type="button"
               class="btn btn-secondary btn-sm"
+              :disabled="addToMeetingTaskId === task.id"
+              @click="openAddToMeetingPicker(task)"
+              title="Add to meeting agenda"
+            >
+              {{ addToMeetingTaskId === task.id ? '…' : 'Add to meeting' }}
+            </button>
+            <button
+              type="button"
+              class="btn btn-secondary btn-sm"
               :disabled="completingId === task.id"
               @click="completeTask(task)"
             >
@@ -75,6 +84,28 @@
         </li>
       </ul>
       <div v-if="!loading && tasks.length === 0" class="task-list-empty">No tasks yet.</div>
+    </div>
+
+    <div v-if="showAddToMeetingPicker && addToMeetingTask" class="add-to-meeting-overlay" @click.self="closeAddToMeetingPicker">
+      <div class="add-to-meeting-modal">
+        <h4>Add "{{ addToMeetingTask?.title }}" to meeting</h4>
+        <div v-if="meetingsLoading" class="muted">Loading meetings…</div>
+        <ul v-else-if="upcomingMeetings.length === 0" class="meeting-list">
+          <li class="muted">No upcoming meetings.</li>
+        </ul>
+        <ul v-else class="meeting-list">
+          <li
+            v-for="m in upcomingMeetings"
+            :key="`${m.meeting_type}-${m.meeting_id}`"
+            class="meeting-item"
+            @click="addTaskToMeeting(m)"
+          >
+            <span class="meeting-title">{{ m.title }}</span>
+            <span class="meeting-date">{{ formatMeetingDate(m.start_at) }}</span>
+          </li>
+        </ul>
+        <button type="button" class="btn btn-secondary btn-sm" @click="closeAddToMeetingPicker">Cancel</button>
+      </div>
     </div>
   </div>
 </template>
@@ -96,6 +127,11 @@ const currentUserId = computed(() => authStore.user?.id);
 const loading = ref(true);
 const adding = ref(false);
 const completingId = ref(null);
+const addToMeetingTaskId = ref(null);
+const addToMeetingTask = ref(null);
+const showAddToMeetingPicker = ref(false);
+const upcomingMeetings = ref([]);
+const meetingsLoading = ref(false);
 const tasks = ref([]);
 const members = ref([]);
 const newTaskTitle = ref('');
@@ -168,6 +204,56 @@ const addTask = async () => {
     console.error('Failed to add task:', err);
   } finally {
     adding.value = false;
+  }
+};
+
+const formatMeetingDate = (d) => {
+  if (!d) return '';
+  const dt = new Date(d);
+  return isNaN(dt.getTime()) ? d : dt.toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' });
+};
+
+const openAddToMeetingPicker = async (task) => {
+  addToMeetingTask.value = task;
+  addToMeetingTaskId.value = task.id;
+  showAddToMeetingPicker.value = true;
+  upcomingMeetings.value = [];
+  meetingsLoading.value = true;
+  try {
+    const params = props.list?.agency_id ? { agencyId: props.list.agency_id } : {};
+    const res = await api.get('/meeting-agendas/meetings', { params });
+    upcomingMeetings.value = res.data?.meetings || [];
+  } catch (err) {
+    console.error('Failed to fetch meetings:', err);
+    upcomingMeetings.value = [];
+  } finally {
+    meetingsLoading.value = false;
+  }
+};
+
+const closeAddToMeetingPicker = () => {
+  showAddToMeetingPicker.value = false;
+  addToMeetingTask.value = null;
+  addToMeetingTaskId.value = null;
+};
+
+const addTaskToMeeting = async (meeting) => {
+  const task = addToMeetingTask.value;
+  if (!task || !meeting) return;
+  try {
+    const agendaRes = await api.get('/meeting-agendas', {
+      params: { meetingType: meeting.meeting_type, meetingId: meeting.meeting_id }
+    });
+    const agendaId = agendaRes.data?.agenda?.id;
+    if (!agendaId) throw new Error('Could not get agenda');
+    await api.post(`/meeting-agendas/${agendaId}/items`, {
+      task_id: task.id,
+      title: task.title
+    });
+    closeAddToMeetingPicker();
+    emit('updated');
+  } catch (err) {
+    console.error('Failed to add task to meeting:', err);
   }
 };
 
@@ -335,5 +421,62 @@ watch(() => props.list?.id, () => fetchTasks());
 
 .task-item-actions {
   flex-shrink: 0;
+  display: flex;
+  gap: 6px;
+}
+
+.add-to-meeting-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1001;
+}
+
+.add-to-meeting-modal {
+  background: white;
+  border-radius: 12px;
+  padding: 20px;
+  max-width: 400px;
+  width: 90%;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
+}
+
+.add-to-meeting-modal h4 {
+  margin: 0 0 16px 0;
+  font-size: 16px;
+}
+
+.meeting-list {
+  list-style: none;
+  margin: 0 0 16px 0;
+  padding: 0;
+}
+
+.meeting-item {
+  padding: 12px;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 8px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.meeting-item:hover {
+  background: #f9fafb;
+}
+
+.meeting-title {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.meeting-date {
+  font-size: 12px;
+  color: var(--text-secondary, #6b7280);
 }
 </style>

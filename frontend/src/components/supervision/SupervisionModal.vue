@@ -402,6 +402,14 @@
                     >
                       Start tracked
                     </button>
+                    <button
+                      type="button"
+                      class="btn btn-secondary btn-sm"
+                      style="margin-left: 0.5rem;"
+                      @click="openAgendaForSession(s.id)"
+                    >
+                      Agenda
+                    </button>
                     <div class="supervision-artifact-box">
                       <div v-if="artifactLoadingById[s.id]" class="summary-meta">Loading meeting transcript/summary...</div>
                       <div v-else>
@@ -480,6 +488,15 @@
       :school-organization-id="selectedSchoolClientOrgId"
       @close="closeSchoolClientModal"
     />
+    <div v-if="showAgendaPanel && agendaSessionId" class="supervision-agenda-overlay" @click.self="showAgendaPanel = false">
+      <MeetingAgendaPanel
+        :meeting-type="'supervision_session'"
+        :meeting-id="agendaSessionId"
+        :can-add-item="true"
+        @close="showAgendaPanel = false"
+        @updated="() => {}"
+      />
+    </div>
   </div>
 </template>
 
@@ -493,6 +510,7 @@ import { toUploadsUrl } from '../../utils/uploadsUrl';
 import ModuleAssignmentDialog from '../admin/ModuleAssignmentDialog.vue';
 import UserSpecificDocumentUploadDialog from '../documents/UserSpecificDocumentUploadDialog.vue';
 import ClientModal from '../school/redesign/ClientModal.vue';
+import MeetingAgendaPanel from '../meetings/MeetingAgendaPanel.vue';
 
 const route = useRoute();
 
@@ -503,6 +521,8 @@ const loading = ref(true);
 const error = ref('');
 const supervisees = ref([]);
 const selectedSupervisee = ref(null);
+const showAgendaPanel = ref(false);
+const agendaSessionId = ref(null);
 const summary = ref(null);
 const summaryLoading = ref(false);
 const summaryError = ref('');
@@ -760,6 +780,11 @@ async function startTrackedMeeting(session) {
   } finally {
     meetingTrackerSaving.value = false;
   }
+}
+
+function openAgendaForSession(sessionId) {
+  agendaSessionId.value = Number(sessionId || 0);
+  showAgendaPanel.value = !!agendaSessionId.value;
 }
 
 async function submitScheduleMeeting() {
@@ -1480,6 +1505,15 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.supervision-agenda-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+}
 .supervision-modal-overlay {
   position: fixed;
   inset: 0;

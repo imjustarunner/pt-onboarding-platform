@@ -569,6 +569,25 @@
               <input type="checkbox" v-model="createSupervisionMeetLink" />
               <span>Create Google Meet link</span>
             </label>
+            <div v-if="requestType === 'supervision'" class="agenda-draft-section" style="margin-top: 12px;">
+              <label class="lbl">Agenda items (optional)</label>
+              <div style="display: flex; gap: 8px; margin-bottom: 6px;">
+                <input
+                  v-model="createAgendaDraftTitle"
+                  class="input"
+                  type="text"
+                  placeholder="Add agenda item…"
+                  @keydown.enter.prevent="addCreateAgendaDraftItem"
+                />
+                <button type="button" class="btn btn-secondary btn-sm" @click="addCreateAgendaDraftItem">Add</button>
+              </div>
+              <ul v-if="createAgendaDraftItems.length" class="agenda-draft-list">
+                <li v-for="(it, idx) in createAgendaDraftItems" :key="idx">
+                  {{ it.title }}
+                  <button type="button" class="btn btn-ghost btn-xs" @click="removeCreateAgendaDraftItem(idx)">×</button>
+                </li>
+              </ul>
+            </div>
           </div>
 
           <div v-if="requestType === 'agency_meeting'" style="margin-top: 10px;">
@@ -640,6 +659,25 @@
               <input type="checkbox" v-model="createMeetingMeetLink" />
               <span>Create Google Meet link</span>
             </label>
+            <div v-if="requestType === 'agency_meeting'" class="agenda-draft-section" style="margin-top: 12px;">
+              <label class="lbl">Agenda items (optional)</label>
+              <div style="display: flex; gap: 8px; margin-bottom: 6px;">
+                <input
+                  v-model="createAgendaDraftTitle"
+                  class="input"
+                  type="text"
+                  placeholder="Add agenda item…"
+                  @keydown.enter.prevent="addCreateAgendaDraftItem"
+                />
+                <button type="button" class="btn btn-secondary btn-sm" @click="addCreateAgendaDraftItem">Add</button>
+              </div>
+              <ul v-if="createAgendaDraftItems.length" class="agenda-draft-list">
+                <li v-for="(it, idx) in createAgendaDraftItems" :key="idx">
+                  {{ it.title }}
+                  <button type="button" class="btn btn-ghost btn-xs" @click="removeCreateAgendaDraftItem(idx)">×</button>
+                </li>
+              </ul>
+            </div>
           </div>
 
           <div v-if="requestType === 'office' || requestType === 'office_request_only' || requestType === 'individual_session' || requestType === 'group_session'" style="margin-top: 10px;">
@@ -957,6 +995,17 @@
             </div>
           </div>
 
+          <div style="margin-top: 12px;">
+            <button
+              class="btn btn-secondary btn-sm"
+              type="button"
+              :disabled="!selectedSupvSessionId"
+              @click="showAgendaPanel = true"
+            >
+              Agenda
+            </button>
+          </div>
+
           <div style="margin-top: 10px; border: 1px solid var(--border, #e5e7eb); border-radius: 10px; padding: 10px; background: #fafafa;">
             <label class="lbl">Transcript link</label>
             <input v-model="supvTranscriptUrl" class="input" type="url" placeholder="https://... transcript link" />
@@ -1042,8 +1091,17 @@
             <button class="btn btn-primary" type="button" @click="saveSupvSession" :disabled="supvSaving || !selectedSupvSessionId">
               {{ supvSaving ? 'Saving…' : 'Save changes' }}
             </button>
-          </div>
         </div>
+      </div>
+
+      <div v-if="showAgendaPanel && selectedSupvSessionId" class="modal-backdrop" @click.self="showAgendaPanel = false">
+        <MeetingAgendaPanel
+          :meeting-type="'supervision_session'"
+          :meeting-id="selectedSupvSessionId"
+          :can-add-item="true"
+          @close="showAgendaPanel = false"
+          @updated="() => {}"
+        />
       </div>
     </div>
 
@@ -1261,6 +1319,7 @@ import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import { useUserPreferencesStore } from '../../store/userPreferences';
 import OfficeWeeklyRoomGrid from './OfficeWeeklyRoomGrid.vue';
+import MeetingAgendaPanel from '../meetings/MeetingAgendaPanel.vue';
 
 const props = defineProps({
   userId: { type: Number, required: true },
@@ -3896,6 +3955,30 @@ const meetingCandidates = ref([]);
 const meetingParticipantSearch = ref('');
 const selectedMeetingParticipantIds = ref([]);
 const createMeetingMeetLink = ref(true);
+
+function addCreateAgendaDraftItem() {
+  const t = String(createAgendaDraftTitle.value || '').trim();
+  if (!t) return;
+  createAgendaDraftItems.value.push({ title: t });
+  createAgendaDraftTitle.value = '';
+}
+function removeCreateAgendaDraftItem(idx) {
+  createAgendaDraftItems.value.splice(idx, 1);
+}
+async function postAgendaItemsForNewMeeting(meetingType, meetingId, itemsToAdd) {
+  const items = itemsToAdd ?? createAgendaDraftItems.value;
+  if (!items.length) return;
+  try {
+    const agendaRes = await api.get('/meeting-agendas', { params: { meetingType, meetingId } });
+    const agendaId = agendaRes.data?.agenda?.id;
+    if (!agendaId) return;
+    await api.post(`/meeting-agendas/${agendaId}/items/bulk`, { items });
+  } catch {
+    // best-effort
+  } finally {
+    if (!itemsToAdd) createAgendaDraftItems.value = [];
+  }
+}
 const meetingIncludeAllAgencies = ref(false);
 const meetingBusyByUserId = ref({});
 const meetingBusyLoading = ref(false);
@@ -4284,6 +4367,8 @@ const openSlotActionModal = ({
   meetingIncludeAllAgencies.value = false;
   meetingBusyByUserId.value = {};
   createMeetingMeetLink.value = true;
+  createAgendaDraftTitle.value = '';
+  createAgendaDraftItems.value = [];
   modalContext.value = buildModalContext({ dayName: modalDay.value, hour: modalHour.value, roomId, slot, dateYmd });
   const contextAgencyId = Number(modalContext.value?.agencyId || 0);
   if (contextAgencyId && effectiveAgencyIds.value.includes(contextAgencyId)) {
@@ -5111,6 +5196,14 @@ const submitRequest = async () => {
       }
       if (createdScheduleEvents.length) {
         refreshInBackground = true;
+        if (requestType.value === 'agency_meeting' && createAgendaDraftItems.value.length) {
+          const items = [...createAgendaDraftItems.value];
+          for (const ev of createdScheduleEvents) {
+            const eid = ev?.providerScheduleEventId ?? ev?.id;
+            if (eid) postAgendaItemsForNewMeeting('provider_schedule_event', eid, items).catch(() => {});
+          }
+          createAgendaDraftItems.value = [];
+        }
       }
     } else if (requestType.value === 'office') {
       const officeId = Number(selectedOfficeLocationId.value || 0);
@@ -5337,7 +5430,7 @@ const submitRequest = async () => {
       const dateYmd = addDaysYmd(weekStart.value, dayIdx);
       const startAt = `${dateYmd}T${pad2(h)}:${pad2(startMinute)}:00`;
       const endAt = `${dateYmd}T${pad2(endH)}:${pad2(endMinute)}:00`;
-      await api.post('/supervision/sessions', {
+      const supvRes = await api.post('/supervision/sessions', {
         agencyId: effectiveAgencyId.value,
         supervisorUserId: actorId,
         superviseeUserId: participantId,
@@ -5349,6 +5442,10 @@ const submitRequest = async () => {
         createMeetLink: !!createSupervisionMeetLink.value,
         modality: 'virtual'
       });
+      const sessionId = supvRes?.data?.session?.id;
+      if (sessionId && createAgendaDraftItems.value.length) {
+        postAgendaItemsForNewMeeting('supervision_session', sessionId).catch(() => {});
+      }
     } else if (requestType.value === 'extend_assignment') {
       const contexts = selectedActionContexts().filter(
         (x) => Number(x?.officeLocationId || 0) > 0 && Number(x?.standingAssignmentId || 0) > 0
@@ -5641,6 +5738,9 @@ const showSupvModal = ref(false);
 const supvModalError = ref('');
 const supvSaving = ref(false);
 const selectedSupvSessionId = ref(0);
+const showAgendaPanel = ref(false);
+const createAgendaDraftTitle = ref('');
+const createAgendaDraftItems = ref([]);
 const supvStartIsoLocal = ref('');
 const supvEndIsoLocal = ref('');
 const supvNotes = ref('');
@@ -7385,6 +7485,32 @@ watch([modalHour, modalEndHour, modalStartMinute, modalEndMinute, canUseQuarterH
   .sched-toolbar-right {
     flex-wrap: wrap;
   }
+}
+.agenda-draft-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.agenda-draft-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px;
+  background: #f9fafb;
+  border-radius: 6px;
+  margin-bottom: 4px;
+  font-size: 13px;
+}
+.agenda-draft-list .btn-ghost {
+  background: none;
+  border: none;
+  color: #6b7280;
+  cursor: pointer;
+  padding: 2px 6px;
+  font-size: 12px;
+}
+.agenda-draft-list .btn-ghost:hover {
+  color: #1f2937;
 }
 </style>
 
