@@ -657,6 +657,10 @@
             <SupervisionModal />
           </div>
 
+          <div v-if="!previewMode && isOnboardingComplete && activeTab === 'providers'" class="my-panel">
+            <ProvidersPanel />
+          </div>
+
           <!-- My Account (nested inside dashboard) -->
           <div
             v-if="!previewMode && isOnboardingComplete && activeTab === 'my'"
@@ -736,6 +740,7 @@
             <p v-if="activeTab === 'on_demand_training'" class="preview-text">On-demand training content preview</p>
             <p v-if="activeTab === 'social_feeds'" class="preview-text">Social feeds content preview</p>
             <p v-if="activeTab === 'supervision'" class="preview-text">Supervision content preview</p>
+            <p v-if="activeTab === 'providers'" class="preview-text">Providers content preview</p>
           </div>
         </div>
       </div>
@@ -835,6 +840,7 @@ import MyCompensationTab from '../components/dashboard/MyCompensationTab.vue';
 import OnDemandTrainingLibraryView from './OnDemandTrainingLibraryView.vue';
 import ProviderClientsTab from '../components/dashboard/ProviderClientsTab.vue';
 import SupervisionModal from '../components/supervision/SupervisionModal.vue';
+import ProvidersPanel from '../components/supervision/ProvidersPanel.vue';
 import SkillBuilderAvailabilityModal from '../components/availability/SkillBuilderAvailabilityModal.vue';
 import SkillBuildersAvailabilityModal from '../components/availability/SkillBuildersAvailabilityModal.vue';
 import LastPaycheckModal from '../components/dashboard/LastPaycheckModal.vue';
@@ -1903,6 +1909,17 @@ const dashboardCards = computed(() => {
         description: 'View and support your supervisees.'
       });
     }
+    // Providers card (provider_plus only) – view all providers as though supervising them
+    if (String(u?.role || '').toLowerCase() === 'provider_plus') {
+      cards.push({
+        id: 'providers',
+        label: 'Providers',
+        kind: 'content',
+        badgeCount: 0,
+        iconUrl: brandingStore.getDashboardCardIconUrl('supervision', cardIconOrgOverride),
+        description: 'View and support all providers in your organization.'
+      });
+    }
 
     // Skill Builders availability (coordinator access)
     if (isSkillBuilderCoordinator.value) {
@@ -1951,7 +1968,8 @@ const railCards = computed(() => {
         communications: 13,
         chats: 14,
         notifications: 15,
-        supervision: 16
+        supervision: 16,
+        providers: 17
       })[k] ?? 999;
     }
     return ({
@@ -1970,8 +1988,9 @@ const railCards = computed(() => {
       social_feeds: 11,
       communications: 12,
       chats: 13,
-      notifications: 14,
-      supervision: 15
+        notifications: 14,
+        supervision: 15,
+        providers: 16
     })[k] ?? 999;
   };
 

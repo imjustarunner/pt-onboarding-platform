@@ -8,7 +8,7 @@ import { getLoginUrl } from '../utils/loginRedirect';
 import { isSupervisor } from '../utils/helpers';
 import api from '../services/api';
 
-const SCHEDULE_HUB_ROLES = ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'staff'];
+const SCHEDULE_HUB_ROLES = ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'staff', 'provider_plus'];
 const PROVIDER_PLUS_EXPERIENCE_ROLES = ['provider_plus', 'clinical_practice_assistant'];
 const TOOLS_AIDS_ROUTE_SEGMENTS = ['/admin/tools-aids', '/admin/note-aid', '/admin/clinical-note-generator'];
 
@@ -292,7 +292,7 @@ const routes = [
     path: '/:organizationSlug/schedule/staff',
     name: 'OrganizationStaffScheduleCompare',
     component: () => import('../views/StaffScheduleCompareView.vue'),
-    meta: { requiresAuth: true, organizationSlug: true, requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant'] }
+    meta: { requiresAuth: true, organizationSlug: true, requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'provider_plus'] }
   },
   {
     path: '/:organizationSlug/schedule/board/:locationId',
@@ -407,7 +407,7 @@ const routes = [
     path: '/:organizationSlug/admin/clients',
     name: 'OrganizationClientManagement',
     component: () => import('../views/admin/ClientManagementView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'provider', 'super_admin'], organizationSlug: true }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'provider', 'provider_plus', 'super_admin'], organizationSlug: true }
   },
   {
     path: '/:organizationSlug/admin/clinical-note-generator',
@@ -840,7 +840,7 @@ const routes = [
     path: '/admin/clients',
     name: 'ClientManagement',
     component: () => import('../views/admin/ClientManagementView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'provider', 'super_admin'] }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'provider', 'provider_plus', 'super_admin'] }
   },
   {
     path: '/admin/note-aid',
@@ -1356,7 +1356,8 @@ router.beforeEach(async (to, from, next) => {
   // This is what keeps the portal branded consistently across all authenticated pages.
   if (to.meta.organizationSlug) {
     const slug = to.params.organizationSlug;
-    if (typeof slug === 'string' && slug && authStore.isAuthenticated && authStore.user && isSupervisor(authStore.user)) {
+    const isProviderPlus = String(authStore.user?.role || '').toLowerCase() === 'provider_plus';
+    if (typeof slug === 'string' && slug && authStore.isAuthenticated && authStore.user && (isSupervisor(authStore.user) || isProviderPlus)) {
       await agencyStore.fetchSuperviseePortalSlugs();
     }
     if (typeof slug === 'string' && slug) {

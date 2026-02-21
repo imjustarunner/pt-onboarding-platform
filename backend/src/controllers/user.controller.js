@@ -3497,7 +3497,66 @@ export const getUserAgencies = async (req, res, next) => {
 };
 
 /**
+ * Get providers for provider_plus (all providers in their agencies, for "Providers" card).
+ * GET /users/me/providers-for-support?agencyId=
+ * Returns same shape as supervisor-assignments for UI reuse.
+ */
+export const getProvidersForSupport = async (req, res, next) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+    if (String(req.user?.role || '').toLowerCase() !== 'provider_plus') {
+      return res.status(403).json({ error: { message: 'Provider plus access required' } });
+    }
+
+    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
+    const userAgencies = await User.getAgencies(userId);
+    const agencyIds = (userAgencies || []).map((a) => Number(a.id)).filter((n) => Number.isFinite(n) && n > 0);
+    if (agencyIds.length === 0) return res.json([]);
+
+    const effectiveAgencyIds = agencyId && agencyIds.includes(agencyId) ? [agencyId] : agencyIds;
+    const placeholders = effectiveAgencyIds.map(() => '?').join(',');
+
+    const [rows] = await pool.execute(
+      `SELECT DISTINCT
+         u.id AS supervisee_id,
+         u.first_name AS supervisee_first_name,
+         u.last_name AS supervisee_last_name,
+         u.profile_photo_path AS supervisee_profile_photo_path,
+         a.name AS agency_name
+       FROM users u
+       JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id IN (${placeholders})
+       JOIN agencies a ON a.id = ua.agency_id
+       WHERE (u.is_active IS NULL OR u.is_active = TRUE)
+         AND (u.is_archived IS NULL OR u.is_archived = FALSE)
+         AND (UPPER(COALESCE(u.status, '')) NOT IN ('ARCHIVED', 'PROSPECTIVE'))
+         AND (
+           LOWER(COALESCE(u.role, '')) IN ('provider', 'supervisor', 'clinician')
+           OR (u.has_provider_access = TRUE)
+         )
+       ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC`,
+      effectiveAgencyIds
+    );
+
+    const out = (rows || []).map((r) => ({
+      supervisee_id: Number(r.supervisee_id),
+      supervisee_first_name: r.supervisee_first_name || '',
+      supervisee_last_name: r.supervisee_last_name || '',
+      agency_name: r.agency_name || '',
+      supervisee_profile_photo_url: r.supervisee_profile_photo_path
+        ? publicUploadsUrlFromStoredPath(r.supervisee_profile_photo_path)
+        : null
+    }));
+
+    res.json(out);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
  * Get org slugs that the current user's supervisees are affiliated with (for router/school portal access).
+ * For provider_plus: returns slugs from ALL providers in their agencies.
  * GET /users/me/supervisee-portal-slugs
  */
 export const getSuperviseePortalSlugs = async (req, res, next) => {
@@ -3507,23 +3566,46 @@ export const getSuperviseePortalSlugs = async (req, res, next) => {
 
     const requestingUser = await User.findById(userId);
     const isSupervisor = requestingUser && User.isSupervisor(requestingUser);
-    if (!isSupervisor) {
+    const isProviderPlus = String(requestingUser?.role || '').toLowerCase() === 'provider_plus';
+
+    let providerIds = [];
+    if (isProviderPlus) {
+      const userAgencies = await User.getAgencies(userId);
+      const agencyIds = (userAgencies || []).map((a) => Number(a.id)).filter((n) => Number.isFinite(n) && n > 0);
+      if (agencyIds.length === 0) return res.json({ slugs: [] });
+      const placeholders = agencyIds.map(() => '?').join(',');
+      const [rows] = await pool.execute(
+        `SELECT DISTINCT u.id
+         FROM users u
+         JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id IN (${placeholders})
+         WHERE (u.is_active IS NULL OR u.is_active = TRUE)
+           AND (u.is_archived IS NULL OR u.is_archived = FALSE)
+           AND (UPPER(COALESCE(u.status, '')) NOT IN ('ARCHIVED', 'PROSPECTIVE'))
+           AND (
+             LOWER(COALESCE(u.role, '')) IN ('provider', 'supervisor', 'clinician')
+             OR (u.has_provider_access = TRUE)
+           )`,
+        agencyIds
+      );
+      providerIds = (rows || []).map((r) => Number(r.id)).filter((n) => Number.isFinite(n) && n > 0);
+    } else if (isSupervisor) {
+      const SupervisorAssignment = (await import('../models/SupervisorAssignment.model.js')).default;
+      const assignments = await SupervisorAssignment.findBySupervisor(userId, null);
+      providerIds = [...new Set((assignments || []).map((a) => Number(a.supervisee_id)).filter((n) => Number.isFinite(n) && n > 0))];
+    } else {
       return res.json({ slugs: [] });
     }
 
-    const SupervisorAssignment = (await import('../models/SupervisorAssignment.model.js')).default;
-    const assignments = await SupervisorAssignment.findBySupervisor(userId, null);
-    const superviseeIds = [...new Set((assignments || []).map((a) => Number(a.supervisee_id)).filter((n) => Number.isFinite(n) && n > 0))];
     const slugSet = new Set();
-    for (const superviseeId of superviseeIds) {
+    for (const pid of providerIds) {
       try {
-        const agencies = await User.getAgencies(superviseeId);
+        const agencies = await User.getAgencies(pid);
         for (const a of agencies || []) {
           const slug = (a.slug || a.portal_url || '').toString().trim();
           if (slug) slugSet.add(slug);
         }
       } catch {
-        // ignore per-supervisee errors
+        // ignore per-user errors
       }
     }
     const slugs = Array.from(slugSet).filter(Boolean).sort();
@@ -3550,10 +3632,20 @@ export const getAffiliatedPortals = async (req, res, next) => {
 
     if (requesterId !== userId) {
       const isAdminOrSupport = ['admin', 'super_admin', 'support'].includes(req.user?.role);
-      if (!isAdminOrSupport) {
+      const isProviderPlus = String(req.user?.role || '').toLowerCase() === 'provider_plus';
+      if (!isAdminOrSupport && !isProviderPlus) {
         const hasAccess = await User.supervisorHasAccess(requesterId, userId, null);
         if (!hasAccess) {
           return res.status(403).json({ error: { message: 'You can only view affiliated portals for yourself or your assigned supervisees.' } });
+        }
+      }
+      if (isProviderPlus) {
+        const requesterAgencies = await User.getAgencies(requesterId);
+        const targetAgencies = await User.getAgencies(userId);
+        const reqIds = new Set((requesterAgencies || []).map((a) => Number(a.id)));
+        const shared = (targetAgencies || []).some((a) => reqIds.has(Number(a.id)));
+        if (!shared) {
+          return res.status(403).json({ error: { message: 'You can only view affiliated portals for providers in your organization.' } });
         }
       }
     }

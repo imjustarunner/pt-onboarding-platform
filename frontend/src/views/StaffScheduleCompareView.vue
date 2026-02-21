@@ -420,6 +420,12 @@ onMounted(async () => {
   }
   await loadUsers();
 
+  // Pre-select user from query (e.g. from Providers panel "View schedule" link)
+  const userIdFromQuery = route.query?.userId ? parseInt(route.query.userId, 10) : null;
+  if (userIdFromQuery && Number.isFinite(userIdFromQuery) && (users.value || []).some((u) => Number(u.id) === userIdFromQuery)) {
+    selectedUserIds.value = [userIdFromQuery];
+  }
+
   // Default agency filter to all agencies (best for multi-agency providers) or fall back to current.
   if (!selectedAgencyIds.value.length) {
     const ids = (availableAgencies.value || []).map((a) => Number(a.id)).filter((n) => Number.isFinite(n) && n > 0);

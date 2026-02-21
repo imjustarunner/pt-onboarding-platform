@@ -296,7 +296,8 @@ export const useAgencyStore = defineStore('agency', () => {
     }
     if (superviseePortalSlugsFetched) return;
     try {
-      if (!authStore.user || !isSupervisor(authStore.user)) {
+      const isProviderPlus = String(authStore.user?.role || '').toLowerCase() === 'provider_plus';
+      if (!authStore.user || (!isSupervisor(authStore.user) && !isProviderPlus)) {
         superviseePortalSlugsFetched = true;
         return;
       }
