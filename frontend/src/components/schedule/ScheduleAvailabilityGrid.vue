@@ -94,6 +94,19 @@
           <button
             type="button"
             class="sched-pill"
+            :class="{ on: showQuarterDetail }"
+            role="switch"
+            :aria-checked="String(!!showQuarterDetail)"
+            :disabled="loading"
+            @click="showQuarterDetail = !showQuarterDetail"
+            title="Show 15-minute timing detail on event blocks"
+          >
+            15-min detail
+          </button>
+
+          <button
+            type="button"
+            class="sched-pill"
             :class="{ on: showExternalBusy }"
             role="switch"
             :aria-checked="String(!!showExternalBusy)"
@@ -417,7 +430,7 @@
         </div>
 
         <div class="muted" style="margin-top: 6px;">
-          {{ modalDay }} • {{ hourLabel(modalHour) }}–{{ hourLabel(modalEndHour) }}
+          {{ modalDay }} • {{ modalTimeRangeLabel }}
         </div>
 
         <div class="modal-body">
@@ -817,6 +830,25 @@
               {{ hourLabel(h) }}
             </option>
           </select>
+
+          <div v-if="canUseQuarterHourInput && !disableEndTimeInput" class="row" style="gap: 8px; margin-top: 8px;">
+            <label class="sched-inline compact" style="flex: 1;">
+              <span>Start min</span>
+              <select v-model.number="modalStartMinute" class="sched-select compact">
+                <option v-for="m in quarterMinuteOptions" :key="`start-min-${m}`" :value="m">
+                  :{{ String(m).padStart(2, '0') }}
+                </option>
+              </select>
+            </label>
+            <label class="sched-inline compact" style="flex: 1;">
+              <span>End min</span>
+              <select v-model.number="modalEndMinute" class="sched-select compact">
+                <option v-for="m in endMinuteOptions" :key="`end-min-${m}`" :value="m">
+                  :{{ String(m).padStart(2, '0') }}
+                </option>
+              </select>
+            </label>
+          </div>
 
           <label class="lbl" style="margin-top: 10px;">Notes (optional)</label>
           <textarea v-model="requestNotes" class="input" rows="3" :placeholder="requestNotesPlaceholder" />
@@ -1386,6 +1418,7 @@ const summary = ref(null);
 const showGoogleBusy = ref(true);
 const showGoogleEvents = ref(false);
 const showExternalBusy = ref(true);
+const showQuarterDetail = ref(false);
 const selectedExternalCalendarIds = ref([]); // populated from available list once loaded
 let schedMouseUpHandler = null;
 const hideWeekend = ref(props.mode === 'self');
@@ -1765,6 +1798,11 @@ const hourLabel = (h) => {
   const d = new Date();
   d.setHours(Number(h), 0, 0, 0);
   return d.toLocaleTimeString([], { hour: 'numeric' });
+};
+const hourMinuteLabel = (h, m = 0) => {
+  const d = new Date();
+  d.setHours(Number(h), Number(m), 0, 0);
+  return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 };
 
 const startOfWeekMondayYmd = (dateLike) => {
@@ -2400,9 +2438,14 @@ const supervisionLabel = (dayName, hour) => {
     if (endLocal > cellStart && startLocal < cellEnd) listInCell.push(ev);
   }
   const hasPresenter = listInCell.some((ev) => String(ev?.presenterRole || '').trim().length > 0);
-  if (!names.length) return hasPresenter ? 'Presenting' : 'Supv';
-  if (names.length === 1) return names[0];
-  return hasPresenter ? `Presenting • ${names[0]}+${names.length - 1}` : `${names[0]}+${names.length - 1}`;
+  const timing = showQuarterDetail.value && listInCell.length
+    ? quarterTimingFromRange(listInCell[0]?.startAt, listInCell[0]?.endAt)
+    : '';
+  const prefix = timing ? `${timing} ` : '';
+  if (!names.length) return `${prefix}${hasPresenter ? 'Presenting' : 'Supv'}`;
+  if (names.length === 1) return `${prefix}${names[0]}`;
+  const base = hasPresenter ? `Presenting • ${names[0]}+${names.length - 1}` : `${names[0]}+${names.length - 1}`;
+  return `${prefix}${base}`;
 };
 
 const supervisionTitle = (dayName, hour) => {
@@ -2463,10 +2506,43 @@ const scheduleEventsInCell = (dayName, hour) => {
   return hits;
 };
 
+const parseLocalDateTime = (raw) => {
+  const s = String(raw || '').trim();
+  if (!s) return null;
+  const d = new Date(s.includes('T') ? s : s.replace(' ', 'T'));
+  return Number.isNaN(d.getTime()) ? null : d;
+};
+
+const roundDateToNearestQuarter = (raw) => {
+  const d = raw instanceof Date ? new Date(raw.getTime()) : parseLocalDateTime(raw);
+  if (!d) return null;
+  let quarter = Math.round(d.getMinutes() / 15) * 15;
+  if (quarter >= 60) {
+    d.setHours(d.getHours() + 1);
+    quarter = 0;
+  }
+  d.setMinutes(quarter, 0, 0);
+  return d;
+};
+
+const quarterClockLabel = (raw) => {
+  const d = roundDateToNearestQuarter(raw);
+  if (!d) return '';
+  return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+};
+
+const quarterTimingFromRange = (startRaw, endRaw) => {
+  const s = quarterClockLabel(startRaw);
+  const e = quarterClockLabel(endRaw);
+  if (s && e) return `${s}-${e}`;
+  return s || e || '';
+};
+
 const scheduleEventShortLabel = (ev) => {
-  const raw = String(ev?.title || '').trim();
-  if (!raw) return 'Event';
-  return raw.length > 16 ? `${raw.slice(0, 16)}…` : raw;
+  const raw = String(ev?.title || '').trim() || 'Event';
+  const timing = quarterTimingFromRange(ev?.startAt, ev?.endAt);
+  const withTiming = showQuarterDetail.value && timing ? `${timing} ${raw}` : raw;
+  return withTiming.length > 22 ? `${withTiming.slice(0, 22)}…` : withTiming;
 };
 
 const scheduleEventBlockTitle = (ev, dayName, hour) => {
@@ -2590,9 +2666,10 @@ const googleEventsInCell = (dayName, hour) => {
 };
 
 const googleEventShortLabel = (ev) => {
-  const s = String(ev?.summary || '').trim();
-  if (!s) return 'Event';
-  return s.length > 18 ? `${s.slice(0, 18)}…` : s;
+  const s = String(ev?.summary || '').trim() || 'Event';
+  const timing = quarterTimingFromRange(ev?.startAt, ev?.endAt);
+  const withTiming = showQuarterDetail.value && timing ? `${timing} ${s}` : s;
+  return withTiming.length > 22 ? `${withTiming.slice(0, 22)}…` : withTiming;
 };
 const googleEventTitle = (ev, dayName, hour) => {
   const s = String(ev?.summary || '').trim() || 'Google event';
@@ -2789,11 +2866,35 @@ const externalBusyTitle = (dayName, hour) => {
   return `Therapy Notes busy${suffix} — ${dayName} ${hourLabel(hour)}`;
 };
 
+const firstExternalBusyQuarter = (dayName, hour) => {
+  const s = summary.value;
+  if (!s) return '';
+  const cals = Array.isArray(s.externalCalendars) ? s.externalCalendars : [];
+  const ws = s.weekStart || weekStart.value;
+  const dayIdx = ALL_DAYS.indexOf(String(dayName));
+  if (dayIdx < 0) return '';
+  const cellDate = addDaysYmd(ws, dayIdx);
+  const cellStart = new Date(`${cellDate}T${pad2(hour)}:00:00`);
+  const cellEnd = new Date(`${cellDate}T${pad2(Number(hour) + 1)}:00:00`);
+  let earliest = null;
+  for (const cal of cals) {
+    for (const b of cal?.busy || []) {
+      const st = parseLocalDateTime(b?.startAt);
+      const en = parseLocalDateTime(b?.endAt);
+      if (!st || !en) continue;
+      if (!(en > cellStart && st < cellEnd)) continue;
+      if (!earliest || st < earliest) earliest = st;
+    }
+  }
+  return earliest ? quarterClockLabel(earliest) : '';
+};
+
 const externalBusyShortLabel = (dayName, hour) => {
   const labels = externalBusyLabels(dayName, hour);
-  if (!labels.length) return 'Busy';
-  if (labels.length === 1) return labels[0];
-  return `${labels[0]}+${labels.length - 1}`;
+  const prefix = showQuarterDetail.value ? firstExternalBusyQuarter(dayName, hour) : '';
+  if (!labels.length) return prefix ? `${prefix} Busy` : 'Busy';
+  const base = labels.length === 1 ? labels[0] : `${labels[0]}+${labels.length - 1}`;
+  return prefix ? `${prefix} ${base}` : base;
 };
 
 const shortOfficeLabel = (topEvent, fallback) => {
@@ -2806,6 +2907,8 @@ const shortOfficeLabel = (topEvent, fallback) => {
 
 const cellBlocks = (dayName, hour) => {
   const blocks = [];
+  const singleDayFocused = visibleDays.value.length === 1;
+  const perTypeInlineLimit = singleDayFocused ? Number.MAX_SAFE_INTEGER : 2;
 
   // Office assignment state — one block per unique assignment (office is assigned to user, not agency)
   const selectedOfficeId = Number(selectedOfficeLocationId.value || 0);
@@ -2876,7 +2979,7 @@ const cellBlocks = (dayName, hour) => {
   }
 
   // App-scheduled provider events (personal/hold/indirect) — include agencyId per event
-  const scheduleHits = scheduleEventsInCell(dayName, hour).slice(0, 2);
+  const scheduleHits = scheduleEventsInCell(dayName, hour).slice(0, perTypeInlineLimit);
   for (const ev of scheduleHits) {
     blocks.push({
       key: `sevt-${String(ev?.id || ev?.googleEventId || ev?.title || 'event')}`,
@@ -2911,7 +3014,7 @@ const cellBlocks = (dayName, hour) => {
     blocks.push({ key: 'gbusy', kind: 'gbusy', shortLabel: 'G', title: googleBusyTitle(dayName, hour) });
   }
   if (showGoogleEvents.value) {
-    const events = googleEventsInCell(dayName, hour).slice(0, 2);
+    const events = googleEventsInCell(dayName, hour).slice(0, perTypeInlineLimit);
     for (const ev of events) {
       blocks.push({
         key: `gevt-${String(ev?.id || ev?.summary || 'event')}`,
@@ -2997,6 +3100,8 @@ const showRequestModal = ref(false);
 const modalDay = ref('Monday');
 const modalHour = ref(7);
 const modalEndHour = ref(8);
+const modalStartMinute = ref(0);
+const modalEndMinute = ref(0);
 const requestType = ref(''); // selected action in request modal
 const requestTypeChosenByUser = ref(false);
 const modalActionSource = ref('general'); // general | plus_or_blank | office_block | other_block
@@ -3063,6 +3168,23 @@ const isHourlyWorker = computed(() => {
 });
 
 const isScheduleEventRequestType = computed(() => SCHEDULE_EVENT_ACTIONS.has(String(requestType.value || '')));
+const quarterMinuteOptions = [0, 15, 30, 45];
+const isQuarterHourRequestType = computed(() => {
+  const t = String(requestType.value || '');
+  return ['supervision', 'agency_meeting', 'personal_event', 'schedule_hold', 'indirect_services'].includes(t);
+});
+const canUseQuarterHourInput = computed(
+  () => isQuarterHourRequestType.value && !(isScheduleEventRequestType.value && scheduleEventAllDay.value)
+);
+const endMinuteOptions = computed(
+  () => (Number(modalEndHour.value || 0) >= 22 ? [0] : quarterMinuteOptions)
+);
+const modalTimeRangeLabel = computed(() => {
+  if (canUseQuarterHourInput.value) {
+    return `${hourMinuteLabel(modalHour.value, modalStartMinute.value)}-${hourMinuteLabel(modalEndHour.value, modalEndMinute.value)}`;
+  }
+  return `${hourLabel(modalHour.value)}-${hourLabel(modalEndHour.value)}`;
+});
 const scheduleHoldReasonOptions = computed(() => SCHEDULE_HOLD_REASON_OPTIONS);
 const scheduleEventTitlePlaceholder = computed(() => {
   const kind = String(requestType.value || '');
@@ -3267,6 +3389,7 @@ const availableQuickActions = computed(() => {
 });
 
 const OFFICE_LAYOUT_ONLY_ACTIONS = new Set([
+  'supervision',
   'forfeit_slot',
   'extend_assignment',
   'intake_virtual_on',
@@ -3282,6 +3405,7 @@ const OFFICE_LAYOUT_ONLY_ACTIONS = new Set([
 ]);
 
 const OFFICE_BLOCK_ONLY_ACTIONS = new Set([
+  'supervision',
   'forfeit_slot',
   'extend_assignment',
   'intake_virtual_on',
@@ -3863,8 +3987,10 @@ const loadMeetingBusyByParticipant = async () => {
       const dateYmd = String(row?.dateYmd || '').slice(0, 10);
       const startHour = Number(row?.startHour || 0);
       const endHour = Number(row?.endHour || 0);
-      const start = new Date(`${dateYmd}T${pad2(startHour)}:00:00`);
-      const end = new Date(`${dateYmd}T${pad2(endHour)}:00:00`);
+      const startMinute = canUseQuarterHourInput.value ? Number(modalStartMinute.value || 0) : 0;
+      const endMinute = canUseQuarterHourInput.value ? Number(modalEndMinute.value || 0) : 0;
+      const start = new Date(`${dateYmd}T${pad2(startHour)}:${pad2(startMinute)}:00`);
+      const end = new Date(`${dateYmd}T${pad2(endHour)}:${pad2(endMinute)}:00`);
       return Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) ? null : { start, end };
     })
     .filter(Boolean);
@@ -3955,9 +4081,46 @@ const endHourOptions = computed(() => {
   // Grid hours are 7..21 (end 22). Allow multi-hour ranges up to end-of-grid.
   const maxEnd = 22;
   const out = [];
-  for (let h = start + 1; h <= maxEnd; h++) out.push(h);
+  const first = canUseQuarterHourInput.value ? start : (start + 1);
+  for (let h = first; h <= maxEnd; h++) out.push(h);
   return out;
 });
+
+const ensureModalEndTimeValid = () => {
+  const startH = Number(modalHour.value || 0);
+  const maxEnd = 22;
+  const minEndH = canUseQuarterHourInput.value ? startH : (startH + 1);
+  let endH = Number(modalEndHour.value || 0);
+  if (endH < minEndH) endH = minEndH;
+  if (endH > maxEnd) endH = maxEnd;
+  modalEndHour.value = endH;
+
+  const normalizedStartMinute = quarterMinuteOptions.includes(Number(modalStartMinute.value)) ? Number(modalStartMinute.value) : 0;
+  modalStartMinute.value = normalizedStartMinute;
+
+  const allowedEndMinutes = endMinuteOptions.value;
+  let endMinute = Number(modalEndMinute.value || 0);
+  if (!allowedEndMinutes.includes(endMinute)) endMinute = allowedEndMinutes[0] ?? 0;
+
+  const startTotal = startH * 60 + (canUseQuarterHourInput.value ? normalizedStartMinute : 0);
+  let endTotal = endH * 60 + (canUseQuarterHourInput.value ? endMinute : 0);
+  if (endTotal <= startTotal) {
+    if (canUseQuarterHourInput.value) {
+      endTotal = Math.min(maxEnd * 60, startTotal + 15);
+      modalEndHour.value = Math.floor(endTotal / 60);
+      const rem = endTotal % 60;
+      const normalizedRem = quarterMinuteOptions.includes(rem) ? rem : 0;
+      modalEndMinute.value = Math.min(...quarterMinuteOptions.filter((m) => m >= normalizedRem), 45);
+      if (Number(modalEndHour.value) >= maxEnd) modalEndMinute.value = 0;
+      return;
+    }
+    modalEndHour.value = Math.min(maxEnd, startH + 1);
+    modalEndMinute.value = 0;
+    return;
+  }
+  modalEndMinute.value = canUseQuarterHourInput.value ? endMinute : 0;
+  if (!canUseQuarterHourInput.value) modalStartMinute.value = 0;
+};
 
 const isWeekdayName = (dayName) => ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].includes(String(dayName || ''));
 const canUseSchool = (dayName, startHour, endHour) => {
@@ -4065,6 +4228,8 @@ const openSlotActionModal = ({
   scheduleEventTitle.value = '';
   scheduleEventAllDay.value = false;
   scheduleEventPrivate.value = false;
+  modalStartMinute.value = 0;
+  modalEndMinute.value = 0;
   scheduleHoldReasonCode.value = 'DOCUMENTATION';
   scheduleHoldCustomReason.value = '';
   modalError.value = '';
@@ -4618,6 +4783,8 @@ const closeModal = () => {
   scheduleEventTitle.value = '';
   scheduleEventAllDay.value = false;
   scheduleEventPrivate.value = false;
+  modalStartMinute.value = 0;
+  modalEndMinute.value = 0;
   scheduleHoldReasonCode.value = 'DOCUMENTATION';
   scheduleHoldCustomReason.value = '';
   modalError.value = '';
@@ -4809,7 +4976,11 @@ const submitRequest = async () => {
     const dn = modalDay.value;
     const h = Number(modalHour.value);
     const endH = Number(modalEndHour.value);
-    if (!(isScheduleEventRequestType.value && scheduleEventAllDay.value) && !(endH > h)) {
+    const startMinute = canUseQuarterHourInput.value ? Number(modalStartMinute.value || 0) : 0;
+    const endMinute = canUseQuarterHourInput.value ? Number(modalEndMinute.value || 0) : 0;
+    const startTotalMinutes = (h * 60) + startMinute;
+    const endTotalMinutes = (endH * 60) + endMinute;
+    if (!(isScheduleEventRequestType.value && scheduleEventAllDay.value) && !(endTotalMinutes > startTotalMinutes)) {
       throw new Error('End time must be after start time.');
     }
 
@@ -4881,8 +5052,8 @@ const submitRequest = async () => {
       } else {
         const ranges = mergeSelectedSlotsByDay({ dayName: dn, startHour: h, endHour: endH });
         for (const row of ranges) {
-          const startAt = `${String(row.dateYmd).slice(0, 10)}T${pad2(Number(row.startHour))}:00:00`;
-          const endAt = `${String(row.dateYmd).slice(0, 10)}T${pad2(Number(row.endHour))}:00:00`;
+          const startAt = `${String(row.dateYmd).slice(0, 10)}T${pad2(Number(row.startHour))}:${pad2(startMinute)}:00`;
+          const endAt = `${String(row.dateYmd).slice(0, 10)}T${pad2(Number(row.endHour))}:${pad2(endMinute)}:00`;
           // eslint-disable-next-line no-await-in-loop
           const resp = await api.post(`/users/${uid}/schedule-events`, {
             agencyId: eventAgencyId,
@@ -5131,8 +5302,8 @@ const submitRequest = async () => {
       const dayIdx = ALL_DAYS.indexOf(String(dn));
       if (dayIdx < 0) throw new Error('Invalid day');
       const dateYmd = addDaysYmd(weekStart.value, dayIdx);
-      const startAt = `${dateYmd}T${pad2(h)}:00:00`;
-      const endAt = `${dateYmd}T${pad2(endH)}:00:00`;
+      const startAt = `${dateYmd}T${pad2(h)}:${pad2(startMinute)}:00`;
+      const endAt = `${dateYmd}T${pad2(endH)}:${pad2(endMinute)}:00`;
       await api.post('/supervision/sessions', {
         agencyId: effectiveAgencyId.value,
         supervisorUserId: actorId,
@@ -5271,6 +5442,10 @@ const submitRequest = async () => {
 };
 
 watch(requestType, (t) => {
+  if (!['supervision', 'agency_meeting', 'personal_event', 'schedule_hold', 'indirect_services'].includes(String(t || ''))) {
+    modalStartMinute.value = 0;
+    modalEndMinute.value = 0;
+  }
   if (t === 'supervision') {
     void loadSupervisionProviders();
   } else if (t === 'agency_meeting') {
@@ -5287,6 +5462,7 @@ watch(requestType, (t) => {
       scheduleEventAllDay.value = false;
     }
   }
+  ensureModalEndTimeValid();
 });
 
 watch(supervisionSessionType, (nextType) => {
@@ -5336,7 +5512,7 @@ watch([showRequestModal, requestType, effectiveAgencyId], ([isOpen, type, agency
   void loadMeetingCandidates();
 });
 
-watch([requestType, modalDay, modalHour, modalEndHour], ([type]) => {
+watch([requestType, modalDay, modalHour, modalEndHour, modalStartMinute, modalEndMinute], ([type]) => {
   if (String(type || '') !== 'agency_meeting' || !showRequestModal.value) return;
   void loadMeetingBusyByParticipant();
 });
@@ -5824,6 +6000,11 @@ const onCellBlockClick = (e, block, dayName, hour) => {
   const kind = String(block?.kind || '');
   e?.preventDefault?.();
   e?.stopPropagation?.();
+  if (kind === 'ebusy') {
+    const stackDetails = buildStackDetailsForBlock(block, dayName, hour);
+    if (stackDetails) openStackDetailsModal(stackDetails);
+    return;
+  }
   const dateYmd = addDaysYmd(weekStart.value, ALL_DAYS.indexOf(String(dayName || '')));
   const officeTop = officeTopEvent(dayName, hour) || null;
   const roomId = Number(officeTop?.roomId || block?.buildingId || block?.roomId || 0) || 0;
@@ -6160,7 +6341,7 @@ const buildStackDetailsForBlock = (block, dayName, hour) => {
   }
   if (kind === 'ebusy') {
     const labels = externalBusyLabels(dayName, hour);
-    if (labels.length <= 1) return null;
+    if (!labels.length) return null;
     return {
       title: `Therapy Notes busy sources — ${dayName} ${hourLabel(hour)}`,
       items: labels.map((label, idx) => ({
@@ -6206,15 +6387,14 @@ const onCellBlockDoubleClick = (e, block, dayName, hour) => {
   window.open(link, '_blank', 'noreferrer');
 };
 
-watch(modalHour, () => {
-  const start = Number(modalHour.value || 0);
-  const minEnd = start + 1;
-  const maxEnd = 22;
-  const current = Number(modalEndHour.value || 0);
-  if (!(current > start)) modalEndHour.value = Math.min(minEnd, maxEnd);
-  if (current > maxEnd) modalEndHour.value = maxEnd;
-  if (modalEndHour.value <= start) modalEndHour.value = Math.min(start + 1, maxEnd);
-});
+watch([modalHour, modalEndHour, modalStartMinute, modalEndMinute, canUseQuarterHourInput, disableEndTimeInput], () => {
+  if (disableEndTimeInput.value) {
+    modalStartMinute.value = 0;
+    modalEndMinute.value = 0;
+    return;
+  }
+  ensureModalEndTimeValid();
+}, { immediate: true });
 </script>
 
 <style scoped>
