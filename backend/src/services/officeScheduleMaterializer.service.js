@@ -81,7 +81,8 @@ function isAssignmentActiveOnDate(assignment, dateStr) {
   return wi % 2 === 0;
 }
 
-function shouldBookOnDate(plan, assignment, dateStr) {
+/** Exported for use by isRoomOpenAt when checking if a standing assignment blocks a slot. */
+export function shouldBookOnDate(plan, assignment, dateStr) {
   if (!plan || plan.is_active === 0) return false;
   const start = String(plan.booking_start_date || '').slice(0, 10);
   if (!start) return false;
@@ -175,6 +176,16 @@ export class OfficeScheduleMaterializer {
         // Temporary pause suppresses booked materialization until pause window ends.
         if (!isTemporary && plan && shouldBookOnDate(plan, a, date) && shouldBookByCount(plan, a, date)) {
           slotState = 'ASSIGNED_BOOKED';
+        } else if (!isTemporary && plan && !shouldBookOnDate(plan, a, date)) {
+          // Assignment weekly + booking biweekly: off-weeks are released for others to book.
+          // Cancel any existing event for this slot so it becomes open.
+          await OfficeEvent.cancelSlotIfFromStandingAssignment({
+            roomId: a.room_id,
+            startAt,
+            endAt,
+            standingAssignmentId: a.id
+          });
+          continue; // Skip upsert - slot is open
         }
 
         await OfficeEvent.upsertSlotState({

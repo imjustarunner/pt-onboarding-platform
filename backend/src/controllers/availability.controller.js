@@ -646,7 +646,11 @@ export const createMyOfficeAvailabilityRequest = async (req, res, next) => {
     if (!(await requireAgencyMembership(req, res, agencyId))) return;
     const providerId = req.user.id;
 
-    const preferredOfficeIds = Array.isArray(req.body?.preferredOfficeIds) ? req.body.preferredOfficeIds : [];
+    const preferredOfficeIds = Array.isArray(req.body?.preferredOfficeIds)
+      ? req.body.preferredOfficeIds
+      : Array.isArray(req.body?.officeLocationIds)
+        ? req.body.officeLocationIds
+        : [];
     const officeIds = preferredOfficeIds.map((n) => parseIntSafe(n)).filter((n) => Number.isInteger(n) && n > 0);
     const notes = String(req.body?.notes || '').trim().slice(0, 2000);
     const slots = Array.isArray(req.body?.slots) ? req.body.slots : [];
@@ -664,11 +668,12 @@ export const createMyOfficeAvailabilityRequest = async (req, res, next) => {
       const weekday = parseIntSafe(s?.weekday);
       const startHour = parseIntSafe(s?.startHour);
       const endHour = parseIntSafe(s?.endHour);
+      const roomId = parseIntSafe(s?.roomId);
       if (!(weekday >= 0 && weekday <= 6)) continue;
       if (!(startHour >= 0 && startHour <= 23)) continue;
       if (!(endHour >= 1 && endHour <= 24)) continue;
       if (!(endHour > startHour)) continue;
-      normalizedSlots.push({ weekday, startHour, endHour });
+      normalizedSlots.push({ weekday, startHour, endHour, roomId: Number.isInteger(roomId) && roomId > 0 ? roomId : null });
     }
     if (normalizedSlots.length === 0) {
       return res.status(400).json({ error: { message: 'At least one day/time slot is required.' } });
@@ -688,9 +693,9 @@ export const createMyOfficeAvailabilityRequest = async (req, res, next) => {
     for (const s of normalizedSlots) {
       await conn.execute(
         `INSERT INTO provider_office_availability_request_slots
-          (request_id, weekday, start_hour, end_hour)
-         VALUES (?, ?, ?, ?)`,
-        [requestId, s.weekday, s.startHour, s.endHour]
+          (request_id, weekday, start_hour, end_hour, room_id)
+         VALUES (?, ?, ?, ?, ?)`,
+        [requestId, s.weekday, s.startHour, s.endHour, s.roomId]
       );
     }
 
@@ -1223,7 +1228,7 @@ export const listOfficeAvailabilityRequests = async (req, res, next) => {
     const out = [];
     for (const r of rows || []) {
       const [slotRows] = await pool.execute(
-        `SELECT weekday, start_hour, end_hour
+        `SELECT weekday, start_hour, end_hour, room_id
          FROM provider_office_availability_request_slots
          WHERE request_id = ?
          ORDER BY weekday ASC, start_hour ASC`,
@@ -1238,7 +1243,12 @@ export const listOfficeAvailabilityRequests = async (req, res, next) => {
         notes: r.notes || '',
         status: r.status,
         createdAt: r.created_at,
-        slots: (slotRows || []).map((s) => ({ weekday: s.weekday, startHour: s.start_hour, endHour: s.end_hour }))
+        slots: (slotRows || []).map((s) => ({
+          weekday: s.weekday,
+          startHour: s.start_hour,
+          endHour: s.end_hour,
+          roomId: s.room_id ? Number(s.room_id) : null
+        }))
       });
     }
 

@@ -338,6 +338,23 @@ class OfficeEvent {
     return Number(result?.affectedRows || 0);
   }
 
+  /** Cancel event for a specific slot when it was created by a standing assignment (e.g. off-week when assignment weekly + booking biweekly). */
+  static async cancelSlotIfFromStandingAssignment({ roomId, startAt, endAt, standingAssignmentId }) {
+    const normalizedStart = normalizeMySqlDateTime(startAt);
+    const normalizedEnd = normalizeMySqlDateTime(endAt);
+    if (!roomId || !normalizedStart || !normalizedEnd || !standingAssignmentId) return 0;
+    const [result] = await pool.execute(
+      `UPDATE office_events
+       SET status = 'CANCELLED',
+           updated_at = CURRENT_TIMESTAMP
+       WHERE room_id = ?
+         AND start_at = ?
+         AND standing_assignment_id = ?`,
+      [roomId, normalizedStart, standingAssignmentId]
+    );
+    return Number(result?.affectedRows || 0);
+  }
+
   static async cancelFutureByRecurrenceGroup({ recurrenceGroupId, startAt }) {
     const [result] = await pool.execute(
       `UPDATE office_events

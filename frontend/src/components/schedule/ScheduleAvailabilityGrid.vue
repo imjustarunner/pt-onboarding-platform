@@ -183,7 +183,17 @@
           </div>
         </div>
         <div class="office-quick-glance-list">
-          <div v-for="row in quickGlanceRows" :key="`qg-row-${row.roomId}`" class="office-quick-glance-row">
+          <div
+            v-for="row in quickGlanceRows"
+            :key="`qg-row-${row.roomId}`"
+            class="office-quick-glance-row"
+            :class="{ 'office-quick-glance-row--disabled': !row.isClickable }"
+            :role="row.isClickable ? 'button' : undefined"
+            :tabindex="row.isClickable ? 0 : undefined"
+            @click="onQuickGlanceRowClick(row)"
+            @keydown.enter="row.isClickable && onQuickGlanceRowClick(row)"
+            @keydown.space.prevent="row.isClickable && onQuickGlanceRowClick(row)"
+          >
             <div class="office-quick-glance-room">{{ row.roomLabel }}</div>
             <div class="office-quick-glance-status" :class="[`state-${row.state}`, row.hasPendingRequest && 'state-requested']">{{ row.statusLabel }}</div>
             <div class="office-quick-glance-provider">{{ row.providerLabel }}</div>
@@ -4762,6 +4772,7 @@ const quickGlanceRows = computed(() => {
   const g = officeGrid.value;
   const date = String(quickGlanceDateYmd.value || '').slice(0, 10);
   const hour = Number(quickGlanceHour.value || 0);
+  const currentUserId = Number(authStore.user?.id || 0);
   if (!g || !date || !Number.isFinite(hour)) return [];
   const rooms = Array.isArray(g.rooms) ? g.rooms : [];
   const slots = Array.isArray(g.slots) ? g.slots : [];
@@ -4783,13 +4794,17 @@ const quickGlanceRows = computed(() => {
     if (pending > 0) statusLabel = `Requested${statusLabel !== 'Open' ? ` (${statusLabel})` : ''}`;
     const providerLabel = String(slot?.bookedProviderName || slot?.assignedProviderName || slot?.providerInitials || '').trim() || '—';
     const roomLabel = `${r?.roomNumber ? `#${r.roomNumber} ` : ''}${r?.label || r?.name || `Room ${r?.id || ''}`}`.trim();
+    const bookedByMe = st === 'assigned_booked' && currentUserId > 0 && Number(slot?.bookedProviderId || 0) === currentUserId;
+    const isClickable = st !== 'assigned_booked' || bookedByMe;
     return {
       roomId: Number(r.id),
       roomLabel,
       state: st,
       statusLabel,
       providerLabel,
-      hasPendingRequest: pending > 0
+      hasPendingRequest: pending > 0,
+      slot,
+      isClickable
     };
   });
   const filter = String(quickGlanceStateFilter.value || 'all');
@@ -4803,6 +4818,29 @@ const quickGlanceRows = computed(() => {
   filtered.sort((a, b) => String(a.roomLabel).localeCompare(String(b.roomLabel)));
   return filtered;
 });
+
+const onQuickGlanceRowClick = (row) => {
+  if (!row?.isClickable) return;
+  const dateYmd = String(quickGlanceDateYmd.value || '').slice(0, 10);
+  const hour = Number(quickGlanceHour.value || 0);
+  const dayName = dayNameForDateYmd(dateYmd);
+  if (!dateYmd || !Number.isFinite(hour) || !dayName) return;
+  const st = String(row?.state || 'open').toUpperCase();
+  const initialRequestType =
+    st === 'ASSIGNED_BOOKED' ? 'booked_note'
+      : ['OPEN', 'ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY'].includes(st) ? 'office_request_only'
+        : '';
+  openSlotActionModal({
+    dayName,
+    hour,
+    roomId: Number(row?.roomId || 0),
+    slot: row?.slot || null,
+    dateYmd,
+    preserveSelectionRange: false,
+    initialRequestType,
+    actionSource: 'quick_glance'
+  });
+};
 
 const loadSelectedOfficeGrid = async () => {
   const id = Number(selectedOfficeLocationId.value || 0);
@@ -5484,12 +5522,15 @@ const submitRequest = async () => {
         }
       }
     } else if (requestType.value === 'office_request_only') {
-      const dayToHours = new Map();
       const targets = sortedSelectedActionSlots().length ? sortedSelectedActionSlots() : [{
         dateYmd: addDaysYmd(weekStart.value, ALL_DAYS.indexOf(String(dn))),
         dayName: dn,
-        hour: h
+        hour: h,
+        roomId: viewMode.value === 'office_layout' ? (Number(selectedOfficeRoomId.value || 0) || Number(modalContext.value?.roomId || 0) || 0) : 0
       }];
+      const roomIds = [...new Set(targets.map((t) => Number(t.roomId || 0)).filter((n) => n > 0))];
+      const singleRoomId = roomIds.length === 1 ? roomIds[0] : 0;
+      const dayToHours = new Map();
       for (const t of targets) {
         const day = String(t.dayName || dayNameForDateYmd(t.dateYmd) || dn);
         if (!dayToHours.has(day)) dayToHours.set(day, []);
@@ -5510,11 +5551,23 @@ const submitRequest = async () => {
             prev = val;
             continue;
           }
-          slots.push({ weekday: ((ALL_DAYS.indexOf(day) + 1) % 7), startHour: start, endHour: prev + 1 });
+          slots.push({
+            weekday: ((ALL_DAYS.indexOf(day) + 1) % 7),
+            startHour: start,
+            endHour: prev + 1,
+            roomId: singleRoomId || undefined
+          });
           start = val;
           prev = val;
         }
-        if (start !== null) slots.push({ weekday: ((ALL_DAYS.indexOf(day) + 1) % 7), startHour: start, endHour: prev + 1 });
+        if (start !== null) {
+          slots.push({
+            weekday: ((ALL_DAYS.indexOf(day) + 1) % 7),
+            startHour: start,
+            endHour: prev + 1,
+            roomId: singleRoomId || undefined
+          });
+        }
       }
       await api.post('/availability/office-requests', {
         agencyId: effectiveAgencyId.value,
@@ -5522,6 +5575,7 @@ const submitRequest = async () => {
         officeLocationIds: Number(selectedOfficeLocationId.value || 0) ? [Number(selectedOfficeLocationId.value)] : [],
         slots
       });
+      await loadSelectedOfficeGrid();
     } else if (requestType.value === 'school') {
       if (isAdminMode.value) throw new Error('School availability requests must be created from the provider schedule.');
       if (!canUseSchool(dn, h, endH)) throw new Error('School daytime availability must be on weekdays and between 06:00 and 18:00.');
@@ -6966,6 +7020,18 @@ watch([modalHour, modalEndHour, modalStartMinute, modalEndMinute, canUseQuarterH
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 6px 8px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.office-quick-glance-row:hover {
+  background: rgba(37, 99, 235, 0.06);
+}
+.office-quick-glance-row--disabled {
+  cursor: default;
+  opacity: 0.85;
+}
+.office-quick-glance-row--disabled:hover {
+  background: transparent;
 }
 .office-quick-glance-room {
   font-weight: 800;

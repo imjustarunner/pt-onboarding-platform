@@ -12,7 +12,7 @@ import ProviderVirtualSlotAvailability from '../models/ProviderVirtualSlotAvaila
 import AdminAuditLog from '../models/AdminAuditLog.model.js';
 import User from '../models/User.model.js';
 import UserComplianceDocument from '../models/UserComplianceDocument.model.js';
-import OfficeScheduleMaterializer from '../services/officeScheduleMaterializer.service.js';
+import OfficeScheduleMaterializer, { shouldBookOnDate } from '../services/officeScheduleMaterializer.service.js';
 import GoogleCalendarService from '../services/googleCalendar.service.js';
 import ExternalBusyCalendarService from '../services/externalBusyCalendar.service.js';
 import { getSchedulingBookingMetadata, validateSchedulingSelection } from '../services/schedulingTaxonomy.service.js';
@@ -289,14 +289,14 @@ function weekdayHourInTz(dateLike, timeZone) {
 }
 
 async function isRoomOpenAt({ officeLocationId, roomId, startAt, endAt, officeTimeZone }) {
-  // If any event overlaps this window, it is not open.
+  // Block only on BOOKED/ASSIGNED_BOOKED events. RELEASED and CANCELLED do not block.
   const [eventRows] = await pool.execute(
     `SELECT 1
      FROM office_events
      WHERE room_id = ?
        AND start_at < ?
        AND end_at > ?
-       AND (status IS NULL OR UPPER(status) <> 'CANCELLED')
+       AND (UPPER(COALESCE(status, '')) = 'BOOKED' OR UPPER(COALESCE(slot_state, '')) = 'ASSIGNED_BOOKED')
      LIMIT 1`,
     [roomId, endAt, startAt]
   );
@@ -314,8 +314,8 @@ async function isRoomOpenAt({ officeLocationId, roomId, startAt, endAt, officeTi
   );
   if (assignRows?.[0]) return false;
 
-  // If a standing assignment is active for this slot, treat as not open.
-  // (Materializer usually creates events for these, but this is a safe guard.)
+  // Standing assignment: block only if the slot is actually booked for this date.
+  // When assignment is weekly + booking is biweekly, off-weeks are released for others.
   const tz = officeTimeZone || 'America/New_York';
   const wh = weekdayHourInTz(startAt, tz);
   if (wh) {
@@ -325,7 +325,14 @@ async function isRoomOpenAt({ officeLocationId, roomId, startAt, endAt, officeTi
       weekday: wh.weekdayIndex,
       hour: wh.hour
     });
-    if (st?.id) return false;
+    if (st?.id) {
+      const plan = await OfficeBookingPlan.findActiveByAssignmentId(st.id);
+      const dateStr = String(startAt || '').slice(0, 10);
+      if (plan && dateStr) {
+        if (!shouldBookOnDate(plan, st, dateStr)) return true; // Off-week: slot is open
+      }
+      return false; // No plan or should book: block
+    }
   }
 
   return true;
@@ -955,7 +962,7 @@ export const getWeeklyGrid = async (req, res, next) => {
     // Pending office availability requests: show "Requested" so others don't duplicate
     const officeAgencies = await OfficeLocationAgency.listAgenciesForOffice(officeLocationIdNum);
     const officeAgencyIds = (officeAgencies || []).map((a) => Number(a.id)).filter((n) => n > 0);
-    const pendingBySlot = new Map(); // key: `${date}:${hour}` -> [{ providerName }]
+    const pendingBySlot = new Map(); // key: `${date}:${hour}` or `${date}:${hour}:${roomId}` -> [{ providerName }]
     if (officeAgencyIds.length > 0) {
       const [reqRows] = await pool.execute(
         `SELECT r.id, r.provider_id, r.preferred_office_ids_json,
@@ -975,7 +982,7 @@ export const getWeeklyGrid = async (req, res, next) => {
         if (!includesOffice) continue;
         const providerName = `${String(req.first_name || '').trim()} ${String(req.last_name || '').trim()}`.trim() || `Provider #${req.provider_id}`;
         const [slotRows] = await pool.execute(
-          `SELECT weekday, start_hour, end_hour
+          `SELECT weekday, start_hour, end_hour, room_id
            FROM provider_office_availability_request_slots
            WHERE request_id = ?
            ORDER BY weekday, start_hour`,
@@ -985,20 +992,26 @@ export const getWeeklyGrid = async (req, res, next) => {
           const wd = Number(row.weekday);
           const sh = Number(row.start_hour);
           const eh = Number(row.end_hour);
+          const roomId = Number(row.room_id || 0) || null;
           if (!(wd >= 0 && wd <= 6) || !Number.isFinite(sh) || !Number.isFinite(eh) || eh <= sh) continue;
           const dateForWeekday = days[wd];
           if (!dateForWeekday) continue;
           for (let h = sh; h < eh; h++) {
-            const k = `${dateForWeekday}:${h}`;
-            if (!pendingBySlot.has(k)) pendingBySlot.set(k, []);
-            pendingBySlot.get(k).push({ providerName });
+            const baseKey = `${dateForWeekday}:${h}`;
+            const keys = roomId ? [`${baseKey}:${roomId}`] : [baseKey];
+            for (const k of keys) {
+              if (!pendingBySlot.has(k)) pendingBySlot.set(k, []);
+              pendingBySlot.get(k).push({ providerName });
+            }
           }
         }
       }
     }
     for (const s of slots) {
-      const pk = `${s.date}:${s.hour}`;
-      const pending = pendingBySlot.get(pk) || [];
+      const roomId = Number(s.roomId || 0) || null;
+      const pkSpecific = `${s.date}:${s.hour}:${roomId}`;
+      const pkAny = `${s.date}:${s.hour}`;
+      const pending = pendingBySlot.get(pkSpecific) || pendingBySlot.get(pkAny) || [];
       const uniqueNames = [...new Set(pending.map((p) => p.providerName))];
       s.pendingRequestCount = uniqueNames.length;
       s.pendingRequestNames = uniqueNames.length > 0 ? uniqueNames : null;
