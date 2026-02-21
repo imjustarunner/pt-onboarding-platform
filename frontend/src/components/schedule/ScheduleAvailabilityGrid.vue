@@ -402,7 +402,7 @@
             Loading providers…
           </div>
           <div v-if="requestType === 'supervision' && !supervisionProvidersLoading && availableSupervisionParticipants.length === 0" class="muted" style="margin-top: 6px;">
-            No eligible participants are available in this agency.
+            No eligible supervisees are available in the selected supervision scope.
           </div>
 
           <div v-if="requestType === 'supervision' && availableSupervisionParticipants.length" style="margin-top: 10px;">
@@ -411,6 +411,13 @@
               <option value="individual">Individual supervision</option>
               <option value="group">Group supervision</option>
             </select>
+            <label v-if="supervisionCanUseAllAgencies" class="sched-toggle" style="margin-top: 8px; margin-bottom: 8px;">
+              <input type="checkbox" v-model="supervisionIncludeAllAgencies" />
+              <span>Show group supervisees from all my agencies</span>
+            </label>
+            <div class="muted" style="margin-top: 6px;">
+              Individual supervision lists your direct supervisees in the selected agency. Group supervision lists all supervisees under supervision in the selected scope.
+            </div>
             <label class="lbl">Primary participant</label>
             <input
               v-model="supervisionParticipantSearch"
@@ -458,6 +465,22 @@
                   Clear additional
                 </button>
               </div>
+              <div class="muted" style="margin-top: 6px;">
+                Selected: {{ supervisionSelectedParticipantCount }} (primary + additional)
+              </div>
+              <div v-if="selectedSupervisionParticipantChips.length" class="supervision-selected-chips">
+                <button
+                  v-for="chip in selectedSupervisionParticipantChips"
+                  :key="`supv-chip-${chip.kind}-${chip.id}`"
+                  type="button"
+                  class="supervision-chip"
+                  :class="{ primary: chip.kind === 'primary' }"
+                  @click="removeSelectedSupervisionParticipant(chip.id, chip.kind)"
+                >
+                  <span>{{ chip.kind === 'primary' ? 'Primary' : 'Additional' }}: {{ supervisionParticipantLabel(chip.row || { id: chip.id }) }}</span>
+                  <span aria-hidden="true">x</span>
+                </button>
+              </div>
               <div class="participant-scroll" style="margin-top: 6px;">
                 <div class="participant-grid">
                   <button
@@ -473,9 +496,6 @@
                   </button>
                 </div>
               </div>
-              <div class="muted" style="margin-top: 6px;">
-                Selected participants: {{ supervisionSelectedParticipantCount }}
-              </div>
               <div
                 v-if="requestType === 'supervision' && supervisionSessionType === 'group' && supervisionSelectedParticipantCount < 2"
                 class="muted"
@@ -487,6 +507,77 @@
 
             <label class="sched-toggle" style="margin-top: 8px;">
               <input type="checkbox" v-model="createSupervisionMeetLink" />
+              <span>Create Google Meet link</span>
+            </label>
+          </div>
+
+          <div v-if="requestType === 'agency_meeting'" style="margin-top: 10px;">
+            <div v-if="meetingCandidatesLoading" class="muted" style="margin-top: 6px;">
+              Loading agency participants…
+            </div>
+            <div v-else-if="!availableMeetingCandidates.length" class="muted" style="margin-top: 6px;">
+              No meeting participants are available in this scope.
+            </div>
+            <label v-if="meetingCanUseAllAgencies" class="sched-toggle" style="margin-top: 8px; margin-bottom: 8px;">
+              <input type="checkbox" v-model="meetingIncludeAllAgencies" />
+              <span>Include participants from all my agencies</span>
+            </label>
+            <label class="lbl">Meeting participants</label>
+            <input
+              v-model="meetingParticipantSearch"
+              class="input"
+              type="text"
+              placeholder="Search participants by name or email"
+              style="margin-bottom: 8px;"
+            />
+            <div class="row" style="gap: 8px; margin-top: 6px; flex-wrap: wrap;">
+              <button class="btn btn-secondary btn-sm" type="button" @click="selectAllFilteredMeetingParticipants">
+                Add all shown
+              </button>
+              <button class="btn btn-secondary btn-sm" type="button" @click="selectAllAvailableMeetingParticipants">
+                Add everyone in list
+              </button>
+              <button class="btn btn-secondary btn-sm" type="button" @click="clearMeetingParticipants">
+                Clear participants
+              </button>
+            </div>
+            <div class="muted" style="margin-top: 6px;">
+              Selected participants: {{ selectedMeetingParticipantIdSet.size }}
+            </div>
+            <div v-if="selectedMeetingParticipantChips.length" class="supervision-selected-chips">
+              <button
+                v-for="chip in selectedMeetingParticipantChips"
+                :key="`meeting-chip-${chip.id}`"
+                type="button"
+                class="supervision-chip"
+                @click="removeSelectedMeetingParticipant(chip.id)"
+              >
+                <span>{{ supervisionParticipantLabel(chip.row || { id: chip.id }) }}</span>
+                <span aria-hidden="true">x</span>
+              </button>
+            </div>
+            <div class="participant-scroll" style="margin-top: 6px;">
+              <div class="participant-grid">
+                <button
+                  v-for="p in filteredMeetingCandidates"
+                  :key="`meeting-participant-${p.id}`"
+                  type="button"
+                  class="participant-card"
+                  :class="{ on: selectedMeetingParticipantIdSet.has(Number(p.id)) }"
+                  @click="toggleMeetingParticipant(Number(p.id))"
+                >
+                  <span class="participant-name">{{ supervisionParticipantLabel(p) }}</span>
+                  <span class="participant-role">
+                    {{ String(p.role || '').trim() || 'provider' }} • {{ meetingParticipantBusyText(p.id) }}
+                  </span>
+                </button>
+              </div>
+            </div>
+            <div class="muted" style="margin-top: 6px;">
+              Busy participants can still be invited, but they are marked above before booking.
+            </div>
+            <label class="sched-toggle" style="margin-top: 8px;">
+              <input type="checkbox" v-model="createMeetingMeetLink" />
               <span>Create Google Meet link</span>
             </label>
           </div>
@@ -625,7 +716,7 @@
               </option>
             </select>
             <div class="muted" style="margin-top: 6px; font-size: 12px;">
-              Schedule view can include multiple agencies; this chooses where the new item is created.
+              Schedule view can include multiple agencies; this chooses where the new item is created. For supervision groups, use the in-section all-agencies toggle to widen participant discovery.
             </div>
           </div>
 
@@ -699,6 +790,7 @@
               ((requestType === 'office' || requestType === 'office_request_only' || requestType === 'individual_session' || requestType === 'group_session') && (bookingMetadataLoading || !officeBookingValid || !!bookingClassificationInvalidReason)) ||
               (requestType === 'school' && !canUseSchool(modalDay, modalHour, modalEndHour)) ||
               (requestType === 'supervision' && !supervisionCanSubmit) ||
+              (requestType === 'agency_meeting' && !meetingCanSubmit) ||
               ((requestType === 'intake_virtual_on' || requestType === 'intake_virtual_off' || requestType === 'intake_inperson_on' || requestType === 'intake_inperson_off') && !modalContext.officeEventId) ||
               (requestType === 'extend_assignment' && !(modalContext.standingAssignmentId > 0)) ||
               (requestType === 'forfeit_slot' && (!ackForfeit || !selectedActionContexts().some((x) => (Number(x?.officeEventId || 0) > 0 || Number(x?.standingAssignmentId || 0) > 0) && Number(x?.officeLocationId || 0) > 0))) ||
@@ -1764,19 +1856,9 @@ const canManageOffices = computed(() => {
   return ['clinical_practice_assistant', 'admin', 'super_admin', 'superadmin', 'support', 'staff'].includes(role);
 });
 const currentUserRole = computed(() => String(authStore.user?.role || '').trim().toLowerCase());
+const isSupervisorRole = computed(() => currentUserRole.value === 'supervisor');
 const canScheduleSupervisionFromGrid = computed(() => {
-  const role = currentUserRole.value;
-  return [
-    'super_admin',
-    'superadmin',
-    'admin',
-    'clinical_practice_assistant',
-    'staff',
-    'support',
-    'provider_plus',
-    'provider',
-    'supervisor'
-  ].includes(role);
+  return isSupervisorRole.value;
 });
 const isViewingOtherUserSchedule = computed(() => {
   if (!isAdminMode.value) return false;
@@ -2585,8 +2667,8 @@ const requestsInCell = (dayName, hour) => {
   }
   return out;
 };
-const officeTitle = (dayName, hour) => {
-  const top = officeTopEvent(dayName, hour);
+const officeTitle = (dayName, hour, topEvent = null) => {
+  const top = topEvent || officeTopEvent(dayName, hour);
   if (!top) return `Office — ${dayName} ${hourLabel(hour)}`;
   const roomNumber = String(top.roomNumber || '').trim();
   const roomLabel = String(top.roomLabel || '').trim();
@@ -2635,7 +2717,10 @@ const cellBlocks = (dayName, hour) => {
   const blocks = [];
 
   // Office assignment state — one block per unique assignment (office is assigned to user, not agency)
-  const officeHits = officeEventsInCell(dayName, hour);
+  const selectedOfficeId = Number(selectedOfficeLocationId.value || 0);
+  const officeHits = selectedOfficeId > 0
+    ? officeEventsInCell(dayName, hour).filter((e) => Number(e?.buildingId || 0) === selectedOfficeId)
+    : [];
   const officeByAgency = new Map();
   for (const e of officeHits) {
     const aid = Number(e?._agencyId || 0) || null;
@@ -2653,19 +2738,19 @@ const cellBlocks = (dayName, hour) => {
     ].join('');
     const st = String(top?.slotState || '').toUpperCase();
     if (st === 'ASSIGNED_BOOKED') {
-      blocks.push({ key: `office-booked-${agencyId || 'x'}`, kind: 'ob', shortLabel: shortOfficeLabel(top, 'Booked') + intakeSuffix, title: officeTitle(dayName, hour), buildingId, agencyId });
+      blocks.push({ key: `office-booked-${agencyId || 'x'}`, kind: 'ob', shortLabel: shortOfficeLabel(top, 'Booked') + intakeSuffix, title: officeTitle(dayName, hour, top), buildingId, agencyId });
     } else if (st === 'ASSIGNED_TEMPORARY') {
-      blocks.push({ key: `office-temp-${agencyId || 'x'}`, kind: 'ot', shortLabel: shortOfficeLabel(top, 'Temp') + intakeSuffix, title: officeTitle(dayName, hour), buildingId, agencyId });
+      blocks.push({ key: `office-temp-${agencyId || 'x'}`, kind: 'ot', shortLabel: shortOfficeLabel(top, 'Temp') + intakeSuffix, title: officeTitle(dayName, hour, top), buildingId, agencyId });
     } else if (st === 'ASSIGNED_AVAILABLE') {
-      blocks.push({ key: `office-assigned-${agencyId || 'x'}`, kind: 'oa', shortLabel: shortOfficeLabel(top, 'Office') + intakeSuffix, title: officeTitle(dayName, hour), buildingId, agencyId });
+      blocks.push({ key: `office-assigned-${agencyId || 'x'}`, kind: 'oa', shortLabel: shortOfficeLabel(top, 'Office') + intakeSuffix, title: officeTitle(dayName, hour, top), buildingId, agencyId });
     }
   }
-  const top = officeTopEvent(dayName, hour);
+  const top = officeHits.sort((a, b) => stateRank(b.slotState) - stateRank(a.slotState))[0] || null;
   if (top?.inPersonIntakeEnabled) {
-    blocks.push({ key: 'intake-ip', kind: 'intake-ip', shortLabel: 'IP', title: `In-person intake enabled — ${officeTitle(dayName, hour)}`, agencyId: Number(top?._agencyId || 0) || null });
+    blocks.push({ key: 'intake-ip', kind: 'intake-ip', shortLabel: 'IP', title: `In-person intake enabled — ${officeTitle(dayName, hour, top)}`, agencyId: Number(top?._agencyId || 0) || null });
   }
   if (top?.virtualIntakeEnabled) {
-    blocks.push({ key: 'intake-vi', kind: 'intake-vi', shortLabel: 'VI', title: `Virtual intake enabled — ${officeTitle(dayName, hour)}`, agencyId: Number(top?._agencyId || 0) || null });
+    blocks.push({ key: 'intake-vi', kind: 'intake-vi', shortLabel: 'VI', title: `Virtual intake enabled — ${officeTitle(dayName, hour, top)}`, agencyId: Number(top?._agencyId || 0) || null });
   }
 
   // Assigned school — one block per agency
@@ -2827,7 +2912,7 @@ const modalActionSource = ref('general'); // general | plus_or_blank | office_bl
 const requestNotes = ref('');
 const submitting = ref(false);
 const modalError = ref('');
-const SCHEDULE_EVENT_ACTIONS = new Set(['personal_event', 'schedule_hold', 'schedule_hold_all_day', 'indirect_services']);
+const SCHEDULE_EVENT_ACTIONS = new Set(['personal_event', 'schedule_hold', 'schedule_hold_all_day', 'indirect_services', 'agency_meeting']);
 const AGENCY_OPTIONAL_ACTIONS = new Set([
   'office',
   'individual_session',
@@ -2890,6 +2975,7 @@ const isScheduleEventRequestType = computed(() => SCHEDULE_EVENT_ACTIONS.has(Str
 const scheduleHoldReasonOptions = computed(() => SCHEDULE_HOLD_REASON_OPTIONS);
 const scheduleEventTitlePlaceholder = computed(() => {
   const kind = String(requestType.value || '');
+  if (kind === 'agency_meeting') return 'Agency meeting';
   if (kind === 'schedule_hold' || kind === 'schedule_hold_all_day') return 'Schedule hold';
   if (kind === 'indirect_services') return 'Indirect services';
   return 'Personal event';
@@ -3001,10 +3087,18 @@ const availableQuickActions = computed(() => {
       label: 'Supervision',
       description: supervisionProvidersLoading.value ? 'Loading participants...' : 'Schedule individual supervision',
       disabledReason: !supervisionOptionVisible
-        ? 'Provider self flow only'
+        ? 'Supervisors only'
         : (supervisionProvidersLoading.value ? 'Loading providers' : ''),
       visible: supervisionOptionVisible,
       tone: 'violet'
+    },
+    {
+      id: 'agency_meeting',
+      label: 'Agency meeting',
+      description: 'Schedule a meeting with one or more agency participants',
+      disabledReason: '',
+      visible: !supervisionOnlyMode,
+      tone: 'teal'
     },
     {
       id: 'personal_event',
@@ -3124,7 +3218,7 @@ const visibleQuickActions = computed(() => {
 });
 
 const actionRequiresAgency = computed(() => !AGENCY_OPTIONAL_ACTIONS.has(String(requestType.value || '')));
-const scheduleEventRequiresAgency = computed(() => String(requestType.value || '') === 'indirect_services');
+const scheduleEventRequiresAgency = computed(() => ['indirect_services', 'agency_meeting'].includes(String(requestType.value || '')));
 
 const intakeActionHelpText = computed(() => {
   const labels = {
@@ -3144,6 +3238,7 @@ const submitActionLabel = computed(() => {
     office_request_only: 'Submit office request',
     school: 'Submit school request',
     supervision: isGroupSupervisionType.value ? 'Schedule group supervision' : 'Schedule supervision',
+    agency_meeting: 'Create agency meeting',
     personal_event: 'Create personal event',
     schedule_hold: 'Create schedule hold',
     schedule_hold_all_day: 'Create all-day hold',
@@ -3405,6 +3500,7 @@ const officeBookingHint = computed(() => {
 const supervisionProvidersLoading = ref(false);
 const supervisionProviders = ref([]);
 const supervisionSessionType = ref('individual');
+const supervisionIncludeAllAgencies = ref(false);
 const selectedSupervisionParticipantId = ref(0);
 const selectedSupervisionAdditionalParticipantIds = ref([]);
 const createSupervisionMeetLink = ref(true);
@@ -3438,6 +3534,12 @@ const supervisionSelectedParticipantCount = computed(() => {
   return primary + extras;
 });
 const isGroupSupervisionType = computed(() => String(supervisionSessionType.value || '').toLowerCase() === 'group');
+const supervisionCanUseAllAgencies = computed(
+  () => isGroupSupervisionType.value && (effectiveAgencyIds.value || []).length > 1
+);
+const supervisionUsingAllAgencies = computed(
+  () => supervisionCanUseAllAgencies.value && !!supervisionIncludeAllAgencies.value
+);
 const supervisionCanSubmit = computed(() => {
   if (supervisionProvidersLoading.value) return false;
   if ((availableSupervisionParticipants.value || []).length === 0) return false;
@@ -3449,6 +3551,30 @@ const supervisionCanSubmit = computed(() => {
 const filteredSupervisionAdditionalParticipants = computed(() => {
   const primaryId = Number(selectedSupervisionParticipantId.value || 0);
   return (filteredSupervisionParticipants.value || []).filter((row) => Number(row?.id || 0) !== primaryId);
+});
+
+const supervisionParticipantById = computed(() => {
+  const m = new Map();
+  for (const row of (availableSupervisionParticipants.value || [])) {
+    const id = Number(row?.id || 0);
+    if (id > 0) m.set(id, row);
+  }
+  return m;
+});
+
+const selectedSupervisionParticipantChips = computed(() => {
+  const chips = [];
+  const primaryId = Number(selectedSupervisionParticipantId.value || 0);
+  if (primaryId > 0) {
+    chips.push({ id: primaryId, kind: 'primary', row: supervisionParticipantById.value.get(primaryId) || null });
+  }
+  for (const idRaw of (selectedSupervisionAdditionalParticipantIds.value || [])) {
+    const id = Number(idRaw || 0);
+    if (id > 0 && id !== primaryId) {
+      chips.push({ id, kind: 'additional', row: supervisionParticipantById.value.get(id) || null });
+    }
+  }
+  return chips;
 });
 
 const toggleSupervisionAdditionalParticipant = (userId) => {
@@ -3491,6 +3617,21 @@ const clearSupervisionAdditionalParticipants = () => {
   selectedSupervisionAdditionalParticipantIds.value = [];
 };
 
+const removeSelectedSupervisionParticipant = (userId, kind = 'additional') => {
+  const id = Number(userId || 0);
+  if (!id) return;
+  if (kind === 'primary') {
+    selectedSupervisionParticipantId.value = 0;
+    selectedSupervisionAdditionalParticipantIds.value = (selectedSupervisionAdditionalParticipantIds.value || [])
+      .map((n) => Number(n || 0))
+      .filter((n) => n > 0 && n !== id);
+    return;
+  }
+  selectedSupervisionAdditionalParticipantIds.value = (selectedSupervisionAdditionalParticipantIds.value || [])
+    .map((n) => Number(n || 0))
+    .filter((n) => n > 0 && n !== id);
+};
+
 const supervisionParticipantLabel = (row) => {
   const first = String(row?.firstName || '').trim();
   const last = String(row?.lastName || '').trim();
@@ -3502,15 +3643,202 @@ const supervisionParticipantLabel = (row) => {
   return `User ${Number(row?.id || 0) || ''}`.trim();
 };
 
+const meetingCandidatesLoading = ref(false);
+const meetingCandidates = ref([]);
+const meetingParticipantSearch = ref('');
+const selectedMeetingParticipantIds = ref([]);
+const createMeetingMeetLink = ref(true);
+const meetingIncludeAllAgencies = ref(false);
+const meetingBusyByUserId = ref({});
+const meetingBusyLoading = ref(false);
+
+const meetingCanUseAllAgencies = computed(() => (effectiveAgencyIds.value || []).length > 1);
+const meetingUsingAllAgencies = computed(() => meetingCanUseAllAgencies.value && !!meetingIncludeAllAgencies.value);
+const availableMeetingCandidates = computed(() => {
+  const actorId = Number(authStore.user?.id || 0);
+  const viewedUserId = Number(props.userId || actorId || 0);
+  const rows = Array.isArray(meetingCandidates.value) ? meetingCandidates.value : [];
+  return rows.filter((row) => {
+    const id = Number(row?.id || 0);
+    return id > 0 && id !== actorId && id !== viewedUserId;
+  });
+});
+const filteredMeetingCandidates = computed(() => {
+  const q = String(meetingParticipantSearch.value || '').trim().toLowerCase();
+  const rows = availableMeetingCandidates.value || [];
+  if (!q) return rows;
+  return rows.filter((row) => {
+    const first = String(row?.firstName || '').trim().toLowerCase();
+    const last = String(row?.lastName || '').trim().toLowerCase();
+    const email = String(row?.email || '').trim().toLowerCase();
+    const full = `${first} ${last}`.trim();
+    return first.includes(q) || last.includes(q) || full.includes(q) || email.includes(q);
+  });
+});
+const selectedMeetingParticipantIdSet = computed(
+  () => new Set((selectedMeetingParticipantIds.value || []).map((n) => Number(n || 0)).filter((n) => n > 0))
+);
+const meetingCanSubmit = computed(
+  () => !meetingCandidatesLoading.value && selectedMeetingParticipantIdSet.value.size > 0
+);
+const selectedMeetingParticipantChips = computed(() => {
+  const byId = new Map();
+  for (const row of (availableMeetingCandidates.value || [])) {
+    const id = Number(row?.id || 0);
+    if (id > 0) byId.set(id, row);
+  }
+  return Array.from(selectedMeetingParticipantIdSet.value.values()).map((id) => ({
+    id,
+    row: byId.get(id) || null
+  }));
+});
+const meetingParticipantBusyText = (userId) => {
+  const id = Number(userId || 0);
+  if (!id) return '';
+  if (meetingBusyLoading.value) return 'Checking...';
+  return meetingBusyByUserId.value[id] ? 'Busy in this slot' : 'Available in this slot';
+};
+const isMeetingParticipantBusy = (userId) => {
+  const id = Number(userId || 0);
+  return !!(id && meetingBusyByUserId.value[id]);
+};
+const toggleMeetingParticipant = (userId) => {
+  const id = Number(userId || 0);
+  if (!id) return;
+  const next = new Set((selectedMeetingParticipantIds.value || []).map((n) => Number(n || 0)).filter((n) => n > 0));
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  selectedMeetingParticipantIds.value = Array.from(next.values());
+};
+const selectAllFilteredMeetingParticipants = () => {
+  const next = new Set((selectedMeetingParticipantIds.value || []).map((n) => Number(n || 0)).filter((n) => n > 0));
+  for (const row of (filteredMeetingCandidates.value || [])) {
+    const id = Number(row?.id || 0);
+    if (id > 0) next.add(id);
+  }
+  selectedMeetingParticipantIds.value = Array.from(next.values());
+};
+const selectAllAvailableMeetingParticipants = () => {
+  selectedMeetingParticipantIds.value = Array.from(new Set(
+    (availableMeetingCandidates.value || []).map((row) => Number(row?.id || 0)).filter((n) => n > 0)
+  ));
+};
+const clearMeetingParticipants = () => {
+  selectedMeetingParticipantIds.value = [];
+};
+const removeSelectedMeetingParticipant = (userId) => {
+  const id = Number(userId || 0);
+  if (!id) return;
+  selectedMeetingParticipantIds.value = (selectedMeetingParticipantIds.value || [])
+    .map((n) => Number(n || 0))
+    .filter((n) => n > 0 && n !== id);
+};
+
+const hasBusyOverlapInSummary = (summaryPayload, ranges = []) => {
+  const targetRanges = Array.isArray(ranges) ? ranges : [];
+  if (!targetRanges.length) return false;
+  const toDate = (v) => {
+    const d = new Date(v);
+    return Number.isNaN(d.getTime()) ? null : d;
+  };
+  const overlaps = (startAt, endAt) => {
+    const st = toDate(startAt);
+    const en = toDate(endAt);
+    if (!st || !en) return false;
+    return targetRanges.some((r) => st < r.end && en > r.start);
+  };
+
+  const officeEvents = Array.isArray(summaryPayload?.officeEvents) ? summaryPayload.officeEvents : [];
+  if (officeEvents.some((e) => overlaps(e?.startAt, e?.endAt))) return true;
+  const scheduleEvents = Array.isArray(summaryPayload?.scheduleEvents) ? summaryPayload.scheduleEvents : [];
+  if (scheduleEvents.some((e) => overlaps(e?.startAt, e?.endAt))) return true;
+  const supervisionSessions = Array.isArray(summaryPayload?.supervisionSessions) ? summaryPayload.supervisionSessions : [];
+  if (supervisionSessions.some((e) => overlaps(e?.startAt, e?.endAt))) return true;
+  const googleBusy = Array.isArray(summaryPayload?.googleBusy) ? summaryPayload.googleBusy : [];
+  if (googleBusy.some((e) => overlaps(e?.startAt, e?.endAt))) return true;
+  const externalBusy = Array.isArray(summaryPayload?.externalBusy) ? summaryPayload.externalBusy : [];
+  if (externalBusy.some((e) => overlaps(e?.startAt, e?.endAt))) return true;
+  return false;
+};
+
+const loadMeetingBusyByParticipant = async () => {
+  const ids = (availableMeetingCandidates.value || []).map((r) => Number(r?.id || 0)).filter((n) => n > 0);
+  if (!ids.length) {
+    meetingBusyByUserId.value = {};
+    return;
+  }
+  const ranges = mergeSelectedSlotsByDay({ dayName: modalDay.value, startHour: Number(modalHour.value), endHour: Number(modalEndHour.value) })
+    .map((row) => {
+      const dateYmd = String(row?.dateYmd || '').slice(0, 10);
+      const startHour = Number(row?.startHour || 0);
+      const endHour = Number(row?.endHour || 0);
+      const start = new Date(`${dateYmd}T${pad2(startHour)}:00:00`);
+      const end = new Date(`${dateYmd}T${pad2(endHour)}:00:00`);
+      return Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) ? null : { start, end };
+    })
+    .filter(Boolean);
+  if (!ranges.length) {
+    meetingBusyByUserId.value = {};
+    return;
+  }
+  meetingBusyLoading.value = true;
+  try {
+    const entries = await Promise.all(
+      ids.map(async (id) => {
+        try {
+          const params = {
+            weekStart: weekStart.value,
+            includeGoogleBusy: showGoogleBusy.value ? 'true' : 'false'
+          };
+          if (!meetingUsingAllAgencies.value && Number(effectiveAgencyId.value || 0) > 0) {
+            params.agencyId = Number(effectiveAgencyId.value);
+          }
+          const r = await api.get(`/users/${id}/schedule-summary`, { params });
+          const busy = hasBusyOverlapInSummary(r?.data || {}, ranges);
+          return [id, busy];
+        } catch {
+          return [id, false];
+        }
+      })
+    );
+    meetingBusyByUserId.value = Object.fromEntries(entries);
+  } finally {
+    meetingBusyLoading.value = false;
+  }
+};
+
+const loadMeetingCandidates = async () => {
+  const uid = Number(props.userId || authStore.user?.id || 0);
+  if (!uid) return;
+  if (!meetingUsingAllAgencies.value && !effectiveAgencyId.value) return;
+  try {
+    meetingCandidatesLoading.value = true;
+    const params = {
+      allAgencies: meetingUsingAllAgencies.value ? 'true' : 'false'
+    };
+    if (!meetingUsingAllAgencies.value) params.agencyId = Number(effectiveAgencyId.value || 0);
+    const r = await api.get(`/users/${uid}/meeting-candidates`, { params });
+    meetingCandidates.value = Array.isArray(r?.data?.users) ? r.data.users : [];
+  } catch {
+    meetingCandidates.value = [];
+  } finally {
+    meetingCandidatesLoading.value = false;
+  }
+  await loadMeetingBusyByParticipant();
+};
+
 const loadSupervisionProviders = async () => {
   if (!authStore.user?.id) return;
-  if (!effectiveAgencyId.value) return;
-  const role = currentUserRole.value;
-  const onlyAssigned = props.mode === 'self' && role === 'supervisor';
+  if (!supervisionUsingAllAgencies.value && !effectiveAgencyId.value) return;
   try {
     supervisionProvidersLoading.value = true;
+    const params = {
+      mode: isGroupSupervisionType.value ? 'group' : 'individual',
+      allAgencies: supervisionUsingAllAgencies.value ? 'true' : 'false'
+    };
+    if (!supervisionUsingAllAgencies.value) params.agencyId = effectiveAgencyId.value;
     const r = await api.get('/supervision/providers', {
-      params: { agencyId: effectiveAgencyId.value, onlyAssigned: onlyAssigned ? 'true' : 'false' }
+      params
     });
     supervisionProviders.value = Array.isArray(r?.data?.providers) ? r.data.providers : [];
     const candidates = availableSupervisionParticipants.value;
@@ -3658,9 +3986,15 @@ const openSlotActionModal = ({
   resetBookingMetadataState();
   supervisionParticipantSearch.value = '';
   supervisionSessionType.value = 'individual';
+  supervisionIncludeAllAgencies.value = false;
   selectedSupervisionParticipantId.value = 0;
   selectedSupervisionAdditionalParticipantIds.value = [];
   createSupervisionMeetLink.value = true;
+  meetingParticipantSearch.value = '';
+  selectedMeetingParticipantIds.value = [];
+  meetingIncludeAllAgencies.value = false;
+  meetingBusyByUserId.value = {};
+  createMeetingMeetLink.value = true;
   modalContext.value = buildModalContext({ dayName: modalDay.value, hour: modalHour.value, roomId, slot, dateYmd });
   const contextAgencyId = Number(modalContext.value?.agencyId || 0);
   if (contextAgencyId && effectiveAgencyIds.value.includes(contextAgencyId)) {
@@ -4304,6 +4638,7 @@ const selectedActionContexts = () => {
 };
 
 const defaultScheduleEventTitleForAction = (actionId) => {
+  if (actionId === 'agency_meeting') return 'Agency Meeting';
   if (actionId === 'schedule_hold' || actionId === 'schedule_hold_all_day') return 'Schedule Hold';
   if (actionId === 'indirect_services') return 'Indirect Services';
   return 'Personal Event';
@@ -4319,6 +4654,7 @@ const effectiveScheduleHoldReason = () => {
 };
 
 const scheduleEventKindForAction = (actionId) => {
+  if (actionId === 'agency_meeting') return 'TEAM_MEETING';
   if (actionId === 'indirect_services') return 'INDIRECT_SERVICES';
   if (actionId === 'schedule_hold' || actionId === 'schedule_hold_all_day') return 'SCHEDULE_HOLD';
   return 'PERSONAL_EVENT';
@@ -4409,6 +4745,12 @@ const submitRequest = async () => {
       if (!uid) throw new Error('Provider is required.');
       const normalizedAction = String(requestType.value || '');
       const eventKind = scheduleEventKindForAction(normalizedAction);
+      const meetingAttendeeUserIds = normalizedAction === 'agency_meeting'
+        ? Array.from(selectedMeetingParticipantIdSet.value.values()).map((n) => Number(n || 0)).filter((n) => n > 0)
+        : [];
+      if (normalizedAction === 'agency_meeting' && !meetingAttendeeUserIds.length) {
+        throw new Error('Select at least one meeting participant.');
+      }
       const eventAgencyId = scheduleEventRequiresAgency.value
         ? (Number(effectiveAgencyId.value || 0) || null)
         : null;
@@ -4434,7 +4776,13 @@ const submitRequest = async () => {
             startDate,
             endDate,
             reasonCode,
-            isPrivate
+            isPrivate,
+            ...(normalizedAction === 'agency_meeting'
+              ? {
+                  attendeeUserIds: meetingAttendeeUserIds,
+                  createMeetLink: !!createMeetingMeetLink.value
+                }
+              : {})
           });
           const created = resp?.data?.event || null;
           if (created) createdScheduleEvents.push(created);
@@ -4454,7 +4802,13 @@ const submitRequest = async () => {
             startAt,
             endAt,
             reasonCode,
-            isPrivate
+            isPrivate,
+            ...(normalizedAction === 'agency_meeting'
+              ? {
+                  attendeeUserIds: meetingAttendeeUserIds,
+                  createMeetLink: !!createMeetingMeetLink.value
+                }
+              : {})
           });
           const created = resp?.data?.event || null;
           if (created) createdScheduleEvents.push(created);
@@ -4828,6 +5182,8 @@ const submitRequest = async () => {
 watch(requestType, (t) => {
   if (t === 'supervision') {
     void loadSupervisionProviders();
+  } else if (t === 'agency_meeting') {
+    void loadMeetingCandidates();
   } else if ((t === 'office' || t === 'office_request_only' || t === 'individual_session' || t === 'group_session') && showClinicalBookingFields.value) {
     void loadBookingMetadataForProvider();
   } else if (SCHEDULE_EVENT_ACTIONS.has(String(t || ''))) {
@@ -4836,15 +5192,68 @@ watch(requestType, (t) => {
     }
     if (t === 'schedule_hold_all_day') scheduleEventAllDay.value = true;
     if (t === 'schedule_hold') scheduleEventAllDay.value = false;
-    if (t === 'personal_event' || t === 'indirect_services') {
+    if (t === 'personal_event' || t === 'indirect_services' || t === 'agency_meeting') {
       scheduleEventAllDay.value = false;
     }
   }
 });
 
+watch(supervisionSessionType, (nextType) => {
+  if (String(nextType || '') !== 'group' && supervisionIncludeAllAgencies.value) {
+    supervisionIncludeAllAgencies.value = false;
+    return;
+  }
+  if (String(requestType.value || '') === 'supervision' && showRequestModal.value) {
+    selectedSupervisionParticipantId.value = 0;
+    selectedSupervisionAdditionalParticipantIds.value = [];
+    supervisionParticipantSearch.value = '';
+    void loadSupervisionProviders();
+  }
+});
+
+watch(supervisionIncludeAllAgencies, () => {
+  if (String(requestType.value || '') !== 'supervision' || !showRequestModal.value) return;
+  selectedSupervisionParticipantId.value = 0;
+  selectedSupervisionAdditionalParticipantIds.value = [];
+  supervisionParticipantSearch.value = '';
+  void loadSupervisionProviders();
+});
+
+watch(meetingIncludeAllAgencies, () => {
+  if (String(requestType.value || '') !== 'agency_meeting' || !showRequestModal.value) return;
+  selectedMeetingParticipantIds.value = [];
+  meetingParticipantSearch.value = '';
+  void loadMeetingCandidates();
+});
+
+watch([showRequestModal, requestType, effectiveAgencyId], ([isOpen, type, agencyId], [prevOpen, prevType, prevAgencyId]) => {
+  if (!isOpen) return;
+  if (String(type || '') !== 'agency_meeting') return;
+  if (meetingUsingAllAgencies.value) return;
+  const currentAgencyId = Number(agencyId || 0);
+  const previousAgencyId = Number(prevAgencyId || 0);
+  const agencyChanged = currentAgencyId > 0 && currentAgencyId !== previousAgencyId;
+  const stayedOnMeeting = String(prevType || '') === 'agency_meeting' && isOpen === !!prevOpen;
+  if (!agencyChanged || !stayedOnMeeting) return;
+  selectedMeetingParticipantIds.value = [];
+  meetingParticipantSearch.value = '';
+  meetingBusyByUserId.value = {};
+  if (!currentAgencyId) {
+    meetingCandidates.value = [];
+    return;
+  }
+  void loadMeetingCandidates();
+});
+
+watch([requestType, modalDay, modalHour, modalEndHour], ([type]) => {
+  if (String(type || '') !== 'agency_meeting' || !showRequestModal.value) return;
+  void loadMeetingBusyByParticipant();
+});
+
 watch([showRequestModal, requestType, effectiveAgencyId], ([isOpen, type, agencyId], [prevOpen, prevType, prevAgencyId]) => {
   if (!isOpen) return;
   if (String(type || '') !== 'supervision') return;
+  if (supervisionUsingAllAgencies.value) return;
   const currentAgencyId = Number(agencyId || 0);
   const previousAgencyId = Number(prevAgencyId || 0);
   const agencyChanged = currentAgencyId > 0 && currentAgencyId !== previousAgencyId;
@@ -4869,6 +5278,13 @@ watch(availableSupervisionParticipants, (rows) => {
   selectedSupervisionAdditionalParticipantIds.value = (selectedSupervisionAdditionalParticipantIds.value || [])
     .map((n) => Number(n || 0))
     .filter((n) => n > 0 && ids.has(n) && n !== Number(selectedSupervisionParticipantId.value || 0));
+});
+
+watch(availableMeetingCandidates, (rows) => {
+  const ids = new Set((rows || []).map((row) => Number(row?.id || 0)).filter((n) => n > 0));
+  selectedMeetingParticipantIds.value = (selectedMeetingParticipantIds.value || [])
+    .map((n) => Number(n || 0))
+    .filter((n) => n > 0 && ids.has(n));
 });
 
 watch(selectedSupervisionParticipantId, (nextId) => {
@@ -6525,6 +6941,29 @@ watch(modalHour, () => {
   font-size: 12px;
   color: rgba(71, 85, 105, 0.92);
   text-transform: capitalize;
+}
+.supervision-selected-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.supervision-chip {
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  border-radius: 999px;
+  padding: 4px 8px;
+  background: rgba(255, 255, 255, 0.9);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: rgba(30, 41, 59, 0.96);
+  cursor: pointer;
+}
+.supervision-chip.primary {
+  border-color: rgba(37, 99, 235, 0.45);
+  background: rgba(239, 246, 255, 0.96);
 }
 .modern-help {
   border: 1px solid rgba(148, 163, 184, 0.34);

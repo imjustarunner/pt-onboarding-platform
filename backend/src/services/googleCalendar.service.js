@@ -1,4 +1,5 @@
 import { google } from 'googleapis';
+import { randomUUID } from 'crypto';
 import pool from '../config/database.js';
 import {
   GOOGLE_WORKSPACE_SCOPES,
@@ -284,7 +285,9 @@ export class GoogleCalendarService {
     description = null,
     kind = 'PERSONAL_EVENT',
     reasonCode = null,
-    isPrivate = false
+    isPrivate = false,
+    attendeeEmails = [],
+    createMeetLink = false
   } = {}) {
     const subject = String(subjectEmail || '').trim().toLowerCase();
     if (!subject) return { ok: false, reason: 'missing_subject_email' };
@@ -308,6 +311,10 @@ export class GoogleCalendarService {
     const calendarId = 'primary';
     const normalizedKind = String(kind || 'PERSONAL_EVENT').trim().toUpperCase();
     const normalizedReason = String(reasonCode || '').trim().toUpperCase() || null;
+    const attendees = Array.from(new Set((Array.isArray(attendeeEmails) ? attendeeEmails : [])
+      .map((v) => String(v || '').trim().toLowerCase())
+      .filter(Boolean)))
+      .filter((email) => email !== subject);
 
     const requestBody = {
       summary: normalizedSummary,
@@ -328,18 +335,33 @@ export class GoogleCalendarService {
           pt_schedule_event_kind: normalizedKind,
           ...(normalizedReason ? { pt_schedule_event_reason: normalizedReason } : {})
         }
-      }
+      },
+      ...(attendees.length ? { attendees: attendees.map((email) => ({ email })) } : {})
     };
+    if (createMeetLink) {
+      requestBody.conferenceData = {
+        createRequest: {
+          requestId: randomUUID(),
+          conferenceSolutionKey: { type: 'hangoutsMeet' }
+        }
+      };
+    }
 
     try {
       const ins = await cal.events.insert({
         calendarId,
-        requestBody
+        requestBody,
+        ...(createMeetLink ? { conferenceDataVersion: 1 } : {})
       });
+      const data = ins?.data || {};
+      const meetLink = data?.hangoutLink
+        || data?.conferenceData?.entryPoints?.find((e) => e?.entryPointType === 'video')?.uri
+        || null;
       return {
         ok: true,
-        eventId: ins?.data?.id || null,
-        htmlLink: ins?.data?.htmlLink || null
+        eventId: data?.id || null,
+        htmlLink: data?.htmlLink || null,
+        meetLink
       };
     } catch (e) {
       logGoogleUnauthorizedHint(e, { context: 'GoogleCalendarService.createProviderScheduleEvent' });

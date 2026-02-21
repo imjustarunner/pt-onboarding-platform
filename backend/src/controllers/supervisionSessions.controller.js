@@ -325,6 +325,9 @@ export const listSupervisionProviderCandidates = async (req, res, next) => {
     const actorId = Number(req.user?.id || 0);
     const role = String(req.user?.role || '').trim().toLowerCase();
     if (!actorId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+    if (role !== 'supervisor') {
+      return res.status(403).json({ error: { message: 'Supervision participant selection is limited to supervisors.' } });
+    }
 
     const actorAgencies = await User.getAgencies(actorId);
     const actorAgencyIds = Array.from(
@@ -334,24 +337,20 @@ export const listSupervisionProviderCandidates = async (req, res, next) => {
       return res.json({ ok: true, agencyId: null, providers: [] });
     }
 
+    const modeRaw = String(req.query?.mode || 'individual').trim().toLowerCase();
+    const mode = modeRaw === 'group' ? 'group' : 'individual';
+    const allAgencies = String(req.query?.allAgencies || '').trim().toLowerCase() === 'true';
+
     const requestedAgencyId = Number(req.query?.agencyId || 0);
     const agencyId = requestedAgencyId > 0 ? requestedAgencyId : actorAgencyIds[0];
-    if (!actorAgencyIds.includes(agencyId)) {
+    if (!allAgencies && !actorAgencyIds.includes(agencyId)) {
       return res.status(403).json({ error: { message: 'Access denied for this agency' } });
     }
-    const onlyAssigned = String(req.query?.onlyAssigned || '').trim().toLowerCase() === 'true';
+    if (allAgencies && mode !== 'group') {
+      return res.status(400).json({ error: { message: 'All-agencies supervision list is only available for group supervision.' } });
+    }
 
-    const canListAllAgencyParticipants = [
-      'super_admin',
-      'admin',
-      'support',
-      'staff',
-      'clinical_practice_assistant',
-      'provider_plus',
-      'provider',
-      'supervisor'
-    ].includes(role);
-    if (!canListAllAgencyParticipants || onlyAssigned) {
+    if (mode === 'individual') {
       const assigned = await SupervisorAssignment.findBySupervisor(actorId, agencyId);
       const deduped = new Map();
       for (const row of (assigned || [])) {
@@ -365,9 +364,11 @@ export const listSupervisionProviderCandidates = async (req, res, next) => {
           role: String(row?.supervisee_role || '').trim().toLowerCase()
         });
       }
-      return res.json({ ok: true, agencyId, providers: Array.from(deduped.values()) });
+      return res.json({ ok: true, agencyId, agencyIds: [agencyId], mode, providers: Array.from(deduped.values()) });
     }
 
+    const scopedAgencyIds = allAgencies ? actorAgencyIds : [agencyId];
+    const placeholders = scopedAgencyIds.map(() => '?').join(',');
     const [rows] = await pool.execute(
       `SELECT DISTINCT
          u.id,
@@ -375,19 +376,15 @@ export const listSupervisionProviderCandidates = async (req, res, next) => {
          u.last_name,
          u.email,
          u.role
-       FROM users u
-       JOIN user_agencies ua ON ua.user_id = u.id
-       WHERE ua.agency_id = ?
+       FROM supervisor_assignments sa
+       JOIN users u ON u.id = sa.supervisee_id
+       WHERE sa.agency_id IN (${placeholders})
          AND (u.is_active IS NULL OR u.is_active = TRUE)
          AND (u.is_archived IS NULL OR u.is_archived = FALSE)
          AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED', 'PROSPECTIVE'))
-         AND (
-           u.role IN ('provider', 'supervisor', 'clinical_practice_assistant', 'provider_plus', 'staff', 'admin', 'super_admin')
-           OR (u.has_provider_access = TRUE)
-         )
          AND LOWER(COALESCE(u.role, '')) NOT IN ('guardian', 'school_support')
        ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC`,
-      [agencyId]
+      scopedAgencyIds
     );
 
     const providers = (rows || []).map((r) => ({
@@ -398,7 +395,7 @@ export const listSupervisionProviderCandidates = async (req, res, next) => {
       role: String(r.role || '').trim().toLowerCase()
     }));
 
-    res.json({ ok: true, agencyId, providers });
+    res.json({ ok: true, agencyId: allAgencies ? null : agencyId, agencyIds: scopedAgencyIds, mode, providers });
   } catch (e) {
     next(e);
   }

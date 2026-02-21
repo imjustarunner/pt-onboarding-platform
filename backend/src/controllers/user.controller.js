@@ -2720,7 +2720,8 @@ export const getUserScheduleSummary = async (req, res, next) => {
 const SCHEDULE_EVENT_KIND_LABELS = {
   PERSONAL_EVENT: 'Personal Event',
   SCHEDULE_HOLD: 'Schedule Hold',
-  INDIRECT_SERVICES: 'Indirect Services'
+  INDIRECT_SERVICES: 'Indirect Services',
+  TEAM_MEETING: 'Team Meeting'
 };
 
 function nextDateYmd(ymd) {
@@ -2764,8 +2765,8 @@ export const createUserScheduleEvent = async (req, res, next) => {
     if (!subjectEmail) return res.status(400).json({ error: { message: 'Provider email is required to create calendar events' } });
 
     const kind = String(req.body?.kind || '').trim().toUpperCase();
-    if (!['PERSONAL_EVENT', 'SCHEDULE_HOLD', 'INDIRECT_SERVICES'].includes(kind)) {
-      return res.status(400).json({ error: { message: 'kind must be PERSONAL_EVENT, SCHEDULE_HOLD, or INDIRECT_SERVICES' } });
+    if (!['PERSONAL_EVENT', 'SCHEDULE_HOLD', 'INDIRECT_SERVICES', 'TEAM_MEETING'].includes(kind)) {
+      return res.status(400).json({ error: { message: 'kind must be PERSONAL_EVENT, SCHEDULE_HOLD, INDIRECT_SERVICES, or TEAM_MEETING' } });
     }
     const isPrivate = req.body?.isPrivate === true;
 
@@ -2810,6 +2811,55 @@ export const createUserScheduleEvent = async (req, res, next) => {
     });
     const description = String(req.body?.description || '').trim() || null;
     const timeZone = String(req.body?.timeZone || 'America/New_York').trim() || 'America/New_York';
+    const attendeeUserIds = Array.from(
+      new Set((Array.isArray(req.body?.attendeeUserIds) ? req.body.attendeeUserIds : [])
+        .map((v) => Number(v || 0))
+        .filter((n) => n > 0 && n !== userId))
+    );
+    if (kind === 'TEAM_MEETING' && !attendeeUserIds.length) {
+      return res.status(400).json({ error: { message: 'TEAM_MEETING requires at least one attendeeUserId.' } });
+    }
+    if (kind !== 'TEAM_MEETING' && attendeeUserIds.length) {
+      return res.status(400).json({ error: { message: 'attendeeUserIds are only supported for TEAM_MEETING.' } });
+    }
+    const createMeetLink = kind === 'TEAM_MEETING'
+      ? req.body?.createMeetLink !== false
+      : false;
+
+    let attendeeEmails = [];
+    if (attendeeUserIds.length) {
+      if (!agencyId) {
+        return res.status(400).json({ error: { message: 'agencyId is required for TEAM_MEETING attendees.' } });
+      }
+      const placeholders = attendeeUserIds.map(() => '?').join(',');
+      const [attendeeRows] = await pool.execute(
+        `SELECT
+           u.id,
+           u.email,
+           EXISTS(
+             SELECT 1 FROM user_agencies ua
+             WHERE ua.user_id = u.id
+               AND ua.agency_id = ?
+           ) AS in_agency
+         FROM users u
+         WHERE u.id IN (${placeholders})`,
+        [agencyId, ...attendeeUserIds]
+      );
+      const attendeeById = new Map((attendeeRows || []).map((r) => [Number(r.id || 0), r]));
+      for (const attendeeId of attendeeUserIds) {
+        const row = attendeeById.get(attendeeId);
+        const inAgency = Number(row?.in_agency || 0) === 1;
+        if (!row || !inAgency) {
+          return res.status(400).json({ error: { message: `Attendee ${attendeeId} is not in the selected agency.` } });
+        }
+        const email = String(row?.email || '').trim().toLowerCase();
+        if (!email) {
+          return res.status(400).json({ error: { message: `Attendee ${attendeeId} is missing an email.` } });
+        }
+        attendeeEmails.push(email);
+      }
+      attendeeEmails = Array.from(new Set(attendeeEmails));
+    }
 
     const result = await GoogleCalendarService.createProviderScheduleEvent({
       subjectEmail,
@@ -2823,7 +2873,9 @@ export const createUserScheduleEvent = async (req, res, next) => {
       description,
       kind,
       reasonCode,
-      isPrivate
+      isPrivate,
+      attendeeEmails,
+      createMeetLink
     });
 
     if (!result?.ok) {
@@ -2865,12 +2917,107 @@ export const createUserScheduleEvent = async (req, res, next) => {
         kind,
         title: summaryText,
         isPrivate,
+        attendeeUserIds,
         allDay,
         startAt: allDay ? null : startAt,
         endAt: allDay ? null : endAt,
         startDate: allDay ? startDate : null,
         endDate: allDay ? endDateExclusive : null
       }
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const listUserMeetingCandidates = async (req, res, next) => {
+  try {
+    const userId = parseInt(req.params.id, 10);
+    if (!userId) return res.status(400).json({ error: { message: 'Invalid user id' } });
+
+    const actorUserId = Number(req.user?.id || 0);
+    const actorRole = String(req.user?.role || '').toLowerCase();
+    const isSelf = actorUserId === userId;
+    if (!isSelf && !canCreateProviderScheduleEvent(actorRole)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+    if (!isSelf) {
+      const sharedOk = await requireSharedAgencyAccessOrSuperAdmin({
+        actorUserId,
+        targetUserId: userId,
+        actorRole
+      });
+      if (!sharedOk) return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const targetAgencies = await User.getAgencies(userId);
+    const targetAgencyIds = Array.from(new Set((targetAgencies || []).map((a) => Number(a?.id || 0)).filter((n) => n > 0)));
+    if (!targetAgencyIds.length) return res.json({ ok: true, agencyIds: [], users: [] });
+
+    const actorAgencies = await User.getAgencies(actorUserId);
+    const actorAgencyIds = Array.from(new Set((actorAgencies || []).map((a) => Number(a?.id || 0)).filter((n) => n > 0)));
+    const accessibleAgencyIds = targetAgencyIds.filter((id) => actorAgencyIds.includes(id));
+    if (!accessibleAgencyIds.length && actorRole !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const allAgencies = String(req.query?.allAgencies || '').trim().toLowerCase() === 'true';
+    const requestedAgencyId = Number(req.query?.agencyId || 0);
+    let scopedAgencyIds = [];
+    if (allAgencies) {
+      scopedAgencyIds = actorRole === 'super_admin' ? targetAgencyIds : accessibleAgencyIds;
+    } else {
+      const fallbackAgencyId = (actorRole === 'super_admin' ? targetAgencyIds : accessibleAgencyIds)[0] || 0;
+      const agencyId = requestedAgencyId > 0 ? requestedAgencyId : fallbackAgencyId;
+      const scopeAllowed = actorRole === 'super_admin'
+        ? targetAgencyIds.includes(agencyId)
+        : accessibleAgencyIds.includes(agencyId);
+      if (!agencyId || !scopeAllowed) {
+        return res.status(403).json({ error: { message: 'Access denied for this agency' } });
+      }
+      scopedAgencyIds = [agencyId];
+    }
+    if (!scopedAgencyIds.length) return res.json({ ok: true, agencyIds: [], users: [] });
+
+    const placeholders = scopedAgencyIds.map(() => '?').join(',');
+    const [rows] = await pool.execute(
+      `SELECT
+         u.id,
+         u.first_name,
+         u.last_name,
+         u.email,
+         u.role,
+         GROUP_CONCAT(DISTINCT ua.agency_id ORDER BY ua.agency_id ASC) AS agency_ids
+       FROM users u
+       JOIN user_agencies ua ON ua.user_id = u.id
+       WHERE ua.agency_id IN (${placeholders})
+         AND u.id <> ?
+         AND (u.is_active IS NULL OR u.is_active = TRUE)
+         AND (u.is_archived IS NULL OR u.is_archived = FALSE)
+         AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED', 'PROSPECTIVE'))
+         AND LOWER(COALESCE(u.role, '')) NOT IN ('guardian', 'school_support')
+       GROUP BY u.id, u.first_name, u.last_name, u.email, u.role
+       ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC`,
+      [...scopedAgencyIds, userId]
+    );
+
+    const users = (rows || []).map((r) => ({
+      id: Number(r.id || 0),
+      firstName: String(r.first_name || '').trim(),
+      lastName: String(r.last_name || '').trim(),
+      email: String(r.email || '').trim().toLowerCase(),
+      role: String(r.role || '').trim().toLowerCase(),
+      agencyIds: String(r.agency_ids || '')
+        .split(',')
+        .map((v) => Number(v || 0))
+        .filter((n) => n > 0)
+    })).filter((u) => u.id > 0);
+
+    return res.json({
+      ok: true,
+      agencyIds: scopedAgencyIds,
+      allAgencies,
+      users
     });
   } catch (e) {
     next(e);
