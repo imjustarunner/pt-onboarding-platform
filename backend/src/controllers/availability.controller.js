@@ -1273,7 +1273,7 @@ export const assignTemporaryOfficeFromRequest = async (req, res, next) => {
     const roomId = parseIntSafe(req.body?.roomId);
     const weekday = parseIntSafe(req.body?.weekday);
     const hour = parseIntSafe(req.body?.hour);
-    const weeks = parseIntSafe(req.body?.weeks) || 4;
+    const weeks = parseIntSafe(req.body?.weeks) || 6;
     const freq = String(req.body?.assignedFrequency || 'WEEKLY').toUpperCase();
     if (!requestId || !officeId || !roomId || weekday === null || hour === null) {
       return res.status(400).json({ error: { message: 'requestId, officeId, roomId, weekday, and hour are required' } });
@@ -1338,8 +1338,8 @@ export const assignTemporaryOfficeFromRequest = async (req, res, next) => {
       const [ins] = await conn.execute(
         `INSERT INTO office_standing_assignments
           (office_location_id, room_id, provider_id, weekday, hour, assigned_frequency,
-           availability_mode, temporary_until_date, last_two_week_confirmed_at, is_active, created_by_user_id)
-         VALUES (?, ?, ?, ?, ?, ?, 'TEMPORARY', ?, NOW(), TRUE, ?)`,
+           availability_mode, temporary_until_date, temporary_extension_count, last_two_week_confirmed_at, is_active, created_by_user_id)
+         VALUES (?, ?, ?, ?, ?, ?, 'TEMPORARY', ?, 0, NOW(), TRUE, ?)`,
         [officeId, roomId, providerId, weekday, hour, freq, untilDate, req.user.id]
       );
       assignmentId = ins.insertId;
@@ -1349,6 +1349,7 @@ export const assignTemporaryOfficeFromRequest = async (req, res, next) => {
          SET office_location_id = ?,
              availability_mode = 'TEMPORARY',
              temporary_until_date = ?,
+             temporary_extension_count = 0,
              last_two_week_confirmed_at = NOW(),
              is_active = TRUE,
              updated_at = CURRENT_TIMESTAMP

@@ -96,6 +96,7 @@ class OfficeStandingAssignment {
       'assigned_frequency',
       'availability_mode',
       'temporary_until_date',
+      'temporary_extension_count',
       'available_since_date',
       'last_two_week_confirmed_at',
       'last_six_week_checked_at',

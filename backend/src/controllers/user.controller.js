@@ -2396,6 +2396,8 @@ export const getUserScheduleSummary = async (req, res, next) => {
            e.id,
            e.office_location_id,
            e.standing_assignment_id,
+           osa.availability_mode AS assignment_availability_mode,
+           osa.temporary_extension_count AS assignment_temporary_extension_count,
            ol.name AS building_name,
            e.room_id,
            r.room_number,
@@ -2439,6 +2441,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
          FROM office_events e
          JOIN office_rooms r ON r.id = e.room_id
          JOIN office_locations ol ON ol.id = e.office_location_id
+         LEFT JOIN office_standing_assignments osa ON osa.id = e.standing_assignment_id
          JOIN office_location_agencies ola ON ola.office_location_id = ol.id AND ola.agency_id = ?
          WHERE (e.assigned_provider_id = ? OR e.booked_provider_id = ?)
            AND (e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')
@@ -2475,7 +2478,9 @@ export const getUserScheduleSummary = async (req, res, next) => {
         noteContextId: Number(r.note_context_id || 0) || null,
         billingContextId: Number(r.billing_context_id || 0) || null,
         virtualIntakeEnabled: Number(r.virtual_intake_enabled || 0) === 1,
-        inPersonIntakeEnabled: Number(r.in_person_intake_enabled || 0) === 1
+        inPersonIntakeEnabled: Number(r.in_person_intake_enabled || 0) === 1,
+        assignmentAvailabilityMode: String(r.assignment_availability_mode || '').toUpperCase() || null,
+        assignmentTemporaryExtensionCount: Number(r.assignment_temporary_extension_count || 0)
       };
       });
     } catch (e) {
@@ -2485,6 +2490,8 @@ export const getUserScheduleSummary = async (req, res, next) => {
            e.id,
            e.office_location_id,
            e.standing_assignment_id,
+           osa.availability_mode AS assignment_availability_mode,
+           osa.temporary_extension_count AS assignment_temporary_extension_count,
            ol.name AS building_name,
            e.room_id,
            r.room_number,
@@ -2518,6 +2525,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
          FROM office_events e
          JOIN office_rooms r ON r.id = e.room_id
          JOIN office_locations ol ON ol.id = e.office_location_id
+         LEFT JOIN office_standing_assignments osa ON osa.id = e.standing_assignment_id
          JOIN office_location_agencies ola ON ola.office_location_id = ol.id AND ola.agency_id = ?
          WHERE (e.assigned_provider_id = ? OR e.booked_provider_id = ?)
            AND (e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')
@@ -2554,7 +2562,9 @@ export const getUserScheduleSummary = async (req, res, next) => {
         noteContextId: null,
         billingContextId: null,
         virtualIntakeEnabled: Number(r.virtual_intake_enabled || 0) === 1,
-        inPersonIntakeEnabled: Number(r.in_person_intake_enabled || 0) === 1
+        inPersonIntakeEnabled: Number(r.in_person_intake_enabled || 0) === 1,
+        assignmentAvailabilityMode: String(r.assignment_availability_mode || '').toUpperCase() || null,
+        assignmentTemporaryExtensionCount: Number(r.assignment_temporary_extension_count || 0)
       };
       });
     }

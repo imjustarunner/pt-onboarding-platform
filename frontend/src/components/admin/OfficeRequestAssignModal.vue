@@ -157,7 +157,7 @@ const assign = async () => {
       roomId: Number(form.value.roomId),
       weekday,
       hour,
-      weeks: 4,
+      weeks: 6,
       assignedFrequency: 'WEEKLY'
     });
     emit('assigned');

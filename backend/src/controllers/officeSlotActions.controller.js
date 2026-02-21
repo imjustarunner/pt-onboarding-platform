@@ -423,6 +423,53 @@ export const setTemporary = async (req, res, next) => {
   }
 };
 
+/** Extend a TEMPORARY assignment by 6 weeks. Max 2 extensions; after that provider must re-request. */
+export const extendTemporary = async (req, res, next) => {
+  try {
+    const { officeId, assignmentId } = req.params;
+    const officeLocationId = parseInt(officeId, 10);
+    const sid = parseInt(assignmentId, 10);
+    if (!officeLocationId || !sid) return res.status(400).json({ error: { message: 'Invalid ids' } });
+
+    const ok = await requireOfficeAccess(req, officeLocationId);
+    if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const assignment = await OfficeStandingAssignment.findById(sid);
+    if (!assignment || assignment.office_location_id !== officeLocationId) {
+      return res.status(404).json({ error: { message: 'Standing assignment not found' } });
+    }
+
+    if (req.user.id !== assignment.provider_id) {
+      return res.status(403).json({ error: { message: 'Only the assigned provider can extend' } });
+    }
+
+    if (String(assignment.availability_mode || '').toUpperCase() !== 'TEMPORARY') {
+      return res.status(400).json({ error: { message: 'Only temporary assignments can be extended' } });
+    }
+
+    const extCount = Number(assignment.temporary_extension_count || 0);
+    if (extCount >= 2) {
+      return res.status(400).json({ error: { message: 'Extension limit reached. Please submit a new office request.' } });
+    }
+
+    const untilBase = assignment.temporary_until_date
+      ? new Date(String(assignment.temporary_until_date))
+      : new Date();
+    const until = new Date(untilBase);
+    until.setDate(until.getDate() + 6 * 7);
+    const untilDate = until.toISOString().slice(0, 10);
+
+    await OfficeStandingAssignment.update(sid, {
+      temporary_until_date: untilDate,
+      temporary_extension_count: extCount + 1,
+      last_two_week_confirmed_at: new Date()
+    });
+    res.json({ ok: true, temporaryUntilDate: untilDate, extensionCount: extCount + 1 });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const forfeitAssignment = async (req, res, next) => {
   try {
     const { officeId, assignmentId } = req.params;

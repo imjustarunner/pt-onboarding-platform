@@ -5,6 +5,7 @@ import {
   setAssignmentRecurrence,
   keepAvailable,
   setTemporary,
+  extendTemporary,
   forfeitAssignment,
   staffBookEvent,
   setEventBookingPlan,
@@ -31,6 +32,7 @@ router.post('/:officeId/events/:eventId/booking-plan', setEventBookingPlan);
 router.post('/:officeId/events/:eventId/recurrence', setEventRecurrence);
 router.post('/:officeId/assignments/:assignmentId/keep-available', keepAvailable);
 router.post('/:officeId/assignments/:assignmentId/temporary', setTemporary);
+router.post('/:officeId/assignments/:assignmentId/extend-temporary', extendTemporary);
 router.post('/:officeId/assignments/:assignmentId/forfeit', forfeitAssignment);
 router.post('/:officeId/events/:eventId/book', staffBookEvent);
 router.get('/:officeId/events/:eventId/context', getEventContext);

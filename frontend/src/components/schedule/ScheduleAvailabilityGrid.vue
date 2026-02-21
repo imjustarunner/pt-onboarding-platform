@@ -3620,8 +3620,20 @@ const availableQuickActions = computed(() => {
     {
       id: 'extend_assignment',
       label: 'Extend assignment',
-      description: 'Confirm assigned slot (keep available)',
-      disabledReason: hasEvent && hasAssignedOffice && Number(ctx.standingAssignmentId || 0) > 0 ? '' : 'Needs assigned office slot with standing assignment',
+      description: (() => {
+        const extCount = Number(ctx?.assignmentTemporaryExtensionCount ?? 0);
+        const mode = String(ctx?.assignmentAvailabilityMode || '').toUpperCase();
+        if (mode === 'TEMPORARY' && extCount >= 2) return 'Extension limit reached. Submit a new office request.';
+        if (mode === 'TEMPORARY') return 'Extend by 6 weeks (max 2 extensions)';
+        return 'Confirm assigned slot (keep available)';
+      })(),
+      disabledReason: (() => {
+        const extCount = Number(ctx?.assignmentTemporaryExtensionCount ?? 0);
+        const mode = String(ctx?.assignmentAvailabilityMode || '').toUpperCase();
+        if (mode === 'TEMPORARY' && extCount >= 2) return 'Extension limit reached. Submit a new office request.';
+        if (hasEvent && hasAssignedOffice && Number(ctx.standingAssignmentId || 0) > 0) return '';
+        return 'Needs assigned office slot with standing assignment';
+      })(),
       visible: !supervisionOnlyMode && hasEvent && hasAssignedOffice && Number(ctx.standingAssignmentId || 0) > 0,
       tone: 'emerald'
     }
@@ -4430,6 +4442,8 @@ const buildModalContext = ({ dayName, hour, roomId = 0, slot = null, dateYmd = n
     ) || null,
     roomId: Number(roomId || slot?.roomId || slot?.room_id || top?.roomId || 0) || null,
     standingAssignmentId: Number(slot?.standingAssignmentId || top?.standingAssignmentId || 0) || null,
+    assignmentAvailabilityMode: String(slot?.assignmentAvailabilityMode || top?.assignmentAvailabilityMode || '').toUpperCase() || null,
+    assignmentTemporaryExtensionCount: Number(slot?.assignmentTemporaryExtensionCount ?? top?.assignmentTemporaryExtensionCount ?? 0),
     slotState: rawState,
     virtualIntakeEnabled: (slot?.virtualIntakeEnabled === true) || (top?.virtualIntakeEnabled === true),
     inPersonIntakeEnabled: (slot?.inPersonIntakeEnabled === true) || (top?.inPersonIntakeEnabled === true)
@@ -5669,10 +5683,19 @@ const submitRequest = async () => {
       );
       if (!contexts.length) throw new Error('Select an assigned office slot with standing assignment first.');
       for (const ctx of contexts) {
-        // eslint-disable-next-line no-await-in-loop
-        await api.post(`/office-slots/${ctx.officeLocationId}/assignments/${ctx.standingAssignmentId}/keep-available`, {
-          acknowledged: true
-        });
+        const extCount = Number(ctx?.assignmentTemporaryExtensionCount ?? 0);
+        const mode = String(ctx?.assignmentAvailabilityMode || '').toUpperCase();
+        if (mode === 'TEMPORARY' && extCount >= 2) {
+          throw new Error('Extension limit reached. Please submit a new office request.');
+        }
+        if (mode === 'TEMPORARY') {
+          // eslint-disable-next-line no-await-in-loop
+          await api.post(`/office-slots/${ctx.officeLocationId}/assignments/${ctx.standingAssignmentId}/extend-temporary`);
+        } else {
+          // AVAILABLE: confirm keep-available (refresh last_two_week_confirmed_at)
+          // eslint-disable-next-line no-await-in-loop
+          await api.post(`/office-slots/${ctx.officeLocationId}/assignments/${ctx.standingAssignmentId}/keep-available`, { acknowledged: true });
+        }
       }
     } else if (requestType.value === 'forfeit_slot') {
       const scope = forfeitScope.value === 'future' && hasRecurringOfficeSlot.value ? 'future' : 'occurrence';

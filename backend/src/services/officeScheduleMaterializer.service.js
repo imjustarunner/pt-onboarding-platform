@@ -165,10 +165,15 @@ export class OfficeScheduleMaterializer {
         const startAt = mysqlDateTimeForDateHour(date, a.hour);
         const endAt = mysqlDateTimeForDateHour(date, Number(a.hour) + 1);
 
+        const extCount = Number(a.temporary_extension_count || 0);
+        const untilStr = String(a.temporary_until_date || '').slice(0, 10);
+        // After 2 extensions, when date > temporary_until_date, slot falls off (provider must re-request)
+        if (a.availability_mode === 'TEMPORARY' && extCount >= 2 && untilStr && date > untilStr) continue;
+
         const isTemporary =
           a.availability_mode === 'TEMPORARY' &&
           a.temporary_until_date &&
-          date <= String(a.temporary_until_date).slice(0, 10);
+          date <= untilStr;
         const baseSlotState = isTemporary ? 'ASSIGNED_TEMPORARY' : 'ASSIGNED_AVAILABLE';
 
         const plan = planByAssignment.get(a.id) || null;

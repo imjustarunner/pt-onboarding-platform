@@ -859,6 +859,7 @@ export const getWeeklyGrid = async (req, res, next) => {
            a.assigned_frequency,
            a.availability_mode,
            a.temporary_until_date,
+           a.temporary_extension_count,
            a.available_since_date,
            a.last_two_week_confirmed_at,
            a.last_six_week_checked_at,
@@ -900,6 +901,7 @@ export const getWeeklyGrid = async (req, res, next) => {
           assignmentCreatedByName: createdByName,
           assignmentAvailabilityMode: String(r.availability_mode || '').toUpperCase() || null,
           assignmentTemporaryUntilDate: r.temporary_until_date ? String(r.temporary_until_date).slice(0, 10) : null,
+          assignmentTemporaryExtensionCount: Number(r.temporary_extension_count || 0),
           assignmentAvailableSinceDate: availableSinceDate,
           assignmentLastTwoWeekConfirmedAt: lastTwoWeekConfirmedAt,
           assignmentLastSixWeekCheckedAt: lastSixWeekCheckedAt,
@@ -1042,6 +1044,7 @@ export const getWeeklyGrid = async (req, res, next) => {
       s.assignmentCreatedByName = assignmentMeta?.assignmentCreatedByName || null;
       s.assignmentAvailabilityMode = assignmentMeta?.assignmentAvailabilityMode || null;
       s.assignmentTemporaryUntilDate = assignmentMeta?.assignmentTemporaryUntilDate || null;
+      s.assignmentTemporaryExtensionCount = assignmentMeta?.assignmentTemporaryExtensionCount ?? 0;
       s.assignmentAvailableSinceDate = assignmentMeta?.assignmentAvailableSinceDate || null;
       s.assignmentLastTwoWeekConfirmedAt = assignmentMeta?.assignmentLastTwoWeekConfirmedAt || null;
       s.assignmentLastSixWeekCheckedAt = assignmentMeta?.assignmentLastSixWeekCheckedAt || null;

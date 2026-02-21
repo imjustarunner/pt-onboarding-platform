@@ -45,7 +45,7 @@
               </div>
 
               <div class="assign">
-                <div class="lbl">Assign temporary (4w)</div>
+                <div class="lbl">Assign temporary (6 sessions)</div>
                 <select class="select" v-model="officeAssign[r.id].officeId" @change="loadRoomsForOffice(r.id)">
                   <option value="">Office…</option>
                   <option v-for="o in offices" :key="o.id" :value="String(o.id)">{{ o.name }}</option>
@@ -506,7 +506,7 @@ const assignOffice = async (r) => {
       roomId: Number(form.roomId),
       weekday,
       hour,
-      weeks: 4,
+      weeks: 6,
       assignedFrequency: 'WEEKLY'
     });
     await reload();
