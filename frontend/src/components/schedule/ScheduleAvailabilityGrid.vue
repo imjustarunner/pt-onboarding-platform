@@ -401,7 +401,11 @@
                 v-for="b in cellBlocks(d, slot.hour, slot.minute)"
                 :key="b.key"
                 class="cell-block"
-                :class="[`cell-block-${b.kind}`, { 'cell-block-hovered': isBlockHovered(d, slot.hour, b) }]"
+                :class="[
+                  `cell-block-${b.kind}`,
+                  b.segmentClass ? `cell-block-segment-${b.segmentClass}` : '',
+                  { 'cell-block-hovered': isBlockHovered(d, slot.hour, b) }
+                ]"
                 :title="b.title"
                 :style="cellBlockStyle(b)"
                 @mouseenter="hoveredBlockKey = blockKey(d, slot.hour, b)"
@@ -410,12 +414,12 @@
                 @dblclick="onCellBlockDoubleClick($event, b, d, slot.hour)"
               >
                 <span
-                  v-if="hasAgencyBadge(b)"
+                  v-if="hasAgencyBadge(b) && !b.hideAgencyDot"
                   class="cell-block-agency-dot"
                   :style="agencyBadgeStyle(b)"
                   :title="agencyBadgeTitle(b)"
                 ></span>
-                <span class="cell-block-text">{{ b.shortLabel }}</span>
+                <span v-if="b.shortLabel" class="cell-block-text">{{ b.shortLabel }}</span>
               </div>
             </div>
           </div>
@@ -2622,6 +2626,28 @@ const quarterTimingFromRange = (startRaw, endRaw) => {
   if (s && e) return `${s}-${e}`;
   return s || e || '';
 };
+const quarterSegmentForRange = (dayName, hour, minute, startRaw, endRaw) => {
+  if (!showQuarterDetail.value) return 'single';
+  const s = parseLocalDateTime(startRaw);
+  const e = parseLocalDateTime(endRaw);
+  if (!s || !e) return 'single';
+  const dayIdx = ALL_DAYS.indexOf(String(dayName));
+  if (dayIdx < 0) return 'single';
+  const ws = summary.value?.weekStart || weekStart.value;
+  const cellDate = addDaysYmd(ws, dayIdx);
+  const cellStart = new Date(`${cellDate}T${pad2(hour)}:${pad2(minute)}:00`);
+  if (Number.isNaN(cellStart.getTime())) return 'single';
+  const stepMs = 15 * 60 * 1000;
+  const cellEnd = new Date(cellStart.getTime() + stepMs);
+  const prevStart = new Date(cellStart.getTime() - stepMs);
+  const nextEnd = new Date(cellEnd.getTime() + stepMs);
+  const hasPrev = e > prevStart && s < cellStart;
+  const hasNext = e > cellEnd && s < nextEnd;
+  if (!hasPrev && !hasNext) return 'single';
+  if (!hasPrev && hasNext) return 'start';
+  if (hasPrev && !hasNext) return 'end';
+  return 'middle';
+};
 
 const scheduleEventShortLabel = (ev) => {
   const raw = String(ev?.title || '').trim() || 'Event';
@@ -2722,6 +2748,25 @@ const hasBusyIntervals = (busyList, dayName, hour, ws, minute = 0) => {
     if (end > cellStart && start < cellEnd) return true;
   }
   return false;
+};
+const busyRangeForCell = (busyList, dayName, hour, ws, minute = 0) => {
+  const dayIdx = ALL_DAYS.indexOf(String(dayName));
+  if (dayIdx < 0) return null;
+  const cellDate = addDaysYmd(ws, dayIdx);
+  const cellStart = new Date(`${cellDate}T${pad2(hour)}:${pad2(minute)}:00`);
+  const cellEnd = new Date(cellStart.getTime() + ((showQuarterDetail.value ? 15 : 60) * 60 * 1000));
+  let minStart = null;
+  let maxEnd = null;
+  for (const b of busyList || []) {
+    const start = new Date(b.startAt);
+    const end = new Date(b.endAt);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) continue;
+    if (!(end > cellStart && start < cellEnd)) continue;
+    if (!minStart || start < minStart) minStart = start;
+    if (!maxEnd || end > maxEnd) maxEnd = end;
+  }
+  if (!minStart || !maxEnd) return null;
+  return { startAt: minStart.toISOString(), endAt: maxEnd.toISOString() };
 };
 
 const hasGoogleBusy = (dayName, hour, minute = 0) => {
@@ -3066,21 +3111,38 @@ const cellBlocks = (dayName, hour, minute = 0) => {
     if (!supvByAgency.has(key)) supvByAgency.set(key, []);
     supvByAgency.get(key).push(ev);
   }
-  for (const [aid] of supvByAgency) {
+  for (const [aid, events] of supvByAgency) {
     const agencyId = (aid === 'none' || !aid) ? null : Number(aid);
-    blocks.push({ key: `supv-${agencyId || 'x'}`, kind: 'supv', shortLabel: supervisionLabel(dayName, hour), title: supervisionTitle(dayName, hour), agencyId });
+    const sortedEvents = [...events].sort((a, b) => String(a?.startAt || '').localeCompare(String(b?.startAt || '')));
+    const first = sortedEvents[0] || null;
+    const last = sortedEvents[sortedEvents.length - 1] || null;
+    const segmentClass = quarterSegmentForRange(dayName, hour, minute, first?.startAt, last?.endAt);
+    const showLabel = !showQuarterDetail.value || segmentClass === 'single' || segmentClass === 'start';
+    blocks.push({
+      key: `supv-${agencyId || 'x'}`,
+      kind: 'supv',
+      shortLabel: showLabel ? supervisionLabel(dayName, hour) : '',
+      title: supervisionTitle(dayName, hour),
+      agencyId,
+      segmentClass,
+      hideAgencyDot: showQuarterDetail.value && (segmentClass === 'middle' || segmentClass === 'end')
+    });
   }
 
   // App-scheduled provider events (personal/hold/indirect) — include agencyId per event
   const scheduleHits = scheduleEventsInCell(dayName, hour, minute).slice(0, perTypeInlineLimit);
   for (const ev of scheduleHits) {
+    const segmentClass = quarterSegmentForRange(dayName, hour, minute, ev?.startAt, ev?.endAt);
+    const showLabel = !showQuarterDetail.value || segmentClass === 'single' || segmentClass === 'start';
     blocks.push({
       key: `sevt-${String(ev?.id || ev?.googleEventId || ev?.title || 'event')}`,
       kind: 'sevt',
-      shortLabel: scheduleEventShortLabel(ev),
+      shortLabel: showLabel ? scheduleEventShortLabel(ev) : '',
       title: scheduleEventBlockTitle(ev, dayName, hour),
       link: String(ev?.htmlLink || '').trim() || null,
-      agencyId: Number(ev?._agencyId || 0) || null
+      agencyId: Number(ev?._agencyId || 0) || null,
+      segmentClass,
+      hideAgencyDot: showQuarterDetail.value && (segmentClass === 'middle' || segmentClass === 'end')
     });
   }
   const scheduleExtra = Math.max(0, scheduleEventsInCell(dayName, hour, minute).length - scheduleHits.length);
@@ -3104,17 +3166,30 @@ const cellBlocks = (dayName, hour, minute = 0) => {
 
   // Busy overlays
   if (showGoogleBusy.value && hasGoogleBusy(dayName, hour, minute)) {
-    blocks.push({ key: 'gbusy', kind: 'gbusy', shortLabel: 'G', title: googleBusyTitle(dayName, hour) });
+    const ws = summary.value?.weekStart || weekStart.value;
+    const range = busyRangeForCell(summary.value?.googleBusy || [], dayName, hour, ws, minute);
+    const segmentClass = range ? quarterSegmentForRange(dayName, hour, minute, range.startAt, range.endAt) : 'single';
+    const showLabel = !showQuarterDetail.value || segmentClass === 'single' || segmentClass === 'start';
+    blocks.push({
+      key: 'gbusy',
+      kind: 'gbusy',
+      shortLabel: showLabel ? 'G' : '',
+      title: googleBusyTitle(dayName, hour),
+      segmentClass
+    });
   }
   if (showGoogleEvents.value) {
     const events = googleEventsInCell(dayName, hour, minute).slice(0, perTypeInlineLimit);
     for (const ev of events) {
+      const segmentClass = quarterSegmentForRange(dayName, hour, minute, ev?.startAt, ev?.endAt);
+      const showLabel = !showQuarterDetail.value || segmentClass === 'single' || segmentClass === 'start';
       blocks.push({
         key: `gevt-${String(ev?.id || ev?.summary || 'event')}`,
         kind: 'gevt',
-        shortLabel: googleEventShortLabel(ev),
+        shortLabel: showLabel ? googleEventShortLabel(ev) : '',
         title: googleEventTitle(ev, dayName, hour),
-        link: String(ev?.htmlLink || '').trim() || null
+        link: String(ev?.htmlLink || '').trim() || null,
+        segmentClass
       });
     }
     const extra = Math.max(0, googleEventsInCell(dayName, hour, minute).length - events.length);
@@ -3123,7 +3198,22 @@ const cellBlocks = (dayName, hour, minute = 0) => {
     }
   }
   if (showExternalBusy.value && selectedExternalCalendarIds.value.length && hasExternalBusy(dayName, hour, minute)) {
-    blocks.push({ key: 'ebusy', kind: 'ebusy', shortLabel: externalBusyShortLabel(dayName, hour), title: externalBusyTitle(dayName, hour) });
+    const ws = summary.value?.weekStart || weekStart.value;
+    const selected = new Set((selectedExternalCalendarIds.value || []).map((v) => Number(v)).filter((v) => Number.isFinite(v)));
+    const cals = Array.isArray(summary.value?.externalCalendars) ? summary.value.externalCalendars : [];
+    const busyList = cals
+      .filter((c) => selected.size === 0 || selected.has(Number(c?.id)))
+      .flatMap((c) => (Array.isArray(c?.busy) ? c.busy : []));
+    const range = busyRangeForCell(busyList, dayName, hour, ws, minute);
+    const segmentClass = range ? quarterSegmentForRange(dayName, hour, minute, range.startAt, range.endAt) : 'single';
+    const showLabel = !showQuarterDetail.value || segmentClass === 'single' || segmentClass === 'start';
+    blocks.push({
+      key: 'ebusy',
+      kind: 'ebusy',
+      shortLabel: showLabel ? externalBusyShortLabel(dayName, hour) : '',
+      title: externalBusyTitle(dayName, hour),
+      segmentClass
+    });
   }
 
   // Side-by-side if multiple; keep it readable: show at most 3 blocks, then "+N".
@@ -7160,6 +7250,20 @@ watch([modalHour, modalEndHour, modalStartMinute, modalEndMinute, canUseQuarterH
 }
 .sched-wrap-quarter .cell-block-text {
   max-width: calc(100% - 10px);
+}
+.sched-wrap-quarter .cell-block-segment-start {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.sched-wrap-quarter .cell-block-segment-middle {
+  border-radius: 0;
+  border-top-color: transparent;
+  border-bottom-color: transparent;
+}
+.sched-wrap-quarter .cell-block-segment-end {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+  border-top-color: transparent;
 }
 .cell-block-agency-dot {
   width: 7px;
