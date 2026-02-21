@@ -83,6 +83,10 @@ class ActivityLogService {
       'password_change',
       'intake_approval',
       'password_reset_link_sent',
+      'dashboard_view',
+      'audit_center_viewed',
+      'admin_dashboard_view',
+      'admin_page_view',
 
       // AI / helper tools (do NOT log sensitive content in metadata)
       'note_aid_execute',

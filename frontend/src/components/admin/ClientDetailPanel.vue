@@ -1295,7 +1295,7 @@
             <h3 style="margin:0;">Files (optional)</h3>
             <div class="hint">Upload a PDF/image only when you need a stored copy.</div>
           </div>
-          <PhiDocumentsPanel :client-id="Number(client.id)" />
+          <PhiDocumentsPanel :client-id="Number(client.id)" :highlight-document-id="initialDocumentId" />
         </div>
       </div>
     </div>
@@ -1317,6 +1317,10 @@ const props = defineProps({
   initialTab: {
     type: String,
     default: ''
+  },
+  initialDocumentId: {
+    type: Number,
+    default: null
   }
 });
 

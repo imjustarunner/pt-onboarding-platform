@@ -2436,6 +2436,9 @@ const loadMyCompanyEvents = async () => {
 };
 
 onMounted(async () => {
+  if (!props.previewMode && authStore.isAuthenticated) {
+    api.post('/auth/activity-log', { actionType: 'dashboard_view' }).catch(() => {});
+  }
   // Remember Google quick-login only after a successful OAuth callback hit dashboard.
   if (String(route.query?.sso || '') === '1') {
     const orgSlug = String(route.params?.organizationSlug || '').trim().toLowerCase();

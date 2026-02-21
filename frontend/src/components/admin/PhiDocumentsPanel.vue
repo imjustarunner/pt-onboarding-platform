@@ -49,7 +49,7 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="d in docs" :key="d.id">
+          <tr v-for="d in docs" :key="d.id" :data-document-id="d.id" :class="{ 'doc-highlight': highlightDocumentId && Number(d.id) === Number(highlightDocumentId) }">
             <td>{{ formatDateTime(d.uploaded_at) }}</td>
             <td>
               <div class="doc-title">{{ d.document_title || d.original_name || d.storage_path }}</div>
@@ -183,12 +183,13 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 
 const props = defineProps({
-  clientId: { type: Number, required: true }
+  clientId: { type: Number, required: true },
+  highlightDocumentId: { type: Number, default: null }
 });
 
 const authStore = useAuthStore();
@@ -454,6 +455,17 @@ const clearOcrRequest = async (request) => {
 
 onMounted(reload);
 watch(() => props.clientId, reload);
+
+watch(
+  () => [props.highlightDocumentId, docs.value],
+  async ([docId, docList]) => {
+    if (!docId || !docList?.length) return;
+    await nextTick();
+    const row = document.querySelector(`tr[data-document-id="${docId}"]`);
+    if (row) row.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  },
+  { immediate: true }
+);
 </script>
 
 <style scoped>
@@ -508,6 +520,10 @@ watch(() => props.clientId, reload);
   border-bottom: 1px solid var(--border);
   padding: 10px;
   vertical-align: middle;
+}
+tr.doc-highlight {
+  background: rgba(59, 130, 246, 0.12);
+  box-shadow: inset 0 0 0 2px rgba(59, 130, 246, 0.35);
 }
 .doc-title {
   font-weight: 600;

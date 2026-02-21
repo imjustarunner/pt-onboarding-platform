@@ -17,10 +17,11 @@
         <button
           type="button"
           class="note-sign-btn"
-          disabled
-          title="Sign-off UI coming in Phase 3"
+          :disabled="signingId === note.id"
+          :title="signingId === note.id ? 'Signing…' : 'Sign off on this note'"
+          @click="signNote(note)"
         >
-          Sign
+          {{ signingId === note.id ? 'Signing…' : 'Sign' }}
         </button>
       </li>
     </ul>
@@ -38,12 +39,15 @@ const props = defineProps({
 
 const notes = ref([]);
 const loading = ref(false);
+const signingId = ref(null);
 
 const formatDate = (d) => {
   if (!d) return '';
   const dt = new Date(d);
   return dt.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 };
+
+const emit = defineEmits(['signed']);
 
 const fetchNotes = async () => {
   if (props.count === 0) {
@@ -58,6 +62,21 @@ const fetchNotes = async () => {
     notes.value = [];
   } finally {
     loading.value = false;
+  }
+};
+
+const signNote = async (note) => {
+  if (!note?.id) return;
+  signingId.value = note.id;
+  try {
+    await api.post(`/me/notes-to-sign/${note.id}/sign`);
+    notes.value = notes.value.filter((n) => n.id !== note.id);
+    emit('signed');
+  } catch (e) {
+    const msg = e?.response?.data?.error?.message || e?.message || 'Sign failed';
+    alert(msg);
+  } finally {
+    signingId.value = null;
   }
 };
 

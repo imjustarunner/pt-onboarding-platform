@@ -31,6 +31,8 @@
           <option value="support_ticket">Support tickets</option>
           <option value="client_access">Client access</option>
           <option value="phi_document">Document audit</option>
+          <option value="task_audit">Task audit</option>
+          <option value="task_deletion">Task deletion</option>
         </select>
       </div>
       <div class="field">
@@ -491,6 +493,10 @@ onMounted(async () => {
     await agencyStore.fetchUserAgencies();
   }
   hydrateDefaultAgencySelection();
+  api.post('/auth/activity-log', {
+    actionType: 'audit_center_viewed',
+    metadata: { path: route.path, agencyId: selectedAgencyId.value || null }
+  }).catch(() => {});
   await reload();
 });
 </script>

@@ -326,6 +326,7 @@
       :key="String(selectedClient?.id || '')"
       :client="selectedClient"
       :initial-tab="String(route.query?.tab || '')"
+      :initial-document-id="Number(route.query?.documentId) || null"
       @close="closeClientDetail"
       @updated="handleClientUpdated"
     />

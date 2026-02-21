@@ -67,3 +67,42 @@ export const getNotesToSignCount = async (req, res, next) => {
     next(err);
   }
 };
+
+/**
+ * POST /api/me/notes-to-sign/:id/sign
+ * Supervisor signs off on a note.
+ */
+export const signNote = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const signoffId = parseInt(req.params.id, 10);
+    if (!signoffId) return res.status(400).json({ error: { message: 'Signoff ID required' } });
+
+    const [[row]] = await pool.execute(
+      `SELECT id, clinical_note_id, supervisor_user_id, status
+       FROM clinical_note_signoffs
+       WHERE id = ?`,
+      [signoffId]
+    ).catch(() => [[]]);
+
+    const signoff = row || null;
+    if (!signoff) return res.status(404).json({ error: { message: 'Sign-off record not found' } });
+    if (Number(signoff.supervisor_user_id) !== Number(userId)) {
+      return res.status(403).json({ error: { message: 'You are not the assigned supervisor for this note' } });
+    }
+    if (String(signoff.status) !== 'awaiting_supervisor') {
+      return res.status(400).json({ error: { message: 'Note is not awaiting your sign-off' } });
+    }
+
+    await pool.execute(
+      `UPDATE clinical_note_signoffs
+       SET supervisor_signed_at = NOW(), status = 'signed', updated_at = NOW()
+       WHERE id = ?`,
+      [signoffId]
+    );
+
+    res.json({ ok: true, message: 'Note signed successfully' });
+  } catch (err) {
+    next(err);
+  }
+};

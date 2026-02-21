@@ -72,7 +72,7 @@
     </section>
 
     <!-- Notes to sign (supervisors only) -->
-    <NotesToSignSection :count="notesToSignCount" />
+    <NotesToSignSection :count="notesToSignCount" @signed="refreshNotesToSignCount" />
 
     <!-- Checklist Section (embedded) -->
     <section class="momentum-checklist-section" aria-label="Checklist">
@@ -456,6 +456,15 @@ const fetchDigest = async () => {
 const onChecklistCountUpdate = (count) => {
   checklistCount.value = count;
   emit('update-count', count);
+};
+
+const refreshNotesToSignCount = async () => {
+  try {
+    const res = await api.get('/me/notes-to-sign/count');
+    notesToSignCount.value = Number(res?.data?.count ?? 0);
+  } catch {
+    notesToSignCount.value = 0;
+  }
 };
 
 onMounted(() => {

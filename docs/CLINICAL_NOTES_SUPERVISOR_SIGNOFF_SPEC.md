@@ -16,12 +16,13 @@ This doc is a reference for the supervisor sign-off extension only.
 | Phase | Status |
 |-------|--------|
 | Foundation (migration, stub API, Momentum List section) | Done |
-| Provider sign → auto-create signoff when settings require | Pending |
-| Supervisor sign-off UI | Pending |
+| Provider sign → auto-create signoff when supervisor assigned | Done |
+| Supervisor sign-off UI | Done |
 | Billing integration | Pending |
 
 ## Key files
 
 - `database/migrations/454_clinical_note_signoffs.sql`
-- `backend/src/controllers/notesToSign.controller.js`
+- `backend/src/controllers/notesToSign.controller.js` — list, count, sign
+- `backend/src/controllers/clinicalData.controller.js` — auto-create signoff in createSessionNote
 - `frontend/src/components/dashboard/NotesToSignSection.vue`

@@ -1,12 +1,15 @@
 import { validationResult } from 'express-validator';
 import AdminAuditLog from '../models/AdminAuditLog.model.js';
 import User from '../models/User.model.js';
+import { logClientAccess } from '../services/clientAccessLog.service.js';
 import ClinicalRecordRef from '../models/ClinicalRecordRef.model.js';
 import ClinicalSession from '../models/clinical/ClinicalSession.model.js';
 import ClinicalNote from '../models/clinical/ClinicalNote.model.js';
 import ClinicalClaim from '../models/clinical/ClinicalClaim.model.js';
 import ClinicalDocument from '../models/clinical/ClinicalDocument.model.js';
 import ClinicalEligibilityService from '../services/clinicalEligibility.service.js';
+import SupervisorAssignment from '../models/SupervisorAssignment.model.js';
+import pool from '../config/database.js';
 
 const BACKOFFICE_ROLES = new Set(['admin', 'super_admin', 'support']);
 const CLINICAL_DB_HINT = 'Clinical database schema missing. Run database/clinical_migrations/001_create_clinical_data_plane.sql';
@@ -123,6 +126,16 @@ export const bootstrapClinicalSession = async (req, res, next) => {
       createdByUserId: req.user.id
     });
 
+    await logAudit(req, {
+      actionType: 'clinical_session_started',
+      targetUserId: session.provider_user_id || null,
+      agencyId,
+      clinicalSessionId: session.id,
+      recordType: 'session',
+      recordId: session.id,
+      metadata: { clientId, officeEventId }
+    });
+
     res.json({ ok: true, session });
   } catch (error) {
     if (handleSchemaError(error, res)) return;
@@ -154,6 +167,8 @@ export const listSessionArtifacts = async (req, res, next) => {
         officeEventId: session.office_event_id
       })
     ]);
+
+    logClientAccess(req, session.client_id, 'clinical_artifacts_viewed').catch(() => {});
 
     res.json({
       ok: true,
@@ -220,6 +235,32 @@ export const createSessionNote = async (req, res, next) => {
       clinicalRecordId: note.id
     });
 
+    await logAudit(req, {
+      actionType: 'clinical_note_created',
+      targetUserId: session.provider_user_id || null,
+      agencyId: session.agency_id,
+      clinicalSessionId: session.id,
+      recordType: 'note',
+      recordId: note.id,
+      metadata: { clientId: session.client_id, officeEventId: session.office_event_id, title: note.title || null }
+    });
+
+    // Auto-create signoff when provider has a supervisor (clinical org)
+    const providerUserId = session.provider_user_id || req.user.id;
+    const supervisors = await SupervisorAssignment.findBySupervisee(providerUserId, session.agency_id);
+    const primarySupervisor = supervisors.find((s) => s.is_primary) || supervisors[0];
+    if (primarySupervisor) {
+      try {
+        await pool.execute(
+          `INSERT INTO clinical_note_signoffs (agency_id, clinical_note_id, provider_user_id, supervisor_user_id, provider_signed_at, status)
+           VALUES (?, ?, ?, ?, NOW(), 'awaiting_supervisor')`,
+          [session.agency_id, note.id, providerUserId, primarySupervisor.supervisor_id]
+        );
+      } catch (e) {
+        if (e?.code !== 'ER_DUP_ENTRY') console.error('[clinicalData] Signoff create failed:', e?.message);
+      }
+    }
+
     res.status(201).json({ ok: true, note });
   } catch (error) {
     if (handleSchemaError(error, res)) return;
@@ -264,6 +305,16 @@ export const createSessionClaim = async (req, res, next) => {
       clinicalSessionId: session.id,
       recordType: 'claim',
       clinicalRecordId: claim.id
+    });
+
+    await logAudit(req, {
+      actionType: 'clinical_claim_created',
+      targetUserId: session.provider_user_id || null,
+      agencyId: session.agency_id,
+      clinicalSessionId: session.id,
+      recordType: 'claim',
+      recordId: claim.id,
+      metadata: { clientId: session.client_id, officeEventId: session.office_event_id }
     });
 
     res.status(201).json({ ok: true, claim });
@@ -312,6 +363,16 @@ export const createSessionDocument = async (req, res, next) => {
       clinicalSessionId: session.id,
       recordType: 'document',
       clinicalRecordId: doc.id
+    });
+
+    await logAudit(req, {
+      actionType: 'clinical_document_created',
+      targetUserId: session.provider_user_id || null,
+      agencyId: session.agency_id,
+      clinicalSessionId: session.id,
+      recordType: 'document',
+      recordId: doc.id,
+      metadata: { clientId: session.client_id, officeEventId: session.office_event_id, title: doc.title || null }
     });
 
     res.status(201).json({ ok: true, document: doc });

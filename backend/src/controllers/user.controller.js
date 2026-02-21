@@ -1,5 +1,6 @@
 import User from '../models/User.model.js';
 import UserAccount from '../models/UserAccount.model.js';
+import AdminAuditLog from '../models/AdminAuditLog.model.js';
 import OnboardingChecklist from '../models/OnboardingChecklist.model.js';
 import UserChecklistAssignment from '../models/UserChecklistAssignment.model.js';
 import UserInfoValue from '../models/UserInfoValue.model.js';
@@ -100,6 +101,18 @@ async function requireSharedAgencyAccessOrSuperAdmin({ actorUserId, targetUserId
   const actorIds = new Set((actorAgencies || []).map((a) => Number(a.id)));
   const shared = (targetAgencies || []).map((a) => Number(a.id)).filter((id) => actorIds.has(id));
   return shared.length > 0;
+}
+
+/** Get first agency ID for admin_audit_log (required). Uses shared agency or target's first. */
+async function getFirstAgencyForAudit(actorUserId, targetUserId, actorRole) {
+  const targetAgencies = await User.getAgencies(targetUserId);
+  if (!targetAgencies?.length) return null;
+  const r = String(actorRole || '').toLowerCase();
+  if (r === 'super_admin') return Number(targetAgencies[0]?.id || 0) || null;
+  const actorAgencies = await User.getAgencies(actorUserId);
+  const actorIds = new Set((actorAgencies || []).map((a) => Number(a.id)));
+  const shared = (targetAgencies || []).map((a) => Number(a.id)).filter((id) => actorIds.has(id));
+  return (shared[0] ?? targetAgencies[0]?.id) ? Number(shared[0] ?? targetAgencies[0]?.id) : null;
 }
 
 async function attachAffiliationMeta(orgs) {
@@ -1110,6 +1123,21 @@ export const archiveUser = async (req, res, next) => {
     }
 
     const user = await User.findById(parseInt(id));
+
+    try {
+      const agencyId = archivedByAgencyId ?? (await getFirstAgencyForAudit(req.user.id, parseInt(id), req.user.role));
+      if (agencyId) {
+        await AdminAuditLog.logAction({
+          actionType: 'user_archived',
+          actorUserId: req.user.id,
+          targetUserId: parseInt(id),
+          agencyId,
+          metadata: null
+        });
+      }
+    } catch (e) {
+      console.warn('Admin audit log failed:', e?.message || e);
+    }
     
     res.json({ 
       message: 'User archived successfully. Access revoked immediately.',
@@ -1165,6 +1193,21 @@ export const restoreUser = async (req, res, next) => {
     
     if (!restored) {
       return res.status(404).json({ error: { message: 'User not found, not archived, or you do not have permission to restore it' } });
+    }
+
+    try {
+      const agencyId = userAgencyIds?.[0] ?? (await getFirstAgencyForAudit(req.user.id, parseInt(id), req.user.role));
+      if (agencyId) {
+        await AdminAuditLog.logAction({
+          actionType: 'user_restored',
+          actorUserId: req.user.id,
+          targetUserId: parseInt(id),
+          agencyId,
+          metadata: null
+        });
+      }
+    } catch (e) {
+      console.warn('Admin audit log failed:', e?.message || e);
     }
 
     res.json({ message: 'User restored successfully' });
@@ -1887,6 +1930,24 @@ export const updateUser = async (req, res, next) => {
     // readers still rely on user_info_values.
     if (credential !== undefined) {
       await syncLegacyProviderCredentialValue(id, updateData.credential);
+    }
+
+    // Admin audit: log when admin updates another user's profile
+    if (parseInt(id, 10) !== req.user.id && (req.user.role === 'admin' || req.user.role === 'super_admin' || req.user.role === 'support')) {
+      try {
+        const agencyId = await getFirstAgencyForAudit(req.user.id, parseInt(id), req.user.role);
+        if (agencyId) {
+          await AdminAuditLog.logAction({
+            actionType: 'user_profile_updated',
+            actorUserId: req.user.id,
+            targetUserId: parseInt(id),
+            agencyId,
+            metadata: { updatedFields: Object.keys(updateData) }
+          });
+        }
+      } catch (e) {
+        console.warn('Admin audit log failed:', e?.message || e);
+      }
     }
 
     // When hasPayrollAccess was provided, set it for all agencies for this user
@@ -3333,6 +3394,23 @@ export const toggleSupervisorPrivileges = async (req, res, next) => {
     if (!user) {
       return res.status(404).json({ error: { message: 'User not found' } });
     }
+
+    if (parseInt(id) !== req.user.id && (req.user.role === 'admin' || req.user.role === 'super_admin')) {
+      try {
+        const agencyId = await getFirstAgencyForAudit(req.user.id, parseInt(id), req.user.role);
+        if (agencyId) {
+          await AdminAuditLog.logAction({
+            actionType: 'supervisor_privileges_toggled',
+            actorUserId: req.user.id,
+            targetUserId: parseInt(id),
+            agencyId,
+            metadata: { enabled }
+          });
+        }
+      } catch (e) {
+        console.warn('Admin audit log failed:', e?.message || e);
+      }
+    }
     
     res.json({ 
       message: `Supervisor privileges ${enabled ? 'enabled' : 'disabled'} successfully`,
@@ -3559,6 +3637,20 @@ export const assignUserToAgency = async (req, res, next) => {
     }
     
     await User.assignToAgency(userId, agencyId);
+    try {
+      const aid = parseInt(agencyId, 10);
+      if (aid) {
+        await AdminAuditLog.logAction({
+          actionType: 'user_assigned_to_agency',
+          actorUserId: req.user.id,
+          targetUserId: parseInt(userId, 10),
+          agencyId: aid,
+          metadata: null
+        });
+      }
+    } catch (e) {
+      console.warn('Admin audit log failed:', e?.message || e);
+    }
     res.json({ message: 'User assigned to agency successfully' });
   } catch (error) {
     next(error);
@@ -3754,6 +3846,20 @@ export const removeUserFromAgency = async (req, res, next) => {
       } catch (e) {
         if (!ignoreIfMissing(e)) throw e;
       }
+    }
+
+    try {
+      if (aid) {
+        await AdminAuditLog.logAction({
+          actionType: 'user_removed_from_agency',
+          actorUserId: req.user.id,
+          targetUserId: uid,
+          agencyId: aid,
+          metadata: null
+        });
+      }
+    } catch (e) {
+      console.warn('Admin audit log failed:', e?.message || e);
     }
 
     await conn.commit();
@@ -4946,6 +5052,20 @@ export const markUserComplete = async (req, res, next) => {
       }
 
       const updatedUser = await User.updateStatus(parseInt(id), 'ACTIVE_EMPLOYEE', req.user.id);
+      try {
+        const agencyId = await getFirstAgencyForAudit(req.user.id, parseInt(id), req.user.role);
+        if (agencyId) {
+          await AdminAuditLog.logAction({
+            actionType: 'user_marked_complete',
+            actorUserId: req.user.id,
+            targetUserId: parseInt(id),
+            agencyId,
+            metadata: { fromStatus: 'PENDING_SETUP' }
+          });
+        }
+      } catch (e) {
+        console.warn('Admin audit log failed:', e?.message || e);
+      }
       return res.json({
         message: 'User marked as active employee',
         user: updatedUser
@@ -5034,6 +5154,21 @@ export const markUserComplete = async (req, res, next) => {
     } catch (notificationError) {
       // Log error but don't fail the request
       console.error('Error creating onboarding completed notification:', notificationError);
+    }
+
+    try {
+      const agencyId = await getFirstAgencyForAudit(req.user.id, parseInt(id), req.user.role);
+      if (agencyId) {
+        await AdminAuditLog.logAction({
+          actionType: 'user_marked_complete',
+          actorUserId: req.user.id,
+          targetUserId: parseInt(id),
+          agencyId,
+          metadata: null
+        });
+      }
+    } catch (e) {
+      console.warn('Admin audit log failed:', e?.message || e);
     }
     
     res.json({
@@ -5167,6 +5302,21 @@ export const updateUserStatus = async (req, res, next) => {
     const updatedUser = await User.updateStatus(id, statusUpper, req.user.id);
     if (!updatedUser) {
       return res.status(404).json({ error: { message: 'User not found' } });
+    }
+
+    try {
+      const agencyId = await getFirstAgencyForAudit(req.user.id, parseInt(id), req.user.role);
+      if (agencyId) {
+        await AdminAuditLog.logAction({
+          actionType: 'user_status_changed',
+          actorUserId: req.user.id,
+          targetUserId: parseInt(id),
+          agencyId,
+          metadata: { previousStatus: user.status, newStatus: statusUpper, note: note || null }
+        });
+      }
+    } catch (e) {
+      console.warn('Admin audit log failed:', e?.message || e);
     }
 
     // Optional side effects for specific transitions
@@ -5378,6 +5528,21 @@ export const markUserTerminated = async (req, res, next) => {
     if (!user) {
       return res.status(404).json({ error: { message: 'User not found' } });
     }
+
+    try {
+      const agencyId = await getFirstAgencyForAudit(req.user.id, parseInt(id), req.user.role);
+      if (agencyId) {
+        await AdminAuditLog.logAction({
+          actionType: 'user_marked_terminated',
+          actorUserId: req.user.id,
+          targetUserId: parseInt(id),
+          agencyId,
+          metadata: null
+        });
+      }
+    } catch (e) {
+      console.warn('Admin audit log failed:', e?.message || e);
+    }
     
     res.json({
       message: 'User marked as terminated. Access will expire in 7 days.',
@@ -5524,6 +5689,21 @@ export const deactivateUser = async (req, res, next) => {
     const deactivated = await User.deactivate(parseInt(id));
     if (!deactivated) {
       return res.status(404).json({ error: { message: 'User not found' } });
+    }
+
+    try {
+      const agencyId = await getFirstAgencyForAudit(req.user.id, parseInt(id), req.user.role);
+      if (agencyId) {
+        await AdminAuditLog.logAction({
+          actionType: 'user_deactivated',
+          actorUserId: req.user.id,
+          targetUserId: parseInt(id),
+          agencyId,
+          metadata: null
+        });
+      }
+    } catch (e) {
+      console.warn('Admin audit log failed:', e?.message || e);
     }
     
     const user = await User.findById(parseInt(id));

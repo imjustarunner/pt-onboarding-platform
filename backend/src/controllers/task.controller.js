@@ -1,5 +1,6 @@
 import Task from '../models/Task.model.js';
 import TaskAuditLog from '../models/TaskAuditLog.model.js';
+import TaskDeletionLog from '../models/TaskDeletionLog.model.js';
 import TaskAssignmentService from '../services/taskAssignment.service.js';
 import User from '../models/User.model.js';
 import { validationResult } from 'express-validator';
@@ -610,6 +611,21 @@ export const deleteTask = async (req, res, next) => {
       // best-effort; don't block deletion
       console.warn('deleteTask: file cleanup best-effort failed:', e?.message || e);
     }
+
+    let agencyId = task.assigned_to_agency_id || null;
+    if (!agencyId && task.task_list_id) {
+      const TaskList = (await import('../models/TaskList.model.js')).default;
+      const list = await TaskList.findById(task.task_list_id);
+      agencyId = list?.agency_id || null;
+    }
+    await TaskDeletionLog.logDeletion({
+      taskId,
+      taskTitle: task.title,
+      actorUserId: req.user.id,
+      agencyId,
+      source: 'admin_delete',
+      metadata: { taskType: task.task_type }
+    });
 
     const ok = await Task.deleteById(taskId);
     if (!ok) return res.status(404).json({ error: { message: 'Task not found' } });

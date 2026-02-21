@@ -7,6 +7,7 @@ import Task from '../models/Task.model.js';
 import TaskAuditLog from '../models/TaskAuditLog.model.js';
 import TaskDeletionLog from '../models/TaskDeletionLog.model.js';
 import TaskListMember from '../models/TaskListMember.model.js';
+import TaskList from '../models/TaskList.model.js';
 
 function ensureCustomTaskOwnedByUser(task, userId) {
   if (!task) return false;
@@ -141,10 +142,16 @@ export const deleteCustomTask = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'You can only delete your own custom tasks or tasks in lists where you have editor access' } });
     }
 
+    let agencyId = task.assigned_to_agency_id || null;
+    if (!agencyId && task.task_list_id) {
+      const list = await TaskList.findById(task.task_list_id);
+      agencyId = list?.agency_id || null;
+    }
     await TaskDeletionLog.logDeletion({
       taskId,
       taskTitle: task.title,
       actorUserId: userId,
+      agencyId,
       source: 'momentum_user_request',
       metadata: { taskType: task.task_type }
     });

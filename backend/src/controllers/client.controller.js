@@ -772,6 +772,7 @@ export const createClient = async (req, res, next) => {
       note: 'Client created'
     });
 
+    logClientAccess(req, client.id, 'client_created').catch(() => {});
     res.status(201).json(warnings.length ? { ...client, warnings, warningMeta } : client);
   } catch (error) {
     console.error('Create client error:', error);
@@ -1115,6 +1116,8 @@ export const updateClientDocumentStatus = async (req, res, next) => {
     );
 
     await connection.commit();
+
+    logClientAccess(req, clientId, 'document_status_updated').catch(() => {});
 
     const updatedClient = await Client.findById(clientId, { includeSensitive: true });
     res.json({ ok: true, client: updatedClient, summary: { neededCount } });
@@ -1854,6 +1857,7 @@ export const updateClient = async (req, res, next) => {
       // ignore
     }
 
+    logClientAccess(req, id, 'client_updated').catch(() => {});
     res.json(updatedClient);
   } catch (error) {
     console.error('Update client error:', error);
@@ -1997,6 +2001,7 @@ export const updateClientStatus = async (req, res, next) => {
       // best-effort only
     }
 
+    logClientAccess(req, id, 'client_status_changed').catch(() => {});
     res.json(updatedClient);
   } catch (error) {
     console.error('Update client status error:', error);
@@ -2235,6 +2240,9 @@ export const updateClientComplianceChecklist = async (req, res, next) => {
     } catch {
       // ignore
     }
+
+    logClientAccess(req, clientId, 'compliance_checklist_updated').catch(() => {});
+
     // Attach audit name for display (best-effort)
     let updatedByName = null;
     if (updated?.checklist_updated_by_user_id) {
@@ -3006,6 +3014,7 @@ export const upsertClientAdminNote = async (req, res, next) => {
       );
     }
 
+    logClientAccess(req, clientId, 'client_admin_note_updated').catch(() => {});
     res.status(201).json({ note: saved });
   } catch (e) {
     next(e);

@@ -1673,5 +1673,17 @@ router.beforeEach(async (to, from, next) => {
   }
 });
 
+router.afterEach((to) => {
+  const authStore = useAuthStore();
+  if (!authStore.isAuthenticated) return;
+  const path = String(to?.path || '');
+  if (!path.includes('/admin')) return;
+  const page = path.replace(/^\/[^/]+\/admin\/?/, '').replace(/^\/admin\/?/, '') || 'dashboard';
+  api.post('/auth/activity-log', {
+    actionType: 'admin_page_view',
+    metadata: { path, page: page || 'dashboard' }
+  }).catch(() => {});
+});
+
 export default router;
 

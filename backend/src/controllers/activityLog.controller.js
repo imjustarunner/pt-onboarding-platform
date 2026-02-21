@@ -94,7 +94,9 @@ const sourceLabel = {
   admin_action: 'Admin action',
   support_ticket: 'Support ticket',
   client_access: 'Client access',
-  phi_document: 'Document audit'
+  phi_document: 'Document audit',
+  task_audit: 'Task audit',
+  task_deletion: 'Task deletion'
 };
 
 const asLike = (value) => `%${String(value || '').trim().toLowerCase()}%`;
@@ -125,11 +127,34 @@ const addClientSearchWhere = (where, params, search, tableAlias = 'c') => {
 };
 
 const normalizeAuditRow = (row) => {
+  const metadata = parseJsonSafe(row.metadata);
+  const metaClientId = metadata?.clientId ? Number(metadata.clientId) : null;
+  const clientId = row.client_id ?? metaClientId;
+
   let link_path = row.link_path;
+  if (link_path && row.log_type === 'phi_document' && (metadata?.documentId ?? row.related_document_id)) {
+    const docId = metadata?.documentId ?? row.related_document_id;
+    link_path = link_path.includes('?') ? `${link_path}&documentId=${docId}` : `${link_path}?documentId=${docId}`;
+  }
   if (!link_path) {
-    if (row.log_type === 'admin_action' && row.target_user_id) link_path = `/admin/users/${row.target_user_id}`;
-    else if (row.log_type === 'user_activity' && row.user_id) link_path = `/admin/users/${row.user_id}`;
-    else if (row.client_id) link_path = `/admin/clients?clientId=${row.client_id}`;
+    if (clientId) {
+      const actionType = String(row.action_type || '').toLowerCase();
+      if (actionType === 'sms_sent' || actionType === 'sms_send_failed') {
+        link_path = `/admin/clients?clientId=${clientId}&tab=messages`;
+      } else if (actionType.startsWith('clinical_')) {
+        link_path = `/admin/clients?clientId=${clientId}`;
+      } else {
+        link_path = `/admin/clients?clientId=${clientId}`;
+      }
+    } else if (row.log_type === 'admin_action' && row.target_user_id) {
+      link_path = `/admin/users/${row.target_user_id}`;
+    } else if (row.log_type === 'user_activity' && row.user_id) {
+      const modActions = ['module_start', 'module_end', 'module_complete', 'mark_module_complete', 'mark_track_complete', 'reset_module', 'reset_track'];
+      const isMod = modActions.includes(String(row.action_type || '').toLowerCase());
+      link_path = isMod ? `/admin/users/${row.user_id}?tab=training` : `/admin/users/${row.user_id}`;
+    } else if ((row.log_type === 'task_audit' || row.log_type === 'task_deletion') && (row.target_user_id ?? row.actor_user_id ?? row.user_id)) {
+      link_path = `/admin/users/${row.target_user_id ?? row.actor_user_id ?? row.user_id}?tab=training`;
+    }
   }
   const user_id = row.user_id ?? row.actor_user_id ?? row.target_user_id;
   return {
@@ -137,10 +162,11 @@ const normalizeAuditRow = (row) => {
     source_label: sourceLabel[row.log_type] || row.log_type || 'Audit',
     link_path: link_path || null,
     user_link: user_id ? `/admin/users/${user_id}` : null,
-    client_link: row.client_id ? `/admin/clients?clientId=${row.client_id}` : null,
+    client_link: clientId ? `/admin/clients?clientId=${clientId}` : null,
+    client_id: clientId ?? row.client_id,
     client_full_name: String(row.client_full_name || '').trim() || null,
     client_initials: String(row.client_initials || '').trim() || null,
-    metadata: parseJsonSafe(row.metadata)
+    metadata
   };
 };
 
@@ -298,7 +324,7 @@ const getSupportTicketRows = async (filters = {}, diagnostics = null) => {
                 COALESCE(t.agency_id, c.agency_id) AS agency_id,
                 a.name AS agency_name,
                 'support_ticket' AS log_type,
-                CASE WHEN c.id IS NULL THEN '/admin/tickets' ELSE CONCAT('/admin/clients?clientId=', c.id, '&tab=messages') END AS link_path
+                CASE WHEN c.id IS NULL THEN CONCAT('/admin/support-tickets?ticketId=', t.id) ELSE CONCAT('/admin/clients?clientId=', c.id, '&tab=messages&ticketId=', t.id) END AS link_path
          FROM support_tickets t
          LEFT JOIN clients c ON c.id = t.client_id
          LEFT JOIN users u ON u.id = t.created_by_user_id
@@ -346,7 +372,7 @@ const getSupportTicketRows = async (filters = {}, diagnostics = null) => {
                 COALESCE(t.agency_id, c.agency_id) AS agency_id,
                 a.name AS agency_name,
                 'support_ticket' AS log_type,
-                CASE WHEN c.id IS NULL THEN '/admin/tickets' ELSE CONCAT('/admin/clients?clientId=', c.id, '&tab=messages') END AS link_path
+                CASE WHEN c.id IS NULL THEN CONCAT('/admin/support-tickets?ticketId=', m.ticket_id) ELSE CONCAT('/admin/clients?clientId=', c.id, '&tab=messages&ticketId=', m.ticket_id) END AS link_path
          FROM support_ticket_messages m
          JOIN support_tickets t ON t.id = m.ticket_id
          LEFT JOIN clients c ON c.id = t.client_id
@@ -564,6 +590,199 @@ const countPhiDocumentRows = async (filters = {}, diagnostics = null) => {
   } catch (e) {
     if (isMissingDbArtifactError(e)) {
       recordDisabledSource(diagnostics, 'phi_document', e);
+      return 0;
+    }
+    throw e;
+  }
+};
+
+const getTaskAuditRows = async (filters = {}, diagnostics = null) => {
+  const { agencyId, userId, actionTypes, search, limit = 50, offset = 0, sortOrder = 'DESC', startDate, endDate } = filters;
+  const where = ['(t.assigned_to_agency_id = ? OR tl.agency_id = ?)'];
+  const params = [agencyId, agencyId];
+  const { start, end } = toDateRange(startDate, endDate);
+  if (userId) {
+    where.push('(tal.actor_user_id = ? OR tal.target_user_id = ?)');
+    params.push(userId, userId);
+  }
+  addActionTypeWhere(where, params, actionTypes, 'tal.action_type');
+  if (start) { where.push('tal.created_at >= ?'); params.push(start); }
+  if (end) { where.push('tal.created_at <= ?'); params.push(end); }
+  if (search) {
+    const like = asLike(search);
+    where.push(`(
+      LOWER(COALESCE(u1.email, '')) LIKE ?
+      OR LOWER(CONCAT(COALESCE(u1.first_name, ''), ' ', COALESCE(u1.last_name, ''))) LIKE ?
+      OR LOWER(COALESCE(u2.email, '')) LIKE ?
+      OR LOWER(CONCAT(COALESCE(u2.first_name, ''), ' ', COALESCE(u2.last_name, ''))) LIKE ?
+      OR LOWER(COALESCE(t.title, '')) LIKE ?
+      OR LOWER(COALESCE(CAST(tal.metadata AS CHAR), '')) LIKE ?
+    )`);
+    params.push(like, like, like, like, like, like);
+  }
+  const order = String(sortOrder).toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+  const qLimit = Math.max(1, Math.min(parseInt(limit, 10) || 50, 5000));
+  const qOffset = Math.max(0, parseInt(offset, 10) || 0);
+  try {
+    const [rows] = await pool.execute(
+      `SELECT tal.id, tal.created_at, tal.action_type, tal.actor_user_id AS user_id,
+              u1.email AS user_email, u1.first_name AS user_first_name, u1.last_name AS user_last_name,
+              NULL AS ip_address, NULL AS session_id,
+              JSON_OBJECT('taskId', tal.task_id, 'taskTitle', t.title, 'targetUserId', tal.target_user_id) AS metadata,
+              NULL AS client_id, NULL AS client_initials, NULL AS client_full_name,
+              COALESCE(t.assigned_to_agency_id, tl.agency_id) AS agency_id,
+              a.name AS agency_name,
+              tal.target_user_id,
+              'task_audit' AS log_type,
+              CONCAT('/admin/users/', COALESCE(tal.target_user_id, tal.actor_user_id), '?tab=training') AS link_path
+       FROM task_audit_log tal
+       JOIN tasks t ON t.id = tal.task_id
+       LEFT JOIN task_lists tl ON tl.id = t.task_list_id
+       LEFT JOIN users u1 ON u1.id = tal.actor_user_id
+       LEFT JOIN users u2 ON u2.id = tal.target_user_id
+       LEFT JOIN agencies a ON a.id = COALESCE(t.assigned_to_agency_id, tl.agency_id)
+       WHERE ${where.join(' AND ')}
+       ORDER BY tal.created_at ${order}, tal.id DESC
+       LIMIT ${qLimit} OFFSET ${qOffset}`,
+      params
+    );
+    return (rows || []).map(normalizeAuditRow);
+  } catch (e) {
+    if (isMissingDbArtifactError(e)) {
+      recordDisabledSource(diagnostics, 'task_audit', e);
+      return [];
+    }
+    throw e;
+  }
+};
+
+const countTaskAuditRows = async (filters = {}, diagnostics = null) => {
+  const { agencyId, userId, actionTypes, search, startDate, endDate } = filters;
+  const where = ['(t.assigned_to_agency_id = ? OR tl.agency_id = ?)'];
+  const params = [agencyId, agencyId];
+  const { start, end } = toDateRange(startDate, endDate);
+  if (userId) {
+    where.push('(tal.actor_user_id = ? OR tal.target_user_id = ?)');
+    params.push(userId, userId);
+  }
+  addActionTypeWhere(where, params, actionTypes, 'tal.action_type');
+  if (start) { where.push('tal.created_at >= ?'); params.push(start); }
+  if (end) { where.push('tal.created_at <= ?'); params.push(end); }
+  if (search) {
+    const like = asLike(search);
+    where.push(`(
+      LOWER(COALESCE(u1.email, '')) LIKE ?
+      OR LOWER(CONCAT(COALESCE(u1.first_name, ''), ' ', COALESCE(u1.last_name, ''))) LIKE ?
+      OR LOWER(COALESCE(u2.email, '')) LIKE ?
+      OR LOWER(CONCAT(COALESCE(u2.first_name, ''), ' ', COALESCE(u2.last_name, ''))) LIKE ?
+      OR LOWER(COALESCE(t.title, '')) LIKE ?
+      OR LOWER(COALESCE(CAST(tal.metadata AS CHAR), '')) LIKE ?
+    )`);
+    params.push(like, like, like, like, like, like);
+  }
+  try {
+    const [rows] = await pool.execute(
+      `SELECT COUNT(*) AS total
+       FROM task_audit_log tal
+       JOIN tasks t ON t.id = tal.task_id
+       LEFT JOIN task_lists tl ON tl.id = t.task_list_id
+       LEFT JOIN users u1 ON u1.id = tal.actor_user_id
+       LEFT JOIN users u2 ON u2.id = tal.target_user_id
+       WHERE ${where.join(' AND ')}`,
+      params
+    );
+    return Number(rows?.[0]?.total || 0);
+  } catch (e) {
+    if (isMissingDbArtifactError(e)) {
+      recordDisabledSource(diagnostics, 'task_audit', e);
+      return 0;
+    }
+    throw e;
+  }
+};
+
+const getTaskDeletionRows = async (filters = {}, diagnostics = null) => {
+  const { agencyId, userId, actionTypes, search, limit = 50, offset = 0, sortOrder = 'DESC', startDate, endDate } = filters;
+  const where = ['tdl.agency_id = ?'];
+  const params = [agencyId];
+  const { start, end } = toDateRange(startDate, endDate);
+  if (userId) { where.push('tdl.actor_user_id = ?'); params.push(userId); }
+  if (actionTypes && actionTypes.length > 0 && !actionTypes.includes('deleted')) return [];
+  if (start) { where.push('tdl.deleted_at >= ?'); params.push(start); }
+  if (end) { where.push('tdl.deleted_at <= ?'); params.push(end); }
+  if (search) {
+    const like = asLike(search);
+    where.push(`(
+      LOWER(COALESCE(u.email, '')) LIKE ?
+      OR LOWER(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))) LIKE ?
+      OR LOWER(COALESCE(tdl.task_title, '')) LIKE ?
+      OR LOWER(COALESCE(CAST(tdl.metadata AS CHAR), '')) LIKE ?
+    )`);
+    params.push(like, like, like, like);
+  }
+  const order = String(sortOrder).toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+  const qLimit = Math.max(1, Math.min(parseInt(limit, 10) || 50, 5000));
+  const qOffset = Math.max(0, parseInt(offset, 10) || 0);
+  try {
+    const [rows] = await pool.execute(
+      `SELECT tdl.id, tdl.deleted_at AS created_at, 'deleted' AS action_type, tdl.actor_user_id AS user_id,
+              u.email AS user_email, u.first_name AS user_first_name, u.last_name AS user_last_name,
+              NULL AS ip_address, NULL AS session_id,
+              JSON_OBJECT('taskId', tdl.task_id, 'taskTitle', tdl.task_title, 'source', tdl.source) AS metadata,
+              NULL AS client_id, NULL AS client_initials, NULL AS client_full_name,
+              tdl.agency_id, a.name AS agency_name,
+              NULL AS target_user_id,
+              'task_deletion' AS log_type,
+              CONCAT('/admin/users/', tdl.actor_user_id, '?tab=training') AS link_path
+       FROM task_deletion_log tdl
+       LEFT JOIN users u ON u.id = tdl.actor_user_id
+       LEFT JOIN agencies a ON a.id = tdl.agency_id
+       WHERE ${where.join(' AND ')}
+       ORDER BY tdl.deleted_at ${order}, tdl.id DESC
+       LIMIT ${qLimit} OFFSET ${qOffset}`,
+      params
+    );
+    return (rows || []).map(normalizeAuditRow);
+  } catch (e) {
+    if (isMissingDbArtifactError(e)) {
+      recordDisabledSource(diagnostics, 'task_deletion', e);
+      return [];
+    }
+    throw e;
+  }
+};
+
+const countTaskDeletionRows = async (filters = {}, diagnostics = null) => {
+  const { agencyId, userId, actionTypes, search, startDate, endDate } = filters;
+  const where = ['tdl.agency_id = ?'];
+  const params = [agencyId];
+  const { start, end } = toDateRange(startDate, endDate);
+  if (userId) { where.push('tdl.actor_user_id = ?'); params.push(userId); }
+  if (actionTypes && actionTypes.length > 0 && !actionTypes.includes('deleted')) return 0;
+  if (start) { where.push('tdl.deleted_at >= ?'); params.push(start); }
+  if (end) { where.push('tdl.deleted_at <= ?'); params.push(end); }
+  if (search) {
+    const like = asLike(search);
+    where.push(`(
+      LOWER(COALESCE(u.email, '')) LIKE ?
+      OR LOWER(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))) LIKE ?
+      OR LOWER(COALESCE(tdl.task_title, '')) LIKE ?
+      OR LOWER(COALESCE(CAST(tdl.metadata AS CHAR), '')) LIKE ?
+    )`);
+    params.push(like, like, like, like);
+  }
+  try {
+    const [rows] = await pool.execute(
+      `SELECT COUNT(*) AS total
+       FROM task_deletion_log tdl
+       LEFT JOIN users u ON u.id = tdl.actor_user_id
+       WHERE ${where.join(' AND ')}`,
+      params
+    );
+    return Number(rows?.[0]?.total || 0);
+  } catch (e) {
+    if (isMissingDbArtifactError(e)) {
+      recordDisabledSource(diagnostics, 'task_deletion', e);
       return 0;
     }
     throw e;
@@ -941,28 +1160,44 @@ export const getAgencyActivityLog = async (req, res, next) => {
         getPhiDocumentRows(filters, diagnostics),
         countPhiDocumentRows(filters, diagnostics)
       ]);
+    } else if (source === 'task_audit') {
+      [items, total] = await Promise.all([
+        getTaskAuditRows(filters, diagnostics),
+        countTaskAuditRows(filters, diagnostics)
+      ]);
+    } else if (source === 'task_deletion') {
+      [items, total] = await Promise.all([
+        getTaskDeletionRows(filters, diagnostics),
+        countTaskDeletionRows(filters, diagnostics)
+      ]);
     } else {
       const expandedLimit = Math.min(offset + limit, 5000);
       const scoped = { ...filters, limit: expandedLimit, offset: 0, sortBy: 'createdAt' };
-      const [activityRows, adminRows, supportRows, clientAccessRows, phiRows, activityTotal, adminTotal, supportTotal, clientAccessTotal, phiTotal] = await Promise.all([
+      const [activityRows, adminRows, supportRows, clientAccessRows, phiRows, taskRows, deletionRows, activityTotal, adminTotal, supportTotal, clientAccessTotal, phiTotal, taskTotal, deletionTotal] = await Promise.all([
         UserActivityLog.getAgencyActivityLog(scoped),
         AdminAuditLog.getAgencyAuditLogPaged(scoped),
         getSupportTicketRows(scoped, diagnostics),
         getClientAccessRows(scoped, diagnostics),
         getPhiDocumentRows(scoped, diagnostics),
+        getTaskAuditRows(scoped, diagnostics),
+        getTaskDeletionRows(scoped, diagnostics),
         UserActivityLog.countAgencyActivityLog(filters),
         AdminAuditLog.countAgencyAuditLog(filters),
         countSupportTicketRows(filters, diagnostics),
         countClientAccessRows(filters, diagnostics),
-        countPhiDocumentRows(filters, diagnostics)
+        countPhiDocumentRows(filters, diagnostics),
+        countTaskAuditRows(filters, diagnostics),
+        countTaskDeletionRows(filters, diagnostics)
       ]);
-      total = activityTotal + adminTotal + supportTotal + clientAccessTotal + phiTotal;
+      total = activityTotal + adminTotal + supportTotal + clientAccessTotal + phiTotal + taskTotal + deletionTotal;
       items = [
         ...activityRows.map((r) => normalizeAuditRow({ ...r, log_type: 'user_activity' })),
         ...adminRows.map((r) => normalizeAuditRow({ ...r, log_type: 'admin_action' })),
         ...supportRows,
         ...clientAccessRows,
-        ...phiRows
+        ...phiRows,
+        ...taskRows,
+        ...deletionRows
       ]
         .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
         .slice(offset, offset + limit);
@@ -1023,20 +1258,28 @@ export const exportAgencyActivityLogCsv = async (req, res, next) => {
       rows = await getClientAccessRows(filters);
     } else if (source === 'phi_document') {
       rows = await getPhiDocumentRows(filters);
+    } else if (source === 'task_audit') {
+      rows = await getTaskAuditRows(filters);
+    } else if (source === 'task_deletion') {
+      rows = await getTaskDeletionRows(filters);
     } else {
-      const [activityRows, adminRows, supportRows, clientAccessRows, phiRows] = await Promise.all([
+      const [activityRows, adminRows, supportRows, clientAccessRows, phiRows, taskRows, deletionRows] = await Promise.all([
         UserActivityLog.getAgencyActivityLog(filters),
         AdminAuditLog.getAgencyAuditLogPaged(filters),
         getSupportTicketRows(filters),
         getClientAccessRows(filters),
-        getPhiDocumentRows(filters)
+        getPhiDocumentRows(filters),
+        getTaskAuditRows(filters),
+        getTaskDeletionRows(filters)
       ]);
       rows = [
         ...activityRows.map((r) => normalizeAuditRow({ ...r, log_type: 'user_activity' })),
         ...adminRows.map((r) => normalizeAuditRow({ ...r, log_type: 'admin_action' })),
         ...supportRows,
         ...clientAccessRows,
-        ...phiRows
+        ...phiRows,
+        ...taskRows,
+        ...deletionRows
       ].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
     }
 

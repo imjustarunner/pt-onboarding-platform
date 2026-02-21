@@ -14,25 +14,24 @@
 <script setup>
 import { computed, onMounted } from 'vue';
 import { useAuthStore } from '../../store/auth';
+import { useAgencyStore } from '../../store/agency';
 import { isSupervisor } from '../../utils/helpers.js';
+import api from '../../services/api';
 import SuperAdminDashboard from './SuperAdminDashboard.vue';
 import AgencyAdminDashboard from './AgencyAdminDashboard.vue';
 
 const authStore = useAuthStore();
+const agencyStore = useAgencyStore();
 const user = computed(() => authStore.user);
 
 onMounted(() => {
-  console.log('AdminDashboard mounted');
-  console.log('User:', user.value);
-  console.log('User role:', user.value?.role);
-  console.log('User status:', user.value?.status);
-  console.log('Is super_admin?', user.value?.role === 'super_admin');
-  
-  // Debug: Check if role is set correctly
-  if (user.value?.role !== 'super_admin' && user.value?.role !== 'admin') {
-    console.warn('⚠️ User role is not admin or super_admin:', user.value?.role);
-    console.warn('Full user object:', JSON.stringify(user.value, null, 2));
-  }
+  const role = String(user.value?.role || '').toLowerCase();
+  const dashboardType = role === 'super_admin' || role === 'superadmin' ? 'super_admin' : 'agency';
+  const agencyId = agencyStore.currentAgency?.value?.id ?? agencyStore.currentAgency?.id ?? null;
+  api.post('/auth/activity-log', {
+    actionType: 'admin_dashboard_view',
+    metadata: { dashboardType, path: '/admin', agencyId }
+  }).catch(() => {});
 });
 </script>
 
