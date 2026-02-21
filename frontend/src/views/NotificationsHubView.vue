@@ -74,6 +74,7 @@
             </div>
             <div class="col col-msg">{{ formatNotificationLine(n) }}</div>
             <div class="col col-meta">
+              <span v-if="n.actor_display_name" class="actor-by">By: {{ n.actor_display_name }}</span>
               <span>{{ formatDate(n.created_at) }}</span>
               <div class="meta-actions">
                 <button class="btn btn-secondary btn-sm mark-btn" type="button" @click="markRead(n)" :disabled="!isUnread(n)">
@@ -517,6 +518,8 @@ const formatNotificationLine = (n) => {
   if (orgName) parts.push(orgName);
   const msg = String(n?.message || '').trim();
   if (msg) parts.push(msg);
+  const actorName = String(n?.actor_display_name || '').trim();
+  if (actorName) parts.push(`By: ${actorName}`);
   return parts.join(' • ');
 };
 
@@ -662,6 +665,10 @@ watch(
   font-size: 12px;
   gap: 8px;
   min-width: 170px;
+}
+.actor-by {
+  font-weight: 600;
+  color: var(--text-primary);
 }
 .badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); font-weight: 700; }
 .badge-urgent { border-color: #fecaca; background: #fef2f2; color: #b91c1c; }

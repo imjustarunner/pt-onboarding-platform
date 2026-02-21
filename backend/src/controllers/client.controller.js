@@ -2203,7 +2203,8 @@ export const updateClientComplianceChecklist = async (req, res, next) => {
           intakeAt: intakeAtProvided ? intakeAt : null,
           firstServiceAt: firstServiceAtProvided ? firstServiceAt : null,
           parentsContactedAt: parentsContactedAtProvided ? parentsContactedAt : null,
-          parentsContactedSuccessful: parentsContactedSuccessfulProvided ? parentsContactedSuccessful : null
+          parentsContactedSuccessful: parentsContactedSuccessfulProvided ? parentsContactedSuccessful : null,
+          actorUserId: userId
         }).catch(() => {});
       }
     } catch {
@@ -2234,7 +2235,8 @@ export const updateClientComplianceChecklist = async (req, res, next) => {
           intakeAt: intakeAtProvided ? intakeAt : null,
           firstServiceAt: firstServiceAtProvided ? firstServiceAt : null,
           parentsContactedAt: parentsContactedAtProvided ? parentsContactedAt : null,
-          parentsContactedSuccessful: parentsContactedSuccessfulProvided ? parentsContactedSuccessful : null
+          parentsContactedSuccessful: parentsContactedSuccessfulProvided ? parentsContactedSuccessful : null,
+          actorUserId: userId
         }).catch(() => {});
       }
     } catch {
@@ -2479,7 +2481,8 @@ export const assignProvider = async (req, res, next) => {
           clientId: updatedClient.id,
           providerUserId: finalProviderId,
           clientNameOrIdentifier: updatedClient.identifier_code || updatedClient.full_name || updatedClient.initials,
-          serviceDay: updatedClient.service_day || null
+          serviceDay: updatedClient.service_day || null,
+          actorUserId: userId
         }).catch(() => {});
       }
       res.json(updatedClient);
@@ -4030,7 +4033,8 @@ export const upsertClientProviderAssignment = async (req, res, next) => {
             userId: providerUserId,
             agencyId: client?.agency_id || null,
             relatedEntityType: 'client',
-            relatedEntityId: clientId
+            relatedEntityId: clientId,
+            actorUserId: userId
           });
 
           await NotificationDispatcherService.dispatchForNotification(notification, { context: { severity: 'info' } }).catch(() => {});

@@ -123,7 +123,8 @@ export async function notifyClientBecameCurrent({
   intakeAt,
   firstServiceAt,
   parentsContactedAt,
-  parentsContactedSuccessful
+  parentsContactedSuccessful,
+  actorUserId
 }) {
   if (!agencyId || !clientId) return;
 
@@ -149,7 +150,8 @@ export async function notifyClientBecameCurrent({
           userId,
           agencyId,
           relatedEntityType: 'client',
-          relatedEntityId: clientId
+          relatedEntityId: clientId,
+          actorUserId
         });
       })().catch(() => null)
     )
@@ -166,7 +168,8 @@ export async function notifyClientChecklistUpdated({
   intakeAt,
   firstServiceAt,
   parentsContactedAt,
-  parentsContactedSuccessful
+  parentsContactedSuccessful,
+  actorUserId
 }) {
   if (!agencyId || !clientId) return;
 
@@ -192,7 +195,8 @@ export async function notifyClientChecklistUpdated({
           userId,
           agencyId,
           relatedEntityType: 'client',
-          relatedEntityId: clientId
+          relatedEntityId: clientId,
+          actorUserId
         });
       })().catch(() => null)
     )

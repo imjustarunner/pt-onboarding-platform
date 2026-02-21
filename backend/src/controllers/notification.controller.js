@@ -136,25 +136,50 @@ async function appendNotificationContext(notifications) {
     }
   }
 
-    for (const n of list) {
-      const agencyName = agencyNameById.get(Number(n?.agency_id || 0)) || '';
-      if (agencyName) n.agency_name = agencyName;
-      if (String(n?.related_entity_type || '').toLowerCase() === 'client') {
-        const info = clientById.get(Number(n?.related_entity_id || 0));
-        if (info) {
-          n.client_initials = info.initials || '';
-          n.client_identifier_code = info.code || '';
-          if (info.organization_name) n.organization_name = info.organization_name;
-        }
-      }
-      // Per-user read state: expose as is_read for frontend compatibility
-      if (n._is_read_for_viewer !== undefined) {
-        n.is_read = n._is_read_for_viewer;
-      }
-      if (n._muted_until_for_viewer !== undefined) {
-        n.muted_until = n._muted_until_for_viewer;
+  const actorUserIds = Array.from(
+    new Set(
+      list
+        .map((n) => Number(n?.actor_user_id || 0))
+        .filter((v) => Number.isFinite(v) && v > 0)
+    )
+  );
+  const actorNameById = new Map();
+  if (actorUserIds.length) {
+    const placeholders = actorUserIds.map(() => '?').join(',');
+    const [rows] = await pool.execute(
+      `SELECT id, first_name, last_name, email
+       FROM users
+       WHERE id IN (${placeholders})`,
+      actorUserIds
+    );
+    for (const r of rows || []) {
+      const name = [String(r.first_name || '').trim(), String(r.last_name || '').trim()].filter(Boolean).join(' ').trim();
+      actorNameById.set(Number(r.id), name || String(r.email || '').trim() || null);
+    }
+  }
+
+  for (const n of list) {
+    const agencyName = agencyNameById.get(Number(n?.agency_id || 0)) || '';
+    if (agencyName) n.agency_name = agencyName;
+    if (String(n?.related_entity_type || '').toLowerCase() === 'client') {
+      const info = clientById.get(Number(n?.related_entity_id || 0));
+      if (info) {
+        n.client_initials = info.initials || '';
+        n.client_identifier_code = info.code || '';
+        if (info.organization_name) n.organization_name = info.organization_name;
       }
     }
+    if (n.actor_user_id) {
+      n.actor_display_name = actorNameById.get(Number(n.actor_user_id)) || null;
+    }
+    // Per-user read state: expose as is_read for frontend compatibility
+    if (n._is_read_for_viewer !== undefined) {
+      n.is_read = n._is_read_for_viewer;
+    }
+    if (n._muted_until_for_viewer !== undefined) {
+      n.muted_until = n._muted_until_for_viewer;
+    }
+  }
 
   return list;
 }

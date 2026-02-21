@@ -85,7 +85,8 @@ class Notification {
       userId,
       agencyId,
       relatedEntityType,
-      relatedEntityId
+      relatedEntityId,
+      actorUserId
     } = notificationData;
 
     // Validate notification type at application layer
@@ -101,8 +102,8 @@ class Notification {
 
     const [result] = await pool.execute(
       `INSERT INTO notifications 
-       (type, severity, title, message, audience_json, user_id, agency_id, related_entity_type, related_entity_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (type, severity, title, message, audience_json, user_id, agency_id, related_entity_type, related_entity_id, actor_user_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         type,
         severity,
@@ -112,7 +113,8 @@ class Notification {
         userId,
         agencyId,
         relatedEntityType,
-        relatedEntityId
+        relatedEntityId,
+        actorUserId || null
       ]
     );
 
