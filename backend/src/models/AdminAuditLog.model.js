@@ -102,6 +102,7 @@ class AdminAuditLog {
       agencyId,
       userId,
       actionType,
+      actionTypes,
       startDate,
       endDate,
       search
@@ -113,9 +114,13 @@ class AdminAuditLog {
       where.push('(aal.target_user_id = ? OR aal.actor_user_id = ?)');
       params.push(userId, userId);
     }
-    if (actionType) {
+    const at = actionTypes ?? (actionType ? [String(actionType)] : null);
+    if (at && at.length === 1) {
       where.push('aal.action_type = ?');
-      params.push(String(actionType));
+      params.push(at[0]);
+    } else if (at && at.length > 1) {
+      where.push(`aal.action_type IN (${at.map(() => '?').join(',')})`);
+      params.push(...at);
     }
     if (startDate) {
       const startDateTime = String(startDate).includes(' ') ? String(startDate) : `${startDate} 00:00:00`;

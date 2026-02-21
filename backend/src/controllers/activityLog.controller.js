@@ -2,6 +2,7 @@ import UserActivityLog from '../models/UserActivityLog.model.js';
 import AdminAuditLog from '../models/AdminAuditLog.model.js';
 import User from '../models/User.model.js';
 import pool from '../config/database.js';
+import auditActionRegistry from '../config/auditActionRegistry.js';
 
 const clamp = (value, min, max, fallback) => {
   const n = parseInt(value, 10);
@@ -103,6 +104,15 @@ const toDateRange = (startDate, endDate) => ({
   end: endDate ? (String(endDate).includes(' ') ? String(endDate) : `${endDate} 23:59:59`) : null
 });
 
+const resolveActionTypes = (category, actionType) => {
+  if (actionType && String(actionType).trim()) return [String(actionType).trim()];
+  if (category && String(category).trim()) {
+    const types = auditActionRegistry.getActionTypesForCategory(String(category).trim());
+    return types.length > 0 ? types : null;
+  }
+  return null;
+};
+
 const addClientSearchWhere = (where, params, search, tableAlias = 'c') => {
   if (!search) return;
   const like = asLike(search);
@@ -126,13 +136,24 @@ const normalizeAuditRow = (row) => ({
   metadata: parseJsonSafe(row.metadata)
 });
 
+const addActionTypeWhere = (where, params, actionTypes, column = 'l.action') => {
+  if (!actionTypes || actionTypes.length === 0) return;
+  if (actionTypes.length === 1) {
+    where.push(`${column} = ?`);
+    params.push(actionTypes[0]);
+  } else {
+    where.push(`${column} IN (${actionTypes.map(() => '?').join(',')})`);
+    params.push(...actionTypes);
+  }
+};
+
 const getClientAccessRows = async (filters = {}, diagnostics = null) => {
-  const { agencyId, userId, actionType, search, limit = 50, offset = 0, sortOrder = 'DESC', startDate, endDate } = filters;
+  const { agencyId, userId, actionTypes, search, limit = 50, offset = 0, sortOrder = 'DESC', startDate, endDate } = filters;
   const where = ['c.agency_id = ?'];
   const params = [agencyId];
   const { start, end } = toDateRange(startDate, endDate);
   if (userId) { where.push('l.user_id = ?'); params.push(userId); }
-  if (actionType) { where.push('l.action = ?'); params.push(String(actionType)); }
+  addActionTypeWhere(where, params, actionTypes);
   if (start) { where.push('l.created_at >= ?'); params.push(start); }
   if (end) { where.push('l.created_at <= ?'); params.push(end); }
   addClientSearchWhere(where, params, search, 'c');
@@ -182,12 +203,12 @@ const getClientAccessRows = async (filters = {}, diagnostics = null) => {
 };
 
 const countClientAccessRows = async (filters = {}, diagnostics = null) => {
-  const { agencyId, userId, actionType, search, startDate, endDate } = filters;
+  const { agencyId, userId, actionTypes, search, startDate, endDate } = filters;
   const where = ['c.agency_id = ?'];
   const params = [agencyId];
   const { start, end } = toDateRange(startDate, endDate);
   if (userId) { where.push('l.user_id = ?'); params.push(userId); }
-  if (actionType) { where.push('l.action = ?'); params.push(String(actionType)); }
+  addActionTypeWhere(where, params, actionTypes);
   if (start) { where.push('l.created_at >= ?'); params.push(start); }
   if (end) { where.push('l.created_at <= ?'); params.push(end); }
   addClientSearchWhere(where, params, search, 'c');
@@ -223,15 +244,16 @@ const countClientAccessRows = async (filters = {}, diagnostics = null) => {
 };
 
 const getSupportTicketRows = async (filters = {}, diagnostics = null) => {
-  const { agencyId, userId, actionType, search, limit = 50, offset = 0, sortOrder = 'DESC', startDate, endDate } = filters;
-  // If the caller requests an unsupported type, return empty quickly.
-  if (actionType && !['support_ticket_created', 'support_ticket_message'].includes(String(actionType))) return [];
+  const { agencyId, userId, actionType, actionTypes, search, limit = 50, offset = 0, sortOrder = 'DESC', startDate, endDate } = filters;
+  const at = actionTypes ?? (actionType ? [String(actionType)] : null);
+  const supportActions = ['support_ticket_created', 'support_ticket_message'];
+  if (at && at.length > 0 && !at.some((a) => supportActions.includes(String(a)))) return [];
   const order = String(sortOrder).toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
   const qLimit = Math.max(1, Math.min(parseInt(limit, 10) || 50, 5000));
   const qOffset = Math.max(0, parseInt(offset, 10) || 0);
 
-  const includeCreated = !actionType || String(actionType) === 'support_ticket_created';
-  const includeMessages = !actionType || String(actionType) === 'support_ticket_message';
+  const includeCreated = !at || at.length === 0 || at.includes('support_ticket_created');
+  const includeMessages = !at || at.length === 0 || at.includes('support_ticket_message');
 
   // To preserve correct ordering across both sources, fetch an expanded slice and merge/sort in JS.
   const expanded = Math.min(qOffset + qLimit, 5000);
@@ -351,11 +373,13 @@ const getSupportTicketRows = async (filters = {}, diagnostics = null) => {
 };
 
 const countSupportTicketRows = async (filters = {}, diagnostics = null) => {
-  const { agencyId, userId, actionType, search, startDate, endDate } = filters;
-  if (actionType && !['support_ticket_created', 'support_ticket_message'].includes(String(actionType))) return 0;
+  const { agencyId, userId, actionType, actionTypes, search, startDate, endDate } = filters;
+  const at = actionTypes ?? (actionType ? [String(actionType)] : null);
+  const supportActions = ['support_ticket_created', 'support_ticket_message'];
+  if (at && at.length > 0 && !at.some((a) => supportActions.includes(String(a)))) return 0;
 
-  const includeCreated = !actionType || String(actionType) === 'support_ticket_created';
-  const includeMessages = !actionType || String(actionType) === 'support_ticket_message';
+  const includeCreated = !at || at.length === 0 || at.includes('support_ticket_created');
+  const includeMessages = !at || at.length === 0 || at.includes('support_ticket_message');
 
   const { start, end } = toDateRange(startDate, endDate);
 
@@ -440,12 +464,12 @@ const countSupportTicketRows = async (filters = {}, diagnostics = null) => {
 };
 
 const getPhiDocumentRows = async (filters = {}, diagnostics = null) => {
-  const { agencyId, userId, actionType, search, limit = 50, offset = 0, sortOrder = 'DESC', startDate, endDate } = filters;
+  const { agencyId, userId, actionTypes, search, limit = 50, offset = 0, sortOrder = 'DESC', startDate, endDate } = filters;
   const where = ['c.agency_id = ?'];
   const params = [agencyId];
   const { start, end } = toDateRange(startDate, endDate);
   if (userId) { where.push('p.actor_user_id = ?'); params.push(userId); }
-  if (actionType) { where.push('p.action = ?'); params.push(String(actionType)); }
+  addActionTypeWhere(where, params, actionTypes, 'p.action');
   if (start) { where.push('p.created_at >= ?'); params.push(start); }
   if (end) { where.push('p.created_at <= ?'); params.push(end); }
   addClientSearchWhere(where, params, search, 'c');
@@ -497,12 +521,12 @@ const getPhiDocumentRows = async (filters = {}, diagnostics = null) => {
 };
 
 const countPhiDocumentRows = async (filters = {}, diagnostics = null) => {
-  const { agencyId, userId, actionType, search, startDate, endDate } = filters;
+  const { agencyId, userId, actionTypes, search, startDate, endDate } = filters;
   const where = ['c.agency_id = ?'];
   const params = [agencyId];
   const { start, end } = toDateRange(startDate, endDate);
   if (userId) { where.push('p.actor_user_id = ?'); params.push(userId); }
-  if (actionType) { where.push('p.action = ?'); params.push(String(actionType)); }
+  addActionTypeWhere(where, params, actionTypes, 'p.action');
   if (start) { where.push('p.created_at >= ?'); params.push(start); }
   if (end) { where.push('p.created_at <= ?'); params.push(end); }
   addClientSearchWhere(where, params, search, 'c');
@@ -863,10 +887,15 @@ export const getAgencyActivityLog = async (req, res, next) => {
     const userId = req.query.userId ? parseInt(req.query.userId, 10) : null;
     const source = String(req.query.source || 'all').toLowerCase();
     const diagnostics = { disabled_sources: [] };
+    const actionTypes = resolveActionTypes(
+      String(req.query.category || '').trim() || null,
+      String(req.query.actionType || '').trim() || null
+    );
     const filters = {
       agencyId,
       userId: Number.isFinite(userId) ? userId : null,
-      actionType: String(req.query.actionType || '').trim() || null,
+      actionType: actionTypes?.length === 1 ? actionTypes[0] : null,
+      actionTypes: actionTypes,
       startDate: String(req.query.startDate || '').trim() || null,
       endDate: String(req.query.endDate || '').trim() || null,
       search: String(req.query.search || '').trim() || null,
@@ -958,10 +987,15 @@ export const exportAgencyActivityLogCsv = async (req, res, next) => {
 
     const userId = req.query.userId ? parseInt(req.query.userId, 10) : null;
     const source = String(req.query.source || 'all').toLowerCase();
+    const actionTypes = resolveActionTypes(
+      String(req.query.category || '').trim() || null,
+      String(req.query.actionType || '').trim() || null
+    );
     const filters = {
       agencyId,
       userId: Number.isFinite(userId) ? userId : null,
-      actionType: String(req.query.actionType || '').trim() || null,
+      actionType: actionTypes?.length === 1 ? actionTypes[0] : null,
+      actionTypes,
       startDate: String(req.query.startDate || '').trim() || null,
       endDate: String(req.query.endDate || '').trim() || null,
       search: String(req.query.search || '').trim() || null,
@@ -1011,6 +1045,8 @@ export const exportAgencyActivityLogCsv = async (req, res, next) => {
       'client_full_name',
       'client_type',
       'action_type',
+      'action_label',
+      'category',
       'module_id',
       'module_title',
       'duration_seconds',
@@ -1024,6 +1060,8 @@ export const exportAgencyActivityLogCsv = async (req, res, next) => {
     const lines = [headers.join(',')];
     for (const row of rows) {
       const userName = `${row.user_first_name || ''} ${row.user_last_name || ''}`.trim();
+      const actionLabel = auditActionRegistry.getActionLabel(row.action_type);
+      const category = auditActionRegistry.getActionCategory(row.action_type);
       lines.push([
         csvEscape(row.log_type || 'user_activity'),
         csvEscape(row.created_at ? new Date(row.created_at).toISOString() : ''),
@@ -1037,6 +1075,8 @@ export const exportAgencyActivityLogCsv = async (req, res, next) => {
         csvEscape(row.client_full_name),
         csvEscape(row.client_type),
         csvEscape(row.action_type),
+        csvEscape(actionLabel),
+        csvEscape(category),
         csvEscape(row.module_id),
         csvEscape(row.module_title),
         csvEscape(row.duration_seconds),

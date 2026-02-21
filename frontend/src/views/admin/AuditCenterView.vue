@@ -34,10 +34,17 @@
         </select>
       </div>
       <div class="field">
+        <label>Category</label>
+        <select v-model="filters.category" @change="reload">
+          <option value="">All categories</option>
+          <option v-for="c in AUDIT_CATEGORIES" :key="c" :value="c">{{ c }}</option>
+        </select>
+      </div>
+      <div class="field">
         <label>Action</label>
         <select v-model="filters.actionType" @change="reload">
           <option value="">All actions</option>
-          <option v-for="a in actionOptions" :key="a" :value="a">{{ a }}</option>
+          <option v-for="a in actionOptions" :key="a.value" :value="a.value">{{ a.label }}</option>
         </select>
       </div>
       <div class="field">
@@ -69,7 +76,22 @@
       </div>
     </div>
 
-    <div class="table-wrap">
+    <div class="view-toggle">
+      <button
+        :class="['btn', 'btn-sm', viewMode === 'table' ? 'btn-primary' : 'btn-secondary']"
+        @click="viewMode = 'table'"
+      >
+        Table
+      </button>
+      <button
+        :class="['btn', 'btn-sm', viewMode === 'grouped' ? 'btn-primary' : 'btn-secondary']"
+        @click="viewMode = 'grouped'"
+      >
+        Grouped by category
+      </button>
+    </div>
+
+    <div class="table-wrap" v-if="viewMode === 'table'">
       <div v-if="error" class="error-banner">{{ error }}</div>
       <table class="table">
         <thead>
@@ -98,7 +120,7 @@
             <td>{{ row.source_label || sourceLabel(row) }}</td>
             <td>{{ formatUser(row) }}</td>
             <td>{{ formatUserEmail(row) }}</td>
-            <td><span class="badge">{{ row.action_type }}</span></td>
+            <td><span class="badge">{{ getActionLabel(row.action_type) }}</span></td>
             <td>
               <div>{{ formatClientInitials(row) }}</div>
               <small v-if="formatClientName(row) !== '-'">{{ formatClientName(row) }}</small>
@@ -113,6 +135,35 @@
           </tr>
         </tbody>
       </table>
+    </div>
+
+    <div class="grouped-list-wrap" v-else-if="viewMode === 'grouped'">
+      <div v-if="error" class="error-banner">{{ error }}</div>
+      <div v-if="loading" class="empty">Loading…</div>
+      <div v-else-if="rows.length === 0" class="empty">No activity found for current filters.</div>
+      <template v-else>
+        <section
+          v-for="group in groupedRows"
+          :key="group.category"
+          class="audit-category-section"
+        >
+          <h3 class="category-heading">{{ group.category }}</h3>
+          <ul class="audit-action-list">
+            <li
+              v-for="row in group.rows"
+              :key="row.id"
+              class="audit-action-item"
+            >
+              <span class="action-label">{{ getActionLabel(row.action_type) }}</span>
+              <span class="action-meta">
+                {{ formatDate(row.created_at) }}
+                <template v-if="formatUser(row)"> · {{ formatUser(row) }}</template>
+                <template v-if="formatClientInitials(row) !== '-'"> · {{ formatClientInitials(row) }}</template>
+              </span>
+            </li>
+          </ul>
+        </section>
+      </template>
     </div>
 
     <div class="footer-bar">
@@ -134,6 +185,12 @@ import { useRoute } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import api from '../../services/api';
+import {
+  getActionLabel,
+  getActionCategory,
+  getActionOptions,
+  AUDIT_CATEGORIES
+} from '../../utils/auditActionRegistry.js';
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
@@ -144,71 +201,19 @@ const isAgencyOrg = (org) => {
   return t === 'agency';
 };
 
-const actionOptions = [
-  'login',
-  'logout',
-  'timeout',
-  'password_change',
-  'module_start',
-  'module_end',
-  'module_complete',
-  'intake_approval',
-  'password_reset_link_sent',
-  'note_aid_execute',
-  'agent_assist',
-  'agent_tool_execute',
-  'reset_module',
-  'reset_track',
-  'mark_module_complete',
-  'mark_track_complete',
-  'admin_doc_deleted',
-  'admin_doc_restored',
-  'admin_doc_legal_hold_set',
-  'admin_doc_legal_hold_released',
-  'clinical_note_deleted',
-  'clinical_note_restored',
-  'clinical_note_legal_hold_set',
-  'clinical_note_legal_hold_released',
-  'clinical_claim_deleted',
-  'clinical_claim_restored',
-  'clinical_claim_legal_hold_set',
-  'clinical_claim_legal_hold_released',
-  'clinical_document_deleted',
-  'clinical_document_restored',
-  'clinical_document_legal_hold_set',
-  'clinical_document_legal_hold_released',
-  'grant_payroll_access',
-  'revoke_payroll_access',
-  'payroll_write',
-  'support_ticket_created',
-  'support_ticket_message',
-  'view_client',
-  'view_client_restricted',
-  'view_client_notes',
-  'create_client_note',
-  'downloaded',
-  'view',
-  'sms_sent',
-  'sms_send_failed',
-  'sms_inbound_received',
-  'sms_opt_in',
-  'sms_opt_out',
-  'sms_thread_deleted',
-  'sms_message_deleted',
-  'outbound_call_started',
-  'outbound_call_failed',
-  'voicemail_listened'
-];
+const actionOptions = getActionOptions();
 
 const rows = ref([]);
 const loading = ref(false);
 const exporting = ref(false);
 const error = ref('');
+const viewMode = ref('table');
 
 const filters = reactive({
   source: 'all',
   search: '',
   userId: '',
+  category: '',
   actionType: '',
   startDate: '',
   endDate: ''
@@ -252,6 +257,22 @@ const agencyStorageKey = computed(() => {
   return `auditCenterAgencyId:${String(u.id || u.email || 'unknown')}`;
 });
 
+const groupedRows = computed(() => {
+  const byCategory = new Map();
+  for (const row of rows.value) {
+    const cat = getActionCategory(row.action_type);
+    if (!byCategory.has(cat)) byCategory.set(cat, []);
+    byCategory.get(cat).push(row);
+  }
+  const categoriesWithData = [...byCategory.keys()];
+  const ordered = AUDIT_CATEGORIES.filter((c) => categoriesWithData.includes(c));
+  const remaining = categoriesWithData.filter((c) => !AUDIT_CATEGORIES.includes(c));
+  return [...ordered, ...remaining].map((category) => ({
+    category,
+    rows: byCategory.get(category) || []
+  }));
+});
+
 const hydrateDefaultAgencySelection = () => {
   // Priority: URL query ?agencyId= > localStorage > currentAgency (if agency) > first selectable agency
   const fromQuery = route.query?.agencyId ? parseInt(String(route.query.agencyId), 10) : NaN;
@@ -287,6 +308,7 @@ const currentParams = () => ({
   search: filters.search || undefined,
   source: filters.source || undefined,
   userId: filters.userId || undefined,
+  category: filters.category || undefined,
   actionType: filters.actionType || undefined,
   startDate: filters.startDate || undefined,
   endDate: filters.endDate || undefined,
@@ -475,4 +497,14 @@ onMounted(async () => {
 .summary { display: flex; gap: 1rem; color: var(--text-secondary); }
 .pager { display: flex; gap: 0.5rem; }
 .error-banner { color: #a33; padding: 0.75rem; }
+.view-toggle { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; }
+.grouped-list-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 1rem; }
+.audit-category-section { margin-bottom: 1.5rem; }
+.audit-category-section:last-child { margin-bottom: 0; }
+.category-heading { font-size: 0.85rem; font-weight: 600; color: var(--text-secondary); margin: 0 0 0.5rem; text-transform: uppercase; letter-spacing: 0.03em; }
+.audit-action-list { list-style: none; margin: 0; padding: 0; }
+.audit-action-item { padding: 0.4rem 0; border-bottom: 1px solid var(--border); display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: baseline; }
+.audit-action-item:last-child { border-bottom: none; }
+.action-label { font-weight: 500; }
+.action-meta { font-size: 0.8rem; color: var(--text-secondary); }
 </style>

@@ -197,6 +197,7 @@ class UserActivityLog {
       agencyId,
       userId,
       actionType,
+      actionTypes,
       startDate,
       endDate,
       search
@@ -208,9 +209,13 @@ class UserActivityLog {
       where.push('ual.user_id = ?');
       params.push(userId);
     }
-    if (actionType) {
+    const at = actionTypes ?? (actionType ? [String(actionType)] : null);
+    if (at && at.length === 1) {
       where.push('ual.action_type = ?');
-      params.push(String(actionType));
+      params.push(at[0]);
+    } else if (at && at.length > 1) {
+      where.push(`ual.action_type IN (${at.map(() => '?').join(',')})`);
+      params.push(...at);
     }
     if (startDate) {
       const startDateTime = String(startDate).includes(' ') ? String(startDate) : `${startDate} 00:00:00`;
