@@ -2030,12 +2030,16 @@ export const providerAvailabilityDashboard = async (req, res, next) => {
        FROM provider_school_assignments psa
        JOIN agencies s ON s.id = psa.school_organization_id
        JOIN users u ON u.id = psa.provider_user_id
+       JOIN user_agencies ua ON ua.user_id = psa.provider_user_id AND ua.agency_id = ?
        JOIN organization_affiliations oa ON oa.organization_id = psa.school_organization_id AND oa.is_active = TRUE
        WHERE ${schoolWhere.join(' AND ')}
+         AND (u.is_archived IS NULL OR u.is_archived = FALSE)
+         AND (u.is_active IS NULL OR u.is_active = TRUE)
+         AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE'))
        ORDER BY s.name ASC,
                 FIELD(psa.day_of_week,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday') ASC,
                 u.last_name ASC, u.first_name ASC`,
-      schoolParams
+      [agencyId, ...schoolParams]
     );
 
     const schoolSlots = (schoolRows || []).map((r) => ({
@@ -2099,9 +2103,13 @@ export const providerAvailabilityDashboard = async (req, res, next) => {
        JOIN office_location_agencies ola ON ola.office_location_id = ol.id
        JOIN office_rooms r ON r.id = osa.room_id
        JOIN users u ON u.id = osa.provider_id
+       JOIN user_agencies ua ON ua.user_id = osa.provider_id AND ua.agency_id = ?
        WHERE ${officeWhere.join(' AND ')}
+         AND (u.is_archived IS NULL OR u.is_archived = FALSE)
+         AND (u.is_active IS NULL OR u.is_active = TRUE)
+         AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE'))
        ORDER BY ol.name ASC, u.last_name ASC, u.first_name ASC, osa.weekday ASC, osa.hour ASC`,
-      officeParams
+      [agencyId, ...officeParams]
     );
 
     const officeAvailability = (officeRows || []).map((r) => {
@@ -2159,11 +2167,15 @@ export const providerAvailabilityDashboard = async (req, res, next) => {
            v.frequency
          FROM provider_virtual_working_hours v
          JOIN users u ON u.id = v.provider_id
+         JOIN user_agencies ua ON ua.user_id = v.provider_id AND ua.agency_id = ?
          WHERE ${virtualWhere.join(' AND ')}
+           AND (u.is_archived IS NULL OR u.is_archived = FALSE)
+           AND (u.is_active IS NULL OR u.is_active = TRUE)
+           AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE'))
          ORDER BY u.last_name ASC, u.first_name ASC,
                   FIELD(v.day_of_week,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'),
                   v.start_time ASC`,
-        virtualParams
+        [agencyId, ...virtualParams]
       );
       virtualRows = rows || [];
     } catch (e) {
