@@ -192,40 +192,46 @@
       <button v-else class="btn btn-primary" disabled>View Checklist</button>
     </div>
     
-    <!-- Provider top summary card -->
+    <!-- Top row: My Snapshot + My Status + Your Team (saves vertical space) -->
     <div
-      v-if="!previewMode && isOnboardingComplete && !isPending && !isSchoolStaff && providerSurfacesEnabled"
-      class="top-snapshot-wrap"
-      data-tour="dash-snapshot"
+      v-if="!previewMode && isOnboardingComplete && !isSchoolStaff && (providerSurfacesEnabled || canSeePresenceWidget || (currentAgencyId && canSeeKudosWidget))"
+      class="top-snapshot-row"
     >
-      <div class="top-snapshot-head">
-        <div class="top-snapshot-title">My Snapshot</div>
-        <button type="button" class="btn btn-secondary btn-sm top-snapshot-toggle" @click="toggleTopCardCollapsed">
-          {{ topCardCollapsed ? 'Expand' : 'Collapse' }}
-        </button>
+      <!-- Provider top summary card -->
+      <div
+        v-if="!isPending && providerSurfacesEnabled"
+        class="top-snapshot-wrap top-snapshot-cell"
+        data-tour="dash-snapshot"
+      >
+        <div class="top-snapshot-head">
+          <div class="top-snapshot-title">My Snapshot</div>
+          <button type="button" class="btn btn-secondary btn-sm top-snapshot-toggle" @click="toggleTopCardCollapsed">
+            {{ topCardCollapsed ? 'Expand' : 'Collapse' }}
+          </button>
+        </div>
+        <ProviderTopSummaryCard v-if="!topCardCollapsed" @open-last-paycheck="openLastPaycheckModal" />
       </div>
-      <ProviderTopSummaryCard v-if="!topCardCollapsed" @open-last-paycheck="openLastPaycheckModal" />
-    </div>
 
-    <!-- Presence status widget – staff can update their status -->
-    <div
-      v-if="!previewMode && isOnboardingComplete && !isSchoolStaff && canSeePresenceWidget"
-      class="top-snapshot-wrap"
-      data-tour="dash-presence-status"
-    >
-      <PresenceStatusWidget />
-    </div>
+      <!-- Presence status widget – staff can update their status -->
+      <div
+        v-if="canSeePresenceWidget"
+        class="top-snapshot-wrap top-snapshot-cell"
+        data-tour="dash-presence-status"
+      >
+        <PresenceStatusWidget />
+      </div>
 
-    <!-- Staff / Team card – coworkers and management (when kudos enabled) -->
-    <div
-      v-if="!previewMode && isOnboardingComplete && !isSchoolStaff && currentAgencyId && canSeeKudosWidget"
-      class="top-snapshot-wrap"
-      data-tour="dash-staff-card"
-    >
-      <StaffCard
-        :agency-id="Number(currentAgencyId)"
-        :icon-url="brandingStore.getDashboardCardIconUrl('staff', cardIconOrgOverride)"
-      />
+      <!-- Staff / Team card – coworkers and management (when kudos enabled) -->
+      <div
+        v-if="currentAgencyId && canSeeKudosWidget"
+        class="top-snapshot-wrap top-snapshot-cell"
+        data-tour="dash-staff-card"
+      >
+        <StaffCard
+          :agency-id="Number(currentAgencyId)"
+          :icon-url="brandingStore.getDashboardCardIconUrl('staff', cardIconOrgOverride)"
+        />
+      </div>
     </div>
 
     <!-- Social & feeds (collapsible block) – super_admin only until full release -->
@@ -2699,6 +2705,20 @@ h1 {
   background: rgba(255, 255, 255, 0.9);
 }
 
+.top-snapshot-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: flex-start;
+  margin-bottom: 16px;
+}
+.top-snapshot-cell {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+.top-snapshot-row .top-snapshot-wrap {
+  margin-bottom: 0;
+}
 .top-snapshot-wrap {
   margin-bottom: 16px;
 }
