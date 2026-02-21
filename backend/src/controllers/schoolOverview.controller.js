@@ -107,6 +107,7 @@ export const getSchoolOverview = async (req, res, next) => {
         school_slug: s?.slug || s?.portal_url || null,
         organization_type: s?.organization_type || null,
         logo_path: s?.logo_path || null,
+        logo_url: s?.logo_url || null,
         icon_file_path: s?.icon_file_path || null,
         is_active: s?.is_active !== false,
         is_archived: !!s?.is_archived,

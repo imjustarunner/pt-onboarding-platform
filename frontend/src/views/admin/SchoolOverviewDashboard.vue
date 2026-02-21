@@ -263,7 +263,10 @@ const failedCardLogoIds = ref(new Set());
 function schoolLogoUrl(school) {
   const candidates = [
     school?.logo_path,
-    school?.icon_file_path
+    school?.icon_file_path,
+    school?.icon_path,
+    school?.logo_url,
+    school?.icon_url
   ];
   const raw = candidates.find((v) => String(v || '').trim());
   if (!raw) return null;
@@ -389,6 +392,7 @@ const fetchOverview = async () => {
   try {
     loading.value = true;
     error.value = '';
+    failedCardLogoIds.value = new Set();
     const res = await api.get('/dashboard/school-overview', { params: { agencyId, orgType: orgType.value || undefined } });
     schools.value = res.data?.schools || [];
   } catch (e) {

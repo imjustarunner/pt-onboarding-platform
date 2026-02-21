@@ -532,7 +532,7 @@ const quickActions = computed(() => {
     emoji: '🧭',
     iconKey: 'provider_availability_dashboard',
     category: 'Scheduling',
-    roles: ['admin', 'support', 'super_admin', 'staff', 'clinical_practice_assistant', 'supervisor', 'schedule_manager'],
+    roles: ['admin', 'support', 'super_admin', 'staff', 'clinical_practice_assistant', 'supervisor', 'schedule_manager', 'provider_plus'],
     capabilities: ['canAccessPlatform']
   },
   {

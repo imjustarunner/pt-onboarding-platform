@@ -11,7 +11,7 @@
         </div>
       </div>
       <div class="sched-toolbar-main">
-        <div class="sched-toolbar-left">
+        <div class="sched-toolbar-left" :class="{ 'sched-office-pulse': showOfficeReminderPulse }">
           <div class="sched-view-switch" role="tablist" aria-label="Schedule view" data-tour="my-schedule-view-switch">
             <button
               v-for="opt in viewModeOptions"
@@ -31,6 +31,9 @@
           <button class="btn btn-secondary btn-sm sched-btn" type="button" @click="nextWeek" :disabled="loading">Next →</button>
         </div>
 
+        <div v-if="officeReminderToast" class="sched-office-reminder-toast">
+          {{ officeReminderToast }}
+        </div>
         <div class="sched-toolbar-right">
           <label class="sched-inline" data-tour="my-schedule-office-select">
             <span>Office</span>
@@ -1317,7 +1320,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import { getScheduleSummary, setScheduleSummary } from '../../utils/scheduleSummaryCache';
 import { useAuthStore } from '../../store/auth';
@@ -1667,8 +1670,29 @@ const showAllCalendars = () => {
 
 const viewModeOptions = [
   { id: 'open_finder', label: 'Open finder' },
-  { id: 'office_layout', label: 'Office layout' }
+  { id: 'office_layout', label: 'Click Here to navigate offices and request more office space' }
 ];
+
+// Office reminder: pulse + 3s toast when user lands on My Schedule (self mode)
+const showOfficeReminderPulse = ref(false);
+const officeReminderToast = ref('');
+const OFFICE_REMINDER_MSG = 'Click here to navigate offices and request more office space.';
+const OFFICE_REMINDER_STORAGE_KEY = 'sched_office_reminder_seen';
+const showOfficeReminder = () => {
+  if (props.mode !== 'self') return;
+  try {
+    if (sessionStorage.getItem(OFFICE_REMINDER_STORAGE_KEY)) return;
+    sessionStorage.setItem(OFFICE_REMINDER_STORAGE_KEY, '1');
+  } catch {
+    /* ignore */
+  }
+  showOfficeReminderPulse.value = true;
+  officeReminderToast.value = OFFICE_REMINDER_MSG;
+  setTimeout(() => {
+    officeReminderToast.value = '';
+    setTimeout(() => { showOfficeReminderPulse.value = false; }, 400);
+  }, 3000);
+};
 
 const loadSelfScheduleAgencies = async () => {
   if (props.mode !== 'self') {
@@ -2289,6 +2313,11 @@ const load = async () => {
           // ignore
         }
       }
+    }
+
+    // Office reminder: pulse + 3s toast once per session when My Schedule loads
+    if (props.mode === 'self' && summary.value) {
+      nextTick(() => showOfficeReminder());
     }
   } catch (e) {
     if (!cached) {
@@ -4909,6 +4938,25 @@ const loadOfficeLocations = async () => {
     const r = await api.get('/offices');
     const rows = Array.isArray(r.data) ? r.data : [];
     officeLocations.value = rows;
+
+    // Default to user's assigned office when none selected (most have just 1)
+    if (Number(selectedOfficeLocationId.value || 0) === 0 && props.mode === 'self' && rows.length > 0) {
+      try {
+        const agencyId = Number(effectiveAgencyId.value || 0);
+        const params = agencyId > 0 ? { agencyId } : {};
+        const assigned = await api.get('/payroll/me/assigned-offices', { params });
+        const list = Array.isArray(assigned?.data) ? assigned.data : [];
+        const officeIds = new Set(rows.map((o) => Number(o.id)));
+        const first = list.find((o) => officeIds.has(Number(o.id)));
+        if (first) {
+          selectedOfficeLocationId.value = Number(first.id);
+        } else if (rows.length === 1) {
+          selectedOfficeLocationId.value = Number(rows[0].id);
+        }
+      } catch {
+        if (rows.length === 1) selectedOfficeLocationId.value = Number(rows[0].id);
+      }
+    }
   } catch {
     officeLocations.value = [];
   }
@@ -6815,6 +6863,38 @@ watch([modalHour, modalEndHour, modalStartMinute, modalEndMinute, canUseQuarterH
   box-shadow: 0 1px 0 rgba(15, 23, 42, 0.06);
 }
 .sched-seg:disabled { opacity: 0.55; cursor: not-allowed; }
+
+/* Office reminder: pulse to draw attention */
+.sched-office-pulse {
+  animation: sched-office-pulse 2s ease-in-out 3;
+}
+@keyframes sched-office-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+/* Office reminder toast (3s) */
+.sched-office-reminder-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--primary);
+  color: white;
+  padding: 12px 20px;
+  border-radius: 12px;
+  font-weight: 700;
+  font-size: 14px;
+  box-shadow: var(--shadow-lg);
+  z-index: 9999;
+  max-width: 90vw;
+  text-align: center;
+  animation: sched-toast-fade 0.3s ease-out;
+}
+@keyframes sched-toast-fade {
+  from { opacity: 0; transform: translateX(-50%) translateY(10px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
 .sched-inline {
   display: inline-flex;
   align-items: center;

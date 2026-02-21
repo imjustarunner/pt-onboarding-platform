@@ -139,6 +139,7 @@
                     <router-link :to="orgTo('/admin/schools/overview?orgType=program')" v-if="user?.role === 'super_admin' || isAdmin" @click="closeAllNavMenus">Program Overview</router-link>
                     <router-link :to="orgTo('/admin/school-portals')" v-if="user?.role === 'super_admin' || isAdmin" @click="closeAllNavMenus">Show All School Portals</router-link>
                     <router-link :to="orgTo('/admin/find-providers')" v-if="user?.role === 'super_admin' || isAdmin" @click="closeAllNavMenus">Provider Booking Interface</router-link>
+                    <router-link :to="orgTo('/admin/provider-availability')" v-if="user?.role === 'super_admin' || isAdmin || user?.role === 'staff' || user?.role === 'provider_plus'" @click="closeAllNavMenus">Provider Availability</router-link>
                     <router-link :to="orgTo('/admin/users')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeAllNavMenus">Users</router-link>
                     <router-link :to="orgTo('/admin/clients')" v-if="isAdmin || user?.role === 'provider'" @click="closeAllNavMenus">Clients</router-link>
                   </div>
@@ -405,6 +406,12 @@
                 @click="closeMobileMenu"
                 class="mobile-nav-link"
               >Show All School Portals</router-link>
+              <router-link
+                :to="orgTo('/admin/provider-availability')"
+                v-if="user?.role === 'super_admin' || isAdmin || user?.role === 'staff' || user?.role === 'provider_plus'"
+                @click="closeMobileMenu"
+                class="mobile-nav-link"
+              >Provider Availability</router-link>
               <router-link
                 :to="orgTo('/admin/documents')"
                 v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && hasCapability('canSignDocuments')"

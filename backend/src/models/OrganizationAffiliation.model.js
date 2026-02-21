@@ -23,9 +23,10 @@ class OrganizationAffiliation {
     const aId = parseInt(agencyId, 10);
     if (!aId) return [];
     const [rows] = await pool.execute(
-      `SELECT org.*
+      `SELECT org.*, org_i.file_path AS icon_file_path
        FROM organization_affiliations oa
        INNER JOIN agencies org ON oa.organization_id = org.id
+       LEFT JOIN icons org_i ON org.icon_id = org_i.id
        WHERE oa.agency_id = ? AND oa.is_active = TRUE
        ORDER BY org.name ASC`,
       [aId]
