@@ -177,6 +177,7 @@
                 <option value="booked">Booked only</option>
                 <option value="assigned">Assigned only</option>
                 <option value="open">Open only</option>
+                <option value="requested">Requested only</option>
               </select>
             </label>
           </div>
@@ -184,7 +185,7 @@
         <div class="office-quick-glance-list">
           <div v-for="row in quickGlanceRows" :key="`qg-row-${row.roomId}`" class="office-quick-glance-row">
             <div class="office-quick-glance-room">{{ row.roomLabel }}</div>
-            <div class="office-quick-glance-status" :class="`state-${row.state}`">{{ row.statusLabel }}</div>
+            <div class="office-quick-glance-status" :class="[`state-${row.state}`, row.hasPendingRequest && 'state-requested']">{{ row.statusLabel }}</div>
             <div class="office-quick-glance-provider">{{ row.providerLabel }}</div>
           </div>
           <div v-if="!quickGlanceRows.length" class="muted" style="font-size: 12px;">
@@ -3479,9 +3480,9 @@ const availableQuickActions = computed(() => {
     {
       id: 'office_request_only',
       label: 'Request office',
-      description: 'Request permission to use office space',
+      description: 'Request permission to use office space (assigned-available slots only)',
       disabledReason: hasOffice ? '' : 'Select office',
-      visible: !supervisionOnlyMode,
+      visible: !supervisionOnlyMode && state !== 'ASSIGNED_BOOKED',
       tone: 'teal'
     },
     {
@@ -4773,11 +4774,13 @@ const quickGlanceRows = computed(() => {
   const out = rooms.map((r) => {
     const slot = byRoom.get(Number(r.id)) || null;
     const st = String(slot?.state || 'open');
-    const statusLabel =
+    const pending = Number(slot?.pendingRequestCount || 0) || 0;
+    let statusLabel =
       st === 'assigned_booked' ? 'Booked'
         : st === 'assigned_available' ? 'Assigned available'
           : st === 'assigned_temporary' ? 'Assigned temporary'
             : 'Open';
+    if (pending > 0) statusLabel = `Requested${statusLabel !== 'Open' ? ` (${statusLabel})` : ''}`;
     const providerLabel = String(slot?.bookedProviderName || slot?.assignedProviderName || slot?.providerInitials || '').trim() || '—';
     const roomLabel = `${r?.roomNumber ? `#${r.roomNumber} ` : ''}${r?.label || r?.name || `Room ${r?.id || ''}`}`.trim();
     return {
@@ -4785,7 +4788,8 @@ const quickGlanceRows = computed(() => {
       roomLabel,
       state: st,
       statusLabel,
-      providerLabel
+      providerLabel,
+      hasPendingRequest: pending > 0
     };
   });
   const filter = String(quickGlanceStateFilter.value || 'all');
@@ -4793,6 +4797,7 @@ const quickGlanceRows = computed(() => {
     if (filter === 'booked') return row.state === 'assigned_booked';
     if (filter === 'assigned') return row.state === 'assigned_available' || row.state === 'assigned_temporary';
     if (filter === 'open') return row.state === 'open';
+    if (filter === 'requested') return row.hasPendingRequest;
     return true;
   });
   filtered.sort((a, b) => String(a.roomLabel).localeCompare(String(b.roomLabel)));
@@ -6984,6 +6989,10 @@ watch([modalHour, modalEndHour, modalStartMinute, modalEndMinute, canUseQuarterH
 .office-quick-glance-status.state-open {
   background: rgba(37, 99, 235, 0.12);
   color: rgba(30, 64, 175, 0.95);
+}
+.office-quick-glance-status.state-requested {
+  background: rgba(245, 158, 11, 0.15);
+  color: rgba(180, 83, 9, 0.95);
 }
 .office-quick-glance-provider {
   font-size: 13px;

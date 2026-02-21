@@ -952,6 +952,58 @@ export const getWeeklyGrid = async (req, res, next) => {
       return { frequency: null, frequencyLabel: null, frequencyBadge: null };
     };
 
+    // Pending office availability requests: show "Requested" so others don't duplicate
+    const officeAgencies = await OfficeLocationAgency.listAgenciesForOffice(officeLocationIdNum);
+    const officeAgencyIds = (officeAgencies || []).map((a) => Number(a.id)).filter((n) => n > 0);
+    const pendingBySlot = new Map(); // key: `${date}:${hour}` -> [{ providerName }]
+    if (officeAgencyIds.length > 0) {
+      const [reqRows] = await pool.execute(
+        `SELECT r.id, r.provider_id, r.preferred_office_ids_json,
+                u.first_name, u.last_name
+         FROM provider_office_availability_requests r
+         JOIN users u ON u.id = r.provider_id
+         WHERE r.agency_id IN (${officeAgencyIds.map(() => '?').join(',')})
+           AND r.status = 'PENDING'`,
+        officeAgencyIds
+      );
+      for (const req of reqRows || []) {
+        const prefIds = parseJsonSafely(req.preferred_office_ids_json);
+        const includesOffice =
+          !prefIds || !Array.isArray(prefIds) || prefIds.length === 0
+            ? true
+            : prefIds.some((id) => Number(id) === officeLocationIdNum);
+        if (!includesOffice) continue;
+        const providerName = `${String(req.first_name || '').trim()} ${String(req.last_name || '').trim()}`.trim() || `Provider #${req.provider_id}`;
+        const [slotRows] = await pool.execute(
+          `SELECT weekday, start_hour, end_hour
+           FROM provider_office_availability_request_slots
+           WHERE request_id = ?
+           ORDER BY weekday, start_hour`,
+          [req.id]
+        );
+        for (const row of slotRows || []) {
+          const wd = Number(row.weekday);
+          const sh = Number(row.start_hour);
+          const eh = Number(row.end_hour);
+          if (!(wd >= 0 && wd <= 6) || !Number.isFinite(sh) || !Number.isFinite(eh) || eh <= sh) continue;
+          const dateForWeekday = days[wd];
+          if (!dateForWeekday) continue;
+          for (let h = sh; h < eh; h++) {
+            const k = `${dateForWeekday}:${h}`;
+            if (!pendingBySlot.has(k)) pendingBySlot.set(k, []);
+            pendingBySlot.get(k).push({ providerName });
+          }
+        }
+      }
+    }
+    for (const s of slots) {
+      const pk = `${s.date}:${s.hour}`;
+      const pending = pendingBySlot.get(pk) || [];
+      const uniqueNames = [...new Set(pending.map((p) => p.providerName))];
+      s.pendingRequestCount = uniqueNames.length;
+      s.pendingRequestNames = uniqueNames.length > 0 ? uniqueNames : null;
+    }
+
     for (const s of slots) {
       const standingId = Number(s.standingAssignmentId || 0) || null;
       const planId = Number(s.bookingPlanId || 0) || null;

@@ -94,12 +94,22 @@
               <span v-if="n.actor_display_name" class="actor-by">By: {{ n.actor_display_name }}</span>
               <span>{{ formatDate(n.created_at) }}</span>
               <div class="meta-actions">
-                <button class="btn btn-secondary btn-sm mark-btn" type="button" @click="markRead(n)" :disabled="!isUnread(n)">
-                  Mark read
-                </button>
-                <button class="btn btn-danger btn-sm" type="button" @click="dismissNotification(n)">
-                  Dismiss
-                </button>
+                <template v-if="n.type === 'office_availability_request_pending' && canManageAvailability && n.agency_id">
+                  <button class="btn btn-primary btn-sm" type="button" @click.stop="openOfficeRequestModal(n)">
+                    Approve
+                  </button>
+                  <button class="btn btn-danger btn-sm" type="button" @click.stop="denyOfficeRequest(n)">
+                    Deny
+                  </button>
+                </template>
+                <template v-else>
+                  <button class="btn btn-secondary btn-sm mark-btn" type="button" @click="markRead(n)" :disabled="!isUnread(n)">
+                    Mark read
+                  </button>
+                  <button class="btn btn-danger btn-sm" type="button" @click="dismissNotification(n)">
+                    Dismiss
+                  </button>
+                </template>
               </div>
             </div>
           </div>
@@ -205,6 +215,14 @@
     </div>
   </div>
 
+  <OfficeRequestAssignModal
+    :visible="officeRequestModal.visible"
+    :request-id="officeRequestModal.requestId"
+    :agency-id="officeRequestModal.agencyId"
+    @close="officeRequestModal.visible = false"
+    @assigned="handleOfficeRequestResolved"
+    @denied="handleOfficeRequestResolved"
+  />
   <ClientDetailPanel
     v-if="adminSelectedClient"
     :client="adminSelectedClient"
@@ -220,6 +238,7 @@ import { useAuthStore } from '../store/auth';
 import { useAgencyStore } from '../store/agency';
 import api from '../services/api';
 import ClientDetailPanel from '../components/admin/ClientDetailPanel.vue';
+import OfficeRequestAssignModal from '../components/admin/OfficeRequestAssignModal.vue';
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
@@ -243,6 +262,7 @@ const adminSelectedClient = ref(null);
 const adminClientLoading = ref(false);
 const activeTypeFilter = ref('all');
 const selectedIds = ref(new Set());
+const officeRequestModal = ref({ visible: false, requestId: null, agencyId: null });
 
 const userId = computed(() => authStore.user?.id);
 const role = computed(() => authStore.user?.role);
@@ -253,6 +273,10 @@ const agencies = computed(() => {
 
 const isAdminLike = computed(() => role.value === 'admin' || role.value === 'super_admin' || role.value === 'support');
 const isTeamRole = computed(() => role.value === 'supervisor' || role.value === 'clinical_practice_assistant' || role.value === 'provider_plus');
+const canManageAvailability = computed(() => {
+  const r = String(role.value || '').toLowerCase();
+  return ['super_admin', 'admin', 'support', 'clinical_practice_assistant', 'provider_plus', 'staff'].includes(r);
+});
 const showPlatformCard = computed(() => isAdminLike.value || role.value === 'staff');
 
 const showAgencyCards = computed(() => isAdminLike.value);
@@ -470,6 +494,32 @@ const openNotification = async (notification) => {
   if (isAdminLikeRole && userIdTarget) {
     router.push(`${base}/admin/users/${userIdTarget}`);
   }
+};
+
+const openOfficeRequestModal = (n) => {
+  officeRequestModal.value = {
+    visible: true,
+    requestId: Number(n.related_entity_id || 0),
+    agencyId: Number(n.agency_id || 0)
+  };
+};
+
+const denyOfficeRequest = async (n) => {
+  const requestId = Number(n.related_entity_id || 0);
+  const agencyId = Number(n.agency_id || 0);
+  if (!requestId || !agencyId) return;
+  try {
+    await api.post(`/availability/admin/office-requests/${requestId}/deny`, { agencyId });
+    n.is_resolved = true;
+    myNotifications.value = myNotifications.value.filter((item) => item.id !== n.id);
+    void loadMy();
+  } catch (e) {
+    alert(e.response?.data?.error?.message || 'Failed to deny');
+  }
+};
+
+const handleOfficeRequestResolved = () => {
+  loadMy();
 };
 
 const closeAdminClientEditor = () => {

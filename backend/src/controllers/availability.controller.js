@@ -651,17 +651,6 @@ export const createMyOfficeAvailabilityRequest = async (req, res, next) => {
     const notes = String(req.body?.notes || '').trim().slice(0, 2000);
     const slots = Array.isArray(req.body?.slots) ? req.body.slots : [];
 
-    // Only allow one pending request per provider per agency.
-    const [existing] = await pool.execute(
-      `SELECT id FROM provider_office_availability_requests
-       WHERE agency_id = ? AND provider_id = ? AND status = 'PENDING'
-       LIMIT 1`,
-      [agencyId, providerId]
-    );
-    if (existing?.[0]?.id) {
-      return res.status(409).json({ error: { message: 'You already have a pending office availability request.' } });
-    }
-
     // Validate office IDs are accessible to this agency (multi-agency office support)
     if (officeIds.length > 0) {
       const allowedOfficeIds = await OfficeLocationAgency.listOfficeIdsForAgencies([agencyId]);

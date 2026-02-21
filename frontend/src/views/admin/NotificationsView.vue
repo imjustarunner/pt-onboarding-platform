@@ -136,34 +136,61 @@
               </div>
             </div>
             <div class="notification-actions">
-              <button
-                @click.stop="viewNotification(notification)"
-                class="btn btn-sm btn-primary"
-                title="Navigate to source"
-              >
-                View
-              </button>
-              <button
-                v-if="!notification.is_read || (notification.muted_until && new Date(notification.muted_until) > new Date())"
-                @click.stop="markAsRead(notification.id)"
-                class="btn btn-sm btn-secondary"
-                title="Mute for 48 hours"
-              >
-                Mark as Read
-              </button>
-              <button
-                @click.stop="resolveNotification(notification.id)"
-                class="btn btn-sm btn-danger"
-                title="Permanently delete notification"
-              >
-                Resolve
-              </button>
+              <template v-if="notification.type === 'office_availability_request_pending' && canManageAvailability && notification.agency_id">
+                <button
+                  @click.stop="openOfficeRequestModal(notification)"
+                  class="btn btn-sm btn-primary"
+                  title="Assign office"
+                >
+                  Approve
+                </button>
+                <button
+                  @click.stop="denyOfficeRequest(notification)"
+                  class="btn btn-sm btn-danger"
+                  title="Deny request"
+                >
+                  Deny
+                </button>
+              </template>
+              <template v-else>
+                <button
+                  @click.stop="viewNotification(notification)"
+                  class="btn btn-sm btn-primary"
+                  title="Navigate to source"
+                >
+                  View
+                </button>
+                <button
+                  v-if="!notification.is_read || (notification.muted_until && new Date(notification.muted_until) > new Date())"
+                  @click.stop="markAsRead(notification.id)"
+                  class="btn btn-sm btn-secondary"
+                  title="Mute for 48 hours"
+                >
+                  Mark as Read
+                </button>
+                <button
+                  @click.stop="resolveNotification(notification.id)"
+                  class="btn btn-sm btn-danger"
+                  title="Permanently delete notification"
+                >
+                  Resolve
+                </button>
+              </template>
             </div>
           </div>
         </div>
       </div>
     </div>
   </div>
+
+  <OfficeRequestAssignModal
+    :visible="officeRequestModal.visible"
+    :request-id="officeRequestModal.requestId"
+    :agency-id="officeRequestModal.agencyId"
+    @close="officeRequestModal.visible = false"
+    @assigned="handleOfficeRequestResolved"
+    @denied="handleOfficeRequestResolved"
+  />
 </template>
 
 <script setup>
@@ -173,6 +200,7 @@ import { useNotificationStore } from '../../store/notifications';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 import api from '../../services/api';
+import OfficeRequestAssignModal from '../../components/admin/OfficeRequestAssignModal.vue';
 
 const router = useRouter();
 const route = useRoute();
@@ -191,6 +219,12 @@ const groupBy = ref('type');
 const agencies = ref([]);
 const users = ref([]);
 const purging = ref(false);
+const officeRequestModal = ref({ visible: false, requestId: null, agencyId: null });
+
+const canManageAvailability = computed(() => {
+  const r = String(authStore.user?.role || '').toLowerCase();
+  return ['super_admin', 'admin', 'support', 'clinical_practice_assistant', 'provider_plus', 'staff'].includes(r);
+});
 
 const canPurgeNotifications = computed(() => {
   const role = authStore.user?.role;
@@ -585,6 +619,32 @@ const markAllAsResolvedForUser = async (userId) => {
   }
 };
 
+const openOfficeRequestModal = (notification) => {
+  officeRequestModal.value = {
+    visible: true,
+    requestId: Number(notification.related_entity_id || 0),
+    agencyId: Number(notification.agency_id || 0)
+  };
+};
+
+const denyOfficeRequest = async (notification) => {
+  const requestId = Number(notification.related_entity_id || 0);
+  const agencyId = Number(notification.agency_id || 0);
+  if (!requestId || !agencyId) return;
+  try {
+    await api.post(`/availability/admin/office-requests/${requestId}/deny`, { agencyId });
+    await loadNotifications();
+    await notificationStore.fetchCounts();
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to deny';
+  }
+};
+
+const handleOfficeRequestResolved = () => {
+  void loadNotifications();
+  void notificationStore.fetchCounts();
+};
+
 const handleNotificationClick = async (notification) => {
   // Mark as read when clicked
   if (!notification.is_read) {
@@ -593,9 +653,13 @@ const handleNotificationClick = async (notification) => {
 
   // Navigate based on notification type
   if (notification.type === 'office_availability_request_pending' && notification.agency_id) {
-    const agencyId = notification.agency_id;
-    const base = route.params.organizationSlug ? `/${route.params.organizationSlug}/admin/settings` : '/admin/settings';
-    router.push(`${base}?category=workflow&item=availability-intake&agencyId=${agencyId}`);
+    if (canManageAvailability.value) {
+      openOfficeRequestModal(notification);
+    } else {
+      const agencyId = notification.agency_id;
+      const base = route.params.organizationSlug ? `/${route.params.organizationSlug}/admin/settings` : '/admin/settings';
+      router.push(`${base}?category=workflow&item=availability-intake&agencyId=${agencyId}`);
+    }
     return;
   }
   if (notification.related_entity_type === 'user' && notification.user_id) {

@@ -132,7 +132,9 @@ const onCellClick = (dateYmd, hour, roomId, event = null) => {
 const slotName = (dateYmd, hour, roomId) => {
   const s = getSlot(dateYmd, hour, roomId);
   if (!s) return '';
+  const pending = Number(s?.pendingRequestCount || 0) || 0;
   const state = String(s.state || '');
+  if (state === 'open' && pending > 0) return 'Requested';
   if (state === 'open') return 'Open';
   const booked = String(s.bookedProviderName || '').trim();
   const assigned = String(s.assignedProviderName || '').trim();
@@ -141,8 +143,11 @@ const slotName = (dateYmd, hour, roomId) => {
 
 const slotBadge = (dateYmd, hour, roomId) => {
   const s = getSlot(dateYmd, hour, roomId);
-  const badge = String(s?.frequencyBadge || '').trim();
-  return badge || '';
+  const pending = Number(s?.pendingRequestCount || 0) || 0;
+  const freqBadge = String(s?.frequencyBadge || '').trim();
+  if (pending > 0 && freqBadge) return `Requested · ${freqBadge}`;
+  if (pending > 0) return 'Requested';
+  return freqBadge || '';
 };
 
 const slotHasInPersonIntake = (dateYmd, hour, roomId) => {
@@ -158,7 +163,11 @@ const slotHasVirtualIntake = (dateYmd, hour, roomId) => {
 const slotMeta = (dateYmd, hour, roomId) => {
   const s = getSlot(dateYmd, hour, roomId);
   if (!s) return '';
+  const pending = Number(s?.pendingRequestCount || 0) || 0;
+  const names = Array.isArray(s?.pendingRequestNames) ? s.pendingRequestNames : [];
   const state = String(s.state || '');
+  if (pending > 0 && names.length) return `Requested by: ${names.join(', ')}`;
+  if (pending > 0) return 'Requested';
   if (state === 'open') return '';
   const label = String(s.frequencyLabel || '').trim();
   return label || '';
@@ -174,6 +183,12 @@ const slotTitle = (dateYmd, hour, roomId) => {
   const name = slotName(dateYmd, hour, roomId);
   if (name) parts.push(`Person: ${name}`);
   if (s.frequencyLabel) parts.push(`Frequency: ${s.frequencyLabel}`);
+  const pending = Number(s?.pendingRequestCount || 0) || 0;
+  if (pending > 0 && Array.isArray(s?.pendingRequestNames) && s.pendingRequestNames.length) {
+    parts.push(`Requested by: ${s.pendingRequestNames.join(', ')}`);
+  } else if (pending > 0) {
+    parts.push('Requested (pending approval)');
+  }
   return parts.join('\n');
 };
 
@@ -181,8 +196,10 @@ const slotClass = (dateYmd, hour, roomId) => {
   const s = getSlot(dateYmd, hour, roomId);
   const st = String(s?.state || '');
   const base = st ? `state-${st}` : '';
+  const requested = Number(s?.pendingRequestCount || 0) > 0;
   const key = slotKey(dateYmd, hour, roomId);
-  return selectedKeySet.value.has(key) ? `${base} selected` : base;
+  const selected = selectedKeySet.value.has(key) ? ' selected' : '';
+  return `${base}${requested ? ' requested' : ''}${selected}`;
 };
 
 const dayGridStyle = computed(() => ({
@@ -236,5 +253,6 @@ const dayGridStyle = computed(() => ({
 .state-assigned_available { background: rgba(39, 174, 96, 0.08); }
 .state-assigned_temporary { background: rgba(155, 81, 224, 0.08); }
 .state-assigned_booked { background: rgba(235, 87, 87, 0.08); }
+.cell.requested { border-left: 3px solid rgba(245, 158, 11, 0.8); }
 </style>
 
