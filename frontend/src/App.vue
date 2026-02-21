@@ -134,6 +134,7 @@
                     Directory <span class="brand-caret">▾</span>
                   </button>
                   <div v-if="directoryMenuOpen" class="nav-dropdown-menu">
+                    <router-link :to="orgTo('/operations-dashboard')" v-if="user?.role === 'super_admin' || isAdmin || user?.role === 'provider_plus' || user?.role === 'clinical_practice_assistant'" @click="closeAllNavMenus">Operations Dashboard</router-link>
                     <router-link :to="orgTo('/admin/schools/overview?orgType=school')" v-if="user?.role === 'super_admin' || isAdmin" @click="closeAllNavMenus">School Overview</router-link>
                     <router-link :to="orgTo('/admin/schools/overview?orgType=program')" v-if="user?.role === 'super_admin' || isAdmin" @click="closeAllNavMenus">Program Overview</router-link>
                     <router-link :to="orgTo('/admin/school-portals')" v-if="user?.role === 'super_admin' || isAdmin" @click="closeAllNavMenus">Show All School Portals</router-link>
@@ -1218,7 +1219,7 @@ const myDashboardTo = computed(() => {
 
 const showOperationsDashboardLink = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
-  return role === 'provider_plus' || role === 'clinical_practice_assistant';
+  return role === 'provider_plus' || role === 'clinical_practice_assistant' || role === 'admin' || role === 'super_admin';
 });
 
 const operationsDashboardTo = computed(() => orgTo('/operations-dashboard'));

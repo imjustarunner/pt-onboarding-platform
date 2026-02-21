@@ -176,13 +176,13 @@ const routes = [
     path: '/:organizationSlug/operations-dashboard',
     name: 'OrganizationOperationsDashboard',
     component: () => import('../views/ProviderPlusDashboardView.vue'),
-    meta: { requiresAuth: true, requiresRole: PROVIDER_PLUS_EXPERIENCE_ROLES, organizationSlug: true }
+    meta: { requiresAuth: true, requiresRole: [...PROVIDER_PLUS_EXPERIENCE_ROLES, 'admin', 'super_admin'], organizationSlug: true }
   },
   {
     path: '/:organizationSlug/provider-plus-dashboard',
     name: 'OrganizationProviderPlusDashboardLegacy',
     redirect: (to) => `/${to.params.organizationSlug}/operations-dashboard`,
-    meta: { requiresAuth: true, requiresRole: PROVIDER_PLUS_EXPERIENCE_ROLES, organizationSlug: true }
+    meta: { requiresAuth: true, requiresRole: [...PROVIDER_PLUS_EXPERIENCE_ROLES, 'admin', 'super_admin'], organizationSlug: true }
   },
   {
     path: '/:organizationSlug/providers/:providerUserId',
@@ -686,13 +686,13 @@ const routes = [
     path: '/operations-dashboard',
     name: 'OperationsDashboard',
     component: () => import('../views/ProviderPlusDashboardView.vue'),
-    meta: { requiresAuth: true, requiresRole: PROVIDER_PLUS_EXPERIENCE_ROLES }
+    meta: { requiresAuth: true, requiresRole: [...PROVIDER_PLUS_EXPERIENCE_ROLES, 'admin', 'super_admin'] }
   },
   {
     path: '/provider-plus-dashboard',
     name: 'ProviderPlusDashboardLegacy',
     redirect: '/operations-dashboard',
-    meta: { requiresAuth: true, requiresRole: PROVIDER_PLUS_EXPERIENCE_ROLES }
+    meta: { requiresAuth: true, requiresRole: [...PROVIDER_PLUS_EXPERIENCE_ROLES, 'admin', 'super_admin'] }
   },
   {
     path: '/mydashboard',
