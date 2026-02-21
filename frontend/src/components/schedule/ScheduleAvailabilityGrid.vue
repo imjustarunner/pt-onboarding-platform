@@ -1,5 +1,5 @@
 <template>
-  <div class="sched-wrap" :style="scheduleColorVars" data-tour="my-schedule-grid">
+  <div class="sched-wrap" :style="scheduleWrapVars" data-tour="my-schedule-grid">
     <div class="sched-toolbar" data-tour="my-schedule-toolbar">
       <div class="sched-toolbar-top" data-tour="my-schedule-week-nav">
         <h2 class="sched-week-title">Week of {{ weekStart }}</h2>
@@ -178,6 +178,40 @@
       </div>
 
       <div class="sched-toolbar-secondary">
+        <div class="sched-zoom-controls">
+          <div class="sched-calendars-label">Day focus</div>
+          <button
+            v-for="d in focusableDays"
+            :key="`focus-day-${d}`"
+            type="button"
+            class="sched-chip"
+            :class="{ on: focusedDaySet.has(d) }"
+            :disabled="loading"
+            :title="focusedDaySet.has(d) ? `Remove ${d} focus` : `Focus ${d}`"
+            @click="toggleFocusedDay(d, $event)"
+          >
+            {{ d.slice(0, 3) }}
+          </button>
+          <button
+            type="button"
+            class="sched-chip"
+            :disabled="loading || !focusedDays.length"
+            @click="clearFocusedDays"
+            title="Return to full week view"
+          >
+            Full view
+          </button>
+          <label class="sched-inline compact" style="margin-left: 6px;">
+            <span>Row height</span>
+            <select v-model="rowHeightMode" class="sched-select compact">
+              <option value="compact">Compact</option>
+              <option value="normal">Normal</option>
+              <option value="large">Large</option>
+              <option value="xl">XL</option>
+            </select>
+          </label>
+        </div>
+
         <div class="sched-calendars" data-tour="my-schedule-ehr-calendars">
           <div class="sched-calendars-label">Therapy Notes calendars</div>
           <div class="sched-calendars-actions">
@@ -294,7 +328,18 @@
 
       <div class="sched-grid" :style="gridStyle">
         <div class="sched-head-cell"></div>
-        <div v-for="d in visibleDays" :key="d" class="sched-head-cell" :class="{ 'sched-head-today': isTodayDay(d) }">
+        <div
+          v-for="d in visibleDays"
+          :key="d"
+          class="sched-head-cell sched-head-cell-day"
+          :class="{ 'sched-head-today': isTodayDay(d), 'sched-head-focused': focusedDaySet.has(d) }"
+          role="button"
+          tabindex="0"
+          :title="focusedDaySet.has(d) ? `Focused day: ${d} (click to remove)` : `Click to focus ${d}; Cmd/Ctrl-click to multi-select days`"
+          @click="toggleFocusedDay(d, $event)"
+          @keydown.enter.prevent="toggleFocusedDay(d, $event)"
+          @keydown.space.prevent="toggleFocusedDay(d, $event)"
+        >
           <div class="sched-head-day">
             <div class="sched-head-dow">{{ d }}</div>
             <div class="sched-head-date">{{ dayDateLabel(d) }}</div>
@@ -1313,6 +1358,17 @@ const scheduleColorVars = computed(() => {
   if (ebv.br) v['--sched-ebusy-border'] = ebv.br;
   return v;
 });
+const rowHeightPx = computed(() => {
+  const mode = String(rowHeightMode.value || 'normal');
+  if (mode === 'compact') return 28;
+  if (mode === 'large') return 46;
+  if (mode === 'xl') return 58;
+  return 32;
+});
+const scheduleWrapVars = computed(() => ({
+  ...(scheduleColorVars.value || {}),
+  '--sched-cell-min-height': `${rowHeightPx.value}px`
+}));
 
 const ALL_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const SUNDAY_FIRST_DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -1333,6 +1389,8 @@ const showExternalBusy = ref(true);
 const selectedExternalCalendarIds = ref([]); // populated from available list once loaded
 let schedMouseUpHandler = null;
 const hideWeekend = ref(props.mode === 'self');
+const focusedDays = ref([]);
+const rowHeightMode = ref('normal');
 const initializedOverlayDefaults = ref(false);
 
 const viewMode = ref('open_finder'); // 'open_finder' | 'office_layout' (office_layout implemented later)
@@ -1624,9 +1682,15 @@ onUnmounted(() => {
 });
 
 const orderedDays = computed(() => (String(props.weekStartsOn || '').toLowerCase() === 'sunday' ? SUNDAY_FIRST_DAYS : ALL_DAYS));
-const visibleDays = computed(() => {
+const focusableDays = computed(() => {
   if (hideWeekend.value) return ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
   return orderedDays.value.slice();
+});
+const focusedDaySet = computed(() => new Set((focusedDays.value || []).map((d) => String(d))));
+const visibleDays = computed(() => {
+  const baseDays = focusableDays.value;
+  const selected = (focusedDays.value || []).filter((d) => baseDays.includes(String(d)));
+  return selected.length ? selected : baseDays;
 });
 
 const gridStyle = computed(() => {
@@ -1637,6 +1701,33 @@ const gridStyle = computed(() => {
     gridTemplateColumns: `${timeCol}px repeat(${cols}, minmax(${dayMin}px, 1fr))`,
     minWidth: `${timeCol + cols * dayMin}px`
   };
+});
+
+const toggleFocusedDay = (dayName, evt = null) => {
+  const day = String(dayName || '');
+  if (!day || !focusableDays.value.includes(day)) return;
+  const multi = !!(evt?.metaKey || evt?.ctrlKey || evt?.shiftKey);
+  const current = new Set((focusedDays.value || []).map((d) => String(d)).filter((d) => focusableDays.value.includes(d)));
+  if (multi) {
+    if (current.has(day)) current.delete(day);
+    else current.add(day);
+    focusedDays.value = Array.from(current.values());
+    return;
+  }
+  if (current.size === 1 && current.has(day)) {
+    focusedDays.value = [];
+    return;
+  }
+  focusedDays.value = [day];
+};
+
+const clearFocusedDays = () => {
+  focusedDays.value = [];
+};
+
+watch(focusableDays, (days) => {
+  const allowed = new Set((Array.isArray(days) ? days : []).map((d) => String(d)));
+  focusedDays.value = (focusedDays.value || []).map((d) => String(d)).filter((d) => allowed.has(d));
 });
 
 const externalCalendarsAvailable = computed(() => {
@@ -6187,6 +6278,17 @@ watch(modalHour, () => {
   padding-bottom: 2px;
   scrollbar-width: thin;
 }
+.sched-zoom-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-alt) 88%, white);
+  flex: 0 0 auto;
+}
 .sched-toggle {
   display: inline-flex;
   align-items: center;
@@ -6467,6 +6569,15 @@ watch(modalHour, () => {
   align-items: center;
   justify-content: center;
 }
+.sched-head-cell-day {
+  cursor: pointer;
+}
+.sched-head-cell-day:hover {
+  background: color-mix(in srgb, var(--bg-alt) 84%, rgba(59, 130, 246, 0.10));
+}
+.sched-head-focused {
+  box-shadow: inset 0 0 0 2px rgba(37, 99, 235, 0.45);
+}
 .sched-head-today {
   background: linear-gradient(180deg, rgba(59, 130, 246, 0.16), rgba(59, 130, 246, 0.06));
   box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.24), 0 0 0 2px rgba(59, 130, 246, 0.14);
@@ -6500,7 +6611,7 @@ watch(modalHour, () => {
   border-top: 1px solid rgba(15, 23, 42, 0.08);
   border-left: 1px solid rgba(15, 23, 42, 0.08);
   background: rgba(255, 255, 255, 0.65);
-  min-height: 32px;
+  min-height: var(--sched-cell-min-height, 32px);
   padding: 4px 6px;
   text-align: left;
   position: relative;
