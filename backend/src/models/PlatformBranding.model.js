@@ -482,9 +482,14 @@ class PlatformBranding {
       try {
         [rows] = await pool.execute(query);
       } catch (queryError) {
-        // If query fails (e.g., columns don't exist), try simple query
-        if (queryError.message.includes('Unknown column') || queryError.code === 'ER_BAD_FIELD_ERROR') {
-          console.warn('PlatformBranding.get: Dashboard icon columns may not exist, using simple query');
+        // If query fails (e.g., columns don't exist, or too many tables in join), try simple query
+        const isRecoverable =
+          queryError.message?.includes('Unknown column') ||
+          queryError.code === 'ER_BAD_FIELD_ERROR' ||
+          queryError.errno === 1116 ||
+          queryError.message?.includes('Too many tables');
+        if (isRecoverable) {
+          console.warn('PlatformBranding.get: Query failed (columns/too many tables), using simple query');
           // Even in fallback, try to include master brand icon if column exists
           let hasMasterBrandIcon = false;
           try {

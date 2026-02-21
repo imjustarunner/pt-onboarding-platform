@@ -419,7 +419,7 @@
                 v-model="agencyForm.slug"
                 type="text"
                 required
-                pattern="[a-z0-9\\-]+"
+                pattern="[a-z0-9-]+"
                 :readonly="userRole !== 'super_admin'"
               />
               <small v-if="userRole === 'super_admin'">Lowercase letters, numbers, and hyphens only.</small>
@@ -782,7 +782,7 @@
             <input 
               v-model="agencyForm.portalUrl" 
               type="text" 
-              pattern="[a-z0-9\-]+" 
+              pattern="[a-z0-9-]+" 
               placeholder="itsco"
             />
             <small>Lowercase letters, numbers, and hyphens only. This will be used for subdomain access (e.g., itsco.app.plottwistco.com)</small>
@@ -3166,12 +3166,12 @@
           </div>
           <div class="form-group">
             <label>New Slug *</label>
-            <input v-model="duplicateForm.slug" type="text" required pattern="[a-z0-9\\-]+" />
+            <input v-model="duplicateForm.slug" type="text" required pattern="[a-z0-9-]+" />
             <small>Lowercase letters, numbers, and hyphens only</small>
           </div>
           <div class="form-group">
             <label>Portal URL (optional)</label>
-            <input v-model="duplicateForm.portalUrl" type="text" pattern="[a-z0-9\\-]+" placeholder="Defaults to slug" />
+            <input v-model="duplicateForm.portalUrl" type="text" pattern="[a-z0-9-]+" placeholder="Defaults to slug" />
           </div>
           <div class="modal-actions">
             <button type="button" class="btn btn-secondary" @click="closeDuplicateModal" :disabled="duplicating">

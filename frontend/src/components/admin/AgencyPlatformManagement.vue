@@ -29,7 +29,7 @@
             </div>
             <div class="form-group">
               <label>Slug (URL identifier)</label>
-              <input v-model="form.slug" type="text" pattern="[a-z0-9\-]+" placeholder="e.g. acme-health" />
+              <input v-model="form.slug" type="text" pattern="[a-z0-9-]+" placeholder="e.g. acme-health" />
               <small>Lowercase letters, numbers, hyphens only. Used in portal URLs (e.g. /acme-health/login).</small>
             </div>
             <div class="form-group">
