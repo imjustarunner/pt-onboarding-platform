@@ -94,7 +94,8 @@ class ProgramReminderService {
         userId,
         agencyId,
         relatedEntityType: 'program_reminder',
-        relatedEntityId: null
+        relatedEntityId: null,
+        actorSource: 'Automation'
       });
       if (channels.sms) {
         await NotificationDispatcherService.dispatchForNotification(notification, { context: { severity: 'info' } }).catch(() => {});

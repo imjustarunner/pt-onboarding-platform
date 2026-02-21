@@ -107,7 +107,8 @@ export async function notifyPaperworkReceived({ agencyId, schoolOrganizationId, 
           userId,
           agencyId,
           relatedEntityType: 'client',
-          relatedEntityId: clientId
+          relatedEntityId: clientId,
+          actorSource: 'System'
         });
       })().catch(() => null)
     )

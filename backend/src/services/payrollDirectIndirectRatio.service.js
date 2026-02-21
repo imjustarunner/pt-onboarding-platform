@@ -107,7 +107,8 @@ export async function emitDirectIndirectRatioNotifications({ agencyId, payrollPe
             userId: recipientId,
             agencyId: agencyIdNum,
             relatedEntityType: 'payroll_period',
-            relatedEntityId: periodIdNum
+            relatedEntityId: periodIdNum,
+            actorSource: 'Payroll'
           });
           created.push(notif);
         } catch (err) {

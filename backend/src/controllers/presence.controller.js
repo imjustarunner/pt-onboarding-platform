@@ -164,7 +164,8 @@ export const markOffline = async (req, res, next) => {
           userId,
           agencyId: row.agency_id,
           relatedEntityType: 'chat_thread',
-          relatedEntityId: row.thread_id
+          relatedEntityId: row.thread_id,
+          actorUserId: row.latest_sender_user_id
         });
       }
     } catch {
@@ -661,7 +662,8 @@ export const nudgeUserPresence = async (req, res, next) => {
       userId,
       agencyId,
       relatedEntityType: 'user_presence_status',
-      relatedEntityId: presence.id
+      relatedEntityId: presence.id,
+      actorSource: 'System'
     });
 
     res.json({ ok: true, message: `Nudge sent to ${displayName}` });

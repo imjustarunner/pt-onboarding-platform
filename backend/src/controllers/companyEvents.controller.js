@@ -1223,7 +1223,8 @@ export const sendCompanyEventDirectMessage = async (req, res, next) => {
             userId,
             agencyId,
             relatedEntityType: 'company_event',
-            relatedEntityId: eventId
+            relatedEntityId: eventId,
+            actorSource: 'Company Events'
           });
           await writeDispatchLog({
             eventId,
@@ -1609,7 +1610,8 @@ export const processCompanyEventResponseReminders = async () => {
               userId,
               agencyId: event.agencyId,
               relatedEntityType: 'company_event',
-              relatedEntityId: event.id
+              relatedEntityId: event.id,
+              actorSource: 'Company Events'
             });
             await writeDispatchLog({
               eventId: event.id,

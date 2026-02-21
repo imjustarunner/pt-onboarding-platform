@@ -408,7 +408,8 @@ async function notifyThresholdsForAgencyFiscalYears({ agencyId, fiscalYearStarts
         userId: rec.providerUserId,
         agencyId: Number(agencyId),
         relatedEntityType: 'client',
-        relatedEntityId: null
+        relatedEntityId: null,
+        actorSource: 'System'
       },
       { context: { isUrgent: false } }
     );

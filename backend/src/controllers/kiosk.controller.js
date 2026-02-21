@@ -177,7 +177,8 @@ export const checkInToEvent = async (req, res, next) => {
           userId: ev.booked_provider_id,
           agencyId,
           relatedEntityType: 'office_event_checkin',
-          relatedEntityId: checkin?.id || null
+          relatedEntityId: checkin?.id || null,
+          actorSource: 'Kiosk'
         });
       }
     } catch {
@@ -481,7 +482,8 @@ export const submitKioskSurvey = async (req, res, next) => {
           userId: pid,
           agencyId,
           relatedEntityType: 'kiosk_checkin',
-          relatedEntityId: checkin.id
+          relatedEntityId: checkin.id,
+          actorSource: 'Kiosk'
         });
       }
     } catch {

@@ -450,7 +450,8 @@ class SupervisionSession {
         userId: uid,
         agencyId: agency,
         relatedEntityType: 'supervision_session',
-        relatedEntityId: sid
+        relatedEntityId: sid,
+        actorSource: 'Supervision'
       });
 
       if ((existsRows || []).length) {

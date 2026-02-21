@@ -63,7 +63,8 @@ class BackgroundCheckWatchdogService {
             userId,
             agencyId,
             relatedEntityType: 'compliance_document',
-            relatedEntityId: doc.id
+            relatedEntityId: doc.id,
+            actorSource: 'System'
           }).catch(() => null);
         })
       );
@@ -100,7 +101,8 @@ class BackgroundCheckWatchdogService {
             userId,
             agencyId,
             relatedEntityType: 'compliance_document',
-            relatedEntityId: doc.id
+            relatedEntityId: doc.id,
+            actorSource: 'System'
           }).catch(() => null);
         })
       );

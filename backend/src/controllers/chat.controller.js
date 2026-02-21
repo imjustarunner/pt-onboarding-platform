@@ -515,7 +515,8 @@ export const sendMessage = async (req, res, next) => {
         userId: rid,
         agencyId,
         relatedEntityType: 'chat_thread',
-        relatedEntityId: threadId
+        relatedEntityId: threadId,
+        actorUserId: req.user.id
       });
     }
 

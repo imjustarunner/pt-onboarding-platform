@@ -102,7 +102,8 @@ class PayrollHolidayBonusApprovalAlertService {
         userId: providerUserId,
         agencyId,
         relatedEntityType: 'user',
-        relatedEntityId: providerUserId
+        relatedEntityId: providerUserId,
+        actorSource: 'Payroll'
       });
 
       createdCount += 1;

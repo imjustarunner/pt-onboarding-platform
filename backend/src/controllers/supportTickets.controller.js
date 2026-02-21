@@ -540,7 +540,8 @@ export const createSupportTicket = async (req, res, next) => {
             userId: null,
             agencyId: aid,
             relatedEntityType: 'support_ticket',
-            relatedEntityId: created.id
+            relatedEntityId: created.id,
+            actorUserId: req.user.id
           });
         }
       }

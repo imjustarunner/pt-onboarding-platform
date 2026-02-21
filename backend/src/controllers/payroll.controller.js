@@ -8558,9 +8558,10 @@ export const runPayrollPeriod = async (req, res, next) => {
             title: 'Unsigned draft notes pending',
             message: `Payroll was run for ${label}. You have ${unsignedDraftCount} supervisee note(s) submitted as draft that still need your signature.`,
             userId: supervisorUserId,
-        agencyId,
+            agencyId,
             relatedEntityType: 'payroll_period',
-            relatedEntityId: payrollPeriodId
+            relatedEntityId: payrollPeriodId,
+            actorSource: 'Payroll'
           });
 
           await pool.execute(

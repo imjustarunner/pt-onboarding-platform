@@ -41,7 +41,8 @@ export class OfficeScheduleReviewService {
           userId,
           agencyId,
           relatedEntityType: 'payroll_period',
-          relatedEntityId: payrollPeriodId
+          relatedEntityId: payrollPeriodId,
+          actorSource: 'Office Scheduling'
         });
         sent += 1;
       } catch {

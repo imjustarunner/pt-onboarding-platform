@@ -250,7 +250,8 @@ async function sendPublicRequestDecisionNotifications({ agencyId, requestRow, st
       userId: provider?.id || null,
       agencyId: Number(agencyId),
       relatedEntityType: 'public_appointment_request',
-      relatedEntityId: Number(requestRow?.id || 0) || null
+      relatedEntityId: Number(requestRow?.id || 0) || null,
+      ...(actorUserId ? { actorUserId } : { actorSource: 'System' })
     });
   } catch {
     // non-blocking

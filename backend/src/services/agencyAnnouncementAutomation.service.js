@@ -189,7 +189,8 @@ const processBirthdayForAgency = async ({ agencyId, template }) => {
       userId: null,
       agencyId,
       relatedEntityType: 'agency_announcement_automation',
-      relatedEntityId: null
+      relatedEntityId: null,
+      actorSource: 'Automation'
     });
 
     await markRunSent({
@@ -225,7 +226,8 @@ const processAnniversaryForAgency = async ({ agencyId, template }) => {
       userId: null,
       agencyId,
       relatedEntityType: 'agency_announcement_automation',
-      relatedEntityId: null
+      relatedEntityId: null,
+      actorSource: 'Automation'
     });
 
     await markRunSent({

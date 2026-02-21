@@ -138,14 +138,15 @@ export const createAndSendBroadcast = async (req, res, next) => {
             // In-app notification (bypass preferences by meaning; delivery is in-app)
             await createNotificationAndDispatch(
               {
-              type: 'emergency_broadcast',
-              severity: 'urgent',
-              title,
-              message: body,
-              userId: r.userId,
-              agencyId: parseInt(agencyId),
-              relatedEntityType: 'emergency_broadcast',
-              relatedEntityId: broadcastId
+                type: 'emergency_broadcast',
+                severity: 'urgent',
+                title,
+                message: body,
+                userId: r.userId,
+                agencyId: parseInt(agencyId),
+                relatedEntityType: 'emergency_broadcast',
+                relatedEntityId: broadcastId,
+                actorUserId: req.user.id
               },
               { context: { isEmergencyBroadcast: true, isUrgent: true } }
             );

@@ -141,7 +141,8 @@ export class OfficeScheduleWatchdogService {
           userId: providerId,
           agencyId,
           relatedEntityType: 'office_booking_plan',
-          relatedEntityId: bookingPlanId
+          relatedEntityId: bookingPlanId,
+          actorSource: 'Office Scheduling'
         });
         notified += 1;
       } catch {
@@ -217,7 +218,8 @@ export class OfficeScheduleWatchdogService {
             userId: providerId,
             agencyId,
             relatedEntityType: 'office_standing_assignment',
-            relatedEntityId: assignmentId
+            relatedEntityId: assignmentId,
+            actorSource: 'Office Scheduling'
           });
           notified += 1;
         }

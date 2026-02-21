@@ -29,14 +29,15 @@ class CredentialWatchdogService {
 
       await createNotificationAndDispatch(
         {
-        type: 'credential_expired_blocking',
-        severity: 'urgent',
-        title: 'Blocking credential expired',
-        message: `A blocking credential (${doc.document_type}) has expired for user ID ${doc.user_id}.`,
-        userId: doc.user_id,
-        agencyId: agencyId,
-        relatedEntityType: 'compliance_document',
-        relatedEntityId: doc.id
+          type: 'credential_expired_blocking',
+          severity: 'urgent',
+          title: 'Blocking credential expired',
+          message: `A blocking credential (${doc.document_type}) has expired for user ID ${doc.user_id}.`,
+          userId: doc.user_id,
+          agencyId: agencyId,
+          relatedEntityType: 'compliance_document',
+          relatedEntityId: doc.id,
+          actorSource: 'System'
         },
         { context: { isBlockingCompliance: true, isUrgent: true } }
       );
@@ -65,7 +66,8 @@ class CredentialWatchdogService {
         userId: doc.user_id,
         agencyId: agencyId,
         relatedEntityType: 'compliance_document',
-        relatedEntityId: doc.id
+        relatedEntityId: doc.id,
+        actorSource: 'System'
       });
     }
   }

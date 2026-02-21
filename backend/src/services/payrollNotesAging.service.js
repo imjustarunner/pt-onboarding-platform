@@ -227,7 +227,8 @@ class PayrollNotesAgingService {
         userId: providerUserId,
         agencyId,
         relatedEntityType: 'user',
-        relatedEntityId: providerUserId
+        relatedEntityId: providerUserId,
+        actorSource: 'Payroll'
       });
 
       await incrementScore(providerUserId, agencyId);
@@ -299,7 +300,8 @@ class PayrollNotesAgingService {
         userId: providerUserId,
         agencyId,
         relatedEntityType: 'user',
-        relatedEntityId: providerUserId
+        relatedEntityId: providerUserId,
+        actorSource: 'Payroll'
       });
 
       await incrementScore(providerUserId, agencyId);

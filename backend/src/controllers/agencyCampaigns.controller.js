@@ -138,7 +138,8 @@ async function notifySupervisorsOptOut({ agencyId, userId }) {
       userId: a.supervisor_id,
       agencyId,
       relatedEntityType: 'agency_campaign',
-      relatedEntityId: null
+      relatedEntityId: null,
+      actorSource: 'System'
     });
   }
 }

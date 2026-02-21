@@ -69,7 +69,8 @@ async function forwardEmergency({ numberId, agencyId, body, fromNumber }) {
         userId: rule.forward_to_user_id,
         agencyId,
         relatedEntityType: 'message_log',
-        relatedEntityId: null
+        relatedEntityId: null,
+        actorSource: 'Twilio'
       },
       { context: { isUrgent: true } }
     );
@@ -302,16 +303,17 @@ export const inboundSmsWebhook = async (req, res, next) => {
       // Primary clinician gets notification too (in-app)
       await createNotificationAndDispatch(
         {
-        type: 'inbound_client_message',
-        severity: 'urgent',
-        title: 'New inbound client message',
-        message: client?.initials
-          ? `New message from client ${client.initials}.`
-          : 'New inbound message received.',
-        userId: ownerUser.id,
-        agencyId,
-        relatedEntityType: 'message_log',
-        relatedEntityId: inboundLog.id
+          type: 'inbound_client_message',
+          severity: 'urgent',
+          title: 'New inbound client message',
+          message: client?.initials
+            ? `New message from client ${client.initials}.`
+            : 'New inbound message received.',
+          userId: ownerUser.id,
+          agencyId,
+          relatedEntityType: 'message_log',
+          relatedEntityId: inboundLog.id,
+          actorSource: 'Twilio'
         },
         { context: { isUrgent: true } }
       );
@@ -320,16 +322,17 @@ export const inboundSmsWebhook = async (req, res, next) => {
       for (const supportUserId of supportIds) {
         await createNotificationAndDispatch(
           {
-          type: 'support_safety_net_alert',
-          severity: 'urgent',
-          title: 'Safety Net: inbound client message',
-          message: client?.initials
-            ? `Inbound message from ${client.initials} (assigned clinician: ${ownerUser.first_name} ${ownerUser.last_name?.slice(0, 1) || ''}.)`
-            : `Inbound message (assigned clinician: ${ownerUser.first_name} ${ownerUser.last_name?.slice(0, 1) || ''}.)`,
-          userId: supportUserId,
-          agencyId,
-          relatedEntityType: 'message_log',
-          relatedEntityId: inboundLog.id
+            type: 'support_safety_net_alert',
+            severity: 'urgent',
+            title: 'Safety Net: inbound client message',
+            message: client?.initials
+              ? `Inbound message from ${client.initials} (assigned clinician: ${ownerUser.first_name} ${ownerUser.last_name?.slice(0, 1) || ''}.)`
+              : `Inbound message (assigned clinician: ${ownerUser.first_name} ${ownerUser.last_name?.slice(0, 1) || ''}.)`,
+            userId: supportUserId,
+            agencyId,
+            relatedEntityType: 'message_log',
+            relatedEntityId: inboundLog.id,
+            actorSource: 'Twilio'
           },
           { context: { isUrgent: true } }
         );

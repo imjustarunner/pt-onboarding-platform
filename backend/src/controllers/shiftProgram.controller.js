@@ -626,7 +626,8 @@ export const createCalloff = async (req, res, next) => {
           userId: targetUserId,
           agencyId,
           relatedEntityType: 'program_shift_calloff',
-          relatedEntityId: calloff.id
+          relatedEntityId: calloff.id,
+          actorUserId: req.user.id
         });
       } catch (err) {
         console.error('Failed to notify on-call staff:', err);

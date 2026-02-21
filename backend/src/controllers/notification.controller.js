@@ -171,6 +171,8 @@ async function appendNotificationContext(notifications) {
     }
     if (n.actor_user_id) {
       n.actor_display_name = actorNameById.get(Number(n.actor_user_id)) || null;
+    } else if (n.actor_source) {
+      n.actor_display_name = String(n.actor_source).trim() || null;
     }
     // Per-user read state: expose as is_read for frontend compatibility
     if (n._is_read_for_viewer !== undefined) {

@@ -57,7 +57,8 @@ class NotificationService {
           userId: user.id,
           agencyId: user.agency_id,
           relatedEntityType: 'user',
-          relatedEntityId: user.id
+          relatedEntityId: user.id,
+          actorSource: 'System'
         });
         notifications.push(notification);
       }
@@ -104,9 +105,10 @@ class NotificationService {
           title: `Temporary Password Expired`,
           message: `User ${user.first_name} ${user.last_name}'s temporary password has expired on ${expiresAt.toLocaleDateString()}. Generate a new password.`,
           userId: user.id,
-          agencyId: agencyId, // Use the parameter, not user.agency_id
+          agencyId: agencyId,
           relatedEntityType: 'user',
-          relatedEntityId: user.id
+          relatedEntityId: user.id,
+          actorSource: 'System'
         });
         notifications.push(notification);
       }
@@ -153,9 +155,10 @@ class NotificationService {
           title: `Passwordless Login Token Expired`,
           message: `User ${user.first_name} ${user.last_name}'s passwordless login token has expired on ${expiresAt.toLocaleDateString()}. Generate a new token if needed.`,
           userId: user.id,
-          agencyId: agencyId, // Use the parameter, not user.agency_id
+          agencyId: agencyId,
           relatedEntityType: 'user',
-          relatedEntityId: user.id
+          relatedEntityId: user.id,
+          actorSource: 'System'
         });
         notifications.push(notification);
       }
@@ -214,9 +217,10 @@ class NotificationService {
           title: `Task Overdue`,
           message: `Task '${task.title}' for user ${task.first_name} ${task.last_name} is overdue. Due date: ${dueDate.toLocaleDateString()}.`,
           userId: task.assigned_to_user_id,
-          agencyId: agencyId, // Use the agencyId parameter, not task.agency_id
+          agencyId: agencyId,
           relatedEntityType: 'task',
-          relatedEntityId: task.id
+          relatedEntityId: task.id,
+          actorSource: 'System'
         });
         notifications.push(notification);
       }
@@ -258,7 +262,8 @@ class NotificationService {
       userId: userId,
       agencyId: agencyId,
       relatedEntityType: 'user',
-      relatedEntityId: userId
+      relatedEntityId: userId,
+      actorSource: 'System'
     });
   }
 
@@ -282,7 +287,8 @@ class NotificationService {
       userId: claim.user_id,
       agencyId: agencyId || claim.agency_id,
       relatedEntityType: 'payroll_mileage_claim',
-      relatedEntityId: claim.id
+      relatedEntityId: claim.id,
+      actorSource: 'Payroll'
     });
   }
 
@@ -304,7 +310,8 @@ class NotificationService {
       userId: claim.user_id,
       agencyId: agencyId || claim.agency_id,
       relatedEntityType: 'payroll_mileage_claim',
-      relatedEntityId: claim.id
+      relatedEntityId: claim.id,
+      actorSource: 'Payroll'
     });
   }
 
@@ -320,7 +327,8 @@ class NotificationService {
         claimId: claim.id,
         note: String(note || '').trim(),
         actorName: actorName || null
-      }
+      },
+      actorSource: 'Payroll'
     });
   }
 
@@ -341,7 +349,8 @@ class NotificationService {
       userId: claim.user_id,
       agencyId: agencyId || claim.agency_id,
       relatedEntityType: 'payroll_medcancel_claim',
-      relatedEntityId: claim.id
+      relatedEntityId: claim.id,
+      actorSource: 'Payroll'
     });
   }
 
@@ -363,7 +372,8 @@ class NotificationService {
       userId: claim.user_id,
       agencyId: agencyId || claim.agency_id,
       relatedEntityType: 'payroll_medcancel_claim',
-      relatedEntityId: claim.id
+      relatedEntityId: claim.id,
+      actorSource: 'Payroll'
     });
   }
 
@@ -379,7 +389,8 @@ class NotificationService {
         claimId: claim.id,
         note: String(note || '').trim(),
         actorName: actorName || null
-      }
+      },
+      actorSource: 'Payroll'
     });
   }
 
@@ -407,7 +418,8 @@ class NotificationService {
       userId,
       agencyId,
       relatedEntityType: 'supervision_accounts',
-      relatedEntityId: userId
+      relatedEntityId: userId,
+      actorSource: 'Supervision'
     });
   }
 
@@ -424,7 +436,8 @@ class NotificationService {
       userId,
       agencyId,
       relatedEntityType: 'supervision_accounts',
-      relatedEntityId: userId
+      relatedEntityId: userId,
+      actorSource: 'Supervision'
     });
   }
 
@@ -441,7 +454,8 @@ class NotificationService {
       userId: supervisorUserId,
       agencyId,
       relatedEntityType: 'supervision_accounts',
-      relatedEntityId: superviseeUserId
+      relatedEntityId: superviseeUserId,
+      actorSource: 'Supervision'
     });
   }
 
@@ -674,7 +688,8 @@ class NotificationService {
       userId: userId,
       agencyId: agencyId,
       relatedEntityType: 'user',
-      relatedEntityId: userId
+      relatedEntityId: userId,
+      actorSource: 'System'
     });
   }
 
@@ -709,7 +724,8 @@ class NotificationService {
       userId: userId,
       agencyId: agencyId,
       relatedEntityType: 'user',
-      relatedEntityId: userId
+      relatedEntityId: userId,
+      actorSource: 'System'
     });
   }
 
@@ -744,7 +760,8 @@ class NotificationService {
       userId: userId,
       agencyId: agencyId,
       relatedEntityType: 'user',
-      relatedEntityId: userId
+      relatedEntityId: userId,
+      actorSource: 'System'
     });
   }
 
@@ -770,7 +787,8 @@ class NotificationService {
       userId,
       agencyId,
       relatedEntityType: 'user',
-      relatedEntityId: userId
+      relatedEntityId: userId,
+      actorSource: 'Payroll'
     });
   }
 }

@@ -3118,7 +3118,8 @@ export const createClientNote = async (req, res, next) => {
             userId: rid,
             agencyId: currentClient.agency_id,
             relatedEntityType: 'client',
-            relatedEntityId: parseInt(id)
+            relatedEntityId: parseInt(id),
+            actorUserId: userId
           },
           { context: { severity: 'info' } }
         );

@@ -352,9 +352,10 @@ class PendingCompletionService {
         title: `Pre-Hire Process Completed${isAutoComplete ? ' (Auto)' : ''}`,
         message: `${user.first_name} ${user.last_name} (${user.email}) has completed the pre-hire process and is ready for review.`,
         userId: user.id,
-        agencyId: userAgencies[0].id, // Use first agency
+        agencyId: userAgencies[0].id,
         relatedEntityType: 'user',
-        relatedEntityId: user.id
+        relatedEntityId: user.id,
+        actorSource: 'System'
       });
     }
     
