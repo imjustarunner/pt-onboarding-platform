@@ -2891,16 +2891,23 @@ const schoolTitle = (dayName, hour) => {
 const officeEventsInCell = (dayName, hour, minute = 0) => {
   const s = summary.value;
   if (!s) return [];
+  const ws = s.weekStart || weekStart.value;
+  const dayIdx = ALL_DAYS.indexOf(String(dayName));
+  if (dayIdx < 0) return [];
+  const cellDate = addDaysYmd(ws, dayIdx);
+  const cellStart = new Date(`${cellDate}T${pad2(hour)}:${pad2(minute)}:00`);
+  const cellEnd = new Date(cellStart.getTime() + ((showQuarterDetail.value ? 15 : 60) * 60 * 1000));
   const hits = (s?.officeEvents || []).filter((e) => {
     const startRaw = String(e.startAt || '').trim();
     if (!startRaw) return false;
     const startLocal = new Date(startRaw.includes('T') ? startRaw : startRaw.replace(' ', 'T'));
     if (Number.isNaN(startLocal.getTime())) return false;
-    const idx = dayIndexForDateLocal(localYmd(startLocal), s.weekStart || weekStart.value);
-    const dn = ALL_DAYS[idx] || null;
-    if (dn !== dayName) return false;
-    if (!showQuarterDetail.value) return startLocal.getHours() === Number(hour);
-    return startLocal.getHours() === Number(hour) && startLocal.getMinutes() === Number(minute);
+    const endRaw = String(e.endAt || '').trim();
+    const endLocal = endRaw
+      ? new Date(endRaw.includes('T') ? endRaw : endRaw.replace(' ', 'T'))
+      : new Date(startLocal.getTime() + (60 * 60 * 1000));
+    if (Number.isNaN(endLocal.getTime())) return false;
+    return endLocal > cellStart && startLocal < cellEnd;
   });
   return hits;
 };
@@ -7243,6 +7250,7 @@ watch([modalHour, modalEndHour, modalStartMinute, modalEndMinute, canUseQuarterH
   backdrop-filter: none;
   box-shadow: none;
   opacity: 0.98;
+  justify-content: center;
 }
 .sched-wrap-quarter .cell-block:last-child {
   margin-right: 0;
@@ -7259,11 +7267,14 @@ watch([modalHour, modalEndHour, modalStartMinute, modalEndMinute, canUseQuarterH
 }
 .sched-wrap-quarter .cell-block-text {
   max-width: calc(100% - 10px);
+  text-align: center;
 }
 .sched-wrap-quarter .cell-block-segment-start {
   border-bottom-left-radius: 0;
   border-bottom-right-radius: 0;
   margin-top: 0;
+  align-items: flex-end;
+  padding-bottom: 1px;
 }
 .sched-wrap-quarter .cell-block-segment-middle {
   border-radius: 0;
