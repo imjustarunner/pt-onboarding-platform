@@ -137,6 +137,9 @@ class Agency {
       const hasExtraDashboardQuickActionIcons = has('dashboard_notifications_icon_id');
       const hasExternalCalendarAuditIcon = has('external_calendar_audit_icon_id');
       const hasSkillBuildersAvailabilityIcon = has('skill_builders_availability_icon_id');
+      const hasIntakeLinksIcon = has('intake_links_icon_id');
+      const hasAuditCenterIcon = has('audit_center_icon_id');
+      const hasMarketingSocialIcon = has('marketing_social_icon_id');
       const hasSchoolOverviewIcon = has('school_overview_icon_id');
       const hasProgramOverviewIcon = has('program_overview_icon_id');
       const hasProviderAvailabilityDashboardIcon = has('provider_availability_dashboard_icon_id');
@@ -245,6 +248,31 @@ class Agency {
         LEFT JOIN icons sba_i ON a.skill_builders_availability_icon_id = sba_i.id`
         : '';
 
+      const intakeLinksSelects = hasIntakeLinksIcon
+        ? `,
+        il_i.file_path as intake_links_icon_path, il_i.name as intake_links_icon_name`
+        : '';
+      const intakeLinksJoins = hasIntakeLinksIcon
+        ? `
+        LEFT JOIN icons il_i ON a.intake_links_icon_id = il_i.id`
+        : '';
+      const auditCenterSelects = hasAuditCenterIcon
+        ? `,
+        ac_i.file_path as audit_center_icon_path, ac_i.name as audit_center_icon_name`
+        : '';
+      const auditCenterJoins = hasAuditCenterIcon
+        ? `
+        LEFT JOIN icons ac_i ON a.audit_center_icon_id = ac_i.id`
+        : '';
+      const marketingSocialSelects = hasMarketingSocialIcon
+        ? `,
+        ms_i.file_path as marketing_social_icon_path, ms_i.name as marketing_social_icon_name`
+        : '';
+      const marketingSocialJoins = hasMarketingSocialIcon
+        ? `
+        LEFT JOIN icons ms_i ON a.marketing_social_icon_id = ms_i.id`
+        : '';
+
       const myDashSelects = hasMyDashboardIcons
         ? `,
         mdc_i.file_path as my_dashboard_checklist_icon_path, mdc_i.name as my_dashboard_checklist_icon_name,
@@ -298,7 +326,7 @@ class Agency {
         ps_i.file_path as platform_settings_icon_path, ps_i.name as platform_settings_icon_name,
         vap_i.file_path as view_all_progress_icon_path, vap_i.name as view_all_progress_icon_name,
         pd_i.file_path as progress_dashboard_icon_path, pd_i.name as progress_dashboard_icon_name,
-        s_i.file_path as settings_icon_path, s_i.name as settings_icon_name${extraDashSelects}${extCalSelects}${schoolOverviewSelects}${programOverviewSelects}${providerAvailabilitySelects}${executiveReportSelects}${skillBuildersSelects}${myDashSelects}${schoolPortalSelects}
+        s_i.file_path as settings_icon_path, s_i.name as settings_icon_name${extraDashSelects}${extCalSelects}${schoolOverviewSelects}${programOverviewSelects}${providerAvailabilitySelects}${executiveReportSelects}${skillBuildersSelects}${intakeLinksSelects}${auditCenterSelects}${marketingSocialSelects}${myDashSelects}${schoolPortalSelects}
         FROM agencies a
         ${hasIconId ? 'LEFT JOIN icons master_i ON a.icon_id = master_i.id' : ''}
         ${hasChatIconId ? 'LEFT JOIN icons chat_i ON a.chat_icon_id = chat_i.id' : ''}
@@ -310,7 +338,7 @@ class Agency {
         LEFT JOIN icons ps_i ON a.platform_settings_icon_id = ps_i.id
         LEFT JOIN icons vap_i ON a.view_all_progress_icon_id = vap_i.id
         LEFT JOIN icons pd_i ON a.progress_dashboard_icon_id = pd_i.id
-        LEFT JOIN icons s_i ON a.settings_icon_id = s_i.id${extraDashJoins}${extCalJoins}${schoolOverviewJoins}${programOverviewJoins}${providerAvailabilityJoins}${executiveReportJoins}${skillBuildersJoins}${myDashJoins}${schoolPortalJoins}
+        LEFT JOIN icons s_i ON a.settings_icon_id = s_i.id${extraDashJoins}${extCalJoins}${schoolOverviewJoins}${programOverviewJoins}${providerAvailabilityJoins}${executiveReportJoins}${skillBuildersJoins}${intakeLinksJoins}${auditCenterJoins}${marketingSocialJoins}${myDashJoins}${schoolPortalJoins}
         WHERE a.id = ?`;
     } else {
       // Even without dashboard icons, join for master icon if column exists
@@ -1211,7 +1239,7 @@ class Agency {
   }
 
   static async update(id, agencyData) {
-    const { name, officialName, slug, logoUrl, logoPath, colorPalette, terminologySettings, intakeRetentionPolicy, isActive, iconId, chatIconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, companyDefaultPasswordHash, useDefaultPassword, manageAgenciesIconId, manageModulesIconId, manageDocumentsIconId, manageUsersIconId, platformSettingsIconId, viewAllProgressIconId, progressDashboardIconId, settingsIconId, externalCalendarAuditIconId, skillBuildersAvailabilityIconId, myDashboardChecklistIconId, myDashboardMomentumListIconId, myDashboardMomentumStickiesIconId, myDashboardTrainingIconId, myDashboardDocumentsIconId, myDashboardMyAccountIconId, myDashboardMyScheduleIconId, myDashboardClientsIconId, myDashboardOnDemandTrainingIconId, myDashboardPayrollIconId, myDashboardSubmitIconId, myDashboardCommunicationsIconId, myDashboardChatsIconId, myDashboardNotificationsIconId, myDashboardSupervisionIconId, myDashboardClinicalNoteGeneratorIconId, certificateTemplateUrl, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, customDomain, themeSettings, customParameters, featureFlags, publicAvailabilityEnabled, organizationType, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId, supportTicketCreatedIconId, ticketingNotificationOrgTypes, streetAddress, city, state, postalCode, tierSystemEnabled, tierThresholds,
+    const { name, officialName, slug, logoUrl, logoPath, colorPalette, terminologySettings, intakeRetentionPolicy, isActive, iconId, chatIconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, companyDefaultPasswordHash, useDefaultPassword, manageAgenciesIconId, manageModulesIconId, manageDocumentsIconId, manageUsersIconId, platformSettingsIconId, viewAllProgressIconId, progressDashboardIconId, settingsIconId, externalCalendarAuditIconId, skillBuildersAvailabilityIconId, intakeLinksIconId, auditCenterIconId, marketingSocialIconId, myDashboardChecklistIconId, myDashboardMomentumListIconId, myDashboardMomentumStickiesIconId, myDashboardTrainingIconId, myDashboardDocumentsIconId, myDashboardMyAccountIconId, myDashboardMyScheduleIconId, myDashboardClientsIconId, myDashboardOnDemandTrainingIconId, myDashboardPayrollIconId, myDashboardSubmitIconId, myDashboardCommunicationsIconId, myDashboardChatsIconId, myDashboardNotificationsIconId, myDashboardSupervisionIconId, myDashboardClinicalNoteGeneratorIconId, certificateTemplateUrl, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, customDomain, themeSettings, customParameters, featureFlags, publicAvailabilityEnabled, organizationType, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId, supportTicketCreatedIconId, ticketingNotificationOrgTypes, streetAddress, city, state, postalCode, tierSystemEnabled, tierThresholds,
       schoolPortalProvidersIconId, schoolPortalDaysIconId, schoolPortalRosterIconId, schoolPortalSkillsGroupsIconId, schoolPortalContactAdminIconId, schoolPortalFaqIconId, schoolPortalSchoolStaffIconId, schoolPortalParentQrIconId, schoolPortalParentSignIconId, schoolPortalUploadPacketIconId,
       schoolPortalPublicDocumentsIconId,
       schoolPortalAnnouncementsIconId,
@@ -1625,6 +1653,28 @@ class Agency {
           }
         } catch {
           // ignore
+        }
+      }
+
+      // Intake Links, Audit Center, Marketing Social quick-action icons (optional)
+      for (const { col, param } of [
+        { col: 'intake_links_icon_id', param: intakeLinksIconId },
+        { col: 'audit_center_icon_id', param: auditCenterIconId },
+        { col: 'marketing_social_icon_id', param: marketingSocialIconId }
+      ]) {
+        if (param !== undefined) {
+          try {
+            const [cols] = await pool.execute(
+              `SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = ?`,
+              [col]
+            );
+            if ((cols || []).length > 0) {
+              updates.push(`${col} = ?`);
+              values.push(param ?? null);
+            }
+          } catch {
+            // ignore
+          }
         }
       }
 

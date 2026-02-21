@@ -1,5 +1,5 @@
 <template>
-  <div class="quick-actions">
+  <div class="quick-actions" :class="{ compact }">
     <div class="header">
       <h2>{{ title }}</h2>
       <button v-if="canCustomize" class="btn-customize" type="button" @click="showCustomizer = true">
@@ -279,6 +279,10 @@ watch(selectedIds, () => persist(), { deep: true });
   gap: 20px;
 }
 
+.quick-actions.compact .actions-grid {
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+}
+
 .action-card {
   background: white;
   padding: 32px;
@@ -291,6 +295,27 @@ watch(selectedIds, () => persist(), { deep: true });
   display: flex;
   align-items: center;
   gap: 20px;
+}
+
+.quick-actions.compact .action-card {
+  padding: 18px 20px;
+  gap: 16px;
+}
+
+.quick-actions.compact .action-icon,
+.quick-actions.compact .action-icon-placeholder {
+  width: 48px;
+  height: 48px;
+}
+
+.quick-actions.compact .action-icon-placeholder {
+  font-size: 24px;
+}
+
+.quick-actions.compact .action-card h3 {
+  font-size: 14px;
+  line-height: 1.3;
+  margin-bottom: 0;
 }
 
 .action-card:hover {

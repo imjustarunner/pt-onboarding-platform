@@ -672,6 +672,46 @@
             </div>
             <div class="icon-description">Icon for the "Skill Builders Availability" action card</div>
           </div>
+          <div class="icon-row">
+            <div class="icon-label">Intake Links Icon</div>
+            <div class="icon-selector-cell">
+              <IconSelector v-model="platformForm.intakeLinksIconId" />
+              <button v-if="platformForm.intakeLinksIconId" @click="platformForm.intakeLinksIconId = null" class="btn btn-sm btn-danger" type="button" title="Remove icon">Clear</button>
+            </div>
+            <div class="icon-description">Icon for the "Intake Links" action card</div>
+          </div>
+          <div class="icon-row">
+            <div class="icon-label">Audit Center Icon</div>
+            <div class="icon-selector-cell">
+              <IconSelector v-model="platformForm.auditCenterIconId" />
+              <button v-if="platformForm.auditCenterIconId" @click="platformForm.auditCenterIconId = null" class="btn btn-sm btn-danger" type="button" title="Remove icon">Clear</button>
+            </div>
+            <div class="icon-description">Icon for the "Audit Center" action card</div>
+          </div>
+          <div class="icon-row">
+            <div class="icon-label">Marketing and Social Media Icon</div>
+            <div class="icon-selector-cell">
+              <IconSelector v-model="platformForm.marketingSocialIconId" />
+              <button v-if="platformForm.marketingSocialIconId" @click="platformForm.marketingSocialIconId = null" class="btn btn-sm btn-danger" type="button" title="Remove icon">Clear</button>
+            </div>
+            <div class="icon-description">Icon for the "Marketing and Social Media" action card</div>
+          </div>
+          <div class="icon-row">
+            <div class="icon-label">Presence / Team Board Icon</div>
+            <div class="icon-selector-cell">
+              <IconSelector v-model="platformForm.presenceIconId" />
+              <button v-if="platformForm.presenceIconId" @click="platformForm.presenceIconId = null" class="btn btn-sm btn-danger" type="button" title="Remove icon">Clear</button>
+            </div>
+            <div class="icon-description">Icon for the "Presence / Team Board" action card</div>
+          </div>
+          <div class="icon-row">
+            <div class="icon-label">Beta Feedback Icon</div>
+            <div class="icon-selector-cell">
+              <IconSelector v-model="platformForm.betaFeedbackIconId" />
+              <button v-if="platformForm.betaFeedbackIconId" @click="platformForm.betaFeedbackIconId = null" class="btn btn-sm btn-danger" type="button" title="Remove icon">Clear</button>
+            </div>
+            <div class="icon-description">Icon for the "Beta Feedback" action card</div>
+          </div>
         </div>
 
         <div class="section-divider"></div>
@@ -1293,6 +1333,30 @@
                 </button>
               </div>
             <div class="icon-description">Icon for the "Skill Builders Availability" action card</div>
+          </div>
+          <div class="icon-row">
+            <div class="icon-label">Intake Links Icon</div>
+            <div class="icon-selector-cell">
+              <IconSelector v-model="agencyBrandingForm.intakeLinksIconId" />
+              <button v-if="agencyBrandingForm.intakeLinksIconId" @click="agencyBrandingForm.intakeLinksIconId = null" class="btn btn-sm btn-danger" type="button" title="Remove icon">Clear</button>
+            </div>
+            <div class="icon-description">Icon for the "Intake Links" action card</div>
+          </div>
+          <div class="icon-row">
+            <div class="icon-label">Audit Center Icon</div>
+            <div class="icon-selector-cell">
+              <IconSelector v-model="agencyBrandingForm.auditCenterIconId" />
+              <button v-if="agencyBrandingForm.auditCenterIconId" @click="agencyBrandingForm.auditCenterIconId = null" class="btn btn-sm btn-danger" type="button" title="Remove icon">Clear</button>
+            </div>
+            <div class="icon-description">Icon for the "Audit Center" action card</div>
+          </div>
+          <div class="icon-row">
+            <div class="icon-label">Marketing and Social Media Icon</div>
+            <div class="icon-selector-cell">
+              <IconSelector v-model="agencyBrandingForm.marketingSocialIconId" />
+              <button v-if="agencyBrandingForm.marketingSocialIconId" @click="agencyBrandingForm.marketingSocialIconId = null" class="btn btn-sm btn-danger" type="button" title="Remove icon">Clear</button>
+            </div>
+            <div class="icon-description">Icon for the "Marketing and Social Media" action card</div>
           </div>
           </div>
 
@@ -2081,6 +2145,11 @@ const platformForm = ref({
       allAgenciesNotificationsIconId: null,
       externalCalendarAuditIconId: null,
       skillBuildersAvailabilityIconId: null,
+      intakeLinksIconId: null,
+      auditCenterIconId: null,
+      marketingSocialIconId: null,
+      presenceIconId: null,
+      betaFeedbackIconId: null,
       organizationName: null,
       organizationLogoIconId: null,
       organizationLogoUrl: null,
@@ -2123,6 +2192,9 @@ const agencyBrandingForm = ref({
   platformSettingsIconId: null,
   externalCalendarAuditIconId: null,
   skillBuildersAvailabilityIconId: null,
+  intakeLinksIconId: null,
+  auditCenterIconId: null,
+  marketingSocialIconId: null,
   dashboardNotificationsIconId: null,
   dashboardCommunicationsIconId: null,
   dashboardChatsIconId: null,
@@ -2182,6 +2254,9 @@ const brandingForm = ref({
   platformSettingsIconId: null,
   externalCalendarAuditIconId: null,
   skillBuildersAvailabilityIconId: null,
+  intakeLinksIconId: null,
+  auditCenterIconId: null,
+  marketingSocialIconId: null,
   dashboardNotificationsIconId: null,
   dashboardCommunicationsIconId: null,
   dashboardChatsIconId: null,
@@ -2263,6 +2338,9 @@ watch(currentAgency, async (agency) => {
         platformSettingsIconId: freshAgency.platform_settings_icon_id ?? null,
         externalCalendarAuditIconId: freshAgency.external_calendar_audit_icon_id ?? null,
         skillBuildersAvailabilityIconId: freshAgency.skill_builders_availability_icon_id ?? null,
+        intakeLinksIconId: freshAgency.intake_links_icon_id ?? null,
+        auditCenterIconId: freshAgency.audit_center_icon_id ?? null,
+        marketingSocialIconId: freshAgency.marketing_social_icon_id ?? null,
 
         companyProfileIconId: freshAgency.company_profile_icon_id ?? null,
         teamRolesIconId: freshAgency.team_roles_icon_id ?? null,
@@ -2303,6 +2381,11 @@ watch(currentAgency, async (agency) => {
         manageUsersIconId: agency.manage_users_icon_id ?? null,
         settingsIconId: agency.settings_icon_id ?? null,
         platformSettingsIconId: agency.platform_settings_icon_id ?? null,
+        externalCalendarAuditIconId: agency.external_calendar_audit_icon_id ?? null,
+        skillBuildersAvailabilityIconId: agency.skill_builders_availability_icon_id ?? null,
+        intakeLinksIconId: agency.intake_links_icon_id ?? null,
+        auditCenterIconId: agency.audit_center_icon_id ?? null,
+        marketingSocialIconId: agency.marketing_social_icon_id ?? null,
         dashboardNotificationsIconId: agency.dashboard_notifications_icon_id ?? null,
         dashboardCommunicationsIconId: agency.dashboard_communications_icon_id ?? null,
         dashboardChatsIconId: agency.dashboard_chats_icon_id ?? null,
@@ -2432,6 +2515,9 @@ const saveAgencyBrandingForSuperAdmin = async () => {
       platformSettingsIconId: agencyBrandingForm.value.platformSettingsIconId ?? null,
       externalCalendarAuditIconId: agencyBrandingForm.value.externalCalendarAuditIconId ?? null,
       skillBuildersAvailabilityIconId: agencyBrandingForm.value.skillBuildersAvailabilityIconId ?? null,
+      intakeLinksIconId: agencyBrandingForm.value.intakeLinksIconId ?? null,
+      auditCenterIconId: agencyBrandingForm.value.auditCenterIconId ?? null,
+      marketingSocialIconId: agencyBrandingForm.value.marketingSocialIconId ?? null,
       dashboardNotificationsIconId: agencyBrandingForm.value.dashboardNotificationsIconId ?? null,
       dashboardCommunicationsIconId: agencyBrandingForm.value.dashboardCommunicationsIconId ?? null,
       dashboardChatsIconId: agencyBrandingForm.value.dashboardChatsIconId ?? null,
@@ -2494,6 +2580,9 @@ const saveAgencyBrandingForSuperAdmin = async () => {
           platformSettingsIconId: freshAgency.platform_settings_icon_id ?? null,
           externalCalendarAuditIconId: freshAgency.external_calendar_audit_icon_id ?? null,
           skillBuildersAvailabilityIconId: freshAgency.skill_builders_availability_icon_id ?? null,
+          intakeLinksIconId: freshAgency.intake_links_icon_id ?? null,
+          auditCenterIconId: freshAgency.audit_center_icon_id ?? null,
+          marketingSocialIconId: freshAgency.marketing_social_icon_id ?? null,
           dashboardNotificationsIconId: freshAgency.dashboard_notifications_icon_id ?? null,
           dashboardCommunicationsIconId: freshAgency.dashboard_communications_icon_id ?? null,
           dashboardChatsIconId: freshAgency.dashboard_chats_icon_id ?? null,
@@ -2560,6 +2649,9 @@ const saveBranding = async () => {
       platformSettingsIconId: brandingForm.value.platformSettingsIconId ?? null,
       externalCalendarAuditIconId: brandingForm.value.externalCalendarAuditIconId ?? null,
       skillBuildersAvailabilityIconId: brandingForm.value.skillBuildersAvailabilityIconId ?? null,
+      intakeLinksIconId: brandingForm.value.intakeLinksIconId ?? null,
+      auditCenterIconId: brandingForm.value.auditCenterIconId ?? null,
+      marketingSocialIconId: brandingForm.value.marketingSocialIconId ?? null,
       dashboardNotificationsIconId: brandingForm.value.dashboardNotificationsIconId ?? null,
       dashboardCommunicationsIconId: brandingForm.value.dashboardCommunicationsIconId ?? null,
       dashboardChatsIconId: brandingForm.value.dashboardChatsIconId ?? null,
@@ -2995,6 +3087,9 @@ const applySelectedTemplate = async (event) => {
               platformSettingsIconId: agency.platform_settings_icon_id ?? null,
               externalCalendarAuditIconId: agency.external_calendar_audit_icon_id ?? null,
               skillBuildersAvailabilityIconId: agency.skill_builders_availability_icon_id ?? null,
+              intakeLinksIconId: agency.intake_links_icon_id ?? null,
+              auditCenterIconId: agency.audit_center_icon_id ?? null,
+              marketingSocialIconId: agency.marketing_social_icon_id ?? null,
 
               companyProfileIconId: agency.company_profile_icon_id ?? null,
               teamRolesIconId: agency.team_roles_icon_id ?? null,
@@ -3028,6 +3123,9 @@ const applySelectedTemplate = async (event) => {
               platformSettingsIconId: agency.platform_settings_icon_id ?? null,
               externalCalendarAuditIconId: agency.external_calendar_audit_icon_id ?? null,
               skillBuildersAvailabilityIconId: agency.skill_builders_availability_icon_id ?? null,
+              intakeLinksIconId: agency.intake_links_icon_id ?? null,
+              auditCenterIconId: agency.audit_center_icon_id ?? null,
+              marketingSocialIconId: agency.marketing_social_icon_id ?? null,
 
               companyProfileIconId: agency.company_profile_icon_id ?? null,
               teamRolesIconId: agency.team_roles_icon_id ?? null,
@@ -3267,6 +3365,11 @@ const onPlatformRestoreFileSelected = async (event) => {
     if (brandingStore.platformBranding) {
       platformForm.value.progressDashboardIconId = brandingStore.platformBranding.progress_dashboard_icon_id ?? null;
       platformForm.value.settingsIconId = brandingStore.platformBranding.settings_icon_id ?? null;
+      platformForm.value.intakeLinksIconId = brandingStore.platformBranding.intake_links_icon_id ?? null;
+      platformForm.value.auditCenterIconId = brandingStore.platformBranding.audit_center_icon_id ?? null;
+      platformForm.value.marketingSocialIconId = brandingStore.platformBranding.marketing_social_icon_id ?? null;
+      platformForm.value.presenceIconId = brandingStore.platformBranding.presence_icon_id ?? null;
+      platformForm.value.betaFeedbackIconId = brandingStore.platformBranding.beta_feedback_icon_id ?? null;
       platformForm.value.dashboardNotificationsIconId = brandingStore.platformBranding.dashboard_notifications_icon_id ?? null;
       platformForm.value.dashboardCommunicationsIconId = brandingStore.platformBranding.dashboard_communications_icon_id ?? null;
       platformForm.value.dashboardChatsIconId = brandingStore.platformBranding.dashboard_chats_icon_id ?? null;
@@ -3286,6 +3389,11 @@ const onPlatformRestoreFileSelected = async (event) => {
       platformForm.value.allAgenciesNotificationsIconId = brandingStore.platformBranding.all_agencies_notifications_icon_id ?? null;
       platformForm.value.externalCalendarAuditIconId = brandingStore.platformBranding.external_calendar_audit_icon_id ?? null;
       platformForm.value.skillBuildersAvailabilityIconId = brandingStore.platformBranding.skill_builders_availability_icon_id ?? null;
+      platformForm.value.intakeLinksIconId = brandingStore.platformBranding.intake_links_icon_id ?? null;
+      platformForm.value.auditCenterIconId = brandingStore.platformBranding.audit_center_icon_id ?? null;
+      platformForm.value.marketingSocialIconId = brandingStore.platformBranding.marketing_social_icon_id ?? null;
+      platformForm.value.presenceIconId = brandingStore.platformBranding.presence_icon_id ?? null;
+      platformForm.value.betaFeedbackIconId = brandingStore.platformBranding.beta_feedback_icon_id ?? null;
       platformForm.value.tagline = brandingStore.platformBranding.tagline ?? platformForm.value.tagline;
       platformForm.value.primaryColor = brandingStore.platformBranding.primary_color ?? platformForm.value.primaryColor;
       platformForm.value.secondaryColor = brandingStore.platformBranding.secondary_color ?? platformForm.value.secondaryColor;
@@ -3355,6 +3463,11 @@ const savePlatformBranding = async () => {
       allAgenciesNotificationsIconId: platformForm.value.allAgenciesNotificationsIconId ?? null,
       externalCalendarAuditIconId: platformForm.value.externalCalendarAuditIconId ?? null,
       skillBuildersAvailabilityIconId: platformForm.value.skillBuildersAvailabilityIconId ?? null,
+      intakeLinksIconId: platformForm.value.intakeLinksIconId ?? null,
+      auditCenterIconId: platformForm.value.auditCenterIconId ?? null,
+      marketingSocialIconId: platformForm.value.marketingSocialIconId ?? null,
+      presenceIconId: platformForm.value.presenceIconId ?? null,
+      betaFeedbackIconId: platformForm.value.betaFeedbackIconId ?? null,
       organizationName: platformForm.value.organizationName?.trim() || null,
       organizationLogoIconId: platformForm.value.organizationLogoIconId ?? null,
       organizationLogoUrl: platformLogoInputMethod.value === 'url' ? (platformForm.value.organizationLogoUrl?.trim() || null) : null,
@@ -3526,6 +3639,12 @@ const savePlatformBranding = async () => {
       platformForm.value.dashboardBillingIconId = response.data.dashboard_billing_icon_id ?? platformForm.value.dashboardBillingIconId ?? null;
       platformForm.value.allAgenciesNotificationsIconId = response.data.all_agencies_notifications_icon_id ?? platformForm.value.allAgenciesNotificationsIconId ?? null;
       platformForm.value.externalCalendarAuditIconId = response.data.external_calendar_audit_icon_id ?? platformForm.value.externalCalendarAuditIconId ?? null;
+      platformForm.value.skillBuildersAvailabilityIconId = response.data.skill_builders_availability_icon_id ?? platformForm.value.skillBuildersAvailabilityIconId ?? null;
+      platformForm.value.intakeLinksIconId = response.data.intake_links_icon_id ?? platformForm.value.intakeLinksIconId ?? null;
+      platformForm.value.auditCenterIconId = response.data.audit_center_icon_id ?? platformForm.value.auditCenterIconId ?? null;
+      platformForm.value.marketingSocialIconId = response.data.marketing_social_icon_id ?? platformForm.value.marketingSocialIconId ?? null;
+      platformForm.value.presenceIconId = response.data.presence_icon_id ?? platformForm.value.presenceIconId ?? null;
+      platformForm.value.betaFeedbackIconId = response.data.beta_feedback_icon_id ?? platformForm.value.betaFeedbackIconId ?? null;
       platformForm.value.organizationName = response.data.organization_name ?? platformForm.value.organizationName ?? null;
       platformForm.value.organizationLogoIconId = response.data.organization_logo_icon_id ?? platformForm.value.organizationLogoIconId ?? null;
       platformForm.value.organizationLogoUrl = response.data.organization_logo_url ?? platformForm.value.organizationLogoUrl ?? null;
@@ -3567,6 +3686,12 @@ const savePlatformBranding = async () => {
       platformForm.value.manageUsersIconId = brandingStore.platformBranding.manage_users_icon_id ?? null;
       platformForm.value.platformSettingsIconId = brandingStore.platformBranding.platform_settings_icon_id ?? null;
       platformForm.value.viewAllProgressIconId = brandingStore.platformBranding.view_all_progress_icon_id ?? null;
+      platformForm.value.skillBuildersAvailabilityIconId = brandingStore.platformBranding.skill_builders_availability_icon_id ?? null;
+      platformForm.value.intakeLinksIconId = brandingStore.platformBranding.intake_links_icon_id ?? null;
+      platformForm.value.auditCenterIconId = brandingStore.platformBranding.audit_center_icon_id ?? null;
+      platformForm.value.marketingSocialIconId = brandingStore.platformBranding.marketing_social_icon_id ?? null;
+      platformForm.value.presenceIconId = brandingStore.platformBranding.presence_icon_id ?? null;
+      platformForm.value.betaFeedbackIconId = brandingStore.platformBranding.beta_feedback_icon_id ?? null;
       platformForm.value.allAgenciesNotificationsIconId = brandingStore.platformBranding.all_agencies_notifications_icon_id ?? null;
       platformForm.value.organizationName = brandingStore.platformBranding.organization_name ?? null;
       platformForm.value.organizationLogoIconId = brandingStore.platformBranding.organization_logo_icon_id ?? null;

@@ -833,7 +833,12 @@ export const useBrandingStore = defineStore('branding', () => {
       platform_settings: 'platform_settings_icon_path',
       view_all_progress: 'view_all_progress_icon_path',
       settings: 'settings_icon_path',
-      schedule: 'my_dashboard_my_schedule_icon_path'
+      schedule: 'my_dashboard_my_schedule_icon_path',
+      intake_links: 'intake_links_icon_path',
+      audit_center: 'audit_center_icon_path',
+      marketing_social: 'marketing_social_icon_path',
+      presence: 'presence_icon_path',
+      beta_feedback: 'beta_feedback_icon_path'
     };
     const field = iconFieldMap[actionKey];
     if (!field) return null;

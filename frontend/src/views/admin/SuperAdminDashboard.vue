@@ -73,7 +73,7 @@
         <button
           v-if="isSupervisor(user)"
           type="button"
-          class="stat-card stat-card-button"
+          class="stat-card stat-card-button stat-card-compact"
           @click="showSupervisionModal = true"
         >
           <h3>Supervision</h3>
@@ -350,6 +350,7 @@ const quickActions = computed(() => {
     description: 'Bulk import school contacts + ITSCO email + schedules',
     to: '/admin/schools/import',
     emoji: '🏫',
+    iconKey: 'school_overview',
     category: 'Management',
     roles: ['admin', 'support', 'super_admin', 'staff'],
     capabilities: ['canAccessPlatform']
@@ -470,6 +471,7 @@ const quickActions = computed(() => {
     description: 'Configure provider scheduling preferences and rules',
     to: '/admin/settings?category=workflow&item=provider-scheduling',
     emoji: '🗓️',
+    iconKey: 'schedule',
     category: 'Scheduling',
     roles: ['admin', 'super_admin'],
     capabilities: ['canAccessPlatform']
@@ -557,6 +559,7 @@ const quickActions = computed(() => {
     description: 'See who is in, out, or traveling (SuperAdmin testing)',
     to: '/admin/presence',
     emoji: '📍',
+    iconKey: 'presence',
     category: 'Management',
     roles: ['super_admin'],
     capabilities: ['canAccessPlatform']
@@ -567,6 +570,7 @@ const quickActions = computed(() => {
     description: 'View user-submitted feedback and screenshots for debugging',
     to: '/admin/beta-feedback',
     emoji: '🐛',
+    iconKey: 'beta_feedback',
     category: 'System',
     roles: ['super_admin'],
     capabilities: ['canAccessPlatform']
@@ -757,6 +761,19 @@ onMounted(loadMyOpenTickets);
   font: inherit;
   appearance: none;
   -webkit-appearance: none;
+}
+
+.stat-card.stat-card-compact {
+  padding: 16px 20px;
+}
+
+.stat-card.stat-card-compact .stat-value {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.stat-card.stat-card-compact h3 {
+  margin-bottom: 6px;
 }
 
 .stat-card-link {

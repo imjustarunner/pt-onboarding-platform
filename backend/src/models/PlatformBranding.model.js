@@ -118,6 +118,26 @@ class PlatformBranding {
         hasExecutiveReportIcon = false;
       }
 
+      // Check if intake_links, audit_center, marketing_social, presence, beta_feedback icon columns exist
+      let hasIntakeLinksIcon = false;
+      let hasAuditCenterIcon = false;
+      let hasMarketingSocialIcon = false;
+      let hasPresenceIcon = false;
+      let hasBetaFeedbackIcon = false;
+      try {
+        const [cols] = await pool.execute(
+          "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'platform_branding' AND COLUMN_NAME IN ('intake_links_icon_id','audit_center_icon_id','marketing_social_icon_id','presence_icon_id','beta_feedback_icon_id')"
+        );
+        const names = new Set((cols || []).map((c) => c.COLUMN_NAME));
+        hasIntakeLinksIcon = names.has('intake_links_icon_id');
+        hasAuditCenterIcon = names.has('audit_center_icon_id');
+        hasMarketingSocialIcon = names.has('marketing_social_icon_id');
+        hasPresenceIcon = names.has('presence_icon_id');
+        hasBetaFeedbackIcon = names.has('beta_feedback_icon_id');
+      } catch (e) {
+        // ignore
+      }
+
       // Check if School Portal dashboard card icon columns exist (optional)
       let hasSchoolPortalIcons = false;
       try {
@@ -329,6 +349,22 @@ class PlatformBranding {
           LEFT JOIN icons er_i ON pb.executive_report_icon_id = er_i.id`
           : '';
 
+        const extraQuickActionParts = [];
+        if (hasIntakeLinksIcon) extraQuickActionParts.push({ alias: 'il_i', path: 'intake_links_icon_path', col: 'intake_links_icon_id' });
+        if (hasAuditCenterIcon) extraQuickActionParts.push({ alias: 'ac_i', path: 'audit_center_icon_path', col: 'audit_center_icon_id' });
+        if (hasMarketingSocialIcon) extraQuickActionParts.push({ alias: 'ms_i', path: 'marketing_social_icon_path', col: 'marketing_social_icon_id' });
+        if (hasPresenceIcon) extraQuickActionParts.push({ alias: 'pres_i', path: 'presence_icon_path', col: 'presence_icon_id' });
+        if (hasBetaFeedbackIcon) extraQuickActionParts.push({ alias: 'bf_i', path: 'beta_feedback_icon_path', col: 'beta_feedback_icon_id' });
+        const extraQuickActionSelects = extraQuickActionParts.length
+          ? `,\n          ${extraQuickActionParts.map((p) => {
+            const namePath = p.path.replace('_icon_path', '_icon_name');
+            return `${p.alias}.file_path as ${p.path}, ${p.alias}.name as ${namePath}`;
+          }).join(',\n          ')}`
+          : '';
+        const extraQuickActionJoins = extraQuickActionParts.length
+          ? `\n          ${extraQuickActionParts.map((p) => `LEFT JOIN icons ${p.alias} ON pb.${p.col} = ${p.alias}.id`).join('\n          ')}`
+          : '';
+
         // School Portal home card icons (optional; handle partial schemas safely)
         let schoolPortalSelects = '';
         let schoolPortalJoins = '';
@@ -381,7 +417,7 @@ class PlatformBranding {
           pd_i.file_path as progress_dashboard_icon_path, pd_i.name as progress_dashboard_icon_name,
           s_i.file_path as settings_icon_path, s_i.name as settings_icon_name,
           mb_i.file_path as master_brand_icon_path, mb_i.name as master_brand_icon_name,
-          aan_i.file_path as all_agencies_notifications_icon_path, aan_i.name as all_agencies_notifications_icon_name${extraDashSelects}${extCalSelects}${skillBuildersSelects}${schoolOverviewSelects}${programOverviewSelects}${providerAvailabilitySelects}${executiveReportSelects}${schoolPortalSelects}${fontSelects}${orgSelects}${settingsIconSelects}${myDashboardIconSelects}
+          aan_i.file_path as all_agencies_notifications_icon_path, aan_i.name as all_agencies_notifications_icon_name${extraDashSelects}${extCalSelects}${skillBuildersSelects}${schoolOverviewSelects}${programOverviewSelects}${providerAvailabilitySelects}${executiveReportSelects}${extraQuickActionSelects}${schoolPortalSelects}${fontSelects}${orgSelects}${settingsIconSelects}${myDashboardIconSelects}
           FROM platform_branding pb
           ${hasManageClientsIcon ? 'LEFT JOIN icons mc_i ON pb.manage_clients_icon_id = mc_i.id' : ''}
           LEFT JOIN icons ma_i ON pb.manage_agencies_icon_id = ma_i.id
@@ -393,7 +429,7 @@ class PlatformBranding {
           LEFT JOIN icons pd_i ON pb.progress_dashboard_icon_id = pd_i.id
           LEFT JOIN icons s_i ON pb.settings_icon_id = s_i.id
           LEFT JOIN icons mb_i ON pb.master_brand_icon_id = mb_i.id
-          LEFT JOIN icons aan_i ON pb.all_agencies_notifications_icon_id = aan_i.id${extraDashJoins}${extCalJoins}${skillBuildersJoins}${schoolOverviewJoins}${programOverviewJoins}${providerAvailabilityJoins}${executiveReportJoins}${schoolPortalJoins}${orgJoins}${fontJoins}${settingsIconJoins}${myDashboardIconJoins}
+          LEFT JOIN icons aan_i ON pb.all_agencies_notifications_icon_id = aan_i.id${extraDashJoins}${extCalJoins}${skillBuildersJoins}${schoolOverviewJoins}${programOverviewJoins}${providerAvailabilityJoins}${executiveReportJoins}${extraQuickActionJoins}${schoolPortalJoins}${orgJoins}${fontJoins}${settingsIconJoins}${myDashboardIconJoins}
           ORDER BY pb.id DESC LIMIT 1`;
       } else {
         // Even if dashboard icons don't exist, try to include master brand icon if column exists
@@ -596,6 +632,11 @@ class PlatformBranding {
       dashboardBillingIconId,
       externalCalendarAuditIconId,
       skillBuildersAvailabilityIconId,
+      intakeLinksIconId,
+      auditCenterIconId,
+      marketingSocialIconId,
+      presenceIconId,
+      betaFeedbackIconId,
         myDashboardChecklistIconId,
         myDashboardTrainingIconId,
         myDashboardDocumentsIconId,
@@ -1232,6 +1273,30 @@ class PlatformBranding {
         }
       }
 
+      // Intake Links, Audit Center, Marketing Social, Presence, Beta Feedback quick-action icons (optional)
+      for (const { col, param } of [
+        { col: 'intake_links_icon_id', param: intakeLinksIconId },
+        { col: 'audit_center_icon_id', param: auditCenterIconId },
+        { col: 'marketing_social_icon_id', param: marketingSocialIconId },
+        { col: 'presence_icon_id', param: presenceIconId },
+        { col: 'beta_feedback_icon_id', param: betaFeedbackIconId }
+      ]) {
+        if (param !== undefined) {
+          try {
+            const [cols] = await pool.execute(
+              `SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'platform_branding' AND COLUMN_NAME = ?`,
+              [col]
+            );
+            if ((cols || []).length > 0) {
+              updates.push(`${col} = ?`);
+              values.push(param ?? null);
+            }
+          } catch {
+            // ignore
+          }
+        }
+      }
+
       // Check if all_agencies_notifications_icon_id column exists (separate from dashboard icons)
       if (allAgenciesNotificationsIconId !== undefined) {
         try {
@@ -1740,6 +1805,30 @@ class PlatformBranding {
           }
         } catch {
           // ignore
+        }
+      }
+
+      // Intake Links, Audit Center, Marketing Social, Presence, Beta Feedback - for INSERT
+      for (const { col, param } of [
+        { col: 'intake_links_icon_id', param: intakeLinksIconId },
+        { col: 'audit_center_icon_id', param: auditCenterIconId },
+        { col: 'marketing_social_icon_id', param: marketingSocialIconId },
+        { col: 'presence_icon_id', param: presenceIconId },
+        { col: 'beta_feedback_icon_id', param: betaFeedbackIconId }
+      ]) {
+        if (param !== undefined) {
+          try {
+            const [cols] = await pool.execute(
+              `SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'platform_branding' AND COLUMN_NAME = ?`,
+              [col]
+            );
+            if ((cols || []).length > 0) {
+              insertFields.push(col);
+              insertValues.push(param ?? null);
+            }
+          } catch {
+            // ignore
+          }
         }
       }
       
