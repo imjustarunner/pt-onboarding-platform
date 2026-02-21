@@ -1228,10 +1228,12 @@ export const listOfficeAvailabilityRequests = async (req, res, next) => {
     const out = [];
     for (const r of rows || []) {
       const [slotRows] = await pool.execute(
-        `SELECT weekday, start_hour, end_hour, room_id
-         FROM provider_office_availability_request_slots
-         WHERE request_id = ?
-         ORDER BY weekday ASC, start_hour ASC`,
+        `SELECT s.weekday, s.start_hour, s.end_hour, s.room_id,
+                r.office_location_id AS room_office_location_id
+         FROM provider_office_availability_request_slots s
+         LEFT JOIN office_rooms r ON r.id = s.room_id
+         WHERE s.request_id = ?
+         ORDER BY s.weekday ASC, s.start_hour ASC`,
         [r.id]
       );
       out.push({
@@ -1247,7 +1249,8 @@ export const listOfficeAvailabilityRequests = async (req, res, next) => {
           weekday: s.weekday,
           startHour: s.start_hour,
           endHour: s.end_hour,
-          roomId: s.room_id ? Number(s.room_id) : null
+          roomId: s.room_id ? Number(s.room_id) : null,
+          officeLocationId: s.room_office_location_id ? Number(s.room_office_location_id) : null
         }))
       });
     }

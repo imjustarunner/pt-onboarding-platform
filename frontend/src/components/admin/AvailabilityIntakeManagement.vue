@@ -419,9 +419,20 @@ const reload = async () => {
     skills.value = skillsResp.data || [];
     providers.value = providersResp.data || [];
 
-    // Init assignment form state
+    // Init assignment form state, pre-fill from request when provider selected building/room/time
     for (const r of officeRequests.value) {
-      if (!officeAssign[r.id]) officeAssign[r.id] = { officeId: '', roomId: '', slotKey: '' };
+      const prefOffices = r.preferredOfficeIds || [];
+      const slots = r.slots || [];
+      const firstSlot = slots[0];
+      const officeId = firstSlot?.officeLocationId
+        ? String(firstSlot.officeLocationId)
+        : (prefOffices.length === 1 ? String(prefOffices[0]) : '');
+      const roomId = firstSlot?.roomId ? String(firstSlot.roomId) : '';
+      const slotKey = firstSlot != null && Number.isFinite(firstSlot.weekday) && Number.isFinite(firstSlot.startHour)
+        ? `${firstSlot.weekday}:${firstSlot.startHour}`
+        : '';
+      officeAssign[r.id] = { officeId, roomId, slotKey };
+      if (officeId) void loadRoomsForOffice(r.id);
     }
     for (const r of schoolRequests.value) {
       if (!schoolAssign[r.id]) schoolAssign[r.id] = { schoolOrgId: '', blockKey: '', slotsTotal: 1 };
