@@ -398,6 +398,7 @@
                 <div
                   v-if="userChildOrgs(user).length > 0"
                   class="user-affiliations-details-wrap"
+                  :ref="(el) => { if (el && isUserAffiliationsPopoverOpenFor(Number(user.id))) affiliationsPopoverAnchorRef = el }"
                   @mouseenter="openUserAffiliationsPopover(Number(user.id))"
                   @mouseleave="closeUserAffiliationsPopover(Number(user.id))"
                 >
@@ -412,24 +413,32 @@
                     <span class="muted" style="font-weight: 800;">({{ userChildOrgs(user).length }})</span>
                   </button>
 
-                  <div v-if="isUserAffiliationsPopoverOpenFor(Number(user.id))" class="user-affiliations-popover">
-                    <div class="user-affiliations-popover-title">Schools &amp; other orgs</div>
+                  <Teleport to="body">
                     <div
-                      v-for="org in userChildOrgs(user)"
-                      :key="org.id"
-                      class="user-affiliations-popover-item"
+                      v-if="isUserAffiliationsPopoverOpenFor(Number(user.id))"
+                      class="user-affiliations-popover user-affiliations-popover-teleported"
+                      :style="affiliationsPopoverStyle"
+                      @mouseenter="openUserAffiliationsPopover(Number(user.id))"
+                      @mouseleave="closeUserAffiliationsPopover(Number(user.id))"
                     >
-                      <span class="user-affiliations-popover-item-name">
-                        {{ org.name }}
-                        <span v-if="org.organization_type" class="muted" style="font-size: 11px; font-weight: 800;">
-                          ({{ org.organization_type }})
+                      <div class="user-affiliations-popover-title">Schools &amp; other orgs</div>
+                      <div
+                        v-for="org in userChildOrgs(user)"
+                        :key="org.id"
+                        class="user-affiliations-popover-item"
+                      >
+                        <span class="user-affiliations-popover-item-name">
+                          {{ org.name }}
+                          <span v-if="org.organization_type" class="muted" style="font-size: 11px; font-weight: 800;">
+                            ({{ org.organization_type }})
+                          </span>
                         </span>
-                      </span>
+                      </div>
+                      <div class="muted" style="font-size: 12px; margin-top: 8px;">
+                        Tip: hover to peek, click to pin open.
+                      </div>
                     </div>
-                    <div class="muted" style="font-size: 12px; margin-top: 8px;">
-                      Tip: hover to peek, click to pin open.
-                    </div>
-                  </div>
+                  </Teleport>
                 </div>
               </div>
             </td>
@@ -1473,7 +1482,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed, watch } from 'vue';
+import { ref, onMounted, computed, watch, nextTick } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
@@ -1793,12 +1802,22 @@ const isUserAffiliationsPopoverOpenFor = (userId) => {
 };
 const openUserAffiliationsPopover = (userId) => {
   const id = Number(userId);
+  if (affiliationsPopoverCloseTimeout) {
+    clearTimeout(affiliationsPopoverCloseTimeout);
+    affiliationsPopoverCloseTimeout = null;
+  }
   if (pinnedUserAffiliationsPopoverUserId.value !== null && pinnedUserAffiliationsPopoverUserId.value !== id) return;
   hoverUserAffiliationsPopoverUserId.value = id;
 };
+let affiliationsPopoverCloseTimeout = null;
 const closeUserAffiliationsPopover = (userId) => {
   const id = Number(userId);
-  if (hoverUserAffiliationsPopoverUserId.value === id) hoverUserAffiliationsPopoverUserId.value = null;
+  if (hoverUserAffiliationsPopoverUserId.value !== id) return;
+  if (affiliationsPopoverCloseTimeout) clearTimeout(affiliationsPopoverCloseTimeout);
+  affiliationsPopoverCloseTimeout = setTimeout(() => {
+    hoverUserAffiliationsPopoverUserId.value = null;
+    affiliationsPopoverCloseTimeout = null;
+  }, 150);
 };
 const toggleUserAffiliationsPopover = (userId) => {
   const id = Number(userId);
@@ -1809,6 +1828,31 @@ const toggleUserAffiliationsPopover = (userId) => {
     hoverUserAffiliationsPopoverUserId.value = id;
   }
 };
+
+const affiliationsPopoverAnchorRef = ref(null);
+const affiliationsPopoverPosition = ref({ top: 0, left: 0 });
+watch(
+  () => [pinnedUserAffiliationsPopoverUserId.value, hoverUserAffiliationsPopoverUserId.value, affiliationsPopoverAnchorRef.value],
+  () => {
+    const openId = pinnedUserAffiliationsPopoverUserId.value ?? hoverUserAffiliationsPopoverUserId.value;
+    if (openId !== null && affiliationsPopoverAnchorRef.value) {
+      nextTick(() => {
+        const rect = affiliationsPopoverAnchorRef.value?.getBoundingClientRect?.();
+        if (rect) {
+          affiliationsPopoverPosition.value = {
+            top: rect.bottom + 6,
+            left: rect.left
+          };
+        }
+      });
+    }
+  },
+  { flush: 'post' }
+);
+const affiliationsPopoverStyle = computed(() => {
+  const p = affiliationsPopoverPosition.value;
+  return { top: `${p.top}px`, left: `${p.left}px` };
+});
 
 // AI Search (Gemini-ready)
 const aiQueryText = ref('');
@@ -4024,18 +4068,20 @@ th, td {
 }
 
 .user-affiliations-popover {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  margin-top: 6px;
   min-width: 320px;
   max-width: 520px;
+  max-height: min(70vh, 400px);
+  overflow-y: auto;
   background: #ffffff;
   border: 1px solid var(--border, #dee2e6);
   border-radius: 8px;
   padding: 10px;
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.15);
-  z-index: 60;
+  z-index: 9999;
+}
+
+.user-affiliations-popover-teleported {
+  position: fixed;
 }
 
 .user-affiliations-popover-title {

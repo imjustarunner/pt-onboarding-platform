@@ -1247,15 +1247,14 @@ const launchConsentSigningSession = async (target) => {
     const selected = (audioAgreementTemplates.value || []).find((t) => Number(t?.id) === templateId);
     const consentLabel = target === 'additional' ? 'Additional-participant consent' : 'Client consent';
     const title = `${consentLabel} — ${selected?.name || 'Recording Agreement'}`;
-    const res = await api.post('/tasks', {
-      taskType: 'document',
-      documentActionType: 'signature',
-      title,
-      description: 'Auto-created by Note Aid consent workflow before audio recording.',
-      referenceId: templateId,
-      assignedToUserId: userId,
-      assignedToAgencyId: Number(currentAgencyId.value)
-    });
+    const payload = {
+      agencyId: Number(currentAgencyId.value),
+      templateId,
+      title
+    };
+    const cid = retentionClientId.value;
+    if (cid) payload.clientId = cid;
+    const res = await api.post('/clinical-notes/consent-task', payload);
     const taskId = Number(res?.data?.id || 0) || null;
     if (!taskId) throw new Error('Task creation did not return an ID');
     if (target === 'additional') additionalParticipantConsentTaskId.value = taskId;

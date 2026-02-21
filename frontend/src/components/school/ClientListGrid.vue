@@ -110,7 +110,23 @@
               Doc Status
               <span class="sort-indicator" v-if="sortKey === 'document_status'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
             </th>
-            <th class="sortable" @click="toggleSort('organization_name')" role="button" tabindex="0">
+            <th
+              v-if="rosterScope === 'school'"
+              class="sortable"
+              @click="toggleSort('provider_name')"
+              role="button"
+              tabindex="0"
+            >
+              Provider
+              <span class="sort-indicator" v-if="sortKey === 'provider_name'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
+            </th>
+            <th
+              v-else
+              class="sortable"
+              @click="toggleSort('organization_name')"
+              role="button"
+              tabindex="0"
+            >
               School / Program
               <span class="sort-indicator" v-if="sortKey === 'organization_name'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
             </th>
@@ -269,7 +285,8 @@
               </div>
             </td>
             <td>{{ formatDocSummary(client) }}</td>
-            <td>{{ organizationName || client.organization_name || '—' }}</td>
+            <td v-if="rosterScope === 'school'">{{ client.provider_name || '—' }}</td>
+            <td v-else>{{ organizationName || client.organization_name || '—' }}</td>
             <td>{{ client.skills ? 'Yes' : 'No' }}</td>
             <td>{{ client.service_day || '—' }}</td>
             <td v-if="showPsychotherapyColumn" class="psy-cell">
@@ -618,6 +635,7 @@ const sortValue = (client, key) => {
   if (key === 'status') return String(client.client_status_label || client.status || '').toLowerCase();
   if (key === 'document_status') return String(formatDocSummary(client) || '').toLowerCase();
   if (key === 'organization_name') return String(props.organizationName || client.organization_name || '').toLowerCase();
+  if (key === 'provider_name') return String(client.provider_name || '').toLowerCase();
   if (key === 'skills') return client.skills ? 1 : 0;
   if (key === 'psychotherapy_total') {
     const m = props.psychotherapyTotalsByClientId || {};

@@ -711,6 +711,12 @@
                   {{ fmtNum(previewPostV2Summary.indirect_hours ?? 0) }} hrs •
                   {{ fmtMoney(payTotalsFromBreakdown(previewPostV2Summary.breakdown).indirectAmount ?? 0) }}
                 </div>
+                <div v-if="(previewPostV2IndirectBreakdown || []).length" class="muted" style="margin-top: 8px; padding-left: 12px; border-left: 2px solid var(--border);">
+                  <div style="margin-bottom: 4px;"><strong>Indirect breakdown:</strong></div>
+                  <div v-for="l in previewPostV2IndirectBreakdown" :key="`v2-indirect:${l.code}`" class="row" style="margin: 4px 0;">
+                    {{ l.code }}: {{ fmtNum(l.hours ?? 0) }} hrs • {{ fmtMoney(l.amount ?? 0) }}{{ isSupervisionCode(l.code) && (l.amount ?? 0) < 0.01 ? ' (benefit, no pay)' : '' }}
+                  </div>
+                </div>
               </div>
 
               <h3 class="card-title" style="margin-top: 12px;">Service Codes</h3>
@@ -7316,6 +7322,25 @@ const previewPostV2Summary = computed(() => {
 });
 
 const previewPostV2ServiceLines = computed(() => splitBreakdownForDisplay(previewPostV2Summary.value?.breakdown || null));
+
+const isSupervisionCode = (code) => ['99414', '99415', '99416'].includes(String(code || '').trim());
+
+const previewPostV2IndirectBreakdown = computed(() => {
+  const b = previewPostV2Summary.value?.breakdown || null;
+  if (!b || typeof b !== 'object') return [];
+  const out = [];
+  for (const [code, v] of Object.entries(b)) {
+    if (String(code).startsWith('_')) continue;
+    const bucket = v?.bucket ? String(v.bucket).trim().toLowerCase() : payBucketForCategory(v?.category);
+    if (bucket !== 'indirect') continue;
+    const hours = Number(v?.hours ?? v?.creditsHours ?? 0);
+    const amount = Number(v?.amount ?? 0);
+    if (hours > 1e-9 || amount > 1e-9) {
+      out.push({ code, hours, amount });
+    }
+  }
+  return out.sort((a, b) => String(a.code).localeCompare(String(b.code)));
+});
 
 const previewPostV2CarryoverNotes = computed(() => {
   const b = previewPostV2Summary.value?.breakdown || null;

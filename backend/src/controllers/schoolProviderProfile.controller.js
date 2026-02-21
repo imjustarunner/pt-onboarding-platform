@@ -151,6 +151,16 @@ async function ensureProviderAffiliated(providerUserId, schoolId) {
   }
 }
 
+/** Split credential text into individual tokens (e.g. "BA, LPCC" -> ["BA", "LPCC"]) */
+function parseCredentialTokens(credentialText) {
+  const s = String(credentialText ?? '').trim();
+  if (!s) return [];
+  return s
+    .split(/[,;\/&]+/)
+    .map((t) => t.trim())
+    .filter(Boolean);
+}
+
 async function computeAcceptedInsurances({ agencyId, providerUserId, credentialText }) {
   const aid = parseInt(agencyId, 10);
   const uid = parseInt(providerUserId, 10);
@@ -175,30 +185,45 @@ async function computeAcceptedInsurances({ agencyId, providerUserId, credentialT
        WHERE agency_id = ? AND is_active = TRUE`,
       [aid]
     );
-    const normalizedCredentialText = normalizeCredentialToken(credentialText);
-    let resolvedCredential = null;
-    if (normalizedCredentialText) {
-      resolvedCredential =
-        (credentialRows || []).find((r) => normalizeCredentialToken(r.credential_key) === normalizedCredentialText) ||
-        (credentialRows || []).find((r) => normalizeCredentialToken(r.label) === normalizedCredentialText) ||
+
+    // Resolve ALL credentials in the text (e.g. "BA, LPCC" -> both bachelors and lpcc)
+    const tokens = parseCredentialTokens(credentialText);
+    const resolvedCredentialIds = new Set();
+    for (const token of tokens) {
+      const norm = normalizeCredentialToken(token);
+      if (!norm) continue;
+      let cred =
+        (credentialRows || []).find((r) => normalizeCredentialToken(r.credential_key) === norm) ||
+        (credentialRows || []).find((r) => normalizeCredentialToken(r.label) === norm) ||
         null;
+      // BA/B.S. etc. map to bachelors credential
+      if (!cred && isBachelorsCredentialText(token)) {
+        cred =
+          (credentialRows || []).find((r) => normalizeCredentialToken(r.credential_key) === 'bachelors') ||
+          (credentialRows || []).find((r) => normalizeCredentialToken(r.label).includes('bachelor')) ||
+          null;
+      }
+      if (cred?.id) resolvedCredentialIds.add(Number(cred.id));
     }
 
+    // Fallback: if no tokens matched but bachelors detected in full text, use bachelors
     const bachelorsDetected = isBachelorsCredentialText(credentialText);
-    if (!resolvedCredential && bachelorsDetected) {
-      resolvedCredential =
+    if (resolvedCredentialIds.size === 0 && bachelorsDetected) {
+      const bachelorsCred =
         (credentialRows || []).find((r) => normalizeCredentialToken(r.credential_key) === 'bachelors') ||
         (credentialRows || []).find((r) => normalizeCredentialToken(r.label).includes('bachelor')) ||
         null;
+      if (bachelorsCred?.id) resolvedCredentialIds.add(Number(bachelorsCred.id));
     }
 
+    // Union insurances from ALL matched credentials (BA + LPCC = full set)
     const acceptedKeys = new Set();
-    if (resolvedCredential?.id) {
+    for (const credId of resolvedCredentialIds) {
       const [eligRows] = await pool.execute(
         `SELECT insurance_type_id
          FROM credential_insurance_eligibility
          WHERE credential_id = ? AND is_allowed = TRUE`,
-        [Number(resolvedCredential.id)]
+        [credId]
       );
       for (const row of eligRows || []) {
         const insurance = insuranceById.get(Number(row.insurance_type_id));

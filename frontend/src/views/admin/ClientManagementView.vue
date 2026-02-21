@@ -1067,13 +1067,29 @@ const dupesMatches = ref([]);
 const dupesForNewClient = ref(null);
 
 const activeAgencyId = computed(() => {
-  const current = agencyStore.currentAgency;
-  const currentType = String(current?.organization_type || 'agency').toLowerCase();
+  const current = agencyStore.currentAgency?.value ?? agencyStore.currentAgency;
+  const currentType = String(current?.organization_type || current?.organizationType || 'agency').toLowerCase();
+
+  // Direct agency: use its id
   if (current?.id && currentType === 'agency') return current.id;
+
+  // School/program/learning: resolve parent agency (clients belong to the agency, not the school)
+  if (['school', 'program', 'learning', 'clinical'].includes(currentType)) {
+    const parentFromCurrent = Number(current?.affiliated_agency_id || current?.affiliatedAgencyId || 0);
+    if (parentFromCurrent > 0) return parentFromCurrent;
+    // Fallback: match against userAgencies (current may be a partial record without affiliated_agency_id)
+    const orgId = Number(current?.id || 0);
+    if (orgId > 0) {
+      const fromStore = authStore.user?.role === 'super_admin' ? agencyStore.agencies : agencyStore.userAgencies;
+      const match = (fromStore || []).find((a) => Number(a?.id || 0) === orgId);
+      const parentFromList = Number(match?.affiliated_agency_id || match?.affiliatedAgencyId || 0);
+      if (parentFromList > 0) return parentFromList;
+    }
+  }
 
   // Fallback: pick first agency-type org from the user's list
   const fromStore = authStore.user?.role === 'super_admin' ? agencyStore.agencies : agencyStore.userAgencies;
-  const firstAgency = (fromStore || []).find((a) => String(a?.organization_type || 'agency').toLowerCase() === 'agency');
+  const firstAgency = (fromStore || []).find((a) => String(a?.organization_type || a?.organizationType || 'agency').toLowerCase() === 'agency');
   return firstAgency?.id || null;
 });
 
@@ -2123,6 +2139,16 @@ watch(
 
 watch(() => route.query?.clientId, async () => {
   await openClientFromQuery();
+});
+
+// Refetch when active agency changes (e.g. user switches org in header, or agency resolves after mount)
+watch(() => activeAgencyId.value, (newId, oldId) => {
+  if (newId && newId !== oldId) {
+    fetchLinkedOrganizations();
+    fetchClientStatuses();
+    fetchProviders();
+    fetchClients();
+  }
 });
 </script>
 

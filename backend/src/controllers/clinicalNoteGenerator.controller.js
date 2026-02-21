@@ -10,6 +10,10 @@ import { callGeminiText } from '../services/geminiText.service.js';
 import { transcribeLongAudio } from '../services/speechTranscription.service.js';
 import { decryptChatText, encryptChatText, isChatEncryptionConfigured } from '../services/chatEncryption.service.js';
 import { validationResult } from 'express-validator';
+import TaskAssignmentService from '../services/taskAssignment.service.js';
+import TaskAuditLog from '../models/TaskAuditLog.model.js';
+import Client from '../models/Client.model.js';
+import ClientGuardian from '../models/ClientGuardian.model.js';
 
 function safeInt(v) {
   const n = Number(v);
@@ -502,6 +506,94 @@ export const listClinicalNotePrograms = async (req, res, next) => {
           .map((name) => ({ id: `custom:${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`, name, isCustom: true }))
       : [];
     res.json({ programs: [...(Array.isArray(programs) ? programs : []), ...customPrograms] });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Create a consent signing task for Note Aid workflow.
+ * Clinicians (provider, intern, intern_plus, etc.) can create this without admin.
+ * MUST work regardless of whether a client is present: provider can always open the form,
+ * sign/download, and upload manually to EHR.
+ *
+ * When clientId is provided AND client has a guardian/self linked: assigns to that signer.
+ * Otherwise (no clientId, no guardian, or client not found): assigns to the clinician.
+ * Provider can open the form either way (agency access).
+ * POST /clinical-notes/consent-task
+ */
+export const createConsentTask = async (req, res, next) => {
+  try {
+    if (!requireNotSchoolStaff(req, res)) return;
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ error: { message: 'Validation failed', errors: errors.array() } });
+    }
+    const agencyId = req.body?.agencyId ? safeInt(req.body.agencyId) : null;
+    const templateId = req.body?.templateId ? safeInt(req.body.templateId) : null;
+    const title = req.body?.title ? String(req.body.title).trim() : null;
+    const clientId = req.body?.clientId ? safeInt(req.body.clientId) : null;
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!templateId) return res.status(400).json({ error: { message: 'templateId is required' } });
+    if (!title) return res.status(400).json({ error: { message: 'title is required' } });
+    if (!(await requireUserHasAgencyAccess(req, res, agencyId))) return;
+    if (!(await requireClinicalNoteGeneratorEnabled(req, res, agencyId))) return;
+
+    const userId = req.user.id;
+    let assignedToUserId = userId;
+
+    if (clientId) {
+      const client = await Client.findById(clientId);
+      if (client && Number(client.agency_id) === agencyId) {
+        const guardians = await ClientGuardian.listForClient(clientId);
+        const selfGuardian = (guardians || []).find((g) => String(g.relationship_type || '').toLowerCase() === 'self');
+        const primaryGuardian = selfGuardian || (guardians || [])[0];
+        if (primaryGuardian?.guardian_user_id) {
+          assignedToUserId = primaryGuardian.guardian_user_id;
+        }
+      }
+      // If no guardian or client not found: fall back to provider (assignedToUserId stays userId).
+      // Provider can always open, sign, download, and upload manually.
+    }
+
+    const DocumentTemplate = (await import('../models/DocumentTemplate.model.js')).default;
+    const template = await DocumentTemplate.findById(templateId);
+    if (!template) {
+      return res.status(404).json({ error: { message: 'Document template not found' } });
+    }
+    if (!template.is_active) {
+      return res.status(400).json({ error: { message: 'Document template is not active' } });
+    }
+    if (String(template.document_type || '').toLowerCase() !== 'audio_recording_consent') {
+      return res.status(400).json({ error: { message: 'Template must be an audio recording consent type' } });
+    }
+    if (Number(template.agency_id) !== agencyId) {
+      return res.status(400).json({ error: { message: 'Template does not belong to this organization' } });
+    }
+
+    const task = await TaskAssignmentService.assignDocumentTask({
+      title,
+      description: 'Auto-created by Note Aid consent workflow before audio recording.',
+      documentTemplateId: templateId,
+      assignedByUserId: userId,
+      assignedToUserId,
+      assignedToAgencyId: agencyId,
+      documentActionType: template.document_action_type || 'signature'
+    });
+
+    if (!task || !task.id) {
+      return res.status(500).json({ error: { message: 'Failed to create task' } });
+    }
+
+    await TaskAuditLog.logAction({
+      taskId: task.id,
+      actionType: 'assigned',
+      actorUserId: userId,
+      targetUserId: assignedToUserId,
+      metadata: { assignedToAgencyId: agencyId, source: 'note_aid_consent', clientId: clientId || undefined }
+    });
+
+    res.status(201).json(task);
   } catch (e) {
     next(e);
   }

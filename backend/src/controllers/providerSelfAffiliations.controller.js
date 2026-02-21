@@ -53,8 +53,8 @@ async function resolveTargetProviderId(req) {
 
   const role = String(targetUser.role || '').trim().toLowerCase();
   // "Provider-like" accounts can participate in provider-facing school affiliation + scheduling flows.
-  // We intentionally support "admin but also a provider" without requiring dual-role accounts.
-  const providerLikeRoles = ['provider', 'admin', 'super_admin', 'clinical_practice_assistant'];
+  // provider_plus, intern, intern_plus are assigned to schools and need school affiliation management.
+  const providerLikeRoles = ['provider', 'provider_plus', 'intern', 'intern_plus', 'admin', 'super_admin', 'clinical_practice_assistant'];
   const isProviderLike = providerLikeRoles.includes(role) || Boolean(targetUser.has_provider_access);
   if (!isProviderLike) {
     return { ok: false, status: 400, message: 'User is not a provider' };

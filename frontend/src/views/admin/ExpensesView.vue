@@ -65,6 +65,10 @@
 
       <div v-if="error" class="error-box" style="margin-top: 10px;">{{ error }}</div>
 
+      <div v-if="agencyId && !driveConfigured && !loading" class="hint" style="margin-top: 10px; padding: 8px 12px; background: rgba(255, 193, 7, 0.12); border-radius: 8px; border: 1px solid rgba(255, 193, 7, 0.3);">
+        Send to Drive is unavailable. Google Drive is not configured for this environment. Contact your administrator to set up <code>GOOGLE_WORKSPACE_IMPERSONATE_USER</code> and <code>EXPENSE_RECEIPTS_DRIVE_FOLDER_ID</code>.
+      </div>
+
       <div class="hint" style="margin-top: 10px;" v-if="agencyId">
         Showing <strong>{{ items.length }}</strong> of <strong>{{ total }}</strong>
       </div>
@@ -128,7 +132,8 @@
                   class="btn btn-secondary btn-sm"
                   type="button"
                   @click="sendToDrive(c)"
-                  :disabled="sendingDriveKey === `${c.expense_type}-${c.id}` || !c.receipt_file_path"
+                  :disabled="sendingDriveKey === `${c.expense_type}-${c.id}` || !c.receipt_file_path || !driveConfigured"
+                  :title="!driveConfigured ? 'Google Drive is not configured' : ''"
                 >
                   {{ sendingDriveKey === `${c.expense_type}-${c.id}` ? 'Sending…' : 'Send' }}
                 </button>
@@ -160,6 +165,7 @@ const error = ref('');
 const items = ref([]);
 const total = ref(0);
 const sendingDriveKey = ref('');
+const driveConfigured = ref(true);
 
 const dateYmd = (v) => {
   if (!v) return '—';
@@ -218,6 +224,7 @@ const load = async () => {
     });
     total.value = Number(resp.data?.total || 0);
     items.value = Array.isArray(resp.data?.items) ? resp.data.items : [];
+    driveConfigured.value = resp.data?.driveConfigured !== false;
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message || 'Failed to load expenses';
     items.value = [];

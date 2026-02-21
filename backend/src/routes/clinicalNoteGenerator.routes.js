@@ -8,6 +8,7 @@ import { apiLimiter } from '../middleware/rateLimiter.middleware.js';
 import {
   getClinicalNotesContext,
   listClinicalNotePrograms,
+  createConsentTask,
   createClinicalNoteDraft,
   patchClinicalNoteDraft,
   listRecentClinicalNoteDrafts,
@@ -39,6 +40,18 @@ const transcribeUpload = multer({
 router.get('/context', apiLimiter, [query('agencyId').isInt({ min: 1 })], getClinicalNotesContext);
 
 router.get('/programs', apiLimiter, [query('agencyId').isInt({ min: 1 })], listClinicalNotePrograms);
+
+router.post(
+  '/consent-task',
+  apiLimiter,
+  [
+    body('agencyId').isInt({ min: 1 }),
+    body('templateId').isInt({ min: 1 }),
+    body('title').isString().isLength({ min: 1, max: 255 }),
+    body('clientId').optional().isInt({ min: 1 })
+  ],
+  createConsentTask
+);
 
 router.get(
   '/recent',

@@ -4158,6 +4158,53 @@ export const generateTemporaryPassword = async (req, res, next) => {
   }
 };
 
+export const setCustomTemporaryPassword = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { temporaryPassword: customPassword, expiresInDays, expiresInHours } = req.body;
+
+    if (req.user.role !== 'admin' && req.user.role !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'Admin access required' } });
+    }
+
+    const targetUser = await User.findById(id);
+    if (!targetUser) {
+      return res.status(404).json({ error: { message: 'User not found' } });
+    }
+
+    try {
+      const ssoState = await getSsoStateForUser(targetUser);
+      if (ssoState.ssoRequired) {
+        return res.status(409).json({
+          error: {
+            message: 'Password login is disabled by Workspace policy for this user. Enable admin password override to issue a temporary password.'
+          }
+        });
+      }
+    } catch {
+      // Best-effort
+    }
+
+    const password = String(customPassword || '').trim();
+    if (!password || password.length < 8) {
+      return res.status(400).json({ error: { message: 'Temporary password must be at least 8 characters' } });
+    }
+
+    const finalExpiresInHours =
+      Number.isFinite(parseInt(expiresInHours)) ? parseInt(expiresInHours) :
+      Number.isFinite(parseInt(expiresInDays)) ? (parseInt(expiresInDays) * 24) :
+      48;
+    const result = await User.setTemporaryPassword(id, password, Math.max(1, finalExpiresInHours));
+
+    res.json({
+      temporaryPassword: password,
+      expiresAt: result.expiresAt
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const resetPasswordlessToken = async (req, res, next) => {
   try {
     const { id } = req.params;

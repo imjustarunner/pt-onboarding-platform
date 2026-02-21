@@ -734,6 +734,27 @@ function resolveUserIdForProviderName(nameToIds, providerName) {
   return ids.size === 1 ? Array.from(ids)[0] : null; // null if none or ambiguous
 }
 
+/**
+ * Get users for payroll provider name matching. Includes:
+ * - Users in user_agencies for this agency
+ * - Superadmins (they have platform-wide access and may appear in any agency's billing reports)
+ */
+async function getAgencyUsersForPayrollMatching(agencyId) {
+  const [rows] = await pool.execute(
+    `SELECT DISTINCT u.id, u.first_name, u.last_name
+     FROM users u
+     JOIN user_agencies ua ON u.id = ua.user_id
+     WHERE ua.agency_id = ?
+     UNION
+     SELECT DISTINCT u.id, u.first_name, u.last_name
+     FROM users u
+     WHERE u.role = 'super_admin'
+       AND (u.is_archived = FALSE OR u.is_archived IS NULL)`,
+    [agencyId]
+  );
+  return rows || [];
+}
+
 function titleCaseWords(s) {
   return String(s || '')
     .split(' ')
@@ -2893,6 +2914,49 @@ export const downloadPayrollExportCsv = async (req, res, next) => {
       adjByUserId.set(Number(a.user_id), a);
     }
 
+    // Include providers who have adjustments (e.g. PTO) but no summary row.
+    // This can happen when PTO was approved after payroll was run, or before the fix that
+    // adds adjustment-only users to the summary computation.
+    const summaryUserIds = new Set((summaries || []).map((s) => Number(s.user_id)));
+    const adjOnlyUserIds = [...adjByUserId.keys()].filter((uid) => !summaryUserIds.has(uid));
+    const toNum = (x) => (Number.isFinite(Number(x)) ? Number(x) : 0);
+    if (adjOnlyUserIds.length) {
+      const [userRows] = await pool.execute(
+        `SELECT id, first_name, last_name FROM users WHERE id IN (${adjOnlyUserIds.map(() => '?').join(',')})`,
+        adjOnlyUserIds
+      );
+      const userById = new Map((userRows || []).map((u) => [Number(u.id), u]));
+      for (const uid of adjOnlyUserIds) {
+        const u = userById.get(uid);
+        if (!u) continue;
+        const adj = adjByUserId.get(uid) || {};
+        const sickPto = toNum(adj.sick_pto_hours ?? 0);
+        const trainPto = toNum(adj.training_pto_hours ?? 0);
+        const legacyPto = toNum(adj.pto_hours ?? 0);
+        const ptoH = (sickPto + trainPto) > 0 ? sickPto + trainPto : legacyPto;
+        const ptoR = toNum(adj.pto_rate ?? 0);
+        const ptoPay = ptoH * ptoR;
+        const mileage = toNum(adj.mileage_amount ?? 0);
+        const reimbursement = toNum(adj.reimbursement_amount ?? 0);
+        const tuition = toNum(adj.tuition_reimbursement_amount ?? 0);
+        const bonus = toNum(adj.bonus_amount ?? 0);
+        const salary = toNum(adj.salary_amount ?? 0);
+        const nonTaxable = mileage + reimbursement + tuition;
+        const taxable = bonus + salary + ptoPay + toNum(adj.medcancel_amount ?? 0) + toNum(adj.other_taxable_amount ?? 0);
+        const totalAmount = taxable + nonTaxable;
+        summaries.push({
+          user_id: uid,
+          first_name: u.first_name || '',
+          last_name: u.last_name || '',
+          direct_hours: 0,
+          indirect_hours: 0,
+          breakdown: null,
+          adjustments_amount: totalAmount,
+          total_amount: totalAmount
+        });
+      }
+    }
+
     // Export format (payroll processor output):
     // - Sorted by provider last name
     // - Direct/Indirect hours + rates
@@ -3640,6 +3704,22 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
     shiftCoverageBonusByUser = await aggregateShiftCoverageBonusByUser({ agencyId, periodStart, periodEnd });
     for (const uid of shiftTimePunchesByUser.keys()) {
       if (!byUser.has(uid)) byUser.set(uid, []);
+    }
+  } catch (e) {
+    if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+  }
+
+  // Ensure users with ONLY payroll adjustments (e.g. PTO, mileage, bonus) get a payroll summary row.
+  // Providers who took PTO but had no sessions would otherwise be omitted from the export.
+  try {
+    const [adjUserRows] = await pool.execute(
+      `SELECT DISTINCT user_id FROM payroll_adjustments
+       WHERE payroll_period_id = ? AND agency_id = ? AND user_id IS NOT NULL`,
+      [payrollPeriodId, agencyId]
+    );
+    for (const r of adjUserRows || []) {
+      const uid = Number(r?.user_id || 0);
+      if (uid && !byUser.has(uid)) byUser.set(uid, []);
     }
   } catch (e) {
     if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
@@ -4527,14 +4607,8 @@ export const importPayrollCsv = [
         return res.status(400).json({ error: { message: 'No rows found in report' } });
       }
 
-      // Build name->user map for users in agency
-      const [agencyUsers] = await pool.execute(
-        `SELECT DISTINCT u.id, u.first_name, u.last_name
-         FROM users u
-         JOIN user_agencies ua ON u.id = ua.user_id
-         WHERE ua.agency_id = ?`,
-        [agencyId]
-      );
+      // Build name->user map for users in agency (includes superadmins for provider matching)
+      const agencyUsers = await getAgencyUsersForPayrollMatching(agencyId);
 
       // H0032 per-user manual minutes toggle (Category 2).
       const h0032ManualMinutesByUserId = new Map();
@@ -4754,14 +4828,8 @@ export const importPayrollAuto = [
         });
       }
 
-      // Build name->user map for users in agency
-      const [agencyUsers] = await pool.execute(
-        `SELECT DISTINCT u.id, u.first_name, u.last_name
-         FROM users u
-         JOIN user_agencies ua ON u.id = ua.user_id
-         WHERE ua.agency_id = ?`,
-        [resolvedAgencyId]
-      );
+      // Build name->user map for users in agency (includes superadmins for provider matching)
+      const agencyUsers = await getAgencyUsersForPayrollMatching(resolvedAgencyId);
 
       // H0032 per-user manual minutes toggle (Category 2).
       const h0032ManualMinutesByUserId = new Map();
@@ -5028,13 +5096,7 @@ export const importPayrollRateSheet = [
       // Seed service codes so the full rate sheet UI has columns, even if blank.
       await ensureServiceCodeRulesExist({ agencyId: resolvedAgencyId, serviceCodes: parsed.serviceCodes || [] });
 
-      const [agencyUsers] = await pool.execute(
-        `SELECT DISTINCT u.id, u.first_name, u.last_name
-         FROM users u
-         JOIN user_agencies ua ON u.id = ua.user_id
-         WHERE ua.agency_id = ?`,
-        [resolvedAgencyId]
-      );
+      const agencyUsers = await getAgencyUsersForPayrollMatching(resolvedAgencyId);
       const nameToId = new Map();
       for (const u of agencyUsers || []) {
         const first = String(u.first_name || '').trim();
@@ -5368,14 +5430,8 @@ export const toolPreviewPayrollFileStaging = [
 
       const parsed = parsePayrollFile(req.file.buffer, req.file.originalname || 'file.csv')?.rows || [];
 
-      // Build name->user map for users in agency (read-only).
-      const [agencyUsers] = await pool.execute(
-        `SELECT DISTINCT u.id, u.first_name, u.last_name
-         FROM users u
-         JOIN user_agencies ua ON u.id = ua.user_id
-         WHERE ua.agency_id = ?`,
-        [agencyId]
-      );
+      // Build name->user map for users in agency (includes superadmins; read-only preview).
+      const agencyUsers = await getAgencyUsersForPayrollMatching(agencyId);
       const nameToIds = new Map();
       const userMap = new Map();
       for (const u of agencyUsers || []) {
@@ -6869,14 +6925,8 @@ export const snapshotPayrollPeriodRunFromFile = [
       }
       if (!parsed || parsed.length === 0) return res.status(400).json({ error: { message: 'No rows found in report' } });
 
-      // Map provider names -> user ids for users in this agency (do not auto-create users here).
-      const [agencyUsers] = await pool.execute(
-        `SELECT DISTINCT u.id, u.first_name, u.last_name
-         FROM users u
-         JOIN user_agencies ua ON u.id = ua.user_id
-         WHERE ua.agency_id = ?`,
-        [period.agency_id]
-      );
+      // Map provider names -> user ids for users in this agency (includes superadmins; do not auto-create here).
+      const agencyUsers = await getAgencyUsersForPayrollMatching(period.agency_id);
       const nameToIds = new Map();
       for (const u of agencyUsers || []) {
         const first = String(u.first_name || '').trim();
@@ -9749,22 +9799,34 @@ export const listMyAssignedSchoolsForPayroll = async (req, res, next) => {
       }
     }
 
-    // "Assigned schools" for provider-based in-school claims come from provider_school_assignments.
-    // Use DISTINCT to collapse day-of-week rows into one school option.
+    // "Assigned schools" from (1) provider_school_assignments (slot assignments) and
+    // (2) client_provider_assignments (in-school client assignments). Providers with only
+    // in-school clients may have no slot assignments but should still see their schools.
     const [schools] = await pool.execute(
-      `SELECT DISTINCT
-              psa.school_organization_id AS schoolOrganizationId,
-              s.name AS name
-       FROM provider_school_assignments psa
-       JOIN agencies s ON s.id = psa.school_organization_id
-       JOIN organization_affiliations oa
-         ON oa.organization_id = psa.school_organization_id
-        AND oa.agency_id = ?
-        AND oa.is_active = TRUE
-       WHERE psa.provider_user_id = ?
-         AND psa.is_active = TRUE
-       ORDER BY s.name ASC`,
-      [agencyId, req.user.id]
+      `SELECT DISTINCT schoolOrganizationId, name FROM (
+         SELECT psa.school_organization_id AS schoolOrganizationId, s.name AS name
+         FROM provider_school_assignments psa
+         JOIN agencies s ON s.id = psa.school_organization_id
+         JOIN organization_affiliations oa
+           ON oa.organization_id = psa.school_organization_id
+          AND oa.agency_id = ?
+          AND oa.is_active = TRUE
+         WHERE psa.provider_user_id = ?
+           AND psa.is_active = TRUE
+         UNION
+         SELECT cpa.organization_id AS schoolOrganizationId, s.name AS name
+         FROM client_provider_assignments cpa
+         JOIN agencies s ON s.id = cpa.organization_id
+         JOIN organization_affiliations oa
+           ON oa.organization_id = cpa.organization_id
+          AND oa.agency_id = ?
+          AND oa.is_active = TRUE
+         WHERE cpa.provider_user_id = ?
+           AND cpa.is_active = TRUE
+           AND s.organization_type = 'school'
+       ) AS combined
+       ORDER BY name ASC`,
+      [agencyId, req.user.id, agencyId, req.user.id]
     );
 
     res.json(schools || []);
@@ -11761,7 +11823,12 @@ export const listExpenses = async (req, res, next) => {
     const off = Math.max(0, Number(offset || 0));
     const lim = Math.max(1, Math.min(1000, Number(limit || 500)));
     const paged = items.slice(off, off + lim);
-    return res.json({ total: items.length, items: paged });
+
+    const driveImpersonate = process.env.GOOGLE_WORKSPACE_DRIVE_IMPERSONATE_USER || process.env.GOOGLE_WORKSPACE_IMPERSONATE_USER || '';
+    const driveFolderId = process.env.EXPENSE_RECEIPTS_DRIVE_FOLDER_ID || '';
+    const driveConfigured = !!(String(driveImpersonate).trim() && String(driveFolderId).trim());
+
+    return res.json({ total: items.length, items: paged, driveConfigured });
   } catch (e) {
     next(e);
   }

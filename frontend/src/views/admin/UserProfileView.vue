@@ -1175,14 +1175,33 @@
                 <div v-if="canUseTempPassword" class="reset-password-section">
                   <h4>Temporary Password</h4>
                   <p>Generate an expiring temporary password. Send the username + temporary password to the user. After login, they will be prompted to set a new password.</p>
-                  <button
-                    @click="generateTemporaryPasswordForUser"
-                    type="button"
-                    class="btn btn-primary btn-sm"
-                    :disabled="generatingTempPassword"
-                  >
-                    {{ generatingTempPassword ? 'Generating...' : 'Generate Temporary Password' }}
-                  </button>
+                  <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                    <button
+                      @click="generateTemporaryPasswordForUser"
+                      type="button"
+                      class="btn btn-primary btn-sm"
+                      :disabled="generatingTempPassword || settingCustomTempPassword"
+                    >
+                      {{ generatingTempPassword ? 'Generating...' : 'Generate Temporary Password' }}
+                    </button>
+                    <span class="muted">or</span>
+                    <input
+                      v-model="customTempPasswordInput"
+                      type="text"
+                      placeholder="Custom password (min 8 chars)"
+                      class="form-control form-control-sm"
+                      style="max-width: 220px;"
+                      :disabled="generatingTempPassword || settingCustomTempPassword"
+                    />
+                    <button
+                      @click="setCustomTemporaryPasswordForUser"
+                      type="button"
+                      class="btn btn-secondary btn-sm"
+                      :disabled="!customTempPasswordInput?.trim() || customTempPasswordInput?.trim().length < 8 || generatingTempPassword || settingCustomTempPassword"
+                    >
+                      {{ settingCustomTempPassword ? 'Setting...' : 'Set Custom Temporary Password' }}
+                    </button>
+                  </div>
                 </div>
               </template>
               
@@ -2205,7 +2224,8 @@ const canViewSchoolAffiliation = computed(() => {
     u.has_provider_access === 1 ||
     u.has_provider_access === '1' ||
     u.hasProviderAccess === true;
-  return role === 'provider' || role === 'admin' || role === 'super_admin' || role === 'clinical_practice_assistant' || hasProviderAccess;
+  const providerLikeRoles = ['provider', 'provider_plus', 'intern', 'intern_plus', 'admin', 'super_admin', 'clinical_practice_assistant'];
+  return providerLikeRoles.includes(role) || hasProviderAccess;
 });
 
 const supervisees = ref([]);
@@ -2953,6 +2973,8 @@ watch(selectedSchoolAffiliationId, async () => {
 
 const showTempPasswordModal = ref(false);
 const generatingTempPassword = ref(false);
+const settingCustomTempPassword = ref(false);
+const customTempPasswordInput = ref('');
 const temporaryPassword = ref('');
 const temporaryPasswordExpiresAt = ref('');
 const tempPasswordInput = ref(null);
@@ -4288,6 +4310,27 @@ const generateTemporaryPasswordForUser = async () => {
   }
 };
 
+const setCustomTemporaryPasswordForUser = async () => {
+  const password = customTempPasswordInput.value?.trim();
+  if (!password || password.length < 8) return;
+  try {
+    settingCustomTempPassword.value = true;
+    const response = await api.post(`/users/${userId.value}/set-temporary-password`, {
+      temporaryPassword: password,
+      expiresInHours: 48
+    });
+    temporaryPassword.value = response.data.temporaryPassword || '';
+    temporaryPasswordExpiresAt.value = response.data.expiresAt || '';
+    showTempPasswordModal.value = true;
+    customTempPasswordInput.value = '';
+  } catch (err) {
+    error.value = err.response?.data?.error?.message || 'Failed to set temporary password';
+    alert(error.value);
+  } finally {
+    settingCustomTempPassword.value = false;
+  }
+};
+
 const copyTempPassword = async () => {
   if (tempPasswordInput.value) {
     tempPasswordInput.value.select();
@@ -4314,6 +4357,7 @@ const closeTempPasswordModal = () => {
   showTempPasswordModal.value = false;
   temporaryPassword.value = '';
   temporaryPasswordExpiresAt.value = '';
+  customTempPasswordInput.value = '';
 };
 
 // Reset password link (token-based) — shown for non-SSO users; expires (48h)

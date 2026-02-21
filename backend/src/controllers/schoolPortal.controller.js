@@ -806,7 +806,8 @@ export const getProviderMyRoster = async (req, res, next) => {
     const userId = req.user?.id;
     const userRole = String(req.user?.role || '').toLowerCase();
 
-    if (userRole !== 'provider') {
+    const providerRoles = ['provider', 'provider_plus', 'intern', 'intern_plus', 'clinical_practice_assistant'];
+    if (!providerRoles.includes(userRole)) {
       return res.status(403).json({ error: { message: 'Provider access required' } });
     }
     const providerUserId = parseInt(userId, 10);
