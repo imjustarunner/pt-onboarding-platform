@@ -672,6 +672,13 @@ const componentProps = computed(() => {
   if (selectedCategory.value === 'workflow' && selectedItem.value === 'school-settings' && props.initialSchoolId) {
     return { ...base, initialSchoolId: props.initialSchoolId };
   }
+  if (selectedCategory.value === 'general' && selectedItem.value === 'company-profile') {
+    const agencyId = route.query.agencyId;
+    const agencyTab = route.query.agencyTab || 'general';
+    if (agencyId) {
+      return { ...base, embeddedOrgId: agencyId, embeddedTab: agencyTab };
+    }
+  }
   return base;
 });
 

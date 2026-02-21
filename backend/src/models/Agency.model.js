@@ -130,6 +130,8 @@ class Agency {
     const hasChatIconId = has('chat_icon_id');
     const hasMyDashboardIcons = has('my_dashboard_checklist_icon_id');
     const hasMyDashboardClinicalNoteGeneratorIcon = has('my_dashboard_clinical_note_generator_icon_id');
+    const hasMyDashboardContactsIcon = has('my_dashboard_contacts_icon_id');
+    const hasMyDashboardStaffIcon = has('my_dashboard_staff_icon_id');
 
     let query;
     if (hasDashboardIcons) {
@@ -288,6 +290,14 @@ class Agency {
         mdchat_i.file_path as my_dashboard_chats_icon_path, mdchat_i.name as my_dashboard_chats_icon_name,
         mdn_i.file_path as my_dashboard_notifications_icon_path, mdn_i.name as my_dashboard_notifications_icon_name,
         mdsup_i.file_path as my_dashboard_supervision_icon_path, mdsup_i.name as my_dashboard_supervision_icon_name${
+          hasMyDashboardContactsIcon
+            ? ',\n        mdcont_i.file_path as my_dashboard_contacts_icon_path, mdcont_i.name as my_dashboard_contacts_icon_name'
+            : ''
+        }${
+          hasMyDashboardStaffIcon
+            ? ',\n        mdstaff_i.file_path as my_dashboard_staff_icon_path, mdstaff_i.name as my_dashboard_staff_icon_name'
+            : ''
+        }${
           hasMyDashboardClinicalNoteGeneratorIcon
             ? ',\n        mdcn_i.file_path as my_dashboard_clinical_note_generator_icon_path, mdcn_i.name as my_dashboard_clinical_note_generator_icon_name'
             : ''
@@ -308,6 +318,14 @@ class Agency {
         LEFT JOIN icons mdchat_i ON a.my_dashboard_chats_icon_id = mdchat_i.id
         LEFT JOIN icons mdn_i ON a.my_dashboard_notifications_icon_id = mdn_i.id
         LEFT JOIN icons mdsup_i ON a.my_dashboard_supervision_icon_id = mdsup_i.id${
+          hasMyDashboardContactsIcon
+            ? '\n        LEFT JOIN icons mdcont_i ON a.my_dashboard_contacts_icon_id = mdcont_i.id'
+            : ''
+        }${
+          hasMyDashboardStaffIcon
+            ? '\n        LEFT JOIN icons mdstaff_i ON a.my_dashboard_staff_icon_id = mdstaff_i.id'
+            : ''
+        }${
           hasMyDashboardClinicalNoteGeneratorIcon
             ? '\n        LEFT JOIN icons mdcn_i ON a.my_dashboard_clinical_note_generator_icon_id = mdcn_i.id'
             : ''
@@ -1239,7 +1257,7 @@ class Agency {
   }
 
   static async update(id, agencyData) {
-    const { name, officialName, slug, logoUrl, logoPath, colorPalette, terminologySettings, intakeRetentionPolicy, isActive, iconId, chatIconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, companyDefaultPasswordHash, useDefaultPassword, manageAgenciesIconId, manageModulesIconId, manageDocumentsIconId, manageUsersIconId, platformSettingsIconId, viewAllProgressIconId, progressDashboardIconId, settingsIconId, externalCalendarAuditIconId, skillBuildersAvailabilityIconId, intakeLinksIconId, auditCenterIconId, marketingSocialIconId, myDashboardChecklistIconId, myDashboardMomentumListIconId, myDashboardMomentumStickiesIconId, myDashboardTrainingIconId, myDashboardDocumentsIconId, myDashboardMyAccountIconId, myDashboardMyScheduleIconId, myDashboardClientsIconId, myDashboardOnDemandTrainingIconId, myDashboardPayrollIconId, myDashboardSubmitIconId, myDashboardCommunicationsIconId, myDashboardChatsIconId, myDashboardNotificationsIconId, myDashboardSupervisionIconId, myDashboardClinicalNoteGeneratorIconId, certificateTemplateUrl, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, customDomain, themeSettings, customParameters, featureFlags, publicAvailabilityEnabled, organizationType, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId, supportTicketCreatedIconId, ticketingNotificationOrgTypes, streetAddress, city, state, postalCode, tierSystemEnabled, tierThresholds,
+    const { name, officialName, slug, logoUrl, logoPath, colorPalette, terminologySettings, intakeRetentionPolicy, isActive, iconId, chatIconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, companyDefaultPasswordHash, useDefaultPassword, manageAgenciesIconId, manageModulesIconId, manageDocumentsIconId, manageUsersIconId, platformSettingsIconId, viewAllProgressIconId, progressDashboardIconId, settingsIconId, externalCalendarAuditIconId, skillBuildersAvailabilityIconId, intakeLinksIconId, auditCenterIconId, marketingSocialIconId, myDashboardChecklistIconId, myDashboardMomentumListIconId, myDashboardMomentumStickiesIconId, myDashboardTrainingIconId, myDashboardDocumentsIconId, myDashboardMyAccountIconId, myDashboardMyScheduleIconId, myDashboardClientsIconId, myDashboardOnDemandTrainingIconId, myDashboardPayrollIconId, myDashboardSubmitIconId, myDashboardCommunicationsIconId, myDashboardChatsIconId, myDashboardNotificationsIconId, myDashboardSupervisionIconId, myDashboardContactsIconId, myDashboardStaffIconId, myDashboardClinicalNoteGeneratorIconId, certificateTemplateUrl, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, customDomain, themeSettings, customParameters, featureFlags, publicAvailabilityEnabled, organizationType, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId, supportTicketCreatedIconId, ticketingNotificationOrgTypes, streetAddress, city, state, postalCode, tierSystemEnabled, tierThresholds,
       schoolPortalProvidersIconId, schoolPortalDaysIconId, schoolPortalRosterIconId, schoolPortalSkillsGroupsIconId, schoolPortalContactAdminIconId, schoolPortalFaqIconId, schoolPortalSchoolStaffIconId, schoolPortalParentQrIconId, schoolPortalParentSignIconId, schoolPortalUploadPacketIconId,
       schoolPortalPublicDocumentsIconId,
       schoolPortalAnnouncementsIconId,
@@ -1792,6 +1810,8 @@ class Agency {
       myDashboardChatsIconId !== undefined ||
       myDashboardNotificationsIconId !== undefined ||
       myDashboardSupervisionIconId !== undefined ||
+      myDashboardContactsIconId !== undefined ||
+      myDashboardStaffIconId !== undefined ||
       myDashboardClinicalNoteGeneratorIconId !== undefined
     ) {
       let hasMyDashboardIcons = false;
@@ -1810,20 +1830,26 @@ class Agency {
         let hasMyDashboardClinicalNoteGeneratorIcon = false;
         let hasMyDashboardMomentumListIcon = false;
         let hasMyDashboardMomentumStickiesIcon = false;
+        let hasMyDashboardContactsIcon = false;
+        let hasMyDashboardStaffIcon = false;
         try {
           const [cols] = await pool.execute(
-            "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME IN ('my_dashboard_supervision_icon_id','my_dashboard_clinical_note_generator_icon_id','my_dashboard_momentum_list_icon_id','my_dashboard_momentum_stickies_icon_id')"
+            "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME IN ('my_dashboard_supervision_icon_id','my_dashboard_clinical_note_generator_icon_id','my_dashboard_momentum_list_icon_id','my_dashboard_momentum_stickies_icon_id','my_dashboard_contacts_icon_id','my_dashboard_staff_icon_id')"
           );
           const names = new Set((cols || []).map((c) => c.COLUMN_NAME));
           hasMyDashboardSupervisionIcon = names.has('my_dashboard_supervision_icon_id');
           hasMyDashboardClinicalNoteGeneratorIcon = names.has('my_dashboard_clinical_note_generator_icon_id');
           hasMyDashboardMomentumListIcon = names.has('my_dashboard_momentum_list_icon_id');
           hasMyDashboardMomentumStickiesIcon = names.has('my_dashboard_momentum_stickies_icon_id');
+          hasMyDashboardContactsIcon = names.has('my_dashboard_contacts_icon_id');
+          hasMyDashboardStaffIcon = names.has('my_dashboard_staff_icon_id');
         } catch {
           hasMyDashboardSupervisionIcon = false;
           hasMyDashboardClinicalNoteGeneratorIcon = false;
           hasMyDashboardMomentumListIcon = false;
           hasMyDashboardMomentumStickiesIcon = false;
+          hasMyDashboardContactsIcon = false;
+          hasMyDashboardStaffIcon = false;
         }
 
         if (myDashboardChecklistIconId !== undefined) {
@@ -1889,6 +1915,14 @@ class Agency {
         if (hasMyDashboardMomentumStickiesIcon && myDashboardMomentumStickiesIconId !== undefined) {
           updates.push('my_dashboard_momentum_stickies_icon_id = ?');
           values.push(myDashboardMomentumStickiesIconId || null);
+        }
+        if (hasMyDashboardContactsIcon && myDashboardContactsIconId !== undefined) {
+          updates.push('my_dashboard_contacts_icon_id = ?');
+          values.push(myDashboardContactsIconId || null);
+        }
+        if (hasMyDashboardStaffIcon && myDashboardStaffIconId !== undefined) {
+          updates.push('my_dashboard_staff_icon_id = ?');
+          values.push(myDashboardStaffIconId || null);
         }
       }
 

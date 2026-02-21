@@ -305,6 +305,14 @@
           <button
             v-if="editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
             type="button"
+            :class="['tab-button', { active: activeTab === 'kudos' }]"
+            @click="activeTab = 'kudos'"
+          >
+            Kudos
+          </button>
+          <button
+            v-if="editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
+            type="button"
             :class="['tab-button', { active: activeTab === 'payroll' }]"
             @click="openPayrollTab"
           >
@@ -835,6 +843,12 @@
               <ToggleSwitch v-model="agencyForm.featureFlags.presenceEnabled" compact />
             </div>
             <small class="hint">When enabled, staff and admins see the Presence status widget and can update their status. Admins see their agency's Team Board.</small>
+
+            <div class="toggle-row" style="margin-top: 10px;">
+              <span>Enable Kudos</span>
+              <ToggleSwitch v-model="agencyForm.featureFlags.kudosEnabled" compact />
+            </div>
+            <small class="hint">When enabled, staff can give kudos to coworkers, see their team, and earn points for rewards (dinners, events, gear). Peer kudos require admin approval.</small>
 
             <div class="toggle-row" style="margin-top: 10px;">
               <span>Enable AI Provider Search (Gemini)</span>
@@ -1502,6 +1516,13 @@
             class="tab-section"
           >
             <SocialFeedsAdmin :agency-id="editingAgency.id" />
+          </div>
+
+          <div
+            v-if="(userRole === 'admin' || userRole === 'super_admin') && activeTab === 'kudos' && editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
+            class="tab-section"
+          >
+            <KudosTiersAdmin :agency-id="editingAgency.id" />
           </div>
 
           <div
@@ -2366,6 +2387,16 @@
                 <IconSelector v-model="agencyForm.myDashboardSupervisionIconId" :defaultAgencyId="editingAgency?.id || null" />
                 <small>Icon for the "Supervision" card (supervisors only)</small>
               </div>
+              <div class="dashboard-icon-item">
+                <label>Contacts Card Icon</label>
+                <IconSelector v-model="agencyForm.myDashboardContactsIconId" :defaultAgencyId="editingAgency?.id || null" />
+                <small>Icon for the "Contacts" card</small>
+              </div>
+              <div class="dashboard-icon-item">
+                <label>Your Team (Staff) Card Icon</label>
+                <IconSelector v-model="agencyForm.myDashboardStaffIconId" :defaultAgencyId="editingAgency?.id || null" />
+                <small>Icon for the "Your Team" card when Kudos is enabled</small>
+              </div>
             </div>
 
             <div v-if="String(agencyForm.organizationType || 'agency').toLowerCase() === 'agency'" class="settings-section-divider">
@@ -3229,6 +3260,7 @@ import SplashPagePreviewModal from './SplashPagePreviewModal.vue';
 import ToggleSwitch from '../ui/ToggleSwitch.vue';
 import SocialFeedsAdmin from './SocialFeedsAdmin.vue';
 import CompanyEventsManager from './CompanyEventsManager.vue';
+import KudosTiersAdmin from './KudosTiersAdmin.vue';
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
@@ -4753,6 +4785,8 @@ const ICON_TEMPLATE_FIELDS = [
   'myDashboardChatsIconId',
   'myDashboardNotificationsIconId',
   'myDashboardSupervisionIconId',
+  'myDashboardContactsIconId',
+  'myDashboardStaffIconId',
   'schoolPortalProvidersIconId',
   'schoolPortalDaysIconId',
   'schoolPortalRosterIconId',
@@ -4829,6 +4863,8 @@ const defaultAgencyForm = () => ({
   myDashboardChatsIconId: null,
   myDashboardNotificationsIconId: null,
   myDashboardSupervisionIconId: null,
+  myDashboardContactsIconId: null,
+  myDashboardStaffIconId: null,
   schoolPortalProvidersIconId: null,
   schoolPortalDaysIconId: null,
   schoolPortalRosterIconId: null,
@@ -4901,6 +4937,7 @@ const defaultAgencyForm = () => ({
     medcancelEnabled: true,
     shiftProgramsEnabled: false,
     presenceEnabled: false,
+    kudosEnabled: false,
     // Default OFF until explicitly enabled (requires GEMINI_API_KEY in backend).
     aiProviderSearchEnabled: false,
 
@@ -6137,6 +6174,8 @@ const editAgency = async (agency) => {
     myDashboardChatsIconId: agency.my_dashboard_chats_icon_id ?? null,
     myDashboardNotificationsIconId: agency.my_dashboard_notifications_icon_id ?? null,
     myDashboardSupervisionIconId: agency.my_dashboard_supervision_icon_id ?? null,
+    myDashboardContactsIconId: agency.my_dashboard_contacts_icon_id ?? null,
+    myDashboardStaffIconId: agency.my_dashboard_staff_icon_id ?? null,
     schoolPortalProvidersIconId: agency.school_portal_providers_icon_id ?? null,
     schoolPortalDaysIconId: agency.school_portal_days_icon_id ?? null,
     schoolPortalRosterIconId: agency.school_portal_roster_icon_id ?? null,
@@ -6201,6 +6240,7 @@ const editAgency = async (agency) => {
       medcancelEnabled: featureFlags.medcancelEnabled !== false,
       shiftProgramsEnabled: featureFlags.shiftProgramsEnabled === true,
       presenceEnabled: featureFlags.presenceEnabled === true,
+      kudosEnabled: featureFlags.kudosEnabled === true,
       aiProviderSearchEnabled: featureFlags.aiProviderSearchEnabled === true,
       noteAidEnabled: featureFlags.noteAidEnabled === true,
       clinicalNoteGeneratorEnabled: featureFlags.clinicalNoteGeneratorEnabled === true,
@@ -6918,6 +6958,8 @@ const saveAgency = async () => {
       myDashboardChatsIconId: agencyForm.value.myDashboardChatsIconId ?? null,
       myDashboardNotificationsIconId: agencyForm.value.myDashboardNotificationsIconId ?? null,
       myDashboardSupervisionIconId: agencyForm.value.myDashboardSupervisionIconId ?? null,
+      myDashboardContactsIconId: agencyForm.value.myDashboardContactsIconId ?? null,
+      myDashboardStaffIconId: agencyForm.value.myDashboardStaffIconId ?? null,
       schoolPortalProvidersIconId: agencyForm.value.schoolPortalProvidersIconId ?? null,
       schoolPortalDaysIconId: agencyForm.value.schoolPortalDaysIconId ?? null,
       schoolPortalRosterIconId: agencyForm.value.schoolPortalRosterIconId ?? null,

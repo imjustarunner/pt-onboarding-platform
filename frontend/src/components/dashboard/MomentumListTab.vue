@@ -242,6 +242,10 @@
         </div>
       </div>
     </Teleport>
+    <NotesCompleteCelebration
+      :show="showNotesCompleteCelebration"
+      @dismiss="showNotesCompleteCelebration = false"
+    />
   </div>
 </template>
 
@@ -256,10 +260,12 @@ import UnifiedChecklistTab from './UnifiedChecklistTab.vue';
 import MomentumChatPanel from '../momentum/MomentumChatPanel.vue';
 import NotesToSignSection from './NotesToSignSection.vue';
 import SharedListsView from './SharedListsView.vue';
+import NotesCompleteCelebration from './NotesCompleteCelebration.vue';
 
 const props = defineProps({
   programId: { type: Number, default: null },
-  agencyId: { type: Number, default: null }
+  agencyId: { type: Number, default: null },
+  kudosEnabled: { type: Boolean, default: false }
 });
 
 const emit = defineEmits(['update-count']);
@@ -463,6 +469,7 @@ const fullListItems = computed(() => {
 });
 
 const fullListExpanded = ref(false);
+const showNotesCompleteCelebration = ref(false);
 const momentumStore = useMomentumStickiesStore();
 const selectedFullListIndices = ref(new Set());
 const showStickyPicker = ref(false);
@@ -676,6 +683,17 @@ const fetchDigest = async () => {
       // Fallback to rule-based digest
     }
     notificationCount.value = Number(notificationStore.unreadCount || 0);
+
+    if (props.agencyId && props.kudosEnabled && payrollNotesCount.value === 0) {
+      try {
+        const notesCompleteRes = await api.post('/kudos/notes-complete', { agencyId: props.agencyId });
+        if (notesCompleteRes?.data?.awarded) {
+          showNotesCompleteCelebration.value = true;
+        }
+      } catch {
+        // Ignore; user may not qualify
+      }
+    }
   } catch (err) {
     console.error('Failed to fetch Momentum List digest:', err);
   } finally {

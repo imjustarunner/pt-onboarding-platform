@@ -75,7 +75,9 @@ class Notification {
     'anniversary_announcement',
     // Platform activity (admin/staff/provider_plus/super_admin visibility)
     'user_login',
-    'user_logout'
+    'user_logout',
+    // Kudos
+    'kudos_received'
   ];
 
   static async create(notificationData) {

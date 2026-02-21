@@ -17,10 +17,22 @@
 
     <div v-if="loading" class="loading" data-tour="tasks-loading">Loading tasks...</div>
     <div v-else-if="error" class="error">{{ error }}</div>
-    <div v-else-if="filteredTasks.length === 0" class="empty-state" data-tour="tasks-empty">
+    <div v-else-if="filteredTasks.length === 0 && !showPendingKudos" class="empty-state" data-tour="tasks-empty">
       <p>No tasks found</p>
     </div>
-    <div v-else class="tasks" data-tour="tasks-grid">
+    <div v-else class="tasks-wrapper">
+      <section v-if="showPendingKudos" class="pending-kudos-section">
+        <h3 class="pending-kudos-title">Pending kudos</h3>
+        <p class="pending-kudos-desc">{{ pendingKudosSummary.totalPending }} peer kudos awaiting approval</p>
+        <button
+          type="button"
+          class="btn btn-primary btn-sm"
+          @click="goToKudosApproval"
+        >
+          Review & approve
+        </button>
+      </section>
+      <div v-if="filteredTasks.length > 0" class="tasks" data-tour="tasks-grid">
       <div
         v-for="task in filteredTasks"
         :key="task.id"
@@ -87,6 +99,7 @@
           </button>
         </div>
       </div>
+      </div>
     </div>
 
     <div v-if="editingTask" class="edit-task-overlay" @click.self="editingTask = null">
@@ -125,13 +138,32 @@
 
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRouter, useRoute } from 'vue-router';
 import { useTasksStore } from '../../store/tasks';
+import { useAuthStore } from '../../store/auth';
 import { formatDate } from '../../utils/formatDate';
 import api from '../../services/api';
 
 const router = useRouter();
+const route = useRoute();
 const tasksStore = useTasksStore();
+const authStore = useAuthStore();
+
+const isAdmin = computed(() => {
+  const r = authStore.user?.role;
+  return r === 'admin' || r === 'super_admin';
+});
+
+const orgTo = (path) => {
+  const slug = route.params.organizationSlug;
+  if (typeof slug === 'string' && slug) return `/${slug}${path}`;
+  return path;
+};
+
+const pendingKudosSummary = ref({ totalPending: 0, agencies: [] });
+const pendingKudosLoading = ref(false);
+
+const showPendingKudos = computed(() => isAdmin.value && pendingKudosSummary.value.totalPending > 0);
 
 const filterType = ref('all');
 const filterStatus = ref('all');
@@ -256,8 +288,38 @@ const getStatusBadgeClass = (status) => {
   return classes[status] || 'badge-secondary';
 };
 
+const fetchPendingKudos = async () => {
+  if (!isAdmin.value) return;
+  pendingKudosLoading.value = true;
+  try {
+    const { data } = await api.get('/kudos/pending-summary');
+    pendingKudosSummary.value = data || { totalPending: 0, agencies: [] };
+  } catch {
+    pendingKudosSummary.value = { totalPending: 0, agencies: [] };
+  } finally {
+    pendingKudosLoading.value = false;
+  }
+};
+
+const goToKudosApproval = () => {
+  const agencies = pendingKudosSummary.value.agencies || [];
+  const first = agencies[0];
+  const agencyId = first?.agencyId;
+
+  const url = orgTo('/admin/settings');
+  const query = {
+    category: 'general',
+    item: 'company-profile',
+    agencyTab: 'kudos'
+  };
+  if (agencyId) query.agencyId = String(agencyId);
+
+  router.push({ path: url, query });
+};
+
 onMounted(async () => {
   await tasksStore.fetchTasks();
+  await fetchPendingKudos();
 });
 </script>
 
@@ -413,6 +475,40 @@ onMounted(async () => {
   text-align: center;
   padding: 60px 20px;
   color: var(--text-secondary);
+}
+
+.tasks-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.pending-kudos-section {
+  background: white;
+  border-radius: 12px;
+  padding: 20px 24px;
+  box-shadow: var(--shadow);
+  border: 1px solid var(--border);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 16px;
+}
+
+.pending-kudos-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  width: 100%;
+}
+
+.pending-kudos-desc {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-secondary);
+  flex: 1;
+  min-width: 200px;
 }
 
 .edit-task-overlay {

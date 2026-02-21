@@ -216,6 +216,18 @@
       <PresenceStatusWidget />
     </div>
 
+    <!-- Staff / Team card – coworkers and management (when kudos enabled) -->
+    <div
+      v-if="!previewMode && isOnboardingComplete && !isSchoolStaff && currentAgencyId && canSeeKudosWidget"
+      class="top-snapshot-wrap"
+      data-tour="dash-staff-card"
+    >
+      <StaffCard
+        :agency-id="Number(currentAgencyId)"
+        :icon-url="brandingStore.getDashboardCardIconUrl('staff', cardIconOrgOverride)"
+      />
+    </div>
+
     <!-- Social & feeds (collapsible block) – super_admin only until full release -->
     <div
       v-if="!previewMode && isOnboardingComplete && !isSchoolStaff && authStore.user?.role === 'super_admin' && dashboardSocialFeeds.length > 0"
@@ -335,6 +347,7 @@
             v-if="!previewMode && momentumListEnabled && activeTab === 'checklist'"
             :program-id="route.query?.programId ? parseInt(route.query.programId, 10) : null"
             :agency-id="currentAgencyId"
+            :kudos-enabled="canSeeKudosWidget"
             @update-count="updateChecklistCount"
           />
           <UnifiedChecklistTab
@@ -707,6 +720,15 @@
               >
                 My Compensation
               </button>
+              <button
+                v-if="canSeeKudosWidget"
+                type="button"
+                class="subtab"
+                :class="{ active: myTab === 'kudos' }"
+                @click="setMyTab('kudos')"
+              >
+                My Kudos
+              </button>
             </div>
 
             <div v-show="myTab === 'account'">
@@ -727,6 +749,9 @@
             </div>
             <div v-show="myTab === 'compensation'">
               <MyCompensationTab />
+            </div>
+            <div v-show="myTab === 'kudos'">
+              <MyKudosTab :agency-id="Number(currentAgencyId)" />
             </div>
           </div>
           
@@ -835,6 +860,7 @@ import ScheduleMultiUserOverlayGrid from '../components/schedule/ScheduleMultiUs
 import CredentialsView from './CredentialsView.vue';
 import AccountInfoView from './AccountInfoView.vue';
 import MyPayrollTab from '../components/dashboard/MyPayrollTab.vue';
+import MyKudosTab from '../components/dashboard/MyKudosTab.vue';
 import ProgramShiftsTab from '../components/dashboard/ProgramShiftsTab.vue';
 import MyCompensationTab from '../components/dashboard/MyCompensationTab.vue';
 import OnDemandTrainingLibraryView from './OnDemandTrainingLibraryView.vue';
@@ -846,6 +872,7 @@ import SkillBuildersAvailabilityModal from '../components/availability/SkillBuil
 import LastPaycheckModal from '../components/dashboard/LastPaycheckModal.vue';
 import SocialFeedsPanel from '../components/dashboard/SocialFeedsPanel.vue';
 import PresenceStatusWidget from '../components/dashboard/PresenceStatusWidget.vue';
+import StaffCard from '../components/dashboard/StaffCard.vue';
 import { isSupervisor } from '../utils/helpers.js';
 import { getDashboardRailCardDescriptors } from '../tutorial/tours/dashboard.tour';
 import { toUploadsUrl } from '../utils/uploadsUrl';
@@ -982,6 +1009,9 @@ const canSeePresenceWidget = computed(() => {
   if (!['staff', 'admin'].includes(role)) return false;
   return isTruthyFlag(agencyFlags.value?.presenceEnabled);
 });
+
+// Kudos / Staff card: when agency has kudosEnabled
+const canSeeKudosWidget = computed(() => isTruthyFlag(agencyFlags.value?.kudosEnabled));
 
 const onSkillBuilderConfirmed = () => {
   // Modal refreshes user; if requirement cleared, close it.
@@ -2122,7 +2152,7 @@ const syncFromQuery = () => {
   }
 
   const qMy = route.query?.my;
-  if (typeof qMy === 'string' && ['account', 'credentials', 'preferences', 'payroll', 'compensation'].includes(qMy)) {
+  if (typeof qMy === 'string' && ['account', 'credentials', 'preferences', 'payroll', 'compensation', 'kudos'].includes(qMy)) {
     myTab.value = qMy;
   }
 

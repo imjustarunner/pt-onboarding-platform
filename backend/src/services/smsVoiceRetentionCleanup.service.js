@@ -24,6 +24,8 @@ export default class SmsVoiceRetentionCleanupService {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - days);
     const cutoffSql = cutoff.toISOString().slice(0, 19).replace('T', ' ');
+    // MySQL prepared statements do not support LIMIT with a placeholder; use sanitized literal
+    const lim = Math.max(1, Math.min(10000, parseInt(limit, 10) || 500));
 
     let deletedVoicemails = 0;
     let deletedCallLogs = 0;
@@ -33,29 +35,29 @@ export default class SmsVoiceRetentionCleanupService {
     try {
       // 1. call_voicemails (before call_logs due to FK)
       const [vmResult] = await pool.execute(
-        `DELETE FROM call_voicemails WHERE created_at < ? LIMIT ?`,
-        [cutoffSql, limit]
+        `DELETE FROM call_voicemails WHERE created_at < ? LIMIT ${lim}`,
+        [cutoffSql]
       );
       deletedVoicemails = vmResult?.affectedRows || 0;
 
       // 2. call_logs
       const [clResult] = await pool.execute(
-        `DELETE FROM call_logs WHERE COALESCE(started_at, created_at) < ? LIMIT ?`,
-        [cutoffSql, limit]
+        `DELETE FROM call_logs WHERE COALESCE(started_at, created_at) < ? LIMIT ${lim}`,
+        [cutoffSql]
       );
       deletedCallLogs = clResult?.affectedRows || 0;
 
       // 3. message_logs
       const [mlResult] = await pool.execute(
-        `DELETE FROM message_logs WHERE created_at < ? LIMIT ?`,
-        [cutoffSql, limit]
+        `DELETE FROM message_logs WHERE created_at < ? LIMIT ${lim}`,
+        [cutoffSql]
       );
       deletedMessageLogs = mlResult?.affectedRows || 0;
 
       // 4. notification_sms_logs
       const [nsResult] = await pool.execute(
-        `DELETE FROM notification_sms_logs WHERE created_at < ? LIMIT ?`,
-        [cutoffSql, limit]
+        `DELETE FROM notification_sms_logs WHERE created_at < ? LIMIT ${lim}`,
+        [cutoffSql]
       );
       deletedNotificationSms = nsResult?.affectedRows || 0;
     } catch (e) {

@@ -598,6 +598,15 @@
         </span>
         <span class="login-activity-toast-message">{{ loginActivityToast.message }}</span>
       </button>
+      <button
+        v-if="kudosToast.visible"
+        type="button"
+        class="kudos-toast"
+        @click="goToNotifications"
+      >
+        <span class="kudos-toast-plus" aria-hidden="true">+1</span>
+        <span class="kudos-toast-message">{{ kudosToast.reason }}</span>
+      </button>
       </div>
     </div>
   </BrandingProvider>
@@ -1396,10 +1405,27 @@ const newNotificationToastTimer = ref(null);
 // Login/logout activity toast – shows who logged in/out, pokes out by chat rail
 const loginActivityToast = ref({ visible: false, message: '', type: null });
 const loginActivityToastTimer = ref(null);
+const kudosToast = ref({ visible: false, message: '', reason: '' });
+const kudosToastTimer = ref(null);
 const showNewNotificationToast = async () => {
-  // Fetch latest to check for login/logout – show who it is
+  // Fetch latest to check for login/logout, kudos, etc.
   try {
     const latest = await notificationStore.fetchLatestNotifications(10);
+    const kudosReceived = (latest || []).filter((n) => n.type === 'kudos_received');
+    const firstKudos = kudosReceived[0];
+    if (firstKudos?.message) {
+      kudosToast.value = {
+        visible: true,
+        message: firstKudos.message,
+        reason: firstKudos.message
+      };
+      if (kudosToastTimer.value) clearTimeout(kudosToastTimer.value);
+      kudosToastTimer.value = setTimeout(() => {
+        kudosToast.value = { visible: false, message: '', reason: '' };
+        kudosToastTimer.value = null;
+      }, 6000);
+      return;
+    }
     const loginLogout = (latest || []).filter((n) => n.type === 'user_login' || n.type === 'user_logout');
     const first = loginLogout[0];
     if (first?.message) {
@@ -1486,6 +1512,7 @@ const goToNotifications = () => {
   notificationsNudgeVisible.value = false;
   newNotificationToastVisible.value = false;
   loginActivityToast.value = { visible: false, message: '', type: null };
+  kudosToast.value = { visible: false, message: '', reason: '' };
   if (newNotificationToastTimer.value) {
     clearTimeout(newNotificationToastTimer.value);
     newNotificationToastTimer.value = null;
@@ -1493,6 +1520,10 @@ const goToNotifications = () => {
   if (loginActivityToastTimer.value) {
     clearTimeout(loginActivityToastTimer.value);
     loginActivityToastTimer.value = null;
+  }
+  if (kudosToastTimer.value) {
+    clearTimeout(kudosToastTimer.value);
+    kudosToastTimer.value = null;
   }
   closeAllNavMenus();
   router.push(orgTo('/notifications'));
@@ -2366,6 +2397,41 @@ onUnmounted(() => {
   overflow-wrap: break-word;
   word-break: break-word;
 }
+
+/* Kudos received toast – reason + +1 */
+.kudos-toast {
+  position: fixed;
+  top: 16px;
+  right: 20px;
+  z-index: 1550;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 18px;
+  border-radius: 10px;
+  background: var(--success-color, #2F8F83);
+  color: #fff;
+  font-size: 14px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  cursor: pointer;
+  border: none;
+  max-width: 360px;
+}
+.kudos-toast:hover {
+  filter: brightness(1.05);
+  transform: translateY(-1px);
+}
+.kudos-toast-plus {
+  font-weight: 700;
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}
+.kudos-toast-message {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 @keyframes loginActivityToastIn {
   from {
     opacity: 0;
