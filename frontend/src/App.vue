@@ -580,6 +580,17 @@
         <span class="new-notification-toast-icon" aria-hidden="true">🔔</span>
         <span>New notification{{ notificationsUnreadCount > 1 ? 's' : '' }}</span>
       </button>
+      <button
+        v-if="loginActivityToast.visible"
+        type="button"
+        class="login-activity-toast"
+        @click="goToNotifications"
+      >
+        <span class="login-activity-toast-icon" aria-hidden="true">
+          {{ loginActivityToast.type === 'user_logout' ? '👋' : '✓' }}
+        </span>
+        <span class="login-activity-toast-message">{{ loginActivityToast.message }}</span>
+      </button>
       </div>
     </div>
   </BrandingProvider>
@@ -1375,7 +1386,31 @@ const playNotificationSound = () => {
 // Live toast when new notification arrives (shown to all authenticated users)
 const newNotificationToastVisible = ref(false);
 const newNotificationToastTimer = ref(null);
-const showNewNotificationToast = () => {
+// Login/logout activity toast – shows who logged in/out, pokes out by chat rail
+const loginActivityToast = ref({ visible: false, message: '', type: null });
+const loginActivityToastTimer = ref(null);
+const showNewNotificationToast = async () => {
+  // Fetch latest to check for login/logout – show who it is
+  try {
+    const latest = await notificationStore.fetchLatestNotifications(10);
+    const loginLogout = (latest || []).filter((n) => n.type === 'user_login' || n.type === 'user_logout');
+    const first = loginLogout[0];
+    if (first?.message) {
+      loginActivityToast.value = {
+        visible: true,
+        message: first.message,
+        type: first.type
+      };
+      if (loginActivityToastTimer.value) clearTimeout(loginActivityToastTimer.value);
+      loginActivityToastTimer.value = setTimeout(() => {
+        loginActivityToast.value = { visible: false, message: '', type: null };
+        loginActivityToastTimer.value = null;
+      }, 6000);
+      return;
+    }
+  } catch {
+    // fall through to generic toast
+  }
   newNotificationToastVisible.value = true;
   if (newNotificationToastTimer.value) clearTimeout(newNotificationToastTimer.value);
   newNotificationToastTimer.value = setTimeout(() => {
@@ -1443,9 +1478,14 @@ const goToNotifications = () => {
   showLoginNotificationsModal.value = false;
   notificationsNudgeVisible.value = false;
   newNotificationToastVisible.value = false;
+  loginActivityToast.value = { visible: false, message: '', type: null };
   if (newNotificationToastTimer.value) {
     clearTimeout(newNotificationToastTimer.value);
     newNotificationToastTimer.value = null;
+  }
+  if (loginActivityToastTimer.value) {
+    clearTimeout(loginActivityToastTimer.value);
+    loginActivityToastTimer.value = null;
   }
   closeAllNavMenus();
   router.push(orgTo('/notifications'));
@@ -1487,9 +1527,14 @@ watch(isOnNotificationsRoute, (onNotifications) => {
     showLoginNotificationsModal.value = false;
     notificationsNudgeVisible.value = false;
     newNotificationToastVisible.value = false;
+    loginActivityToast.value = { visible: false, message: '', type: null };
     if (newNotificationToastTimer.value) {
       clearTimeout(newNotificationToastTimer.value);
       newNotificationToastTimer.value = null;
+    }
+    if (loginActivityToastTimer.value) {
+      clearTimeout(loginActivityToastTimer.value);
+      loginActivityToastTimer.value = null;
     }
   }
 });
@@ -2278,6 +2323,53 @@ onUnmounted(() => {
 .new-notification-toast-icon {
   font-size: 18px;
 }
+
+/* Login/logout activity toast – pokes out by the chat rail on the left */
+.login-activity-toast {
+  position: fixed;
+  left: 56px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 1550;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 18px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: white;
+  color: var(--text-primary);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.22);
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 14px;
+  max-width: 320px;
+  animation: loginActivityToastIn 0.35s ease-out;
+  text-align: left;
+}
+.login-activity-toast:hover {
+  background: var(--bg-secondary);
+  transform: translateY(-50%) translateX(4px);
+}
+.login-activity-toast-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+.login-activity-toast-message {
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+@keyframes loginActivityToastIn {
+  from {
+    opacity: 0;
+    transform: translateY(-50%) translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(-50%) translateX(0);
+  }
+}
+
 @keyframes newNotificationToastIn {
   from {
     opacity: 0;

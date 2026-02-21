@@ -62,6 +62,9 @@ export const useNotificationStore = defineStore('notifications', () => {
       if (filters.isResolved !== undefined) {
         params.append('isResolved', filters.isResolved);
       }
+      if (filters.limit) {
+        params.append('limit', String(filters.limit));
+      }
 
       const response = await api.get(`/notifications?${params.toString()}`);
       notifications.value = response.data;
@@ -220,6 +223,17 @@ export const useNotificationStore = defineStore('notifications', () => {
     counts.value = {};
   };
 
+  /** Fetch latest notifications (for login/logout toast). Returns raw list, does not replace store. */
+  const fetchLatestNotifications = async (limit = 10) => {
+    try {
+      const response = await api.get(`/notifications?limit=${limit}`, { skipGlobalLoading: true });
+      return response.data || [];
+    } catch (error) {
+      console.error('Error fetching latest notifications:', error);
+      return [];
+    }
+  };
+
   return {
     notifications,
     counts,
@@ -237,6 +251,7 @@ export const useNotificationStore = defineStore('notifications', () => {
     markAllAsResolved,
     deleteNotification,
     setSelectedAgency,
-    clearNotifications
+    clearNotifications,
+    fetchLatestNotifications
   };
 });

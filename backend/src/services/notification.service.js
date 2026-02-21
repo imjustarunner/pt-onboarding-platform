@@ -766,6 +766,62 @@ class NotificationService {
   }
 
   /**
+   * Create notification when a user logs in. Visible to admin, staff, provider_plus, super_admin only.
+   */
+  static async createUserLoginNotification(userId, agencyId) {
+    const user = await User.findById(userId);
+    if (!user) return null;
+
+    const displayName = `${String(user.first_name || '').trim()} ${String(user.last_name || '').trim()}`.trim() || user.email || `User ${userId}`;
+    return Notification.create({
+      type: 'user_login',
+      severity: 'info',
+      title: 'User logged in',
+      message: `${displayName} (${user.email}) logged in.`,
+      audienceJson: {
+        admin: true,
+        clinicalPracticeAssistant: true,
+        provider: false,
+        supervisor: false
+      },
+      userId,
+      agencyId,
+      relatedEntityType: 'user',
+      relatedEntityId: userId,
+      actorUserId: userId,
+      actorSource: 'System'
+    });
+  }
+
+  /**
+   * Create notification when a user logs out. Visible to admin, staff, provider_plus, super_admin only.
+   */
+  static async createUserLogoutNotification(userId, agencyId) {
+    const user = await User.findById(userId);
+    if (!user) return null;
+
+    const displayName = `${String(user.first_name || '').trim()} ${String(user.last_name || '').trim()}`.trim() || user.email || `User ${userId}`;
+    return Notification.create({
+      type: 'user_logout',
+      severity: 'info',
+      title: 'User logged out',
+      message: `${displayName} (${user.email}) logged out.`,
+      audienceJson: {
+        admin: true,
+        clinicalPracticeAssistant: true,
+        provider: false,
+        supervisor: false
+      },
+      userId,
+      agencyId,
+      relatedEntityType: 'user',
+      relatedEntityId: userId,
+      actorUserId: userId,
+      actorSource: 'System'
+    });
+  }
+
+  /**
    * Payroll/admin notification: provider updated home address (used for mileage auto-calculation).
    * This is agency-scoped so staff/admins see it in the agency notification queue.
    */

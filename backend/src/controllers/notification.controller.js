@@ -188,7 +188,7 @@ async function appendNotificationContext(notifications) {
 
 export const getNotifications = async (req, res, next) => {
   try {
-    const { agencyId, type, isRead, isResolved } = req.query;
+    const { agencyId, type, isRead, isResolved, limit: limitParam } = req.query;
     const userId = req.user.id;
     const userRole = req.user.role;
 
@@ -248,8 +248,10 @@ export const getNotifications = async (req, res, next) => {
 
       // Sort by created_at descending
       allNotifications.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-      const filtered = filterNotificationsForViewer(allNotifications, userId, userRole);
+      let filtered = filterNotificationsForViewer(allNotifications, userId, userRole);
       await appendNotificationContext(filtered);
+      const limitNum = limitParam ? parseInt(limitParam, 10) : 0;
+      if (Number.isFinite(limitNum) && limitNum > 0) filtered = filtered.slice(0, limitNum);
       return res.json(filtered);
     } else if (userRole === 'clinical_practice_assistant') {
       // CPAs can see all notifications for all users in their agencies
@@ -287,6 +289,8 @@ export const getNotifications = async (req, res, next) => {
       }
       filtered = filtered.filter(isUnmuted);
       await appendNotificationContext(filtered);
+      const limitNumCpa = limitParam ? parseInt(limitParam, 10) : 0;
+      if (Number.isFinite(limitNumCpa) && limitNumCpa > 0) filtered = filtered.slice(0, limitNumCpa);
       return res.json(filtered);
     } else if (PERSONAL_ONLY_ROLES.has(String(userRole || '').toLowerCase())) {
       // Providers/staff/intern/facilitator: personal notifications only (target user_id).
@@ -306,8 +310,10 @@ export const getNotifications = async (req, res, next) => {
         isResolved: isResolved !== undefined ? isResolved === 'true' : undefined
       });
       const scoped = agencyId ? (personal || []).filter((n) => Number(n.agency_id) === Number(agencyId)) : (personal || []);
-      const filtered = filterNotificationsForViewer(scoped, userId, userRole);
+      let filtered = filterNotificationsForViewer(scoped, userId, userRole);
       await appendNotificationContext(filtered);
+      const limitNumPersonal = limitParam ? parseInt(limitParam, 10) : 0;
+      if (Number.isFinite(limitNumPersonal) && limitNumPersonal > 0) filtered = filtered.slice(0, limitNumPersonal);
       return res.json(filtered);
     } else {
       // Admin/support (and other privileged/legacy roles): agency-scoped feed
@@ -346,6 +352,10 @@ export const getNotifications = async (req, res, next) => {
     }
     filtered = filtered.filter(isUnmuted);
     await appendNotificationContext(filtered);
+    const limitNum = limitParam ? parseInt(limitParam, 10) : 0;
+    if (Number.isFinite(limitNum) && limitNum > 0) {
+      filtered = filtered.slice(0, limitNum);
+    }
     res.json(filtered);
   } catch (error) {
     next(error);

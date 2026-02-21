@@ -72,7 +72,10 @@ class Notification {
     'presence_return_overdue_nudge',
     // Agency announcement automation
     'birthday_announcement',
-    'anniversary_announcement'
+    'anniversary_announcement',
+    // Platform activity (admin/staff/provider_plus/super_admin visibility)
+    'user_login',
+    'user_logout'
   ];
 
   static async create(notificationData) {

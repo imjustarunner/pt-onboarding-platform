@@ -537,6 +537,26 @@ export const login = async (req, res, next) => {
       }, 0);
     }
 
+    // Notify admin/staff/provider_plus/super_admin of every login (per agency)
+    setTimeout(async () => {
+      try {
+        const NotificationService = (await import('../services/notification.service.js')).default;
+        const agencies = await User.getAgencies(user.id);
+        for (const agency of agencies || []) {
+          NotificationService.createUserLoginNotification(user.id, agency.id).catch(err => {
+            console.error('Failed to create user login notification:', err);
+          });
+        }
+        if (!agencies?.length && agencyId) {
+          NotificationService.createUserLoginNotification(user.id, agencyId).catch(err => {
+            console.error('Failed to create user login notification:', err);
+          });
+        }
+      } catch (err) {
+        console.error('Failed to create login notifications:', err);
+      }
+    }, 0);
+
     // Ensure we have the latest user fields (including contract flags like medcancel_rate_schedule).
     // Some login flows may not select all columns.
     let freshUser = user;
@@ -1040,7 +1060,25 @@ export const logout = async (req, res, next) => {
         }
       }, req);
     }
-    
+
+    // Notify admin/staff/provider_plus/super_admin of logout (per agency)
+    const logoutUserId = userId ?? req.user?.id;
+    if (logoutUserId && Number.isFinite(Number(logoutUserId))) {
+      setTimeout(async () => {
+        try {
+          const NotificationService = (await import('../services/notification.service.js')).default;
+          const agencies = await User.getAgencies(logoutUserId);
+          for (const agency of agencies || []) {
+            NotificationService.createUserLogoutNotification(logoutUserId, agency.id).catch(err => {
+              console.error('Failed to create user logout notification:', err);
+            });
+          }
+        } catch (err) {
+          console.error('Failed to create logout notifications:', err);
+        }
+      }, 0);
+    }
+
     // Clear authentication cookie
     // Use shared cookie options to ensure exact match with cookie setting options
     // This is critical: clearCookie must use the same path, secure, sameSite, and domain
@@ -1395,6 +1433,21 @@ export const googleOAuthCallback = async (req, res, next) => {
       }
     }, req);
 
+    // Notify admin/staff/provider_plus/super_admin of login
+    setTimeout(async () => {
+      try {
+        const NotificationService = (await import('../services/notification.service.js')).default;
+        const agencies = await User.getAgencies(user.id);
+        for (const agency of agencies || []) {
+          NotificationService.createUserLoginNotification(user.id, agency.id).catch(err => {
+            console.error('Failed to create user login notification:', err);
+          });
+        }
+      } catch (err) {
+        console.error('Failed to create login notifications:', err);
+      }
+    }, 0);
+
     const url = new URL(frontendBase || config.frontendUrl);
     url.pathname = `/${orgSlug}/dashboard`;
     // Mark successful Google OAuth return so frontend can remember quick-login only after real use.
@@ -1592,6 +1645,21 @@ export const passwordlessTokenLogin = async (req, res, next) => {
           isPending: user.status === 'pending'
         }
       }, req);
+
+      // Notify admin/staff/provider_plus/super_admin of login
+      setTimeout(async () => {
+        try {
+          const NotificationService = (await import('../services/notification.service.js')).default;
+          const agencies = await User.getAgencies(user.id);
+          for (const agency of agencies || []) {
+            NotificationService.createUserLoginNotification(user.id, agency.id).catch(err => {
+              console.error('Failed to create user login notification:', err);
+            });
+          }
+        } catch (err) {
+          console.error('Failed to create login notifications:', err);
+        }
+      }, 0);
 
       console.log('[passwordlessTokenLogin] Login successful for user:', user.id, user.first_name, user.last_name);
       res.json({
@@ -1801,6 +1869,21 @@ export const passwordlessTokenLoginFromBody = async (req, res, next) => {
           method: 'body' // Indicate this was body-based login
         }
       }, req);
+
+      // Notify admin/staff/provider_plus/super_admin of login
+      setTimeout(async () => {
+        try {
+          const NotificationService = (await import('../services/notification.service.js')).default;
+          const agencies = await User.getAgencies(user.id);
+          for (const agency of agencies || []) {
+            NotificationService.createUserLoginNotification(user.id, agency.id).catch(err => {
+              console.error('Failed to create user login notification:', err);
+            });
+          }
+        } catch (err) {
+          console.error('Failed to create login notifications:', err);
+        }
+      }, 0);
 
       console.log('[passwordlessTokenLoginFromBody] Login successful for user:', user.id, user.first_name, user.last_name);
       
@@ -2430,6 +2513,21 @@ export const resetPasswordWithToken = async (req, res, next) => {
       }
     }, req);
 
+    // Notify admin/staff/provider_plus/super_admin of login
+    setTimeout(async () => {
+      try {
+        const NotificationService = (await import('../services/notification.service.js')).default;
+        const agencies = await User.getAgencies(user.id);
+        for (const agency of agencies || []) {
+          NotificationService.createUserLoginNotification(user.id, agency.id).catch(err => {
+            console.error('Failed to create user login notification:', err);
+          });
+        }
+      } catch (err) {
+        console.error('Failed to create login notifications:', err);
+      }
+    }, 0);
+
     const updatedUser = await User.findById(user.id);
 
     res.json({
@@ -2522,6 +2620,21 @@ export const initialSetup = async (req, res, next) => {
         isPending: user.status === 'PREHIRE_OPEN' || user.status === 'PENDING_SETUP'
       }
     }, req);
+
+    // Notify admin/staff/provider_plus/super_admin of login
+    setTimeout(async () => {
+      try {
+        const NotificationService = (await import('../services/notification.service.js')).default;
+        const agencies = await User.getAgencies(user.id);
+        for (const agency of agencies || []) {
+          NotificationService.createUserLoginNotification(user.id, agency.id).catch(err => {
+            console.error('Failed to create user login notification:', err);
+          });
+        }
+      } catch (err) {
+        console.error('Failed to create login notifications:', err);
+      }
+    }, 0);
 
     console.log('[initialSetup] Password set successfully for user:', user.id, user.first_name, user.last_name);
     
