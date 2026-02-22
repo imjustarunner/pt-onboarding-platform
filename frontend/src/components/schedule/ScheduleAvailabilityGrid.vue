@@ -4661,7 +4661,30 @@ const onCellClick = (dayName, hour, event = null, options = {}) => {
   selectedBlockKey.value = ''; // whole-cell selection
   selectedActionSlots.value = [item];
   lastSelectedActionKey.value = item.key;
-  if (isCellVisuallyBlank(dayName, hour)) {
+  if (viewMode.value === 'office_layout' && roomId > 0 && canBookFromGrid.value) {
+    // Office layout: resolve state for THIS specific room (not the whole row)
+    const officeId = Number(selectedOfficeLocationId.value || 0) || null;
+    const officeTop = officeId ? officeTopEvent(dayName, hour, officeId, roomId) : null;
+    if (officeTop) {
+      // User has assignment in this room – show forfeit/extend modal
+      const slotState = String(officeTop?.slotState || '').toUpperCase();
+      const initialRequestType =
+        slotState === 'ASSIGNED_BOOKED' ? 'booked_note' : ['ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY'].includes(slotState) ? 'forfeit_slot' : 'office_request_only';
+      openSlotActionModal({
+        dayName,
+        hour,
+        roomId: Number(officeTop?.roomId || 0) || 0,
+        dateYmd,
+        slot: officeTop,
+        preserveSelectionRange: false,
+        initialRequestType,
+        actionSource: 'office_block'
+      });
+    } else {
+      // Open or someone else's – show request modal
+      openSlotActionModal({ ...item, preserveSelectionRange: false, actionSource: 'plus_or_blank' });
+    }
+  } else if (isCellVisuallyBlank(dayName, hour)) {
     openSlotActionModal({ ...item, preserveSelectionRange: false, actionSource: 'plus_or_blank' });
   } else if (canBookFromGrid.value) {
     // Cell has content (e.g. user's assigned office slot) – single-click opens modal for forfeit/extend
@@ -4669,8 +4692,8 @@ const onCellClick = (dayName, hour, event = null, options = {}) => {
     const officeBlock = blocks.find((b) => ['oa', 'ot', 'ob', 'intake-ip', 'intake-vi'].includes(String(b?.kind || '')));
     if (officeBlock) {
       const officeId = Number(officeBlock?.buildingId || selectedOfficeLocationId.value || 0) || null;
-      const roomId = Number(officeBlock?.roomId || 0) || null;
-      const officeTop = officeTopEvent(dayName, hour, officeId, roomId) || null;
+      const blockRoomId = Number(officeBlock?.roomId || 0) || null;
+      const officeTop = officeTopEvent(dayName, hour, officeId, blockRoomId) || null;
       const slotState = String(officeTop?.slotState || '').toUpperCase();
       const initialRequestType =
         slotState === 'ASSIGNED_BOOKED' ? 'booked_note' : ['ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY'].includes(slotState) ? 'forfeit_slot' : 'office_request_only';
@@ -4695,7 +4718,10 @@ const onCellDoubleClick = (dayName, hour, event = null, options = {}) => {
   const dateYmd = String(options?.dateYmd || addDaysYmd(weekStart.value, ALL_DAYS.indexOf(String(dayName || '')))).slice(0, 10);
   const roomId = Number(options?.roomId || 0) || 0;
   const slot = options?.slot || null;
-  if (!isCellVisuallyBlank(dayName, hour)) return;
+  const isOpenForRoom = viewMode.value === 'office_layout' && roomId > 0
+    ? !(Number(selectedOfficeLocationId.value || 0) && officeTopEvent(dayName, hour, Number(selectedOfficeLocationId.value || 0), roomId))
+    : isCellVisuallyBlank(dayName, hour);
+  if (!isOpenForRoom) return;
   const item = {
     key: actionSlotKey({ dateYmd, hour, roomId }),
     dateYmd,

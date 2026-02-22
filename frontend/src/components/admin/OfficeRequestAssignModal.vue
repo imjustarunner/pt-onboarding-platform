@@ -10,28 +10,14 @@
         <div v-if="loading" class="loading">Loading…</div>
         <div v-else-if="error" class="error-box">{{ error }}</div>
         <template v-else-if="request">
-          <div class="form-row">
-            <label>Office</label>
-            <select v-model="form.officeId" @change="loadRooms">
-              <option value="">Select office…</option>
-              <option v-for="o in offices" :key="o.id" :value="String(o.id)">{{ o.name }}</option>
-            </select>
-          </div>
-          <div class="form-row">
-            <label>Room</label>
-            <select v-model="form.roomId" :disabled="!form.officeId">
-              <option value="">Select room…</option>
-              <option v-for="r in rooms" :key="r.id" :value="String(r.id)">
-                {{ r.roomNumber ? `#${r.roomNumber} ` : '' }}{{ r.label || r.name }}
-              </option>
-            </select>
-          </div>
-          <div class="form-row">
-            <label>Day/time</label>
-            <select v-model="form.slotKey">
-              <option value="">Select slot…</option>
-              <option v-for="opt in slotOptions" :key="opt.key" :value="opt.key">{{ opt.label }}</option>
-            </select>
+          <div class="form-row readonly-display">
+            <label>Requested (approve as-is)</label>
+            <div class="readonly-values">
+              <div><span class="readonly-label">Office:</span> {{ formDisplay.office }}</div>
+              <div><span class="readonly-label">Room:</span> {{ formDisplay.room }}</div>
+              <div><span class="readonly-label">Time:</span> {{ formDisplay.time }}</div>
+            </div>
+            <p v-if="formIncomplete" class="muted hint">Provider must specify office, room, and time when requesting. Deny and ask for resubmission.</p>
           </div>
         </template>
       </div>
@@ -40,10 +26,10 @@
         <button
           type="button"
           class="btn btn-primary"
-          :disabled="saving || !form.officeId || !form.roomId || !form.slotKey"
+          :disabled="saving || formIncomplete"
           @click="assign"
         >
-          {{ saving ? 'Assigning…' : 'Assign' }}
+          {{ saving ? 'Approving…' : 'Approve' }}
         </button>
         <button type="button" class="btn btn-danger" :disabled="saving" @click="deny">
           {{ saving ? '…' : 'Deny' }}
@@ -108,6 +94,26 @@ const slotOptions = computed(() => {
   return out;
 });
 
+const formDisplay = computed(() => {
+  const f = form.value;
+  const opt = slotOptions.value.find((o) => o.key === f.slotKey);
+  const officeName = (id) => (offices.value || []).find((o) => Number(o.id) === Number(id))?.name || `#${id}`;
+  const roomName = (id) => {
+    const rm = (rooms.value || []).find((r) => Number(r.id) === Number(id));
+    return rm ? `${rm.roomNumber ? `#${rm.roomNumber} ` : ''}${rm.label || rm.name}`.trim() : `#${id}`;
+  };
+  return {
+    office: f.officeId ? officeName(f.officeId) : 'Not specified',
+    room: f.roomId ? roomName(f.roomId) : 'Not specified',
+    time: opt ? opt.label : (f.slotKey || 'Not specified')
+  };
+});
+
+const formIncomplete = computed(() => {
+  const f = form.value;
+  return !f.officeId || !f.roomId || !f.slotKey;
+});
+
 const load = async () => {
   if (!props.agencyId || !props.requestId) return;
   loading.value = true;
@@ -142,9 +148,6 @@ const load = async () => {
       const slotKey = firstSlot != null && Number.isFinite(firstSlot.weekday) && Number.isFinite(firstSlot.startHour) && Number.isFinite(firstSlot.endHour) && firstSlot.endHour > firstSlot.startHour
         ? `${firstSlot.weekday}:${firstSlot.startHour}:${firstSlot.endHour}`
         : '';
-      if (!officeId && offices.value.length > 0) {
-        officeId = String(offices.value[0].id);
-      }
       form.value = { officeId, roomId, slotKey };
       if (officeId) {
         await loadRooms();
@@ -290,6 +293,16 @@ watch(
   padding: 16px 20px;
   border-top: 1px solid var(--border, #e5e7eb);
 }
+.readonly-display .readonly-values {
+  padding: 10px 12px;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 8px;
+  background: var(--bg-alt, #f9fafb);
+}
+.readonly-display .readonly-values > div { margin-bottom: 4px; }
+.readonly-display .readonly-values > div:last-child { margin-bottom: 0; }
+.readonly-label { font-weight: 600; color: var(--text-secondary, #6b7280); margin-right: 6px; }
+.readonly-display .hint { font-size: 12px; margin-top: 8px; }
 .error-box {
   background: rgba(239, 68, 68, 0.1);
   color: #b91c1c;

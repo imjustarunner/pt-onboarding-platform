@@ -45,23 +45,15 @@
               </div>
 
               <div class="assign">
-                <div class="lbl">Assign temporary (6 sessions)</div>
-                <select class="select" v-model="officeAssign[r.id].officeId" @change="loadRoomsForOffice(r.id)">
-                  <option value="">Office…</option>
-                  <option v-for="o in offices" :key="o.id" :value="String(o.id)">{{ o.name }}</option>
-                </select>
-                <select class="select" v-model="officeAssign[r.id].roomId" :disabled="!officeAssign[r.id].officeId">
-                  <option value="">Room…</option>
-                  <option v-for="rm in roomsByOffice[officeAssign[r.id].officeId] || []" :key="rm.id" :value="String(rm.id)">
-                    {{ rm.roomNumber ? `#${rm.roomNumber} ` : '' }}{{ rm.label || rm.name }}
-                  </option>
-                </select>
-                <select class="select" v-model="officeAssign[r.id].slotKey">
-                  <option value="">Day/time…</option>
-                  <option v-for="opt in expandOfficeSlots(r)" :key="opt.key" :value="opt.key">{{ opt.label }}</option>
-                </select>
+                <div class="lbl">Requested (approve as-is)</div>
+                <div class="assign-readonly">
+                  <div class="assign-row"><span class="assign-label">Office:</span> {{ officeAssignDisplay(r).office }}</div>
+                  <div class="assign-row"><span class="assign-label">Room:</span> {{ officeAssignDisplay(r).room }}</div>
+                  <div class="assign-row"><span class="assign-label">Time:</span> {{ officeAssignDisplay(r).time }}</div>
+                </div>
+                <div v-if="officeAssignIncomplete(r)" class="assign-hint muted">Provider must specify office, room, and time when requesting. Deny and ask for resubmission.</div>
                 <div class="row-inline" style="gap: 8px; margin-top: 6px;">
-                  <button class="btn btn-primary btn-sm" @click="assignOffice(r)" :disabled="saving">Assign</button>
+                  <button class="btn btn-primary btn-sm" @click="assignOffice(r)" :disabled="saving || officeAssignIncomplete(r)">Approve</button>
                   <button class="btn btn-secondary btn-sm" @click="denyOffice(r)" :disabled="saving">Deny</button>
                 </div>
               </div>
@@ -345,6 +337,13 @@ const fmtDateTime = (v) => {
 const officeName = (id) => offices.value.find((o) => Number(o.id) === Number(id))?.name || `#${id}`;
 const schoolName = (id) => schools.value.find((s) => Number(s.id) === Number(id))?.name || `#${id}`;
 
+const roomName = (officeId, roomId) => {
+  const rooms = roomsByOffice[officeId] || [];
+  const rm = rooms.find((x) => Number(x.id) === Number(roomId));
+  const num = rm?.roomNumber ?? rm?.room_number ?? '';
+  return rm ? `${num ? `#${num} ` : ''}${rm.label || rm.name || ''}`.trim() || `#${roomId}` : `#${roomId}`;
+};
+
 const expandOfficeSlots = (r) => {
   const out = [];
   const slots = Array.isArray(r?.slots) ? r.slots : [];
@@ -362,6 +361,24 @@ const expandOfficeSlots = (r) => {
     });
   }
   return out;
+};
+
+const officeAssignDisplay = (r) => {
+  const form = officeAssign[r.id] || {};
+  const officeId = form.officeId;
+  const roomId = form.roomId;
+  const slotKey = form.slotKey || '';
+  const opt = expandOfficeSlots(r).find((o) => o.key === slotKey);
+  return {
+    office: officeId ? officeName(officeId) : 'Not specified',
+    room: roomId ? roomName(officeId, roomId) : 'Not specified',
+    time: opt ? opt.label : (slotKey ? slotKey : 'Not specified')
+  };
+};
+
+const officeAssignIncomplete = (r) => {
+  const form = officeAssign[r.id] || {};
+  return !form.officeId || !form.roomId || !form.slotKey;
 };
 
 const blockKey = (b) => `${b.dayOfWeek}|${b.startTime}|${b.endTime}`;
@@ -439,10 +456,7 @@ const reload = async () => {
       const slotKey = firstSlot != null && Number.isFinite(firstSlot.weekday) && Number.isFinite(firstSlot.startHour) && Number.isFinite(firstSlot.endHour) && firstSlot.endHour > firstSlot.startHour
         ? `${firstSlot.weekday}:${firstSlot.startHour}:${firstSlot.endHour}`
         : '';
-      // When "Any" office, default to first office; do NOT default room (require approver to select)
-      if (!officeId && (offices.value || []).length > 0) {
-        officeId = String(offices.value[0].id);
-      }
+      // Do NOT default office or room when provider chose "Any" – approval is read-only; provider must specify
       officeAssign[r.id] = { officeId, roomId, slotKey };
       if (officeId) {
         await loadRoomsForOffice(r.id);
@@ -671,6 +685,11 @@ watch(agencyId, async () => {
 .meta { color: var(--text-secondary); font-size: 12px; margin-top: 6px; }
 .pill { display: inline-block; margin: 4px 6px 0 0; padding: 4px 8px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg-alt); }
 .assign { display: flex; flex-direction: column; gap: 8px; }
+.assign-readonly { padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-alt); }
+.assign-row { font-size: 14px; margin-bottom: 4px; }
+.assign-row:last-child { margin-bottom: 0; }
+.assign-label { font-weight: 600; color: var(--text-secondary); margin-right: 6px; }
+.assign-hint { font-size: 12px; margin-top: 4px; }
 .lbl { font-size: 12px; font-weight: 900; color: var(--text-secondary); }
 .select, .input { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); color: var(--text-primary); }
 .search { display: grid; grid-template-columns: repeat(4, minmax(200px, 1fr)) auto; gap: 10px; align-items: end; }
