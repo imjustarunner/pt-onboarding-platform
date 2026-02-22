@@ -712,7 +712,7 @@
             </div>
             <template v-else>
               <div v-if="requestType === 'office_request_only'" class="modern-help">
-                Request permission to use office space. Staff will assign you when available.
+                Request permission to use office space. Staff will assign you when available. Use the End time dropdown to select multiple hours.
               </div>
               <label class="lbl">Frequency</label>
               <select v-model="officeBookingRecurrence" class="input">
@@ -5613,16 +5613,15 @@ const submitRequest = async () => {
         }
       }
     } else if (requestType.value === 'office_request_only') {
+      // Always use modal's hour range (End time dropdown) as source of truth; shift/drag select is unreliable in office layout
       const baseRoomId = viewMode.value === 'office_layout' ? (Number(selectedOfficeRoomId.value || 0) || Number(modalContext.value?.roomId || 0) || 0) : 0;
       const baseDateYmd = addDaysYmd(weekStart.value, ALL_DAYS.indexOf(String(dn)));
-      const targets = sortedSelectedActionSlots().length
-        ? sortedSelectedActionSlots()
-        : Array.from({ length: Math.max(1, endH - h) }, (_, i) => ({
-            dateYmd: baseDateYmd,
-            dayName: dn,
-            hour: h + i,
-            roomId: baseRoomId
-          }));
+      const targets = Array.from({ length: Math.max(1, endH - h) }, (_, i) => ({
+        dateYmd: baseDateYmd,
+        dayName: dn,
+        hour: h + i,
+        roomId: baseRoomId
+      }));
       const roomIds = [...new Set(targets.map((t) => Number(t.roomId || 0)).filter((n) => n > 0))];
       const singleRoomId = roomIds.length === 1 ? roomIds[0] : 0;
       const dayToHours = new Map();
