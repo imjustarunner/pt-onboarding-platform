@@ -2970,8 +2970,14 @@ const officeEventsInCell = (dayName, hour, minute = 0) => {
   return hits;
 };
 
-const officeTopEvent = (dayName, hour) => {
-  const hits = officeEventsInCell(dayName, hour);
+const officeTopEvent = (dayName, hour, officeIdFilter = null, roomIdFilter = null) => {
+  let hits = officeEventsInCell(dayName, hour);
+  if (officeIdFilter != null && Number(officeIdFilter) > 0) {
+    hits = hits.filter((e) => Number(e?.buildingId || 0) === Number(officeIdFilter));
+  }
+  if (roomIdFilter != null && Number(roomIdFilter) > 0) {
+    hits = hits.filter((e) => Number(e?.roomId || 0) === Number(roomIdFilter));
+  }
   const top = hits.sort((a, b) => stateRank(b.slotState) - stateRank(a.slotState))[0] || null;
   return top;
 };
@@ -3127,25 +3133,26 @@ const cellBlocks = (dayName, hour, minute = 0) => {
     const top = events.sort((a, b) => stateRank(b.slotState) - stateRank(a.slotState))[0] || null;
     const agencyId = Number(top?._agencyId || 0) || null;
     const buildingId = top?.buildingId ? Number(top.buildingId) : null;
+    const roomId = top?.roomId ? Number(top.roomId) : null;
     const intakeSuffix = [
       top?.inPersonIntakeEnabled ? ' IP' : '',
       top?.virtualIntakeEnabled ? ' VI' : ''
     ].join('');
     const st = String(top?.slotState || '').toUpperCase();
     if (st === 'ASSIGNED_BOOKED') {
-      blocks.push({ key: `office-booked-${agencyId || 'x'}`, kind: 'ob', shortLabel: shortOfficeLabel(top, 'Booked') + intakeSuffix, title: officeTitle(dayName, hour, top), buildingId, agencyId });
+      blocks.push({ key: `office-booked-${agencyId || 'x'}`, kind: 'ob', shortLabel: shortOfficeLabel(top, 'Booked') + intakeSuffix, title: officeTitle(dayName, hour, top), buildingId, agencyId, roomId });
     } else if (st === 'ASSIGNED_TEMPORARY') {
-      blocks.push({ key: `office-temp-${agencyId || 'x'}`, kind: 'ot', shortLabel: shortOfficeLabel(top, 'Temp') + intakeSuffix, title: officeTitle(dayName, hour, top), buildingId, agencyId });
+      blocks.push({ key: `office-temp-${agencyId || 'x'}`, kind: 'ot', shortLabel: shortOfficeLabel(top, 'Temp') + intakeSuffix, title: officeTitle(dayName, hour, top), buildingId, agencyId, roomId });
     } else if (st === 'ASSIGNED_AVAILABLE') {
-      blocks.push({ key: `office-assigned-${agencyId || 'x'}`, kind: 'oa', shortLabel: shortOfficeLabel(top, 'Office') + intakeSuffix, title: officeTitle(dayName, hour, top), buildingId, agencyId });
+      blocks.push({ key: `office-assigned-${agencyId || 'x'}`, kind: 'oa', shortLabel: shortOfficeLabel(top, 'Office') + intakeSuffix, title: officeTitle(dayName, hour, top), buildingId, agencyId, roomId });
     }
   }
   const top = officeHits.sort((a, b) => stateRank(b.slotState) - stateRank(a.slotState))[0] || null;
   if (top?.inPersonIntakeEnabled) {
-    blocks.push({ key: 'intake-ip', kind: 'intake-ip', shortLabel: 'IP', title: `In-person intake enabled — ${officeTitle(dayName, hour, top)}`, agencyId: Number(top?._agencyId || 0) || null });
+    blocks.push({ key: 'intake-ip', kind: 'intake-ip', shortLabel: 'IP', title: `In-person intake enabled — ${officeTitle(dayName, hour, top)}`, agencyId: Number(top?._agencyId || 0) || null, buildingId: top?.buildingId ? Number(top.buildingId) : null, roomId: top?.roomId ? Number(top.roomId) : null });
   }
   if (top?.virtualIntakeEnabled) {
-    blocks.push({ key: 'intake-vi', kind: 'intake-vi', shortLabel: 'VI', title: `Virtual intake enabled — ${officeTitle(dayName, hour, top)}`, agencyId: Number(top?._agencyId || 0) || null });
+    blocks.push({ key: 'intake-vi', kind: 'intake-vi', shortLabel: 'VI', title: `Virtual intake enabled — ${officeTitle(dayName, hour, top)}`, agencyId: Number(top?._agencyId || 0) || null, buildingId: top?.buildingId ? Number(top.buildingId) : null, roomId: top?.roomId ? Number(top.roomId) : null });
   }
 
   // Assigned school — one block per agency
@@ -4428,7 +4435,12 @@ const parseActionSlotKey = (key) => {
 };
 
 const buildModalContext = ({ dayName, hour, roomId = 0, slot = null, dateYmd = null }) => {
-  const top = officeTopEvent(dayName, hour) || null;
+  // In office_layout, scope to selected office + room so each cell is treated as that specific room
+  const officeFilter = viewMode.value === 'office_layout' && Number(selectedOfficeLocationId.value || 0) > 0
+    ? selectedOfficeLocationId.value
+    : null;
+  const roomFilter = viewMode.value === 'office_layout' && Number(roomId || 0) > 0 ? Number(roomId) : null;
+  const top = officeTopEvent(dayName, hour, officeFilter, roomFilter) || null;
   const rawState = String(
     slot?.state
     || slot?.slotState
@@ -4550,7 +4562,7 @@ const openSlotActionModal = ({
   if (!normalizedInitialRequestType && String(modalContext.value.slotState || '').toUpperCase() === 'ASSIGNED_BOOKED') {
     requestType.value = 'booked_note';
   }
-  if (!normalizedInitialRequestType && viewMode.value === 'office_layout' && ['OPEN', 'ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY'].includes(String(modalContext.value.slotState || '').toUpperCase())) {
+  if (!normalizedInitialRequestType && viewMode.value === 'office_layout' && ['', 'OPEN', 'ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY'].includes(String(modalContext.value.slotState || '').toUpperCase())) {
     requestType.value = 'office_request_only';
   }
   // If user selected a contiguous range on one day, use it as the default modal duration.
@@ -4656,7 +4668,9 @@ const onCellClick = (dayName, hour, event = null, options = {}) => {
     const blocks = cellBlocks(dayName, hour);
     const officeBlock = blocks.find((b) => ['oa', 'ot', 'ob', 'intake-ip', 'intake-vi'].includes(String(b?.kind || '')));
     if (officeBlock) {
-      const officeTop = officeTopEvent(dayName, hour) || null;
+      const officeId = Number(officeBlock?.buildingId || selectedOfficeLocationId.value || 0) || null;
+      const roomId = Number(officeBlock?.roomId || 0) || null;
+      const officeTop = officeTopEvent(dayName, hour, officeId, roomId) || null;
       const slotState = String(officeTop?.slotState || '').toUpperCase();
       const initialRequestType =
         slotState === 'ASSIGNED_BOOKED' ? 'booked_note' : ['ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY'].includes(slotState) ? 'forfeit_slot' : 'office_request_only';
@@ -5182,7 +5196,9 @@ const openNoteAidFromContext = (launchIntent = 'note') => {
   const ctx = modalContext.value || {};
   const officeEventId = Number(ctx.officeEventId || 0);
   if (!officeEventId) throw new Error('Booked office event context is required for Note Aid.');
-  const top = officeTopEvent(modalDay.value, modalHour.value) || null;
+  const officeId = Number(ctx.officeLocationId || 0) || null;
+  const roomId = Number(ctx.roomId || 0) || null;
+  const top = officeTopEvent(modalDay.value, modalHour.value, officeId, roomId) || null;
   const clientId = Number(top?.clientId || 0);
   if (!clientId) throw new Error('Booked slot needs a client before opening Note Aid.');
   const query = new URLSearchParams({
@@ -6414,7 +6430,13 @@ const onCellBlockClick = (e, block, dayName, hour) => {
     return;
   }
   const dateYmd = addDaysYmd(weekStart.value, ALL_DAYS.indexOf(String(dayName || '')));
-  const officeTop = officeTopEvent(dayName, hour) || null;
+  const officeId = ['oa', 'ot', 'ob', 'intake-ip', 'intake-vi'].includes(String(block?.kind || ''))
+    ? Number(block?.buildingId || selectedOfficeLocationId.value || 0) || null
+    : null;
+  const roomId = ['oa', 'ot', 'ob', 'intake-ip', 'intake-vi'].includes(String(block?.kind || ''))
+    ? Number(block?.roomId || 0) || null
+    : null;
+  const officeTop = officeTopEvent(dayName, hour, officeId, roomId) || null;
   const roomId = Number(officeTop?.roomId || block?.buildingId || block?.roomId || 0) || 0;
   selectedActionSlots.value = [{
     key: actionSlotKey({ dateYmd, hour, roomId }),
