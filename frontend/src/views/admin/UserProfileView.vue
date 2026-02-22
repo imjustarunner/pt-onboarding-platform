@@ -149,6 +149,10 @@
                   <input v-model="accountForm.serviceFocus" type="text" :disabled="!isEditingAccount" placeholder="e.g. School-based, Trauma, Medicaid" />
                 </div>
                 <div class="form-group">
+                  <label>Languages spoken</label>
+                  <input v-model="accountForm.languagesSpoken" type="text" :disabled="!isEditingAccount" placeholder="e.g. English, Spanish" />
+                </div>
+                <div class="form-group">
                   <label>Personal Phone Number</label>
                   <input v-model="accountForm.personalPhone" type="tel" :disabled="!isEditingAccount" />
                 </div>
@@ -2290,6 +2294,7 @@ const accountForm = ref({
   personalEmail: '',
   title: '',
   serviceFocus: '',
+  languagesSpoken: '',
   phoneNumber: '',
   personalPhone: '',
   workPhone: '',
@@ -3446,6 +3451,7 @@ const fetchUser = async () => {
       personalEmail: user.value.personal_email || accountForm.value?.personalEmail || '',
       title: user.value.title ?? accountForm.value?.title ?? '',
       serviceFocus: user.value.service_focus ?? accountForm.value?.serviceFocus ?? '',
+      languagesSpoken: user.value.languages_spoken ?? accountForm.value?.languagesSpoken ?? '',
       phoneNumber: user.value.phone_number || accountForm.value?.phoneNumber || '',
       personalPhone: user.value.personal_phone || accountForm.value?.personalPhone || '',
       workPhone: user.value.work_phone || accountForm.value?.workPhone || '',
@@ -3539,6 +3545,9 @@ const fetchAccountInfo = async () => {
     // Backfill preferred name (account-info endpoint is authoritative for display fields)
     if (!accountForm.value.preferredName) {
       accountForm.value.preferredName = response.data?.preferredName || '';
+    }
+    if (response.data?.languagesSpoken !== undefined) {
+      accountForm.value.languagesSpoken = response.data.languagesSpoken ?? '';
     }
     // Contracts & flags: payroll, hourly worker, hiring access (from account-info)
     if (response.data?.hasPayrollAccess !== undefined) {
@@ -4176,6 +4185,7 @@ const saveAccount = async () => {
       personalEmail: accountForm.value.personalEmail,
       title: accountForm.value.title,
       serviceFocus: accountForm.value.serviceFocus,
+      languagesSpoken: accountForm.value.languagesSpoken,
       phoneNumber: accountForm.value.phoneNumber,
       personalPhone: accountForm.value.personalPhone,
       workPhone: accountForm.value.workPhone,

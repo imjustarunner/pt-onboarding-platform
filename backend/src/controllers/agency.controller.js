@@ -804,27 +804,59 @@ export const deleteAgencyHard = async (req, res, next) => {
     ];
 
     let hits = await computeHits();
+    // Always run auto-cleanup first — it clears join tables (assignments, affiliations, etc.)
+    // even when clients remain. Users may have "unassigned" in the UI (deactivated rows)
+    // but those rows still exist and block delete until we remove them.
     if (hits.length > 0) {
-      const hasClients = hits.some((h) => h.table === 'clients' && Number(h.count || 0) > 0);
-      if (!hasClients) {
-        const connection = await pool.getConnection();
-        try {
-          await connection.beginTransaction();
-          for (const t of safeAutoCleanupOrder) {
-            // best-effort; ignore missing tables/columns
-            await deleteRefs(connection, t);
-          }
-          await connection.commit();
-        } catch {
-          try {
-            await connection.rollback();
-          } catch {
-            // ignore
-          }
-        } finally {
-          connection.release();
+      const connection = await pool.getConnection();
+      try {
+        await connection.beginTransaction();
+        for (const t of safeAutoCleanupOrder) {
+          await deleteRefs(connection, t);
         }
+        await connection.commit();
+      } catch {
+        try {
+          await connection.rollback();
+        } catch {
+          // ignore
+        }
+      } finally {
+        connection.release();
+      }
+      hits = await computeHits();
+    }
+
+    // If clients still block, allow reassignment via query param: ?reassignClientsTo=123
+    const reassignToId = req.query?.reassignClientsTo ? parseInt(String(req.query.reassignClientsTo), 10) : null;
+    const clientHit = hits.find((h) => h.table === 'clients' && Number(h.count || 0) > 0);
+    if (clientHit && reassignToId && reassignToId > 0 && reassignToId !== orgId) {
+      const conn = await pool.getConnection();
+      try {
+        await conn.beginTransaction();
+        const [upd] = await conn.execute(
+          'UPDATE clients SET organization_id = ? WHERE organization_id = ?',
+          [reassignToId, orgId]
+        );
+        if (upd?.affectedRows > 0) {
+          await conn.execute(
+            'UPDATE client_organization_assignments SET organization_id = ? WHERE organization_id = ?',
+            [reassignToId, orgId]
+          );
+        }
+        await conn.commit();
         hits = await computeHits();
+      } catch (e) {
+        try {
+          await conn.rollback();
+        } catch {
+          // ignore
+        }
+        return res.status(400).json({
+          error: { message: `Failed to reassign clients: ${e?.message || 'Unknown error'}. Ensure target organization exists and is a school.` }
+        });
+      } finally {
+        conn.release();
       }
     }
 

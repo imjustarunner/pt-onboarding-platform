@@ -1483,6 +1483,7 @@ export const updateUser = async (req, res, next) => {
       personalEmail,
       title,
       serviceFocus,
+      languagesSpoken,
       credential,
       firstName,
       lastName,
@@ -1694,6 +1695,10 @@ export const updateUser = async (req, res, next) => {
     if (serviceFocus !== undefined) {
       const v = String(serviceFocus || '').trim();
       updateData.serviceFocus = v || null;
+    }
+    if (languagesSpoken !== undefined) {
+      const v = String(languagesSpoken || '').trim();
+      updateData.languagesSpoken = v || null;
     }
     if (credential !== undefined) {
       const v = String(credential || '').trim();
@@ -4963,6 +4968,7 @@ export const getAccountInfo = async (req, res, next) => {
       preferredName: user.preferred_name || null,
       title: user.title ?? null,
       serviceFocus: user.service_focus ?? null,
+      languagesSpoken: user.languages_spoken ?? null,
       personalEmail: personalEmail || user.personal_email || null,
       phoneNumber: user.phone_number || null, // Keep for backward compatibility
       personalPhone: user.personal_phone || null,

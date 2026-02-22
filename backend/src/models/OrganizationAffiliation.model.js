@@ -28,6 +28,7 @@ class OrganizationAffiliation {
        INNER JOIN agencies org ON oa.organization_id = org.id
        LEFT JOIN icons org_i ON org.icon_id = org_i.id
        WHERE oa.agency_id = ? AND oa.is_active = TRUE
+         AND (org.is_archived = FALSE OR org.is_archived IS NULL)
        ORDER BY org.name ASC`,
       [aId]
     );

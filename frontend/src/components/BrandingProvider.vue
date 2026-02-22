@@ -5,7 +5,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useBrandingStore } from '../store/branding';
 import { useAgencyStore } from '../store/agency';
 import { useAuthStore } from '../store/auth';
@@ -14,6 +14,16 @@ import { loadAndApplyPlatformFonts } from '../utils/fontLoader';
 const brandingStore = useBrandingStore();
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
+
+// Track dark mode so we don't override its CSS variables with agency branding
+const isDarkMode = ref(document.documentElement.getAttribute('data-theme') === 'dark');
+const themeObserver = new MutationObserver(() => {
+  isDarkMode.value = document.documentElement.getAttribute('data-theme') === 'dark';
+});
+onMounted(() => {
+  themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+});
+onBeforeUnmount(() => themeObserver.disconnect());
 
 onMounted(async () => {
   // Force refresh branding on login page (when not authenticated) to get latest template
@@ -87,14 +97,15 @@ watch(() => agencyStore.currentAgency, async (newAgency) => {
 
 const brandingStyles = computed(() => {
   const platform = brandingStore.platformBranding;
+  const dark = isDarkMode.value;
   // Calculate a lighter version of primary for gradients
-  const primaryLight = brandingStore.primaryColor ? 
+  const primaryLight = brandingStore.primaryColor ?
     brandingStore.primaryColor.replace(/#([0-9A-Fa-f]{2})([0-9A-Fa-f]{2})([0-9A-Fa-f]{2})/, (_, r, g, b) => {
       const lighten = (hex) => Math.min(255, parseInt(hex, 16) + 40).toString(16).padStart(2, '0');
       return `#${lighten(r)}${lighten(g)}${lighten(b)}`;
     }) : '#D4B04A';
-  
-  return {
+
+  const styles = {
     '--primary-color': brandingStore.primaryColor,
     '--secondary-color': brandingStore.secondaryColor,
     '--accent-color': brandingStore.accentColor,
@@ -105,10 +116,6 @@ const brandingStyles = computed(() => {
     '--success': platform?.success_color || '#2F8F83',
     '--error': platform?.error_color || '#CC3D3D',
     '--warning': platform?.warning_color || '#E6A700',
-    '--bg-alt': platform?.background_color || '#F3F6FA',
-    '--text-primary': brandingStore.secondaryColor,
-    '--text-secondary': brandingStore.accentColor,
-    '--border': brandingStore.accentColor,
     // Contrast-safe defaults for dark headers across agencies.
     '--header-text-color': '#ffffff',
     '--header-text-muted': 'rgba(255,255,255,0.85)',
@@ -116,6 +123,14 @@ const brandingStyles = computed(() => {
     '--font-body': 'var(--agency-font-family, var(--font-body))',
     '--font-header': 'var(--agency-font-family, var(--font-header))'
   };
+  // When dark mode is on, do NOT override bg/text/border — let [data-theme="dark"] CSS rule apply
+  if (!dark) {
+    styles['--bg-alt'] = platform?.background_color || '#F3F6FA';
+    styles['--text-primary'] = brandingStore.secondaryColor;
+    styles['--text-secondary'] = brandingStore.accentColor;
+    styles['--border'] = brandingStore.accentColor;
+  }
+  return styles;
 });
 </script>
 

@@ -292,7 +292,7 @@ class User {
     try {
       const dbName = process.env.DB_NAME || 'onboarding_stage';
       const [columns] = await pool.execute(
-        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('pending_completed_at', 'pending_auto_complete_at', 'pending_identity_verified', 'pending_access_locked', 'pending_completion_notified', 'work_email', 'personal_email', 'preferred_name', 'username', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'has_hiring_access', 'provider_accepting_new_clients', 'personal_phone', 'work_phone', 'work_phone_extension', 'system_phone_number', 'home_street_address', 'home_address_line2', 'home_city', 'home_state', 'home_postal_code', 'medcancel_enabled', 'medcancel_rate_schedule', 'company_card_enabled', 'profile_photo_path', 'password_changed_at', 'title', 'service_focus', 'credential', 'skill_builder_eligible', 'has_skill_builder_coordinator_access', 'skill_builder_confirm_required_next_login', 'is_hourly_worker', 'sso_password_override')",
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('pending_completed_at', 'pending_auto_complete_at', 'pending_identity_verified', 'pending_access_locked', 'pending_completion_notified', 'work_email', 'personal_email', 'preferred_name', 'username', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'has_hiring_access', 'provider_accepting_new_clients', 'personal_phone', 'work_phone', 'work_phone_extension', 'system_phone_number', 'home_street_address', 'home_address_line2', 'home_city', 'home_state', 'home_postal_code', 'medcancel_enabled', 'medcancel_rate_schedule', 'company_card_enabled', 'profile_photo_path', 'password_changed_at', 'title', 'service_focus', 'languages_spoken', 'credential', 'skill_builder_eligible', 'has_skill_builder_coordinator_access', 'skill_builder_confirm_required_next_login', 'is_hourly_worker', 'sso_password_override')",
         [dbName]
       );
       const existingColumns = columns.map(c => c.COLUMN_NAME);
@@ -325,6 +325,7 @@ class User {
       if (existingColumns.includes('profile_photo_path')) query += ', profile_photo_path';
       if (existingColumns.includes('title')) query += ', title';
       if (existingColumns.includes('service_focus')) query += ', service_focus';
+      if (existingColumns.includes('languages_spoken')) query += ', languages_spoken';
       if (existingColumns.includes('credential')) query += ', credential';
       if (existingColumns.includes('skill_builder_eligible')) query += ', skill_builder_eligible';
       if (existingColumns.includes('has_skill_builder_coordinator_access')) query += ', has_skill_builder_coordinator_access';
@@ -635,6 +636,7 @@ class User {
       personalEmail,
       title,
       serviceFocus,
+      languagesSpoken,
       credential,
       firstName,
       lastName,
@@ -790,6 +792,20 @@ class User {
         if (columns.length > 0) {
           updates.push('service_focus = ?');
           values.push(serviceFocus ? String(serviceFocus).trim() : null);
+        }
+      } catch {
+        // ignore (older DBs)
+      }
+    }
+    // Languages spoken (account field)
+    if (languagesSpoken !== undefined) {
+      try {
+        const [columns] = await pool.execute(
+          "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'languages_spoken'"
+        );
+        if (columns.length > 0) {
+          updates.push('languages_spoken = ?');
+          values.push(languagesSpoken ? String(languagesSpoken).trim() : null);
         }
       } catch {
         // ignore (older DBs)
@@ -1380,11 +1396,24 @@ class User {
       hasMyDashboardIcons ? 'LEFT JOIN icons mds_i ON a.my_dashboard_submit_icon_id = mds_i.id' : null
     ].filter(Boolean).join('\n       ');
 
+    // Exclude archived organizations from the main list (for org switcher / management)
+    let archiveFilter = '';
+    try {
+      const [ac] = await pool.execute(
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'is_archived'"
+      );
+      if (ac?.length > 0) {
+        archiveFilter = ' AND (a.is_archived = FALSE OR a.is_archived IS NULL)';
+      }
+    } catch {
+      // ignore
+    }
+
     const query = `SELECT a.*${selectExtra ? ', ' + selectExtra : ''}
        FROM agencies a
        JOIN user_agencies ua ON a.id = ua.agency_id
        ${joins ? joins : ''}
-       WHERE ua.user_id = ?`;
+       WHERE ua.user_id = ?${archiveFilter}`;
 
     const [rows] = await pool.execute(query, [userId]);
 
@@ -1427,7 +1456,8 @@ class User {
            FROM organization_affiliations oa
            INNER JOIN agencies a ON a.id = oa.organization_id
            WHERE oa.is_active = TRUE
-             AND oa.agency_id IN (${placeholders})`,
+             AND oa.agency_id IN (${placeholders})
+             AND (a.is_archived = FALSE OR a.is_archived IS NULL)`,
           parentAgencyIds
         );
         if (Array.isArray(affRows) && affRows.length) inherited.push(...affRows);
@@ -1439,7 +1469,8 @@ class User {
            FROM agency_schools axs
            INNER JOIN agencies a ON a.id = axs.school_organization_id
            WHERE axs.is_active = TRUE
-             AND axs.agency_id IN (${placeholders})`,
+             AND axs.agency_id IN (${placeholders})
+             AND (a.is_archived = FALSE OR a.is_archived IS NULL)`,
           parentAgencyIds
         );
         if (Array.isArray(schoolRows) && schoolRows.length) inherited.push(...schoolRows);
