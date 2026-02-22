@@ -122,6 +122,31 @@ const load = async () => {
     request.value = list.find((r) => Number(r.id) === Number(props.requestId)) || null;
     if (!request.value) {
       error.value = 'Request not found or already resolved.';
+    } else {
+      // Pre-fill form from request data
+      const prefOffices = Array.isArray(request.value.preferredOfficeIds) ? request.value.preferredOfficeIds : [];
+      const slots = Array.isArray(request.value.slots) ? request.value.slots : [];
+      const firstSlot = slots[0];
+      let officeId = firstSlot?.officeLocationId
+        ? String(firstSlot.officeLocationId)
+        : (prefOffices.length === 1 ? String(prefOffices[0]) : '');
+      let roomId = firstSlot?.roomId ? String(firstSlot.roomId) : '';
+      const slotKey = firstSlot != null && Number.isFinite(firstSlot.weekday) && Number.isFinite(firstSlot.startHour)
+        ? `${firstSlot.weekday}:${firstSlot.startHour}`
+        : '';
+      if (!officeId && offices.value.length > 0) {
+        officeId = String(offices.value[0].id);
+      }
+      form.value = { officeId, roomId, slotKey };
+      if (officeId) {
+        await loadRooms();
+        // loadRooms clears roomId; restore from request or use first room when "Any"
+        const loadedRooms = rooms.value || [];
+        const finalRoomId = roomId && loadedRooms.some((rm) => String(rm.id) === roomId)
+          ? roomId
+          : (loadedRooms.length > 0 ? String(loadedRooms[0].id) : '');
+        form.value = { ...form.value, roomId: finalRoomId };
+      }
     }
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to load';

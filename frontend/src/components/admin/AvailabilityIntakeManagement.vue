@@ -425,15 +425,26 @@ const reload = async () => {
       const prefOffices = Array.isArray(r.preferredOfficeIds) ? r.preferredOfficeIds : [];
       const slots = r.slots || [];
       const firstSlot = slots[0];
-      const officeId = firstSlot?.officeLocationId
+      let officeId = firstSlot?.officeLocationId
         ? String(firstSlot.officeLocationId)
         : (prefOffices.length === 1 ? String(prefOffices[0]) : '');
-      const roomId = firstSlot?.roomId ? String(firstSlot.roomId) : '';
+      let roomId = firstSlot?.roomId ? String(firstSlot.roomId) : '';
       const slotKey = firstSlot != null && Number.isFinite(firstSlot.weekday) && Number.isFinite(firstSlot.startHour)
         ? `${firstSlot.weekday}:${firstSlot.startHour}`
         : '';
+      // When "Any" office, default to first office and first room to streamline approval
+      if (!officeId && (offices.value || []).length > 0) {
+        officeId = String(offices.value[0].id);
+      }
       officeAssign[r.id] = { officeId, roomId, slotKey };
-      if (officeId) void loadRoomsForOffice(r.id);
+      if (officeId) {
+        await loadRoomsForOffice(r.id);
+        const rooms = roomsByOffice[officeId] || [];
+        if (!roomId && rooms.length > 0) {
+          roomId = String(rooms[0].id);
+          officeAssign[r.id].roomId = roomId;
+        }
+      }
     }
     for (const r of schoolRequests.value) {
       if (!schoolAssign[r.id]) schoolAssign[r.id] = { schoolOrgId: '', blockKey: '', slotsTotal: 1 };
