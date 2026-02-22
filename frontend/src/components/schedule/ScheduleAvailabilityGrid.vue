@@ -109,6 +109,17 @@
           </button>
 
           <button
+            v-if="mode === 'self'"
+            type="button"
+            class="sched-pill"
+            :disabled="loading"
+            @click="toggleWeekStartsOn"
+            title="Toggle week start day"
+          >
+            Week starts: {{ effectiveWeekStartsOn === 'sunday' ? 'Sunday' : 'Monday' }}
+          </button>
+
+          <button
             type="button"
             class="sched-pill"
             :class="{ on: showQuarterDetail }"
@@ -1534,11 +1545,31 @@ const showQuarterDetail = ref(false);
 const selectedExternalCalendarIds = ref([]); // populated from available list once loaded
 let schedMouseUpHandler = null;
 const hideWeekend = ref(props.mode === 'self');
+const weekStartsOnLocal = ref(
+  typeof window !== 'undefined' && window.localStorage.getItem('schedule.weekStartsOn') === 'sunday'
+    ? 'sunday'
+    : 'monday'
+);
 const focusedDays = ref([]);
 const rowHeightMode = ref('normal');
 const initializedOverlayDefaults = ref(false);
 
 const viewMode = ref('open_finder'); // 'open_finder' | 'office_layout' (office_layout implemented later)
+
+const effectiveWeekStartsOn = computed(() => {
+  if (props.mode === 'self') return weekStartsOnLocal.value === 'sunday' ? 'sunday' : 'monday';
+  return String(props.weekStartsOn || '').toLowerCase() === 'sunday' ? 'sunday' : 'monday';
+});
+
+const toggleWeekStartsOn = () => {
+  if (props.mode !== 'self') return;
+  weekStartsOnLocal.value = weekStartsOnLocal.value === 'monday' ? 'sunday' : 'monday';
+  try {
+    window?.localStorage?.setItem?.('schedule.weekStartsOn', weekStartsOnLocal.value);
+  } catch {
+    // ignore best-effort persistence
+  }
+};
 
 const overlayPrefsKey = computed(() => {
   if (props.mode !== 'self') return '';
@@ -1850,7 +1881,7 @@ onUnmounted(() => {
   }
 });
 
-const orderedDays = computed(() => (String(props.weekStartsOn || '').toLowerCase() === 'sunday' ? SUNDAY_FIRST_DAYS : ALL_DAYS));
+const orderedDays = computed(() => (effectiveWeekStartsOn.value === 'sunday' ? SUNDAY_FIRST_DAYS : ALL_DAYS));
 const focusableDays = computed(() => {
   if (hideWeekend.value) return ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
   return orderedDays.value.slice();
@@ -2807,7 +2838,8 @@ const officeState = (dayName, hour) => {
     if (!startRaw) continue;
     const startLocal = new Date(startRaw.includes('T') ? startRaw : startRaw.replace(' ', 'T'));
     if (Number.isNaN(startLocal.getTime())) continue;
-    const idx = dayIndexForDateLocal(localYmd(startLocal), s.weekStart || weekStart.value);
+    // Align office-event day matching to the visible grid anchor (Monday-first weekStart).
+    const idx = dayIndexForDateLocal(localYmd(startLocal), weekStart.value);
     const dn = ALL_DAYS[idx] || null;
     if (dn !== dayName) continue;
     if (startLocal.getHours() !== Number(hour)) continue;
@@ -2909,7 +2941,7 @@ const hasExternalBusy = (dayName, hour, minute = 0) => {
 const agenciesInCell = (kind, dayName, hour) => {
   const s = summary.value;
   if (!s) return [];
-  const ws = s.weekStart || weekStart.value;
+  const ws = weekStart.value;
   const ids = new Set();
 
   if (kind === 'request') {
@@ -2982,7 +3014,7 @@ const schoolTitle = (dayName, hour) => {
 const officeEventsInCell = (dayName, hour, minute = 0) => {
   const s = summary.value;
   if (!s) return [];
-  const ws = s.weekStart || weekStart.value;
+  const ws = weekStart.value;
   const dayIdx = ALL_DAYS.indexOf(String(dayName));
   if (dayIdx < 0) return [];
   const cellDate = addDaysYmd(ws, dayIdx);
