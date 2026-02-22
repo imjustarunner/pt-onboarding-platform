@@ -591,10 +591,10 @@ export const getWeeklyGrid = async (req, res, next) => {
            sa.provider_id AS standing_provider_id
          FROM office_events e
          LEFT JOIN office_standing_assignments sa ON sa.id = e.standing_assignment_id
-         WHERE office_location_id = ?
-           AND start_at < ?
-           AND end_at > ?
-           AND UPPER(COALESCE(status, '')) = 'CANCELLED'`,
+         WHERE e.office_location_id = ?
+           AND e.start_at < ?
+           AND e.end_at > ?
+           AND UPPER(COALESCE(e.status, '')) = 'CANCELLED'`,
         [officeLocationIdNum, windowEnd, windowStart]
       );
       for (const row of cancelledRows || []) {
