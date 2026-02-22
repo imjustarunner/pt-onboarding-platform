@@ -1596,6 +1596,23 @@ export const superAdminPurgeFutureBookedSlot = async (req, res, next) => {
       (assignmentRows || []).map((r) => Number(r.id)).filter((n) => Number.isInteger(n) && n > 0)
     );
     const targetAssignmentIds = Array.from(targetAssignmentIdSet.values());
+    const providerIds = new Set();
+    const fromEventAssigned = Number(ev.assigned_provider_id || 0) || null;
+    const fromEventBooked = Number(ev.booked_provider_id || 0) || null;
+    if (fromEventAssigned) providerIds.add(fromEventAssigned);
+    if (fromEventBooked) providerIds.add(fromEventBooked);
+    if (targetAssignmentIds.length) {
+      const [sidRows] = await pool.execute(
+        `SELECT provider_id
+         FROM office_standing_assignments
+         WHERE id IN (${targetAssignmentIds.map(() => '?').join(',')})`,
+        targetAssignmentIds
+      );
+      for (const r of sidRows || []) {
+        const pid = Number(r.provider_id || 0) || null;
+        if (pid) providerIds.add(pid);
+      }
+    }
     if (targetAssignmentIds.length) {
       for (const sid of targetAssignmentIds) {
         // eslint-disable-next-line no-await-in-loop
@@ -1622,13 +1639,29 @@ export const superAdminPurgeFutureBookedSlot = async (req, res, next) => {
       await pool.execute(
         `UPDATE office_events
          SET status = 'CANCELLED',
-             slot_state = 'ASSIGNED_AVAILABLE',
+             slot_state = NULL,
              booked_provider_id = NULL,
              booking_plan_id = NULL,
              updated_at = CURRENT_TIMESTAMP
          WHERE id IN (${eventIds.map(() => '?').join(',')})`,
         eventIds
       );
+    }
+    let legacyAssignmentRowsRemoved = 0;
+    if (providerIds.size > 0) {
+      const pids = Array.from(providerIds.values());
+      for (const pid of pids) {
+        // eslint-disable-next-line no-await-in-loop
+        const [legacyResult] = await pool.execute(
+          `DELETE FROM office_room_assignments
+           WHERE room_id = ?
+             AND assigned_user_id = ?
+             AND start_at < DATE_ADD(?, INTERVAL 365 DAY)
+             AND (end_at IS NULL OR end_at > ?)`,
+          [roomId, pid, startAt, startAt]
+        );
+        legacyAssignmentRowsRemoved += Number(legacyResult?.affectedRows || 0);
+      }
     }
     for (const id of eventIds) {
       // eslint-disable-next-line no-await-in-loop
@@ -1657,7 +1690,9 @@ export const superAdminPurgeFutureBookedSlot = async (req, res, next) => {
       startAt,
       endAt,
       hour: wh.hour,
-      targetedStandingAssignmentIds: targetAssignmentIds
+      targetedStandingAssignmentIds: targetAssignmentIds,
+      targetedProviderIds: Array.from(providerIds.values()),
+      legacyAssignmentRowsRemoved
     });
   } catch (e) {
     next(e);
@@ -1859,6 +1894,7 @@ export const forfeitEvent = async (req, res, next) => {
       if (providerId) ids.add(Number(providerId));
       return ids;
     };
+    const providerIdsForResponse = Array.from((await collectProviderIds()).values());
 
     const removeLegacyAssignmentOverlap = async ({ rangeStart, rangeEndExclusive = null } = {}) => {
       const roomId = Number(ev.room_id || 0) || null;
@@ -1902,7 +1938,18 @@ export const forfeitEvent = async (req, res, next) => {
       await ProviderVirtualSlotAvailability.deactivateBySourceEventId(eid);
       await cancelGoogleForOfficeEventIds([eid]);
       const legacyAssignmentRowsRemoved = await removeLegacyAssignmentOverlap({ rangeStart: startAt, rangeEndExclusive: endAt });
-      return res.json({ ok: true, scope: 'occurrence', event: updated, legacyAssignmentRowsRemoved });
+      return res.json({
+        ok: true,
+        scope: 'occurrence',
+        event: updated,
+        legacyAssignmentRowsRemoved,
+        diagnostics: {
+          roomId: Number(ev.room_id || 0) || null,
+          startAt,
+          endAt,
+          providerIds: providerIdsForResponse
+        }
+      });
     }
 
     let standingAssignmentId = Number(ev.standing_assignment_id || 0) || null;
@@ -2088,7 +2135,15 @@ export const forfeitEvent = async (req, res, next) => {
       standingAssignmentId: standingAssignmentId || null,
       legacyAssignmentRowsRemoved,
       strictCleanupEventCount,
-      strictCleanupAssignmentCount
+      strictCleanupAssignmentCount,
+      diagnostics: {
+        roomId: Number(ev.room_id || 0) || null,
+        startAt,
+        endAt,
+        weekday: wh?.weekdayIndex ?? null,
+        hour: wh?.hour ?? null,
+        providerIds: providerIdsForResponse
+      }
     });
   } catch (e) {
     next(e);
@@ -2272,12 +2327,23 @@ export const staffAssignOpenSlot = async (req, res, next) => {
 
       return res.json({
         ok: true,
+        lifecycle: 'canonical_open_slots_assign',
         recurrenceFrequency,
         recurringUntilDate,
         recurrenceGroupId,
         weekdays: recurrenceWeekdays,
         standingAssignments,
-        events: createdEvents
+        events: createdEvents,
+        diagnostics: {
+          officeLocationId,
+          roomId,
+          assignedUserId,
+          date,
+          startHour,
+          endHour: finalHour,
+          standingAssignmentIds: standingAssignments.map((s) => Number(s?.id || 0)).filter((n) => n > 0),
+          createdEventIds: createdEvents.map((e) => Number(e?.id || 0)).filter((n) => n > 0)
+        }
       });
     }
 
@@ -2319,7 +2385,22 @@ export const staffAssignOpenSlot = async (req, res, next) => {
       if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
     }
 
-    res.json({ ok: true, assignment, events: createdEvents });
+    res.json({
+      ok: true,
+      lifecycle: 'canonical_open_slots_assign',
+      assignment,
+      events: createdEvents,
+      diagnostics: {
+        officeLocationId,
+        roomId,
+        assignedUserId,
+        date,
+        hour,
+        endHour: endHour !== null ? endHour : (hour + 1),
+        assignmentId: Number(assignment?.id || 0) || null,
+        createdEventIds: createdEvents.map((e) => Number(e?.id || 0)).filter((n) => n > 0)
+      }
+    });
   } catch (e) {
     next(e);
   }

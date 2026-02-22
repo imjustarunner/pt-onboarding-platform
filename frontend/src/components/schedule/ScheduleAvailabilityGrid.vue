@@ -714,6 +714,12 @@
               <div v-if="requestType === 'office_request_only'" class="modern-help">
                 Request permission to use office space. Staff will assign you when available. Use the End time dropdown to select multiple hours.
               </div>
+              <div v-if="requestType === 'office_request_only'" class="muted" style="margin-top: 8px;">
+                <div><strong>Building:</strong> {{ officeRequestSummary.building }}</div>
+                <div><strong>Room:</strong> {{ officeRequestSummary.room }}</div>
+                <div><strong>Time:</strong> {{ officeRequestSummary.timeRange }}</div>
+                <div><strong>Duration:</strong> {{ officeRequestSummary.duration }}</div>
+              </div>
               <label class="lbl">Frequency</label>
               <select v-model="officeBookingRecurrence" class="input">
                 <option value="ONCE">Once</option>
@@ -2115,7 +2121,7 @@ const toggleScheduleAgencyFilter = (agencyId) => {
 };
 const canManageOffices = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
-  return ['clinical_practice_assistant', 'admin', 'super_admin', 'superadmin', 'support', 'staff'].includes(role);
+  return ['clinical_practice_assistant', 'provider_plus', 'admin', 'super_admin', 'superadmin', 'support', 'staff'].includes(role);
 });
 const currentUserRole = computed(() => String(authStore.user?.role || '').trim().toLowerCase());
 const isSupervisorRole = computed(() => currentUserRole.value === 'supervisor');
@@ -3978,6 +3984,27 @@ const officeBookingHint = computed(() => {
     return 'Same-day “Once” requests auto-book if an open room exists; otherwise they go to approvals.';
   }
   return 'Weekly/Biweekly/Monthly requests go to approvals and will create a booking plan on approval.';
+});
+
+const officeRequestSummary = computed(() => {
+  const officeId = Number(selectedOfficeLocationId.value || 0);
+  const office = (officeLocations.value || []).find((o) => Number(o?.id || 0) === officeId) || null;
+  const building = String(office?.name || office?.label || '').trim() || (officeId ? `Office ${officeId}` : 'Not selected');
+  const selectedRoomId = Number(selectedOfficeRoomId.value || modalContext.value?.roomId || 0) || 0;
+  const roomOpt = (modalOfficeRoomOptions.value || []).find((r) => Number(r?.roomId || 0) === selectedRoomId) || null;
+  const room = selectedRoomId > 0
+    ? (String(roomOpt?.label || '').trim() || `Room ${selectedRoomId}`)
+    : 'Any (per request policy)';
+  const startH = Number(modalHour.value || 0);
+  const endH = Number(modalEndHour.value || 0);
+  const safeEnd = endH > startH ? endH : (startH + 1);
+  const hours = Math.max(1, safeEnd - startH);
+  return {
+    building,
+    room,
+    timeRange: `${hourLabel(startH)} - ${hourLabel(safeEnd)}`,
+    duration: `${hours} hour${hours === 1 ? '' : 's'}`
+  };
 });
 
 const supervisionProvidersLoading = ref(false);

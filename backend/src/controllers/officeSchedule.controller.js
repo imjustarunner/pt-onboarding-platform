@@ -680,9 +680,16 @@ export const getWeeklyGrid = async (req, res, next) => {
 
     // Index assignments by room+date+hour (treat as "assigned" if overlapping the hour slot)
     const assignedBySlot = new Map();
+    const reconciliationConflicts = [];
     for (const a of assignments || []) {
       const assignmentStartMs = timeMs(a.start_at);
-      const assignmentEndMs = a.end_at ? timeMs(a.end_at) : null;
+      let assignmentEndMs = a.end_at ? timeMs(a.end_at) : null;
+      const assignmentType = String(a.assignment_type || '').trim().toUpperCase();
+      // Legacy guardrail: ONE_TIME rows with NULL end_at should never fan out forever.
+      // Treat them as one-hour windows anchored at start_at.
+      if (assignmentType === 'ONE_TIME' && !Number.isFinite(assignmentEndMs) && Number.isFinite(assignmentStartMs)) {
+        assignmentEndMs = assignmentStartMs + (60 * 60 * 1000);
+      }
       if (!Number.isFinite(assignmentStartMs)) continue;
       for (const date of days) {
         for (const hour of hours) {
@@ -698,6 +705,26 @@ export const getWeeklyGrid = async (req, res, next) => {
           const cancelledLegacyKey = `${Number(a.room_id || 0)}:${date}:${hour}:${Number(a.assigned_user_id || 0)}`;
           if (cancelledLegacyBySlotProvider.has(cancelledLegacyKey)) continue;
           const k = key(a.room_id, date, hour);
+          const existingEvent = eventBySlot.get(k);
+          if (existingEvent) {
+            const eventProviderId = Number(
+              existingEvent.assigned_provider_id
+              || existingEvent.booked_provider_id
+              || existingEvent.standing_assignment_provider_id
+              || 0
+            ) || null;
+            const assignmentProviderId = Number(a.assigned_user_id || 0) || null;
+            if (assignmentProviderId && eventProviderId && assignmentProviderId !== eventProviderId) {
+              reconciliationConflicts.push({
+                roomId: Number(a.room_id || 0) || null,
+                date,
+                hour,
+                eventId: Number(existingEvent.id || 0) || null,
+                eventProviderId,
+                assignmentProviderId
+              });
+            }
+          }
           if (!assignedBySlot.has(k)) assignedBySlot.set(k, a);
         }
       }
@@ -1183,7 +1210,11 @@ export const getWeeklyGrid = async (req, res, next) => {
         label: r.label ?? null
       })),
       slots,
-      cancelledGoogleEvents
+      cancelledGoogleEvents,
+      diagnostics: {
+        reconciliationConflictCount: reconciliationConflicts.length,
+        reconciliationConflictSample: reconciliationConflicts.slice(0, 25)
+      }
     });
   } catch (e) {
     next(e);
