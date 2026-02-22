@@ -264,6 +264,35 @@ function timeMs(value) {
   return Number.isFinite(t) ? t : NaN;
 }
 
+function normalizeYmd(value) {
+  const m = String(value || '').trim().match(/^(\d{4}-\d{2}-\d{2})/);
+  return m ? m[1] : null;
+}
+
+function dayDiffYmd(startYmd, endYmd) {
+  const s = normalizeYmd(startYmd);
+  const e = normalizeYmd(endYmd);
+  if (!s || !e) return NaN;
+  const sm = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const em = e.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!sm || !em) return NaN;
+  const sMs = Date.UTC(Number(sm[1]), Number(sm[2]) - 1, Number(sm[3]));
+  const eMs = Date.UTC(Number(em[1]), Number(em[2]) - 1, Number(em[3]));
+  return Math.floor((eMs - sMs) / 86400000);
+}
+
+function recurrenceMatchesDate({ recurrence, occurrenceCount, startDateYmd, targetDateYmd }) {
+  const freq = String(recurrence || 'ONCE').trim().toUpperCase();
+  const count = Math.max(1, Number(occurrenceCount || 1));
+  const diffDays = dayDiffYmd(startDateYmd, targetDateYmd);
+  if (!Number.isFinite(diffDays) || diffDays < 0) return false;
+  if (freq === 'ONCE') return diffDays === 0;
+  if (freq === 'WEEKLY') return diffDays % 7 === 0 && (diffDays / 7) < count;
+  if (freq === 'BIWEEKLY') return diffDays % 14 === 0 && (diffDays / 14) < count;
+  if (freq === 'MONTHLY') return diffDays % 28 === 0 && (diffDays / 28) < count;
+  return false;
+}
+
 const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 function weekdayHourInTz(dateLike, timeZone) {
@@ -992,6 +1021,7 @@ export const getWeeklyGrid = async (req, res, next) => {
     if (officeAgencyIds.length > 0) {
       const [reqRows] = await pool.execute(
         `SELECT r.id, r.provider_id, r.preferred_office_ids_json,
+                r.requested_frequency, r.requested_occurrence_count, r.requested_start_date, r.created_at,
                 u.first_name, u.last_name
          FROM provider_office_availability_requests r
          JOIN users u ON u.id = r.provider_id
@@ -1006,6 +1036,9 @@ export const getWeeklyGrid = async (req, res, next) => {
             ? true
             : prefIds.some((id) => Number(id) === officeLocationIdNum);
         if (!includesOffice) continue;
+        const requestedFrequency = String(req.requested_frequency || 'ONCE').trim().toUpperCase();
+        const requestedOccurrenceCount = Math.max(1, Number(req.requested_occurrence_count || 1));
+        const requestedStartDate = normalizeYmd(req.requested_start_date || req.created_at);
         const providerName = `${String(req.first_name || '').trim()} ${String(req.last_name || '').trim()}`.trim() || `Provider #${req.provider_id}`;
         const [slotRows] = await pool.execute(
           `SELECT weekday, start_hour, end_hour, room_id
@@ -1022,6 +1055,14 @@ export const getWeeklyGrid = async (req, res, next) => {
           if (!(wd >= 0 && wd <= 6) || !Number.isFinite(sh) || !Number.isFinite(eh) || eh <= sh) continue;
           const dateForWeekday = days[wd];
           if (!dateForWeekday) continue;
+          if (!recurrenceMatchesDate({
+            recurrence: requestedFrequency,
+            occurrenceCount: requestedOccurrenceCount,
+            startDateYmd: requestedStartDate,
+            targetDateYmd: dateForWeekday
+          })) {
+            continue;
+          }
           for (let h = sh; h < eh; h++) {
             const baseKey = `${dateForWeekday}:${h}`;
             const keys = roomId ? [`${baseKey}:${roomId}`] : [baseKey];

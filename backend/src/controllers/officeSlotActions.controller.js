@@ -1845,31 +1845,45 @@ export const forfeitEvent = async (req, res, next) => {
 
     const removeLegacyAssignmentOverlap = async ({ rangeStart, rangeEndExclusive = null } = {}) => {
       const roomId = Number(ev.room_id || 0) || null;
-      const assignedUserId = Number(ev.assigned_provider_id || ev.booked_provider_id || 0) || null;
+      const providerIds = new Set();
+      const fromEventAssigned = Number(ev.assigned_provider_id || 0) || null;
+      const fromEventBooked = Number(ev.booked_provider_id || 0) || null;
+      if (fromEventAssigned) providerIds.add(fromEventAssigned);
+      if (fromEventBooked) providerIds.add(fromEventBooked);
+      const fromStanding = Number(ev.standing_assignment_id || 0) || null;
+      if (fromStanding) {
+        const standing = await OfficeStandingAssignment.findById(fromStanding);
+        const sidProvider = Number(standing?.provider_id || 0) || null;
+        if (sidProvider) providerIds.add(sidProvider);
+      }
       const start = mysqlDateTimeFromValue(rangeStart || startAt);
       const endExclusive = rangeEndExclusive ? mysqlDateTimeFromValue(rangeEndExclusive) : null;
-      if (!roomId || !assignedUserId || !start) return 0;
+      if (!roomId || !start || providerIds.size === 0) return 0;
       try {
-        let result;
-        if (endExclusive) {
-          [result] = await pool.execute(
-            `DELETE FROM office_room_assignments
-             WHERE room_id = ?
-               AND assigned_user_id = ?
-               AND start_at < ?
-               AND (end_at IS NULL OR end_at > ?)`,
-            [roomId, assignedUserId, endExclusive, start]
-          );
-        } else {
-          [result] = await pool.execute(
-            `DELETE FROM office_room_assignments
-             WHERE room_id = ?
-               AND assigned_user_id = ?
-               AND (end_at IS NULL OR end_at > ?)`,
-            [roomId, assignedUserId, start]
-          );
+        let removed = 0;
+        for (const pid of providerIds) {
+          let result;
+          if (endExclusive) {
+            [result] = await pool.execute(
+              `DELETE FROM office_room_assignments
+               WHERE room_id = ?
+                 AND assigned_user_id = ?
+                 AND start_at < ?
+                 AND (end_at IS NULL OR end_at > ?)`,
+              [roomId, pid, endExclusive, start]
+            );
+          } else {
+            [result] = await pool.execute(
+              `DELETE FROM office_room_assignments
+               WHERE room_id = ?
+                 AND assigned_user_id = ?
+                 AND (end_at IS NULL OR end_at > ?)`,
+              [roomId, pid, start]
+            );
+          }
+          removed += Number(result?.affectedRows || 0);
         }
-        return Number(result?.affectedRows || 0);
+        return removed;
       } catch (e) {
         if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
         return 0;

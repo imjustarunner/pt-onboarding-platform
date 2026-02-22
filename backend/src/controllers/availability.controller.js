@@ -31,6 +31,12 @@ function normalizeOfficeRequestRecurrence({ recurrenceRaw, occurrenceCountRaw })
   return { recurrence: normalizedRecurrence, occurrenceCount };
 }
 
+function normalizeYmd(value) {
+  const raw = String(value || '').trim();
+  const m = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+  return m ? m[1] : null;
+}
+
 function toYmd(d) {
   return new Date(d).toISOString().slice(0, 10);
 }
@@ -670,6 +676,7 @@ export const createMyOfficeAvailabilityRequest = async (req, res, next) => {
     const slots = Array.isArray(req.body?.slots) ? req.body.slots : [];
     const recurrenceRaw = req.body?.requestedFrequency ?? req.body?.recurrence ?? 'ONCE';
     const occurrenceCountRaw = req.body?.requestedOccurrenceCount ?? req.body?.bookedOccurrenceCount ?? req.body?.occurrenceCount ?? null;
+    const requestedStartDate = normalizeYmd(req.body?.requestedStartDate) || toYmd(new Date());
     const weeklyRequestedOccurrences = parseIntSafe(occurrenceCountRaw);
     if (String(recurrenceRaw || '').trim().toUpperCase() === 'WEEKLY'
       && Number.isInteger(weeklyRequestedOccurrences)
@@ -712,25 +719,27 @@ export const createMyOfficeAvailabilityRequest = async (req, res, next) => {
     try {
       [result] = await conn.execute(
         `INSERT INTO provider_office_availability_requests
-          (agency_id, provider_id, preferred_office_ids_json, notes, status, requested_frequency, requested_occurrence_count)
-         VALUES (?, ?, ?, ?, 'PENDING', ?, ?)`,
+          (agency_id, provider_id, preferred_office_ids_json, notes, status, requested_frequency, requested_occurrence_count, requested_start_date)
+         VALUES (?, ?, ?, ?, 'PENDING', ?, ?, ?)`,
         [
           agencyId,
           providerId,
           officeIds.length ? JSON.stringify(officeIds) : null,
           notes || null,
           requestedRecurrence.recurrence,
-          requestedRecurrence.occurrenceCount
+          requestedRecurrence.occurrenceCount,
+          requestedStartDate
         ]
       );
     } catch (insertErr) {
-      if (insertErr?.code !== 'ER_BAD_FIELD_ERROR' && insertErr?.errno !== 1054) throw insertErr;
-      [result] = await conn.execute(
-        `INSERT INTO provider_office_availability_requests
-          (agency_id, provider_id, preferred_office_ids_json, notes, status)
-         VALUES (?, ?, ?, ?, 'PENDING')`,
-        [agencyId, providerId, officeIds.length ? JSON.stringify(officeIds) : null, notes || null]
-      );
+      if (insertErr?.code === 'ER_BAD_FIELD_ERROR' || insertErr?.errno === 1054) {
+        return res.status(409).json({
+          error: {
+            message: 'Office request recurrence fields are missing in the database. Run migrations 485 and 486 before creating office requests.'
+          }
+        });
+      }
+      throw insertErr;
     }
     const requestId = result.insertId;
 
@@ -1319,6 +1328,7 @@ export const listOfficeAvailabilityRequests = async (req, res, next) => {
         createdAt: r.created_at,
         requestedFrequency: requestedRecurrence.recurrence,
         requestedOccurrenceCount: requestedRecurrence.occurrenceCount,
+        requestedStartDate: normalizeYmd(r.requested_start_date || r.created_at) || null,
         slots: (slotRows || []).map((s) => ({
           weekday: s.weekday,
           startHour: s.start_hour,

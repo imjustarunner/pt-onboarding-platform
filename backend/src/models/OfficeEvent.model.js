@@ -159,20 +159,8 @@ class OfficeEvent {
     const existing = await this.findByRoomAndStart(roomId, normalizedStartAt);
     if (existing?.id) {
       const existingCancelled = String(existing.status || '').toUpperCase() === 'CANCELLED';
-      const existingStandingAssignmentId = Number(existing.standing_assignment_id || 0) || null;
-      const incomingStandingAssignmentId = Number(standingAssignmentId || 0) || null;
-      // Preserve explicit one-off forfeits/cancellations for standing-assignment-generated events.
-      // Without this guard, weekly materialization resurrects cancelled single occurrences.
-      const sameStandingAssignment =
-        existingStandingAssignmentId
-          && incomingStandingAssignmentId
-          && existingStandingAssignmentId === incomingStandingAssignmentId;
-      const sameProviderLegacyLink =
-        !existingStandingAssignmentId
-          && incomingStandingAssignmentId
-          && Number(existing.assigned_provider_id || 0) > 0
-          && Number(existing.assigned_provider_id || 0) === Number(assignedProviderId || 0);
-      if (existingCancelled && (sameStandingAssignment || sameProviderLegacyLink)) {
+      // Explicit cancellations/forfeits are authoritative and must never be resurrected.
+      if (existingCancelled) {
         return await this.findById(existing.id);
       }
       const existingIsBooked =
@@ -336,6 +324,7 @@ class OfficeEvent {
     await pool.execute(
       `UPDATE office_events
        SET status = 'CANCELLED',
+           slot_state = NULL,
            updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
       [eventId]
@@ -347,6 +336,7 @@ class OfficeEvent {
     const [result] = await pool.execute(
       `UPDATE office_events
        SET status = 'CANCELLED',
+           slot_state = NULL,
            updated_at = CURRENT_TIMESTAMP
        WHERE standing_assignment_id = ?
          AND start_at >= ?`,
@@ -363,6 +353,7 @@ class OfficeEvent {
     const [result] = await pool.execute(
       `UPDATE office_events
        SET status = 'CANCELLED',
+           slot_state = NULL,
            updated_at = CURRENT_TIMESTAMP
        WHERE room_id = ?
          AND start_at = ?
@@ -376,6 +367,7 @@ class OfficeEvent {
     const [result] = await pool.execute(
       `UPDATE office_events
        SET status = 'CANCELLED',
+           slot_state = NULL,
            updated_at = CURRENT_TIMESTAMP
        WHERE recurrence_group_id = ?
          AND start_at >= ?`,

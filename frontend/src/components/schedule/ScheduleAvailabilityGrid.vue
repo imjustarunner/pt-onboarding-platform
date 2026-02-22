@@ -5676,6 +5676,7 @@ const submitRequest = async () => {
         officeLocationIds: Number(selectedOfficeLocationId.value || 0) ? [Number(selectedOfficeLocationId.value)] : [],
         recurrence,
         ...(occurrenceCount ? { bookedOccurrenceCount: occurrenceCount } : {}),
+        requestedStartDate: baseDateYmd,
         slots
       });
       await loadSelectedOfficeGrid();
