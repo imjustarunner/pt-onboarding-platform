@@ -325,8 +325,9 @@ export const listSupervisionProviderCandidates = async (req, res, next) => {
     const actorId = Number(req.user?.id || 0);
     const role = String(req.user?.role || '').trim().toLowerCase();
     if (!actorId) return res.status(401).json({ error: { message: 'Not authenticated' } });
-    if (role !== 'supervisor') {
-      return res.status(403).json({ error: { message: 'Supervision participant selection is limited to supervisors.' } });
+    const allowedRoles = ['supervisor', 'admin', 'super_admin', 'support'];
+    if (!allowedRoles.includes(role)) {
+      return res.status(403).json({ error: { message: 'Supervision participant selection is limited to supervisors and admins.' } });
     }
 
     const actorAgencies = await User.getAgencies(actorId);
@@ -352,19 +353,45 @@ export const listSupervisionProviderCandidates = async (req, res, next) => {
 
     if (mode === 'individual') {
       const assigned = await SupervisorAssignment.findBySupervisor(actorId, agencyId);
-      const deduped = new Map();
-      for (const row of (assigned || [])) {
-        const id = Number(row?.supervisee_id || 0);
-        if (!id || deduped.has(id)) continue;
-        deduped.set(id, {
-          id,
-          firstName: String(row?.supervisee_first_name || '').trim(),
-          lastName: String(row?.supervisee_last_name || '').trim(),
-          email: String(row?.supervisee_email || '').trim().toLowerCase(),
-          role: String(row?.supervisee_role || '').trim().toLowerCase()
-        });
+      let providers = [];
+      if ((assigned || []).length > 0) {
+        const deduped = new Map();
+        for (const row of assigned) {
+          const id = Number(row?.supervisee_id || 0);
+          if (!id || deduped.has(id)) continue;
+          deduped.set(id, {
+            id,
+            firstName: String(row?.supervisee_first_name || '').trim(),
+            lastName: String(row?.supervisee_last_name || '').trim(),
+            email: String(row?.supervisee_email || '').trim().toLowerCase(),
+            role: String(row?.supervisee_role || '').trim().toLowerCase()
+          });
+        }
+        providers = Array.from(deduped.values());
       }
-      return res.json({ ok: true, agencyId, agencyIds: [agencyId], mode, providers: Array.from(deduped.values()) });
+      // Admins without supervisee assignments: show all providers in agency for session creation
+      if (providers.length === 0 && allowedRoles.includes(role)) {
+        const [rows] = await pool.execute(
+          `SELECT u.id, u.first_name, u.last_name, u.email, u.role
+           FROM user_agencies ua
+           JOIN users u ON u.id = ua.user_id
+           WHERE ua.agency_id = ?
+             AND (u.is_active IS NULL OR u.is_active = TRUE)
+             AND (u.is_archived IS NULL OR u.is_archived = FALSE)
+             AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED', 'PROSPECTIVE'))
+             AND LOWER(COALESCE(u.role, '')) NOT IN ('guardian', 'school_support')
+           ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC`,
+          [agencyId]
+        );
+        providers = (rows || []).map((r) => ({
+          id: Number(r.id),
+          firstName: String(r.first_name || '').trim(),
+          lastName: String(r.last_name || '').trim(),
+          email: String(r.email || '').trim().toLowerCase(),
+          role: String(r.role || '').trim().toLowerCase()
+        }));
+      }
+      return res.json({ ok: true, agencyId, agencyIds: [agencyId], mode, providers });
     }
 
     const scopedAgencyIds = allAgencies ? actorAgencyIds : [agencyId];

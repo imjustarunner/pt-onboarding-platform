@@ -123,13 +123,18 @@ const load = async () => {
     if (!request.value) {
       error.value = 'Request not found or already resolved.';
     } else {
-      // Pre-fill form from request data
+      // Pre-fill form from request data (prefer provider's preferred offices over first in list)
       const prefOffices = Array.isArray(request.value.preferredOfficeIds) ? request.value.preferredOfficeIds : [];
       const slots = Array.isArray(request.value.slots) ? request.value.slots : [];
       const firstSlot = slots[0];
+      const officeIdsAvailable = (offices.value || []).map((o) => String(o.id));
       let officeId = firstSlot?.officeLocationId
         ? String(firstSlot.officeLocationId)
-        : (prefOffices.length === 1 ? String(prefOffices[0]) : '');
+        : (prefOffices.length > 0 ? String(prefOffices[0]) : '');
+      // Ensure chosen office exists in available list; fallback to first preferred or first office
+      if (officeId && !officeIdsAvailable.includes(officeId)) {
+        officeId = (prefOffices || []).map((id) => String(id)).find((id) => officeIdsAvailable.includes(id)) || '';
+      }
       let roomId = firstSlot?.roomId ? String(firstSlot.roomId) : '';
       const slotKey = firstSlot != null && Number.isFinite(firstSlot.weekday) && Number.isFinite(firstSlot.startHour)
         ? `${firstSlot.weekday}:${firstSlot.startHour}`

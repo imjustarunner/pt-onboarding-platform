@@ -3319,6 +3319,8 @@ const lastSelectedActionKey = ref('');
 const isCellDragSelecting = ref(false);
 const dragAnchorSlot = ref(null);
 const suppressClickAfterDrag = ref(false);
+const mouseDownClient = ref({ x: 0, y: 0 });
+const DRAG_THRESHOLD_PX = 8;
 const lastAutoOpenedSelectionSignature = ref('');
 const mouseDownCellKey = ref('');
 const selectedActionKeys = computed(() => selectedActionSlots.value.map((x) => x.key));
@@ -4649,6 +4651,26 @@ const onCellClick = (dayName, hour, event = null, options = {}) => {
   lastSelectedActionKey.value = item.key;
   if (isCellVisuallyBlank(dayName, hour)) {
     openSlotActionModal({ ...item, preserveSelectionRange: false, actionSource: 'plus_or_blank' });
+  } else if (canBookFromGrid.value) {
+    // Cell has content (e.g. user's assigned office slot) – single-click opens modal for forfeit/extend
+    const blocks = cellBlocks(dayName, hour);
+    const officeBlock = blocks.find((b) => ['oa', 'ot', 'ob', 'intake-ip', 'intake-vi'].includes(String(b?.kind || '')));
+    if (officeBlock) {
+      const officeTop = officeTopEvent(dayName, hour) || null;
+      const slotState = String(officeTop?.slotState || '').toUpperCase();
+      const initialRequestType =
+        slotState === 'ASSIGNED_BOOKED' ? 'booked_note' : ['ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY'].includes(slotState) ? 'forfeit_slot' : 'office_request_only';
+      openSlotActionModal({
+        dayName,
+        hour,
+        roomId: Number(officeTop?.roomId || 0) || 0,
+        dateYmd,
+        slot: officeTop,
+        preserveSelectionRange: false,
+        initialRequestType,
+        actionSource: 'office_block'
+      });
+    }
   }
 };
 
@@ -4676,6 +4698,7 @@ const onCellDoubleClick = (dayName, hour, event = null, options = {}) => {
 const onCellMouseDown = (dayName, hour, event = null) => {
   if (!canBookFromGrid.value) return;
   if (Number(event?.button) !== 0) return;
+  mouseDownClient.value = { x: event?.clientX ?? 0, y: event?.clientY ?? 0 };
   const dateYmd = addDaysYmd(weekStart.value, ALL_DAYS.indexOf(String(dayName || '')));
   const item = {
     key: actionSlotKey({ dateYmd, hour, roomId: 0 }),
@@ -4695,6 +4718,10 @@ const onCellMouseDown = (dayName, hour, event = null) => {
 const onCellMouseEnter = (dayName, hour, event = null) => {
   if (!dragAnchorSlot.value) return;
   if (Number(event?.buttons || 0) !== 1) return;
+  // Ignore tiny movements (trackpad/touch) – only treat as drag when moved meaningfully
+  const dx = (event?.clientX ?? 0) - mouseDownClient.value.x;
+  const dy = (event?.clientY ?? 0) - mouseDownClient.value.y;
+  if (dx * dx + dy * dy < DRAG_THRESHOLD_PX * DRAG_THRESHOLD_PX) return;
   const dateYmd = addDaysYmd(weekStart.value, ALL_DAYS.indexOf(String(dayName || '')));
   const current = {
     key: actionSlotKey({ dateYmd, hour, roomId: 0 }),
@@ -6446,9 +6473,9 @@ const onCellBlockClick = (e, block, dayName, hour) => {
       selectedOfficeLocationId.value = officeLocationId;
     }
     const slotState = String(officeTop?.slotState || '').toUpperCase();
-    // Assigned (available/temporary): default to Office request (permission request, not booking)
+    // Assigned (available/temporary): default to forfeit so user can release slot; booked -> note
     const initialRequestType =
-      slotState === 'ASSIGNED_BOOKED' ? 'booked_note' : ['ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY'].includes(slotState) ? 'office_request_only' : 'forfeit_slot';
+      slotState === 'ASSIGNED_BOOKED' ? 'booked_note' : ['ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY'].includes(slotState) ? 'forfeit_slot' : 'office_request_only';
     openSlotActionModal({
       dayName,
       hour,
@@ -7262,21 +7289,21 @@ watch([modalHour, modalEndHour, modalStartMinute, modalEndMinute, canUseQuarterH
   position: absolute;
   top: 4px;
   right: 4px;
-  width: 16px;
-  height: 16px;
+  width: 20px;
+  height: 20px;
   border-radius: 999px;
   border: 1px solid rgba(15, 23, 42, 0.25);
   background: rgba(255, 255, 255, 0.86);
   color: rgba(15, 23, 42, 0.85);
   font-weight: 800;
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   padding: 0;
   cursor: pointer;
-  opacity: 0;
+  opacity: 0.5;
   transform: translateY(-1px);
   transition: opacity 120ms ease, transform 120ms ease, background 120ms ease;
   z-index: 3;
