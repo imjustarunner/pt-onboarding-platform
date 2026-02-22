@@ -589,7 +589,7 @@ export const getWeeklyGrid = async (req, res, next) => {
            e.assigned_provider_id,
            e.booked_provider_id,
            sa.provider_id AS standing_provider_id
-         FROM office_events
+         FROM office_events e
          LEFT JOIN office_standing_assignments sa ON sa.id = e.standing_assignment_id
          WHERE office_location_id = ?
            AND start_at < ?
