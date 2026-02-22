@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import config from '../config/config.js';
 import User from '../models/User.model.js';
 import OfficeLocationAgency from '../models/OfficeLocationAgency.model.js';
 import { syncSchoolPortalDayProvider } from '../services/schoolPortalDaySync.service.js';
@@ -1288,6 +1289,7 @@ export const listOfficeAvailabilityRequests = async (req, res, next) => {
 export const assignTemporaryOfficeFromRequest = async (req, res, next) => {
   let conn = null;
   try {
+    if (!req.user?.id) return res.status(401).json({ error: { message: 'Authentication required' } });
     const agencyId = await resolveAgencyId(req);
     if (!(await requireAgencyMembership(req, res, agencyId))) return;
     if (!canManageAvailability(req.user?.role)) return res.status(403).json({ error: { message: 'Access denied' } });
@@ -1359,27 +1361,60 @@ export const assignTemporaryOfficeFromRequest = async (req, res, next) => {
     );
     let assignmentId = existingAssign?.[0]?.id || null;
     if (!assignmentId) {
-      const [ins] = await conn.execute(
-        `INSERT INTO office_standing_assignments
-          (office_location_id, room_id, provider_id, weekday, hour, assigned_frequency,
-           availability_mode, temporary_until_date, temporary_extension_count, last_two_week_confirmed_at, is_active, created_by_user_id)
-         VALUES (?, ?, ?, ?, ?, ?, 'TEMPORARY', ?, 0, NOW(), TRUE, ?)`,
-        [officeId, roomId, providerId, weekday, hour, freq, untilDate, req.user.id]
-      );
-      assignmentId = ins.insertId;
+      try {
+        const [ins] = await conn.execute(
+          `INSERT INTO office_standing_assignments
+            (office_location_id, room_id, provider_id, weekday, hour, assigned_frequency,
+             availability_mode, temporary_until_date, temporary_extension_count, last_two_week_confirmed_at, is_active, created_by_user_id)
+           VALUES (?, ?, ?, ?, ?, ?, 'TEMPORARY', ?, 0, NOW(), TRUE, ?)`,
+          [officeId, roomId, providerId, weekday, hour, freq, untilDate, req.user.id]
+        );
+        assignmentId = ins.insertId;
+      } catch (insErr) {
+        if (insErr?.code === 'ER_BAD_FIELD_ERROR' || insErr?.errno === 1054) {
+          const [ins] = await conn.execute(
+            `INSERT INTO office_standing_assignments
+              (office_location_id, room_id, provider_id, weekday, hour, assigned_frequency,
+               availability_mode, temporary_until_date, last_two_week_confirmed_at, is_active, created_by_user_id)
+             VALUES (?, ?, ?, ?, ?, ?, 'TEMPORARY', ?, NOW(), TRUE, ?)`,
+            [officeId, roomId, providerId, weekday, hour, freq, untilDate, req.user.id]
+          );
+          assignmentId = ins.insertId;
+        } else {
+          throw insErr;
+        }
+      }
     } else {
-      await conn.execute(
-        `UPDATE office_standing_assignments
-         SET office_location_id = ?,
-             availability_mode = 'TEMPORARY',
-             temporary_until_date = ?,
-             temporary_extension_count = 0,
-             last_two_week_confirmed_at = NOW(),
-             is_active = TRUE,
-             updated_at = CURRENT_TIMESTAMP
-         WHERE id = ?`,
-        [officeId, untilDate, assignmentId]
-      );
+      try {
+        await conn.execute(
+          `UPDATE office_standing_assignments
+           SET office_location_id = ?,
+               availability_mode = 'TEMPORARY',
+               temporary_until_date = ?,
+               temporary_extension_count = 0,
+               last_two_week_confirmed_at = NOW(),
+               is_active = TRUE,
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = ?`,
+          [officeId, untilDate, assignmentId]
+        );
+      } catch (updErr) {
+        if (updErr?.code === 'ER_BAD_FIELD_ERROR' || updErr?.errno === 1054) {
+          await conn.execute(
+            `UPDATE office_standing_assignments
+             SET office_location_id = ?,
+                 availability_mode = 'TEMPORARY',
+                 temporary_until_date = ?,
+                 last_two_week_confirmed_at = NOW(),
+                 is_active = TRUE,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?`,
+            [officeId, untilDate, assignmentId]
+          );
+        } else {
+          throw updErr;
+        }
+      }
     }
 
     await conn.execute(
@@ -1400,9 +1435,21 @@ export const assignTemporaryOfficeFromRequest = async (req, res, next) => {
     if (conn) {
       try { await conn.rollback(); } catch { /* ignore */ }
     }
-    next(e);
+    const msg = e?.message || String(e);
+    const sqlMsg = e?.sqlMessage || e?.sqlState || null;
+    console.error('[assignTemporaryOfficeFromRequest]', msg, e?.code, e?.errno, sqlMsg);
+    const payload = {
+      error: {
+        message: msg || 'Assign failed',
+        ...(config.nodeEnv === 'development' && sqlMsg && { sqlMessage: sqlMsg }),
+        ...(config.nodeEnv === 'development' && e?.code && { code: e.code })
+      }
+    };
+    return res.status(500).json(payload);
   } finally {
-    if (conn) conn.release();
+    if (conn) {
+      try { conn.release(); } catch (relErr) { console.error('[assignTemporaryOfficeFromRequest] release', relErr?.message); }
+    }
   }
 };
 
