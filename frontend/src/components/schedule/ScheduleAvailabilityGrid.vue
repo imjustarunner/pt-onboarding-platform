@@ -6433,10 +6433,10 @@ const onCellBlockClick = (e, block, dayName, hour) => {
   const officeId = ['oa', 'ot', 'ob', 'intake-ip', 'intake-vi'].includes(String(block?.kind || ''))
     ? Number(block?.buildingId || selectedOfficeLocationId.value || 0) || null
     : null;
-  const roomId = ['oa', 'ot', 'ob', 'intake-ip', 'intake-vi'].includes(String(block?.kind || ''))
+  const roomIdFilter = ['oa', 'ot', 'ob', 'intake-ip', 'intake-vi'].includes(String(block?.kind || ''))
     ? Number(block?.roomId || 0) || null
     : null;
-  const officeTop = officeTopEvent(dayName, hour, officeId, roomId) || null;
+  const officeTop = officeTopEvent(dayName, hour, officeId, roomIdFilter) || null;
   const roomId = Number(officeTop?.roomId || block?.buildingId || block?.roomId || 0) || 0;
   selectedActionSlots.value = [{
     key: actionSlotKey({ dateYmd, hour, roomId }),
