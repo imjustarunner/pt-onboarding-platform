@@ -1842,20 +1842,27 @@ export const forfeitEvent = async (req, res, next) => {
     const startAt = mysqlDateTimeFromValue(ev.start_at);
     if (!startAt) return res.status(400).json({ error: { message: 'Event has invalid start time' } });
     const endAt = mysqlDateTimeFromValue(ev.end_at);
+    const wh = weekdayHourFromSqlDateTime(startAt);
 
-    const removeLegacyAssignmentOverlap = async ({ rangeStart, rangeEndExclusive = null } = {}) => {
-      const roomId = Number(ev.room_id || 0) || null;
-      const providerIds = new Set();
-      const fromEventAssigned = Number(ev.assigned_provider_id || 0) || null;
-      const fromEventBooked = Number(ev.booked_provider_id || 0) || null;
-      if (fromEventAssigned) providerIds.add(fromEventAssigned);
-      if (fromEventBooked) providerIds.add(fromEventBooked);
+    const collectProviderIds = async () => {
+      const ids = new Set();
+      const fromAssigned = Number(ev.assigned_provider_id || 0) || null;
+      const fromBooked = Number(ev.booked_provider_id || 0) || null;
       const fromStanding = Number(ev.standing_assignment_id || 0) || null;
+      if (fromAssigned) ids.add(fromAssigned);
+      if (fromBooked) ids.add(fromBooked);
       if (fromStanding) {
         const standing = await OfficeStandingAssignment.findById(fromStanding);
         const sidProvider = Number(standing?.provider_id || 0) || null;
-        if (sidProvider) providerIds.add(sidProvider);
+        if (sidProvider) ids.add(sidProvider);
       }
+      if (providerId) ids.add(Number(providerId));
+      return ids;
+    };
+
+    const removeLegacyAssignmentOverlap = async ({ rangeStart, rangeEndExclusive = null } = {}) => {
+      const roomId = Number(ev.room_id || 0) || null;
+      const providerIds = await collectProviderIds();
       const start = mysqlDateTimeFromValue(rangeStart || startAt);
       const endExclusive = rangeEndExclusive ? mysqlDateTimeFromValue(rangeEndExclusive) : null;
       if (!roomId || !start || providerIds.size === 0) return 0;
@@ -1984,6 +1991,94 @@ export const forfeitEvent = async (req, res, next) => {
       await ProviderVirtualSlotAvailability.deactivateBySourceEventId(id);
     }
     const legacyAssignmentRowsRemoved = await removeLegacyAssignmentOverlap({ rangeStart: startAt, rangeEndExclusive: null });
+
+    // Hard cleanup for historical stuck series:
+    // force-cancel future rows that still match this exact provider+room+weekday+time signature.
+    // This catches legacy "once" rows that were mistakenly materialized indefinitely.
+    let strictCleanupEventCount = 0;
+    let strictCleanupAssignmentCount = 0;
+    try {
+      const providerIds = await collectProviderIds();
+      const roomId = Number(ev.room_id || 0) || null;
+      if (roomId && wh && providerIds.size > 0 && endAt) {
+        const pids = Array.from(providerIds.values());
+        const pidPlaceholders = pids.map(() => '?').join(',');
+        const [strictAssignmentRows] = await pool.execute(
+          `SELECT id
+           FROM office_standing_assignments
+           WHERE office_location_id = ?
+             AND room_id = ?
+             AND weekday = ?
+             AND hour = ?
+             AND provider_id IN (${pidPlaceholders})`,
+          [officeLocationId, roomId, wh.weekdayIndex, wh.hour, ...pids]
+        );
+        const strictAssignmentIds = (strictAssignmentRows || [])
+          .map((r) => Number(r.id || 0))
+          .filter((n) => Number.isInteger(n) && n > 0);
+        strictCleanupAssignmentCount = strictAssignmentIds.length;
+        for (const sid of strictAssignmentIds) {
+          // eslint-disable-next-line no-await-in-loop
+          await OfficeBookingPlan.deactivateByAssignmentId(sid);
+          // eslint-disable-next-line no-await-in-loop
+          await OfficeStandingAssignment.update(sid, { is_active: false });
+        }
+
+        const [strictRows] = await pool.execute(
+          `SELECT e.id
+           FROM office_events e
+           LEFT JOIN office_standing_assignments sa ON sa.id = e.standing_assignment_id
+           WHERE e.office_location_id = ?
+             AND e.room_id = ?
+             AND e.start_at >= ?
+             AND e.start_at < DATE_ADD(?, INTERVAL 365 DAY)
+             AND DAYOFWEEK(e.start_at) = ?
+             AND TIME(e.start_at) = TIME(?)
+             AND TIME(e.end_at) = TIME(?)
+             AND (e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')
+             AND (
+               e.assigned_provider_id IN (${pidPlaceholders})
+               OR e.booked_provider_id IN (${pidPlaceholders})
+               OR sa.provider_id IN (${pidPlaceholders})
+             )`,
+          [officeLocationId, roomId, startAt, startAt, wh.weekdayIndex + 1, startAt, endAt, ...pids, ...pids, ...pids]
+        );
+        const strictEventIds = (strictRows || [])
+          .map((r) => Number(r.id || 0))
+          .filter((n) => Number.isInteger(n) && n > 0);
+        strictCleanupEventCount = strictEventIds.length;
+        if (strictEventIds.length) {
+          await pool.execute(
+            `UPDATE office_events
+             SET status = 'CANCELLED',
+                 slot_state = NULL,
+                 booked_provider_id = NULL,
+                 booking_plan_id = NULL,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id IN (${strictEventIds.map(() => '?').join(',')})`,
+            strictEventIds
+          );
+          for (const id of strictEventIds) {
+            // eslint-disable-next-line no-await-in-loop
+            await ProviderVirtualSlotAvailability.deactivateBySourceEventId(id);
+          }
+          try {
+            await pool.execute(
+              `UPDATE provider_in_person_slot_availability
+               SET is_active = FALSE,
+                   updated_at = CURRENT_TIMESTAMP
+               WHERE source_event_id IN (${strictEventIds.map(() => '?').join(',')})`,
+              strictEventIds
+            );
+          } catch (e) {
+            if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+          }
+          await cancelGoogleForOfficeEventIds(strictEventIds);
+        }
+      }
+    } catch (strictCleanupError) {
+      // Do not fail core forfeit if strict cleanup best-effort pass fails.
+    }
     await cancelGoogleForOfficeEventIds(eventIds);
 
     return res.json({
@@ -1991,7 +2086,9 @@ export const forfeitEvent = async (req, res, next) => {
       scope: 'future',
       forfeitedEventCount: eventIds.length,
       standingAssignmentId: standingAssignmentId || null,
-      legacyAssignmentRowsRemoved
+      legacyAssignmentRowsRemoved,
+      strictCleanupEventCount,
+      strictCleanupAssignmentCount
     });
   } catch (e) {
     next(e);
