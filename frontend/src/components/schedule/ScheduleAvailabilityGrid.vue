@@ -4664,6 +4664,35 @@ const onCellClick = (dayName, hour, event = null, options = {}) => {
   if (viewMode.value === 'office_layout' && roomId > 0 && canBookFromGrid.value) {
     // Office layout: resolve state for THIS specific room (not the whole row)
     const officeId = Number(selectedOfficeLocationId.value || 0) || null;
+    const clickedSlotState = String(
+      slot?.slotState
+      || slot?.slot_state
+      || slot?.state
+      || ''
+    ).trim().toUpperCase();
+    const clickedSlotHasContext = Number(slot?.eventId || slot?.officeEventId || 0) > 0
+      || Number(slot?.standingAssignmentId || 0) > 0;
+    // Prefer the exact clicked room slot from weekly-grid when it has actionable context.
+    // Using summary-derived top events here can mismatch room/state and break forfeit actions.
+    if (slot && clickedSlotHasContext && clickedSlotState && clickedSlotState !== 'OPEN') {
+      const initialRequestType =
+        clickedSlotState === 'ASSIGNED_BOOKED'
+          ? 'booked_note'
+          : ['ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY'].includes(clickedSlotState)
+            ? 'forfeit_slot'
+            : 'office_request_only';
+      openSlotActionModal({
+        dayName,
+        hour,
+        roomId,
+        dateYmd,
+        slot,
+        preserveSelectionRange: false,
+        initialRequestType,
+        actionSource: 'office_block'
+      });
+      return;
+    }
     const officeTop = officeId ? officeTopEvent(dayName, hour, officeId, roomId) : null;
     if (officeTop) {
       // User has assignment in this room – show forfeit/extend modal
