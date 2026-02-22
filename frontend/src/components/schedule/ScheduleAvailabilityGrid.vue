@@ -2931,13 +2931,13 @@ const busyRangeForCell = (busyList, dayName, hour, ws, minute = 0) => {
 const hasGoogleBusy = (dayName, hour, minute = 0) => {
   const s = summary.value;
   if (!s) return false;
-  return hasBusyIntervals(s.googleBusy || [], dayName, hour, s.weekStart || weekStart.value, minute);
+  return hasBusyIntervals(s.googleBusy || [], dayName, hour, weekStart.value, minute);
 };
 
 const googleEventsInCell = (dayName, hour, minute = 0) => {
   const s = summary.value;
   if (!s) return [];
-  const ws = s.weekStart || weekStart.value;
+  const ws = weekStart.value;
   const dayIdx = ALL_DAYS.indexOf(String(dayName));
   if (dayIdx < 0) return [];
   const cellDate = addDaysYmd(ws, dayIdx);
@@ -2969,7 +2969,7 @@ const hasExternalBusy = (dayName, hour, minute = 0) => {
   if (!s) return false;
   const cals = Array.isArray(s.externalCalendars) ? s.externalCalendars : [];
   for (const c of cals) {
-    if (hasBusyIntervals(c?.busy || [], dayName, hour, s.weekStart || weekStart.value, minute)) return true;
+    if (hasBusyIntervals(c?.busy || [], dayName, hour, weekStart.value, minute)) return true;
   }
   return false;
 };
@@ -3160,7 +3160,7 @@ const externalBusyLabels = (dayName, hour) => {
   for (const c of cals) {
     const label = String(c?.label || '').trim();
     if (!label) continue;
-    if (hasBusyIntervals(c?.busy || [], dayName, hour, s.weekStart || weekStart.value)) labels.push(label);
+    if (hasBusyIntervals(c?.busy || [], dayName, hour, weekStart.value)) labels.push(label);
   }
   return labels;
 };
