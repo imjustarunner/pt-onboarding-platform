@@ -1833,7 +1833,7 @@ onUnmounted(() => {
   box-shadow: var(--shadow-lg);
   border-bottom: 3px solid var(--accent);
   width: 100%;
-  overflow-x: hidden;
+  /* overflow: visible so dropdown menus can render; overflow contained by nav-links-wrapper */
 }
 
 .navbar .nav-title,
@@ -1880,8 +1880,9 @@ onUnmounted(() => {
 }
 
 .brand-caret {
-  font-size: 14px;
-  opacity: 0.9;
+  font-size: 12px;
+  opacity: 1;
+  margin-left: 2px;
 }
 
 .brand-menu {
@@ -1949,7 +1950,8 @@ onUnmounted(() => {
 .nav-dropdown-menu {
   position: absolute;
   top: calc(100% + 10px);
-  right: 0;
+  left: 50%;
+  transform: translateX(-50%);
   min-width: 220px;
   background: white;
   color: var(--text-primary);
