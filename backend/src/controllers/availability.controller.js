@@ -1313,7 +1313,7 @@ export const assignTemporaryOfficeFromRequest = async (req, res, next) => {
     if (!okOffice) return res.status(400).json({ error: { message: 'Office is not available for this agency' } });
 
     // Ensure room belongs to office
-    const [roomRows] = await pool.execute(`SELECT id FROM office_rooms WHERE id = ? AND office_location_id = ? LIMIT 1`, [roomId, officeId]);
+    const [roomRows] = await pool.execute(`SELECT id FROM office_rooms WHERE id = ? AND location_id = ? LIMIT 1`, [roomId, officeId]);
     if (!roomRows?.[0]) return res.status(400).json({ error: { message: 'Room does not belong to the selected office' } });
 
     const [reqRows] = await pool.execute(
