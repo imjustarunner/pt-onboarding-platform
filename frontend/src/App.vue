@@ -97,10 +97,11 @@
                   <button
                     type="button"
                     class="nav-dropdown-trigger"
+                    title="People Ops"
                     :aria-expanded="peopleOpsMenuOpen ? 'true' : 'false'"
                     @click.stop="togglePeopleOpsMenu"
                   >
-                    People Ops <span class="brand-caret">▾</span>
+                    <span class="nav-dropdown-label">People Ops</span> <span class="brand-caret">▾</span>
                   </button>
                   <div v-if="peopleOpsMenuOpen" class="nav-dropdown-menu">
                     <router-link v-if="hasCapability('canManageHiring')" :to="orgTo('/admin/hiring')" @click="closeAllNavMenus">Applicants</router-link>
@@ -128,10 +129,11 @@
                   <button
                     type="button"
                     class="nav-dropdown-trigger"
+                    title="Directory"
                     :aria-expanded="directoryMenuOpen ? 'true' : 'false'"
                     @click.stop="toggleDirectoryMenu"
                   >
-                    Directory <span class="brand-caret">▾</span>
+                    <span class="nav-dropdown-label">Directory</span> <span class="brand-caret">▾</span>
                   </button>
                   <div v-if="directoryMenuOpen" class="nav-dropdown-menu">
                     <router-link :to="orgTo('/operations-dashboard')" v-if="user?.role === 'super_admin' || isAdmin || user?.role === 'provider_plus' || user?.role === 'clinical_practice_assistant'" @click="closeAllNavMenus">Operations Dashboard</router-link>
@@ -149,10 +151,11 @@
                   <button
                     type="button"
                     class="nav-dropdown-trigger"
+                    title="Management"
                     :aria-expanded="managementMenuOpen ? 'true' : 'false'"
                     @click.stop="toggleManagementMenu"
                   >
-                    Management <span class="brand-caret">▾</span>
+                    <span class="nav-dropdown-label">Management</span> <span class="brand-caret">▾</span>
                   </button>
                   <div v-if="managementMenuOpen" class="nav-dropdown-menu">
                     <router-link :to="orgTo('/admin')" v-if="isTrueAdmin" @click="closeAllNavMenus">Admin Dashboard</router-link>
@@ -187,10 +190,11 @@
                   <button
                     type="button"
                     class="nav-dropdown-trigger"
+                    title="Communications"
                     :aria-expanded="engagementMenuOpen ? 'true' : 'false'"
                     @click.stop="toggleEngagementMenu"
                   >
-                    Communications <span class="brand-caret">▾</span>
+                    <span class="nav-dropdown-label">Communications</span> <span class="brand-caret">▾</span>
                   </button>
                   <div v-if="engagementMenuOpen" class="nav-dropdown-menu">
                     <router-link
@@ -1916,6 +1920,28 @@ onUnmounted(() => {
 
 .nav-dropdown-trigger:hover {
   background-color: rgba(255,255,255,0.1);
+}
+
+.nav-dropdown-label {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
+/* On smaller screens, truncate nav dropdown labels (e.g. Communications → Comm...) */
+@media (max-width: 1400px) {
+  .nav-dropdown-trigger .nav-dropdown-label {
+    max-width: 4.5em;
+  }
+}
+
+@media (max-width: 1200px) {
+  .nav-dropdown-trigger .nav-dropdown-label {
+    max-width: 3.5em;
+  }
 }
 
 .nav-dropdown-menu {
