@@ -5613,12 +5613,16 @@ const submitRequest = async () => {
         }
       }
     } else if (requestType.value === 'office_request_only') {
-      const targets = sortedSelectedActionSlots().length ? sortedSelectedActionSlots() : [{
-        dateYmd: addDaysYmd(weekStart.value, ALL_DAYS.indexOf(String(dn))),
-        dayName: dn,
-        hour: h,
-        roomId: viewMode.value === 'office_layout' ? (Number(selectedOfficeRoomId.value || 0) || Number(modalContext.value?.roomId || 0) || 0) : 0
-      }];
+      const baseRoomId = viewMode.value === 'office_layout' ? (Number(selectedOfficeRoomId.value || 0) || Number(modalContext.value?.roomId || 0) || 0) : 0;
+      const baseDateYmd = addDaysYmd(weekStart.value, ALL_DAYS.indexOf(String(dn)));
+      const targets = sortedSelectedActionSlots().length
+        ? sortedSelectedActionSlots()
+        : Array.from({ length: Math.max(1, endH - h) }, (_, i) => ({
+            dateYmd: baseDateYmd,
+            dayName: dn,
+            hour: h + i,
+            roomId: baseRoomId
+          }));
       const roomIds = [...new Set(targets.map((t) => Number(t.roomId || 0)).filter((n) => n > 0))];
       const singleRoomId = roomIds.length === 1 ? roomIds[0] : 0;
       const dayToHours = new Map();
