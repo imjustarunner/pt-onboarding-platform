@@ -158,6 +158,14 @@ class OfficeEvent {
 
     const existing = await this.findByRoomAndStart(roomId, normalizedStartAt);
     if (existing?.id) {
+      const existingCancelled = String(existing.status || '').toUpperCase() === 'CANCELLED';
+      const existingStandingAssignmentId = Number(existing.standing_assignment_id || 0) || null;
+      const incomingStandingAssignmentId = Number(standingAssignmentId || 0) || null;
+      // Preserve explicit one-off forfeits/cancellations for standing-assignment-generated events.
+      // Without this guard, weekly materialization resurrects cancelled single occurrences.
+      if (existingCancelled && existingStandingAssignmentId && incomingStandingAssignmentId && existingStandingAssignmentId === incomingStandingAssignmentId) {
+        return await this.findById(existing.id);
+      }
       const existingIsBooked =
         String(existing.status || '').toUpperCase() === 'BOOKED'
         || String(existing.slot_state || '').toUpperCase() === 'ASSIGNED_BOOKED';

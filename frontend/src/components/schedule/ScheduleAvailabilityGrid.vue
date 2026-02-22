@@ -714,24 +714,26 @@
               <div v-if="requestType === 'office_request_only'" class="modern-help">
                 Request permission to use office space. Staff will assign you when available. Use the End time dropdown to select multiple hours.
               </div>
-              <label class="lbl">Frequency</label>
-              <select v-model="officeBookingRecurrence" class="input">
-                <option value="ONCE">Once</option>
-                <option value="WEEKLY">Weekly</option>
-                <option value="BIWEEKLY">Biweekly</option>
-                <option value="MONTHLY">Monthly</option>
-              </select>
+              <template v-if="requestType !== 'office_request_only'">
+                <label class="lbl">Frequency</label>
+                <select v-model="officeBookingRecurrence" class="input">
+                  <option value="ONCE">Once</option>
+                  <option value="WEEKLY">Weekly</option>
+                  <option value="BIWEEKLY">Biweekly</option>
+                  <option value="MONTHLY">Monthly</option>
+                </select>
 
-              <label v-if="['WEEKLY','BIWEEKLY','MONTHLY'].includes(officeBookingRecurrence)" class="lbl" style="margin-top: 10px;">Occurrences</label>
-              <input
-                v-if="['WEEKLY','BIWEEKLY','MONTHLY'].includes(officeBookingRecurrence)"
-                v-model.number="officeBookingOccurrenceCount"
-                type="number"
-                min="1"
-                max="104"
-                class="input"
-                style="margin-top: 4px; width: 80px;"
-              />
+                <label v-if="['WEEKLY','BIWEEKLY','MONTHLY'].includes(officeBookingRecurrence)" class="lbl" style="margin-top: 10px;">Occurrences</label>
+                <input
+                  v-if="['WEEKLY','BIWEEKLY','MONTHLY'].includes(officeBookingRecurrence)"
+                  v-model.number="officeBookingOccurrenceCount"
+                  type="number"
+                  min="1"
+                  max="104"
+                  class="input"
+                  style="margin-top: 4px; width: 80px;"
+                />
+              </template>
 
               <template v-if="showClinicalBookingFields && isSessionBookingRequestType">
                 <label class="lbl" style="margin-top: 10px;">Appointment type</label>
