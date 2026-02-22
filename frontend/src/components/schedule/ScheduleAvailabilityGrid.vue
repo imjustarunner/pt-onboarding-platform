@@ -55,6 +55,20 @@
           </button>
 
           <button
+            v-if="selectedOfficeLocationId"
+            type="button"
+            class="sched-pill"
+            :class="{ on: showOfficeOverlay }"
+            role="switch"
+            :aria-checked="String(!!showOfficeOverlay)"
+            :disabled="loading"
+            @click="showOfficeOverlay = !showOfficeOverlay"
+            title="Show or hide office room-count overlay labels"
+          >
+            Office overlay
+          </button>
+
+          <button
             type="button"
             class="sched-pill"
             :class="{ on: showGoogleBusy }"
@@ -411,7 +425,7 @@
             </button>
             <div v-if="availabilityClass(d, slot.hour, slot.minute)" class="cell-avail" :class="availabilityClass(d, slot.hour, slot.minute)"></div>
             <div
-              v-if="selectedOfficeLocationId && officeOverlay(d, slot.hour)"
+              v-if="selectedOfficeLocationId && showOfficeOverlay && slot.minute === 0 && officeOverlay(d, slot.hour) && !cellBlocks(d, slot.hour, slot.minute).length"
               class="cell-office-overlay"
               :style="officeOverlayStyle"
               :title="officeOverlayTitle(d, slot.hour)"
@@ -1515,6 +1529,7 @@ const summary = ref(null);
 const showGoogleBusy = ref(true);
 const showGoogleEvents = ref(false);
 const showExternalBusy = ref(true);
+const showOfficeOverlay = ref(true);
 const showQuarterDetail = ref(false);
 const selectedExternalCalendarIds = ref([]); // populated from available list once loaded
 let schedMouseUpHandler = null;
@@ -1594,6 +1609,7 @@ const saveOverlayPrefs = () => {
       showGoogleBusy: !!showGoogleBusy.value,
       showGoogleEvents: !!showGoogleEvents.value,
       showExternalBusy: !!showExternalBusy.value,
+      showOfficeOverlay: !!showOfficeOverlay.value,
       selectedExternalCalendarIds: coerceIdArray(selectedExternalCalendarIds.value),
       hideWeekend: !!hideWeekend.value,
       viewMode: String(viewMode.value || 'open_finder'),
@@ -1763,6 +1779,7 @@ try {
       showGoogleEvents.value = saved.showGoogleEvents !== undefined ? !!saved.showGoogleEvents : false;
       normalizeGoogleOverlayMode('events');
       showExternalBusy.value = saved.showExternalBusy !== undefined ? !!saved.showExternalBusy : true;
+      showOfficeOverlay.value = saved.showOfficeOverlay !== undefined ? !!saved.showOfficeOverlay : true;
       selectedExternalCalendarIds.value = coerceIdArray(saved.selectedExternalCalendarIds);
       const dedicatedHideWeekend = loadHideWeekendPref();
       hideWeekend.value = dedicatedHideWeekend !== null
@@ -1777,6 +1794,7 @@ try {
       showGoogleBusy.value = true;
       showGoogleEvents.value = false;
       showExternalBusy.value = true;
+      showOfficeOverlay.value = true;
       const dedicatedHideWeekend = loadHideWeekendPref();
       hideWeekend.value = dedicatedHideWeekend !== null ? dedicatedHideWeekend : true;
       shouldDefaultSelectAllExternal.value = true;
@@ -2470,7 +2488,7 @@ watch(externalCalendarsAvailable, (next) => {
 });
 
 // Persist overlay/view settings (provider UX only).
-watch([showGoogleBusy, showGoogleEvents, showExternalBusy, selectedExternalCalendarIds, hideWeekend, viewMode], () => {
+watch([showGoogleBusy, showGoogleEvents, showExternalBusy, showOfficeOverlay, selectedExternalCalendarIds, hideWeekend, viewMode], () => {
   if (props.mode !== 'self' || !overlayPrefsLoaded.value) return;
   saveOverlayPrefs();
 }, { deep: true });
@@ -5119,10 +5137,10 @@ const officeOverlay = (dayName, hour) => {
   const date = addDaysYmd(weekStart.value, dayIdx);
   const rec = officeOverlayStats.value.get(officeOverlayKey(date, hour));
   if (!rec) return '';
-  if (rec.open > 0) return `Open ${rec.open}`;
-  if (rec.assigned_available > 0) return `Avail ${rec.assigned_available}`;
-  if (rec.assigned_temporary > 0) return `Temp ${rec.assigned_temporary}`;
-  if (rec.assigned_booked > 0) return 'Booked';
+  if (rec.open > 0) return `${rec.open} open rooms`;
+  if (rec.assigned_available > 0) return `${rec.assigned_available} assigned`;
+  if (rec.assigned_temporary > 0) return `${rec.assigned_temporary} temp`;
+  if (rec.assigned_booked > 0) return 'Booked rooms';
   return '';
 };
 

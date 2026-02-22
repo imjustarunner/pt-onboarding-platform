@@ -11,6 +11,7 @@ import {
   confirmMySkillBuilderAvailability,
   confirmMySupervisedAvailability,
   listOfficeAvailabilityRequests,
+  getOfficeRequestAssignmentOptions,
   assignTemporaryOfficeFromRequest,
   denyOfficeAvailabilityRequest,
   listSchoolAvailabilityRequests,
@@ -47,6 +48,7 @@ router.post('/me/supervised/confirm', confirmMySupervisedAvailability);
 
 // Admin/staff tools (RBAC is enforced inside controller)
 router.get('/admin/office-requests', listOfficeAvailabilityRequests);
+router.get('/admin/office-requests/:id/assign-options', getOfficeRequestAssignmentOptions);
 router.post('/admin/office-requests/:id/assign-temporary', assignTemporaryOfficeFromRequest);
 router.post('/admin/office-requests/:id/deny', denyOfficeAvailabilityRequest);
 router.get('/admin/school-requests', listSchoolAvailabilityRequests);

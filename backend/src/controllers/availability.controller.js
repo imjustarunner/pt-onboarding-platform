@@ -74,6 +74,34 @@ function mysqlDateTimeForDateHour(dateYmd, hour24) {
   return dt.toISOString().slice(0, 19).replace('T', ' ');
 }
 
+function normalizeMysqlDateTime(value) {
+  if (value == null) return '';
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return '';
+    return value.toISOString().slice(0, 19).replace('T', ' ');
+  }
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(raw)) return raw;
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return '';
+  return parsed.toISOString().slice(0, 19).replace('T', ' ');
+}
+
+function addDaysYmd(ymd, days) {
+  const d = new Date(`${String(ymd || '').slice(0, 10)}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return null;
+  d.setUTCDate(d.getUTCDate() + Number(days || 0));
+  return d.toISOString().slice(0, 10);
+}
+
+function recurrenceStepDays(recurrence) {
+  const r = String(recurrence || 'ONCE').toUpperCase();
+  if (r === 'BIWEEKLY') return 14;
+  if (r === 'MONTHLY') return 28;
+  return 7;
+}
+
 async function resolveAgencyId(req) {
   const raw = req.query.agencyId ?? req.body?.agencyId ?? req.user?.agencyId ?? null;
   const agencyId = parseIntSafe(raw);
@@ -1362,6 +1390,229 @@ export const listOfficeAvailabilityRequests = async (req, res, next) => {
     }
 
     res.json(out);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const getOfficeRequestAssignmentOptions = async (req, res, next) => {
+  try {
+    const agencyId = await resolveAgencyId(req);
+    if (!(await requireAgencyMembership(req, res, agencyId))) return;
+    if (!canManageAvailability(req.user?.role)) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const requestId = parseIntSafe(req.params.id);
+    if (!requestId) return res.status(400).json({ error: { message: 'Request id is required' } });
+
+    const [reqRows] = await pool.execute(
+      `SELECT id, agency_id, provider_id, preferred_office_ids_json, requested_frequency, requested_occurrence_count, requested_start_date, status
+       FROM provider_office_availability_requests
+       WHERE id = ? AND agency_id = ?
+       LIMIT 1`,
+      [requestId, agencyId]
+    );
+    const reqRow = reqRows?.[0] || null;
+    if (!reqRow) return res.status(404).json({ error: { message: 'Request not found' } });
+
+    const [slotRowsRaw] = await pool.execute(
+      `SELECT s.weekday, s.start_hour, s.end_hour, s.room_id, rm.location_id AS room_office_location_id
+       FROM provider_office_availability_request_slots s
+       LEFT JOIN office_rooms rm ON rm.id = s.room_id
+       WHERE s.request_id = ?
+       ORDER BY s.weekday ASC, s.start_hour ASC`,
+      [requestId]
+    );
+    const slotRows = Array.isArray(slotRowsRaw) ? slotRowsRaw : [];
+    if (!slotRows.length) {
+      return res.json({
+        requestId,
+        requestedRecurrence: 'ONCE',
+        requestedOccurrenceCount: 1,
+        slot: null,
+        options: [],
+        summary: { availableNowCount: 0, hasAnyFuture: false, earliestAvailableInWeeks: null }
+      });
+    }
+
+    const firstSlot = slotRows[0];
+    const slot = {
+      weekday: Number(firstSlot.weekday),
+      startHour: Number(firstSlot.start_hour),
+      endHour: Number(firstSlot.end_hour)
+    };
+    const providerSpecifiedRoom = slotRows.some((s) => Number(s.room_id || 0) > 0);
+    if (providerSpecifiedRoom) {
+      return res.json({
+        requestId,
+        requestedRecurrence: String(reqRow.requested_frequency || 'ONCE').toUpperCase(),
+        requestedOccurrenceCount: Math.max(1, Number(reqRow.requested_occurrence_count || 1)),
+        slot,
+        options: [],
+        summary: { availableNowCount: 0, hasAnyFuture: false, earliestAvailableInWeeks: null, providerSpecifiedRoom: true }
+      });
+    }
+
+    const preferredOfficeIds = (() => {
+      const raw = reqRow.preferred_office_ids_json;
+      if (Array.isArray(raw)) return raw.map((x) => Number(x)).filter((n) => Number.isInteger(n) && n > 0);
+      if (!raw) return [];
+      try {
+        const parsed = JSON.parse(String(raw));
+        return Array.isArray(parsed) ? parsed.map((x) => Number(x)).filter((n) => Number.isInteger(n) && n > 0) : [];
+      } catch {
+        return [];
+      }
+    })();
+    const officeIds = preferredOfficeIds.length
+      ? preferredOfficeIds
+      : await OfficeLocationAgency.listOfficeIdsForAgencies([agencyId]);
+    if (!officeIds.length) {
+      return res.json({
+        requestId,
+        requestedRecurrence: String(reqRow.requested_frequency || 'ONCE').toUpperCase(),
+        requestedOccurrenceCount: Math.max(1, Number(reqRow.requested_occurrence_count || 1)),
+        slot,
+        options: [],
+        summary: { availableNowCount: 0, hasAnyFuture: false, earliestAvailableInWeeks: null }
+      });
+    }
+
+    const recurrence = normalizeOfficeRequestRecurrence({
+      recurrenceRaw: req.query?.recurrence || reqRow.requested_frequency || 'ONCE',
+      occurrenceCountRaw: req.query?.occurrenceCount || reqRow.requested_occurrence_count || 1
+    });
+    const requestStartDate = normalizeYmd(req.query?.startDate || reqRow.requested_start_date || new Date()) || toYmd(new Date());
+    const stepDays = recurrenceStepDays(recurrence.recurrence);
+    const occurrenceOffsets = Array.from({ length: recurrence.occurrenceCount }, (_, i) => i * stepDays);
+    const maxShiftWeeks = 26;
+    const maxSpanDays = (maxShiftWeeks * 7) + Math.max(...occurrenceOffsets, 0);
+    const horizonStart = mysqlDateTimeForDateHour(requestStartDate, slot.startHour);
+    const horizonEndDate = addDaysYmd(requestStartDate, maxSpanDays + 1);
+    const horizonEnd = mysqlDateTimeForDateHour(horizonEndDate, slot.endHour);
+
+    const [roomRows] = await pool.execute(
+      `SELECT r.id, r.location_id, r.room_number, r.label, ol.name AS office_name
+       FROM office_rooms r
+       JOIN office_locations ol ON ol.id = r.location_id
+       WHERE r.location_id IN (${officeIds.map(() => '?').join(',')})
+       ORDER BY ol.name ASC, r.room_number ASC, r.label ASC`,
+      officeIds
+    );
+    const roomIds = (roomRows || []).map((r) => Number(r.id)).filter((n) => Number.isInteger(n) && n > 0);
+    if (!roomIds.length) {
+      return res.json({
+        requestId,
+        requestedRecurrence: recurrence.recurrence,
+        requestedOccurrenceCount: recurrence.occurrenceCount,
+        slot,
+        options: [],
+        summary: { availableNowCount: 0, hasAnyFuture: false, earliestAvailableInWeeks: null }
+      });
+    }
+
+    const [eventRows] = await pool.execute(
+      `SELECT room_id, start_at, end_at, status
+       FROM office_events
+       WHERE room_id IN (${roomIds.map(() => '?').join(',')})
+         AND start_at < ?
+         AND end_at > ?
+         AND (status IS NULL OR UPPER(status) <> 'CANCELLED')`,
+      [...roomIds, horizonEnd, horizonStart]
+    );
+    const [legacyRows] = await pool.execute(
+      `SELECT room_id, start_at, end_at
+       FROM office_room_assignments
+       WHERE room_id IN (${roomIds.map(() => '?').join(',')})
+         AND start_at < ?
+         AND (end_at IS NULL OR end_at > ?)`,
+      [...roomIds, horizonEnd, horizonStart]
+    );
+    const [standingRows] = await pool.execute(
+      `SELECT room_id, provider_id, weekday, hour, is_active, availability_mode, available_since_date, temporary_until_date
+       FROM office_standing_assignments
+       WHERE room_id IN (${roomIds.map(() => '?').join(',')})
+         AND is_active = TRUE
+         AND weekday = ?
+         AND hour >= ?
+         AND hour < ?`,
+      [...roomIds, slot.weekday, slot.startHour, slot.endHour]
+    );
+
+    const overlaps = (startAt, endAt, rowStart, rowEnd) => {
+      const s = normalizeMysqlDateTime(rowStart);
+      const e = normalizeMysqlDateTime(rowEnd) || '9999-12-31 23:59:59';
+      return s < endAt && e > startAt;
+    };
+    const isStandingActiveOnDate = (row, dateYmd) => {
+      const since = normalizeYmd(row.available_since_date);
+      const until = normalizeYmd(row.temporary_until_date);
+      if (since && dateYmd < since) return false;
+      if (until && dateYmd > until) return false;
+      return true;
+    };
+    const isRoomAvailableForStartDate = (roomId, startDateYmd) => {
+      for (const offset of occurrenceOffsets) {
+        const dateYmd = addDaysYmd(startDateYmd, offset);
+        if (!dateYmd) return false;
+        for (let h = slot.startHour; h < slot.endHour; h++) {
+          const startAt = mysqlDateTimeForDateHour(dateYmd, h);
+          const endAt = mysqlDateTimeForDateHour(dateYmd, h + 1);
+          const blockedByEvents = (eventRows || []).some((e) => Number(e.room_id) === Number(roomId) && overlaps(startAt, endAt, e.start_at, e.end_at));
+          if (blockedByEvents) return false;
+          const blockedByLegacy = (legacyRows || []).some((e) => Number(e.room_id) === Number(roomId) && overlaps(startAt, endAt, e.start_at, e.end_at));
+          if (blockedByLegacy) return false;
+          const blockedByStanding = (standingRows || []).some((s) =>
+            Number(s.room_id) === Number(roomId)
+            && Number(s.weekday) === Number(slot.weekday)
+            && Number(s.hour) === Number(h)
+            && isStandingActiveOnDate(s, dateYmd)
+          );
+          if (blockedByStanding) return false;
+        }
+      }
+      return true;
+    };
+
+    const optionsAll = [];
+    for (const room of roomRows || []) {
+      const roomId = Number(room.id);
+      let firstAvailableInWeeks = null;
+      let firstAvailableStartDate = null;
+      for (let shiftWeeks = 0; shiftWeeks <= maxShiftWeeks; shiftWeeks++) {
+        const startDateYmd = addDaysYmd(requestStartDate, shiftWeeks * 7);
+        if (!startDateYmd) continue;
+        if (isRoomAvailableForStartDate(roomId, startDateYmd)) {
+          firstAvailableInWeeks = shiftWeeks;
+          firstAvailableStartDate = startDateYmd;
+          break;
+        }
+      }
+      optionsAll.push({
+        officeId: Number(room.location_id),
+        officeName: String(room.office_name || ''),
+        roomId,
+        roomLabel: `${room.room_number ? `#${room.room_number} ` : ''}${room.label || `Room ${roomId}`}`.trim(),
+        isAvailableNow: firstAvailableInWeeks === 0,
+        firstAvailableInWeeks,
+        firstAvailableStartDate
+      });
+    }
+
+    const availableNow = optionsAll.filter((o) => o.isAvailableNow);
+    const future = optionsAll.filter((o) => Number.isInteger(o.firstAvailableInWeeks) && o.firstAvailableInWeeks > 0);
+    const earliest = future.length ? Math.min(...future.map((o) => o.firstAvailableInWeeks)) : null;
+    return res.json({
+      requestId,
+      requestedRecurrence: recurrence.recurrence,
+      requestedOccurrenceCount: recurrence.occurrenceCount,
+      slot,
+      options: availableNow,
+      summary: {
+        availableNowCount: availableNow.length,
+        hasAnyFuture: future.length > 0,
+        earliestAvailableInWeeks: earliest
+      }
+    });
   } catch (e) {
     next(e);
   }

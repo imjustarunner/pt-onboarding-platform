@@ -17,7 +17,18 @@
               <div><span class="readonly-label">Room:</span> {{ formDisplay.room }}</div>
               <div><span class="readonly-label">Time:</span> {{ formDisplay.time }}</div>
             </div>
-            <p v-if="formIncomplete" class="muted hint">Provider must specify office, room, and time when requesting. Deny and ask for resubmission.</p>
+            <template v-if="needsAutoAssignableRoom">
+              <label style="margin-top: 10px;">Available offices for {{ requestedRecurrenceLabel }}</label>
+              <p v-if="assignOptionsLoading" class="muted hint">Checking availability…</p>
+              <p v-else-if="assignOptionsError" class="error-box">{{ assignOptionsError }}</p>
+              <select v-else-if="assignOptions.length" :value="selectedOptionKey" @change="onSelectAssignOption($event.target.value)">
+                <option v-for="opt in assignOptions" :key="`${opt.officeId}:${opt.roomId}`" :value="`${opt.officeId}:${opt.roomId}`">
+                  {{ opt.officeName }} — {{ opt.roomLabel }}
+                </option>
+              </select>
+              <p v-else class="hint warning">{{ assignOptionsMessage }}</p>
+            </template>
+            <p v-else-if="formIncomplete" class="muted hint">Provider must specify office, room, and time when requesting. Deny and ask for resubmission.</p>
           </div>
         </template>
       </div>
@@ -74,6 +85,10 @@ const request = ref(null);
 const offices = ref([]);
 const rooms = ref([]);
 const form = ref({ officeId: '', roomId: '', slotKey: '' });
+const assignOptions = ref([]);
+const assignOptionsLoading = ref(false);
+const assignOptionsError = ref('');
+const assignSummary = ref(null);
 
 const slotOptions = computed(() => {
   if (!request.value?.slots) return [];
@@ -114,12 +129,50 @@ const formIncomplete = computed(() => {
   return !f.officeId || !f.roomId || !f.slotKey;
 });
 
+const needsAutoAssignableRoom = computed(() => {
+  const slots = Array.isArray(request.value?.slots) ? request.value.slots : [];
+  if (!slots.length) return false;
+  return !slots.some((s) => Number(s?.roomId || 0) > 0);
+});
+
+const requestedRecurrenceLabel = computed(() => {
+  const f = String(request.value?.requestedFrequency || 'ONCE').toUpperCase();
+  if (f === 'WEEKLY') return 'Weekly';
+  if (f === 'BIWEEKLY') return 'Biweekly';
+  if (f === 'MONTHLY') return 'Monthly';
+  return 'Once';
+});
+
+const selectedOptionKey = computed(() => {
+  const f = form.value;
+  if (!f.officeId || !f.roomId) return '';
+  return `${f.officeId}:${f.roomId}`;
+});
+
+const assignOptionsMessage = computed(() => {
+  const summary = assignSummary.value || {};
+  const earliest = Number(summary.earliestAvailableInWeeks || 0);
+  if (!summary.hasAnyFuture) return 'No offices are available for this slot/frequency.';
+  if (earliest >= 6) return 'No offices are available until 6 or more weeks away for this slot/frequency.';
+  if (earliest > 0) return `No offices are available now. Earliest availability is in ${earliest} week${earliest === 1 ? '' : 's'}.`;
+  return 'No offices are available for this slot/frequency.';
+});
+
+const onSelectAssignOption = (value) => {
+  const [officeId, roomId] = String(value || '').split(':');
+  form.value = { ...form.value, officeId: officeId || '', roomId: roomId || '' };
+};
+
 const load = async () => {
   if (!props.agencyId || !props.requestId) return;
   loading.value = true;
   error.value = '';
   request.value = null;
   form.value = { officeId: '', roomId: '', slotKey: '' };
+  assignOptions.value = [];
+  assignSummary.value = null;
+  assignOptionsError.value = '';
+  assignOptionsLoading.value = false;
   rooms.value = [];
   try {
     const [officesResp, reqResp] = await Promise.all([
@@ -156,11 +209,42 @@ const load = async () => {
         const finalRoomId = roomId && loadedRooms.some((rm) => String(rm.id) === roomId) ? roomId : '';
         form.value = { ...form.value, roomId: finalRoomId };
       }
+      if (needsAutoAssignableRoom.value) {
+        await loadAssignOptions();
+      }
     }
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to load';
   } finally {
     loading.value = false;
+  }
+};
+
+const loadAssignOptions = async () => {
+  if (!props.requestId || !props.agencyId || !needsAutoAssignableRoom.value) return;
+  assignOptionsLoading.value = true;
+  assignOptionsError.value = '';
+  try {
+    const resp = await api.get(`/availability/admin/office-requests/${props.requestId}/assign-options`, {
+      params: { agencyId: props.agencyId }
+    });
+    assignOptions.value = (Array.isArray(resp.data?.options) ? resp.data.options : []).map((o) => ({
+      officeId: String(o.officeId),
+      officeName: String(o.officeName || ''),
+      roomId: String(o.roomId),
+      roomLabel: String(o.roomLabel || `#${o.roomId}`)
+    }));
+    assignSummary.value = resp.data?.summary || null;
+    if (assignOptions.value.length) {
+      const first = assignOptions.value[0];
+      form.value = { ...form.value, officeId: first.officeId, roomId: first.roomId };
+    }
+  } catch (e) {
+    assignOptions.value = [];
+    assignSummary.value = null;
+    assignOptionsError.value = e.response?.data?.error?.message || 'Failed to load available offices for this request.';
+  } finally {
+    assignOptionsLoading.value = false;
   }
 };
 
@@ -322,6 +406,7 @@ watch(
 .readonly-display .readonly-values > div:last-child { margin-bottom: 0; }
 .readonly-label { font-weight: 600; color: var(--text-secondary, #6b7280); margin-right: 6px; }
 .readonly-display .hint { font-size: 12px; margin-top: 8px; }
+.warning { color: #8a5a00; }
 .error-box {
   background: rgba(239, 68, 68, 0.1);
   color: #b91c1c;

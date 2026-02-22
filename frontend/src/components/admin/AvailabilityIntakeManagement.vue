@@ -51,7 +51,27 @@
                   <div class="assign-row"><span class="assign-label">Room:</span> {{ officeAssignDisplay(r).room }}</div>
                   <div class="assign-row"><span class="assign-label">Time:</span> {{ officeAssignDisplay(r).time }}</div>
                 </div>
-                <div v-if="officeAssignIncomplete(r)" class="assign-hint muted">Provider must specify office, room, and time when requesting. Deny and ask for resubmission.</div>
+                <div v-if="needsAutoAssignableRoom(r)" class="assign-options">
+                  <div class="lbl">Available offices for {{ requestedRecurrenceLabel(r) }}</div>
+                  <div v-if="officeAssignOptionsState[r.id]?.loading" class="assign-hint muted">Checking availability…</div>
+                  <div v-else-if="officeAssignOptionsState[r.id]?.error" class="assign-hint error">{{ officeAssignOptionsState[r.id]?.error }}</div>
+                  <select
+                    v-else-if="(officeAssignOptions[r.id] || []).length"
+                    class="select"
+                    :value="officeAssignSelectedKey(r)"
+                    @change="onSelectAssignOption(r, $event.target.value)"
+                  >
+                    <option
+                      v-for="opt in officeAssignOptions[r.id]"
+                      :key="`${opt.officeId}:${opt.roomId}`"
+                      :value="`${opt.officeId}:${opt.roomId}`"
+                    >
+                      {{ opt.officeName }} — {{ opt.roomLabel }}
+                    </option>
+                  </select>
+                  <div v-else class="assign-hint warning">{{ assignOptionsMessage(r) }}</div>
+                </div>
+                <div v-else-if="officeAssignIncomplete(r)" class="assign-hint muted">Provider must specify office, room, and time when requesting. Deny and ask for resubmission.</div>
                 <div class="row-inline" style="gap: 8px; margin-top: 6px;">
                   <button class="btn btn-primary btn-sm" @click="assignOffice(r)" :disabled="saving || officeAssignIncomplete(r)">Approve</button>
                   <button class="btn btn-secondary btn-sm" @click="denyOffice(r)" :disabled="saving">Deny</button>
@@ -304,6 +324,8 @@ const providers = ref([]);
 
 const roomsByOffice = reactive({}); // officeId -> rooms[]
 const officeAssign = reactive({}); // requestId -> { officeId, roomId, slotKey }
+const officeAssignOptions = reactive({}); // requestId -> [{ officeId, officeName, roomId, roomLabel }]
+const officeAssignOptionsState = reactive({}); // requestId -> { loading, error, summary }
 const schoolAssign = reactive({}); // requestId -> { schoolOrgId, blockKey, slotsTotal }
 
 const newSkillLabel = ref('');
@@ -381,6 +403,42 @@ const officeAssignIncomplete = (r) => {
   return !form.officeId || !form.roomId || !form.slotKey;
 };
 
+const requestedRecurrenceLabel = (r) => {
+  const f = String(r?.requestedFrequency || 'ONCE').toUpperCase();
+  if (f === 'WEEKLY') return 'Weekly';
+  if (f === 'BIWEEKLY') return 'Biweekly';
+  if (f === 'MONTHLY') return 'Monthly';
+  return 'Once';
+};
+
+const needsAutoAssignableRoom = (r) => {
+  const slots = Array.isArray(r?.slots) ? r.slots : [];
+  if (!slots.length) return false;
+  return !slots.some((s) => Number(s?.roomId || 0) > 0);
+};
+
+const officeAssignSelectedKey = (r) => {
+  const form = officeAssign[r.id] || {};
+  if (!form.officeId || !form.roomId) return '';
+  return `${form.officeId}:${form.roomId}`;
+};
+
+const onSelectAssignOption = (r, value) => {
+  const [officeId, roomId] = String(value || '').split(':').map((x) => String(Number(x) || ''));
+  if (!officeAssign[r.id]) officeAssign[r.id] = { officeId: '', roomId: '', slotKey: '' };
+  officeAssign[r.id].officeId = officeId || '';
+  officeAssign[r.id].roomId = roomId || '';
+};
+
+const assignOptionsMessage = (r) => {
+  const summary = officeAssignOptionsState[r.id]?.summary || {};
+  const earliest = Number(summary.earliestAvailableInWeeks || 0);
+  if (!summary.hasAnyFuture) return 'No offices are available for this slot/frequency.';
+  if (earliest >= 6) return 'No offices are available until 6 or more weeks away for this slot/frequency.';
+  if (earliest > 0) return `No offices are available now. Earliest availability is in ${earliest} week${earliest === 1 ? '' : 's'}.`;
+  return 'No offices are available for this slot/frequency.';
+};
+
 const blockKey = (b) => `${b.dayOfWeek}|${b.startTime}|${b.endTime}`;
 
 const defaultWeekStart = () => {
@@ -408,6 +466,41 @@ const loadRoomsForOffice = async (requestId) => {
     roomsByOffice[officeId] = resp.data || [];
   } catch {
     roomsByOffice[officeId] = [];
+  }
+};
+
+const loadAssignOptionsForRequest = async (requestRow) => {
+  if (!requestRow?.id || !needsAutoAssignableRoom(requestRow) || !agencyId.value) return;
+  officeAssignOptionsState[requestRow.id] = { loading: true, error: '', summary: null };
+  try {
+    const resp = await api.get(`/availability/admin/office-requests/${requestRow.id}/assign-options`, {
+      params: { agencyId: agencyId.value }
+    });
+    const options = Array.isArray(resp.data?.options) ? resp.data.options : [];
+    officeAssignOptions[requestRow.id] = options.map((o) => ({
+      officeId: String(o.officeId),
+      officeName: String(o.officeName || officeName(o.officeId)),
+      roomId: String(o.roomId),
+      roomLabel: String(o.roomLabel || `#${o.roomId}`)
+    }));
+    officeAssignOptionsState[requestRow.id] = {
+      loading: false,
+      error: '',
+      summary: resp.data?.summary || {}
+    };
+    if ((officeAssignOptions[requestRow.id] || []).length) {
+      const first = officeAssignOptions[requestRow.id][0];
+      if (!officeAssign[requestRow.id]) officeAssign[requestRow.id] = { officeId: '', roomId: '', slotKey: '' };
+      officeAssign[requestRow.id].officeId = first.officeId;
+      officeAssign[requestRow.id].roomId = first.roomId;
+    }
+  } catch (e) {
+    officeAssignOptions[requestRow.id] = [];
+    officeAssignOptionsState[requestRow.id] = {
+      loading: false,
+      error: e.response?.data?.error?.message || 'Failed to load available offices for this request.',
+      summary: null
+    };
   }
 };
 
@@ -461,6 +554,9 @@ const reload = async () => {
       if (officeId) {
         await loadRoomsForOffice(r.id);
         // Do not default roomId to first room when provider chose "Any" – require approver selection
+      }
+      if (needsAutoAssignableRoom(r)) {
+        await loadAssignOptionsForRequest(r);
       }
     }
     for (const r of schoolRequests.value) {
@@ -709,6 +805,8 @@ watch(agencyId, async () => {
 .assign-row:last-child { margin-bottom: 0; }
 .assign-label { font-weight: 600; color: var(--text-secondary); margin-right: 6px; }
 .assign-hint { font-size: 12px; margin-top: 4px; }
+.assign-options { margin-top: 4px; }
+.warning { color: #8a5a00; }
 .lbl { font-size: 12px; font-weight: 900; color: var(--text-secondary); }
 .select, .input { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); color: var(--text-primary); }
 .search { display: grid; grid-template-columns: repeat(4, minmax(200px, 1fr)) auto; gap: 10px; align-items: end; }
