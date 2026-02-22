@@ -41,7 +41,7 @@
             </router-link>
           </div>
         </div>
-        <p class="hint">These are notifications where you are the target user (including SMS-eligible events).</p>
+        <p class="hint">{{ showUnreadForAdmin ? 'Notifications you haven\'t read yet (matches the count in the header).' : 'These are notifications where you are the target user (including SMS-eligible events).' }}</p>
         <div v-if="typeChips.length > 0" class="type-chips" role="group" aria-label="Filter notification types">
           <button
             class="chip-btn"
@@ -236,12 +236,14 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../store/auth';
 import { useAgencyStore } from '../store/agency';
+import { useNotificationStore } from '../store/notifications';
 import api from '../services/api';
 import ClientDetailPanel from '../components/admin/ClientDetailPanel.vue';
 import OfficeRequestAssignModal from '../components/admin/OfficeRequestAssignModal.vue';
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
+const notificationStore = useNotificationStore();
 const route = useRoute();
 const router = useRouter();
 
@@ -281,6 +283,7 @@ const showPlatformCard = computed(() => isAdminLike.value || role.value === 'sta
 
 const showAgencyCards = computed(() => isAdminLike.value);
 const showTeamCard = computed(() => isTeamRole.value);
+const showUnreadForAdmin = computed(() => isAdminLike.value || isTeamRole.value);
 
 const orgSlug = computed(() => {
   const s = route.params.organizationSlug;
@@ -311,8 +314,10 @@ const loadMy = async () => {
     const resp = await api.get('/notifications');
     const all = Array.isArray(resp.data) ? resp.data : [];
     const needsScopedMine = isAdminLike.value || isTeamRole.value;
+    // For admin/supervisor/CPA: show all unread (personal + agency-wide) so the header badge count
+    // matches what's visible when clicking it. For providers: show all (they only get personal).
     const mine = needsScopedMine
-      ? all.filter((n) => Number(n.user_id) === Number(userId.value))
+      ? all.filter((n) => !n.is_resolved && !n.is_read)
       : all;
     myNotifications.value = mine
       .filter((n) => !n.is_resolved)
@@ -401,6 +406,11 @@ const markRead = async (n) => {
     await api.put(`/notifications/${n.id}/read`);
     n.is_read = true;
     n.read_at = new Date().toISOString();
+    // When showing unread-only, remove from list so it matches the header count
+    if (showUnreadForAdmin.value) {
+      myNotifications.value = myNotifications.value.filter((item) => item.id !== n.id);
+    }
+    void notificationStore.fetchCounts();
   } catch {
     // ignore
   }
@@ -412,6 +422,7 @@ const dismissNotification = async (n) => {
     n.is_resolved = true;
     n.resolved_at = new Date().toISOString();
     myNotifications.value = myNotifications.value.filter((item) => item.id !== n.id);
+    void notificationStore.fetchCounts();
   } catch {
     // ignore
   }
@@ -422,6 +433,10 @@ const markAllAsRead = async () => {
   if (!unread.length) return;
   await Promise.allSettled(unread.map((n) => markRead(n)));
   selectedIds.value = new Set();
+  if (showUnreadForAdmin.value) {
+    myNotifications.value = [];
+  }
+  void notificationStore.fetchCounts();
 };
 
 const toggleSelect = (id) => {
@@ -638,7 +653,7 @@ onMounted(async () => {
   if (!platformAgencyId.value && agencies.value?.length) {
     platformAgencyId.value = agencies.value[0].id;
   }
-  await Promise.all([loadMy(), loadCounts()]);
+  await Promise.all([loadMy(), loadCounts(), notificationStore.fetchCounts()]);
   if (showPlatformCard.value && platformAgencyId.value) {
     await loadPlatform();
   }
