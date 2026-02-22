@@ -1347,7 +1347,7 @@
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import api from '../../services/api';
-import { getScheduleSummary, setScheduleSummary } from '../../utils/scheduleSummaryCache';
+import { getScheduleSummary, setScheduleSummary, invalidateScheduleSummaryCacheForUser } from '../../utils/scheduleSummaryCache';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import { useUserPreferencesStore } from '../../store/userPreferences';
@@ -2174,7 +2174,7 @@ const googleBusyDisabledHint = ref('');
 const autoDisabledGoogleBusy = ref(false);
 const isGoogleInvalidGrant = (msg) => String(msg || '').toLowerCase().includes('invalid_grant');
 
-const load = async () => {
+const load = async ({ forceRefresh = false } = {}) => {
   if (!props.userId) return;
   if (!effectiveAgencyIds.value.length) {
     if (props.mode === 'self' && !selfScheduleAgenciesLoaded.value) {
@@ -2191,7 +2191,7 @@ const load = async () => {
 
   const ids = effectiveAgencyIds.value;
   const cacheKey = `${props.userId}|${[...ids].sort((a, b) => a - b).join(',')}|${weekStart.value}|${showGoogleBusy.value}|${showGoogleEvents.value}|${showExternalBusy.value}|${(selectedExternalCalendarIds.value || []).slice().sort((a, b) => a - b).join(',')}`;
-  const cached = getScheduleSummary(cacheKey);
+  const cached = forceRefresh ? null : getScheduleSummary(cacheKey);
   if (cached) {
     summary.value = cached;
     error.value = '';
@@ -5442,6 +5442,7 @@ const submitRequest = async () => {
     modalError.value = '';
     let createdScheduleEvents = [];
     let refreshInBackground = false;
+    let forceRefreshSummary = false;
 
     const dn = modalDay.value;
     const h = Number(modalHour.value);
@@ -5874,6 +5875,8 @@ const submitRequest = async () => {
           throw new Error('This slot only supports forfeit all future (no single occurrence).');
         }
       }
+      forceRefreshSummary = true;
+      invalidateScheduleSummaryCacheForUser(props.userId);
     } else if (requestType.value === 'intake_virtual_on' || requestType.value === 'intake_virtual_off') {
       const enabled = requestType.value === 'intake_virtual_on';
       const contexts = selectedActionContexts().filter((x) => Number(x?.officeEventId || 0) > 0);
@@ -5952,7 +5955,10 @@ const submitRequest = async () => {
       }
       void load();
     } else {
-      await load();
+      await load({ forceRefresh: forceRefreshSummary });
+      if (forceRefreshSummary && Number(selectedOfficeLocationId.value || 0) > 0) {
+        await loadSelectedOfficeGrid();
+      }
     }
   } catch (e) {
     modalError.value = e.response?.data?.error?.message || e.message || 'Failed to submit request';

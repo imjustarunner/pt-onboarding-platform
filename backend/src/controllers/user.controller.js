@@ -2086,11 +2086,11 @@ export const requireSkillBuilderConfirmNextLogin = async (req, res, next) => {
   }
 };
 
-function startOfWeekMondayYmd(dateStr) {
+function startOfWeekIsoYmd(dateStr) {
   const d = new Date(`${String(dateStr || '').slice(0, 10)}T00:00:00`);
   if (Number.isNaN(d.getTime())) return null;
   const day = d.getDay(); // 0=Sun..6=Sat
-  const diff = (day === 0 ? -6 : 1) - day; // shift to Monday
+  const diff = 0 - day; // shift to Sunday (align with weekly-grid/materializer)
   d.setDate(d.getDate() + diff);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
@@ -2246,7 +2246,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
     }
 
     const weekStartRaw = String(req.query.weekStart || new Date().toISOString().slice(0, 10)).slice(0, 10);
-    const weekStart = startOfWeekMondayYmd(weekStartRaw);
+    const weekStart = startOfWeekIsoYmd(weekStartRaw);
     if (!weekStart) return res.status(400).json({ error: { message: 'weekStart must be YYYY-MM-DD' } });
     const weekEnd = addDaysYmd(weekStart, 7);
 
@@ -2270,6 +2270,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
 
     // Ensure office_events are materialized for this week for buildings relevant to this provider (best-effort).
     try {
+      const officeLocationIdSet = new Set();
       const [rows] = await pool.execute(
         `SELECT DISTINCT osa.office_location_id
          FROM office_standing_assignments osa
@@ -2279,7 +2280,30 @@ export const getUserScheduleSummary = async (req, res, next) => {
            AND ola.agency_id = ?`,
         [providerId, agencyId]
       );
-      const officeLocationIds = (rows || []).map((r) => Number(r.office_location_id)).filter((n) => Number.isInteger(n) && n > 0);
+      for (const r of rows || []) {
+        const oid = Number(r.office_location_id || 0);
+        if (Number.isInteger(oid) && oid > 0) officeLocationIdSet.add(oid);
+      }
+      try {
+        const [eventRows] = await pool.execute(
+          `SELECT DISTINCT e.office_location_id
+           FROM office_events e
+           JOIN office_location_agencies ola ON ola.office_location_id = e.office_location_id
+           WHERE (e.assigned_provider_id = ? OR e.booked_provider_id = ?)
+             AND ola.agency_id = ?
+             AND (e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')
+             AND e.start_at < ?
+             AND e.end_at > ?`,
+          [providerId, providerId, agencyId, windowEnd, windowStart]
+        );
+        for (const r of eventRows || []) {
+          const oid = Number(r.office_location_id || 0);
+          if (Number.isInteger(oid) && oid > 0) officeLocationIdSet.add(oid);
+        }
+      } catch {
+        // ignore
+      }
+      const officeLocationIds = Array.from(officeLocationIdSet.values());
       for (const officeLocationId of officeLocationIds) {
         try {
           await OfficeScheduleMaterializer.materializeWeek({

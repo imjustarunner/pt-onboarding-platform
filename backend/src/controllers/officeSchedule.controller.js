@@ -1036,8 +1036,19 @@ export const getWeeklyGrid = async (req, res, next) => {
       }
     }
 
-    const frequencyMeta = ({ assignedFrequency, bookedFrequency, state }) => {
+    const frequencyMeta = ({ assignedFrequency, bookedFrequency, state, assignmentMeta }) => {
       const normalize = (v) => String(v || '').trim().toUpperCase();
+      const oneTimeByTemporaryWindow =
+        String(assignmentMeta?.assignmentAvailabilityMode || '').toUpperCase() === 'TEMPORARY'
+        && String(assignmentMeta?.assignmentAvailableSinceDate || '').slice(0, 10)
+        && String(assignmentMeta?.assignmentTemporaryUntilDate || '').slice(0, 10)
+        && String(assignmentMeta?.assignmentAvailableSinceDate || '').slice(0, 10)
+          === String(assignmentMeta?.assignmentTemporaryUntilDate || '').slice(0, 10)
+        && normalize(assignedFrequency) === 'WEEKLY'
+        && !normalize(bookedFrequency);
+      if (oneTimeByTemporaryWindow) {
+        return { frequency: 'ONCE', frequencyLabel: 'Once', frequencyBadge: '1x' };
+      }
       const f = normalize(bookedFrequency) || normalize(assignedFrequency);
       if (f === 'WEEKLY') return { frequency: f, frequencyLabel: 'Weekly', frequencyBadge: 'W' };
       if (f === 'BIWEEKLY') return { frequency: f, frequencyLabel: 'Biweekly', frequencyBadge: 'BW' };
@@ -1131,7 +1142,7 @@ export const getWeeklyGrid = async (req, res, next) => {
       const bookingStartDate = bookingMeta?.bookingStartDate || null;
       const bookingActiveUntilDate = bookingMeta?.bookingActiveUntilDate || null;
       const bookingOccurrenceCount = bookingMeta?.bookingOccurrenceCount || null;
-      const meta = frequencyMeta({ assignedFrequency, bookedFrequency, state: s.state });
+      const meta = frequencyMeta({ assignedFrequency, bookedFrequency, state: s.state, assignmentMeta });
       s.assignedFrequency = assignedFrequency;
       s.bookedFrequency = bookedFrequency;
       s.bookingStartDate = bookingStartDate;

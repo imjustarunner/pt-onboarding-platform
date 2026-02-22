@@ -63,10 +63,11 @@ function weekdayIndexFromYmd(dateStr) {
 }
 
 function isAssignmentActiveOnDate(assignment, dateStr) {
+  const availableSince = String(assignment.available_since_date || '').slice(0, 10);
+  if (availableSince && dateStr < availableSince) return false;
   // Require ongoing provider confirmation every 2 weeks; fully expire after 6 weeks
   // without confirmation so stale assigned slots stop materializing.
   const lastTwoWeekConfirm = String(assignment.last_two_week_confirmed_at || '').slice(0, 10);
-  const availableSince = String(assignment.available_since_date || '').slice(0, 10);
   const created = String(assignment.created_at || '').slice(0, 10);
   const confirmAnchor = lastTwoWeekConfirm || availableSince || created;
   if (confirmAnchor) {

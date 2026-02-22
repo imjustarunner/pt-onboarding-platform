@@ -19,3 +19,16 @@ export function getScheduleSummary(key) {
 export function setScheduleSummary(key, data) {
   cache.set(key, { data, at: Date.now() });
 }
+
+export function invalidateScheduleSummaryCacheForUser(userId) {
+  const uid = Number(userId || 0);
+  if (!uid) return;
+  const prefix = `${uid}|`;
+  for (const key of cache.keys()) {
+    if (String(key).startsWith(prefix)) cache.delete(key);
+  }
+}
+
+export function clearScheduleSummaryCache() {
+  cache.clear();
+}

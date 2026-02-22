@@ -1416,6 +1416,14 @@ export const assignTemporaryOfficeFromRequest = async (req, res, next) => {
         weeks = Math.max(1, Number(requestRecurrence.occurrenceCount || 1)) * 4;
       }
     }
+    const requestStartDate = normalizeYmd(reqRow.requested_start_date) || toYmd(new Date());
+    const requestOccurrenceCount = Math.max(1, Number(requestRecurrence.occurrenceCount || 1));
+    const recurrenceName = String(requestRecurrence.recurrence || '').toUpperCase();
+    const stepDays = recurrenceName === 'BIWEEKLY' ? 14 : recurrenceName === 'MONTHLY' ? 28 : 7;
+    const lastOccurrenceOffsetDays = recurrenceName === 'ONCE'
+      ? 0
+      : Math.max(0, requestOccurrenceCount - 1) * stepDays;
+    const untilDate = toYmd(addDays(new Date(requestStartDate), lastOccurrenceOffsetDays));
 
     // Enforce each hour in [hour, endHour) is within a submitted slot window
     for (let h = hour; h < endHour; h++) {
@@ -1433,10 +1441,6 @@ export const assignTemporaryOfficeFromRequest = async (req, res, next) => {
     }
 
     const providerId = Number(reqRow.provider_id);
-
-    const until = new Date();
-    until.setDate(until.getDate() + Math.max(1, weeks) * 7);
-    const untilDate = toYmd(until);
 
     conn = await pool.getConnection();
     await conn.beginTransaction();
@@ -1456,9 +1460,9 @@ export const assignTemporaryOfficeFromRequest = async (req, res, next) => {
           const [ins] = await conn.execute(
             `INSERT INTO office_standing_assignments
               (office_location_id, room_id, provider_id, weekday, hour, assigned_frequency,
-               availability_mode, temporary_until_date, temporary_extension_count, last_two_week_confirmed_at, is_active, created_by_user_id)
-             VALUES (?, ?, ?, ?, ?, ?, 'TEMPORARY', ?, 0, NOW(), TRUE, ?)`,
-            [officeId, roomId, providerId, weekday, h, freq, untilDate, req.user.id]
+               availability_mode, available_since_date, temporary_until_date, temporary_extension_count, last_two_week_confirmed_at, is_active, created_by_user_id)
+             VALUES (?, ?, ?, ?, ?, ?, 'TEMPORARY', ?, ?, 0, NOW(), TRUE, ?)`,
+            [officeId, roomId, providerId, weekday, h, freq, requestStartDate, untilDate, req.user.id]
           );
           assignmentId = ins.insertId;
         } catch (insErr) {
@@ -1466,9 +1470,9 @@ export const assignTemporaryOfficeFromRequest = async (req, res, next) => {
             const [ins] = await conn.execute(
               `INSERT INTO office_standing_assignments
                 (office_location_id, room_id, provider_id, weekday, hour, assigned_frequency,
-                 availability_mode, temporary_until_date, last_two_week_confirmed_at, is_active, created_by_user_id)
-               VALUES (?, ?, ?, ?, ?, ?, 'TEMPORARY', ?, NOW(), TRUE, ?)`,
-              [officeId, roomId, providerId, weekday, h, freq, untilDate, req.user.id]
+                 availability_mode, available_since_date, temporary_until_date, last_two_week_confirmed_at, is_active, created_by_user_id)
+               VALUES (?, ?, ?, ?, ?, ?, 'TEMPORARY', ?, ?, NOW(), TRUE, ?)`,
+              [officeId, roomId, providerId, weekday, h, freq, requestStartDate, untilDate, req.user.id]
             );
             assignmentId = ins.insertId;
           } else {
@@ -1481,13 +1485,14 @@ export const assignTemporaryOfficeFromRequest = async (req, res, next) => {
             `UPDATE office_standing_assignments
              SET office_location_id = ?,
                  availability_mode = 'TEMPORARY',
+                 available_since_date = ?,
                  temporary_until_date = ?,
                  temporary_extension_count = 0,
                  last_two_week_confirmed_at = NOW(),
                  is_active = TRUE,
                  updated_at = CURRENT_TIMESTAMP
              WHERE id = ?`,
-            [officeId, untilDate, assignmentId]
+            [officeId, requestStartDate, untilDate, assignmentId]
           );
         } catch (updErr) {
           if (updErr?.code === 'ER_BAD_FIELD_ERROR' || updErr?.errno === 1054) {
@@ -1495,12 +1500,13 @@ export const assignTemporaryOfficeFromRequest = async (req, res, next) => {
               `UPDATE office_standing_assignments
                SET office_location_id = ?,
                    availability_mode = 'TEMPORARY',
+                   available_since_date = ?,
                    temporary_until_date = ?,
                    last_two_week_confirmed_at = NOW(),
                    is_active = TRUE,
                    updated_at = CURRENT_TIMESTAMP
                WHERE id = ?`,
-              [officeId, untilDate, assignmentId]
+              [officeId, requestStartDate, untilDate, assignmentId]
             );
           } else {
             throw updErr;
@@ -1525,7 +1531,16 @@ export const assignTemporaryOfficeFromRequest = async (req, res, next) => {
     );
 
     await conn.commit();
-    res.json({ ok: true, assignmentId, assignmentIds, temporaryUntilDate: untilDate });
+    res.json({
+      ok: true,
+      assignmentId,
+      assignmentIds,
+      assignedFrequency: freq,
+      requestedRecurrence: requestRecurrence.recurrence,
+      requestedOccurrenceCount: requestOccurrenceCount,
+      requestedStartDate: requestStartDate,
+      temporaryUntilDate: untilDate
+    });
   } catch (e) {
     if (conn) {
       try { await conn.rollback(); } catch { /* ignore */ }
