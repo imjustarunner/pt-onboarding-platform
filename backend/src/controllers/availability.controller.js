@@ -1232,7 +1232,7 @@ export const listOfficeAvailabilityRequests = async (req, res, next) => {
       try {
         [slotRows] = await pool.execute(
           `SELECT s.weekday, s.start_hour, s.end_hour, s.room_id,
-                  rm.office_location_id AS room_office_location_id
+                  rm.location_id AS room_office_location_id
            FROM provider_office_availability_request_slots s
            LEFT JOIN office_rooms rm ON rm.id = s.room_id
            WHERE s.request_id = ?
