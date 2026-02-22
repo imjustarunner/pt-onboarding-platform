@@ -2001,13 +2001,6 @@ export const forfeitEvent = async (req, res, next) => {
       );
       recurrenceGroupId = rows?.[0]?.recurrence_group_id || null;
     }
-    if (!standingAssignmentId && !recurrenceGroupId) {
-      const updated = await OfficeEvent.cancelOccurrence({ eventId: eid });
-      await ProviderVirtualSlotAvailability.deactivateBySourceEventId(eid);
-      await cancelGoogleForOfficeEventIds([eid]);
-      return res.json({ ok: true, scope: 'occurrence', event: updated, downgradedFromFuture: true });
-    }
-
     let eventIds = [];
     if (standingAssignmentId) {
       const [rows] = await pool.execute(
@@ -2021,7 +2014,7 @@ export const forfeitEvent = async (req, res, next) => {
       await OfficeBookingPlan.deactivateByAssignmentId(standingAssignmentId);
       await OfficeStandingAssignment.update(standingAssignmentId, { is_active: false });
       await OfficeEvent.cancelFutureByStandingAssignment({ standingAssignmentId, startAt });
-    } else {
+    } else if (recurrenceGroupId) {
       const [rows] = await pool.execute(
         `SELECT id
          FROM office_events
@@ -2031,6 +2024,47 @@ export const forfeitEvent = async (req, res, next) => {
       );
       eventIds = (rows || []).map((r) => Number(r.id)).filter((n) => Number.isInteger(n) && n > 0);
       await OfficeEvent.cancelFutureByRecurrenceGroup({ recurrenceGroupId, startAt });
+    } else {
+      // No standing-assignment / recurrence-group linkage available (legacy/hung rows).
+      // Still honor future-scope by cancelling same provider+room+time signature forward.
+      const providerIds = await collectProviderIds();
+      const roomId = Number(ev.room_id || 0) || null;
+      if (roomId && wh && providerIds.size > 0 && endAt) {
+        const pids = Array.from(providerIds.values());
+        const pidPlaceholders = pids.map(() => '?').join(',');
+        const [rows] = await pool.execute(
+          `SELECT e.id
+           FROM office_events e
+           LEFT JOIN office_standing_assignments sa ON sa.id = e.standing_assignment_id
+           WHERE e.office_location_id = ?
+             AND e.room_id = ?
+             AND e.start_at >= ?
+             AND e.start_at < DATE_ADD(?, INTERVAL 365 DAY)
+             AND DAYOFWEEK(e.start_at) = ?
+             AND TIME(e.start_at) = TIME(?)
+             AND TIME(e.end_at) = TIME(?)
+             AND (e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')
+             AND (
+               e.assigned_provider_id IN (${pidPlaceholders})
+               OR e.booked_provider_id IN (${pidPlaceholders})
+               OR sa.provider_id IN (${pidPlaceholders})
+             )`,
+          [officeLocationId, roomId, startAt, startAt, wh.weekdayIndex + 1, startAt, endAt, ...pids, ...pids, ...pids]
+        );
+        eventIds = (rows || []).map((r) => Number(r.id)).filter((n) => Number.isInteger(n) && n > 0);
+        if (eventIds.length) {
+          await pool.execute(
+            `UPDATE office_events
+             SET status = 'CANCELLED',
+                 slot_state = NULL,
+                 booked_provider_id = NULL,
+                 booking_plan_id = NULL,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id IN (${eventIds.map(() => '?').join(',')})`,
+            eventIds
+          );
+        }
+      }
     }
 
     for (const id of eventIds) {

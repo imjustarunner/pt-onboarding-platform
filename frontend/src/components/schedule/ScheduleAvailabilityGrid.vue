@@ -806,7 +806,7 @@
             <label class="lbl">Forfeit scope</label>
             <select v-model="forfeitScope" class="input" style="margin-bottom: 8px;">
               <option value="occurrence">Forfeit this occurrence only</option>
-              <option value="future" :disabled="!hasRecurringOfficeSlot">Forfeit this and all future recurring</option>
+              <option value="future" :disabled="!hasFutureForfeitSupport">Forfeit this and all future recurring</option>
             </select>
             <label class="sched-toggle" style="display: flex; align-items: flex-start; gap: 8px; margin-top: 8px;">
               <input type="checkbox" v-model="ackForfeit" />
@@ -3471,6 +3471,10 @@ const hasRecurringOfficeSlot = computed(() => {
   const rows = requestType.value === 'forfeit_slot' ? selectedActionContexts() : [modalContext.value];
   return rows.some((x) => Number(x?.standingAssignmentId || 0) > 0);
 });
+const hasFutureForfeitSupport = computed(() => {
+  const rows = requestType.value === 'forfeit_slot' ? selectedActionContexts() : [modalContext.value];
+  return rows.some((x) => Number(x?.officeEventId || 0) > 0 || Number(x?.standingAssignmentId || 0) > 0);
+});
 
 const availableQuickActions = computed(() => {
   const ctx = modalContext.value || {};
@@ -5844,7 +5848,7 @@ const submitRequest = async () => {
         }
       }
     } else if (requestType.value === 'forfeit_slot') {
-      const scope = forfeitScope.value === 'future' && hasRecurringOfficeSlot.value ? 'future' : 'occurrence';
+      const scope = forfeitScope.value === 'future' && hasFutureForfeitSupport.value ? 'future' : 'occurrence';
       const contexts = selectedActionContexts().filter(
         (x) => Number(x?.officeLocationId || 0) > 0 && (Number(x?.officeEventId || 0) > 0 || Number(x?.standingAssignmentId || 0) > 0)
       );
