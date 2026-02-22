@@ -1832,6 +1832,8 @@ onUnmounted(() => {
   padding: 20px 0;
   box-shadow: var(--shadow-lg);
   border-bottom: 3px solid var(--accent);
+  width: 100%;
+  overflow-x: hidden;
 }
 
 .navbar .nav-title,
