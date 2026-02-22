@@ -18,6 +18,19 @@ function parseIntSafe(v) {
   return Number.isFinite(n) ? n : null;
 }
 
+function normalizeOfficeRequestRecurrence({ recurrenceRaw, occurrenceCountRaw }) {
+  const recurrence = String(recurrenceRaw || 'ONCE').trim().toUpperCase();
+  const allowed = new Set(['ONCE', 'WEEKLY', 'BIWEEKLY', 'MONTHLY']);
+  const normalizedRecurrence = allowed.has(recurrence) ? recurrence : 'ONCE';
+  if (normalizedRecurrence === 'ONCE') {
+    return { recurrence: 'ONCE', occurrenceCount: 1 };
+  }
+  const max = normalizedRecurrence === 'WEEKLY' ? 6 : 104;
+  const parsed = parseIntSafe(occurrenceCountRaw);
+  const occurrenceCount = Math.min(max, Math.max(1, parsed || (normalizedRecurrence === 'WEEKLY' ? 6 : 1)));
+  return { recurrence: normalizedRecurrence, occurrenceCount };
+}
+
 function toYmd(d) {
   return new Date(d).toISOString().slice(0, 10);
 }
@@ -655,6 +668,18 @@ export const createMyOfficeAvailabilityRequest = async (req, res, next) => {
     const officeIds = preferredOfficeIds.map((n) => parseIntSafe(n)).filter((n) => Number.isInteger(n) && n > 0);
     const notes = String(req.body?.notes || '').trim().slice(0, 2000);
     const slots = Array.isArray(req.body?.slots) ? req.body.slots : [];
+    const recurrenceRaw = req.body?.requestedFrequency ?? req.body?.recurrence ?? 'ONCE';
+    const occurrenceCountRaw = req.body?.requestedOccurrenceCount ?? req.body?.bookedOccurrenceCount ?? req.body?.occurrenceCount ?? null;
+    const weeklyRequestedOccurrences = parseIntSafe(occurrenceCountRaw);
+    if (String(recurrenceRaw || '').trim().toUpperCase() === 'WEEKLY'
+      && Number.isInteger(weeklyRequestedOccurrences)
+      && weeklyRequestedOccurrences > 6) {
+      return res.status(400).json({ error: { message: 'Weekly office requests are limited to 6 occurrences.' } });
+    }
+    const requestedRecurrence = normalizeOfficeRequestRecurrence({
+      recurrenceRaw,
+      occurrenceCountRaw
+    });
 
     // Validate office IDs are accessible to this agency (multi-agency office support)
     if (officeIds.length > 0) {
@@ -683,12 +708,30 @@ export const createMyOfficeAvailabilityRequest = async (req, res, next) => {
     conn = await pool.getConnection();
     await conn.beginTransaction();
 
-    const [result] = await conn.execute(
-      `INSERT INTO provider_office_availability_requests
-        (agency_id, provider_id, preferred_office_ids_json, notes, status)
-       VALUES (?, ?, ?, ?, 'PENDING')`,
-      [agencyId, providerId, officeIds.length ? JSON.stringify(officeIds) : null, notes || null]
-    );
+    let result;
+    try {
+      [result] = await conn.execute(
+        `INSERT INTO provider_office_availability_requests
+          (agency_id, provider_id, preferred_office_ids_json, notes, status, requested_frequency, requested_occurrence_count)
+         VALUES (?, ?, ?, ?, 'PENDING', ?, ?)`,
+        [
+          agencyId,
+          providerId,
+          officeIds.length ? JSON.stringify(officeIds) : null,
+          notes || null,
+          requestedRecurrence.recurrence,
+          requestedRecurrence.occurrenceCount
+        ]
+      );
+    } catch (insertErr) {
+      if (insertErr?.code !== 'ER_BAD_FIELD_ERROR' && insertErr?.errno !== 1054) throw insertErr;
+      [result] = await conn.execute(
+        `INSERT INTO provider_office_availability_requests
+          (agency_id, provider_id, preferred_office_ids_json, notes, status)
+         VALUES (?, ?, ?, ?, 'PENDING')`,
+        [agencyId, providerId, officeIds.length ? JSON.stringify(officeIds) : null, notes || null]
+      );
+    }
     const requestId = result.insertId;
 
     for (const s of normalizedSlots) {
@@ -1261,6 +1304,10 @@ export const listOfficeAvailabilityRequests = async (req, res, next) => {
           return [];
         }
       })();
+      const requestedRecurrence = normalizeOfficeRequestRecurrence({
+        recurrenceRaw: r.requested_frequency,
+        occurrenceCountRaw: r.requested_occurrence_count
+      });
       out.push({
         id: r.id,
         agencyId: r.agency_id,
@@ -1270,6 +1317,8 @@ export const listOfficeAvailabilityRequests = async (req, res, next) => {
         notes: r.notes || '',
         status: r.status,
         createdAt: r.created_at,
+        requestedFrequency: requestedRecurrence.recurrence,
+        requestedOccurrenceCount: requestedRecurrence.occurrenceCount,
         slots: (slotRows || []).map((s) => ({
           weekday: s.weekday,
           startHour: s.start_hour,
@@ -1301,15 +1350,12 @@ export const assignTemporaryOfficeFromRequest = async (req, res, next) => {
     const hour = parseIntSafe(req.body?.hour);
     const endHourRaw = parseIntSafe(req.body?.endHour);
     const endHour = (endHourRaw != null && endHourRaw > hour) ? endHourRaw : hour + 1;
-    const weeks = parseIntSafe(req.body?.weeks) || 6;
-    const freq = String(req.body?.assignedFrequency || 'WEEKLY').toUpperCase();
     if (!requestId || !officeId || !roomId || weekday === null || hour === null) {
       return res.status(400).json({ error: { message: 'requestId, officeId, roomId, weekday, and hour are required' } });
     }
     if (!(weekday >= 0 && weekday <= 6)) return res.status(400).json({ error: { message: 'weekday must be 0..6' } });
     if (!(hour >= 0 && hour <= 23)) return res.status(400).json({ error: { message: 'hour must be 0..23' } });
     if (!(endHour > hour && endHour <= 24)) return res.status(400).json({ error: { message: 'endHour must be greater than hour and at most 24' } });
-    if (!['WEEKLY', 'BIWEEKLY'].includes(freq)) return res.status(400).json({ error: { message: 'assignedFrequency must be WEEKLY or BIWEEKLY' } });
 
     // Ensure office belongs to agency (multi-agency office support)
     const okOffice = await OfficeLocationAgency.userHasAccess({ officeLocationId: officeId, agencyIds: [agencyId] });
@@ -1330,6 +1376,35 @@ export const assignTemporaryOfficeFromRequest = async (req, res, next) => {
     if (!reqRow) return res.status(404).json({ error: { message: 'Request not found' } });
     if (String(reqRow.status || '').toUpperCase() !== 'PENDING') {
       return res.status(409).json({ error: { message: 'Request is not pending' } });
+    }
+
+    const requestRecurrence = normalizeOfficeRequestRecurrence({
+      recurrenceRaw: reqRow.requested_frequency ?? req.body?.requestedFrequency ?? req.body?.recurrence ?? null,
+      occurrenceCountRaw: reqRow.requested_occurrence_count ?? req.body?.requestedOccurrenceCount ?? req.body?.bookedOccurrenceCount ?? req.body?.occurrenceCount ?? null
+    });
+    const bodyFreq = String(req.body?.assignedFrequency || '').toUpperCase();
+    const bodyWeeks = Math.max(1, parseIntSafe(req.body?.weeks) || 6);
+    const hasRequestRecurrence =
+      reqRow.requested_frequency != null
+      || req.body?.requestedFrequency != null
+      || req.body?.recurrence != null;
+    let freq = ['WEEKLY', 'BIWEEKLY'].includes(bodyFreq) ? bodyFreq : 'WEEKLY';
+    let weeks = bodyWeeks;
+    if (hasRequestRecurrence) {
+      if (requestRecurrence.recurrence === 'ONCE') {
+        freq = 'WEEKLY';
+        weeks = 1;
+      } else if (requestRecurrence.recurrence === 'WEEKLY') {
+        freq = 'WEEKLY';
+        weeks = Math.min(6, Math.max(1, Number(requestRecurrence.occurrenceCount || 1)));
+      } else if (requestRecurrence.recurrence === 'BIWEEKLY') {
+        freq = 'BIWEEKLY';
+        weeks = Math.max(1, Number(requestRecurrence.occurrenceCount || 1)) * 2;
+      } else if (requestRecurrence.recurrence === 'MONTHLY') {
+        // Assigned slots support WEEKLY/BIWEEKLY recurrence; approximate monthly with a 4-week cadence window.
+        freq = 'WEEKLY';
+        weeks = Math.max(1, Number(requestRecurrence.occurrenceCount || 1)) * 4;
+      }
     }
 
     // Enforce each hour in [hour, endHour) is within a submitted slot window

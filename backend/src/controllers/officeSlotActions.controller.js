@@ -1841,12 +1841,47 @@ export const forfeitEvent = async (req, res, next) => {
 
     const startAt = mysqlDateTimeFromValue(ev.start_at);
     if (!startAt) return res.status(400).json({ error: { message: 'Event has invalid start time' } });
+    const endAt = mysqlDateTimeFromValue(ev.end_at);
+
+    const removeLegacyAssignmentOverlap = async ({ rangeStart, rangeEndExclusive = null } = {}) => {
+      const roomId = Number(ev.room_id || 0) || null;
+      const assignedUserId = Number(ev.assigned_provider_id || ev.booked_provider_id || 0) || null;
+      const start = mysqlDateTimeFromValue(rangeStart || startAt);
+      const endExclusive = rangeEndExclusive ? mysqlDateTimeFromValue(rangeEndExclusive) : null;
+      if (!roomId || !assignedUserId || !start) return 0;
+      try {
+        let result;
+        if (endExclusive) {
+          [result] = await pool.execute(
+            `DELETE FROM office_room_assignments
+             WHERE room_id = ?
+               AND assigned_user_id = ?
+               AND start_at < ?
+               AND (end_at IS NULL OR end_at > ?)`,
+            [roomId, assignedUserId, endExclusive, start]
+          );
+        } else {
+          [result] = await pool.execute(
+            `DELETE FROM office_room_assignments
+             WHERE room_id = ?
+               AND assigned_user_id = ?
+               AND (end_at IS NULL OR end_at > ?)`,
+            [roomId, assignedUserId, start]
+          );
+        }
+        return Number(result?.affectedRows || 0);
+      } catch (e) {
+        if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+        return 0;
+      }
+    };
 
     if (scope === 'occurrence') {
       const updated = await OfficeEvent.cancelOccurrence({ eventId: eid });
       await ProviderVirtualSlotAvailability.deactivateBySourceEventId(eid);
       await cancelGoogleForOfficeEventIds([eid]);
-      return res.json({ ok: true, scope: 'occurrence', event: updated });
+      const legacyAssignmentRowsRemoved = await removeLegacyAssignmentOverlap({ rangeStart: startAt, rangeEndExclusive: endAt });
+      return res.json({ ok: true, scope: 'occurrence', event: updated, legacyAssignmentRowsRemoved });
     }
 
     let standingAssignmentId = Number(ev.standing_assignment_id || 0) || null;
@@ -1934,13 +1969,15 @@ export const forfeitEvent = async (req, res, next) => {
       // eslint-disable-next-line no-await-in-loop
       await ProviderVirtualSlotAvailability.deactivateBySourceEventId(id);
     }
+    const legacyAssignmentRowsRemoved = await removeLegacyAssignmentOverlap({ rangeStart: startAt, rangeEndExclusive: null });
     await cancelGoogleForOfficeEventIds(eventIds);
 
     return res.json({
       ok: true,
       scope: 'future',
       forfeitedEventCount: eventIds.length,
-      standingAssignmentId: standingAssignmentId || null
+      standingAssignmentId: standingAssignmentId || null,
+      legacyAssignmentRowsRemoved
     });
   } catch (e) {
     next(e);

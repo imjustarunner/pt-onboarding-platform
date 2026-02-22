@@ -728,7 +728,7 @@
                 v-model.number="officeBookingOccurrenceCount"
                 type="number"
                 min="1"
-                max="104"
+                :max="officeBookingRecurrence === 'WEEKLY' ? 6 : 104"
                 class="input"
                 style="margin-top: 4px; width: 80px;"
               />
@@ -5614,6 +5614,13 @@ const submitRequest = async () => {
       }
     } else if (requestType.value === 'office_request_only') {
       // Always use modal's hour range (End time dropdown) as source of truth; shift/drag select is unreliable in office layout
+      const recurrence = String(officeBookingRecurrence.value || 'ONCE').toUpperCase();
+      const recurringRecurrences = ['WEEKLY', 'BIWEEKLY', 'MONTHLY'];
+      const occurrenceMax = recurrence === 'WEEKLY' ? 6 : 104;
+      const occurrenceCount = recurringRecurrences.includes(recurrence)
+        ? Math.min(occurrenceMax, Math.max(1, Number(officeBookingOccurrenceCount.value) || (recurrence === 'WEEKLY' ? 6 : 1)))
+        : null;
+      if (occurrenceCount) officeBookingOccurrenceCount.value = occurrenceCount;
       const baseRoomId = viewMode.value === 'office_layout' ? (Number(selectedOfficeRoomId.value || 0) || Number(modalContext.value?.roomId || 0) || 0) : 0;
       const baseDateYmd = addDaysYmd(weekStart.value, ALL_DAYS.indexOf(String(dn)));
       const targets = Array.from({ length: Math.max(1, endH - h) }, (_, i) => ({
@@ -5667,6 +5674,8 @@ const submitRequest = async () => {
         agencyId: effectiveAgencyId.value,
         notes: requestNotes.value || '',
         officeLocationIds: Number(selectedOfficeLocationId.value || 0) ? [Number(selectedOfficeLocationId.value)] : [],
+        recurrence,
+        ...(occurrenceCount ? { bookedOccurrenceCount: occurrenceCount } : {}),
         slots
       });
       await loadSelectedOfficeGrid();

@@ -181,6 +181,23 @@ const loadRooms = async () => {
 
 const assign = async () => {
   if (!props.requestId || !props.agencyId || !form.value.officeId || !form.value.roomId || !form.value.slotKey) return;
+  const requestedFrequency = String(request.value?.requestedFrequency || 'ONCE').toUpperCase();
+  const requestedOccurrenceCount = Math.max(1, Number(request.value?.requestedOccurrenceCount || 1));
+  let assignedFrequency = 'WEEKLY';
+  let weeks = 6;
+  if (requestedFrequency === 'ONCE') {
+    assignedFrequency = 'WEEKLY';
+    weeks = 1;
+  } else if (requestedFrequency === 'WEEKLY') {
+    assignedFrequency = 'WEEKLY';
+    weeks = Math.min(6, requestedOccurrenceCount);
+  } else if (requestedFrequency === 'BIWEEKLY') {
+    assignedFrequency = 'BIWEEKLY';
+    weeks = Math.max(1, requestedOccurrenceCount) * 2;
+  } else if (requestedFrequency === 'MONTHLY') {
+    assignedFrequency = 'WEEKLY';
+    weeks = Math.max(1, requestedOccurrenceCount) * 4;
+  }
   const parts = String(form.value.slotKey).split(':').map((x) => Number(x));
   const weekday = parts[0];
   const hour = parts[1];
@@ -195,8 +212,10 @@ const assign = async () => {
       weekday,
       hour,
       endHour,
-      weeks: 6,
-      assignedFrequency: 'WEEKLY'
+      weeks,
+      assignedFrequency,
+      requestedFrequency,
+      requestedOccurrenceCount
     });
     emit('assigned');
     emit('close');

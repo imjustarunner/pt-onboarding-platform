@@ -550,6 +550,28 @@ export const getWeeklyGrid = async (req, res, next) => {
       startAt: windowStart,
       endAt: windowEnd
     });
+    const cancelledLegacyBySlotProvider = new Set();
+    try {
+      const [cancelledRows] = await pool.execute(
+        `SELECT room_id, start_at, assigned_provider_id, booked_provider_id
+         FROM office_events
+         WHERE office_location_id = ?
+           AND start_at < ?
+           AND end_at > ?
+           AND UPPER(COALESCE(status, '')) = 'CANCELLED'`,
+        [officeLocationIdNum, windowEnd, windowStart]
+      );
+      for (const row of cancelledRows || []) {
+        const slot = parseSlotDateHour(row.start_at);
+        if (!slot) continue;
+        const roomId = Number(row.room_id || 0);
+        const providerId = Number(row.assigned_provider_id || row.booked_provider_id || 0);
+        if (!roomId || !providerId) continue;
+        cancelledLegacyBySlotProvider.add(`${roomId}:${slot.date}:${slot.hour}:${providerId}`);
+      }
+    } catch (e) {
+      if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+    }
     const virtualIntakeSlotKeys = new Set();
     try {
       const [virtualRows] = await pool.execute(
@@ -634,6 +656,8 @@ export const getWeeklyGrid = async (req, res, next) => {
           if (!Number.isFinite(slotStartMs) || !Number.isFinite(slotEndMs)) continue;
           const overlaps = assignmentStartMs < slotEndMs && (assignmentEndMs === null || assignmentEndMs > slotStartMs);
           if (!overlaps) continue;
+          const cancelledLegacyKey = `${Number(a.room_id || 0)}:${date}:${hour}:${Number(a.assigned_user_id || 0)}`;
+          if (cancelledLegacyBySlotProvider.has(cancelledLegacyKey)) continue;
           const k = key(a.room_id, date, hour);
           if (!assignedBySlot.has(k)) assignedBySlot.set(k, a);
         }
