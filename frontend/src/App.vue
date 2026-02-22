@@ -1932,15 +1932,15 @@ onUnmounted(() => {
 }
 
 /* On smaller screens, truncate nav dropdown labels (e.g. Communications → Comm...) */
-@media (max-width: 1400px) {
+@media (max-width: 1100px) {
   .nav-dropdown-trigger .nav-dropdown-label {
-    max-width: 4.5em;
+    max-width: 5em;
   }
 }
 
-@media (max-width: 1200px) {
+@media (max-width: 992px) {
   .nav-dropdown-trigger .nav-dropdown-label {
-    max-width: 3.5em;
+    max-width: 4em;
   }
 }
 
