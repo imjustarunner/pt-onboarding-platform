@@ -14,6 +14,8 @@ import {
   getOfficeRequestAssignmentOptions,
   assignTemporaryOfficeFromRequest,
   denyOfficeAvailabilityRequest,
+  denySchoolAvailabilityRequest,
+  unrequestAllMyAvailabilityRequests,
   listSchoolAvailabilityRequests,
   assignSchoolFromRequest,
   listAvailableSkills,
@@ -42,6 +44,7 @@ router.put('/me/virtual-working-hours', putMyVirtualWorkingHours);
 router.get('/providers/:providerId/week', getProviderWeekAvailability);
 router.post('/office-requests', createMyOfficeAvailabilityRequest);
 router.post('/school-requests', createMySchoolAvailabilityRequest);
+router.post('/me/requests/unrequest-all', unrequestAllMyAvailabilityRequests);
 router.post('/me/skill-builder/submit', submitMySkillBuilderAvailability);
 router.post('/me/skill-builder/confirm', confirmMySkillBuilderAvailability);
 router.post('/me/supervised/confirm', confirmMySupervisedAvailability);
@@ -53,6 +56,7 @@ router.post('/admin/office-requests/:id/assign-temporary', assignTemporaryOffice
 router.post('/admin/office-requests/:id/deny', denyOfficeAvailabilityRequest);
 router.get('/admin/school-requests', listSchoolAvailabilityRequests);
 router.post('/admin/school-requests/:id/assign', assignSchoolFromRequest);
+router.post('/admin/school-requests/:id/deny', denySchoolAvailabilityRequest);
 
 router.get('/admin/skills', listAvailableSkills);
 router.post('/admin/skills', upsertAvailableSkill);

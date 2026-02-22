@@ -1903,6 +1903,102 @@ export const denyOfficeAvailabilityRequest = async (req, res, next) => {
   }
 };
 
+export const denySchoolAvailabilityRequest = async (req, res, next) => {
+  try {
+    const agencyId = await resolveAgencyId(req);
+    if (!(await requireAgencyMembership(req, res, agencyId))) return;
+    if (!canManageAvailability(req.user?.role)) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const requestId = parseIntSafe(req.params.id);
+    if (!requestId) return res.status(400).json({ error: { message: 'Request ID is required' } });
+
+    const [reqRows] = await pool.execute(
+      `SELECT id, status
+       FROM provider_school_availability_requests
+       WHERE id = ? AND agency_id = ?
+       LIMIT 1`,
+      [requestId, agencyId]
+    );
+    const reqRow = reqRows?.[0] || null;
+    if (!reqRow) return res.status(404).json({ error: { message: 'Request not found' } });
+    if (String(reqRow.status || '').toUpperCase() !== 'PENDING') {
+      return res.status(409).json({ error: { message: 'Request is not pending (already approved or denied)' } });
+    }
+
+    await pool.execute(
+      `UPDATE provider_school_availability_requests
+       SET status = 'CANCELLED',
+           resolved_at = NOW(),
+           resolved_by_user_id = ?,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [req.user.id, requestId]
+    );
+
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const unrequestAllMyAvailabilityRequests = async (req, res, next) => {
+  let conn = null;
+  try {
+    const providerId = Number(req.user?.id || 0);
+    if (!providerId) return res.status(401).json({ error: { message: 'Unauthorized' } });
+    const agencyId = parseIntSafe(req.body?.agencyId ?? req.query?.agencyId);
+
+    conn = await pool.getConnection();
+    await conn.beginTransaction();
+
+    let officeSql = `
+      UPDATE provider_office_availability_requests
+      SET status = 'CANCELLED',
+          resolved_at = NOW(),
+          resolved_by_user_id = ?,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE provider_id = ?
+        AND status = 'PENDING'
+    `;
+    const officeArgs = [providerId, providerId];
+    if (agencyId) {
+      officeSql += ' AND agency_id = ?';
+      officeArgs.push(agencyId);
+    }
+    const [officeResult] = await conn.execute(officeSql, officeArgs);
+
+    let schoolSql = `
+      UPDATE provider_school_availability_requests
+      SET status = 'CANCELLED',
+          resolved_at = NOW(),
+          resolved_by_user_id = ?,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE provider_id = ?
+        AND status = 'PENDING'
+    `;
+    const schoolArgs = [providerId, providerId];
+    if (agencyId) {
+      schoolSql += ' AND agency_id = ?';
+      schoolArgs.push(agencyId);
+    }
+    const [schoolResult] = await conn.execute(schoolSql, schoolArgs);
+
+    await conn.commit();
+    res.json({
+      ok: true,
+      cancelledOfficeRequests: Number(officeResult?.affectedRows || 0),
+      cancelledSchoolRequests: Number(schoolResult?.affectedRows || 0)
+    });
+  } catch (e) {
+    if (conn) {
+      try { await conn.rollback(); } catch { /* ignore */ }
+    }
+    next(e);
+  } finally {
+    if (conn) conn.release();
+  }
+};
+
 export const listSchoolAvailabilityRequests = async (req, res, next) => {
   try {
     const agencyId = await resolveAgencyId(req);

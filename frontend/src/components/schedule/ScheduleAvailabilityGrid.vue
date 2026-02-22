@@ -485,6 +485,16 @@
         <div class="muted" style="margin-top: 6px;">
           {{ modalDay }} • {{ modalTimeRangeLabel }}
         </div>
+        <div v-if="canUnrequestAllPending" style="margin-top: 8px;">
+          <button
+            class="btn btn-secondary btn-sm"
+            type="button"
+            :disabled="submitting"
+            @click="unrequestAllPendingRequests"
+          >
+            {{ submitting ? 'Updating…' : `Unrequest all pending requests (${pendingRequestTotalCount})` }}
+          </button>
+        </div>
 
         <div class="modal-body">
           <div class="action-grid">
@@ -2579,6 +2589,32 @@ const hasRequest = (dayName, hour) => {
     }
   }
   return false;
+};
+
+const pendingRequestTotalCount = computed(() => {
+  const s = summary.value;
+  if (!s) return 0;
+  const office = Array.isArray(s.officeRequests) ? s.officeRequests.length : 0;
+  const school = Array.isArray(s.schoolRequests) ? s.schoolRequests.length : 0;
+  return office + school;
+});
+
+const canUnrequestAllPending = computed(() => props.mode === 'self' && pendingRequestTotalCount.value > 0);
+
+const unrequestAllPendingRequests = async () => {
+  if (!canUnrequestAllPending.value) return;
+  try {
+    submitting.value = true;
+    modalError.value = '';
+    await api.post('/availability/me/requests/unrequest-all');
+    invalidateScheduleSummaryCacheForUser(props.userId);
+    await load();
+    closeModal();
+  } catch (e) {
+    modalError.value = e.response?.data?.error?.message || 'Failed to unrequest pending availability requests.';
+  } finally {
+    submitting.value = false;
+  }
 };
 
 const hasSupervision = (dayName, hour) => {

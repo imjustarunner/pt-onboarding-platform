@@ -110,7 +110,10 @@
                   </option>
                 </select>
                 <input class="input" type="number" min="0" v-model.number="schoolAssign[r.id].slotsTotal" />
-                <button class="btn btn-primary btn-sm" @click="assignSchool(r)" :disabled="saving">Assign</button>
+                <div class="row-inline" style="gap: 8px;">
+                  <button class="btn btn-primary btn-sm" @click="assignSchool(r)" :disabled="saving">Assign</button>
+                  <button class="btn btn-secondary btn-sm" @click="denySchool(r)" :disabled="saving">Deny</button>
+                </div>
               </div>
             </div>
           </div>
@@ -701,6 +704,21 @@ const assignSchool = async (r) => {
     await reload();
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to assign school availability';
+  } finally {
+    saving.value = false;
+  }
+};
+
+const denySchool = async (r) => {
+  try {
+    saving.value = true;
+    error.value = '';
+    await api.post(`/availability/admin/school-requests/${r.id}/deny`, {
+      agencyId: agencyId.value
+    });
+    await reload();
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to deny school request';
   } finally {
     saving.value = false;
   }
