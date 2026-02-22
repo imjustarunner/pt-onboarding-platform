@@ -1299,6 +1299,8 @@ export const assignTemporaryOfficeFromRequest = async (req, res, next) => {
     const roomId = parseIntSafe(req.body?.roomId);
     const weekday = parseIntSafe(req.body?.weekday);
     const hour = parseIntSafe(req.body?.hour);
+    const endHourRaw = parseIntSafe(req.body?.endHour);
+    const endHour = (endHourRaw != null && endHourRaw > hour) ? endHourRaw : hour + 1;
     const weeks = parseIntSafe(req.body?.weeks) || 6;
     const freq = String(req.body?.assignedFrequency || 'WEEKLY').toUpperCase();
     if (!requestId || !officeId || !roomId || weekday === null || hour === null) {
@@ -1306,6 +1308,7 @@ export const assignTemporaryOfficeFromRequest = async (req, res, next) => {
     }
     if (!(weekday >= 0 && weekday <= 6)) return res.status(400).json({ error: { message: 'weekday must be 0..6' } });
     if (!(hour >= 0 && hour <= 23)) return res.status(400).json({ error: { message: 'hour must be 0..23' } });
+    if (!(endHour > hour && endHour <= 24)) return res.status(400).json({ error: { message: 'endHour must be greater than hour and at most 24' } });
     if (!['WEEKLY', 'BIWEEKLY'].includes(freq)) return res.status(400).json({ error: { message: 'assignedFrequency must be WEEKLY or BIWEEKLY' } });
 
     // Ensure office belongs to agency (multi-agency office support)
@@ -1329,18 +1332,20 @@ export const assignTemporaryOfficeFromRequest = async (req, res, next) => {
       return res.status(409).json({ error: { message: 'Request is not pending' } });
     }
 
-    // Enforce chosen time is within a submitted slot window
-    const [slotRows] = await pool.execute(
-      `SELECT 1
-       FROM provider_office_availability_request_slots
-       WHERE request_id = ?
-         AND weekday = ?
-         AND start_hour <= ?
-         AND end_hour > ?
-       LIMIT 1`,
-      [requestId, weekday, hour, hour]
-    );
-    if (!slotRows?.[0]) return res.status(400).json({ error: { message: 'Selected day/hour is not within the submitted availability window' } });
+    // Enforce each hour in [hour, endHour) is within a submitted slot window
+    for (let h = hour; h < endHour; h++) {
+      const [slotRows] = await pool.execute(
+        `SELECT 1
+         FROM provider_office_availability_request_slots
+         WHERE request_id = ?
+           AND weekday = ?
+           AND start_hour <= ?
+           AND end_hour > ?
+         LIMIT 1`,
+        [requestId, weekday, h, h]
+      );
+      if (!slotRows?.[0]) return res.status(400).json({ error: { message: `Hour ${h} is not within the submitted availability window` } });
+    }
 
     const providerId = Number(reqRow.provider_id);
 
@@ -1351,71 +1356,76 @@ export const assignTemporaryOfficeFromRequest = async (req, res, next) => {
     conn = await pool.getConnection();
     await conn.beginTransaction();
 
-    // Find existing assignment (even if inactive), due to unique key constraints
-    const [existingAssign] = await conn.execute(
-      `SELECT id
-       FROM office_standing_assignments
-       WHERE room_id = ? AND provider_id = ? AND weekday = ? AND hour = ? AND assigned_frequency = ?
-       LIMIT 1`,
-      [roomId, providerId, weekday, hour, freq]
-    );
-    let assignmentId = existingAssign?.[0]?.id || null;
-    if (!assignmentId) {
-      try {
-        const [ins] = await conn.execute(
-          `INSERT INTO office_standing_assignments
-            (office_location_id, room_id, provider_id, weekday, hour, assigned_frequency,
-             availability_mode, temporary_until_date, temporary_extension_count, last_two_week_confirmed_at, is_active, created_by_user_id)
-           VALUES (?, ?, ?, ?, ?, ?, 'TEMPORARY', ?, 0, NOW(), TRUE, ?)`,
-          [officeId, roomId, providerId, weekday, hour, freq, untilDate, req.user.id]
-        );
-        assignmentId = ins.insertId;
-      } catch (insErr) {
-        if (insErr?.code === 'ER_BAD_FIELD_ERROR' || insErr?.errno === 1054) {
+    const assignmentIds = [];
+    for (let h = hour; h < endHour; h++) {
+      const [existingAssign] = await conn.execute(
+        `SELECT id
+         FROM office_standing_assignments
+         WHERE room_id = ? AND provider_id = ? AND weekday = ? AND hour = ? AND assigned_frequency = ?
+         LIMIT 1`,
+        [roomId, providerId, weekday, h, freq]
+      );
+      let assignmentId = existingAssign?.[0]?.id || null;
+      if (!assignmentId) {
+        try {
           const [ins] = await conn.execute(
             `INSERT INTO office_standing_assignments
               (office_location_id, room_id, provider_id, weekday, hour, assigned_frequency,
-               availability_mode, temporary_until_date, last_two_week_confirmed_at, is_active, created_by_user_id)
-             VALUES (?, ?, ?, ?, ?, ?, 'TEMPORARY', ?, NOW(), TRUE, ?)`,
-            [officeId, roomId, providerId, weekday, hour, freq, untilDate, req.user.id]
+               availability_mode, temporary_until_date, temporary_extension_count, last_two_week_confirmed_at, is_active, created_by_user_id)
+             VALUES (?, ?, ?, ?, ?, ?, 'TEMPORARY', ?, 0, NOW(), TRUE, ?)`,
+            [officeId, roomId, providerId, weekday, h, freq, untilDate, req.user.id]
           );
           assignmentId = ins.insertId;
-        } else {
-          throw insErr;
+        } catch (insErr) {
+          if (insErr?.code === 'ER_BAD_FIELD_ERROR' || insErr?.errno === 1054) {
+            const [ins] = await conn.execute(
+              `INSERT INTO office_standing_assignments
+                (office_location_id, room_id, provider_id, weekday, hour, assigned_frequency,
+                 availability_mode, temporary_until_date, last_two_week_confirmed_at, is_active, created_by_user_id)
+               VALUES (?, ?, ?, ?, ?, ?, 'TEMPORARY', ?, NOW(), TRUE, ?)`,
+              [officeId, roomId, providerId, weekday, h, freq, untilDate, req.user.id]
+            );
+            assignmentId = ins.insertId;
+          } else {
+            throw insErr;
+          }
         }
-      }
-    } else {
-      try {
-        await conn.execute(
-          `UPDATE office_standing_assignments
-           SET office_location_id = ?,
-               availability_mode = 'TEMPORARY',
-               temporary_until_date = ?,
-               temporary_extension_count = 0,
-               last_two_week_confirmed_at = NOW(),
-               is_active = TRUE,
-               updated_at = CURRENT_TIMESTAMP
-           WHERE id = ?`,
-          [officeId, untilDate, assignmentId]
-        );
-      } catch (updErr) {
-        if (updErr?.code === 'ER_BAD_FIELD_ERROR' || updErr?.errno === 1054) {
+      } else {
+        try {
           await conn.execute(
             `UPDATE office_standing_assignments
              SET office_location_id = ?,
                  availability_mode = 'TEMPORARY',
                  temporary_until_date = ?,
+                 temporary_extension_count = 0,
                  last_two_week_confirmed_at = NOW(),
                  is_active = TRUE,
                  updated_at = CURRENT_TIMESTAMP
              WHERE id = ?`,
             [officeId, untilDate, assignmentId]
           );
-        } else {
-          throw updErr;
+        } catch (updErr) {
+          if (updErr?.code === 'ER_BAD_FIELD_ERROR' || updErr?.errno === 1054) {
+            await conn.execute(
+              `UPDATE office_standing_assignments
+               SET office_location_id = ?,
+                   availability_mode = 'TEMPORARY',
+                   temporary_until_date = ?,
+                   last_two_week_confirmed_at = NOW(),
+                   is_active = TRUE,
+                   updated_at = CURRENT_TIMESTAMP
+               WHERE id = ?`,
+              [officeId, untilDate, assignmentId]
+            );
+          } else {
+            throw updErr;
+          }
         }
       }
+      assignmentIds.push(assignmentId);
     }
+
+    const assignmentId = assignmentIds[0];
 
     await conn.execute(
       `UPDATE provider_office_availability_requests
@@ -1430,7 +1440,7 @@ export const assignTemporaryOfficeFromRequest = async (req, res, next) => {
     );
 
     await conn.commit();
-    res.json({ ok: true, assignmentId, temporaryUntilDate: untilDate });
+    res.json({ ok: true, assignmentId, assignmentIds, temporaryUntilDate: untilDate });
   } catch (e) {
     if (conn) {
       try { await conn.rollback(); } catch { /* ignore */ }

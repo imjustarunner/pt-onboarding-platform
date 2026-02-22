@@ -95,14 +95,17 @@ const slotOptions = computed(() => {
   for (const s of request.value.slots) {
     const start = Number(s.startHour);
     const end = Number(s.endHour);
-    for (let h = start; h < end; h++) {
-      const key = `${s.weekday}:${h}`;
-      out.push({ key, weekday: Number(s.weekday), hour: h, label: `${weekdayLabel(s.weekday)} ${hourLabel(h)}` });
-    }
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) continue;
+    const key = `${s.weekday}:${start}:${end}`;
+    out.push({
+      key,
+      weekday: Number(s.weekday),
+      startHour: start,
+      endHour: end,
+      label: `${weekdayLabel(s.weekday)} ${hourLabel(start)}–${hourLabel(end)}`
+    });
   }
-  const byKey = new Map();
-  for (const x of out) byKey.set(x.key, x);
-  return Array.from(byKey.values());
+  return out;
 });
 
 const load = async () => {
@@ -136,8 +139,8 @@ const load = async () => {
         officeId = (prefOffices || []).map((id) => String(id)).find((id) => officeIdsAvailable.includes(id)) || '';
       }
       let roomId = firstSlot?.roomId ? String(firstSlot.roomId) : '';
-      const slotKey = firstSlot != null && Number.isFinite(firstSlot.weekday) && Number.isFinite(firstSlot.startHour)
-        ? `${firstSlot.weekday}:${firstSlot.startHour}`
+      const slotKey = firstSlot != null && Number.isFinite(firstSlot.weekday) && Number.isFinite(firstSlot.startHour) && Number.isFinite(firstSlot.endHour) && firstSlot.endHour > firstSlot.startHour
+        ? `${firstSlot.weekday}:${firstSlot.startHour}:${firstSlot.endHour}`
         : '';
       if (!officeId && offices.value.length > 0) {
         officeId = String(offices.value[0].id);
@@ -145,11 +148,9 @@ const load = async () => {
       form.value = { officeId, roomId, slotKey };
       if (officeId) {
         await loadRooms();
-        // loadRooms clears roomId; restore from request or use first room when "Any"
+        // loadRooms clears roomId; restore from request when provider specified a room; do not default to first room when "Any"
         const loadedRooms = rooms.value || [];
-        const finalRoomId = roomId && loadedRooms.some((rm) => String(rm.id) === roomId)
-          ? roomId
-          : (loadedRooms.length > 0 ? String(loadedRooms[0].id) : '');
+        const finalRoomId = roomId && loadedRooms.some((rm) => String(rm.id) === roomId) ? roomId : '';
         form.value = { ...form.value, roomId: finalRoomId };
       }
     }
@@ -177,7 +178,10 @@ const loadRooms = async () => {
 
 const assign = async () => {
   if (!props.requestId || !props.agencyId || !form.value.officeId || !form.value.roomId || !form.value.slotKey) return;
-  const [weekday, hour] = String(form.value.slotKey).split(':').map((x) => Number(x));
+  const parts = String(form.value.slotKey).split(':').map((x) => Number(x));
+  const weekday = parts[0];
+  const hour = parts[1];
+  const endHour = parts.length >= 3 && Number.isFinite(parts[2]) && parts[2] > hour ? parts[2] : hour + 1;
   saving.value = true;
   error.value = '';
   try {
@@ -187,6 +191,7 @@ const assign = async () => {
       roomId: Number(form.value.roomId),
       weekday,
       hour,
+      endHour,
       weeks: 6,
       assignedFrequency: 'WEEKLY'
     });

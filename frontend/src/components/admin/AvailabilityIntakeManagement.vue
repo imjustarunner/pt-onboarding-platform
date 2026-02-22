@@ -351,15 +351,17 @@ const expandOfficeSlots = (r) => {
   for (const s of slots) {
     const start = Number(s.startHour);
     const end = Number(s.endHour);
-    for (let h = start; h < end; h++) {
-      const key = `${s.weekday}:${h}`;
-      out.push({ key, weekday: Number(s.weekday), hour: h, label: `${weekdayLabel(s.weekday)} ${hourLabel(h)}` });
-    }
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) continue;
+    const key = `${s.weekday}:${start}:${end}`;
+    out.push({
+      key,
+      weekday: Number(s.weekday),
+      startHour: start,
+      endHour: end,
+      label: `${weekdayLabel(s.weekday)} ${hourLabel(start)}–${hourLabel(end)}`
+    });
   }
-  // de-dupe
-  const byKey = new Map();
-  for (const x of out) byKey.set(x.key, x);
-  return Array.from(byKey.values());
+  return out;
 };
 
 const blockKey = (b) => `${b.dayOfWeek}|${b.startTime}|${b.endTime}`;
@@ -421,29 +423,30 @@ const reload = async () => {
     providers.value = providersResp.data || [];
 
     // Init assignment form state, pre-fill from request when provider selected building/room/time
+    const officeIdsAvailable = (offices.value || []).map((o) => String(o.id));
     for (const r of officeRequests.value) {
       const prefOffices = Array.isArray(r.preferredOfficeIds) ? r.preferredOfficeIds : [];
       const slots = r.slots || [];
       const firstSlot = slots[0];
       let officeId = firstSlot?.officeLocationId
         ? String(firstSlot.officeLocationId)
-        : (prefOffices.length === 1 ? String(prefOffices[0]) : '');
+        : (prefOffices.length > 0 ? String(prefOffices[0]) : '');
+      // Ensure chosen office exists in available list; fallback to first preferred that is
+      if (officeId && !officeIdsAvailable.includes(officeId)) {
+        officeId = (prefOffices || []).map((id) => String(id)).find((id) => officeIdsAvailable.includes(id)) || '';
+      }
       let roomId = firstSlot?.roomId ? String(firstSlot.roomId) : '';
-      const slotKey = firstSlot != null && Number.isFinite(firstSlot.weekday) && Number.isFinite(firstSlot.startHour)
-        ? `${firstSlot.weekday}:${firstSlot.startHour}`
+      const slotKey = firstSlot != null && Number.isFinite(firstSlot.weekday) && Number.isFinite(firstSlot.startHour) && Number.isFinite(firstSlot.endHour) && firstSlot.endHour > firstSlot.startHour
+        ? `${firstSlot.weekday}:${firstSlot.startHour}:${firstSlot.endHour}`
         : '';
-      // When "Any" office, default to first office and first room to streamline approval
+      // When "Any" office, default to first office; do NOT default room (require approver to select)
       if (!officeId && (offices.value || []).length > 0) {
         officeId = String(offices.value[0].id);
       }
       officeAssign[r.id] = { officeId, roomId, slotKey };
       if (officeId) {
         await loadRoomsForOffice(r.id);
-        const rooms = roomsByOffice[officeId] || [];
-        if (!roomId && rooms.length > 0) {
-          roomId = String(rooms[0].id);
-          officeAssign[r.id].roomId = roomId;
-        }
+        // Do not default roomId to first room when provider chose "Any" – require approver selection
       }
     }
     for (const r of schoolRequests.value) {
@@ -508,7 +511,10 @@ const assignOffice = async (r) => {
     error.value = 'Office, room, and day/time are required.';
     return;
   }
-  const [weekday, hour] = String(form.slotKey).split(':').map((x) => Number(x));
+  const parts = String(form.slotKey).split(':').map((x) => Number(x));
+  const weekday = parts[0];
+  const hour = parts[1];
+  const endHour = parts.length >= 3 && Number.isFinite(parts[2]) && parts[2] > hour ? parts[2] : hour + 1;
   try {
     saving.value = true;
     error.value = '';
@@ -518,6 +524,7 @@ const assignOffice = async (r) => {
       roomId: Number(form.roomId),
       weekday,
       hour,
+      endHour,
       weeks: 6,
       assignedFrequency: 'WEEKLY'
     });
