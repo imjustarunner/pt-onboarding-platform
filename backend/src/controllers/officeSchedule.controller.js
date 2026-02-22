@@ -105,7 +105,7 @@ function toDisplayStatus({ status, slotState }) {
   const st = String(status || '').trim().toUpperCase();
   const ss = String(slotState || '').trim().toUpperCase();
   if (st === 'BOOKED' || ss === 'ASSIGNED_BOOKED') return 'BOOKED';
-  if (ss === 'ASSIGNED_TEMPORARY') return 'TEMPORARY';
+  if (ss === 'ASSIGNED_TEMPORARY') return 'AVAILABLE';
   if (st === 'RELEASED' || ss === 'ASSIGNED_AVAILABLE') return 'AVAILABLE';
   if (st === 'CANCELLED') return 'CANCELED';
   return 'UNKNOWN';
@@ -115,7 +115,6 @@ function defaultAppointmentTypeForSlot({ status, slotState }) {
   const displayStatus = toDisplayStatus({ status, slotState });
   if (displayStatus === 'BOOKED') return 'SESSION';
   if (displayStatus === 'AVAILABLE') return 'AVAILABLE_SLOT';
-  if (displayStatus === 'TEMPORARY') return 'SCHEDULE_BLOCK';
   return 'EVENT';
 }
 
@@ -265,8 +264,15 @@ function timeMs(value) {
 }
 
 function normalizeYmd(value) {
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return null;
+    return value.toISOString().slice(0, 10);
+  }
   const m = String(value || '').trim().match(/^(\d{4}-\d{2}-\d{2})/);
-  return m ? m[1] : null;
+  if (m) return m[1];
+  const parsed = new Date(String(value || '').trim());
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString().slice(0, 10);
 }
 
 function dayDiffYmd(startYmd, endYmd) {
@@ -519,10 +525,13 @@ export const getWeeklyGrid = async (req, res, next) => {
 
     const { locationId } = req.params;
     const weekStartRaw = String(req.query.weekStart || new Date().toISOString().slice(0, 10)); // YYYY-MM-DD
-    const weekStart = startOfWeekISO(weekStartRaw);
-    if (!weekStart) {
+    const requestedWeekStart = normalizeYmd(weekStartRaw);
+    if (!requestedWeekStart) {
       return res.status(400).json({ error: { message: 'weekStart must be YYYY-MM-DD' } });
     }
+    // Treat weekStart as the exact visible window anchor from the client (Mon->Sun in UI).
+    // Materialization can still normalize to Sunday internally.
+    const weekStart = requestedWeekStart;
 
     const loc = await OfficeLocation.findById(parseInt(locationId));
     if (!loc) return res.status(404).json({ error: { message: 'Location not found' } });
@@ -549,6 +558,7 @@ export const getWeeklyGrid = async (req, res, next) => {
     await OfficeScheduleMaterializer.materializeWeek({
       officeLocationId: parseInt(locationId),
       weekStartRaw: weekStart,
+      useExactWeekStart: true,
       createdByUserId: req.user.id
     });
 
@@ -745,9 +755,7 @@ export const getWeeklyGrid = async (req, res, next) => {
             const state =
               st === 'ASSIGNED_BOOKED'
                 ? 'assigned_booked'
-                : st === 'ASSIGNED_TEMPORARY'
-                  ? 'assigned_temporary'
-                  : 'assigned_available';
+                : 'assigned_available';
             const bookedFirst = String(e.booked_provider_first_name || '').trim();
             const bookedLast = String(e.booked_provider_last_name || '').trim();
             const bookedLi = bookedLast.slice(0, 1);
@@ -969,7 +977,7 @@ export const getWeeklyGrid = async (req, res, next) => {
         const assignedFrequency = String(r.assigned_frequency || '').toUpperCase();
         assignedFrequencyByStandingId.set(sid, assignedFrequency);
 
-        const availableSinceDate = r.available_since_date ? String(r.available_since_date).slice(0, 10) : null;
+        const availableSinceDate = normalizeYmd(r.available_since_date);
         const lastTwoWeekConfirmedAt = normalizeMysqlDateTime(r.last_two_week_confirmed_at) || null;
         const lastSixWeekCheckedAt = normalizeMysqlDateTime(r.last_six_week_checked_at) || null;
         const assignmentCreatedAt = normalizeMysqlDateTime(r.created_at) || null;
@@ -990,7 +998,7 @@ export const getWeeklyGrid = async (req, res, next) => {
           assignmentCreatedByUserId: createdByUserId,
           assignmentCreatedByName: createdByName,
           assignmentAvailabilityMode: String(r.availability_mode || '').toUpperCase() || null,
-          assignmentTemporaryUntilDate: r.temporary_until_date ? String(r.temporary_until_date).slice(0, 10) : null,
+          assignmentTemporaryUntilDate: normalizeYmd(r.temporary_until_date),
           assignmentTemporaryExtensionCount: Number(r.temporary_extension_count || 0),
           assignmentAvailableSinceDate: availableSinceDate,
           assignmentLastTwoWeekConfirmedAt: lastTwoWeekConfirmedAt,
@@ -1039,8 +1047,7 @@ export const getWeeklyGrid = async (req, res, next) => {
     const frequencyMeta = ({ assignedFrequency, bookedFrequency, state, assignmentMeta }) => {
       const normalize = (v) => String(v || '').trim().toUpperCase();
       const oneTimeByTemporaryWindow =
-        String(assignmentMeta?.assignmentAvailabilityMode || '').toUpperCase() === 'TEMPORARY'
-        && String(assignmentMeta?.assignmentAvailableSinceDate || '').slice(0, 10)
+        String(assignmentMeta?.assignmentAvailableSinceDate || '').slice(0, 10)
         && String(assignmentMeta?.assignmentTemporaryUntilDate || '').slice(0, 10)
         && String(assignmentMeta?.assignmentAvailableSinceDate || '').slice(0, 10)
           === String(assignmentMeta?.assignmentTemporaryUntilDate || '').slice(0, 10)
@@ -1101,7 +1108,8 @@ export const getWeeklyGrid = async (req, res, next) => {
           const eh = Number(row.end_hour);
           const roomId = Number(row.room_id || 0) || null;
           if (!(wd >= 0 && wd <= 6) || !Number.isFinite(sh) || !Number.isFinite(eh) || eh <= sh) continue;
-          const dateForWeekday = days[wd];
+          const mondayFirstIdx = ((wd + 6) % 7); // 0=Sun..6=Sat -> Monday-first index
+          const dateForWeekday = days[mondayFirstIdx];
           if (!dateForWeekday) continue;
           if (!recurrenceMatchesDate({
             recurrence: requestedFrequency,

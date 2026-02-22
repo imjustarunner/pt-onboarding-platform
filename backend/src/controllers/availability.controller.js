@@ -32,9 +32,16 @@ function normalizeOfficeRequestRecurrence({ recurrenceRaw, occurrenceCountRaw })
 }
 
 function normalizeYmd(value) {
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return null;
+    return value.toISOString().slice(0, 10);
+  }
   const raw = String(value || '').trim();
   const m = raw.match(/^(\d{4}-\d{2}-\d{2})/);
-  return m ? m[1] : null;
+  if (m) return m[1];
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString().slice(0, 10);
 }
 
 function toYmd(d) {
@@ -54,6 +61,17 @@ function addDays(dateLike, days) {
   const d = new Date(dateLike);
   d.setDate(d.getDate() + Number(days || 0));
   return d;
+}
+
+function mysqlDateTimeForDateHour(dateYmd, hour24) {
+  const m = String(dateYmd || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]) - 1;
+  const d = Number(m[3]);
+  const hh = Number(hour24 || 0);
+  const dt = new Date(Date.UTC(y, mo, d, hh, 0, 0));
+  return dt.toISOString().slice(0, 19).replace('T', ' ');
 }
 
 async function resolveAgencyId(req) {
@@ -1306,8 +1324,12 @@ export const listOfficeAvailabilityRequests = async (req, res, next) => {
         }
       }
       const prefIds = (() => {
+        const raw = r.preferred_office_ids_json;
+        if (Array.isArray(raw)) return raw;
+        if (raw && typeof raw === 'object') return [];
+        if (!raw) return [];
         try {
-          const parsed = r.preferred_office_ids_json ? JSON.parse(r.preferred_office_ids_json) : [];
+          const parsed = JSON.parse(String(raw));
           return Array.isArray(parsed) ? parsed : [];
         } catch {
           return [];
@@ -1356,10 +1378,10 @@ export const assignTemporaryOfficeFromRequest = async (req, res, next) => {
     const requestId = parseIntSafe(req.params.id);
     const officeId = parseIntSafe(req.body?.officeId);
     const roomId = parseIntSafe(req.body?.roomId);
-    const weekday = parseIntSafe(req.body?.weekday);
-    const hour = parseIntSafe(req.body?.hour);
+    let weekday = parseIntSafe(req.body?.weekday);
+    let hour = parseIntSafe(req.body?.hour);
     const endHourRaw = parseIntSafe(req.body?.endHour);
-    const endHour = (endHourRaw != null && endHourRaw > hour) ? endHourRaw : hour + 1;
+    let endHour = (endHourRaw != null && endHourRaw > hour) ? endHourRaw : hour + 1;
     if (!requestId || !officeId || !roomId || weekday === null || hour === null) {
       return res.status(400).json({ error: { message: 'requestId, officeId, roomId, weekday, and hour are required' } });
     }
@@ -1425,19 +1447,35 @@ export const assignTemporaryOfficeFromRequest = async (req, res, next) => {
       : Math.max(0, requestOccurrenceCount - 1) * stepDays;
     const untilDate = toYmd(addDays(new Date(requestStartDate), lastOccurrenceOffsetDays));
 
-    // Enforce each hour in [hour, endHour) is within a submitted slot window
-    for (let h = hour; h < endHour; h++) {
-      const [slotRows] = await pool.execute(
-        `SELECT 1
-         FROM provider_office_availability_request_slots
-         WHERE request_id = ?
-           AND weekday = ?
-           AND start_hour <= ?
-           AND end_hour > ?
-         LIMIT 1`,
-        [requestId, weekday, h, h]
-      );
-      if (!slotRows?.[0]) return res.status(400).json({ error: { message: `Hour ${h} is not within the submitted availability window` } });
+    const [submittedSlotRows] = await pool.execute(
+      `SELECT weekday, start_hour, end_hour
+       FROM provider_office_availability_request_slots
+       WHERE request_id = ?
+       ORDER BY weekday ASC, start_hour ASC`,
+      [requestId]
+    );
+    const slotRows = Array.isArray(submittedSlotRows) ? submittedSlotRows : [];
+    const rowCoversHour = (row, wd, h) =>
+      Number(row?.weekday) === Number(wd)
+      && Number(row?.start_hour) <= Number(h)
+      && Number(row?.end_hour) > Number(h);
+    const requestWindowCovered = (wd, startH, endH) => {
+      for (let h = startH; h < endH; h++) {
+        if (!slotRows.some((row) => rowCoversHour(row, wd, h))) return false;
+      }
+      return true;
+    };
+
+    // Defensive fallback for historical UI day-shift bugs:
+    // if the submitted weekday/hour misses, but the request only has one slot window, trust stored slot.
+    if (!requestWindowCovered(weekday, hour, endHour) && slotRows.length === 1) {
+      const only = slotRows[0];
+      weekday = Number(only.weekday);
+      hour = Number(only.start_hour);
+      endHour = Number(only.end_hour);
+    }
+    if (!requestWindowCovered(weekday, hour, endHour)) {
+      return res.status(400).json({ error: { message: `Hour ${hour} is not within the submitted availability window` } });
     }
 
     const providerId = Number(reqRow.provider_id);
@@ -1461,7 +1499,7 @@ export const assignTemporaryOfficeFromRequest = async (req, res, next) => {
             `INSERT INTO office_standing_assignments
               (office_location_id, room_id, provider_id, weekday, hour, assigned_frequency,
                availability_mode, available_since_date, temporary_until_date, temporary_extension_count, last_two_week_confirmed_at, is_active, created_by_user_id)
-             VALUES (?, ?, ?, ?, ?, ?, 'TEMPORARY', ?, ?, 0, NOW(), TRUE, ?)`,
+             VALUES (?, ?, ?, ?, ?, ?, 'AVAILABLE', ?, ?, 0, NOW(), TRUE, ?)`,
             [officeId, roomId, providerId, weekday, h, freq, requestStartDate, untilDate, req.user.id]
           );
           assignmentId = ins.insertId;
@@ -1471,7 +1509,7 @@ export const assignTemporaryOfficeFromRequest = async (req, res, next) => {
               `INSERT INTO office_standing_assignments
                 (office_location_id, room_id, provider_id, weekday, hour, assigned_frequency,
                  availability_mode, available_since_date, temporary_until_date, last_two_week_confirmed_at, is_active, created_by_user_id)
-               VALUES (?, ?, ?, ?, ?, ?, 'TEMPORARY', ?, ?, NOW(), TRUE, ?)`,
+               VALUES (?, ?, ?, ?, ?, ?, 'AVAILABLE', ?, ?, NOW(), TRUE, ?)`,
               [officeId, roomId, providerId, weekday, h, freq, requestStartDate, untilDate, req.user.id]
             );
             assignmentId = ins.insertId;
@@ -1484,7 +1522,7 @@ export const assignTemporaryOfficeFromRequest = async (req, res, next) => {
           await conn.execute(
             `UPDATE office_standing_assignments
              SET office_location_id = ?,
-                 availability_mode = 'TEMPORARY',
+                 availability_mode = 'AVAILABLE',
                  available_since_date = ?,
                  temporary_until_date = ?,
                  temporary_extension_count = 0,
@@ -1499,7 +1537,7 @@ export const assignTemporaryOfficeFromRequest = async (req, res, next) => {
             await conn.execute(
               `UPDATE office_standing_assignments
                SET office_location_id = ?,
-                   availability_mode = 'TEMPORARY',
+                   availability_mode = 'AVAILABLE',
                    available_since_date = ?,
                    temporary_until_date = ?,
                    last_two_week_confirmed_at = NOW(),
@@ -1512,6 +1550,21 @@ export const assignTemporaryOfficeFromRequest = async (req, res, next) => {
             throw updErr;
           }
         }
+      }
+      // If this slot had a historical cancelled occurrence for this provider/assignment,
+      // clear that blocker so the fresh approval can materialize visibly.
+      const startAt = mysqlDateTimeForDateHour(requestStartDate, h);
+      const endAt = mysqlDateTimeForDateHour(requestStartDate, h + 1);
+      if (startAt && endAt) {
+        await conn.execute(
+          `DELETE FROM office_events
+           WHERE room_id = ?
+             AND start_at = ?
+             AND end_at = ?
+             AND UPPER(COALESCE(status, '')) = 'CANCELLED'
+             AND (assigned_provider_id = ? OR standing_assignment_id = ?)`,
+          [roomId, startAt, endAt, providerId, assignmentId]
+        );
       }
       assignmentIds.push(assignmentId);
     }

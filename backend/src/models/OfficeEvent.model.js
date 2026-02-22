@@ -28,6 +28,9 @@ class OfficeEvent {
     startAt,
     endAt,
     status,
+    slotState = null,
+    standingAssignmentId = null,
+    bookingPlanId = null,
     assignedProviderId = null,
     bookedProviderId = null,
     clientId = null,
@@ -50,14 +53,17 @@ class OfficeEvent {
     try {
       [result] = await pool.execute(
         `INSERT INTO office_events
-         (office_location_id, room_id, start_at, end_at, status, assigned_provider_id, booked_provider_id, client_id, clinical_session_id, note_context_id, billing_context_id, source, recurrence_group_id, notes, appointment_type_code, appointment_subtype_code, service_code, modality, created_by_user_id, approved_by_user_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (office_location_id, room_id, start_at, end_at, status, slot_state, standing_assignment_id, booking_plan_id, assigned_provider_id, booked_provider_id, client_id, clinical_session_id, note_context_id, billing_context_id, source, recurrence_group_id, notes, appointment_type_code, appointment_subtype_code, service_code, modality, created_by_user_id, approved_by_user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           officeLocationId,
           roomId,
           normalizedStartAt,
           normalizedEndAt,
           status,
+          slotState,
+          standingAssignmentId,
+          bookingPlanId,
           assignedProviderId,
           bookedProviderId,
           clientId,
@@ -79,14 +85,17 @@ class OfficeEvent {
       if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
       [result] = await pool.execute(
         `INSERT INTO office_events
-         (office_location_id, room_id, start_at, end_at, status, assigned_provider_id, booked_provider_id, source, recurrence_group_id, notes, created_by_user_id, approved_by_user_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (office_location_id, room_id, start_at, end_at, status, slot_state, standing_assignment_id, booking_plan_id, assigned_provider_id, booked_provider_id, source, recurrence_group_id, notes, created_by_user_id, approved_by_user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           officeLocationId,
           roomId,
           normalizedStartAt,
           normalizedEndAt,
           status,
+          slotState,
+          standingAssignmentId,
+          bookingPlanId,
           assignedProviderId,
           bookedProviderId,
           source,
@@ -161,6 +170,29 @@ class OfficeEvent {
       const existingCancelled = String(existing.status || '').toUpperCase() === 'CANCELLED';
       // Explicit cancellations/forfeits are authoritative and must never be resurrected.
       if (existingCancelled) {
+        const incomingStandingId = Number(standingAssignmentId || 0) || null;
+        const existingStandingId = Number(existing.standing_assignment_id || 0) || null;
+        // Allow a newly approved request (new standing assignment id) to create a fresh row
+        // even when a prior occurrence at the same slot was cancelled.
+        if (incomingStandingId && incomingStandingId !== existingStandingId) {
+          return await this.create({
+            officeLocationId,
+            roomId,
+            startAt: normalizedStartAt,
+            endAt: normalizedEndAt,
+            status: legacyStatus,
+            slotState,
+            standingAssignmentId,
+            bookingPlanId,
+            assignedProviderId,
+            bookedProviderId,
+            source: 'ADMIN_OVERRIDE',
+            recurrenceGroupId,
+            notes: null,
+            createdByUserId,
+            approvedByUserId: null
+          });
+        }
         return await this.findById(existing.id);
       }
       const existingIsBooked =
@@ -188,7 +220,10 @@ class OfficeEvent {
              assigned_provider_id = ?,
              booked_provider_id = ?,
              updated_at = CURRENT_TIMESTAMP
-         WHERE id = ?`,
+         WHERE room_id = ?
+           AND start_at = ?
+           AND end_at = ?
+           AND (status IS NULL OR UPPER(status) <> 'CANCELLED')`,
         [
           officeLocationId,
           roomId,
@@ -201,7 +236,9 @@ class OfficeEvent {
           recurrenceGroupId,
           assignedProviderId,
           effectiveBookedProviderId,
-          existing.id
+          roomId,
+          normalizedStartAt,
+          normalizedEndAt
         ]
       );
       return await this.findById(existing.id);
@@ -214,6 +251,9 @@ class OfficeEvent {
       startAt: normalizedStartAt,
       endAt: normalizedEndAt,
       status: legacyStatus,
+      slotState,
+      standingAssignmentId,
+      bookingPlanId,
       assignedProviderId,
       bookedProviderId,
       source: 'ADMIN_OVERRIDE',

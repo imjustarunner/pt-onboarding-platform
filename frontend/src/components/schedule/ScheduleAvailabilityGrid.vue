@@ -721,7 +721,7 @@
                 <div><strong>Duration:</strong> {{ officeRequestSummary.duration }}</div>
               </div>
               <label class="lbl">Frequency</label>
-              <select v-model="officeBookingRecurrence" class="input">
+              <select v-model="officeBookingRecurrence" class="input" :disabled="requestType === 'office' && modalIsOneTimeAssignedSlot">
                 <option value="ONCE">Once</option>
                 <option value="WEEKLY">Weekly</option>
                 <option value="BIWEEKLY">Biweekly</option>
@@ -775,6 +775,9 @@
               <label v-if="viewMode === 'office_layout'" class="lbl" style="margin-top: 10px;">Room</label>
               <div v-if="viewMode === 'office_layout' && officeGridLoading" class="muted">Loading rooms…</div>
               <div v-else-if="viewMode === 'office_layout' && officeGridError" class="error">{{ officeGridError }}</div>
+              <div v-else-if="viewMode === 'office_layout' && requestType === 'office' && modalLockRoomToAssigned" class="muted">
+                Assigned room is locked for this slot: <strong>{{ modalLockedRoomLabel }}</strong>.
+              </div>
               <div v-else-if="viewMode === 'office_layout' && (requestType === 'office' || requestType === 'individual_session' || requestType === 'group_session')" class="office-room-picker">
                 <label class="office-room-option">
                   <input type="radio" name="office-room" :value="0" v-model.number="selectedOfficeRoomId" />
@@ -1958,6 +1961,12 @@ const addDaysYmd = (ymd, daysToAdd) => {
   return localYmd(d);
 };
 
+const weekdayFromYmd = (ymd) => {
+  const d = toLocalDateNoon(String(ymd || '').slice(0, 10));
+  if (Number.isNaN(d.getTime())) return null;
+  return d.getDay(); // 0=Sun..6=Sat
+};
+
 const dayDateLabel = (dayName) => {
   const idx = ALL_DAYS.indexOf(String(dayName || ''));
   if (idx < 0) return '';
@@ -1982,16 +1991,16 @@ const dayNameForDateYmd = (dateYmd) => {
   const d = String(dateYmd || '').slice(0, 10);
   if (g && Array.isArray(g.days)) {
     const idx = g.days.findIndex((x) => String(x || '').slice(0, 10) === d);
-    if (idx >= 0) return SUNDAY_FIRST_DAYS[idx] || null;
+    if (idx >= 0) return ALL_DAYS[idx] || null;
   }
-  // Fallback: compute from weekStart (assumes same week; backend weekStart is Sunday)
+  // Fallback: compute from the visible weekStart (Monday-first grid).
   const ws = String(weekStart.value || '').slice(0, 10);
   const [y1, m1, d1] = ws.split('-').map(Number);
   const [y2, m2, d2] = d.split('-').map(Number);
   const a = new Date(y1, (m1 || 1) - 1, d1 || 1);
   const b = new Date(y2, (m2 || 1) - 1, d2 || 1);
   const diff = Math.floor((b - a) / (1000 * 60 * 60 * 24));
-  return SUNDAY_FIRST_DAYS[diff] ?? null;
+  return ALL_DAYS[diff] ?? null;
 };
 
 const onOfficeLayoutCellClick = ({ dateYmd, hour, roomId, slot, event }) => {
@@ -3420,6 +3429,11 @@ const modalContext = ref({
   officeEventId: null,
   officeLocationId: null,
   roomId: null,
+  assignedProviderId: null,
+  assignedFrequency: null,
+  frequencyLabel: null,
+  assignmentAvailableSinceDate: null,
+  assignmentTemporaryUntilDate: null,
   slotState: '',
   virtualIntakeEnabled: false,
   inPersonIntakeEnabled: false
@@ -3958,6 +3972,32 @@ const modalOfficeRoomOptions = computed(() => {
   return out.sort((a, b) => String(a.label).localeCompare(String(b.label)));
 });
 
+const modalSlotStateUpper = computed(() => String(modalContext.value?.slotState || '').toUpperCase());
+const modalIsAssignedSlot = computed(() => ['ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY', 'ASSIGNED_BOOKED'].includes(modalSlotStateUpper.value));
+const modalIsOwnedAssignedSlot = computed(() => {
+  if (!modalIsAssignedSlot.value) return false;
+  const actorId = Number(authStore.user?.id || 0);
+  const assignedId = Number(modalContext.value?.assignedProviderId || 0);
+  return actorId > 0 && assignedId > 0 && actorId === assignedId;
+});
+const modalIsOneTimeAssignedSlot = computed(() => {
+  if (!modalIsOwnedAssignedSlot.value) return false;
+  const freqLabel = String(modalContext.value?.frequencyLabel || '').trim().toLowerCase();
+  if (freqLabel === 'once') return true;
+  const since = String(modalContext.value?.assignmentAvailableSinceDate || '').slice(0, 10);
+  const until = String(modalContext.value?.assignmentTemporaryUntilDate || '').slice(0, 10);
+  return !!since && !!until && since === until;
+});
+const modalLockRoomToAssigned = computed(
+  () => String(requestType.value || '') === 'office' && modalIsOwnedAssignedSlot.value && Number(modalContext.value?.roomId || 0) > 0
+);
+const modalLockedRoomLabel = computed(() => {
+  const rid = Number(modalContext.value?.roomId || 0);
+  if (!rid) return 'Assigned room';
+  const opt = (modalOfficeRoomOptions.value || []).find((x) => Number(x.roomId) === rid);
+  return String(opt?.label || '').trim() || `Room ${rid}`;
+});
+
 const officeBookingValid = computed(() => {
   if (!['office', 'individual_session', 'group_session'].includes(String(requestType.value || ''))) return true;
   const officeId = Number(selectedOfficeLocationId.value || 0);
@@ -4494,8 +4534,13 @@ const buildModalContext = ({ dayName, hour, roomId = 0, slot = null, dateYmd = n
       || 0
     ) || null,
     roomId: Number(roomId || slot?.roomId || slot?.room_id || top?.roomId || 0) || null,
+    assignedProviderId: Number(slot?.assignedProviderId || top?.assignedProviderId || 0) || null,
+    assignedFrequency: String(slot?.assignedFrequency || top?.assignedFrequency || '').toUpperCase() || null,
+    frequencyLabel: String(slot?.frequencyLabel || top?.frequencyLabel || '').trim() || null,
     standingAssignmentId: Number(slot?.standingAssignmentId || top?.standingAssignmentId || 0) || null,
     assignmentAvailabilityMode: String(slot?.assignmentAvailabilityMode || top?.assignmentAvailabilityMode || '').toUpperCase() || null,
+    assignmentAvailableSinceDate: String(slot?.assignmentAvailableSinceDate || top?.assignmentAvailableSinceDate || '').slice(0, 10) || null,
+    assignmentTemporaryUntilDate: String(slot?.assignmentTemporaryUntilDate || top?.assignmentTemporaryUntilDate || '').slice(0, 10) || null,
     assignmentTemporaryExtensionCount: Number(slot?.assignmentTemporaryExtensionCount ?? top?.assignmentTemporaryExtensionCount ?? 0),
     slotState: rawState,
     virtualIntakeEnabled: (slot?.virtualIntakeEnabled === true) || (top?.virtualIntakeEnabled === true),
@@ -4584,6 +4629,10 @@ const openSlotActionModal = ({
   createAgendaDraftTitle.value = '';
   createAgendaDraftItems.value = [];
   modalContext.value = buildModalContext({ dayName: modalDay.value, hour: modalHour.value, roomId, slot, dateYmd });
+  if (modalLockRoomToAssigned.value) {
+    selectedOfficeRoomId.value = Number(modalContext.value?.roomId || 0) || 0;
+    officeBookingRecurrence.value = 'ONCE';
+  }
   const contextAgencyId = Number(modalContext.value?.agencyId || 0);
   if (contextAgencyId && effectiveAgencyIds.value.includes(contextAgencyId)) {
     selectedActionAgencyId.value = contextAgencyId;
@@ -5562,7 +5611,9 @@ const submitRequest = async () => {
       const officeId = Number(selectedOfficeLocationId.value || 0);
       if (!officeId) throw new Error('Select an office first.');
       if (!officeBookingValid.value) throw new Error('Select an available room (or choose “Any open room”).');
-      const recurrence = String(officeBookingRecurrence.value || 'ONCE');
+      const recurrence = modalIsOneTimeAssignedSlot.value
+        ? 'ONCE'
+        : String(officeBookingRecurrence.value || 'ONCE');
       const recurringRecurrences = ['WEEKLY', 'BIWEEKLY', 'MONTHLY'];
       const occurrenceCount = recurringRecurrences.includes(recurrence)
         ? Math.min(104, Math.max(1, Number(officeBookingOccurrenceCount.value) || 6))
@@ -5692,14 +5743,16 @@ const submitRequest = async () => {
       }));
       const roomIds = [...new Set(targets.map((t) => Number(t.roomId || 0)).filter((n) => n > 0))];
       const singleRoomId = roomIds.length === 1 ? roomIds[0] : 0;
-      const dayToHours = new Map();
+      const dateToHours = new Map();
       for (const t of targets) {
-        const day = String(t.dayName || dayNameForDateYmd(t.dateYmd) || dn);
-        if (!dayToHours.has(day)) dayToHours.set(day, []);
-        dayToHours.get(day).push(Number(t.hour || h));
+        const dateKey = String(t.dateYmd || baseDateYmd).slice(0, 10);
+        if (!dateToHours.has(dateKey)) dateToHours.set(dateKey, []);
+        dateToHours.get(dateKey).push(Number(t.hour || h));
       }
       const slots = [];
-      for (const [day, hoursList] of dayToHours.entries()) {
+      for (const [dateYmdKey, hoursList] of dateToHours.entries()) {
+        const weekday = weekdayFromYmd(dateYmdKey);
+        if (!(weekday >= 0 && weekday <= 6)) continue;
         const uniq = Array.from(new Set(hoursList)).sort((a, b) => a - b);
         let start = null;
         let prev = null;
@@ -5714,7 +5767,7 @@ const submitRequest = async () => {
             continue;
           }
           slots.push({
-            weekday: ((ALL_DAYS.indexOf(day) + 1) % 7),
+            weekday,
             startHour: start,
             endHour: prev + 1,
             roomId: singleRoomId || undefined
@@ -5724,7 +5777,7 @@ const submitRequest = async () => {
         }
         if (start !== null) {
           slots.push({
-            weekday: ((ALL_DAYS.indexOf(day) + 1) % 7),
+            weekday,
             startHour: start,
             endHour: prev + 1,
             roomId: singleRoomId || undefined
@@ -5740,6 +5793,8 @@ const submitRequest = async () => {
         requestedStartDate: baseDateYmd,
         slots
       });
+      forceRefreshSummary = true;
+      invalidateScheduleSummaryCacheForUser(props.userId);
       await loadSelectedOfficeGrid();
     } else if (requestType.value === 'school') {
       if (isAdminMode.value) throw new Error('School availability requests must be created from the provider schedule.');
@@ -5989,6 +6044,12 @@ watch(requestType, (t) => {
     }
   }
   ensureModalEndTimeValid();
+});
+
+watch([modalLockRoomToAssigned, () => modalContext.value?.roomId], ([locked, roomId]) => {
+  if (!locked) return;
+  selectedOfficeRoomId.value = Number(roomId || 0) || 0;
+  officeBookingRecurrence.value = 'ONCE';
 });
 
 watch(supervisionSessionType, (nextType) => {

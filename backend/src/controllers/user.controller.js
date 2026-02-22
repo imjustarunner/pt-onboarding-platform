@@ -2106,10 +2106,13 @@ function toMysqlDateTimeWall(value) {
   const pad2 = (n) => String(n).padStart(2, '0');
   const formatLocalParts = (d) =>
     `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+  const formatUtcParts = (d) =>
+    `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())} ${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}:${pad2(d.getUTCSeconds())}`;
 
   if (value instanceof Date) {
     if (Number.isNaN(value.getTime())) return null;
-    return formatLocalParts(value);
+    // mysql2 returns DATETIME columns as Date objects interpreted in UTC; keep wall time stable.
+    return formatUtcParts(value);
   }
 
   const raw = String(value || '').trim();
@@ -2153,7 +2156,7 @@ function toDisplayStatus({ status, slotState }) {
   const st = String(status || '').trim().toUpperCase();
   const ss = String(slotState || '').trim().toUpperCase();
   if (st === 'BOOKED' || ss === 'ASSIGNED_BOOKED') return 'BOOKED';
-  if (ss === 'ASSIGNED_TEMPORARY') return 'TEMPORARY';
+  if (ss === 'ASSIGNED_TEMPORARY') return 'AVAILABLE';
   if (st === 'RELEASED' || ss === 'ASSIGNED_AVAILABLE') return 'AVAILABLE';
   if (st === 'CANCELLED') return 'CANCELED';
   return 'UNKNOWN';
@@ -2163,7 +2166,6 @@ function defaultAppointmentTypeForSlot({ status, slotState }) {
   const displayStatus = toDisplayStatus({ status, slotState });
   if (displayStatus === 'BOOKED') return 'SESSION';
   if (displayStatus === 'AVAILABLE') return 'AVAILABLE_SLOT';
-  if (displayStatus === 'TEMPORARY') return 'SCHEDULE_BLOCK';
   return 'EVENT';
 }
 
@@ -2337,11 +2339,19 @@ export const getUserScheduleSummary = async (req, res, next) => {
            ORDER BY weekday ASC, start_hour ASC`,
           [r.id]
         );
+        const preferredOfficeIdsRaw = r.preferred_office_ids_json;
+        const preferredOfficeIds = Array.isArray(preferredOfficeIdsRaw)
+          ? preferredOfficeIdsRaw
+          : (typeof preferredOfficeIdsRaw === 'string' && preferredOfficeIdsRaw.trim()
+            ? (() => {
+                try { return JSON.parse(preferredOfficeIdsRaw); } catch { return []; }
+              })()
+            : []);
         officeRequests.push({
           id: r.id,
           notes: r.notes || '',
           createdAt: r.created_at,
-          preferredOfficeIds: r.preferred_office_ids_json ? JSON.parse(r.preferred_office_ids_json) : [],
+          preferredOfficeIds: Array.isArray(preferredOfficeIds) ? preferredOfficeIds : [],
           slots: (slotRows || []).map((s) => ({ weekday: s.weekday, startHour: s.start_hour, endHour: s.end_hour }))
         });
       }
