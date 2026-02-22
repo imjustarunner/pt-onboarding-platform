@@ -1849,8 +1849,55 @@ export const forfeitEvent = async (req, res, next) => {
       return res.json({ ok: true, scope: 'occurrence', event: updated });
     }
 
-    const standingAssignmentId = Number(ev.standing_assignment_id || 0) || null;
-    const recurrenceGroupId = ev.recurrence_group_id || null;
+    let standingAssignmentId = Number(ev.standing_assignment_id || 0) || null;
+    let recurrenceGroupId = ev.recurrence_group_id || null;
+    if (!standingAssignmentId) {
+      const bookingPlanId = Number(ev.booking_plan_id || 0) || null;
+      if (bookingPlanId) {
+        const [rows] = await pool.execute(
+          `SELECT standing_assignment_id AS id
+           FROM office_booking_plans
+           WHERE id = ?
+             AND standing_assignment_id IS NOT NULL
+           LIMIT 1`,
+          [bookingPlanId]
+        );
+        standingAssignmentId = Number(rows?.[0]?.id || 0) || null;
+      }
+    }
+    if (!standingAssignmentId) {
+      const providerIdFallback = Number(ev.assigned_provider_id || ev.booked_provider_id || 0) || null;
+      const roomIdFallback = Number(ev.room_id || 0) || null;
+      const wh = weekdayHourFromSqlDateTime(startAt);
+      if (providerIdFallback && roomIdFallback && wh) {
+        const [rows] = await pool.execute(
+          `SELECT id, recurrence_group_id
+           FROM office_standing_assignments
+           WHERE office_location_id = ?
+             AND room_id = ?
+             AND provider_id = ?
+             AND weekday = ?
+             AND hour = ?
+           ORDER BY is_active DESC, id DESC
+           LIMIT 1`,
+          [officeLocationId, roomIdFallback, providerIdFallback, wh.weekdayIndex, wh.hour]
+        );
+        if (rows?.[0]) {
+          standingAssignmentId = Number(rows[0].id || 0) || null;
+          if (!recurrenceGroupId && rows[0].recurrence_group_id) recurrenceGroupId = rows[0].recurrence_group_id;
+        }
+      }
+    }
+    if (!recurrenceGroupId && standingAssignmentId) {
+      const [rows] = await pool.execute(
+        `SELECT recurrence_group_id
+         FROM office_standing_assignments
+         WHERE id = ?
+         LIMIT 1`,
+        [standingAssignmentId]
+      );
+      recurrenceGroupId = rows?.[0]?.recurrence_group_id || null;
+    }
     if (!standingAssignmentId && !recurrenceGroupId) {
       const updated = await OfficeEvent.cancelOccurrence({ eventId: eid });
       await ProviderVirtualSlotAvailability.deactivateBySourceEventId(eid);

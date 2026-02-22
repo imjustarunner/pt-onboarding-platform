@@ -163,7 +163,16 @@ class OfficeEvent {
       const incomingStandingAssignmentId = Number(standingAssignmentId || 0) || null;
       // Preserve explicit one-off forfeits/cancellations for standing-assignment-generated events.
       // Without this guard, weekly materialization resurrects cancelled single occurrences.
-      if (existingCancelled && existingStandingAssignmentId && incomingStandingAssignmentId && existingStandingAssignmentId === incomingStandingAssignmentId) {
+      const sameStandingAssignment =
+        existingStandingAssignmentId
+          && incomingStandingAssignmentId
+          && existingStandingAssignmentId === incomingStandingAssignmentId;
+      const sameProviderLegacyLink =
+        !existingStandingAssignmentId
+          && incomingStandingAssignmentId
+          && Number(existing.assigned_provider_id || 0) > 0
+          && Number(existing.assigned_provider_id || 0) === Number(assignedProviderId || 0);
+      if (existingCancelled && (sameStandingAssignment || sameProviderLegacyLink)) {
         return await this.findById(existing.id);
       }
       const existingIsBooked =
