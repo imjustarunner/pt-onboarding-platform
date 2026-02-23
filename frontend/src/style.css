@@ -129,6 +129,21 @@
 [data-theme="dark"] .nav-dropdown-sep {
   background-color: var(--border);
 }
+/* Brand menu (Switch Brand dropdown) - full dark mode */
+[data-theme="dark"] .brand-menu {
+  background-color: var(--bg);
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+[data-theme="dark"] .brand-menu-title {
+  color: var(--text-primary);
+}
+[data-theme="dark"] .brand-menu-section {
+  color: var(--text-secondary);
+}
+[data-theme="dark"] .brand-option {
+  color: var(--text-primary);
+}
 [data-theme="dark"] .brand-option:hover {
   background-color: var(--bg-alt);
   border-color: var(--border);
@@ -137,6 +152,50 @@
   background-color: rgba(99, 102, 241, 0.2);
   border-color: var(--accent);
   color: var(--text-primary);
+}
+
+/* AgencySelector (Organization dropdown) dark mode */
+[data-theme="dark"] .agency-selector {
+  background-color: var(--bg);
+  border-color: var(--border);
+}
+[data-theme="dark"] .agency-selector .selector-group label {
+  color: var(--text-primary);
+}
+[data-theme="dark"] .agency-selector .selector {
+  background-color: var(--bg);
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+[data-theme="dark"] .agency-selector .selector option {
+  background-color: var(--bg);
+  color: var(--text-primary);
+}
+[data-theme="dark"] .agency-selector .portal-cards-header {
+  color: var(--text-secondary);
+}
+[data-theme="dark"] .agency-selector .portal-card {
+  background-color: var(--bg);
+  border-color: var(--border);
+}
+[data-theme="dark"] .agency-selector .portal-card:hover {
+  border-color: var(--border);
+  background-color: var(--bg-alt);
+}
+[data-theme="dark"] .agency-selector .portal-card.active {
+  border-color: var(--accent);
+}
+[data-theme="dark"] .agency-selector .portal-card-name,
+[data-theme="dark"] .agency-selector .portal-card-type {
+  color: var(--text-primary);
+}
+[data-theme="dark"] .agency-selector .portal-card-logo-fallback {
+  background-color: var(--bg-alt);
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+[data-theme="dark"] .agency-selector .portal-card-cta {
+  color: var(--accent, #818cf8);
 }
 
 [data-theme="dark"] .stat-card {

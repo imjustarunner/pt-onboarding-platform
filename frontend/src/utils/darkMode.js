@@ -30,6 +30,9 @@ export function getStoredDarkMode(userId) {
   if (userId) {
     const val = getFromStorage(`${STORAGE_KEY}:${userId}`);
     if (val !== null) return val;
+    // Don't fall back to global key for logged-in users - prevents switching to
+    // another user's preference when returning to dashboard
+    return null;
   }
   return getFromStorage(FALLBACK_KEY);
 }
