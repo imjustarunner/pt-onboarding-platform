@@ -178,8 +178,8 @@ const dashboardTour = {
     {
       element: '[data-tour="dash-rail-card-social_feeds"]',
       popover: {
-        title: 'Social feeds',
-        description: 'Organization social and school feed content in one place.',
+        title: 'Feed',
+        description: 'Organization feed and school updates in one place.',
         side: 'right',
         align: 'center'
       }

@@ -235,7 +235,7 @@
       data-tour="dash-social-feeds"
     >
       <div class="top-snapshot-head">
-        <div class="top-snapshot-title">Social &amp; feeds</div>
+        <div class="top-snapshot-title">Feed</div>
         <button type="button" class="btn btn-secondary btn-sm top-snapshot-toggle" @click="toggleSocialFeedsCollapsed">
           {{ socialFeedsCollapsed ? 'Expand' : 'Collapse' }}
         </button>
@@ -255,14 +255,29 @@
     </div>
 
     <!-- Dashboard Shell: left rail + right detail -->
-    <div class="dashboard-shell" :class="{ 'schedule-focus': activeTab === 'my_schedule' }">
+    <div
+      class="dashboard-shell"
+      :class="{
+        'schedule-focus': activeTab === 'my_schedule',
+        'rail-expanded': !railEffectiveCollapsed
+      }"
+    >
       <div
-        data-tour="dash-rail"
-        class="dashboard-rail"
-        :class="{ disabled: previewMode, 'rail-collapsed': railCollapsedMode, 'rail-pulse': railPulse }"
-        role="navigation"
-        aria-label="Dashboard sections"
+        class="dashboard-rail-wrap"
+        @mouseenter="railHoverExpanded = true"
+        @mouseleave="railHoverExpanded = false"
       >
+        <div
+          data-tour="dash-rail"
+          class="dashboard-rail"
+          :class="{
+            disabled: previewMode,
+            'rail-collapsed': railEffectiveCollapsed,
+            'rail-pulse': railPulse
+          }"
+          role="navigation"
+          aria-label="Dashboard sections"
+        >
         <div
           v-for="card in railCards"
           :key="card.id"
@@ -328,6 +343,26 @@
             </div>
           </div>
         </div>
+        <button
+          v-if="railEffectiveCollapsed"
+          type="button"
+          class="rail-expand-btn"
+          title="Expand to see labels"
+          aria-label="Expand navigation to see labels"
+          @click="railExpandPinned = true"
+        >
+          ◀ Expand
+        </button>
+        <button
+          v-else-if="railExpandPinned && railCollapsedMode"
+          type="button"
+          class="rail-expand-btn rail-collapse-btn"
+          title="Collapse to icons only"
+          aria-label="Collapse navigation"
+          @click="railExpandPinned = false"
+        >
+          Collapse ▶
+        </button>
       </div>
 
       <div class="dashboard-detail">
@@ -764,7 +799,7 @@
             <p v-if="activeTab === 'my'" class="preview-text">My account content preview</p>
             <p v-if="activeTab === 'submit'" class="preview-text">Submit content preview</p>
             <p v-if="activeTab === 'on_demand_training'" class="preview-text">On-demand training content preview</p>
-            <p v-if="activeTab === 'social_feeds'" class="preview-text">Social feeds content preview</p>
+            <p v-if="activeTab === 'social_feeds'" class="preview-text">Feed content preview</p>
             <p v-if="activeTab === 'supervision'" class="preview-text">Supervision content preview</p>
             <p v-if="activeTab === 'providers'" class="preview-text">Providers content preview</p>
           </div>
@@ -920,6 +955,15 @@ const showSkillBuilderModal = ref(false);
 const showSkillBuildersAvailabilityModal = ref(false);
 
 const railCollapsedMode = ref(false);
+const railHoverExpanded = ref(false);
+const RAIL_EXPAND_PINNED_KEY = 'dashboard.railExpandPinned.v1';
+const railExpandPinned = ref((() => {
+  try {
+    return window?.localStorage?.getItem?.(RAIL_EXPAND_PINNED_KEY) === '1';
+  } catch {
+    return false;
+  }
+})());
 const prefersReducedMotion = typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const railPulse = ref(!prefersReducedMotion);
 const RAIL_PULSE_DURATION_MS = 2500;
@@ -1900,11 +1944,11 @@ const dashboardCards = computed(() => {
     if (role === 'super_admin') {
       cards.push({
         id: 'social_feeds',
-        label: 'Social feeds',
+        label: 'Feed',
         kind: 'content',
         badgeCount: 0,
         iconUrl: brandingStore.getDashboardCardIconUrl('social_feeds', cardIconOrgOverride),
-        description: 'Social and school feeds from your organization.'
+        description: 'Organization feed and school updates in one place.'
       });
     }
 
@@ -2613,6 +2657,17 @@ function updateRailCollapsedMode() {
   const narrow = typeof window !== 'undefined' && window.matchMedia('(max-width: 980px)').matches;
   railCollapsedMode.value = narrow || activeTab.value === 'my_schedule';
 }
+
+// Effective collapsed: auto-collapsed but not when user pinned expand or hovering.
+const railEffectiveCollapsed = computed(() =>
+  railCollapsedMode.value && !railExpandPinned.value && !railHoverExpanded.value
+);
+
+watch(railExpandPinned, (v) => {
+  try {
+    window?.localStorage?.setItem?.(RAIL_EXPAND_PINNED_KEY, v ? '1' : '0');
+  } catch { /* ignore */ }
+});
 let railPulseTimer = null;
 let railMediaQuery = null;
 onUnmounted(() => {
@@ -2823,6 +2878,32 @@ h1 {
 }
 .dashboard-shell.schedule-focus {
   grid-template-columns: 88px minmax(0, 1fr);
+}
+.dashboard-shell.schedule-focus.rail-expanded {
+  grid-template-columns: 320px minmax(0, 1fr);
+}
+
+.dashboard-rail-wrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.rail-expand-btn {
+  align-self: flex-start;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--primary);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.rail-expand-btn:hover {
+  background: var(--bg-hover, #f5f5f5);
+  border-color: var(--primary);
 }
 .dashboard-shell.schedule-focus .dashboard-rail {
   max-height: calc(100vh - 24px);
@@ -3262,6 +3343,9 @@ h1 {
 @media (max-width: 980px) {
   .dashboard-shell {
     grid-template-columns: 72px minmax(0, 1fr);
+  }
+  .dashboard-shell.rail-expanded {
+    grid-template-columns: 320px minmax(0, 1fr);
   }
   .dashboard-rail {
     width: 72px;

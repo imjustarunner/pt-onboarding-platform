@@ -1,7 +1,7 @@
 <template>
   <div class="social-feeds-panel">
     <div class="section-header">
-      <h2 style="margin: 0;">Social &amp; feeds</h2>
+      <h2 style="margin: 0;">Feed</h2>
     </div>
     <div v-if="loading" class="muted">Loading feeds…</div>
     <div v-else-if="error" class="error">{{ error }}</div>
