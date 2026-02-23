@@ -2701,10 +2701,9 @@ watch([activeTab, currentAgencyId, () => authStore.user?.id], async () => {
   await fetchSuperviseesForSchedule();
 }, { immediate: true });
 
-// Collapse rail to icon-only when schedule needs more width or viewport is narrow.
+// Collapse rail to icon-only for all dashboard views; expand on hover.
 function updateRailCollapsedMode() {
-  const narrow = typeof window !== 'undefined' && window.matchMedia('(max-width: 980px)').matches;
-  railCollapsedMode.value = narrow || activeTab.value === 'my_schedule';
+  railCollapsedMode.value = true;
 }
 
 // Effective collapsed: auto-collapsed but not when user pinned expand or hovering.
