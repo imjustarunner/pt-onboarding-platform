@@ -608,6 +608,44 @@ const loadTemplates = async () => {
   await refreshOrganizationLookup(agencyIds);
 };
 
+/**
+ * Fuzzy score: matches letters even out of order, with most relevant first.
+ * - Exact substring match: highest score
+ * - Letters in order: high score
+ * - All letters present (any order): lower score
+ */
+function fuzzyScore(text, query) {
+  const t = String(text || '').toLowerCase();
+  const q = String(query || '').trim().toLowerCase();
+  if (!q) return { score: 1, inOrder: true };
+  const chars = q.split('').filter(Boolean);
+  if (!chars.length) return { score: 1, inOrder: true };
+  const allPresent = chars.every((c) => t.includes(c));
+  if (!allPresent) return { score: 0, inOrder: false };
+  const matched = [];
+  let cursor = 0;
+  for (const c of chars) {
+    const idx = t.indexOf(c, cursor);
+    if (idx === -1) {
+      const fallback = t.indexOf(c);
+      if (fallback === -1) return { score: 0, inOrder: false };
+      matched.push(fallback);
+      cursor = fallback + 1;
+    } else {
+      matched.push(idx);
+      cursor = idx + 1;
+    }
+  }
+  const inOrder = matched.every((idx, i) => i === 0 || idx > matched[i - 1]);
+  const contiguousBonus = inOrder && chars.length > 1
+    ? (t.includes(q) ? 2 : 1)
+    : 0;
+  return {
+    score: (inOrder ? 3 : 2) + contiguousBonus,
+    inOrder
+  };
+}
+
 const getFilteredTemplates = () => {
   let filtered = templates.value;
 
@@ -623,7 +661,7 @@ const getFilteredTemplates = () => {
 
   const query = String(filterQuery.value || '').trim().toLowerCase();
   if (query) {
-    filtered = filtered.filter((t) => {
+    const scored = filtered.map((t) => {
       const agencyName = t?.agency_id !== null && t?.agency_id !== undefined ? getAgencyName(t.agency_id) : 'platform';
       const orgName = t?.organization_id ? getOrganizationName(t.organization_id) : '';
       const haystack = [
@@ -637,8 +675,17 @@ const getFilteredTemplates = () => {
         .filter(Boolean)
         .join(' ')
         .toLowerCase();
-      return haystack.includes(query);
+      const s1 = fuzzyScore(haystack, query);
+      const s2 = fuzzyScore(t?.name || '', query);
+      const score = Math.max(s1.score, s2.score);
+      return { template: t, score };
+    }).filter((x) => x.score > 0);
+
+    scored.sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return String(a.template?.name || '').localeCompare(String(b.template?.name || ''));
     });
+    filtered = scored.map((x) => x.template);
   }
 
   // Status filter is handled by backend, so we don't need to filter client-side
