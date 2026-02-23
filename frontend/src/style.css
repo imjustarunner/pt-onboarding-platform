@@ -54,12 +54,13 @@
 }
 
 /* Dark theme (when user enables in preferences) */
+/* Softer greys for eye comfort – avoid harsh whites */
 [data-theme="dark"] {
   --bg: #1a1d21;
   --bg-alt: #25282c;
-  --text-primary: #e2e8f0;
+  --text-primary: #cbd5e1;
   --text-secondary: #94a3b8;
-  --border: #334155;
+  --border: #475569;
   --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -1px rgba(0, 0, 0, 0.2);
   --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.3), 0 4px 6px -2px rgba(0, 0, 0, 0.2);
   --plottwistco-bg-alt: #25282c;
@@ -209,6 +210,74 @@
   background-color: var(--bg);
   border-color: var(--border);
   color: var(--text-primary);
+}
+
+/* School Overview: cards, inputs, stat boxes */
+[data-theme="dark"] .school-card,
+[data-theme="dark"] .portal-card {
+  background-color: var(--bg) !important;
+  border-color: var(--border);
+}
+[data-theme="dark"] .control-input,
+[data-theme="dark"] .control-select {
+  background-color: var(--bg) !important;
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+[data-theme="dark"] .empty-state {
+  background-color: var(--bg) !important;
+  border-color: var(--border);
+  color: var(--text-secondary);
+}
+/* Stat labels/values: use softer greys, not harsh white */
+[data-theme="dark"] .stat .stat-label {
+  color: var(--text-secondary);
+}
+[data-theme="dark"] .stat .stat-value {
+  color: var(--text-primary);
+}
+[data-theme="dark"] .stat-comments .stat-label,
+[data-theme="dark"] .stat-comments .stat-value {
+  color: #34d399;
+}
+[data-theme="dark"] .stat-messages .stat-label,
+[data-theme="dark"] .stat-messages .stat-value {
+  color: #93c5fd;
+}
+[data-theme="dark"] .stat-notifications .stat-label,
+[data-theme="dark"] .stat-notifications .stat-value {
+  color: #7dd3fc;
+}
+[data-theme="dark"] .stat-value.attention {
+  color: #7dd3fc;
+}
+[data-theme="dark"] .stat-value.danger {
+  color: #f87171;
+}
+[data-theme="dark"] .district-btn {
+  background: rgba(16, 185, 129, 0.15);
+  border-color: rgba(16, 185, 129, 0.4);
+  color: #6ee7b7;
+}
+[data-theme="dark"] .district-btn.active {
+  background: rgba(16, 185, 129, 0.25);
+  border-color: rgba(16, 185, 129, 0.6);
+  color: #a7f3d0;
+}
+[data-theme="dark"] .pill-warn {
+  background: rgba(245, 158, 11, 0.2);
+  border-color: rgba(245, 158, 11, 0.5);
+  color: #fcd34d;
+}
+[data-theme="dark"] .pill-accent {
+  background: rgba(249, 115, 22, 0.2);
+  border-color: rgba(249, 115, 22, 0.5);
+  color: #fdba74;
+}
+[data-theme="dark"] .pill-sg-badge {
+  background: rgba(16, 185, 129, 0.2);
+  border-color: rgba(16, 185, 129, 0.5);
+  color: #6ee7b7;
 }
 
 /* Layout density (user preference) */
