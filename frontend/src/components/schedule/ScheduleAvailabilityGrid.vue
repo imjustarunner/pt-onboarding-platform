@@ -7077,6 +7077,13 @@ watch([modalHour, modalEndHour, modalStartMinute, modalEndMinute, canUseQuarterH
   }
   ensureModalEndTimeValid();
 }, { immediate: true });
+
+/** Snap back to Open finder view (main schedule grid). Called when user clicks "My schedule" tab. */
+const resetToOpenFinder = () => {
+  viewMode.value = 'open_finder';
+};
+
+defineExpose({ resetToOpenFinder });
 </script>
 
 <style scoped>

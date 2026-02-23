@@ -392,7 +392,7 @@
                     type="button"
                     class="btn btn-secondary btn-sm"
                     :class="{ active: scheduleViewMode === 'self' }"
-                    @click="scheduleViewMode = 'self'"
+                    @click="onMyScheduleClick"
                   >
                     My schedule
                   </button>
@@ -471,6 +471,7 @@
                 @update:weekStartYmd="onScheduleWeekStartUpdate"
               />
               <ScheduleAvailabilityGrid
+                ref="scheduleGridRef"
                 v-else-if="authStore.user?.id && scheduleGridUserId"
                 :user-id="scheduleGridUserId"
                 :agency-id="scheduleViewMode === 'self' ? null : Number(currentAgencyId)"
@@ -836,7 +837,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
+import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../store/auth';
 import { useAgencyStore } from '../store/agency';
@@ -1054,6 +1055,13 @@ const closeLastPaycheckModal = () => {
 // Supervisor schedule picker (inside My Schedule card)
 const scheduleViewMode = ref('self'); // 'self' | 'supervisee'
 const myScheduleStageRef = ref(null);
+const scheduleGridRef = ref(null);
+
+/** When clicking "My schedule" tab: switch to self view and snap to Open finder (main page). */
+const onMyScheduleClick = () => {
+  scheduleViewMode.value = 'self';
+  nextTick(() => scheduleGridRef.value?.resetToOpenFinder?.());
+};
 const scheduleFullscreenActive = ref(false);
 const superviseesLoading = ref(false);
 const superviseesError = ref('');
