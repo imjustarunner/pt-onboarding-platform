@@ -198,7 +198,10 @@ export const useBrandingStore = defineStore('branding', () => {
     }
     
     try {
-      const response = await api.get(`/agencies/portal/${portalUrl}/theme`);
+      const response = await api.get(`/agencies/portal/${portalUrl}/theme`, {
+        skipGlobalLoading: true,
+        timeout: 15000
+      });
       portalTheme.value = response.data;
       portalAgency.value = {
         name: response.data.agencyName,
@@ -326,46 +329,61 @@ export const useBrandingStore = defineStore('branding', () => {
     }
   };
   
+  // In-flight guard: deduplicate concurrent initializePortalTheme calls (avoids canceled requests).
+  let portalThemeInitPromise = null;
+
   // Initialize portal theme on app load
   const initializePortalTheme = async () => {
-    // 1) Subdomain pattern: <portal>.app.<base-domain>
-    const subdomainPortal = getPortalUrl();
-    if (subdomainPortal) {
-      portalHostPortalUrl.value = subdomainPortal;
-      await fetchAgencyTheme(subdomainPortal);
-      return;
-    }
+    if (portalThemeInitPromise) return portalThemeInitPromise;
 
-    // 2) Custom domain pattern: app.agency2.com -> resolve via backend by Host header.
-    try {
-      const host = window.location.hostname;
-      const cacheKey = `__pt_portal_host__:${host}`;
-      const cachedRaw = sessionStorage.getItem(cacheKey);
-      if (cachedRaw) {
-        const cached = JSON.parse(cachedRaw);
-        const cachedPortal = String(cached?.portalUrl || '').trim();
-        if (cachedPortal) {
-          portalHostPortalUrl.value = cachedPortal;
-          await fetchAgencyTheme(cachedPortal);
+    portalThemeInitPromise = (async () => {
+      try {
+        // 1) Subdomain pattern: <portal>.app.<base-domain>
+        const subdomainPortal = getPortalUrl();
+        if (subdomainPortal) {
+          portalHostPortalUrl.value = subdomainPortal;
+          await fetchAgencyTheme(subdomainPortal);
           return;
         }
-      }
 
-      // Call backend (same-origin) to resolve host -> portalUrl
-      const resp = await api.get('/agencies/resolve', { params: { _t: Date.now() } });
-      const resolved = String(resp?.data?.portalUrl || '').trim();
-      if (resolved) {
-        portalHostPortalUrl.value = resolved;
-        try {
-          sessionStorage.setItem(cacheKey, JSON.stringify({ portalUrl: resolved, ts: Date.now() }));
-        } catch {
-          // ignore
+        // 2) Custom domain pattern: app.agency2.com -> resolve via backend by Host header.
+        const host = window.location.hostname;
+        const cacheKey = `__pt_portal_host__:${host}`;
+        const cachedRaw = sessionStorage.getItem(cacheKey);
+        if (cachedRaw) {
+          const cached = JSON.parse(cachedRaw);
+          const cachedPortal = String(cached?.portalUrl || '').trim();
+          if (cachedPortal) {
+            portalHostPortalUrl.value = cachedPortal;
+            await fetchAgencyTheme(cachedPortal);
+            return;
+          }
         }
-        await fetchAgencyTheme(resolved);
+
+        // Call backend (same-origin) to resolve host -> portalUrl
+        const resp = await api.get('/agencies/resolve', {
+          params: { _t: Date.now() },
+          skipGlobalLoading: true,
+          timeout: 15000
+        });
+        const resolved = String(resp?.data?.portalUrl || '').trim();
+        if (resolved) {
+          portalHostPortalUrl.value = resolved;
+          try {
+            sessionStorage.setItem(cacheKey, JSON.stringify({ portalUrl: resolved, ts: Date.now() }));
+          } catch {
+            // ignore
+          }
+          await fetchAgencyTheme(resolved);
+        }
+      } catch {
+        // best effort; do not block app load
+      } finally {
+        portalThemeInitPromise = null;
       }
-    } catch {
-      // best effort; do not block app load
-    }
+    })();
+
+    return portalThemeInitPromise;
   };
 
   // Primary color based on branding mode

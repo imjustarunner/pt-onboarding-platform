@@ -131,8 +131,14 @@ async function bootstrap() {
   const isLogin = path === '/login';
 
   // Best-effort: initialize portal theme based on host (subdomain or custom domain).
-  // This enables branded /login on custom domains like app.agency2.com.
-  await brandingStore.initializePortalTheme();
+  // Run in background; do NOT block app mount. Slow resolve/theme (e.g. 30s) caused white screen.
+  // App renders with platform defaults; theme applies when ready.
+  const portalThemeInit = brandingStore.initializePortalTheme();
+  const PORTAL_THEME_TIMEOUT_MS = 6000;
+  await Promise.race([
+    portalThemeInit,
+    new Promise((r) => setTimeout(r, PORTAL_THEME_TIMEOUT_MS))
+  ]).catch(() => {});
 
   const isPlatformLogin = isLogin && !brandingStore.portalHostPortalUrl;
 
