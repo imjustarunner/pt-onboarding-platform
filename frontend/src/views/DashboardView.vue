@@ -364,7 +364,7 @@
         >
           Collapse ▶
         </button>
-        <div v-if="authStore.user?.id && !previewMode" class="rail-dark-mode-toggle" :class="{ 'rail-collapsed': railEffectiveCollapsed }">
+        <div v-if="authStore.user?.id && !previewMode && !isSchoolStaff" class="rail-dark-mode-toggle" :class="{ 'rail-collapsed': railEffectiveCollapsed }">
           <label class="rail-dark-mode-label" :title="isDarkMode ? 'Turn off dark mode' : 'Turn on dark mode'">
             <input
               type="checkbox"

@@ -249,6 +249,50 @@
   background-color: var(--bg) !important;
   border-color: var(--border);
 }
+
+/* School Portal: content area, pills, nav, feature cards */
+[data-theme="dark"] .school-portal .portal-content {
+  background-color: var(--bg) !important;
+  border-color: var(--border);
+}
+[data-theme="dark"] .school-portal .home-pill {
+  background-color: var(--bg) !important;
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+[data-theme="dark"] .school-portal .home-snapshot {
+  background-color: var(--bg-alt) !important;
+  border-color: var(--border);
+}
+[data-theme="dark"] .school-portal .nav-icon {
+  background-color: var(--bg) !important;
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+[data-theme="dark"] .school-portal .dash-card {
+  background-color: var(--bg) !important;
+  border-color: var(--border);
+}
+[data-theme="dark"] .school-portal .dash-card-badge {
+  background-color: var(--bg-alt) !important;
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+[data-theme="dark"] .school-portal .codes-help {
+  background-color: var(--bg) !important;
+  border-color: var(--border);
+  color: var(--text-secondary);
+}
+[data-theme="dark"] .school-portal .settings-drawer,
+[data-theme="dark"] .school-portal .modal {
+  background-color: var(--bg) !important;
+  border-color: var(--border);
+}
+[data-theme="dark"] .school-portal .modal-header,
+[data-theme="dark"] .school-portal .modal-body {
+  border-color: var(--border);
+  color: var(--text-primary);
+}
 [data-theme="dark"] .control-input,
 [data-theme="dark"] .control-select {
   background-color: var(--bg) !important;

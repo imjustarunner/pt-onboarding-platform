@@ -89,6 +89,10 @@
           >
             Back to show all schools
           </router-link>
+          <label v-if="authStore.user?.id" class="school-portal-dark-mode-toggle" :title="isDarkMode ? 'Turn off dark mode' : 'Turn on dark mode'">
+            <input type="checkbox" :checked="isDarkMode" @change="onDarkModeToggle" />
+            <span class="school-portal-dark-mode-text">Dark mode</span>
+          </label>
           <div class="codes-toggle" data-tour="school-codes-toggle">
             <button
               class="btn btn-secondary btn-sm"
@@ -935,7 +939,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useOrganizationStore } from '../../store/organization';
 import { useBrandingStore } from '../../store/branding';
@@ -964,6 +968,7 @@ import api from '../../services/api';
 import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 import { isSupervisor } from '../../utils/helpers';
+import { setDarkMode, getStoredDarkMode } from '../../utils/darkMode';
 import QRCode from 'qrcode';
 
 const route = useRoute();
@@ -1216,6 +1221,17 @@ const atGlance = computed(() => {
   const staff = Number.isFinite(Number(s.school_staff_count)) ? String(Number(s.school_staff_count)) : '0';
   return { days, clients, slots, pending, waitlist, staff };
 });
+
+const isDarkMode = ref(document.documentElement.getAttribute('data-theme') === 'dark');
+const darkModeObserver = typeof document !== 'undefined' ? new MutationObserver(() => {
+  isDarkMode.value = document.documentElement.getAttribute('data-theme') === 'dark';
+}) : null;
+function onDarkModeToggle(e) {
+  const enabled = !!e.target?.checked;
+  const uid = authStore.user?.id;
+  if (uid) setDarkMode(uid, enabled);
+  isDarkMode.value = enabled;
+}
 
 const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
 const hasSupervisorCapability = computed(() => isSupervisor(authStore.user));
@@ -1881,6 +1897,17 @@ onMounted(async () => {
 
   // Best-effort: resolve active affiliated agency for icon overrides + settings button.
   await ensureAffiliation();
+
+  const stored = authStore.user?.id ? getStoredDarkMode(authStore.user.id) : null;
+  if (stored !== null) isDarkMode.value = stored;
+  else isDarkMode.value = document.documentElement.getAttribute('data-theme') === 'dark';
+  if (darkModeObserver) {
+    darkModeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+  }
+});
+
+onBeforeUnmount(() => {
+  if (darkModeObserver) darkModeObserver.disconnect();
 });
 
 watch(organizationId, async (id) => {
@@ -2104,6 +2131,21 @@ watch(() => store.selectedWeekday, async (weekday) => {
   justify-content: flex-end;
   align-items: center;
   gap: 10px;
+}
+.school-portal-dark-mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-secondary);
+  user-select: none;
+}
+.school-portal-dark-mode-toggle input {
+  cursor: pointer;
+}
+.school-portal-dark-mode-toggle:hover .school-portal-dark-mode-text {
+  color: var(--text-primary);
 }
 
 /* Keep School Portal header/action buttons compact and stable. */
