@@ -364,6 +364,17 @@
         >
           Collapse ▶
         </button>
+        <div v-if="authStore.user?.id && !previewMode" class="rail-dark-mode-toggle" :class="{ 'rail-collapsed': railEffectiveCollapsed }">
+          <label class="rail-dark-mode-label" :title="isDarkMode ? 'Turn off dark mode' : 'Turn on dark mode'">
+            <input
+              type="checkbox"
+              :checked="isDarkMode"
+              @change="onDarkModeToggle"
+            />
+            <span v-if="!railEffectiveCollapsed" class="rail-dark-mode-text">Dark mode</span>
+            <span v-else class="rail-dark-mode-icon" aria-hidden="true">🌙</span>
+          </label>
+        </div>
       </div>
 
       <div class="dashboard-detail">
@@ -873,7 +884,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue';
+import { ref, onMounted, onUnmounted, onBeforeUnmount, computed, watch, nextTick } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../store/auth';
 import { useAgencyStore } from '../store/agency';
@@ -914,6 +925,7 @@ import { isSupervisor } from '../utils/helpers.js';
 import { getDashboardRailCardDescriptors } from '../tutorial/tours/dashboard.tour';
 import { toUploadsUrl } from '../utils/uploadsUrl';
 import { setRememberedGoogleLogin } from '../utils/loginRemember';
+import { setDarkMode, getStoredDarkMode } from '../utils/darkMode';
 
 const props = defineProps({
   previewMode: {
@@ -973,6 +985,11 @@ const lastPaycheckPayrollPeriodId = ref(null);
 const railCardDescriptors = getDashboardRailCardDescriptors();
 const openCardDescriptorId = ref('');
 
+const isDarkMode = ref(document.documentElement.getAttribute('data-theme') === 'dark');
+const darkModeObserver = typeof document !== 'undefined' ? new MutationObserver(() => {
+  isDarkMode.value = document.documentElement.getAttribute('data-theme') === 'dark';
+}) : null;
+
 const railCardDescriptor = (cardId) => railCardDescriptors[String(cardId)] || null;
 const closeCardDescriptor = () => {
   openCardDescriptorId.value = '';
@@ -981,6 +998,13 @@ const toggleCardDescriptor = (cardId) => {
   const next = String(cardId || '');
   openCardDescriptorId.value = openCardDescriptorId.value === next ? '' : next;
 };
+
+function onDarkModeToggle(e) {
+  const enabled = !!e.target?.checked;
+  const uid = authStore.user?.id;
+  if (uid) setDarkMode(uid, enabled);
+  isDarkMode.value = enabled;
+}
 
 const isSkillBuilderEligible = computed(() => {
   const u = authStore.user || {};
@@ -2612,6 +2636,12 @@ onMounted(async () => {
   railMediaQuery = typeof window !== 'undefined' && window.matchMedia('(max-width: 980px)');
   if (railMediaQuery) railMediaQuery.addEventListener('change', updateRailCollapsedMode);
   railPulseTimer = setTimeout(() => { railPulse.value = false; }, RAIL_PULSE_DURATION_MS);
+  const stored = authStore.user?.id ? getStoredDarkMode(authStore.user.id) : null;
+  if (stored !== null) isDarkMode.value = stored;
+  else isDarkMode.value = document.documentElement.getAttribute('data-theme') === 'dark';
+  if (darkModeObserver) {
+    darkModeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+  }
   document.addEventListener('pointerdown', handleDocumentPointerDown);
   document.addEventListener('keydown', handleDocumentKeydown);
   document.addEventListener('fullscreenchange', updateScheduleFullscreenState);
@@ -2674,6 +2704,7 @@ let railMediaQuery = null;
 onUnmounted(() => {
   if (railMediaQuery) railMediaQuery.removeEventListener('change', updateRailCollapsedMode);
   if (railPulseTimer) clearTimeout(railPulseTimer);
+  if (darkModeObserver) darkModeObserver.disconnect();
   document.removeEventListener('pointerdown', handleDocumentPointerDown);
   document.removeEventListener('keydown', handleDocumentKeydown);
   document.removeEventListener('fullscreenchange', updateScheduleFullscreenState);
@@ -2889,6 +2920,52 @@ h1 {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+.rail-dark-mode-toggle {
+  padding-top: 12px;
+  margin-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.rail-dark-mode-toggle.rail-collapsed {
+  padding-top: 8px;
+}
+.rail-dark-mode-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid rgba(198, 154, 43, 0.6);
+  background: rgba(255, 255, 255, 0.75);
+  cursor: pointer;
+  transition: all 0.18s ease;
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+[data-theme="dark"] .rail-dark-mode-label {
+  background: rgba(37, 40, 44, 0.75);
+  border-color: rgba(255,255,255,0.08);
+}
+.rail-dark-mode-label:hover {
+  border-color: var(--primary);
+}
+.rail-dark-mode-label input {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
+.rail-dark-mode-text {
+  flex: 1;
+}
+.rail-dark-mode-toggle.rail-collapsed .rail-dark-mode-label {
+  padding: 8px 6px;
+  justify-content: center;
+}
+.rail-dark-mode-toggle.rail-collapsed .rail-dark-mode-text {
+  display: none;
 }
 .rail-expand-btn {
   align-self: flex-start;
