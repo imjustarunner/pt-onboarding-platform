@@ -713,6 +713,13 @@
               <div class="field-help">Which tab to show when you open My Dashboard.</div>
             </div>
           </div>
+
+          <div class="actions">
+            <button class="btn btn-primary" @click="save" :disabled="viewOnly || saving || sessionLockPinMismatch">
+              {{ saving ? 'Saving...' : 'Save Preferences' }}
+            </button>
+            <div v-if="saved" class="saved">Saved</div>
+          </div>
         </div>
       </div>
     </section>
@@ -962,6 +969,24 @@ watch(
   }
 );
 
+// Apply dark mode and layout density immediately when toggled (instant feedback)
+watch(
+  () => prefs.value.dark_mode,
+  (enabled) => {
+    if (props.userId === authStore.user?.id) {
+      setDarkMode(props.userId, !!enabled);
+    }
+  }
+);
+watch(
+  () => prefs.value.layout_density,
+  (density) => {
+    if (props.userId === authStore.user?.id) {
+      applyLayoutDensity(density);
+    }
+  }
+);
+
 const toggleDay = (day) => {
   const set = new Set(prefs.value.quiet_hours_allowed_days || []);
   if (set.has(day)) set.delete(day);
@@ -991,7 +1016,7 @@ const parseJsonMaybe = (v) => {
 };
 
 const saveKioskPin = async () => {
-  if (props.userId !== authStore.user?.id || viewOnly || !kioskPinValid.value) return;
+  if (props.userId !== authStore.user?.id || props.viewOnly || !kioskPinValid.value) return;
   try {
     savingKioskPin.value = true;
     kioskPinError.value = '';
@@ -1007,7 +1032,7 @@ const saveKioskPin = async () => {
 };
 
 const clearKioskPin = async () => {
-  if (props.userId !== authStore.user?.id || viewOnly) return;
+  if (props.userId !== authStore.user?.id || props.viewOnly) return;
   try {
     savingKioskPin.value = true;
     kioskPinError.value = '';
@@ -1174,7 +1199,7 @@ const save = async () => {
     }
 
     // Handle push notifications: register or unregister before/with save
-    if (props.userId === authStore.user?.id && !viewOnly) {
+    if (props.userId === authStore.user?.id && !props.viewOnly) {
       const pushEnabled = !!payload.push_notifications_enabled;
       if (pushEnabled) {
         const supported = await isPushSupported();
