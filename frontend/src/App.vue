@@ -1646,16 +1646,18 @@ onMounted(async () => {
   
   if (isAuthenticated.value) {
     startActivityTracking();
-    // Sync dark mode from server (in case changed on another device)
+    // Sync dark mode: prefer localStorage (user's current session choice) over server
+    // so toggling dark mode without clicking Save isn't overwritten on navigation
     const uid = authStore.user?.id;
     if (uid) {
       try {
         const { default: api } = await import('./services/api');
-        const { setDarkMode } = await import('./utils/darkMode');
+        const { setDarkMode, getStoredDarkMode } = await import('./utils/darkMode');
         const { useUserPreferencesStore } = await import('./store/userPreferences');
         const res = await api.get(`/users/${uid}/preferences`, { skipGlobalLoading: true });
         const data = res?.data || {};
-        const dark = !!data.dark_mode;
+        const stored = getStoredDarkMode(uid);
+        const dark = stored !== null ? stored : !!data.dark_mode;
         setDarkMode(uid, dark);
         const prefsStore = useUserPreferencesStore();
         prefsStore.setFromApi(data);

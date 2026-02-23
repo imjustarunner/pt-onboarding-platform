@@ -113,6 +113,104 @@
   color: #a7f3ec;
 }
 
+/* Dark mode: nav dropdowns, stat cards, presence, notifications */
+[data-theme="dark"] .nav-dropdown-menu {
+  background-color: var(--bg);
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+[data-theme="dark"] .nav-dropdown-menu a {
+  color: var(--text-primary) !important;
+}
+[data-theme="dark"] .nav-dropdown-menu a:hover {
+  background-color: var(--bg-alt);
+}
+[data-theme="dark"] .nav-dropdown-sep {
+  background-color: var(--border);
+}
+[data-theme="dark"] .brand-option:hover {
+  background-color: var(--bg-alt);
+  border-color: var(--border);
+}
+[data-theme="dark"] .brand-option.active {
+  background-color: rgba(99, 102, 241, 0.2);
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] .stat-card {
+  background-color: var(--bg);
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+[data-theme="dark"] .stat-card .stat-value {
+  color: var(--text-primary);
+}
+[data-theme="dark"] .stat-card .stat-details {
+  background-color: var(--bg-alt);
+  border-color: var(--border);
+}
+[data-theme="dark"] .stat-details-row .k { color: var(--text-secondary); }
+[data-theme="dark"] .stat-details-row .v { color: var(--text-primary); }
+
+[data-theme="dark"] .presence-widget,
+[data-theme="dark"] .presence-preview-wrap,
+[data-theme="dark"] .presence-preview,
+[data-theme="dark"] .top-snapshot-wrap,
+[data-theme="dark"] .top-card,
+[data-theme="dark"] .staff-card {
+  background-color: var(--bg) !important;
+  border-color: var(--border);
+}
+[data-theme="dark"] .presence-select {
+  background-color: var(--bg);
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+[data-theme="dark"] .top-card .cell {
+  background-color: var(--bg-alt);
+  border-color: var(--border);
+}
+[data-theme="dark"] .top-card .pill {
+  background-color: var(--bg-alt);
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] .notification-card {
+  background-color: var(--bg) !important;
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+[data-theme="dark"] .notification-card .agency-icon-wrapper {
+  background-color: var(--bg-alt) !important;
+  border-color: var(--border);
+}
+[data-theme="dark"] .notification-card .agency-name { color: var(--text-primary); }
+[data-theme="dark"] .notification-card .notification-count-text { color: var(--text-secondary); }
+[data-theme="dark"] .notification-card .notification-badge:not(.has-notifications) {
+  background-color: var(--bg-alt);
+  color: var(--text-secondary);
+  border-color: var(--border);
+}
+[data-theme="dark"] .notification-card.all-agencies-card {
+  background: linear-gradient(135deg, rgba(102, 126, 234, 0.15) 0%, rgba(118, 75, 162, 0.15) 100%) !important;
+  border-left-color: #667eea;
+}
+
+[data-theme="dark"] .modal-content {
+  background-color: var(--bg);
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] .prefs-grid .card,
+[data-theme="dark"] .preferences-section .card {
+  background-color: var(--bg);
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+
 /* Layout density (user preference) */
 [data-layout-density="compact"] .card,
 [data-layout-density="compact"] table td,
