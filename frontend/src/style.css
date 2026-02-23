@@ -140,9 +140,12 @@
 }
 
 [data-theme="dark"] .stat-card {
-  background-color: var(--bg);
+  background-color: var(--bg) !important;
   border-color: var(--border);
   color: var(--text-primary);
+}
+[data-theme="dark"] .stat-card h3 {
+  color: var(--text-secondary);
 }
 [data-theme="dark"] .stat-card .stat-value {
   color: var(--text-primary);
@@ -151,8 +154,36 @@
   background-color: var(--bg-alt);
   border-color: var(--border);
 }
+[data-theme="dark"] .action-card {
+  background-color: var(--bg) !important;
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+[data-theme="dark"] .action-card h3 {
+  color: var(--text-primary);
+}
+[data-theme="dark"] .action-card p {
+  color: var(--text-secondary);
+}
+[data-theme="dark"] .action-icon-placeholder {
+  background-color: var(--bg-alt);
+}
+[data-theme="dark"] .btn-customize {
+  background-color: var(--bg) !important;
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+[data-theme="dark"] .quick-actions .modal {
+  background-color: var(--bg) !important;
+  border-color: var(--border);
+}
 [data-theme="dark"] .stat-details-row .k { color: var(--text-secondary); }
 [data-theme="dark"] .stat-details-row .v { color: var(--text-primary); }
+[data-theme="dark"] .stat-details-toggle {
+  background-color: var(--bg-alt) !important;
+  border-color: var(--border);
+  color: var(--text-primary);
+}
 
 [data-theme="dark"] .presence-widget,
 [data-theme="dark"] .presence-preview-wrap,
@@ -278,6 +309,64 @@
   background: rgba(16, 185, 129, 0.2);
   border-color: rgba(16, 185, 129, 0.5);
   color: #6ee7b7;
+}
+[data-theme="dark"] .pill,
+[data-theme="dark"] .pill-muted {
+  background-color: var(--bg-alt) !important;
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+
+/* Account Information: content area, info items, category tabs */
+[data-theme="dark"] .account-info-content {
+  background-color: var(--bg) !important;
+  border-color: var(--border);
+}
+[data-theme="dark"] .info-item {
+  background-color: var(--bg-alt) !important;
+  border-color: var(--border);
+}
+[data-theme="dark"] .info-item label {
+  color: var(--text-secondary);
+}
+[data-theme="dark"] .info-item span {
+  color: var(--text-primary);
+}
+[data-theme="dark"] .category-tab {
+  background-color: var(--bg-alt) !important;
+  border-color: var(--border);
+  color: var(--text-secondary);
+}
+[data-theme="dark"] .category-tab.active {
+  background-color: rgba(99, 102, 241, 0.2) !important;
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+[data-theme="dark"] .field-item input,
+[data-theme="dark"] .field-item select,
+[data-theme="dark"] .field-item textarea {
+  background-color: var(--bg) !important;
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+[data-theme="dark"] .multi-select {
+  background-color: var(--bg) !important;
+  border-color: var(--border);
+}
+[data-theme="dark"] .download-section {
+  background-color: var(--bg-alt) !important;
+}
+[data-theme="dark"] .agency-badge {
+  background-color: var(--bg-alt);
+  color: var(--text-secondary);
+}
+[data-theme="dark"] .agency-specs {
+  background-color: var(--bg) !important;
+  border-color: var(--border);
+}
+[data-theme="dark"] .agency-specs .error {
+  background-color: rgba(220, 53, 69, 0.2);
+  border-color: var(--error);
 }
 
 /* Layout density (user preference) */
