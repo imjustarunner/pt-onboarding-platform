@@ -343,6 +343,7 @@
             </div>
           </div>
         </div>
+        </div>
         <button
           v-if="railEffectiveCollapsed"
           type="button"
