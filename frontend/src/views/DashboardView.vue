@@ -267,6 +267,20 @@
         @mouseenter="railHoverExpanded = true"
         @mouseleave="railHoverExpanded = false"
       >
+        <div v-if="authStore.user?.id && !previewMode && !isSchoolStaff" class="rail-dark-mode-toggle rail-dark-mode-top" :class="{ 'rail-collapsed': railEffectiveCollapsed }">
+          <label class="rail-dark-mode-label" :title="isDarkMode ? 'Turn off dark mode' : 'Turn on dark mode'">
+            <span class="toggle-switch toggle-switch-sm">
+              <input
+                type="checkbox"
+                :checked="isDarkMode"
+                @change="onDarkModeToggle"
+              />
+              <span class="slider"></span>
+            </span>
+            <span v-if="!railEffectiveCollapsed" class="rail-dark-mode-text">Dark mode</span>
+            <span v-else class="rail-dark-mode-icon" aria-hidden="true">🌙</span>
+          </label>
+        </div>
         <div
           data-tour="dash-rail"
           class="dashboard-rail"
@@ -364,17 +378,6 @@
         >
           Collapse ▶
         </button>
-        <div v-if="authStore.user?.id && !previewMode && !isSchoolStaff" class="rail-dark-mode-toggle" :class="{ 'rail-collapsed': railEffectiveCollapsed }">
-          <label class="rail-dark-mode-label" :title="isDarkMode ? 'Turn off dark mode' : 'Turn on dark mode'">
-            <input
-              type="checkbox"
-              :checked="isDarkMode"
-              @change="onDarkModeToggle"
-            />
-            <span v-if="!railEffectiveCollapsed" class="rail-dark-mode-text">Dark mode</span>
-            <span v-else class="rail-dark-mode-icon" aria-hidden="true">🌙</span>
-          </label>
-        </div>
       </div>
 
       <div class="dashboard-detail">
@@ -718,6 +721,22 @@
             <SupervisionModal />
           </div>
 
+          <div v-if="!previewMode && isOnboardingComplete && activeTab === 'tools_aids'" class="my-panel dashboard-embedded-view">
+            <ToolsAidsView />
+          </div>
+          <div v-if="!previewMode && isOnboardingComplete && activeTab === 'communications'" class="my-panel dashboard-embedded-view">
+            <CommunicationsFeedView />
+          </div>
+          <div v-if="!previewMode && isOnboardingComplete && activeTab === 'chats'" class="my-panel dashboard-embedded-view">
+            <PlatformChatsView />
+          </div>
+          <div v-if="!previewMode && isOnboardingComplete && activeTab === 'contacts'" class="my-panel dashboard-embedded-view">
+            <ContactsView />
+          </div>
+          <div v-if="!previewMode && isOnboardingComplete && activeTab === 'notifications'" class="my-panel dashboard-embedded-view">
+            <NotificationsHubView />
+          </div>
+
           <div v-if="!previewMode && isOnboardingComplete && activeTab === 'providers'" class="my-panel">
             <ProvidersPanel />
           </div>
@@ -921,6 +940,11 @@ import LastPaycheckModal from '../components/dashboard/LastPaycheckModal.vue';
 import SocialFeedsPanel from '../components/dashboard/SocialFeedsPanel.vue';
 import PresenceStatusWidget from '../components/dashboard/PresenceStatusWidget.vue';
 import StaffCard from '../components/dashboard/StaffCard.vue';
+import ToolsAidsView from './admin/ToolsAidsView.vue';
+import CommunicationsFeedView from './admin/CommunicationsFeedView.vue';
+import PlatformChatsView from './admin/PlatformChatsView.vue';
+import ContactsView from './admin/ContactsView.vue';
+import NotificationsHubView from './NotificationsHubView.vue';
 import { isSupervisor } from '../utils/helpers.js';
 import { getDashboardRailCardDescriptors } from '../tutorial/tours/dashboard.tour';
 import { toUploadsUrl } from '../utils/uploadsUrl';
@@ -1924,12 +1948,10 @@ const dashboardCards = computed(() => {
         (clinicalNoteGeneratorEnabledForAgency.value ||
           ['admin', 'super_admin', 'support'].includes(role));
       if (showToolsAids) {
-        const slug = route.params?.organizationSlug;
         cards.push({
           id: 'tools_aids',
           label: 'Tools & Aids',
-          kind: 'link',
-          to: typeof slug === 'string' && slug ? `/${slug}/admin/tools-aids` : '/admin/tools-aids',
+          kind: 'content',
           badgeCount: 0,
           iconUrl: brandingStore.getDashboardCardIconUrl('tools_aids', cardIconOrgOverride),
           description: 'Note Aid and upcoming clinical tools.'
@@ -1977,13 +1999,12 @@ const dashboardCards = computed(() => {
       });
     }
 
-    // Communications surfaces (separate pages)
+    // Communications surfaces (embedded in dashboard)
     if (!isLimitedAccessNonProvider) {
       cards.push({
         id: 'communications',
         label: 'Communications',
-        kind: 'link',
-        to: '/admin/communications/sms',
+        kind: 'content',
         badgeCount: 0,
         iconUrl: brandingStore.getDashboardCardIconUrl('communications', cardIconOrgOverride),
         description: 'SMS inbox, calls, and delivery automation workspace.'
@@ -1991,8 +2012,7 @@ const dashboardCards = computed(() => {
       cards.push({
         id: 'chats',
         label: 'Chats',
-        kind: 'link',
-        to: '/admin/communications/chats',
+        kind: 'content',
         badgeCount: 0,
         iconUrl: brandingStore.getDashboardCardIconUrl('chats', cardIconOrgOverride),
         description: 'Direct messages in the platform.'
@@ -2000,20 +2020,18 @@ const dashboardCards = computed(() => {
       cards.push({
         id: 'contacts',
         label: 'Contacts',
-        kind: 'link',
-        to: '/admin/contacts',
+        kind: 'content',
         badgeCount: 0,
         iconUrl: brandingStore.getDashboardCardIconUrl('contacts', cardIconOrgOverride),
         description: 'Agency contacts for mass communications and outreach.'
       });
     }
 
-    // Notifications: show for all users and route to the unified hub.
+    // Notifications: embedded in dashboard
     cards.push({
       id: 'notifications',
       label: 'Notifications',
-      kind: 'link',
-      to: '/notifications',
+      kind: 'content',
       badgeCount: 0,
       iconUrl: brandingStore.getDashboardCardIconUrl('notifications', cardIconOrgOverride),
       description: 'Your recent notifications.'
@@ -2922,12 +2940,23 @@ h1 {
   gap: 8px;
 }
 .rail-dark-mode-toggle {
-  padding-top: 12px;
-  margin-top: 8px;
-  border-top: 1px solid var(--border);
+  padding-bottom: 10px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.rail-dark-mode-toggle.rail-dark-mode-top {
+  padding-top: 0;
+  padding-bottom: 10px;
+  margin-top: 0;
+  margin-bottom: 8px;
+  border-top: none;
+  border-bottom: 1px solid var(--border);
 }
 .rail-dark-mode-toggle.rail-collapsed {
-  padding-top: 8px;
+  padding-bottom: 8px;
+}
+.rail-dark-mode-toggle.rail-dark-mode-top.rail-collapsed {
+  padding-bottom: 8px;
 }
 .rail-dark-mode-label {
   display: flex;
@@ -2951,11 +2980,45 @@ h1 {
 .rail-dark-mode-label:hover {
   border-color: var(--primary);
 }
-.rail-dark-mode-label input {
+.rail-dark-mode-label .toggle-switch {
+  position: relative;
+  display: inline-block;
   flex-shrink: 0;
-  width: 18px;
-  height: 18px;
+  width: 50px;
+  height: 26px;
+}
+.rail-dark-mode-label .toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.rail-dark-mode-label .toggle-switch .slider {
+  position: absolute;
   cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: var(--border);
+  border-radius: 26px;
+  transition: 0.2s;
+}
+.rail-dark-mode-label .toggle-switch .slider:before {
+  position: absolute;
+  content: '';
+  height: 20px;
+  width: 20px;
+  left: 3px;
+  bottom: 3px;
+  background-color: white;
+  border-radius: 50%;
+  transition: 0.2s;
+}
+.rail-dark-mode-label .toggle-switch input:checked + .slider {
+  background-color: var(--primary);
+}
+.rail-dark-mode-label .toggle-switch input:checked + .slider:before {
+  transform: translateX(24px);
 }
 .rail-dark-mode-text {
   flex: 1;

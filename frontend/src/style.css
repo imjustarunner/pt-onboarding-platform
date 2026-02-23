@@ -1200,6 +1200,97 @@
   border-color: var(--border);
 }
 
+/* Documents tab (dashboard) */
+[data-theme="dark"] .documents-tab .document-card {
+  background-color: var(--bg) !important;
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+[data-theme="dark"] .documents-tab .document-card.status-overdue {
+  background-color: rgba(239, 68, 68, 0.15) !important;
+  border-color: rgba(239, 68, 68, 0.4);
+}
+[data-theme="dark"] .documents-tab .sort-controls,
+[data-theme="dark"] .documents-tab .sort-select {
+  background-color: var(--bg) !important;
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+[data-theme="dark"] .documents-tab .modal-content {
+  background-color: var(--bg) !important;
+  border-color: var(--border);
+}
+
+/* Supervision panel */
+[data-theme="dark"] .supervision-modal,
+[data-theme="dark"] .supervision-panel {
+  background-color: var(--bg) !important;
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+[data-theme="dark"] .supervision-group {
+  background-color: var(--bg) !important;
+  border-color: var(--border);
+}
+[data-theme="dark"] .supervision-group-header {
+  background-color: transparent;
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+[data-theme="dark"] .supervision-group-count {
+  background-color: var(--bg-alt) !important;
+  border-color: var(--border);
+  color: var(--text-secondary);
+}
+[data-theme="dark"] .supervision-card {
+  background-color: var(--bg-alt) !important;
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+[data-theme="dark"] .supervision-hero,
+[data-theme="dark"] .supervision-detail-section,
+[data-theme="dark"] .at-a-glance-card {
+  background-color: var(--bg-alt) !important;
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+[data-theme="dark"] .supervision-card:hover,
+[data-theme="dark"] .supervision-panel .btn-secondary {
+  background-color: var(--bg-alt) !important;
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+
+/* Contacts view (dashboard embedded) */
+[data-theme="dark"] .contacts-view .page-header,
+[data-theme="dark"] .contacts-view .table-controls,
+[data-theme="dark"] .contacts-view .filter-select,
+[data-theme="dark"] .contacts-view .search-input {
+  background-color: var(--bg) !important;
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+[data-theme="dark"] .contacts-view .contacts-table {
+  background-color: var(--bg) !important;
+  border-color: var(--border);
+}
+[data-theme="dark"] .contacts-view .contacts-table th,
+[data-theme="dark"] .contacts-view .contacts-table td {
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+[data-theme="dark"] .contacts-view .contact-modal,
+[data-theme="dark"] .contacts-view .contact-modal-overlay .card {
+  background-color: var(--bg) !important;
+  border-color: var(--border);
+}
+
+/* Dashboard embedded views: remove double container padding */
+.dashboard-embedded-view .container {
+  max-width: none;
+  padding: 0;
+}
+
 /* Layout density (user preference) */
 [data-layout-density="compact"] .card,
 [data-layout-density="compact"] table td,
