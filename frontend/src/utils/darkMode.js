@@ -4,6 +4,7 @@
  */
 
 const STORAGE_KEY = 'prefs:dark_mode';
+const FALLBACK_KEY = 'prefs:dark_mode:current';
 
 export function applyDarkMode(enabled) {
   const root = document.documentElement;
@@ -14,10 +15,8 @@ export function applyDarkMode(enabled) {
   }
 }
 
-export function getStoredDarkMode(userId) {
-  if (!userId) return null;
+function getFromStorage(key) {
   try {
-    const key = `${STORAGE_KEY}:${userId}`;
     const val = localStorage.getItem(key);
     if (val === 'true') return true;
     if (val === 'false') return false;
@@ -27,11 +26,20 @@ export function getStoredDarkMode(userId) {
   }
 }
 
+export function getStoredDarkMode(userId) {
+  if (userId) {
+    const val = getFromStorage(`${STORAGE_KEY}:${userId}`);
+    if (val !== null) return val;
+  }
+  return getFromStorage(FALLBACK_KEY);
+}
+
 export function setStoredDarkMode(userId, enabled) {
-  if (!userId) return;
   try {
-    const key = `${STORAGE_KEY}:${userId}`;
-    localStorage.setItem(key, String(enabled));
+    if (userId) {
+      localStorage.setItem(`${STORAGE_KEY}:${userId}`, String(enabled));
+    }
+    localStorage.setItem(FALLBACK_KEY, String(enabled));
   } catch {
     /* ignore */
   }

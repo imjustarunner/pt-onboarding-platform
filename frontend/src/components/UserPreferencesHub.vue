@@ -969,12 +969,32 @@ watch(
   }
 );
 
-// Apply dark mode and layout density immediately when toggled (instant feedback)
+// Debounced auto-save of dark_mode + layout_density to database (so server stays in sync)
+let quickSaveTimer = null;
+const quickSave = () => {
+  if (props.userId !== authStore.user?.id || props.viewOnly) return;
+  if (quickSaveTimer) clearTimeout(quickSaveTimer);
+  quickSaveTimer = setTimeout(async () => {
+    quickSaveTimer = null;
+    try {
+      await api.put(`/users/${props.userId}/preferences`, {
+        dark_mode: !!prefs.value.dark_mode,
+        layout_density: prefs.value.layout_density || 'standard'
+      }, { skipGlobalLoading: true });
+      userPrefsStore.setFromApi({ ...prefs.value, dark_mode: prefs.value.dark_mode, layout_density: prefs.value.layout_density });
+    } catch {
+      /* ignore – localStorage still has it */
+    }
+  }, 800);
+};
+
+// Apply dark mode and layout density immediately when toggled (instant feedback + persist to DB)
 watch(
   () => prefs.value.dark_mode,
   (enabled) => {
     if (props.userId === authStore.user?.id) {
       setDarkMode(props.userId, !!enabled);
+      quickSave();
     }
   }
 );
@@ -983,6 +1003,7 @@ watch(
   (density) => {
     if (props.userId === authStore.user?.id) {
       applyLayoutDensity(density);
+      quickSave();
     }
   }
 );

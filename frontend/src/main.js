@@ -224,12 +224,17 @@ async function bootstrap() {
   };
 
   watchEffect(setBrandingChrome);
-  router.afterEach(() => setTitle());
+  const authStore = useAuthStore(pinia);
+
+  // Re-apply dark mode from localStorage on every navigation (safety net – prevents reset)
+  router.afterEach(() => {
+    setTitle();
+    applyStoredDarkMode(authStore.user?.id);
+  });
 
   await router.isReady();
 
   // Apply dark mode from localStorage before first paint (user preference)
-  const authStore = useAuthStore(pinia);
   const userId = authStore.user?.id;
   if (userId) {
     applyStoredDarkMode(userId);
