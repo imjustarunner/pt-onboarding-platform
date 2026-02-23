@@ -2953,6 +2953,9 @@ h1 {
 }
 .rail-dark-mode-toggle.rail-collapsed {
   padding-bottom: 8px;
+  align-self: flex-start;
+  width: 84px;
+  min-width: 84px;
 }
 .rail-dark-mode-toggle.rail-dark-mode-top.rail-collapsed {
   padding-bottom: 8px;
@@ -3025,6 +3028,28 @@ h1 {
 .rail-dark-mode-toggle.rail-collapsed .rail-dark-mode-label {
   padding: 8px 6px;
   justify-content: center;
+  gap: 6px;
+  width: 100%;
+  box-sizing: border-box;
+}
+.rail-dark-mode-toggle.rail-collapsed .rail-dark-mode-label .toggle-switch {
+  width: 36px;
+  height: 20px;
+}
+.rail-dark-mode-toggle.rail-collapsed .rail-dark-mode-label .toggle-switch .slider {
+  border-radius: 20px;
+}
+.rail-dark-mode-toggle.rail-collapsed .rail-dark-mode-label .toggle-switch .slider:before {
+  height: 14px;
+  width: 14px;
+  left: 3px;
+  bottom: 3px;
+}
+.rail-dark-mode-toggle.rail-collapsed .rail-dark-mode-label .toggle-switch input:checked + .slider:before {
+  transform: translateX(16px);
+}
+.rail-dark-mode-toggle.rail-collapsed .rail-dark-mode-label .rail-dark-mode-icon {
+  font-size: 14px;
 }
 .rail-dark-mode-toggle.rail-collapsed .rail-dark-mode-text {
   display: none;

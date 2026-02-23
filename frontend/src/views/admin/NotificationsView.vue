@@ -139,6 +139,13 @@
               <template v-if="notification.type === 'office_availability_request_pending' && canManageAvailability && notification.agency_id">
                 <button
                   @click.stop="openOfficeRequestModal(notification)"
+                  class="btn btn-sm btn-secondary"
+                  title="View request details"
+                >
+                  View
+                </button>
+                <button
+                  @click.stop="openOfficeRequestModal(notification)"
                   class="btn btn-sm btn-primary"
                   title="Assign office"
                 >

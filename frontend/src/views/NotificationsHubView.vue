@@ -95,6 +95,9 @@
               <span>{{ formatDate(n.created_at) }}</span>
               <div class="meta-actions">
                 <template v-if="n.type === 'office_availability_request_pending' && canManageAvailability && n.agency_id">
+                  <button class="btn btn-secondary btn-sm" type="button" @click.stop="openOfficeRequestModal(n)">
+                    View
+                  </button>
                   <button class="btn btn-primary btn-sm" type="button" @click.stop="openOfficeRequestModal(n)">
                     Approve
                   </button>
@@ -534,7 +537,8 @@ const denyOfficeRequest = async (n) => {
 };
 
 const handleOfficeRequestResolved = () => {
-  loadMy();
+  void loadMy();
+  void notificationStore.fetchCounts();
 };
 
 const closeAdminClientEditor = () => {

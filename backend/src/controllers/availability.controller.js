@@ -1835,6 +1835,13 @@ export const assignTemporaryOfficeFromRequest = async (req, res, next) => {
     );
 
     await conn.commit();
+
+    // Resolve related notifications for everyone so they disappear from all feeds
+    await Notification.markAllAsResolvedForFilter(agencyId, {
+      relatedEntityType: 'provider_office_availability_request',
+      relatedEntityId: requestId
+    });
+
     res.json({
       ok: true,
       assignmentId,
@@ -1896,6 +1903,12 @@ export const denyOfficeAvailabilityRequest = async (req, res, next) => {
        WHERE id = ?`,
       [req.user.id, requestId]
     );
+
+    // Resolve related notifications for everyone so they disappear from all feeds
+    await Notification.markAllAsResolvedForFilter(agencyId, {
+      relatedEntityType: 'provider_office_availability_request',
+      relatedEntityId: requestId
+    });
 
     res.json({ ok: true });
   } catch (e) {
