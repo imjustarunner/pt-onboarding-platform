@@ -6,7 +6,7 @@
         <button @click="showBulkImportModal = true" class="btn btn-secondary">Bulk Import</button>
         <router-link
           v-if="canBackofficeEdit"
-          to="/admin/schools/overview"
+          :to="schoolOverviewLink"
           class="btn btn-secondary"
         >
           Show all schools
@@ -790,6 +790,12 @@ const route = useRoute();
 const canBackofficeEdit = computed(() => {
   const r = String(authStore.user?.role || '').toLowerCase();
   return ['super_admin', 'admin', 'support', 'staff'].includes(r);
+});
+
+const schoolOverviewLink = computed(() => {
+  const slug = route.params?.organizationSlug;
+  const base = typeof slug === 'string' && slug ? `/${slug}/admin/schools/overview` : '/admin/schools/overview';
+  return `${base}?orgType=school`;
 });
 
 // Client table column visibility (persisted locally per user)

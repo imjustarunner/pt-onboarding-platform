@@ -294,7 +294,7 @@ const isSuperAdmin = computed(() => String(authStore.user?.role || '').toLowerCa
 const orgType = computed(() => {
   const t = String(route.query?.orgType || '').trim().toLowerCase();
   if (t === 'school' || t === 'program' || t === 'learning') return t;
-  return null;
+  return 'school';
 });
 const isAllPortalsPage = computed(() => String(route.name || '') === 'SchoolPortals' || String(route.name || '') === 'OrganizationSchoolPortals');
 const showAllPortalsTo = computed(() => {
