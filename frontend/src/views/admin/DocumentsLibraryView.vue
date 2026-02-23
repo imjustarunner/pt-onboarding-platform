@@ -21,7 +21,7 @@
       </div>
     </div>
 
-    <div class="filters" v-if="!loading && (templates.length > 0 || pagination.total > 0)">
+    <div class="filters" v-if="!loading">
       <select v-model="filterAgencyId" @change="applyFilters" class="filter-select">
         <option value="all">All Agencies</option>
         <option value="null">Platform Templates</option>
@@ -84,7 +84,13 @@
     <div v-else-if="error" class="error">{{ error }}</div>
     <div v-else-if="templates.length === 0" class="empty-state">
       <p>No document templates found.</p>
-      <button @click="showUploadModal = true" class="btn btn-primary">Upload Your First Document</button>
+      <p v-if="filterAgencyId !== 'all' || statusFilter !== 'active'" class="empty-state-hint">
+        Try selecting <strong>All Agencies</strong> and <strong>Active Only</strong> above, or click Reset Filters.
+      </p>
+      <div class="empty-state-actions">
+        <button @click="resetFiltersAndReload" class="btn btn-secondary">Reset Filters</button>
+        <button @click="showUploadModal = true" class="btn btn-primary">Upload Your First Document</button>
+      </div>
     </div>
     
     <!-- Grid View -->
@@ -524,6 +530,19 @@ watch(filterAgencyId, async (next) => {
 
 const applyFilters = async () => {
   currentPage.value = 1; // Reset to first page when filters change
+  await loadTemplates();
+};
+
+const resetFiltersAndReload = async () => {
+  filterAgencyId.value = 'all';
+  filterOrganizationId.value = 'all';
+  filterQuery.value = '';
+  filterDocumentType.value = 'all';
+  filterTemplateType.value = 'all';
+  statusFilter.value = 'active';
+  sortBy.value = 'name';
+  currentPage.value = 1;
+  persistFilters();
   await loadTemplates();
 };
 
@@ -1686,6 +1705,19 @@ onMounted(async () => {
 .empty-state p {
   margin-bottom: 20px;
   font-size: 16px;
+}
+
+.empty-state-hint {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin-bottom: 16px;
+}
+
+.empty-state-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
 }
 
 .modal-overlay {
