@@ -1403,7 +1403,7 @@
             <div v-if="scheduledAnnouncementsLoading" class="loading">Loading scheduled announcements…</div>
 
             <div v-else class="form-group" style="margin-top: 10px;">
-              <div style="border: 1px solid var(--border); border-radius: 12px; padding: 12px; background: #fff;">
+              <div style="border: 1px solid var(--border); border-radius: 12px; padding: 12px; background: var(--bg);">
                 <div style="font-weight: 600; margin-bottom: 10px;">
                   {{ scheduledDraft.id ? 'Edit scheduled announcement' : 'Create scheduled announcement' }}
                 </div>

@@ -212,7 +212,7 @@ const dayGridStyle = computed(() => ({
 .hint { color: var(--text-secondary); font-size: 13px; }
 .office-week { display: flex; flex-direction: column; gap: 14px; }
 
-.day-section { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: #fff; }
+.day-section { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: var(--bg); }
 .day-head { padding: 10px 12px; background: var(--bg-alt); border-bottom: 1px solid var(--border); }
 .day-head.today { background: linear-gradient(180deg, rgba(59, 130, 246, 0.14), rgba(59, 130, 246, 0.06)); }
 .day-title { display: flex; gap: 8px; align-items: baseline; }

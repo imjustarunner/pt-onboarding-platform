@@ -15,7 +15,7 @@
     <div v-else>
       <div
         v-if="canUseQuickAnnouncements"
-        style="border: 1px solid var(--border); border-radius: 10px; background: #fff; padding: 14px; margin-bottom: 14px;"
+        style="border: 1px solid var(--border); border-radius: 10px; background: var(--bg); padding: 14px; margin-bottom: 14px;"
       >
         <div style="display:flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 10px;">
           <h3 style="margin: 0; font-size: 16px;">Quick Announcement / Splash</h3>
@@ -558,7 +558,7 @@
           <p>No supervisors found.</p>
         </div>
         <div v-else class="supervisors-list">
-          <div v-for="supervisor in supervisorsList" :key="supervisor.id" class="supervisor-item" style="border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 12px; background: white;">
+          <div v-for="supervisor in supervisorsList" :key="supervisor.id" class="supervisor-item" style="border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 12px; background: var(--bg);">
             <div style="display: flex; justify-content: space-between; align-items: center;">
               <div style="flex: 1;">
                 <h3 style="margin: 0 0 4px 0; font-size: 16px; font-weight: 600;">

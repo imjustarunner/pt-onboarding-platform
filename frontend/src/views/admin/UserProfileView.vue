@@ -286,7 +286,7 @@
                       Add one or more named calendars (e.g., “Therapy Notes”). Each calendar can have multiple ICS feed URLs.
                     </p>
 
-                    <div style="border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; background: white;">
+                    <div style="border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; background: var(--bg);">
                       <div style="font-weight: 900;">Therapy Notes calendar (paste URL only)</div>
                       <p class="hint" style="margin: 6px 0 10px;">
                         Paste this user’s personal ICS feed URL from Therapy Notes. You don’t need to create or name a calendar — we save it under this user automatically.
@@ -958,7 +958,7 @@
                       </p>
                       
                       <!-- Token Status -->
-                      <div v-if="accountInfo.passwordlessTokenExpiresAt" style="margin-bottom: 15px; padding: 10px; background: white; border-radius: 6px; border: 1px solid #ddd;">
+                      <div v-if="accountInfo.passwordlessTokenExpiresAt" style="margin-bottom: 15px; padding: 10px; background: var(--bg); border-radius: 6px; border: 1px solid var(--border);">
                         <div style="display: flex; justify-content: space-between; align-items: center;">
                           <div>
                             <strong>Link Status:</strong>
@@ -980,7 +980,7 @@
                           type="text" 
                           :value="accountInfo.passwordlessLoginLink" 
                           readonly 
-                          style="flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; font-family: monospace; background: white; cursor: text;"
+                          style="flex: 1; padding: 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px; font-family: monospace; background: var(--bg); cursor: text;"
                           @click="$event.target.select()"
                         />
                         <button 
@@ -1115,8 +1115,8 @@
                   <h4>Password Reset Link</h4>
                   <p>Generate a reset link (expires). The user will set a new password and continue.</p>
                   <!-- Current reset link state (when we have a reset token from getAccountInfo) -->
-                  <div v-if="accountInfo.passwordlessTokenPurpose === 'reset' && accountInfo.passwordlessLoginLink" class="passwordless-link-section" style="margin-top: 12px; padding: 16px; background: #f0f7ff; border-radius: 8px; border: 1px solid #b8d4ee;">
-                    <div v-if="accountInfo.passwordlessTokenExpiresAt" style="margin-bottom: 12px; padding: 10px; background: white; border-radius: 6px; border: 1px solid #ddd;">
+                  <div v-if="accountInfo.passwordlessTokenPurpose === 'reset' && accountInfo.passwordlessLoginLink" class="passwordless-link-section" style="margin-top: 12px; padding: 16px; background: var(--bg-alt); border-radius: 8px; border: 1px solid var(--border);">
+                    <div v-if="accountInfo.passwordlessTokenExpiresAt" style="margin-bottom: 12px; padding: 10px; background: var(--bg); border-radius: 6px; border: 1px solid var(--border);">
                       <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
                         <div>
                           <strong>Link Status:</strong>
@@ -1144,7 +1144,7 @@
                         type="text"
                         :value="accountInfo.passwordlessLoginLink"
                         readonly
-                        style="flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; font-family: monospace; background: white; cursor: text;"
+                        style="flex: 1; padding: 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px; font-family: monospace; background: var(--bg); cursor: text;"
                         @click="$event.target.select()"
                       />
                       <button type="button" class="btn btn-primary btn-sm" @click="copyCurrentResetLink">Copy Link</button>
