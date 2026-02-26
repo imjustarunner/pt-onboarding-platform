@@ -950,7 +950,7 @@ import { isSupervisor } from '../utils/helpers.js';
 import { getDashboardRailCardDescriptors } from '../tutorial/tours/dashboard.tour';
 import { toUploadsUrl } from '../utils/uploadsUrl';
 import { setRememberedGoogleLogin } from '../utils/loginRemember';
-import { setDarkMode, getStoredDarkMode } from '../utils/darkMode';
+import { setDarkMode } from '../utils/darkMode';
 
 const props = defineProps({
   previewMode: {
@@ -2655,9 +2655,8 @@ onMounted(async () => {
   railMediaQuery = typeof window !== 'undefined' && window.matchMedia('(max-width: 980px)');
   if (railMediaQuery) railMediaQuery.addEventListener('change', updateRailCollapsedMode);
   railPulseTimer = setTimeout(() => { railPulse.value = false; }, RAIL_PULSE_DURATION_MS);
-  const stored = authStore.user?.id ? getStoredDarkMode(authStore.user.id) : null;
-  if (stored !== null) isDarkMode.value = stored;
-  else isDarkMode.value = document.documentElement.getAttribute('data-theme') === 'dark';
+  // Use document as source of truth so toggle always matches actual applied theme
+  isDarkMode.value = document.documentElement.getAttribute('data-theme') === 'dark';
   if (darkModeObserver) {
     darkModeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
   }
@@ -3228,7 +3227,8 @@ h1 {
   gap: 10px;
   position: sticky;
   top: 12px;
-  align-self: start;
+  align-self: stretch;
+  width: 100%;
   max-height: calc(100vh - 24px);
   overflow: auto;
   padding-right: 2px; /* avoids scrollbar overlaying focus rings */

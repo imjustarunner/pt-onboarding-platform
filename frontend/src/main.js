@@ -227,9 +227,11 @@ async function bootstrap() {
   const authStore = useAuthStore(pinia);
 
   // Re-apply dark mode from localStorage on every navigation (safety net – prevents reset)
+  // Only apply when we have a valid userId – avoids applying stale fallback key on route transitions
   router.afterEach(() => {
     setTitle();
-    applyStoredDarkMode(authStore.user?.id);
+    const uid = authStore.user?.id;
+    if (uid) applyStoredDarkMode(uid);
   });
 
   await router.isReady();
