@@ -21,12 +21,12 @@
               {{ clientLabelMode === 'codes' ? 'Show initials' : 'Show codes' }}
             </button>
             <button
-              v-if="myUnreadCount > 0"
+              v-if="displayedUnreadCount > 0"
               class="btn btn-primary btn-sm"
               type="button"
               @click="markAllAsRead"
             >
-              Mark all read
+              {{ activeTypeFilter === 'all' ? 'Mark all read' : `Mark ${displayedUnreadCount} read` }}
             </button>
             <button
               v-if="selectedUnreadCount > 0"
@@ -320,19 +320,22 @@ const dismissNotification = async (n) => {
 };
 
 const markAllAsRead = async () => {
-  const unread = myNotifications.value.filter((n) => isUnread(n));
-  if (!unread.length) return;
-  // Use bulk read-all API per agency to avoid 403s on personal notifications for other users
-  const agencyIds = [...new Set(unread.map((n) => n.agency_id).filter(Boolean))];
-  await Promise.allSettled(agencyIds.map((aid) => api.put('/notifications/read-all', { agencyId: aid })));
+  // Only mark notifications that match the current type filter
+  const toMark = displayedMyNotifications.value.filter((n) => isUnread(n));
+  if (!toMark.length) return;
+  const filters = activeTypeFilter.value === 'all' ? {} : { type: activeTypeFilter.value };
+  const agencyIds = [...new Set(toMark.map((n) => n.agency_id).filter(Boolean))];
+  await Promise.allSettled(
+    agencyIds.map((aid) => api.put('/notifications/read-all', { agencyId: aid, filters }))
+  );
   selectedIds.value = new Set();
+  toMark.forEach((n) => {
+    n.is_read = true;
+    n.read_at = new Date().toISOString();
+  });
   if (showUnreadForAdmin.value) {
-    myNotifications.value = [];
-  } else {
-    unread.forEach((n) => {
-      n.is_read = true;
-      n.read_at = new Date().toISOString();
-    });
+    const markedIds = new Set(toMark.map((n) => n.id));
+    myNotifications.value = myNotifications.value.filter((n) => !markedIds.has(n.id));
   }
   void notificationStore.fetchCounts();
 };
@@ -451,6 +454,9 @@ const handleAdminClientUpdated = (payload) => {
 
 const myUnreadCount = computed(() => myNotifications.value.filter((n) => !n.is_read && !n.is_resolved).length);
 const displayedTotalCount = computed(() => myNotifications.value.length);
+const displayedUnreadCount = computed(() =>
+  displayedMyNotifications.value.filter((n) => !n.is_read && !n.is_resolved).length
+);
 
 const isUnread = (n) => !!n && !n.is_read && !n.is_resolved;
 const isUrgent = (n) => String(n?.severity || '').toLowerCase() === 'urgent';
