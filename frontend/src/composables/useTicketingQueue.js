@@ -655,6 +655,8 @@ export function useTicketingQueue() {
     if (payload?.client) adminSelectedClient.value = payload.client;
   };
 
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
   onMounted(() => {
     try {
       const saved = window.localStorage.getItem('adminTicketsClientLabelMode');
@@ -663,18 +665,37 @@ export function useTicketingQueue() {
       // ignore
     }
     syncFromQuery();
+    // Never block first paint on agency bootstrap (admin users were seeing route lockups).
+    ready.value = true;
     const run = async () => {
-      await agencyStore.fetchUserAgencies();
-      if (isSuperAdmin.value) {
-        const agencies = agencyStore.agencies?.value ?? agencyStore.agencies ?? [];
-        if (!Array.isArray(agencies) || agencies.length === 0) await agencyStore.fetchAgencies();
+      try {
+        await Promise.race([agencyStore.fetchUserAgencies(), sleep(2500)]);
+      } catch {
+        // best effort
       }
-      ready.value = true;
-      if (agencyIdInput.value) await fetchSchoolsForAgency(agencyIdInput.value);
-      await loadAssignees();
+      try {
+        if (isSuperAdmin.value) {
+          const agencies = agencyStore.agencies?.value ?? agencyStore.agencies ?? [];
+          if (!Array.isArray(agencies) || agencies.length === 0) await agencyStore.fetchAgencies();
+        }
+      } catch {
+        // best effort
+      }
+      try {
+        if (agencyIdInput.value) await fetchSchoolsForAgency(agencyIdInput.value);
+      } catch {
+        // best effort
+      }
+      try {
+        await loadAssignees();
+      } catch {
+        // best effort
+      }
       await load();
     };
-    setTimeout(() => run(), 50);
+    setTimeout(() => {
+      void run();
+    }, 0);
   });
 
   return {
