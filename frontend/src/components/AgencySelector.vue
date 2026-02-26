@@ -71,8 +71,9 @@ const isPortalOrg = (a) => {
   return t === 'school' || t === 'program' || t === 'learning';
 };
 const isAgencyOrg = (a) => {
-  const t = String(a?.organization_type || a?.organizationType || 'agency').toLowerCase();
-  return t === 'agency';
+  const t = String(a?.organization_type || a?.organizationType || '').toLowerCase().trim();
+  // Agency = parent org that can have schools; exclude school/program/learning children.
+  return !t || !['school', 'program', 'learning'].includes(t);
 };
 const toTypeLabel = (orgType) => {
   const t = String(orgType || '').toLowerCase();
@@ -152,15 +153,22 @@ const navigateToOrganization = (agency) => {
 
   // For non-admin surfaces, default to dashboard as well.
   const onAdminSurface = String(route.path || '').includes('/admin/');
-  if (!onAdminSurface) {
+  const onTickets = String(route.path || '').includes('/tickets');
+  if (!onAdminSurface && !onTickets) {
     router.push(nextDashboard);
     return;
   }
 
-  // Admin surfaces: preserve current sub-route and swap slug.
+  // Admin surfaces or /tickets: preserve current route when possible.
   if (route.params.organizationSlug) {
     const nextParams = { ...route.params, organizationSlug: slug };
     router.push({ name: route.name, params: nextParams, query: route.query });
+    return;
+  }
+
+  // On /tickets (no slug): stay on tickets, just update agency context.
+  if (onTickets) {
+    router.push({ path: '/tickets', query: route.query });
     return;
   }
 

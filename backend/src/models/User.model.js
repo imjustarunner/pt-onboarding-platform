@@ -1445,10 +1445,16 @@ class User {
       const canInherit = role === 'admin' || role === 'support' || role === 'staff';
       if (!canInherit) return rows;
 
+      // Parent agencies = any org that is not a school/program/learning child.
+      // Some setups use organization_type = 'organization', 'parent', or empty for the main agency.
+      const childOrgTypes = new Set(['school', 'program', 'learning']);
       const parentAgencyIds = Array.from(
         new Set(
           (rows || [])
-            .filter((o) => String(o?.organization_type || 'agency').toLowerCase() === 'agency')
+            .filter((o) => {
+              const t = String(o?.organization_type || '').toLowerCase().trim();
+              return !t || !childOrgTypes.has(t);
+            })
             .map((o) => parseInt(o?.id, 10))
             .filter((n) => Number.isFinite(n) && n > 0)
         )

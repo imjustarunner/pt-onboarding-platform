@@ -398,9 +398,12 @@ async function getAccessibleTicketScopeForUser(userId, role) {
     `SELECT id, organization_type FROM agencies WHERE id IN (${ids.map(() => '?').join(',')})`,
     ids
   );
+  // Include any org that is a parent agency (not a school/program/learning child).
+  // Some setups use organization_type = 'organization', 'parent', or empty for the main agency.
+  const childOrgTypes = new Set(['school', 'program', 'learning']);
   let agencyIds = (orgRows || []).filter((r) => {
-    const t = String(r?.organization_type || '').toLowerCase();
-    return t === 'agency' || !t || t === 'null';
+    const t = String(r?.organization_type || '').toLowerCase().trim();
+    return !t || !childOrgTypes.has(t);
   }).map((r) => r.id);
   const directSchoolIds = (orgRows || []).filter((r) => String(r?.organization_type || '').toLowerCase() === 'school').map((r) => r.id);
 
