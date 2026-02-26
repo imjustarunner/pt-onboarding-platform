@@ -80,7 +80,7 @@ const fetchPresence = async (showLoading = true) => {
   try {
     if (showLoading) loading.value = true;
     error.value = '';
-    const res = await api.get('/presence');
+    const res = await api.get('/presence', { skipGlobalLoading: true });
     people.value = Array.isArray(res.data) ? res.data : [];
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to load';

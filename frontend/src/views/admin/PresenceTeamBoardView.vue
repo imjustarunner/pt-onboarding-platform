@@ -358,7 +358,7 @@ const fetchPresence = async (showLoading = true) => {
     const url = isSuperAdmin.value
       ? '/presence'
       : (agencyId ? `/presence/agency/${agencyId}/team` : '/presence');
-    const res = await api.get(url);
+    const res = await api.get(url, { skipGlobalLoading: true });
     people.value = Array.isArray(res.data) ? res.data : [];
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to load presence';
