@@ -105,6 +105,49 @@ function buildChecklistDetails({
   return details;
 }
 
+/** Check if agency-wide new_packet_uploaded already exists for this client (avoids duplicates). */
+async function alreadyNotifiedNewPacketUploadedAgencyWide({ agencyId, clientId }) {
+  const [rows] = await pool.execute(
+    `SELECT id FROM notifications
+     WHERE agency_id = ?
+       AND user_id IS NULL
+       AND type = 'new_packet_uploaded'
+       AND related_entity_type = 'client'
+       AND related_entity_id = ?
+       AND is_resolved = FALSE
+     LIMIT 1`,
+    [agencyId, clientId]
+  );
+  return !!rows[0]?.id;
+}
+
+export async function notifyNewPacketUploaded({ agencyId, schoolOrganizationId, clientId, clientNameOrIdentifier }) {
+  if (!agencyId || !clientId) return;
+  if (await alreadyNotifiedNewPacketUploadedAgencyWide({ agencyId, clientId })) return;
+
+  const title = 'New packet uploaded';
+  const message = `A new packet was uploaded for client ${clientNameOrIdentifier || `ID ${clientId}`}.`;
+
+  await createNotificationAndDispatch({
+    type: 'new_packet_uploaded',
+    severity: 'warning',
+    title,
+    message,
+    audienceJson: {
+      admin: true,
+      clinicalPracticeAssistant: true,
+      schoolStaff: false,
+      supervisor: false,
+      provider: false
+    },
+    userId: null,
+    agencyId,
+    relatedEntityType: 'client',
+    relatedEntityId: clientId,
+    actorSource: 'System'
+  }).catch(() => null);
+}
+
 export async function notifyPaperworkReceived({ agencyId, schoolOrganizationId, clientId, clientNameOrIdentifier }) {
   if (!agencyId || !clientId) return;
   if (await alreadyNotifiedPaperworkReceivedAgencyWide({ agencyId, clientId })) return;

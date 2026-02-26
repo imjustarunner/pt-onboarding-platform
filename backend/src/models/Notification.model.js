@@ -34,6 +34,7 @@ class Notification {
     'support_ticket_created',
     // Client pipeline automation
     'paperwork_received',
+    'new_packet_uploaded', // Packet uploaded from school portal
     'client_became_current',
     'client_checklist_updated',
     'client_terminated',

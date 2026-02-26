@@ -456,6 +456,7 @@ const isUnread = (n) => !!n && !n.is_read && !n.is_resolved;
 const isUrgent = (n) => String(n?.severity || '').toLowerCase() === 'urgent';
 
 const typeLabelMap = {
+  new_packet_uploaded: 'New packet uploaded',
   support_ticket_created: 'Support ticket',
   office_availability_request_pending: 'Office request',
   task_overdue: 'Task overdue',

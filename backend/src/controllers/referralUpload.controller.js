@@ -6,7 +6,7 @@ import StorageService from '../services/storage.service.js';
 import ClientPhiDocument from '../models/ClientPhiDocument.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
-import { notifyPaperworkReceived } from '../services/clientNotifications.service.js';
+import { notifyNewPacketUploaded } from '../services/clientNotifications.service.js';
 import DocumentEncryptionService from '../services/documentEncryption.service.js';
 import PhiDocumentAuditLog from '../models/PhiDocumentAuditLog.model.js';
 import { generateUniqueSixDigitClientCode } from '../utils/clientCode.js';
@@ -224,9 +224,9 @@ export const uploadReferralPacket = [
         phiDoc = null;
       }
 
-      // Notify support/admin team that paperwork was received (best-effort).
+      // Notify support/admin team that a new packet was uploaded (best-effort).
       // This satisfies the spec requirement to notify support so they can finalize the placeholder client.
-      notifyPaperworkReceived({
+      notifyNewPacketUploaded({
         agencyId,
         schoolOrganizationId: organization.id,
         clientId: client.id,

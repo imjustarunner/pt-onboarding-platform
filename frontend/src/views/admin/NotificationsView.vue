@@ -18,6 +18,7 @@
         <label>Type:</label>
         <select v-model="filters.type" @change="applyFilters" class="filter-select">
           <option :value="null">All Types</option>
+          <option value="new_packet_uploaded">New Packet Uploaded</option>
           <option value="status_expired">Status Expired</option>
           <option value="temp_password_expired">Temp Password Expired</option>
           <option value="task_overdue">Task Overdue</option>
@@ -340,7 +341,8 @@ const getTypeLabel = (type) => {
     first_login: 'First Login',
     first_login_pending: 'First Login (Pending)',
     password_changed: 'Password Changed',
-    support_ticket_created: 'Support Tickets'
+    support_ticket_created: 'Support Tickets',
+    new_packet_uploaded: 'New Packet Uploaded'
   };
   return labels[type] || type;
 };

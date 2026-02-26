@@ -198,7 +198,7 @@
                     <span
                       v-if="communicationsTotalAttentionCount > 0"
                       class="nav-badge nav-badge-pulse"
-                      :title="`${communicationsPendingCount} pending to send, ${communicationsOpenTicketsCount} open tickets`"
+                      :title="`${communicationsPendingCount} pending to send, ${communicationsOpenTicketsCount} open tickets, ${notificationsUnreadCount} unread notifications`"
                     >
                       {{ communicationsTotalAttentionCount }}
                     </span>
@@ -209,7 +209,7 @@
                       :to="{ path: orgTo('/admin/communications'), query: communicationsPendingCount > 0 ? { tab: 'automation' } : {} }"
                       @click="closeAllNavMenus"
                     >
-                      Workspace
+                      <span>Workspace</span>
                       <span
                         v-if="communicationsPendingCount > 0"
                         class="nav-badge nav-badge-pulse"
@@ -244,7 +244,7 @@
                       @click="closeAllNavMenus"
                     >Contacts</router-link>
                     <router-link :to="orgTo('/notifications')" @click="closeAllNavMenus">
-                      Notifications
+                      <span>Notifications</span>
                       <span
                         v-if="notificationsUnreadCount > 0"
                         class="nav-badge nav-badge-pulse"
@@ -253,8 +253,8 @@
                         {{ notificationsUnreadCount }}
                       </span>
                     </router-link>
-                    <router-link :to="orgTo('/tickets')" @click="closeAllNavMenus">
-                      Tickets
+                    <router-link :to="ticketsNavLink" @click="closeAllNavMenus">
+                      <span>Tickets</span>
                       <span
                         v-if="communicationsOpenTicketsCount > 0"
                         class="nav-badge nav-badge-pulse"
@@ -264,7 +264,7 @@
                       </span>
                     </router-link>
                     <router-link v-if="canShowScheduleTopNav" :to="orgTo('/schedule')" @click="closeAllNavMenus">
-                      Schedule
+                      <span>Schedule</span>
                       <span
                         v-if="showBuildingsPendingBadge && buildingsPendingCount > 0"
                         class="nav-badge"
@@ -481,7 +481,7 @@
                 <span class="mobile-obnoxious-badge" v-if="notificationsUnreadCount > 0">{{ notificationsUnreadCount }}</span>
               </router-link>
               <router-link
-                :to="orgTo('/tickets')"
+                :to="ticketsNavLink"
                 v-if="(isAdmin || user?.role === 'staff' || user?.role === 'support' || user?.role === 'super_admin')"
                 @click="closeMobileMenu"
                 class="mobile-nav-link"
@@ -1263,6 +1263,9 @@ const orgTo = (path) => {
   return `/${slug}${path}`;
 };
 
+// Tickets: use /tickets (no slug) to avoid blank screen for agency admins on slug routes
+const ticketsNavLink = computed(() => '/tickets');
+
 // Dashboard URL pattern by role (org slug e.g. "itsco" when user is in that agency's context):
 // - Superadmin: My Dashboard = /dashboard (platform personal), Admin = /admin (nav "Admin Dashboard").
 // - Admin (agency): My Dashboard = /itsco/dashboard, Admin = /itsco/admin (orgTo handles slug).
@@ -1367,7 +1370,12 @@ watch(sessionSettingsKey, () => {
 const notificationsUnreadCount = computed(() => Number(notificationStore.unreadCount || 0));
 const communicationsPendingCount = computed(() => Number(communicationsCountsStore.pendingDeliveryCount || 0));
 const communicationsOpenTicketsCount = computed(() => Number(communicationsCountsStore.openTicketsCount || 0));
-const communicationsTotalAttentionCount = computed(() => communicationsCountsStore.totalAttentionCount);
+const communicationsTotalAttentionCount = computed(
+  () =>
+    Number(communicationsCountsStore.pendingDeliveryCount || 0) +
+    Number(communicationsCountsStore.openTicketsCount || 0) +
+    Number(notificationStore.unreadCount || 0)
+);
 const showNotificationsObnoxiousBadge = computed(() => {
   if (!isAuthenticated.value) return false;
   if (!isAdminLike.value) return false;
@@ -2043,6 +2051,18 @@ onUnmounted(() => {
 .nav-dropdown-menu .nav-badge {
   flex-shrink: 0;
   margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* Explicit colors so badges are visible on white dropdown (--danger may be unset) */
+  background: var(--danger, var(--error, #CC3D3D)) !important;
+  color: white !important;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  font-size: 12px;
+  font-weight: 700;
+  border-radius: 999px;
 }
 
 .nav-dropdown-menu a:hover {
