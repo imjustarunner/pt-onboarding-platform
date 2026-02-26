@@ -428,6 +428,7 @@ export const getProviderSchoolProfile = async (req, res, next) => {
       title: u.title || null,
       credential: credential ? String(credential) : null,
       service_focus: u.service_focus || null,
+      languages_spoken: u.languages_spoken || null,
       phone_number: u.phone_number || null,
       personal_phone: u.personal_phone || null,
       work_phone: u.work_phone || null,

@@ -56,6 +56,7 @@
               <div v-if="profile?.title" class="sub">{{ profile.title }}</div>
               <div v-if="profile?.credential" class="sub">{{ profile.credential }}</div>
               <div v-if="profile?.service_focus" class="sub">{{ profile.service_focus }}</div>
+              <div class="sub">Languages: {{ languagesDisplay }}</div>
               <div v-if="providerContactLine" class="sub">{{ providerContactLine }}</div>
               <div v-if="acceptedInsuranceLabels.length" class="insurance-row">
                 <div class="insurance-label">Accepted insurance</div>
@@ -458,6 +459,11 @@ const providerContactLine = computed(() => {
   if (!phone) return '';
   if (ext) return `${phone} ext ${ext}`;
   return phone;
+});
+
+const languagesDisplay = computed(() => {
+  const raw = String(profile.value?.languages_spoken || '').trim();
+  return raw || 'English';
 });
 
 const availabilityBadges = computed(() => {

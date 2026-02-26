@@ -62,8 +62,7 @@
             <div v-if="p.email" class="line">{{ p.email }}</div>
             <div v-if="p.school_info_blurb" class="blurb">{{ p.school_info_blurb }}</div>
             <div class="badges">
-              <span v-if="p.accepting_new_clients === false" class="badge badge-secondary">Not accepting</span>
-              <span v-else class="badge badge-secondary">Accepting</span>
+              <span class="badge badge-secondary">{{ acceptanceStatusText(p) }}</span>
               <span v-if="activeDaysFor(p).length" class="badge badge-secondary">
                 {{ activeDaysFor(p).join(', ') }}
               </span>
@@ -110,6 +109,35 @@ const providerPhotoUrl = (p) => {
   return toUploadsUrl(p?.profile_photo_url || null);
 };
 
+const remainingForAssignment = (a) => {
+  const total = Number(a?.slots_total);
+  const usedRaw = a?.slots_used ?? a?.slots_used_calculated ?? null;
+  const used = Number(usedRaw);
+  const availRaw = a?.slots_available_calculated ?? a?.slots_available ?? null;
+  const avail = Number(availRaw);
+  const hasTotal = Number.isFinite(total) && total > 0;
+  const usedFromAvail = hasTotal && Number.isFinite(avail) ? Math.max(0, total - avail) : null;
+  const usedEffective = Number.isFinite(used) ? used : usedFromAvail;
+  return hasTotal && usedEffective !== null ? total - usedEffective : null;
+};
+
+const isEffectivelyFull = (p) => {
+  const list = Array.isArray(p?.assignments) ? p.assignments : [];
+  const active = list.filter((a) => a && a.is_active);
+  if (active.length === 0) return false;
+  for (const a of active) {
+    const remaining = remainingForAssignment(a);
+    if (remaining !== null && remaining > 0) return false;
+  }
+  return true;
+};
+
+const acceptanceStatusText = (p) => {
+  if (p?.accepting_new_clients === false) return 'Not accepting';
+  if (isEffectivelyFull(p)) return 'Not currently accepting';
+  return 'Accepting';
+};
+
 const dayBadgesFor = (p) => {
   const list = Array.isArray(p?.assignments) ? p.assignments : [];
   const active = list.filter((a) => a && a.is_active);
@@ -118,15 +146,7 @@ const dayBadgesFor = (p) => {
     return s === 'Thursday' ? 'Thu' : s.slice(0, 3);
   };
   const badgeFor = (a) => {
-    const total = Number(a?.slots_total);
-    const usedRaw = a?.slots_used ?? a?.slots_used_calculated ?? null;
-    const used = Number(usedRaw);
-    const availRaw = a?.slots_available_calculated ?? a?.slots_available ?? null;
-    const avail = Number(availRaw);
-    const hasTotal = Number.isFinite(total) && total > 0;
-    const usedFromAvail = hasTotal && Number.isFinite(avail) ? Math.max(0, total - avail) : null;
-    const usedEffective = Number.isFinite(used) ? used : usedFromAvail;
-    const remaining = hasTotal && usedEffective !== null ? (total - usedEffective) : null;
+    const remaining = remainingForAssignment(a);
     let color = 'green';
     if (remaining !== null) {
       if (remaining <= 0) color = 'red'; // full (or overbooked)
