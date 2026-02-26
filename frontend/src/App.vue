@@ -194,7 +194,15 @@
                     :aria-expanded="engagementMenuOpen ? 'true' : 'false'"
                     @click.stop="toggleEngagementMenu"
                   >
-                    <span class="nav-dropdown-label">Communications</span> <span class="brand-caret">▾</span>
+                    <span class="nav-dropdown-label">Communications</span>
+                    <span
+                      v-if="communicationsTotalAttentionCount > 0"
+                      class="nav-badge nav-badge-pulse"
+                      :title="`${communicationsPendingCount} pending to send, ${communicationsOpenTicketsCount} open tickets`"
+                    >
+                      {{ communicationsTotalAttentionCount }}
+                    </span>
+                    <span class="brand-caret">▾</span>
                   </button>
                   <div v-if="engagementMenuOpen" class="nav-dropdown-menu">
                     <router-link
@@ -239,6 +247,13 @@
                     </router-link>
                     <router-link :to="orgTo('/tickets')" @click="closeAllNavMenus">
                       Tickets
+                      <span
+                        v-if="communicationsOpenTicketsCount > 0"
+                        class="nav-badge nav-badge-pulse"
+                        :title="`${communicationsOpenTicketsCount} open ticket(s)`"
+                      >
+                        {{ communicationsOpenTicketsCount }}
+                      </span>
                     </router-link>
                     <router-link v-if="canShowScheduleTopNav" :to="orgTo('/schedule')" @click="closeAllNavMenus">
                       Schedule
@@ -462,7 +477,10 @@
                 v-if="(isAdmin || user?.role === 'staff' || user?.role === 'support' || user?.role === 'super_admin')"
                 @click="closeMobileMenu"
                 class="mobile-nav-link"
-              >Tickets</router-link>
+              >
+                Tickets
+                <span class="mobile-obnoxious-badge" v-if="communicationsOpenTicketsCount > 0">{{ communicationsOpenTicketsCount }}</span>
+              </router-link>
               <router-link
                 :to="orgTo('/schedule')"
                 v-if="canShowScheduleIcon || canShowScheduleTopNav"
@@ -625,6 +643,7 @@ import { useOrganizationStore } from './store/organization';
 import { useTutorialStore } from './store/tutorial';
 import { useSuperadminBuilderStore } from './store/superadminBuilder';
 import { useNotificationStore } from './store/notifications';
+import { useCommunicationsCountsStore } from './store/communicationsCounts';
 import { useSessionLockStore } from './store/sessionLock';
 import { useUserPreferencesStore } from './store/userPreferences';
 import { useRouter, useRoute } from 'vue-router';
@@ -663,6 +682,7 @@ const organizationStore = useOrganizationStore();
 const tutorialStore = useTutorialStore();
 const builderStore = useSuperadminBuilderStore();
 const notificationStore = useNotificationStore();
+const communicationsCountsStore = useCommunicationsCountsStore();
 const sessionLockStore = useSessionLockStore();
 const userPreferencesStore = useUserPreferencesStore();
 const router = useRouter();
@@ -1337,6 +1357,9 @@ watch(sessionSettingsKey, () => {
 
 // ---- Obnoxious notifications badge (admin/support) ----
 const notificationsUnreadCount = computed(() => Number(notificationStore.unreadCount || 0));
+const communicationsPendingCount = computed(() => Number(communicationsCountsStore.pendingDeliveryCount || 0));
+const communicationsOpenTicketsCount = computed(() => Number(communicationsCountsStore.openTicketsCount || 0));
+const communicationsTotalAttentionCount = computed(() => communicationsCountsStore.totalAttentionCount);
 const showNotificationsObnoxiousBadge = computed(() => {
   if (!isAuthenticated.value) return false;
   if (!isAdminLike.value) return false;
@@ -1565,6 +1588,24 @@ watch(shouldFetchNotificationsCounts, (enabled) => {
     notificationsInterval = null;
   }
 }, { immediate: true });
+
+let communicationsCountsInterval = null;
+watch(showEngagementMenu, (enabled) => {
+  if (enabled) {
+    void communicationsCountsStore.fetchCounts();
+    if (communicationsCountsInterval) clearInterval(communicationsCountsInterval);
+    communicationsCountsInterval = setInterval(() => communicationsCountsStore.fetchCounts(), 2 * 60 * 1000);
+  } else {
+    if (communicationsCountsInterval) clearInterval(communicationsCountsInterval);
+    communicationsCountsInterval = null;
+  }
+}, { immediate: true });
+
+watch(() => route.path, (path) => {
+  if (path && (path.includes('/admin/communications') || path.includes('/tickets'))) {
+    void communicationsCountsStore.fetchCounts();
+  }
+});
 
 watch(isOnNotificationsRoute, (onNotifications) => {
   if (onNotifications) {

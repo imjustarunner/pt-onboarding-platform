@@ -165,6 +165,46 @@ export const regenerateEmail = async (req, res, next) => {
   }
 };
 
+/**
+ * Get total pending communications count across user's agencies (for nav badge).
+ * GET /api/communications/pending-count
+ */
+export const getPendingCommunicationsCount = async (req, res, next) => {
+  try {
+    if (!isAdminLike(req.user?.role)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const role = String(req.user?.role || '').toLowerCase();
+    let agencyIds = [];
+    if (role === 'super_admin') {
+      const [rows] = await pool.execute(
+        'SELECT id FROM agencies WHERE organization_type IN (\'agency\', \'school\') OR organization_type IS NULL'
+      );
+      agencyIds = (rows || []).map((r) => r.id);
+    } else {
+      const agencies = await User.getAgencies(req.user.id);
+      agencyIds = (agencies || []).map((a) => a.id);
+    }
+
+    if (agencyIds.length === 0) {
+      return res.json({ count: 0 });
+    }
+
+    const placeholders = agencyIds.map(() => '?').join(',');
+    const [rows] = await pool.execute(
+      `SELECT COUNT(*) AS cnt FROM user_communications uc
+       WHERE uc.agency_id IN (${placeholders})
+         AND uc.delivery_status IN ('pending', 'failed', 'bounced', 'undelivered')`,
+      agencyIds
+    );
+    const count = Number(rows?.[0]?.cnt || 0);
+    res.json({ count });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const listPendingCommunications = async (req, res, next) => {
   try {
     if (!isAdminLike(req.user?.role)) {

@@ -112,7 +112,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
@@ -198,6 +198,7 @@ const openLastPaycheck = () => {
 };
 
 onMounted(load);
+watch(agencyId, (id) => { if (id) load(); }, { immediate: false });
 </script>
 
 <style scoped>

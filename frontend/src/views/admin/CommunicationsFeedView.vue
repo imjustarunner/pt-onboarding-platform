@@ -12,6 +12,7 @@
           <button class="tab" :class="{ active: activeTab === 'calls' }" @click="setTab('calls')">Calls</button>
           <button class="tab" :class="{ active: activeTab === 'automation' }" @click="setTab('automation')">
             {{ isProviderOrSchoolStaff ? 'My messages' : 'Automation' }}
+            <span v-if="!isProviderOrSchoolStaff && pendingDeliveryCount > 0" class="tab-badge">{{ pendingDeliveryCount }}</span>
           </button>
           <button class="tab" :class="{ active: activeTab === 'school' }" @click="setTab('school')">School alerts</button>
         </div>
@@ -19,9 +20,22 @@
         <router-link class="btn btn-secondary" :to="preferencesLink">Preferences</router-link>
         <router-link v-if="canManageTexting" class="btn btn-secondary" :to="textingSettingsLink">Texting settings</router-link>
         <router-link class="btn btn-secondary" :to="chatsLink" data-tour="comms-go-chats">Chats</router-link>
-        <router-link class="btn btn-secondary" :to="ticketsLink">Tickets</router-link>
+        <router-link class="btn btn-secondary" :to="ticketsLink">
+          Tickets
+          <span v-if="openTicketsCount > 0" class="header-badge">{{ openTicketsCount }}</span>
+        </router-link>
         <button class="btn btn-secondary" @click="refreshActive" :disabled="loading || schoolLoading">Refresh</button>
       </div>
+    </div>
+
+    <div
+      v-if="pendingDeliveryCount > 0 && activeTab !== 'automation' && !isProviderOrSchoolStaff"
+      class="delivery-alert-banner"
+    >
+      <span class="delivery-alert-text">{{ pendingDeliveryCount }} item(s) pending approval.</span>
+      <button type="button" class="btn btn-primary btn-sm" @click="setTab('automation')">
+        Review now
+      </button>
     </div>
 
     <div v-if="error" class="error-box">{{ error }}</div>
@@ -311,10 +325,12 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
+import { useCommunicationsCountsStore } from '../../store/communicationsCounts';
 import { useRouter, useRoute } from 'vue-router';
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
+const communicationsCountsStore = useCommunicationsCountsStore();
 const router = useRouter();
 const route = useRoute();
 
@@ -394,6 +410,8 @@ const ticketsLink = computed(() => {
   if (typeof slug === 'string' && slug) return `/${slug}/tickets`;
   return '/tickets';
 });
+const pendingDeliveryCount = computed(() => Number(communicationsCountsStore.pendingDeliveryCount || 0));
+const openTicketsCount = computed(() => Number(communicationsCountsStore.openTicketsCount || 0));
 
 const activeTab = computed(() => {
   const t = String(route.query?.tab || 'all');
@@ -817,6 +835,7 @@ onMounted(async () => {
     router.push('/login');
     return;
   }
+  void communicationsCountsStore.fetchCounts();
   await load();
   await Promise.all([loadCalls(), loadCallAnalytics(), loadVoicemails()]);
   await loadCallSettings();
@@ -879,6 +898,33 @@ onBeforeUnmount(() => {
   border: 1px solid var(--border);
 }
 .subtitle { color: var(--text-secondary); margin: 6px 0 0 0; }
+.delivery-alert-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  margin-bottom: 14px;
+  background: linear-gradient(135deg, var(--accent) 0%, color-mix(in srgb, var(--accent) 80%, transparent) 100%);
+  color: white;
+  border-radius: 12px;
+  font-weight: 500;
+}
+.delivery-alert-banner .btn { flex-shrink: 0; }
+.tab-badge, .header-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  margin-left: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--accent);
+  color: white;
+  border-radius: 999px;
+}
 .card {
   background: white;
   border: 1px solid var(--border);

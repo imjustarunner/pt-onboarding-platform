@@ -259,7 +259,8 @@
       class="dashboard-shell"
       :class="{
         'schedule-focus': activeTab === 'my_schedule',
-        'rail-expanded': !railEffectiveCollapsed
+        'rail-expanded': !railEffectiveCollapsed,
+        'rail-collapsed': railEffectiveCollapsed
       }"
     >
       <div
@@ -2930,6 +2931,10 @@ h1 {
 }
 .dashboard-shell.schedule-focus.rail-expanded {
   grid-template-columns: 320px minmax(0, 1fr);
+}
+/* When rail is collapsed (any tab), shrink grid column so content fills the space */
+.dashboard-shell.rail-collapsed {
+  grid-template-columns: 88px minmax(0, 1fr);
 }
 
 .dashboard-rail-wrap {

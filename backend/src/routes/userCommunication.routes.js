@@ -3,6 +3,7 @@ import {
   getUserCommunications,
   getCommunication,
   regenerateEmail,
+  getPendingCommunicationsCount,
   listPendingCommunications,
   approveCommunication,
   cancelCommunication
@@ -24,6 +25,7 @@ router.get('/users/:userId/communications/:id', getCommunication);
 router.post('/users/:userId/communications/:id/regenerate', regenerateEmail);
 
 // Platform communications (pending/approval)
+router.get('/communications/pending-count', getPendingCommunicationsCount);
 router.get('/communications/pending', listPendingCommunications);
 router.post('/communications/:id/approve', approveCommunication);
 router.post('/communications/:id/cancel', cancelCommunication);

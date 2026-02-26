@@ -3,6 +3,7 @@ import { authenticate } from '../middleware/auth.middleware.js';
 import {
   listMySupportTickets,
   listSupportTicketsQueue,
+  getSupportTicketsCount,
   createSupportTicket,
   getClientSupportTicketThread,
   markClientSupportTicketThreadRead,
@@ -35,6 +36,7 @@ router.post('/client-thread/read', markClientSupportTicketThreadRead);
 router.get('/client-tickets', listClientSupportTickets);
 
 // Admin/support: queue (optionally filter by schoolOrganizationId/status)
+router.get('/count', getSupportTicketsCount);
 router.get('/', listSupportTicketsQueue);
 router.get('/assignees', listSupportTicketAssignees);
 

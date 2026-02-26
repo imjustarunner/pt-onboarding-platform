@@ -155,65 +155,12 @@
       <div v-if="showPlatformCard" class="card card-compact" data-tour="notifhub-card-platform">
         <div class="card-top">
           <h2>Delivery Alerts</h2>
-          <span class="pill">{{ platformCount }} pending</span>
+          <span class="pill">{{ communicationsPendingCount }} pending</span>
         </div>
-        <p class="hint">Pending/failed emails and texts. Full queue controls also live in Communications → Automation.</p>
-        <div class="platform-controls">
-          <label class="field">
-            Agency
-            <select v-model="platformAgencyId" class="select">
-              <option v-for="a in agencies" :key="a.id" :value="a.id">{{ a.name }}</option>
-            </select>
-          </label>
-          <div class="tabs">
-            <button class="tab" :class="{ active: platformChannel === 'email' }" @click="platformChannel = 'email'">Email</button>
-            <button class="tab" :class="{ active: platformChannel === 'sms' }" @click="platformChannel = 'sms'">Text</button>
-          </div>
-          <div class="tabs">
-            <button class="tab" :class="{ active: platformStatus === 'pending' }" @click="platformStatus = 'pending'">Pending</button>
-            <button class="tab" :class="{ active: platformStatus === 'failed' }" @click="platformStatus = 'failed'">Failed</button>
-          </div>
-          <button class="btn btn-secondary" type="button" @click="loadPlatform" :disabled="platformLoading">
-            {{ platformLoading ? 'Loading…' : 'Refresh' }}
-          </button>
-        </div>
-
-        <div v-if="platformLoading" class="loading">Loading…</div>
-        <div v-else-if="platformError" class="error">{{ platformError }}</div>
-        <div v-else-if="platformRows.length === 0" class="empty">No platform communications found.</div>
-        <div v-else class="list">
-          <div v-for="c in platformRows" :key="c.id" class="item">
-            <div class="item-head">
-              <span class="sev">{{ c.channel.toUpperCase() }}</span>
-              <div class="title">{{ c.subject || c.template_type || 'Message' }}</div>
-            </div>
-            <div class="msg">{{ c.body }}</div>
-            <div class="meta">
-              <span>{{ formatDate(c.generated_at || c.created_at) }}</span>
-              <span>{{ c.recipient_address || c.user_email || '—' }}</span>
-            </div>
-            <div class="actions">
-              <button class="btn btn-secondary btn-sm" type="button" @click="approveComm(c)" :disabled="platformActionId === c.id || c.channel !== 'email'">
-                Approve & Send
-              </button>
-              <button class="btn btn-secondary btn-sm" type="button" @click="cancelComm(c)" :disabled="platformActionId === c.id">
-                Cancel
-              </button>
-              <button
-                v-if="c.channel === 'email'"
-                class="btn btn-secondary btn-sm"
-                type="button"
-                @click="previewComm(c)"
-              >
-                Regenerate
-              </button>
-            </div>
-            <div v-if="previewById[c.id]" class="preview">
-              <div class="muted-small">Preview</div>
-              <div class="preview-body">{{ previewById[c.id] }}</div>
-            </div>
-          </div>
-        </div>
+        <p class="hint">Pending emails and texts ready to send. Manage in Communications → Automation.</p>
+        <router-link class="btn btn-primary" :to="communicationsAutomationLink">
+          {{ communicationsPendingCount > 0 ? `Review ${communicationsPendingCount} pending` : 'Open Communications' }}
+        </router-link>
       </div>
     </div>
   </div>
@@ -240,6 +187,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../store/auth';
 import { useAgencyStore } from '../store/agency';
 import { useNotificationStore } from '../store/notifications';
+import { useCommunicationsCountsStore } from '../store/communicationsCounts';
 import api from '../services/api';
 import ClientDetailPanel from '../components/admin/ClientDetailPanel.vue';
 import OfficeRequestAssignModal from '../components/admin/OfficeRequestAssignModal.vue';
@@ -247,6 +195,7 @@ import OfficeRequestAssignModal from '../components/admin/OfficeRequestAssignMod
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
 const notificationStore = useNotificationStore();
+const communicationsCountsStore = useCommunicationsCountsStore();
 const route = useRoute();
 const router = useRouter();
 
@@ -254,14 +203,6 @@ const loadingMy = ref(false);
 const myNotifications = ref([]);
 const counts = ref({});
 const loadingCounts = ref(false);
-const platformLoading = ref(false);
-const platformError = ref('');
-const platformRows = ref([]);
-const platformChannel = ref('email');
-const platformStatus = ref('pending');
-const platformAgencyId = ref(null);
-const platformActionId = ref(null);
-const previewById = ref({});
 const clientLabelMode = ref('initials'); // 'initials' | 'codes'
 const adminSelectedClient = ref(null);
 const adminClientLoading = ref(false);
@@ -310,6 +251,11 @@ const ticketsLink = computed(() => {
   const base = orgSlug.value ? `/${orgSlug.value}` : '';
   return `${base}/tickets`;
 });
+const communicationsAutomationLink = computed(() => {
+  const base = orgSlug.value ? `/${orgSlug.value}` : '';
+  return { path: `${base}/admin/communications`, query: { tab: 'automation' } };
+});
+const communicationsPendingCount = computed(() => Number(communicationsCountsStore.pendingDeliveryCount || 0));
 
 const loadMy = async () => {
   try {
@@ -346,64 +292,6 @@ const loadCounts = async () => {
   }
 };
 
-const platformCount = computed(() => platformRows.value.length);
-
-const loadPlatform = async () => {
-  try {
-    if (!platformAgencyId.value) return;
-    platformLoading.value = true;
-    platformError.value = '';
-    const params = {
-      agencyId: platformAgencyId.value,
-      channel: platformChannel.value,
-      status: platformStatus.value
-    };
-    const resp = await api.get('/communications/pending', { params });
-    platformRows.value = Array.isArray(resp.data) ? resp.data : [];
-  } catch (e) {
-    platformError.value = e.response?.data?.error?.message || 'Failed to load platform communications';
-    platformRows.value = [];
-  } finally {
-    platformLoading.value = false;
-  }
-};
-
-const approveComm = async (c) => {
-  try {
-    platformActionId.value = c.id;
-    await api.post(`/communications/${c.id}/approve`);
-    await loadPlatform();
-  } catch (e) {
-    platformError.value = e.response?.data?.error?.message || 'Failed to approve communication';
-  } finally {
-    platformActionId.value = null;
-  }
-};
-
-const cancelComm = async (c) => {
-  try {
-    platformActionId.value = c.id;
-    await api.post(`/communications/${c.id}/cancel`);
-    await loadPlatform();
-  } catch (e) {
-    platformError.value = e.response?.data?.error?.message || 'Failed to cancel communication';
-  } finally {
-    platformActionId.value = null;
-  }
-};
-
-const previewComm = async (c) => {
-  try {
-    if (!c?.user_id) return;
-    const r = await api.post(`/users/${c.user_id}/communications/${c.id}/regenerate`);
-    const rendered = r.data?.rendered || {};
-    const body = String(rendered.body || '').trim();
-    previewById.value = { ...previewById.value, [c.id]: body || '(empty)' };
-  } catch (e) {
-    platformError.value = e.response?.data?.error?.message || 'Failed to regenerate email';
-  }
-};
-
 const markRead = async (n) => {
   try {
     await api.put(`/notifications/${n.id}/read`);
@@ -434,10 +322,17 @@ const dismissNotification = async (n) => {
 const markAllAsRead = async () => {
   const unread = myNotifications.value.filter((n) => isUnread(n));
   if (!unread.length) return;
-  await Promise.allSettled(unread.map((n) => markRead(n)));
+  // Use bulk read-all API per agency to avoid 403s on personal notifications for other users
+  const agencyIds = [...new Set(unread.map((n) => n.agency_id).filter(Boolean))];
+  await Promise.allSettled(agencyIds.map((aid) => api.put('/notifications/read-all', { agencyId: aid })));
   selectedIds.value = new Set();
   if (showUnreadForAdmin.value) {
     myNotifications.value = [];
+  } else {
+    unread.forEach((n) => {
+      n.is_read = true;
+      n.read_at = new Date().toISOString();
+    });
   }
   void notificationStore.fetchCounts();
 };
@@ -459,7 +354,10 @@ const selectedUnreadCount = computed(() => {
 });
 
 const markSelectedAsRead = async () => {
-  const toMark = myNotifications.value.filter((n) => selectedIds.value.has(n.id) && isUnread(n));
+  const uid = userId.value;
+  const toMark = myNotifications.value.filter(
+    (n) => selectedIds.value.has(n.id) && isUnread(n) && (n.user_id == null || Number(n.user_id) === Number(uid))
+  );
   if (!toMark.length) return;
   await Promise.allSettled(toMark.map((n) => markRead(n)));
   selectedIds.value = new Set();
@@ -654,19 +552,7 @@ onMounted(async () => {
   } else if (!agencyStore.userAgencies || agencyStore.userAgencies.length === 0) {
     await agencyStore.fetchUserAgencies().catch(() => {});
   }
-  if (!platformAgencyId.value && agencies.value?.length) {
-    platformAgencyId.value = agencies.value[0].id;
-  }
-  await Promise.all([loadMy(), loadCounts(), notificationStore.fetchCounts()]);
-  if (showPlatformCard.value && platformAgencyId.value) {
-    await loadPlatform();
-  }
-});
-
-watch([platformAgencyId, platformChannel, platformStatus], async () => {
-  if (showPlatformCard.value && platformAgencyId.value) {
-    await loadPlatform();
-  }
+  await Promise.all([loadMy(), loadCounts(), notificationStore.fetchCounts(), communicationsCountsStore.fetchCounts()]);
 });
 
 watch(

@@ -545,6 +545,62 @@ export const listSupportTicketsQueue = async (req, res, next) => {
   }
 };
 
+/**
+ * Get open tickets count for nav badge.
+ * GET /api/support-tickets/count?status=open
+ */
+export const getSupportTicketsCount = async (req, res, next) => {
+  try {
+    const role = String(req.user?.role || '').toLowerCase();
+    const canView = role === 'school_staff' || isAgencyAdminUser(req) || role === 'super_admin';
+    if (!canView) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const status = req.query?.status ? String(req.query.status).trim().toLowerCase() : 'open';
+    const mine = parseBool(req.query?.mine);
+
+    const where = [];
+    const params = [];
+
+    const scope = await getAccessibleTicketScopeForUser(req.user.id, role);
+    if (scope.agencyIds !== null) {
+      const conditions = [];
+      if (scope.agencyIds.length > 0) {
+        conditions.push(`t.agency_id IN (${scope.agencyIds.map(() => '?').join(',')})`);
+        params.push(...scope.agencyIds);
+      }
+      if (scope.schoolOrgIds.length > 0) {
+        conditions.push(`t.school_organization_id IN (${scope.schoolOrgIds.map(() => '?').join(',')})`);
+        params.push(...scope.schoolOrgIds);
+      }
+      if (conditions.length > 0) {
+        where.push(`(${conditions.join(' OR ')})`);
+      } else {
+        where.push('1 = 0');
+      }
+    }
+
+    where.push('LOWER(t.status) = ?');
+    params.push(status);
+
+    if (mine === true) {
+      where.push('t.claimed_by_user_id = ?');
+      params.push(req.user.id);
+    }
+
+    const [rows] = await pool.execute(
+      `SELECT COUNT(*) AS cnt FROM support_tickets t
+       ${where.length ? `WHERE ${where.join(' AND ')}` : ''}`,
+      params
+    );
+    const count = Number(rows?.[0]?.cnt || 0);
+    res.json({ count });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const createSupportTicket = async (req, res, next) => {
   try {
     const schoolOrganizationId = parseInt(req.body?.schoolOrganizationId, 10);
