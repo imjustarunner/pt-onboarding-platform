@@ -1390,11 +1390,12 @@ const isBackofficeRole = computed(() => ['super_admin', 'admin', 'support', 'sta
 const canViewAdminNote = computed(() => isBackofficeRole.value || roleNorm.value === 'supervisor');
 const canManageClientCode = computed(() => isBackofficeRole.value || roleNorm.value === 'supervisor');
 const canEditAccount = computed(() => isBackofficeRole.value && hasAgencyAccess.value);
+// Providers terminate via "Mark as Terminated" in roster only; support staff use this panel
 const canTerminate = computed(() => {
   if (!hasAgencyAccess.value) return false;
   if (isClientTerminated.value) return false;
   const r = roleNorm.value;
-  return ['super_admin', 'admin', 'support', 'staff'].includes(r) || r === 'provider';
+  return ['super_admin', 'admin', 'support', 'staff'].includes(r);
 });
 const learningBillingEnabledForClient = computed(() => {
   const orgType = String(props.client?.organization_type || '').toLowerCase();

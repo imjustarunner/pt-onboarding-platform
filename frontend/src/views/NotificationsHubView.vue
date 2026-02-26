@@ -459,6 +459,7 @@ const typeLabelMap = {
   new_packet_uploaded: 'New packet uploaded',
   support_ticket_created: 'Support ticket',
   office_availability_request_pending: 'Office request',
+  client_assigned: 'Client assigned',
   task_overdue: 'Task overdue',
   status_expired: 'Status expired',
   temp_password_expired: 'Temp password expired',
@@ -526,13 +527,23 @@ const formatClientLabel = (n) => {
   return code || initials || '';
 };
 
+/** For client_assigned: show "assigned to [Provider]" when admin views provider's notification, not "assigned to you" */
+const formatDisplayMessage = (n) => {
+  const msg = String(n?.message || '').trim();
+  if (n?.type !== 'client_assigned' || !n?.user_id) return msg;
+  const currentUserId = authStore.user?.id;
+  if (currentUserId && Number(n.user_id) === Number(currentUserId)) return msg;
+  const providerName = n.recipient_display_name || `User ${n.user_id}`;
+  return msg.replace(/was assigned to you/gi, `was assigned to ${providerName}`);
+};
+
 const formatNotificationLine = (n) => {
   const parts = [];
   const label = formatClientLabel(n);
   if (label) parts.push(label);
   const orgName = String(n?.organization_name || n?.agency_name || '').trim();
   if (orgName) parts.push(orgName);
-  const msg = String(n?.message || '').trim();
+  const msg = formatDisplayMessage(n);
   if (msg) parts.push(msg);
   const actorName = String(n?.actor_display_name || '').trim();
   if (actorName) parts.push(`By: ${actorName}`);

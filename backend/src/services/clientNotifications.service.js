@@ -238,13 +238,15 @@ export async function notifyClientTerminated({
   clientId,
   clientNameOrIdentifier,
   terminationReason,
-  actorUserId
+  actorUserId,
+  providerUserId
 }) {
   if (!agencyId || !clientId) return;
 
   const agencyStaff = await getAgencyAdminStaffUserIds(agencyId);
   const schoolStaff = schoolOrganizationId ? await getSchoolStaffUserIds(schoolOrganizationId) : [];
   const recipients = new Set([...(agencyStaff || []), ...(schoolStaff || [])]);
+  if (providerUserId) recipients.add(providerUserId);
 
   const title = 'Client terminated';
   const reasonSnippet = terminationReason ? ` Reason: ${String(terminationReason).slice(0, 200)}${terminationReason.length > 200 ? '…' : ''}` : '';

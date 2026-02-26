@@ -144,18 +144,26 @@ async function appendNotificationContext(notifications) {
         .filter((v) => Number.isFinite(v) && v > 0)
     )
   );
-  const actorNameById = new Map();
-  if (actorUserIds.length) {
-    const placeholders = actorUserIds.map(() => '?').join(',');
+  const recipientUserIds = Array.from(
+    new Set(
+      list
+        .map((n) => Number(n?.user_id || 0))
+        .filter((v) => Number.isFinite(v) && v > 0)
+    )
+  );
+  const allUserIds = Array.from(new Set([...actorUserIds, ...recipientUserIds]));
+  const userNameById = new Map();
+  if (allUserIds.length) {
+    const placeholders = allUserIds.map(() => '?').join(',');
     const [rows] = await pool.execute(
       `SELECT id, first_name, last_name, email
        FROM users
        WHERE id IN (${placeholders})`,
-      actorUserIds
+      allUserIds
     );
     for (const r of rows || []) {
       const name = [String(r.first_name || '').trim(), String(r.last_name || '').trim()].filter(Boolean).join(' ').trim();
-      actorNameById.set(Number(r.id), name || String(r.email || '').trim() || null);
+      userNameById.set(Number(r.id), name || String(r.email || '').trim() || null);
     }
   }
 
@@ -171,9 +179,12 @@ async function appendNotificationContext(notifications) {
       }
     }
     if (n.actor_user_id) {
-      n.actor_display_name = actorNameById.get(Number(n.actor_user_id)) || null;
+      n.actor_display_name = userNameById.get(Number(n.actor_user_id)) || null;
     } else if (n.actor_source) {
       n.actor_display_name = String(n.actor_source).trim() || null;
+    }
+    if (n.user_id) {
+      n.recipient_display_name = userNameById.get(Number(n.user_id)) || null;
     }
     // Per-user read state: expose as is_read for frontend compatibility
     if (n._is_read_for_viewer !== undefined) {

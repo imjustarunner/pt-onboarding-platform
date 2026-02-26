@@ -30,6 +30,7 @@
           <option value="password_changed">Password Changed</option>
           <option value="support_ticket_created">Support Tickets</option>
           <option value="office_availability_request_pending">Office Requests</option>
+          <option value="client_assigned">Client Assigned</option>
         </select>
       </div>
       <div class="filter-group">
@@ -123,7 +124,7 @@
                 <h3 class="notification-title">{{ notification.title }}</h3>
                 <span v-if="!notification.is_read && !notification.is_resolved" class="unread-indicator"></span>
               </div>
-              <p class="notification-message">{{ notification.message }}</p>
+              <p class="notification-message">{{ formatDisplayMessage(notification) }}</p>
               <div class="notification-meta">
                 <span class="meta-item">
                   <strong>Agency:</strong> {{ getAgencyName(notification.agency_id) }}
@@ -289,7 +290,8 @@ const groupedNotifications = computed(() => {
           (notification.type === 'task_overdue' || 
            notification.type === 'status_expired' || 
            notification.type === 'temp_password_expired' ||
-           notification.type === 'pending_completed')) {
+           notification.type === 'pending_completed' ||
+           notification.type === 'client_assigned')) {
         const userId = notification.user_id;
         if (!userGroups[userId]) {
           userGroups[userId] = {
@@ -342,7 +344,8 @@ const getTypeLabel = (type) => {
     first_login_pending: 'First Login (Pending)',
     password_changed: 'Password Changed',
     support_ticket_created: 'Support Tickets',
-    new_packet_uploaded: 'New Packet Uploaded'
+    new_packet_uploaded: 'New Packet Uploaded',
+    client_assigned: 'Client Assigned'
   };
   return labels[type] || type;
 };
@@ -364,6 +367,18 @@ const formatDate = (dateString) => {
   if (!dateString) return 'N/A';
   const date = new Date(dateString);
   return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+};
+
+/** For client_assigned: show "assigned to [Provider]" when admin views provider's notification, not "assigned to you" */
+const formatDisplayMessage = (notification) => {
+  const msg = notification.message || '';
+  if (notification.type !== 'client_assigned' || !notification.user_id) return msg;
+  const currentUserId = authStore.user?.id;
+  if (currentUserId && Number(notification.user_id) === Number(currentUserId)) {
+    return msg; // Provider viewing their own: "assigned to you" is correct
+  }
+  const providerName = notification.recipient_display_name || getUserName(notification.user_id);
+  return msg.replace(/was assigned to you/gi, `was assigned to ${providerName}`);
 };
 
 const handleAgencyChange = () => {
@@ -494,6 +509,9 @@ const getNotificationNavigationPath = async (notification) => {
   } else if (notification.type === 'support_ticket_created' && notification.related_entity_type === 'support_ticket' && notification.related_entity_id) {
     // Ticketing: open the support ticket queue and auto-open the ticket.
     return `/admin/support-tickets?status=open&ticketId=${encodeURIComponent(String(notification.related_entity_id))}`;
+  } else if (notification.type === 'client_assigned' && notification.related_entity_type === 'client' && notification.related_entity_id) {
+    const base = route.params.organizationSlug ? `/${route.params.organizationSlug}/admin/clients` : '/admin/clients';
+    return `${base}?clientId=${notification.related_entity_id}`;
   } else if (notification.type === 'office_availability_request_pending' && notification.agency_id) {
     // Office request: navigate to Availability Intake (Office Requests tab)
     const agencyId = notification.agency_id;
@@ -841,40 +859,40 @@ watch(() => route.query, (newQuery) => {
 .notifications-list {
   display: flex;
   flex-direction: column;
-  gap: 32px;
+  gap: 20px;
 }
 
 .notification-group {
   background: white;
-  border-radius: 12px;
-  padding: 24px;
+  border-radius: 10px;
+  padding: 16px;
   box-shadow: var(--shadow);
   border: 1px solid var(--border);
 }
 
 .group-title {
-  margin: 0 0 20px;
+  margin: 0 0 12px;
   color: var(--text-primary);
-  font-size: 20px;
+  font-size: 17px;
   font-weight: 700;
-  padding-bottom: 12px;
+  padding-bottom: 8px;
   border-bottom: 2px solid var(--border);
 }
 
 .group-notifications {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 8px;
 }
 
 .notification-item {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  padding: 20px;
+  padding: 10px 14px;
   background: var(--bg-alt);
-  border-radius: 8px;
-  border: 2px solid var(--border);
+  border-radius: 6px;
+  border: 1px solid var(--border);
   transition: all 0.2s;
   cursor: pointer;
 }
@@ -901,14 +919,14 @@ watch(() => route.query, (newQuery) => {
 .notification-header {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 8px;
+  gap: 8px;
+  margin-bottom: 4px;
 }
 
 .severity-badge {
-  padding: 4px 8px;
+  padding: 2px 6px;
   border-radius: 4px;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
 }
@@ -931,32 +949,32 @@ watch(() => route.query, (newQuery) => {
 .notification-title {
   margin: 0;
   color: var(--text-primary);
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 600;
   flex: 1;
 }
 
 .unread-indicator {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: #dc3545;
   flex-shrink: 0;
 }
 
 .notification-message {
-  margin: 8px 0;
+  margin: 4px 0;
   color: var(--text-secondary);
-  font-size: 14px;
-  line-height: 1.5;
+  font-size: 13px;
+  line-height: 1.4;
 }
 
 .notification-meta {
   display: flex;
-  gap: 16px;
+  gap: 12px;
   flex-wrap: wrap;
-  margin-top: 12px;
-  font-size: 12px;
+  margin-top: 6px;
+  font-size: 11px;
   color: var(--text-secondary);
 }
 
@@ -967,8 +985,8 @@ watch(() => route.query, (newQuery) => {
 
 .notification-actions {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   flex-shrink: 0;
-  margin-left: 16px;
+  margin-left: 12px;
 }
 </style>

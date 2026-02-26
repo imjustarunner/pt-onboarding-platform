@@ -1533,9 +1533,9 @@ export const terminateClient = async (req, res, next) => {
     }
 
     const terminationReason = reason.slice(0, 2000);
+    // Do NOT auto-archive: keep client visible so school staff etc. can see the termination and get notified.
     const updated = await Client.update(id, {
       client_status_id: terminatedStatusId,
-      status: 'ARCHIVED',
       termination_reason: terminationReason,
       terminated_at: new Date(),
       terminated_by_user_id: userId
@@ -1550,41 +1550,75 @@ export const terminateClient = async (req, res, next) => {
       note: terminationReason
     }).catch(() => {});
 
-    // Slot adjustment if client was current and consuming a slot
+    // Auto-remove provider assignment + refund slots when terminating
     try {
-      const [statusRows] = await pool.execute(
-        `SELECT id FROM client_statuses WHERE agency_id = ? AND status_key = 'current' LIMIT 1`,
-        [currentClient.agency_id]
-      );
-      const currentStatusId = statusRows?.[0]?.id || null;
-      const oldClientStatusId = currentClient.client_status_id ? parseInt(currentClient.client_status_id, 10) : null;
-      const oldProviderId = currentClient.provider_id ? parseInt(currentClient.provider_id, 10) : null;
-      const oldDay = currentClient.service_day ? String(currentClient.service_day) : null;
-      const oldOrgId = currentClient.organization_id ? parseInt(currentClient.organization_id, 10) : null;
-      const wasConsumingSlot = !!(
-        currentStatusId &&
-        oldClientStatusId === currentStatusId &&
-        oldProviderId &&
-        oldDay &&
-        oldOrgId &&
-        String(currentClient.status || '').toUpperCase() !== 'ARCHIVED'
-      );
-      if (wasConsumingSlot) {
-        const conn = await pool.getConnection();
-        try {
-          await conn.beginTransaction();
-          await adjustProviderSlots(conn, {
-            providerUserId: oldProviderId,
-            schoolId: oldOrgId,
-            dayOfWeek: oldDay,
-            delta: +1
-          });
-          await conn.commit();
-        } catch (e) {
-          try { await conn.rollback(); } catch { /* ignore */ }
-        } finally {
-          conn.release();
+      const conn = await pool.getConnection();
+      try {
+        await conn.beginTransaction();
+
+        // Refund slots and deactivate all provider assignments
+        const [assignRows] = await conn.execute(
+          `SELECT id, organization_id, provider_user_id, service_day
+           FROM client_provider_assignments
+           WHERE client_id = ? AND is_active = TRUE`,
+          [parseInt(id, 10)]
+        );
+        for (const a of assignRows || []) {
+          if (a?.provider_user_id && a?.service_day && a?.organization_id) {
+            await adjustProviderSlots(conn, {
+              providerUserId: a.provider_user_id,
+              schoolId: a.organization_id,
+              dayOfWeek: a.service_day,
+              delta: +1
+            });
+          }
+          await conn.execute(
+            `UPDATE client_provider_assignments SET is_active = FALSE, updated_by_user_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+            [userId, a.id]
+          );
         }
+
+        // Legacy: if no assignments table or client only has legacy provider_id, refund and clear
+        const oldProviderId = currentClient.provider_id ? parseInt(currentClient.provider_id, 10) : null;
+        const oldDay = currentClient.service_day ? String(currentClient.service_day) : null;
+        const oldOrgId = currentClient.organization_id ? parseInt(currentClient.organization_id, 10) : null;
+        const hadLegacyAssignment = oldProviderId && oldDay && oldOrgId;
+        const alreadyRefundedViaAssignments = (assignRows || []).some(
+          (a) => a.provider_user_id === oldProviderId && a.organization_id === oldOrgId && a.service_day === oldDay
+        );
+        if (hadLegacyAssignment && !alreadyRefundedViaAssignments) {
+          const [statusRows] = await conn.execute(
+            `SELECT id FROM client_statuses WHERE agency_id = ? AND status_key = 'current' LIMIT 1`,
+            [currentClient.agency_id]
+          );
+          const currentStatusId = statusRows?.[0]?.id || null;
+          const oldClientStatusId = currentClient.client_status_id ? parseInt(currentClient.client_status_id, 10) : null;
+          const wasConsumingSlot = !!(
+            currentStatusId &&
+            oldClientStatusId === currentStatusId &&
+            String(currentClient.status || '').toUpperCase() !== 'ARCHIVED'
+          );
+          if (wasConsumingSlot) {
+            await adjustProviderSlots(conn, {
+              providerUserId: oldProviderId,
+              schoolId: oldOrgId,
+              dayOfWeek: oldDay,
+              delta: +1
+            });
+          }
+        }
+
+        // Clear legacy single-provider fields
+        await conn.execute(
+          `UPDATE clients SET provider_id = NULL, service_day = NULL, updated_by_user_id = ? WHERE id = ?`,
+          [userId, parseInt(id, 10)]
+        );
+
+        await conn.commit();
+      } catch (e) {
+        try { await conn.rollback(); } catch { /* ignore */ }
+      } finally {
+        conn.release();
       }
     } catch {
       // best-effort
@@ -1596,7 +1630,8 @@ export const terminateClient = async (req, res, next) => {
       clientId: parseInt(id, 10),
       clientNameOrIdentifier: updated.identifier_code || updated.full_name || updated.initials,
       terminationReason,
-      actorUserId: userId
+      actorUserId: userId,
+      providerUserId: currentClient.provider_id ? parseInt(currentClient.provider_id, 10) : null
     }).catch(() => {});
 
     logClientAccess(req, id, 'client_terminated').catch(() => {});
@@ -1884,7 +1919,9 @@ export const updateClient = async (req, res, next) => {
         const newStatusRow = (statusRows || []).find((r) => parseInt(r?.id, 10) === parseInt(updatedClient.client_status_id || 0, 10)) || null;
         const newKey = String(newStatusRow?.status_key || '').toLowerCase();
         const newLabel = String(newStatusRow?.label || '').toLowerCase();
-        const shouldArchive = newKey === 'dead' || newKey === 'terminated' || newLabel.includes('dead') || newLabel.includes('terminated');
+        // Do NOT auto-archive for terminated: keep client visible so school staff etc. can see the transition and get notified.
+        // Only auto-archive for dead (not terminated).
+        const shouldArchive = newKey === 'dead' || newLabel.includes('dead');
 
         // Waitlist tracking: if a client enters waitlist and doesn't have a start date yet,
         // set waitlist_started_at so we can compute days + rank in school rosters.
@@ -1987,16 +2024,60 @@ export const updateClient = async (req, res, next) => {
           }).catch(() => {});
         }
 
-        // Notification when client is terminated (support staff or provider)
+        // When transitioning to terminated: auto-remove provider assignment, notify
         if (newKey === 'terminated' || newLabel.includes('terminated')) {
           const terminationReason = updatedClient.termination_reason || req.body.termination_reason || '';
+          const providerUserIdForNotify = updatedClient.provider_id ? parseInt(updatedClient.provider_id, 10) : null;
+
+          // Refund slots for any assignments not already refunded by the status-change block above, then deactivate
+          try {
+            const conn = await pool.getConnection();
+            try {
+              await conn.beginTransaction();
+              const [assignRows] = await conn.execute(
+                `SELECT id, organization_id, provider_user_id, service_day
+                 FROM client_provider_assignments WHERE client_id = ? AND is_active = TRUE`,
+                [parseInt(id, 10)]
+              );
+              const alreadyRefunded = oldProviderId && oldOrgId && oldDay;
+              for (const a of assignRows || []) {
+                const sameAsLegacy = alreadyRefunded && a.provider_user_id === oldProviderId && a.organization_id === oldOrgId && a.service_day === oldDay;
+                if (!sameAsLegacy && a?.provider_user_id && a?.service_day && a?.organization_id) {
+                  await adjustProviderSlots(conn, {
+                    providerUserId: a.provider_user_id,
+                    schoolId: a.organization_id,
+                    dayOfWeek: a.service_day,
+                    delta: +1
+                  });
+                }
+                await conn.execute(
+                  `UPDATE client_provider_assignments SET is_active = FALSE, updated_by_user_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+                  [userId, a.id]
+                );
+              }
+              await conn.execute(
+                `UPDATE clients SET provider_id = NULL, service_day = NULL, updated_by_user_id = ? WHERE id = ?`,
+                [userId, parseInt(id, 10)]
+              );
+              await conn.commit();
+              updatedClient = await Client.findById(id);
+            } catch (e) {
+              try { await conn.rollback(); } catch { /* ignore */ }
+            } finally {
+              conn.release();
+            }
+          } catch {
+            /* best-effort */
+          }
+
           notifyClientTerminated({
             agencyId: currentClient.agency_id,
-            schoolOrganizationId: updatedClient.organization_id,
+            schoolOrganizationId: updatedClient.organization_id || currentClient.organization_id,
             clientId: parseInt(id, 10),
             clientNameOrIdentifier: updatedClient.identifier_code || updatedClient.full_name || updatedClient.initials,
             terminationReason: String(terminationReason).trim(),
-            actorUserId: userId
+            actorUserId: userId,
+            providerUserId: providerUserIdForNotify
           }).catch(() => {});
         }
       } catch {

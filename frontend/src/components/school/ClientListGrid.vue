@@ -150,6 +150,7 @@
             </th>
             <th></th>
             <th v-if="showChecklistButton"></th>
+            <th v-if="showTerminateButton"></th>
             <th v-if="canEditClients" class="edit-col">Edit</th>
             <th
               v-if="showAssignedColumn"
@@ -323,6 +324,17 @@
                 Checklist
               </button>
             </td>
+            <td v-if="showTerminateButton">
+              <button
+                v-if="client.user_is_assigned_provider && !isClientTerminated(client)"
+                class="btn btn-danger btn-sm"
+                type="button"
+                title="Mark this client as terminated"
+                @click.stop="openTerminateModal(client)"
+              >
+                Mark as Terminated
+              </button>
+            </td>
             <td v-if="canEditClients" class="edit-col">
               <button class="btn btn-primary btn-sm" type="button" @click.stop="goEdit(client)">Edit</button>
             </td>
@@ -357,6 +369,30 @@
       @close="quickChecklistClient = null"
       @saved="onQuickChecklistSaved"
     />
+
+    <div v-if="terminateModalClient" class="modal-overlay" style="z-index: 10000;" @click.self="terminateModalClient = null">
+      <div class="modal-content" style="max-width: 480px;" @click.stop>
+        <div class="modal-header">
+          <h3 style="margin: 0;">Mark as Terminated</h3>
+          <button type="button" class="btn-close" @click="terminateModalClient = null">×</button>
+        </div>
+        <p class="hint" style="margin-top: 0;">A termination reason is required. This will move the client to Terminated status and notify support staff and school staff.</p>
+        <label class="required">Termination reason</label>
+        <textarea
+          v-model="terminateReasonDraft"
+          rows="4"
+          placeholder="Explain why this client was terminated…"
+          class="inline-input"
+          style="width: 100%; margin-top: 6px; margin-bottom: 8px;"
+        />
+        <div class="form-actions" style="justify-content: flex-end; gap: 8px;">
+          <button type="button" class="btn btn-secondary" @click="terminateModalClient = null">Cancel</button>
+          <button type="button" class="btn btn-danger" @click="submitTerminate" :disabled="terminateSaving || !String(terminateReasonDraft || '').trim()">
+            {{ terminateSaving ? 'Terminating…' : 'Mark as Terminated' }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -439,11 +475,15 @@ const authStore = useAuthStore();
 
 const canEditClients = ref(false);
 const quickChecklistClient = ref(null);
+const terminateModalClient = ref(null);
+const terminateReasonDraft = ref('');
+const terminateSaving = ref(false);
 const isSchoolStaff = computed(() => String(authStore.user?.role || '').toLowerCase() === 'school_staff');
 const showChecklistButton = computed(() => {
   const r = String(authStore.user?.role || '').toLowerCase();
   return r === 'provider';
 });
+const showTerminateButton = computed(() => props.rosterScope === 'provider');
 const showAssignedColumn = computed(() => props.rosterScope === 'provider');
 
 const orgKey = computed(() => {
@@ -459,6 +499,8 @@ const waitlistNoteByClientId = ref({});
 const waitlistNoteLoadingByClientId = ref({});
 const hoveredWaitlistClientId = ref('');
 const hoveredTerminatedClientId = ref('');
+const isClientTerminated = (client) => String(client?.client_status_key || '').toLowerCase() === 'terminated';
+
 const getStatusTitle = (client) => {
   const key = String(client?.client_status_key || '').toLowerCase();
   if (key === 'waitlist') {
@@ -641,6 +683,29 @@ const isNewlyAssigned = (client) => {
 
 const openQuickChecklist = (client) => {
   quickChecklistClient.value = client;
+};
+
+const openTerminateModal = (client) => {
+  terminateModalClient.value = client;
+  terminateReasonDraft.value = '';
+};
+
+const submitTerminate = async () => {
+  const client = terminateModalClient.value;
+  if (!client?.id || !String(terminateReasonDraft.value || '').trim()) return;
+  try {
+    terminateSaving.value = true;
+    await api.post(`/clients/${client.id}/terminate`, {
+      termination_reason: String(terminateReasonDraft.value || '').trim()
+    });
+    terminateModalClient.value = null;
+    terminateReasonDraft.value = '';
+    await fetchClients();
+  } catch (err) {
+    alert(err.response?.data?.error?.message || err.message || 'Failed to terminate client');
+  } finally {
+    terminateSaving.value = false;
+  }
 };
 
 const onQuickChecklistSaved = () => {
@@ -1507,5 +1572,47 @@ onMounted(() => {
   border-color: rgba(239, 68, 68, 0.55);
   background: rgba(239, 68, 68, 0.10);
   color: #991b1b;
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+}
+.modal-content {
+  background: white;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  padding: 20px;
+  max-width: 95vw;
+}
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.btn-close {
+  background: none;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  line-height: 1;
+  padding: 0 4px;
+}
+.form-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+.required::after {
+  content: ' *';
+  color: var(--danger, #c33);
 }
 </style>
