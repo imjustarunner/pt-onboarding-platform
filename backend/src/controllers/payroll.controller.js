@@ -5981,8 +5981,9 @@ export const listPayrollTodoTemplates = async (req, res, next) => {
   try {
     const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
-    if (!(await requirePayrollAccess(req, res, agencyId))) return;
-    const rows = await PayrollTodoTemplate.listForAgency({ agencyId, includeInactive: true });
+    const resolvedAgencyId = await requirePayrollAccess(req, res, agencyId);
+    if (!resolvedAgencyId) return;
+    const rows = await PayrollTodoTemplate.listForAgency({ agencyId: resolvedAgencyId, includeInactive: true });
     res.json(rows || []);
   } catch (e) {
     if (e?.code === 'ER_NO_SUCH_TABLE') return res.json([]);
@@ -6004,7 +6005,8 @@ export const createPayrollTodoTemplate = async (req, res, next) => {
     const agencyIdRaw = req.body?.agencyId ?? req.query?.agencyId ?? null;
     const agencyId = parseIdLoose(agencyIdRaw);
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
-    if (!(await requirePayrollAccess(req, res, agencyId))) return;
+    const resolvedAgencyId = await requirePayrollAccess(req, res, agencyId);
+    if (!resolvedAgencyId) return;
 
     // Guard against sessions that lack a valid users-table id (would fail FK constraints).
     const requesterId = parseIdLoose(req.user?.id);
@@ -6040,13 +6042,13 @@ export const createPayrollTodoTemplate = async (req, res, next) => {
     }
     if (startPayrollPeriodId) {
       const startPeriod = await PayrollPeriod.findById(startPayrollPeriodId);
-      if (!startPeriod || Number(startPeriod.agency_id) !== Number(agencyId)) {
+      if (!startPeriod || Number(startPeriod.agency_id) !== Number(resolvedAgencyId)) {
         return res.status(400).json({ error: { message: 'startPayrollPeriodId must be a pay period that belongs to this agency' } });
       }
     }
 
     const id = await PayrollTodoTemplate.create({
-      agencyId,
+      agencyId: resolvedAgencyId,
       title,
       description,
       scope,
@@ -6061,7 +6063,7 @@ export const createPayrollTodoTemplate = async (req, res, next) => {
     // Best-effort: if a start period is set, materialize it immediately.
     if (startPayrollPeriodId) {
       try {
-        await PayrollPeriodTodo.ensureMaterializedForPeriod({ payrollPeriodId: startPayrollPeriodId, agencyId });
+        await PayrollPeriodTodo.ensureMaterializedForPeriod({ payrollPeriodId: startPayrollPeriodId, agencyId: resolvedAgencyId });
       } catch { /* ignore */ }
     }
 
@@ -6081,7 +6083,8 @@ export const patchPayrollTodoTemplate = async (req, res, next) => {
     const agencyIdRaw = req.body?.agencyId ?? req.query?.agencyId ?? null;
     const agencyId = parseIdLoose(agencyIdRaw);
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
-    if (!(await requirePayrollAccess(req, res, agencyId))) return;
+    const resolvedAgencyId = await requirePayrollAccess(req, res, agencyId);
+    if (!resolvedAgencyId) return;
 
     // Guard against sessions that lack a valid users-table id (would fail FK constraints).
     const requesterId = parseIdLoose(req.user?.id);
@@ -6117,14 +6120,14 @@ export const patchPayrollTodoTemplate = async (req, res, next) => {
     }
     if (startPayrollPeriodId) {
       const startPeriod = await PayrollPeriod.findById(startPayrollPeriodId);
-      if (!startPeriod || Number(startPeriod.agency_id) !== Number(agencyId)) {
+      if (!startPeriod || Number(startPeriod.agency_id) !== Number(resolvedAgencyId)) {
         return res.status(400).json({ error: { message: 'startPayrollPeriodId must be a pay period that belongs to this agency' } });
       }
     }
 
     await PayrollTodoTemplate.update({
       id,
-      agencyId,
+      agencyId: resolvedAgencyId,
       title,
       description,
       scope,
@@ -6146,8 +6149,9 @@ export const deletePayrollTodoTemplate = async (req, res, next) => {
     const id = parseInt(req.params.templateId, 10);
     const agencyId = req.query?.agencyId ? parseInt(req.query.agencyId, 10) : null;
     if (!id || !agencyId) return res.status(400).json({ error: { message: 'templateId and agencyId are required' } });
-    if (!(await requirePayrollAccess(req, res, agencyId))) return;
-    await PayrollTodoTemplate.delete({ id, agencyId });
+    const resolvedAgencyId = await requirePayrollAccess(req, res, agencyId);
+    if (!resolvedAgencyId) return;
+    await PayrollTodoTemplate.delete({ id, agencyId: resolvedAgencyId });
     res.json({ ok: true });
   } catch (e) {
     if (e?.code === 'ER_NO_SUCH_TABLE') return res.json({ ok: true });
