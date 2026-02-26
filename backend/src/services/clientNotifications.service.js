@@ -17,6 +17,22 @@ async function alreadyNotified({ agencyId, userId, type, relatedEntityId }) {
   return !!rows[0]?.id;
 }
 
+/** Check if agency-wide paperwork_received already exists for this client (avoids duplicates). */
+async function alreadyNotifiedPaperworkReceivedAgencyWide({ agencyId, clientId }) {
+  const [rows] = await pool.execute(
+    `SELECT id FROM notifications
+     WHERE agency_id = ?
+       AND user_id IS NULL
+       AND type = 'paperwork_received'
+       AND related_entity_type = 'client'
+       AND related_entity_id = ?
+       AND is_resolved = FALSE
+     LIMIT 1`,
+    [agencyId, clientId]
+  );
+  return !!rows[0]?.id;
+}
+
 async function getAgencyAdminStaffUserIds(agencyId) {
   const [rows] = await pool.execute(
     `SELECT DISTINCT u.id
@@ -91,28 +107,29 @@ function buildChecklistDetails({
 
 export async function notifyPaperworkReceived({ agencyId, schoolOrganizationId, clientId, clientNameOrIdentifier }) {
   if (!agencyId || !clientId) return;
-  const recipients = await getAgencyAdminStaffUserIds(agencyId);
+  if (await alreadyNotifiedPaperworkReceivedAgencyWide({ agencyId, clientId })) return;
+
   const title = 'Paperwork received';
   const message = `Paperwork was received for client ${clientNameOrIdentifier || `ID ${clientId}`}.`;
 
-  await Promise.all(
-    recipients.map((userId) =>
-      (async () => {
-        if (await alreadyNotified({ agencyId, userId, type: 'paperwork_received', relatedEntityId: clientId })) return null;
-        return await createNotificationAndDispatch({
-          type: 'paperwork_received',
-          severity: 'info',
-          title,
-          message,
-          userId,
-          agencyId,
-          relatedEntityType: 'client',
-          relatedEntityId: clientId,
-          actorSource: 'System'
-        });
-      })().catch(() => null)
-    )
-  );
+  await createNotificationAndDispatch({
+    type: 'paperwork_received',
+    severity: 'info',
+    title,
+    message,
+    audienceJson: {
+      admin: true,
+      clinicalPracticeAssistant: true,
+      schoolStaff: false,
+      supervisor: false,
+      provider: false
+    },
+    userId: null,
+    agencyId,
+    relatedEntityType: 'client',
+    relatedEntityId: clientId,
+    actorSource: 'System'
+  }).catch(() => null);
 }
 
 export async function notifyClientBecameCurrent({

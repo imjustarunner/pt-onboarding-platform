@@ -10,24 +10,39 @@
         <form @submit.prevent="handleUpload" class="upload-form">
           <div class="form-group">
             <label for="file-input" class="file-label">
-              <div class="file-input-area" :class="{ 'dragover': isDragging }">
+              <div
+                class="file-input-area"
+                :class="{ 'dragover': isDragging }"
+                @dragenter.prevent="onDragEnter"
+                @dragleave.prevent="onDragLeave"
+                @dragover.prevent="onDragOver"
+                @drop.prevent="onDrop"
+              >
                 <input
                   id="file-input"
                   type="file"
                   ref="fileInput"
                   @change="handleFileSelect"
-                  @dragenter.prevent="isDragging = true"
-                  @dragleave.prevent="isDragging = false"
-                  @dragover.prevent
-                  @drop.prevent="handleFileDrop"
                   accept=".pdf,.jpg,.jpeg,.png"
+                  multiple
                   :disabled="!isAuthenticated"
-                  required
                 />
-                <div v-if="!selectedFile" class="file-placeholder">
+                <div v-if="!selectedFile && selectedImages.length === 0" class="file-placeholder">
                   <span class="file-icon">📄</span>
                   <p>Click to select or drag and drop</p>
                   <p class="file-hint">PDF, JPG, PNG (Max 10MB)</p>
+                  <p class="file-hint-sub">Multiple images will be combined into one PDF</p>
+                </div>
+                <div v-else-if="selectedImages.length > 0" class="file-selected images-mode">
+                  <span class="file-icon">🖼️</span>
+                  <p><strong>{{ selectedImages.length }} image{{ selectedImages.length !== 1 ? 's' : '' }}</strong> — will be combined into one PDF</p>
+                  <ul class="image-list">
+                    <li v-for="(img, idx) in selectedImages" :key="idx" class="image-item">
+                      <span>{{ img.name }}</span>
+                      <button type="button" class="btn-remove" @click.stop="removeImage(idx)" aria-label="Remove">×</button>
+                    </li>
+                  </ul>
+                  <button type="button" class="btn btn-secondary btn-sm" @click.stop="triggerFileInput">+ Add more images</button>
                 </div>
                 <div v-else class="file-selected">
                   <span class="file-icon">📄</span>
@@ -190,7 +205,7 @@
               v-if="!uploadComplete"
               type="submit"
               class="btn btn-primary"
-              :disabled="!isAuthenticated || !selectedFile || uploading"
+              :disabled="!isAuthenticated || (!selectedFile && selectedImages.length === 0) || uploading"
             >
               <span v-if="uploading">Uploading...</span>
               <span v-else>Upload Referral Packet</span>
@@ -211,7 +226,8 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
+import { PDFDocument } from 'pdf-lib';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import PDFPreview from '../documents/PDFPreview.vue';
@@ -229,6 +245,7 @@ const authStore = useAuthStore();
 const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
 const fileInput = ref(null);
 const selectedFile = ref(null);
+const selectedImages = ref([]);
 const isDragging = ref(false);
 const uploading = ref(false);
 const error = ref('');
@@ -633,38 +650,155 @@ const pageTwoExtras = computed(() => {
 });
 
 const handleFileSelect = (event) => {
-  const file = event.target.files[0];
-  if (file) {
-    validateAndSetFile(file);
+  const files = event.target.files;
+  if (files?.length) {
+    handleFiles(Array.from(files));
+  }
+  event.target.value = '';
+};
+
+const onDragEnter = (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  isDragging.value = true;
+};
+
+const onDragLeave = (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  if (!e.currentTarget.contains(e.relatedTarget)) {
+    isDragging.value = false;
   }
 };
 
-const handleFileDrop = (event) => {
+const onDragOver = (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+};
+
+const onDrop = (e) => {
+  e.preventDefault();
+  e.stopPropagation();
   isDragging.value = false;
-  const file = event.dataTransfer.files[0];
-  if (file) {
-    validateAndSetFile(file);
+  const files = e.dataTransfer?.files;
+  if (files?.length) {
+    handleFiles(Array.from(files));
+  }
+};
+
+const preventDocumentDragDefaults = (e) => {
+  if (e.dataTransfer?.types?.includes('Files')) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+};
+
+const handleFiles = (files) => {
+  if (!files?.length) return;
+  const imageTypes = ['image/jpeg', 'image/jpg', 'image/png'];
+  const imageFiles = files.filter((f) => imageTypes.includes(f.type));
+  const pdfFiles = files.filter((f) => f.type === 'application/pdf');
+  const otherFiles = files.filter((f) => !imageTypes.includes(f.type) && f.type !== 'application/pdf');
+
+  if (otherFiles.length > 0) {
+    error.value = 'Please upload only PDF, JPG, or PNG files';
+    return;
+  }
+
+  if (pdfFiles.length > 0 && (imageFiles.length > 0 || selectedImages.value.length > 0)) {
+    error.value = 'Cannot mix PDF with images. Upload either a PDF or images to combine.';
+    return;
+  }
+
+  if (pdfFiles.length === 1 && imageFiles.length === 0 && selectedImages.value.length === 0) {
+    validateAndSetFile(pdfFiles[0]);
+    return;
+  }
+
+  if (imageFiles.length > 0) {
+    const total = selectedImages.value.length + imageFiles.length;
+    const maxSize = 10 * 1024 * 1024;
+    let totalSize = selectedImages.value.reduce((sum, f) => sum + f.size, 0);
+    for (const f of imageFiles) {
+      if (f.size > maxSize) {
+        error.value = `File ${f.name} exceeds 10MB limit`;
+        return;
+      }
+      totalSize += f.size;
+    }
+    if (totalSize > maxSize) {
+      error.value = 'Total size of all images must be less than 10MB';
+      return;
+    }
+    selectedImages.value = [...selectedImages.value, ...imageFiles];
+    selectedFile.value = null;
+    error.value = '';
+    return;
+  }
+
+  if (files.length === 1) {
+    validateAndSetFile(files[0]);
   }
 };
 
 const validateAndSetFile = (file) => {
-  // Validate file type
   const allowedTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
   if (!allowedTypes.includes(file.type)) {
     error.value = 'Please upload a PDF, JPG, or PNG file';
     return;
   }
-
-  // Validate file size (10MB max)
-  const maxSize = 10 * 1024 * 1024; // 10MB
+  const maxSize = 10 * 1024 * 1024;
   if (file.size > maxSize) {
     error.value = 'File size must be less than 10MB';
     return;
   }
-
+  selectedImages.value = [];
   selectedFile.value = file;
   error.value = '';
 };
+
+const removeImage = (idx) => {
+  selectedImages.value = selectedImages.value.filter((_, i) => i !== idx);
+};
+
+const triggerFileInput = () => {
+  fileInput.value?.click();
+};
+
+const combineImagesToPdf = async () => {
+  const images = selectedImages.value;
+  if (!images.length) return null;
+  try {
+    const pdfDoc = await PDFDocument.create();
+    for (const file of images) {
+      const bytes = await file.arrayBuffer();
+      let image;
+      if (file.type === 'image/png') {
+        image = await pdfDoc.embedPng(bytes);
+      } else {
+        image = await pdfDoc.embedJpg(bytes);
+      }
+      const page = pdfDoc.addPage([image.width, image.height]);
+      page.drawImage(image, { x: 0, y: 0, width: image.width, height: image.height });
+    }
+    const pdfBytes = await pdfDoc.save();
+    return new Blob([pdfBytes], { type: 'application/pdf' });
+  } catch (e) {
+    console.error('Failed to combine images to PDF:', e);
+    error.value = 'Failed to combine images. Please try again.';
+    return null;
+  }
+};
+
+onMounted(() => {
+  window.addEventListener('dragover', preventDocumentDragDefaults, false);
+  window.addEventListener('drop', preventDocumentDragDefaults, false);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener('dragover', preventDocumentDragDefaults, false);
+  window.removeEventListener('drop', preventDocumentDragDefaults, false);
+});
 
 const formatFileSize = (bytes) => {
   if (bytes === 0) return '0 Bytes';
@@ -707,8 +841,14 @@ const handleUpload = async () => {
     error.value = 'Please sign in before uploading a referral packet.';
     return;
   }
-  if (!selectedFile.value) {
-    error.value = 'Please select a file';
+  let fileToUpload = selectedFile.value;
+  if (!fileToUpload && selectedImages.value.length > 0) {
+    fileToUpload = await combineImagesToPdf();
+    if (!fileToUpload) return;
+    fileToUpload = new File([fileToUpload], 'referral-packet.pdf', { type: 'application/pdf' });
+  }
+  if (!fileToUpload) {
+    error.value = 'Please select a file or add images to combine';
     return;
   }
 
@@ -718,7 +858,7 @@ const handleUpload = async () => {
 
   try {
     const formData = new FormData();
-    formData.append('file', selectedFile.value);
+    formData.append('file', fileToUpload);
     // Send user's local date so submission_date matches what they see (avoids timezone drift)
     const d = new Date();
     const ymd = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -729,6 +869,7 @@ const handleUpload = async () => {
     success.value = 'Referral packet uploaded successfully!';
     clientId.value = response.data?.clientId || null;
     phiDocumentId.value = response.data?.phiDocumentId || null;
+    selectedImages.value = [];
     const agencyId = response.data?.agencyId || null;
     if (agencyId) {
       await loadPacketConfig(agencyId);
@@ -1093,6 +1234,47 @@ const applyInitials = async () => {
 .file-hint {
   font-size: 14px;
   color: var(--text-secondary);
+}
+
+.file-hint-sub {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+  opacity: 0.9;
+}
+
+.images-mode .image-list {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0;
+  max-height: 120px;
+  overflow-y: auto;
+  text-align: left;
+}
+
+.images-mode .image-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 10px;
+  margin: 4px 0;
+  background: var(--bg-alt);
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.images-mode .btn-remove {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  padding: 0 6px;
+}
+
+.images-mode .btn-remove:hover {
+  color: var(--danger, #c33);
 }
 
 .file-size {

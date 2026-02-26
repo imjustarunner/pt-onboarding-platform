@@ -1,6 +1,6 @@
 <template>
   <div class="public-intake container">
-    <div v-if="loading" class="loading">Loading intake link...</div>
+    <div v-if="loading" class="loading">{{ t('loadingLink') }}</div>
     <div v-else-if="error" class="error">{{ error }}</div>
 
     <div v-else class="intake-card">
@@ -12,7 +12,7 @@
       >
         Dev Fill
       </button>
-      <h2>{{ link?.title || 'Digital Intake' }}</h2>
+      <h2>{{ link?.title || t('digitalIntake') }}</h2>
       <p v-if="link?.description" class="muted">{{ link.description }}</p>
 
       <div v-if="step === -1" class="step cover-step">
@@ -22,11 +22,11 @@
             <div class="cover-title">{{ screen.displayName }}</div>
           </div>
           <div class="cover-subtitle">
-            Begin to start a secure intake session. This link creates a unique session for each person.
+            {{ t('beginSubtitle') }}
           </div>
           <div class="actions">
             <button class="btn btn-primary" type="button" @click="beginIntakeSession">
-              Begin intake
+              {{ t('beginIntake') }}
             </button>
           </div>
           <div v-if="beginError" class="error" style="margin-top: 10px;">{{ beginError }}</div>
@@ -38,38 +38,38 @@
           <div class="cover-logo" v-if="currentIntro?.logoUrl">
             <img :src="currentIntro.logoUrl" :alt="currentIntro.altText" />
           </div>
-          <div class="cover-title">{{ currentIntro?.displayName || 'Welcome' }}</div>
+          <div class="cover-title">{{ currentIntro?.displayName || t('welcome') }}</div>
           <div v-if="currentIntro?.subtitle" class="cover-subtitle">{{ currentIntro.subtitle }}</div>
           <div class="cover-subtitle">
-            This form must be completed within 30 minutes. Each new page adds 5 minutes. The session is unique and cannot be saved or resumed.
+            {{ t('formTimeLimit') }}
           </div>
           <div class="actions">
             <button class="btn btn-primary" type="button" @click="advanceIntro">
-              Next
+              {{ t('next') }}
             </button>
           </div>
         </div>
       </div>
 
       <div v-else-if="step === 1" class="step">
-        <h3>Questions</h3>
+        <h3>{{ t('questions') }}</h3>
         <div v-if="stepError" class="error" style="margin-bottom: 10px;">{{ stepError }}</div>
         <div class="form-group">
-          <label>Who is this intake for?</label>
+          <label>{{ t('whoIsIntakeFor') }}</label>
           <div class="radio-group">
             <label class="radio-row">
               <input type="radio" name="intakeForSelf" :value="true" v-model="intakeForSelf" />
-              <span>Myself</span>
+              <span>{{ t('myself') }}</span>
             </label>
             <label class="radio-row">
               <input type="radio" name="intakeForSelf" :value="false" v-model="intakeForSelf" />
-              <span>My dependent(s)</span>
+              <span>{{ t('myDependents') }}</span>
             </label>
           </div>
         </div>
         <div class="form-grid">
           <div class="form-group">
-            <label>{{ intakeForSelf ? 'Your first name' : 'Guardian first name' }}</label>
+            <label>{{ intakeForSelf ? t('yourFirstName') : t('guardianFirstName') }}</label>
             <input
               id="guardianFirstName"
               v-model="guardianFirstName"
@@ -79,11 +79,11 @@
             <div v-if="consentErrors.guardianFirstName" class="error-text">{{ consentErrors.guardianFirstName }}</div>
           </div>
           <div class="form-group">
-            <label>{{ intakeForSelf ? 'Your last name' : 'Guardian last name' }}</label>
+            <label>{{ intakeForSelf ? t('yourLastName') : t('guardianLastName') }}</label>
             <input v-model="guardianLastName" type="text" />
           </div>
           <div class="form-group">
-            <label>{{ intakeForSelf ? 'Your email' : 'Guardian email' }}</label>
+            <label>{{ intakeForSelf ? t('yourEmail') : t('guardianEmail') }}</label>
             <input
               id="guardianEmail"
               v-model="guardianEmail"
@@ -93,21 +93,21 @@
             <div v-if="consentErrors.guardianEmail" class="error-text">{{ consentErrors.guardianEmail }}</div>
           </div>
           <div class="form-group">
-            <label>{{ intakeForSelf ? 'Your phone (optional)' : 'Guardian phone (optional)' }}</label>
+            <label>{{ intakeForSelf ? t('yourPhoneOptional') : t('guardianPhoneOptional') }}</label>
             <input v-model="guardianPhone" type="tel" />
           </div>
           <div class="form-group">
-            <label>Relationship</label>
-            <input v-model="guardianRelationship" type="text" placeholder="e.g., Parent" />
+            <label>{{ t('relationship') }}</label>
+            <input v-model="guardianRelationship" type="text" :placeholder="t('relationshipPlaceholder')" />
           </div>
         </div>
 
         <div v-if="visibleGuardianFields.length" class="custom-fields">
-          <h4>Guardian Questions</h4>
+          <h4>{{ t('guardianQuestions') }}</h4>
           <div class="form-grid">
             <div v-for="field in visibleGuardianFields" :key="field.key" class="form-group">
               <div v-if="field.type === 'info'" class="info-block">
-                <div class="info-title">{{ field.label || 'Notice' }}</div>
+                <div class="info-title">{{ field.label || t('notice') }}</div>
                 <div v-if="field.helperText" class="info-text">{{ field.helperText }}</div>
               </div>
               <template v-else>
@@ -135,7 +135,7 @@
                 <span>{{ field.label }}</span>
               </label>
               <select v-else-if="field.type === 'select'" v-model="intakeResponses.guardian[field.key]" @blur="maybeAutofillGuardianLocation(field)">
-                <option value="">Select an option</option>
+                <option value="">{{ t('selectOption') }}</option>
                 <option v-for="opt in field.options || []" :key="opt.value || opt.label" :value="opt.value || opt.label">
                   {{ opt.label || opt.value }}
                 </option>
@@ -153,14 +153,14 @@
         </div>
 
         <div v-if="visibleSubmissionFields.length" class="custom-fields">
-          <h4>One-time Questions</h4>
+          <h4>{{ t('oneTimeQuestions') }}</h4>
           <div class="muted" style="margin-bottom: 10px;">
-            These questions are asked once for the whole intake.
+            {{ t('oneTimeQuestionsDesc') }}
           </div>
           <div class="form-grid">
             <div v-for="field in visibleSubmissionFields" :key="field.key" class="form-group">
               <div v-if="field.type === 'info'" class="info-block">
-                <div class="info-title">{{ field.label || 'Notice' }}</div>
+                <div class="info-title">{{ field.label || t('notice') }}</div>
                 <div v-if="field.helperText" class="info-text">{{ field.helperText }}</div>
               </div>
               <template v-else>
@@ -187,7 +187,7 @@
                 <span>{{ field.label }}</span>
               </label>
               <select v-else-if="field.type === 'select'" v-model="intakeResponses.submission[field.key]">
-                <option value="">Select an option</option>
+                <option value="">{{ t('selectOption') }}</option>
                 <option v-for="opt in field.options || []" :key="opt.value || opt.label" :value="opt.value || opt.label">
                   {{ opt.label || opt.value }}
                 </option>
@@ -206,16 +206,16 @@
 
         <div class="clients-block">
           <div class="clients-header">
-            <h4>{{ intakeForSelf ? 'Client' : 'Clients' }}</h4>
+            <h4>{{ intakeForSelf ? t('client') : t('clients') }}</h4>
           </div>
           <div v-for="(c, idx) in clients" :key="idx" class="client-card" :class="{ 'client-card-alt': idx % 2 === 1 }">
             <div class="client-card-header">
-              <strong>Client {{ idx + 1 }}</strong>
-              <button v-if="clients.length > 1" class="btn btn-secondary btn-sm" type="button" @click="removeClient(idx)">Remove</button>
+              <strong>{{ t('clientN') }} {{ idx + 1 }}</strong>
+              <button v-if="clients.length > 1" class="btn btn-secondary btn-sm" type="button" @click="removeClient(idx)">{{ t('remove') }}</button>
             </div>
             <div class="form-grid">
                 <div v-if="!intakeForSelf" class="form-group">
-                  <label>Client first name</label>
+                  <label>{{ t('clientFirstName') }}</label>
                   <input
                     :id="`clientFirstName_${idx}`"
                     v-model="c.firstName"
@@ -225,7 +225,7 @@
                   <div v-if="idx === 0 && consentErrors.clientFirstName" class="error-text">{{ consentErrors.clientFirstName }}</div>
                 </div>
                 <div v-if="!intakeForSelf" class="form-group">
-                  <label>Client last name</label>
+                  <label>{{ t('clientLastName') }}</label>
                   <input
                     :id="`clientLastName_${idx}`"
                     v-model="c.lastName"
@@ -235,24 +235,24 @@
                   <div v-if="idx === 0 && consentErrors.clientLastName" class="error-text">{{ consentErrors.clientLastName }}</div>
                 </div>
                 <div v-else class="form-group">
-                  <div class="muted">Client name will use your first and last name.</div>
+                  <div class="muted">{{ t('clientNameUsesYours') }}</div>
                 </div>
               <div v-if="requiresOrganizationId" class="form-group">
-                <label>Organization ID</label>
+                <label>{{ t('organizationId') }}</label>
               <input id="organizationId" v-model="organizationId" type="number" :class="{ 'input-error': !!consentErrors.organizationId }" />
               <div v-if="consentErrors.organizationId" class="error-text">{{ consentErrors.organizationId }}</div>
               </div>
             </div>
 
             <div v-if="clientFields.length" class="custom-fields">
-              <h4>Client Questions</h4>
+              <h4>{{ t('clientQuestions') }}</h4>
               <div class="muted" style="margin-bottom: 10px;">
-                These questions repeat for each client.
+                {{ t('clientQuestionsDesc') }}
               </div>
               <div class="form-grid">
               <div v-for="field in visibleClientFields(idx)" :key="`${idx}-${field.key}`" class="form-group">
                 <div v-if="field.type === 'info'" class="info-block">
-                  <div class="info-title">{{ field.label || 'Notice' }}</div>
+                  <div class="info-title">{{ field.label || t('notice') }}</div>
                   <div v-if="field.helperText" class="info-text">{{ field.helperText }}</div>
                 </div>
                 <template v-else>
@@ -280,7 +280,7 @@
                   <span>{{ field.label }}</span>
                 </label>
                 <select v-else-if="field.type === 'select'" v-model="intakeResponses.clients[idx][field.key]">
-                  <option value="">Select an option</option>
+                  <option value="">{{ t('selectOption') }}</option>
                   <option v-for="opt in field.options || []" :key="opt.value || opt.label" :value="opt.value || opt.label">
                     {{ opt.label || opt.value }}
                   </option>
@@ -299,16 +299,16 @@
           </div>
 
           <div v-if="!intakeForSelf" class="clients-footer">
-            <button class="btn btn-secondary btn-sm" type="button" @click="addClient">Add another child</button>
-            <div class="muted">Add another client or continue below.</div>
+            <button class="btn btn-secondary btn-sm" type="button" @click="addClient">{{ t('addAnotherChild') }}</button>
+            <div class="muted">{{ t('addAnotherDesc') }}</div>
           </div>
         </div>
 
         <div v-if="visibleQuestionFields.length" class="field-inputs">
-          <h4>Additional Questions</h4>
+          <h4>{{ t('additionalQuestions') }}</h4>
           <div v-for="field in visibleQuestionFields" :key="field.id" class="form-group" :data-question-key="field.key">
             <div v-if="field.type === 'info'" class="info-block">
-              <div class="info-title">{{ field.label || 'Notice' }}</div>
+              <div class="info-title">{{ field.label || t('notice') }}</div>
               <div v-if="field.helperText" class="info-text">{{ field.helperText }}</div>
             </div>
             <template v-else>
@@ -328,7 +328,7 @@
                 <span>{{ field.label || field.key }}</span>
               </label>
               <select v-else-if="field.type === 'select'" v-model="questionValues[field.key]">
-                <option value="">Select an option</option>
+                <option value="">{{ t('selectOption') }}</option>
                 <option v-for="opt in field.options || []" :key="opt.value || opt.label" :value="opt.value || opt.label">
                   {{ opt.label || opt.value }}
                 </option>
@@ -345,7 +345,7 @@
         </div>
 
         <div v-if="recaptchaSiteKey" class="captcha-block">
-          <div class="muted">Protected by reCAPTCHA</div>
+          <div class="muted">{{ t('protectedByRecaptcha') }}</div>
           <div v-if="captchaError" class="error">{{ captchaError }}</div>
           <div v-if="showRecaptchaWidget" class="recaptcha-widget">
             <div ref="recaptchaWidgetEl" />
@@ -368,7 +368,7 @@
 
         <div class="actions">
           <button class="btn btn-primary" type="button" :disabled="consentLoading" @click="submitConsent">
-            {{ consentLoading ? 'Saving...' : 'I Consent and Continue' }}
+            {{ consentLoading ? t('saving') : t('iConsentContinue') }}
           </button>
           <button class="btn btn-outline" type="button" @click="cancelIntake" :disabled="consentLoading || submitLoading">
             Cancel & delete
@@ -437,7 +437,7 @@
               v-if="field.type !== 'date' && field.type !== 'checkbox' && field.type !== 'select' && field.type !== 'radio'"
               v-model="currentFieldValues[field.id]"
               :type="field.type === 'ssn' ? 'password' : 'text'"
-              :placeholder="field.type === 'ssn' ? 'Enter SSN' : 'Enter value'"
+              :placeholder="field.type === 'ssn' ? t('enterSsn') : t('enterValue')"
               :data-field-id="field.id"
             />
             <label v-else-if="field.type === 'checkbox'" class="checkbox-row" :data-field-id="field.id">
@@ -520,7 +520,7 @@
             :disabled="submitLoading"
             @click="currentFlowStep?.type === 'document' ? completeCurrentDocument() : completeQuestionStep()"
           >
-            {{ submitLoading ? 'Submitting...' : (currentFlowStep?.type === 'document' ? (currentDoc?.document_action_type === 'signature' ? 'Sign & Continue' : 'Mark Reviewed & Continue') : 'Continue') }}
+            {{ submitLoading ? t('submitting') : (currentFlowStep?.type === 'document' ? (currentDoc?.document_action_type === 'signature' ? t('signContinue') : t('markReviewedContinue')) : t('continue')) }}
           </button>
         </div>
 
@@ -584,7 +584,7 @@
               Copy
             </button>
           </div>
-          <div v-if="!section.lines.length" class="muted">No answers captured.</div>
+          <div v-if="!section.lines.length" class="muted">{{ t('noAnswersCaptured') }}</div>
         </div>
       </div>
     </div>
@@ -615,12 +615,175 @@ import PDFPreview from '../components/documents/PDFPreview.vue';
 import { toUploadsUrl } from '../utils/uploadsUrl';
 import { useAuthStore } from '../store/auth';
 
+const INTAKE_TRANSLATIONS = {
+  en: {
+    loadingLink: 'Loading intake link...',
+    digitalIntake: 'Digital Intake',
+    beginSubtitle: 'Begin to start a secure intake session. This link creates a unique session for each person.',
+    beginIntake: 'Begin intake',
+    welcome: 'Welcome',
+    formTimeLimit: 'This form must be completed within 30 minutes. Each new page adds 5 minutes. The session is unique and cannot be saved or resumed.',
+    next: 'Next',
+    tapNext: 'Tap Next to continue',
+    questions: 'Questions',
+    whoIsIntakeFor: 'Who is this intake for?',
+    myself: 'Myself',
+    myDependents: 'My dependent(s)',
+    yourFirstName: 'Your first name',
+    guardianFirstName: 'Guardian first name',
+    yourLastName: 'Your last name',
+    guardianLastName: 'Guardian last name',
+    yourEmail: 'Your email',
+    guardianEmail: 'Guardian email',
+    yourPhoneOptional: 'Your phone (optional)',
+    guardianPhoneOptional: 'Guardian phone (optional)',
+    relationship: 'Relationship',
+    relationshipPlaceholder: 'e.g., Parent',
+    notice: 'Notice',
+    guardianQuestions: 'Guardian Questions',
+    oneTimeQuestions: 'One-time Questions',
+    oneTimeQuestionsDesc: 'These questions are asked once for the whole intake.',
+    selectOption: 'Select an option',
+    client: 'Client',
+    clients: 'Clients',
+    clientFirstName: 'Client first name',
+    clientLastName: 'Client last name',
+    clientNameUsesYours: 'Client name will use your first and last name.',
+    organizationId: 'Organization ID',
+    clientQuestions: 'Client Questions',
+    clientQuestionsDesc: 'These questions repeat for each client.',
+    addAnotherChild: 'Add another child',
+    addAnotherDesc: 'Add another client or continue below.',
+    additionalQuestions: 'Additional Questions',
+    remove: 'Remove',
+    clientN: 'Client',
+    iConsentContinue: 'I Consent and Continue',
+    saving: 'Saving...',
+    enterSsn: 'Enter SSN',
+    enterValue: 'Enter value',
+    signContinue: 'Sign & Continue',
+    markReviewedContinue: 'Mark Reviewed & Continue',
+    continue: 'Continue',
+    submitting: 'Submitting...',
+    protectedByRecaptcha: 'Protected by reCAPTCHA',
+    guardianInfo: 'Guardian Information',
+    guardianFirst: 'Guardian first name',
+    guardianLast: 'Guardian last name',
+    guardianPhone: 'Guardian phone',
+    yes: 'Yes',
+    no: 'No',
+    clinicalIntakeSummary: 'Clinical Intake Summary',
+    clinicalResponses: 'Clinical Responses',
+    noClinicalResponses: 'No clinical responses captured.',
+    noAnswersCaptured: 'No answers captured.',
+    required: 'Required',
+    organizationRequired: 'Organization is required.',
+    guardianRequired: 'Guardian name and guardian email are required.',
+    completeCaptcha: 'Please complete the captcha verification above.',
+    captchaFailed: 'Captcha verification failed. Please try again.',
+    noDocumentSelected: 'No document selected.',
+    reviewAllPages: 'Please review all pages before continuing.',
+    reviewAllPagesSkip: 'Please review all pages before continuing. You can skip to the signature page if needed.',
+    confirmSignatureReuse: 'Please confirm signature reuse to continue.',
+    signatureRequired: 'Signature is required.',
+    completeRequiredFields: 'Please complete all required fields before continuing.',
+    cancelDeleteConfirm: 'Cancel and delete all entered information? This data will not be saved due to the sensitive nature of the intake.',
+    restartConfirm: 'Restart this intake and clear all fields?',
+    endSessionConfirm: 'End this session and clear this intake from this browser?',
+    unableToStartSession: 'Unable to start a new intake session. Please try again.',
+    dailyLimitReached: 'Daily intake start limit reached. Please try again tomorrow.'
+  },
+  es: {
+    loadingLink: 'Cargando enlace de admisión...',
+    digitalIntake: 'Admisión Digital',
+    beginSubtitle: 'Comience para iniciar una sesión de admisión segura. Este enlace crea una sesión única para cada persona.',
+    beginIntake: 'Comenzar admisión',
+    welcome: 'Bienvenido',
+    formTimeLimit: 'Este formulario debe completarse en 30 minutos. Cada página nueva agrega 5 minutos. La sesión es única y no se puede guardar ni reanudar.',
+    next: 'Siguiente',
+    tapNext: 'Toque Siguiente para continuar',
+    questions: 'Preguntas',
+    whoIsIntakeFor: '¿Para quién es esta admisión?',
+    myself: 'Para mí',
+    myDependents: 'Mi(s) dependiente(s)',
+    yourFirstName: 'Su nombre',
+    guardianFirstName: 'Nombre del tutor',
+    yourLastName: 'Su apellido',
+    guardianLastName: 'Apellido del tutor',
+    yourEmail: 'Su correo electrónico',
+    guardianEmail: 'Correo electrónico del tutor',
+    yourPhoneOptional: 'Su teléfono (opcional)',
+    guardianPhoneOptional: 'Teléfono del tutor (opcional)',
+    relationship: 'Parentesco',
+    relationshipPlaceholder: 'ej., Padre, Madre',
+    notice: 'Aviso',
+    guardianQuestions: 'Preguntas del tutor',
+    oneTimeQuestions: 'Preguntas únicas',
+    oneTimeQuestionsDesc: 'Estas preguntas se hacen una vez para toda la admisión.',
+    selectOption: 'Seleccione una opción',
+    client: 'Cliente',
+    clients: 'Clientes',
+    clientFirstName: 'Nombre del cliente',
+    clientLastName: 'Apellido del cliente',
+    clientNameUsesYours: 'El nombre del cliente usará su nombre y apellido.',
+    organizationId: 'ID de organización',
+    clientQuestions: 'Preguntas del cliente',
+    clientQuestionsDesc: 'Estas preguntas se repiten para cada cliente.',
+    addAnotherChild: 'Agregar otro hijo',
+    addAnotherDesc: 'Agregue otro cliente o continúe abajo.',
+    additionalQuestions: 'Preguntas adicionales',
+    remove: 'Eliminar',
+    clientN: 'Cliente',
+    iConsentContinue: 'Acepto y continúo',
+    saving: 'Guardando...',
+    enterSsn: 'Ingrese SSN',
+    enterValue: 'Ingrese valor',
+    signContinue: 'Firmar y continuar',
+    markReviewedContinue: 'Marcar revisado y continuar',
+    continue: 'Continuar',
+    submitting: 'Enviando...',
+    protectedByRecaptcha: 'Protegido por reCAPTCHA',
+    guardianInfo: 'Información del tutor',
+    guardianFirst: 'Nombre del tutor',
+    guardianLast: 'Apellido del tutor',
+    guardianPhone: 'Teléfono del tutor',
+    yes: 'Sí',
+    no: 'No',
+    clinicalIntakeSummary: 'Resumen de admisión clínica',
+    clinicalResponses: 'Respuestas clínicas',
+    noClinicalResponses: 'No se capturaron respuestas clínicas.',
+    noAnswersCaptured: 'No se capturaron respuestas.',
+    required: 'Requerido',
+    organizationRequired: 'Se requiere la organización.',
+    guardianRequired: 'Se requieren el nombre del tutor y el correo electrónico del tutor.',
+    completeCaptcha: 'Por favor complete la verificación de captcha arriba.',
+    captchaFailed: 'La verificación de captcha falló. Por favor intente de nuevo.',
+    noDocumentSelected: 'No se seleccionó ningún documento.',
+    reviewAllPages: 'Por favor revise todas las páginas antes de continuar.',
+    reviewAllPagesSkip: 'Por favor revise todas las páginas antes de continuar. Puede saltar a la página de firma si es necesario.',
+    confirmSignatureReuse: 'Por favor confirme la reutilización de la firma para continuar.',
+    signatureRequired: 'Se requiere firma.',
+    completeRequiredFields: 'Por favor complete todos los campos requeridos antes de continuar.',
+    cancelDeleteConfirm: '¿Cancelar y eliminar toda la información ingresada? Estos datos no se guardarán debido a la naturaleza sensible de la admisión.',
+    restartConfirm: '¿Reiniciar esta admisión y borrar todos los campos?',
+    endSessionConfirm: '¿Terminar esta sesión y borrar esta admisión de este navegador?',
+    unableToStartSession: 'No se pudo iniciar una nueva sesión de admisión. Por favor intente de nuevo.',
+    dailyLimitReached: 'Se alcanzó el límite diario de inicio de admisión. Por favor intente mañana.'
+  }
+};
+
 const route = useRoute();
 const router = useRouter();
 const publicKey = route.params.publicKey;
 const authStore = useAuthStore();
 
 const isSuperAdmin = computed(() => String(authStore.user?.role || '').toLowerCase() === 'super_admin');
+
+const intakeLocale = computed(() => {
+  const code = String(link.value?.language_code || 'en').toLowerCase();
+  return code.startsWith('es') ? 'es' : 'en';
+});
+const t = (key) => INTAKE_TRANSLATIONS[intakeLocale.value]?.[key] ?? INTAKE_TRANSLATIONS.en[key] ?? key;
 
 const loading = ref(true);
 const error = ref('');
@@ -780,7 +943,7 @@ const introScreens = computed(() => {
       displayName: agencyName,
       logoUrl: resolveLogoUrl(agencyInfo.value),
       altText: `${agencyName} logo`,
-      subtitle: 'Tap Next to continue'
+      subtitle: t('tapNext')
     });
   }
 
@@ -791,7 +954,7 @@ const introScreens = computed(() => {
       displayName: orgName,
       logoUrl: resolveLogoUrl(organizationInfo.value),
       altText: `${orgName} logo`,
-      subtitle: 'Tap Next to continue'
+      subtitle: t('tapNext')
     });
   }
 
@@ -919,7 +1082,7 @@ const matchesToken = (field, pattern) => {
 const hasValue = (val) => val !== null && val !== undefined && (typeof val !== 'string' || val.trim() !== '');
 const formatAnswerValue = (val) => {
   if (val === null || val === undefined) return '';
-  if (typeof val === 'boolean') return val ? 'Yes' : 'No';
+  if (typeof val === 'boolean') return val ? t('yes') : t('no');
   if (Array.isArray(val)) {
     return val.map((entry) => formatAnswerValue(entry)).filter(Boolean).join(', ');
   }
@@ -960,27 +1123,27 @@ const summaryModalIndex = ref(null);
 const buildIntakeAnswerSections = (clientIndex) => {
   const sections = [];
   const guardianInfo = [
-    { key: 'guardian_first', label: 'Guardian first name', value: guardianFirstName.value },
-    { key: 'guardian_last', label: 'Guardian last name', value: guardianLastName.value },
-    { key: 'guardian_email', label: 'Guardian email', value: guardianEmail.value },
-    { key: 'guardian_phone', label: 'Guardian phone', value: guardianPhone.value },
-    { key: 'relationship', label: 'Relationship', value: guardianRelationship.value }
+    { key: 'guardian_first', label: t('guardianFirst'), value: guardianFirstName.value },
+    { key: 'guardian_last', label: t('guardianLast'), value: guardianLastName.value },
+    { key: 'guardian_email', label: t('guardianEmail'), value: guardianEmail.value },
+    { key: 'guardian_phone', label: t('guardianPhone'), value: guardianPhone.value },
+    { key: 'relationship', label: t('relationship'), value: guardianRelationship.value }
   ].filter((line) => hasValue(line.value))
     .map((line) => ({ ...line, value: formatAnswerValue(line.value) }));
 
-  sections.push({ title: 'Guardian Information', lines: guardianInfo });
+  sections.push({ title: t('guardianInfo'), lines: guardianInfo });
 
   const guardianLines = buildAnswerLinesForScope(guardianFields.value, intakeResponses.guardian || {});
-  sections.push({ title: 'Guardian Questions', lines: guardianLines });
+  sections.push({ title: t('guardianQuestions'), lines: guardianLines });
 
   const submissionLines = buildAnswerLinesForScope(submissionFields.value, intakeResponses.submission || {});
-  sections.push({ title: 'One-Time Questions', lines: submissionLines });
+  sections.push({ title: t('oneTimeQuestions'), lines: submissionLines });
 
   const clientLines = buildAnswerLinesForScope(
     clientFields.value,
     intakeResponses.clients?.[clientIndex] || {}
   );
-  sections.push({ title: `Client ${clientIndex + 1} Questions`, lines: clientLines });
+  sections.push({ title: `${t('clientN')} ${clientIndex + 1} ${t('questions')}`, lines: clientLines });
   return sections;
 };
 
@@ -1007,7 +1170,7 @@ const summaryExcludePattern = /insurance|member id|policy|subscriber|payer|medic
 const buildClinicalSummaryText = (clientIndex) => {
   const sections = [];
   const clientName = buildClientDisplayName(clients.value?.[clientIndex], clientIndex);
-  sections.push('Clinical Intake Summary');
+  sections.push(t('clinicalIntakeSummary'));
   sections.push('=======================');
   sections.push(`Client: ${clientName}`);
   sections.push('');
@@ -1060,14 +1223,14 @@ const buildClinicalSummaryText = (clientIndex) => {
   ].filter((line) => !/^psc_\d+$/i.test(line.key || ''));
 
   if (clinicalLines.length) {
-    sections.push('Clinical Responses');
+    sections.push(t('clinicalResponses'));
     sections.push('------------------');
     clinicalLines.forEach((line) => {
       if (summaryExcludePattern.test(line.label)) return;
       sections.push(`${line.label}: ${line.value}`);
     });
   } else if (!pscItems.length) {
-    sections.push('No clinical responses captured.');
+    sections.push(t('noClinicalResponses'));
   }
 
   return sections.join('\n').trim();
@@ -1110,7 +1273,7 @@ const copyAllAnswers = () => {
     if (section.lines.length) {
       section.lines.forEach((line) => lines.push(`${line.label}: ${line.value}`));
     } else {
-      lines.push('No answers captured.');
+      lines.push(t('noAnswersCaptured'));
     }
     lines.push('');
   });
@@ -1550,15 +1713,15 @@ const ensureSessionToken = async () => {
 };
 
 const submitConsent = async () => {
-  consentErrors.guardianFirstName = guardianFirstName.value.trim() ? '' : 'Required';
-  consentErrors.guardianEmail = guardianEmail.value.trim() ? '' : 'Required';
+  consentErrors.guardianFirstName = guardianFirstName.value.trim() ? '' : t('required');
+  consentErrors.guardianEmail = guardianEmail.value.trim() ? '' : t('required');
   const clientFirst = intakeForSelf.value ? guardianFirstName.value : clients.value?.[0]?.firstName;
   const clientLast = intakeForSelf.value ? guardianLastName.value : clients.value?.[0]?.lastName;
-  consentErrors.clientFirstName = String(clientFirst || '').trim() ? '' : 'Required';
-  consentErrors.clientLastName = String(clientLast || '').trim() ? '' : 'Required';
+  consentErrors.clientFirstName = String(clientFirst || '').trim() ? '' : t('required');
+  consentErrors.clientLastName = String(clientLast || '').trim() ? '' : t('required');
   consentErrors.organizationId =
     requiresOrganizationId.value && !String(organizationId.value || '').trim()
-      ? 'Required'
+      ? t('required')
       : '';
 
   if (
@@ -1569,8 +1732,8 @@ const submitConsent = async () => {
     || consentErrors.organizationId
   ) {
     error.value = consentErrors.organizationId
-      ? 'Organization is required.'
-      : 'Guardian name and guardian email are required.';
+      ? t('organizationRequired')
+      : t('guardianRequired');
     stepError.value = '';
     await nextTick();
     const firstMissingId = consentErrors.guardianFirstName
@@ -1597,7 +1760,7 @@ const submitConsent = async () => {
       const token = String(captchaToken.value || '').trim();
       console.info('[recaptcha] token', { hasToken: !!token, length: token.length });
       if (!token) {
-        error.value = 'Please complete the captcha verification above.';
+        error.value = t('completeCaptcha');
         captchaError.value = error.value;
         return;
       }
@@ -1609,7 +1772,7 @@ const submitConsent = async () => {
         length: token ? String(token).length : 0
       });
       if (!token) {
-        error.value = 'Captcha verification failed. Please try again.';
+        error.value = t('captchaFailed');
         captchaError.value = error.value;
         return;
       }
@@ -1679,13 +1842,13 @@ const completeCurrentDocument = async () => {
     error.value = '';
     stepError.value = '';
     if (!currentDoc.value) {
-      stepError.value = 'No document selected.';
+      stepError.value = t('noDocumentSelected');
       return;
     }
     if (currentDoc.value.template_type === 'pdf' && !canProceed.value) {
       pageNotice.value = signaturePageNumber.value
-        ? 'Please review all pages before continuing. You can skip to the signature page if needed.'
-        : 'Please review all pages before continuing.';
+        ? t('reviewAllPagesSkip')
+        : t('reviewAllPages');
       showSkipToSignature.value = !!signaturePageNumber.value;
       if (pageNoticeTimer) clearTimeout(pageNoticeTimer);
       pageNoticeTimer = setTimeout(() => {
@@ -1696,12 +1859,12 @@ const completeCurrentDocument = async () => {
     if (currentDoc.value.document_action_type === 'signature' && !signatureData.value) {
       if (allowSignatureReuseActions.value && lastSignatureData.value) {
         if (!reuseSignatureConfirmed.value) {
-          stepError.value = 'Please confirm signature reuse to continue.';
+          stepError.value = t('confirmSignatureReuse');
           return;
         }
         signatureData.value = lastSignatureData.value;
       } else {
-        stepError.value = 'Signature is required.';
+        stepError.value = t('signatureRequired');
         return;
       }
     }
@@ -1722,7 +1885,7 @@ const completeCurrentDocument = async () => {
       return val === null || val === undefined || String(val).trim() === '';
     });
     if (missingFields.length > 0) {
-      error.value = 'Please complete all required fields before continuing.';
+      error.value = t('completeRequiredFields');
       await nextTick();
       focusNextField();
       return;
@@ -1741,7 +1904,7 @@ const completeCurrentDocument = async () => {
 
     await nextFlowStep();
   } catch (e) {
-    error.value = e.response?.data?.error?.message || 'Failed to submit document';
+    error.value = e.response?.data?.error?.message || t('completeRequiredFields');
   } finally {
     submitLoading.value = false;
   }
@@ -1756,7 +1919,7 @@ const completeQuestionStep = async () => {
       return val === null || val === undefined || String(val).trim() === '';
     });
   if (missing.length) {
-    stepError.value = 'Please complete all required fields before continuing.';
+    stepError.value = t('completeRequiredFields');
     await nextTick();
     const firstKey = missing[0]?.key;
     if (firstKey) {
@@ -1837,23 +2000,21 @@ const resetIntakeState = () => {
 };
 
 const cancelIntake = () => {
-  const ok = window.confirm(
-    'Cancel and delete all entered information? This data will not be saved due to the sensitive nature of the intake.'
-  );
+  const ok = window.confirm(t('cancelDeleteConfirm'));
   if (!ok) return;
   localStorage.removeItem(submissionStorageKey.value);
   resetIntakeState();
 };
 
 const restartIntake = () => {
-  const ok = window.confirm('Restart this intake and clear all fields?');
+  const ok = window.confirm(t('restartConfirm'));
   if (!ok) return;
   localStorage.removeItem(submissionStorageKey.value);
   resetIntakeState();
 };
 
 const endSession = () => {
-  const ok = window.confirm('End this session and clear this intake from this browser?');
+  const ok = window.confirm(t('endSessionConfirm'));
   if (!ok) return;
   localStorage.removeItem(submissionStorageKey.value);
   resetIntakeState();
@@ -2185,7 +2346,7 @@ const beginIntakeSession = async () => {
     beginError.value = '';
     const token = await ensureSessionToken();
     if (!token) {
-      beginError.value = 'Unable to start a new intake session. Please try again.';
+      beginError.value = t('unableToStartSession');
       return;
     }
     localStorage.removeItem(submissionStorageKey.value);

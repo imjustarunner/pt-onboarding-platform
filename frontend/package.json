@@ -23,6 +23,7 @@
     "express": "^4.22.1",
     "html2canvas": "^1.4.1",
     "marked": "^17.0.1",
+    "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^5.4.530",
     "pinia": "^2.1.7",
     "qrcode": "^1.5.4",

@@ -1083,6 +1083,7 @@ export const getPublicIntakeLink = async (req, res, next) => {
         id: link.id,
         title: link.title,
         description: link.description,
+        language_code: link.language_code || 'en',
         scope_type: link.scope_type,
         organization_id: link.organization_id,
         program_id: link.program_id,
