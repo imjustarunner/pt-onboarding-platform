@@ -1109,7 +1109,7 @@ const handleAdminClientUpdated = (payload) => {
   }
 };
 
-onMounted(async () => {
+onMounted(() => {
   try {
     const saved = window.localStorage.getItem('adminTicketsClientLabelMode');
     if (saved === 'codes' || saved === 'initials') clientLabelMode.value = saved;
@@ -1117,14 +1117,18 @@ onMounted(async () => {
     // ignore
   }
   syncFromQuery();
-  await agencyStore.fetchUserAgencies();
-  if (isSuperAdmin.value) {
-    const agencies = agencyStore.agencies?.value ?? agencyStore.agencies ?? [];
-    if (!Array.isArray(agencies) || agencies.length === 0) await agencyStore.fetchAgencies();
-  }
-  if (agencyIdInput.value) await fetchSchoolsForAgency(agencyIdInput.value);
-  await loadAssignees();
-  await load();
+  // Defer heavy work so page renders first (avoids "Page Unresponsive" when clicking Tickets)
+  const run = async () => {
+    await agencyStore.fetchUserAgencies();
+    if (isSuperAdmin.value) {
+      const agencies = agencyStore.agencies?.value ?? agencyStore.agencies ?? [];
+      if (!Array.isArray(agencies) || agencies.length === 0) await agencyStore.fetchAgencies();
+    }
+    if (agencyIdInput.value) await fetchSchoolsForAgency(agencyIdInput.value);
+    await loadAssignees();
+    await load();
+  };
+  setTimeout(() => run(), 0);
 });
 </script>
 

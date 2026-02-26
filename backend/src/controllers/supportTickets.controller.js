@@ -466,6 +466,8 @@ export const listSupportTicketsQueue = async (req, res, next) => {
     const mine = parseBool(req.query?.mine);
     const qRaw = req.query?.q ? String(req.query.q) : '';
     const q = qRaw.trim().slice(0, 120);
+    const limitRaw = req.query?.limit ? parseInt(req.query.limit, 10) : 200;
+    const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(limitRaw, 500)) : 200;
 
     const where = [];
     const params = [];
@@ -568,8 +570,10 @@ export const listSupportTicketsQueue = async (req, res, next) => {
       ORDER BY
         CASE WHEN LOWER(t.status) = 'open' THEN 0 ELSE 1 END,
         t.created_at DESC
+      LIMIT ?
     `;
 
+    params.push(limit);
     const [rows] = await pool.execute(sql, params);
     res.json(rows || []);
   } catch (e) {
