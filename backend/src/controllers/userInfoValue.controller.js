@@ -564,3 +564,95 @@ export const deleteUserInfoField = async (req, res, next) => {
   }
 };
 
+const LEAVE_OF_ABSENCE_FIELD_KEYS = ['leave_type', 'leave_departure_date', 'leave_return_date'];
+
+export const getLeaveOfAbsence = async (req, res, next) => {
+  try {
+    const { userId } = req.params;
+    const uid = parseInt(userId, 10);
+    if (!Number.isInteger(uid) || uid <= 0) {
+      return res.status(400).json({ error: { message: 'Invalid user ID' } });
+    }
+
+    if (uid !== req.user.id && !['admin', 'super_admin', 'support', 'staff'].includes(String(req.user?.role || '').toLowerCase())) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const defIds = [];
+    for (const key of LEAVE_OF_ABSENCE_FIELD_KEYS) {
+      const id = await resolveBestFieldDefinitionIdForKey({ fieldKey: key, agencyId: null });
+      if (id) defIds.push(id);
+    }
+    if (!defIds.length) {
+      return res.json({ leaveType: null, departureDate: null, returnDate: null });
+    }
+
+    const rows = await UserInfoValue.findByUserAndFieldIds(uid, defIds);
+    const [defs] = await pool.execute(
+      `SELECT id, field_key FROM user_info_field_definitions WHERE id IN (${defIds.map(() => '?').join(',')})`,
+      defIds
+    );
+    const keyById = new Map((defs || []).map((d) => [Number(d.id), String(d.field_key || '').trim()]));
+    const valueByKey = new Map();
+    for (const r of rows || []) {
+      const k = keyById.get(Number(r?.field_definition_id));
+      if (k) valueByKey.set(k, r?.value ?? null);
+    }
+
+    res.json({
+      leaveType: valueByKey.get('leave_type') || null,
+      departureDate: valueByKey.get('leave_departure_date') || null,
+      returnDate: valueByKey.get('leave_return_date') || null
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const putLeaveOfAbsence = async (req, res, next) => {
+  try {
+    const { userId } = req.params;
+    const uid = parseInt(userId, 10);
+    if (!Number.isInteger(uid) || uid <= 0) {
+      return res.status(400).json({ error: { message: 'Invalid user ID' } });
+    }
+
+    if (uid !== req.user.id && !['admin', 'super_admin', 'support', 'staff'].includes(String(req.user?.role || '').toLowerCase())) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const { leaveType, departureDate, returnDate } = req.body || {};
+    const defIdByKey = {};
+    for (const key of LEAVE_OF_ABSENCE_FIELD_KEYS) {
+      const id = await resolveBestFieldDefinitionIdForKey({ fieldKey: key, agencyId: null });
+      if (id) defIdByKey[key] = id;
+    }
+    if (!Object.keys(defIdByKey).length) {
+      return res.status(400).json({ error: { message: 'Leave of absence fields not found. Run Sync Forms (Spec) to create them.' } });
+    }
+
+    const toSave = [
+      { key: 'leave_type', value: leaveType != null ? String(leaveType).trim() || null : null },
+      { key: 'leave_departure_date', value: departureDate != null ? String(departureDate).trim() || null : null },
+      { key: 'leave_return_date', value: returnDate != null ? String(returnDate).trim() || null : null }
+    ];
+    for (const { key, value } of toSave) {
+      const defId = defIdByKey[key];
+      if (defId) await UserInfoValue.createOrUpdate(uid, defId, value);
+    }
+
+    const [rows] = await pool.execute(
+      `SELECT agency_id FROM user_agencies WHERE user_id = ?`,
+      [uid]
+    );
+    const agencyIds = (rows || []).map((r) => Number(r.agency_id)).filter((n) => Number.isInteger(n) && n > 0);
+    for (const aid of agencyIds.slice(0, 20)) {
+      await ProviderSearchIndex.upsertForUserInAgency({ userId: uid, agencyId: aid, fieldKeys: LEAVE_OF_ABSENCE_FIELD_KEYS });
+    }
+
+    res.json({ message: 'Leave of absence updated', leaveType: toSave[0].value, departureDate: toSave[1].value, returnDate: toSave[2].value });
+  } catch (error) {
+    next(error);
+  }
+};
+

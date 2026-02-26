@@ -299,7 +299,8 @@ export class ProviderAvailabilityService {
           roomLabel: String(r.room_label || r.room_name || r.room_number || '').trim() || null,
           slotState: slotState || null,
           status: status || null,
-          timeZone: tzEvent
+          timeZone: tzEvent,
+          inPersonIntakeEnabled
         };
 
         // Any office reservation means provider is not virtually available during that time.
@@ -569,8 +570,7 @@ export class ProviderAvailabilityService {
           buildingName: base.meta?.buildingName ?? null,
           roomId: base.meta?.roomId ?? null,
           roomLabel: base.meta?.roomLabel ?? null,
-          // Future: support intake vs regular per office assignment/plan.
-          sessionType: intakeOnlyFlag ? 'INTAKE' : 'REGULAR',
+          sessionType: base.meta?.inPersonIntakeEnabled ? 'INTAKE' : 'REGULAR',
           frequency: 'WEEKLY'
         });
       }

@@ -15,6 +15,21 @@
           >
             {{ getStatusLabel(user.status, user.is_active) }}
           </span>
+          <span
+            v-if="isOnLeave"
+            class="status-badge-header status-badge-header--leave"
+            :title="leaveOfAbsenceLabel"
+          >
+            On leave until {{ formatLeaveReturnDate(leaveOfAbsence?.returnDate) }}
+          </span>
+          <button
+            v-if="showLeaveOfAbsenceButton"
+            type="button"
+            class="btn btn-secondary btn-sm"
+            @click="showLeaveOfAbsenceModal = true"
+          >
+            {{ leaveOfAbsence?.departureDate ? 'Edit leave of absence' : 'Record leave of absence' }}
+          </button>
 
           <!-- Global availability (providers) -->
           <div
@@ -1852,7 +1867,16 @@
       @close="showMoveToActiveModal = false"
       @confirm="handleMoveToActive"
     />
-    
+
+    <!-- Leave of Absence Modal -->
+    <LeaveOfAbsenceModal
+      :show="showLeaveOfAbsenceModal"
+      :userId="userId"
+      :user="user"
+      @close="showLeaveOfAbsenceModal = false"
+      @saved="loadLeaveOfAbsence"
+    />
+
     <!-- Temporary Password Modal -->
     <div v-if="showTempPasswordModal" class="modal-overlay" @click="closeTempPasswordModal">
       <div class="modal-content credentials-modal" @click.stop>
@@ -2076,6 +2100,7 @@ import UserActivityLogTab from '../../components/admin/UserActivityLogTab.vue';
 import UserPayrollTab from '../../components/admin/UserPayrollTab.vue';
 import SupervisorAssignmentManager from '../../components/admin/SupervisorAssignmentManager.vue';
 import MovePendingToActiveModal from '../../components/admin/MovePendingToActiveModal.vue';
+import LeaveOfAbsenceModal from '../../components/admin/LeaveOfAbsenceModal.vue';
 import UserPreferencesHub from '../../components/UserPreferencesHub.vue';
 import ScheduleAvailabilityGrid from '../../components/schedule/ScheduleAvailabilityGrid.vue';
 
@@ -2374,6 +2399,36 @@ const showGlobalAvailabilityInHeader = computed(() => {
   const isProviderLike = r === 'provider' || r === 'intern' || r === 'facilitator' || r === 'supervisor';
   return !!user.value && isProviderLike;
 });
+
+const showLeaveOfAbsenceModal = ref(false);
+const leaveOfAbsence = ref(null);
+const showLeaveOfAbsenceButton = computed(() => {
+  return !!user.value && canEditUser.value && (isProviderLikeUser.value || canViewProviderInfo.value);
+});
+const isOnLeave = computed(() => {
+  const loa = leaveOfAbsence.value;
+  if (!loa?.departureDate || !loa?.returnDate) return false;
+  const today = new Date().toISOString().slice(0, 10);
+  return loa.departureDate <= today && loa.returnDate >= today;
+});
+const leaveOfAbsenceLabel = computed(() => {
+  const loa = leaveOfAbsence.value;
+  if (!loa) return '';
+  const parts = [];
+  if (loa.leaveType) parts.push(loa.leaveType.charAt(0).toUpperCase() + loa.leaveType.slice(1));
+  if (loa.departureDate) parts.push(`from ${loa.departureDate}`);
+  if (loa.returnDate) parts.push(`until ${loa.returnDate}`);
+  return parts.join(' ');
+});
+const formatLeaveReturnDate = (d) => {
+  if (!d) return '—';
+  try {
+    const dt = new Date(d + 'T12:00:00');
+    return dt.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  } catch {
+    return d;
+  }
+};
 
 const canToggleGlobalAvailability = computed(() => {
   const current = authStore.user;
@@ -3486,7 +3541,8 @@ const fetchUser = async () => {
       fetchAccountInfo(),
       fetchProviderCredential(),
       loadExternalCalendars(),
-      loadOfficeAssignments()
+      loadOfficeAssignments(),
+      loadLeaveOfAbsence()
     ]);
   } catch (err) {
     error.value = err.response?.data?.error?.message || 'Failed to load user';
@@ -3767,6 +3823,20 @@ const loadProviderPublicProfile = async () => {
     providerPublicProfileError.value = e.response?.data?.error?.message || 'Failed to load provider public profile';
   } finally {
     providerPublicProfileLoading.value = false;
+  }
+};
+
+const loadLeaveOfAbsence = async () => {
+  if (!userId.value) return;
+  try {
+    const { data } = await api.get(`/users/${userId.value}/leave-of-absence`);
+    leaveOfAbsence.value = {
+      leaveType: data.leaveType || null,
+      departureDate: data.departureDate || null,
+      returnDate: data.returnDate || null
+    };
+  } catch {
+    leaveOfAbsence.value = null;
   }
 };
 
@@ -5011,6 +5081,10 @@ onMounted(() => {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+}
+.status-badge-header--leave {
+  background: var(--warning-bg, #fef3c7);
+  color: var(--warning-fg, #92400e);
 }
 
 .header-availability {

@@ -718,7 +718,48 @@ export const aiQueryUsers = async (req, res, next) => {
     const weekStartYmd =
       isValidYmd(req.query.weekStart) ? String(req.query.weekStart).slice(0, 10) : new Date().toISOString().slice(0, 10);
 
-    const enrichProvidersWithAvailability = async ({ agencyId, results }) => {
+    // Detect requested day of week (0=Sun, 1=Mon, ..., 6=Sat) so we only show availability on that day.
+    const detectRequestedDayOfWeek = () => {
+      const dayMap = {
+        sunday: 0, sun: 0, mondays: 1, monday: 1, mon: 1,
+        tuesdays: 2, tuesday: 2, tue: 2, wednesdays: 3, wednesday: 3, wed: 3,
+        thursdays: 4, thursday: 4, thu: 4, thurs: 4,
+        fridays: 5, friday: 5, fri: 5, saturdays: 6, saturday: 6, sat: 6
+      };
+      const m = raw.match(/\b(sunday|sundays|sun|monday|mondays|mon|tuesday|tuesdays|tue|wednesday|wednesdays|wed|thursday|thursdays|thu|thurs|friday|fridays|fri|saturday|saturdays|sat)\b/i);
+      return m ? dayMap[String(m[1]).toLowerCase()] : null;
+    };
+    const requestedDayOfWeek = detectRequestedDayOfWeek();
+    const wantsInPerson = /\bin\s*person\b|\binperson\b/i.test(raw);
+
+    const filterSlotsByDay = (slots, dayOfWeek) => {
+      if (dayOfWeek == null || !Array.isArray(slots) || slots.length === 0) return slots;
+      return slots.filter((s) => {
+        try {
+          const d = new Date(String(s?.startAt || ''));
+          return !Number.isNaN(d.getTime()) && d.getDay() === dayOfWeek;
+        } catch {
+          return false;
+        }
+      });
+    };
+
+    // Sort slots: intake-available first (sessionType INTAKE or BOTH), then assigned_available (REGULAR), then by startAt.
+    const sortSlotsIntakeFirst = (slots) => {
+      if (!Array.isArray(slots) || slots.length === 0) return slots;
+      const intakeFirst = (a, b) => {
+        const aIntake = ['INTAKE', 'BOTH'].includes(String(a?.sessionType || '').toUpperCase());
+        const bIntake = ['INTAKE', 'BOTH'].includes(String(b?.sessionType || '').toUpperCase());
+        if (aIntake && !bIntake) return -1;
+        if (!aIntake && bIntake) return 1;
+        const aStart = new Date(String(a?.startAt || '')).getTime();
+        const bStart = new Date(String(b?.startAt || '')).getTime();
+        return aStart - bStart;
+      };
+      return [...slots].sort(intakeFirst);
+    };
+
+    const enrichProvidersWithAvailability = async ({ agencyId, results, requestedDayOfWeek: dayFilter, wantsInPerson: inPersonOnly }) => {
       const aId = parseInt(String(agencyId || ''), 10);
       if (!Number.isFinite(aId) || aId <= 0) return { results, meta: { computedFor: 0 } };
       const list = Array.isArray(results) ? results : [];
@@ -742,8 +783,14 @@ export const aiQueryUsers = async (req, res, next) => {
             externalCalendarIds: [],
             slotMinutes: 60
           });
-          const virtual = Array.isArray(availability?.virtualSlots) ? availability.virtualSlots : [];
-          const inPerson = Array.isArray(availability?.inPersonSlots) ? availability.inPersonSlots : [];
+          let virtual = Array.isArray(availability?.virtualSlots) ? availability.virtualSlots : [];
+          let inPerson = Array.isArray(availability?.inPersonSlots) ? availability.inPersonSlots : [];
+          if (dayFilter != null) {
+            virtual = filterSlotsByDay(virtual, dayFilter);
+            inPerson = filterSlotsByDay(inPerson, dayFilter);
+          }
+          virtual = sortSlotsIntakeFirst(virtual);
+          inPerson = sortSlotsIntakeFirst(inPerson);
           const nextVirtual = virtual[0] || null;
           const nextInPerson = inPerson[0] || null;
 
@@ -759,7 +806,16 @@ export const aiQueryUsers = async (req, res, next) => {
         }
       }
 
-      return { results: list, meta: { computedFor, weekStartYmd } };
+      // When user asked for a specific day (e.g. "thursdays") and in-person, only keep providers who have a slot on that day.
+      let filteredList = list;
+      if (dayFilter != null && inPersonOnly) {
+        filteredList = list.filter((u) => u.availability_nextInPersonStartAt != null);
+      } else if (dayFilter != null) {
+        filteredList = list.filter((u) =>
+          u.availability_nextInPersonStartAt != null || u.availability_nextVirtualStartAt != null
+        );
+      }
+      return { results: filteredList, meta: { computedFor, weekStartYmd, requestedDayOfWeek: dayFilter } };
     };
 
     const hasWord = (w) => new RegExp(`\\b${w}\\b`, 'i').test(raw);
@@ -975,12 +1031,24 @@ export const aiQueryUsers = async (req, res, next) => {
         uParams
       );
 
-      const results = (uRows || []).map((r) => ({
+      let results = (uRows || []).map((r) => ({
         id: r.id,
         email: r.email,
         first_name: r.first_name,
         last_name: r.last_name
       }));
+
+      let availabilityMeta = null;
+      if (wantsAvailability && effectiveProvidersOnly && resolvedAgencyId) {
+        const enriched = await enrichProvidersWithAvailability({
+          agencyId: resolvedAgencyId,
+          results,
+          requestedDayOfWeek,
+          wantsInPerson
+        });
+        results = enriched?.results ?? results;
+        availabilityMeta = enriched?.meta || null;
+      }
 
       const emailsSemicolon = results
         .map((u) => {
@@ -991,12 +1059,6 @@ export const aiQueryUsers = async (req, res, next) => {
         })
         .filter(Boolean)
         .join('; ');
-
-      let availabilityMeta = null;
-      if (wantsAvailability && effectiveProvidersOnly && resolvedAgencyId) {
-        const enriched = await enrichProvidersWithAvailability({ agencyId: resolvedAgencyId, results });
-        availabilityMeta = enriched?.meta || null;
-      }
 
       return res.json({
         results,
@@ -1044,22 +1106,12 @@ export const aiQueryUsers = async (req, res, next) => {
       params
     );
 
-    const results = (rows || []).map((r) => ({
+    let results = (rows || []).map((r) => ({
       id: r.id,
       email: r.email,
       first_name: r.first_name,
       last_name: r.last_name
     }));
-
-    const emailsSemicolon = results
-      .map((u) => {
-        const name = `${u.first_name || ''} ${u.last_name || ''}`.trim() || String(u.email || '').trim();
-        const email = String(u.email || '').trim();
-        if (!email) return '';
-        return `${name} <${email}>`;
-      })
-      .filter(Boolean)
-      .join('; ');
 
     let availabilityMeta = null;
     if (wantsAvailability) {
@@ -1070,10 +1122,26 @@ export const aiQueryUsers = async (req, res, next) => {
       }
       const likelyProviders = providersOnly || /\bprovider\b/i.test(raw) || /\btherapist\b/i.test(raw);
       if (likelyProviders) {
-        const enriched = await enrichProvidersWithAvailability({ agencyId: resolvedAgencyId, results });
+        const enriched = await enrichProvidersWithAvailability({
+          agencyId: resolvedAgencyId,
+          results,
+          requestedDayOfWeek,
+          wantsInPerson
+        });
+        results = enriched?.results ?? results;
         availabilityMeta = enriched?.meta || null;
       }
     }
+
+    const emailsSemicolon = results
+      .map((u) => {
+        const name = `${u.first_name || ''} ${u.last_name || ''}`.trim() || String(u.email || '').trim();
+        const email = String(u.email || '').trim();
+        if (!email) return '';
+        return `${name} <${email}>`;
+      })
+      .filter(Boolean)
+      .join('; ');
 
     res.json({
       results,

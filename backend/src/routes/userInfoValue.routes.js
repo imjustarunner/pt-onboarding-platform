@@ -4,7 +4,9 @@ import {
   getUserInfo,
   updateUserInfo,
   updateUserInfoField,
-  deleteUserInfoField
+  deleteUserInfoField,
+  getLeaveOfAbsence,
+  putLeaveOfAbsence
 } from '../controllers/userInfoValue.controller.js';
 import { authenticate } from '../middleware/auth.middleware.js';
 
@@ -24,6 +26,8 @@ router.get('/users/:userId/user-info', authenticate, getUserInfo);
 router.post('/users/:userId/user-info', authenticate, validateUserInfo, updateUserInfo);
 router.put('/users/:userId/user-info/:fieldId', authenticate, validateUserInfoField, updateUserInfoField);
 router.delete('/users/:userId/user-info/:fieldId', authenticate, deleteUserInfoField);
+router.get('/users/:userId/leave-of-absence', authenticate, getLeaveOfAbsence);
+router.put('/users/:userId/leave-of-absence', authenticate, putLeaveOfAbsence);
 
 export default router;
 

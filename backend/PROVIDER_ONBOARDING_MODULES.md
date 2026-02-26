@@ -552,3 +552,19 @@ forms:
           - { field_key: polo, type: text, required: false, label: "Polo (size/notes)" }
           - { field_key: team_number, type: text, required: false, label: "Team #" }
           - { field_key: group_number, type: text, required: false, label: "Group #" }
+
+      - section_slug: leave_of_absence
+        title: Leave of Absence
+        visible_to_roles: [all_staff, admin, operations]
+        fields:
+          - field_key: leave_type
+            type: single_select
+            required: false
+            label: "Leave type"
+            options_inline:
+              - { value: "maternity", label: "Maternity" }
+              - { value: "paternity", label: "Paternity" }
+              - { value: "medical", label: "Medical" }
+              - { value: "other", label: "Other" }
+          - { field_key: leave_departure_date, type: date, required: false, label: "Departure date" }
+          - { field_key: leave_return_date, type: date, required: false, label: "Return date" }
