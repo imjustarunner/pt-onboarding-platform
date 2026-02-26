@@ -1,5 +1,7 @@
 <template>
   <div class="page">
+    <div v-if="!ready" class="muted" style="padding: 24px;">Loading tickets…</div>
+    <template v-else>
     <div class="header" data-tour="tickets-header">
       <div>
         <h2 style="margin: 0;" data-tour="tickets-title">Tickets</h2>
@@ -407,6 +409,7 @@
     @close="closeAdminClientEditor"
     @updated="handleAdminClientUpdated"
   />
+  </template>
 </template>
 
 <script setup>
@@ -475,6 +478,7 @@ const adminSelectedClient = ref(null);
 const adminClientLoading = ref(false);
 const clientLabelMode = ref('codes'); // 'codes' | 'initials'
 const showAssignByTicketId = ref({});
+const ready = ref(false); // Defer full render to avoid main-thread freeze on navigation
 
 const confirmWord = computed(() => {
   if (confirmAction.value === 'assign') return 'ASSIGN';
@@ -1117,18 +1121,19 @@ onMounted(() => {
     // ignore
   }
   syncFromQuery();
-  // Defer heavy work so page renders first (avoids "Page Unresponsive" when clicking Tickets)
+  // Defer ALL heavy work so browser can paint "Loading..." first (avoids hard freeze)
   const run = async () => {
     await agencyStore.fetchUserAgencies();
     if (isSuperAdmin.value) {
       const agencies = agencyStore.agencies?.value ?? agencyStore.agencies ?? [];
       if (!Array.isArray(agencies) || agencies.length === 0) await agencyStore.fetchAgencies();
     }
+    ready.value = true; // Now safe to render filters (agencyFilterOptions, etc.)
     if (agencyIdInput.value) await fetchSchoolsForAgency(agencyIdInput.value);
     await loadAssignees();
     await load();
   };
-  setTimeout(() => run(), 0);
+  setTimeout(() => run(), 50);
 });
 </script>
 
