@@ -917,7 +917,7 @@ const routes = [
   {
     path: '/admin/support-tickets',
     name: 'SupportTicketsQueue',
-    component: () => import('../views/admin/SupportTicketsQueueView.vue'),
+    component: () => import('../views/admin/TicketingView.vue'),
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin', 'clinical_practice_assistant'] }
   },
   {
@@ -929,13 +929,13 @@ const routes = [
   {
     path: '/tickets',
     name: 'TicketsQueue',
-    component: () => import('../views/admin/SupportTicketsQueueView.vue'),
+    component: () => import('../views/admin/TicketingView.vue'),
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin', 'clinical_practice_assistant'] }
   },
   {
     path: '/:organizationSlug/tickets',
     name: 'OrganizationTicketsQueue',
-    component: () => import('../views/admin/SupportTicketsQueueView.vue'),
+    component: () => import('../views/admin/TicketingView.vue'),
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin', 'clinical_practice_assistant'] }
   },
   // Redirect double-slug (e.g. /itsco/itsco/tickets) to single slug (/itsco/tickets)
