@@ -785,14 +785,18 @@ export const aiQueryUsers = async (req, res, next) => {
           });
           let virtual = Array.isArray(availability?.virtualSlots) ? availability.virtualSlots : [];
           let inPerson = Array.isArray(availability?.inPersonSlots) ? availability.inPersonSlots : [];
+          const virtualSorted = sortSlotsIntakeFirst([...virtual]);
+          const inPersonSorted = sortSlotsIntakeFirst([...inPerson]);
+          let virtualFiltered = virtualSorted;
+          let inPersonFiltered = inPersonSorted;
           if (dayFilter != null) {
-            virtual = filterSlotsByDay(virtual, dayFilter);
-            inPerson = filterSlotsByDay(inPerson, dayFilter);
+            virtualFiltered = sortSlotsIntakeFirst(filterSlotsByDay(virtual, dayFilter));
+            inPersonFiltered = sortSlotsIntakeFirst(filterSlotsByDay(inPerson, dayFilter));
           }
-          virtual = sortSlotsIntakeFirst(virtual);
-          inPerson = sortSlotsIntakeFirst(inPerson);
-          const nextVirtual = virtual[0] || null;
-          const nextInPerson = inPerson[0] || null;
+          const nextVirtual = virtualFiltered[0] || null;
+          const nextInPerson = inPersonFiltered[0] || null;
+          const nextVirtualAny = virtualSorted[0] || null;
+          const nextInPersonAny = inPersonSorted[0] || null;
 
           u.availability_timeZone = availability?.timeZone || null;
           u.availability_weekStart = availability?.weekStart || null;
@@ -800,22 +804,54 @@ export const aiQueryUsers = async (req, res, next) => {
           u.availability_nextVirtualEndAt = nextVirtual?.endAt || null;
           u.availability_nextInPersonStartAt = nextInPerson?.startAt || null;
           u.availability_nextInPersonEndAt = nextInPerson?.endAt || null;
+          u._availability_nextVirtualAny = nextVirtualAny;
+          u._availability_nextInPersonAny = nextInPersonAny;
           computedFor += 1;
         } catch {
           // Best-effort; skip availability for this provider.
         }
       }
 
-      // When user asked for a specific day (e.g. "thursdays") and in-person, only keep providers who have a slot on that day.
+      // When user asked for a specific day (e.g. "thursdays"), prefer providers who have a slot on that day.
+      // If none do, fall back to showing all matched providers with their next available (any day) so the user at least sees who fits clinically.
       let filteredList = list;
+      let dayFilteredToEmptyFallback = false;
       if (dayFilter != null && inPersonOnly) {
         filteredList = list.filter((u) => u.availability_nextInPersonStartAt != null);
+        if (filteredList.length === 0 && list.length > 0) {
+          for (const u of list) {
+            const any = u._availability_nextInPersonAny;
+            u.availability_nextInPersonStartAt = any?.startAt || null;
+            u.availability_nextInPersonEndAt = any?.endAt || null;
+          }
+          filteredList = list;
+          dayFilteredToEmptyFallback = true;
+        }
       } else if (dayFilter != null) {
         filteredList = list.filter((u) =>
           u.availability_nextInPersonStartAt != null || u.availability_nextVirtualStartAt != null
         );
+        if (filteredList.length === 0 && list.length > 0) {
+          for (const u of list) {
+            const vAny = u._availability_nextVirtualAny;
+            const pAny = u._availability_nextInPersonAny;
+            u.availability_nextVirtualStartAt = vAny?.startAt || null;
+            u.availability_nextVirtualEndAt = vAny?.endAt || null;
+            u.availability_nextInPersonStartAt = pAny?.startAt || null;
+            u.availability_nextInPersonEndAt = pAny?.endAt || null;
+          }
+          filteredList = list;
+          dayFilteredToEmptyFallback = true;
+        }
       }
-      return { results: filteredList, meta: { computedFor, weekStartYmd, requestedDayOfWeek: dayFilter } };
+      for (const u of list) {
+        delete u._availability_nextVirtualAny;
+        delete u._availability_nextInPersonAny;
+      }
+      return {
+        results: filteredList,
+        meta: { computedFor, weekStartYmd, requestedDayOfWeek: dayFilter, dayFilteredToEmptyFallback }
+      };
     };
 
     const hasWord = (w) => new RegExp(`\\b${w}\\b`, 'i').test(raw);

@@ -298,6 +298,10 @@
                 Found {{ aiResults.length }} user{{ aiResults.length === 1 ? '' : 's' }}.
               </div>
 
+              <div v-if="aiState === 'success' && aiMeta?.dayFilteredToEmptyFallback" class="ai-query-status muted" style="margin-top: 6px;">
+                No availability on the requested day; showing providers who match your criteria with their next available slot.
+              </div>
+
               <div v-if="aiState === 'success' && aiResults.length" class="ai-query-results">
                 <div class="ai-query-results-header">
                   <div class="ai-query-results-title">Results</div>
