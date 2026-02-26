@@ -752,7 +752,7 @@ import { useAuthStore } from '../store/auth';
 import { useUserPreferencesStore } from '../store/userPreferences';
 import api from '../services/api';
 import { refetchSessionLockConfig } from '../utils/activityTracker';
-import { setDarkMode } from '../utils/darkMode';
+import { setDarkMode, getStoredDarkMode } from '../utils/darkMode';
 import {
   isPushSupported,
   getPushPermissionState,
@@ -1112,7 +1112,9 @@ const load = async () => {
     prefs.value.inactivity_timeout_minutes = data?.inactivity_timeout_minutes ?? null;
     prefs.value.session_lock_pin_set = !!data?.session_lock_pin_set;
     prefs.value.kiosk_pin_set = !!data?.kiosk_pin_set;
-    prefs.value.dark_mode = !!data?.dark_mode;
+    // Prefer localStorage (dashboard toggle) over server – dashboard toggle doesn't save to server immediately
+    const storedDark = getStoredDarkMode(props.userId);
+    prefs.value.dark_mode = storedDark !== null ? storedDark : !!data?.dark_mode;
 
     // Apply dark mode and sync store when loading own preferences
     if (props.userId === authStore.user?.id) {
