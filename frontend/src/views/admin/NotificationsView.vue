@@ -508,7 +508,8 @@ const getNotificationNavigationPath = async (notification) => {
     return `/admin/users/${notification.user_id}`;
   } else if (notification.type === 'support_ticket_created' && notification.related_entity_type === 'support_ticket' && notification.related_entity_id) {
     // Ticketing: open the support ticket queue and auto-open the ticket.
-    return `/admin/support-tickets?status=open&ticketId=${encodeURIComponent(String(notification.related_entity_id))}`;
+    const base = route.params.organizationSlug ? `/${route.params.organizationSlug}/tickets` : '/tickets';
+    return `${base}?status=open&ticketId=${encodeURIComponent(String(notification.related_entity_id))}`;
   } else if (notification.type === 'client_assigned' && notification.related_entity_type === 'client' && notification.related_entity_id) {
     const base = route.params.organizationSlug ? `/${route.params.organizationSlug}/admin/clients` : '/admin/clients';
     return `${base}?clientId=${notification.related_entity_id}`;

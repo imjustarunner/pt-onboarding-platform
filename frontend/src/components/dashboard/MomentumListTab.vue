@@ -560,7 +560,7 @@ const notificationsRoute = computed(() => {
 
 const supportTicketsRoute = computed(() => {
   const slug = route.params?.organizationSlug;
-  return slug ? `/${slug}/admin/support-tickets` : '/admin/support-tickets';
+  return slug ? `/${slug}/tickets` : '/tickets';
 });
 
 const flattenChecklistIncomplete = (data) => {
