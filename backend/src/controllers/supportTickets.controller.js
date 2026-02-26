@@ -389,7 +389,11 @@ export const listMySupportTickets = async (req, res, next) => {
 };
 
 async function getAccessibleTicketScopeForUser(userId, role) {
-  if (String(role || '').toLowerCase() === 'super_admin') return { agencyIds: null, schoolOrgIds: null };
+  // Admin/support/staff see same ticket list as super_admin (all tickets from top nav)
+  const r = String(role || '').toLowerCase();
+  if (r === 'super_admin' || r === 'admin' || r === 'support' || r === 'staff') {
+    return { agencyIds: null, schoolOrgIds: null };
+  }
   const agencies = await User.getAgencies(userId);
   const ids = (agencies || []).map((a) => parseInt(a?.id, 10)).filter((n) => Number.isFinite(n));
   if (ids.length === 0) return { agencyIds: [], schoolOrgIds: [] };
