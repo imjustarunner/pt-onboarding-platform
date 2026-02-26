@@ -997,6 +997,11 @@ const hideGlobalNavForSchoolStaff = computed(() => {
   return role === 'school_staff';
 });
 
+const isTicketsRoute = computed(() => {
+  const p = String(route.path || '');
+  return p === '/tickets' || p.endsWith('/tickets');
+});
+
 const capabilities = computed(() => user.value?.capabilities || null);
 const hasCapability = (key) => {
   const caps = capabilities.value;
@@ -1661,9 +1666,9 @@ watch(notificationsUnreadCount, (next, prev) => {
 
 // Watch for route changes to load organization context
 watch(() => route.params.organizationSlug, async (newSlug) => {
-  if (newSlug) {
+  if (newSlug && !isTicketsRoute.value) {
     await organizationStore.fetchBySlug(newSlug);
-  } else {
+  } else if (!newSlug) {
     organizationStore.clearOrganization();
   }
 }, { immediate: true });
@@ -1681,7 +1686,7 @@ onMounted(async () => {
   window.addEventListener('superadmin-preview-updated', onPreviewUpdated);
 
   // Load organization context if route has organization slug
-  if (route.params.organizationSlug) {
+  if (route.params.organizationSlug && !isTicketsRoute.value) {
     await organizationStore.fetchBySlug(route.params.organizationSlug);
   }
   // Initialize portal theme on app load (for subdomain detection)

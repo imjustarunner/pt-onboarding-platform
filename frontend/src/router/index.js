@@ -22,6 +22,11 @@ const isToolsAidsRoute = (to) => {
   return TOOLS_AIDS_ROUTE_SEGMENTS.some((segment) => path.includes(segment));
 };
 
+const isTicketsRoute = (to) => {
+  const path = String(to?.path || '');
+  return path === '/tickets' || path.endsWith('/tickets');
+};
+
 const getDefaultOrganizationSlug = () => {
   try {
     const agencyStore = useAgencyStore();
@@ -1384,6 +1389,11 @@ router.beforeEach(async (to, from, next) => {
       await agencyStore.fetchSuperviseePortalSlugs();
     }
     if (typeof slug === 'string' && slug) {
+      // Emergency tickets safety path:
+      // Skip heavy slug/theme/org synchronization for tickets until admin freeze is fully root-caused.
+      if (isTicketsRoute(to)) {
+        // no-op on purpose
+      } else {
       // Apply portal branding for all slug routes (public + authenticated).
       // (Super admins can still view the portal with correct branding.)
       try {
@@ -1408,6 +1418,7 @@ router.beforeEach(async (to, from, next) => {
         }
       } catch (e) {
         // ignore
+      }
       }
     }
   }
