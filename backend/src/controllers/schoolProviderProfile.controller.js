@@ -300,20 +300,22 @@ export const getProviderSchoolProfile = async (req, res, next) => {
     const u = await User.findById(providerUserId);
     if (!u) return res.status(404).json({ error: { message: 'Provider not found' } });
 
-    // Optional: school-specific provider blurb (admin-editable)
-    let schoolInfoBlurb = null;
-    try {
-      const [rows] = await pool.execute(
-        `SELECT school_info_blurb
-         FROM provider_school_profiles
-         WHERE provider_user_id = ? AND school_organization_id = ?
-         LIMIT 1`,
-        [providerUserId, parseInt(schoolId, 10)]
-      );
-      schoolInfoBlurb = rows?.[0]?.school_info_blurb ?? null;
-    } catch (e) {
-      if (!missingSchemaError(e)) throw e;
-      schoolInfoBlurb = null;
+    // Provider school info blurb: prefer user-level (shared across all schools), fallback to legacy per-school
+    let schoolInfoBlurb = u?.provider_school_info_blurb ?? null;
+    if (schoolInfoBlurb == null || schoolInfoBlurb === '') {
+      try {
+        const [rows] = await pool.execute(
+          `SELECT school_info_blurb
+           FROM provider_school_profiles
+           WHERE provider_user_id = ? AND school_organization_id = ?
+           LIMIT 1`,
+          [providerUserId, parseInt(schoolId, 10)]
+        );
+        schoolInfoBlurb = rows?.[0]?.school_info_blurb ?? null;
+      } catch (e) {
+        if (!missingSchemaError(e)) throw e;
+        schoolInfoBlurb = null;
+      }
     }
 
     // Optional: provider credential (from profile fields, if present)

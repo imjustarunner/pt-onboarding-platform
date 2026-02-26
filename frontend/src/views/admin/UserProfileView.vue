@@ -1558,6 +1558,43 @@
               </div>
             </div>
 
+            <!-- Provider School Info blurb: one per provider, shared across all schools -->
+            <div v-if="schoolAffiliations.length > 0" class="card" style="margin-top: 12px;">
+              <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; cursor: pointer;" @click="providerSchoolBlurbExpanded = !providerSchoolBlurbExpanded">
+                <div style="display:flex; align-items:center; gap: 8px;">
+                  <span class="collapse-icon" :class="{ expanded: providerSchoolBlurbExpanded }">▸</span>
+                  <h3 style="margin:0;">Provider School Info blurb</h3>
+                </div>
+                <div style="display:flex; align-items:center; gap: 8px;" @click.stop>
+                  <button
+                    v-if="providerSchoolBlurbExpanded"
+                    class="btn btn-primary btn-sm"
+                    type="button"
+                    @click="saveProviderSchoolBlurb"
+                    :disabled="!canEditUser || providerSchoolBlurbSaving"
+                  >
+                    {{ providerSchoolBlurbSaving ? 'Saving…' : 'Save' }}
+                  </button>
+                </div>
+              </div>
+              <div v-show="providerSchoolBlurbExpanded" class="card-body">
+                <div v-if="providerSchoolBlurbError" class="error">{{ providerSchoolBlurbError }}</div>
+                <div class="form-group form-group-full" style="margin-top: 10px;">
+                  <label>Provider School Info blurb</label>
+                  <textarea
+                    v-model="providerSchoolBlurb"
+                    rows="4"
+                    placeholder="Short blurb shown in the school portal provider profile."
+                    :disabled="!canEditUser || providerSchoolBlurbSaving"
+                    style="width: 100%;"
+                  />
+                  <small class="form-help">
+                    Shown in the school portal under “Provider info” for all schools. Keep this non-PHI.
+                  </small>
+                </div>
+              </div>
+            </div>
+
             <div v-if="selectedSchoolAffiliationId" style="margin-top: 14px;">
               <div class="form-group form-group-full">
                 <label class="toggle-label">
@@ -1598,38 +1635,6 @@
                 </div>
               </div>
 
-              <div class="card" style="margin-top: 12px;">
-                <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
-                  <h3 style="margin:0;">Provider School Info blurb</h3>
-                  <button
-                    class="btn btn-primary btn-sm"
-                    type="button"
-                    @click="saveProviderSchoolBlurb"
-                    :disabled="!canEditUser || providerSchoolBlurbSaving || !selectedSchoolIsSchool"
-                    :title="selectedSchoolIsSchool ? '' : 'This blurb is currently supported only for school organizations.'"
-                  >
-                    {{ providerSchoolBlurbSaving ? 'Saving…' : 'Save' }}
-                  </button>
-                </div>
-                <div v-if="!selectedSchoolIsSchool" class="hint" style="margin-top: 8px;">
-                  This blurb is currently supported only for <strong>school</strong> affiliations.
-                </div>
-                <div v-else-if="providerSchoolBlurbLoading" class="loading">Loading provider school info…</div>
-                <div v-else-if="providerSchoolBlurbError" class="error">{{ providerSchoolBlurbError }}</div>
-                <div v-else class="form-group form-group-full" style="margin-top: 10px;">
-                  <label>Provider School Info blurb</label>
-                  <textarea
-                    v-model="providerSchoolBlurb"
-                    rows="4"
-                    placeholder="Short blurb shown in the school portal provider profile."
-                    :disabled="!canEditUser || providerSchoolBlurbSaving"
-                    style="width: 100%;"
-                  />
-                  <small class="form-help">
-                    Shown in the school portal under “Provider info”. Keep this non-PHI.
-                  </small>
-                </div>
-              </div>
 
               <div class="card" style="margin-top: 12px;">
                 <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
@@ -2388,9 +2393,9 @@ const providerAcceptingNewClients = ref(true);
 const updatingGlobalAvailability = ref(false);
 const showGlobalAvailabilityHint = ref(false);
 
-// Provider school info blurb (per provider per school org)
+// Provider school info blurb (one per provider, shared across all schools)
 const providerSchoolBlurb = ref('');
-const providerSchoolBlurbLoading = ref(false);
+const providerSchoolBlurbExpanded = ref(false);
 const providerSchoolBlurbSaving = ref(false);
 const providerSchoolBlurbError = ref('');
 
@@ -2830,36 +2835,20 @@ const repairProviderSlots = async () => {
   }
 };
 
-const loadProviderSchoolBlurb = async () => {
-  if (!selectedSchoolAffiliationId.value) return;
-  if (!selectedSchoolIsSchool.value) {
-    providerSchoolBlurb.value = '';
-    providerSchoolBlurbError.value = '';
-    return;
-  }
-  try {
-    providerSchoolBlurbLoading.value = true;
-    providerSchoolBlurbError.value = '';
-    const r = await api.get(`/school-portal/${selectedSchoolAffiliationId.value}/providers/${userId.value}/profile`);
-    providerSchoolBlurb.value = String(r.data?.school_info_blurb || '');
-  } catch (e) {
-    providerSchoolBlurbError.value = e.response?.data?.error?.message || 'Failed to load provider school info';
-    providerSchoolBlurb.value = '';
-  } finally {
-    providerSchoolBlurbLoading.value = false;
-  }
+const syncProviderSchoolBlurbFromUser = () => {
+  providerSchoolBlurb.value = String(user.value?.provider_school_info_blurb || '');
 };
 
 const saveProviderSchoolBlurb = async () => {
-  if (!selectedSchoolAffiliationId.value) return;
-  if (!selectedSchoolIsSchool.value) return;
+  if (!userId.value) return;
   try {
     providerSchoolBlurbSaving.value = true;
     providerSchoolBlurbError.value = '';
-    await api.put(`/school-portal/${selectedSchoolAffiliationId.value}/providers/${userId.value}/profile`, {
-      school_info_blurb: providerSchoolBlurb.value
+    await api.put(`/users/${userId.value}`, {
+      providerSchoolInfoBlurb: providerSchoolBlurb.value || null
     });
-    await loadProviderSchoolBlurb();
+    await fetchUser();
+    syncProviderSchoolBlurbFromUser();
   } catch (e) {
     providerSchoolBlurbError.value = e.response?.data?.error?.message || 'Failed to save provider school info';
   } finally {
@@ -3022,13 +3011,12 @@ watch(activeTab, async (t) => {
     if (!canViewSchoolAffiliation.value) return;
     await loadSchoolAffiliations();
     await loadSchoolAssignments();
-    await loadProviderSchoolBlurb();
+    syncProviderSchoolBlurbFromUser();
   }
 });
 
 watch(selectedSchoolAffiliationId, async () => {
   await loadSchoolAssignments();
-  await loadProviderSchoolBlurb();
 });
 
 const showTempPasswordModal = ref(false);
@@ -4983,6 +4971,16 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.collapse-icon {
+  display: inline-block;
+  transition: transform 0.2s;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.collapse-icon.expanded {
+  transform: rotate(90deg);
+}
+
 .primary-pill {
   margin-left: 8px;
   display: inline-flex;

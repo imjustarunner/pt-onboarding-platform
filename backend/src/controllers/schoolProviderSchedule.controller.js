@@ -128,7 +128,7 @@ export const listSchoolProvidersForScheduling = async (req, res, next) => {
                 psa.start_time,
                 psa.end_time,
                 psa.is_active,
-                psp.school_info_blurb
+                COALESCE(u.provider_school_info_blurb, psp.school_info_blurb) AS school_info_blurb
          FROM provider_school_assignments psa
          JOIN users u ON u.id = psa.provider_user_id
          JOIN user_agencies ua

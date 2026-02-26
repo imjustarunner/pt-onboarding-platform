@@ -1598,6 +1598,7 @@ export const updateUser = async (req, res, next) => {
       hasProviderAccess,
       hasStaffAccess,
       providerAcceptingNewClients,
+      providerSchoolInfoBlurb,
       personalPhone,
       workPhone,
       workPhoneExtension,
@@ -1970,6 +1971,15 @@ export const updateUser = async (req, res, next) => {
       const providerLike = targetRole === 'provider' || Boolean(targetUser.has_provider_access);
       if (providerLike) {
         updateData.providerAcceptingNewClients = Boolean(providerAcceptingNewClients);
+      }
+    }
+
+    // Provider school info blurb (shared across all schools) - admin/support only.
+    if (providerSchoolInfoBlurb !== undefined) {
+      const roleForBlurb = String(req.user?.role || '').toLowerCase();
+      const canEditBlurb = roleForBlurb === 'super_admin' || roleForBlurb === 'admin' || roleForBlurb === 'staff' || roleForBlurb === 'support';
+      if (canEditBlurb) {
+        updateData.providerSchoolInfoBlurb = providerSchoolInfoBlurb === null || providerSchoolInfoBlurb === undefined ? null : String(providerSchoolInfoBlurb).trim() || null;
       }
     }
     
