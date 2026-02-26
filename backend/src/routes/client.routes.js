@@ -10,6 +10,7 @@ import {
   graduateClientType,
   updateClientStatus,
   unarchiveClient,
+  terminateClient,
   bulkPromoteSchoolYear,
   rolloverSchoolYear,
   assignProvider,
@@ -76,6 +77,9 @@ router.post('/:id/client-type', graduateClientType);
 
 // Unarchive client (admin/staff/support/super_admin)
 router.post('/:id/unarchive', unarchiveClient);
+
+// Terminate client (support staff or assigned provider; requires termination_reason)
+router.post('/:id/terminate', terminateClient);
 
 // Update client status
 router.put('/:id/status', updateClientStatus);

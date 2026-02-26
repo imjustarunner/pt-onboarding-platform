@@ -189,6 +189,44 @@ export async function notifyClientBecameCurrent({
   }
 }
 
+export async function notifyClientTerminated({
+  agencyId,
+  schoolOrganizationId,
+  clientId,
+  clientNameOrIdentifier,
+  terminationReason,
+  actorUserId
+}) {
+  if (!agencyId || !clientId) return;
+
+  const agencyStaff = await getAgencyAdminStaffUserIds(agencyId);
+  const schoolStaff = schoolOrganizationId ? await getSchoolStaffUserIds(schoolOrganizationId) : [];
+  const recipients = new Set([...(agencyStaff || []), ...(schoolStaff || [])]);
+
+  const title = 'Client terminated';
+  const reasonSnippet = terminationReason ? ` Reason: ${String(terminationReason).slice(0, 200)}${terminationReason.length > 200 ? '…' : ''}` : '';
+  const message = `Client ${clientNameOrIdentifier || `ID ${clientId}`} has been terminated.${reasonSnippet}`;
+
+  await Promise.all(
+    Array.from(recipients).map((userId) =>
+      (async () => {
+        if (await alreadyNotified({ agencyId, userId, type: 'client_terminated', relatedEntityId: clientId })) return null;
+        return await createNotificationAndDispatch({
+          type: 'client_terminated',
+          severity: 'warning',
+          title,
+          message,
+          userId,
+          agencyId,
+          relatedEntityType: 'client',
+          relatedEntityId: clientId,
+          actorUserId
+        });
+      })().catch(() => null)
+    )
+  );
+}
+
 export async function notifyClientChecklistUpdated({
   agencyId,
   schoolOrganizationId,

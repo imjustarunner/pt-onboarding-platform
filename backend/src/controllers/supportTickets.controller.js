@@ -388,6 +388,35 @@ export const listMySupportTickets = async (req, res, next) => {
   }
 };
 
+async function getAccessibleTicketScopeForUser(userId, role) {
+  if (String(role || '').toLowerCase() === 'super_admin') return { agencyIds: null, schoolOrgIds: null };
+  const agencies = await User.getAgencies(userId);
+  const ids = (agencies || []).map((a) => parseInt(a?.id, 10)).filter((n) => Number.isFinite(n));
+  if (ids.length === 0) return { agencyIds: [], schoolOrgIds: [] };
+
+  const [orgRows] = await pool.execute(
+    `SELECT id, organization_type FROM agencies WHERE id IN (${ids.map(() => '?').join(',')})`,
+    ids
+  );
+  const agencyIds = (orgRows || []).filter((r) => {
+    const t = String(r?.organization_type || '').toLowerCase();
+    return t === 'agency' || !t || t === 'null';
+  }).map((r) => r.id);
+  const directSchoolIds = (orgRows || []).filter((r) => String(r?.organization_type || '').toLowerCase() === 'school').map((r) => r.id);
+
+  let schoolOrgIds = [...directSchoolIds];
+  if (agencyIds.length > 0) {
+    const [affRows] = await pool.execute(
+      `SELECT organization_id FROM organization_affiliations WHERE agency_id IN (${agencyIds.map(() => '?').join(',')}) AND is_active = TRUE`,
+      agencyIds
+    );
+    const affSchoolIds = (affRows || []).map((r) => parseInt(r.organization_id, 10)).filter((n) => Number.isFinite(n));
+    schoolOrgIds = [...new Set([...schoolOrgIds, ...affSchoolIds])];
+  }
+
+  return { agencyIds, schoolOrgIds };
+}
+
 export const listSupportTicketsQueue = async (req, res, next) => {
   try {
     const role = String(req.user?.role || '').toLowerCase();
@@ -396,6 +425,7 @@ export const listSupportTicketsQueue = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Only staff/admin/support can view the support ticket queue' } });
     }
 
+    const agencyIdFilter = req.query?.agencyId ? parseInt(req.query.agencyId, 10) : null;
     const schoolOrganizationId = req.query?.schoolOrganizationId ? parseInt(req.query.schoolOrganizationId, 10) : null;
     const status = req.query?.status ? String(req.query.status).trim().toLowerCase() : null;
     const sourceChannel = req.query?.sourceChannel ? String(req.query.sourceChannel).trim().toLowerCase() : null;
@@ -407,6 +437,32 @@ export const listSupportTicketsQueue = async (req, res, next) => {
 
     const where = [];
     const params = [];
+
+    // Scope to user's agencies/schools for non-super_admin (so agency admins see all tickets from their agency's schools)
+    const scope = await getAccessibleTicketScopeForUser(req.user.id, role);
+    if (scope.agencyIds !== null) {
+      const conditions = [];
+      if (scope.agencyIds.length > 0) {
+        conditions.push(`t.agency_id IN (${scope.agencyIds.map(() => '?').join(',')})`);
+        params.push(...scope.agencyIds);
+      }
+      if (scope.schoolOrgIds.length > 0) {
+        conditions.push(`t.school_organization_id IN (${scope.schoolOrgIds.map(() => '?').join(',')})`);
+        params.push(...scope.schoolOrgIds);
+      }
+      if (conditions.length > 0) {
+        where.push(`(${conditions.join(' OR ')})`);
+      } else {
+        where.push('1 = 0');
+      }
+    }
+
+    if (agencyIdFilter && Number.isFinite(agencyIdFilter)) {
+      const access = await ensureAgencyAccess(req, agencyIdFilter);
+      if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+      where.push('t.agency_id = ?');
+      params.push(agencyIdFilter);
+    }
 
     if (schoolOrganizationId) {
       const access = await ensureOrgAccess(req, schoolOrganizationId);
@@ -465,6 +521,7 @@ export const listSupportTicketsQueue = async (req, res, next) => {
              cl.first_name AS claimed_by_first_name,
              cl.last_name AS claimed_by_last_name,
              s.name AS school_name,
+             a.name AS agency_name,
              c.initials AS client_initials,
              c.identifier_code AS client_identifier_code
       FROM support_tickets t
@@ -473,6 +530,7 @@ export const listSupportTicketsQueue = async (req, res, next) => {
       LEFT JOIN users ap ON ap.id = t.approved_by_user_id
       LEFT JOIN users cl ON cl.id = t.claimed_by_user_id
       LEFT JOIN agencies s ON s.id = t.school_organization_id
+      LEFT JOIN agencies a ON a.id = t.agency_id
       LEFT JOIN clients c ON c.id = t.client_id
       ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
       ORDER BY

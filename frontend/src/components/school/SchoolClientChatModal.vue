@@ -26,13 +26,20 @@
                   <div class="waitlist-tooltip-body">{{ waitlistTooltipBody }}</div>
                 </div>
               </span>
-              <span v-else>
+              <span
+                v-else
+                :title="isTerminated && (props.client?.termination_reason || fullClient?.termination_reason) ? (props.client?.termination_reason || fullClient?.termination_reason) : undefined"
+              >
                 {{ formatKey(props.client?.client_status_label || props.client?.status || props.client?.client_status_key) }}
               </span>
             </span>
           </div>
         </div>
         <button class="close" @click="$emit('close')">×</button>
+      </div>
+
+      <div v-if="isTerminated && (props.client?.termination_reason || fullClient?.termination_reason)" class="termination-reason-banner">
+        <strong>Termination reason:</strong> {{ props.client?.termination_reason || fullClient?.termination_reason }}
       </div>
 
       <div class="phi-warning">
@@ -62,7 +69,10 @@
                 <div class="waitlist-tooltip-body">{{ waitlistTooltipBody }}</div>
               </div>
             </span>
-            <span v-else>
+            <span
+              v-else
+              :title="isTerminated && (props.client?.termination_reason || fullClient?.termination_reason) ? (props.client?.termination_reason || fullClient?.termination_reason) : undefined"
+            >
               {{ formatKey(props.client?.client_status_label || props.client?.status || props.client?.client_status_key) }}
             </span>
           </div>
@@ -248,6 +258,11 @@ const isWaitlist = computed(() => {
   const label = String(props.client?.client_status_label || '').toLowerCase().trim();
   return key === 'waitlist' || status === 'waitlist' || label === 'waitlist';
 });
+const isTerminated = computed(() => {
+  const key = String(props.client?.client_status_key || '').toLowerCase().trim();
+  const label = String(props.client?.client_status_label || '').toLowerCase().trim();
+  return key === 'terminated' || label.includes('terminated');
+});
 const showWaitlistModal = ref(false);
 const hoveringWaitlist = ref(false);
 const waitlistLoading = ref(false);
@@ -303,6 +318,7 @@ const normalizeDocStatusLabel = (c) => {
 
 const loading = ref(false);
 const error = ref('');
+const fullClient = ref(null);
 const checklist = ref(null);
 const checklistAudit = ref('');
 
@@ -345,9 +361,10 @@ const load = async () => {
       comments.value = [];
     }
 
-    // Compliance checklist (read-only for school staff)
+    // Compliance checklist (read-only for school staff) + full client for termination_reason etc.
     try {
       const c = (await api.get(`/clients/${props.client.id}`)).data || {};
+      fullClient.value = c;
       checklist.value = {
         parents_contacted_at: c.parents_contacted_at || null,
         parents_contacted_successful: c.parents_contacted_successful === null || c.parents_contacted_successful === undefined ? null : !!c.parents_contacted_successful,
@@ -522,6 +539,15 @@ watch(
   color: var(--text-secondary);
 }
 .close { border: none; background: none; font-size: 28px; cursor: pointer; }
+.termination-reason-banner {
+  margin: 12px 16px 0 16px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #991b1b;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+}
 .phi-warning {
   margin: 12px 16px 0 16px;
   background: #fff7ed;

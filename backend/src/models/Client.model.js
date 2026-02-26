@@ -479,7 +479,10 @@ class Client {
       'cleared_to_start',
       'client_type',
       'client_type_transitioned_at',
-      'client_type_transitioned_by_user_id'
+      'client_type_transitioned_by_user_id',
+      'termination_reason',
+      'terminated_at',
+      'terminated_by_user_id'
     ];
 
     for (const field of allowedFields) {

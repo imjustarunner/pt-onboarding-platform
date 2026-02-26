@@ -8,7 +8,7 @@ import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js'
 import AgencySchool from '../models/AgencySchool.model.js';
 import pool from '../config/database.js';
 import { adjustProviderSlots } from '../services/providerSlots.service.js';
-import { notifyClientBecameCurrent, notifyClientChecklistUpdated, notifyPaperworkReceived } from '../services/clientNotifications.service.js';
+import { notifyClientBecameCurrent, notifyClientChecklistUpdated, notifyPaperworkReceived, notifyClientTerminated } from '../services/clientNotifications.service.js';
 import { createClientOnboardingTaskForProvider } from '../services/clientOnboardingTask.service.js';
 import { logClientAccess } from '../services/clientAccessLog.service.js';
 import Notification from '../models/Notification.model.js';
@@ -1466,6 +1466,147 @@ export const unarchiveClient = async (req, res, next) => {
 };
 
 /**
+ * Terminate client (support staff or assigned provider)
+ * POST /api/clients/:id/terminate
+ * Body: { termination_reason: string } (required)
+ */
+export const terminateClient = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+    const userRole = req.user.role;
+
+    const currentClient = await Client.findById(id, { includeSensitive: true });
+    if (!currentClient) return res.status(404).json({ error: { message: 'Client not found' } });
+
+    const reason = String(req.body?.termination_reason || '').trim();
+    if (!reason) {
+      return res.status(400).json({
+        error: { message: 'A termination reason (comment) is required when terminating a client.' }
+      });
+    }
+
+    // Permission: support staff (admin/support/staff) OR provider assigned to this client
+    const roleNorm = String(userRole || '').toLowerCase();
+    const isSupportStaff = ['super_admin', 'admin', 'support', 'staff'].includes(roleNorm);
+    let isAssignedProvider = false;
+    if (roleNorm === 'provider') {
+      try {
+        const [rows] = await pool.execute(
+          `SELECT 1 FROM client_provider_assignments
+           WHERE client_id = ? AND provider_user_id = ? AND is_active = TRUE LIMIT 1`,
+          [parseInt(id, 10), userId]
+        );
+        isAssignedProvider = !!rows?.[0];
+        if (!isAssignedProvider) {
+          isAssignedProvider = parseInt(currentClient.provider_id || 0, 10) === parseInt(userId, 10);
+        }
+      } catch (e) {
+        const msg = String(e?.message || '');
+        if (!msg.includes("doesn't exist") && !msg.includes('ER_NO_SUCH_TABLE')) throw e;
+        isAssignedProvider = parseInt(currentClient.provider_id || 0, 10) === parseInt(userId, 10);
+      }
+    }
+
+    if (!isSupportStaff && !isAssignedProvider) {
+      return res.status(403).json({
+        error: { message: 'Only support staff or the assigned provider can terminate a client.' }
+      });
+    }
+
+    if (userRole !== 'super_admin') {
+      const userAgencies = await User.getAgencies(userId);
+      const userAgencyIds = (userAgencies || []).map((a) => a.id);
+      if (!userAgencyIds.includes(currentClient.agency_id)) {
+        return res.status(403).json({ error: { message: 'You do not have access to this client' } });
+      }
+    }
+
+    const terminatedStatusId = await getClientStatusIdByKey({
+      agencyId: currentClient.agency_id,
+      statusKey: 'terminated'
+    });
+    if (!terminatedStatusId) {
+      return res.status(400).json({
+        error: { message: 'Terminated status is not configured for this agency. Contact an administrator.' }
+      });
+    }
+
+    const terminationReason = reason.slice(0, 2000);
+    const updated = await Client.update(id, {
+      client_status_id: terminatedStatusId,
+      status: 'ARCHIVED',
+      termination_reason: terminationReason,
+      terminated_at: new Date(),
+      terminated_by_user_id: userId
+    }, userId);
+
+    await ClientStatusHistory.create({
+      client_id: parseInt(id, 10),
+      changed_by_user_id: userId,
+      field_changed: 'client_status_id',
+      from_value: currentClient.client_status_id ? String(currentClient.client_status_id) : null,
+      to_value: String(terminatedStatusId),
+      note: terminationReason
+    }).catch(() => {});
+
+    // Slot adjustment if client was current and consuming a slot
+    try {
+      const [statusRows] = await pool.execute(
+        `SELECT id FROM client_statuses WHERE agency_id = ? AND status_key = 'current' LIMIT 1`,
+        [currentClient.agency_id]
+      );
+      const currentStatusId = statusRows?.[0]?.id || null;
+      const oldClientStatusId = currentClient.client_status_id ? parseInt(currentClient.client_status_id, 10) : null;
+      const oldProviderId = currentClient.provider_id ? parseInt(currentClient.provider_id, 10) : null;
+      const oldDay = currentClient.service_day ? String(currentClient.service_day) : null;
+      const oldOrgId = currentClient.organization_id ? parseInt(currentClient.organization_id, 10) : null;
+      const wasConsumingSlot = !!(
+        currentStatusId &&
+        oldClientStatusId === currentStatusId &&
+        oldProviderId &&
+        oldDay &&
+        oldOrgId &&
+        String(currentClient.status || '').toUpperCase() !== 'ARCHIVED'
+      );
+      if (wasConsumingSlot) {
+        const conn = await pool.getConnection();
+        try {
+          await conn.beginTransaction();
+          await adjustProviderSlots(conn, {
+            providerUserId: oldProviderId,
+            schoolId: oldOrgId,
+            dayOfWeek: oldDay,
+            delta: +1
+          });
+          await conn.commit();
+        } catch (e) {
+          try { await conn.rollback(); } catch { /* ignore */ }
+        } finally {
+          conn.release();
+        }
+      }
+    } catch {
+      // best-effort
+    }
+
+    notifyClientTerminated({
+      agencyId: currentClient.agency_id,
+      schoolOrganizationId: currentClient.organization_id,
+      clientId: parseInt(id, 10),
+      clientNameOrIdentifier: updated.identifier_code || updated.full_name || updated.initials,
+      terminationReason,
+      actorUserId: userId
+    }).catch(() => {});
+
+    logClientAccess(req, id, 'client_terminated').catch(() => {});
+    res.json(updated);
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
  * Update client
  * PUT /api/clients/:id
  */
@@ -1597,6 +1738,30 @@ export const updateClient = async (req, res, next) => {
         } finally {
           connection.release();
         }
+      }
+    }
+
+    // When moving to terminated status: require termination_reason and set termination metadata
+    if (req.body.client_status_id !== undefined && req.body.client_status_id !== null && req.body.client_status_id !== '') {
+      const requestedStatusId = parseInt(req.body.client_status_id, 10);
+      const [statusRows] = await pool.execute(
+        `SELECT id, status_key, label FROM client_statuses WHERE agency_id = ?`,
+        [currentClient.agency_id]
+      );
+      const newStatusRow = (statusRows || []).find((r) => parseInt(r?.id, 10) === requestedStatusId) || null;
+      const newKey = String(newStatusRow?.status_key || '').toLowerCase();
+      const newLabel = String(newStatusRow?.label || '').toLowerCase();
+      const isTerminated = newKey === 'terminated' || newLabel.includes('terminated');
+      if (isTerminated) {
+        const reason = String(req.body.termination_reason || '').trim();
+        if (!reason) {
+          return res.status(400).json({
+            error: { message: 'A termination reason (comment) is required when moving a client to Terminated status.' }
+          });
+        }
+        req.body.termination_reason = reason.slice(0, 2000);
+        req.body.terminated_at = new Date();
+        req.body.terminated_by_user_id = userId;
       }
     }
 
@@ -1803,6 +1968,36 @@ export const updateClient = async (req, res, next) => {
           } catch {
             // best-effort
           }
+        }
+
+        // Log client_status_id change to history (including termination reason when applicable)
+        const oldStatusId = currentClient.client_status_id ? parseInt(currentClient.client_status_id, 10) : null;
+        const newStatusId = parseInt(updatedClient.client_status_id || 0, 10);
+        if (oldStatusId !== newStatusId) {
+          const termNote = (newKey === 'terminated' || newLabel.includes('terminated'))
+            ? (String(req.body.termination_reason || updatedClient.termination_reason || '').trim() || 'Terminated')
+            : null;
+          await ClientStatusHistory.create({
+            client_id: parseInt(id, 10),
+            changed_by_user_id: userId,
+            field_changed: 'client_status_id',
+            from_value: oldStatusId ? String(oldStatusId) : null,
+            to_value: newStatusId ? String(newStatusId) : null,
+            note: termNote
+          }).catch(() => {});
+        }
+
+        // Notification when client is terminated (support staff or provider)
+        if (newKey === 'terminated' || newLabel.includes('terminated')) {
+          const terminationReason = updatedClient.termination_reason || req.body.termination_reason || '';
+          notifyClientTerminated({
+            agencyId: currentClient.agency_id,
+            schoolOrganizationId: updatedClient.organization_id,
+            clientId: parseInt(id, 10),
+            clientNameOrIdentifier: updatedClient.identifier_code || updatedClient.full_name || updatedClient.initials,
+            terminationReason: String(terminationReason).trim(),
+            actorUserId: userId
+          }).catch(() => {});
         }
       } catch {
         // best-effort: never block the update if slot adjustment fails

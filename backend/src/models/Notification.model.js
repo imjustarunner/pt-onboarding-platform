@@ -36,6 +36,7 @@ class Notification {
     'paperwork_received',
     'client_became_current',
     'client_checklist_updated',
+    'client_terminated',
     'client_assigned',
     // Background check automation
     'background_check_reimbursement_due',

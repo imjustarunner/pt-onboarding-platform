@@ -129,9 +129,27 @@
                     <option :value="''">—</option>
                     <option v-for="s in overviewClientStatuses" :key="s.id" :value="String(s.id)">{{ s.label }}</option>
                   </select>
+                  <div v-if="isTerminatedStatusSelected" class="termination-reason-field" style="margin-top: 10px;">
+                    <label class="required">Termination reason (required)</label>
+                    <textarea
+                      v-model="overviewForm.termination_reason"
+                      rows="3"
+                      placeholder="Explain why this client was terminated…"
+                      class="inline-input"
+                      style="width: 100%; margin-top: 4px;"
+                    />
+                  </div>
                 </template>
                 <template v-else>
-                  {{ client.client_status_label || '-' }}
+                  <span
+                    :title="isClientTerminated && client.termination_reason ? client.termination_reason : undefined"
+                    :class="{ 'status-hoverable': isClientTerminated && client.termination_reason }"
+                  >
+                    {{ client.client_status_label || '-' }}
+                  </span>
+                  <div v-if="isClientTerminated && client.termination_reason" class="hint" style="margin-top: 6px;">
+                    <strong>Termination reason:</strong> {{ client.termination_reason }}
+                  </div>
                 </template>
               </div>
             </div>
@@ -405,25 +423,35 @@
             </div>
           </div>
 
-          <div v-if="canEditAccount && editingOverview" class="quick-actions">
+          <div v-if="(canEditAccount && editingOverview) || (canTerminate && !editingOverview)" class="quick-actions">
             <h3>Quick Actions</h3>
             <div class="actions-grid">
               <button
-                v-if="!isClientArchived"
+                v-if="canTerminate && !isClientArchived"
                 class="btn btn-danger"
                 type="button"
-                @click="archiveClient"
+                @click="openTerminateModal"
               >
-                Archive client
+                Terminate client
               </button>
-              <button
-                v-else
-                class="btn btn-secondary"
-                type="button"
-                @click="unarchiveClient"
-              >
-                Unarchive client
-              </button>
+              <template v-else-if="canEditAccount && editingOverview">
+                <button
+                  v-if="!isClientArchived"
+                  class="btn btn-danger"
+                  type="button"
+                  @click="archiveClient"
+                >
+                  Archive client
+                </button>
+                <button
+                  v-else
+                  class="btn btn-secondary"
+                  type="button"
+                  @click="unarchiveClient"
+                >
+                  Unarchive client
+                </button>
+              </template>
             </div>
           </div>
         </div>
@@ -1301,6 +1329,31 @@
           <PhiDocumentsPanel :client-id="Number(client.id)" :highlight-document-id="initialDocumentId" />
         </div>
       </div>
+
+      <!-- Terminate client modal -->
+      <div v-if="terminateModalOpen" class="modal-overlay" style="z-index: 10000;" @click.self="closeTerminateModal">
+        <div class="modal-content" style="max-width: 480px;" @click.stop>
+          <div class="modal-header">
+            <h3 style="margin: 0;">Terminate client</h3>
+            <button type="button" class="btn-close" @click="closeTerminateModal">×</button>
+          </div>
+          <p class="hint" style="margin-top: 0;">A termination reason is required. This will move the client to Terminated status and notify support staff.</p>
+          <label class="required">Termination reason</label>
+          <textarea
+            v-model="terminateReasonDraft"
+            rows="4"
+            placeholder="Explain why this client was terminated…"
+            class="inline-input"
+            style="width: 100%; margin-top: 6px; margin-bottom: 8px;"
+          />
+          <div class="form-actions" style="justify-content: flex-end; gap: 8px;">
+            <button type="button" class="btn btn-secondary" @click="closeTerminateModal">Cancel</button>
+            <button type="button" class="btn btn-danger" @click="terminateClient" :disabled="terminateSaving || !String(terminateReasonDraft || '').trim()">
+              {{ terminateSaving ? 'Terminating…' : 'Terminate client' }}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -1337,6 +1390,12 @@ const isBackofficeRole = computed(() => ['super_admin', 'admin', 'support', 'sta
 const canViewAdminNote = computed(() => isBackofficeRole.value || roleNorm.value === 'supervisor');
 const canManageClientCode = computed(() => isBackofficeRole.value || roleNorm.value === 'supervisor');
 const canEditAccount = computed(() => isBackofficeRole.value && hasAgencyAccess.value);
+const canTerminate = computed(() => {
+  if (!hasAgencyAccess.value) return false;
+  if (isClientTerminated.value) return false;
+  const r = roleNorm.value;
+  return ['super_admin', 'admin', 'support', 'staff'].includes(r) || r === 'provider';
+});
 const learningBillingEnabledForClient = computed(() => {
   const orgType = String(props.client?.organization_type || '').toLowerCase();
   if (orgType !== 'learning') return false;
@@ -1382,6 +1441,7 @@ const overviewForm = ref({
   initials: '',
   organization_id: '',
   client_status_id: '',
+  termination_reason: '',
   submission_date: '',
   insurance_type_id: '',
   doc_date: '',
@@ -1936,6 +1996,18 @@ const formatFieldName = (field) => {
 };
 
 const isClientArchived = computed(() => String(props.client?.status || '').toUpperCase() === 'ARCHIVED');
+const isClientTerminated = computed(() => {
+  const key = String(props.client?.client_status_key || '').toLowerCase();
+  const label = String(props.client?.client_status_label || '').toLowerCase();
+  return key === 'terminated' || label.includes('terminated');
+});
+const terminatedStatusId = computed(() => {
+  const s = (overviewClientStatuses.value || []).find((x) => String(x?.status_key || x?.statusKey || '').toLowerCase() === 'terminated');
+  return s ? String(s.id) : '';
+});
+const isTerminatedStatusSelected = computed(() =>
+  editingOverview.value && overviewForm.value.client_status_id === terminatedStatusId.value
+);
 
 // Client identifier code (6-digit, permanent)
 const clientCodeIsValid = computed(() => /^\d{6}$/.test(String(props.client?.identifier_code || '').trim()));
@@ -2077,6 +2149,37 @@ const unarchiveClient = async () => {
   }
 };
 
+const terminateModalOpen = ref(false);
+const terminateReasonDraft = ref('');
+const terminateSaving = ref(false);
+const openTerminateModal = () => {
+  if (!canTerminate.value) return;
+  terminateReasonDraft.value = '';
+  terminateModalOpen.value = true;
+};
+const closeTerminateModal = () => {
+  terminateModalOpen.value = false;
+  terminateReasonDraft.value = '';
+};
+const terminateClient = async () => {
+  if (!canTerminate.value || !props.client?.id) return;
+  const reason = String(terminateReasonDraft.value || '').trim();
+  if (!reason) {
+    alert('A termination reason is required.');
+    return;
+  }
+  try {
+    terminateSaving.value = true;
+    await api.post(`/clients/${props.client.id}/terminate`, { termination_reason: reason });
+    closeTerminateModal();
+    emit('updated');
+  } catch (err) {
+    alert(err.response?.data?.error?.message || 'Failed to terminate client');
+  } finally {
+    terminateSaving.value = false;
+  }
+};
+
 const saveSkills = async () => {
   if (!canEditAccount.value) return;
   try {
@@ -2101,6 +2204,7 @@ const hydrateOverviewForm = () => {
   overviewForm.value.initials = String(props.client?.initials || '');
   overviewForm.value.organization_id = props.client?.organization_id ? String(props.client.organization_id) : '';
   overviewForm.value.client_status_id = props.client?.client_status_id ? String(props.client.client_status_id) : '';
+  overviewForm.value.termination_reason = String(props.client?.termination_reason || '');
   overviewForm.value.submission_date = props.client?.submission_date ? String(props.client.submission_date).slice(0, 10) : '';
   overviewForm.value.insurance_type_id = props.client?.insurance_type_id ? String(props.client.insurance_type_id) : '';
   overviewForm.value.doc_date = props.client?.doc_date ? String(props.client.doc_date).slice(0, 10) : '';
@@ -2127,6 +2231,13 @@ const cancelEditOverview = () => {
 
 const saveOverview = async () => {
   if (!canEditAccount.value) return;
+  if (isTerminatedStatusSelected.value) {
+    const reason = String(overviewForm.value.termination_reason || '').trim();
+    if (!reason) {
+      alert('A termination reason is required when moving a client to Terminated status.');
+      return;
+    }
+  }
   try {
     savingOverview.value = true;
     const payload = {
@@ -2144,6 +2255,9 @@ const saveOverview = async () => {
       referral_date: overviewForm.value.referral_date ? String(overviewForm.value.referral_date) : null,
       source: String(overviewForm.value.source || '').trim() || null
     };
+    if (isTerminatedStatusSelected.value) {
+      payload.termination_reason = String(overviewForm.value.termination_reason || '').trim();
+    }
     await api.put(`/clients/${props.client.id}`, payload);
     const refreshed = (await api.get(`/clients/${props.client.id}`)).data || null;
     emit('updated', { keepOpen: true, client: refreshed });

@@ -252,13 +252,14 @@
                   :class="[
                     'status-badge',
                     `status-${String(client.client_status_key || 'unknown').toLowerCase().replace('_', '-')}`,
-                    String(client.client_status_key || '').toLowerCase() === 'waitlist' ? 'status-waitlist' : ''
+                    String(client.client_status_key || '').toLowerCase() === 'waitlist' ? 'status-waitlist' : '',
+                    String(client.client_status_key || '').toLowerCase() === 'terminated' ? 'status-terminated' : ''
                   ]"
                   :role="String(client.client_status_key || '').toLowerCase() === 'waitlist' ? 'button' : undefined"
                   :tabindex="String(client.client_status_key || '').toLowerCase() === 'waitlist' ? 0 : undefined"
-                  :title="String(client.client_status_key || '').toLowerCase() === 'waitlist' ? getWaitlistTitle(client) : ''"
-                  @mouseenter="String(client.client_status_key || '').toLowerCase() === 'waitlist' ? onWaitlistHover(client) : null"
-                  @mouseleave="String(client.client_status_key || '').toLowerCase() === 'waitlist' ? (hoveredWaitlistClientId = '') : null"
+                  :title="getStatusTitle(client)"
+                  @mouseenter="String(client.client_status_key || '').toLowerCase() === 'waitlist' ? onWaitlistHover(client) : (hoveredTerminatedClientId = String(client.client_status_key || '').toLowerCase() === 'terminated' ? String(client.id) : '')"
+                  @mouseleave="String(client.client_status_key || '').toLowerCase() === 'waitlist' ? (hoveredWaitlistClientId = '') : (hoveredTerminatedClientId = '')"
                   @focus="String(client.client_status_key || '').toLowerCase() === 'waitlist' ? onWaitlistHover(client) : null"
                   @click.stop="String(client.client_status_key || '').toLowerCase() === 'waitlist' ? openWaitlistNote(client) : null"
                   @keydown.enter.stop.prevent="String(client.client_status_key || '').toLowerCase() === 'waitlist' ? openWaitlistNote(client) : null"
@@ -272,6 +273,14 @@
                   >
                     <div class="waitlist-tooltip-title">Waitlist reason</div>
                     <div class="waitlist-tooltip-body">{{ waitlistTooltipText(client) }}</div>
+                  </div>
+                  <div
+                    v-if="String(client.client_status_key || '').toLowerCase() === 'terminated' && client.termination_reason && String(hoveredTerminatedClientId) === String(client.id)"
+                    class="waitlist-tooltip"
+                    role="tooltip"
+                  >
+                    <div class="waitlist-tooltip-title">Termination reason</div>
+                    <div class="waitlist-tooltip-body">{{ client.termination_reason }}</div>
                   </div>
                 </span>
                 <span
@@ -449,6 +458,18 @@ const waitlistOrgKey = (client) => orgKey.value || String(client?.organization_i
 const waitlistNoteByClientId = ref({});
 const waitlistNoteLoadingByClientId = ref({});
 const hoveredWaitlistClientId = ref('');
+const hoveredTerminatedClientId = ref('');
+const getStatusTitle = (client) => {
+  const key = String(client?.client_status_key || '').toLowerCase();
+  if (key === 'waitlist') {
+    const cached = waitlistNoteByClientId.value?.[String(client?.id || '')] || '';
+    return cached ? `Waitlist reason: ${cached}` : 'Hover for waitlist reason';
+  }
+  if (key === 'terminated' && client?.termination_reason) {
+    return `Termination reason: ${client.termination_reason}`;
+  }
+  return '';
+};
 const getWaitlistTitle = (client) => {
   if (String(client?.client_status_key || '').toLowerCase() !== 'waitlist') return '';
   const cached = waitlistNoteByClientId.value?.[String(client?.id || '')] || '';

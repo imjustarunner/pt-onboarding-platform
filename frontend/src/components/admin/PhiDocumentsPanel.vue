@@ -12,11 +12,17 @@
           </label>
           <label class="upload-label">
             Document type
-            <select v-model="uploadType" class="upload-input">
-              <option value="">Select…</option>
-              <option v-for="t in uploadTypeOptions" :key="t" :value="t">{{ t }}</option>
-              <option value="Other">Other</option>
-            </select>
+            <input
+              v-model="uploadType"
+              type="text"
+              class="upload-input"
+              list="phi-doc-type-list"
+              placeholder="Select or type document type…"
+              autocomplete="off"
+            />
+            <datalist id="phi-doc-type-list">
+              <option v-for="t in uploadTypeOptions" :key="t" :value="t" />
+            </datalist>
           </label>
         </div>
         <input
@@ -220,7 +226,6 @@ const uploadTypeOptions = [
   'ROI',
   'Assessment',
   'IEP/504',
-  'Progress note',
   'Other'
 ];
 

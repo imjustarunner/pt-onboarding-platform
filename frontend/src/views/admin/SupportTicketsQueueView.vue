@@ -11,8 +11,18 @@
           <input v-model="searchInput" class="input" type="text" placeholder="Subject, question, or school…" />
         </label>
         <label class="field">
-          School ID (optional)
-          <input v-model="schoolIdInput" class="input" type="number" placeholder="e.g., 123" />
+          Agency
+          <select v-model="agencyIdInput" class="input">
+            <option value="">All</option>
+            <option v-for="a in agencyFilterOptions" :key="a.id" :value="String(a.id)">{{ a.name }}</option>
+          </select>
+        </label>
+        <label class="field">
+          School
+          <select v-model="schoolIdInput" class="input">
+            <option value="">All</option>
+            <option v-for="s in schoolFilterOptions" :key="s.school_organization_id || s.id" :value="String(s.school_organization_id ?? s.id)">{{ s.school_name || s.name }}</option>
+          </select>
         </label>
         <label class="field">
           Status
@@ -94,8 +104,13 @@
               </span>
               <span class="inline-sep">•</span>
               <span class="inline-meta">
-                <span v-if="t.school_name">{{ t.school_name }}</span>
-                <span v-else>School ID {{ t.school_organization_id }}</span>
+                <template v-if="t.agency_name || t.school_name || t.school_organization_id">
+                  <span v-if="t.agency_name">{{ t.agency_name }}</span>
+                  <span v-if="t.agency_name && (t.school_name || t.school_organization_id)"> → </span>
+                  <span v-if="t.school_name">{{ t.school_name }}</span>
+                  <span v-else-if="t.school_organization_id">School ID {{ t.school_organization_id }}</span>
+                </template>
+                <span v-else>—</span>
               </span>
               <span class="inline-sep">•</span>
               <span class="inline-meta">{{ formatDateTime(t.created_at) }}</span>
@@ -153,7 +168,17 @@
               {{ unclaimingId === t.id ? 'Unclaiming…' : 'Unclaim' }}
             </button>
             <button
-              v-else-if="Number(t.claimed_by_user_id) !== Number(myUserId)"
+              v-else-if="Number(t.claimed_by_user_id) !== Number(myUserId) && canAssignOthers"
+              class="btn btn-secondary btn-sm"
+              type="button"
+              :disabled="assigningId === t.id"
+              @click="takeOverTicket(t)"
+              :title="isStale(t) ? 'Take over this stale ticket' : 'Reassign this ticket to you'"
+            >
+              {{ assigningId === t.id ? 'Taking over…' : 'Take over' }}
+            </button>
+            <button
+              v-else-if="Number(t.claimed_by_user_id) !== Number(myUserId) && !canAssignOthers"
               class="btn btn-secondary btn-sm"
               type="button"
               disabled
@@ -385,7 +410,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
@@ -398,6 +423,7 @@ const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
 const myUserId = authStore.user?.id || null;
 const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
+const isSuperAdmin = computed(() => roleNorm.value === 'super_admin');
 const canAssignOthers = computed(() => (
   roleNorm.value === 'admin' ||
   roleNorm.value === 'support' ||
@@ -411,7 +437,9 @@ const tickets = ref([]);
 const loading = ref(false);
 const error = ref('');
 
+const agencyIdInput = ref('');
 const schoolIdInput = ref('');
+const schoolFilterOptions = ref([]);
 const status = ref('');
 const sourceChannel = ref('');
 const draftState = ref('');
@@ -468,7 +496,52 @@ const confirmMessage = computed(() => {
 });
 const confirmReady = computed(() => String(confirmInput.value || '').trim().toUpperCase() === confirmWord.value);
 
+const agencyFilterOptions = computed(() => {
+  const list = isSuperAdmin.value
+    ? (agencyStore.agencies?.value || agencyStore.agencies || [])
+    : (agencyStore.userAgencies?.value || agencyStore.userAgencies || []);
+  return (Array.isArray(list) ? list : []).filter(
+    (a) => String(a?.organization_type || 'agency').toLowerCase() === 'agency'
+  );
+});
+
+const fetchSchoolsForAgency = async (agencyId) => {
+  const aid = Number(agencyId);
+  if (!Number.isFinite(aid) || aid < 1) {
+    schoolFilterOptions.value = [];
+    return;
+  }
+  try {
+    const r = await api.get(`/agencies/${aid}/schools`);
+    schoolFilterOptions.value = Array.isArray(r.data) ? r.data : [];
+  } catch {
+    schoolFilterOptions.value = [];
+  }
+};
+
+watch(agencyIdInput, async (val) => {
+  if (val) {
+    await fetchSchoolsForAgency(val);
+    const sid = Number(schoolIdInput.value);
+    if (Number.isFinite(sid) && sid > 0) {
+      const inList = (schoolFilterOptions.value || []).some((s) => Number(s?.id) === sid);
+      if (!inList) schoolIdInput.value = '';
+    }
+  } else {
+    schoolFilterOptions.value = [];
+    schoolIdInput.value = '';
+  }
+});
+
 const syncFromQuery = () => {
+  const qAgency = route.query?.agencyId;
+  if (qAgency !== undefined && qAgency !== null && String(qAgency).trim() !== '') {
+    const n = Number(qAgency);
+    if (Number.isFinite(n) && n > 0) {
+      agencyIdInput.value = String(n);
+      fetchSchoolsForAgency(n);
+    }
+  }
   const qSchool = route.query?.schoolOrganizationId;
   if (qSchool !== undefined && qSchool !== null && String(qSchool).trim() !== '') {
     const n = Number(qSchool);
@@ -561,6 +634,9 @@ const formatCreatedBy = (t) => {
 
 const pushQuery = () => {
   const q = { ...route.query };
+  const aid = Number(agencyIdInput.value);
+  if (Number.isFinite(aid) && aid > 0) q.agencyId = String(aid);
+  else delete q.agencyId;
   const sid = Number(schoolIdInput.value);
   if (Number.isFinite(sid) && sid > 0) q.schoolOrganizationId = String(sid);
   else delete q.schoolOrganizationId;
@@ -589,6 +665,8 @@ const load = async () => {
     pushQuery();
 
     const params = {};
+    const aid = Number(agencyIdInput.value);
+    if (Number.isFinite(aid) && aid > 0) params.agencyId = aid;
     const sid = Number(schoolIdInput.value);
     if (Number.isFinite(sid) && sid > 0) params.schoolOrganizationId = sid;
     if (status.value) params.status = status.value;
@@ -780,6 +858,19 @@ const submitConfirm = async () => {
   }
   if (action === 'close') {
     await closeTicket(t);
+  }
+};
+
+const takeOverTicket = async (t) => {
+  try {
+    if (!t?.id || !myUserId) return;
+    assigningId.value = t.id;
+    await api.post(`/support-tickets/${t.id}/assign`, { assigneeUserId: myUserId });
+    await load();
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to take over ticket';
+  } finally {
+    assigningId.value = null;
   }
 };
 
@@ -1026,6 +1117,12 @@ onMounted(async () => {
     // ignore
   }
   syncFromQuery();
+  await agencyStore.fetchUserAgencies();
+  if (isSuperAdmin.value) {
+    const agencies = agencyStore.agencies?.value ?? agencyStore.agencies ?? [];
+    if (!Array.isArray(agencies) || agencies.length === 0) await agencyStore.fetchAgencies();
+  }
+  if (agencyIdInput.value) await fetchSchoolsForAgency(agencyIdInput.value);
   await loadAssignees();
   await load();
 });
