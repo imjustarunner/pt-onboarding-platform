@@ -938,6 +938,13 @@ const routes = [
     component: () => import('../views/admin/SupportTicketsQueueView.vue'),
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin', 'clinical_practice_assistant'] }
   },
+  // Redirect double-slug (e.g. /itsco/itsco/tickets) to single slug (/itsco/tickets)
+  {
+    path: '/:a/:b/tickets',
+    name: 'OrganizationTicketsQueueRedirect',
+    redirect: (to) => `/${to.params.a}/tickets`,
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin', 'clinical_practice_assistant'] }
+  },
   {
     path: '/admin/faqs',
     name: 'FaqManagement',
