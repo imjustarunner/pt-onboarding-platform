@@ -712,14 +712,8 @@ export const aiQueryUsers = async (req, res, next) => {
     // If the query looks like a clinical “find me a provider” request, prefer the provider_search_index
     // (it understands multi_select fields like treatment modalities and age specialty).
     const qLower = raw.toLowerCase();
-    const wantsAvailability =
-      /\b(available|availability|openings?|open\s+slots?|schedule|when|next\s+available|appointment)\b/i.test(raw);
-    const isValidYmd = (s) => /^\d{4}-\d{2}-\d{2}$/.test(String(s || '').slice(0, 10));
-    const weekStartYmd =
-      isValidYmd(req.query.weekStart) ? String(req.query.weekStart).slice(0, 10) : new Date().toISOString().slice(0, 10);
-
-    // Detect requested day of week (0=Sun, 1=Mon, ..., 6=Sat) so we only show availability on that day.
-    const detectRequestedDayOfWeek = () => {
+    // Detect requested day of week first (needed for wantsAvailability)
+    const detectRequestedDayOfWeekEarly = () => {
       const dayMap = {
         sunday: 0, sun: 0, mondays: 1, monday: 1, mon: 1,
         tuesdays: 2, tuesday: 2, tue: 2, wednesdays: 3, wednesday: 3, wed: 3,
@@ -729,7 +723,15 @@ export const aiQueryUsers = async (req, res, next) => {
       const m = raw.match(/\b(sunday|sundays|sun|monday|mondays|mon|tuesday|tuesdays|tue|wednesday|wednesdays|wed|thursday|thursdays|thu|thurs|friday|fridays|fri|saturday|saturdays|sat)\b/i);
       return m ? dayMap[String(m[1]).toLowerCase()] : null;
     };
-    const requestedDayOfWeek = detectRequestedDayOfWeek();
+    const requestedDayOfWeekEarly = detectRequestedDayOfWeekEarly();
+    const wantsAvailability =
+      requestedDayOfWeekEarly != null ||
+      /\b(available|availability|openings?|open\s+slots?|schedule|when|next\s+available|appointment)\b/i.test(raw);
+    const isValidYmd = (s) => /^\d{4}-\d{2}-\d{2}$/.test(String(s || '').slice(0, 10));
+    const weekStartYmd =
+      isValidYmd(req.query.weekStart) ? String(req.query.weekStart).slice(0, 10) : new Date().toISOString().slice(0, 10);
+
+    const requestedDayOfWeek = requestedDayOfWeekEarly;
     const wantsInPerson = /\bin\s*person\b|\binperson\b/i.test(raw);
 
     const filterSlotsByDay = (slots, dayOfWeek) => {
