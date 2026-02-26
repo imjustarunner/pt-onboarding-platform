@@ -923,7 +923,7 @@ const routes = [
   {
     path: '/:organizationSlug/admin/support-tickets',
     name: 'OrganizationSupportTicketsQueueLegacy',
-    redirect: () => '/tickets',
+    redirect: (to) => `/${to.params.organizationSlug}/tickets`,
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin', 'clinical_practice_assistant'], organizationSlug: true }
   },
   {
@@ -932,17 +932,10 @@ const routes = [
     component: () => import('../views/admin/SupportTicketsQueueView.vue'),
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin', 'clinical_practice_assistant'] }
   },
-  // Redirect slug-based tickets routes to /tickets to avoid blank/double-slug issues for agency admins
   {
     path: '/:organizationSlug/tickets',
     name: 'OrganizationTicketsQueue',
-    redirect: () => '/tickets',
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin', 'clinical_practice_assistant'] }
-  },
-  {
-    path: '/:a/:b/tickets',
-    name: 'OrganizationTicketsQueueDoubleSlug',
-    redirect: () => '/tickets',
+    component: () => import('../views/admin/SupportTicketsQueueView.vue'),
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin', 'clinical_practice_assistant'] }
   },
   {

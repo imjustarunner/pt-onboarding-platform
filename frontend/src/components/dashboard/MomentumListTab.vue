@@ -558,8 +558,10 @@ const notificationsRoute = computed(() => {
   return slug ? `/${slug}/notifications` : '/notifications';
 });
 
-// Use /tickets (no slug) to avoid blank/double-slug issues for agency admins on custom domains
-const supportTicketsRoute = computed(() => '/tickets');
+const supportTicketsRoute = computed(() => {
+  const slug = route.params?.organizationSlug;
+  return slug ? `/${slug}/admin/support-tickets` : '/admin/support-tickets';
+});
 
 const flattenChecklistIncomplete = (data) => {
   const out = [];

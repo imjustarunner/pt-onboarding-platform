@@ -247,8 +247,10 @@ const teamNotificationsLink = computed(() => {
   return orgSlug.value ? `/${orgSlug.value}/notifications/team` : '/notifications/team';
 });
 
-// Use /tickets (no slug) so agency admins avoid blank/double-slug issues on custom domains
-const ticketsLink = computed(() => '/tickets');
+const ticketsLink = computed(() => {
+  const base = orgSlug.value ? `/${orgSlug.value}` : '';
+  return `${base}/tickets`;
+});
 const communicationsAutomationLink = computed(() => {
   const base = orgSlug.value ? `/${orgSlug.value}` : '';
   return { path: `${base}/admin/communications`, query: { tab: 'automation' } };
@@ -397,7 +399,7 @@ const openNotification = async (notification) => {
     return;
   }
   if (notification.type === 'support_ticket_created' && isAdminLikeRole) {
-    router.push('/tickets');
+    router.push(`${base}/tickets`);
     return;
   }
   if (notification.type === 'office_availability_request_pending' && notification.agency_id) {
