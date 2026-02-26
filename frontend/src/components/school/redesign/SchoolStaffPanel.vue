@@ -92,10 +92,10 @@ const canRequest = computed(() => roleNorm.value === 'school_staff');
 const canRemove = computed(() => ['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus'].includes(roleNorm.value));
 const canManageTickets = computed(() => ['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus'].includes(roleNorm.value));
 
+// Use /tickets (no slug) to avoid blank/double-slug issues for agency admins on custom domains
 const ticketsPath = computed(() => {
   const query = `schoolOrganizationId=${encodeURIComponent(props.schoolOrganizationId)}`;
-  const slug = String(route.params?.organizationSlug || '').trim();
-  return slug ? `/${slug}/tickets?${query}` : `/tickets?${query}`;
+  return `/tickets?${query}`;
 });
 
 const staff = ref([]);

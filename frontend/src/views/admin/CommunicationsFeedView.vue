@@ -405,11 +405,8 @@ const currentAgencyId = computed(() => {
   return Number(list?.[0]?.id || 0) || null;
 });
 
-const ticketsLink = computed(() => {
-  const slug = route.params.organizationSlug;
-  if (typeof slug === 'string' && slug) return `/${slug}/tickets`;
-  return '/tickets';
-});
+// Use /tickets (no slug) so agency admins avoid blank/double-slug issues on custom domains
+const ticketsLink = computed(() => '/tickets');
 const pendingDeliveryCount = computed(() => Number(communicationsCountsStore.pendingDeliveryCount || 0));
 const openTicketsCount = computed(() => Number(communicationsCountsStore.openTicketsCount || 0));
 
