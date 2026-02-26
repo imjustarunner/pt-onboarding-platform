@@ -12,6 +12,24 @@
           </div>
         </div>
         <div class="portal-header-right">
+          <div v-if="showSchoolSelector" class="school-selector-wrap">
+            <label for="school-selector" class="school-selector-label">School:</label>
+            <select
+              id="school-selector"
+              v-model="selectedSchoolSlug"
+              class="school-selector"
+              aria-label="Switch school"
+              @change="onSchoolSelect"
+            >
+              <option
+                v-for="school in schoolStaffSchools"
+                :key="school.slug"
+                :value="school.slug"
+              >
+                {{ school.name }}
+              </option>
+            </select>
+          </div>
           <button
             v-if="isSchoolStaff"
             type="button"
@@ -1238,6 +1256,30 @@ const hasSupervisorCapability = computed(() => isSupervisor(authStore.user));
 const isProvider = computed(() => roleNorm.value === 'provider' && !hasSupervisorCapability.value);
 const isSupervisorProviderContext = computed(() => hasSupervisorCapability.value && roleNorm.value === 'provider');
 const isSchoolStaff = computed(() => roleNorm.value === 'school_staff');
+
+// Schools available to school staff (for multi-school selector)
+const schoolStaffSchools = computed(() => {
+  if (!isSchoolStaff.value) return [];
+  const fromStore = agencyStore.userAgencies?.value ?? agencyStore.userAgencies ?? [];
+  const agencies = Array.isArray(fromStore) && fromStore.length > 0 ? fromStore : [];
+  const isPortalOrg = (a) => {
+    const t = String(a?.organization_type || a?.organizationType || '').toLowerCase();
+    return t === 'school' || t === 'program' || t === 'learning';
+  };
+  const pickSlug = (a) => String(a?.portal_url || a?.portalUrl || a?.slug || '').trim() || null;
+  const pickName = (a) => String(a?.name || a?.official_name || pickSlug(a) || 'School').trim() || 'School';
+  return agencies
+    .filter(isPortalOrg)
+    .map((a) => ({ slug: pickSlug(a), name: pickName(a) }))
+    .filter((s) => s.slug);
+});
+const showSchoolSelector = computed(() => isSchoolStaff.value && schoolStaffSchools.value.length > 1);
+const selectedSchoolSlug = ref('');
+const onSchoolSelect = () => {
+  const slug = selectedSchoolSlug.value;
+  if (!slug || slug === organizationSlug.value) return;
+  router.push(`/${slug}/dashboard`);
+};
 const canBackToSchools = computed(() => ['super_admin', 'admin', 'staff'].includes(roleNorm.value));
 const backToSchoolsPath = computed(() => {
   const orgType = String(organizationStore.organizationContext?.organizationType || organizationStore.currentOrganization?.organization_type || 'school').toLowerCase();
@@ -1870,6 +1912,14 @@ onMounted(async () => {
   } catch {
     // ignore
   }
+  // Ensure school staff have their agencies loaded for multi-school selector
+  if (isSchoolStaff.value && (!Array.isArray(agencyStore.userAgencies) || agencyStore.userAgencies.length === 0)) {
+    try {
+      await agencyStore.fetchUserAgencies();
+    } catch {
+      // ignore
+    }
+  }
   // Load organization context if not already loaded
   if (organizationSlug.value && !organizationStore.currentOrganization) {
     await organizationStore.fetchBySlug(organizationSlug.value);
@@ -1946,6 +1996,19 @@ watch(canAccessSchedulingPanels, (allowed) => {
     portalMode.value = 'home';
   }
 });
+
+// Keep school selector in sync with current route
+watch(
+  () => [organizationSlug.value, schoolStaffSchools.value],
+  () => {
+    const slug = String(organizationSlug.value || '').trim().toLowerCase();
+    const schools = schoolStaffSchools.value || [];
+    const match = schools.find((s) => String(s.slug || '').trim().toLowerCase() === slug);
+    if (match) selectedSchoolSlug.value = match.slug;
+    else if (schools.length > 0 && !selectedSchoolSlug.value) selectedSchoolSlug.value = schools[0].slug;
+  },
+  { immediate: true }
+);
 
 watch(() => store.selectedWeekday, async (weekday) => {
   if (!organizationId.value) return;
@@ -2043,6 +2106,35 @@ watch(() => store.selectedWeekday, async (weekday) => {
   align-items: center;
   gap: 14px;
   min-width: 0;
+}
+
+.school-selector-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.school-selector-label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--header-text-color, rgba(255, 255, 255, 0.9));
+  white-space: nowrap;
+}
+.school-selector {
+  padding: 6px 10px;
+  font-size: 0.875rem;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.15);
+  color: var(--header-text-color, #fff);
+  min-width: 160px;
+  cursor: pointer;
+}
+.school-selector:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+.school-selector:focus {
+  outline: 2px solid rgba(255, 255, 255, 0.5);
+  outline-offset: 2px;
 }
 
 .portal-header-right {
