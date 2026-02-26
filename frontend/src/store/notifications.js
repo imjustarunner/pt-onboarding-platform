@@ -78,7 +78,7 @@ export const useNotificationStore = defineStore('notifications', () => {
 
   const fetchCounts = async () => {
     try {
-      const response = await api.get('/notifications/counts');
+      const response = await api.get('/notifications/counts', { skipGlobalLoading: true });
       counts.value = response.data;
     } catch (error) {
       console.error('Error fetching notification counts:', error);

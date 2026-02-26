@@ -339,7 +339,7 @@ const loadCounts = async () => {
   try {
     loadingCounts.value = true;
     const params = showAgencyCards.value ? { scope: 'managed_feed' } : undefined;
-    const resp = await api.get('/notifications/counts', params ? { params } : undefined);
+    const resp = await api.get('/notifications/counts', { ...(params ? { params } : {}), skipGlobalLoading: true });
     counts.value = resp.data || {};
   } finally {
     loadingCounts.value = false;

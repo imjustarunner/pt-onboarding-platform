@@ -130,7 +130,7 @@ async function sendPresenceHeartbeat() {
     await api.post('/presence/heartbeat', {
       agencyId,
       lastActivityAt: new Date(lastActivityTime).toISOString()
-    }, { skipGlobalLoading: true });
+    }, { skipGlobalLoading: true, skipAuthRedirect: true });
   } catch {
     /* ignore - presence is best-effort */
   }
