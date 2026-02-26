@@ -1,8 +1,83 @@
+import pool from '../config/database.js';
+
+const allowedDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+
+/**
+ * Zero slots_available for all provider_school_assignments when provider goes on leave.
+ * Uses pool directly (no transaction required).
+ */
+export async function zeroSlotsForProviderOnLeave(providerUserId) {
+  const uid = parseInt(providerUserId, 10);
+  if (!Number.isInteger(uid) || uid <= 0) return;
+  await pool.execute(
+    `UPDATE provider_school_assignments SET slots_available = 0 WHERE provider_user_id = ?`,
+    [uid]
+  );
+}
+
+/**
+ * Reconcile slots_available for all provider_school_assignments when provider returns from leave.
+ * Sets slots_available = slots_total - used (from actual client assignments).
+ */
+export async function reconcileSlotsForProviderReturningFromLeave(providerUserId) {
+  const uid = parseInt(providerUserId, 10);
+  if (!Number.isInteger(uid) || uid <= 0) return;
+
+  const [rows] = await pool.execute(
+    `SELECT id, school_organization_id, day_of_week, slots_total
+     FROM provider_school_assignments
+     WHERE provider_user_id = ? AND is_active = TRUE`,
+    [uid]
+  );
+
+  for (const r of rows || []) {
+    const orgId = Number(r.school_organization_id);
+    const day = String(r.day_of_week || '').trim();
+    const total = Number(r.slots_total ?? 0);
+    if (!orgId || !allowedDays.includes(day) || !Number.isFinite(total) || total < 0) continue;
+
+    let used = 0;
+    try {
+      const [cpaRows] = await pool.execute(
+        `SELECT COUNT(*) AS cnt
+         FROM client_provider_assignments cpa
+         WHERE cpa.organization_id = ? AND cpa.provider_user_id = ? AND cpa.is_active = TRUE AND cpa.service_day = ?`,
+        [orgId, uid, day]
+      );
+      used += Number(cpaRows?.[0]?.cnt || 0);
+
+      const [legacyRows] = await pool.execute(
+        `SELECT COUNT(*) AS cnt
+         FROM clients c
+         LEFT JOIN client_provider_assignments cpa
+           ON cpa.organization_id = c.organization_id AND cpa.client_id = c.id
+           AND cpa.provider_user_id = c.provider_id AND cpa.service_day = c.service_day AND cpa.is_active = TRUE
+         WHERE c.organization_id = ? AND c.provider_id = ? AND c.service_day = ?
+           AND UPPER(COALESCE(c.status,'')) <> 'ARCHIVED' AND cpa.client_id IS NULL`,
+        [orgId, uid, day]
+      );
+      used += Number(legacyRows?.[0]?.cnt || 0);
+    } catch (e) {
+      const msg = String(e?.message || '');
+      if (!msg.includes("doesn't exist") && !msg.includes('ER_NO_SUCH_TABLE')) throw e;
+      const [legacyRows] = await pool.execute(
+        `SELECT COUNT(*) AS cnt FROM clients c
+         WHERE c.organization_id = ? AND c.provider_id = ? AND c.service_day = ?
+           AND UPPER(COALESCE(c.status,'')) <> 'ARCHIVED'`,
+        [orgId, uid, day]
+      );
+      used = Number(legacyRows?.[0]?.cnt || 0);
+    }
+
+    const avail = Math.max(0, total - used);
+    await pool.execute(`UPDATE provider_school_assignments SET slots_available = ? WHERE id = ?`, [avail, r.id]);
+  }
+}
+
 /**
  * Provider slot adjustments (transactional)
  * Callers should be inside a transaction on the same connection.
  */
-
 export async function adjustProviderSlots(connection, { providerUserId, schoolId, dayOfWeek, delta, allowNegative = false }) {
   const [rows] = await connection.execute(
     `SELECT id, slots_total, slots_available

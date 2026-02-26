@@ -20,7 +20,7 @@
             class="status-badge-header status-badge-header--leave"
             :title="leaveOfAbsenceLabel"
           >
-            On leave until {{ formatLeaveReturnDate(leaveOfAbsence?.returnDate) }}
+            {{ leaveBadgeText }}
           </span>
           <button
             v-if="showLeaveOfAbsenceButton"
@@ -2424,6 +2424,14 @@ const leaveOfAbsenceLabel = computed(() => {
   if (loa.departureDate) parts.push(`from ${loa.departureDate}`);
   if (loa.returnDate) parts.push(`until ${loa.returnDate}`);
   return parts.join(' ');
+});
+const leaveBadgeText = computed(() => {
+  const loa = leaveOfAbsence.value;
+  if (!loa?.returnDate) return 'On leave';
+  const formatted = formatLeaveReturnDate(loa.returnDate);
+  const typeLabel = loa.leaveType === 'maternity' ? 'Maternity leave' : loa.leaveType === 'paternity' ? 'Paternity leave' : loa.leaveType === 'medical' ? 'Medical leave' : null;
+  if (typeLabel) return `${typeLabel} until ${formatted}`;
+  return `On leave until ${formatted}`;
 });
 const formatLeaveReturnDate = (d) => {
   if (!d) return '—';

@@ -3,6 +3,7 @@ import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
 import Client from '../models/Client.model.js';
 import { adjustProviderSlots } from '../services/providerSlots.service.js';
+import { getLeaveInfoForUserIds } from '../services/leaveOfAbsence.service.js';
 import { notifyClientBecameCurrent } from '../services/clientNotifications.service.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
@@ -350,6 +351,22 @@ export const listSchoolProvidersForScheduling = async (req, res, next) => {
             const stored = byId.get(Number(pid)) || null;
             obj.profile_photo_url = publicUploadsUrlFromStoredPath(stored);
           }
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    // Attach leave-of-absence info for display (e.g. "Maternity leave", "On leave").
+    try {
+      const providerIds = Array.from(byProvider.keys()).map((v) => parseInt(v, 10)).filter(Boolean);
+      if (providerIds.length > 0) {
+        const leaveMap = await getLeaveInfoForUserIds(providerIds);
+        for (const [pid, obj] of byProvider.entries()) {
+          const leave = leaveMap.get(Number(pid)) || null;
+          obj.leaveType = leave?.leaveType ?? null;
+          obj.isOnLeave = leave?.isOnLeave ?? false;
+          obj.leaveLabel = leave?.leaveLabel ?? null;
         }
       }
     } catch {

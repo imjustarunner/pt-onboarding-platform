@@ -27,6 +27,10 @@
             <div class="meta">
               <div class="name-row">
                 <div class="name" data-tour="school-provider-name">{{ profile?.first_name }} {{ profile?.last_name }}</div>
+                <span v-if="profile?.isOnLeave && profile?.leaveLabel" class="leave-badge" :title="profile.leaveLabel">
+                  {{ profile.leaveLabel }}
+                </span>
+              </div>
                 <div v-if="availabilityBadges.length" class="avail-badges" aria-label="Availability by day">
                   <span
                     v-for="b in availabilityBadges"
@@ -867,6 +871,16 @@ watch(
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.leave-badge {
+  flex-shrink: 0;
+  padding: 4px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  background: rgba(245, 158, 11, 0.2);
+  color: var(--warning, #b45309);
+  border: 1px solid rgba(245, 158, 11, 0.4);
 }
 .avail-badges {
   display: inline-flex;

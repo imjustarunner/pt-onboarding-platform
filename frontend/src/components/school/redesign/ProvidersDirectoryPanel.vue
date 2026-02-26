@@ -62,7 +62,11 @@
             <div v-if="p.email" class="line">{{ p.email }}</div>
             <div v-if="p.school_info_blurb" class="blurb">{{ p.school_info_blurb }}</div>
             <div class="badges">
-              <span class="badge badge-secondary">{{ acceptanceStatusText(p) }}</span>
+              <span
+                :class="['badge', (p?.isOnLeave && p?.leaveLabel) ? 'badge-warning' : 'badge-secondary']"
+              >
+                {{ acceptanceStatusText(p) }}
+              </span>
               <span v-if="activeDaysFor(p).length" class="badge badge-secondary">
                 {{ activeDaysFor(p).join(', ') }}
               </span>
@@ -133,6 +137,7 @@ const isEffectivelyFull = (p) => {
 };
 
 const acceptanceStatusText = (p) => {
+  if (p?.isOnLeave && p?.leaveLabel) return p.leaveLabel;
   if (p?.accepting_new_clients === false) return 'Not accepting';
   if (isEffectivelyFull(p)) return 'Not currently accepting';
   return 'Accepting';

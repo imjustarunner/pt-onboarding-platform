@@ -4,6 +4,7 @@ import Task from '../models/Task.model.js';
 import ModuleContent from '../models/ModuleContent.model.js';
 import pool from '../config/database.js';
 import ProviderSearchIndex from '../models/ProviderSearchIndex.model.js';
+import { zeroSlotsForProviderOnLeave, reconcileSlotsForProviderReturningFromLeave } from '../services/providerSlots.service.js';
 
 // When credentialing/profile data is stored under legacy/alias keys, we still want all views
 // (Provider Info tab + Credentialing grid) to stay consistent. This maps alias keys to the
@@ -648,6 +649,16 @@ export const putLeaveOfAbsence = async (req, res, next) => {
     const agencyIds = (rows || []).map((r) => Number(r.agency_id)).filter((n) => Number.isInteger(n) && n > 0);
     for (const aid of agencyIds.slice(0, 20)) {
       await ProviderSearchIndex.upsertForUserInAgency({ userId: uid, agencyId: aid, fieldKeys: LEAVE_OF_ABSENCE_FIELD_KEYS });
+    }
+
+    // When provider is placed on leave: zero available slots at all affiliated schools.
+    // When leave is cleared: reconcile slots back to correct values.
+    const hasLeave = !!(toSave[0].value || toSave[1].value || toSave[2].value);
+    const hasActiveLeaveDates = !!(toSave[1].value && toSave[2].value);
+    if (hasActiveLeaveDates) {
+      await zeroSlotsForProviderOnLeave(uid).catch((e) => console.warn('Leave: zero slots failed', e?.message));
+    } else if (!hasLeave) {
+      await reconcileSlotsForProviderReturningFromLeave(uid).catch((e) => console.warn('Leave: reconcile slots failed', e?.message));
     }
 
     res.json({ message: 'Leave of absence updated', leaveType: toSave[0].value, departureDate: toSave[1].value, returnDate: toSave[2].value });

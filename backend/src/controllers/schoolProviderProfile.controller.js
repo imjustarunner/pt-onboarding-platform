@@ -1,6 +1,7 @@
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
+import { getLeaveInfoForUserIds } from '../services/leaveOfAbsence.service.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
@@ -422,6 +423,15 @@ export const getProviderSchoolProfile = async (req, res, next) => {
       supervisors = [];
     }
 
+    // Leave-of-absence info for display (e.g. "Maternity leave", "On leave").
+    let leaveInfo = { leaveType: null, isOnLeave: false, leaveLabel: null };
+    try {
+      const leaveMap = await getLeaveInfoForUserIds([providerUserId]);
+      leaveInfo = leaveMap.get(providerUserId) || leaveInfo;
+    } catch {
+      // ignore
+    }
+
     res.json({
       provider_user_id: u.id,
       first_name: u.first_name || null,
@@ -440,7 +450,10 @@ export const getProviderSchoolProfile = async (req, res, next) => {
       insurances_accepted: insuranceInfo.accepted,
       accepts_tricare_override: insuranceInfo.acceptsTricareOverride,
       supervisors,
-      primary_supervisor_id: (supervisors.find((s) => s.is_primary)?.id) || (supervisors[0]?.id || null)
+      primary_supervisor_id: (supervisors.find((s) => s.is_primary)?.id) || (supervisors[0]?.id || null),
+      leaveType: leaveInfo.leaveType,
+      isOnLeave: leaveInfo.isOnLeave,
+      leaveLabel: leaveInfo.leaveLabel
     });
   } catch (e) {
     next(e);
