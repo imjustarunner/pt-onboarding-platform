@@ -30,7 +30,6 @@
                 <span v-if="profile?.isOnLeave && profile?.leaveLabel" class="leave-badge" :title="profile.leaveLabel">
                   {{ profile.leaveLabel }}
                 </span>
-              </div>
                 <div v-if="availabilityBadges.length" class="avail-badges" aria-label="Availability by day">
                   <span
                     v-for="b in availabilityBadges"

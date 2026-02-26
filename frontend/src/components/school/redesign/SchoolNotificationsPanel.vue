@@ -1368,6 +1368,10 @@ watch(
   padding: 18px;
   max-width: 520px;
   width: 92vw;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   border: 1px solid var(--border);
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
 }
@@ -1379,11 +1383,15 @@ watch(
   padding-bottom: 12px;
   border-bottom: 1px solid var(--border);
   margin-bottom: 12px;
+  flex-shrink: 0;
 }
 .modal-body {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 .btn-close {
   background: none;
