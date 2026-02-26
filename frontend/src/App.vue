@@ -206,10 +206,18 @@
                   </button>
                   <div v-if="engagementMenuOpen" class="nav-dropdown-menu">
                     <router-link
-                      v-if="canUseEngagementFeed"
-                      :to="orgTo('/admin/communications')"
+                      :to="{ path: orgTo('/admin/communications'), query: communicationsPendingCount > 0 ? { tab: 'automation' } : {} }"
                       @click="closeAllNavMenus"
-                    >Workspace</router-link>
+                    >
+                      Workspace
+                      <span
+                        v-if="communicationsPendingCount > 0"
+                        class="nav-badge nav-badge-pulse"
+                        :title="`${communicationsPendingCount} pending to send`"
+                      >
+                        {{ communicationsPendingCount }}
+                      </span>
+                    </router-link>
                     <router-link
                       v-if="canUseEngagementFeed"
                       :to="orgTo('/admin/communications/sms')"
@@ -2017,7 +2025,10 @@ onUnmounted(() => {
 }
 
 .nav-dropdown-menu a {
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
   padding: 8px 10px;
   border-radius: 10px;
   /* IMPORTANT: override .nav-links a { color: white } */
@@ -2027,6 +2038,11 @@ onUnmounted(() => {
   font-size: inherit;
   font-weight: 400;
   font-family: var(--agency-font-family, var(--font-body));
+}
+
+.nav-dropdown-menu .nav-badge {
+  flex-shrink: 0;
+  margin-left: auto;
 }
 
 .nav-dropdown-menu a:hover {
