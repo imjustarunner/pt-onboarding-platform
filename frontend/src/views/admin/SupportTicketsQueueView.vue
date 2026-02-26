@@ -1,7 +1,7 @@
 <template>
   <div class="page">
     <div v-if="!ready" class="muted" style="padding: 24px;">Loading tickets…</div>
-    <template v-else>
+    <div v-else>
     <div class="header" data-tour="tickets-header">
       <div>
         <h2 style="margin: 0;" data-tour="tickets-title">Tickets</h2>
@@ -409,7 +409,7 @@
     @close="closeAdminClientEditor"
     @updated="handleAdminClientUpdated"
   />
-  </template>
+  </div>
 </template>
 
 <script setup>
