@@ -388,12 +388,13 @@ export const listMySupportTickets = async (req, res, next) => {
   }
 };
 
-async function getAccessibleTicketScopeForUser(userId, role) {
-  // Admin/support/staff see same ticket list as super_admin (all tickets from top nav)
-  const r = String(role || '').toLowerCase();
-  if (r === 'super_admin' || r === 'admin' || r === 'support' || r === 'staff') {
+async function getAccessibleTicketScopeForUser(userId, role, req) {
+  // Anyone who can view the queue (admin/support/staff/CPA/provider_plus) sees same as super_admin
+  if (req && isAgencyAdminUser(req)) {
     return { agencyIds: null, schoolOrgIds: null };
   }
+  const r = String(role || '').toLowerCase();
+  if (r === 'super_admin') return { agencyIds: null, schoolOrgIds: null };
   const agencies = await User.getAgencies(userId);
   const ids = (agencies || []).map((a) => parseInt(a?.id, 10)).filter((n) => Number.isFinite(n));
   if (ids.length === 0) return { agencyIds: [], schoolOrgIds: [] };
@@ -470,7 +471,7 @@ export const listSupportTicketsQueue = async (req, res, next) => {
     const params = [];
 
     // Scope to user's agencies/schools for non-super_admin (so agency admins see all tickets from their agency's schools)
-    const scope = await getAccessibleTicketScopeForUser(req.user.id, role);
+    const scope = await getAccessibleTicketScopeForUser(req.user.id, role, req);
     if (scope.agencyIds !== null) {
       const conditions = [];
       if (scope.agencyIds.length > 0) {
@@ -594,7 +595,7 @@ export const getSupportTicketsCount = async (req, res, next) => {
     const where = [];
     const params = [];
 
-    const scope = await getAccessibleTicketScopeForUser(req.user.id, role);
+    const scope = await getAccessibleTicketScopeForUser(req.user.id, role, req);
     if (scope.agencyIds !== null) {
       const conditions = [];
       if (scope.agencyIds.length > 0) {
