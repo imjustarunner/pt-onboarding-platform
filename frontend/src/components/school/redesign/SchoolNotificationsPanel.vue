@@ -136,6 +136,9 @@
         <button class="filter-btn" type="button" :class="{ active: activeFilter === 'checklist' }" @click="setFilter('checklist')">
           Checklist
         </button>
+        <button class="filter-btn" type="button" :class="{ active: activeFilter === 'doc' }" @click="setFilter('doc')">
+          Docs
+        </button>
       </div>
       <div class="toolbar-divider" />
       <label class="selector">
@@ -450,7 +453,7 @@ const props = defineProps({
   initialFilter: { type: String, default: '' }
 });
 
-const emit = defineEmits(['close', 'updated', 'open-ticket']);
+const emit = defineEmits(['close', 'updated', 'open-ticket', 'open-client']);
 
 const authStore = useAuthStore();
 const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
@@ -484,6 +487,7 @@ const normalizeFilter = (raw) => {
   if (v === 'announcements' || v === 'announcement') return 'announcement';
   if (v === 'tickets' || v === 'ticket') return 'ticket';
   if (v === 'checklist' || v === 'checklists') return 'checklist';
+  if (v === 'docs' || v === 'doc') return 'doc';
   return 'all';
 };
 
@@ -543,6 +547,9 @@ function filterByKindAndVisibility(list) {
     if (activeFilter.value === 'ticket') {
       return list.filter((it) => String(it?.kind || '').toLowerCase() === 'ticket');
     }
+    if (activeFilter.value === 'doc') {
+      return list.filter((it) => String(it?.kind || '').toLowerCase() === 'doc');
+    }
     return list.filter((it) => String(it?.kind || '').toLowerCase() === activeFilter.value);
   }
   return list.filter((it) => {
@@ -577,6 +584,7 @@ const emptyText = computed(() => {
   if (activeFilter.value === 'announcement') return 'No announcements yet.';
   if (activeFilter.value === 'ticket') return 'No ticket activity yet.';
   if (activeFilter.value === 'checklist') return 'No checklist updates yet.';
+  if (activeFilter.value === 'doc') return 'No new docs or links yet.';
   return 'No notifications yet.';
 });
 
@@ -934,7 +942,10 @@ const toggleSelected = (it, checked) => {
 
 const isClickable = (it) => {
   const kind = String(it?.kind || '').toLowerCase();
-  return kind === 'comment' || kind === 'message' || kind === 'ticket';
+  const clientId = Number(it?.client_id || 0);
+  if (kind === 'comment' || kind === 'message' || kind === 'ticket') return true;
+  if ((kind === 'doc' || kind === 'client_created') && clientId) return true;
+  return false;
 };
 
 const isTicket = (it) => String(it?.kind || '').toLowerCase() === 'ticket';
@@ -1063,6 +1074,11 @@ const handleItemClick = async (it) => {
   emit('updated');
 
   if (!isClickable(it)) return;
+
+  if (kind === 'doc' || kind === 'client_created') {
+    if (clientId) emit('open-client', { clientId });
+    return;
+  }
 
   try {
     if (kind === 'ticket') {

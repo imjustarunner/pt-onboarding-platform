@@ -382,7 +382,13 @@ const openNotification = async (notification) => {
     adminClientLoading.value = true;
     try {
       const r = await api.get(`/clients/${clientId}`);
-      adminSelectedClient.value = r.data || null;
+      const client = r.data || null;
+      const slug = client?.organization_slug || client?.organizationSlug;
+      if (notification.type === 'new_packet_uploaded' && slug) {
+        router.push({ path: `/${slug}/dashboard`, query: { clientId: String(clientId) } });
+      } else {
+        adminSelectedClient.value = client;
+      }
     } catch (e) {
       console.error('Failed to open client editor:', e);
       alert(e.response?.data?.error?.message || e.message || 'Failed to open client editor');

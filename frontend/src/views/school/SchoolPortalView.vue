@@ -711,6 +711,7 @@
               @close="portalMode = 'home'"
               @updated="onNotificationsUpdated"
               @open-ticket="openTicketFromNotification"
+              @open-client="openClientFromNotification"
             />
             <div v-else class="empty-state">Organization not loaded.</div>
           </div>
@@ -1859,6 +1860,14 @@ const openTicketFromNotification = async ({ ticketId, clientId, messageId } = {}
   ticketModalTicketId.value = ticketId ? Number(ticketId) : null;
   ticketModalMessageId.value = messageId ? Number(messageId) : null;
   showTicketModal.value = true;
+};
+
+const openClientFromNotification = async ({ clientId } = {}) => {
+  const cid = Number(clientId || 0);
+  if (!cid) return;
+  const client = await loadNotificationClient(cid);
+  if (!client) return;
+  openClient(client);
 };
 
 const closeTicketModal = () => {
