@@ -570,10 +570,9 @@ export const listSupportTicketsQueue = async (req, res, next) => {
       ORDER BY
         CASE WHEN LOWER(t.status) = 'open' THEN 0 ELSE 1 END,
         t.created_at DESC
-      LIMIT ?
+      LIMIT ${limit}
     `;
 
-    params.push(limit);
     const [rows] = await pool.execute(sql, params);
     res.json(rows || []);
   } catch (e) {
