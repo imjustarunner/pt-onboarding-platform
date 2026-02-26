@@ -398,20 +398,44 @@ async function getAccessibleTicketScopeForUser(userId, role) {
     `SELECT id, organization_type FROM agencies WHERE id IN (${ids.map(() => '?').join(',')})`,
     ids
   );
-  const agencyIds = (orgRows || []).filter((r) => {
+  let agencyIds = (orgRows || []).filter((r) => {
     const t = String(r?.organization_type || '').toLowerCase();
     return t === 'agency' || !t || t === 'null';
   }).map((r) => r.id);
   const directSchoolIds = (orgRows || []).filter((r) => String(r?.organization_type || '').toLowerCase() === 'school').map((r) => r.id);
 
+  // If user is only in schools (no direct agency), resolve parent agencies from those schools
+  if (agencyIds.length === 0 && directSchoolIds.length > 0) {
+    const parentAgencyIds = new Set();
+    for (const sid of directSchoolIds) {
+      const aid = await OrganizationAffiliation.getActiveAgencyIdForOrganization(sid) || await AgencySchool.getActiveAgencyIdForSchool(sid);
+      if (aid) parentAgencyIds.add(parseInt(aid, 10));
+    }
+    agencyIds = [...parentAgencyIds].filter((n) => Number.isFinite(n) && n > 0);
+  }
+
   let schoolOrgIds = [...directSchoolIds];
   if (agencyIds.length > 0) {
+    // organization_affiliations (primary) - schools/programs linked to agency
     const [affRows] = await pool.execute(
       `SELECT organization_id FROM organization_affiliations WHERE agency_id IN (${agencyIds.map(() => '?').join(',')}) AND is_active = TRUE`,
       agencyIds
     );
     const affSchoolIds = (affRows || []).map((r) => parseInt(r.organization_id, 10)).filter((n) => Number.isFinite(n));
     schoolOrgIds = [...new Set([...schoolOrgIds, ...affSchoolIds])];
+
+    // agency_schools (legacy) - some platforms use this for school-agency links
+    try {
+      const [legacyRows] = await pool.execute(
+        `SELECT school_organization_id FROM agency_schools WHERE agency_id IN (${agencyIds.map(() => '?').join(',')}) AND is_active = TRUE`,
+        agencyIds
+      );
+      const legacySchoolIds = (legacyRows || []).map((r) => parseInt(r.school_organization_id, 10)).filter((n) => Number.isFinite(n));
+      schoolOrgIds = [...new Set([...schoolOrgIds, ...legacySchoolIds])];
+    } catch (e) {
+      const msg = String(e?.message || '');
+      if (!msg.includes("doesn't exist") && !msg.includes('ER_NO_SUCH_TABLE')) throw e;
+    }
   }
 
   return { agencyIds, schoolOrgIds };
