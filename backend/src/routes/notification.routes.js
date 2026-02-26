@@ -42,17 +42,17 @@ router.post('/program-reminder', requireAgencyAdmin, createProgramReminder);
 // Purge notifications (DANGEROUS): backoffice admins only; non-super_admin must scope to agencyId
 router.delete('/purge', requireBackofficeAdmin, purgeNotifications);
 
+// Mark all notifications as read for an agency (must be before /:id/read to avoid matching "read-all" as id)
+router.put('/read-all', markAllAsRead);
+
+// Mark all notifications as resolved for an agency
+router.put('/resolve-all', markAllAsResolved);
+
 // Mark notification as read
 router.put('/:id/read', markAsRead);
 
 // Mark notification as resolved
 router.put('/:id/resolved', markAsResolved);
-
-// Mark all notifications as read for an agency
-router.put('/read-all', markAllAsRead);
-
-// Mark all notifications as resolved for an agency
-router.put('/resolve-all', markAllAsResolved);
 
 // Delete notification (permanently removes it)
 router.delete('/:id', deleteNotification);
