@@ -1263,8 +1263,7 @@ const orgTo = (path) => {
   return `/${slug}${path}`;
 };
 
-// Tickets: use /tickets (no slug) to avoid blank screen for agency admins on slug routes
-const ticketsNavLink = computed(() => '/tickets');
+const ticketsNavLink = computed(() => orgTo('/tickets'));
 
 // Dashboard URL pattern by role (org slug e.g. "itsco" when user is in that agency's context):
 // - Superadmin: My Dashboard = /dashboard (platform personal), Admin = /admin (nav "Admin Dashboard").

@@ -68,7 +68,7 @@
 
         <component
           :is="previewMode ? 'div' : 'router-link'"
-          :to="previewMode ? null : '/tickets?mine=1&status=open'"
+          :to="previewMode ? null : ticketsLink"
           class="stat-card"
           :class="{ 'preview-disabled': previewMode }"
         >
@@ -121,6 +121,7 @@
 
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue';
+import { useRoute } from 'vue-router';
 import api from '../../services/api';
 import { getCached, setCached } from '../../utils/adminApiCache';
 import { useAgencyStore } from '../../store/agency';
@@ -145,10 +146,16 @@ const props = defineProps({
 
 const myOpenTickets = ref('—');
 
+const route = useRoute();
 const agencyStore = useAgencyStore();
 const brandingStore = useBrandingStore();
 const authStore = useAuthStore();
 const user = computed(() => authStore.user);
+const ticketsLink = computed(() => {
+  const slug = route.params?.organizationSlug;
+  const base = typeof slug === 'string' && slug ? `/${slug}/tickets` : '/tickets';
+  return `${base}?mine=1&status=open`;
+});
 const currentAgency = computed(() => agencyStore.currentAgency);
 
 const showSupervisionModal = ref(false);

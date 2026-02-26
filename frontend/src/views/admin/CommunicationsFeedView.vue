@@ -734,7 +734,9 @@ const openItem = async (i) => {
     if (i.school_organization_id) q.schoolOrganizationId = String(i.school_organization_id);
     q.status = 'open';
     if (i.id) q.ticketId = String(i.id);
-    router.push({ path: '/tickets', query: q });
+    const slug = route.params.organizationSlug;
+    const path = typeof slug === 'string' && slug ? `/${slug}/tickets` : '/tickets';
+    router.push({ path, query: q });
     return;
   }
   if (i.kind === 'sms') {
