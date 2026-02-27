@@ -29,12 +29,30 @@
               {{ activeTypeFilter === 'all' ? 'Mark all read' : `Mark ${displayedUnreadCount} read` }}
             </button>
             <button
+              v-if="displayedUnreadCount > 0"
+              class="btn btn-secondary btn-sm"
+              type="button"
+              @click="selectAllInView"
+              :title="'Select all ' + displayedUnreadCount + ' unread in this filter'"
+            >
+              Select all in view
+            </button>
+            <button
               v-if="selectedUnreadCount > 0"
               class="btn btn-secondary btn-sm"
               type="button"
               @click="markSelectedAsRead"
             >
               Mark {{ selectedUnreadCount }} selected read
+            </button>
+            <button
+              v-if="selectedIds.size > 0"
+              class="btn btn-secondary btn-sm"
+              type="button"
+              @click="clearSelection"
+              title="Clear selection"
+            >
+              Clear selection
             </button>
             <router-link v-if="isAdminLike" class="btn btn-secondary btn-sm" :to="ticketsLink">
               Tickets
@@ -345,6 +363,15 @@ const toggleSelect = (id) => {
   if (next.has(id)) next.delete(id);
   else next.add(id);
   selectedIds.value = next;
+};
+
+const selectAllInView = () => {
+  const unreadInView = displayedMyNotifications.value.filter((n) => isUnread(n));
+  selectedIds.value = new Set(unreadInView.map((n) => n.id));
+};
+
+const clearSelection = () => {
+  selectedIds.value = new Set();
 };
 
 const selectedUnreadCount = computed(() => {
