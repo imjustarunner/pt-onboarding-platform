@@ -533,8 +533,15 @@ export const markAsRead = async (req, res, next) => {
     if (MESSAGE_PRIVATE_TYPES.has(String(notification.type || '')) && Number(notification.user_id) !== Number(userId)) {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
-    // User-specific: only the recipient can mark personal notifications; agency-wide can be marked by anyone with access
-    if (notification.user_id != null && Number(notification.user_id) !== Number(userId)) {
+    // User-specific: only the recipient can mark personal notifications; agency-wide can be marked by anyone with access.
+    // user_login/user_logout: user_id is the actor (who logged in/out), not the recipient; admins with agency access can mark.
+    const activityTypes = new Set(['user_login', 'user_logout']);
+    const isActivityNotification = activityTypes.has(String(notification.type || ''));
+    if (
+      notification.user_id != null &&
+      Number(notification.user_id) !== Number(userId) &&
+      !isActivityNotification
+    ) {
       return res.status(403).json({ error: { message: 'You can only mark your own notifications as read' } });
     }
 
@@ -626,9 +633,14 @@ export const markAllAsRead = async (req, res, next) => {
           n.related_entity_id === parseInt(filters.relatedEntityId)
         );
       }
-      // Only mark notifications the current user can mark (personal to them or agency-wide)
-      filtered = filtered.filter((n) => n.user_id == null || Number(n.user_id) === Number(userId));
-      
+      // Only mark notifications the current user can mark (personal to them, agency-wide, or activity types like user_login)
+      const activityTypes = new Set(['user_login', 'user_logout']);
+      filtered = filtered.filter(
+        (n) =>
+          n.user_id == null ||
+          Number(n.user_id) === Number(userId) ||
+          activityTypes.has(String(n?.type || ''))
+      );
       // Mark each filtered notification as read for current user only
       for (const notification of filtered) {
         await Notification.markAsReadForUser(notification.id, userId);

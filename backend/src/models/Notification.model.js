@@ -202,9 +202,10 @@ class Notification {
     if (!uid || !Array.isArray(notifications) || notifications.length === 0) return notifications;
 
     const agencyWide = notifications.filter((n) => n.user_id == null);
-    if (agencyWide.length === 0) return notifications;
-
-    const ids = agencyWide.map((n) => n.id).filter(Boolean);
+    const activityTypes = new Set(['user_login', 'user_logout']);
+    const activityWithUserId = notifications.filter((n) => n.user_id != null && activityTypes.has(String(n?.type || '')));
+    const ids = [...new Set([...agencyWide.map((n) => n.id), ...activityWithUserId.map((n) => n.id)])].filter(Boolean);
+    if (ids.length === 0) return notifications;
     const placeholders = ids.map(() => '?').join(',');
     const [rows] = await pool.execute(
       `SELECT notification_id, is_read, read_at, muted_until
@@ -227,8 +228,14 @@ class Notification {
       n._is_read_for_viewer = state.is_read;
       n._muted_until_for_viewer = state.muted_until;
     }
+    for (const n of activityWithUserId) {
+      const state = byId.get(Number(n.id)) || { is_read: false };
+      n._user_read_state = state;
+      n._is_read_for_viewer = state.is_read;
+      n._muted_until_for_viewer = state.muted_until;
+    }
     for (const n of notifications) {
-      if (n.user_id != null) {
+      if (n.user_id != null && !activityTypes.has(String(n?.type || ''))) {
         n._is_read_for_viewer = Number(n.user_id) === uid ? !!n.is_read : false;
         n._muted_until_for_viewer = n.muted_until;
       }
@@ -249,7 +256,12 @@ class Notification {
     if (Number(notification.user_id) === uid) {
       return (await this.markAsRead(notificationId, userId)) !== false;
     }
-    if (notification.user_id != null) return false; // Cannot mark another user's personal notification
+    // user_login/user_logout: user_id is the actor (who logged in/out), not recipient; use per-user read state
+    const activityTypes = new Set(['user_login', 'user_logout']);
+    const isActivityNotification = activityTypes.has(String(notification.type || ''));
+    if (notification.user_id != null && !isActivityNotification) {
+      return false; // Cannot mark another user's personal notification
+    }
 
     const [exists] = await pool.execute(
       'SELECT 1 FROM notification_user_reads WHERE notification_id = ? AND user_id = ?',

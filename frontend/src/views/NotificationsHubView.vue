@@ -28,32 +28,6 @@
             >
               {{ activeTypeFilter === 'all' ? 'Mark all read' : `Mark ${displayedUnreadCount} read` }}
             </button>
-            <button
-              v-if="displayedUnreadCount > 0"
-              class="btn btn-secondary btn-sm"
-              type="button"
-              @click="selectAllInView"
-              :title="'Select all ' + displayedUnreadCount + ' unread in this filter'"
-            >
-              Select all in view
-            </button>
-            <button
-              v-if="selectedUnreadCount > 0"
-              class="btn btn-secondary btn-sm"
-              type="button"
-              @click="markSelectedAsRead"
-            >
-              Mark {{ selectedUnreadCount }} selected read
-            </button>
-            <button
-              v-if="selectedIds.size > 0"
-              class="btn btn-secondary btn-sm"
-              type="button"
-              @click="clearSelection"
-              title="Clear selection"
-            >
-              Clear selection
-            </button>
             <router-link v-if="isAdminLike" class="btn btn-secondary btn-sm" :to="ticketsLink">
               Tickets
             </router-link>
@@ -90,15 +64,6 @@
             class="notif-row"
             :class="{ unread: isUnread(n), urgent: isUrgent(n) }"
           >
-            <div class="col col-check">
-              <label v-if="isUnread(n)" class="notif-checkbox-wrap" :title="selectedIds.has(n.id) ? 'Deselect' : 'Select'">
-                <input
-                  type="checkbox"
-                  :checked="selectedIds.has(n.id)"
-                  @change="toggleSelect(n.id)"
-                />
-              </label>
-            </div>
             <div class="col col-title">
               <span v-if="isUnread(n)" class="unread-dot" aria-hidden="true"></span>
               <span v-if="isUrgent(n)" class="badge badge-urgent">URGENT</span>
@@ -225,7 +190,6 @@ const clientLabelMode = ref('initials'); // 'initials' | 'codes'
 const adminSelectedClient = ref(null);
 const adminClientLoading = ref(false);
 const activeTypeFilter = ref('all');
-const selectedIds = ref(new Set());
 const officeRequestModal = ref({ visible: false, requestId: null, agencyId: null });
 
 const userId = computed(() => authStore.user?.id);
@@ -346,7 +310,6 @@ const markAllAsRead = async () => {
   await Promise.allSettled(
     agencyIds.map((aid) => api.put('/notifications/read-all', { agencyId: aid, filters }))
   );
-  selectedIds.value = new Set();
   toMark.forEach((n) => {
     n.is_read = true;
     n.read_at = new Date().toISOString();
@@ -356,41 +319,6 @@ const markAllAsRead = async () => {
     myNotifications.value = myNotifications.value.filter((n) => !markedIds.has(n.id));
   }
   void notificationStore.fetchCounts();
-};
-
-const toggleSelect = (id) => {
-  const next = new Set(selectedIds.value);
-  if (next.has(id)) next.delete(id);
-  else next.add(id);
-  selectedIds.value = next;
-};
-
-const selectAllInView = () => {
-  const unreadInView = displayedMyNotifications.value.filter((n) => isUnread(n));
-  selectedIds.value = new Set(unreadInView.map((n) => n.id));
-};
-
-const clearSelection = () => {
-  selectedIds.value = new Set();
-};
-
-const selectedUnreadCount = computed(() => {
-  let count = 0;
-  for (const id of selectedIds.value) {
-    const n = myNotifications.value.find((x) => x.id === id);
-    if (n && isUnread(n)) count++;
-  }
-  return count;
-});
-
-const markSelectedAsRead = async () => {
-  const uid = userId.value;
-  const toMark = myNotifications.value.filter(
-    (n) => selectedIds.value.has(n.id) && isUnread(n) && (n.user_id == null || Number(n.user_id) === Number(uid))
-  );
-  if (!toMark.length) return;
-  await Promise.allSettled(toMark.map((n) => markRead(n)));
-  selectedIds.value = new Set();
 };
 
 const openNotification = async (notification) => {
