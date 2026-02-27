@@ -29,11 +29,16 @@
                 </p>
                 <p v-if="!selectedPerson.email && !selectedPerson.phoneNumber" class="muted">No contact info</p>
               </div>
-              <p class="kudos-give-balance" :class="{ 'is-empty': giveBalance <= 0 }">
-                Kudos to give: {{ giveBalance }} / 2 (1 added monthly)
+              <p class="kudos-give-balance" :class="{ 'is-empty': !giverCanGiveUnlimited && giveBalance <= 0 }">
+                <template v-if="giverCanGiveUnlimited">
+                  Kudos to give: Unlimited
+                </template>
+                <template v-else>
+                  Kudos to give: {{ giveBalance }} / 2 (1 added monthly)
+                </template>
               </p>
               <div class="coworker-detail-actions">
-                <button type="button" class="btn btn-primary btn-sm" :disabled="giveBalance <= 0" @click="openGiveKudos">
+                <button type="button" class="btn btn-primary btn-sm" :disabled="!giverCanGiveUnlimited && giveBalance <= 0" @click="openGiveKudos">
                   Give Kudos
                 </button>
                 <button type="button" class="btn btn-secondary btn-sm" @click="openChat">
@@ -67,8 +72,10 @@
             <div v-if="agencyId && (tierProgress || tierProgressLoading)" class="kudos-progress-section">
               <div v-if="tierProgressLoading" class="muted">Loading your kudos…</div>
               <template v-else-if="tierProgress">
-                <div class="kudos-progress-give" :class="{ 'is-empty': giveBalance <= 0 }">
-                  <strong>Kudos to give:</strong> {{ giveBalance }} / 2
+                <div class="kudos-progress-give" :class="{ 'is-empty': !giverCanGiveUnlimited && giveBalance <= 0 }">
+                  <strong>Kudos to give:</strong>
+                  <template v-if="giverCanGiveUnlimited">Unlimited</template>
+                  <template v-else>{{ giveBalance }} / 2</template>
                 </div>
                 <div class="kudos-progress-points">
                   <strong>Your kudos:</strong> {{ tierProgress.points }} points
@@ -162,22 +169,26 @@ const selectedPerson = ref(null);
 const tierProgress = ref(null);
 const tierProgressLoading = ref(false);
 const giveBalance = ref(0);
+const giverCanGiveUnlimited = ref(false);
 
 const fetchTierProgress = async () => {
   if (!props.agencyId) return;
   tierProgressLoading.value = true;
   tierProgress.value = null;
   giveBalance.value = 0;
+  giverCanGiveUnlimited.value = false;
   try {
     const [tierRes, giveRes] = await Promise.all([
       api.get('/kudos/tier-progress', { params: { agencyId: props.agencyId } }),
       api.get('/kudos/give-balance', { params: { agencyId: props.agencyId } })
     ]);
     tierProgress.value = tierRes.data;
+    giverCanGiveUnlimited.value = !!giveRes.data?.giverCanGiveUnlimited;
     giveBalance.value = Number(giveRes.data?.giveBalance ?? 0);
   } catch {
     tierProgress.value = null;
     giveBalance.value = 0;
+    giverCanGiveUnlimited.value = false;
   } finally {
     tierProgressLoading.value = false;
   }
@@ -218,7 +229,7 @@ const openChat = () => {
 };
 
 const openGiveKudos = () => {
-  if (giveBalance.value <= 0) {
+  if (!giverCanGiveUnlimited.value && giveBalance.value <= 0) {
     kudosError.value = 'You have no kudos left to give this month.';
     return;
   }
@@ -242,7 +253,10 @@ const submitKudos = async () => {
       agencyId: props.agencyId,
       reason
     });
-    giveBalance.value = Number(res.data?.giverBalanceRemaining ?? Math.max(0, giveBalance.value - 1));
+    giverCanGiveUnlimited.value = !!res.data?.giverCanGiveUnlimited;
+    if (!giverCanGiveUnlimited.value) {
+      giveBalance.value = Number(res.data?.giverBalanceRemaining ?? Math.max(0, giveBalance.value - 1));
+    }
     showKudosForm.value = false;
     kudosReason.value = '';
     selectedPerson.value = null;
@@ -251,6 +265,7 @@ const submitKudos = async () => {
     if (e?.response?.status === 400) {
       try {
         const refresh = await api.get('/kudos/give-balance', { params: { agencyId: props.agencyId } });
+        giverCanGiveUnlimited.value = !!refresh.data?.giverCanGiveUnlimited;
         giveBalance.value = Number(refresh.data?.giveBalance ?? 0);
       } catch {
         // ignore refresh errors; keep existing UI state

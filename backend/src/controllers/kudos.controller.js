@@ -4,11 +4,25 @@ import Kudos from '../models/Kudos.model.js';
 import PayrollSummary from '../models/PayrollSummary.model.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 import { createNotificationAndDispatch } from '../services/notificationDispatcher.service.js';
+import { isSupervisorActor } from '../utils/supervisorSchoolAccess.js';
 
 const MIN_REASON_LENGTH = 10;
 
 function isAdminRole(role) {
   return role === 'admin' || role === 'super_admin';
+}
+
+async function canGiveUnlimitedKudos(reqUser) {
+  const role = String(reqUser?.role || '').toLowerCase();
+  if (role === 'admin' || role === 'super_admin' || role === 'clinical_practice_assistant') {
+    return true;
+  }
+  const supervisorCapable = await isSupervisorActor({
+    userId: reqUser?.id,
+    role,
+    user: reqUser
+  });
+  return !!supervisorCapable;
 }
 
 async function assertAgencyAccess(reqUser, agencyId) {
@@ -83,13 +97,28 @@ export const giveKudos = async (req, res, next) => {
     await assertKudosEnabled(agencyId);
     await assertUserInAgency(toUserId, agencyId);
 
-    const result = await Kudos.createPeerKudosWithGiveBalance({
-      fromUserId,
-      toUserId,
-      agencyId,
-      reason
-    });
-    const kudos = result.kudos;
+    const giverCanGiveUnlimited = await canGiveUnlimitedKudos(req.user);
+    let kudos = null;
+    let giverBalanceRemaining = null;
+
+    if (giverCanGiveUnlimited) {
+      kudos = await Kudos.create({
+        fromUserId,
+        toUserId,
+        agencyId,
+        reason,
+        source: 'peer'
+      });
+    } else {
+      const result = await Kudos.createPeerKudosWithGiveBalance({
+        fromUserId,
+        toUserId,
+        agencyId,
+        reason
+      });
+      kudos = result.kudos;
+      giverBalanceRemaining = Number(result.remainingGiveBalance ?? 0);
+    }
 
     const points = await Kudos.getPoints(toUserId, agencyId);
 
@@ -104,7 +133,8 @@ export const giveKudos = async (req, res, next) => {
         createdAt: kudos.created_at
       },
       recipientPoints: points,
-      giverBalanceRemaining: Number(result.remainingGiveBalance ?? 0)
+      giverBalanceRemaining,
+      giverCanGiveUnlimited
     });
   } catch (e) {
     if (e?.code === 'NO_KUDOS_GIVE_BALANCE') {
@@ -135,12 +165,13 @@ export const getMyKudos = async (req, res, next) => {
     await assertAgencyAccess(req.user, agencyId);
     await assertKudosEnabled(agencyId);
 
+    const giverCanGiveUnlimited = await canGiveUnlimitedKudos(req.user);
     const [kudos, totalCount, points, tierProgress, giveBalance] = await Promise.all([
       Kudos.listReceivedByUser(userId, agencyId, { limit, offset }),
       Kudos.countReceivedByUser(userId, agencyId),
       Kudos.getPoints(userId, agencyId),
       Kudos.getTierProgress(userId, agencyId),
-      Kudos.getGiveBalance(userId, agencyId)
+      giverCanGiveUnlimited ? Promise.resolve(null) : Kudos.getGiveBalance(userId, agencyId)
     ]);
 
     const items = (kudos || []).map((k) => ({
@@ -161,7 +192,8 @@ export const getMyKudos = async (req, res, next) => {
       totalCount,
       points,
       tierProgress,
-      giveBalance
+      giveBalance,
+      giverCanGiveUnlimited
     });
   } catch (e) {
     next(e);
@@ -181,8 +213,9 @@ export const getMyGiveBalance = async (req, res, next) => {
     await assertAgencyAccess(req.user, agencyId);
     await assertKudosEnabled(agencyId);
 
-    const giveBalance = await Kudos.getGiveBalance(userId, agencyId);
-    res.json({ giveBalance });
+    const giverCanGiveUnlimited = await canGiveUnlimitedKudos(req.user);
+    const giveBalance = giverCanGiveUnlimited ? null : await Kudos.getGiveBalance(userId, agencyId);
+    res.json({ giveBalance, giverCanGiveUnlimited });
   } catch (e) {
     next(e);
   }
