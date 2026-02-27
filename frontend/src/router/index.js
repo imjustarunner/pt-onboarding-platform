@@ -637,6 +637,12 @@ const routes = [
     meta: { requiresAuth: true, requiresCapability: 'canManageHiring', organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/admin/availability-intake',
+    name: 'OrganizationAvailabilityIntake',
+    component: () => import('../views/admin/AvailabilityIntakeView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'provider_plus', 'staff'], organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/notifications',
     name: 'OrganizationSupervisorNotifications',
     component: () => import('../views/NotificationsHubView.vue'),
@@ -1141,6 +1147,12 @@ const routes = [
     name: 'HiringCandidates',
     component: () => import('../views/admin/HiringCandidatesView.vue'),
     meta: { requiresAuth: true, requiresCapability: 'canManageHiring' }
+  },
+  {
+    path: '/admin/availability-intake',
+    name: 'AvailabilityIntake',
+    component: () => import('../views/admin/AvailabilityIntakeView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'provider_plus', 'staff'] }
   },
   {
     path: '/notifications',

@@ -514,10 +514,9 @@ const getNotificationNavigationPath = async (notification) => {
     const base = route.params.organizationSlug ? `/${route.params.organizationSlug}/admin/clients` : '/admin/clients';
     return `${base}?clientId=${notification.related_entity_id}`;
   } else if (notification.type === 'office_availability_request_pending' && notification.agency_id) {
-    // Office request: navigate to Availability Intake (Office Requests tab)
     const agencyId = notification.agency_id;
-    const base = route.params.organizationSlug ? `/${route.params.organizationSlug}/admin/settings` : '/admin/settings';
-    return `${base}?category=workflow&item=availability-intake&agencyId=${agencyId}`;
+    const base = route.params.organizationSlug ? `/${route.params.organizationSlug}/admin/availability-intake` : '/admin/availability-intake';
+    return `${base}?agencyId=${agencyId}`;
   } else if (notification.related_entity_type === 'chat_thread' && notification.related_entity_id) {
     // Platform chat deeplink
     try {
@@ -685,8 +684,8 @@ const handleNotificationClick = async (notification) => {
       openOfficeRequestModal(notification);
     } else {
       const agencyId = notification.agency_id;
-      const base = route.params.organizationSlug ? `/${route.params.organizationSlug}/admin/settings` : '/admin/settings';
-      router.push(`${base}?category=workflow&item=availability-intake&agencyId=${agencyId}`);
+      const base = route.params.organizationSlug ? `/${route.params.organizationSlug}/admin/availability-intake` : '/admin/availability-intake';
+      router.push(`${base}?agencyId=${agencyId}`);
     }
     return;
   }

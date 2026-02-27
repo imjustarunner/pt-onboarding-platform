@@ -368,7 +368,7 @@ const openNotification = async (notification) => {
   }
   if (notification.type === 'office_availability_request_pending' && notification.agency_id) {
     const agencyId = notification.agency_id;
-    router.push(`${base}/admin/settings?category=workflow&item=availability-intake&agencyId=${agencyId}`);
+    router.push(`${base}/admin/availability-intake?agencyId=${agencyId}`);
     return;
   }
   if (isAdminLikeRole && userIdTarget) {

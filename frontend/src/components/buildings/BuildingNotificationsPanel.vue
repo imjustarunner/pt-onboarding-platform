@@ -76,8 +76,8 @@ const formatDate = (d) => {
 };
 
 const intakeUrl = (n) => {
-  const base = orgSlug.value ? `/${orgSlug.value}/admin/settings` : '/admin/settings';
-  return `${base}?category=workflow&item=availability-intake&agencyId=${n.agency_id}`;
+  const base = orgSlug.value ? `/${orgSlug.value}/admin/availability-intake` : '/admin/availability-intake';
+  return `${base}?agencyId=${n.agency_id}`;
 };
 
 const openModal = (n) => {

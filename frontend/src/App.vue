@@ -169,6 +169,7 @@
                     <router-link :to="orgTo('/admin/audit-center')" v-if="isTrueAdmin" @click="closeAllNavMenus">Audit Center</router-link>
                     <router-link :to="orgTo('/admin/expenses')" v-if="canSeePayrollManagement" @click="closeAllNavMenus">Expense/Reimbursements</router-link>
                     <router-link :to="orgTo('/admin/revenue')" v-if="user?.role === 'super_admin'" @click="closeAllNavMenus">Revenue</router-link>
+                    <router-link :to="availabilityIntakeNavLink" v-if="canSeeAvailabilityIntake" @click="closeAllNavMenus">Availability Intake</router-link>
 
                     <div class="nav-dropdown-sep" />
 
@@ -511,6 +512,7 @@
               <router-link :to="orgTo('/admin/audit-center')" v-if="isTrueAdmin" @click="closeMobileMenu" class="mobile-nav-link">Audit Center</router-link>
               <router-link :to="orgTo('/admin/expenses')" v-if="canSeePayrollManagement" @click="closeMobileMenu" class="mobile-nav-link">Expense/Reimbursements</router-link>
               <router-link :to="orgTo('/admin/revenue')" v-if="user?.role === 'super_admin'" @click="closeMobileMenu" class="mobile-nav-link">Revenue</router-link>
+              <router-link :to="availabilityIntakeNavLink" v-if="canSeeAvailabilityIntake" @click="closeMobileMenu" class="mobile-nav-link">Availability Intake</router-link>
 
               <router-link :to="orgTo('/admin/settings')" v-if="(canCreateEdit || user?.role === 'support') && user?.role !== 'clinical_practice_assistant'" @click="closeMobileMenu" class="mobile-nav-link">Settings</router-link>
             </template>
@@ -1146,6 +1148,18 @@ const canSeePayrollManagement = computed(() => {
   if (!currentAgencyId.value) return false;
   return ids.includes(currentAgencyId.value);
 });
+
+const canSeeAvailabilityIntake = computed(() => {
+  const r = String(user.value?.role || '').toLowerCase();
+  return ['super_admin', 'admin', 'support', 'clinical_practice_assistant', 'provider_plus', 'staff'].includes(r);
+});
+
+const availabilityIntakeNavLink = computed(() => {
+  const base = orgTo('/admin/availability-intake');
+  const agencyId = agencyStore.currentAgency?.id;
+  return agencyId ? `${base}?agencyId=${agencyId}` : base;
+});
+
 const learningBillingNavEnabled = computed(() => {
   const a = agencyStore.currentAgency?.value || agencyStore.currentAgency || {};
   const orgType = String(a.organization_type || '').toLowerCase();
@@ -1271,7 +1285,7 @@ const ticketsNavLink = computed(() => orgTo('/tickets'));
 
 const scheduleNavLink = computed(() => {
   if (showBuildingsPendingBadge.value && buildingsPendingCount.value > 0) {
-    return orgTo('/buildings/schedule');
+    return availabilityIntakeNavLink.value;
   }
   return orgTo('/schedule');
 });
