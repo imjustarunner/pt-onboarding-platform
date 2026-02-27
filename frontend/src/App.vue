@@ -263,7 +263,11 @@
                         {{ communicationsOpenTicketsCount }}
                       </span>
                     </router-link>
-                    <router-link v-if="canShowScheduleTopNav" :to="orgTo('/schedule')" @click="closeAllNavMenus">
+                    <router-link
+                      v-if="canShowScheduleTopNav"
+                      :to="scheduleNavLink"
+                      @click="closeAllNavMenus"
+                    >
                       <span>Schedule</span>
                       <span
                         v-if="showBuildingsPendingBadge && buildingsPendingCount > 0"
@@ -1264,6 +1268,15 @@ const orgTo = (path) => {
 };
 
 const ticketsNavLink = computed(() => orgTo('/tickets'));
+
+const scheduleNavLink = computed(() => {
+  if (showBuildingsPendingBadge.value && buildingsPendingCount.value > 0) {
+    const agencyId = agencyStore.currentAgency?.id;
+    const base = orgTo('/admin/settings');
+    return agencyId ? `${base}?category=workflow&item=availability-intake&agencyId=${agencyId}` : orgTo('/buildings/schedule');
+  }
+  return orgTo('/schedule');
+});
 
 // Dashboard URL pattern by role (org slug e.g. "itsco" when user is in that agency's context):
 // - Superadmin: My Dashboard = /dashboard (platform personal), Admin = /admin (nav "Admin Dashboard").
