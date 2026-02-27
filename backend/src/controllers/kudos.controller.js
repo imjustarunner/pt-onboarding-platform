@@ -14,6 +14,9 @@ function isAdminRole(role) {
 
 async function canGiveUnlimitedKudos(reqUser) {
   const role = String(reqUser?.role || '').toLowerCase();
+  if (role === 'provider_plus') {
+    return false;
+  }
   if (role === 'admin' || role === 'super_admin' || role === 'clinical_practice_assistant') {
     return true;
   }
@@ -23,6 +26,20 @@ async function canGiveUnlimitedKudos(reqUser) {
     user: reqUser
   });
   return !!supervisorCapable;
+}
+
+function getGiveBalancePolicy(reqUser) {
+  const role = String(reqUser?.role || '').toLowerCase();
+  if (role === 'provider_plus') {
+    return {
+      monthlyAllowance: 5,
+      rolloverCap: 5
+    };
+  }
+  return {
+    monthlyAllowance: 1,
+    rolloverCap: 2
+  };
 }
 
 async function assertAgencyAccess(reqUser, agencyId) {
@@ -98,6 +115,7 @@ export const giveKudos = async (req, res, next) => {
     await assertUserInAgency(toUserId, agencyId);
 
     const giverCanGiveUnlimited = await canGiveUnlimitedKudos(req.user);
+    const giveBalancePolicy = getGiveBalancePolicy(req.user);
     let kudos = null;
     let giverBalanceRemaining = null;
 
@@ -114,7 +132,8 @@ export const giveKudos = async (req, res, next) => {
         fromUserId,
         toUserId,
         agencyId,
-        reason
+        reason,
+        balancePolicy: giveBalancePolicy
       });
       kudos = result.kudos;
       giverBalanceRemaining = Number(result.remainingGiveBalance ?? 0);
@@ -134,7 +153,9 @@ export const giveKudos = async (req, res, next) => {
       },
       recipientPoints: points,
       giverBalanceRemaining,
-      giverCanGiveUnlimited
+      giverCanGiveUnlimited,
+      giverMonthlyAllowance: giveBalancePolicy.monthlyAllowance,
+      giverRolloverCap: giveBalancePolicy.rolloverCap
     });
   } catch (e) {
     if (e?.code === 'NO_KUDOS_GIVE_BALANCE') {
@@ -166,12 +187,15 @@ export const getMyKudos = async (req, res, next) => {
     await assertKudosEnabled(agencyId);
 
     const giverCanGiveUnlimited = await canGiveUnlimitedKudos(req.user);
+    const giveBalancePolicy = getGiveBalancePolicy(req.user);
     const [kudos, totalCount, points, tierProgress, giveBalance] = await Promise.all([
       Kudos.listReceivedByUser(userId, agencyId, { limit, offset }),
       Kudos.countReceivedByUser(userId, agencyId),
       Kudos.getPoints(userId, agencyId),
       Kudos.getTierProgress(userId, agencyId),
-      giverCanGiveUnlimited ? Promise.resolve(null) : Kudos.getGiveBalance(userId, agencyId)
+      giverCanGiveUnlimited
+        ? Promise.resolve(null)
+        : Kudos.getGiveBalance(userId, agencyId, giveBalancePolicy)
     ]);
 
     const items = (kudos || []).map((k) => ({
@@ -193,7 +217,9 @@ export const getMyKudos = async (req, res, next) => {
       points,
       tierProgress,
       giveBalance,
-      giverCanGiveUnlimited
+      giverCanGiveUnlimited,
+      giverMonthlyAllowance: giveBalancePolicy.monthlyAllowance,
+      giverRolloverCap: giveBalancePolicy.rolloverCap
     });
   } catch (e) {
     next(e);
@@ -214,8 +240,16 @@ export const getMyGiveBalance = async (req, res, next) => {
     await assertKudosEnabled(agencyId);
 
     const giverCanGiveUnlimited = await canGiveUnlimitedKudos(req.user);
-    const giveBalance = giverCanGiveUnlimited ? null : await Kudos.getGiveBalance(userId, agencyId);
-    res.json({ giveBalance, giverCanGiveUnlimited });
+    const giveBalancePolicy = getGiveBalancePolicy(req.user);
+    const giveBalance = giverCanGiveUnlimited
+      ? null
+      : await Kudos.getGiveBalance(userId, agencyId, giveBalancePolicy);
+    res.json({
+      giveBalance,
+      giverCanGiveUnlimited,
+      giverMonthlyAllowance: giveBalancePolicy.monthlyAllowance,
+      giverRolloverCap: giveBalancePolicy.rolloverCap
+    });
   } catch (e) {
     next(e);
   }

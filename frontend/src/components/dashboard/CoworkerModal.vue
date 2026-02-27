@@ -34,7 +34,8 @@
                   Kudos to give: Unlimited
                 </template>
                 <template v-else>
-                  Kudos to give: {{ giveBalance }} / 2 (1 added monthly)
+                  Kudos to give: {{ giveBalance }} / {{ giverRolloverCap }}
+                  ({{ giverMonthlyAllowance }} added monthly)
                 </template>
               </p>
               <div class="coworker-detail-actions">
@@ -75,7 +76,7 @@
                 <div class="kudos-progress-give" :class="{ 'is-empty': !giverCanGiveUnlimited && giveBalance <= 0 }">
                   <strong>Kudos to give:</strong>
                   <template v-if="giverCanGiveUnlimited">Unlimited</template>
-                  <template v-else>{{ giveBalance }} / 2</template>
+                  <template v-else>{{ giveBalance }} / {{ giverRolloverCap }}</template>
                 </div>
                 <div class="kudos-progress-points">
                   <strong>Your kudos:</strong> {{ tierProgress.points }} points
@@ -170,6 +171,8 @@ const tierProgress = ref(null);
 const tierProgressLoading = ref(false);
 const giveBalance = ref(0);
 const giverCanGiveUnlimited = ref(false);
+const giverMonthlyAllowance = ref(1);
+const giverRolloverCap = ref(2);
 
 const fetchTierProgress = async () => {
   if (!props.agencyId) return;
@@ -177,6 +180,8 @@ const fetchTierProgress = async () => {
   tierProgress.value = null;
   giveBalance.value = 0;
   giverCanGiveUnlimited.value = false;
+  giverMonthlyAllowance.value = 1;
+  giverRolloverCap.value = 2;
   try {
     const [tierRes, giveRes] = await Promise.all([
       api.get('/kudos/tier-progress', { params: { agencyId: props.agencyId } }),
@@ -184,11 +189,15 @@ const fetchTierProgress = async () => {
     ]);
     tierProgress.value = tierRes.data;
     giverCanGiveUnlimited.value = !!giveRes.data?.giverCanGiveUnlimited;
+    giverMonthlyAllowance.value = Number(giveRes.data?.giverMonthlyAllowance ?? 1);
+    giverRolloverCap.value = Number(giveRes.data?.giverRolloverCap ?? 2);
     giveBalance.value = Number(giveRes.data?.giveBalance ?? 0);
   } catch {
     tierProgress.value = null;
     giveBalance.value = 0;
     giverCanGiveUnlimited.value = false;
+    giverMonthlyAllowance.value = 1;
+    giverRolloverCap.value = 2;
   } finally {
     tierProgressLoading.value = false;
   }
@@ -254,6 +263,8 @@ const submitKudos = async () => {
       reason
     });
     giverCanGiveUnlimited.value = !!res.data?.giverCanGiveUnlimited;
+    giverMonthlyAllowance.value = Number(res.data?.giverMonthlyAllowance ?? giverMonthlyAllowance.value);
+    giverRolloverCap.value = Number(res.data?.giverRolloverCap ?? giverRolloverCap.value);
     if (!giverCanGiveUnlimited.value) {
       giveBalance.value = Number(res.data?.giverBalanceRemaining ?? Math.max(0, giveBalance.value - 1));
     }
@@ -266,6 +277,8 @@ const submitKudos = async () => {
       try {
         const refresh = await api.get('/kudos/give-balance', { params: { agencyId: props.agencyId } });
         giverCanGiveUnlimited.value = !!refresh.data?.giverCanGiveUnlimited;
+        giverMonthlyAllowance.value = Number(refresh.data?.giverMonthlyAllowance ?? giverMonthlyAllowance.value);
+        giverRolloverCap.value = Number(refresh.data?.giverRolloverCap ?? giverRolloverCap.value);
         giveBalance.value = Number(refresh.data?.giveBalance ?? 0);
       } catch {
         // ignore refresh errors; keep existing UI state

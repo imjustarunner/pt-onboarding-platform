@@ -28,7 +28,16 @@ class Kudos {
     return `${y}-${m}-01`;
   }
 
-  static async refreshGiveBalanceInTransaction(connection, userId, agencyId, { forUpdate = false } = {}) {
+  static async refreshGiveBalanceInTransaction(
+    connection,
+    userId,
+    agencyId,
+    {
+      forUpdate = false,
+      monthlyAllowance = this.MONTHLY_GIVE_KUDOS,
+      rolloverCap = this.MAX_GIVE_KUDOS_ROLLOVER
+    } = {}
+  ) {
     const lockClause = forUpdate ? ' FOR UPDATE' : '';
     const [rows] = await connection.execute(
       `SELECT balance, last_refill_month
@@ -41,12 +50,13 @@ class Kudos {
     const currentMonthSql = this.formatMonthStartForSql(currentMonthStart);
 
     if (!rows?.length) {
+      const initialBalance = Math.max(0, Math.min(Number(rolloverCap), Number(monthlyAllowance)));
       await connection.execute(
         `INSERT INTO user_kudos_give_balance (user_id, agency_id, balance, last_refill_month)
          VALUES (?, ?, ?, ?)`,
-        [userId, agencyId, this.MONTHLY_GIVE_KUDOS, currentMonthSql]
+        [userId, agencyId, initialBalance, currentMonthSql]
       );
-      return this.MONTHLY_GIVE_KUDOS;
+      return initialBalance;
     }
 
     const row = rows[0];
@@ -59,8 +69,8 @@ class Kudos {
     }
 
     const refreshedBalance = Math.min(
-      this.MAX_GIVE_KUDOS_ROLLOVER,
-      existingBalance + (elapsedMonths * this.MONTHLY_GIVE_KUDOS)
+      Math.max(0, Number(rolloverCap)),
+      existingBalance + (elapsedMonths * Math.max(0, Number(monthlyAllowance)))
     );
 
     await connection.execute(
@@ -73,11 +83,14 @@ class Kudos {
     return refreshedBalance;
   }
 
-  static async getGiveBalance(userId, agencyId) {
+  static async getGiveBalance(userId, agencyId, balancePolicy = {}) {
     const connection = await pool.getConnection();
     try {
       await connection.beginTransaction();
-      const balance = await this.refreshGiveBalanceInTransaction(connection, userId, agencyId, { forUpdate: true });
+      const balance = await this.refreshGiveBalanceInTransaction(connection, userId, agencyId, {
+        forUpdate: true,
+        ...balancePolicy
+      });
       await connection.commit();
       return balance;
     } catch (e) {
@@ -88,11 +101,14 @@ class Kudos {
     }
   }
 
-  static async createPeerKudosWithGiveBalance({ fromUserId, toUserId, agencyId, reason }) {
+  static async createPeerKudosWithGiveBalance({ fromUserId, toUserId, agencyId, reason, balancePolicy = {} }) {
     const connection = await pool.getConnection();
     try {
       await connection.beginTransaction();
-      const giveBalance = await this.refreshGiveBalanceInTransaction(connection, fromUserId, agencyId, { forUpdate: true });
+      const giveBalance = await this.refreshGiveBalanceInTransaction(connection, fromUserId, agencyId, {
+        forUpdate: true,
+        ...balancePolicy
+      });
 
       if (giveBalance <= 0) {
         const err = new Error('No kudos remaining to give this month');
