@@ -5559,6 +5559,11 @@ const mergeSelectedSlotsByDay = ({ dayName, startHour, endHour }) => {
   return ranges;
 };
 
+const browserIanaTimeZone = () => {
+  const tz = String(Intl.DateTimeFormat().resolvedOptions?.().timeZone || '').trim();
+  return tz || null;
+};
+
 const submitRequest = async () => {
   if (actionRequiresAgency.value && !effectiveAgencyId.value) return;
 
@@ -5628,6 +5633,7 @@ const submitRequest = async () => {
       const title = String(scheduleEventTitle.value || '').trim() || defaultScheduleEventTitleForAction(normalizedAction);
       const reasonCode = eventKind === 'SCHEDULE_HOLD' ? effectiveScheduleHoldReason() : null;
       const isPrivate = !!scheduleEventPrivate.value;
+      const meetingTimeZone = normalizedAction === 'agency_meeting' ? browserIanaTimeZone() : null;
       if (scheduleEventAllDay.value || normalizedAction === 'schedule_hold_all_day') {
         const ranges = mergeSelectedSlotsByDay({ dayName: dn, startHour: h, endHour: endH });
         const dates = Array.from(new Set(ranges.map((x) => String(x.dateYmd || '').slice(0, 10)).filter(Boolean)));
@@ -5648,7 +5654,8 @@ const submitRequest = async () => {
             ...(normalizedAction === 'agency_meeting'
               ? {
                   attendeeUserIds: meetingAttendeeUserIds,
-                  createMeetLink: !!createMeetingMeetLink.value
+                  createMeetLink: !!createMeetingMeetLink.value,
+                  ...(meetingTimeZone ? { timeZone: meetingTimeZone } : {})
                 }
               : {})
           });
@@ -5674,7 +5681,8 @@ const submitRequest = async () => {
             ...(normalizedAction === 'agency_meeting'
               ? {
                   attendeeUserIds: meetingAttendeeUserIds,
-                  createMeetLink: !!createMeetingMeetLink.value
+                  createMeetLink: !!createMeetingMeetLink.value,
+                  ...(meetingTimeZone ? { timeZone: meetingTimeZone } : {})
                 }
               : {})
           });
