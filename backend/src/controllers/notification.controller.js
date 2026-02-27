@@ -61,6 +61,8 @@ function resolveTriggerSetting(trigger, setting) {
 // Message-related notification types must never be visible cross-user.
 const MESSAGE_PRIVATE_TYPES = new Set(['chat_message', 'inbound_client_message', 'support_safety_net_alert']);
 
+const SELF_ACTIVITY_TYPES = new Set(['user_login', 'user_logout']);
+
 function filterNotificationsForViewer(notifications, viewerUserId, viewerRole) {
   const uid = Number(viewerUserId);
   return (notifications || [])
@@ -69,6 +71,11 @@ function filterNotificationsForViewer(notifications, viewerUserId, viewerRole) {
       const t = String(n?.type || '');
       if (!MESSAGE_PRIVATE_TYPES.has(t)) return true;
       return Number(n?.user_id) === uid;
+    })
+    .filter((n) => {
+      // Don't show users their own login/logout notifications
+      if (SELF_ACTIVITY_TYPES.has(String(n?.type || '')) && Number(n?.user_id) === uid) return false;
+      return true;
     });
 }
 

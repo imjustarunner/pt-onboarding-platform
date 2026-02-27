@@ -333,13 +333,15 @@ class Notification {
     }
 
     // Agency-viewable types (first_login, client_assigned, etc.): user_id is subject, admins mark via notification_user_reads
+    // Exclude user_login/user_logout where user_id = viewer (user shouldn't see/mark their own)
     const [agencyViewable] = await pool.execute(
       `SELECT n.id FROM notifications n
        LEFT JOIN notification_user_reads nur ON n.id = nur.notification_id AND nur.user_id = ?
        WHERE n.agency_id = ? AND n.user_id IS NOT NULL AND n.type IN ('user_login','user_logout','first_login','first_login_pending','client_assigned')
        AND n.is_resolved = FALSE
+       AND (n.type NOT IN ('user_login','user_logout') OR n.user_id != ?)
        AND (nur.notification_id IS NULL OR (nur.is_read = FALSE AND (nur.muted_until IS NULL OR nur.muted_until <= NOW())))`,
-      [uid, agencyId]
+      [uid, agencyId, uid]
     );
     for (const r of agencyViewable || []) {
       const nid = r.id;
@@ -394,8 +396,9 @@ class Notification {
        LEFT JOIN notification_user_reads nur ON n.id = nur.notification_id AND nur.user_id = ?
        WHERE n.agency_id = ? AND n.user_id IS NOT NULL AND n.type IN ('user_login','user_logout','first_login','first_login_pending','client_assigned')
        AND n.is_resolved = FALSE
+       AND (n.type NOT IN ('user_login','user_logout') OR n.user_id != ?)
        AND (nur.notification_id IS NULL OR (nur.is_read = FALSE AND (nur.muted_until IS NULL OR nur.muted_until <= NOW())))`,
-      [uid, agencyId]
+      [uid, agencyId, uid]
     );
     const v = (agencyViewable || []).length;
 
