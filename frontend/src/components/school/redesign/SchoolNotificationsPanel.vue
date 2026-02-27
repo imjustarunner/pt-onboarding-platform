@@ -1220,6 +1220,15 @@ watch(
   { immediate: true }
 );
 
+// Re-load lastSeen when user becomes available (fixes race: refresh can run before auth is ready)
+watch(
+  () => authStore.user?.id,
+  (uid) => {
+    if (uid && props.schoolOrganizationId) loadLastSeen();
+  },
+  { immediate: true }
+);
+
 watch(
   () => props.initialFilter,
   (next) => {

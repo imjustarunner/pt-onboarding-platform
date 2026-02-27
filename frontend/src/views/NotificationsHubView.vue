@@ -325,9 +325,14 @@ const markAllAsRead = async () => {
   if (!toMark.length) return;
   const filters = activeTypeFilter.value === 'all' ? {} : { type: activeTypeFilter.value };
   const agencyIds = [...new Set(toMark.map((n) => n.agency_id).filter(Boolean))];
-  await Promise.allSettled(
+  const results = await Promise.allSettled(
     agencyIds.map((aid) => api.put('/notifications/read-all', { agencyId: aid, filters }))
   );
+  const failed = results.filter((r) => r.status === 'rejected');
+  if (failed.length > 0) {
+    console.error('Mark all read failed for some agencies:', failed.map((f) => f.reason?.response?.data || f.reason));
+    return; // Don't update local state if API failed – avoids "back on refresh" when persistence fails
+  }
   selectedIds.value = new Set();
   toMark.forEach((n) => {
     n.is_read = true;
@@ -338,6 +343,8 @@ const markAllAsRead = async () => {
     myNotifications.value = myNotifications.value.filter((n) => !markedIds.has(n.id));
   }
   void notificationStore.fetchCounts();
+  // Refetch from API so we get persisted state; if persistence failed, they'll reappear
+  await loadMy();
 };
 
 const toggleSelect = (id) => {

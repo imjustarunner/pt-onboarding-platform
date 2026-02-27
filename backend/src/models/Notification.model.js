@@ -246,6 +246,9 @@ class Notification {
     if (!notification) return false;
 
     const uid = Number(userId);
+    const nid = Number(notificationId);
+    if (!Number.isFinite(uid) || !Number.isFinite(nid)) return false;
+
     if (Number(notification.user_id) === uid) {
       return (await this.markAsRead(notificationId, userId)) !== false;
     }
@@ -253,7 +256,7 @@ class Notification {
 
     const [exists] = await pool.execute(
       'SELECT 1 FROM notification_user_reads WHERE notification_id = ? AND user_id = ?',
-      [notificationId, uid]
+      [nid, uid]
     );
     const mutedUntil = new Date();
     mutedUntil.setHours(mutedUntil.getHours() + 48);
@@ -262,14 +265,14 @@ class Notification {
         `UPDATE notification_user_reads
          SET is_read = TRUE, read_at = NOW(), muted_until = DATE_ADD(NOW(), INTERVAL 48 HOUR)
          WHERE notification_id = ? AND user_id = ?`,
-        [notificationId, uid]
+        [nid, uid]
       );
       return result.affectedRows > 0;
     }
     const [result] = await pool.execute(
       `INSERT INTO notification_user_reads (notification_id, user_id, is_read, read_at, muted_until)
        VALUES (?, ?, TRUE, NOW(), DATE_ADD(NOW(), INTERVAL 48 HOUR))`,
-      [notificationId, uid]
+      [nid, uid]
     );
     return result.affectedRows > 0;
   }
