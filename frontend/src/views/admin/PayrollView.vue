@@ -1824,6 +1824,72 @@
               </div>
             </div>
           </div>
+
+          <div v-if="showMeetingAttendanceModal" class="modal-backdrop">
+            <div class="modal" style="width: min(1000px, 100%);">
+              <div class="modal-header">
+                <div>
+                  <div class="modal-title">Meeting attendance (TEAM_MEETING)</div>
+                  <div class="hint">Attendance synced from Google Meet. Participants must join with their Google account (signed in) to be tracked.</div>
+                </div>
+                <div class="actions" style="margin: 0;">
+                  <button
+                    class="btn btn-primary btn-sm"
+                    type="button"
+                    @click="syncMeetingAttendance"
+                    :disabled="meetingAttendanceSyncing || !selectedPeriodId || !agencyId"
+                  >
+                    {{ meetingAttendanceSyncing ? 'Syncing…' : 'Sync from Google Meet' }}
+                  </button>
+                  <button class="btn btn-secondary btn-sm" type="button" @click="loadMeetingAttendanceReport" :disabled="meetingAttendanceLoading || !selectedPeriodId">
+                    Refresh
+                  </button>
+                  <button class="btn btn-secondary btn-sm" type="button" @click="showMeetingAttendanceModal = false" style="margin-left: 8px;">
+                    Close
+                  </button>
+                </div>
+              </div>
+
+              <div v-if="meetingAttendanceError" class="warn-box" style="margin-top: 12px;">{{ meetingAttendanceError }}</div>
+              <div v-if="meetingAttendanceLoading" class="muted" style="margin-top: 12px;">Loading meeting attendance…</div>
+
+              <div v-else style="margin-top: 12px;">
+                <div class="hint" style="margin-bottom: 8px;">
+                  Rows: <strong>{{ (meetingAttendanceRows || []).length }}</strong>
+                  <span v-if="meetingAttendanceStartDate && meetingAttendanceEndDate"> • {{ meetingAttendanceStartDate }} → {{ meetingAttendanceEndDate }}</span>
+                </div>
+                <div v-if="!(meetingAttendanceRows || []).length" class="muted">
+                  No meeting attendance found. Create TEAM_MEETING events with Meet links, then click &quot;Sync from Google Meet&quot; after meetings occur.
+                </div>
+
+                <div v-else class="table-wrap">
+                  <table class="table">
+                    <thead>
+                      <tr>
+                        <th>Meeting</th>
+                        <th>Provider</th>
+                        <th>Date</th>
+                        <th class="right">Minutes</th>
+                        <th>Synced</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="r in meetingAttendanceRows" :key="`meet-att-${r.event_id}-${r.user_id}`">
+                        <td>
+                          <div><strong>{{ r.title || 'Meeting' }}</strong></div>
+                          <div class="muted">#{{ r.event_id }}</div>
+                        </td>
+                        <td>{{ nameForUserId(Number(r.user_id || 0)) }}</td>
+                        <td>{{ String(r.service_date || '').slice(0, 10) }}</td>
+                        <td class="right">{{ fmtNum(Math.round(Number(r.total_seconds || 0) / 60 * 100) / 100) }}</td>
+                        <td class="muted">{{ fmtDateTime(r.synced_at) }}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
         </teleport>
 
         <!-- Payroll Stage modal -->
@@ -1873,6 +1939,16 @@
                   title="Flag potential double-pay rows where legacy supervision billing and in-app supervision attendance both exist."
                 >
                   Review supervision conflicts
+                </button>
+                <button
+                  class="btn btn-secondary btn-sm"
+                  type="button"
+                  @click="openMeetingAttendanceModal"
+                  :disabled="!selectedPeriodId"
+                  style="margin-left: 8px;"
+                  title="View agency meeting (TEAM_MEETING) attendance synced from Google Meet. Sync to pull latest."
+                >
+                  Meeting attendance
                 </button>
                 <button
                   v-if="isSuperAdmin && isPeriodPosted"
@@ -4889,6 +4965,13 @@ const supervisionConflictsLoading = ref(false);
 const supervisionConflictsError = ref('');
 const supervisionConflictsRows = ref([]);
 const supervisionConflictSavingKey = ref('');
+const showMeetingAttendanceModal = ref(false);
+const meetingAttendanceLoading = ref(false);
+const meetingAttendanceError = ref('');
+const meetingAttendanceRows = ref([]);
+const meetingAttendanceStartDate = ref('');
+const meetingAttendanceEndDate = ref('');
+const meetingAttendanceSyncing = ref(false);
 
 // Compare controls
 const payrollToolsCompareMode = ref('detail'); // detail | summary
@@ -9210,6 +9293,58 @@ const openSupervisionConflictsModal = async () => {
 const openSupervisionAttendanceModal = async () => {
   showSupervisionAttendanceModal.value = true;
   await loadSupervisionAttendanceReport();
+};
+
+const loadMeetingAttendanceReport = async () => {
+  if (!agencyId.value || !selectedPeriod.value) return;
+  try {
+    meetingAttendanceLoading.value = true;
+    meetingAttendanceError.value = '';
+    const startDate = String(selectedPeriod.value?.period_start || '').slice(0, 10);
+    const endDate = String(selectedPeriod.value?.period_end || '').slice(0, 10);
+    meetingAttendanceStartDate.value = startDate;
+    meetingAttendanceEndDate.value = endDate;
+    const resp = await api.get('/payroll/meeting-attendance', {
+      params: {
+        agencyId: Number(agencyId.value),
+        periodStart: startDate,
+        periodEnd: endDate
+      }
+    });
+    meetingAttendanceRows.value = (resp.data || []).filter((r) => !!r && typeof r === 'object');
+  } catch (e) {
+    meetingAttendanceError.value = e.response?.data?.error?.message || e.message || 'Failed to load meeting attendance';
+    meetingAttendanceRows.value = [];
+  } finally {
+    meetingAttendanceLoading.value = false;
+  }
+};
+
+const syncMeetingAttendance = async () => {
+  if (!agencyId.value || !selectedPeriod.value) return;
+  try {
+    meetingAttendanceSyncing.value = true;
+    meetingAttendanceError.value = '';
+    const startDate = String(selectedPeriod.value?.period_start || '').slice(0, 10);
+    const endDate = String(selectedPeriod.value?.period_end || '').slice(0, 10);
+    await api.post('/payroll/meeting-attendance/sync', {
+      agencyId: Number(agencyId.value),
+      periodStart: startDate,
+      periodEnd: endDate
+    });
+    await loadMeetingAttendanceReport();
+    await loadPeriodDetails();
+    if (showStageModal.value) await loadStaging();
+  } catch (e) {
+    meetingAttendanceError.value = e.response?.data?.error?.message || e.message || 'Failed to sync meeting attendance';
+  } finally {
+    meetingAttendanceSyncing.value = false;
+  }
+};
+
+const openMeetingAttendanceModal = async () => {
+  showMeetingAttendanceModal.value = true;
+  await loadMeetingAttendanceReport();
 };
 
 const holidayHoursProviderLabel = (r) => {

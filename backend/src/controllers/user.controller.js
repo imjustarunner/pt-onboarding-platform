@@ -3126,8 +3126,13 @@ export const createUserScheduleEvent = async (req, res, next) => {
         endDate: allDay ? endDateExclusive : null,
         googleEventId: result.eventId || null,
         googleHtmlLink: result.htmlLink || null,
+        googleMeetLink: result.meetLink || null,
         createdByUserId: actorUserId
       });
+      if (saved?.id && kind === 'TEAM_MEETING' && attendeeUserIds?.length) {
+        const ProviderScheduleEventAttendee = (await import('../models/ProviderScheduleEventAttendee.model.js')).default;
+        await ProviderScheduleEventAttendee.upsertForEvent(saved.id, attendeeUserIds);
+      }
     } catch (e) {
       if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
     }
@@ -3139,6 +3144,7 @@ export const createUserScheduleEvent = async (req, res, next) => {
         providerScheduleEventId: saved?.id ? Number(saved.id) : null,
         googleEventId: result.eventId || null,
         htmlLink: result.htmlLink || null,
+        meetLink: result.meetLink || null,
         agencyId,
         kind,
         title: summaryText,

@@ -120,6 +120,8 @@ import {
   ,createPayrollManualPayLine
   ,createPayrollManualBulk
   ,deletePayrollManualPayLine
+  ,listMeetingAttendance
+  ,syncMeetingAttendance
   ,listAgencySchoolsForPayroll
   ,listOfficeLocationsForPayroll
   ,listMyAssignedOfficesForPayroll
@@ -256,6 +258,8 @@ router.get('/periods/:id/manual-pay-lines', listPayrollManualPayLines);
 router.post('/periods/:id/manual-pay-lines', createPayrollManualPayLine);
 router.post('/periods/:id/manual-bulk', createPayrollManualBulk);
 router.delete('/periods/:id/manual-pay-lines/:lineId', deletePayrollManualPayLine);
+router.get('/meeting-attendance', listMeetingAttendance);
+router.post('/meeting-attendance/sync', syncMeetingAttendance);
 router.get('/todo-templates', listPayrollTodoTemplates);
 router.post('/todo-templates', createPayrollTodoTemplate);
 router.patch('/todo-templates/:templateId', patchPayrollTodoTemplate);

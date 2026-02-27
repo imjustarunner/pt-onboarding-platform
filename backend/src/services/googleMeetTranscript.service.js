@@ -219,7 +219,121 @@ export async function fetchMeetTranscriptForSession({
   }
 }
 
+/**
+ * Fetch participants from a Google Meet conference record.
+ * Returns array of { email, displayName, earliestStartTime, latestEndTime, totalSeconds }.
+ * Signed-in users: extract email from signedinUser.user (format users/email or users/id).
+ */
+export async function fetchMeetParticipantsForRecord({
+  hostEmail,
+  meetLink,
+  googleEventId,
+  sessionStartAt
+} = {}) {
+  const subject = String(hostEmail || '').trim().toLowerCase();
+  if (!subject) return { ok: false, reason: 'missing_host_email', participants: [] };
+
+  try {
+    const auth = await buildImpersonatedJwtClient({
+      subjectEmail: subject,
+      scopes: [MEET_READONLY_SCOPE]
+    });
+    const meet = google.meet({ version: 'v2', auth });
+
+    let meetingCode = parseMeetCodeFromUrl(meetLink);
+    if (!meetingCode && googleEventId) {
+      meetingCode = await fetchCalendarEventMeetCode({
+        auth,
+        hostEmail: subject,
+        eventId: googleEventId
+      });
+    }
+    if (!meetingCode) return { ok: false, reason: 'missing_meeting_code', participants: [] };
+
+    const startIso = toIso(sessionStartAt);
+    const recordFilters = [`space.meeting_code = "${meetingCode}"`];
+    if (startIso) recordFilters.push(`start_time >= "${startIso}"`);
+
+    let recordResp;
+    try {
+      recordResp = await meet.conferenceRecords.list({
+        pageSize: 10,
+        filter: recordFilters.join(' AND ')
+      });
+    } catch {
+      recordResp = await meet.conferenceRecords.list({
+        pageSize: 10,
+        filter: `space.meeting_code = "${meetingCode}"`
+      });
+    }
+
+    const records = Array.isArray(recordResp?.data?.conferenceRecords) ? recordResp.data.conferenceRecords : [];
+    const chosenRecord = pickClosestConferenceRecord(records, sessionStartAt);
+    const conferenceRecordName = String(chosenRecord?.name || '').trim();
+    if (!conferenceRecordName) return { ok: false, reason: 'conference_record_not_found', participants: [] };
+
+    const participants = [];
+    let pageToken = undefined;
+    let guard = 0;
+    while (guard < 50) {
+      guard += 1;
+      const partResp = await meet.conferenceRecords.participants.list({
+        parent: conferenceRecordName,
+        pageSize: 100,
+        ...(pageToken ? { pageToken } : {})
+      });
+      const list = Array.isArray(partResp?.data?.participants) ? partResp.data.participants : [];
+      for (const p of list) {
+        const earliest = p?.earliestStartTime || null;
+        const latest = p?.latestEndTime || null;
+        let email = null;
+        let displayName = null;
+        if (p?.signedinUser) {
+          const userStr = String(p.signedinUser.user || '').trim();
+          if (userStr.startsWith('users/')) {
+            const suffix = userStr.slice(6);
+            if (suffix.includes('@')) email = suffix;
+          }
+          displayName = String(p.signedinUser.displayName || '').trim() || null;
+        } else if (p?.anonymousUser) {
+          displayName = String(p.anonymousUser.displayName || '').trim() || null;
+        } else if (p?.phoneUser) {
+          displayName = String(p.phoneUser.displayName || '').trim() || null;
+        }
+        const startMs = earliest ? new Date(earliest).getTime() : 0;
+        const endMs = latest ? new Date(latest).getTime() : startMs;
+        const totalSeconds = Math.max(0, Math.floor((endMs - startMs) / 1000));
+        participants.push({
+          email,
+          displayName,
+          earliestStartTime: earliest,
+          latestEndTime: latest,
+          totalSeconds
+        });
+      }
+      pageToken = partResp?.data?.nextPageToken;
+      if (!pageToken) break;
+    }
+
+    return {
+      ok: true,
+      meetingCode,
+      conferenceRecordName,
+      participants
+    };
+  } catch (e) {
+    logGoogleUnauthorizedHint(e, { context: 'fetchMeetParticipantsForRecord' });
+    return {
+      ok: false,
+      reason: 'meet_api_error',
+      error: String(e?.message || e),
+      participants: []
+    };
+  }
+}
+
 export default {
   fetchMeetTranscriptForSession,
+  fetchMeetParticipantsForRecord,
   ensureMeetAutoTranscriptionEnabled
 };

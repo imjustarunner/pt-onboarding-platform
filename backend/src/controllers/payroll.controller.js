@@ -3603,6 +3603,45 @@ async function getEffectiveStagingAggregates(payrollPeriodId, { agencyId = null,
           row.supervisionSource = 'not_selected';
         }
       }
+
+      // Overlay agency meeting attendance (TEAM_MEETING from Google Meet sync).
+      // MEETING code: pay_divisor 60, so 1 unit = 1 minute; units = total_seconds / 60.
+      try {
+        const AgencyMeetingAttendanceRollup = (await import('../models/AgencyMeetingAttendanceRollup.model.js')).default;
+        const meetingRows = await AgencyMeetingAttendanceRollup.listForAgencyInWindow(agencyId, periodStart, periodEnd);
+        const meetingUnitsByUser = new Map();
+        for (const r of meetingRows || []) {
+          const uid = Number(r?.user_id || 0);
+          if (!uid) continue;
+          const sec = Number(r?.total_seconds || 0);
+          const units = Math.round((sec / 60) * 100) / 100;
+          if (units < 1e-9) continue;
+          meetingUnitsByUser.set(uid, (meetingUnitsByUser.get(uid) || 0) + units);
+        }
+        const meetingCode = 'MEETING';
+        for (const [uid, units] of meetingUnitsByUser.entries()) {
+          const k = `${uid}:${meetingCode}`;
+          if (outMap.has(k)) {
+            const row = outMap.get(k);
+            row.finalizedUnits = Number(row.finalizedUnits || 0) + units;
+          } else {
+            out.push({
+              userId: Number(uid),
+              providerName: null,
+              serviceCode: meetingCode,
+              noNoteUnits: 0,
+              draftUnits: 0,
+              oldDoneNotesUnits: 0,
+              oldDoneNotesNotes: 0,
+              carryoverMeta: null,
+              finalizedUnits: units,
+              meetingAttendanceSource: true
+            });
+          }
+        }
+      } catch {
+        // Best-effort: if meeting attendance query fails, skip.
+      }
     } catch {
       // Best-effort: if any supervision app-attendance query fails, keep legacy rows.
     }
@@ -15292,6 +15331,57 @@ export const requestAdpExport = async (req, res, next) => {
       });
       res.status(202).json(updated);
     }
+  } catch (e) {
+    next(e);
+  }
+};
+
+// ==========================
+// Agency meeting attendance (Google Meet sync)
+// ==========================
+
+export const listMeetingAttendance = async (req, res, next) => {
+  try {
+    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
+    const periodStart = String(req.query.periodStart || req.query.period_start || '').trim().slice(0, 10);
+    const periodEnd = String(req.query.periodEnd || req.query.period_end || '').trim().slice(0, 10);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    const resolvedAgencyId = await requirePayrollAccess(req, res, agencyId);
+    if (!resolvedAgencyId) return;
+    if (!periodStart || !periodEnd) return res.status(400).json({ error: { message: 'periodStart and periodEnd are required (YYYY-MM-DD)' } });
+
+    const AgencyMeetingAttendanceRollup = (await import('../models/AgencyMeetingAttendanceRollup.model.js')).default;
+    const rows = await AgencyMeetingAttendanceRollup.listForAgencyInWindow(resolvedAgencyId, periodStart, periodEnd);
+    res.json(rows || []);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const syncMeetingAttendance = async (req, res, next) => {
+  try {
+    const agencyIdRaw = req.body?.agencyId ?? req.query?.agencyId ?? null;
+    const agencyId = agencyIdRaw != null ? parseInt(agencyIdRaw, 10) : null;
+    const periodStart = String(req.body?.periodStart ?? req.query?.periodStart ?? req.body?.period_start ?? '').trim().slice(0, 10);
+    const periodEnd = String(req.body?.periodEnd ?? req.query?.periodEnd ?? req.body?.period_end ?? '').trim().slice(0, 10);
+    const eventIdRaw = req.body?.eventId ?? req.params?.eventId ?? null;
+    const eventId = eventIdRaw != null ? parseInt(eventIdRaw, 10) : null;
+
+    if (eventId) {
+      const { syncAttendanceForEvent } = await import('../services/agencyMeetingAttendance.service.js');
+      const result = await syncAttendanceForEvent(eventId);
+      return res.json(result);
+    }
+
+    if (!agencyId || !periodStart || !periodEnd) {
+      return res.status(400).json({ error: { message: 'agencyId, periodStart, and periodEnd are required (or eventId for single-event sync)' } });
+    }
+    const resolvedAgencyId = await requirePayrollAccess(req, res, agencyId);
+    if (!resolvedAgencyId) return;
+
+    const { syncAttendanceForAgencyInWindow } = await import('../services/agencyMeetingAttendance.service.js');
+    const result = await syncAttendanceForAgencyInWindow(resolvedAgencyId, periodStart, periodEnd);
+    res.json(result);
   } catch (e) {
     next(e);
   }
