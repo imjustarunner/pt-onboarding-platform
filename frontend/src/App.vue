@@ -84,7 +84,6 @@
                 class="nav-icon-btn"
                 title="Admin dashboard"
                 aria-label="Admin dashboard"
-                @click="closeAllNavMenus"
               >
                 <img v-if="adminDashboardIconUrl" :src="adminDashboardIconUrl" alt="" class="nav-icon-img" />
                 <span v-else aria-hidden="true">🏢</span>
@@ -104,24 +103,22 @@
                     <span class="nav-dropdown-label">People Ops</span> <span class="brand-caret">▾</span>
                   </button>
                   <div v-if="peopleOpsMenuOpen" class="nav-dropdown-menu">
-                    <router-link v-if="hasCapability('canManageHiring')" :to="orgTo('/admin/hiring')" @click="closeAllNavMenus">Applicants</router-link>
+                    <router-link v-if="hasCapability('canManageHiring')" :to="orgTo('/admin/hiring')" >Applicants</router-link>
                     <a
                       v-if="hasCapability('canManageHiring')"
                       href="#"
                       @click.prevent="openJobDescriptionsNav"
                     >Job descriptions</a>
-                    <router-link v-if="showOnDemandLink" :to="orgTo('/on-demand-training')" @click="closeAllNavMenus">On-Demand Training</router-link>
+                    <router-link v-if="showOnDemandLink" :to="orgTo('/on-demand-training')" >On-Demand Training</router-link>
                     <router-link
                       :to="orgTo('/admin/modules')"
                       v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && hasCapability('canViewTraining')"
-                      @click="closeAllNavMenus"
                     >Training Modules</router-link>
                     <router-link
                       :to="orgTo('/admin/documents')"
                       v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && hasCapability('canSignDocuments')"
-                      @click="closeAllNavMenus"
                     >Documents</router-link>
-                    <router-link :to="orgTo('/admin/agency-progress')" v-if="hasCapability('canViewTraining')" @click="closeAllNavMenus">Progress</router-link>
+                    <router-link :to="orgTo('/admin/agency-progress')" v-if="hasCapability('canViewTraining')" >Progress</router-link>
                   </div>
                 </div>
 
@@ -136,14 +133,14 @@
                     <span class="nav-dropdown-label">Directory</span> <span class="brand-caret">▾</span>
                   </button>
                   <div v-if="directoryMenuOpen" class="nav-dropdown-menu">
-                    <router-link :to="orgTo('/operations-dashboard')" v-if="user?.role === 'super_admin' || isAdmin || user?.role === 'provider_plus' || user?.role === 'clinical_practice_assistant'" @click="closeAllNavMenus">Operations Dashboard</router-link>
-                    <router-link :to="orgTo('/admin/schools/overview?orgType=school')" v-if="user?.role === 'super_admin' || isAdmin" @click="closeAllNavMenus">School Overview</router-link>
-                    <router-link :to="orgTo('/admin/schools/overview?orgType=program')" v-if="user?.role === 'super_admin' || isAdmin" @click="closeAllNavMenus">Program Overview</router-link>
-                    <router-link :to="orgTo('/admin/school-portals')" v-if="user?.role === 'super_admin' || isAdmin" @click="closeAllNavMenus">Show All School Portals</router-link>
-                    <router-link :to="orgTo('/admin/find-providers')" v-if="user?.role === 'super_admin' || isAdmin" @click="closeAllNavMenus">Provider Booking Interface</router-link>
-                    <router-link :to="orgTo('/admin/provider-availability')" v-if="user?.role === 'super_admin' || isAdmin || user?.role === 'staff' || user?.role === 'provider_plus'" @click="closeAllNavMenus">Provider Availability</router-link>
-                    <router-link :to="orgTo('/admin/users')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeAllNavMenus">Users</router-link>
-                    <router-link :to="orgTo('/admin/clients')" v-if="isAdmin || user?.role === 'provider'" @click="closeAllNavMenus">Clients</router-link>
+                    <router-link :to="orgTo('/operations-dashboard')" v-if="user?.role === 'super_admin' || isAdmin || user?.role === 'provider_plus' || user?.role === 'clinical_practice_assistant'" >Operations Dashboard</router-link>
+                    <router-link :to="orgTo('/admin/schools/overview?orgType=school')" v-if="user?.role === 'super_admin' || isAdmin" >School Overview</router-link>
+                    <router-link :to="orgTo('/admin/schools/overview?orgType=program')" v-if="user?.role === 'super_admin' || isAdmin" >Program Overview</router-link>
+                    <router-link :to="orgTo('/admin/school-portals')" v-if="user?.role === 'super_admin' || isAdmin" >Show All School Portals</router-link>
+                    <router-link :to="orgTo('/admin/find-providers')" v-if="user?.role === 'super_admin' || isAdmin" >Provider Booking Interface</router-link>
+                    <router-link :to="orgTo('/admin/provider-availability')" v-if="user?.role === 'super_admin' || isAdmin || user?.role === 'staff' || user?.role === 'provider_plus'" >Provider Availability</router-link>
+                    <router-link :to="orgTo('/admin/users')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" >Users</router-link>
+                    <router-link :to="orgTo('/admin/clients')" v-if="isAdmin || user?.role === 'provider'" >Clients</router-link>
                   </div>
                 </div>
 
@@ -158,28 +155,28 @@
                     <span class="nav-dropdown-label">Management</span> <span class="brand-caret">▾</span>
                   </button>
                   <div v-if="managementMenuOpen" class="nav-dropdown-menu">
-                    <router-link :to="orgTo('/admin')" v-if="isTrueAdmin" @click="closeAllNavMenus">Admin Dashboard</router-link>
+                    <router-link :to="orgTo('/admin')" v-if="isTrueAdmin" >Admin Dashboard</router-link>
                     <div class="nav-dropdown-sep" />
-                    <router-link :to="orgTo('/admin/executive-report')" v-if="user?.role === 'super_admin'" @click="closeAllNavMenus">Executive Report</router-link>
-                    <router-link :to="orgTo('/admin/payroll')" v-if="canSeePayrollManagement" @click="closeAllNavMenus">Payroll</router-link>
-                    <router-link :to="orgTo('/admin/receivables')" v-if="canSeePayrollManagement" @click="closeAllNavMenus">Receivables</router-link>
-                    <router-link :to="orgTo('/admin/learning-billing')" v-if="canSeePayrollManagement && learningBillingNavEnabled" @click="closeAllNavMenus">Learning Billing</router-link>
-                    <router-link :to="orgTo('/admin/psychotherapy-compliance')" v-if="canSeePayrollManagement" @click="closeAllNavMenus">Psychotherapy Compliance</router-link>
-                    <router-link :to="orgTo('/admin/compliance-corner')" v-if="isTrueAdmin" @click="closeAllNavMenus">Compliance Corner</router-link>
-                    <router-link :to="orgTo('/admin/audit-center')" v-if="isTrueAdmin" @click="closeAllNavMenus">Audit Center</router-link>
-                    <router-link :to="orgTo('/admin/expenses')" v-if="canSeePayrollManagement" @click="closeAllNavMenus">Expense/Reimbursements</router-link>
-                    <router-link :to="orgTo('/admin/revenue')" v-if="user?.role === 'super_admin'" @click="closeAllNavMenus">Revenue</router-link>
-                    <router-link :to="availabilityIntakeNavLink" v-if="canSeeAvailabilityIntake" @click="closeAllNavMenus">Availability Intake</router-link>
-
-                    <div class="nav-dropdown-sep" />
-
-                    <router-link :to="orgTo('/admin/users')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeAllNavMenus">Users</router-link>
-                    <router-link :to="orgTo('/admin/clients')" v-if="isAdmin || user?.role === 'provider'" @click="closeAllNavMenus">Clients</router-link>
-                    <router-link :to="orgTo('/admin/credentialing')" v-if="isAdmin || user?.role === 'support' || user?.role === 'staff'" @click="closeAllNavMenus">Credentialing</router-link>
+                    <router-link :to="orgTo('/admin/executive-report')" v-if="user?.role === 'super_admin'" >Executive Report</router-link>
+                    <router-link :to="orgTo('/admin/payroll')" v-if="canSeePayrollManagement" >Payroll</router-link>
+                    <router-link :to="orgTo('/admin/receivables')" v-if="canSeePayrollManagement" >Receivables</router-link>
+                    <router-link :to="orgTo('/admin/learning-billing')" v-if="canSeePayrollManagement && learningBillingNavEnabled" >Learning Billing</router-link>
+                    <router-link :to="orgTo('/admin/psychotherapy-compliance')" v-if="canSeePayrollManagement" >Psychotherapy Compliance</router-link>
+                    <router-link :to="orgTo('/admin/compliance-corner')" v-if="isTrueAdmin" >Compliance Corner</router-link>
+                    <router-link :to="orgTo('/admin/audit-center')" v-if="isTrueAdmin" >Audit Center</router-link>
+                    <router-link :to="orgTo('/admin/expenses')" v-if="canSeePayrollManagement" >Expense/Reimbursements</router-link>
+                    <router-link :to="orgTo('/admin/revenue')" v-if="user?.role === 'super_admin'" >Revenue</router-link>
+                    <router-link :to="availabilityIntakeNavLink" v-if="canSeeAvailabilityIntake" >Availability Intake</router-link>
 
                     <div class="nav-dropdown-sep" />
 
-                    <router-link :to="orgTo('/admin/settings')" v-if="(canCreateEdit || user?.role === 'support') && user?.role !== 'clinical_practice_assistant'" @click="closeAllNavMenus">Settings</router-link>
+                    <router-link :to="orgTo('/admin/users')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" >Users</router-link>
+                    <router-link :to="orgTo('/admin/clients')" v-if="isAdmin || user?.role === 'provider'" >Clients</router-link>
+                    <router-link :to="orgTo('/admin/credentialing')" v-if="isAdmin || user?.role === 'support' || user?.role === 'staff'" >Credentialing</router-link>
+
+                    <div class="nav-dropdown-sep" />
+
+                    <router-link :to="orgTo('/admin/settings')" v-if="(canCreateEdit || user?.role === 'support') && user?.role !== 'clinical_practice_assistant'" >Settings</router-link>
                   </div>
                 </div>
 
@@ -208,7 +205,6 @@
                   <div v-if="engagementMenuOpen" class="nav-dropdown-menu">
                     <router-link
                       :to="{ path: orgTo('/admin/communications'), query: communicationsPendingCount > 0 ? { tab: 'automation' } : {} }"
-                      @click="closeAllNavMenus"
                     >
                       <span>Workspace</span>
                       <span
@@ -222,29 +218,24 @@
                     <router-link
                       v-if="canUseEngagementFeed"
                       :to="orgTo('/admin/communications/sms')"
-                      @click="closeAllNavMenus"
                     >SMS Inbox</router-link>
                     <router-link
                       v-if="canUseEngagementFeed"
                       :to="{ path: orgTo('/admin/communications'), query: { tab: 'calls' } }"
-                      @click="closeAllNavMenus"
                     >Calls</router-link>
                     <router-link
                       v-if="canUseChats"
                       :to="orgTo('/admin/communications/chats')"
-                      @click="closeAllNavMenus"
                     >Chats</router-link>
                     <router-link
                       v-if="canUseAgencyCampaigns"
                       :to="orgTo('/admin/communications/campaigns')"
-                      @click="closeAllNavMenus"
                     >Campaigns</router-link>
                     <router-link
                       v-if="canUseEngagementFeed"
                       :to="orgTo('/admin/contacts')"
-                      @click="closeAllNavMenus"
                     >Contacts</router-link>
-                    <router-link :to="orgTo('/notifications')" @click="closeAllNavMenus">
+                    <router-link :to="orgTo('/notifications')" >
                       <span>Notifications</span>
                       <span
                         v-if="notificationsUnreadCount > 0"
@@ -254,7 +245,7 @@
                         {{ notificationsUnreadCount }}
                       </span>
                     </router-link>
-                    <router-link :to="ticketsNavLink" @click="closeAllNavMenus">
+                    <router-link :to="ticketsNavLink" >
                       <span>Tickets</span>
                       <span
                         v-if="communicationsOpenTicketsCount > 0"
@@ -267,7 +258,6 @@
                     <router-link
                       v-if="canShowScheduleTopNav"
                       :to="scheduleNavLink"
-                      @click="closeAllNavMenus"
                     >
                       <span>Schedule</span>
                       <span
@@ -278,7 +268,7 @@
                         {{ buildingsPendingCount }}
                       </span>
                     </router-link>
-                    <router-link v-if="user?.role === 'supervisor'" :to="orgTo('/supervisor/availability-lab')" @click="closeAllNavMenus">
+                    <router-link v-if="user?.role === 'supervisor'" :to="orgTo('/supervisor/availability-lab')" >
                       Find Providers
                     </router-link>
                   </div>
@@ -323,7 +313,6 @@
                 class="nav-icon-btn"
                 title="Schedule"
                 aria-label="Schedule"
-                @click="closeAllNavMenus"
               >
                 <img v-if="scheduleIconUrl" :src="scheduleIconUrl" alt="" class="nav-icon-img" />
                 <span v-else aria-hidden="true">📅</span>
@@ -334,7 +323,6 @@
                 class="nav-icon-btn"
                 title="Settings"
                 aria-label="Settings"
-                @click="closeAllNavMenus"
               >
                 <img v-if="settingsIconUrl" :src="settingsIconUrl" alt="" class="nav-icon-img" />
                 <span v-else aria-hidden="true">⚙</span>
@@ -345,7 +333,6 @@
                 class="nav-obnoxious-badge"
                 :title="`${notificationsUnreadCount} unread notification(s)`"
                 aria-label="Notifications"
-                @click="closeAllNavMenus"
               >
                 {{ notificationsUnreadCount }}
               </router-link>
@@ -355,7 +342,6 @@
                 class="nav-compact-badge nav-badge-pulse"
                 :title="`${notificationsUnreadCount} unread notification(s)`"
                 aria-label="Notifications"
-                @click="closeAllNavMenus"
               >
                 {{ notificationsUnreadCount }}
               </router-link>
@@ -540,7 +526,7 @@
       <main :class="{ 'main-no-global-chrome': hideGlobalNavForSchoolStaff }">
         <!-- Keep legacy selector for non-super-admin users; super admins use the top-nav switcher -->
         <AgencySelector v-if="isAuthenticated && !brandingStore.isSuperAdmin && !hideGlobalNavForSchoolStaff && !String(route.path || '').includes('/tickets')" />
-        <router-view />
+        <router-view :key="route.fullPath" />
       </main>
       <MomentumStickiesOverlay v-if="isAuthenticated && !hideGlobalNavForSchoolStaff && momentumListEnabled" />
       <AddStickyFab v-if="isAuthenticated && !hideGlobalNavForSchoolStaff && momentumListEnabled" />
@@ -1695,6 +1681,7 @@ watch(() => route.params.organizationSlug, async (newSlug) => {
 
 onMounted(async () => {
   document.addEventListener('click', onDocumentClick);
+  router.afterEach(() => closeAllNavMenus());
   const bootId = beginLoading('Loading…');
   try {
 
