@@ -83,13 +83,13 @@ export const giveKudos = async (req, res, next) => {
     await assertKudosEnabled(agencyId);
     await assertUserInAgency(toUserId, agencyId);
 
-    const kudos = await Kudos.create({
+    const result = await Kudos.createPeerKudosWithGiveBalance({
       fromUserId,
       toUserId,
       agencyId,
-      reason,
-      source: 'peer'
+      reason
     });
+    const kudos = result.kudos;
 
     const points = await Kudos.getPoints(toUserId, agencyId);
 
@@ -103,9 +103,17 @@ export const giveKudos = async (req, res, next) => {
         source: kudos.source,
         createdAt: kudos.created_at
       },
-      recipientPoints: points
+      recipientPoints: points,
+      giverBalanceRemaining: Number(result.remainingGiveBalance ?? 0)
     });
   } catch (e) {
+    if (e?.code === 'NO_KUDOS_GIVE_BALANCE') {
+      return res.status(400).json({
+        error: {
+          message: 'You have no kudos left to give this month. You get 1 each month and can roll over up to 2 total.'
+        }
+      });
+    }
     next(e);
   }
 };
@@ -127,11 +135,12 @@ export const getMyKudos = async (req, res, next) => {
     await assertAgencyAccess(req.user, agencyId);
     await assertKudosEnabled(agencyId);
 
-    const [kudos, totalCount, points, tierProgress] = await Promise.all([
+    const [kudos, totalCount, points, tierProgress, giveBalance] = await Promise.all([
       Kudos.listReceivedByUser(userId, agencyId, { limit, offset }),
       Kudos.countReceivedByUser(userId, agencyId),
       Kudos.getPoints(userId, agencyId),
-      Kudos.getTierProgress(userId, agencyId)
+      Kudos.getTierProgress(userId, agencyId),
+      Kudos.getGiveBalance(userId, agencyId)
     ]);
 
     const items = (kudos || []).map((k) => ({
@@ -151,8 +160,29 @@ export const getMyKudos = async (req, res, next) => {
       kudos: items,
       totalCount,
       points,
-      tierProgress
+      tierProgress,
+      giveBalance
     });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * GET /api/kudos/give-balance - My remaining kudos to give in this month (with rollover cap)
+ */
+export const getMyGiveBalance = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
+    if (!agencyId) {
+      return res.status(400).json({ error: { message: 'agencyId is required' } });
+    }
+    await assertAgencyAccess(req.user, agencyId);
+    await assertKudosEnabled(agencyId);
+
+    const giveBalance = await Kudos.getGiveBalance(userId, agencyId);
+    res.json({ giveBalance });
   } catch (e) {
     next(e);
   }

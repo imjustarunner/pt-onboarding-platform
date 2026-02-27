@@ -1,6 +1,133 @@
 import pool from '../config/database.js';
 
 class Kudos {
+  static MONTHLY_GIVE_KUDOS = 1;
+  static MAX_GIVE_KUDOS_ROLLOVER = 2;
+
+  static getCurrentMonthStart() {
+    const now = new Date();
+    return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  }
+
+  static toMonthStartDate(value) {
+    if (!value) return null;
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return null;
+    return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
+  }
+
+  static monthsBetween(start, end) {
+    if (!start || !end) return 0;
+    const diff = (end.getUTCFullYear() - start.getUTCFullYear()) * 12 + (end.getUTCMonth() - start.getUTCMonth());
+    return Math.max(0, diff);
+  }
+
+  static formatMonthStartForSql(value) {
+    const y = value.getUTCFullYear();
+    const m = String(value.getUTCMonth() + 1).padStart(2, '0');
+    return `${y}-${m}-01`;
+  }
+
+  static async refreshGiveBalanceInTransaction(connection, userId, agencyId, { forUpdate = false } = {}) {
+    const lockClause = forUpdate ? ' FOR UPDATE' : '';
+    const [rows] = await connection.execute(
+      `SELECT balance, last_refill_month
+       FROM user_kudos_give_balance
+       WHERE user_id = ? AND agency_id = ?${lockClause}`,
+      [userId, agencyId]
+    );
+
+    const currentMonthStart = this.getCurrentMonthStart();
+    const currentMonthSql = this.formatMonthStartForSql(currentMonthStart);
+
+    if (!rows?.length) {
+      await connection.execute(
+        `INSERT INTO user_kudos_give_balance (user_id, agency_id, balance, last_refill_month)
+         VALUES (?, ?, ?, ?)`,
+        [userId, agencyId, this.MONTHLY_GIVE_KUDOS, currentMonthSql]
+      );
+      return this.MONTHLY_GIVE_KUDOS;
+    }
+
+    const row = rows[0];
+    const existingBalance = Math.max(0, Number(row.balance || 0));
+    const lastRefillMonth = this.toMonthStartDate(row.last_refill_month);
+    const elapsedMonths = this.monthsBetween(lastRefillMonth, currentMonthStart);
+
+    if (elapsedMonths <= 0) {
+      return existingBalance;
+    }
+
+    const refreshedBalance = Math.min(
+      this.MAX_GIVE_KUDOS_ROLLOVER,
+      existingBalance + (elapsedMonths * this.MONTHLY_GIVE_KUDOS)
+    );
+
+    await connection.execute(
+      `UPDATE user_kudos_give_balance
+       SET balance = ?, last_refill_month = ?
+       WHERE user_id = ? AND agency_id = ?`,
+      [refreshedBalance, currentMonthSql, userId, agencyId]
+    );
+
+    return refreshedBalance;
+  }
+
+  static async getGiveBalance(userId, agencyId) {
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      const balance = await this.refreshGiveBalanceInTransaction(connection, userId, agencyId, { forUpdate: true });
+      await connection.commit();
+      return balance;
+    } catch (e) {
+      try { await connection.rollback(); } catch {}
+      throw e;
+    } finally {
+      connection.release();
+    }
+  }
+
+  static async createPeerKudosWithGiveBalance({ fromUserId, toUserId, agencyId, reason }) {
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      const giveBalance = await this.refreshGiveBalanceInTransaction(connection, fromUserId, agencyId, { forUpdate: true });
+
+      if (giveBalance <= 0) {
+        const err = new Error('No kudos remaining to give this month');
+        err.code = 'NO_KUDOS_GIVE_BALANCE';
+        err.status = 400;
+        throw err;
+      }
+
+      await connection.execute(
+        `UPDATE user_kudos_give_balance
+         SET balance = balance - 1
+         WHERE user_id = ? AND agency_id = ?`,
+        [fromUserId, agencyId]
+      );
+
+      const [ins] = await connection.execute(
+        `INSERT INTO kudos (from_user_id, to_user_id, agency_id, reason, source, approval_status, payroll_period_id)
+         VALUES (?, ?, ?, ?, 'peer', 'pending', NULL)`,
+        [fromUserId, toUserId, agencyId, reason]
+      );
+
+      await connection.commit();
+      const created = await this.findById(ins.insertId);
+      return {
+        kudos: created,
+        remainingGiveBalance: Math.max(0, giveBalance - 1)
+      };
+    } catch (e) {
+      try { await connection.rollback(); } catch {}
+      throw e;
+    } finally {
+      connection.release();
+    }
+  }
+
   /**
    * Create a kudos record.
    * Peer kudos: approval_status=pending, no points until admin approves.

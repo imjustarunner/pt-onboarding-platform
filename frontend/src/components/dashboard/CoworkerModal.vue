@@ -29,8 +29,11 @@
                 </p>
                 <p v-if="!selectedPerson.email && !selectedPerson.phoneNumber" class="muted">No contact info</p>
               </div>
+              <p class="kudos-give-balance" :class="{ 'is-empty': giveBalance <= 0 }">
+                Kudos to give: {{ giveBalance }} / 2 (1 added monthly)
+              </p>
               <div class="coworker-detail-actions">
-                <button type="button" class="btn btn-primary btn-sm" @click="openGiveKudos">
+                <button type="button" class="btn btn-primary btn-sm" :disabled="giveBalance <= 0" @click="openGiveKudos">
                   Give Kudos
                 </button>
                 <button type="button" class="btn btn-secondary btn-sm" @click="openChat">
@@ -64,6 +67,9 @@
             <div v-if="agencyId && (tierProgress || tierProgressLoading)" class="kudos-progress-section">
               <div v-if="tierProgressLoading" class="muted">Loading your kudos…</div>
               <template v-else-if="tierProgress">
+                <div class="kudos-progress-give" :class="{ 'is-empty': giveBalance <= 0 }">
+                  <strong>Kudos to give:</strong> {{ giveBalance }} / 2
+                </div>
                 <div class="kudos-progress-points">
                   <strong>Your kudos:</strong> {{ tierProgress.points }} points
                 </div>
@@ -155,16 +161,23 @@ const router = useRouter();
 const selectedPerson = ref(null);
 const tierProgress = ref(null);
 const tierProgressLoading = ref(false);
+const giveBalance = ref(0);
 
 const fetchTierProgress = async () => {
   if (!props.agencyId) return;
   tierProgressLoading.value = true;
   tierProgress.value = null;
+  giveBalance.value = 0;
   try {
-    const res = await api.get('/kudos/tier-progress', { params: { agencyId: props.agencyId } });
-    tierProgress.value = res.data;
+    const [tierRes, giveRes] = await Promise.all([
+      api.get('/kudos/tier-progress', { params: { agencyId: props.agencyId } }),
+      api.get('/kudos/give-balance', { params: { agencyId: props.agencyId } })
+    ]);
+    tierProgress.value = tierRes.data;
+    giveBalance.value = Number(giveRes.data?.giveBalance ?? 0);
   } catch {
     tierProgress.value = null;
+    giveBalance.value = 0;
   } finally {
     tierProgressLoading.value = false;
   }
@@ -205,6 +218,10 @@ const openChat = () => {
 };
 
 const openGiveKudos = () => {
+  if (giveBalance.value <= 0) {
+    kudosError.value = 'You have no kudos left to give this month.';
+    return;
+  }
   showKudosForm.value = true;
   kudosError.value = '';
 };
@@ -220,16 +237,25 @@ const submitKudos = async () => {
   sendingKudos.value = true;
   kudosError.value = '';
   try {
-    await api.post('/kudos', {
+    const res = await api.post('/kudos', {
       toUserId: selectedPerson.value.id,
       agencyId: props.agencyId,
       reason
     });
+    giveBalance.value = Number(res.data?.giverBalanceRemaining ?? Math.max(0, giveBalance.value - 1));
     showKudosForm.value = false;
     kudosReason.value = '';
     selectedPerson.value = null;
   } catch (e) {
     kudosError.value = e.response?.data?.error?.message || 'Failed to send kudos';
+    if (e?.response?.status === 400) {
+      try {
+        const refresh = await api.get('/kudos/give-balance', { params: { agencyId: props.agencyId } });
+        giveBalance.value = Number(refresh.data?.giveBalance ?? 0);
+      } catch {
+        // ignore refresh errors; keep existing UI state
+      }
+    }
   } finally {
     sendingKudos.value = false;
   }
@@ -411,6 +437,16 @@ const submitKudos = async () => {
   flex-wrap: wrap;
 }
 
+.kudos-give-balance {
+  margin: 0 0 12px;
+  font-size: 0.8125rem;
+  color: #4b5563;
+}
+
+.kudos-give-balance.is-empty {
+  color: #b91c1c;
+}
+
 .kudos-form {
   margin-top: 20px;
   padding-top: 20px;
@@ -464,6 +500,14 @@ const submitKudos = async () => {
 
 .kudos-progress-points {
   margin-bottom: 6px;
+}
+
+.kudos-progress-give {
+  margin-bottom: 6px;
+}
+
+.kudos-progress-give.is-empty {
+  color: #b91c1c;
 }
 
 .kudos-progress-next,

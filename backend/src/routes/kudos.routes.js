@@ -3,6 +3,7 @@ import { authenticate } from '../middleware/auth.middleware.js';
 import {
   giveKudos,
   getMyKudos,
+  getMyGiveBalance,
   awardNotesComplete,
   getLeaderboard,
   listTiers,
@@ -21,6 +22,7 @@ router.use(authenticate);
 
 router.post('/', giveKudos);
 router.get('/me', getMyKudos);
+router.get('/give-balance', getMyGiveBalance);
 router.post('/notes-complete', awardNotesComplete);
 router.get('/leaderboard', getLeaderboard);
 router.get('/tier-progress', getTierProgress);
