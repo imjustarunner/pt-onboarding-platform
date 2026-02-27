@@ -202,9 +202,9 @@ class Notification {
     if (!uid || !Array.isArray(notifications) || notifications.length === 0) return notifications;
 
     const agencyWide = notifications.filter((n) => n.user_id == null);
-    const activityTypes = new Set(['user_login', 'user_logout']);
-    const activityWithUserId = notifications.filter((n) => n.user_id != null && activityTypes.has(String(n?.type || '')));
-    const ids = [...new Set([...agencyWide.map((n) => n.id), ...activityWithUserId.map((n) => n.id)])].filter(Boolean);
+    const agencyViewableTypes = new Set(['user_login', 'user_logout', 'first_login', 'first_login_pending', 'client_assigned']);
+    const agencyViewableWithUserId = notifications.filter((n) => n.user_id != null && agencyViewableTypes.has(String(n?.type || '')));
+    const ids = [...new Set([...agencyWide.map((n) => n.id), ...agencyViewableWithUserId.map((n) => n.id)])].filter(Boolean);
     if (ids.length === 0) return notifications;
     const placeholders = ids.map(() => '?').join(',');
     const [rows] = await pool.execute(
@@ -228,14 +228,14 @@ class Notification {
       n._is_read_for_viewer = state.is_read;
       n._muted_until_for_viewer = state.muted_until;
     }
-    for (const n of activityWithUserId) {
+    for (const n of agencyViewableWithUserId) {
       const state = byId.get(Number(n.id)) || { is_read: false };
       n._user_read_state = state;
       n._is_read_for_viewer = state.is_read;
       n._muted_until_for_viewer = state.muted_until;
     }
     for (const n of notifications) {
-      if (n.user_id != null && !activityTypes.has(String(n?.type || ''))) {
+      if (n.user_id != null && !agencyViewableTypes.has(String(n?.type || ''))) {
         n._is_read_for_viewer = Number(n.user_id) === uid ? !!n.is_read : false;
         n._muted_until_for_viewer = n.muted_until;
       }
@@ -256,10 +256,10 @@ class Notification {
     if (Number(notification.user_id) === uid) {
       return (await this.markAsRead(notificationId, userId)) !== false;
     }
-    // user_login/user_logout: user_id is the actor (who logged in/out), not recipient; use per-user read state
-    const activityTypes = new Set(['user_login', 'user_logout']);
-    const isActivityNotification = activityTypes.has(String(notification.type || ''));
-    if (notification.user_id != null && !isActivityNotification) {
+    // user_login/user_logout/first_login/client_assigned: use per-user read state for admins viewing agency feed
+    const agencyViewableTypes = new Set(['user_login', 'user_logout', 'first_login', 'first_login_pending', 'client_assigned']);
+    const isAgencyViewable = agencyViewableTypes.has(String(notification.type || ''));
+    if (notification.user_id != null && !isAgencyViewable) {
       return false; // Cannot mark another user's personal notification
     }
 
@@ -308,9 +308,9 @@ class Notification {
        AND (nur.notification_id IS NULL OR (nur.is_read = FALSE AND (nur.muted_until IS NULL OR nur.muted_until <= NOW())))`,
       [uid, agencyId]
     );
-    const ids = (agencyWide || []).map((r) => r.id);
     let agencyWideCount = 0;
-    for (const nid of ids) {
+    for (const r of agencyWide || []) {
+      const nid = r.id;
       const [exists] = await pool.execute(
         'SELECT 1 FROM notification_user_reads WHERE notification_id = ? AND user_id = ?',
         [nid, uid]
@@ -331,6 +331,39 @@ class Notification {
       }
       agencyWideCount += 1;
     }
+
+    // Agency-viewable types (first_login, client_assigned, etc.): user_id is subject, admins mark via notification_user_reads
+    const [agencyViewable] = await pool.execute(
+      `SELECT n.id FROM notifications n
+       LEFT JOIN notification_user_reads nur ON n.id = nur.notification_id AND nur.user_id = ?
+       WHERE n.agency_id = ? AND n.user_id IS NOT NULL AND n.type IN ('user_login','user_logout','first_login','first_login_pending','client_assigned')
+       AND n.is_resolved = FALSE
+       AND (nur.notification_id IS NULL OR (nur.is_read = FALSE AND (nur.muted_until IS NULL OR nur.muted_until <= NOW())))`,
+      [uid, agencyId]
+    );
+    for (const r of agencyViewable || []) {
+      const nid = r.id;
+      const [exists] = await pool.execute(
+        'SELECT 1 FROM notification_user_reads WHERE notification_id = ? AND user_id = ?',
+        [nid, uid]
+      );
+      if ((exists || []).length > 0) {
+        await pool.execute(
+          `UPDATE notification_user_reads
+           SET is_read = TRUE, read_at = NOW(), muted_until = DATE_ADD(NOW(), INTERVAL 48 HOUR)
+           WHERE notification_id = ? AND user_id = ?`,
+          [nid, uid]
+        );
+      } else {
+        await pool.execute(
+          `INSERT INTO notification_user_reads (notification_id, user_id, is_read, read_at, muted_until)
+           VALUES (?, ?, TRUE, NOW(), DATE_ADD(NOW(), INTERVAL 48 HOUR))`,
+          [nid, uid]
+        );
+      }
+      agencyWideCount += 1;
+    }
+
     return personalCount + agencyWideCount;
   }
 
@@ -355,7 +388,18 @@ class Notification {
       [uid, agencyId]
     );
     const a = (agencyWide || []).length;
-    return p + a;
+
+    const [agencyViewable] = await pool.execute(
+      `SELECT n.id FROM notifications n
+       LEFT JOIN notification_user_reads nur ON n.id = nur.notification_id AND nur.user_id = ?
+       WHERE n.agency_id = ? AND n.user_id IS NOT NULL AND n.type IN ('user_login','user_logout','first_login','first_login_pending','client_assigned')
+       AND n.is_resolved = FALSE
+       AND (nur.notification_id IS NULL OR (nur.is_read = FALSE AND (nur.muted_until IS NULL OR nur.muted_until <= NOW())))`,
+      [uid, agencyId]
+    );
+    const v = (agencyViewable || []).length;
+
+    return p + a + v;
   }
 
   /**
