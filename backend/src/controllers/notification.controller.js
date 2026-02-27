@@ -490,7 +490,15 @@ export const getNotificationCounts = async (req, res, next) => {
       const userAgencies = await User.getAgencies(userId);
       agencyIds = userAgencies.map(a => a.id);
       if (agencyIds.length > 0) {
-        const counts = await Notification.getCountsByAgencyForUser(agencyIds, userId);
+        const counts = {};
+        for (const aid of agencyIds) {
+          const notifications = await Notification.findByAgency(aid, {
+            isResolved: false
+          });
+          await Notification.applyReadStateForViewer(notifications, userId);
+          const visible = filterNotificationsForViewer(notifications, userId, userRole).filter(isUnmuted);
+          counts[aid] = visible.filter((n) => !n._is_read_for_viewer && !n.is_resolved).length;
+        }
         return res.json(counts);
       }
     } else if (PERSONAL_ONLY_ROLES.has(String(userRole || '').toLowerCase())) {
@@ -520,8 +528,16 @@ export const getNotificationCounts = async (req, res, next) => {
       return res.json({});
     }
 
-    // Per-user counts: each user sees only their own unread notifications
-    const counts = await Notification.getCountsByAgencyForUser(agencyIds, userId);
+    // Per-user counts should align with feed visibility/read-state filters.
+    const counts = {};
+    for (const aid of agencyIds) {
+      const notifications = await Notification.findByAgency(aid, {
+        isResolved: false
+      });
+      await Notification.applyReadStateForViewer(notifications, userId);
+      const visible = filterNotificationsForViewer(notifications, userId, userRole).filter(isUnmuted);
+      counts[aid] = visible.filter((n) => !n._is_read_for_viewer && !n.is_resolved).length;
+    }
     res.json(counts);
   } catch (error) {
     next(error);
