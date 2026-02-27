@@ -3910,47 +3910,49 @@ watch(
   () => route.query?.submission,
   async (v) => {
     if (!v) return;
-    // Ensure the supporting data is loaded for dropdowns before opening modals.
-    await loadMileageSchools();
-    await loadMileageOffices();
-    await loadMileageAssignedOffices();
-    await loadMyHomeAddress();
+    try {
+      // Ensure the supporting data is loaded for dropdowns before opening modals.
+      await loadMileageSchools();
+      await loadMileageOffices();
+      await loadMileageAssignedOffices();
+      await loadMyHomeAddress();
 
-    const key = String(v || '');
-    if (key === 'school_mileage') {
-      if (!inSchoolEnabled.value) {
-        submitMileageError.value = 'In-School submissions are disabled for this organization.';
-        return;
+      const key = String(v || '');
+      if (key === 'school_mileage') {
+        if (!inSchoolEnabled.value) {
+          submitMileageError.value = 'In-School submissions are disabled for this organization.';
+          return;
+        }
+        await openMileageModal('school_travel');
+      } else if (key === 'mileage') {
+        await openMileageModal('standard');
+      } else if (key === 'medcancel') {
+        if (!authStore.user?.medcancelEnabled || !medcancelEnabledForAgency.value) {
+          submitMedcancelError.value = 'Med Cancel is disabled for this organization.';
+          return;
+        }
+        openMedcancelModal();
+      } else if (key === 'reimbursement') {
+        openReimbursementModal();
+      } else if (key === 'company_card_expense') {
+        openCompanyCardExpenseModal();
+      } else if (key === 'time_meeting_training') {
+        openTimeMeetingModal();
+      } else if (key === 'time_excess_holiday') {
+        openTimeExcessModal();
+      } else if (key === 'time_service_correction') {
+        openTimeCorrectionModal();
+      } else if (key === 'time_overtime_evaluation') {
+        openTimeOvertimeModal();
+      } else if (key === 'pto') {
+        await openPtoChooserModal();
       }
-      await openMileageModal('school_travel');
-    } else if (key === 'mileage') {
-      await openMileageModal('standard');
-    } else if (key === 'medcancel') {
-      if (!authStore.user?.medcancelEnabled || !medcancelEnabledForAgency.value) {
-        submitMedcancelError.value = 'Med Cancel is disabled for this organization.';
-        return;
-      }
-      openMedcancelModal();
-    } else if (key === 'reimbursement') {
-      openReimbursementModal();
-    } else if (key === 'company_card_expense') {
-      openCompanyCardExpenseModal();
-    } else if (key === 'time_meeting_training') {
-      openTimeMeetingModal();
-    } else if (key === 'time_excess_holiday') {
-      openTimeExcessModal();
-    } else if (key === 'time_service_correction') {
-      openTimeCorrectionModal();
-    } else if (key === 'time_overtime_evaluation') {
-      openTimeOvertimeModal();
-    } else if (key === 'pto') {
-      await openPtoChooserModal();
+    } finally {
+      // Always clear query so future clicks (same submission key) reliably retrigger.
+      const next = { ...route.query };
+      delete next.submission;
+      router.replace({ query: next });
     }
-
-    // Clear the query so refresh/back doesn't keep reopening.
-    const next = { ...route.query };
-    delete next.submission;
-    router.replace({ query: next });
   },
   { immediate: true }
 );

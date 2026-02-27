@@ -2341,7 +2341,8 @@ const openInSchoolClaims = () => {
 const goToSubmission = (kind) => {
   // Use My -> My Payroll as the actual submission surface (it already has the modals/forms).
   submitPanelView.value = 'root';
-  setMyTab('payroll');
+  myTab.value = 'payroll';
+  activeTab.value = 'my';
   router.replace({ query: { ...route.query, tab: 'my', my: 'payroll', submission: kind } });
 };
 
