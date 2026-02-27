@@ -1271,9 +1271,7 @@ const ticketsNavLink = computed(() => orgTo('/tickets'));
 
 const scheduleNavLink = computed(() => {
   if (showBuildingsPendingBadge.value && buildingsPendingCount.value > 0) {
-    const agencyId = agencyStore.currentAgency?.id;
-    const base = orgTo('/admin/settings');
-    return agencyId ? `${base}?category=workflow&item=availability-intake&agencyId=${agencyId}` : orgTo('/buildings/schedule');
+    return orgTo('/buildings/schedule');
   }
   return orgTo('/schedule');
 });

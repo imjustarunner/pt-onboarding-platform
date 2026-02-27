@@ -21,6 +21,8 @@
 
     <div v-if="error" class="error-box">{{ error }}</div>
 
+    <BuildingNotificationsPanel />
+
     <div data-tour="buildings-content">
       <router-view />
     </div>
@@ -31,6 +33,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../services/api';
+import BuildingNotificationsPanel from '../components/buildings/BuildingNotificationsPanel.vue';
 
 const route = useRoute();
 const router = useRouter();

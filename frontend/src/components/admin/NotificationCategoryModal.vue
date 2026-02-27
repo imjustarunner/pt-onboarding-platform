@@ -85,7 +85,8 @@ const categories = computed(() => {
     { type: 'first_login_pending', label: 'First Login (Pending)' },
     { type: 'password_changed', label: 'Password Changed' },
     { type: 'new_packet_uploaded', label: 'New Packet Uploaded' },
-    { type: 'support_ticket_created', label: 'Support Tickets' }
+    { type: 'support_ticket_created', label: 'Support Tickets' },
+    { type: 'office_availability_request_pending', label: 'Office Requests' }
   ];
 
   return categoryTypes.map(cat => ({
@@ -116,7 +117,8 @@ const getCategoryIcon = (type) => {
     first_login_pending: '⏳',
     password_changed: '🔐',
     new_packet_uploaded: '📄',
-    support_ticket_created: '🎟️'
+    support_ticket_created: '🎟️',
+    office_availability_request_pending: '🏢'
   };
   return icons[type] || '📢';
 };
@@ -157,7 +159,8 @@ const fetchCategoryCounts = async () => {
       first_login_pending: 0,
       password_changed: 0,
       new_packet_uploaded: 0,
-      support_ticket_created: 0
+      support_ticket_created: 0,
+      office_availability_request_pending: 0
     };
 
     response.data.forEach(notification => {
