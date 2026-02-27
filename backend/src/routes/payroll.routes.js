@@ -118,6 +118,7 @@ import {
   ,putPayrollOtherRateTitlesForUser
   ,listPayrollManualPayLines
   ,createPayrollManualPayLine
+  ,createPayrollManualBulk
   ,deletePayrollManualPayLine
   ,listAgencySchoolsForPayroll
   ,listOfficeLocationsForPayroll
@@ -253,6 +254,7 @@ router.put('/other-rate-titles', putPayrollOtherRateTitlesForAgency);
 router.put('/other-rate-titles/users/:userId', putPayrollOtherRateTitlesForUser);
 router.get('/periods/:id/manual-pay-lines', listPayrollManualPayLines);
 router.post('/periods/:id/manual-pay-lines', createPayrollManualPayLine);
+router.post('/periods/:id/manual-bulk', createPayrollManualBulk);
 router.delete('/periods/:id/manual-pay-lines/:lineId', deletePayrollManualPayLine);
 router.get('/todo-templates', listPayrollTodoTemplates);
 router.post('/todo-templates', createPayrollTodoTemplate);

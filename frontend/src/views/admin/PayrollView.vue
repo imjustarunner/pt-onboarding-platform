@@ -2777,13 +2777,33 @@
               </div>
               <div v-if="manualPayLinesError" class="warn-box" style="margin-top: 8px;">{{ manualPayLinesError }}</div>
 
-              <div class="hint" style="margin-top: 8px;">
-                Add as many rows as you need, then save them in one click. Amount can be negative for corrections.
+              <div class="tabs" style="margin-top: 12px;">
+                <button
+                  type="button"
+                  class="tab"
+                  :class="{ active: manualPayLinesTab === 'add' }"
+                  @click="manualPayLinesTab = 'add'"
+                >
+                  Manual Add
+                </button>
+                <button
+                  type="button"
+                  class="tab"
+                  :class="{ active: manualPayLinesTab === 'bulk' }"
+                  @click="manualPayLinesTab = 'bulk'"
+                >
+                  Manual Bulk
+                </button>
               </div>
 
-              <div v-if="isPeriodPosted" class="muted" style="margin-top: 8px;">This pay period is posted (manual lines are locked).</div>
+              <div v-if="manualPayLinesTab === 'add'">
+                <div class="hint" style="margin-top: 8px;">
+                  Add as many rows as you need, then save them in one click. Amount can be negative for corrections.
+                </div>
 
-              <div v-else class="table-wrap" style="margin-top: 10px;">
+                <div v-if="isPeriodPosted" class="muted" style="margin-top: 8px;">This pay period is posted (manual lines are locked).</div>
+
+                <div v-else class="table-wrap" style="margin-top: 10px;">
                 <table class="table">
                   <thead>
                     <tr>
@@ -2857,18 +2877,80 @@
                 </table>
               </div>
 
-              <div class="actions" style="margin-top: 10px; justify-content: space-between;">
-                <button class="btn btn-secondary" type="button" @click="addManualPayLineDraftRow" :disabled="savingManualPayLines || isPeriodPosted">
-                  Add another row
-                </button>
-                <button
-                  class="btn btn-primary"
-                  type="button"
-                  @click="saveManualPayLines"
-                  :disabled="savingManualPayLines || isPeriodPosted || !hasValidManualPayLineDraft"
-                >
-                  {{ savingManualPayLines ? 'Saving…' : 'Save manual lines' }}
-                </button>
+                <div class="actions" style="margin-top: 10px; justify-content: space-between;">
+                  <button class="btn btn-secondary" type="button" @click="addManualPayLineDraftRow" :disabled="savingManualPayLines || isPeriodPosted">
+                    Add another row
+                  </button>
+                  <button
+                    class="btn btn-primary"
+                    type="button"
+                    @click="saveManualPayLines"
+                    :disabled="savingManualPayLines || isPeriodPosted || !hasValidManualPayLineDraft"
+                  >
+                    {{ savingManualPayLines ? 'Saving…' : 'Save manual lines' }}
+                  </button>
+                </div>
+              </div>
+
+              <div v-if="manualPayLinesTab === 'bulk'" class="manual-bulk-section">
+                <div class="hint" style="margin-top: 8px;">
+                  Bulk add manual pay for meeting attendees. Enter comma-separated names as <strong>Last, First</strong> (e.g. Smith, John, Doe, Jane).
+                  Each provider must have a rate for the selected service code. Input is <strong>Minutes</strong> for codes like MEETING (60 min = 1 hr), or <strong>Units</strong> for codes like H2014 (4 units = 1 hr).
+                </div>
+                <div v-if="isPeriodPosted" class="muted" style="margin-top: 8px;">This pay period is posted (manual lines are locked).</div>
+                <div v-else class="field-row" style="grid-template-columns: 1fr 1fr; margin-top: 12px; gap: 12px;">
+                  <div class="field" style="grid-column: 1 / -1;">
+                    <label>Attendees (comma-separated Last, First)</label>
+                    <textarea
+                      v-model="manualBulkAttendees"
+                      placeholder="Smith, John, Doe, Jane"
+                      rows="3"
+                      :disabled="savingManualBulk"
+                      style="width: 100%; resize: vertical;"
+                    />
+                  </div>
+                  <div class="field">
+                    <label>Service Code</label>
+                    <select v-model="manualBulkServiceCode" :disabled="savingManualBulk">
+                      <option v-for="r in manualBulkServiceCodeOptions" :key="r.service_code" :value="r.service_code">
+                        {{ r.service_code }}
+                      </option>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label>{{ manualBulkInputLabel }}</label>
+                    <input
+                      v-model="manualBulkQuantity"
+                      type="number"
+                      step="1"
+                      min="1"
+                      :placeholder="manualBulkInputPlaceholder"
+                      :disabled="savingManualBulk"
+                    />
+                    <div class="hint" style="margin-top: 4px;">
+                      {{ manualBulkInputLabel === 'Minutes' ? 'e.g. 60 = 1 hour' : 'e.g. 4 = 1 hour (15 min/unit)' }}
+                    </div>
+                  </div>
+                  <div class="field">
+                    <label>Meeting Date</label>
+                    <input v-model="manualBulkMeetingDate" type="date" :disabled="savingManualBulk" />
+                  </div>
+                  <div class="field" style="grid-column: 1 / -1;">
+                    <label>Reason / Note</label>
+                    <input v-model="manualBulkReason" type="text" placeholder="e.g., Weekly team sync" :disabled="savingManualBulk" />
+                  </div>
+                </div>
+                <div v-if="manualBulkError" class="warn-box" style="margin-top: 8px;">{{ manualBulkError }}</div>
+                <div v-else class="actions" style="margin-top: 12px; justify-content: flex-end;">
+                  <button
+                    class="btn btn-primary"
+                    type="button"
+                    @click="submitManualBulk"
+                    :disabled="savingManualBulk || isPeriodPosted || !manualBulkAttendees.trim() || !manualBulkQuantity || Number(manualBulkQuantity) <= 0"
+                  >
+                    {{ savingManualBulk ? 'Submitting…' : 'Submit Manual Bulk' }}
+                  </button>
+                </div>
               </div>
 
               <div v-if="manualPayLinesLoading" class="muted" style="margin-top: 8px;">Loading manual pay lines…</div>
@@ -5538,6 +5620,7 @@ const timeCreditsHoursByClaimId = ref({});
 const timeAppliedAmountOverrideByClaimId = ref({});
 
 // Manual pay lines (one-off corrections)
+const manualPayLinesTab = ref('add'); // 'add' | 'bulk'
 const manualPayLinesLoading = ref(false);
 const manualPayLinesError = ref('');
 const manualPayLines = ref([]);
@@ -5583,6 +5666,74 @@ const isValidManualPayLineDraftRow = (r) => {
 };
 
 const hasValidManualPayLineDraft = computed(() => (manualPayLineDraftRows.value || []).some(isValidManualPayLineDraftRow));
+
+// Manual Bulk
+const manualBulkAttendees = ref('');
+const manualBulkServiceCode = ref('MEETING');
+const manualBulkQuantity = ref('');
+const manualBulkMeetingDate = ref('');
+const manualBulkReason = ref('');
+const manualBulkError = ref('');
+const savingManualBulk = ref(false);
+const manualBulkServiceCodeOptions = computed(() => {
+  const rules = (serviceCodeRules.value || []).filter((r) => r?.service_code);
+  return rules
+    .map((r) => ({ service_code: String(r.service_code || '').trim() }))
+    .filter((r) => r.service_code)
+    .sort((a, b) => a.service_code.localeCompare(b.service_code));
+});
+
+const manualBulkRuleForCode = computed(() => {
+  const code = String(manualBulkServiceCode.value || '').trim().toUpperCase();
+  const rules = serviceCodeRules.value || [];
+  return rules.find((r) => String(r?.service_code || '').trim().toUpperCase() === code) || null;
+});
+
+const manualBulkInputLabel = computed(() => {
+  const payDivisor = Number(manualBulkRuleForCode.value?.pay_divisor ?? 60);
+  return payDivisor === 60 ? 'Minutes' : 'Units';
+});
+
+const manualBulkInputPlaceholder = computed(() => {
+  const payDivisor = Number(manualBulkRuleForCode.value?.pay_divisor ?? 60);
+  return payDivisor === 60 ? '60' : '4';
+});
+
+const manualBulkInputType = computed(() => {
+  const payDivisor = Number(manualBulkRuleForCode.value?.pay_divisor ?? 60);
+  return payDivisor === 60 ? 'minutes' : 'units';
+});
+
+const submitManualBulk = async () => {
+  if (!selectedPeriodId.value) return;
+  const attendees = String(manualBulkAttendees.value || '').trim();
+  const quantity = Number(manualBulkQuantity.value);
+  const serviceCode = String(manualBulkServiceCode.value || 'MEETING').trim().toUpperCase();
+  const meetingDate = String(manualBulkMeetingDate.value || '').trim().slice(0, 10);
+  const reason = String(manualBulkReason.value || '').trim();
+  if (!attendees || !Number.isFinite(quantity) || quantity <= 0) return;
+  try {
+    savingManualBulk.value = true;
+    manualBulkError.value = '';
+    await api.post(`/payroll/periods/${selectedPeriodId.value}/manual-bulk`, {
+      attendeeNames: attendees,
+      serviceCode,
+      quantity,
+      inputType: manualBulkInputType.value,
+      meetingDate: meetingDate || undefined,
+      reason: reason || undefined
+    });
+    manualBulkAttendees.value = '';
+    manualBulkQuantity.value = '';
+    manualBulkReason.value = '';
+    await loadManualPayLines();
+    await loadPeriodDetails();
+  } catch (e) {
+    manualBulkError.value = e.response?.data?.error?.message || e.message || 'Failed to add manual bulk lines';
+  } finally {
+    savingManualBulk.value = false;
+  }
+};
 
 const loadManualPayLines = async () => {
   if (!selectedPeriodId.value) return;
@@ -10810,6 +10961,28 @@ input[type='number'] {
   justify-content: center;
   flex: 0 0 auto;
   white-space: nowrap;
+}
+.tabs {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.tabs .tab {
+  padding: 6px 12px;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-secondary, #f5f5f5);
+  cursor: pointer;
+}
+.tabs .tab:hover {
+  background: var(--bg-hover, #eee);
+}
+.tabs .tab.active {
+  background: var(--primary, #2563eb);
+  color: white;
+  border-color: var(--primary, #2563eb);
 }
 .hint {
   font-size: 12px;

@@ -6695,6 +6695,191 @@ export const deletePayrollManualPayLine = async (req, res, next) => {
   }
 };
 
+/**
+ * Manual Bulk: add manual pay lines for multiple providers at once (e.g. meeting attendees).
+ * Attendees: comma-separated "Last, First" pairs, e.g. "Smith, John, Doe, Jane".
+ * Each matched provider must have a rate for the service code. Creates one manual pay line per person.
+ */
+export const createPayrollManualBulk = async (req, res, next) => {
+  try {
+    const payrollPeriodId = parseInt(req.params.id, 10);
+    const period = await PayrollPeriod.findById(payrollPeriodId);
+    if (!period) return res.status(404).json({ error: { message: 'Pay period not found' } });
+    if (!(await requirePayrollAccess(req, res, period.agency_id))) return;
+
+    const st = String(period.status || '').toLowerCase();
+    if (st === 'finalized' || st === 'posted') {
+      return res.status(409).json({ error: { message: 'Pay period is posted/finalized' } });
+    }
+
+    const attendeeNamesRaw = String(req.body?.attendeeNames || req.body?.attendee_names || '').trim();
+    const serviceCode = String(req.body?.serviceCode || req.body?.service_code || 'MEETING').trim().toUpperCase();
+    const quantityRaw = req.body?.quantity ?? req.body?.hours;
+    const inputType = String(req.body?.inputType || req.body?.input_type || 'minutes').trim().toLowerCase();
+    const meetingDate = String(req.body?.meetingDate || req.body?.meeting_date || '').trim().slice(0, 10);
+    const reason = String(req.body?.reason || '').trim();
+
+    if (!attendeeNamesRaw) return res.status(400).json({ error: { message: 'attendeeNames is required (comma-separated Last, First pairs)' } });
+    const quantity = Number(quantityRaw);
+    if (!Number.isFinite(quantity) || quantity <= 0) return res.status(400).json({ error: { message: 'quantity must be a positive number (minutes or units per service code)' } });
+
+    // Resolve service code rule from agency settings (Payroll > Agency Settings)
+    const rules = await PayrollServiceCodeRule.listForAgency(period.agency_id);
+    const rule = (rules || []).find((r) => String(r?.service_code || '').trim().toUpperCase() === serviceCode) || null;
+    if (!rule) {
+      return res.status(400).json({
+        error: { message: `Service code ${serviceCode} is not configured for this agency. Add it in Agency Settings > Payroll.` }
+      });
+    }
+    const payDivisor = Number(rule?.pay_divisor ?? 60);
+    const categoryFromRule = String(rule?.category ?? 'indirect').trim().toLowerCase();
+    const manualCategory = (categoryFromRule === 'indirect' || categoryFromRule === 'admin' || categoryFromRule === 'meeting')
+      ? 'indirect'
+      : 'direct';
+
+    // Parse names: "Smith, John, Doe, Jane" -> [{last:'Smith',first:'John'},{last:'Doe',first:'Jane'}]
+    const tokens = attendeeNamesRaw.split(',').map((t) => String(t || '').trim()).filter(Boolean);
+    const namePairs = [];
+    for (let i = 0; i < tokens.length; i += 2) {
+      if (i + 1 < tokens.length) {
+        namePairs.push({ last: tokens[i], first: tokens[i + 1] });
+      } else {
+        namePairs.push({ last: tokens[i], first: '' });
+      }
+    }
+    if (!namePairs.length) return res.status(400).json({ error: { message: 'Could not parse attendee names (use Last, First pairs separated by commas)' } });
+
+    // Load agency users
+    const [userRows] = await pool.execute(
+      `SELECT u.id, u.first_name, u.last_name
+       FROM users u
+       INNER JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
+       ORDER BY u.last_name, u.first_name`,
+      [period.agency_id]
+    );
+    const agencyUsers = userRows || [];
+
+    const asOf = String(period.period_end || '').slice(0, 10) || null;
+    const matched = [];
+    const unmatched = [];
+    const missingRate = [];
+
+    for (const np of namePairs) {
+      const lastL = String(np.last || '').trim().toLowerCase();
+      const firstL = String(np.first || '').trim().toLowerCase();
+      const u = agencyUsers.find(
+        (x) =>
+          String(x.last_name || '').trim().toLowerCase() === lastL &&
+          String(x.first_name || '').trim().toLowerCase() === firstL
+      );
+      if (!u) {
+        unmatched.push(`${np.last}${np.first ? `, ${np.first}` : ''}`);
+        continue;
+      }
+      const rate = await PayrollRate.findBestRate({
+        agencyId: period.agency_id,
+        userId: u.id,
+        serviceCode,
+        asOf
+      });
+      if (!rate || !Number.isFinite(Number(rate.rate_amount || 0))) {
+        missingRate.push(`${u.last_name}, ${u.first_name}`);
+        continue;
+      }
+      const rateAmount = Number(rate.rate_amount || 0);
+      const rateUnit = String(rate.rate_unit || 'per_hour').trim().toLowerCase();
+      // quantity is minutes (pay_divisor 60) or units (pay_divisor 4, etc.)
+      const units = quantity;
+      const payHours = payDivisor > 0 ? units / payDivisor : 0;
+      let amount;
+      if (rateUnit === 'per_hour') {
+        amount = Math.round(payHours * rateAmount * 100) / 100;
+      } else {
+        amount = Math.round(units * rateAmount * 100) / 100;
+      }
+      matched.push({ userId: u.id, amount, rateAmount, rateUnit, creditsHours: payHours });
+    }
+
+    if (unmatched.length) {
+      return res.status(400).json({
+        error: { message: `Could not match these names to providers: ${unmatched.join('; ')}` },
+        unmatched
+      });
+    }
+    if (missingRate.length) {
+      return res.status(400).json({
+        error: { message: `These providers do not have a ${serviceCode} rate in the system: ${missingRate.join('; ')}` },
+        missingRate
+      });
+    }
+    if (!matched.length) return res.status(400).json({ error: { message: 'No matched providers to add' } });
+
+    const labelBase = reason || `Manual bulk ${serviceCode}`;
+    const datePart = meetingDate ? ` (${meetingDate})` : '';
+    const label = (labelBase + datePart).slice(0, 128);
+
+    const ids = [];
+    for (const m of matched) {
+      const id = await PayrollManualPayLine.create({
+        payrollPeriodId,
+        agencyId: period.agency_id,
+        userId: m.userId,
+        lineType: 'pay',
+        ptoBucket: null,
+        label,
+        category: manualCategory,
+        creditsHours: m.creditsHours,
+        amount: m.amount,
+        createdByUserId: req.user.id
+      });
+      if (id) ids.push(id);
+    }
+
+    if (st === 'ran') {
+      await recomputeSummariesFromStaging({
+        payrollPeriodId,
+        agencyId: period.agency_id,
+        periodStart: period.period_start,
+        periodEnd: period.period_end
+      });
+      const updated = await PayrollPeriod.findById(payrollPeriodId);
+      const summaries = await PayrollSummary.listForPeriod(payrollPeriodId);
+      return res.status(201).json({
+        ok: true,
+        ids,
+        count: ids.length,
+        period: updated,
+        summaries,
+        lines: matched.map((m) => ({ userId: m.userId, amount: m.amount }))
+      });
+    }
+
+    await pool.execute('DELETE FROM payroll_summaries WHERE payroll_period_id = ?', [payrollPeriodId]);
+    await pool.execute(
+      `UPDATE payroll_periods
+       SET status = 'staged',
+           ran_at = NULL,
+           ran_by_user_id = NULL
+       WHERE id = ?`,
+      [payrollPeriodId]
+    );
+
+    res.status(201).json({
+      ok: true,
+      ids,
+      count: ids.length,
+      lines: matched.map((m) => ({ userId: m.userId, amount: m.amount }))
+    });
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE') {
+      return res.status(409).json({
+        error: { message: 'Manual pay lines table is not available yet (run database migrations first).' }
+      });
+    }
+    next(e);
+  }
+};
+
 function computeNoNoteDraftUnpaidDeltas({ prevAgg, currAgg }) {
   // Key by user_id + service_code (matched rows only).
   const byKeyPrev = new Map();
