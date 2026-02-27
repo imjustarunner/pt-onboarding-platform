@@ -1230,17 +1230,39 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   gap: 10px;
+  align-items: flex-start;
+}
+.left {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.right {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  max-width: 340px;
 }
 .ticket-line {
   display: flex;
   gap: 8px;
   align-items: center;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   min-width: 0;
 }
-.ticket-subject {
+.right .btn.btn-sm {
+  min-height: 30px;
+  padding: 5px 10px;
   white-space: nowrap;
+}
+.right .assign {
+  width: 100%;
+  justify-content: flex-end;
+}
+.ticket-subject {
+  white-space: normal;
   max-width: 180px;
   overflow: hidden;
   text-overflow: ellipsis;
