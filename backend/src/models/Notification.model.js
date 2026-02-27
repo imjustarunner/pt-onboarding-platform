@@ -202,7 +202,16 @@ class Notification {
     if (!uid || !Array.isArray(notifications) || notifications.length === 0) return notifications;
 
     const agencyWide = notifications.filter((n) => n.user_id == null);
-    const agencyViewableTypes = new Set(['user_login', 'user_logout', 'first_login', 'first_login_pending', 'client_assigned']);
+    const agencyViewableTypes = new Set([
+      'user_login',
+      'user_logout',
+      'first_login',
+      'first_login_pending',
+      'client_assigned',
+      'payroll_unpaid_notes_2_periods_old',
+      'payroll_missing_notes_reminder',
+      'payroll_unsigned_draft_notes'
+    ]);
     const agencyViewableWithUserId = notifications.filter((n) => n.user_id != null && agencyViewableTypes.has(String(n?.type || '')));
     const ids = [...new Set([...agencyWide.map((n) => n.id), ...agencyViewableWithUserId.map((n) => n.id)])].filter(Boolean);
     if (ids.length === 0) return notifications;
@@ -257,7 +266,16 @@ class Notification {
       return (await this.markAsRead(notificationId, userId)) !== false;
     }
     // user_login/user_logout/first_login/client_assigned: use per-user read state for admins viewing agency feed
-    const agencyViewableTypes = new Set(['user_login', 'user_logout', 'first_login', 'first_login_pending', 'client_assigned']);
+    const agencyViewableTypes = new Set([
+      'user_login',
+      'user_logout',
+      'first_login',
+      'first_login_pending',
+      'client_assigned',
+      'payroll_unpaid_notes_2_periods_old',
+      'payroll_missing_notes_reminder',
+      'payroll_unsigned_draft_notes'
+    ]);
     const isAgencyViewable = agencyViewableTypes.has(String(notification.type || ''));
     if (notification.user_id != null && !isAgencyViewable) {
       return false; // Cannot mark another user's personal notification
@@ -337,7 +355,10 @@ class Notification {
     const [agencyViewable] = await pool.execute(
       `SELECT n.id FROM notifications n
        LEFT JOIN notification_user_reads nur ON n.id = nur.notification_id AND nur.user_id = ?
-       WHERE n.agency_id = ? AND n.user_id IS NOT NULL AND n.type IN ('user_login','user_logout','first_login','first_login_pending','client_assigned')
+       WHERE n.agency_id = ? AND n.user_id IS NOT NULL AND n.type IN (
+         'user_login','user_logout','first_login','first_login_pending','client_assigned',
+         'payroll_unpaid_notes_2_periods_old','payroll_missing_notes_reminder','payroll_unsigned_draft_notes'
+       )
        AND n.is_resolved = FALSE
        AND (n.type NOT IN ('user_login','user_logout') OR n.user_id != ?)
        AND (nur.notification_id IS NULL OR (nur.is_read = FALSE AND (nur.muted_until IS NULL OR nur.muted_until <= NOW())))`,
@@ -394,7 +415,10 @@ class Notification {
     const [agencyViewable] = await pool.execute(
       `SELECT n.id FROM notifications n
        LEFT JOIN notification_user_reads nur ON n.id = nur.notification_id AND nur.user_id = ?
-       WHERE n.agency_id = ? AND n.user_id IS NOT NULL AND n.type IN ('user_login','user_logout','first_login','first_login_pending','client_assigned')
+       WHERE n.agency_id = ? AND n.user_id IS NOT NULL AND n.type IN (
+         'user_login','user_logout','first_login','first_login_pending','client_assigned',
+         'payroll_unpaid_notes_2_periods_old','payroll_missing_notes_reminder','payroll_unsigned_draft_notes'
+       )
        AND n.is_resolved = FALSE
        AND (n.type NOT IN ('user_login','user_logout') OR n.user_id != ?)
        AND (nur.notification_id IS NULL OR (nur.is_read = FALSE AND (nur.muted_until IS NULL OR nur.muted_until <= NOW())))`,

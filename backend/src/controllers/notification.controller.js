@@ -543,7 +543,16 @@ export const markAsRead = async (req, res, next) => {
     // User-specific: only the recipient can mark personal notifications; agency-wide can be marked by anyone with access.
     // user_login/user_logout: user_id is the actor (who logged in/out), not the recipient; admins with agency access can mark.
     // first_login/client_assigned: user_id is the subject; admins see them in agency feed and can mark for themselves.
-    const agencyViewableTypes = new Set(['user_login', 'user_logout', 'first_login', 'first_login_pending', 'client_assigned']);
+    const agencyViewableTypes = new Set([
+      'user_login',
+      'user_logout',
+      'first_login',
+      'first_login_pending',
+      'client_assigned',
+      'payroll_unpaid_notes_2_periods_old',
+      'payroll_missing_notes_reminder',
+      'payroll_unsigned_draft_notes'
+    ]);
     const isAgencyViewable = agencyViewableTypes.has(String(notification.type || ''));
     if (
       notification.user_id != null &&
@@ -642,7 +651,16 @@ export const markAllAsRead = async (req, res, next) => {
         );
       }
       // Only mark notifications the current user can mark (personal to them, agency-wide, or agency-viewable types)
-      const agencyViewableTypes = new Set(['user_login', 'user_logout', 'first_login', 'first_login_pending', 'client_assigned']);
+      const agencyViewableTypes = new Set([
+        'user_login',
+        'user_logout',
+        'first_login',
+        'first_login_pending',
+        'client_assigned',
+        'payroll_unpaid_notes_2_periods_old',
+        'payroll_missing_notes_reminder',
+        'payroll_unsigned_draft_notes'
+      ]);
       const afterMarkFilter = filtered.filter(
         (n) =>
           n.user_id == null ||

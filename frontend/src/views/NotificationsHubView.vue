@@ -434,6 +434,7 @@ const typeLabelMap = {
   invitation_expired: 'Invitation expired',
   pending_completed: 'Pending completed',
   payroll_unsigned_draft_notes_pending: 'Unsigned drafts',
+  payroll_unsigned_draft_notes: 'Unsigned drafts',
   payroll_unpaid_notes_2_periods_old: 'Payroll notes',
   payroll_missing_notes_reminder: 'Payroll reminder',
   unsigned_draft_notes_pending: 'Unsigned drafts'
