@@ -20,9 +20,9 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
-import { useAgencyStore } from '../store/agency';
-import { useAuthStore } from '../store/auth';
-import AvailabilityIntakeManagement from '../components/admin/AvailabilityIntakeManagement.vue';
+import { useAgencyStore } from '../../store/agency';
+import { useAuthStore } from '../../store/auth';
+import AvailabilityIntakeManagement from '../../components/admin/AvailabilityIntakeManagement.vue';
 
 const route = useRoute();
 const agencyStore = useAgencyStore();
