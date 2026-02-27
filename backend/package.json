@@ -15,6 +15,7 @@
     "migrate-dry-run": "node ../database/run-migrations.js --dry-run",
     "migrate-one": "node ../database/run-migrations.js",
     "seed": "node src/scripts/seedData.js",
+    "seed-demo-tenant": "node src/scripts/seedDemoTenant.js",
     "seed-documents": "node src/scripts/seedDocuments.js",
     "update-admin": "node src/scripts/updateAdminToSuperAdmin.js",
     "check-roles": "node src/scripts/checkUserRoles.js",

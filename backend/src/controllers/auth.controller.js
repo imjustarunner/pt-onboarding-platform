@@ -88,6 +88,47 @@ const getUserLoginIdentifiers = async (userId) => {
     return [];
   }
 };
+const DEMO_ALLOWED_VIEW_ROLES = new Set([
+  'provider',
+  'provider_plus',
+  'clinical_practice_assistant',
+  'staff',
+  'support',
+  'admin'
+]);
+const parseCsvSet = (raw) => {
+  return new Set(
+    String(raw || '')
+      .split(',')
+      .map((v) => String(v || '').trim().toLowerCase())
+      .filter(Boolean)
+  );
+};
+const parseCsvIntSet = (raw) => {
+  return new Set(
+    String(raw || '')
+      .split(',')
+      .map((v) => Number.parseInt(String(v || '').trim(), 10))
+      .filter((n) => Number.isInteger(n) && n > 0)
+  );
+};
+const isTruthy = (raw) => {
+  const v = String(raw || '').trim().toLowerCase();
+  return v === '1' || v === 'true' || v === 'yes' || v === 'on';
+};
+const isLikelyFakeAgency = (agency) => {
+  const hay = [
+    agency?.name,
+    agency?.official_name,
+    agency?.slug,
+    agency?.portal_url
+  ]
+    .map((v) => String(v || '').trim().toLowerCase())
+    .filter(Boolean)
+    .join(' ');
+  if (!hay) return false;
+  return ['demo', 'fake', 'sandbox', 'training', 'sample', 'test'].some((k) => hay.includes(k));
+};
 const isWorkspaceEligibleForSso = ({ user, identifier, featureFlags, identifierUsedToFindUser, loginIdentifiers }) => {
   const normalizedIdentifier = String(identifier || '').trim().toLowerCase();
   const userRole = String(user?.role || '').toLowerCase();
@@ -2694,6 +2735,111 @@ export const logActivity = async (req, res, next) => {
     }, req);
     
     res.json({ message: 'Activity logged successfully' });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const demoSwitchView = async (req, res, next) => {
+  try {
+    if (!isTruthy(process.env.DEMO_MODE_ENABLED)) {
+      return res.status(403).json({ error: { message: 'Demo mode is disabled' } });
+    }
+
+    const requestedRole = String(req.body?.role || '').trim().toLowerCase();
+    const requestedAgencyId = Number.parseInt(req.body?.agencyId, 10);
+    if (!DEMO_ALLOWED_VIEW_ROLES.has(requestedRole)) {
+      return res.status(400).json({ error: { message: 'Invalid demo role' } });
+    }
+    if (!Number.isInteger(requestedAgencyId) || requestedAgencyId < 1) {
+      return res.status(400).json({ error: { message: 'Valid agencyId is required' } });
+    }
+
+    const actor = await User.findById(req.user?.id);
+    if (!actor) {
+      return res.status(404).json({ error: { message: 'User not found' } });
+    }
+
+    const allowlistedEmails = parseCsvSet(process.env.DEMO_MODE_USER_ALLOWLIST);
+    const actorEmail = String(actor.email || '').trim().toLowerCase();
+    if (!allowlistedEmails.size || !allowlistedEmails.has(actorEmail)) {
+      return res.status(403).json({ error: { message: 'User is not allowed to use demo mode' } });
+    }
+
+    const agencies = await User.getAgencies(actor.id);
+    const selectedAgency = (agencies || []).find((a) => Number(a?.id) === requestedAgencyId) || null;
+    if (!selectedAgency) {
+      return res.status(403).json({ error: { message: 'You do not have access to that agency' } });
+    }
+
+    const fakeAgencyIds = parseCsvIntSet(process.env.DEMO_MODE_FAKE_AGENCY_IDS);
+    const fakeAllowed = fakeAgencyIds.size > 0
+      ? fakeAgencyIds.has(requestedAgencyId)
+      : isLikelyFakeAgency(selectedAgency);
+    if (!fakeAllowed) {
+      return res.status(403).json({ error: { message: 'Demo switching is only allowed in fake/demo agencies' } });
+    }
+
+    const sessionId = crypto.randomUUID();
+    const token = jwt.sign(
+      {
+        id: actor.id,
+        email: actor.email,
+        role: requestedRole,
+        agencyId: requestedAgencyId,
+        sessionId,
+        demoMode: true,
+        demoRealRole: actor.role
+      },
+      config.jwt.secret,
+      { expiresIn: config.jwt.expiresIn }
+    );
+    res.cookie('authToken', token, config.authCookie.set());
+
+    const payrollAgencyIds = actor?.id ? await User.listPayrollAgencyIds(actor.id) : [];
+    const baseCaps = getUserCapabilities({ ...actor, role: requestedRole });
+    const canManagePayroll = requestedRole === 'super_admin' || payrollAgencyIds.length > 0;
+
+    ActivityLogService.logActivity({
+      actionType: 'demo_switch_view',
+      userId: actor.id,
+      sessionId,
+      metadata: {
+        fromRole: actor.role,
+        toRole: requestedRole,
+        agencyId: requestedAgencyId,
+        actorEmail
+      }
+    }, req);
+
+    res.json({
+      message: 'Demo view switched',
+      sessionId,
+      selectedAgency: {
+        id: selectedAgency.id,
+        name: selectedAgency.name,
+        slug: selectedAgency.slug || null,
+        portal_url: selectedAgency.portal_url || null
+      },
+      user: {
+        id: actor.id,
+        email: actor.email,
+        role: requestedRole,
+        status: actor.status,
+        firstName: actor.first_name,
+        lastName: actor.last_name,
+        username: actor.username || actor.personal_email || actor.email,
+        demoMode: true,
+        demoRealRole: actor.role,
+        payrollAgencyIds,
+        capabilities: {
+          ...baseCaps,
+          canManagePayroll,
+          canViewMyPayroll: true
+        },
+        agencies
+      }
+    });
   } catch (error) {
     next(error);
   }

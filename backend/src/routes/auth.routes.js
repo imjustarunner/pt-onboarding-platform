@@ -20,7 +20,8 @@ import {
   googleOAuthCallback,
   requestPasswordReset,
   recoverUsername,
-  getRecoveryStatus
+  getRecoveryStatus,
+  demoSwitchView
 } from '../controllers/auth.controller.js';
 import { authenticate, requireAdmin } from '../middleware/auth.middleware.js';
 import { requireAdminOrFirstUser } from '../middleware/conditionalAdmin.middleware.js';
@@ -156,6 +157,10 @@ router.post('/approved-employee-login', [
 ], approvedEmployeeLogin);
 router.post('/logout', authenticate, logout);
 router.post('/activity-log', authenticate, logActivity);
+router.post('/demo/switch-view', authenticate, [
+  body('role').isString().trim().notEmpty(),
+  body('agencyId').isInt({ min: 1 }).withMessage('agencyId must be a positive integer')
+], demoSwitchView);
 router.get('/session-lock-config', authenticate, getSessionLockConfig);
 router.post('/verify-session-pin', authenticate, [
   body('pin').isString().trim().matches(/^\d{4}$/).withMessage('PIN must be exactly 4 digits')

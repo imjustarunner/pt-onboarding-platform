@@ -52,7 +52,10 @@ export const authenticate = (req, res, next) => {
         email: decoded.email,
         role: decoded.role,
         type: 'passwordless',
-        agencyId: decoded.agencyId
+        agencyId: decoded.agencyId,
+        sessionId: decoded.sessionId || null,
+        demoMode: decoded.demoMode === true,
+        demoRealRole: decoded.demoRealRole || null
       };
       return next();
     }
@@ -64,7 +67,10 @@ export const authenticate = (req, res, next) => {
       email: decoded.email, // This may be username or email
       role: decoded.role,
       type: decoded.type || 'regular',
-      agencyId: decoded.agencyId
+      agencyId: decoded.agencyId,
+      sessionId: decoded.sessionId || null,
+      demoMode: decoded.demoMode === true,
+      demoRealRole: decoded.demoRealRole || null
     };
     next();
   } catch (error) {
@@ -101,7 +107,10 @@ export const authenticateOptional = (req, res, next) => {
         email: decoded.email,
         role: decoded.role,
         type: 'passwordless',
-        agencyId: decoded.agencyId
+        agencyId: decoded.agencyId,
+        sessionId: decoded.sessionId || null,
+        demoMode: decoded.demoMode === true,
+        demoRealRole: decoded.demoRealRole || null
       };
       return next();
     }
@@ -111,7 +120,10 @@ export const authenticateOptional = (req, res, next) => {
       email: decoded.email,
       role: decoded.role,
       type: decoded.type || 'regular',
-      agencyId: decoded.agencyId
+      agencyId: decoded.agencyId,
+      sessionId: decoded.sessionId || null,
+      demoMode: decoded.demoMode === true,
+      demoRealRole: decoded.demoRealRole || null
     };
     return next();
   } catch {

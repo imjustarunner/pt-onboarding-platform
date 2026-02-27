@@ -22,10 +22,10 @@
               <div class="brand-switcher" @click.stop>
                 <button class="brand-trigger" @click="toggleBrandMenu" :title="`Switch Brand (${currentBrandLabel})`">
                   <BrandingLogo :logoUrl="navBrandLogoUrl" size="medium" class="nav-logo" />
-                  <span v-if="canSwitchBrand" class="brand-caret">▾</span>
+                  <span v-if="canOpenBrandMenu" class="brand-caret">▾</span>
                 </button>
 
-                <div v-if="brandMenuOpen && canSwitchBrand" class="brand-menu">
+                <div v-if="brandMenuOpen && canOpenBrandMenu" class="brand-menu">
                   <div class="brand-menu-title">Switch Brand</div>
 
                   <button
@@ -47,6 +47,20 @@
                   >
                     {{ a.name }}
                   </button>
+
+                  <template v-if="canUseDemoViewSwitch">
+                    <div class="brand-menu-section">Demo View</div>
+                    <button
+                      v-for="opt in demoRoleOptions"
+                      :key="opt.role"
+                      class="brand-option"
+                      :class="{ active: activeDemoRole === opt.role }"
+                      :disabled="demoSwitchInFlight"
+                      @click="switchDemoView(opt.role)"
+                    >
+                      {{ demoSwitchInFlight && activeDemoRole !== opt.role ? 'Switching...' : opt.label }}
+                    </button>
+                  </template>
                 </div>
               </div>
               <h1 v-if="navTitleText" class="nav-title">{{ navTitleText }}</h1>
@@ -838,16 +852,37 @@ const currentBrandLabel = computed(() => {
   return agencyStore.currentAgency?.name || 'Agency';
 });
 
+const demoSwitchInFlight = ref(false);
+const demoRoleOptions = [
+  { role: 'provider', label: 'Provider View' },
+  { role: 'provider_plus', label: 'Provider+ View' },
+  { role: 'staff', label: 'Staff View' },
+  { role: 'support', label: 'Support View' },
+  { role: 'admin', label: 'Admin View' }
+];
+const demoAllowlistedEmails = computed(() => {
+  const csv = String(import.meta.env.VITE_DEMO_MODE_USER_ALLOWLIST || 'williams@itsco.health');
+  return new Set(csv.split(',').map((v) => String(v || '').trim().toLowerCase()).filter(Boolean));
+});
+const canUseDemoViewSwitch = computed(() => {
+  if (!isAuthenticated.value) return false;
+  const email = String(authStore.user?.email || '').trim().toLowerCase();
+  if (!email) return false;
+  return demoAllowlistedEmails.value.has(email);
+});
+const activeDemoRole = computed(() => String(authStore.user?.role || '').trim().toLowerCase());
+const canOpenBrandMenu = computed(() => canSwitchBrand.value || canUseDemoViewSwitch.value);
+
 const toggleBrandMenu = async () => {
-  if (!canSwitchBrand.value) return;
+  if (!canOpenBrandMenu.value) return;
 
   // If the list is empty, refresh it (can happen after context switches).
   try {
-    if (brandingStore.isSuperAdmin) {
+    if (canSwitchBrand.value && brandingStore.isSuperAdmin) {
       if (!agencyStore.agencies || agencyStore.agencies.length === 0) {
         await agencyStore.fetchAgencies();
       }
-    } else {
+    } else if (canSwitchBrand.value) {
       if (!agencyStore.userAgencies || agencyStore.userAgencies.length === 0) {
         await agencyStore.fetchUserAgencies();
       }
@@ -944,6 +979,39 @@ const selectPlatformBrand = async () => {
     } catch {
       // ignore
     }
+  }
+};
+
+const switchDemoView = async (nextRole) => {
+  if (demoSwitchInFlight.value) return;
+  const normalizedRole = String(nextRole || '').trim().toLowerCase();
+  if (!normalizedRole) return;
+  const activeAgencyId = Number(agencyStore.currentAgency?.id || 0);
+  if (!activeAgencyId) {
+    window.alert('Choose a brand/agency first, then switch demo view.');
+    return;
+  }
+  demoSwitchInFlight.value = true;
+  try {
+    const response = await api.post('/auth/demo/switch-view', {
+      role: normalizedRole,
+      agencyId: activeAgencyId
+    });
+    const payload = response?.data || {};
+    if (payload.user) {
+      authStore.setAuth(null, payload.user, payload.sessionId || null);
+    }
+    if (payload.selectedAgency) {
+      agencyStore.setCurrentAgency(payload.selectedAgency);
+      const slug = payload.selectedAgency.slug || payload.selectedAgency.portal_url;
+      if (slug) pushWithSlug(slug);
+    }
+    closeBrandMenu();
+  } catch (error) {
+    const msg = error?.response?.data?.error?.message || 'Failed to switch demo view.';
+    window.alert(msg);
+  } finally {
+    demoSwitchInFlight.value = false;
   }
 };
 

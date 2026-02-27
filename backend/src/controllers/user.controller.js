@@ -208,10 +208,12 @@ export const getCurrentUser = async (req, res, next) => {
     if (!user) return res.status(404).json({ error: { message: 'User not found' } });
 
     const payrollAgencyIds = user?.id ? await User.listPayrollAgencyIds(user.id) : [];
-    const baseCaps = getUserCapabilities(user);
+    const isDemoMode = req.user?.demoMode === true;
+    const effectiveRole = isDemoMode ? String(req.user?.role || user.role || '').toLowerCase() : user.role;
+    const baseCaps = getUserCapabilities({ ...user, role: effectiveRole });
     // Payroll management is gated by user_agencies.has_payroll_access (except super_admin).
     // This keeps UI capability checks consistent with payroll controller enforcement.
-    const canManagePayroll = user.role === 'super_admin' || payrollAgencyIds.length > 0;
+    const canManagePayroll = effectiveRole === 'super_admin' || payrollAgencyIds.length > 0;
 
     // 6-month password expiry (best-effort; defaults to created_at if password_changed_at missing)
     const calcPasswordExpiry = (u) => {
@@ -239,7 +241,7 @@ export const getCurrentUser = async (req, res, next) => {
     res.json({
       id: user.id,
       email: user.email,
-      role: user.role, // Always get role from database, not token
+      role: effectiveRole,
       status: user.status,
       firstName: user.first_name,
       lastName: user.last_name,
@@ -278,7 +280,9 @@ export const getCurrentUser = async (req, res, next) => {
         ...baseCaps,
         canManagePayroll,
         canViewMyPayroll: true
-      }
+      },
+      demoMode: isDemoMode,
+      demoRealRole: isDemoMode ? (req.user?.demoRealRole || user.role) : null
     });
   } catch (error) {
     next(error);
