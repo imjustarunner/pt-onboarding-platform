@@ -163,6 +163,7 @@ import {
   ,createMyPtoRequest
   ,createUserPtoRequest
   ,listMyPtoRequests
+  ,deleteMyPtoRequest
   ,listPtoRequests
   ,patchPtoRequest
 } from '../controllers/payroll.controller.js';
@@ -288,6 +289,7 @@ router.get('/users/:userId/pto-balances', getUserPtoBalances);
 router.post('/me/pto-requests', ...createMyPtoRequest);
 router.post('/users/:userId/pto-requests', ...createUserPtoRequest);
 router.get('/me/pto-requests', listMyPtoRequests);
+router.delete('/me/pto-requests/:id', deleteMyPtoRequest);
 router.patch('/org-address/:orgId', updateOrganizationAddressForPayroll);
 router.patch('/office-address/:locationId', updateOfficeLocationAddressForPayroll);
 router.get('/mileage-claims', listMileageClaims);

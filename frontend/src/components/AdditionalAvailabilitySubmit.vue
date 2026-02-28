@@ -20,7 +20,27 @@
           </div>
 
           <div v-if="pending.officeRequests.length" class="notice">
-            You already have a pending office availability request. Staff will review it soon.
+            <div class="notice-head">You have a pending office availability request. Staff will review it soon.</div>
+            <div class="notice-summary">
+              <div class="summary-row">
+                <span class="lbl-sm">Preferred buildings:</span>
+                {{ (firstOfficeRequest.preferredOfficeIds?.length ? officeNamesFor(firstOfficeRequest.preferredOfficeIds).join(', ') : 'Any') }}
+              </div>
+              <div class="summary-row">
+                <span class="lbl-sm">Windows:</span>
+                <span v-for="(s, idx) in (firstOfficeRequest.slots || [])" :key="idx" class="pill">{{ weekdayLabel(s.weekday) }} {{ hourLabel(s.startHour) }}–{{ hourLabel(s.endHour) }}</span>
+              </div>
+              <div v-if="firstOfficeRequest.notes" class="summary-row">
+                <span class="lbl-sm">Notes:</span> {{ firstOfficeRequest.notes }}
+              </div>
+              <div class="summary-row muted" style="margin-top: 6px;">Submitted {{ formatDate(firstOfficeRequest.createdAt) }}</div>
+            </div>
+            <div class="notice-actions">
+              <span class="hint-sm">Need to change or add something? Withdraw and submit a new request.</span>
+              <button class="btn btn-secondary btn-sm" type="button" @click="withdrawRequests" :disabled="saving">
+                {{ saving ? '…' : 'Withdraw request' }}
+              </button>
+            </div>
           </div>
 
           <div v-else class="form">
@@ -62,10 +82,27 @@
               <div class="title">School daytime availability</div>
               <div class="muted">Share weekday daytime availability so staff can assign you to a school day (you will not select the school).</div>
             </div>
+            <button class="btn btn-secondary btn-sm" @click="refresh" :disabled="saving">Refresh</button>
           </div>
 
           <div v-if="pending.schoolRequests.length" class="notice">
-            You already have a pending school availability request. Staff will review it soon.
+            <div class="notice-head">You have a pending school availability request. Staff will review it soon.</div>
+            <div class="notice-summary">
+              <div class="summary-row">
+                <span class="lbl-sm">Daytime blocks:</span>
+                <span v-for="(b, idx) in (firstSchoolRequest.blocks || [])" :key="idx" class="pill">{{ b.dayOfWeek }} {{ b.startTime }}–{{ b.endTime }}</span>
+              </div>
+              <div v-if="firstSchoolRequest.notes" class="summary-row">
+                <span class="lbl-sm">Notes:</span> {{ firstSchoolRequest.notes }}
+              </div>
+              <div class="summary-row muted" style="margin-top: 6px;">Submitted {{ formatDate(firstSchoolRequest.createdAt) }}</div>
+            </div>
+            <div class="notice-actions">
+              <span class="hint-sm">Need to change or add something? Withdraw and submit a new request.</span>
+              <button class="btn btn-secondary btn-sm" type="button" @click="withdrawRequests" :disabled="saving">
+                {{ saving ? '…' : 'Withdraw request' }}
+              </button>
+            </div>
           </div>
 
           <div v-else class="form">
@@ -208,6 +245,19 @@ const hourLabel = (h) => {
   d.setHours(Number(h), 0, 0, 0);
   return d.toLocaleTimeString([], { hour: 'numeric' });
 };
+const weekdayLabel = (wd) => (weekdays.find((d) => d.value === wd)?.label ?? `Day ${wd}`);
+const formatDate = (v) => {
+  if (!v) return '';
+  const d = new Date(v);
+  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+};
+const firstOfficeRequest = computed(() => (pending.officeRequests || [])[0] || null);
+const firstSchoolRequest = computed(() => (pending.schoolRequests || [])[0] || null);
+const officeNamesFor = (ids) => {
+  if (!Array.isArray(ids) || !ids.length) return [];
+  const list = offices.value || [];
+  return ids.map((id) => list.find((o) => Number(o.id) === Number(id))?.name ?? `#${id}`).filter(Boolean);
+};
 
 const officeForm = reactive({
   preferredOfficeIds: [],
@@ -273,6 +323,27 @@ const skillBuilderValidationError = computed(() => {
   if (mins < 360) return 'Skill Builders requires at least 6 hours/week of direct time. Add more blocks.';
   return '';
 });
+
+const withdrawRequests = async () => {
+  const hasOffice = (pending.officeRequests || []).length > 0;
+  const hasSchool = (pending.schoolRequests || []).length > 0;
+  const msg = hasOffice && hasSchool
+    ? 'This will withdraw all your pending office and school availability requests. You can submit new ones after.'
+    : hasOffice
+      ? 'This will withdraw your pending office availability request. You can submit a new one after.'
+      : 'This will withdraw your pending school availability request. You can submit a new one after.';
+  if (!window.confirm(msg)) return;
+  try {
+    saving.value = true;
+    error.value = '';
+    await api.post('/availability/me/requests/unrequest-all', { agencyId: props.agencyId });
+    await refresh();
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to withdraw request';
+  } finally {
+    saving.value = false;
+  }
+};
 
 const refresh = async () => {
   try {
@@ -406,6 +477,12 @@ onMounted(refresh);
 .actions { display: flex; justify-content: flex-end; margin-top: 10px; }
 .btn-sm { padding: 8px 10px; font-size: 13px; }
 .notice { background: var(--bg-alt); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin-top: 10px; color: var(--text-secondary); }
+.notice-head { font-weight: 600; margin-bottom: 8px; }
+.notice-summary { display: flex; flex-direction: column; gap: 4px; }
+.summary-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
+.summary-row .pill { display: inline-block; padding: 2px 8px; background: var(--bg); border-radius: 6px; font-size: 12px; margin-right: 4px; }
+.notice-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); }
+.hint-sm { font-size: 12px; color: var(--text-secondary); }
 .pill-inline { display: inline-block; margin-left: 8px; }
 .error-box { background: #fee; border: 1px solid #fcc; padding: 10px 12px; border-radius: 8px; margin-top: 10px; }
 </style>

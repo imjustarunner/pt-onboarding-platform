@@ -10662,9 +10662,10 @@ export const deleteMyMileageClaim = async (req, res, next) => {
     if (!claim) return res.status(404).json({ error: { message: 'Mileage claim not found' } });
     if (Number(claim.user_id) !== Number(userId)) return res.status(403).json({ error: { message: 'Access denied' } });
 
-    // Only allow deleting claims that were sent back (needs changes).
-    if (String(claim.status || '').toLowerCase() !== 'deferred') {
-      return res.status(409).json({ error: { message: 'Only returned claims can be deleted' } });
+    // Allow withdrawing submitted, deferred, or rejected claims (not approved/paid).
+    const s = String(claim.status || '').toLowerCase();
+    if (!['submitted', 'deferred', 'rejected'].includes(s)) {
+      return res.status(409).json({ error: { message: 'Only pending or returned claims can be withdrawn' } });
     }
 
     await pool.execute('DELETE FROM payroll_mileage_claims WHERE id = ? LIMIT 1', [id]);
@@ -11268,8 +11269,9 @@ export const deleteMyReimbursementClaim = async (req, res, next) => {
     if (!claim) return res.status(404).json({ error: { message: 'Reimbursement claim not found' } });
     if (Number(claim.user_id) !== Number(userId)) return res.status(403).json({ error: { message: 'Access denied' } });
 
-    if (String(claim.status || '').toLowerCase() !== 'deferred') {
-      return res.status(409).json({ error: { message: 'Only returned claims can be deleted' } });
+    const s = String(claim.status || '').toLowerCase();
+    if (!['submitted', 'deferred', 'rejected'].includes(s)) {
+      return res.status(409).json({ error: { message: 'Only pending or returned claims can be withdrawn' } });
     }
 
     await pool.execute('DELETE FROM payroll_reimbursement_claims WHERE id = ? LIMIT 1', [id]);
@@ -11779,8 +11781,9 @@ export const deleteMyCompanyCardExpense = async (req, res, next) => {
     if (!claim) return res.status(404).json({ error: { message: 'Company card expense not found' } });
     if (Number(claim.user_id) !== Number(userId)) return res.status(403).json({ error: { message: 'Access denied' } });
 
-    if (String(claim.status || '').toLowerCase() !== 'deferred') {
-      return res.status(409).json({ error: { message: 'Only returned claims can be deleted' } });
+    const s = String(claim.status || '').toLowerCase();
+    if (!['submitted', 'deferred', 'rejected'].includes(s)) {
+      return res.status(409).json({ error: { message: 'Only pending or returned claims can be withdrawn' } });
     }
 
     await pool.execute('DELETE FROM payroll_company_card_expenses WHERE id = ? LIMIT 1', [id]);
@@ -12790,8 +12793,9 @@ export const deleteMyTimeClaim = async (req, res, next) => {
     if (!claim) return res.status(404).json({ error: { message: 'Time claim not found' } });
     if (Number(claim.user_id) !== Number(userId)) return res.status(403).json({ error: { message: 'Access denied' } });
 
-    if (String(claim.status || '').toLowerCase() !== 'deferred') {
-      return res.status(409).json({ error: { message: 'Only returned claims can be deleted' } });
+    const s = String(claim.status || '').toLowerCase();
+    if (!['submitted', 'deferred', 'rejected'].includes(s)) {
+      return res.status(409).json({ error: { message: 'Only pending or returned claims can be withdrawn' } });
     }
 
     await pool.execute('DELETE FROM payroll_time_claims WHERE id = ? LIMIT 1', [id]);
@@ -13234,9 +13238,10 @@ export const deleteMyMedcancelClaim = async (req, res, next) => {
     if (!claim) return res.status(404).json({ error: { message: 'Med Cancel claim not found' } });
     if (Number(claim.user_id) !== Number(userId)) return res.status(403).json({ error: { message: 'Access denied' } });
 
-    // Only allow deleting claims that were sent back (needs changes).
-    if (String(claim.status || '').toLowerCase() !== 'deferred') {
-      return res.status(409).json({ error: { message: 'Only returned claims can be deleted' } });
+    // Allow withdrawing submitted, deferred, or rejected claims (not approved/paid).
+    const s = String(claim.status || '').toLowerCase();
+    if (!['submitted', 'deferred', 'rejected'].includes(s)) {
+      return res.status(409).json({ error: { message: 'Only pending or returned claims can be withdrawn' } });
     }
 
     // Claim items table has ON DELETE CASCADE via FK, so deleting parent is enough.
@@ -13967,6 +13972,33 @@ export const listMyPtoRequests = async (req, res, next) => {
     const rows = await PayrollPtoRequest.listForAgencyUser({ agencyId, userId, limit: 200 });
     const withItems = await Promise.all((rows || []).map(async (r) => ({ ...r, items: await PayrollPtoRequest.listItemsForRequest(r.id) })));
     res.json(withItems);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const deleteMyPtoRequest = async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const userId = req.user?.id;
+    const agencyId = (req.query?.agencyId || req.body?.agencyId) ? parseInt(req.query?.agencyId || req.body?.agencyId, 10) : null;
+    if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+    if (!id) return res.status(400).json({ error: { message: 'id is required' } });
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+
+    const reqRow = await PayrollPtoRequest.findById(id);
+    if (!reqRow) return res.status(404).json({ error: { message: 'PTO request not found' } });
+    if (Number(reqRow.agency_id) !== Number(agencyId)) return res.status(403).json({ error: { message: 'Access denied' } });
+    if (Number(reqRow.user_id) !== Number(userId)) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const s = String(reqRow.status || '').toLowerCase();
+    if (!['submitted', 'deferred', 'rejected'].includes(s)) {
+      return res.status(409).json({ error: { message: 'Only pending or returned PTO requests can be withdrawn' } });
+    }
+
+    await pool.execute('DELETE FROM payroll_pto_request_items WHERE request_id = ?', [id]);
+    await pool.execute('DELETE FROM payroll_pto_requests WHERE id = ? LIMIT 1', [id]);
+    res.json({ ok: true });
   } catch (e) {
     next(e);
   }

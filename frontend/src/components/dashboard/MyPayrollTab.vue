@@ -30,17 +30,24 @@
                 <tr>
                   <th>Bucket</th>
                   <th class="right">Balance (hours)</th>
+                  <th class="right" v-if="ptoPendingSickHours + ptoPendingTrainingHours > 0">New balance (if pending approved)</th>
                 </tr>
               </thead>
               <tbody>
                 <tr>
                   <td>Sick Leave</td>
                   <td class="right">{{ fmtNum(ptoBalances.sickHours || 0) }}</td>
+                  <td class="right" v-if="ptoPendingSickHours + ptoPendingTrainingHours > 0">
+                    {{ fmtNum(Math.max(0, (ptoBalances.sickHours || 0) - ptoPendingSickHours)) }}
+                  </td>
                 </tr>
                 <tr>
                   <td>Training PTO</td>
                   <td class="right">
                     {{ (ptoPolicy?.trainingPtoEnabled === true && ptoAccount?.training_pto_eligible) ? fmtNum(ptoBalances.trainingHours || 0) : '—' }}
+                  </td>
+                  <td class="right" v-if="ptoPendingSickHours + ptoPendingTrainingHours > 0">
+                    {{ (ptoPolicy?.trainingPtoEnabled === true && ptoAccount?.training_pto_eligible) ? fmtNum(Math.max(0, (ptoBalances.trainingHours || 0) - ptoPendingTrainingHours)) : '—' }}
                   </td>
                 </tr>
               </tbody>
@@ -69,11 +76,12 @@
                   <th class="right">Hours</th>
                   <th>Status</th>
                   <th>Proof</th>
+                  <th class="right"></th>
                 </tr>
               </thead>
               <tbody>
                 <tr v-for="r in ptoRequests" :key="r.id">
-                  <td>{{ String(r.created_at || '').slice(0, 10) }}</td>
+                  <td>{{ fmtShortDate(r.created_at) }}</td>
                   <td>{{ submitterLabel(r) }}</td>
                   <td>{{ String(r.request_type || '').toLowerCase() === 'training' ? 'Training PTO' : 'Sick Leave' }}</td>
                   <td class="right">{{ fmtNum(Number(r.total_hours || 0)) }}</td>
@@ -90,6 +98,16 @@
                     <a v-if="r.proof_file_path" :href="receiptUrl({ receipt_file_path: r.proof_file_path })" target="_blank" rel="noopener noreferrer">View</a>
                     <span v-else class="muted">—</span>
                   </td>
+                  <td class="right">
+                    <button
+                      v-if="['submitted','deferred','rejected'].includes(String(r.status||'').toLowerCase())"
+                      class="btn btn-danger btn-sm"
+                      type="button"
+                      @click="withdrawPtoRequest(r)"
+                    >
+                      Withdraw
+                    </button>
+                  </td>
                 </tr>
               </tbody>
             </table>
@@ -101,7 +119,7 @@
       <details class="card claim-card" open>
         <summary class="claim-summary">
           <div>
-            <div class="claim-title">School Mileage</div>
+            <div class="claim-title">Mileage</div>
             <div class="muted">History of your submissions.</div>
           </div>
           <button class="btn btn-secondary btn-sm" @click.stop="loadMileageClaims" type="button" :disabled="mileageClaimsLoading">
@@ -125,10 +143,14 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="c in mileageClaims" :key="c.id">
-              <td>{{ String(c.created_at || '').slice(0, 10) }}</td>
+            <tr
+              v-for="c in mileageClaims"
+              :key="c.id"
+              :class="mileageClaimRowClass(c)"
+            >
+              <td>{{ fmtShortDate(c.created_at) }}</td>
               <td>{{ submitterLabel(c) }}</td>
-              <td>{{ c.drive_date }}</td>
+              <td>{{ fmtShortDate(c.drive_date) }}</td>
                 <td>{{ String(c.claim_type || '').toLowerCase() === 'school_travel' ? 'School' : 'Other' }}</td>
                 <td
                   class="right"
@@ -169,11 +191,15 @@
                           (() => {
                             const isSchool = String(c.claim_type || '').toLowerCase() === 'school_travel';
                             const miles = Number(isSchool ? (c.eligible_miles ?? c.miles ?? 0) : (c.miles ?? 0));
+                            const rate = isSchool ? Number(mileageRateForTier(c.tier_level) || 0) : rateForOtherMileage();
                             const tier = Number(c.tier_level || 0);
-                            const rate = Number(mileageRateForTier(tier) || 0);
-                            if (rate > 0 && miles > 0) return `Estimated = ${fmtNum(miles)} mi × ${fmtMoney(rate)}/mi (Tier ${tier || '—'})`;
-                            if (tier > 0 && rate <= 0) return `Tier ${tier} mileage rate is not configured`;
-                            return 'Estimated amount will appear once approved';
+                            if (rate > 0 && miles > 0) {
+                              return isSchool
+                                ? `Estimated = ${fmtNum(miles)} mi × ${fmtMoney(rate)}/mi (Tier ${tier || '—'})`
+                                : `Estimated = ${fmtNum(miles)} mi × ${fmtMoney(rate)}/mi (Tier 3 or national standard; subject to change)`;
+                            }
+                            if (isSchool && tier > 0 && rate <= 0) return `Tier ${tier} mileage rate is not configured`;
+                            return isSchool ? 'Estimated amount will appear once approved' : `Estimated = miles × rate (Tier 3 or national standard)`;
                           })()
                         )
                   "
@@ -183,8 +209,7 @@
                       if (c.applied_amount) return fmtMoney(c.applied_amount);
                       const isSchool = String(c.claim_type || '').toLowerCase() === 'school_travel';
                       const miles = Number(isSchool ? (c.eligible_miles ?? c.miles ?? 0) : (c.miles ?? 0));
-                      const tier = Number(c.tier_level || 0);
-                      const rate = Number(mileageRateForTier(tier) || 0);
+                      const rate = isSchool ? Number(mileageRateForTier(c.tier_level) || 0) : rateForOtherMileage();
                       const est = miles > 0 && rate > 0 ? (miles * rate) : 0;
                       return est > 0 ? `${fmtMoney(est)} (est.)` : '—';
                     })()
@@ -201,12 +226,12 @@
                     Edit &amp; resubmit
                   </button>
                   <button
-                    v-if="String(c.status||'').toLowerCase()==='deferred'"
+                    v-if="['submitted','deferred','rejected'].includes(String(c.status||'').toLowerCase())"
                     class="btn btn-danger btn-sm"
                     type="button"
-                    @click="deleteMileageClaim(c)"
+                    @click="withdrawMileageClaim(c)"
                   >
-                    Delete
+                    Withdraw
                   </button>
                 </td>
               </tr>
@@ -243,9 +268,9 @@
             </thead>
             <tbody>
               <tr v-for="c in medcancelClaims" :key="c.id">
-                <td>{{ String(c.created_at || '').slice(0, 10) }}</td>
+                <td>{{ fmtShortDate(c.created_at) }}</td>
                 <td>{{ submitterLabel(c) }}</td>
-                <td>{{ dateYmd(c.claim_date) }}</td>
+                <td>{{ fmtShortDate(c.claim_date) }}</td>
                 <td class="right">{{ fmtNum(Number((c.items || []).length || c.units || 0)) }}</td>
                 <td>
                   <div>{{ String(c.status || '').toUpperCase() }}</div>
@@ -268,12 +293,12 @@
                     Edit &amp; resubmit
                   </button>
                   <button
-                    v-if="String(c.status||'').toLowerCase()==='deferred'"
+                    v-if="['submitted','deferred','rejected'].includes(String(c.status||'').toLowerCase())"
                     class="btn btn-danger btn-sm"
                     type="button"
-                    @click="deleteMedcancelClaim(c)"
+                    @click="withdrawMedcancelClaim(c)"
                   >
-                    Delete
+                    Withdraw
                   </button>
                 </td>
               </tr>
@@ -310,9 +335,9 @@
             </thead>
             <tbody>
               <tr v-for="c in reimbursementClaims" :key="c.id">
-                <td>{{ String(c.created_at || '').slice(0, 10) }}</td>
+                <td>{{ fmtShortDate(c.created_at) }}</td>
                 <td>{{ submitterLabel(c) }}</td>
-                <td>{{ c.expense_date }}</td>
+                <td>{{ fmtShortDate(c.expense_date) }}</td>
                 <td class="right">{{ fmtMoney(Number(c.amount || 0)) }}</td>
                 <td>
                   <div>{{ String(c.status || '').toUpperCase() }}</div>
@@ -338,12 +363,12 @@
                     Edit &amp; resubmit
                   </button>
                   <button
-                    v-if="String(c.status||'').toLowerCase()==='deferred'"
+                    v-if="['submitted','deferred','rejected'].includes(String(c.status||'').toLowerCase())"
                     class="btn btn-danger btn-sm"
                     type="button"
-                    @click="deleteReimbursementClaim(c)"
+                    @click="withdrawReimbursementClaim(c)"
                   >
-                    Delete
+                    Withdraw
                   </button>
                 </td>
               </tr>
@@ -380,9 +405,9 @@
             </thead>
             <tbody>
               <tr v-for="c in companyCardExpenses" :key="c.id">
-                <td>{{ String(c.created_at || '').slice(0, 10) }}</td>
+                <td>{{ fmtShortDate(c.created_at) }}</td>
                 <td>{{ submitterLabel(c) }}</td>
-                <td>{{ c.expense_date }}</td>
+                <td>{{ fmtShortDate(c.expense_date) }}</td>
                 <td class="right">{{ fmtMoney(Number(c.amount || 0)) }}</td>
                 <td>
                   <div>{{ String(c.status || '').toUpperCase() }}</div>
@@ -408,12 +433,12 @@
                     Edit &amp; resubmit
                   </button>
                   <button
-                    v-if="String(c.status||'').toLowerCase()==='deferred'"
+                    v-if="['submitted','deferred','rejected'].includes(String(c.status||'').toLowerCase())"
                     class="btn btn-danger btn-sm"
                     type="button"
-                    @click="deleteCompanyCardExpense(c)"
+                    @click="withdrawCompanyCardExpense(c)"
                   >
-                    Delete
+                    Withdraw
                   </button>
                 </td>
               </tr>
@@ -450,9 +475,9 @@
             </thead>
             <tbody>
               <tr v-for="c in timeClaims" :key="c.id">
-                <td>{{ String(c.created_at || '').slice(0, 10) }}</td>
+                <td>{{ fmtShortDate(c.created_at) }}</td>
                 <td>{{ submitterLabel(c) }}</td>
-                <td>{{ c.claim_date }}</td>
+                <td>{{ fmtShortDate(c.claim_date) }}</td>
                 <td>{{ timeClaimTypeLabel(c) }}</td>
                 <td>
                   <div>{{ String(c.status || '').toUpperCase() }}</div>
@@ -503,12 +528,12 @@
                     Edit &amp; resubmit
                   </button>
                   <button
-                    v-if="String(c.status||'').toLowerCase()==='deferred'"
+                    v-if="['submitted','deferred','rejected'].includes(String(c.status||'').toLowerCase())"
                     class="btn btn-danger btn-sm"
                     type="button"
-                    @click="deleteTimeClaim(c)"
+                    @click="withdrawTimeClaim(c)"
                   >
-                    Delete
+                    Withdraw
                   </button>
                 </td>
             </tr>
@@ -821,8 +846,9 @@
     </div>
   </div>
 
-  <!-- Mileage submission modal -->
-  <div v-if="showMileageModal" class="modal-backdrop" @click.self="closeMileageModal">
+  <!-- Mileage submission modal (Teleport to body so it's always visible) -->
+  <Teleport to="body">
+    <div v-if="showMileageModal" class="modal-backdrop" @click.self="closeMileageModal">
     <div class="modal" style="width: min(720px, 100%);">
       <div class="modal-header">
         <div>
@@ -1075,8 +1101,10 @@
       </div>
     </div>
   </div>
+  </Teleport>
 
-  <!-- MedCancel submission modal -->
+  <!-- MedCancel submission modal (Teleport to body so it's visible when opened from hidden Submit-panel tab) -->
+  <Teleport to="body">
   <div v-if="showMedcancelModal" class="modal-backdrop" @click.self="closeMedcancelModal">
     <div class="modal" style="width: min(720px, 100%);">
       <div class="modal-header">
@@ -1174,8 +1202,10 @@
       </div>
     </div>
   </div>
+  </Teleport>
 
-  <!-- PTO chooser modal -->
+  <!-- PTO modals (Teleport to body so visible when opened from hidden Submit-panel tab) -->
+  <Teleport to="body">
   <div v-if="showPtoChooser" class="modal-backdrop" @click.self="closePtoChooserModal">
     <div class="modal" style="width: min(720px, 100%);">
       <div class="modal-header">
@@ -1357,8 +1387,10 @@
       </div>
     </div>
   </div>
+  </Teleport>
 
-  <!-- Reimbursement submission modal -->
+  <!-- Reimbursement submission modal (Teleport to body so it's visible when opened from hidden Submit-panel tab) -->
+  <Teleport to="body">
   <div v-if="showReimbursementModal" class="modal-backdrop" @click.self="closeReimbursementModal">
     <div class="modal" style="width: min(720px, 100%);">
       <div class="modal-header">
@@ -1489,8 +1521,10 @@
       </div>
     </div>
   </div>
+  </Teleport>
 
-  <!-- Company card expense submission modal -->
+  <!-- Company card expense submission modal (Teleport to body so it's visible when opened from Submit panel) -->
+  <Teleport to="body">
   <div v-if="showCompanyCardExpenseModal" class="modal-backdrop" @click.self="closeCompanyCardExpenseModal">
     <div class="modal" style="width: min(720px, 100%);">
       <div class="modal-header">
@@ -1610,8 +1644,10 @@
       </div>
     </div>
   </div>
+  </Teleport>
 
-  <!-- Time Claim: Meeting/Training modal -->
+  <!-- Time Claim modals (Teleport to body so visible when opened from Submit panel) -->
+  <Teleport to="body">
   <div v-if="showTimeMeetingModal" class="modal-backdrop" @click.self="closeTimeMeetingModal">
     <div class="modal" style="width: min(720px, 100%);">
       <div class="modal-header">
@@ -1714,8 +1750,6 @@
       </div>
     </div>
   </div>
-
-  <!-- Time Claim: Excess/Holiday modal -->
   <div v-if="showTimeExcessModal" class="modal-backdrop" @click.self="closeTimeExcessModal">
     <div class="modal" style="width: min(720px, 100%);">
       <div class="modal-header">
@@ -1790,8 +1824,6 @@
       </div>
     </div>
   </div>
-
-  <!-- Time Claim: Service Correction modal -->
   <div v-if="showTimeCorrectionModal" class="modal-backdrop" @click.self="closeTimeCorrectionModal">
     <div class="modal" style="width: min(720px, 100%);">
       <div class="modal-header">
@@ -1858,8 +1890,6 @@
       </div>
     </div>
   </div>
-
-  <!-- Time Claim: Overtime Evaluation modal -->
   <div v-if="showTimeOvertimeModal" class="modal-backdrop" @click.self="closeTimeOvertimeModal">
     <div class="modal" style="width: min(720px, 100%);">
       <div class="modal-header">
@@ -1946,14 +1976,31 @@
       </div>
     </div>
   </div>
+  </Teleport>
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
+
+const props = defineProps({
+  /** When set, open mileage modal immediately on mount (e.g. from Submit panel). */
+  openMileageOnMount: { type: String, default: null },
+  /** When true, open reimbursement modal immediately on mount (e.g. from Submit panel). */
+  openReimbursementOnMount: { type: Boolean, default: false },
+  /** When true, open medcancel modal immediately on mount (e.g. from Submit panel). */
+  openMedcancelOnMount: { type: Boolean, default: false },
+  /** When true, open PTO chooser modal immediately on mount (e.g. from Submit panel). */
+  openPtoOnMount: { type: Boolean, default: false },
+  /** When true, open company card expense modal immediately on mount (e.g. from Submit panel). */
+  openCompanyCardOnMount: { type: Boolean, default: false },
+  /** When set, open the corresponding time claim modal on mount (e.g. from Submit panel): 'meeting' | 'excess' | 'correction' | 'overtime'. */
+  openTimeOnMount: { type: String, default: null }
+});
+const emit = defineEmits(['mileage-modal-closed', 'mileage-submitted', 'reimbursement-modal-closed', 'reimbursement-submitted', 'medcancel-modal-closed', 'medcancel-submitted', 'pto-modal-closed', 'pto-submitted', 'company-card-modal-closed', 'company-card-submitted', 'time-modal-closed', 'time-submitted']);
 
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
@@ -1990,6 +2037,13 @@ const submitterLabel = (row) => {
   if (email) return email;
   if (submittedById) return `User #${submittedById}`;
   return '—';
+};
+
+const mileageClaimRowClass = (c) => {
+  const s = String(c?.status || '').toLowerCase();
+  if (s === 'approved' || s === 'paid') return 'mileage-row-approved';
+  if (s === 'deferred' || s === 'rejected' || s === 'returned') return 'mileage-row-returned';
+  return 'mileage-row-submitted';
 };
 
 const agencyId = computed(() => {
@@ -2049,6 +2103,19 @@ const showPtoSickModal = ref(false);
 const showPtoTrainingModal = ref(false);
 const submittingPtoRequest = ref(false);
 const submitPtoError = ref('');
+
+const ptoPendingSickHours = computed(() => {
+  const list = Array.isArray(ptoRequests.value) ? ptoRequests.value : [];
+  return list
+    .filter((r) => String(r.status || '').toLowerCase() === 'submitted' && String(r.request_type || '').toLowerCase() !== 'training')
+    .reduce((sum, r) => sum + Number(r.total_hours || 0), 0);
+});
+const ptoPendingTrainingHours = computed(() => {
+  const list = Array.isArray(ptoRequests.value) ? ptoRequests.value : [];
+  return list
+    .filter((r) => String(r.status || '').toLowerCase() === 'submitted' && String(r.request_type || '').toLowerCase() === 'training')
+    .reduce((sum, r) => sum + Number(r.total_hours || 0), 0);
+});
 
 const ptoSickForm = ref({
   items: [{ date: '', hours: '' }],
@@ -2562,6 +2629,13 @@ const mileageRateForTier = (tierLevel) => {
   return Number(mileageRates.value.byTier.get(t) || 0);
 };
 
+/** Rate for Other mileage: tier 3 or IRS national standard (cents → dollars). */
+const NATIONAL_STANDARD_RATE_PER_MILE = 0.725;
+const rateForOtherMileage = () => {
+  const tier3 = Number(mileageRates.value.byTier.get(3) || 0);
+  return tier3 > 0 ? tier3 : NATIONAL_STANDARD_RATE_PER_MILE;
+};
+
 const loadMyMileageRates = async () => {
   if (!agencyId.value) return;
   try {
@@ -2607,11 +2681,6 @@ const openMileageModal = async (claimType = 'school_travel') => {
   submitMileageError.value = '';
   schoolTravelManualMilesMode.value = false;
   schoolTravelManualMilesReason.value = '';
-  if (agencyId.value) {
-    await Promise.all([loadMileageSchools(), loadMileageOffices(), loadMileageAssignedOffices(), loadMyHomeAddress()]);
-  } else {
-    await loadMyHomeAddress();
-  }
   const today = new Date();
   const ymd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
   mileageForm.value = {
@@ -2620,7 +2689,7 @@ const openMileageModal = async (claimType = 'school_travel') => {
     schoolOrganizationId: null,
     officeLocationId: null,
     tierLevel: null,
-    miles: mileageForm.value.miles || '',
+    miles: mileageForm.value?.miles || '',
     roundTrip: false,
     startLocation: '',
     endLocation: '',
@@ -2630,17 +2699,30 @@ const openMileageModal = async (claimType = 'school_travel') => {
     tripPurpose: '',
     costCenter: '',
     attestation: false,
-    homeStreetAddress: mileageForm.value.homeStreetAddress || '',
-    homeCity: mileageForm.value.homeCity || '',
-    homeState: mileageForm.value.homeState || '',
-    homePostalCode: mileageForm.value.homePostalCode || ''
+    homeStreetAddress: mileageForm.value?.homeStreetAddress || '',
+    homeCity: mileageForm.value?.homeCity || '',
+    homeState: mileageForm.value?.homeState || '',
+    homePostalCode: mileageForm.value?.homePostalCode || ''
   };
-  if (mileageForm.value.claimType === 'school_travel') {
-    mileageForm.value.officeLocationId = pickDefaultMileageOfficeId();
-  }
-  // Default: if missing, prompt for entry; if present, show read-only with update button.
-  editingHomeAddress.value = mileageForm.value.claimType === 'school_travel' ? !hasHomeAddress.value : false;
+  // Show modal immediately so user sees it; load data in background.
   showMileageModal.value = true;
+  try {
+    if (agencyId.value) {
+      await Promise.all([loadMileageSchools(), loadMileageOffices(), loadMileageAssignedOffices(), loadMyHomeAddress()]);
+    } else {
+      await loadMyHomeAddress();
+    }
+    if (mileageForm.value.claimType === 'school_travel') {
+      mileageForm.value.officeLocationId = pickDefaultMileageOfficeId();
+      const schools = mileageSchools.value || [];
+      if (schools.length === 1 && !mileageForm.value.schoolOrganizationId) {
+        mileageForm.value.schoolOrganizationId = Number(schools[0]?.schoolOrganizationId) || null;
+      }
+    }
+    editingHomeAddress.value = mileageForm.value.claimType === 'school_travel' ? !hasHomeAddress.value : false;
+  } catch (e) {
+    submitMileageError.value = e?.response?.data?.error?.message || e?.message || 'Failed to load form data.';
+  }
 };
 
 const openEditMileageClaim = async (c) => {
@@ -2694,6 +2776,7 @@ const closeMileageModal = () => {
   editingHomeAddress.value = false;
   schoolTravelManualMilesMode.value = false;
   schoolTravelManualMilesReason.value = '';
+  emit('mileage-modal-closed');
 };
 
 const loadMileageClaims = async () => {
@@ -2827,6 +2910,10 @@ const submitMileage = async () => {
       }
     }
     if (mileageForm.value.claimType === 'school_travel') {
+      if (!mileageForm.value.schoolOrganizationId) {
+        submitMileageError.value = 'Choose a school.';
+        return;
+      }
       if (!schoolTravelManualMilesMode.value && !hasHomeAddress.value) {
         submitMileageError.value = 'Home address is required for School Mileage. Click “Enter home address” and save it first.';
         return;
@@ -2857,7 +2944,8 @@ const submitMileage = async () => {
       costCenter: mileageForm.value.costCenter,
       attestation: !!mileageForm.value.attestation
     });
-    showMileageModal.value = false;
+    emit('mileage-submitted');
+    closeMileageModal();
     const warn = resp?.data?.submissionWarning ? String(resp.data.submissionWarning) : '';
     submitSuccess.value = warn
       ? `Mileage submission sent. Note: ${warn}`
@@ -2883,12 +2971,13 @@ const submitMileage = async () => {
       s.includes('GOOGLE_MAPS_API_KEY') ||
       s.includes('School address is not configured') ||
       s.includes('Office address is not configured') ||
+      s.includes('Home address is required') ||
       s.includes('Failed to compute distance') ||
       s.includes('Distance lookup failed')
     ) {
       schoolTravelManualMilesMode.value = true;
       schoolTravelManualMilesReason.value = s;
-      submitMileageError.value = 'Automatic mileage is unavailable right now. Enter eligible miles manually below and resubmit.';
+      submitMileageError.value = 'Automatic mileage is unavailable. Enter eligible miles manually below and resubmit.';
       return;
     }
     submitMileageError.value = msg;
@@ -2930,6 +3019,7 @@ const openEditMedcancelClaim = async (c) => {
 
 const closeMedcancelModal = () => {
   showMedcancelModal.value = false;
+  emit('medcancel-modal-closed');
 };
 
 const receiptUrl = (c) => {
@@ -3004,6 +3094,7 @@ const closeReimbursementModal = () => {
   showReimbursementModal.value = false;
   editingReimbursementClaimId.value = null;
   editingReimbursementExistingReceiptPath.value = '';
+  emit('reimbursement-modal-closed');
 };
 
 const onReceiptPick = (e) => {
@@ -3071,6 +3162,7 @@ const closeCompanyCardExpenseModal = () => {
   showCompanyCardExpenseModal.value = false;
   editingCompanyCardExpenseId.value = null;
   editingCompanyCardExistingReceiptPath.value = '';
+  emit('company-card-modal-closed');
 };
 
 const onCompanyCardReceiptPick = (e) => {
@@ -3194,6 +3286,7 @@ const submitReimbursement = async () => {
       });
     }
 
+    emit('reimbursement-submitted');
     showReimbursementModal.value = false;
     editingReimbursementClaimId.value = null;
     editingReimbursementExistingReceiptPath.value = '';
@@ -3285,6 +3378,7 @@ const submitCompanyCardExpense = async () => {
     showCompanyCardExpenseModal.value = false;
     editingCompanyCardExpenseId.value = null;
     editingCompanyCardExistingReceiptPath.value = '';
+    emit('company-card-submitted');
     submitSuccess.value = 'Company card expense submitted successfully. Admins can review it in payroll submissions.';
     window.setTimeout(() => { submitSuccess.value = ''; }, 5000);
     await loadCompanyCardExpenses();
@@ -3295,29 +3389,29 @@ const submitCompanyCardExpense = async () => {
   }
 };
 
-const deleteCompanyCardExpense = async (c) => {
-  if (!c?.id) return;
-  const ok = window.confirm('Delete this returned submission?');
+const withdrawCompanyCardExpense = async (c) => {
+  if (!agencyId.value || !c?.id) return;
+  const ok = window.confirm('Withdraw this company card expense submission? You can submit a new one if needed.');
   if (!ok) return;
   try {
     submitCompanyCardExpenseError.value = '';
     await api.delete(`/payroll/me/company-card-expenses/${c.id}`, { params: { agencyId: agencyId.value } });
     await loadCompanyCardExpenses();
   } catch (e) {
-    submitCompanyCardExpenseError.value = e.response?.data?.error?.message || e.message || 'Failed to delete company card expense';
+    submitCompanyCardExpenseError.value = e.response?.data?.error?.message || e.message || 'Failed to withdraw company card expense';
   }
 };
 
-const deleteReimbursementClaim = async (c) => {
+const withdrawReimbursementClaim = async (c) => {
   if (!agencyId.value || !c?.id) return;
-  const ok = window.confirm('Delete this returned reimbursement submission? You can then resubmit with corrections.');
+  const ok = window.confirm('Withdraw this reimbursement submission? You can submit a new one if needed.');
   if (!ok) return;
   try {
     submitReimbursementError.value = '';
     await api.delete(`/payroll/me/reimbursement-claims/${c.id}`, { params: { agencyId: agencyId.value } });
     await loadReimbursementClaims();
   } catch (e) {
-    submitReimbursementError.value = e.response?.data?.error?.message || e.message || 'Failed to delete reimbursement';
+    submitReimbursementError.value = e.response?.data?.error?.message || e.message || 'Failed to withdraw reimbursement';
   }
 };
 
@@ -3381,18 +3475,43 @@ const submitTimeClaim = async ({ claimType, claimDate, payload }) => {
   }
 };
 
-const deleteTimeClaim = async (c) => {
+const withdrawTimeClaim = async (c) => {
   if (!agencyId.value || !c?.id) return;
-  const ok = window.confirm('Delete this returned time claim? You can then resubmit with corrections.');
+  const ok = window.confirm('Withdraw this time claim? You can submit a new one if needed.');
   if (!ok) return;
   try {
     submitTimeClaimError.value = '';
     await api.delete(`/payroll/me/time-claims/${c.id}`, { params: { agencyId: agencyId.value } });
     await loadTimeClaims();
   } catch (e) {
-    submitTimeClaimError.value = e.response?.data?.error?.message || e.message || 'Failed to delete time claim';
+    submitTimeClaimError.value = e.response?.data?.error?.message || e.message || 'Failed to withdraw time claim';
   }
 };
+
+const minutesFromStartEnd = (startTime, endTime) => {
+  const s = String(startTime || '').trim();
+  const e = String(endTime || '').trim();
+  if (!s || !e || !/^\d{1,2}:\d{2}$/.test(s) || !/^\d{1,2}:\d{2}$/.test(e)) return null;
+  const [sh, sm] = s.split(':').map(Number);
+  const [eh, em] = e.split(':').map(Number);
+  const startMins = sh * 60 + sm;
+  let endMins = eh * 60 + em;
+  if (endMins <= startMins) endMins += 24 * 60; // span past midnight
+  return endMins - startMins;
+};
+
+watch(
+  () => [timeMeetingForm.value.startTime, timeMeetingForm.value.endTime],
+  ([start, end]) => {
+    if (start && end) {
+      const mins = minutesFromStartEnd(start, end);
+      if (mins != null && mins >= 1) {
+        timeMeetingForm.value.totalMinutes = String(mins);
+      }
+    }
+  },
+  { deep: true }
+);
 
 const openTimeMeetingModal = () => {
   submitTimeClaimError.value = '';
@@ -3401,7 +3520,10 @@ const openTimeMeetingModal = () => {
   timeMeetingForm.value = { ...timeMeetingForm.value, claimDate: ymd, attestation: false };
   showTimeMeetingModal.value = true;
 };
-const closeTimeMeetingModal = () => { showTimeMeetingModal.value = false; };
+const closeTimeMeetingModal = () => {
+  showTimeMeetingModal.value = false;
+  emit('time-modal-closed');
+};
 
 const openTimeExcessModal = () => {
   submitTimeClaimError.value = '';
@@ -3410,7 +3532,10 @@ const openTimeExcessModal = () => {
   timeExcessForm.value = { ...timeExcessForm.value, claimDate: ymd, attestation: false };
   showTimeExcessModal.value = true;
 };
-const closeTimeExcessModal = () => { showTimeExcessModal.value = false; };
+const closeTimeExcessModal = () => {
+  showTimeExcessModal.value = false;
+  emit('time-modal-closed');
+};
 
 const openTimeCorrectionModal = () => {
   submitTimeClaimError.value = '';
@@ -3419,7 +3544,10 @@ const openTimeCorrectionModal = () => {
   timeCorrectionForm.value = { ...timeCorrectionForm.value, claimDate: ymd, attestation: false };
   showTimeCorrectionModal.value = true;
 };
-const closeTimeCorrectionModal = () => { showTimeCorrectionModal.value = false; };
+const closeTimeCorrectionModal = () => {
+  showTimeCorrectionModal.value = false;
+  emit('time-modal-closed');
+};
 
 const openTimeOvertimeModal = () => {
   submitTimeClaimError.value = '';
@@ -3428,7 +3556,10 @@ const openTimeOvertimeModal = () => {
   timeOvertimeForm.value = { ...timeOvertimeForm.value, claimDate: ymd, attestation: false };
   showTimeOvertimeModal.value = true;
 };
-const closeTimeOvertimeModal = () => { showTimeOvertimeModal.value = false; };
+const closeTimeOvertimeModal = () => {
+  showTimeOvertimeModal.value = false;
+  emit('time-modal-closed');
+};
 
 const openEditTimeClaim = (c) => {
   if (!c?.id) return;
@@ -3503,23 +3634,32 @@ const openEditTimeClaim = (c) => {
 
 const submitTimeMeeting = async () => {
   submitTimeClaimError.value = '';
-  const isMentorCpaMeeting = String(timeMeetingForm.value.meetingType || '').trim() === 'Mentor/CPA Individual Meeting';
+  const f = timeMeetingForm.value;
+  let totalMinutes = Number(f.totalMinutes || 0);
+  if (totalMinutes < 1 && f.startTime && f.endTime) {
+    const computed = minutesFromStartEnd(f.startTime, f.endTime);
+    if (computed != null && computed >= 1) totalMinutes = computed;
+  }
+  const isMentorCpaMeeting = String(f.meetingType || '').trim() === 'Mentor/CPA Individual Meeting';
   await submitTimeClaim({
     claimType: isMentorCpaMeeting ? 'mentor_cpa_meeting' : 'meeting_training',
-    claimDate: timeMeetingForm.value.claimDate,
+    claimDate: f.claimDate,
     payload: {
-      meetingType: timeMeetingForm.value.meetingType,
-      mentorRole: isMentorCpaMeeting ? timeMeetingForm.value.mentorRole : null,
-      otherMeeting: timeMeetingForm.value.otherMeeting,
-      startTime: timeMeetingForm.value.startTime,
-      endTime: timeMeetingForm.value.endTime,
-      totalMinutes: Number(timeMeetingForm.value.totalMinutes || 0),
-      platform: timeMeetingForm.value.platform,
-      summary: timeMeetingForm.value.summary,
-      attestation: !!timeMeetingForm.value.attestation
+      meetingType: f.meetingType,
+      mentorRole: isMentorCpaMeeting ? f.mentorRole : null,
+      otherMeeting: f.otherMeeting,
+      startTime: f.startTime,
+      endTime: f.endTime,
+      totalMinutes,
+      platform: f.platform,
+      summary: f.summary,
+      attestation: !!f.attestation
     }
   });
-  if (!submitTimeClaimError.value) closeTimeMeetingModal();
+  if (!submitTimeClaimError.value) {
+    emit('time-submitted');
+    closeTimeMeetingModal();
+  }
 };
 
 const submitTimeExcess = async () => {
@@ -3537,7 +3677,10 @@ const submitTimeExcess = async () => {
       attestation: !!timeExcessForm.value.attestation
     }
   });
-  if (!submitTimeClaimError.value) closeTimeExcessModal();
+  if (!submitTimeClaimError.value) {
+    emit('time-submitted');
+    closeTimeExcessModal();
+  }
 };
 
 const submitTimeCorrection = async () => {
@@ -3554,7 +3697,10 @@ const submitTimeCorrection = async () => {
       attestation: !!timeCorrectionForm.value.attestation
     }
   });
-  if (!submitTimeClaimError.value) closeTimeCorrectionModal();
+  if (!submitTimeClaimError.value) {
+    emit('time-submitted');
+    closeTimeCorrectionModal();
+  }
 };
 
 const submitTimeOvertime = async () => {
@@ -3573,7 +3719,10 @@ const submitTimeOvertime = async () => {
       attestation: !!timeOvertimeForm.value.attestation
     }
   });
-  if (!submitTimeClaimError.value) closeTimeOvertimeModal();
+  if (!submitTimeClaimError.value) {
+    emit('time-submitted');
+    closeTimeOvertimeModal();
+  }
 };
 
 const loadMedcancelClaims = async () => {
@@ -3645,12 +3794,28 @@ const loadPtoRequests = async () => {
   }
 };
 
+const withdrawPtoRequest = async (r) => {
+  if (!agencyId.value || !r?.id) return;
+  const ok = window.confirm('Withdraw this PTO request? You can submit a new one if needed.');
+  if (!ok) return;
+  try {
+    ptoRequestsError.value = '';
+    await api.delete(`/payroll/me/pto-requests/${r.id}`, { params: { agencyId: agencyId.value } });
+    await loadPtoRequests();
+  } catch (e) {
+    ptoRequestsError.value = e.response?.data?.error?.message || e.message || 'Failed to withdraw PTO request';
+  }
+};
+
 const openPtoChooserModal = async () => {
   submitPtoError.value = '';
   await loadPto();
   showPtoChooser.value = true;
 };
-const closePtoChooserModal = () => { showPtoChooser.value = false; };
+const closePtoChooserModal = () => {
+  showPtoChooser.value = false;
+  emit('pto-modal-closed');
+};
 
 const addPtoItem = (formRef) => {
   const next = Array.isArray(formRef.value.items) ? formRef.value.items.slice() : [];
@@ -3671,7 +3836,10 @@ const openPtoSick = () => {
   showPtoChooser.value = false;
   showPtoSickModal.value = true;
 };
-const closePtoSick = () => { showPtoSickModal.value = false; };
+const closePtoSick = () => {
+  showPtoSickModal.value = false;
+  emit('pto-modal-closed');
+};
 
 const openPtoTraining = () => {
   submitPtoError.value = '';
@@ -3691,7 +3859,10 @@ const openPtoTraining = () => {
   showPtoChooser.value = false;
   showPtoTrainingModal.value = true;
 };
-const closePtoTraining = () => { showPtoTrainingModal.value = false; };
+const closePtoTraining = () => {
+  showPtoTrainingModal.value = false;
+  emit('pto-modal-closed');
+};
 
 const onPtoProofPick = (e) => {
   const file = e?.target?.files?.[0] || null;
@@ -3745,6 +3916,7 @@ const submitPto = async ({ requestType, form }) => {
 
     await api.post('/payroll/me/pto-requests', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
 
+    emit('pto-submitted');
     showPtoSickModal.value = false;
     showPtoTrainingModal.value = false;
     submitSuccess.value = 'PTO request submitted successfully. Payroll will review and approve it.';
@@ -3816,6 +3988,7 @@ const submitMedcancel = async () => {
         attestation: !!it.attestation
       }))
     });
+    emit('medcancel-submitted');
     showMedcancelModal.value = false;
     submitSuccess.value = 'Med Cancel submission sent successfully. Payroll will review and approve it before it is added to a pay period.';
     window.setTimeout(() => { submitSuccess.value = ''; }, 5000);
@@ -3834,29 +4007,29 @@ const submitMedcancel = async () => {
   }
 };
 
-const deleteMileageClaim = async (c) => {
+const withdrawMileageClaim = async (c) => {
   if (!agencyId.value || !c?.id) return;
-  const ok = window.confirm('Delete this returned mileage submission? You can then resubmit with corrections.');
+  const ok = window.confirm('Withdraw this mileage submission? You can submit a new one if needed.');
   if (!ok) return;
   try {
     submitMileageError.value = '';
     await api.delete(`/payroll/me/mileage-claims/${c.id}`, { params: { agencyId: agencyId.value } });
     await loadMileageClaims();
   } catch (e) {
-    submitMileageError.value = e.response?.data?.error?.message || e.message || 'Failed to delete mileage claim';
+    submitMileageError.value = e.response?.data?.error?.message || e.message || 'Failed to withdraw mileage claim';
   }
 };
 
-const deleteMedcancelClaim = async (c) => {
+const withdrawMedcancelClaim = async (c) => {
   if (!agencyId.value || !c?.id) return;
-  const ok = window.confirm('Delete this returned Med Cancel submission? You can then resubmit with corrections.');
+  const ok = window.confirm('Withdraw this Med Cancel submission? You can submit a new one if needed.');
   if (!ok) return;
   try {
     submitMedcancelError.value = '';
     await api.delete(`/payroll/me/medcancel-claims/${c.id}`, { params: { agencyId: agencyId.value } });
     await loadMedcancelClaims();
   } catch (e) {
-    submitMedcancelError.value = e.response?.data?.error?.message || e.message || 'Failed to delete Med Cancel claim';
+    submitMedcancelError.value = e.response?.data?.error?.message || e.message || 'Failed to withdraw Med Cancel claim';
   }
 };
 
@@ -3910,48 +4083,61 @@ watch(
   () => route.query?.submission,
   async (v) => {
     if (!v) return;
+    await nextTick();
+    const key = String(v || '');
+    let opened = false;
     try {
-      // Ensure the supporting data is loaded for dropdowns before opening modals.
-      await loadMileageSchools();
-      await loadMileageOffices();
-      await loadMileageAssignedOffices();
-      await loadMyHomeAddress();
-
-      const key = String(v || '');
       if (key === 'school_mileage') {
         if (!inSchoolEnabled.value) {
           submitMileageError.value = 'In-School submissions are disabled for this organization.';
-          return;
+          await openMileageModal('school_travel');
+          opened = true;
+        } else {
+          await openMileageModal('school_travel');
+          opened = true;
         }
-        await openMileageModal('school_travel');
       } else if (key === 'mileage') {
         await openMileageModal('standard');
+        opened = true;
       } else if (key === 'medcancel') {
         if (!authStore.user?.medcancelEnabled || !medcancelEnabledForAgency.value) {
           submitMedcancelError.value = 'Med Cancel is disabled for this organization.';
           return;
         }
         openMedcancelModal();
+        opened = true;
       } else if (key === 'reimbursement') {
         openReimbursementModal();
+        opened = true;
       } else if (key === 'company_card_expense') {
         openCompanyCardExpenseModal();
+        opened = true;
       } else if (key === 'time_meeting_training') {
         openTimeMeetingModal();
+        opened = true;
       } else if (key === 'time_excess_holiday') {
         openTimeExcessModal();
+        opened = true;
       } else if (key === 'time_service_correction') {
         openTimeCorrectionModal();
+        opened = true;
       } else if (key === 'time_overtime_evaluation') {
         openTimeOvertimeModal();
+        opened = true;
       } else if (key === 'pto') {
         await openPtoChooserModal();
+        opened = true;
       }
+    } catch (e) {
+      console.error('[MyPayrollTab] submission modal error:', e);
+      submitMileageError.value = submitMileageError.value || (e?.message || 'Failed to open form.');
+      if (key === 'school_mileage' || key === 'mileage') opened = true;
     } finally {
-      // Always clear query so future clicks (same submission key) reliably retrigger.
-      const next = { ...route.query };
-      delete next.submission;
-      router.replace({ query: next });
+      if (opened) {
+        const next = { ...route.query };
+        delete next.submission;
+        router.replace({ query: next });
+      }
     }
   },
   { immediate: true }
@@ -3960,6 +4146,7 @@ watch(
 onMounted(async () => {
   await loadMyHomeAddress();
   await load();
+  await loadMileageSchools();
   await loadMileageClaims();
   await loadMileageAssignedOffices();
   if (authStore.user?.medcancelEnabled && medcancelEnabledForAgency.value) {
@@ -3971,6 +4158,61 @@ onMounted(async () => {
   await loadReimbursementClaims();
   await loadCompanyCardExpenses();
   await loadTimeClaims();
+
+  // Open mileage modal immediately when mounted from Submit panel (no navigation).
+  if (props.openMileageOnMount) {
+    await nextTick();
+    const claimType = props.openMileageOnMount === 'standard' ? 'standard' : 'school_travel';
+    if (claimType === 'school_travel' && !inSchoolEnabled.value) {
+      submitMileageError.value = 'In-School submissions are disabled for this organization.';
+    }
+    await openMileageModal(claimType);
+  }
+  // Open reimbursement modal immediately when mounted from Submit panel (no navigation).
+  if (props.openReimbursementOnMount) {
+    await nextTick();
+    openReimbursementModal();
+  }
+  // Open medcancel modal immediately when mounted from Submit panel (no navigation).
+  if (props.openMedcancelOnMount) {
+    await nextTick();
+    openMedcancelModal();
+  }
+  // Open PTO chooser modal immediately when mounted from Submit panel (no navigation).
+  if (props.openPtoOnMount) {
+    await nextTick();
+    await openPtoChooserModal();
+  }
+  // Open company card expense modal immediately when mounted from Submit panel (no navigation).
+  if (props.openCompanyCardOnMount) {
+    await nextTick();
+    openCompanyCardExpenseModal();
+  }
+  // Open time claim modal immediately when mounted from Submit panel (no navigation).
+  if (props.openTimeOnMount) {
+    await nextTick();
+    const t = String(props.openTimeOnMount || '').toLowerCase();
+    if (t === 'meeting') openTimeMeetingModal();
+    else if (t === 'excess') openTimeExcessModal();
+    else if (t === 'correction') openTimeCorrectionModal();
+    else if (t === 'overtime') openTimeOvertimeModal();
+  }
+
+  // Fallback: if submission param is in URL but modal didn't open (e.g. route timing), open it now.
+  const sub = String(route.query?.submission || '').trim();
+  if (sub && !showMileageModal.value && !showMedcancelModal.value && !showReimbursementModal.value) {
+    if (sub === 'school_mileage' && inSchoolEnabled.value) {
+      await openMileageModal('school_travel');
+      const next = { ...route.query };
+      delete next.submission;
+      router.replace({ query: next });
+    } else if (sub === 'mileage') {
+      await openMileageModal('standard');
+      const next = { ...route.query };
+      delete next.submission;
+      router.replace({ query: next });
+    }
+  }
 
   // If we arrived here from the dashboard "View last paycheck" action, auto-expand once.
   const qp = route.query?.expandPayrollPeriodId;
@@ -3994,12 +4236,26 @@ onMounted(async () => {
 }
 .table {
   width: 100%;
+  min-width: 640px;
   border-collapse: collapse;
+}
+.table th {
+  white-space: nowrap;
+  font-weight: 600;
 }
 .table th,
 .table td {
   padding: 8px 10px;
   border-bottom: 1px solid var(--border);
+}
+.mileage-row-submitted {
+  background: #e8f4fc;
+}
+.mileage-row-approved {
+  background: #d4edda;
+}
+.mileage-row-returned {
+  background: #ffe4cc;
 }
 .right {
   text-align: right;
@@ -4076,7 +4332,7 @@ select {
 }
 .claims-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
   gap: 12px;
 }
 @media (max-width: 900px) {

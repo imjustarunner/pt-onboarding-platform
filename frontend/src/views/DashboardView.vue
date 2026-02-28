@@ -576,7 +576,7 @@
                   </div>
                 </button>
 
-                <button type="button" class="dash-card" @click="goToSubmission('mileage')">
+                <button type="button" class="dash-card" @click="openRegularMileageModal">
                   <div class="dash-card-title">Mileage</div>
                   <div class="dash-card-desc">Submit other mileage.</div>
                   <div class="dash-card-meta">
@@ -584,7 +584,7 @@
                   </div>
                 </button>
 
-                <button type="button" class="dash-card" @click="goToSubmission('reimbursement')">
+                <button type="button" class="dash-card" @click="openReimbursementModal">
                   <div class="dash-card-title">Reimbursement</div>
                   <div class="dash-card-desc">Upload a receipt and submit for approval.</div>
                   <div class="dash-card-meta">
@@ -592,7 +592,7 @@
                   </div>
                 </button>
 
-                <button type="button" class="dash-card" @click="goToSubmission('pto')">
+                <button type="button" class="dash-card" @click="openPtoModal">
                   <div class="dash-card-title">PTO</div>
                   <div class="dash-card-desc">Request Sick Leave or Training PTO.</div>
                   <div class="dash-card-meta">
@@ -604,7 +604,7 @@
                   v-if="authStore.user?.companyCardEnabled"
                   type="button"
                   class="dash-card"
-                  @click="goToSubmission('company_card_expense')"
+                  @click="openCompanyCardModal"
                 >
                   <div class="dash-card-title">Submit Expense (Company Card)</div>
                   <div class="dash-card-desc">Submit company card purchases for tracking/review.</div>
@@ -626,7 +626,7 @@
             <div v-else-if="submitPanelView === 'time'">
               <div class="hint" style="margin-top: 6px;">Time Claims</div>
               <div class="submit-grid-2" style="margin-top: 12px;">
-                <button type="button" class="dash-card" @click="goToSubmission('time_meeting_training')">
+                <button type="button" class="dash-card" @click="openTimeMeetingModal">
                   <div class="dash-card-title">Meeting / Training Attendance</div>
                   <div class="dash-card-desc">Log meeting/training minutes.</div>
                   <div class="dash-card-meta">
@@ -634,7 +634,7 @@
                   </div>
                 </button>
 
-                <button type="button" class="dash-card" @click="goToSubmission('time_excess_holiday')">
+                <button type="button" class="dash-card" @click="openTimeExcessModal">
                   <div class="dash-card-title">Excess / Holiday Time</div>
                   <div class="dash-card-desc">Submit direct/indirect minutes for review.</div>
                   <div class="dash-card-meta">
@@ -642,7 +642,7 @@
                   </div>
                 </button>
 
-                <button type="button" class="dash-card" @click="goToSubmission('time_service_correction')">
+                <button type="button" class="dash-card" @click="openTimeCorrectionModal">
                   <div class="dash-card-title">Service Correction</div>
                   <div class="dash-card-desc">Request correction review for a service.</div>
                   <div class="dash-card-meta">
@@ -650,7 +650,7 @@
                   </div>
                 </button>
 
-                <button type="button" class="dash-card" @click="goToSubmission('time_overtime_evaluation')">
+                <button type="button" class="dash-card" @click="openTimeOvertimeModal">
                   <div class="dash-card-title">Overtime Evaluation</div>
                   <div class="dash-card-desc">Submit overtime evaluation details.</div>
                   <div class="dash-card-meta">
@@ -663,7 +663,7 @@
             <div v-else-if="submitPanelView === 'in_school'">
               <div class="hint" style="margin-top: 6px;">In-School Claims</div>
               <div class="submit-grid-2" style="margin-top: 12px;">
-                <button v-if="hasAssignedSchools" type="button" class="dash-card" @click="goToSubmission('school_mileage')">
+                <button v-if="hasAssignedSchools" type="button" class="dash-card" @click="openSchoolMileageModal">
                   <div class="dash-card-title">School Mileage</div>
                   <div class="dash-card-desc">Home ↔ School minus Home ↔ Office (auto).</div>
                   <div class="dash-card-meta">
@@ -675,7 +675,7 @@
                   v-if="authStore.user?.medcancelEnabled && medcancelEnabledForAgency && hasAssignedSchools"
                   type="button"
                   class="dash-card"
-                  @click="goToSubmission('medcancel')"
+                  @click="openMedcancelModal"
                 >
                   <div class="dash-card-title">Med Cancel</div>
                   <div class="dash-card-desc">Missed Medicaid sessions.</div>
@@ -857,6 +857,34 @@
       :payroll-period-id="lastPaycheckPayrollPeriodId"
       @close="closeLastPaycheckModal"
     />
+
+    <!-- Hidden MyPayrollTab used to open mileage/reimbursement/medcancel/PTO modals from Submit panel (no navigation). -->
+    <div
+      v-if="(pendingMileageModalOpen || pendingReimbursementModalOpen || pendingMedcancelModalOpen || pendingPtoModalOpen || pendingCompanyCardModalOpen || pendingTimeModalOpen) && currentAgencyId && !previewMode"
+      style="position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; opacity: 0; pointer-events: none;"
+      aria-hidden="true"
+    >
+      <MyPayrollTab
+        :open-mileage-on-mount="pendingMileageModalOpen"
+        :open-reimbursement-on-mount="!!pendingReimbursementModalOpen"
+        :open-medcancel-on-mount="!!pendingMedcancelModalOpen"
+        :open-pto-on-mount="!!pendingPtoModalOpen"
+        :open-company-card-on-mount="!!pendingCompanyCardModalOpen"
+        :open-time-on-mount="pendingTimeModalOpen"
+        @mileage-modal-closed="pendingMileageModalOpen = null"
+        @mileage-submitted="onMileageSubmittedFromModal"
+        @reimbursement-modal-closed="pendingReimbursementModalOpen = false"
+        @reimbursement-submitted="onReimbursementSubmittedFromModal"
+        @medcancel-modal-closed="pendingMedcancelModalOpen = false"
+        @medcancel-submitted="onMedcancelSubmittedFromModal"
+        @pto-modal-closed="pendingPtoModalOpen = false"
+        @pto-submitted="onPtoSubmittedFromModal"
+        @company-card-modal-closed="pendingCompanyCardModalOpen = false"
+        @company-card-submitted="onCompanyCardSubmittedFromModal"
+        @time-modal-closed="pendingTimeModalOpen = null"
+        @time-submitted="onTimeSubmittedFromModal"
+      />
+    </div>
 
     <div
       v-if="currentSplashAnnouncement && !mandatorySupervisionPrompt"
@@ -2338,12 +2366,97 @@ const openInSchoolClaims = () => {
   submitPanelView.value = 'in_school';
 };
 
-const goToSubmission = (kind) => {
-  // Use My -> My Payroll as the actual submission surface (it already has the modals/forms).
+const pendingMileageModalOpen = ref(null);
+const pendingReimbursementModalOpen = ref(false);
+const pendingMedcancelModalOpen = ref(false);
+const pendingPtoModalOpen = ref(false);
+const pendingCompanyCardModalOpen = ref(false);
+const pendingTimeModalOpen = ref(null); // 'meeting' | 'excess' | 'correction' | 'overtime'
+const openRegularMileageModal = () => {
+  pendingMileageModalOpen.value = 'standard';
+};
+const openSchoolMileageModal = () => {
+  if (!inSchoolEnabled.value) {
+    window.alert('In-School submissions are disabled for this organization.');
+    return;
+  }
+  if (!hasAssignedSchools.value) {
+    window.alert('You do not have any assigned school locations, so In-School Claims are not available.');
+    return;
+  }
+  pendingMileageModalOpen.value = 'school_travel';
+};
+
+const onMileageSubmittedFromModal = () => {
+  pendingMileageModalOpen.value = null;
+  activeTab.value = 'payroll';
+  router.replace({ query: { ...route.query, tab: 'payroll' } });
+};
+
+const openReimbursementModal = () => {
+  pendingReimbursementModalOpen.value = true;
+};
+
+const onReimbursementSubmittedFromModal = () => {
+  pendingReimbursementModalOpen.value = false;
+  activeTab.value = 'payroll';
+  router.replace({ query: { ...route.query, tab: 'payroll' } });
+};
+
+const openMedcancelModal = () => {
+  if (!inSchoolEnabled.value) {
+    window.alert('In-School submissions are disabled for this organization.');
+    return;
+  }
+  if (!hasAssignedSchools.value) {
+    window.alert('You do not have any assigned school locations, so Med Cancel is not available.');
+    return;
+  }
+  pendingMedcancelModalOpen.value = true;
+};
+
+const onMedcancelSubmittedFromModal = () => {
+  pendingMedcancelModalOpen.value = false;
+  activeTab.value = 'payroll';
+  router.replace({ query: { ...route.query, tab: 'payroll' } });
+};
+
+const openPtoModal = () => {
+  pendingPtoModalOpen.value = true;
+};
+
+const onPtoSubmittedFromModal = () => {
+  pendingPtoModalOpen.value = false;
+  activeTab.value = 'payroll';
+  router.replace({ query: { ...route.query, tab: 'payroll' } });
+};
+
+const openCompanyCardModal = () => {
+  pendingCompanyCardModalOpen.value = true;
+};
+
+const onCompanyCardSubmittedFromModal = () => {
+  pendingCompanyCardModalOpen.value = false;
+  activeTab.value = 'payroll';
+  router.replace({ query: { ...route.query, tab: 'payroll' } });
+};
+
+const openTimeMeetingModal = () => { pendingTimeModalOpen.value = 'meeting'; };
+const openTimeExcessModal = () => { pendingTimeModalOpen.value = 'excess'; };
+const openTimeCorrectionModal = () => { pendingTimeModalOpen.value = 'correction'; };
+const openTimeOvertimeModal = () => { pendingTimeModalOpen.value = 'overtime'; };
+
+const onTimeSubmittedFromModal = () => {
+  pendingTimeModalOpen.value = null;
+  activeTab.value = 'payroll';
+  router.replace({ query: { ...route.query, tab: 'payroll' } });
+};
+
+const goToSubmission = async (kind) => {
+  // Use direct Payroll tab (same MyPayrollTab, simpler mount path).
   submitPanelView.value = 'root';
-  myTab.value = 'payroll';
-  activeTab.value = 'my';
-  router.replace({ query: { ...route.query, tab: 'my', my: 'payroll', submission: kind } });
+  activeTab.value = 'payroll';
+  await router.replace({ query: { ...route.query, tab: 'payroll', submission: kind } });
 };
 
 const updateTrainingCount = (count) => {
