@@ -4444,9 +4444,10 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
           if (!code) continue;
           const rule = await PayrollExcessCompensationRule.findByAgencyAndCode(agencyId, code);
           const { excessDirect, excessIndirect } = PayrollExcessCompensationRule.computeExcessMinutes({
-            directMinutes: it?.directMinutes ?? 0,
-            indirectMinutes: it?.indirectMinutes ?? 0,
-            rule: rule || {}
+            actualDirectMinutes: it?.actualDirectMinutes ?? it?.directMinutes ?? 0,
+            actualIndirectMinutes: it?.actualIndirectMinutes ?? it?.indirectMinutes ?? 0,
+            rule: rule || {},
+            units: it?.units ?? 1
           });
           totalExcessDirect += excessDirect;
           totalExcessIndirect += excessIndirect;
@@ -12734,13 +12735,13 @@ export const createMyTimeClaim = async (req, res, next) => {
       const hasItems = items.some(
         (it) =>
           String(it?.serviceCode || '').trim() &&
-          ((toMinutes(it?.directMinutes) ?? 0) + (toMinutes(it?.indirectMinutes) ?? 0) >= 1)
+          ((toMinutes(it?.actualDirectMinutes ?? it?.directMinutes) ?? 0) + (toMinutes(it?.actualIndirectMinutes ?? it?.indirectMinutes) ?? 0) >= 1)
       );
-      const directMinutes = toMinutes(payload?.directMinutes);
-      const indirectMinutes = toMinutes(payload?.indirectMinutes);
+      const directMinutes = toMinutes(payload?.directMinutes ?? payload?.actualDirectMinutes);
+      const indirectMinutes = toMinutes(payload?.indirectMinutes ?? payload?.actualIndirectMinutes);
       const hasLegacy = (directMinutes ?? 0) + (indirectMinutes ?? 0) >= 1;
       if (!hasItems && !hasLegacy) {
-        return res.status(400).json({ error: { message: 'At least one service code entry with direct or indirect minutes is required' } });
+        return res.status(400).json({ error: { message: 'At least one service code entry with actual direct or indirect minutes is required' } });
       }
     } else if (claimType === 'service_correction') {
       if (!String(payload?.clientInitials || '').trim()) return res.status(400).json({ error: { message: 'clientInitials is required' } });
@@ -13054,9 +13055,10 @@ async function computeDefaultAppliedAmountForTimeClaim({ claim, rateCard }) {
         if (!code) continue;
         const rule = await PayrollExcessCompensationRule.findByAgencyAndCode(agencyId, code);
         const { excessDirect, excessIndirect } = PayrollExcessCompensationRule.computeExcessMinutes({
-          directMinutes: it?.directMinutes ?? 0,
-          indirectMinutes: it?.indirectMinutes ?? 0,
-          rule: rule || {}
+          actualDirectMinutes: it?.actualDirectMinutes ?? it?.directMinutes ?? 0,
+          actualIndirectMinutes: it?.actualIndirectMinutes ?? it?.indirectMinutes ?? 0,
+          rule: rule || {},
+          units: it?.units ?? 1
         });
         totalExcessDirect += excessDirect;
         totalExcessIndirect += excessIndirect;
@@ -15274,16 +15276,15 @@ export const listMyExcessCompensationRules = async (req, res, next) => {
 
 export const upsertExcessCompensationRule = async (req, res, next) => {
   try {
-    const { agencyId, serviceCode, directServiceMinimum, directServiceIncludedMax, adminIncludedMax, creditValue } = req.body || {};
+    const { agencyId, serviceCode, expectedDirectTotal, expectedIndirectTotal, creditValue } = req.body || {};
     if (!agencyId || !serviceCode) return res.status(400).json({ error: { message: 'agencyId and serviceCode are required' } });
     const resolvedAgencyId = await requirePayrollAccess(req, res, parseInt(agencyId));
     if (!resolvedAgencyId) return;
     const row = await PayrollExcessCompensationRule.upsert({
       agencyId: resolvedAgencyId,
       serviceCode: String(serviceCode).trim(),
-      directServiceMinimum,
-      directServiceIncludedMax,
-      adminIncludedMax,
+      expectedDirectTotal,
+      expectedIndirectTotal,
       creditValue
     });
     res.json(row || { ok: true });

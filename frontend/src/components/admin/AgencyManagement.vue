@@ -2903,6 +2903,75 @@
             </div>
 
             <div class="settings-section-divider">
+              <h4>Excess Time Compensation Rules</h4>
+              <p class="section-description">
+                Per-pay-period expected totals per service code. Excess = actual − expected; only positive excess is paid at the provider's rates.
+              </p>
+            </div>
+
+            <div v-if="excessRulesError" class="error-modal">
+              <strong>Error:</strong> {{ excessRulesError }}
+            </div>
+            <div v-if="excessRulesLoading" class="loading">Loading excess rules…</div>
+            <div v-else class="table-wrap" style="margin-top: 10px;">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Service Code</th>
+                    <th class="right">Expected Direct Total (mins)</th>
+                    <th class="right">Expected Indirect Total (mins)</th>
+                    <th class="right">Credit</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="r in excessRules" :key="r.service_code">
+                    <td><strong>{{ r.service_code }}</strong></td>
+                    <td class="right">
+                      <input v-model.number="excessDraft[r.service_code].expectedDirectTotal" type="number" min="0" style="width: 90px;" />
+                    </td>
+                    <td class="right">
+                      <input v-model.number="excessDraft[r.service_code].expectedIndirectTotal" type="number" min="0" style="width: 90px;" />
+                    </td>
+                    <td class="right">
+                      <input v-model.number="excessDraft[r.service_code].creditValue" type="number" step="0.01" min="0" style="width: 80px;" />
+                    </td>
+                    <td>
+                      <button type="button" class="btn btn-primary btn-sm" @click="saveExcessRule(r)" :disabled="excessSaving[r.service_code]">
+                        {{ excessSaving[r.service_code] ? 'Saving…' : 'Save' }}
+                      </button>
+                      <button type="button" class="btn btn-danger btn-sm" @click="deleteExcessRule(r)" :disabled="excessSaving[r.service_code]">
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                  <tr v-if="!excessRules.length">
+                    <td colspan="5" class="muted">No excess compensation rules yet. Add one below.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="filters-row" style="align-items: flex-end; margin-top: 10px;">
+              <div class="filters-group">
+                <label class="filters-label">Service Code</label>
+                <input v-model="newExcessServiceCode" class="filters-input" type="text" placeholder="e.g., 90837, 90834, H0004" />
+              </div>
+              <div class="filters-group">
+                <label class="filters-label">Expected Direct Total (mins)</label>
+                <input v-model.number="newExcessExpectedDirect" class="filters-input" type="number" min="0" placeholder="0" />
+              </div>
+              <div class="filters-group">
+                <label class="filters-label">Expected Indirect Total (mins)</label>
+                <input v-model.number="newExcessExpectedIndirect" class="filters-input" type="number" min="0" placeholder="0" />
+              </div>
+              <div class="filters-group">
+                <button type="button" class="btn btn-primary btn-sm" @click="addExcessRule" :disabled="!newExcessServiceCode || excessAdding">
+                  {{ excessAdding ? 'Adding…' : 'Add' }}
+                </button>
+              </div>
+            </div>
+
+            <div class="settings-section-divider">
               <h4>Payroll Service Codes (Equivalencies)</h4>
               <p class="section-description">
                 Edit how each service code converts units → hours and whether it counts for tier credits. This drives payroll calculations.
@@ -3509,6 +3578,17 @@ const holidayPayPolicyDraft = ref({
   notifyMissingApproval: false,
   notifyStrictMessage: false
 });
+
+// Excess compensation rules (agency-only)
+const excessRules = ref([]);
+const excessDraft = ref({});
+const excessRulesLoading = ref(false);
+const excessRulesError = ref('');
+const excessSaving = ref({});
+const excessAdding = ref(false);
+const newExcessServiceCode = ref('');
+const newExcessExpectedDirect = ref(0);
+const newExcessExpectedIndirect = ref(0);
 
 // Agency announcements (Dashboard banners)
 const announcementsLoading = ref(false);
@@ -4151,6 +4231,7 @@ const openPayrollTab = async () => {
   await loadSupervisionPolicy();
   await loadHolidayPayPolicy();
   await loadAgencyHolidays();
+  await loadExcessRules();
   await loadPayrollRules();
   await loadOtherRateTitles();
   await loadOfficeLocations();
@@ -4251,6 +4332,92 @@ const removeAgencyHoliday = async (h) => {
     agencyHolidaysError.value = e.response?.data?.error?.message || e.message || 'Failed to remove holiday';
   } finally {
     agencyHolidaysSaving.value = false;
+  }
+};
+
+const loadExcessRules = async () => {
+  if (!editingAgency.value?.id) return;
+  try {
+    excessRulesLoading.value = true;
+    excessRulesError.value = '';
+    const resp = await api.get('/payroll/excess-compensation-rules', { params: { agencyId: editingAgency.value.id } });
+    excessRules.value = resp.data || [];
+    excessDraft.value = {};
+    for (const r of excessRules.value) {
+      excessDraft.value[r.service_code] = {
+        expectedDirectTotal: Number(r.expected_direct_total || 0),
+        expectedIndirectTotal: Number(r.expected_indirect_total || 0),
+        creditValue: Number(r.credit_value || 0)
+      };
+    }
+  } catch (e) {
+    excessRulesError.value = e.response?.data?.error?.message || e.message || 'Failed to load excess rules';
+    excessRules.value = [];
+  } finally {
+    excessRulesLoading.value = false;
+  }
+};
+
+const saveExcessRule = async (r) => {
+  if (!editingAgency.value?.id || !r?.service_code) return;
+  const d = excessDraft.value[r.service_code];
+  if (!d) return;
+  try {
+    excessSaving.value = { ...excessSaving.value, [r.service_code]: true };
+    excessRulesError.value = '';
+    await api.post('/payroll/excess-compensation-rules', {
+      agencyId: editingAgency.value.id,
+      serviceCode: r.service_code,
+      expectedDirectTotal: Number(d.expectedDirectTotal ?? 0),
+      expectedIndirectTotal: Number(d.expectedIndirectTotal ?? 0),
+      creditValue: Number(d.creditValue ?? 0)
+    });
+    await loadExcessRules();
+  } catch (e) {
+    excessRulesError.value = e.response?.data?.error?.message || e.message || 'Failed to save';
+  } finally {
+    excessSaving.value = { ...excessSaving.value, [r.service_code]: false };
+  }
+};
+
+const deleteExcessRule = async (r) => {
+  if (!editingAgency.value?.id || !r?.service_code) return;
+  if (!window.confirm(`Delete excess rule for ${r.service_code}?`)) return;
+  try {
+    excessSaving.value = { ...excessSaving.value, [r.service_code]: true };
+    excessRulesError.value = '';
+    await api.delete('/payroll/excess-compensation-rules', {
+      params: { agencyId: editingAgency.value.id, serviceCode: r.service_code }
+    });
+    await loadExcessRules();
+  } catch (e) {
+    excessRulesError.value = e.response?.data?.error?.message || e.message || 'Failed to delete';
+  } finally {
+    excessSaving.value = { ...excessSaving.value, [r.service_code]: false };
+  }
+};
+
+const addExcessRule = async () => {
+  const code = String(newExcessServiceCode.value || '').trim();
+  if (!editingAgency.value?.id || !code) return;
+  try {
+    excessAdding.value = true;
+    excessRulesError.value = '';
+    await api.post('/payroll/excess-compensation-rules', {
+      agencyId: editingAgency.value.id,
+      serviceCode: code,
+      expectedDirectTotal: Number(newExcessExpectedDirect.value ?? 0),
+      expectedIndirectTotal: Number(newExcessExpectedIndirect.value ?? 0),
+      creditValue: 0
+    });
+    newExcessServiceCode.value = '';
+    newExcessExpectedDirect.value = 0;
+    newExcessExpectedIndirect.value = 0;
+    await loadExcessRules();
+  } catch (e) {
+    excessRulesError.value = e.response?.data?.error?.message || e.message || 'Failed to add';
+  } finally {
+    excessAdding.value = false;
   }
 };
 

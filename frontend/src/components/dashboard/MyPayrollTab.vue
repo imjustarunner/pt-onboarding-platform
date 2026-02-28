@@ -1755,7 +1755,7 @@
       <div class="modal-header">
         <div>
           <div class="modal-title">Time Claim — Excess Time</div>
-          <div class="hint">Select service codes and enter direct/indirect minutes. Excess beyond the included span is paid at your rates.</div>
+          <div class="hint">Per pay period: select code, enter units, see expected totals, enter your actual direct/indirect. Excess is paid at your rates.</div>
         </div>
         <button class="btn btn-secondary btn-sm" @click="closeTimeExcessModal">Close</button>
       </div>
@@ -1764,59 +1764,54 @@
 
       <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr;">
         <div class="field">
-          <label>Date of services</label>
+          <label>Pay period end date</label>
           <input v-model="timeExcessForm.claimDate" type="date" />
         </div>
       </div>
 
       <div class="card" style="margin-top: 12px;">
-        <h4 style="margin: 0 0 8px 0;">Service code entries</h4>
         <div v-if="excessRulesLoading" class="muted">Loading rules…</div>
         <div v-else-if="!excessRules.length" class="muted">
           No excess compensation rules configured. Ask your admin to add service codes in Payroll Settings → Excess Time Rules.
         </div>
-        <div v-else>
-          <div
-            v-for="(item, idx) in timeExcessForm.items"
-            :key="idx"
-            class="field-row"
-            style="margin-top: 10px; grid-template-columns: 140px 1fr 1fr 1fr auto; align-items: end; gap: 10px;"
-          >
+        <template v-else>
+          <div class="field-row" style="grid-template-columns: 1fr 1fr; gap: 10px;">
             <div class="field">
-              <label>Service Code</label>
-              <select v-model="item.serviceCode">
+              <label>CPT Code</label>
+              <select v-model="timeExcessForm.serviceCode">
                 <option value="">Select…</option>
                 <option v-for="r in excessRules" :key="r.service_code" :value="r.service_code">{{ r.service_code }}</option>
               </select>
             </div>
-            <div class="field" v-if="item.serviceCode && excessRuleByCode[item.serviceCode]">
-              <label>Direct (mins)</label>
-              <input v-model.number="item.directMinutes" type="number" step="1" min="0" placeholder="0" />
-              <div class="hint" style="font-size: 11px;">Included: {{ excessRuleByCode[item.serviceCode].direct_service_included_max }} mins</div>
-            </div>
-            <div class="field" v-else>
-              <label>Direct (mins)</label>
-              <input v-model.number="item.directMinutes" type="number" step="1" min="0" placeholder="0" />
-            </div>
-            <div class="field" v-if="item.serviceCode && excessRuleByCode[item.serviceCode]">
-              <label>Indirect/Admin (mins)</label>
-              <input v-model.number="item.indirectMinutes" type="number" step="1" min="0" placeholder="0" />
-              <div class="hint" style="font-size: 11px;">Included: {{ excessRuleByCode[item.serviceCode].admin_included_max }} mins</div>
-            </div>
-            <div class="field" v-else>
-              <label>Indirect/Admin (mins)</label>
-              <input v-model.number="item.indirectMinutes" type="number" step="1" min="0" placeholder="0" />
-            </div>
             <div class="field">
-              <button type="button" class="btn btn-danger btn-sm" @click="removeExcessItem(idx)" :disabled="timeExcessForm.items.length <= 1">
-                Remove
-              </button>
+              <label>Units (this pay period)</label>
+              <input v-model.number="timeExcessForm.units" type="number" min="1" step="1" placeholder="1" />
             </div>
           </div>
-          <button type="button" class="btn btn-secondary btn-sm" style="margin-top: 10px;" @click="addExcessItem" :disabled="!excessRules.length">
-            + Add another code
-          </button>
-        </div>
+          <div v-if="timeExcessForm.serviceCode && excessRuleByCode[timeExcessForm.serviceCode]" class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr; gap: 10px;">
+            <div class="field">
+              <label>Expected direct (mins)</label>
+              <div class="readonly-value">{{ excessExpectedDirect }} mins</div>
+            </div>
+            <div class="field">
+              <label>Expected indirect (mins)</label>
+              <div class="readonly-value">{{ excessExpectedIndirect }} mins</div>
+            </div>
+          </div>
+          <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr; gap: 10px;">
+            <div class="field">
+              <label>Actual direct (mins)</label>
+              <input v-model.number="timeExcessForm.actualDirectMinutes" type="number" min="0" step="1" placeholder="0" />
+            </div>
+            <div class="field">
+              <label>Actual indirect (mins)</label>
+              <input v-model.number="timeExcessForm.actualIndirectMinutes" type="number" min="0" step="1" placeholder="0" />
+            </div>
+          </div>
+          <div v-if="excessComputedDirect > 0 || excessComputedIndirect > 0" class="hint" style="margin-top: 8px;">
+            Excess: {{ excessComputedDirect }} direct mins, {{ excessComputedIndirect }} indirect mins (will be paid at your rates)
+          </div>
+        </template>
       </div>
 
       <div class="field" style="margin-top: 10px;">
@@ -2278,7 +2273,10 @@ const timeMeetingForm = ref({
 
 const timeExcessForm = ref({
   claimDate: '',
-  items: [{ serviceCode: '', directMinutes: 0, indirectMinutes: 0 }],
+  serviceCode: '',
+  units: 1,
+  actualDirectMinutes: 0,
+  actualIndirectMinutes: 0,
   reason: '',
   attestation: false
 });
@@ -2293,23 +2291,24 @@ const excessRuleByCode = computed(() => {
   return map;
 });
 const hasValidExcessItems = computed(() => {
-  const items = timeExcessForm.value.items || [];
-  return items.some(
-    (it) =>
-      it.serviceCode &&
-      (Number(it.directMinutes || 0) > 0 || Number(it.indirectMinutes || 0) > 0)
-  );
+  const f = timeExcessForm.value;
+  return f.serviceCode && (Number(f.actualDirectMinutes || 0) > 0 || Number(f.actualIndirectMinutes || 0) > 0);
 });
 
-const addExcessItem = () => {
-  timeExcessForm.value.items = [...(timeExcessForm.value.items || []), { serviceCode: '', directMinutes: 0, indirectMinutes: 0 }];
-};
-const removeExcessItem = (idx) => {
-  const items = [...(timeExcessForm.value.items || [])];
-  if (items.length <= 1) return;
-  items.splice(idx, 1);
-  timeExcessForm.value.items = items;
-};
+const excessExpectedDirect = computed(() => {
+  const code = timeExcessForm.value.serviceCode;
+  const rule = code ? excessRuleByCode.value[code] : null;
+  const units = Math.max(1, Number(timeExcessForm.value.units || 1));
+  return rule ? units * Number(rule.expected_direct_total || 0) : 0;
+});
+const excessExpectedIndirect = computed(() => {
+  const code = timeExcessForm.value.serviceCode;
+  const rule = code ? excessRuleByCode.value[code] : null;
+  const units = Math.max(1, Number(timeExcessForm.value.units || 1));
+  return rule ? units * Number(rule.expected_indirect_total || 0) : 0;
+});
+const excessComputedDirect = computed(() => Math.max(0, Number(timeExcessForm.value.actualDirectMinutes || 0) - excessExpectedDirect.value));
+const excessComputedIndirect = computed(() => Math.max(0, Number(timeExcessForm.value.actualIndirectMinutes || 0) - excessExpectedIndirect.value));
 
 const loadExcessRules = async () => {
   if (!agencyId.value) return;
@@ -3626,7 +3625,10 @@ const openTimeExcessModal = () => {
   const ymd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
   timeExcessForm.value = {
     claimDate: ymd,
-    items: [{ serviceCode: '', directMinutes: 0, indirectMinutes: 0 }],
+    serviceCode: '',
+    units: 1,
+    actualDirectMinutes: 0,
+    actualIndirectMinutes: 0,
     reason: '',
     attestation: false
   };
@@ -3711,17 +3713,21 @@ const openEditTimeClaim = (c) => {
   if (type === 'excess_holiday') {
     openTimeExcessModal();
     let items = Array.isArray(payload.items) ? payload.items : [];
-    if (!items.length && (Number(payload.directMinutes || 0) > 0 || Number(payload.indirectMinutes || 0) > 0)) {
+    if (!items.length && (Number(payload.actualDirectMinutes ?? payload.directMinutes || 0) > 0 || Number(payload.actualIndirectMinutes ?? payload.indirectMinutes || 0) > 0)) {
       items = [{
         serviceCode: payload.serviceCode || '',
-        directMinutes: Number(payload.directMinutes || 0),
-        indirectMinutes: Number(payload.indirectMinutes || 0)
+        units: payload.units ?? 1,
+        actualDirectMinutes: Number(payload.actualDirectMinutes ?? payload.directMinutes || 0),
+        actualIndirectMinutes: Number(payload.actualIndirectMinutes ?? payload.indirectMinutes || 0)
       }];
     }
-    if (!items.length) items = [{ serviceCode: '', directMinutes: 0, indirectMinutes: 0 }];
+    const it = items[0] || {};
     timeExcessForm.value = {
       claimDate: String(c.claim_date || '').slice(0, 10),
-      items,
+      serviceCode: it.serviceCode || '',
+      units: Math.max(1, Number(it.units || 1)),
+      actualDirectMinutes: Number(it.actualDirectMinutes ?? it.directMinutes || 0),
+      actualIndirectMinutes: Number(it.actualIndirectMinutes ?? it.indirectMinutes || 0),
       reason: payload.reason || '',
       attestation: false
     };
@@ -3816,20 +3822,19 @@ const submitTimeMeeting = async () => {
 
 const submitTimeExcess = async () => {
   submitTimeClaimError.value = '';
-  const items = (timeExcessForm.value.items || [])
-    .filter((it) => it.serviceCode && (Number(it.directMinutes || 0) > 0 || Number(it.indirectMinutes || 0) > 0))
-    .map((it) => ({
-      serviceCode: it.serviceCode,
-      directMinutes: Number(it.directMinutes || 0),
-      indirectMinutes: Number(it.indirectMinutes || 0)
-    }));
+  const f = timeExcessForm.value;
   await submitTimeClaim({
     claimType: 'excess_holiday',
-    claimDate: timeExcessForm.value.claimDate,
+    claimDate: f.claimDate,
     payload: {
-      items,
-      reason: timeExcessForm.value.reason,
-      attestation: !!timeExcessForm.value.attestation
+      items: [{
+        serviceCode: f.serviceCode,
+        units: Math.max(1, Number(f.units || 1)),
+        actualDirectMinutes: Number(f.actualDirectMinutes || 0),
+        actualIndirectMinutes: Number(f.actualIndirectMinutes || 0)
+      }],
+      reason: f.reason,
+      attestation: !!f.attestation
     }
   });
   if (!submitTimeClaimError.value) {
@@ -4432,6 +4437,13 @@ onMounted(async () => {
 }
 .muted {
   color: var(--text-secondary);
+}
+.readonly-value {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-secondary, #f5f5f5);
+  font-weight: 500;
 }
 .warn-box {
   border: 1px solid #ffe58f;

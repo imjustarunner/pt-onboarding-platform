@@ -85,8 +85,7 @@
     <div v-else-if="payrollTab === 'excess'" class="card">
       <h3 style="margin: 0 0 8px 0;">Excess Time Compensation Rules</h3>
       <div class="hint" style="margin-bottom: 12px;">
-        Master reference for service-code-based equivalency. Total Included Span = Direct Included Max + Admin Included Max.
-        Excess direct/indirect time beyond these limits is paid at the provider's rates.
+        Per-pay-period expected totals per service code. Excess = actual − expected; only positive excess is paid at the provider's rates.
       </div>
       <div v-if="excessError" class="warn">{{ excessError }}</div>
       <div v-if="excessLoading" class="muted">Loading…</div>
@@ -95,11 +94,9 @@
           <thead>
             <tr>
               <th>Service Code</th>
-              <th class="right">Direct Min (mins)</th>
-              <th class="right">Direct Included Max (mins)</th>
-              <th class="right">Admin Included Max (mins)</th>
-              <th class="right">Total Included Span</th>
-              <th class="right">Credit Value</th>
+              <th class="right">Expected Direct Total (mins)</th>
+              <th class="right">Expected Indirect Total (mins)</th>
+              <th class="right">Credit</th>
               <th></th>
             </tr>
           </thead>
@@ -107,15 +104,11 @@
             <tr v-for="r in excessRules" :key="r.service_code">
               <td><strong>{{ r.service_code }}</strong></td>
               <td class="right">
-                <input v-model.number="excessDraft[r.service_code].directServiceMinimum" type="number" min="0" style="width: 70px;" />
+                <input v-model.number="excessDraft[r.service_code].expectedDirectTotal" type="number" min="0" style="width: 90px;" />
               </td>
               <td class="right">
-                <input v-model.number="excessDraft[r.service_code].directServiceIncludedMax" type="number" min="0" style="width: 80px;" />
+                <input v-model.number="excessDraft[r.service_code].expectedIndirectTotal" type="number" min="0" style="width: 90px;" />
               </td>
-              <td class="right">
-                <input v-model.number="excessDraft[r.service_code].adminIncludedMax" type="number" min="0" style="width: 80px;" />
-              </td>
-              <td class="right">{{ (excessDraft[r.service_code]?.directServiceIncludedMax || 0) + (excessDraft[r.service_code]?.adminIncludedMax || 0) }}</td>
               <td class="right">
                 <input v-model.number="excessDraft[r.service_code].creditValue" type="number" step="0.01" min="0" style="width: 80px;" />
               </td>
@@ -129,7 +122,7 @@
               </td>
             </tr>
             <tr v-if="!excessRules.length">
-              <td colspan="7" class="empty-state-inline">No excess compensation rules yet. Add one below.</td>
+              <td colspan="5" class="empty-state-inline">No excess compensation rules yet. Add one below.</td>
             </tr>
           </tbody>
         </table>
@@ -143,12 +136,12 @@
           <input v-model="newExcessServiceCode" class="filters-input" type="text" placeholder="e.g., 90837, 90834, H0004" />
         </div>
         <div class="filters-group">
-          <label class="filters-label">Direct Included Max (mins)</label>
-          <input v-model.number="newExcessDirectMax" class="filters-input" type="number" min="0" placeholder="0" />
+          <label class="filters-label">Expected Direct Total (mins)</label>
+          <input v-model.number="newExcessExpectedDirect" class="filters-input" type="number" min="0" placeholder="0" />
         </div>
         <div class="filters-group">
-          <label class="filters-label">Admin Included Max (mins)</label>
-          <input v-model.number="newExcessAdminMax" class="filters-input" type="number" min="0" placeholder="0" />
+          <label class="filters-label">Expected Indirect Total (mins)</label>
+          <input v-model.number="newExcessExpectedIndirect" class="filters-input" type="number" min="0" placeholder="0" />
         </div>
         <div class="filters-group">
           <button type="button" class="btn btn-primary btn-sm" @click="addExcessRule" :disabled="!newExcessServiceCode || excessAdding">
@@ -263,8 +256,8 @@ const excessError = ref('');
 const excessSaving = ref({});
 const excessAdding = ref(false);
 const newExcessServiceCode = ref('');
-const newExcessDirectMax = ref(0);
-const newExcessAdminMax = ref(0);
+const newExcessExpectedDirect = ref(0);
+const newExcessExpectedIndirect = ref(0);
 
 const loadExcessRules = async () => {
   if (!agencyId.value) return;
@@ -276,9 +269,8 @@ const loadExcessRules = async () => {
     excessDraft.value = {};
     for (const r of excessRules.value) {
       excessDraft.value[r.service_code] = {
-        directServiceMinimum: Number(r.direct_service_minimum || 0),
-        directServiceIncludedMax: Number(r.direct_service_included_max || 0),
-        adminIncludedMax: Number(r.admin_included_max || 0),
+        expectedDirectTotal: Number(r.expected_direct_total || 0),
+        expectedIndirectTotal: Number(r.expected_indirect_total || 0),
         creditValue: Number(r.credit_value || 0)
       };
     }
@@ -300,9 +292,8 @@ const saveExcessRule = async (r) => {
     await api.post('/payroll/excess-compensation-rules', {
       agencyId: agencyId.value,
       serviceCode: r.service_code,
-      directServiceMinimum: Number(d.directServiceMinimum ?? 0),
-      directServiceIncludedMax: Number(d.directServiceIncludedMax ?? 0),
-      adminIncludedMax: Number(d.adminIncludedMax ?? 0),
+      expectedDirectTotal: Number(d.expectedDirectTotal ?? 0),
+      expectedIndirectTotal: Number(d.expectedIndirectTotal ?? 0),
       creditValue: Number(d.creditValue ?? 0)
     });
     await loadExcessRules();
@@ -339,14 +330,13 @@ const addExcessRule = async () => {
     await api.post('/payroll/excess-compensation-rules', {
       agencyId: agencyId.value,
       serviceCode: code,
-      directServiceMinimum: 0,
-      directServiceIncludedMax: Number(newExcessDirectMax.value ?? 0),
-      adminIncludedMax: Number(newExcessAdminMax.value ?? 0),
+      expectedDirectTotal: Number(newExcessExpectedDirect.value ?? 0),
+      expectedIndirectTotal: Number(newExcessExpectedIndirect.value ?? 0),
       creditValue: 0
     });
     newExcessServiceCode.value = '';
-    newExcessDirectMax.value = 0;
-    newExcessAdminMax.value = 0;
+    newExcessExpectedDirect.value = 0;
+    newExcessExpectedIndirect.value = 0;
     await loadExcessRules();
   } catch (e) {
     excessError.value = e.response?.data?.error?.message || e.message || 'Failed to add';
