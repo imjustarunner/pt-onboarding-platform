@@ -2693,6 +2693,13 @@ watch([currentAgencyId, isOnboardingComplete], async () => {
   ]);
 });
 
+// When Submit tab is shown, ensure assigned schools are loaded (for In-School Claims visibility).
+watch(activeTab, (tab) => {
+  if (tab === 'submit' && !props.previewMode && currentAgencyId.value) {
+    loadMyAssignedSchools();
+  }
+}, { immediate: true });
+
 // Supervisor: load supervisees for schedule sorting/selection.
 watch([activeTab, currentAgencyId, () => authStore.user?.id], async () => {
   if (props.previewMode) return;
