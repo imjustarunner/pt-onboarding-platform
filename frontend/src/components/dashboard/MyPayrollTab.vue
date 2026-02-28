@@ -1948,8 +1948,15 @@
       </div>
 
       <div class="field" style="margin-top: 10px;">
-        <label>List the dates with 12+ hours and total hours each day</label>
-        <textarea v-model="timeOvertimeForm.datesAndHours" rows="3"></textarea>
+        <label>Hours worked each day (workweek containing reference date)</label>
+        <div class="hint" style="margin-bottom: 8px;">Enter hours for Mon–Sun. Overtime = over 12 hrs/day or over 40 hrs/week.</div>
+        <div class="overtime-days-grid">
+          <div v-for="d in overtimeDayLabels" :key="d.key" class="overtime-day-cell">
+            <label class="overtime-day-label">{{ d.label }}</label>
+            <input v-model.number="timeOvertimeForm.daysHours[d.key]" type="number" step="0.25" min="0" max="24" placeholder="0" />
+          </div>
+        </div>
+        <div class="hint" style="margin-top: 6px;">Week total: <strong>{{ overtimeWeekTotal }} hrs</strong></div>
       </div>
 
       <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr;">
@@ -2010,7 +2017,7 @@
         <button
           class="btn btn-primary"
           @click="submitTimeOvertime"
-          :disabled="submittingTimeClaim"
+          :disabled="submittingTimeClaim || overtimeWeekTotal <= 0"
         >
           {{ submittingTimeClaim ? 'Submitting…' : 'Submit for approval' }}
         </button>
@@ -2333,10 +2340,20 @@ const timeCorrectionForm = ref({
   attestation: false
 });
 
+const overtimeDayLabels = [
+  { key: 'mon', label: 'Mon' },
+  { key: 'tue', label: 'Tue' },
+  { key: 'wed', label: 'Wed' },
+  { key: 'thu', label: 'Thu' },
+  { key: 'fri', label: 'Fri' },
+  { key: 'sat', label: 'Sat' },
+  { key: 'sun', label: 'Sun' }
+];
+
 const timeOvertimeForm = ref({
   claimDate: '',
   workedOver12Hours: false,
-  datesAndHours: '',
+  daysHours: { mon: 0, tue: 0, wed: 0, thu: 0, fri: 0, sat: 0, sun: 0 },
   estimatedWorkweekHours: '',
   allDirectServiceRecorded: true,
   overtimeApproved: false,
@@ -2347,6 +2364,47 @@ const timeOvertimeForm = ref({
   holidayHoursWorked: 0,
   attestation: false
 });
+
+const overtimeWeekTotal = computed(() => {
+  const h = timeOvertimeForm.value.daysHours || {};
+  return overtimeDayLabels.reduce((sum, d) => sum + (Number(h[d.key]) || 0), 0);
+});
+
+function serializeDaysHoursToDatesAndHours(claimDate, daysHours) {
+  if (!claimDate || !daysHours) return '';
+  const d = new Date(claimDate + 'T12:00:00');
+  if (Number.isNaN(d.getTime())) return '';
+  const dayOfWeek = d.getDay();
+  const monOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+  const mon = new Date(d);
+  mon.setDate(d.getDate() + monOffset);
+  const parts = [];
+  const labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const keys = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+  for (let i = 0; i < 7; i++) {
+    const date = new Date(mon);
+    date.setDate(mon.getDate() + i);
+    const m = date.getMonth() + 1;
+    const day = date.getDate();
+    const hrs = Number(daysHours[keys[i]]) || 0;
+    parts.push(`${m}/${day} (${labels[i]}): ${hrs}`);
+  }
+  return parts.join(', ');
+}
+
+function parseDatesAndHoursToDaysHours(str) {
+  const out = { mon: 0, tue: 0, wed: 0, thu: 0, fri: 0, sat: 0, sun: 0 };
+  const keys = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+  const labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const s = String(str || '').trim();
+  if (!s) return out;
+  for (let i = 0; i < 7; i++) {
+    const re = new RegExp(`\\(${labels[i]}\\):\\s*([\\d.]+)`, 'i');
+    const m = s.match(re);
+    if (m) out[keys[i]] = Number(m[1]) || 0;
+  }
+  return out;
+}
 
 const agencyHolidays = ref([]);
 
@@ -3669,7 +3727,7 @@ const openTimeOvertimeModal = () => {
   timeOvertimeForm.value = {
     claimDate: ymd,
     workedOver12Hours: false,
-    datesAndHours: '',
+    daysHours: { mon: 0, tue: 0, wed: 0, thu: 0, fri: 0, sat: 0, sun: 0 },
     estimatedWorkweekHours: '',
     allDirectServiceRecorded: true,
     overtimeApproved: false,
@@ -3749,11 +3807,23 @@ const openEditTimeClaim = (c) => {
   }
   if (type === 'overtime_evaluation') {
     openTimeOvertimeModal();
+    let dh = payload.daysHours || {};
+    if (Object.keys(dh).length === 0 && payload.datesAndHours) {
+      dh = parseDatesAndHoursToDaysHours(payload.datesAndHours);
+    }
     timeOvertimeForm.value = {
       ...timeOvertimeForm.value,
       claimDate: String(c.claim_date || '').slice(0, 10),
       workedOver12Hours: !!payload.workedOver12Hours,
-      datesAndHours: payload.datesAndHours || '',
+      daysHours: {
+        mon: Number(dh.mon) || 0,
+        tue: Number(dh.tue) || 0,
+        wed: Number(dh.wed) || 0,
+        thu: Number(dh.thu) || 0,
+        fri: Number(dh.fri) || 0,
+        sat: Number(dh.sat) || 0,
+        sun: Number(dh.sun) || 0
+      },
       estimatedWorkweekHours: String(payload.estimatedWorkweekHours ?? ''),
       allDirectServiceRecorded: payload.allDirectServiceRecorded === undefined ? true : !!payload.allDirectServiceRecorded,
       overtimeApproved: !!payload.overtimeApproved,
@@ -3773,7 +3843,7 @@ const openEditTimeClaim = (c) => {
       ...timeOvertimeForm.value,
       claimDate: hd,
       workedOver12Hours: false,
-      datesAndHours: '',
+      daysHours: { mon: 0, tue: 0, wed: 0, thu: 0, fri: 0, sat: 0, sun: 0 },
       estimatedWorkweekHours: '',
       allDirectServiceRecorded: true,
       overtimeApproved: false,
@@ -3865,23 +3935,29 @@ const submitTimeCorrection = async () => {
 
 const submitTimeOvertime = async () => {
   submitTimeClaimError.value = '';
+  const f = timeOvertimeForm.value;
+  const datesAndHoursStr = serializeDaysHoursToDatesAndHours(f.claimDate, f.daysHours);
+  if (!datesAndHoursStr.trim()) {
+    submitTimeClaimError.value = 'Please enter a valid reference date and hours for each day.';
+    return;
+  }
   await submitTimeClaim({
     claimType: 'overtime_evaluation',
-    claimDate: timeOvertimeForm.value.claimDate,
+    claimDate: f.claimDate,
     payload: {
-      workedOver12Hours: !!timeOvertimeForm.value.workedOver12Hours,
-      datesAndHours: timeOvertimeForm.value.datesAndHours,
-      estimatedWorkweekHours: Number(timeOvertimeForm.value.estimatedWorkweekHours || 0),
-      allDirectServiceRecorded: !!timeOvertimeForm.value.allDirectServiceRecorded,
-      overtimeApproved: !!timeOvertimeForm.value.overtimeApproved,
-      approvedBy: timeOvertimeForm.value.approvedBy,
-      notesForPayroll: timeOvertimeForm.value.notesForPayroll,
-      attestation: !!timeOvertimeForm.value.attestation
+      workedOver12Hours: !!f.workedOver12Hours,
+      datesAndHours: datesAndHoursStr,
+      daysHours: f.daysHours,
+      estimatedWorkweekHours: Number(f.estimatedWorkweekHours || 0),
+      allDirectServiceRecorded: !!f.allDirectServiceRecorded,
+      overtimeApproved: !!f.overtimeApproved,
+      approvedBy: f.approvedBy,
+      notesForPayroll: f.notesForPayroll,
+      attestation: !!f.attestation
     }
   });
   if (submitTimeClaimError.value) return;
 
-  const f = timeOvertimeForm.value;
   if (f.requestHolidayPay && f.holidayDate && Number(f.holidayHoursWorked || 0) > 0) {
     await submitTimeClaim({
       claimType: 'holiday_pay',
@@ -4444,6 +4520,28 @@ onMounted(async () => {
   border-radius: 8px;
   background: var(--bg-secondary, #f5f5f5);
   font-weight: 500;
+}
+.overtime-days-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 8px;
+}
+.overtime-day-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.overtime-day-cell input {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 14px;
+}
+.overtime-day-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
 }
 .warn-box {
   border: 1px solid #ffe58f;
