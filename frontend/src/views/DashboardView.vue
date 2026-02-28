@@ -635,8 +635,8 @@
                 </button>
 
                 <button type="button" class="dash-card" @click="openTimeExcessModal">
-                  <div class="dash-card-title">Excess / Holiday Time</div>
-                  <div class="dash-card-desc">Submit direct/indirect minutes for review.</div>
+                  <div class="dash-card-title">Excess Time</div>
+                  <div class="dash-card-desc">Select service codes and enter direct/indirect minutes. Excess beyond included span is paid at your rates.</div>
                   <div class="dash-card-meta">
                     <span class="dash-card-cta">Open</span>
                   </div>

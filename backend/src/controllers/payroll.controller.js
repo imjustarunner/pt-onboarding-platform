@@ -26,6 +26,7 @@ import AgencyPayrollScheduleSettings from '../models/AgencyPayrollScheduleSettin
 import PayrollSalaryPosition from '../models/PayrollSalaryPosition.model.js';
 import PayrollRateCard from '../models/PayrollRateCard.model.js';
 import PayrollServiceCodeRule from '../models/PayrollServiceCodeRule.model.js';
+import PayrollExcessCompensationRule from '../models/PayrollExcessCompensationRule.model.js';
 import PayrollSummary from '../models/PayrollSummary.model.js';
 import PayrollAdpExportJob from '../models/PayrollAdpExportJob.model.js';
 import PayrollPeriodRun from '../models/PayrollPeriodRun.model.js';
@@ -4429,6 +4430,59 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
       const mins = Number(payload?.totalMinutes ?? (Number(payload?.directMinutes || 0) + Number(payload?.indirectMinutes || 0)) ?? 0);
       const hrsFromPayload = Number.isFinite(mins) && mins > 0 ? Math.round((mins / 60) * 100) / 100 : null;
       const hrs = Number.isFinite(hrsFromCol) ? hrsFromCol : hrsFromPayload;
+      const claimType = String(c?.claim_type || '').trim().toLowerCase();
+      const items = Array.isArray(payload?.items) ? payload.items : [];
+
+      // excess_holiday with items: show excess direct and excess indirect as separate line items
+      if (claimType === 'excess_holiday' && items.length) {
+        const directRate = Number(rateCard?.direct_rate || 0);
+        const indirectRate = Number(rateCard?.indirect_rate || 0);
+        let totalExcessDirect = 0;
+        let totalExcessIndirect = 0;
+        for (const it of items) {
+          const code = String(it?.serviceCode || '').trim();
+          if (!code) continue;
+          const rule = await PayrollExcessCompensationRule.findByAgencyAndCode(agencyId, code);
+          const { excessDirect, excessIndirect } = PayrollExcessCompensationRule.computeExcessMinutes({
+            directMinutes: it?.directMinutes ?? 0,
+            indirectMinutes: it?.indirectMinutes ?? 0,
+            rule: rule || {}
+          });
+          totalExcessDirect += excessDirect;
+          totalExcessIndirect += excessIndirect;
+        }
+        const excessDirectAmt = (totalExcessDirect / 60) * directRate;
+        const excessIndirectAmt = (totalExcessIndirect / 60) * indirectRate;
+        const excessDirectHrs = totalExcessDirect > 0 ? Math.round((totalExcessDirect / 60) * 100) / 100 : null;
+        const excessIndirectHrs = totalExcessIndirect > 0 ? Math.round((totalExcessIndirect / 60) * 100) / 100 : null;
+        if (Math.abs(excessDirectAmt) > 1e-9) {
+          directHours += (excessDirectHrs || 0);
+          totalHours += (excessDirectHrs || 0);
+          if (tierSettings.enabled) tierCreditsCurrent += (excessDirectHrs || 0);
+          pushLine({
+            type: 'excess_approved_direct',
+            label: 'Excess approved (direct)',
+            taxable: true,
+            amount: Math.round(excessDirectAmt * 100) / 100,
+            bucket: 'direct',
+            meta: { creditsHours: excessDirectHrs }
+          });
+        }
+        if (Math.abs(excessIndirectAmt) > 1e-9) {
+          indirectHours += (excessIndirectHrs || 0);
+          totalHours += (excessIndirectHrs || 0);
+          pushLine({
+            type: 'excess_approved_indirect',
+            label: 'Excess approved (indirect)',
+            taxable: true,
+            amount: Math.round(excessIndirectAmt * 100) / 100,
+            bucket: 'indirect',
+            meta: { creditsHours: excessIndirectHrs }
+          });
+        }
+        continue;
+      }
+
       if (Number.isFinite(hrs) && hrs > 1e-9) {
         if (b === 'direct') { directHours += hrs; totalHours += hrs; }
         else { indirectHours += hrs; totalHours += hrs; }
@@ -4437,8 +4491,7 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
         }
       }
       if (Math.abs(amt) > 1e-9) {
-        const t = String(c?.claim_type || '').trim();
-        const typeLabel = t ? t.replace(/_/g, ' ') : 'time claim';
+        const typeLabel = claimType ? claimType.replace(/_/g, ' ') : 'time claim';
         pushLine({
           type: 'time_claim',
           label: `Time claim (${typeLabel})`,
@@ -12438,7 +12491,12 @@ export const patchReimbursementClaim = async (req, res, next) => {
 
 function timeClaimAllowedType(t) {
   const k = String(t || '').trim().toLowerCase();
-  return ['meeting_training', 'mentor_cpa_meeting', 'excess_holiday', 'service_correction', 'overtime_evaluation'].includes(k) ? k : null;
+  return ['meeting_training', 'mentor_cpa_meeting', 'excess_holiday', 'service_correction', 'overtime_evaluation', 'holiday_pay'].includes(k) ? k : null;
+}
+
+function isOfficeStaffForHolidayPay(role) {
+  const r = String(role || '').trim().toLowerCase();
+  return ['staff', 'admin', 'support', 'clinical_practice_assistant', 'supervisor'].includes(r);
 }
 
 function toMinutes(v) {
@@ -12672,12 +12730,18 @@ export const createMyTimeClaim = async (req, res, next) => {
         }
       }
     } else if (claimType === 'excess_holiday') {
+      const items = Array.isArray(payload?.items) ? payload.items : [];
+      const hasItems = items.some(
+        (it) =>
+          String(it?.serviceCode || '').trim() &&
+          ((toMinutes(it?.directMinutes) ?? 0) + (toMinutes(it?.indirectMinutes) ?? 0) >= 1)
+      );
       const directMinutes = toMinutes(payload?.directMinutes);
       const indirectMinutes = toMinutes(payload?.indirectMinutes);
-      if (!((directMinutes ?? 0) + (indirectMinutes ?? 0) >= 1)) {
-        return res.status(400).json({ error: { message: 'directMinutes or indirectMinutes is required' } });
+      const hasLegacy = (directMinutes ?? 0) + (indirectMinutes ?? 0) >= 1;
+      if (!hasItems && !hasLegacy) {
+        return res.status(400).json({ error: { message: 'At least one service code entry with direct or indirect minutes is required' } });
       }
-      if (!String(payload?.reason || '').trim()) return res.status(400).json({ error: { message: 'reason is required' } });
     } else if (claimType === 'service_correction') {
       if (!String(payload?.clientInitials || '').trim()) return res.status(400).json({ error: { message: 'clientInitials is required' } });
       if (!String(payload?.originalService || '').trim()) return res.status(400).json({ error: { message: 'originalService is required' } });
@@ -12693,6 +12757,23 @@ export const createMyTimeClaim = async (req, res, next) => {
       if (payload?.overtimeApproved === undefined) return res.status(400).json({ error: { message: 'overtimeApproved is required' } });
       if (!String(payload?.approvedBy || '').trim()) return res.status(400).json({ error: { message: 'approvedBy is required' } });
       if (!String(payload?.notesForPayroll || '').trim()) return res.status(400).json({ error: { message: 'notesForPayroll is required' } });
+    } else if (claimType === 'holiday_pay') {
+      if (!isOfficeStaffForHolidayPay(req.user?.role)) {
+        return res.status(403).json({ error: { message: 'Holiday pay is for office staff only' } });
+      }
+      const holidayDate = String(payload?.holidayDate || '').trim().slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(holidayDate)) {
+        return res.status(400).json({ error: { message: 'holidayDate (YYYY-MM-DD) is required' } });
+      }
+      const hoursWorked = Number(payload?.hoursWorked);
+      if (!Number.isFinite(hoursWorked) || hoursWorked <= 0) {
+        return res.status(400).json({ error: { message: 'hoursWorked must be a positive number' } });
+      }
+      const holidays = await listAgencyHolidaysSvc({ agencyId });
+      const holidayDates = (holidays || []).map((h) => String(h?.holiday_date || '').slice(0, 10));
+      if (!holidayDates.includes(holidayDate)) {
+        return res.status(400).json({ error: { message: 'The selected date is not an approved agency holiday' } });
+      }
     }
 
     // Enforce submission deadlines (and choose suggested period accordingly).
@@ -12941,7 +13022,7 @@ export const patchHolidayBonusClaim = async (req, res, next) => {
   }
 };
 
-function computeDefaultAppliedAmountForTimeClaim({ claim, rateCard }) {
+async function computeDefaultAppliedAmountForTimeClaim({ claim, rateCard }) {
   const type = String(claim?.claim_type || '').toLowerCase();
   const payload = claim?.payload || {};
   const directRate = Number(rateCard?.direct_rate || 0);
@@ -12953,11 +13034,42 @@ function computeDefaultAppliedAmountForTimeClaim({ claim, rateCard }) {
       return Math.round(((mins / 60) * indirectRate) * 100) / 100;
     }
   }
+  if (type === 'holiday_pay') {
+    const hrs = Number(payload?.hoursWorked || 0);
+    const rate = directRate > 0 ? directRate : indirectRate;
+    if (Number.isFinite(hrs) && hrs > 0 && rate > 0) {
+      const amt = hrs * rate;
+      return Math.round(amt * 100) / 100;
+    }
+  }
   if (type === 'excess_holiday') {
-    const d = Number(payload?.directMinutes || 0);
-    const i = Number(payload?.indirectMinutes || 0);
-    const amt = (Number.isFinite(d) ? (d / 60) * directRate : 0) + (Number.isFinite(i) ? (i / 60) * indirectRate : 0);
-    if (amt > 0) return Math.round(amt * 100) / 100;
+    const items = Array.isArray(payload?.items) ? payload.items : [];
+    if (items.length) {
+      const agencyId = claim?.agency_id;
+      if (!agencyId) return null;
+      let totalExcessDirect = 0;
+      let totalExcessIndirect = 0;
+      for (const it of items) {
+        const code = String(it?.serviceCode || '').trim();
+        if (!code) continue;
+        const rule = await PayrollExcessCompensationRule.findByAgencyAndCode(agencyId, code);
+        const { excessDirect, excessIndirect } = PayrollExcessCompensationRule.computeExcessMinutes({
+          directMinutes: it?.directMinutes ?? 0,
+          indirectMinutes: it?.indirectMinutes ?? 0,
+          rule: rule || {}
+        });
+        totalExcessDirect += excessDirect;
+        totalExcessIndirect += excessIndirect;
+      }
+      const amt =
+        (totalExcessDirect / 60) * directRate + (totalExcessIndirect / 60) * indirectRate;
+      if (amt > 0) return Math.round(amt * 100) / 100;
+    } else {
+      const d = Number(payload?.directMinutes || 0);
+      const i = Number(payload?.indirectMinutes || 0);
+      const amt = (Number.isFinite(d) ? (d / 60) * directRate : 0) + (Number.isFinite(i) ? (i / 60) * indirectRate : 0);
+      if (amt > 0) return Math.round(amt * 100) / 100;
+    }
   }
   return null;
 }
@@ -13004,7 +13116,7 @@ export const patchTimeClaim = async (req, res, next) => {
       if (!Number.isFinite(override) && !Number.isFinite(payloadAmountRaw)) {
         try {
           const rateCard = await PayrollRateCard.findForUser(claim.agency_id, claim.user_id);
-          computedDefaultAmount = computeDefaultAppliedAmountForTimeClaim({ claim, rateCard });
+          computedDefaultAmount = await computeDefaultAppliedAmountForTimeClaim({ claim, rateCard });
         } catch {
           computedDefaultAmount = null;
         }
@@ -13371,6 +13483,23 @@ export const listAgencyHolidays = async (req, res, next) => {
     const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
     if (!(await requirePayrollAccess(req, res, agencyId))) return;
+    const holidays = await listAgencyHolidaysSvc({ agencyId });
+    res.json({ ok: true, agencyId, holidays });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const listMyAgencyHolidays = async (req, res, next) => {
+  try {
+    const userId = req.user?.id;
+    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
+    if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!isAdminRole(req.user.role)) {
+      const ok = await userHasAgencyAccess({ userId, agencyId });
+      if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+    }
     const holidays = await listAgencyHolidaysSvc({ agencyId });
     res.json({ ok: true, agencyId, holidays });
   } catch (e) {
@@ -15107,6 +15236,70 @@ export const deleteServiceCodeRule = async (req, res, next) => {
        WHERE agency_id = ? AND service_code = ?`,
       [resolvedAgencyId, code]
     );
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const listExcessCompensationRules = async (req, res, next) => {
+  try {
+    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId) : null;
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    const resolvedAgencyId = await requirePayrollAccess(req, res, agencyId);
+    if (!resolvedAgencyId) return;
+    const rows = await PayrollExcessCompensationRule.listForAgency(resolvedAgencyId);
+    res.json(rows || []);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const listMyExcessCompensationRules = async (req, res, next) => {
+  try {
+    const userId = req.user?.id;
+    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId) : null;
+    if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!isAdminRole(req.user.role)) {
+      const ok = await userHasAgencyAccess({ userId, agencyId });
+      if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+    const rows = await PayrollExcessCompensationRule.listForAgency(agencyId);
+    res.json(rows || []);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const upsertExcessCompensationRule = async (req, res, next) => {
+  try {
+    const { agencyId, serviceCode, directServiceMinimum, directServiceIncludedMax, adminIncludedMax, creditValue } = req.body || {};
+    if (!agencyId || !serviceCode) return res.status(400).json({ error: { message: 'agencyId and serviceCode are required' } });
+    const resolvedAgencyId = await requirePayrollAccess(req, res, parseInt(agencyId));
+    if (!resolvedAgencyId) return;
+    const row = await PayrollExcessCompensationRule.upsert({
+      agencyId: resolvedAgencyId,
+      serviceCode: String(serviceCode).trim(),
+      directServiceMinimum,
+      directServiceIncludedMax,
+      adminIncludedMax,
+      creditValue
+    });
+    res.json(row || { ok: true });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const deleteExcessCompensationRule = async (req, res, next) => {
+  try {
+    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId) : (req.body?.agencyId ? parseInt(req.body.agencyId) : null);
+    const serviceCode = req.query.serviceCode || req.body?.serviceCode || null;
+    if (!agencyId || !serviceCode) return res.status(400).json({ error: { message: 'agencyId and serviceCode are required' } });
+    const resolvedAgencyId = await requirePayrollAccess(req, res, agencyId);
+    if (!resolvedAgencyId) return;
+    await PayrollExcessCompensationRule.delete({ agencyId: resolvedAgencyId, serviceCode: String(serviceCode).trim() });
     res.json({ ok: true });
   } catch (e) {
     next(e);

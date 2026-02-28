@@ -37,6 +37,10 @@ import {
   listServiceCodeRules,
   upsertServiceCodeRule,
   deleteServiceCodeRule,
+  listExcessCompensationRules,
+  listMyExcessCompensationRules,
+  upsertExcessCompensationRule,
+  deleteExcessCompensationRule,
   listPayrollRateTemplates,
   getPayrollRateTemplate,
   createPayrollRateTemplateFromUser,
@@ -78,6 +82,7 @@ import {
   ,putHolidayPayPolicy
   ,getMyMedcancelPolicy
   ,listAgencyHolidays
+  ,listMyAgencyHolidays
   ,createAgencyHoliday
   ,deleteAgencyHoliday
   ,getSupervisionPolicy
@@ -217,6 +222,10 @@ router.post('/rate-cards', upsertPayrollRateCard);
 router.get('/service-code-rules', listServiceCodeRules);
 router.post('/service-code-rules', upsertServiceCodeRule);
 router.delete('/service-code-rules', deleteServiceCodeRule);
+router.get('/excess-compensation-rules', listExcessCompensationRules);
+router.get('/me/excess-compensation-rules', listMyExcessCompensationRules);
+router.post('/excess-compensation-rules', upsertExcessCompensationRule);
+router.delete('/excess-compensation-rules', deleteExcessCompensationRule);
 router.get('/mileage-rates', getAgencyMileageRates);
 router.get('/me/mileage-rates', getMyAgencyMileageRates);
 router.put('/mileage-rates', upsertAgencyMileageRates);
@@ -234,6 +243,7 @@ router.put('/medcancel-policy', putMedcancelPolicy);
 router.get('/holiday-pay-policy', getHolidayPayPolicy);
 router.put('/holiday-pay-policy', putHolidayPayPolicy);
 router.get('/holidays', listAgencyHolidays);
+router.get('/me/holidays', listMyAgencyHolidays);
 router.post('/holidays', createAgencyHoliday);
 router.delete('/holidays/:id', deleteAgencyHoliday);
 router.post('/me/reimbursement-claims', ...createMyReimbursementClaim);

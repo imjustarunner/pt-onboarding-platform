@@ -1751,56 +1751,78 @@
     </div>
   </div>
   <div v-if="showTimeExcessModal" class="modal-backdrop" @click.self="closeTimeExcessModal">
-    <div class="modal" style="width: min(720px, 100%);">
+    <div class="modal" style="width: min(800px, 100%);">
       <div class="modal-header">
         <div>
-          <div class="modal-title">Time Claim — Excess / Holiday</div>
-          <div class="hint">Module 3B: Excess or holiday time submission.</div>
+          <div class="modal-title">Time Claim — Excess Time</div>
+          <div class="hint">Select service codes and enter direct/indirect minutes. Excess beyond the included span is paid at your rates.</div>
         </div>
         <button class="btn btn-secondary btn-sm" @click="closeTimeExcessModal">Close</button>
       </div>
 
       <div v-if="submitTimeClaimError" class="warn-box" style="margin-top: 10px;">{{ submitTimeClaimError }}</div>
 
-      <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr 1fr;">
+      <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr;">
         <div class="field">
           <label>Date of services</label>
           <input v-model="timeExcessForm.claimDate" type="date" />
         </div>
-        <div class="field">
-          <label>Total Direct Time (minutes)</label>
-          <input v-model="timeExcessForm.directMinutes" type="number" step="1" min="0" placeholder="0" />
+      </div>
+
+      <div class="card" style="margin-top: 12px;">
+        <h4 style="margin: 0 0 8px 0;">Service code entries</h4>
+        <div v-if="excessRulesLoading" class="muted">Loading rules…</div>
+        <div v-else-if="!excessRules.length" class="muted">
+          No excess compensation rules configured. Ask your admin to add service codes in Payroll Settings → Excess Time Rules.
         </div>
-        <div class="field">
-          <label>Total Indirect Time (minutes)</label>
-          <input v-model="timeExcessForm.indirectMinutes" type="number" step="1" min="0" placeholder="0" />
+        <div v-else>
+          <div
+            v-for="(item, idx) in timeExcessForm.items"
+            :key="idx"
+            class="field-row"
+            style="margin-top: 10px; grid-template-columns: 140px 1fr 1fr 1fr auto; align-items: end; gap: 10px;"
+          >
+            <div class="field">
+              <label>Service Code</label>
+              <select v-model="item.serviceCode">
+                <option value="">Select…</option>
+                <option v-for="r in excessRules" :key="r.service_code" :value="r.service_code">{{ r.service_code }}</option>
+              </select>
+            </div>
+            <div class="field" v-if="item.serviceCode && excessRuleByCode[item.serviceCode]">
+              <label>Direct (mins)</label>
+              <input v-model.number="item.directMinutes" type="number" step="1" min="0" placeholder="0" />
+              <div class="hint" style="font-size: 11px;">Included: {{ excessRuleByCode[item.serviceCode].direct_service_included_max }} mins</div>
+            </div>
+            <div class="field" v-else>
+              <label>Direct (mins)</label>
+              <input v-model.number="item.directMinutes" type="number" step="1" min="0" placeholder="0" />
+            </div>
+            <div class="field" v-if="item.serviceCode && excessRuleByCode[item.serviceCode]">
+              <label>Indirect/Admin (mins)</label>
+              <input v-model.number="item.indirectMinutes" type="number" step="1" min="0" placeholder="0" />
+              <div class="hint" style="font-size: 11px;">Included: {{ excessRuleByCode[item.serviceCode].admin_included_max }} mins</div>
+            </div>
+            <div class="field" v-else>
+              <label>Indirect/Admin (mins)</label>
+              <input v-model.number="item.indirectMinutes" type="number" step="1" min="0" placeholder="0" />
+            </div>
+            <div class="field">
+              <button type="button" class="btn btn-danger btn-sm" @click="removeExcessItem(idx)" :disabled="timeExcessForm.items.length <= 1">
+                Remove
+              </button>
+            </div>
+          </div>
+          <button type="button" class="btn btn-secondary btn-sm" style="margin-top: 10px;" @click="addExcessItem" :disabled="!excessRules.length">
+            + Add another code
+          </button>
         </div>
       </div>
 
       <div class="field" style="margin-top: 10px;">
-        <label>Reason for extended time/s</label>
-        <textarea v-model="timeExcessForm.reason" rows="3" placeholder="List service codes included (e.g., 4 x 90837)…"></textarea>
+        <label>Reason for extended time (optional)</label>
+        <textarea v-model="timeExcessForm.reason" rows="2" placeholder="e.g., Documentation, care coordination…"></textarea>
       </div>
-
-      <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr;">
-        <div class="field">
-          <label>PTO-only for this claim?</label>
-          <select v-model="timeExcessForm.ptoOnly">
-            <option>Yes</option>
-            <option>No</option>
-            <option>Unknown</option>
-          </select>
-        </div>
-        <div class="field">
-          <label>Total time worked for PTO consideration? (optional)</label>
-          <input v-model="timeExcessForm.totalTimeWorkedForPto" type="text" placeholder="e.g., 8 hours" />
-        </div>
-      </div>
-
-      <label class="control" style="margin-top: 10px; display: flex; gap: 10px; align-items: center;">
-        <input v-model="timeExcessForm.requestOvertimeEvaluation" type="checkbox" />
-        <span>Request overtime evaluation for this day</span>
-      </label>
 
       <label class="control" style="margin-top: 10px; display: flex; gap: 10px; align-items: center;">
         <input v-model="timeExcessForm.attestation" type="checkbox" />
@@ -1817,7 +1839,7 @@
         <button
           class="btn btn-primary"
           @click="submitTimeExcess"
-          :disabled="submittingTimeClaim"
+          :disabled="submittingTimeClaim || !hasValidExcessItems || !timeExcessForm.attestation"
         >
           {{ submittingTimeClaim ? 'Submitting…' : 'Submit for approval' }}
         </button>
@@ -1954,6 +1976,30 @@
         <textarea v-model="timeOvertimeForm.notesForPayroll" rows="3"></textarea>
       </div>
 
+      <div v-if="isOfficeStaff" class="card" style="margin-top: 12px;">
+        <h4 style="margin: 0 0 8px 0;">Holiday pay (office staff only)</h4>
+        <div class="hint" style="margin-bottom: 8px;">Request pay for working on an approved agency holiday.</div>
+        <label class="control" style="display: flex; gap: 10px; align-items: center; margin-bottom: 10px;">
+          <input v-model="timeOvertimeForm.requestHolidayPay" type="checkbox" />
+          <span>I worked on an approved holiday and request holiday pay</span>
+        </label>
+        <div v-if="timeOvertimeForm.requestHolidayPay" class="field-row" style="grid-template-columns: 1fr 1fr; gap: 10px;">
+          <div class="field">
+            <label>Holiday date</label>
+            <select v-model="timeOvertimeForm.holidayDate">
+              <option value="">Select approved holiday…</option>
+              <option v-for="h in agencyHolidays" :key="h.holiday_date" :value="String(h.holiday_date || '').slice(0, 10)">
+                {{ String(h.holiday_date || '').slice(0, 10) }} — {{ h.name || 'Holiday' }}
+              </option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Hours worked</label>
+            <input v-model.number="timeOvertimeForm.holidayHoursWorked" type="number" step="0.25" min="0" placeholder="e.g., 4" />
+          </div>
+        </div>
+      </div>
+
       <label class="control" style="margin-top: 10px; display: flex; gap: 10px; align-items: center;">
         <input v-model="timeOvertimeForm.attestation" type="checkbox" />
         <span>I certify the information is accurate and complete.</span>
@@ -2053,6 +2099,12 @@ const agencyId = computed(() => {
   const raw = a?.id?.value ?? a?.id ?? null;
   const n = Number(raw);
   return Number.isFinite(n) && n > 0 ? n : null;
+});
+
+const OFFICE_STAFF_ROLES = ['staff', 'admin', 'support', 'clinical_practice_assistant', 'supervisor'];
+const isOfficeStaff = computed(() => {
+  const r = String(authStore.user?.role || '').trim().toLowerCase();
+  return OFFICE_STAFF_ROLES.includes(r);
 });
 
 const periods = ref([]);
@@ -2226,14 +2278,51 @@ const timeMeetingForm = ref({
 
 const timeExcessForm = ref({
   claimDate: '',
-  directMinutes: '',
-  indirectMinutes: '',
+  items: [{ serviceCode: '', directMinutes: 0, indirectMinutes: 0 }],
   reason: '',
-  ptoOnly: 'Unknown',
-  totalTimeWorkedForPto: '',
-  requestOvertimeEvaluation: false,
   attestation: false
 });
+
+const excessRules = ref([]);
+const excessRulesLoading = ref(false);
+const excessRuleByCode = computed(() => {
+  const map = {};
+  for (const r of excessRules.value) {
+    map[r.service_code] = r;
+  }
+  return map;
+});
+const hasValidExcessItems = computed(() => {
+  const items = timeExcessForm.value.items || [];
+  return items.some(
+    (it) =>
+      it.serviceCode &&
+      (Number(it.directMinutes || 0) > 0 || Number(it.indirectMinutes || 0) > 0)
+  );
+});
+
+const addExcessItem = () => {
+  timeExcessForm.value.items = [...(timeExcessForm.value.items || []), { serviceCode: '', directMinutes: 0, indirectMinutes: 0 }];
+};
+const removeExcessItem = (idx) => {
+  const items = [...(timeExcessForm.value.items || [])];
+  if (items.length <= 1) return;
+  items.splice(idx, 1);
+  timeExcessForm.value.items = items;
+};
+
+const loadExcessRules = async () => {
+  if (!agencyId.value) return;
+  excessRulesLoading.value = true;
+  try {
+    const resp = await api.get('/payroll/me/excess-compensation-rules', { params: { agencyId: agencyId.value } });
+    excessRules.value = Array.isArray(resp?.data) ? resp.data : [];
+  } catch {
+    excessRules.value = [];
+  } finally {
+    excessRulesLoading.value = false;
+  }
+};
 
 const timeCorrectionForm = ref({
   claimDate: '',
@@ -2254,8 +2343,13 @@ const timeOvertimeForm = ref({
   overtimeApproved: false,
   approvedBy: '',
   notesForPayroll: '',
+  requestHolidayPay: false,
+  holidayDate: '',
+  holidayHoursWorked: 0,
   attestation: false
 });
+
+const agencyHolidays = ref([]);
 
 const dateYmd = (v) => {
   if (!v) return '';
@@ -3434,10 +3528,11 @@ const timeClaimTypeLabel = (c) => {
   const t = String(c?.claim_type || '').toLowerCase();
   if (t === 'meeting_training') return 'Meeting/Training';
   if (t === 'mentor_cpa_meeting') return 'Mentor/CPA Meeting';
-  if (t === 'excess_holiday') return 'Excess/Holiday';
+  if (t === 'excess_holiday') return 'Excess time';
   if (t === 'service_correction') return 'Service correction';
   if (t === 'overtime_evaluation') return 'Overtime eval';
-  return t || 'Time';
+  if (t === 'holiday_pay') return 'Holiday pay';
+  return t ? t.replace(/_/g, ' ') : 'Time';
 };
 
 const isMeetingTimeClaim = (c) => {
@@ -3529,8 +3624,14 @@ const openTimeExcessModal = () => {
   submitTimeClaimError.value = '';
   const today = new Date();
   const ymd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-  timeExcessForm.value = { ...timeExcessForm.value, claimDate: ymd, attestation: false };
+  timeExcessForm.value = {
+    claimDate: ymd,
+    items: [{ serviceCode: '', directMinutes: 0, indirectMinutes: 0 }],
+    reason: '',
+    attestation: false
+  };
   showTimeExcessModal.value = true;
+  loadExcessRules();
 };
 const closeTimeExcessModal = () => {
   showTimeExcessModal.value = false;
@@ -3549,12 +3650,36 @@ const closeTimeCorrectionModal = () => {
   emit('time-modal-closed');
 };
 
+const loadAgencyHolidays = async () => {
+  if (!agencyId.value) return;
+  try {
+    const resp = await api.get('/payroll/me/holidays', { params: { agencyId: agencyId.value } });
+    agencyHolidays.value = resp?.data?.holidays || [];
+  } catch {
+    agencyHolidays.value = [];
+  }
+};
+
 const openTimeOvertimeModal = () => {
   submitTimeClaimError.value = '';
   const today = new Date();
   const ymd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-  timeOvertimeForm.value = { ...timeOvertimeForm.value, claimDate: ymd, attestation: false };
+  timeOvertimeForm.value = {
+    claimDate: ymd,
+    workedOver12Hours: false,
+    datesAndHours: '',
+    estimatedWorkweekHours: '',
+    allDirectServiceRecorded: true,
+    overtimeApproved: false,
+    approvedBy: '',
+    notesForPayroll: '',
+    requestHolidayPay: false,
+    holidayDate: '',
+    holidayHoursWorked: 0,
+    attestation: false
+  };
   showTimeOvertimeModal.value = true;
+  if (isOfficeStaff.value) loadAgencyHolidays();
 };
 const closeTimeOvertimeModal = () => {
   showTimeOvertimeModal.value = false;
@@ -3585,15 +3710,19 @@ const openEditTimeClaim = (c) => {
   }
   if (type === 'excess_holiday') {
     openTimeExcessModal();
+    let items = Array.isArray(payload.items) ? payload.items : [];
+    if (!items.length && (Number(payload.directMinutes || 0) > 0 || Number(payload.indirectMinutes || 0) > 0)) {
+      items = [{
+        serviceCode: payload.serviceCode || '',
+        directMinutes: Number(payload.directMinutes || 0),
+        indirectMinutes: Number(payload.indirectMinutes || 0)
+      }];
+    }
+    if (!items.length) items = [{ serviceCode: '', directMinutes: 0, indirectMinutes: 0 }];
     timeExcessForm.value = {
-      ...timeExcessForm.value,
       claimDate: String(c.claim_date || '').slice(0, 10),
-      directMinutes: String(payload.directMinutes ?? ''),
-      indirectMinutes: String(payload.indirectMinutes ?? ''),
+      items,
       reason: payload.reason || '',
-      ptoOnly: payload.ptoOnly || 'Unknown',
-      totalTimeWorkedForPto: payload.totalTimeWorkedForPto || '',
-      requestOvertimeEvaluation: !!payload.requestOvertimeEvaluation,
       attestation: false
     };
     return;
@@ -3624,6 +3753,29 @@ const openEditTimeClaim = (c) => {
       overtimeApproved: !!payload.overtimeApproved,
       approvedBy: payload.approvedBy || '',
       notesForPayroll: payload.notesForPayroll || '',
+      requestHolidayPay: false,
+      holidayDate: '',
+      holidayHoursWorked: 0,
+      attestation: false
+    };
+    return;
+  }
+  if (type === 'holiday_pay') {
+    openTimeOvertimeModal();
+    const hd = String(payload.holidayDate || c.claim_date || '').slice(0, 10);
+    timeOvertimeForm.value = {
+      ...timeOvertimeForm.value,
+      claimDate: hd,
+      workedOver12Hours: false,
+      datesAndHours: '',
+      estimatedWorkweekHours: '',
+      allDirectServiceRecorded: true,
+      overtimeApproved: false,
+      approvedBy: '',
+      notesForPayroll: '',
+      requestHolidayPay: true,
+      holidayDate: hd,
+      holidayHoursWorked: Number(payload.hoursWorked || 0),
       attestation: false
     };
     return;
@@ -3664,16 +3816,19 @@ const submitTimeMeeting = async () => {
 
 const submitTimeExcess = async () => {
   submitTimeClaimError.value = '';
+  const items = (timeExcessForm.value.items || [])
+    .filter((it) => it.serviceCode && (Number(it.directMinutes || 0) > 0 || Number(it.indirectMinutes || 0) > 0))
+    .map((it) => ({
+      serviceCode: it.serviceCode,
+      directMinutes: Number(it.directMinutes || 0),
+      indirectMinutes: Number(it.indirectMinutes || 0)
+    }));
   await submitTimeClaim({
     claimType: 'excess_holiday',
     claimDate: timeExcessForm.value.claimDate,
     payload: {
-      directMinutes: Number(timeExcessForm.value.directMinutes || 0),
-      indirectMinutes: Number(timeExcessForm.value.indirectMinutes || 0),
+      items,
       reason: timeExcessForm.value.reason,
-      ptoOnly: timeExcessForm.value.ptoOnly,
-      totalTimeWorkedForPto: timeExcessForm.value.totalTimeWorkedForPto,
-      requestOvertimeEvaluation: !!timeExcessForm.value.requestOvertimeEvaluation,
       attestation: !!timeExcessForm.value.attestation
     }
   });
@@ -3719,6 +3874,21 @@ const submitTimeOvertime = async () => {
       attestation: !!timeOvertimeForm.value.attestation
     }
   });
+  if (submitTimeClaimError.value) return;
+
+  const f = timeOvertimeForm.value;
+  if (f.requestHolidayPay && f.holidayDate && Number(f.holidayHoursWorked || 0) > 0) {
+    await submitTimeClaim({
+      claimType: 'holiday_pay',
+      claimDate: String(f.holidayDate).slice(0, 10),
+      payload: {
+        holidayDate: String(f.holidayDate).slice(0, 10),
+        hoursWorked: Number(f.holidayHoursWorked || 0),
+        attestation: !!f.attestation
+      }
+    });
+  }
+
   if (!submitTimeClaimError.value) {
     emit('time-submitted');
     closeTimeOvertimeModal();

@@ -1567,6 +1567,7 @@
                       :agency-id="agencyId"
                       :user-id="submitOnBehalfUserId"
                       :user-name="submitOnBehalfUserName"
+                      :user-role="submitOnBehalfUser?.role || null"
                       :user-medcancel-rate-schedule="submitOnBehalfUser?.medcancel_rate_schedule || null"
                     />
                   </div>
@@ -2289,7 +2290,7 @@
 
             <div class="card" style="margin-top: 12px;">
               <h3 class="card-title" style="margin: 0 0 6px 0;">Time Claims (Pending)</h3>
-              <div class="hint">Meeting/training, excess/holiday, service corrections, and overtime evaluations.</div>
+              <div class="hint">Meeting/training, excess time, service corrections, overtime evaluations, and holiday pay.</div>
               <div v-if="pendingTimeError" class="warn-box" style="margin-top: 8px;">{{ pendingTimeError }}</div>
               <div v-if="pendingTimeLoading" class="muted" style="margin-top: 8px;">Loading pending submissions…</div>
               <div v-else-if="!pendingTimeClaims.length" class="muted" style="margin-top: 8px;">No pending time claims for this pay period.</div>
@@ -6365,10 +6366,11 @@ const timeTypeLabel = (c) => {
   const t = String(c?.claim_type || '').toLowerCase();
   if (t === 'meeting_training') return 'Meeting/Training';
   if (t === 'mentor_cpa_meeting') return 'Mentor/CPA Meeting';
-  if (t === 'excess_holiday') return 'Excess/Holiday';
+  if (t === 'excess_holiday') return 'Excess time';
   if (t === 'service_correction') return 'Service correction';
   if (t === 'overtime_evaluation') return 'Overtime eval';
-  return t || 'Time';
+  if (t === 'holiday_pay') return 'Holiday pay';
+  return t ? t.replace(/_/g, ' ') : 'Time';
 };
 
 const timeClaimPayload = (c) => (c && typeof c.payload === 'object' && c.payload) ? c.payload : {};
@@ -6377,9 +6379,19 @@ const timeClaimMinutes = (c) => {
   const payload = timeClaimPayload(c);
   const explicit = Number(payload?.totalMinutes);
   if (Number.isFinite(explicit) && explicit > 0) return explicit;
+  const items = Array.isArray(payload?.items) ? payload.items : [];
+  if (items.length) {
+    let sum = 0;
+    for (const it of items) {
+      sum += Number(it?.directMinutes || 0) + Number(it?.indirectMinutes || 0);
+    }
+    if (Number.isFinite(sum) && sum > 0) return sum;
+  }
   const direct = Number(payload?.directMinutes || 0);
   const indirect = Number(payload?.indirectMinutes || 0);
   const combined = direct + indirect;
+  const hrs = Number(payload?.hoursWorked || 0);
+  if (Number.isFinite(hrs) && hrs > 0) return Math.round(hrs * 60);
   return (Number.isFinite(combined) && combined > 0) ? combined : 0;
 };
 
@@ -6400,6 +6412,17 @@ const timeRequestedLabel = (c) => {
 
 const defaultBucketForTimeClaim = (c) => {
   const payload = timeClaimPayload(c);
+  const items = Array.isArray(payload?.items) ? payload.items : [];
+  if (items.length) {
+    let totalDirect = 0;
+    let totalIndirect = 0;
+    for (const it of items) {
+      totalDirect += Number(it?.directMinutes || 0);
+      totalIndirect += Number(it?.indirectMinutes || 0);
+    }
+    if (totalDirect > 0 && !(totalIndirect > 0)) return 'direct';
+    return 'indirect';
+  }
   const direct = Number(payload?.directMinutes || 0);
   const indirect = Number(payload?.indirectMinutes || 0);
   if (direct > 0 && !(indirect > 0)) return 'direct';
