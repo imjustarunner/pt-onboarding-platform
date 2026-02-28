@@ -3713,12 +3713,12 @@ const openEditTimeClaim = (c) => {
   if (type === 'excess_holiday') {
     openTimeExcessModal();
     let items = Array.isArray(payload.items) ? payload.items : [];
-    if (!items.length && (Number(payload.actualDirectMinutes ?? payload.directMinutes || 0) > 0 || Number(payload.actualIndirectMinutes ?? payload.indirectMinutes || 0) > 0)) {
+    if (!items.length && (Number((payload.actualDirectMinutes ?? payload.directMinutes) ?? 0) > 0 || Number((payload.actualIndirectMinutes ?? payload.indirectMinutes) ?? 0) > 0)) {
       items = [{
         serviceCode: payload.serviceCode || '',
-        units: payload.units ?? 1,
-        actualDirectMinutes: Number(payload.actualDirectMinutes ?? payload.directMinutes || 0),
-        actualIndirectMinutes: Number(payload.actualIndirectMinutes ?? payload.indirectMinutes || 0)
+        units: (payload.units ?? 1),
+        actualDirectMinutes: Number((payload.actualDirectMinutes ?? payload.directMinutes) ?? 0),
+        actualIndirectMinutes: Number((payload.actualIndirectMinutes ?? payload.indirectMinutes) ?? 0)
       }];
     }
     const it = items[0] || {};
@@ -3726,8 +3726,8 @@ const openEditTimeClaim = (c) => {
       claimDate: String(c.claim_date || '').slice(0, 10),
       serviceCode: it.serviceCode || '',
       units: Math.max(1, Number(it.units || 1)),
-      actualDirectMinutes: Number(it.actualDirectMinutes ?? it.directMinutes || 0),
-      actualIndirectMinutes: Number(it.actualIndirectMinutes ?? it.indirectMinutes || 0),
+      actualDirectMinutes: Number((it.actualDirectMinutes ?? it.directMinutes) ?? 0),
+      actualIndirectMinutes: Number((it.actualIndirectMinutes ?? it.indirectMinutes) ?? 0),
       reason: payload.reason || '',
       attestation: false
     };
