@@ -6,6 +6,8 @@ import {
   getSchoolPortalStats,
   listSchoolStaff,
   removeSchoolStaff,
+  sendSchoolStaffResetPassword,
+  addSchoolStaff,
   listSchoolPortalFaq,
   createSchoolPortalFaq,
   getClientWaitlistNote,
@@ -83,6 +85,8 @@ router.get('/:schoolId/affiliation', authenticate, getSchoolPortalAffiliation);
 router.get('/:organizationId/stats', authenticate, getSchoolPortalStats);
 router.get('/:organizationId/school-staff', authenticate, listSchoolStaff);
 router.delete('/:organizationId/school-staff/:userId', authenticate, removeSchoolStaff);
+router.post('/:organizationId/school-staff/:userId/send-reset-password', authenticate, sendSchoolStaffResetPassword);
+router.post('/:organizationId/school-staff', authenticate, addSchoolStaff);
 router.get('/:organizationId/faq', authenticate, listSchoolPortalFaq);
 router.post('/:organizationId/faq', authenticate, createSchoolPortalFaq);
 

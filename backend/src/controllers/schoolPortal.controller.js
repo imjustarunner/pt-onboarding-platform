@@ -1424,9 +1424,36 @@ export const getSchoolPortalStats = async (req, res, next) => {
   }
 };
 
+async function getPrimaryContactEmailForSchool(orgId) {
+  try {
+    const [rows] = await pool.execute(
+      `SELECT email FROM school_contacts WHERE school_organization_id = ? AND is_primary = 1 LIMIT 1`,
+      [orgId]
+    );
+    const email = rows?.[0]?.email;
+    return email ? String(email).trim().toLowerCase() : null;
+  } catch {
+    return null;
+  }
+}
+
+async function isPrimarySchoolContact(actorUserId, actorEmail, orgId) {
+  const primaryEmail = await getPrimaryContactEmailForSchool(orgId);
+  if (!primaryEmail) return false;
+  const actorEmails = [
+    actorEmail,
+    (await User.findById(actorUserId))?.email,
+    (await User.findById(actorUserId))?.work_email
+  ]
+    .filter(Boolean)
+    .map((e) => String(e).trim().toLowerCase());
+  return actorEmails.some((e) => e === primaryEmail);
+}
+
 /**
  * List school staff users linked to this school organization.
  * GET /api/school-portal/:organizationId/school-staff
+ * Includes last_login, password reset expiry, and isPrimary for each staff member.
  */
 export const listSchoolStaff = async (req, res, next) => {
   try {
@@ -1454,6 +1481,8 @@ export const listSchoolStaff = async (req, res, next) => {
       }
     }
 
+    const primaryEmail = await getPrimaryContactEmailForSchool(orgId);
+
     const [rows] = await pool.execute(
       `SELECT
          u.id,
@@ -1461,7 +1490,9 @@ export const listSchoolStaff = async (req, res, next) => {
          u.last_name,
          u.email,
          u.status,
-         u.created_at
+         u.created_at,
+         u.passwordless_token_expires_at,
+         u.passwordless_token_purpose
        FROM user_agencies ua
        JOIN users u ON u.id = ua.user_id
        WHERE ua.agency_id = ?
@@ -1471,7 +1502,45 @@ export const listSchoolStaff = async (req, res, next) => {
       [orgId]
     );
 
-    res.json(rows || []);
+    const staffIds = (rows || []).map((r) => r.id).filter(Boolean);
+    let lastLoginByUser = {};
+    if (staffIds.length) {
+      const placeholders = staffIds.map(() => '?').join(',');
+      const [loginRows] = await pool.execute(
+        `SELECT user_id, MAX(created_at) AS last_login
+         FROM user_activity_log
+         WHERE user_id IN (${placeholders}) AND action_type = 'login'
+         GROUP BY user_id`,
+        staffIds
+      );
+      for (const r of loginRows || []) {
+        lastLoginByUser[r.user_id] = r.last_login;
+      }
+    }
+
+    const result = (rows || []).map((r) => {
+      const emailNorm = r.email ? String(r.email).trim().toLowerCase() : '';
+      const isPrimary = !!primaryEmail && emailNorm === primaryEmail;
+      const purpose = String(r.passwordless_token_purpose || '').toLowerCase();
+      const hasResetToken = purpose === 'reset' && r.passwordless_token_expires_at;
+      const now = new Date();
+      const resetExpiresAt = hasResetToken ? new Date(r.passwordless_token_expires_at) : null;
+      const resetExpired = resetExpiresAt ? resetExpiresAt.getTime() <= now.getTime() : true;
+
+      return {
+        id: r.id,
+        first_name: r.first_name,
+        last_name: r.last_name,
+        email: r.email,
+        status: r.status,
+        created_at: r.created_at,
+        last_login: lastLoginByUser[r.id] || null,
+        password_reset_expires_at: hasResetToken && !resetExpired ? r.passwordless_token_expires_at : null,
+        is_primary: isPrimary
+      };
+    });
+
+    res.json(result);
   } catch (e) {
     next(e);
   }
@@ -1480,6 +1549,8 @@ export const listSchoolStaff = async (req, res, next) => {
 /**
  * Remove a school_staff user from this school organization.
  * DELETE /api/school-portal/:organizationId/school-staff/:userId
+ * Only primary school contact or agency admin/staff can remove. Removal revokes access and removes from school_contacts.
+ * Notifies agency admin to remove from school group email.
  */
 export const removeSchoolStaff = async (req, res, next) => {
   try {
@@ -1490,14 +1561,29 @@ export const removeSchoolStaff = async (req, res, next) => {
 
     const actorId = req.user?.id;
     const actorRole = String(req.user?.role || '').toLowerCase();
-    const canRemove = actorRole === 'super_admin' || actorRole === 'admin' || actorRole === 'staff' || actorRole === 'support' || actorRole === 'clinical_practice_assistant' || actorRole === 'provider_plus';
-    if (!canRemove) {
-      return res.status(403).json({ error: { message: 'Only admin/staff/support can remove school staff users' } });
+    const actorEmail = req.user?.email || req.user?.username;
+
+    const isAgencyAdmin =
+      actorRole === 'super_admin' ||
+      actorRole === 'admin' ||
+      actorRole === 'staff' ||
+      actorRole === 'support' ||
+      actorRole === 'clinical_practice_assistant' ||
+      actorRole === 'provider_plus';
+    const isPrimary = actorRole === 'school_staff' && (await isPrimarySchoolContact(actorId, actorEmail, orgId));
+
+    if (!isAgencyAdmin && !isPrimary) {
+      return res.status(403).json({
+        error: { message: 'Only the primary school contact or agency admin/staff can remove school staff users' }
+      });
     }
 
-    // Validate access via org or affiliated agency.
-    if (actorRole !== 'super_admin') {
-      const ok = await userHasOrgOrAffiliatedAgencyAccess({ userId: actorId, role: actorRole, schoolOrganizationId: orgId });
+    if (!isAgencyAdmin) {
+      const ok = await userHasOrgOrAffiliatedAgencyAccess({
+        userId: actorId,
+        role: actorRole,
+        schoolOrganizationId: orgId
+      });
       if (!ok) return res.status(403).json({ error: { message: 'You do not have access to this school organization' } });
     }
 
@@ -1507,8 +1593,448 @@ export const removeSchoolStaff = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Only school_staff users can be removed from a school via this endpoint' } });
     }
 
+    const targetEmail = (u.email || u.work_email || '').trim().toLowerCase();
+
     await User.removeFromAgency(targetUserId, orgId);
+
+    if (targetEmail) {
+      try {
+        await pool.execute(
+          `DELETE FROM school_contacts WHERE school_organization_id = ? AND LOWER(TRIM(email)) = ?`,
+          [orgId, targetEmail]
+        );
+      } catch {
+        // best-effort; school_contacts table may not exist
+      }
+    }
+
+    const activeAgencyId = await resolveActiveAgencyIdForOrg(orgId);
+    const org = await Agency.findById(orgId);
+    const schoolName = org?.name || org?.display_name || `School #${orgId}`;
+    if (activeAgencyId) {
+      const Notification = (await import('../models/Notification.model.js')).default;
+      await Notification.create({
+        type: 'school_primary_staff_removed',
+        severity: 'info',
+        title: 'School staff removed – update group email',
+        message: `${u.first_name || ''} ${u.last_name || ''} (${u.email || targetEmail}) was removed from ${schoolName} by ${isPrimary ? 'the primary school contact' : 'agency staff'}. Please remove them from the school group email list.`,
+        userId: u.id,
+        agencyId: activeAgencyId,
+        relatedEntityType: 'user',
+        relatedEntityId: u.id,
+        actorUserId: actorId,
+        actorSource: isPrimary ? 'School Portal (Primary)' : 'Agency Admin'
+      });
+    }
+
     res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Send password reset link for a school staff member.
+
+ * POST /api/school-portal/:organizationId/school-staff/:userId/send-reset-password
+ * Only the primary school contact can send reset links via the portal.
+ * Uses full reset password flow (48h expiry, etc.) and notifies agency admin.
+ */
+export const sendSchoolStaffResetPassword = async (req, res, next) => {
+  try {
+    const { organizationId, userId: targetUserIdParam } = req.params;
+    const orgId = parseInt(organizationId, 10);
+    const targetUserId = parseInt(targetUserIdParam, 10);
+    if (!orgId || !targetUserId) return res.status(400).json({ error: { message: 'Invalid organizationId or userId' } });
+
+    const actorId = req.user?.id;
+    const actorRole = String(req.user?.role || '').toLowerCase();
+    const actorEmail = req.user?.email || req.user?.username;
+
+    const isPrimary = actorRole === 'school_staff' && (await isPrimarySchoolContact(actorId, actorEmail, orgId));
+    if (!isPrimary) {
+      return res.status(403).json({
+        error: { message: 'Only the primary school contact can send password reset links from the portal' }
+      });
+    }
+
+    const ok = await userHasOrgOrAffiliatedAgencyAccess({
+      userId: actorId,
+      role: actorRole,
+      schoolOrganizationId: orgId
+    });
+    if (!ok) return res.status(403).json({ error: { message: 'You do not have access to this school organization' } });
+
+    const user = await User.findById(targetUserId);
+    if (!user) return res.status(404).json({ error: { message: 'User not found' } });
+    if (String(user.role || '').toLowerCase() !== 'school_staff') {
+      return res.status(400).json({ error: { message: 'Only school_staff users can receive reset links via this endpoint' } });
+    }
+
+    const membership = await User.getAgencyMembership(targetUserId, orgId);
+    if (!membership) {
+      return res.status(400).json({ error: { message: 'User is not assigned to this school' } });
+    }
+
+    const statusLower = String(user.status || '').toLowerCase();
+    if (statusLower === 'pending' || statusLower === 'pending_setup') {
+      return res.status(400).json({
+        error: {
+          message: 'Use the setup link for pending users. Password reset links are for users who already have an account.'
+        }
+      });
+    }
+
+    const config = (await import('../config/config.js')).default;
+    const frontendBase = (config.frontendUrl || '').replace(/\/$/, '');
+    const userAgencies = await User.getAgencies(targetUserId);
+    const portalSlug = userAgencies?.[0]?.portal_url || userAgencies?.[0]?.slug || null;
+    const buildResetLink = (token) =>
+      portalSlug ? `${frontendBase}/${portalSlug}/reset-password/${token}` : `${frontendBase}/reset-password/${token}`;
+
+    const purpose = String(user.passwordless_token_purpose || '').toLowerCase();
+    const expiresAt = user.passwordless_token_expires_at ? new Date(user.passwordless_token_expires_at) : null;
+    const now = new Date();
+    const hasValidExistingReset =
+      user.passwordless_token &&
+      purpose === 'reset' &&
+      expiresAt &&
+      expiresAt.getTime() > now.getTime();
+
+    let tokenResult;
+    if (hasValidExistingReset) {
+      tokenResult = {
+        token: user.passwordless_token,
+        expiresAt: user.passwordless_token_expires_at
+      };
+      const hoursUntil = expiresAt ? Math.round((expiresAt.getTime() - now.getTime()) / (1000 * 60 * 60)) : 48;
+      tokenResult.expiresInHours = hoursUntil;
+    } else {
+      tokenResult = await User.generatePasswordlessToken(targetUserId, 48, 'reset');
+      tokenResult.expiresInHours = 48;
+    }
+
+    const resetLink = buildResetLink(tokenResult.token);
+
+    const ActivityLogService = (await import('../services/activityLog.service.js')).default;
+    ActivityLogService.logActivity(
+      {
+        actionType: 'password_reset_link_sent',
+        userId: targetUserId,
+        metadata: {
+          performedByUserId: actorId,
+          performedByEmail: actorEmail,
+          source: 'school_portal_primary',
+          expiresAt: tokenResult.expiresAt,
+          expiresInHours: tokenResult.expiresInHours
+        }
+      },
+      req
+    );
+
+    let emailSent = false;
+    const to = [user.email, user.username, user.work_email, user.personal_email]
+      .filter(Boolean)
+      .map((e) => String(e).trim().toLowerCase())
+      .find((e) => e.includes('@'));
+    if (to) {
+      const agencyId = userAgencies?.[0]?.id || null;
+      const agency = agencyId ? await Agency.findById(agencyId) : null;
+      const subject = 'Reset your password';
+      let body = `Reset your password using this link (expires in ${tokenResult.expiresInHours} hours):\n${resetLink}\n\nIf you did not request this, you can ignore this email.`;
+      try {
+        const EmailTemplateService = (await import('../services/emailTemplate.service.js')).default;
+        const template =
+          (await EmailTemplateService.getTemplateForAgency(agencyId, 'admin_initiated_password_reset')) ||
+          (await EmailTemplateService.getTemplateForAgency(agencyId, 'password_reset'));
+        if (template?.body) {
+          const params = await EmailTemplateService.collectParameters(user, agency, {
+            passwordlessToken: tokenResult.token,
+            senderName: req.user.first_name || req.user.email || 'Primary Contact'
+          });
+          const rendered = EmailTemplateService.renderTemplate(template, params);
+          body = rendered.body || body;
+        }
+      } catch {
+        // keep default
+      }
+      try {
+        const { sendEmailFromIdentity } = await import('../services/unifiedEmail/unifiedEmailSender.service.js');
+        const EmailSenderIdentity = (await import('../models/EmailSenderIdentity.model.js')).default;
+        const EmailService = (await import('../services/email.service.js')).default;
+        const CommunicationLoggingService = (await import('../services/communicationLogging.service.js')).default;
+
+        const list = await EmailSenderIdentity.list({
+          agencyId: agencyId || null,
+          includePlatformDefaults: true,
+          onlyActive: true
+        });
+        const preferredKeys = ['login_recovery', 'system', 'default', 'notifications'];
+        let identity = null;
+        for (const key of preferredKeys) {
+          const hit = (list || []).find((i) => String(i?.identity_key || '').trim().toLowerCase() === key);
+          if (hit) {
+            identity = hit;
+            break;
+          }
+        }
+        const sendResult = identity?.id
+          ? await sendEmailFromIdentity({
+              senderIdentityId: identity.id,
+              to,
+              subject,
+              text: body,
+              html: null,
+              source: 'auto'
+            })
+          : await EmailService.sendEmail({
+              to,
+              subject,
+              text: body,
+              html: null,
+              fromName: process.env.GOOGLE_WORKSPACE_FROM_NAME || null,
+              fromAddress: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM || null,
+              replyTo: process.env.GOOGLE_WORKSPACE_REPLY_TO || null,
+              source: 'auto',
+              agencyId: agencyId || null
+            });
+        emailSent = !!sendResult;
+      } catch (err) {
+        console.error('[sendSchoolStaffResetPassword] Failed to send email:', err);
+      }
+    }
+
+    const activeAgencyId = await resolveActiveAgencyIdForOrg(orgId);
+    const org = await Agency.findById(orgId);
+    const schoolName = org?.name || org?.display_name || `School #${orgId}`;
+    if (activeAgencyId) {
+      const Notification = (await import('../models/Notification.model.js')).default;
+      await Notification.create({
+        type: 'school_primary_password_reset_sent',
+        severity: 'info',
+        title: 'Password reset link sent (school portal)',
+        message: `The primary contact for ${schoolName} sent a password reset link to ${user.first_name || ''} ${user.last_name || ''} (${user.email || to}).` +
+          (emailSent ? ' Email was sent.' : ' Email could not be sent; the link may be shared manually.'),
+        userId: user.id,
+        agencyId: activeAgencyId,
+        relatedEntityType: 'user',
+        relatedEntityId: user.id,
+        actorUserId: actorId,
+        actorSource: 'School Portal (Primary)'
+      });
+    }
+
+    res.json({
+      ok: true,
+      tokenLink: resetLink,
+      expiresAt: tokenResult.expiresAt,
+      expiresInHours: tokenResult.expiresInHours,
+      emailSent,
+      message: 'Password reset link generated and sent'
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const addSchoolStaff = async (req, res, next) => {
+  try {
+    const { organizationId } = req.params;
+    const orgId = parseInt(organizationId, 10);
+    if (!orgId) return res.status(400).json({ error: { message: 'Invalid organizationId' } });
+
+    const actorId = req.user?.id;
+    const actorRole = String(req.user?.role || '').toLowerCase();
+    const actorEmail = req.user?.email || req.user?.username;
+
+    const isPrimary = actorRole === 'school_staff' && (await isPrimarySchoolContact(actorId, actorEmail, orgId));
+    if (!isPrimary) {
+      return res.status(403).json({
+        error: { message: 'Only the primary school contact can add school staff from the portal' }
+      });
+    }
+
+    const ok = await userHasOrgOrAffiliatedAgencyAccess({
+      userId: actorId,
+      role: actorRole,
+      schoolOrganizationId: orgId
+    });
+    if (!ok) return res.status(403).json({ error: { message: 'You do not have access to this school organization' } });
+
+    const emailRaw = req.body?.email;
+    const fullName = req.body?.fullName !== undefined ? String(req.body.fullName || '').trim() : null;
+    const email = emailRaw ? String(emailRaw).trim().toLowerCase() : '';
+    if (!email || !email.includes('@')) {
+      return res.status(400).json({ error: { message: 'Invalid email address' } });
+    }
+
+    const org = await Agency.findById(orgId);
+    if (!org) return res.status(404).json({ error: { message: 'Organization not found' } });
+    const orgType = String(org.organization_type || '').toLowerCase();
+    if (orgType !== 'school') {
+      return res.status(400).json({ error: { message: 'This endpoint is only for school organizations' } });
+    }
+
+    const parseName = (fn) => {
+      const s = String(fn || '').trim();
+      if (!s) return { firstName: 'School', lastName: 'Staff' };
+      const parts = s.split(/\s+/g).filter(Boolean);
+      if (parts.length === 1) return { firstName: parts[0], lastName: 'Staff' };
+      return { firstName: parts.slice(0, -1).join(' '), lastName: parts[parts.length - 1] };
+    };
+
+    let user = await User.findByEmail(email);
+    if (user?.id) {
+      if (String(user.role || '').toLowerCase() !== 'school_staff') {
+        return res.status(409).json({
+          error: { message: `A user already exists with this email (role: ${user.role}). Cannot add as school staff.` }
+        });
+      }
+      user = await User.findById(user.id);
+    } else {
+      const { firstName, lastName } = parseName(fullName);
+      user = await User.create({
+        email,
+        passwordHash: null,
+        firstName,
+        lastName,
+        role: 'school_staff',
+        status: 'ACTIVE_EMPLOYEE'
+      });
+      try {
+        await User.setWorkEmail(user.id, email);
+      } catch {
+        // ignore
+      }
+      try {
+        await pool.execute('UPDATE users SET email = ?, username = ? WHERE id = ?', [email, email, user.id]);
+      } catch {
+        // ignore
+      }
+    }
+
+    try {
+      await User.updateStatus(user.id, 'ACTIVE_EMPLOYEE', actorId);
+    } catch {
+      // ignore
+    }
+    try {
+      await User.update(user.id, { isActive: true });
+    } catch {
+      // ignore
+    }
+
+    await User.assignToAgency(user.id, orgId);
+
+    try {
+      await pool.execute(
+        `INSERT INTO school_contacts (school_organization_id, full_name, email, role_title, notes, is_primary)
+         VALUES (?, ?, ?, ?, NULL, 0)
+         ON DUPLICATE KEY UPDATE full_name = COALESCE(VALUES(full_name), full_name), updated_at = CURRENT_TIMESTAMP`,
+        [orgId, fullName || `${user.first_name || ''} ${user.last_name || ''}`.trim() || null, email, null]
+      );
+    } catch {
+      // best-effort; table may not have UNIQUE on email
+      try {
+        await pool.execute(
+          `INSERT INTO school_contacts (school_organization_id, full_name, email, role_title, notes, is_primary)
+           VALUES (?, ?, ?, ?, NULL, 0)`,
+          [orgId, fullName || `${user.first_name || ''} ${user.last_name || ''}`.trim() || null, email, null]
+        );
+      } catch {
+        // ignore
+      }
+    }
+
+    const setupLink = await User.generatePasswordlessToken(user.id, 24 * 7, 'setup');
+    const config = (await import('../config/config.js')).default;
+    const frontendBase = (config.frontendUrl || '').replace(/\/$/, '');
+    const userAgencies = await User.getAgencies(user.id);
+    const portalSlug = userAgencies?.[0]?.portal_url || userAgencies?.[0]?.slug || null;
+    const setupUrl = portalSlug
+      ? `${frontendBase}/${portalSlug}/passwordless-login/${setupLink.token}`
+      : `${frontendBase}/passwordless-login/${setupLink.token}`;
+
+    let emailSent = false;
+    const to = [user.email, user.username, user.work_email].filter(Boolean).map((e) => String(e).trim().toLowerCase()).find((e) => e.includes('@'));
+    if (to) {
+      try {
+        const EmailTemplateService = (await import('../services/emailTemplate.service.js')).default;
+        const agencyId = userAgencies?.[0]?.id || null;
+        const agency = agencyId ? await Agency.findById(agencyId) : null;
+        const template = await EmailTemplateService.getTemplateForAgency(agencyId, 'invitation');
+        let subject = 'Set up your school portal account';
+        let body = `You have been added to the school portal. Set up your account using this link (expires in 7 days):\n${setupUrl}`;
+        if (template?.body) {
+          const params = await EmailTemplateService.collectParameters(user, agency, {
+            passwordlessToken: setupLink.token,
+            senderName: req.user?.first_name || req.user?.email || 'Primary Contact'
+          });
+          const rendered = EmailTemplateService.renderTemplate(template, params);
+          subject = rendered.subject || subject;
+          body = rendered.body || body;
+        }
+        const { sendEmailFromIdentity } = await import('../services/unifiedEmail/unifiedEmailSender.service.js');
+        const EmailSenderIdentity = (await import('../models/EmailSenderIdentity.model.js')).default;
+        const EmailService = (await import('../services/email.service.js')).default;
+        const list = await EmailSenderIdentity.list({
+          agencyId: agencyId || null,
+          includePlatformDefaults: true,
+          onlyActive: true
+        });
+        const preferredKeys = ['login_recovery', 'system', 'default', 'notifications'];
+        let identity = null;
+        for (const key of preferredKeys) {
+          const hit = (list || []).find((i) => String(i?.identity_key || '').trim().toLowerCase() === key);
+          if (hit) {
+            identity = hit;
+            break;
+          }
+        }
+        if (identity?.id) {
+          await sendEmailFromIdentity({
+            senderIdentityId: identity.id,
+            to,
+            subject,
+            text: body,
+            html: null,
+            source: 'auto'
+          });
+          emailSent = true;
+        } else {
+          await EmailService.sendEmail({
+            to,
+            subject,
+            text: body,
+            html: null,
+            fromName: process.env.GOOGLE_WORKSPACE_FROM_NAME || null,
+            fromAddress: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM || null,
+            replyTo: process.env.GOOGLE_WORKSPACE_REPLY_TO || null,
+            source: 'auto',
+            agencyId: agencyId || null
+          });
+          emailSent = true;
+        }
+      } catch (err) {
+        console.error('[addSchoolStaff] Failed to send setup email:', err);
+      }
+    }
+
+    res.status(201).json({
+      ok: true,
+      user: {
+        id: user.id,
+        email: user.email || email,
+        first_name: user.first_name,
+        last_name: user.last_name,
+        role: user.role,
+        status: user.status
+      },
+      setupLink: setupUrl,
+      setupExpiresAt: setupLink.expiresAt,
+      emailSent,
+      message: emailSent ? 'School staff added and setup email sent' : 'School staff added; share the setup link manually'
+    });
   } catch (e) {
     next(e);
   }

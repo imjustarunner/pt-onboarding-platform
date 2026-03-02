@@ -83,7 +83,11 @@ class Notification {
     // Office availability request (provider requesting office space)
     'office_availability_request_pending',
     // Budget Management: expense pending approval (department approvers)
-    'budget_expense_pending_approval'
+    'budget_expense_pending_approval',
+    // School portal: primary sent password reset link (notify agency admin)
+    'school_primary_password_reset_sent',
+    // School portal: primary removed staff (notify agency admin to remove from school group email)
+    'school_primary_staff_removed'
   ];
 
   static async create(notificationData) {

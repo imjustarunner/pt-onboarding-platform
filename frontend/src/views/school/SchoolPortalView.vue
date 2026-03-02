@@ -270,6 +270,19 @@
             <div class="nav-label">Notifications</div>
           </button>
 
+          <button data-tour="school-nav-messages" class="nav-item" type="button" @click="openMessages">
+            <div class="nav-icon">
+              <img
+                v-if="brandingStore.getSchoolPortalCardIconUrl('messages', cardIconOrg)"
+                :src="brandingStore.getSchoolPortalCardIconUrl('messages', cardIconOrg)"
+                alt=""
+                class="nav-icon-img"
+              />
+              <div v-else class="nav-icon-fallback" aria-hidden="true">CH</div>
+            </div>
+            <div class="nav-label">Messages</div>
+          </button>
+
           <button data-tour="school-nav-faq" class="nav-item" type="button" @click="portalMode = 'faq'" :class="{ active: portalMode === 'faq' }">
             <div class="nav-icon">
               <img
@@ -536,35 +549,35 @@
             </div>
           </button>
 
-          <button data-tour="school-home-card-parent-qr" class="dash-card" type="button" @click="openIntakeModal('qr')">
+          <button data-tour="school-home-card-messages" class="dash-card" type="button" @click="openMessages">
             <div class="dash-card-icon">
               <img
-                v-if="brandingStore.getSchoolPortalCardIconUrl('parent_qr', cardIconOrg)"
-                :src="brandingStore.getSchoolPortalCardIconUrl('parent_qr', cardIconOrg)"
-                alt="Parent QR code icon"
+                v-if="brandingStore.getSchoolPortalCardIconUrl('messages', cardIconOrg)"
+                :src="brandingStore.getSchoolPortalCardIconUrl('messages', cardIconOrg)"
+                alt="Messages icon"
                 class="dash-card-icon-img"
               />
-              <div v-else class="dash-card-icon-fallback" aria-hidden="true">QR</div>
+              <div v-else class="dash-card-icon-fallback" aria-hidden="true">CH</div>
             </div>
-            <div class="dash-card-title">Parent QR code</div>
-            <div class="dash-card-desc">Share a QR code for parent intake / forms.</div>
+            <div class="dash-card-title">Messages</div>
+            <div class="dash-card-desc">Chat with providers and school staff.</div>
             <div class="dash-card-meta">
               <span class="dash-card-cta">Open</span>
             </div>
           </button>
 
-          <button class="dash-card" type="button" @click="openIntakeModal('sign')">
+          <button data-tour="school-home-card-digital-intake" class="dash-card" type="button" @click="openIntakeModal('qr')">
             <div class="dash-card-icon">
               <img
-                v-if="brandingStore.getSchoolPortalCardIconUrl('parent_sign', cardIconOrg)"
-                :src="brandingStore.getSchoolPortalCardIconUrl('parent_sign', cardIconOrg)"
-                alt="Parent fill and sign icon"
+                v-if="brandingStore.getSchoolPortalCardIconUrl('parent_qr', cardIconOrg)"
+                :src="brandingStore.getSchoolPortalCardIconUrl('parent_qr', cardIconOrg)"
+                alt="Digital intake icon"
                 class="dash-card-icon-img"
               />
-              <div v-else class="dash-card-icon-fallback" aria-hidden="true">SGN</div>
+              <div v-else class="dash-card-icon-fallback" aria-hidden="true">QR</div>
             </div>
-            <div class="dash-card-title">Parent fill + sign</div>
-            <div class="dash-card-desc">Have a parent complete and sign required packets.</div>
+            <div class="dash-card-title">Digital intake links</div>
+            <div class="dash-card-desc">Replaces the paper intake packet. Share QR code or link for parents to complete forms.</div>
             <div class="dash-card-meta">
               <span class="dash-card-cta">Open</span>
             </div>
@@ -864,7 +877,7 @@
     <div v-if="showIntakeModal" class="modal-overlay" @click.self="closeIntakeModal">
       <div class="modal" @click.stop>
         <div class="modal-header">
-          <strong>Parent intake link</strong>
+          <strong>Digital intake links</strong>
           <button class="btn btn-secondary btn-sm" type="button" @click="closeIntakeModal">Close</button>
         </div>
         <div class="modal-body">
@@ -1430,6 +1443,10 @@ const loadNotificationsPreview = async () => {
     notificationsUnreadCount.value = 0;
     notificationsNewestSnippet.value = '';
   }
+};
+
+const openMessages = () => {
+  router.push({ path: route.path, query: { ...route.query, openChat: '1' } });
 };
 
 const openNotificationsPanel = async () => {

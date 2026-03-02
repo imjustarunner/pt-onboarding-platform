@@ -806,7 +806,8 @@ export const useBrandingStore = defineStore('branding', () => {
       parent_sign: 'school_portal_parent_sign_icon_path',
       upload_packet: 'school_portal_upload_packet_icon_path',
       public_documents: 'school_portal_public_documents_icon_path',
-      announcements: 'school_portal_announcements_icon_path'
+      announcements: 'school_portal_announcements_icon_path',
+      messages: 'school_portal_messages_icon_path'
     };
     const field = iconFieldMap[cardId];
     if (!field) return null;
@@ -822,6 +823,10 @@ export const useBrandingStore = defineStore('branding', () => {
     if (platformBranding.value?.[idField]) {
       const url = iconUrlById(platformBranding.value[idField]);
       if (url) return url;
+    }
+    // Messages card: fall back to chats icon (same as My Dashboard Communications/Chats cards)
+    if (cardId === 'messages') {
+      return getDashboardCardIconUrl('chats', organization);
     }
     return null;
   };

@@ -712,6 +712,20 @@ watch(agencyId, async () => {
   await Promise.all([loadPresence(), loadThreads()]);
 });
 
+// When URL has openChat=1 (e.g. Messages card clicked), open the drawer.
+watch(
+  () => route.query?.openChat,
+  (val) => {
+    if (val === '1' || val === 'true') {
+      isOpen.value = true;
+      const q = { ...route.query };
+      delete q.openChat;
+      router.replace({ path: route.path, query: q });
+    }
+  },
+  { immediate: true }
+);
+
 // When URL has openChatWith + agencyId (e.g. supervisor clicked "Chat with supervisee"), open that thread in the drawer and clear those params.
 watch(
   () => ({ query: route.query, path: route.path }),
