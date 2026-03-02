@@ -5325,8 +5325,28 @@ export const batchCatchUp = [
       const run2 = await createSnapshotRun({ parsed: parsed2 });
       const run3 = await createSnapshotRun({ parsed: parsed3 });
 
-      if (isEffectivelyPostedOrFinalized(period)) {
-        return res.status(409).json({ error: { message: 'This pay period is posted/finalized and cannot be re-imported.' } });
+      const destinationPeriodIdRaw = req.body?.destinationPeriodId ?? req.body?.destination_period_id ?? req.query?.destinationPeriodId;
+      const destinationPeriodId = destinationPeriodIdRaw ? parseInt(destinationPeriodIdRaw, 10) : null;
+      let destPeriod = null;
+      if (destinationPeriodId && destinationPeriodId !== period.id) {
+        destPeriod = await PayrollPeriod.findById(destinationPeriodId);
+        if (!destPeriod || destPeriod.agency_id !== agencyId) {
+          return res.status(400).json({ error: { message: 'Destination period not found or does not belong to this agency.' } });
+        }
+      }
+
+      const sourceIsPosted = isEffectivelyPostedOrFinalized(period);
+      if (sourceIsPosted) {
+        if (destPeriod && !isEffectivelyPostedOrFinalized(destPeriod)) {
+          // Source is posted; add late notes to the destination period instead of re-importing source.
+          // Fall through to use destPeriod as target for carryover.
+        } else {
+          return res.status(409).json({
+            error: {
+              message: 'This pay period is posted/finalized and cannot be re-imported. Select the next pay period as destination above, then upload again — late notes will be added there.'
+            }
+          });
+        }
       }
 
       const snap1 = await PayrollPeriodRunSnapshot.listForRun(run1.run.id);
@@ -5433,92 +5453,99 @@ export const batchCatchUp = [
         }))
         .filter((r) => Number(r?.carryoverFinalizedUnits || 0) > 1e-9);
 
-      const r3 = parsePayrollFile(f3.buffer, f3.originalname || 'file3.csv');
-      const parsedC = r3?.rows || [];
-      const missedC = r3?.missedAppointmentsPaidInFull || [];
-      const imp = await PayrollImport.create({
-        agencyId: period.agency_id,
-        payrollPeriodId: period.id,
-        source: 'csv',
-        originalFilename: f3.originalname,
-        uploadedByUserId: req.user.id
-      });
-      const h0032Manual = new Map();
-      try {
-        const [uaRows] = await pool.execute(
-          `SELECT user_id, h0032_requires_manual_minutes FROM user_agencies WHERE agency_id = ?`,
-          [period.agency_id]
-        );
-        for (const r of uaRows || []) h0032Manual.set(Number(r.user_id), Number(r.h0032_requires_manual_minutes) ? 1 : 0);
-      } catch { /* column may not exist */ }
-      const rowsToInsert = parsedC.map((r) => {
-        const userId = resolveUserIdForProviderName(nameToIds, r.providerName);
-        const codeKey = String(r.serviceCode || '').trim().toUpperCase();
-        let unitCount = Number(r.unitCount) || 0;
-        if (codeKey === 'H0031' && Math.abs(unitCount - 1) < 1e-9) unitCount = 60;
-        else if (codeKey === 'H0032' && Math.abs(unitCount - 1) < 1e-9) unitCount = 30;
-        const requiresProcessing = codeKey === 'H0031' || (codeKey === 'H0032' && !!h0032Manual.get(userId));
-        return {
-          payrollImportId: imp.id,
-          payrollPeriodId: period.id,
+      const targetPeriod = destPeriod || period;
+      const rowsToInsert = [];
+      let h0031PendingCount = 0;
+      let h0032PendingCount = 0;
+
+      if (!sourceIsPosted) {
+        const r3 = parsePayrollFile(f3.buffer, f3.originalname || 'file3.csv');
+        const parsedC = r3?.rows || [];
+        const missedC = r3?.missedAppointmentsPaidInFull || [];
+        const imp = await PayrollImport.create({
           agencyId: period.agency_id,
-          userId,
-          providerName: r.providerName,
-          patientFirstName: r.patientFirstName,
-          serviceCode: r.serviceCode,
-          serviceDate: r.serviceDate ? formatYmd(r.serviceDate) : null,
-          noteStatus: r.noteStatus,
-          draftPayable: r.noteStatus === 'DRAFT' ? 1 : 0,
-          unitCount,
-          rowFingerprint: computeRowFingerprint({ agencyId: period.agency_id, clinicianName: r.providerName, patientFirstName: r.patientFirstName, serviceCode: r.serviceCode, serviceDate: r.serviceDate }),
-          requiresProcessing,
-          processedAt: null,
-          processedByUserId: null
-        };
-      });
-      await PayrollImportRow.bulkInsert(rowsToInsert);
-      try {
-        await PayrollImportMissedAppointment.replaceForImport({
-          payrollImportId: imp.id,
           payrollPeriodId: period.id,
-          agencyId: period.agency_id,
-          rows: missedC
+          source: 'csv',
+          originalFilename: f3.originalname,
+          uploadedByUserId: req.user.id
         });
-      } catch (e) {
-        if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+        const h0032Manual = new Map();
+        try {
+          const [uaRows] = await pool.execute(
+            `SELECT user_id, h0032_requires_manual_minutes FROM user_agencies WHERE agency_id = ?`,
+            [period.agency_id]
+          );
+          for (const r of uaRows || []) h0032Manual.set(Number(r.user_id), Number(r.h0032_requires_manual_minutes) ? 1 : 0);
+        } catch { /* column may not exist */ }
+        for (const r of parsedC) {
+          const userId = resolveUserIdForProviderName(nameToIds, r.providerName);
+          const codeKey = String(r.serviceCode || '').trim().toUpperCase();
+          let unitCount = Number(r.unitCount) || 0;
+          if (codeKey === 'H0031' && Math.abs(unitCount - 1) < 1e-9) unitCount = 60;
+          else if (codeKey === 'H0032' && Math.abs(unitCount - 1) < 1e-9) unitCount = 30;
+          const requiresProcessing = codeKey === 'H0031' || (codeKey === 'H0032' && !!h0032Manual.get(userId));
+          rowsToInsert.push({
+            payrollImportId: imp.id,
+            payrollPeriodId: period.id,
+            agencyId: period.agency_id,
+            userId,
+            providerName: r.providerName,
+            patientFirstName: r.patientFirstName,
+            serviceCode: r.serviceCode,
+            serviceDate: r.serviceDate ? formatYmd(r.serviceDate) : null,
+            noteStatus: r.noteStatus,
+            draftPayable: r.noteStatus === 'DRAFT' ? 1 : 0,
+            unitCount,
+            rowFingerprint: computeRowFingerprint({ agencyId: period.agency_id, clinicianName: r.providerName, patientFirstName: r.patientFirstName, serviceCode: r.serviceCode, serviceDate: r.serviceDate }),
+            requiresProcessing,
+            processedAt: null,
+            processedByUserId: null
+          });
+        }
+        await PayrollImportRow.bulkInsert(rowsToInsert);
+        try {
+          await PayrollImportMissedAppointment.replaceForImport({
+            payrollImportId: imp.id,
+            payrollPeriodId: period.id,
+            agencyId: period.agency_id,
+            rows: missedC
+          });
+        } catch (e) {
+          if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+        }
+        await pool.execute('DELETE FROM payroll_summaries WHERE payroll_period_id = ?', [period.id]);
+        await pool.execute(
+          `UPDATE payroll_periods SET status = 'raw_imported', ran_at = NULL, ran_by_user_id = NULL WHERE id = ?`,
+          [period.id]
+        );
+        h0031PendingCount = rowsToInsert.filter((r) => String(r.serviceCode || '').trim().toUpperCase() === 'H0031' && r.requiresProcessing).length;
+        h0032PendingCount = rowsToInsert.filter((r) => String(r.serviceCode || '').trim().toUpperCase() === 'H0032' && r.requiresProcessing).length;
       }
-      await pool.execute('DELETE FROM payroll_summaries WHERE payroll_period_id = ?', [period.id]);
-      await pool.execute(
-        `UPDATE payroll_periods SET status = 'raw_imported', ran_at = NULL, ran_by_user_id = NULL WHERE id = ?`,
-        [period.id]
-      );
 
       await PayrollStageCarryover.replaceForPeriod({
-        payrollPeriodId: period.id,
+        payrollPeriodId: targetPeriod.id,
         agencyId: period.agency_id,
         sourcePayrollPeriodId: period.id,
         computedByUserId: req.user.id,
         rows
       });
-      await pool.execute('DELETE FROM payroll_summaries WHERE payroll_period_id = ?', [period.id]);
+      await pool.execute('DELETE FROM payroll_summaries WHERE payroll_period_id = ?', [targetPeriod.id]);
       await pool.execute(
         `UPDATE payroll_periods SET status = 'staged', ran_at = NULL, ran_by_user_id = NULL WHERE id = ?`,
-        [period.id]
+        [targetPeriod.id]
       );
-
-      const h0031PendingCount = rowsToInsert.filter((r) => String(r.serviceCode || '').trim().toUpperCase() === 'H0031' && r.requiresProcessing).length;
-      const h0032PendingCount = rowsToInsert.filter((r) => String(r.serviceCode || '').trim().toUpperCase() === 'H0032' && r.requiresProcessing).length;
 
       res.json({
         ok: true,
-        period: { id: period.id, periodStart: ymdFromDbDate(period.period_start), periodEnd: ymdFromDbDate(period.period_end) },
+        period: { id: targetPeriod.id, periodStart: ymdFromDbDate(targetPeriod.period_start), periodEnd: ymdFromDbDate(targetPeriod.period_end) },
         importedRows: rowsToInsert.length,
         carryoverRowsApplied: rows.length,
         rows,
         superFlag: superFlagRows,
         superFlagCount: superFlagRows.length,
         h0031PendingCount,
-        h0032PendingCount
+        h0032PendingCount,
+        addedToDestination: sourceIsPosted && !!destPeriod
       });
     } catch (e) {
       next(e);

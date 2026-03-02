@@ -1094,7 +1094,14 @@
         </div>
         <div v-if="batchCatchUpResult" style="margin-top: 10px;">
           <div class="hint" style="color: var(--success);">
-            Done. Imported {{ batchCatchUpResult.importedRows }} rows, applied {{ batchCatchUpResult.carryoverRowsApplied }} carryover rows. Select the period above to review.
+            Done.
+            <template v-if="batchCatchUpResult.addedToDestination">
+              Applied {{ batchCatchUpResult.carryoverRowsApplied }} late-note carryover rows to the selected period (source period was posted).
+            </template>
+            <template v-else>
+              Imported {{ batchCatchUpResult.importedRows }} rows, applied {{ batchCatchUpResult.carryoverRowsApplied }} carryover rows.
+            </template>
+            Select the period above to review.
           </div>
           <div
             v-if="(batchCatchUpResult.h0031PendingCount || 0) + (batchCatchUpResult.h0032PendingCount || 0) > 0"
@@ -1122,17 +1129,20 @@
             </table>
           </div>
         </div>
-        <div v-if="batchCatchUpError" class="warn-box" style="margin-top: 10px;">{{ batchCatchUpError }}</div>
+        <div v-if="(selectedPeriodStatus === 'posted' || selectedPeriodStatus === 'finalized') && selectedPeriodId" class="warn-box" style="margin-top: 10px;">
+          This pay period is posted/finalized. If your 3 files are from this period, select the <strong>next</strong> pay period above, then upload again — late notes will be added there.
+        </div>
+        <div v-else-if="batchCatchUpError" class="warn-box" style="margin-top: 10px;">{{ batchCatchUpError }}</div>
       </div>
 
       <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr 1fr;">
         <div class="field">
           <label>Present pay period (destination)</label>
           <div class="hint">
-            This will add differences into your currently selected pay period:
+            Late notes will be added to:
             <strong>{{ selectedPeriodForUi ? periodRangeLabel(selectedPeriodForUi) : '—' }}</strong>
           </div>
-          <div class="hint muted">To change the destination, select a different pay period at the top of this page.</div>
+          <div class="hint muted">If the period in your files is already posted, select the next pay period above so late notes are added there.</div>
         </div>
           <div class="field">
           <label>Upload updated prior pay period report</label>
@@ -11315,6 +11325,7 @@ const runBatchCatchUp = async () => {
     fd.append('file2', batchFiles.value[2]);
     fd.append('file3', batchFiles.value[3]);
     fd.append('agencyId', String(agencyId.value));
+    if (selectedPeriodId.value) fd.append('destinationPeriodId', String(selectedPeriodId.value));
     const resp = await api.post('/payroll/periods/batch-catch-up', fd);
     batchCatchUpResult.value = resp.data || null;
     await loadPeriods();
