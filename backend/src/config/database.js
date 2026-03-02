@@ -15,7 +15,7 @@ const poolConfig = {
   password: process.env.DB_PASSWORD || 'onboarding_pass',
   database: process.env.DB_NAME || 'onboarding_stage',
   waitForConnections: true,
-  connectionLimit: 10,
+  connectionLimit: parseInt(process.env.DB_CONNECTION_LIMIT, 10) || 50,
   queueLimit: 0,
   connectTimeout: 60000, // 60 seconds connection timeout
   timezone: '+00:00', // Force UTC timezone for all connections
@@ -45,6 +45,7 @@ if (isUnixSocket) {
   console.log('  - Host:', poolConfig.host);
   console.log('  - Port:', poolConfig.port);
 }
+console.log('  - Connection limit:', poolConfig.connectionLimit);
 console.log('  - Connection timeout:', poolConfig.connectTimeout, 'ms');
 
 const pool = mysql.createPool(poolConfig);

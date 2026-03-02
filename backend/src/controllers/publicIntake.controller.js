@@ -27,7 +27,7 @@ import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
 import { sendEmailFromIdentity } from '../services/unifiedEmail/unifiedEmailSender.service.js';
 
 const normalizeName = (name) => String(name || '').trim();
-const BASE_CONSENT_TTL_MS = 30 * 60 * 1000;
+const BASE_CONSENT_TTL_MS = 60 * 60 * 1000; // 1 hour to complete once started
 const PER_PAGE_TTL_MS = 5 * 60 * 1000;
 
 const isSubmissionExpired = (submission, { templatesCount = 0 } = {}) => {
@@ -1544,6 +1544,41 @@ export const finalizePublicIntake = async (req, res, next) => {
       return res.status(410).json({ error: { message: 'This intake session has expired. Please restart the intake.' } });
     }
 
+    // Idempotent retry: if already submitted, return existing result (no duplicate work, no data loss)
+    if (String(submission.status || '').toLowerCase() === 'submitted' && submission.combined_pdf_path) {
+      let downloadUrl = null;
+      try {
+        downloadUrl = await StorageService.getSignedUrl(submission.combined_pdf_path, 60 * 24 * 14);
+      } catch {
+        // best-effort
+      }
+      const clientRows = await IntakeSubmissionClient.listBySubmissionId(submissionId);
+      const clientBundles = [];
+      for (const c of clientRows || []) {
+        if (c?.bundle_pdf_path) {
+          try {
+            const url = await StorageService.getSignedUrl(c.bundle_pdf_path, 60 * 24 * 14);
+            clientBundles.push({
+              clientId: c.client_id,
+              clientName: c.full_name || null,
+              filename: `intake-client-${c.client_id || 'unknown'}.pdf`,
+              downloadUrl: url
+            });
+          } catch {
+            // best-effort
+          }
+        }
+      }
+      const signedDocs = await IntakeSubmissionDocument.listBySubmissionId(submissionId);
+      return res.json({
+        success: true,
+        submission,
+        documents: signedDocs || [],
+        downloadUrl,
+        clientBundles
+      });
+    }
+
     if (link.create_client) {
       const rawClients = Array.isArray(req.body?.clients) && req.body.clients.length
         ? req.body.clients
@@ -1957,6 +1992,39 @@ export const submitPublicIntake = async (req, res, next) => {
     const submission = await IntakeSubmission.findById(submissionId);
     if (!submission || submission.intake_link_id !== link.id) {
       return res.status(404).json({ error: { message: 'Submission not found' } });
+    }
+
+    // Idempotent retry: if already submitted, return existing result (no duplicate work, no data loss)
+    if (String(submission.status || '').toLowerCase() === 'submitted' && submission.combined_pdf_path) {
+      let downloadUrl = null;
+      try {
+        downloadUrl = await StorageService.getSignedUrl(submission.combined_pdf_path, 60 * 24 * 14);
+      } catch {
+        // best-effort
+      }
+      const clientRows = await IntakeSubmissionClient.listBySubmissionId(submissionId);
+      const clientBundles = [];
+      for (const c of clientRows || []) {
+        if (c?.bundle_pdf_path) {
+          try {
+            const url = await StorageService.getSignedUrl(c.bundle_pdf_path, 60 * 24 * 14);
+            clientBundles.push({
+              clientId: c.client_id,
+              clientName: c.full_name || null,
+              filename: `intake-client-${c.client_id || 'unknown'}.pdf`,
+              downloadUrl: url
+            });
+          } catch {
+            // best-effort
+          }
+        }
+      }
+      return res.json({
+        success: true,
+        submission,
+        downloadUrl,
+        clientBundles
+      });
     }
 
     if (link.create_client) {
