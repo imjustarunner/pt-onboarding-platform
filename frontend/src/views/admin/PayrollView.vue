@@ -1089,19 +1089,42 @@
         </div>
         <div class="actions" style="margin-top: 10px;">
           <button class="btn btn-primary" @click="runBatchCatchUp" :disabled="batchCatchUpLoading || !batchFiles[1] || !batchFiles[2] || !batchFiles[3] || !agencyId">
-            {{ batchCatchUpLoading ? 'Processing…' : 'Upload all 3 & add changes' }}
+            {{ batchCatchUpLoading ? 'Comparing…' : 'Upload all 3 & compare' }}
           </button>
         </div>
         <div v-if="batchCatchUpResult" style="margin-top: 10px;">
-          <div class="hint" style="color: var(--success);">
-            Done.
-            <template v-if="batchCatchUpResult.addedToDestination">
-              Applied {{ batchCatchUpResult.carryoverRowsApplied }} late-note carryover rows to the selected period (source period was posted).
-            </template>
-            <template v-else>
-              Imported {{ batchCatchUpResult.importedRows }} rows, applied {{ batchCatchUpResult.carryoverRowsApplied }} carryover rows.
-            </template>
-            Select the period above to review.
+          <div class="hint" style="color: var(--success);" v-if="batchCatchUpResult.applied">
+            Done. Applied {{ batchCatchUpResult.carryoverRowsApplied }} late-note carryover rows. Select the period above to review.
+          </div>
+          <div class="hint" v-else>
+            Compare complete. Review what would be added below, then click <strong>Add to current period</strong> when ready.
+          </div>
+          <div v-if="(batchCatchUpResult.carryoverApplied || []).length > 0" class="card" style="margin-top: 10px; padding: 12px;">
+            <strong>Late notes to add ({{ batchCatchUpResult.carryoverRowsApplied }} rows)</strong>
+            <div class="hint muted" style="margin-top: 4px;">Units that went from unpaid → finalized between runs. These will be added to the selected period when you click Add.</div>
+            <div v-if="!batchCatchUpResult.applied && (batchCatchUpResult.rowsForApply || []).length > 0" class="actions" style="margin-top: 10px;">
+              <button
+                class="btn btn-primary"
+                @click="applyBatchCatchUpToPeriod"
+                :disabled="batchCatchUpApplying || !selectedPeriodId || isPeriodPosted"
+              >
+                {{ batchCatchUpApplying ? 'Adding…' : 'Add to current period' }}
+              </button>
+            </div>
+            <table class="table" style="margin-top: 8px; font-size: 0.9em;">
+              <thead>
+                <tr><th>User</th><th>Service code</th><th class="right">1→2 units</th><th class="right">2→3 units</th><th class="right">Total</th></tr>
+              </thead>
+              <tbody>
+                <tr v-for="c in (batchCatchUpResult.carryoverApplied || [])" :key="`${c.userId}-${c.serviceCode}`">
+                  <td>{{ c.providerName || getUserName(c.userId) }}</td>
+                  <td>{{ c.serviceCode }}</td>
+                  <td class="right">{{ fmtNum(c.run1To2Units) }}</td>
+                  <td class="right">{{ fmtNum(c.run2To3Units) }}</td>
+                  <td class="right">{{ fmtNum(c.totalUnits) }}</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
           <div
             v-if="(batchCatchUpResult.h0031PendingCount || 0) + (batchCatchUpResult.h0032PendingCount || 0) > 0"
@@ -1113,16 +1136,17 @@
             Open <strong>Raw Import</strong> → <strong>Process H0031</strong> / <strong>Process H0032</strong> to edit. Unpaid rows are highlighted in amber.
           </div>
           <div v-if="batchCatchUpResult.superFlagCount > 0" class="warn-box" style="margin-top: 10px; padding: 12px;">
-            <strong>Attention ({{ batchCatchUpResult.superFlagCount }}):</strong> Unpaid/no notes are delinquent for over 2 weeks. Please address as soon as possible. This notification has been sent to supervisors and the admin team. If help is needed completing notes, please reach out.
+            <strong>Still delinquent ({{ batchCatchUpResult.superFlagCount }}):</strong> Unpaid/no notes that were unpaid in Run 1 and are still unpaid in Run 3. Please address as soon as possible.
             <table class="table" style="margin-top: 8px; font-size: 0.9em;">
               <thead>
-                <tr><th>User</th><th>Service code</th><th class="right">Run 1 unpaid</th><th class="right">Run 3 unpaid</th></tr>
+                <tr><th>User</th><th>Service code</th><th class="right">Run 1</th><th class="right">Run 2</th><th class="right">Run 3</th></tr>
               </thead>
               <tbody>
                 <tr v-for="f in (batchCatchUpResult.superFlag || [])" :key="`${f.userId}-${f.serviceCode}`">
                   <td>{{ f.providerName || getUserName(f.userId) }}</td>
                   <td>{{ f.serviceCode }}</td>
                   <td class="right">{{ fmtNum(f.run1UnpaidUnits) }}</td>
+                  <td class="right">{{ fmtNum(f.run2UnpaidUnits) }}</td>
                   <td class="right">{{ fmtNum(f.run3UnpaidUnits) }}</td>
                 </tr>
               </tbody>
@@ -5644,6 +5668,7 @@ const unpaidDraftsReport = ref(null);
 const unpaidDraftsLoading = ref(false);
 const batchFiles = ref({ 1: null, 2: null, 3: null });
 const batchCatchUpLoading = ref(false);
+const batchCatchUpApplying = ref(false);
 const batchCatchUpResult = ref(null);
 const batchCatchUpError = ref('');
 const processDetectedHint = ref('');
@@ -11329,13 +11354,45 @@ const runBatchCatchUp = async () => {
     const resp = await api.post('/payroll/periods/batch-catch-up', fd);
     batchCatchUpResult.value = resp.data || null;
     await loadPeriods();
-    if (batchCatchUpResult.value?.period?.id) {
-      await selectPeriod(batchCatchUpResult.value.period.id);
+    if (batchCatchUpResult.value?.destinationPeriodId) {
+      await selectPeriod(batchCatchUpResult.value.destinationPeriodId);
     }
   } catch (e) {
     batchCatchUpError.value = e.response?.data?.error?.message || e.message || 'Batch catch-up failed';
   } finally {
     batchCatchUpLoading.value = false;
+  }
+};
+
+const applyBatchCatchUpToPeriod = async () => {
+  const result = batchCatchUpResult.value;
+  if (!result || !(result.rowsForApply || []).length) return;
+  const destId = result.destinationPeriodId || selectedPeriodId.value;
+  if (!destId) return;
+  try {
+    batchCatchUpApplying.value = true;
+    batchCatchUpError.value = '';
+    await api.post(`/payroll/periods/${destId}/carryover/apply`, { rows: result.rowsForApply });
+    batchCatchUpResult.value = { ...result, applied: true };
+    await loadPeriods();
+    await selectPeriod(destId);
+  } catch (e) {
+    const msg = e.response?.data?.error?.message || e.message || '';
+    if (e.response?.status === 409 && (String(msg).includes('H0031') || String(msg).includes('H0032'))) {
+      const ok = window.confirm('Carryover is blocked by H0031/H0032 processing. Apply anyway (skip processing gate)?');
+      if (ok) {
+        await api.post(`/payroll/periods/${destId}/carryover/apply`, { rows: result.rowsForApply }, { params: { skipProcessingGate: 'true' } });
+        batchCatchUpResult.value = { ...result, applied: true };
+        await loadPeriods();
+        await selectPeriod(destId);
+      } else {
+        batchCatchUpError.value = msg;
+      }
+    } else {
+      batchCatchUpError.value = msg || 'Failed to add to current period';
+    }
+  } finally {
+    batchCatchUpApplying.value = false;
   }
 };
 

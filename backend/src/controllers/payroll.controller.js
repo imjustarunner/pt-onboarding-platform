@@ -5327,6 +5327,7 @@ export const batchCatchUp = [
 
       const destinationPeriodIdRaw = req.body?.destinationPeriodId ?? req.body?.destination_period_id ?? req.query?.destinationPeriodId;
       const destinationPeriodId = destinationPeriodIdRaw ? parseInt(destinationPeriodIdRaw, 10) : null;
+      const applyCarryover = String(req.body?.apply ?? req.query?.apply ?? 'false').toLowerCase() === 'true';
       let destPeriod = null;
       if (destinationPeriodId && destinationPeriodId !== period.id) {
         destPeriod = await PayrollPeriod.findById(destinationPeriodId);
@@ -5338,12 +5339,11 @@ export const batchCatchUp = [
       const sourceIsPosted = isEffectivelyPostedOrFinalized(period);
       if (sourceIsPosted) {
         if (destPeriod && !isEffectivelyPostedOrFinalized(destPeriod)) {
-          // Source is posted; add late notes to the destination period instead of re-importing source.
-          // Fall through to use destPeriod as target for carryover.
+          // Source is posted; late notes go to destination period.
         } else {
           return res.status(409).json({
             error: {
-              message: 'This pay period is posted/finalized and cannot be re-imported. Select the next pay period as destination above, then upload again — late notes will be added there.'
+              message: 'This pay period is posted/finalized. Select the next pay period as destination above, then upload again.'
             }
           });
         }
@@ -5357,11 +5357,17 @@ export const batchCatchUp = [
       const result2to3 = computeSnapshotBasedCarryover({ baselineSnapshots: snap2, compareSnapshots: snap3, priorAgencyId: agencyId });
 
       // Super flag: unpaid in Run 1 that is STILL unpaid in Run 3 (should have been dealt with in Run 2)
+      // Include Run 2 unpaid so user can see progression: Run 1 → Run 2 → Run 3
       const unpaidByKeyRun1 = new Map();
+      const unpaidByKeyRun2 = new Map();
       const unpaidByKeyRun3 = new Map();
       for (const r of snap1 || []) {
         const u = Number(r.no_note_units || 0) + Number(r.draft_units || 0);
         if (u > 1e-9) unpaidByKeyRun1.set(r.row_match_key, { userId: r.user_id, serviceCode: r.service_code, unpaid: u });
+      }
+      for (const r of snap2 || []) {
+        const u = Number(r.no_note_units || 0) + Number(r.draft_units || 0);
+        if (u > 1e-9) unpaidByKeyRun2.set(r.row_match_key, { userId: r.user_id, serviceCode: r.service_code, unpaid: u });
       }
       for (const r of snap3 || []) {
         const u = Number(r.no_note_units || 0) + Number(r.draft_units || 0);
@@ -5371,10 +5377,13 @@ export const batchCatchUp = [
       for (const [key, r1] of unpaidByKeyRun1) {
         const r3 = unpaidByKeyRun3.get(key);
         if (!r3 || Number(r3.unpaid || 0) <= 1e-9) continue;
+        const r2 = unpaidByKeyRun2.get(key);
+        const run2Unpaid = r2 ? Number(r2.unpaid || 0) : 0;
         const k = `${r1.userId}:${(r1.serviceCode || '').toUpperCase()}`;
-        if (!superFlagByUserCode.has(k)) superFlagByUserCode.set(k, { userId: r1.userId, serviceCode: r1.serviceCode, run1Unpaid: 0, run3Unpaid: 0 });
+        if (!superFlagByUserCode.has(k)) superFlagByUserCode.set(k, { userId: r1.userId, serviceCode: r1.serviceCode, run1Unpaid: 0, run2Unpaid: 0, run3Unpaid: 0 });
         const t = superFlagByUserCode.get(k);
         t.run1Unpaid = Number((t.run1Unpaid + (r1.unpaid || 0)).toFixed(2));
+        t.run2Unpaid = Number((t.run2Unpaid + run2Unpaid).toFixed(2));
         t.run3Unpaid = Number((t.run3Unpaid + (r3.unpaid || 0)).toFixed(2));
       }
       const superFlagUserIds = Array.from(superFlagByUserCode.values()).map((t) => t.userId).filter((id) => id > 0);
@@ -5394,10 +5403,59 @@ export const batchCatchUp = [
           serviceCode: t.serviceCode,
           providerName,
           run1UnpaidUnits: t.run1Unpaid,
+          run2UnpaidUnits: t.run2Unpaid,
           run3UnpaidUnits: t.run3Unpaid,
           message: 'Unpaid/no notes delinquent for over 2 weeks — please address as soon as possible. Notification sent to supervisor and admin team.'
         };
       });
+
+      // Carryover applied: what was added from 1→2 and 2→3 (the late notes that got paid)
+      const carryover1to2ByKey = new Map();
+      for (const d of result1to2.deltas || []) {
+        const carry = Number(d.carryoverFinalizedUnits || 0);
+        if (carry <= 1e-9 || !d.userId) continue;
+        const k = `${d.userId}:${(d.serviceCode || '').toUpperCase()}`;
+        if (!carryover1to2ByKey.has(k)) carryover1to2ByKey.set(k, { userId: d.userId, serviceCode: d.serviceCode, units: 0 });
+        const t = carryover1to2ByKey.get(k);
+        t.units = Number((t.units + carry).toFixed(2));
+      }
+      const carryover2to3ByKey = new Map();
+      for (const d of result2to3.deltas || []) {
+        const carry = Number(d.carryoverFinalizedUnits || 0);
+        if (carry <= 1e-9 || !d.userId) continue;
+        const k = `${d.userId}:${(d.serviceCode || '').toUpperCase()}`;
+        if (!carryover2to3ByKey.has(k)) carryover2to3ByKey.set(k, { userId: d.userId, serviceCode: d.serviceCode, units: 0 });
+        const t = carryover2to3ByKey.get(k);
+        t.units = Number((t.units + carry).toFixed(2));
+      }
+      const carryoverAppliedUserIds = [...new Set([...carryover1to2ByKey.keys(), ...carryover2to3ByKey.keys()].map((k) => k.split(':')[0]).filter((id) => id && Number(id) > 0).map(Number))];
+      let carryoverUserMap = new Map();
+      if (carryoverAppliedUserIds.length) {
+        const [uRows] = await pool.execute(
+          `SELECT id, first_name, last_name FROM users WHERE id IN (${carryoverAppliedUserIds.map(() => '?').join(',')})`,
+          carryoverAppliedUserIds
+        );
+        carryoverUserMap = new Map((uRows || []).map((u) => [u.id, u]));
+      }
+      const carryoverAppliedRows = [];
+      const allKeys = new Set([...carryover1to2ByKey.keys(), ...carryover2to3ByKey.keys()]);
+      for (const k of allKeys) {
+        const [uidStr, code] = k.split(':');
+        const userId = Number(uidStr);
+        const u = carryoverUserMap.get(userId);
+        const providerName = u ? [u.last_name, u.first_name].filter(Boolean).join(', ') : `User #${userId}`;
+        const c1 = carryover1to2ByKey.get(k);
+        const c2 = carryover2to3ByKey.get(k);
+        carryoverAppliedRows.push({
+          userId,
+          serviceCode: code,
+          providerName,
+          run1To2Units: c1 ? c1.units : 0,
+          run2To3Units: c2 ? c2.units : 0,
+          totalUnits: Number(((c1?.units || 0) + (c2?.units || 0)).toFixed(2))
+        });
+      }
+      carryoverAppliedRows.sort((a, b) => a.providerName.localeCompare(b.providerName) || a.serviceCode.localeCompare(b.serviceCode));
 
       const periodLabel = `${ymdFromDbDate(period.period_start)} to ${ymdFromDbDate(period.period_end)}`;
       const periodEndDate = period.period_end ? new Date(period.period_end) : null;
@@ -5458,7 +5516,7 @@ export const batchCatchUp = [
       let h0031PendingCount = 0;
       let h0032PendingCount = 0;
 
-      if (!sourceIsPosted) {
+      if (applyCarryover && !sourceIsPosted) {
         const r3 = parsePayrollFile(f3.buffer, f3.originalname || 'file3.csv');
         const parsedC = r3?.rows || [];
         const missedC = r3?.missedAppointmentsPaidInFull || [];
@@ -5522,18 +5580,20 @@ export const batchCatchUp = [
         h0032PendingCount = rowsToInsert.filter((r) => String(r.serviceCode || '').trim().toUpperCase() === 'H0032' && r.requiresProcessing).length;
       }
 
-      await PayrollStageCarryover.replaceForPeriod({
-        payrollPeriodId: targetPeriod.id,
-        agencyId: period.agency_id,
-        sourcePayrollPeriodId: period.id,
-        computedByUserId: req.user.id,
-        rows
-      });
-      await pool.execute('DELETE FROM payroll_summaries WHERE payroll_period_id = ?', [targetPeriod.id]);
-      await pool.execute(
-        `UPDATE payroll_periods SET status = 'staged', ran_at = NULL, ran_by_user_id = NULL WHERE id = ?`,
-        [targetPeriod.id]
-      );
+      if (applyCarryover) {
+        await PayrollStageCarryover.replaceForPeriod({
+          payrollPeriodId: targetPeriod.id,
+          agencyId: period.agency_id,
+          sourcePayrollPeriodId: period.id,
+          computedByUserId: req.user.id,
+          rows
+        });
+        await pool.execute('DELETE FROM payroll_summaries WHERE payroll_period_id = ?', [targetPeriod.id]);
+        await pool.execute(
+          `UPDATE payroll_periods SET status = 'staged', ran_at = NULL, ran_by_user_id = NULL WHERE id = ?`,
+          [targetPeriod.id]
+        );
+      }
 
       res.json({
         ok: true,
@@ -5541,11 +5601,15 @@ export const batchCatchUp = [
         importedRows: rowsToInsert.length,
         carryoverRowsApplied: rows.length,
         rows,
+        carryoverApplied: carryoverAppliedRows,
         superFlag: superFlagRows,
         superFlagCount: superFlagRows.length,
         h0031PendingCount,
         h0032PendingCount,
-        addedToDestination: sourceIsPosted && !!destPeriod
+        addedToDestination: sourceIsPosted && !!destPeriod,
+        applied: applyCarryover,
+        destinationPeriodId: targetPeriod.id,
+        rowsForApply: rows
       });
     } catch (e) {
       next(e);
