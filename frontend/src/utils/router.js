@@ -3,6 +3,8 @@ import { useAgencyStore } from '../store/agency';
 import { useOrganizationStore } from '../store/organization';
 import { isSupervisor } from './helpers.js';
 import { getOrganizationDashboardRoute } from './organizationContext.js';
+import { hasProviderMobileAccess } from './providerMobileAccess.js';
+import { isLikelyMobileViewport, isStandalonePwa } from './pwa.js';
 
 /**
  * Returns the correct dashboard route based on user role and organization type
@@ -22,6 +24,15 @@ export function getDashboardRoute() {
   const userRole = String(user.role || '').toLowerCase();
   const isProviderPlusExperienceRole =
     userRole === 'provider_plus' || userRole === 'clinical_practice_assistant';
+
+  if (hasProviderMobileAccess(user) && isLikelyMobileViewport() && isStandalonePwa()) {
+    const slug =
+      organizationStore.organizationContext?.slug ||
+      user.agencies?.[0]?.portal_url ||
+      user.agencies?.[0]?.slug ||
+      null;
+    return slug ? `/${slug}/provider-mobile/schedule` : '/provider-mobile';
+  }
 
   // Check if user is associated with a school organization
   // If organization context is available, use it

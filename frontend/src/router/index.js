@@ -6,6 +6,8 @@ import { useOrganizationStore } from '../store/organization';
 import { getDashboardRoute } from '../utils/router';
 import { getLoginUrl } from '../utils/loginRedirect';
 import { isSupervisor } from '../utils/helpers';
+import { hasProviderMobileAccess } from '../utils/providerMobileAccess';
+import { isLikelyMobileViewport, isStandalonePwa } from '../utils/pwa';
 import api from '../services/api';
 
 const SCHEDULE_HUB_ROLES = ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'staff', 'provider_plus'];
@@ -171,6 +173,52 @@ const routes = [
     name: 'OrganizationDashboard',
     component: () => import('../views/OrganizationDashboardView.vue'),
     meta: { requiresAuth: true, organizationSlug: true }
+  },
+  {
+    path: '/provider-mobile',
+    name: 'ProviderMobileLegacy',
+    redirect: () => {
+      const slug = getDefaultOrganizationSlug();
+      return slug ? `/${slug}/provider-mobile` : '/dashboard';
+    },
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/:organizationSlug/provider-mobile',
+    component: () => import('../views/provider/ProviderMobileShellView.vue'),
+    meta: { requiresAuth: true, organizationSlug: true, requiresProviderMobileAccess: true },
+    children: [
+      {
+        path: '',
+        name: 'OrganizationProviderMobile',
+        redirect: (to) => `/${to.params.organizationSlug}/provider-mobile/schedule`,
+        meta: { requiresAuth: true, organizationSlug: true, requiresProviderMobileAccess: true }
+      },
+      {
+        path: 'schedule',
+        name: 'OrganizationProviderMobileSchedule',
+        component: () => import('../views/provider/ProviderMobileScheduleView.vue'),
+        meta: { requiresAuth: true, organizationSlug: true, requiresProviderMobileAccess: true }
+      },
+      {
+        path: 'payroll',
+        name: 'OrganizationProviderMobilePayroll',
+        component: () => import('../views/provider/ProviderMobilePayrollView.vue'),
+        meta: { requiresAuth: true, organizationSlug: true, requiresProviderMobileAccess: true }
+      },
+      {
+        path: 'note-aid',
+        name: 'OrganizationProviderMobileNoteAid',
+        component: () => import('../views/provider/ProviderMobileNoteAidView.vue'),
+        meta: { requiresAuth: true, organizationSlug: true, requiresProviderMobileAccess: true }
+      },
+      {
+        path: 'communications',
+        name: 'OrganizationProviderMobileCommunications',
+        component: () => import('../views/provider/ProviderMobileCommunicationsView.vue'),
+        meta: { requiresAuth: true, organizationSlug: true, requiresProviderMobileAccess: true }
+      }
+    ]
   },
   {
     path: '/:organizationSlug/operations-dashboard',
@@ -1519,6 +1567,30 @@ router.beforeEach(async (to, from, next) => {
     next(getDashboardRoute());
     return;
   }
+
+  // In installed mobile PWA mode, provider-access users should stay in the provider-mobile shell.
+  if (
+    authStore.isAuthenticated &&
+    hasProviderMobileAccess(authStore.user) &&
+    isStandalonePwa() &&
+    isLikelyMobileViewport() &&
+    to.meta.requiresAuth
+  ) {
+    const path = String(to.path || '');
+    const isProviderMobileRoute = path.includes('/provider-mobile');
+    const isAllowedExternalRoute = path.includes('/admin/note-aid');
+    if (!isProviderMobileRoute && !isAllowedExternalRoute) {
+      const slug =
+        (to.meta.organizationSlug && typeof to.params.organizationSlug === 'string' && to.params.organizationSlug) ||
+        getDefaultOrganizationSlug();
+      if (slug) {
+        next(`/${slug}/provider-mobile/schedule`);
+      } else {
+        next('/provider-mobile');
+      }
+      return;
+    }
+  }
   
   // Block pending users from accessing training modules and certain routes
   if (to.meta.blockPendingUsers && isPending) {
@@ -1563,6 +1635,12 @@ router.beforeEach(async (to, from, next) => {
     // Otherwise, redirect based on stored agencies/user role.
     const loginUrl = getLoginUrl(authStore.user);
     next(loginUrl);
+  } else if (to.meta.requiresProviderMobileAccess) {
+    if (hasProviderMobileAccess(authStore.user)) {
+      next();
+    } else {
+      next(getDashboardRoute());
+    }
   } else if (to.meta.requiresGuest && authStore.isAuthenticated && !allowWhenAuthenticated.has(String(to.name || ''))) {
     // Redirect to appropriate dashboard based on user role
     next(getDashboardRoute());

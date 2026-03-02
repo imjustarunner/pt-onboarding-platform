@@ -9,6 +9,7 @@ import { useAgencyStore } from './store/agency';
 import { useAuthStore } from './store/auth';
 import { useBrandingStore } from './store/branding';
 import { applyStoredDarkMode } from './utils/darkMode';
+import { isStandalonePwa } from './utils/pwa';
 
 const CHUNK_RELOAD_KEY = '__pt_chunk_reload__';
 
@@ -87,6 +88,13 @@ window.addEventListener('vite:preloadError', () => {
 });
 
 async function bootstrap() {
+  if (isStandalonePwa()) {
+    document.documentElement.classList.add('is-standalone-pwa');
+    document.documentElement.setAttribute('data-display-mode', 'standalone');
+  } else {
+    document.documentElement.setAttribute('data-display-mode', 'browser');
+  }
+
   const app = createApp(App);
   const pinia = createPinia();
 

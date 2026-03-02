@@ -46,7 +46,7 @@
         </div>
 
         <div class="wizard-cta" data-tour="payroll-open-wizard">
-          <button class="btn btn-primary wizard-btn" type="button" @click="openPayrollWizard" :disabled="!selectedPeriodId">
+          <button class="btn btn-primary wizard-btn" type="button" @click="openPayrollWizard" :disabled="!agencyId || !(periods || []).length">
             Open Payroll Wizard
           </button>
           <div class="hint" style="margin-top: 8px;">
@@ -406,30 +406,66 @@
             <div class="card" style="margin-top: 12px;">
               <h3 class="card-title" style="margin: 0 0 6px 0;">Current step actions</h3>
 
-              <div v-if="wizardStep?.key === 'prior'" class="hint">
-                Start here: <strong>Process Changes</strong> for any prior pay periods you edited (late notes, manual pay fixes, etc).
-                <div class="hint" style="margin-top: 6px;">
-                  You can run this more than once before continuing — for example, process <strong>two pay periods ago</strong> first, then process <strong>one pay period ago</strong>.
-                  Each time, upload the updated report for that prior period and choose the correct prior pay period.
-                </div>
-                <div class="actions" style="margin-top: 10px; justify-content: flex-start;">
-                  <button class="btn btn-secondary" type="button" @click="wizardGoToProcessChanges" :disabled="!selectedPeriodId">Go to Process Changes</button>
-                </div>
+              <div v-if="wizardStep?.key === 'select_period'" class="hint">
+                <label>Current pay period</label>
+                <select v-model="selectedPeriodId" class="wizard-period-select" :disabled="!agencyId || !(periods || []).length" style="margin-top: 6px; min-width: 280px;">
+                  <option :value="null" disabled>Select a pay period…</option>
+                  <option v-for="p in periods" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
+                </select>
+                <div class="hint" style="margin-top: 8px;">This period will be used for all following steps.</div>
               </div>
 
-              <div v-else-if="wizardStep?.key === 'review'" class="hint">
-                Review changes between runs (No-note/Draft Unpaid workflow).
-                <div class="actions" style="margin-top: 10px; justify-content: flex-start;">
-                  <button class="btn btn-secondary" type="button" @click="openCarryoverModal" :disabled="!selectedPeriodId || isPeriodPosted">Open No-note/Draft Unpaid</button>
+              <div v-else-if="wizardStep?.key === 'batch_catchup'" class="hint">
+                <div>Upload 3 billing reports for the <strong>same</strong> prior pay period (first run, second run, latest). The system compares them and adds late notes. You can skip this if not needed.</div>
+                <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr 1fr; gap: 8px;">
+                  <div class="field">
+                    <label>First run</label>
+                    <input type="file" accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" @change="onBatchFilePick($event, 1)" />
+                  </div>
+                  <div class="field">
+                    <label>Second run</label>
+                    <input type="file" accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" @change="onBatchFilePick($event, 2)" />
+                  </div>
+                  <div class="field">
+                    <label>Latest</label>
+                    <input type="file" accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" @change="onBatchFilePick($event, 3)" />
+                  </div>
                 </div>
+                <div class="actions" style="margin-top: 10px; justify-content: flex-start; flex-wrap: wrap; gap: 8px;">
+                  <button class="btn btn-primary" type="button" @click="wizardRunBatchCatchUpAndNext" :disabled="batchCatchUpLoading || !batchFiles[1] || !batchFiles[2] || !batchFiles[3] || !agencyId">
+                    {{ batchCatchUpLoading ? 'Processing…' : 'Add and Next' }}
+                  </button>
+                  <button class="btn btn-secondary" type="button" @click="wizardNext">Skip</button>
+                </div>
+                <div v-if="batchCatchUpResult" style="margin-top: 10px;">
+                  <div class="hint" style="color: var(--success);">Done. Imported {{ batchCatchUpResult.importedRows }} rows, applied {{ batchCatchUpResult.carryoverRowsApplied }} carryover rows.</div>
+                  <div v-if="(batchCatchUpResult.h0031PendingCount || 0) + (batchCatchUpResult.h0032PendingCount || 0) > 0" class="warn-box" style="margin-top: 8px; padding: 10px; font-size: 0.9em;">
+                    {{ batchCatchUpResult.h0031PendingCount || 0 }} H0031 and {{ batchCatchUpResult.h0032PendingCount || 0 }} H0032 rows need minutes updated (you’ll do that in later steps).
+                  </div>
+                </div>
+                <div v-if="batchCatchUpError" class="warn-box" style="margin-top: 10px;">{{ batchCatchUpError }}</div>
               </div>
 
-              <div v-else-if="wizardStep?.key === 'apply'" class="hint">
-                Apply changes (carryover) into the current pay period, then continue.
-                <div class="actions" style="margin-top: 10px; justify-content: flex-start;">
-                  <button class="btn btn-secondary" type="button" @click="openCarryoverModal" :disabled="!selectedPeriodId || isPeriodPosted">Open carryover tool</button>
-                  <button class="btn btn-secondary" type="button" @click="showStageModal = true" :disabled="!selectedPeriodId" style="margin-left: 8px;">Open Payroll Stage</button>
+              <div v-else-if="wizardStep?.key === 'upload_current'" class="hint">
+                <div>Upload the billing report for the current pay period: <strong>{{ selectedPeriodForUi ? periodRangeLabel(selectedPeriodForUi) : '—' }}</strong></div>
+                <div class="field" style="margin-top: 10px;">
+                  <input
+                    ref="wizardCurrentPeriodFileInput"
+                    type="file"
+                    accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+                    @change="onWizardCurrentPeriodFilePick"
+                    style="max-width: 400px;"
+                  />
                 </div>
+                <div class="actions" style="margin-top: 10px; justify-content: flex-start; flex-wrap: wrap; gap: 8px;">
+                  <button class="btn btn-primary" type="button" @click="wizardImportCurrentPeriodAndNext" :disabled="wizardImportLoading || !wizardCurrentPeriodFile || !selectedPeriodId">
+                    {{ wizardImportLoading ? 'Importing…' : 'Import and Next' }}
+                  </button>
+                  <button class="btn btn-secondary" type="button" @click="wizardNext" :disabled="wizardImportLoading">Skip (already imported)</button>
+                </div>
+                <div v-if="wizardCurrentPeriodFile" class="hint" style="margin-top: 8px;">Selected: <strong>{{ wizardCurrentPeriodFile.name }}</strong></div>
+                <div v-if="wizardImportResult" class="hint" style="margin-top: 8px; color: var(--success);">{{ wizardImportResult }}</div>
+                <div v-if="wizardImportError" class="warn-box" style="margin-top: 10px;">{{ wizardImportError }}</div>
               </div>
 
               <div v-else-if="wizardStep?.key === 'drafts'" class="hint">
@@ -454,7 +490,7 @@
               </div>
 
               <div v-else-if="wizardStep?.key === 'stage'" class="hint">
-                Review Payroll Stage workspace edits, claims, To‑Dos, and adjustments.
+                <div>Review Payroll Stage: add submitted claims, manual pay lines, adjustments, and work through To‑Dos. This is the most important step before running payroll.</div>
                 <div class="actions" style="margin-top: 10px; justify-content: flex-start;">
                   <button class="btn btn-secondary" type="button" @click="showStageModal = true" :disabled="!selectedPeriodId">Open Payroll Stage</button>
                   <button class="btn btn-secondary" type="button" @click="openTodoModal" :disabled="!selectedPeriodId" style="margin-left: 8px;">Manage To‑Dos</button>
@@ -489,7 +525,12 @@
 
             <div class="actions" style="margin-top: 12px; justify-content: space-between;">
               <button class="btn btn-secondary" type="button" @click="wizardBack" :disabled="wizardStepIdx <= 0 || wizardSaving">Back</button>
-              <button class="btn btn-primary" type="button" @click="wizardNext" :disabled="wizardStepIdx >= wizardSteps.length - 1 || wizardSaving">
+              <button
+                class="btn btn-primary"
+                type="button"
+                @click="wizardNext"
+                :disabled="wizardStepIdx >= wizardSteps.length - 1 || wizardSaving || (wizardStep?.key === 'select_period' && !selectedPeriodId)"
+              >
                 Next
               </button>
             </div>
@@ -1054,6 +1095,15 @@
         <div v-if="batchCatchUpResult" style="margin-top: 10px;">
           <div class="hint" style="color: var(--success);">
             Done. Imported {{ batchCatchUpResult.importedRows }} rows, applied {{ batchCatchUpResult.carryoverRowsApplied }} carryover rows. Select the period above to review.
+          </div>
+          <div
+            v-if="(batchCatchUpResult.h0031PendingCount || 0) + (batchCatchUpResult.h0032PendingCount || 0) > 0"
+            class="warn-box"
+            style="margin-top: 10px; padding: 12px;"
+          >
+            <strong>H0031/H0032 minutes:</strong>
+            {{ batchCatchUpResult.h0031PendingCount || 0 }} H0031 and {{ batchCatchUpResult.h0032PendingCount || 0 }} H0032 rows need minutes updated.
+            Open <strong>Raw Import</strong> → <strong>Process H0031</strong> / <strong>Process H0032</strong> to edit. Unpaid rows are highlighted in amber.
           </div>
           <div v-if="batchCatchUpResult.superFlagCount > 0" class="warn-box" style="margin-top: 10px; padding: 12px;">
             <strong>Attention ({{ batchCatchUpResult.superFlagCount }}):</strong> Unpaid/no notes are delinquent for over 2 weeks. Please address as soon as possible. This notification has been sent to supervisors and the admin team. If help is needed completing notes, please reach out.
@@ -4100,9 +4150,11 @@
                   </span>
                   <span v-else-if="rawMode === 'process_h0031'">
                     Enter the correct minutes for H0031 rows, then mark Done. Payroll cannot run until these are processed.
+                    <strong>Unpaid rows</strong> (no note or draft not payable) are included — update minutes so they are correct when notes are added later.
                   </span>
                   <span v-else-if="rawMode === 'process_h0032'">
                     Enter the correct minutes for H0032 Cat1 Hour rows, then mark Done. Payroll cannot run until these are processed. (Cat2 Flat providers do not appear here; they default to 30 minutes per line.)
+                    <strong>Unpaid rows</strong> are included — update minutes so they are correct when notes are added later.
                   </span>
                   <span v-else-if="rawMode === 'missed_appts_paid_in_full'">
                     Flags from the billing report upload where Type contains "Missed Appointment" and Patient Balance Status is "Paid in Full". Display-only (no pay math).
@@ -4197,7 +4249,11 @@
                   </tr>
                 </thead>
                 <tbody>
-                  <tr v-for="r in rawModeRowsLimited" :key="r.id">
+                  <tr
+                    v-for="r in rawModeRowsLimited"
+                    :key="r.id"
+                    :class="{ 'row-unpaid-h003': (rawMode === 'process_h0031' || rawMode === 'process_h0032') && !willBePaid(r) }"
+                  >
                     <td>{{ r.provider_name }}</td>
                     <td class="muted">{{ rawClientHint(r) || '—' }}</td>
                     <td>{{ r.service_code }}</td>
@@ -6269,25 +6325,24 @@ const wizardError = ref('');
 const wizardSaving = ref(false);
 const wizardStepIdx = ref(0);
 const wizardState = ref(null); // { stepIdx, priorPeriodId, completed?: any }
+const wizardCurrentPeriodFile = ref(null);
+const wizardImportLoading = ref(false);
+const wizardImportResult = ref('');
+const wizardImportError = ref('');
 
 const wizardSteps = computed(() => {
-  // Always show; if this is the first payroll, we skip the prior-payroll step.
-  const hasAnyPosted = (periods.value || []).some((p) => ['posted', 'finalized'].includes(String(p?.status || '').toLowerCase()));
-  const steps = [];
-  if (hasAnyPosted) {
-    steps.push({ key: 'prior', title: 'Post prior period (process changes)' });
-  }
-  steps.push(
-    { key: 'apply', title: 'Post differences to current payroll' },
-    { key: 'review', title: 'Review differences' },
-    { key: 'drafts', title: 'Raw import: Draft audit' },
+  const steps = [
+    { key: 'select_period', title: 'Select current pay period' },
+    { key: 'batch_catchup', title: 'Batch catch-up (prior period, optional)' },
+    { key: 'upload_current', title: 'Upload current period billing report' },
+    { key: 'drafts', title: 'Draft audit (mark unpaid)' },
     { key: 'h0031', title: 'Process H0031' },
     { key: 'h0032', title: 'Process H0032' },
-    { key: 'stage', title: 'Payroll Stage' },
+    { key: 'stage', title: 'Payroll Stage (edits, todos, manual adds)' },
     { key: 'run', title: 'Run payroll' },
     { key: 'preview', title: 'Preview post' },
     { key: 'post', title: 'Post payroll' }
-  );
+  ];
   return steps;
 });
 
@@ -6347,16 +6402,17 @@ const savePayrollWizardProgress = async () => {
 };
 
 const openPayrollWizard = async () => {
-  if (!selectedPeriodId.value) return;
   showPayrollWizardModal.value = true;
-  await loadPayrollWizardProgress();
-  // Always start the wizard at the beginning (Process Changes). This avoids reopening at the end
-  // due to saved stepIdx from a prior run of the wizard.
-  wizardStepIdx.value = 0;
-  try {
-    await savePayrollWizardProgress();
-  } catch {
-    // best-effort; don't block opening the wizard if progress save fails
+  if (selectedPeriodId.value) {
+    await loadPayrollWizardProgress();
+    try {
+      await savePayrollWizardProgress();
+    } catch {
+      // best-effort; don't block opening the wizard if progress save fails
+    }
+  } else {
+    wizardStepIdx.value = 0;
+    wizardState.value = null;
   }
 };
 
@@ -6400,6 +6456,64 @@ const wizardOpenRawMode = async (mode) => {
   showRawModal.value = true;
 };
 
+const wizardRunBatchCatchUp = async () => {
+  if (!agencyId.value || !batchFiles.value[1] || !batchFiles.value[2] || !batchFiles.value[3]) return;
+  const savedPeriodId = selectedPeriodId.value;
+  try {
+    batchCatchUpLoading.value = true;
+    batchCatchUpError.value = '';
+    batchCatchUpResult.value = null;
+    const fd = new FormData();
+    fd.append('file1', batchFiles.value[1]);
+    fd.append('file2', batchFiles.value[2]);
+    fd.append('file3', batchFiles.value[3]);
+    fd.append('agencyId', String(agencyId.value));
+    const resp = await api.post('/payroll/periods/batch-catch-up', fd);
+    batchCatchUpResult.value = resp.data || null;
+    await loadPeriods();
+    if (savedPeriodId) selectedPeriodId.value = savedPeriodId;
+  } catch (e) {
+    batchCatchUpError.value = e.response?.data?.error?.message || e.message || 'Batch catch-up failed';
+  } finally {
+    batchCatchUpLoading.value = false;
+  }
+};
+
+const wizardRunBatchCatchUpAndNext = async () => {
+  await wizardRunBatchCatchUp();
+  if (!batchCatchUpError.value) await wizardNext();
+};
+
+const onWizardCurrentPeriodFilePick = (evt) => {
+  wizardCurrentPeriodFile.value = evt.target.files?.[0] || null;
+  wizardImportResult.value = '';
+  wizardImportError.value = '';
+};
+
+const wizardImportCurrentPeriod = async () => {
+  if (!wizardCurrentPeriodFile.value || !selectedPeriodId.value) return;
+  try {
+    wizardImportLoading.value = true;
+    wizardImportError.value = '';
+    wizardImportResult.value = '';
+    const fd = new FormData();
+    fd.append('file', wizardCurrentPeriodFile.value);
+    const resp = await api.post(`/payroll/periods/${selectedPeriodId.value}/import`, fd);
+    wizardImportResult.value = `Imported ${resp.data?.inserted ?? '?'} rows.`;
+    wizardCurrentPeriodFile.value = null;
+    lastImportedPeriodId.value = selectedPeriodId.value;
+    await loadPeriodDetails();
+  } catch (e) {
+    wizardImportError.value = e.response?.data?.error?.message || e.message || 'Import failed';
+  } finally {
+    wizardImportLoading.value = false;
+  }
+};
+
+const wizardImportCurrentPeriodAndNext = async () => {
+  await wizardImportCurrentPeriod();
+  if (!wizardImportError.value) await wizardNext();
+};
 
 const saveManualPayLines = async () => {
   if (!selectedPeriodId.value) return;
@@ -8857,13 +8971,11 @@ const rawModeRows = computed(() => {
   } else if (mode === 'process_h0031') {
     rows = rows.filter((r) =>
       Number(r.requires_processing) === 1 &&
-      willBePaid(r) &&
       String(r.service_code || '').trim().toUpperCase() === 'H0031'
     );
   } else if (mode === 'process_h0032') {
     rows = rows.filter((r) =>
       Number(r.requires_processing) === 1 &&
-      willBePaid(r) &&
       String(r.service_code || '').trim().toUpperCase() === 'H0032'
     );
   } else {
@@ -11539,6 +11651,12 @@ input[type='number'] {
 .modal-title {
   font-weight: 700;
   font-size: 16px;
+}
+.row-unpaid-h003 {
+  background: rgba(255, 193, 7, 0.15);
+}
+.row-unpaid-h003 td:first-child {
+  border-left: 3px solid #ff9800;
 }
 .table-wrap {
   overflow: auto;

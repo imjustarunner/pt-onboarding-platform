@@ -1402,6 +1402,12 @@ h1 {
   min-height: 100vh;
 }
 
+html.is-standalone-pwa #app {
+  min-height: 100dvh;
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
 .container {
   max-width: 100%;
   width: 100%;

@@ -651,8 +651,8 @@
                 </button>
 
                 <button type="button" class="dash-card" @click="openTimeOvertimeModal">
-                  <div class="dash-card-title">Overtime Evaluation</div>
-                  <div class="dash-card-desc">Submit overtime evaluation details.</div>
+                  <div class="dash-card-title">{{ isOfficeStaff ? 'Overtime & Holiday Pay' : 'Overtime Evaluation' }}</div>
+                  <div class="dash-card-desc">{{ isOfficeStaff ? 'Submit overtime evaluation details. Request holiday pay for working on approved holidays.' : 'Submit overtime evaluation details.' }}</div>
                   <div class="dash-card-meta">
                     <span class="dash-card-cta">Open</span>
                   </div>
@@ -1790,6 +1790,8 @@ const filteredTabs = computed(() => {
 });
 
 const isSchoolStaff = computed(() => String(authStore.user?.role || '').toLowerCase() === 'school_staff');
+const OFFICE_STAFF_ROLES = ['staff', 'admin', 'support', 'clinical_practice_assistant', 'supervisor'];
+const isOfficeStaff = computed(() => OFFICE_STAFF_ROLES.includes(String(authStore.user?.role || '').trim().toLowerCase()));
 const isAgencyDashboardContext = computed(() => {
   const currentType = String(
     agencyStore.currentAgency?.organization_type ||

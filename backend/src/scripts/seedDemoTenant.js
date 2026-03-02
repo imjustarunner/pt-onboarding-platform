@@ -119,6 +119,46 @@ const createFakeClientIfMissing = async ({ agencyId, organizationId, providerId,
   });
 };
 
+const getAgencyTableColumns = async () => {
+  const [rows] = await pool.execute(
+    `SELECT COLUMN_NAME
+     FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = 'agencies'`
+  );
+  return new Set((rows || []).map((r) => String(r.COLUMN_NAME || '').trim()).filter(Boolean));
+};
+
+const syncPresentationSettings = async ({ sourceAgency, targetAgencyIds }) => {
+  const columns = await getAgencyTableColumns();
+  const source = sourceAgency || {};
+  const copyable = [];
+  for (const col of columns) {
+    if (
+      col.endsWith('_icon_id') ||
+      col === 'logo_url' ||
+      col === 'logo_path' ||
+      col === 'color_palette' ||
+      col === 'theme_settings' ||
+      col === 'terminology_settings'
+    ) {
+      copyable.push(col);
+    }
+  }
+  if (copyable.length === 0) return;
+
+  const setters = copyable.map((col) => `${col} = ?`).join(', ');
+  const values = copyable.map((col) => (source[col] !== undefined ? source[col] : null));
+  for (const id of targetAgencyIds) {
+    await pool.execute(
+      `UPDATE agencies
+       SET ${setters}
+       WHERE id = ?`,
+      [...values, id]
+    );
+  }
+};
+
 async function main() {
   const args = parseArgs();
   const sourceSlug = String(args['source-slug'] || '').trim().toLowerCase();
@@ -188,6 +228,13 @@ async function main() {
       isActive: true
     });
   }
+
+  // Keep demo visuals aligned with the source org so presenters do not
+  // need to manually reconfigure icon cards and branding assets.
+  await syncPresentationSettings({
+    sourceAgency,
+    targetAgencyIds: [parent.id, school.id, program.id, learning.id, clinical.id]
+  });
 
   const password = String(args['password'] || 'demo12345');
   const passwordHash = await bcrypt.hash(password, 10);

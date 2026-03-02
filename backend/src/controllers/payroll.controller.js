@@ -5482,6 +5482,9 @@ export const batchCatchUp = [
         [period.id]
       );
 
+      const h0031PendingCount = rowsToInsert.filter((r) => String(r.serviceCode || '').trim().toUpperCase() === 'H0031' && r.requiresProcessing).length;
+      const h0032PendingCount = rowsToInsert.filter((r) => String(r.serviceCode || '').trim().toUpperCase() === 'H0032' && r.requiresProcessing).length;
+
       res.json({
         ok: true,
         period: { id: period.id, periodStart: ymdFromDbDate(period.period_start), periodEnd: ymdFromDbDate(period.period_end) },
@@ -5489,7 +5492,9 @@ export const batchCatchUp = [
         carryoverRowsApplied: rows.length,
         rows,
         superFlag: superFlagRows,
-        superFlagCount: superFlagRows.length
+        superFlagCount: superFlagRows.length,
+        h0031PendingCount,
+        h0032PendingCount
       });
     } catch (e) {
       next(e);
