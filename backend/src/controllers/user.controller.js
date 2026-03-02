@@ -2262,6 +2262,23 @@ function toMysqlDateTimeWall(value) {
   return formatLocalParts(d);
 }
 
+/** Convert RFC3339 or Date to MySQL UTC datetime. Used when storing Google event times. */
+function toMysqlUtc(value) {
+  if (value === null || value === undefined) return null;
+  const pad2 = (n) => String(n).padStart(2, '0');
+  const d = value instanceof Date ? value : new Date(String(value || '').trim());
+  if (Number.isNaN(d.getTime())) return null;
+  return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())} ${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}:${pad2(d.getUTCSeconds())}`;
+}
+
+/** Return ISO string with Z for schedule events so frontend parses as UTC and displays correctly in viewer's timezone. */
+function toIsoUtcForSchedule(value) {
+  if (value === null || value === undefined) return null;
+  const d = value instanceof Date ? value : new Date(String(value || '').trim());
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString();
+}
+
 const canViewProviderScheduleSummary = (role) => {
   const r = String(role || '').toLowerCase();
   return r === 'super_admin' || r === 'admin' || r === 'support' || r === 'staff' || r === 'clinical_practice_assistant' || r === 'provider_plus';
@@ -2795,6 +2812,10 @@ export const getUserScheduleSummary = async (req, res, next) => {
         const title = isPrivate && !canSeePrivateTitle
           ? 'Busy'
           : (titleRaw || (SCHEDULE_EVENT_KIND_LABELS[String(r.kind || '').toUpperCase()] || 'Schedule Event'));
+        // Use ISO UTC for datetime events so frontend parses correctly in viewer's timezone (avoids wrong-day bug)
+        const isAllDay = Number(r.all_day || 0) === 1;
+        const startAtOut = isAllDay ? null : (toIsoUtcForSchedule(r.start_at) || toMysqlDateTimeWall(r.start_at) || r.start_at || null);
+        const endAtOut = isAllDay ? null : (toIsoUtcForSchedule(r.end_at) || toMysqlDateTimeWall(r.end_at) || r.end_at || null);
         return {
           id: Number(r.id || 0),
           agencyId: Number(r.agency_id || 0) || null,
@@ -2802,8 +2823,8 @@ export const getUserScheduleSummary = async (req, res, next) => {
           title,
           isPrivate,
           allDay: Number(r.all_day || 0) === 1,
-          startAt: toMysqlDateTimeWall(r.start_at) || r.start_at || null,
-          endAt: toMysqlDateTimeWall(r.end_at) || r.end_at || null,
+          startAt: startAtOut,
+          endAt: endAtOut,
           startDate: r.start_date ? String(r.start_date).slice(0, 10) : null,
           endDate: r.end_date ? String(r.end_date).slice(0, 10) : null,
           reasonCode: String(r.reason_code || '').trim().toUpperCase() || null,
@@ -3118,6 +3139,11 @@ export const createUserScheduleEvent = async (req, res, next) => {
       return res.status(502).json({ error: { message: msg } });
     }
 
+    // Use Google's canonical start/end (RFC3339) for storage to avoid timezone drift across viewers.
+    // Google returns the correct instant; we store as UTC so all timezones see the right day/time.
+    const storedStartAt = allDay ? null : (result.startAt ? toMysqlUtc(result.startAt) : startAt);
+    const storedEndAt = allDay ? null : (result.endAt ? toMysqlUtc(result.endAt) : endAt);
+
     let saved = null;
     try {
       saved = await ProviderScheduleEvent.create({
@@ -3129,8 +3155,8 @@ export const createUserScheduleEvent = async (req, res, next) => {
         reasonCode,
         isPrivate,
         allDay,
-        startAt: allDay ? null : startAt,
-        endAt: allDay ? null : endAt,
+        startAt: storedStartAt,
+        endAt: storedEndAt,
         startDate: allDay ? startDate : null,
         endDate: allDay ? endDateExclusive : null,
         googleEventId: result.eventId || null,
@@ -3160,8 +3186,8 @@ export const createUserScheduleEvent = async (req, res, next) => {
         isPrivate,
         attendeeUserIds,
         allDay,
-        startAt: allDay ? null : startAt,
-        endAt: allDay ? null : endAt,
+        startAt: allDay ? null : (result.startAt ?? storedStartAt ?? startAt),
+        endAt: allDay ? null : (result.endAt ?? storedEndAt ?? endAt),
         startDate: allDay ? startDate : null,
         endDate: allDay ? endDateExclusive : null
       }

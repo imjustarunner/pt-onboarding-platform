@@ -357,11 +357,16 @@ export class GoogleCalendarService {
       const meetLink = data?.hangoutLink
         || data?.conferenceData?.entryPoints?.find((e) => e?.entryPointType === 'video')?.uri
         || null;
+      // Return canonical start/end from Google (RFC3339) so we can store UTC and avoid timezone drift
+      const startAt = data?.start?.dateTime || data?.start?.date || null;
+      const endAt = data?.end?.dateTime || data?.end?.date || null;
       return {
         ok: true,
         eventId: data?.id || null,
         htmlLink: data?.htmlLink || null,
-        meetLink
+        meetLink,
+        startAt,
+        endAt
       };
     } catch (e) {
       logGoogleUnauthorizedHint(e, { context: 'GoogleCalendarService.createProviderScheduleEvent' });

@@ -64,14 +64,22 @@ class ProviderScheduleEvent {
     const pId = Number(providerId || 0);
     if (!pId || !windowStart || !windowEnd) return [];
     const scopeClause = aId > 0 ? '(pse.agency_id = ? OR pse.agency_id IS NULL)' : 'pse.agency_id IS NULL';
+    // Include events where user is provider (host) OR where user is attendee of a TEAM_MEETING
+    const userClause = `(pse.provider_id = ? OR (
+      UPPER(COALESCE(pse.kind, '')) = 'TEAM_MEETING'
+      AND EXISTS (
+        SELECT 1 FROM provider_schedule_event_attendees psea
+        WHERE psea.event_id = pse.id AND psea.user_id = ?
+      )
+    ))`;
     const params = aId > 0
-      ? [aId, pId, windowEnd, windowStart, windowEnd, windowStart]
-      : [pId, windowEnd, windowStart, windowEnd, windowStart];
+      ? [aId, pId, pId, windowEnd, windowStart, windowEnd, windowStart]
+      : [pId, pId, windowEnd, windowStart, windowEnd, windowStart];
     const [rows] = await pool.execute(
       `SELECT *
        FROM provider_schedule_events pse
        WHERE ${scopeClause}
-         AND pse.provider_id = ?
+         AND ${userClause}
          AND UPPER(COALESCE(pse.status, 'ACTIVE')) <> 'CANCELLED'
          AND (
            (pse.all_day = 1 AND pse.start_date < DATE(?) AND pse.end_date > DATE(?))

@@ -2727,6 +2727,10 @@ const scheduleEventsInCell = (dayName, hour, minute = 0) => {
   const list = Array.isArray(s.scheduleEvents) ? s.scheduleEvents : [];
   const hits = [];
   for (const ev of list) {
+    // Agency schedule events backed by Google should not display as duplicates.
+    // The Google event is the canonical display; skip schedule events that have google_event_id
+    // when Google events are shown, so we show one event (the Google one).
+    if (ev?.googleEventId && showGoogleEvents.value) continue;
     if (ev?.allDay) {
       const startDate = String(ev?.startDate || '').slice(0, 10);
       const endDate = String(ev?.endDate || '').slice(0, 10);
