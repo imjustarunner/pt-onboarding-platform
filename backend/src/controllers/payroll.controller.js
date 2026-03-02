@@ -5224,21 +5224,25 @@ export const batchCatchUp = [
       const f1 = req.files?.file1?.[0] || null;
       const f2 = req.files?.file2?.[0] || null;
       const f3 = req.files?.file3?.[0] || null;
-      if (!f1 || !f2 || !f3) {
-        return res.status(400).json({ error: { message: 'file1, file2, and file3 are required (same period, 3 different times)' } });
+      if (!f1 || !f2) {
+        return res.status(400).json({ error: { message: 'file1 and file2 are required (same period, 2 or 3 runs)' } });
       }
+      const twoRunMode = !f3;
 
       const parsed1 = parsePayrollFile(f1.buffer, f1.originalname || 'file1.csv')?.rows || [];
       const parsed2 = parsePayrollFile(f2.buffer, f2.originalname || 'file2.csv')?.rows || [];
-      const parsed3 = parsePayrollFile(f3.buffer, f3.originalname || 'file3.csv')?.rows || [];
-      if (!parsed1.length || !parsed2.length || !parsed3.length) {
+      const parsed3 = f3 ? (parsePayrollFile(f3.buffer, f3.originalname || 'file3.csv')?.rows || []) : [];
+      if (!parsed1.length || !parsed2.length) {
         return res.status(400).json({ error: { message: 'Each file must contain rows. Check file format.' } });
+      }
+      if (!twoRunMode && !parsed3.length) {
+        return res.status(400).json({ error: { message: 'File 3 must contain rows when using 3-run mode.' } });
       }
 
       const period1 = await detectPeriodFromParsed({ agencyId, parsed: parsed1 });
       const period2 = await detectPeriodFromParsed({ agencyId, parsed: parsed2 });
-      const period3 = await detectPeriodFromParsed({ agencyId, parsed: parsed3 });
-      if (!period1?.id || !period2?.id || !period3?.id) {
+      const period3 = !twoRunMode ? await detectPeriodFromParsed({ agencyId, parsed: parsed3 }) : period2;
+      if (!period1?.id || !period2?.id || (!twoRunMode && !period3?.id)) {
         return res.status(400).json({
           error: {
             message: 'Could not match all files to an existing pay period. Ensure the period exists and dates match.'
@@ -5246,11 +5250,11 @@ export const batchCatchUp = [
           detected: { p1: period1?.id, p2: period2?.id, p3: period3?.id }
         });
       }
-      if (period1.id !== period2.id || period2.id !== period3.id) {
+      if (period1.id !== period2.id || (!twoRunMode && period2.id !== period3.id)) {
         return res.status(400).json({
           error: {
-            message: 'All three files must be for the same pay period. Detected different periods.',
-            periodIds: [period1.id, period2.id, period3.id]
+            message: 'All files must be for the same pay period. Detected different periods.',
+            periodIds: [period1.id, period2.id, period3?.id]
           }
         });
       }
@@ -5323,7 +5327,7 @@ export const batchCatchUp = [
 
       const run1 = await createSnapshotRun({ parsed: parsed1 });
       const run2 = await createSnapshotRun({ parsed: parsed2 });
-      const run3 = await createSnapshotRun({ parsed: parsed3 });
+      const run3 = twoRunMode ? null : await createSnapshotRun({ parsed: parsed3 });
 
       const destinationPeriodIdRaw = req.body?.destinationPeriodId ?? req.body?.destination_period_id ?? req.query?.destinationPeriodId;
       const destinationPeriodId = destinationPeriodIdRaw ? parseInt(destinationPeriodIdRaw, 10) : null;
@@ -5351,37 +5355,39 @@ export const batchCatchUp = [
 
       const snap1 = await PayrollPeriodRunSnapshot.listForRun(run1.run.id);
       const snap2 = await PayrollPeriodRunSnapshot.listForRun(run2.run.id);
-      const snap3 = await PayrollPeriodRunSnapshot.listForRun(run3.run.id);
+      const snap3 = run3 ? await PayrollPeriodRunSnapshot.listForRun(run3.run.id) : null;
 
-      // Treat draft as finalized (paid). Only 2→3 matters: no note in Run 2 → draft/finalized in Run 3 = pay now.
-      // 1→2 was already paid; we only carry over what became done between Run 2 and Run 3.
+      // 2-run: baseline=run1, compare=run2. No note in Run 1 → draft/finalized in Run 2 = pay now.
+      // 3-run: baseline=run2, compare=run3. No note in Run 2 → draft/finalized in Run 3 = pay now. (1→2 was already paid.)
+      const baselineSnap = twoRunMode ? snap1 : snap2;
+      const compareSnap = twoRunMode ? snap2 : snap3;
       const result2to3 = computeSnapshotBasedCarryover({
-        baselineSnapshots: snap2,
-        compareSnapshots: snap3,
+        baselineSnapshots: baselineSnap,
+        compareSnapshots: compareSnap,
         priorAgencyId: agencyId,
         treatDraftAsFinalized: true
       });
 
-      // Still not done: no note in Run 2 that is STILL no note in Run 3 (treat draft as done)
-      const noNoteByKeyRun2 = new Map();
-      const noNoteByKeyRun3 = new Map();
-      for (const r of snap2 || []) {
+      // Still not done: no note in baseline that is STILL no note in compare
+      const noNoteByKeyBase = new Map();
+      const noNoteByKeyCompare = new Map();
+      for (const r of baselineSnap || []) {
         const u = Number(r.no_note_units || 0);
-        if (u > 1e-9) noNoteByKeyRun2.set(r.row_match_key, { userId: r.user_id, serviceCode: r.service_code, unpaid: u });
+        if (u > 1e-9) noNoteByKeyBase.set(r.row_match_key, { userId: r.user_id, serviceCode: r.service_code, unpaid: u });
       }
-      for (const r of snap3 || []) {
+      for (const r of compareSnap || []) {
         const u = Number(r.no_note_units || 0);
-        if (u > 1e-9) noNoteByKeyRun3.set(r.row_match_key, { userId: r.user_id, serviceCode: r.service_code, unpaid: u });
+        if (u > 1e-9) noNoteByKeyCompare.set(r.row_match_key, { userId: r.user_id, serviceCode: r.service_code, unpaid: u });
       }
       const superFlagByUserCode = new Map();
-      for (const [key, r2] of noNoteByKeyRun2) {
-        const r3 = noNoteByKeyRun3.get(key);
-        if (!r3 || Number(r3.unpaid || 0) <= 1e-9) continue;
-        const k = `${r2.userId}:${(r2.serviceCode || '').toUpperCase()}`;
-        if (!superFlagByUserCode.has(k)) superFlagByUserCode.set(k, { userId: r2.userId, serviceCode: r2.serviceCode, run2NoNote: 0, run3NoNote: 0 });
+      for (const [key, rBase] of noNoteByKeyBase) {
+        const rCompare = noNoteByKeyCompare.get(key);
+        if (!rCompare || Number(rCompare.unpaid || 0) <= 1e-9) continue;
+        const k = `${rBase.userId}:${(rBase.serviceCode || '').toUpperCase()}`;
+        if (!superFlagByUserCode.has(k)) superFlagByUserCode.set(k, { userId: rBase.userId, serviceCode: rBase.serviceCode, baseNoNote: 0, compareNoNote: 0 });
         const t = superFlagByUserCode.get(k);
-        t.run2NoNote = Number((t.run2NoNote + (r2.unpaid || 0)).toFixed(2));
-        t.run3NoNote = Number((t.run3NoNote + (r3.unpaid || 0)).toFixed(2));
+        t.baseNoNote = Number((t.baseNoNote + (rBase.unpaid || 0)).toFixed(2));
+        t.compareNoNote = Number((t.compareNoNote + (rCompare.unpaid || 0)).toFixed(2));
       }
       const superFlagUserIds = Array.from(superFlagByUserCode.values()).map((t) => t.userId).filter((id) => id > 0);
       let superFlagUserMap = new Map();
@@ -5399,21 +5405,26 @@ export const batchCatchUp = [
           userId: t.userId,
           serviceCode: t.serviceCode,
           providerName,
-          run2NoNoteUnits: t.run2NoNote,
-          run3NoNoteUnits: t.run3NoNote,
-          message: 'No note in Run 2, still no note in Run 3 — please address.'
+          run2NoNoteUnits: t.baseNoNote,
+          run3NoNoteUnits: t.compareNoNote,
+          run2UnpaidUnits: t.baseNoNote,
+          run3UnpaidUnits: t.compareNoNote,
+          message: twoRunMode ? 'No note in Run 1, still no note in Run 2 — please address.' : 'No note in Run 2, still no note in Run 3 — please address.'
         };
       });
 
-      // Carryover: only 2→3 (no note in Run 2 → draft/finalized in Run 3). 1→2 was already paid.
+      // Carryover: baseline no note → compare draft/finalized = pay now.
       const carryover2to3ByKey = new Map();
       for (const d of result2to3.deltas || []) {
         const carry = Number(d.carryoverFinalizedUnits || 0);
         if (carry <= 1e-9 || !d.userId) continue;
         const k = `${d.userId}:${(d.serviceCode || '').toUpperCase()}`;
-        if (!carryover2to3ByKey.has(k)) carryover2to3ByKey.set(k, { userId: d.userId, serviceCode: d.serviceCode, units: 0 });
+        if (!carryover2to3ByKey.has(k)) carryover2to3ByKey.set(k, { userId: d.userId, serviceCode: d.serviceCode, units: 0, types: new Set() });
         const t = carryover2to3ByKey.get(k);
         t.units = Number((t.units + carry).toFixed(2));
+        const dt = String(d.type || '').toLowerCase();
+        if (dt === 'late_added_service') t.types.add('late_add');
+        else if (dt === 'late_note_completion') t.types.add('old_note');
       }
       const carryoverAppliedUserIds = [...new Set([...carryover2to3ByKey.keys()].map((k) => k.split(':')[0]).filter((id) => id && Number(id) > 0).map(Number))];
       let carryoverUserMap = new Map();
@@ -5431,12 +5442,15 @@ export const batchCatchUp = [
         const u = carryoverUserMap.get(userId);
         const providerName = u ? [u.last_name, u.first_name].filter(Boolean).join(', ') : `User #${userId}`;
         const c = carryover2to3ByKey.get(k);
+        const types = c?.types ? Array.from(c.types) : [];
+        const carryoverType = types.includes('late_add') && types.includes('old_note') ? 'both' : (types.includes('late_add') ? 'late_add' : 'old_note');
         carryoverAppliedRows.push({
           userId,
           serviceCode: code,
           providerName,
           run2To3Units: c ? c.units : 0,
-          totalUnits: c ? c.units : 0
+          totalUnits: c ? c.units : 0,
+          carryoverType
         });
       }
       carryoverAppliedRows.sort((a, b) => a.providerName.localeCompare(b.providerName) || a.serviceCode.localeCompare(b.serviceCode));
@@ -5480,19 +5494,27 @@ export const batchCatchUp = [
         const carry = Number(d.carryoverFinalizedUnits || 0);
         if (carry <= 1e-9 || !d.userId) continue;
         const k = `${d.userId}:${(d.serviceCode || '').toUpperCase()}`;
-        if (!byUserCode.has(k)) byUserCode.set(k, { userId: d.userId, serviceCode: d.serviceCode, units: 0, notes: 0 });
+        if (!byUserCode.has(k)) byUserCode.set(k, { userId: d.userId, serviceCode: d.serviceCode, units: 0, notes: 0, types: new Set() });
         const t = byUserCode.get(k);
         t.units = Number((t.units + carry).toFixed(2));
         t.notes += Number(d.noteCount || 0) || 1;
+        const dt = String(d.type || '').toLowerCase();
+        if (dt === 'late_added_service') t.types.add('late_add');
+        else if (dt === 'late_note_completion') t.types.add('old_note');
       }
       const rows = Array.from(byUserCode.values())
-        .map((t) => ({
-          userId: t.userId,
-          serviceCode: t.serviceCode,
-          carryoverFinalizedUnits: t.units,
-          carryoverFinalizedRowCount: t.notes,
-          carryoverMeta: { categories: { old_note: { units: t.units, notes: t.notes }, late_addition: { units: 0, notes: 0 }, code_changed: { units: 0, notes: 0, fromCodes: [] } } }
-        }))
+        .map((t) => {
+          const types = t.types ? Array.from(t.types) : [];
+          const carryoverType = types.includes('late_add') && types.includes('old_note') ? 'both' : (types.includes('late_add') ? 'late_add' : 'old_note');
+          return {
+            userId: t.userId,
+            serviceCode: t.serviceCode,
+            carryoverFinalizedUnits: t.units,
+            carryoverFinalizedRowCount: t.notes,
+            carryoverType,
+            carryoverMeta: { categories: { old_note: { units: t.units, notes: t.notes }, late_addition: { units: 0, notes: 0 }, code_changed: { units: 0, notes: 0, fromCodes: [] } } }
+          };
+        })
         .filter((r) => Number(r?.carryoverFinalizedUnits || 0) > 1e-9);
 
       const targetPeriod = destPeriod || period;
@@ -5500,7 +5522,7 @@ export const batchCatchUp = [
       let h0031PendingCount = 0;
       let h0032PendingCount = 0;
 
-      if (applyCarryover && !sourceIsPosted) {
+      if (applyCarryover && !sourceIsPosted && !twoRunMode) {
         const r3 = parsePayrollFile(f3.buffer, f3.originalname || 'file3.csv');
         const parsedC = r3?.rows || [];
         const missedC = r3?.missedAppointmentsPaidInFull || [];
@@ -5581,6 +5603,7 @@ export const batchCatchUp = [
 
       res.json({
         ok: true,
+        twoRunMode,
         period: { id: targetPeriod.id, periodStart: ymdFromDbDate(targetPeriod.period_start), periodEnd: ymdFromDbDate(targetPeriod.period_end) },
         importedRows: rowsToInsert.length,
         carryoverRowsApplied: rows.length,

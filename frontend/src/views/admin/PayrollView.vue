@@ -416,7 +416,7 @@
               </div>
 
               <div v-else-if="wizardStep?.key === 'batch_catchup'" class="hint">
-                <div>Upload 3 billing reports for the <strong>same</strong> prior pay period (first run, second run, latest). The system compares them and adds late notes. You can skip this if not needed.</div>
+                <div>Upload 2 or 3 billing reports for the <strong>same</strong> prior pay period. 2-run: first vs second. 3-run: first, second, latest. The system compares them and adds late notes. You can skip this if not needed.</div>
                 <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr 1fr; gap: 8px;">
                   <div class="field">
                     <label>First run</label>
@@ -427,12 +427,12 @@
                     <input type="file" accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" @change="onBatchFilePick($event, 2)" />
                   </div>
                   <div class="field">
-                    <label>Latest</label>
+                    <label>Latest (optional)</label>
                     <input type="file" accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" @change="onBatchFilePick($event, 3)" />
                   </div>
                 </div>
                 <div class="actions" style="margin-top: 10px; justify-content: flex-start; flex-wrap: wrap; gap: 8px;">
-                  <button class="btn btn-primary" type="button" @click="wizardRunBatchCatchUpAndNext" :disabled="batchCatchUpLoading || !batchFiles[1] || !batchFiles[2] || !batchFiles[3] || !agencyId">
+                  <button class="btn btn-primary" type="button" @click="wizardRunBatchCatchUpAndNext" :disabled="batchCatchUpLoading || !batchFiles[1] || !batchFiles[2] || !agencyId">
                     {{ batchCatchUpLoading ? 'Processing…' : 'Add and Next' }}
                   </button>
                   <button class="btn btn-secondary" type="button" @click="wizardNext">Skip</button>
@@ -1072,7 +1072,7 @@
       </div>
 
       <div class="card" style="margin-top: 12px; padding: 12px; background: #f8f9fa;">
-        <div class="hint" style="font-weight: 600;">Batch catch-up (same period, 3 times)</div>
+        <div class="hint" style="font-weight: 600;">Batch catch-up (same period, 2 or 3 runs)</div>
         <div class="field-row" style="margin-top: 8px; grid-template-columns: 1fr 1fr 1fr; gap: 8px;">
           <div class="field">
             <label>First run</label>
@@ -1083,14 +1083,25 @@
             <input type="file" accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" @change="onBatchFilePick($event, 2)" />
           </div>
           <div class="field">
-            <label>Latest</label>
+            <label>Latest (optional for 2-run)</label>
             <input type="file" accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" @change="onBatchFilePick($event, 3)" />
+            <div class="hint muted" style="font-size: 0.85em;">Leave empty for 2-run: Run 1 vs Run 2 only.</div>
           </div>
         </div>
-        <div class="actions" style="margin-top: 10px;">
-          <button class="btn btn-primary" @click="runBatchCatchUp" :disabled="batchCatchUpLoading || !batchFiles[1] || !batchFiles[2] || !batchFiles[3] || !agencyId">
-            {{ batchCatchUpLoading ? 'Comparing…' : 'Upload all 3 & compare' }}
-          </button>
+        <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr auto; gap: 12px; align-items: end;">
+          <div class="field">
+            <label>Add late notes to (destination period)</label>
+            <select v-model="batchCatchUpDestinationPeriodId" :disabled="!agencyId || !(periods || []).length" style="min-width: 260px;">
+              <option :value="null" disabled>Select pay period…</option>
+              <option v-for="p in periods" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
+            </select>
+            <div class="hint muted" style="margin-top: 4px;">Late notes will be added to this period when you click Add.</div>
+          </div>
+          <div class="actions" style="margin: 0;">
+            <button class="btn btn-primary" @click="runBatchCatchUp" :disabled="batchCatchUpLoading || !batchFiles[1] || !batchFiles[2] || !agencyId">
+              {{ batchCatchUpLoading ? 'Comparing…' : (batchFiles[3] ? 'Upload all 3 & compare' : 'Upload 2 & compare') }}
+            </button>
+          </div>
         </div>
         <div v-if="batchCatchUpResult" style="margin-top: 10px;">
           <div class="hint" style="color: var(--success);" v-if="batchCatchUpResult.applied">
@@ -1100,26 +1111,32 @@
             Compare complete. Review what would be added below, then click <strong>Add to current period</strong> when ready.
           </div>
           <div v-if="(batchCatchUpResult.carryoverApplied || []).length > 0" class="card" style="margin-top: 10px; padding: 12px;">
-            <strong>Late notes to add ({{ batchCatchUpResult.carryoverRowsApplied }} rows)</strong>
-            <div class="hint muted" style="margin-top: 4px;">No note in Run 2 → draft or finalized in Run 3. These will be added to the selected period when you click Add. (1→2 was already paid.)</div>
+            <strong>Late notes to add ({{ batchCatchUpSelectedCount }} of {{ batchCatchUpResult.carryoverRowsApplied }} selected)</strong>
+            <div class="hint muted" style="margin-top: 4px;">{{ batchCatchUpResult.twoRunMode ? 'No note in Run 1 → draft or finalized in Run 2.' : 'No note in Run 2 → draft or finalized in Run 3. (1→2 was already paid.)' }} Check the rows to add, edit units if needed, then click Add.</div>
             <div v-if="!batchCatchUpResult.applied && (batchCatchUpResult.rowsForApply || []).length > 0" class="actions" style="margin-top: 10px;">
               <button
                 class="btn btn-primary"
                 @click="applyBatchCatchUpToPeriod"
-                :disabled="batchCatchUpApplying || !selectedPeriodId || isPeriodPosted"
+                :disabled="batchCatchUpApplying || !batchCatchUpDestinationPeriodId || batchCatchUpSelectedCount === 0 || isBatchCatchUpDestPosted"
               >
-                {{ batchCatchUpApplying ? 'Adding…' : 'Add to current period' }}
+                {{ batchCatchUpApplying ? 'Adding…' : 'Add selected to current period' }}
               </button>
             </div>
             <table class="table" style="margin-top: 8px; font-size: 0.9em;">
               <thead>
-                <tr><th>User</th><th>Service code</th><th class="right">2→3 units</th></tr>
+                <tr><th style="width: 36px;"></th><th>User</th><th>Service code</th><th>Type</th><th class="right">Units</th></tr>
               </thead>
               <tbody>
-                <tr v-for="c in (batchCatchUpResult.carryoverApplied || [])" :key="`${c.userId}-${c.serviceCode}`">
+                <tr v-for="c in (batchCatchUpResult.carryoverApplied || [])" :key="`${c.userId}-${c.serviceCode}`" :style="!batchCatchUpRowSelected(c) ? { opacity: 0.5 } : {}">
+                  <td>
+                    <input type="checkbox" :checked="batchCatchUpRowSelected(c)" @change="batchCatchUpToggleRow(c, $event.target.checked)" />
+                  </td>
                   <td>{{ c.providerName || getUserName(c.userId) }}</td>
                   <td>{{ c.serviceCode }}</td>
-                  <td class="right">{{ fmtNum(c.run2To3Units ?? c.totalUnits) }}</td>
+                  <td><span class="badge" :class="batchCatchUpTypeBadgeClass(c)">{{ batchCatchUpTypeLabel(c) }}</span></td>
+                  <td class="right">
+                    <input type="number" :value="batchCatchUpRowUnits(c)" @input="batchCatchUpSetRowUnits(c, $event.target.value)" min="0" step="0.01" style="width: 80px; text-align: right;" />
+                  </td>
                 </tr>
               </tbody>
             </table>
@@ -1134,10 +1151,10 @@
             Open <strong>Raw Import</strong> → <strong>Process H0031</strong> / <strong>Process H0032</strong> to edit. Unpaid rows are highlighted in amber.
           </div>
           <div v-if="batchCatchUpResult.superFlagCount > 0" class="warn-box" style="margin-top: 10px; padding: 12px;">
-            <strong>Still no note ({{ batchCatchUpResult.superFlagCount }}):</strong> No note in Run 2, still no note in Run 3. Please address.
+            <strong>Still no note ({{ batchCatchUpResult.superFlagCount }}):</strong> {{ batchCatchUpResult.twoRunMode ? 'No note in Run 1, still no note in Run 2.' : 'No note in Run 2, still no note in Run 3.' }} Please address.
             <table class="table" style="margin-top: 8px; font-size: 0.9em;">
               <thead>
-                <tr><th>User</th><th>Service code</th><th class="right">Run 2 no note</th><th class="right">Run 3 no note</th></tr>
+                <tr><th>User</th><th>Service code</th><th class="right">{{ batchCatchUpResult.twoRunMode ? 'Run 1 no note' : 'Run 2 no note' }}</th><th class="right">{{ batchCatchUpResult.twoRunMode ? 'Run 2 no note' : 'Run 3 no note' }}</th></tr>
               </thead>
               <tbody>
                 <tr v-for="f in (batchCatchUpResult.superFlag || [])" :key="`${f.userId}-${f.serviceCode}`">
@@ -1150,8 +1167,8 @@
             </table>
           </div>
         </div>
-        <div v-if="(selectedPeriodStatus === 'posted' || selectedPeriodStatus === 'finalized') && selectedPeriodId" class="warn-box" style="margin-top: 10px;">
-          This pay period is posted/finalized. If your 3 files are from this period, select the <strong>next</strong> pay period above, then upload again — late notes will be added there.
+        <div v-if="isBatchCatchUpDestPosted" class="warn-box" style="margin-top: 10px;">
+          The selected destination period is posted/finalized. Choose a different pay period above for late notes.
         </div>
         <div v-else-if="batchCatchUpError" class="warn-box" style="margin-top: 10px;">{{ batchCatchUpError }}</div>
       </div>
@@ -5668,6 +5685,8 @@ const batchCatchUpLoading = ref(false);
 const batchCatchUpApplying = ref(false);
 const batchCatchUpResult = ref(null);
 const batchCatchUpError = ref('');
+const batchCatchUpDestinationPeriodId = ref(null);
+const batchCatchUpSelection = ref({}); // { 'userId:code': { selected, units } }
 const processDetectedHint = ref('');
 const processSourcePeriodId = ref(null);
 const processSourcePeriodLabel = ref('');
@@ -6545,7 +6564,7 @@ const wizardOpenRawMode = async (mode) => {
 };
 
 const wizardRunBatchCatchUp = async () => {
-  if (!agencyId.value || !batchFiles.value[1] || !batchFiles.value[2] || !batchFiles.value[3]) return;
+  if (!agencyId.value || !batchFiles.value[1] || !batchFiles.value[2]) return;
   const savedPeriodId = selectedPeriodId.value;
   try {
     batchCatchUpLoading.value = true;
@@ -6554,8 +6573,9 @@ const wizardRunBatchCatchUp = async () => {
     const fd = new FormData();
     fd.append('file1', batchFiles.value[1]);
     fd.append('file2', batchFiles.value[2]);
-    fd.append('file3', batchFiles.value[3]);
+    if (batchFiles.value[3]) fd.append('file3', batchFiles.value[3]);
     fd.append('agencyId', String(agencyId.value));
+    if (selectedPeriodId.value) fd.append('destinationPeriodId', String(selectedPeriodId.value));
     const resp = await api.post('/payroll/periods/batch-catch-up', fd);
     batchCatchUpResult.value = resp.data || null;
     await loadPeriods();
@@ -11189,6 +11209,7 @@ watch(selectedOrgId, async (id) => {
 
 watch(selectedPeriodId, async (id) => {
   if (!id) return;
+  if (id && (batchCatchUpDestinationPeriodId.value == null || batchCatchUpDestinationPeriodId.value === '')) batchCatchUpDestinationPeriodId.value = id;
   try {
     if (agencyId.value) localStorage.setItem(lsLastPeriodKey(agencyId.value), String(id));
   } catch { /* ignore */ }
@@ -11337,22 +11358,32 @@ const onBatchFilePick = (evt, slot) => {
 };
 
 const runBatchCatchUp = async () => {
-  if (!agencyId.value || !batchFiles.value[1] || !batchFiles.value[2] || !batchFiles.value[3]) return;
+  if (!agencyId.value || !batchFiles.value[1] || !batchFiles.value[2]) return;
   try {
     batchCatchUpLoading.value = true;
     batchCatchUpError.value = '';
     batchCatchUpResult.value = null;
+    batchCatchUpSelection.value = {};
     const fd = new FormData();
     fd.append('file1', batchFiles.value[1]);
     fd.append('file2', batchFiles.value[2]);
-    fd.append('file3', batchFiles.value[3]);
+    if (batchFiles.value[3]) fd.append('file3', batchFiles.value[3]);
     fd.append('agencyId', String(agencyId.value));
-    if (selectedPeriodId.value) fd.append('destinationPeriodId', String(selectedPeriodId.value));
+    const destId = batchCatchUpDestinationPeriodId.value || selectedPeriodId.value;
+    if (destId) fd.append('destinationPeriodId', String(destId));
     const resp = await api.post('/payroll/periods/batch-catch-up', fd);
     batchCatchUpResult.value = resp.data || null;
+    // Initialize selection: all selected, original units
+    const applied = batchCatchUpResult.value?.carryoverApplied || [];
+    const sel = {};
+    for (const c of applied) {
+      const k = `${c.userId}:${(c.serviceCode || '').toUpperCase()}`;
+      sel[k] = { selected: true, units: Number(c.run2To3Units ?? c.totalUnits ?? 0) };
+    }
+    batchCatchUpSelection.value = sel;
     await loadPeriods();
-    if (batchCatchUpResult.value?.destinationPeriodId) {
-      await selectPeriod(batchCatchUpResult.value.destinationPeriodId);
+    if (batchCatchUpResult.value?.destinationPeriodId && !batchCatchUpDestinationPeriodId.value) {
+      batchCatchUpDestinationPeriodId.value = batchCatchUpResult.value.destinationPeriodId;
     }
   } catch (e) {
     batchCatchUpError.value = e.response?.data?.error?.message || e.message || 'Batch catch-up failed';
@@ -11361,16 +11392,85 @@ const runBatchCatchUp = async () => {
   }
 };
 
+const batchCatchUpRowKey = (c) => `${c.userId}:${(c.serviceCode || '').toUpperCase()}`;
+const batchCatchUpRowSelected = (c) => {
+  const k = batchCatchUpRowKey(c);
+  const s = batchCatchUpSelection.value[k];
+  return s ? s.selected : true;
+};
+const batchCatchUpToggleRow = (c, checked) => {
+  const k = batchCatchUpRowKey(c);
+  const base = batchCatchUpSelection.value[k] || { selected: true, units: Number(c.run2To3Units ?? c.totalUnits ?? 0) };
+  batchCatchUpSelection.value = { ...batchCatchUpSelection.value, [k]: { ...base, selected: !!checked } };
+};
+const batchCatchUpRowUnits = (c) => {
+  const k = batchCatchUpRowKey(c);
+  const s = batchCatchUpSelection.value[k];
+  const def = Number(c.run2To3Units ?? c.totalUnits ?? 0);
+  return s ? s.units : def;
+};
+const batchCatchUpSetRowUnits = (c, val) => {
+  const k = batchCatchUpRowKey(c);
+  const num = Math.max(0, Number(val) || 0);
+  const base = batchCatchUpSelection.value[k] || { selected: true, units: Number(c.run2To3Units ?? c.totalUnits ?? 0) };
+  batchCatchUpSelection.value = { ...batchCatchUpSelection.value, [k]: { ...base, units: num } };
+};
+const batchCatchUpTypeLabel = (c) => {
+  const t = c.carryoverType || '';
+  if (t === 'late_add') return 'Late add';
+  if (t === 'old_note') return 'Old note';
+  if (t === 'both') return 'Both';
+  return '—';
+};
+const batchCatchUpTypeBadgeClass = (c) => {
+  const t = c.carryoverType || '';
+  if (t === 'late_add') return 'badge-info';
+  if (t === 'old_note') return 'badge-warning';
+  if (t === 'both') return 'badge-secondary';
+  return '';
+};
+const batchCatchUpSelectedCount = computed(() => {
+  const applied = batchCatchUpResult.value?.carryoverApplied || [];
+  let n = 0;
+  for (const c of applied) {
+    if (batchCatchUpRowSelected(c)) n++;
+  }
+  return n;
+});
+const isBatchCatchUpDestPosted = computed(() => {
+  const pid = batchCatchUpDestinationPeriodId.value;
+  if (!pid) return false;
+  const p = (periods.value || []).find((x) => Number(x?.id) === Number(pid));
+  const s = String(p?.status || '').toLowerCase();
+  return s === 'posted' || s === 'finalized';
+});
+
 const applyBatchCatchUpToPeriod = async () => {
   const result = batchCatchUpResult.value;
   if (!result || !(result.rowsForApply || []).length) return;
-  const destId = result.destinationPeriodId || selectedPeriodId.value;
+  const destId = batchCatchUpDestinationPeriodId.value || result.destinationPeriodId || selectedPeriodId.value;
   if (!destId) return;
+  const applied = result.carryoverApplied || [];
+  const rowsToApply = [];
+  for (const c of applied) {
+    if (!batchCatchUpRowSelected(c)) continue;
+    const units = batchCatchUpRowUnits(c);
+    if (!(units > 0)) continue;
+    const row = (result.rowsForApply || []).find((r) => Number(r.userId) === Number(c.userId) && String(r.serviceCode || '').toUpperCase() === String(c.serviceCode || '').toUpperCase());
+    rowsToApply.push({
+      userId: c.userId,
+      serviceCode: c.serviceCode,
+      carryoverFinalizedUnits: units,
+      carryoverFinalizedRowCount: row?.carryoverFinalizedRowCount ?? 1,
+      carryoverMeta: row?.carryoverMeta ?? null
+    });
+  }
+  if (!rowsToApply.length) return;
   try {
     batchCatchUpApplying.value = true;
     batchCatchUpError.value = '';
-    await api.post(`/payroll/periods/${destId}/carryover/apply`, { rows: result.rowsForApply });
-    batchCatchUpResult.value = { ...result, applied: true };
+    await api.post(`/payroll/periods/${destId}/carryover/apply`, { rows: rowsToApply });
+    batchCatchUpResult.value = { ...result, applied: true, carryoverRowsApplied: rowsToApply.length };
     await loadPeriods();
     await selectPeriod(destId);
   } catch (e) {
@@ -11378,8 +11478,8 @@ const applyBatchCatchUpToPeriod = async () => {
     if (e.response?.status === 409 && (String(msg).includes('H0031') || String(msg).includes('H0032'))) {
       const ok = window.confirm('Carryover is blocked by H0031/H0032 processing. Apply anyway (skip processing gate)?');
       if (ok) {
-        await api.post(`/payroll/periods/${destId}/carryover/apply`, { rows: result.rowsForApply }, { params: { skipProcessingGate: 'true' } });
-        batchCatchUpResult.value = { ...result, applied: true };
+        await api.post(`/payroll/periods/${destId}/carryover/apply`, { rows: rowsToApply }, { params: { skipProcessingGate: 'true' } });
+        batchCatchUpResult.value = { ...result, applied: true, carryoverRowsApplied: rowsToApply.length };
         await loadPeriods();
         await selectPeriod(destId);
       } else {
