@@ -170,6 +170,7 @@
               <button type="button" class="btn-icon btn-sm" aria-label="More options" @click="openTaskMenu(task)">⋮</button>
               <div v-if="taskMenuTaskId === task.id" class="more-menu task-menu" @click.stop>
                 <button type="button" class="more-menu-item" @click="openAddToMeetingPicker(task); taskMenuTaskId = null">Add to meeting</button>
+                <button type="button" class="more-menu-item" @click="openAttachments(task); taskMenuTaskId = null">📎 Add attachment</button>
                 <button v-if="canEdit" type="button" class="more-menu-item" @click="convertToReminder(task); taskMenuTaskId = null">Convert to reminder</button>
               </div>
             </div>
@@ -188,6 +189,54 @@
       </ul>
       <div v-if="!loading && tasks.length === 0" class="task-list-empty">
         {{ taskTab === 'done' ? 'No completed tasks yet.' : 'No tasks yet.' }}
+      </div>
+    </div>
+
+    <div v-if="attachmentsTask" class="attachments-overlay" @click.self="attachmentsTask = null">
+      <div class="attachments-panel">
+        <h4>Attachments: {{ attachmentsTask?.title }}</h4>
+        <input
+          ref="attachmentFileRef"
+          type="file"
+          accept=".pdf,.jpg,.jpeg,.png,.webp,.gif,.doc,.docx,.xls,.xlsx,.txt"
+          class="sr-only"
+          @change="onAttachmentFileChange"
+        />
+        <button
+          type="button"
+          class="btn btn-secondary btn-sm"
+          :disabled="uploadingAttachment"
+          @click="attachmentFileRef?.click()"
+        >
+          {{ uploadingAttachment ? 'Uploading…' : '+ Add photo or doc' }}
+        </button>
+        <ul v-if="taskAttachments.length > 0" class="attachments-list">
+          <li v-for="a in taskAttachments" :key="a.id" class="attachment-item">
+            <a
+              v-if="isImageAttachment(a)"
+              :href="attachmentUrl(a)"
+              target="_blank"
+              rel="noopener"
+              class="attachment-thumb"
+            >
+              <img :src="attachmentUrl(a)" :alt="a.filename" />
+            </a>
+            <a v-else :href="attachmentUrl(a)" target="_blank" rel="noopener" class="attachment-link">
+              📄 {{ a.filename }}
+            </a>
+            <button
+              type="button"
+              class="attachment-delete"
+              :disabled="deletingAttachmentId === a.id"
+              aria-label="Remove"
+              @click="deleteAttachment(a)"
+            >
+              ×
+            </button>
+          </li>
+        </ul>
+        <p v-else class="attachments-empty">No attachments yet.</p>
+        <button type="button" class="btn btn-secondary btn-sm" @click="attachmentsTask = null">Close</button>
       </div>
     </div>
 
@@ -220,6 +269,7 @@ import { ref, computed, onMounted, watch, onUnmounted } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import { useSpeechToText } from '../../composables/useSpeechToText';
+import { toUploadsUrl } from '../../utils/uploadsUrl';
 
 const props = defineProps({
   list: { type: Object, required: true }
@@ -243,6 +293,11 @@ const taskMenuTaskId = ref(null);
 const printAreaRef = ref(null);
 const listMenuRef = ref(null);
 const taskMenuRefs = {};
+const attachmentsTask = ref(null);
+const taskAttachments = ref([]);
+const uploadingAttachment = ref(false);
+const deletingAttachmentId = ref(null);
+const attachmentFileRef = ref(null);
 const addToMeetingTask = ref(null);
 const showAddToMeetingPicker = ref(false);
 const upcomingMeetings = ref([]);
@@ -477,6 +532,56 @@ const setTaskMenuRef = (taskId, el) => {
 
 const openTaskMenu = (task) => {
   taskMenuTaskId.value = taskMenuTaskId.value === task.id ? null : task.id;
+};
+
+const openAttachments = async (task) => {
+  attachmentsTask.value = task;
+  taskAttachments.value = [];
+  try {
+    const res = await api.get(`/me/tasks/${task.id}/attachments`);
+    taskAttachments.value = res.data || [];
+  } catch (err) {
+    console.error('Failed to fetch attachments:', err);
+  }
+};
+
+const attachmentUrl = (a) => toUploadsUrl(a.storage_path || a.url);
+
+const isImageAttachment = (a) => {
+  const t = String(a.content_type || '').toLowerCase();
+  return t.startsWith('image/');
+};
+
+const onAttachmentFileChange = async (e) => {
+  const file = e.target?.files?.[0];
+  if (!file || !attachmentsTask.value) return;
+  uploadingAttachment.value = true;
+  try {
+    const fd = new FormData();
+    fd.append('file', file);
+    const res = await api.post(`/me/tasks/${attachmentsTask.value.id}/attachments`, fd);
+    taskAttachments.value = [...taskAttachments.value, res.data];
+    emit('updated');
+  } catch (err) {
+    console.error('Failed to upload attachment:', err);
+  } finally {
+    uploadingAttachment.value = false;
+    e.target.value = '';
+  }
+};
+
+const deleteAttachment = async (a) => {
+  if (!attachmentsTask.value) return;
+  deletingAttachmentId.value = a.id;
+  try {
+    await api.delete(`/me/tasks/${attachmentsTask.value.id}/attachments/${a.id}`);
+    taskAttachments.value = taskAttachments.value.filter((x) => x.id !== a.id);
+    emit('updated');
+  } catch (err) {
+    console.error('Failed to delete attachment:', err);
+  } finally {
+    deletingAttachmentId.value = null;
+  }
 };
 
 const convertToReminder = async (task) => {
@@ -916,6 +1021,92 @@ watch(taskTab, () => fetchTasks());
   flex-shrink: 0;
   display: flex;
   gap: 6px;
+}
+
+.attachments-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1001;
+}
+
+.attachments-panel {
+  background: white;
+  border-radius: 12px;
+  padding: 20px;
+  max-width: 400px;
+  width: 90%;
+  max-height: 80vh;
+  overflow: auto;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
+}
+
+.attachments-panel h4 {
+  margin: 0 0 16px 0;
+  font-size: 16px;
+}
+
+.attachments-list {
+  list-style: none;
+  margin: 12px 0;
+  padding: 0;
+}
+
+.attachment-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid #eee;
+}
+
+.attachment-thumb {
+  display: block;
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.attachment-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.attachment-link {
+  flex: 1;
+  font-size: 14px;
+  color: var(--primary, #3b82f6);
+  text-decoration: none;
+}
+
+.attachment-link:hover {
+  text-decoration: underline;
+}
+
+.attachment-delete {
+  background: none;
+  border: none;
+  font-size: 18px;
+  cursor: pointer;
+  color: #9ca3af;
+  padding: 0 4px;
+  line-height: 1;
+}
+
+.attachment-delete:hover:not(:disabled) {
+  color: #ef4444;
+}
+
+.attachments-empty {
+  margin: 12px 0;
+  color: #9ca3af;
+  font-size: 14px;
 }
 
 .add-to-meeting-overlay {

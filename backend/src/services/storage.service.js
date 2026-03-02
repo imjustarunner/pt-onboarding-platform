@@ -1196,6 +1196,29 @@ class StorageService {
     return { path: key, key, filename: sanitizedFilename, relativePath: key };
   }
 
+  /**
+   * Save a task attachment (photo, doc) for reference on shared list tasks.
+   * Stored under uploads/task_attachments/ so it can be served via /uploads/*.
+   */
+  static async saveTaskAttachment({ taskId, userId, fileBuffer, filename, contentType }) {
+    const sanitizedFilename = this.sanitizeFilename(filename || `attachment-${Date.now()}`);
+    const unique = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}`;
+    const key = `uploads/task_attachments/task_${taskId || 'unknown'}/${unique}-${sanitizedFilename}`;
+    const bucket = await this.getGCSBucket();
+    const file = bucket.file(key);
+
+    await file.save(fileBuffer, {
+      contentType: contentType || 'application/octet-stream',
+      metadata: {
+        uploadedAt: new Date().toISOString(),
+        userId: String(userId || ''),
+        taskId: String(taskId || '')
+      }
+    });
+
+    return { path: key, key, filename: sanitizedFilename, relativePath: key };
+  }
+
   static async deleteComplianceDocument(filename) {
     const key = `credentials/${filename}`;
     const bucket = await this.getGCSBucket();
