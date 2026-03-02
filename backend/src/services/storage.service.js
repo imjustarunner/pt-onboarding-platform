@@ -1039,6 +1039,24 @@ class StorageService {
   }
 
   /**
+   * Save a budget expense receipt to GCS under uploads/ so it can be served via /uploads/*.
+   */
+  static async saveBudgetExpenseReceipt(fileBuffer, filename, contentType = 'application/pdf') {
+    const sanitizedFilename = this.sanitizeFilename(filename);
+    const unique = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const key = `uploads/budget_expenses/${unique}-${sanitizedFilename}`;
+    const bucket = await this.getGCSBucket();
+    const file = bucket.file(key);
+
+    await file.save(fileBuffer, {
+      contentType,
+      metadata: { uploadedAt: new Date().toISOString() }
+    });
+
+    return { path: key, key, filename: sanitizedFilename, relativePath: key };
+  }
+
+  /**
    * Save a company card expense receipt to GCS under uploads/ so it can be served via /uploads/*.
    */
   static async saveCompanyCardExpenseReceipt(fileBuffer, filename, contentType = 'application/pdf') {

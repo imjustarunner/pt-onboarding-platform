@@ -667,6 +667,18 @@ const routes = [
     meta: { requiresAuth: true, requiresCapability: 'canManagePayroll', organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/admin/budget-management',
+    name: 'OrganizationBudgetManagement',
+    component: () => import('../views/admin/BudgetManagementView.vue'),
+    meta: { requiresAuth: true, requiresCapability: 'canAccessBudgetManagement', organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/event/:eventSlug',
+    name: 'BudgetEventPortal',
+    component: () => import('../views/budget/BudgetEventPortalView.vue'),
+    meta: { requiresAuth: true, requiresCapability: 'canAccessBudgetManagement', organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/admin/providers',
     name: 'OrganizationProviderDirectory',
     component: () => import('../views/admin/ProviderDirectoryView.vue'),

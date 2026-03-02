@@ -238,6 +238,28 @@
     </div>
     
     <div class="settings-section">
+      <h3>Available Agency Features</h3>
+      <p class="section-description">
+        Control which feature toggles agencies can see in Company Profile → Features. When a feature is unchecked here, agencies will not see that toggle at all—they cannot enable it. Super Admin always has full control.
+      </p>
+      <div class="available-features-grid">
+        <label
+          v-for="item in availableAgencyFeaturesList"
+          :key="item.key"
+          class="feature-checkbox"
+        >
+          <input v-model="availableAgencyFeatures[item.key]" type="checkbox" />
+          <span>{{ item.label }}</span>
+        </label>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn btn-primary" @click="saveAvailableAgencyFeatures" :disabled="savingAvailableFeatures">
+          {{ savingAvailableFeatures ? 'Saving...' : 'Save Available Features' }}
+        </button>
+      </div>
+    </div>
+
+    <div class="settings-section">
       <h3>Beta Feedback</h3>
       <p class="section-description">
         When enabled, all users see a floating "Beta" widget on screen. They can report issues with screenshots and context (route, what they were doing). Submissions are visible in the Beta Feedback dashboard (Super Admin only).
@@ -312,6 +334,29 @@ const savingSchoolPortalIcons = ref(false);
 const savingRetentionSettings = ref(false);
 const savingSessionLock = ref(false);
 const savingBetaFeedback = ref(false);
+const savingAvailableFeatures = ref(false);
+
+// Available agency features: which toggles agencies can see in Company Profile → Features
+const AVAILABLE_FEATURES_KEYS = [
+  { key: 'budgetManagementEnabled', label: 'Budget Management' },
+  { key: 'payrollEnabled', label: 'Payroll' },
+  { key: 'hiringEnabled', label: 'Hiring Process' },
+  { key: 'noteAidEnabled', label: 'Note Aid' },
+  { key: 'clinicalNoteGeneratorEnabled', label: 'Clinical Note Generator' },
+  { key: 'publicProviderFinderEnabled', label: 'Public Provider Finder' },
+  { key: 'aiProviderSearchEnabled', label: 'AI Provider Search' },
+  { key: 'shiftProgramsEnabled', label: 'Shift Programs' },
+  { key: 'presenceEnabled', label: 'Presence / Team Board' },
+  { key: 'kudosEnabled', label: 'Kudos' },
+  { key: 'momentumListEnabled', label: 'Momentum List' },
+  { key: 'medcancelEnabled', label: 'Med Cancel' },
+  { key: 'inSchoolSubmissionsEnabled', label: 'In-School Submissions' },
+  { key: 'googleSsoEnabled', label: 'Google Workspace SSO' },
+  { key: 'workspaceProvisioningEnabled', label: 'Workspace Provisioning' }
+];
+
+const availableAgencyFeaturesList = AVAILABLE_FEATURES_KEYS;
+const availableAgencyFeatures = ref({});
 const sessionLockPlatformMax = ref(30);
 const betaFeedbackEnabled = ref(false);
 const superAdminCount = ref(0);
@@ -408,6 +453,33 @@ const fetchSessionLockPlatformMax = () => {
 const fetchBetaFeedbackEnabled = () => {
   const pb = brandingStore.platformBranding;
   betaFeedbackEnabled.value = !!pb?.beta_feedback_enabled;
+};
+
+const fetchAvailableAgencyFeatures = () => {
+  const pb = brandingStore.platformBranding;
+  const raw = pb?.available_agency_features_json;
+  const parsed = typeof raw === 'object' && raw !== null
+    ? raw
+    : (typeof raw === 'string' ? (() => { try { return JSON.parse(raw); } catch { return {}; } })() : {});
+  // Default all to true when not set (backward compat)
+  const defaults = Object.fromEntries(AVAILABLE_FEATURES_KEYS.map((f) => [f.key, true]));
+  availableAgencyFeatures.value = { ...defaults, ...parsed };
+};
+
+const saveAvailableAgencyFeatures = async () => {
+  try {
+    savingAvailableFeatures.value = true;
+    await api.put('/platform-branding', {
+      availableAgencyFeatures: availableAgencyFeatures.value
+    });
+    await brandingStore.fetchPlatformBranding();
+    alert('Available agency features saved successfully.');
+  } catch (err) {
+    const msg = err?.response?.data?.error?.message || err?.response?.data?.message || err?.message || 'Failed to save';
+    alert(msg);
+  } finally {
+    savingAvailableFeatures.value = false;
+  }
 };
 
 const saveBetaFeedbackEnabled = async () => {
@@ -559,6 +631,7 @@ onMounted(async () => {
   await fetchRetentionSettings();
   fetchSessionLockPlatformMax();
   fetchBetaFeedbackEnabled();
+  fetchAvailableAgencyFeatures();
   await fetchStats();
 });
 </script>
@@ -748,6 +821,27 @@ onMounted(async () => {
 .toggle-text {
   font-weight: 600;
   color: var(--text-primary);
+}
+
+.available-features-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.feature-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.feature-checkbox input {
+  width: 18px;
+  height: 18px;
 }
 
 .toggle-label small {

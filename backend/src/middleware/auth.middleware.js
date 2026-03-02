@@ -229,7 +229,23 @@ export const requireCapability = (required) => {
         userForCaps = await User.findById(req.user.id);
       }
 
-      const caps = getUserCapabilities(userForCaps);
+      let caps = getUserCapabilities(userForCaps);
+
+      // canManagePayroll and canAccessBudgetManagement require async resolution from user_agencies
+      const needsPayrollCaps = requiredList.some((k) => k === 'canManagePayroll' || k === 'canAccessBudgetManagement');
+      if (needsPayrollCaps && userForCaps?.id) {
+        const [payrollAgencyIds, departmentAgencyIds] = await Promise.all([
+          User.listPayrollAgencyIds(userForCaps.id),
+          User.listDepartmentAgencyIds(userForCaps.id)
+        ]);
+        const canManagePayroll = userForCaps.role === 'super_admin' || payrollAgencyIds.length > 0;
+        const canAccessBudgetManagement =
+          canManagePayroll ||
+          ((userForCaps.role === 'assistant_admin' || userForCaps.role === 'provider_plus') &&
+            departmentAgencyIds.length > 0);
+        caps = { ...caps, canManagePayroll, canAccessBudgetManagement };
+      }
+
       req.userCapabilities = caps;
 
       const ok = requiredList.every((k) => !!caps?.[k]);

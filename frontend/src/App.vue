@@ -179,6 +179,7 @@
                     <router-link :to="orgTo('/admin/compliance-corner')" v-if="isTrueAdmin" >Compliance Corner</router-link>
                     <router-link :to="orgTo('/admin/audit-center')" v-if="isTrueAdmin" >Audit Center</router-link>
                     <router-link :to="orgTo('/admin/expenses')" v-if="canSeePayrollManagement" >Expense/Reimbursements</router-link>
+                    <router-link :to="orgTo('/admin/budget-management')" v-if="canSeeBudgetManagement" >Budget Management</router-link>
                     <router-link :to="orgTo('/admin/revenue')" v-if="user?.role === 'super_admin'" >Revenue</router-link>
                     <router-link :to="availabilityIntakeNavLink" v-if="canSeeAvailabilityIntake" >Availability Intake</router-link>
 
@@ -1224,6 +1225,17 @@ const learningBillingNavEnabled = computed(() => {
     })()
     : (a.feature_flags || {});
   return flags.learningProgramBillingEnabled === true;
+});
+
+const canSeeBudgetManagement = computed(() => {
+  const a = agencyStore.currentAgency?.value || agencyStore.currentAgency || {};
+  const flags = parseFeatureFlags(a?.feature_flags);
+  if (!flags.budgetManagementEnabled) return false;
+  if (canSeePayrollManagement.value) return true;
+  const caps = user.value?.capabilities || {};
+  if (!caps.canAccessBudgetManagement) return false;
+  const deptIds = Array.isArray(user.value?.departmentAgencyIds) ? user.value.departmentAgencyIds : [];
+  return currentAgencyId.value && deptIds.includes(currentAgencyId.value);
 });
 
 const canSeeApplicantsTopNavLink = computed(() => {

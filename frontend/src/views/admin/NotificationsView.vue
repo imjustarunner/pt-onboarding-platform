@@ -30,6 +30,7 @@
           <option value="password_changed">Password Changed</option>
           <option value="support_ticket_created">Support Tickets</option>
           <option value="office_availability_request_pending">Office Requests</option>
+          <option value="budget_expense_pending_approval">Budget Expense Approval</option>
           <option value="client_assigned">Client Assigned</option>
         </select>
       </div>
@@ -345,6 +346,8 @@ const getTypeLabel = (type) => {
     password_changed: 'Password Changed',
     support_ticket_created: 'Support Tickets',
     new_packet_uploaded: 'New Packet Uploaded',
+    office_availability_request_pending: 'Office Requests',
+    budget_expense_pending_approval: 'Budget Expense Approval',
     client_assigned: 'Client Assigned'
   };
   return labels[type] || type;
@@ -353,6 +356,11 @@ const getTypeLabel = (type) => {
 const getAgencyName = (agencyId) => {
   const agency = agencies.value.find(a => a.id === agencyId);
   return agency?.name || `Agency ${agencyId}`;
+};
+
+const getAgencySlug = (agencyId) => {
+  const agency = agencies.value.find(a => a.id === agencyId);
+  return agency?.slug || agency?.portal_url || agency?.portalUrl || '';
 };
 
 const getUserName = (userId) => {
@@ -517,6 +525,10 @@ const getNotificationNavigationPath = async (notification) => {
     const agencyId = notification.agency_id;
     const base = route.params.organizationSlug ? `/${route.params.organizationSlug}/admin/availability-intake` : '/admin/availability-intake';
     return `${base}?agencyId=${agencyId}`;
+  } else if (notification.type === 'budget_expense_pending_approval' && notification.related_entity_type === 'budget_expense' && notification.related_entity_id && notification.agency_id) {
+    const slug = route.params.organizationSlug || getAgencySlug(notification.agency_id);
+    const base = slug ? `/${slug}/admin/budget-management` : '/admin/budget-management';
+    return `${base}?tab=expenses&status=submitted&expenseId=${notification.related_entity_id}`;
   } else if (notification.related_entity_type === 'chat_thread' && notification.related_entity_id) {
     // Platform chat deeplink
     try {
@@ -676,6 +688,14 @@ const handleNotificationClick = async (notification) => {
   // Mark as read when clicked
   if (!notification.is_read) {
     await markAsRead(notification.id);
+  }
+
+  // Budget expense approval: navigate to budget management
+  if (notification.type === 'budget_expense_pending_approval' && notification.related_entity_type === 'budget_expense' && notification.related_entity_id && notification.agency_id) {
+    const slug = route.params.organizationSlug || getAgencySlug(notification.agency_id);
+    const base = slug ? `/${slug}/admin/budget-management` : '/admin/budget-management';
+    router.push(`${base}?tab=expenses&status=submitted&expenseId=${notification.related_entity_id}`);
+    return;
   }
 
   // Navigate based on notification type

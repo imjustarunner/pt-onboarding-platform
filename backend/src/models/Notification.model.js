@@ -81,7 +81,9 @@ class Notification {
     // Kudos
     'kudos_received',
     // Office availability request (provider requesting office space)
-    'office_availability_request_pending'
+    'office_availability_request_pending',
+    // Budget Management: expense pending approval (department approvers)
+    'budget_expense_pending_approval'
   ];
 
   static async create(notificationData) {
@@ -478,6 +480,16 @@ class Notification {
       [userId, notificationId]
     );
     return result.affectedRows > 0;
+  }
+
+  static async markAsResolvedByRelatedEntity(agencyId, relatedEntityType, relatedEntityId) {
+    const [result] = await pool.execute(
+      `UPDATE notifications
+       SET is_resolved = TRUE, resolved_at = NOW()
+       WHERE agency_id = ? AND related_entity_type = ? AND related_entity_id = ? AND is_resolved = FALSE`,
+      [agencyId, relatedEntityType, relatedEntityId]
+    );
+    return result.affectedRows;
   }
 
   static async markAsResolved(notificationId) {

@@ -117,3 +117,31 @@ export function metersToMiles(meters) {
   return m / 1609.344;
 }
 
+/**
+ * Multi-leg distance: for legs [A, B, C, D], computes A→B + B→C + C→D.
+ * Each leg is cached individually.
+ * @param {string[]} legs - Ordered addresses [origin, dest1, dest2, ...]
+ * @returns {Promise<number>} Total distance in meters
+ */
+export async function getMultiLegDistanceMeters(legs) {
+  const arr = Array.isArray(legs) ? legs.filter((l) => addrKey(l)) : [];
+  if (arr.length < 2) throw new Error('At least 2 addresses required for multi-leg');
+  let total = 0;
+  for (let i = 0; i < arr.length - 1; i++) {
+    const m = await getDrivingDistanceMeters(arr[i], arr[i + 1]);
+    total += m;
+  }
+  return total;
+}
+
+/**
+ * Round trip: 2× single leg.
+ * @param {string} origin
+ * @param {string} destination
+ * @returns {Promise<number>} Total distance in meters
+ */
+export async function getRoundTripDistanceMeters(origin, destination) {
+  const oneWay = await getDrivingDistanceMeters(addrKey(origin), addrKey(destination));
+  return oneWay * 2;
+}
+

@@ -131,6 +131,7 @@ import ProviderSchedulingManagement from './ProviderSchedulingManagement.vue';
 import AvailabilityIntakeManagement from './AvailabilityIntakeManagement.vue';
 import ViewportPreviewSettings from './ViewportPreviewSettings.vue';
 import PayrollScheduleSettings from './PayrollScheduleSettings.vue';
+import AgencyDepartmentsManagement from './AgencyDepartmentsManagement.vue';
 import NoteAidKnowledgeBaseSettings from './NoteAidKnowledgeBaseSettings.vue';
 import SmsNumbersManagement from './SmsNumbersManagement.vue';
 import IntakeLinksView from '../../views/admin/IntakeLinksView.vue';
@@ -330,6 +331,18 @@ const allCategories = [
         component: 'PayrollScheduleSettings',
         agencyOnly: true,
         requiresAgency: true,
+        roles: ['super_admin', 'admin'],
+        excludeRoles: ['support', 'clinical_practice_assistant'],
+        excludeSupervisor: true
+      },
+      {
+        id: 'departments',
+        label: 'Departments',
+        icon: '🏛️',
+        component: 'AgencyDepartmentsManagement',
+        agencyOnly: true,
+        requiresAgency: true,
+        requiresBudgetManagementEnabled: true,
         roles: ['super_admin', 'admin'],
         excludeRoles: ['support', 'clinical_practice_assistant'],
         excludeSupervisor: true
@@ -579,6 +592,10 @@ const visibleCategories = computed(() => {
         if (item.requiresShiftProgramsEnabled && !shiftProgramsEnabled) {
           return false;
         }
+        if (item.requiresBudgetManagementEnabled) {
+          const budgetEnabled = isTruthyFlag(flags?.budgetManagementEnabled);
+          if (!budgetEnabled) return false;
+        }
         return true;
       })
       .map(item => ({
@@ -613,6 +630,7 @@ const componentMap = {
   ShiftProgramManagement,
   ViewportPreviewSettings,
   PayrollScheduleSettings,
+  AgencyDepartmentsManagement,
   NoteAidKnowledgeBaseSettings,
   SmsNumbersManagement,
   TeamRolesManagement,
@@ -647,7 +665,8 @@ const selectableAgencies = computed(() => {
   const activeIsPayroll = activeCategory === 'workflow' && activeItem === 'payroll-schedule';
   const activeIsManagementTeam = activeItem === 'management-team-config';
   const activeIsAvailabilityIntake = activeCategory === 'workflow' && activeItem === 'availability-intake';
-  const needsAgencyOnly = activeIsPayroll || activeIsManagementTeam || activeIsAvailabilityIntake;
+  const activeIsDepartments = activeCategory === 'workflow' && activeItem === 'departments';
+  const needsAgencyOnly = activeIsPayroll || activeIsManagementTeam || activeIsAvailabilityIntake || activeIsDepartments;
   const filtered = needsAgencyOnly ? (list || []).filter(isAgencyOrg) : (list || []);
   return [...filtered].sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')));
 });

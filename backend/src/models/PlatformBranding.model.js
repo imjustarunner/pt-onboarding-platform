@@ -709,7 +709,8 @@ class PlatformBranding {
       defaultBrandingTemplateId,
       currentBrandingTemplateId,
       maxInactivityTimeoutMinutes,
-      betaFeedbackEnabled
+      betaFeedbackEnabled,
+      availableAgencyFeatures
     } = brandingData;
 
     // Check if branding exists
@@ -799,7 +800,25 @@ class PlatformBranding {
         updates.push('beta_feedback_enabled = ?');
         values.push(betaFeedbackEnabled ? 1 : 0);
       }
-      
+
+      // Available agency features (migration 503): which feature toggles agencies can see
+      let hasAvailableAgencyFeatures = false;
+      try {
+        const [cols] = await pool.execute(
+          "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'platform_branding' AND COLUMN_NAME = 'available_agency_features_json'"
+        );
+        hasAvailableAgencyFeatures = (cols || []).length > 0;
+      } catch (e) {
+        hasAvailableAgencyFeatures = false;
+      }
+      if (hasAvailableAgencyFeatures && availableAgencyFeatures !== undefined) {
+        const jsonVal = typeof availableAgencyFeatures === 'object' && availableAgencyFeatures !== null
+          ? JSON.stringify(availableAgencyFeatures)
+          : null;
+        updates.push('available_agency_features_json = ?');
+        values.push(jsonVal);
+      }
+
       // Check if default icon columns exist
       let hasDefaultIcons = false;
       try {

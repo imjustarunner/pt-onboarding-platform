@@ -1647,7 +1647,7 @@ export const updateUser = async (req, res, next) => {
     if (role) {
       // Note: we still accept legacy inputs (clinician/intern/facilitator/supervisor) via roleRaw,
       // but they are normalized above.
-      const validRoles = ['super_admin', 'admin', 'support', 'clinical_practice_assistant', 'provider_plus', 'staff', 'provider', 'school_staff', 'client_guardian'];
+      const validRoles = ['super_admin', 'admin', 'assistant_admin', 'support', 'clinical_practice_assistant', 'provider_plus', 'staff', 'provider', 'school_staff', 'client_guardian'];
       if (!validRoles.includes(role)) {
         return res.status(400).json({ error: { message: `Invalid role. Must be one of: ${validRoles.join(', ')}` } });
       }
@@ -1694,8 +1694,13 @@ export const updateUser = async (req, res, next) => {
       
       // Support can only be assigned by super admin or admin
       if (role === 'support' && req.user.role !== 'super_admin' && req.user.role !== 'admin') {
-        return res.status(403).json({ 
-          error: { message: 'Only super admins and admins can assign the support role' } 
+        return res.status(403).json({
+          error: { message: 'Only super admins and admins can assign the support role' }
+        });
+      }
+      if (role === 'assistant_admin' && req.user.role !== 'super_admin' && req.user.role !== 'admin') {
+        return res.status(403).json({
+          error: { message: 'Only super admins and admins can assign the assistant admin role' }
         });
       }
 
@@ -4226,6 +4231,209 @@ export const setUserAgencyPayrollAccess = async (req, res, next) => {
     next(error);
   } finally {
     if (conn) conn.release();
+  }
+};
+
+export const setUserAgencyDepartmentAccess = async (req, res, next) => {
+  let conn;
+  try {
+    const { id } = req.params;
+    const { agencyId, hasDepartmentAccess, departmentIds, departmentAssignments, assistantAdminPermissions } = req.body || {};
+
+    if (req.user.role !== 'admin' && req.user.role !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'Admin access required' } });
+    }
+
+    const userId = parseInt(id);
+    const agencyIdNum = agencyId ? parseInt(agencyId) : null;
+    if (!userId || !agencyIdNum) {
+      return res.status(400).json({ error: { message: 'agencyId is required' } });
+    }
+
+    // departmentAssignments: [{ departmentId, isApprover }] or legacy departmentIds: [1,2,3]
+    let assignments = [];
+    if (Array.isArray(departmentAssignments) && departmentAssignments.length > 0) {
+      assignments = departmentAssignments
+        .map((a) => ({
+          departmentId: parseInt(a.departmentId ?? a.department_id, 10),
+          isApprover: a.isApprover === true || a.is_approver === true
+        }))
+        .filter((a) => Number.isFinite(a.departmentId) && a.departmentId > 0);
+    } else if (Array.isArray(departmentIds) && departmentIds.length > 0) {
+      assignments = departmentIds
+        .map((d) => parseInt(d, 10))
+        .filter((n) => Number.isFinite(n) && n > 0)
+        .map((departmentId) => ({ departmentId, isApprover: false }));
+    }
+    const deptIds = assignments.map((a) => a.departmentId);
+
+    conn = await pool.getConnection();
+    await conn.beginTransaction();
+
+    const [membershipRows] = await conn.execute(
+      'SELECT has_department_access FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1',
+      [userId, agencyIdNum]
+    );
+    const membership = membershipRows?.[0] || null;
+    if (!membership) {
+      await conn.rollback();
+      return res.status(400).json({ error: { message: 'User is not assigned to this agency' } });
+    }
+
+    const nextEnabled = !!hasDepartmentAccess;
+    const permsJson = typeof assistantAdminPermissions === 'object' && assistantAdminPermissions !== null
+      ? JSON.stringify(assistantAdminPermissions)
+      : null;
+
+    await conn.execute(
+      'UPDATE user_agencies SET has_department_access = ?, assistant_admin_permissions_json = ? WHERE user_id = ? AND agency_id = ?',
+      [nextEnabled ? 1 : 0, permsJson, userId, agencyIdNum]
+    );
+
+    await conn.execute(
+      'DELETE FROM user_department_assignments WHERE user_id = ? AND agency_id = ?',
+      [userId, agencyIdNum]
+    );
+
+    if (nextEnabled && deptIds.length > 0) {
+      const placeholders = deptIds.map(() => '?').join(',');
+      const [deptRows] = await conn.execute(
+        `SELECT id FROM agency_departments WHERE id IN (${placeholders}) AND agency_id = ?`,
+        [...deptIds, agencyIdNum]
+      );
+      const validSet = new Set((deptRows || []).map((r) => r.id));
+      const assignMap = new Map(assignments.map((a) => [a.departmentId, a.isApprover]));
+      for (const deptId of deptIds) {
+        if (!validSet.has(deptId)) continue;
+        const isApprover = assignMap.get(deptId) === true ? 1 : 0;
+        try {
+          await conn.execute(
+            'INSERT INTO user_department_assignments (user_id, agency_id, department_id, is_approver) VALUES (?, ?, ?, ?)',
+            [userId, agencyIdNum, deptId, isApprover]
+          );
+        } catch (e) {
+          if (e?.code === 'ER_BAD_FIELD_ERROR' || e?.message?.includes('is_approver')) {
+            await conn.execute(
+              'INSERT INTO user_department_assignments (user_id, agency_id, department_id) VALUES (?, ?, ?)',
+              [userId, agencyIdNum, deptId]
+            );
+          } else throw e;
+        }
+      }
+    }
+
+    await conn.commit();
+
+    const [updatedRows] = await conn.execute(
+      'SELECT has_department_access, assistant_admin_permissions_json FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1',
+      [userId, agencyIdNum]
+    );
+    const [assignRows] = await conn.execute(
+      'SELECT department_id, is_approver FROM user_department_assignments WHERE user_id = ? AND agency_id = ?',
+      [userId, agencyIdNum]
+    );
+
+    const departmentAssignments = (assignRows || []).map((r) => ({
+      departmentId: r.department_id,
+      isApprover: r.is_approver === 1 || r.is_approver === true
+    }));
+
+    let perms = {};
+    try {
+      const raw = updatedRows?.[0]?.assistant_admin_permissions_json;
+      if (raw) perms = typeof raw === 'object' ? raw : (typeof raw === 'string' ? JSON.parse(raw) : {});
+    } catch {
+      perms = {};
+    }
+
+    res.json({
+      userId,
+      agencyId: agencyIdNum,
+      hasDepartmentAccess: normalizeBoolFlag(updatedRows?.[0]?.has_department_access),
+      assistantAdminPermissions: perms,
+      departmentIds: (assignRows || []).map((r) => r.department_id),
+      departmentAssignments
+    });
+  } catch (error) {
+    if (conn) {
+      try {
+        await conn.rollback();
+      } catch {
+        // ignore
+      }
+    }
+    next(error);
+  } finally {
+    if (conn) conn.release();
+  }
+};
+
+export const getUserDepartmentAccess = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const userId = parseInt(id);
+    if (!userId) {
+      return res.status(400).json({ error: { message: 'Invalid user id' } });
+    }
+
+    if (parseInt(id) !== req.user.id && req.user.role !== 'admin' && req.user.role !== 'super_admin' && req.user.role !== 'support') {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const [rows] = await pool.execute(
+      `SELECT ua.agency_id, ua.has_department_access, ua.assistant_admin_permissions_json
+       FROM user_agencies ua
+       WHERE ua.user_id = ?`,
+      [userId]
+    );
+
+    let assignRows = [];
+    try {
+      [assignRows] = await pool.execute(
+        'SELECT agency_id, department_id, is_approver FROM user_department_assignments WHERE user_id = ?',
+        [userId]
+      );
+    } catch (e) {
+      if (e?.code === 'ER_BAD_FIELD_ERROR' || e?.message?.includes('is_approver')) {
+        const [fallback] = await pool.execute(
+          'SELECT agency_id, department_id FROM user_department_assignments WHERE user_id = ?',
+          [userId]
+        );
+        assignRows = (fallback || []).map((r) => ({ ...r, is_approver: 0 }));
+      } else throw e;
+    }
+    const assignByAgency = {};
+    for (const a of assignRows || []) {
+      const aid = String(a.agency_id);
+      if (!assignByAgency[aid]) assignByAgency[aid] = [];
+      assignByAgency[aid].push({
+        departmentId: a.department_id,
+        isApprover: a.is_approver === 1 || a.is_approver === true
+      });
+    }
+
+    const result = (rows || []).map((r) => {
+      let perms = {};
+      try {
+        const raw = r.assistant_admin_permissions_json;
+        if (raw) perms = typeof raw === 'object' ? raw : (typeof raw === 'string' ? JSON.parse(raw) : {});
+      } catch {
+        perms = {};
+      }
+      const aid = String(r.agency_id);
+      const assignments = assignByAgency[aid] || [];
+      return {
+        agencyId: r.agency_id,
+        hasDepartmentAccess: normalizeBoolFlag(r.has_department_access),
+        assistantAdminPermissions: perms,
+        departmentIds: assignments.map((a) => a.departmentId),
+        departmentAssignments: assignments
+      };
+    });
+
+    res.json(result);
+  } catch (error) {
+    next(error);
   }
 };
 

@@ -820,67 +820,85 @@
               When enabled, shows the Submit card (mileage, expenses, etc.) even for Employee portals.
             </small>
 
-            <div class="toggle-row" style="margin-top: 8px;">
+            <div v-if="isFeatureAvailable('inSchoolSubmissionsEnabled')" class="toggle-row" style="margin-top: 8px;">
               <span>Enable In‑School submissions</span>
               <ToggleSwitch v-model="agencyForm.featureFlags.inSchoolSubmissionsEnabled" compact />
             </div>
             <small class="hint">Controls School Mileage (and any other “In‑School Claims” modules).</small>
 
-            <div class="toggle-row" style="margin-top: 10px;">
+            <div v-if="isFeatureAvailable('medcancelEnabled')" class="toggle-row" style="margin-top: 10px;">
               <span>Enable Med Cancel</span>
               <ToggleSwitch v-model="agencyForm.featureFlags.medcancelEnabled" compact />
             </div>
             <small class="hint">Controls Med Cancel claim submissions and related notifications.</small>
 
-            <div class="toggle-row" style="margin-top: 10px;">
+            <div v-if="isFeatureAvailable('shiftProgramsEnabled')" class="toggle-row" style="margin-top: 10px;">
               <span>Enable Shift Programs</span>
               <ToggleSwitch v-model="agencyForm.featureFlags.shiftProgramsEnabled" compact />
             </div>
             <small class="hint">Enables shift-based programs: clock in/out at kiosk, shift scheduling, assign providers. Configure in Settings → Workflow → Shift Programs.</small>
 
-            <div class="toggle-row" style="margin-top: 10px;">
+            <div v-if="isFeatureAvailable('presenceEnabled')" class="toggle-row" style="margin-top: 10px;">
               <span>Enable Presence / Team Board</span>
               <ToggleSwitch v-model="agencyForm.featureFlags.presenceEnabled" compact />
             </div>
             <small class="hint">When enabled, staff and admins see the Presence status widget and can update their status. Admins see their agency's Team Board.</small>
 
-            <div class="toggle-row" style="margin-top: 10px;">
+            <div v-if="isFeatureAvailable('kudosEnabled')" class="toggle-row" style="margin-top: 10px;">
               <span>Enable Kudos</span>
               <ToggleSwitch v-model="agencyForm.featureFlags.kudosEnabled" compact />
             </div>
             <small class="hint">When enabled, staff can give kudos to coworkers, see their team, and earn points for rewards (dinners, events, gear). Peer kudos require admin approval.</small>
 
-            <div class="toggle-row" style="margin-top: 10px;">
+            <div v-if="isFeatureAvailable('aiProviderSearchEnabled')" class="toggle-row" style="margin-top: 10px;">
               <span>Enable AI Provider Search (Gemini)</span>
               <ToggleSwitch v-model="agencyForm.featureFlags.aiProviderSearchEnabled" compact />
             </div>
             <small class="hint">Enables the “AI Generate Filters” box in Provider Directory. Requires GEMINI_API_KEY in backend.</small>
 
-            <div class="toggle-row" style="margin-top: 10px;">
+            <div v-if="isFeatureAvailable('noteAidEnabled')" class="toggle-row" style="margin-top: 10px;">
               <span>Enable Note Aid (Gemini tools)</span>
               <ToggleSwitch v-model="agencyForm.featureFlags.noteAidEnabled" compact />
             </div>
             <small class="hint">Enables the Note Aid page (AI note helpers). Requires GEMINI_API_KEY in backend.</small>
 
-            <div class="toggle-row" style="margin-top: 10px;">
+            <div v-if="isFeatureAvailable('clinicalNoteGeneratorEnabled')" class="toggle-row" style="margin-top: 10px;">
               <span>Enable Clinical Note Generator (agency-paid)</span>
               <ToggleSwitch v-model="agencyForm.featureFlags.clinicalNoteGeneratorEnabled" compact />
             </div>
             <small class="hint">Enables the Clinical Note Generator tool for this organization (providers see it on My Dashboard).</small>
 
-            <div class="toggle-row" style="margin-top: 10px;">
+            <div v-if="isFeatureAvailable('publicProviderFinderEnabled')" class="toggle-row" style="margin-top: 10px;">
               <span>Enable Public Provider Finder (agency-paid)</span>
               <ToggleSwitch v-model="agencyForm.featureFlags.publicProviderFinderEnabled" compact />
             </div>
             <small class="hint">Enables external/public Find a Provider availability for this agency (requires pricing add-on entitlement).</small>
 
-            <div class="toggle-row" style="margin-top: 10px;">
+            <div v-if="isFeatureAvailable('momentumListEnabled')" class="toggle-row" style="margin-top: 10px;">
               <span>Enable Momentum List</span>
               <ToggleSwitch v-model="agencyForm.featureFlags.momentumListEnabled" compact />
             </div>
             <small class="hint">Focus digest, Momentum Stickies, and Focus Assistant on the dashboard. Can also be enabled via Billing add-on.</small>
 
-            <div class="toggle-row" style="margin-top: 14px;">
+            <div v-if="isFeatureAvailable('budgetManagementEnabled')" class="toggle-row" style="margin-top: 10px;">
+              <span>Enable Budget Management</span>
+              <ToggleSwitch v-model="agencyForm.featureFlags.budgetManagementEnabled" compact />
+            </div>
+            <small v-if="isFeatureAvailable('budgetManagementEnabled')" class="hint">When enabled, shows Budget Management under Management dropdown. Integrates with submit expenses, departments, fiscal year budgets, and expense tracking.</small>
+
+            <div v-if="isFeatureAvailable('payrollEnabled')" class="toggle-row" style="margin-top: 10px;">
+              <span>Enable Payroll</span>
+              <ToggleSwitch v-model="agencyForm.featureFlags.payrollEnabled" compact />
+            </div>
+            <small v-if="isFeatureAvailable('payrollEnabled')" class="hint">When enabled, users with Payroll access can manage payroll for this organization.</small>
+
+            <div v-if="isFeatureAvailable('hiringEnabled')" class="toggle-row" style="margin-top: 10px;">
+              <span>Enable Hiring Process</span>
+              <ToggleSwitch v-model="agencyForm.featureFlags.hiringEnabled" compact />
+            </div>
+            <small v-if="isFeatureAvailable('hiringEnabled')" class="hint">When enabled, users with Hiring access can manage applicants and prospective people for this organization.</small>
+
+            <div v-if="isFeatureAvailable('googleSsoEnabled')" class="toggle-row" style="margin-top: 14px;">
               <span>Enable Google Workspace login rules</span>
               <ToggleSwitch v-model="agencyForm.featureFlags.googleSsoEnabled" compact />
             </div>
@@ -928,13 +946,13 @@
             </template>
           </div>
 
-          <div v-if="activeTab === 'features'" class="form-group" style="margin-top: 16px;">
+          <div v-if="activeTab === 'features' && isFeatureAvailable('workspaceProvisioningEnabled')" class="form-group" style="margin-top: 16px;">
             <label>Workspace account provisioning</label>
             <ToggleSwitch v-model="agencyForm.featureFlags.workspaceProvisioningEnabled" compact />
             <small class="hint">Create Google Workspace accounts when pre-hire is completed.</small>
           </div>
 
-          <div v-if="activeTab === 'features' && agencyForm.featureFlags.workspaceProvisioningEnabled" class="form-group" style="margin-top: 12px;">
+          <div v-if="activeTab === 'features' && isFeatureAvailable('workspaceProvisioningEnabled') && agencyForm.featureFlags.workspaceProvisioningEnabled" class="form-group" style="margin-top: 12px;">
             <label>Workspace email domain</label>
             <input
               v-model="agencyForm.featureFlags.workspaceEmailDomain"
@@ -944,7 +962,7 @@
             <small class="hint">Do not include the @ symbol.</small>
           </div>
 
-          <div v-if="activeTab === 'features' && agencyForm.featureFlags.workspaceProvisioningEnabled" class="form-group">
+          <div v-if="activeTab === 'features' && isFeatureAvailable('workspaceProvisioningEnabled') && agencyForm.featureFlags.workspaceProvisioningEnabled" class="form-group">
             <label>Workspace email format</label>
             <select v-model="agencyForm.featureFlags.workspaceEmailFormat">
               <option value="">Select a format…</option>
@@ -955,7 +973,7 @@
             <small class="hint">Format is based on the employee's first and last name.</small>
           </div>
 
-          <div v-if="activeTab === 'features' && agencyForm.featureFlags.workspaceProvisioningEnabled" class="form-group">
+          <div v-if="activeTab === 'features' && isFeatureAvailable('workspaceProvisioningEnabled') && agencyForm.featureFlags.workspaceProvisioningEnabled" class="form-group">
             <label>Auto-provision Twilio number on pre-hire complete</label>
             <ToggleSwitch v-model="agencyForm.featureFlags.smsAutoProvisionOnPrehire" compact />
             <small class="hint">Requires SMS numbers enabled in the Texting Numbers module.</small>
@@ -3322,6 +3340,7 @@ import api from '../../services/api';
 import { getBackendBaseUrl, toUploadsUrl } from '../../utils/uploadsUrl';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
+import { useBrandingStore } from '../../store/branding';
 import IconSelector from './IconSelector.vue';
 import DashboardPreviewModal from './DashboardPreviewModal.vue';
 import IconTemplateModal from './IconTemplateModal.vue';
@@ -3333,6 +3352,7 @@ import KudosTiersAdmin from './KudosTiersAdmin.vue';
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
+const brandingStore = useBrandingStore();
 const route = useRoute();
 const router = useRouter();
 const userRole = computed(() => authStore.user?.role);
@@ -3352,6 +3372,15 @@ const embeddedSingleOrg = computed(() => {
   const id = parseInt(String(props.embeddedOrgId || ''), 10);
   return Number.isFinite(id) && id > 0;
 });
+
+// Platform-level: which feature toggles agencies can see (SuperAdmin controls in Platform Settings)
+const isFeatureAvailable = (key) => {
+  const pb = brandingStore.platformBranding;
+  const raw = pb?.available_agency_features_json;
+  if (raw == null || (typeof raw === 'object' && Object.keys(raw).length === 0)) return true; // backward compat: all available
+  const parsed = typeof raw === 'object' ? raw : (typeof raw === 'string' ? (() => { try { return JSON.parse(raw); } catch { return {}; } })() : {});
+  return parsed[key] !== false; // only explicitly false hides the toggle
+};
 
 const agencies = ref([]);
 const buildings = ref([]); // office_locations (organization_type = 'office')
@@ -5120,6 +5149,14 @@ const defaultAgencyForm = () => ({
     // Momentum List: digest, stickies, Focus Assistant (can also enable via Billing add-on)
     momentumListEnabled: false,
 
+    // Budget Management: departments, fiscal year budgets, expense tracking (off by default)
+    budgetManagementEnabled: false,
+
+    // Payroll: when enabled, users with has_payroll_access can access Payroll (off by default)
+    payrollEnabled: false,
+    // Hiring: when enabled, users with has_hiring_access can access Hiring (off by default)
+    hiringEnabled: false,
+
     // Google Workspace SSO gate (off by default)
     googleSsoEnabled: false,
     googleSsoRequiredRoles: ['staff', 'admin', 'provider', 'clinical_practice_assistant', 'provider_plus'],
@@ -6413,6 +6450,7 @@ const editAgency = async (agency) => {
       clinicalNoteGeneratorEnabled: featureFlags.clinicalNoteGeneratorEnabled === true,
       publicProviderFinderEnabled: featureFlags.publicProviderFinderEnabled === true,
       momentumListEnabled: featureFlags.momentumListEnabled === true,
+      budgetManagementEnabled: featureFlags.budgetManagementEnabled === true,
 
       googleSsoEnabled: featureFlags.googleSsoEnabled === true,
       googleSsoRequiredRoles: Array.isArray(featureFlags.googleSsoRequiredRoles)
@@ -7601,6 +7639,8 @@ onMounted(async () => {
   }
   await fetchIconTemplates();
   await iconsPromise;
+  // Fetch platform branding for available agency features (controls which toggles agencies see)
+  void brandingStore.fetchPlatformBranding();
 });
 </script>
 

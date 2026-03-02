@@ -18,13 +18,20 @@ import pool from '../config/database.js';
 
 async function buildPayrollCaps(user) {
   const payrollAgencyIds = user?.id ? await User.listPayrollAgencyIds(user.id) : [];
+  const departmentAgencyIds = user?.id ? await User.listDepartmentAgencyIds(user.id) : [];
   const baseCaps = getUserCapabilities(user);
   const canManagePayroll = user?.role === 'super_admin' || payrollAgencyIds.length > 0;
+  const canAccessBudgetManagement =
+    canManagePayroll ||
+    (user?.role === 'assistant_admin' && departmentAgencyIds.length > 0) ||
+    (user?.role === 'provider_plus' && departmentAgencyIds.length > 0);
   return {
     payrollAgencyIds,
+    departmentAgencyIds,
     capabilities: {
       ...baseCaps,
       canManagePayroll,
+      canAccessBudgetManagement,
       canViewMyPayroll: true
     }
   };

@@ -613,6 +613,19 @@
                   </div>
                 </button>
 
+                <button
+                  v-if="canShowBudgetSubmitExpenses"
+                  type="button"
+                  class="dash-card dash-card-submit"
+                  @click="showBudgetSubmitExpensesModal = true"
+                >
+                  <div class="dash-card-title">Submit Budget Expenses</div>
+                  <div class="dash-card-desc">Submit expenses with department, account, category, and receipt OCR.</div>
+                  <div class="dash-card-meta">
+                    <span class="dash-card-cta">Open</span>
+                  </div>
+                </button>
+
                 <button type="button" class="dash-card" @click="openTimeClaims">
                   <div class="dash-card-title">Time Claim</div>
                   <div class="dash-card-desc">Attendance, holiday/excess time, service corrections.</div>
@@ -859,6 +872,14 @@
     />
 
     <!-- Hidden MyPayrollTab used to open mileage/reimbursement/medcancel/PTO modals from Submit panel (no navigation). -->
+    <BudgetSubmitExpensesModal
+      v-if="showBudgetSubmitExpensesModal && currentAgencyId && !previewMode"
+      :agency-id="Number(currentAgencyId)"
+      :show="showBudgetSubmitExpensesModal"
+      @close="showBudgetSubmitExpensesModal = false"
+      @submitted="onBudgetExpensesSubmitted"
+    />
+
     <div
       v-if="(pendingMileageModalOpen || pendingReimbursementModalOpen || pendingMedcancelModalOpen || pendingPtoModalOpen || pendingCompanyCardModalOpen || pendingTimeModalOpen) && currentAgencyId && !previewMode"
       style="position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; opacity: 0; pointer-events: none;"
@@ -966,6 +987,7 @@ import ProvidersPanel from '../components/supervision/ProvidersPanel.vue';
 import SkillBuilderAvailabilityModal from '../components/availability/SkillBuilderAvailabilityModal.vue';
 import SkillBuildersAvailabilityModal from '../components/availability/SkillBuildersAvailabilityModal.vue';
 import LastPaycheckModal from '../components/dashboard/LastPaycheckModal.vue';
+import BudgetSubmitExpensesModal from '../components/budget/BudgetSubmitExpensesModal.vue';
 import SocialFeedsPanel from '../components/dashboard/SocialFeedsPanel.vue';
 import PresenceStatusWidget from '../components/dashboard/PresenceStatusWidget.vue';
 import StaffCard from '../components/dashboard/StaffCard.vue';
@@ -1135,6 +1157,15 @@ const canSeePresenceWidget = computed(() => {
 
 // Kudos / Staff card: when agency has kudosEnabled
 const canSeeKudosWidget = computed(() => isTruthyFlag(agencyFlags.value?.kudosEnabled));
+
+// Budget Submit Expenses: when agency has budget management enabled and user can access
+const canShowBudgetSubmitExpenses = computed(() => {
+  if (!isTruthyFlag(agencyFlags.value?.budgetManagementEnabled)) return false;
+  const caps = authStore.user?.capabilities || {};
+  if (caps.canAccessBudgetManagement) return true;
+  const deptIds = Array.isArray(authStore.user?.departmentAgencyIds) ? authStore.user.departmentAgencyIds : [];
+  return currentAgencyId.value && deptIds.includes(Number(currentAgencyId.value));
+});
 
 const onSkillBuilderConfirmed = () => {
   // Modal refreshes user; if requirement cleared, close it.
@@ -2373,6 +2404,7 @@ const pendingReimbursementModalOpen = ref(false);
 const pendingMedcancelModalOpen = ref(false);
 const pendingPtoModalOpen = ref(false);
 const pendingCompanyCardModalOpen = ref(false);
+const showBudgetSubmitExpensesModal = ref(false);
 const pendingTimeModalOpen = ref(null); // 'meeting' | 'excess' | 'correction' | 'overtime'
 const openRegularMileageModal = () => {
   pendingMileageModalOpen.value = 'standard';
@@ -2439,6 +2471,12 @@ const openCompanyCardModal = () => {
 
 const onCompanyCardSubmittedFromModal = () => {
   pendingCompanyCardModalOpen.value = false;
+  activeTab.value = 'payroll';
+  router.replace({ query: { ...route.query, tab: 'payroll' } });
+};
+
+const onBudgetExpensesSubmitted = () => {
+  showBudgetSubmitExpensesModal.value = false;
   activeTab.value = 'payroll';
   router.replace({ query: { ...route.query, tab: 'payroll' } });
 };

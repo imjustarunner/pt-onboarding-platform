@@ -1642,6 +1642,19 @@ class User {
     }
   }
 
+  /** Agencies where user has department access (Budget Management). */
+  static async listDepartmentAgencyIds(userId) {
+    try {
+      const [rows] = await pool.execute(
+        'SELECT agency_id FROM user_agencies WHERE user_id = ? AND has_department_access = 1',
+        [userId]
+      );
+      return (rows || []).map((r) => r.agency_id);
+    } catch {
+      return [];
+    }
+  }
+
   static async assignToProgram(userId, programId) {
     await pool.execute(
       'INSERT INTO user_programs (user_id, program_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE user_id = user_id',

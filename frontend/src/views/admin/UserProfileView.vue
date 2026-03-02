@@ -246,6 +246,7 @@
                     <option v-if="canAssignSuperAdmin" value="super_admin">Super Admin</option>
                     <option v-if="canAssignAdmin" value="admin">Admin</option>
                     <option v-if="canAssignSupport" value="support">Staff (Admin Tools)</option>
+                    <option v-if="canAssignAssistantAdmin" value="assistant_admin">Assistant Admin</option>
                     <option value="clinical_practice_assistant">Clinical Practice Assistant</option>
                     <option value="provider_plus">Provider Plus</option>
                     <option value="staff">Staff</option>
@@ -256,6 +257,7 @@
                   <small v-else-if="!canAssignSuperAdmin && accountForm.role === 'super_admin'" class="form-help">Only super admins can assign the super admin role</small>
                   <small v-else-if="!canAssignAdmin && accountForm.role === 'admin'" class="form-help">Only super admins and admins can assign the admin role</small>
                   <small v-else-if="!canAssignSupport && accountForm.role === 'support'" class="form-help">Only super admins and admins can assign the staff role</small>
+                  <small v-else-if="!canAssignAssistantAdmin && accountForm.role === 'assistant_admin'" class="form-help">Only super admins and admins can assign the assistant admin role</small>
                 </div>
 
                 <div class="form-group form-group-full">
@@ -1862,6 +1864,13 @@
           :userAgencies="userAgencies"
         />
 
+        <UserDepartmentTab
+          v-if="activeTab === 'departments'"
+          :userId="userId"
+          :userAgencies="affiliatedAgencies"
+          :userRole="accountForm?.role || user?.role"
+        />
+
       </div>
     </div>
     
@@ -2103,6 +2112,7 @@ import UserCommunicationsTab from '../../components/admin/UserCommunicationsTab.
 import UserAdminDocsTab from '../../components/admin/UserAdminDocsTab.vue';
 import UserActivityLogTab from '../../components/admin/UserActivityLogTab.vue';
 import UserPayrollTab from '../../components/admin/UserPayrollTab.vue';
+import UserDepartmentTab from '../../components/admin/UserDepartmentTab.vue';
 import SupervisorAssignmentManager from '../../components/admin/SupervisorAssignmentManager.vue';
 import MovePendingToActiveModal from '../../components/admin/MovePendingToActiveModal.vue';
 import LeaveOfAbsenceModal from '../../components/admin/LeaveOfAbsenceModal.vue';
@@ -2217,6 +2227,21 @@ const canViewPayroll = computed(() => {
   return role === 'admin' || role === 'super_admin' || role === 'support';
 });
 
+const parseFeatureFlags = (raw) => {
+  if (!raw) return {};
+  if (typeof raw === 'object') return raw || {};
+  try {
+    return typeof raw === 'string' && raw.trim() ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+};
+
+const canViewDepartmentsTab = computed(() => {
+  const flags = parseFeatureFlags(agencyStore.currentAgency?.feature_flags);
+  return !!flags?.budgetManagementEnabled;
+});
+
 const canViewAdminDocsTab = computed(() => {
   const u = authStore.user;
   if (!u) return false;
@@ -2297,6 +2322,9 @@ const tabs = computed(() => {
 
   if (canViewPayroll.value) {
     baseTabs.push({ id: 'payroll', label: 'Payroll' });
+  }
+  if (canViewPayroll.value && canViewDepartmentsTab.value) {
+    baseTabs.push({ id: 'departments', label: 'Departments' });
   }
   
   if (canViewActivityLog.value) {
@@ -3440,6 +3468,11 @@ const canAssignSupport = computed(() => {
   return currentUserRole === 'super_admin' || currentUserRole === 'admin';
 });
 
+const canAssignAssistantAdmin = computed(() => {
+  const currentUserRole = authStore.user?.role;
+  return currentUserRole === 'super_admin' || currentUserRole === 'admin';
+});
+
 const systemPhoneNumberDisplay = computed(() => {
   const raw = user.value?.system_phone_number;
   const str = String(raw || '').trim();
@@ -4235,6 +4268,11 @@ const saveAccount = async () => {
   
   if (accountForm.value.role === 'support' && !canAssignSupport.value) {
     error.value = 'Only super admins and admins can assign the staff role';
+    alert(error.value);
+    return;
+  }
+  if (accountForm.value.role === 'assistant_admin' && !canAssignAssistantAdmin.value) {
+    error.value = 'Only super admins and admins can assign the assistant admin role';
     alert(error.value);
     return;
   }

@@ -89,7 +89,8 @@ function exportedToUpdatePayload(data) {
     school_portal_school_staff_icon_id: 'schoolPortalSchoolStaffIconId',
     school_portal_parent_qr_icon_id: 'schoolPortalParentQrIconId',
     school_portal_parent_sign_icon_id: 'schoolPortalParentSignIconId',
-    school_portal_upload_packet_icon_id: 'schoolPortalUploadPacketIconId'
+    school_portal_upload_packet_icon_id: 'schoolPortalUploadPacketIconId',
+    available_agency_features_json: 'availableAgencyFeatures'
   };
   const out = {};
   for (const [snake, camel] of Object.entries(map)) {
@@ -220,7 +221,8 @@ export const updatePlatformBranding = async (req, res, next) => {
       schoolPortalParentSignIconId,
       schoolPortalUploadPacketIconId,
       maxInactivityTimeoutMinutes,
-      betaFeedbackEnabled
+      betaFeedbackEnabled,
+      availableAgencyFeatures
     } = req.body;
 
     const branding = await PlatformBranding.update({
@@ -305,7 +307,8 @@ export const updatePlatformBranding = async (req, res, next) => {
       schoolPortalParentSignIconId: schoolPortalParentSignIconId !== undefined ? (schoolPortalParentSignIconId === null || schoolPortalParentSignIconId === '' ? null : parseInt(schoolPortalParentSignIconId)) : undefined,
       schoolPortalUploadPacketIconId: schoolPortalUploadPacketIconId !== undefined ? (schoolPortalUploadPacketIconId === null || schoolPortalUploadPacketIconId === '' ? null : parseInt(schoolPortalUploadPacketIconId)) : undefined,
       maxInactivityTimeoutMinutes: maxInactivityTimeoutMinutes !== undefined ? (maxInactivityTimeoutMinutes === null || maxInactivityTimeoutMinutes === '' ? null : Math.min(240, Math.max(1, parseInt(maxInactivityTimeoutMinutes, 10) || 30))) : undefined,
-      betaFeedbackEnabled: betaFeedbackEnabled !== undefined ? !!betaFeedbackEnabled : undefined
+      betaFeedbackEnabled: betaFeedbackEnabled !== undefined ? !!betaFeedbackEnabled : undefined,
+      availableAgencyFeatures: availableAgencyFeatures !== undefined && typeof availableAgencyFeatures === 'object' ? availableAgencyFeatures : undefined
     }, req.user.id);
 
     res.json(branding);
