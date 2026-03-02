@@ -669,6 +669,37 @@ export const completeTask = async (req, res, next) => {
   }
 };
 
+export const incompleteTask = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const { id } = req.params;
+
+    const task = await Task.findById(id);
+    if (!task) {
+      return res.status(404).json({ error: { message: 'Task not found' } });
+    }
+
+    const userTasks = await Task.findByUser(userId);
+    if (!userTasks.find(t => t.id === parseInt(id))) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const updatedTask = await Task.markIncomplete(id);
+
+    await TaskAuditLog.logAction({
+      taskId: id,
+      actionType: 'updated',
+      actorUserId: userId,
+      targetUserId: userId,
+      metadata: { action: 'incomplete' }
+    });
+
+    res.json(updatedTask);
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const overrideTask = async (req, res, next) => {
   try {
     const userId = req.user.id;

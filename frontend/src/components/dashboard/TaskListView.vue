@@ -1,12 +1,40 @@
 <template>
   <div class="task-list-view-overlay" @click.self="$emit('close')">
-    <div class="task-list-view-modal">
+    <div class="task-list-view-modal" ref="printAreaRef">
       <div class="task-list-view-header">
         <h3 class="task-list-view-title">{{ list?.name }}</h3>
-        <button type="button" class="btn-close" aria-label="Close" @click="$emit('close')">×</button>
+        <div class="header-actions">
+          <div class="more-menu-wrap" ref="listMenuRef">
+            <button type="button" class="btn-icon" aria-label="List options" @click="listMenuOpen = !listMenuOpen">⋮</button>
+            <div v-if="listMenuOpen" class="more-menu" @click.stop>
+              <button type="button" class="more-menu-item" @click="printList(); listMenuOpen = false">🖨 Print</button>
+              <button type="button" class="more-menu-item" @click="convertListToSticky(); listMenuOpen = false">📌 Convert to sticky</button>
+            </div>
+          </div>
+          <button type="button" class="btn-close" aria-label="Close" @click="$emit('close')">×</button>
+        </div>
       </div>
 
-      <div v-if="canEdit" class="add-task-form">
+      <div class="task-list-tabs">
+        <button
+          type="button"
+          class="tab-btn"
+          :class="{ active: taskTab === 'active' }"
+          @click="taskTab = 'active'"
+        >
+          Active
+        </button>
+        <button
+          type="button"
+          class="tab-btn"
+          :class="{ active: taskTab === 'done' }"
+          @click="taskTab = 'done'"
+        >
+          Done
+        </button>
+      </div>
+
+      <div v-if="canEdit && taskTab === 'active'" class="add-task-form">
         <div class="add-task-input-row">
           <input
             v-model="newTaskTitle"
@@ -33,7 +61,8 @@
         </div>
         <div class="add-task-fields">
           <select v-model="newTaskAssignee" class="form-control form-control-sm">
-            <option :value="null">Assign to…</option>
+            <option :value="currentUserId">Me</option>
+            <option :value="null">No one</option>
             <option v-for="m in members" :key="m.user_id" :value="m.user_id">
               {{ memberLabel(m) }}
             </option>
@@ -49,6 +78,16 @@
             class="form-control form-control-sm"
             placeholder="Due date"
           />
+          <div class="target-count-field" title="Optional: number to track (e.g. notes to complete)">
+            <label class="target-count-label">#</label>
+            <input
+              v-model.number="newTaskTargetCount"
+              type="number"
+              class="form-control form-control-sm target-count-input"
+              min="0"
+              placeholder="—"
+            />
+          </div>
         </div>
         <button
           type="button"
@@ -66,30 +105,60 @@
           v-for="task in tasks"
           :key="task.id"
           class="task-item"
-          :class="{ 'task-assigned-to-me': task.assigned_to_user_id === currentUserId }"
+          :class="{
+            'task-assigned-to-me': task.assigned_to_user_id === currentUserId,
+            'task-done': taskTab === 'done',
+            'task-just-done': justDoneId === task.id,
+            'task-reminder': isReminder(task)
+          }"
         >
           <div class="task-item-main">
             <span class="task-title">{{ task.title }}</span>
+            <span v-if="task.target_count != null && taskTab === 'active'" class="task-target-count-wrap">
+              <button
+                type="button"
+                class="target-count-btn"
+                :disabled="!canEdit || updatingTargetCountId === task.id"
+                aria-label="Decrease"
+                @click="adjustTargetCount(task, -1)"
+              >
+                ▼
+              </button>
+              <span class="task-target-count">{{ task.target_count }}</span>
+              <button
+                type="button"
+                class="target-count-btn"
+                :disabled="!canEdit || updatingTargetCountId === task.id"
+                aria-label="Increase"
+                @click="adjustTargetCount(task, 1)"
+              >
+                ▲
+              </button>
+            </span>
+            <span v-if="task.target_count != null && taskTab === 'done'" class="task-target-count-badge">{{ task.target_count }}</span>
             <span v-if="task.urgency && task.urgency !== 'medium'" class="urgency-badge" :class="`urgency-${task.urgency}`">
               {{ task.urgency }}
             </span>
             <span v-if="task.due_date" class="task-due">{{ formatDue(task.due_date) }}</span>
+            <span v-if="task.completed_at && taskTab === 'done'" class="task-completed-at">{{ formatCompleted(task.completed_at) }}</span>
             <span v-if="task.is_recurring" class="task-recurring" title="Recurring">↻</span>
           </div>
           <div class="task-item-meta">
             <span v-if="taskAssignee(task)" class="task-assignee">{{ taskAssignee(task) }}</span>
+            <span v-else-if="taskTab === 'active' && !task.assigned_to_user_id" class="task-unassigned">Unassigned</span>
           </div>
-          <div v-if="canEdit" class="task-item-actions">
+          <div v-if="taskTab === 'active'" class="task-item-actions">
             <button
+              v-if="!task.assigned_to_user_id"
               type="button"
-              class="btn btn-secondary btn-sm"
-              :disabled="addToMeetingTaskId === task.id"
-              @click="openAddToMeetingPicker(task)"
-              title="Add to meeting agenda"
+              class="btn btn-secondary btn-sm btn-claim"
+              :disabled="claimingId === task.id"
+              @click="claimTask(task)"
             >
-              {{ addToMeetingTaskId === task.id ? '…' : 'Add to meeting' }}
+              {{ claimingId === task.id ? '…' : 'Claim' }}
             </button>
             <button
+              v-if="canEdit"
               type="button"
               class="btn btn-secondary btn-sm"
               :disabled="completingId === task.id"
@@ -97,10 +166,29 @@
             >
               {{ completingId === task.id ? '…' : 'Done' }}
             </button>
+            <div class="task-more-wrap" ref="el => setTaskMenuRef(task.id, el)">
+              <button type="button" class="btn-icon btn-sm" aria-label="More options" @click="openTaskMenu(task)">⋮</button>
+              <div v-if="taskMenuTaskId === task.id" class="more-menu task-menu" @click.stop>
+                <button type="button" class="more-menu-item" @click="openAddToMeetingPicker(task); taskMenuTaskId = null">Add to meeting</button>
+                <button v-if="canEdit" type="button" class="more-menu-item" @click="convertToReminder(task); taskMenuTaskId = null">Convert to reminder</button>
+              </div>
+            </div>
+          </div>
+          <div v-if="canEdit && taskTab === 'done'" class="task-item-actions">
+            <button
+              type="button"
+              class="btn btn-secondary btn-sm"
+              :disabled="incompletingId === task.id"
+              @click="incompleteTask(task)"
+            >
+              {{ incompletingId === task.id ? '…' : 'Undone' }}
+            </button>
           </div>
         </li>
       </ul>
-      <div v-if="!loading && tasks.length === 0" class="task-list-empty">No tasks yet.</div>
+      <div v-if="!loading && tasks.length === 0" class="task-list-empty">
+        {{ taskTab === 'done' ? 'No completed tasks yet.' : 'No tasks yet.' }}
+      </div>
     </div>
 
     <div v-if="showAddToMeetingPicker && addToMeetingTask" class="add-to-meeting-overlay" @click.self="closeAddToMeetingPicker">
@@ -128,7 +216,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, computed, onMounted, watch, onUnmounted } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import { useSpeechToText } from '../../composables/useSpeechToText';
@@ -145,17 +233,29 @@ const currentUserId = computed(() => authStore.user?.id);
 const loading = ref(true);
 const adding = ref(false);
 const completingId = ref(null);
+const incompletingId = ref(null);
+const claimingId = ref(null);
+const justDoneId = ref(null);
+const updatingTargetCountId = ref(null);
 const addToMeetingTaskId = ref(null);
+const listMenuOpen = ref(false);
+const taskMenuTaskId = ref(null);
+const printAreaRef = ref(null);
+const listMenuRef = ref(null);
+const taskMenuRefs = {};
 const addToMeetingTask = ref(null);
 const showAddToMeetingPicker = ref(false);
 const upcomingMeetings = ref([]);
 const meetingsLoading = ref(false);
 const tasks = ref([]);
 const members = ref([]);
+const taskTab = ref('active');
 const newTaskTitle = ref('');
 const newTaskUrgency = ref('medium');
-const newTaskAssignee = ref(null);
+const newTaskAssignee = ref(null); // null = No one
+const hasSetAssigneeDefault = ref(false);
 const newTaskDueDate = ref('');
+const newTaskTargetCount = ref(null);
 
 const {
   isListening: speechListening,
@@ -183,14 +283,16 @@ const fetchTasks = async () => {
   if (!props.list?.id) return;
   loading.value = true;
   try {
+    const statusParam = taskTab.value === 'done' ? 'completed' : 'open';
     const [tasksRes, listRes] = await Promise.all([
-      api.get(`/task-lists/${props.list.id}/tasks`),
+      api.get(`/task-lists/${props.list.id}/tasks`, { params: { status: statusParam } }),
       api.get(`/task-lists/${props.list.id}`)
     ]);
     tasks.value = Array.isArray(tasksRes.data) ? tasksRes.data : [];
     members.value = listRes.data?.members || [];
-    if (canEdit.value && members.value.length > 0 && !newTaskAssignee.value) {
+    if (!hasSetAssigneeDefault.value && canEdit.value && members.value.length > 0) {
       newTaskAssignee.value = currentUserId.value;
+      hasSetAssigneeDefault.value = true;
     }
   } catch (err) {
     console.error('Failed to fetch tasks:', err);
@@ -224,14 +326,20 @@ const addTask = async () => {
   if (!title || !props.list?.id) return;
   adding.value = true;
   try {
-    await api.post(`/task-lists/${props.list.id}/tasks`, {
+    const payload = {
       title,
       urgency: newTaskUrgency.value || 'medium',
-      assigned_to_user_id: newTaskAssignee.value || currentUserId.value,
+      assigned_to_user_id: newTaskAssignee.value,
       due_date: newTaskDueDate.value || null
-    });
+    };
+    const tc = newTaskTargetCount.value;
+    if (tc != null && tc !== '' && !isNaN(Number(tc)) && Number(tc) >= 0) {
+      payload.target_count = Number(tc);
+    }
+    await api.post(`/task-lists/${props.list.id}/tasks`, payload);
     newTaskTitle.value = '';
     newTaskDueDate.value = '';
+    newTaskTargetCount.value = null;
     newTaskUrgency.value = 'medium';
     await fetchTasks();
     emit('updated');
@@ -239,6 +347,30 @@ const addTask = async () => {
     console.error('Failed to add task:', err);
   } finally {
     adding.value = false;
+  }
+};
+
+const formatCompleted = (d) => {
+  if (!d) return '';
+  const dt = new Date(d);
+  return isNaN(dt.getTime()) ? d : dt.toLocaleDateString(undefined, { dateStyle: 'short' });
+};
+
+const adjustTargetCount = async (task, delta) => {
+  if (!canEdit.value || task.id == null) return;
+  const current = task.target_count ?? 0;
+  const next = Math.max(0, current + delta);
+  if (next === current) return;
+  updatingTargetCountId.value = task.id;
+  try {
+    await api.put(`/me/tasks/${task.id}`, { target_count: next });
+    const idx = tasks.value.findIndex((t) => t.id === task.id);
+    if (idx >= 0) tasks.value[idx] = { ...tasks.value[idx], target_count: next };
+    emit('updated');
+  } catch (err) {
+    console.error('Failed to update target count:', err);
+  } finally {
+    updatingTargetCountId.value = null;
   }
 };
 
@@ -296,6 +428,8 @@ const completeTask = async (task) => {
   completingId.value = task.id;
   try {
     await api.put(`/tasks/${task.id}/complete`);
+    justDoneId.value = task.id;
+    setTimeout(() => { justDoneId.value = null; }, 2200);
     await fetchTasks();
     emit('updated');
   } catch (err) {
@@ -305,8 +439,113 @@ const completeTask = async (task) => {
   }
 };
 
-onMounted(() => fetchTasks());
-watch(() => props.list?.id, () => fetchTasks());
+const incompleteTask = async (task) => {
+  incompletingId.value = task.id;
+  try {
+    await api.put(`/tasks/${task.id}/incomplete`);
+    await fetchTasks();
+    emit('updated');
+  } catch (err) {
+    console.error('Failed to mark undone:', err);
+  } finally {
+    incompletingId.value = null;
+  }
+};
+
+const claimTask = async (task) => {
+  claimingId.value = task.id;
+  try {
+    await api.post(`/me/tasks/${task.id}/claim`);
+    const idx = tasks.value.findIndex((t) => t.id === task.id);
+    if (idx >= 0) tasks.value[idx] = { ...tasks.value[idx], assigned_to_user_id: currentUserId.value };
+    emit('updated');
+  } catch (err) {
+    console.error('Failed to claim task:', err);
+  } finally {
+    claimingId.value = null;
+  }
+};
+
+const isReminder = (task) => {
+  const m = task?.metadata;
+  return m && typeof m === 'object' && m.is_reminder === true;
+};
+
+const setTaskMenuRef = (taskId, el) => {
+  if (el) taskMenuRefs[taskId] = el;
+};
+
+const openTaskMenu = (task) => {
+  taskMenuTaskId.value = taskMenuTaskId.value === task.id ? null : task.id;
+};
+
+const convertToReminder = async (task) => {
+  try {
+    const meta = typeof task.metadata === 'object' ? { ...task.metadata } : {};
+    meta.is_reminder = true;
+    await api.put(`/me/tasks/${task.id}`, { metadata: meta });
+    await fetchTasks();
+    emit('updated');
+  } catch (err) {
+    console.error('Failed to convert to reminder:', err);
+  }
+};
+
+const printList = () => {
+  const listName = props.list?.name || 'Task List';
+  const taskItems = tasks.value.map((t) => `<li>${t.completed_at ? '✓ ' : ''}${t.title}</li>`).join('');
+  const win = window.open('', '_blank');
+  win.document.write(`
+    <html><head><title>${listName}</title>
+    <style>body{font-family:sans-serif;padding:20px;} h2{margin:0 0 16px 0;} ul{list-style:none;padding:0;} li{padding:8px 0;border-bottom:1px solid #eee;}</style>
+    </head><body>
+    <h2>${listName}</h2>
+    <p>Printed ${new Date().toLocaleString()}</p>
+    <ul>${taskItems}</ul>
+    </body></html>`);
+  win.document.close();
+  win.print();
+  win.close();
+};
+
+const convertListToSticky = async () => {
+  const [activeRes, doneRes] = await Promise.all([
+    api.get(`/task-lists/${props.list?.id}/tasks`, { params: { status: 'open' } }),
+    api.get(`/task-lists/${props.list?.id}/tasks`, { params: { status: 'completed' } })
+  ]);
+  const allTasks = [...(activeRes.data || []), ...(doneRes.data || [])];
+  const items = allTasks.map((t) => ({
+    text: t.title,
+    is_checked: t.status === 'completed' || t.status === 'overridden'
+  }));
+  const { useMomentumStickiesStore } = await import('../../store/momentumStickies');
+  const momentumStore = useMomentumStickiesStore();
+  momentumStore.convertListToSticky(items);
+  emit('updated');
+};
+
+const handleClickOutside = (e) => {
+  if (listMenuOpen.value && listMenuRef.value && !listMenuRef.value.contains(e.target)) {
+    listMenuOpen.value = false;
+  }
+  if (taskMenuTaskId.value && !e.target.closest('.task-more-wrap')) {
+    taskMenuTaskId.value = null;
+  }
+};
+
+onMounted(() => {
+  fetchTasks();
+  document.addEventListener('click', handleClickOutside);
+});
+onUnmounted(() => document.removeEventListener('click', handleClickOutside));
+watch(
+  () => props.list?.id,
+  () => {
+    hasSetAssigneeDefault.value = false;
+    fetchTasks();
+  }
+);
+watch(taskTab, () => fetchTasks());
 </script>
 
 <style scoped>
@@ -342,6 +581,191 @@ watch(() => props.list?.id, () => fetchTasks());
   margin: 0;
   font-size: 18px;
   font-weight: 600;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-icon {
+  background: none;
+  border: none;
+  font-size: 18px;
+  cursor: pointer;
+  color: #6b7280;
+  padding: 4px 8px;
+  line-height: 1;
+}
+
+.btn-icon:hover {
+  color: #374151;
+}
+
+.more-menu-wrap {
+  position: relative;
+}
+
+.more-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  background: white;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  min-width: 160px;
+  z-index: 10;
+}
+
+.more-menu.task-menu {
+  right: 0;
+}
+
+.more-menu-item {
+  display: block;
+  width: 100%;
+  padding: 10px 14px;
+  text-align: left;
+  border: none;
+  background: none;
+  font-size: 14px;
+  cursor: pointer;
+  color: #374151;
+}
+
+.more-menu-item:hover {
+  background: #f9fafb;
+}
+
+.task-more-wrap {
+  position: relative;
+}
+
+.task-just-done {
+  animation: task-done-flash 2s ease-out;
+}
+
+@keyframes task-done-flash {
+  0% { background: #dcfce7; }
+  100% { background: transparent; }
+}
+
+.task-reminder {
+  opacity: 0.85;
+  font-style: italic;
+}
+
+.task-unassigned {
+  font-size: 12px;
+  color: #9ca3af;
+}
+
+.btn-claim {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.btn-claim:hover:not(:disabled) {
+  background: #bfdbfe;
+}
+
+.task-list-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.tab-btn {
+  padding: 6px 14px;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 6px;
+  background: white;
+  font-size: 14px;
+  cursor: pointer;
+  color: #6b7280;
+}
+
+.tab-btn:hover {
+  background: #f9fafb;
+  color: #374151;
+}
+
+.tab-btn.active {
+  background: var(--primary, #3b82f6);
+  border-color: var(--primary, #3b82f6);
+  color: white;
+}
+
+.target-count-field {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.target-count-label {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.target-count-input {
+  width: 56px;
+}
+
+.task-target-count-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 6px;
+}
+
+.target-count-btn {
+  padding: 2px 6px;
+  font-size: 10px;
+  line-height: 1;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+  background: #f9fafb;
+  cursor: pointer;
+  color: #6b7280;
+}
+
+.target-count-btn:hover:not(:disabled) {
+  background: #e5e7eb;
+  color: #374151;
+}
+
+.target-count-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.task-target-count {
+  min-width: 20px;
+  text-align: center;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.task-target-count-badge {
+  margin-left: 6px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #e5e7eb;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.task-completed-at {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.task-item.task-done {
+  opacity: 0.9;
+  background: #f9fafb;
 }
 
 .btn-close {

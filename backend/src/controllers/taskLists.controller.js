@@ -177,13 +177,28 @@ export const removeMember = async (req, res, next) => {
 export const listTasks = async (req, res, next) => {
   try {
     const listId = req.taskListId;
-    const [rows] = await pool.execute(
-      `SELECT t.* FROM tasks t WHERE t.task_list_id = ? AND t.status NOT IN ('completed', 'overridden')
-       ORDER BY 
-         CASE COALESCE(t.urgency, 'medium') WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
+    const statusFilter = req.query.status; // 'open' (default) | 'completed' | 'all'
+    const includeCompleted = statusFilter === 'completed' || statusFilter === 'all';
+    const completedOnly = statusFilter === 'completed';
+
+    let whereClause = 't.task_list_id = ?';
+    const params = [listId];
+    if (completedOnly) {
+      whereClause += " AND t.status IN ('completed', 'overridden')";
+    } else if (!includeCompleted) {
+      whereClause += " AND t.status NOT IN ('completed', 'overridden')";
+    }
+
+    const orderBy = completedOnly
+      ? 't.completed_at DESC, t.updated_at DESC'
+      : `CASE COALESCE(t.urgency, 'medium') WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
          (t.due_date IS NULL), t.due_date ASC,
-         t.created_at DESC`,
-      [listId]
+         t.created_at DESC`;
+
+    const [rows] = await pool.execute(
+      `SELECT t.* FROM tasks t WHERE ${whereClause}
+       ORDER BY ${orderBy}`,
+      params
     );
     const tasks = (rows || []).map((r) => ({
       ...r,
@@ -208,7 +223,8 @@ export const createTaskInList = async (req, res, next) => {
       is_recurring,
       recurring_rule,
       typical_day_of_week,
-      typical_time
+      typical_time,
+      target_count
     } = req.body || {};
 
     const titleStr = String(title || '').trim();
@@ -217,9 +233,12 @@ export const createTaskInList = async (req, res, next) => {
     const list = await TaskList.findById(listId);
     if (!list) return res.status(404).json({ error: { message: 'List not found' } });
 
-    const assigneeId = assigned_to_user_id ? parseInt(assigned_to_user_id, 10) : null;
-    if (assigneeId) {
-      const member = await TaskListMember.findByListAndUser(listId, assigneeId);
+    const resolvedAssignee =
+      assigned_to_user_id === undefined
+        ? userId
+        : (assigned_to_user_id != null && assigned_to_user_id !== '' ? parseInt(assigned_to_user_id, 10) : null);
+    if (resolvedAssignee) {
+      const member = await TaskListMember.findByListAndUser(listId, resolvedAssignee);
       if (!member) return res.status(400).json({ error: { message: 'Assignee must be a list member' } });
     }
 
@@ -227,7 +246,7 @@ export const createTaskInList = async (req, res, next) => {
       taskType: 'custom',
       title: titleStr,
       description: description ? String(description).trim() || null : null,
-      assignedToUserId: assigneeId || userId,
+      assignedToUserId: resolvedAssignee,
       assignedByUserId: userId,
       dueDate: due_date || null,
       referenceId: null,
@@ -236,14 +255,15 @@ export const createTaskInList = async (req, res, next) => {
       isRecurring: !!is_recurring,
       recurringRule: recurring_rule || null,
       typicalDayOfWeek: typical_day_of_week ?? null,
-      typicalTime: typical_time || null
+      typicalTime: typical_time || null,
+      targetCount: target_count ?? null
     });
 
     await TaskAuditLog.logAction({
       taskId: task.id,
       actionType: 'assigned',
       actorUserId: userId,
-      targetUserId: assigneeId || userId,
+      targetUserId: resolvedAssignee,
       metadata: { source: 'task_list', taskListId: listId }
     });
 

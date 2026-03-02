@@ -7,6 +7,7 @@ import {
   assignTask,
   bulkAssignTasks,
   completeTask,
+  incompleteTask,
   overrideTask,
   updateDueDate,
   sendReminder,
@@ -37,6 +38,7 @@ const validateDueDate = [
 router.get('/', authenticate, getUserTasks);
 router.get('/counts', authenticate, getTaskCounts);
 router.put('/:id/complete', authenticate, completeTask);
+router.put('/:id/incomplete', authenticate, incompleteTask);
 router.get('/:id/render', authenticate, renderTaskDocumentHtml);
 
 // Admin routes - specific routes must come before parameterized routes

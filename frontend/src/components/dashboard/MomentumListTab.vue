@@ -351,7 +351,7 @@ const topFocusItems = computed(() => {
     }
   }
   const checklist = checklistIncompleteItems.value || [];
-  const undone = undoneStickyEntries.value || [];
+  const undone = consolidatedUndoneStickyItems.value || [];
   const t = tasks.value || [];
   const tk = tickets.value || [];
 
@@ -381,7 +381,7 @@ const alsoOnRadar = computed(() => {
   const items = [];
   const payroll = payrollNotesItems.value || [];
   const checklist = checklistIncompleteItems.value || [];
-  const undone = undoneStickyEntries.value || [];
+  const undone = consolidatedUndoneStickyItems.value || [];
   const t = tasks.value || [];
   const tk = tickets.value || [];
 
@@ -443,16 +443,20 @@ const fullListItems = computed(() => {
   for (const i of payroll) add(i);
   if (notesToSignCount.value > 0) add({ label: `Sign supervisee notes (${notesToSignCount.value} pending)`, source: 'notes-to-sign' });
   for (const i of checklistIncompleteItems.value || []) add({ label: i.title || i.label, source: 'checklist' });
-  for (const i of undoneStickyEntries.value || []) add(i);
+  for (const i of consolidatedUndoneStickyItems.value || []) add(i);
   for (const t of tasks.value || []) {
     if (t.status !== 'completed') {
+      const baseLabel = t.title || t.task;
+      const label =
+        t.target_count != null ? `${baseLabel} (${t.target_count})` : baseLabel;
       add({
-        label: t.title || t.task,
+        label,
         source: 'task',
         urgency: t.urgency,
         due_date: t.due_date,
         task_list_name: t.task_list_name,
-        task_type: t.task_type
+        task_type: t.task_type,
+        target_count: t.target_count
       });
     }
   }
@@ -596,6 +600,20 @@ const flattenUndoneStickyEntries = (stickies) => {
   }
   return out;
 };
+
+/** Consolidated undone sticky items for display - avoid listing every note as a separate line */
+const consolidatedUndoneStickyItems = computed(() => {
+  const undone = undoneStickyEntries.value || [];
+  if (undone.length === 0) return [];
+  if (undone.length === 1) return undone;
+  const hasClinicalNoteContext = undone.some(
+    (e) => /clinical|note|sign|document/i.test(String(e?.label || ''))
+  );
+  const label = hasClinicalNoteContext
+    ? `Catch up on clinical notes (${undone.length})`
+    : `Undone notes (${undone.length})`;
+  return [{ label, source: 'sticky', count: undone.length }];
+});
 
 const fetchDigest = async () => {
   if (!userId.value) return;

@@ -43,7 +43,8 @@ class Task {
       isRecurring,
       recurringRule,
       typicalDayOfWeek,
-      typicalTime
+      typicalTime,
+      targetCount
     } = taskData;
 
     console.log('Task.create: Creating task with data', {
@@ -61,13 +62,14 @@ class Task {
     const urgencyVal = urgency && ['low', 'medium', 'high'].includes(urgency) ? urgency : 'medium';
     const typicalTimeVal = typicalTime != null ? String(typicalTime) : null; // e.g. "09:00" or "09:00:00"
 
+    const targetCountVal = targetCount != null ? Math.max(0, parseInt(targetCount, 10) || 0) : null;
     const [result] = await pool.execute(
       `INSERT INTO tasks (
         task_type, document_action_type, title, description, assigned_to_user_id, 
         assigned_to_role, assigned_to_agency_id, assigned_by_user_id, 
         due_date, reference_id, metadata,
-        task_list_id, urgency, is_recurring, recurring_rule, typical_day_of_week, typical_time
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        task_list_id, urgency, is_recurring, recurring_rule, typical_day_of_week, typical_time, target_count
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         taskType,
         documentActionType ?? (taskType === 'document' ? 'signature' : null),
@@ -85,7 +87,8 @@ class Task {
         !!isRecurring,
         recurringRule ? JSON.stringify(recurringRule) : null,
         typicalDayOfWeek ?? null,
-        typicalTimeVal
+        typicalTimeVal,
+        targetCountVal
       ]
     );
 
@@ -244,6 +247,14 @@ class Task {
     return this.findById(taskId);
   }
 
+  static async markIncomplete(taskId) {
+    await pool.execute(
+      'UPDATE tasks SET status = ?, completed_at = NULL WHERE id = ?',
+      ['pending', taskId]
+    );
+    return this.findById(taskId);
+  }
+
   static async override(taskId, userId) {
     await pool.execute(
       'UPDATE tasks SET status = ?, completed_at = CURRENT_TIMESTAMP WHERE id = ?',
@@ -267,11 +278,13 @@ class Task {
     description,
     dueDate,
     taskListId,
+    assignedToUserId,
     urgency,
     isRecurring,
     recurringRule,
     typicalDayOfWeek,
     typicalTime,
+    targetCount,
     metadata
   }) {
     const parts = [];
@@ -292,6 +305,10 @@ class Task {
       parts.push('task_list_id = ?');
       params.push(taskListId ?? null);
     }
+    if (assignedToUserId !== undefined) {
+      parts.push('assigned_to_user_id = ?');
+      params.push(assignedToUserId != null ? parseInt(assignedToUserId, 10) : null);
+    }
     if (urgency !== undefined && ['low', 'medium', 'high'].includes(urgency)) {
       parts.push('urgency = ?');
       params.push(urgency);
@@ -311,6 +328,10 @@ class Task {
     if (typicalTime !== undefined) {
       parts.push('typical_time = ?');
       params.push(typicalTime != null ? String(typicalTime) : null);
+    }
+    if (targetCount !== undefined) {
+      parts.push('target_count = ?');
+      params.push(targetCount != null ? Math.max(0, parseInt(targetCount, 10) || 0) : null);
     }
     if (metadata !== undefined && metadata !== null) {
       parts.push('metadata = ?');

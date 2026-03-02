@@ -77,11 +77,13 @@ watch(() => momentumStore.pendingConvertList, async (items) => {
       position_x: 80 + current.length * 40,
       position_y: 80 + current.length * 40
     });
-    for (const text of items) {
-      const t = String(text || '').trim();
+    for (const item of items) {
+      const text = typeof item === 'object' ? (item?.text || '') : String(item || '');
+      const t = String(text).trim();
       if (t) {
         await api.post(`/users/${userId.value}/momentum-stickies/${data.id}/entries`, {
           text: t,
+          is_checked: typeof item === 'object' && item?.is_checked === true,
           is_expanded: true
         });
       }

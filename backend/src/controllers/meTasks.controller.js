@@ -39,7 +39,8 @@ export const createCustomTask = async (req, res, next) => {
       is_recurring,
       recurring_rule,
       typical_day_of_week,
-      typical_time
+      typical_time,
+      target_count
     } = req.body || {};
 
     const titleStr = String(title || '').trim();
@@ -69,7 +70,8 @@ export const createCustomTask = async (req, res, next) => {
       isRecurring: !!is_recurring,
       recurringRule: recurring_rule || null,
       typicalDayOfWeek: typical_day_of_week ?? null,
-      typicalTime: typical_time || null
+      typicalTime: typical_time || null,
+      targetCount: target_count ?? null
     });
 
     await TaskAuditLog.logAction({
@@ -95,11 +97,13 @@ export const updateCustomTask = async (req, res, next) => {
       title,
       description,
       task_list_id,
+      assigned_to_user_id,
       urgency,
       is_recurring,
       recurring_rule,
       typical_day_of_week,
       typical_time,
+      target_count,
       metadata,
       subtasks
     } = body;
@@ -121,11 +125,13 @@ export const updateCustomTask = async (req, res, next) => {
     if (description !== undefined) updates.description = description ? String(description).trim() || null : null;
     if (dueDate !== undefined) updates.dueDate = dueDate || null;
     if (task_list_id !== undefined) updates.taskListId = task_list_id ?? null;
+    if (assigned_to_user_id !== undefined) updates.assignedToUserId = assigned_to_user_id;
     if (urgency !== undefined && ['low', 'medium', 'high'].includes(urgency)) updates.urgency = urgency;
     if (is_recurring !== undefined) updates.isRecurring = !!is_recurring;
     if (recurring_rule !== undefined) updates.recurringRule = recurring_rule || null;
     if (typical_day_of_week !== undefined) updates.typicalDayOfWeek = typical_day_of_week ?? null;
     if (typical_time !== undefined) updates.typicalTime = typical_time || null;
+    if (target_count !== undefined) updates.targetCount = target_count != null ? Math.max(0, parseInt(target_count, 10) || 0) : null;
 
     if (metadata !== undefined || subtasks !== undefined) {
       const existing = typeof task.metadata === 'object' ? task.metadata : Task.parseMetadata(task.metadata);
@@ -143,6 +149,36 @@ export const updateCustomTask = async (req, res, next) => {
       actorUserId: userId,
       targetUserId: userId,
       metadata: { source: 'momentum_user_request', updates }
+    });
+
+    res.json(updated);
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const claimTask = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const taskId = parseInt(req.params.id, 10);
+
+    const task = await Task.findById(taskId);
+    if (!task) return res.status(404).json({ error: { message: 'Task not found' } });
+    if (String(task.task_type) !== 'custom') return res.status(400).json({ error: { message: 'Only custom tasks can be claimed' } });
+    if (!task.task_list_id) return res.status(400).json({ error: { message: 'Task must be in a shared list to claim' } });
+    if (task.assigned_to_user_id) return res.status(400).json({ error: { message: 'Task is already assigned' } });
+
+    const membership = await TaskListMember.findByListAndUser(task.task_list_id, userId);
+    if (!membership) return res.status(403).json({ error: { message: 'You must be a member of this list to claim' } });
+
+    const updated = await Task.updateCustomTask(taskId, { assignedToUserId: userId });
+
+    await TaskAuditLog.logAction({
+      taskId,
+      actionType: 'assigned',
+      actorUserId: userId,
+      targetUserId: userId,
+      metadata: { source: 'claim', taskListId: task.task_list_id }
     });
 
     res.json(updated);

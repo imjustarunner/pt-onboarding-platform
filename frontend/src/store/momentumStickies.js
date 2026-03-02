@@ -47,7 +47,9 @@ export const useMomentumStickiesStore = defineStore('momentumStickies', () => {
 
   function convertListToSticky(items) {
     if (Array.isArray(items) && items.length > 0) {
-      pendingConvertList.value = items;
+      pendingConvertList.value = items.map((i) =>
+        typeof i === 'object' && i !== null ? i : { text: String(i), is_checked: false }
+      );
     }
   }
 

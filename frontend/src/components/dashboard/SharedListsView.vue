@@ -72,7 +72,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, computed, onMounted, watch, onUnmounted } from 'vue';
 import api from '../../services/api';
 import TaskListView from './TaskListView.vue';
 import TaskListMemberManager from './TaskListMemberManager.vue';
@@ -90,6 +90,9 @@ const newListName = ref('');
 const lists = ref([]);
 const selectedList = ref(null);
 const manageList = ref(null);
+
+const POLL_INTERVAL_MS = 25000; // Poll every 25s to pick up new list memberships without refresh
+let pollTimer = null;
 
 const canManage = (list) => list.my_role === 'admin' || list.my_role === 'editor';
 
@@ -141,7 +144,25 @@ const openManage = (list) => {
   manageList.value = list;
 };
 
-onMounted(() => fetchLists());
+const startPolling = () => {
+  if (pollTimer) return;
+  pollTimer = setInterval(() => {
+    if (props.agencyId && !loading.value) fetchLists();
+  }, POLL_INTERVAL_MS);
+};
+
+const stopPolling = () => {
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+};
+
+onMounted(() => {
+  fetchLists();
+  startPolling();
+});
+onUnmounted(stopPolling);
 watch(() => props.agencyId, () => fetchLists());
 </script>
 
