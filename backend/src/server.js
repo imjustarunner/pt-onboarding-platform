@@ -708,18 +708,19 @@ app.use((req, res) => {
   res.status(404).json({ error: { message: 'Route not found' } });
 });
 
-// Cloud Run sets PORT automatically (typically 8080). Bind to all interfaces.
+// Export app for bootstrap.js (Cloud Run). When run directly (dev), listen here.
+export { app };
 const PORT_RAW = process.env.PORT ?? config.port ?? 8080;
 const PORT = Number.parseInt(String(PORT_RAW), 10) || 8080;
-// Cloud Run requires binding to all interfaces. Avoid env overrides like HOST=127.0.0.1.
 const HOST = '0.0.0.0';
+const isBootstrap = process.argv[1]?.includes('bootstrap');
+if (!isBootstrap) {
+  app.listen(PORT, HOST, () => {
+    console.log(`🚀 Server running on http://${HOST}:${PORT}`);
+    console.log(`📝 Environment: ${config.nodeEnv}`);
+  });
+}
 
-app.listen(PORT, HOST, () => {
-  console.log(`🚀 Server running on http://${HOST}:${PORT}`);
-  console.log(`📝 Environment: ${config.nodeEnv}`);
-});
-
-  
   // Set up periodic processing of terminated and completed users
   // Run every hour to check for users that need to be marked inactive or archived
   setInterval(async () => {

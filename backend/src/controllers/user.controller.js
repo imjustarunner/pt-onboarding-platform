@@ -4333,7 +4333,7 @@ export const setUserAgencyDepartmentAccess = async (req, res, next) => {
       [userId, agencyIdNum]
     );
 
-    const departmentAssignments = (assignRows || []).map((r) => ({
+    const assignmentsForResponse = (assignRows || []).map((r) => ({
       departmentId: r.department_id,
       isApprover: r.is_approver === 1 || r.is_approver === true
     }));
@@ -4352,7 +4352,7 @@ export const setUserAgencyDepartmentAccess = async (req, res, next) => {
       hasDepartmentAccess: normalizeBoolFlag(updatedRows?.[0]?.has_department_access),
       assistantAdminPermissions: perms,
       departmentIds: (assignRows || []).map((r) => r.department_id),
-      departmentAssignments
+      departmentAssignments: assignmentsForResponse
     });
   } catch (error) {
     if (conn) {

@@ -980,7 +980,6 @@ export async function createBudgetExpenses(req, res) {
           [agencyId, userId]
         );
         approverIds = [...new Set([...approverIds, ...(adminRows || []).map((r) => r.id).filter(Boolean)])];
-        const approverIds = [...new Set((approverRows || []).map((r) => r.user_id).filter(Boolean))];
         const [submitterRows] = await pool.execute(
           'SELECT first_name, last_name FROM users WHERE id = ?',
           [userId]

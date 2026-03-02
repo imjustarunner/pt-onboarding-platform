@@ -104,5 +104,5 @@ RUN echo "Verifying public directory..." && \
 # Expose port (Cloud Run will set PORT env var, typically 8080)
 EXPOSE 8080
 
-# Start the application
-CMD ["node", "src/server.js"]
+# Start via bootstrap: listen on PORT immediately, then load full app (avoids Cloud Run startup timeout)
+CMD ["node", "src/bootstrap.js"]
