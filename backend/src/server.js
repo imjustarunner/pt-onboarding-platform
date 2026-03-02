@@ -83,7 +83,7 @@ import kudosRoutes from './routes/kudos.routes.js';
 import kioskRoutes from './routes/kiosk.routes.js';
 import emergencyBroadcastRoutes from './routes/emergencyBroadcast.routes.js';
 import payrollRoutes from './routes/payroll.routes.js';
-import budgetRoutes from './routes/budget.routes.js';
+// Budget routes lazy-loaded to avoid startup lag from @google-cloud/vision
 import weatherRoutes from './routes/weather.routes.js';
 import receivablesRoutes from './routes/receivables.routes.js';
 import psychotherapyComplianceRoutes from './routes/psychotherapyCompliance.routes.js';
@@ -606,7 +606,11 @@ app.use('/api/kudos', kudosRoutes);
 app.use('/api/kiosk', kioskRoutes);
 app.use('/api/emergency-broadcasts', emergencyBroadcastRoutes);
 app.use('/api/payroll', payrollRoutes);
-app.use('/api/budget', budgetRoutes);
+app.use('/api/budget', (req, res, next) => {
+  import('./routes/budget.routes.js')
+    .then((m) => m.default(req, res, next))
+    .catch(next);
+});
 app.use('/api/weather', weatherRoutes);
 app.use('/api/receivables', receivablesRoutes);
 app.use('/api/psychotherapy-compliance', psychotherapyComplianceRoutes);
