@@ -126,6 +126,7 @@ import {
   ,listPayrollManualPayLines
   ,createPayrollManualPayLine
   ,createPayrollManualBulk
+  ,updatePayrollManualPayLine
   ,deletePayrollManualPayLine
   ,listMeetingAttendance
   ,syncMeetingAttendance
@@ -271,6 +272,7 @@ router.put('/other-rate-titles/users/:userId', putPayrollOtherRateTitlesForUser)
 router.get('/periods/:id/manual-pay-lines', listPayrollManualPayLines);
 router.post('/periods/:id/manual-pay-lines', createPayrollManualPayLine);
 router.post('/periods/:id/manual-bulk', createPayrollManualBulk);
+router.patch('/periods/:id/manual-pay-lines/:lineId', updatePayrollManualPayLine);
 router.delete('/periods/:id/manual-pay-lines/:lineId', deletePayrollManualPayLine);
 router.get('/meeting-attendance', listMeetingAttendance);
 router.post('/meeting-attendance/sync', syncMeetingAttendance);

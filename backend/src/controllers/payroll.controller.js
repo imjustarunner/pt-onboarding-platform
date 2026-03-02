@@ -3863,6 +3863,30 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
     if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
   }
 
+  // Ensure users with ONLY a salary position (no sessions, no adjustments) get a payroll summary row.
+  // Salary from provider profile (payroll_salary_positions) auto-applies without needing a manual override.
+  try {
+    const periodStartYmd = String(periodStart || '').slice(0, 10);
+    const periodEndYmd = String(periodEnd || '').slice(0, 10);
+    if (periodStartYmd && periodEndYmd) {
+      const [salaryUserRows] = await pool.execute(
+        `SELECT DISTINCT psp.user_id
+         FROM payroll_salary_positions psp
+         WHERE psp.agency_id = ?
+           AND psp.salary_per_pay_period > 0
+           AND (psp.effective_start IS NULL OR psp.effective_start <= ?)
+           AND (psp.effective_end IS NULL OR psp.effective_end >= ?)`,
+        [agencyId, periodEndYmd, periodStartYmd]
+      );
+      for (const r of salaryUserRows || []) {
+        const uid = Number(r?.user_id || 0);
+        if (uid && !byUser.has(uid)) byUser.set(uid, []);
+      }
+    }
+  } catch (e) {
+    if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+  }
+
   // Prelicensed pay gating for supervision codes (99414/99416):
   // pay is $0 until (individual>=50 AND total>=100) as of *prior* periods (pay-forward only).
   const supervisionPayEligibleByUserId = new Map();
@@ -7123,6 +7147,53 @@ export const createPayrollManualPayLine = async (req, res, next) => {
   }
 };
 
+export const updatePayrollManualPayLine = async (req, res, next) => {
+  try {
+    const payrollPeriodId = parseInt(req.params.id, 10);
+    const lineId = parseInt(req.params.lineId, 10);
+    const period = await PayrollPeriod.findById(payrollPeriodId);
+    if (!period) return res.status(404).json({ error: { message: 'Pay period not found' } });
+    if (!(await requirePayrollAccess(req, res, period.agency_id))) return;
+
+    const st = String(period.status || '').toLowerCase();
+    if (st === 'finalized' || st === 'posted') {
+      return res.status(409).json({ error: { message: 'Pay period is posted/finalized' } });
+    }
+
+    const creditsHours = req.body?.creditsHours ?? req.body?.credits_hours;
+    const amount = req.body?.amount;
+
+    const updated = await PayrollManualPayLine.updateById({
+      id: lineId,
+      payrollPeriodId,
+      agencyId: period.agency_id,
+      creditsHours: creditsHours !== undefined && creditsHours !== null && creditsHours !== '' ? Number(creditsHours) : undefined,
+      amount: amount !== undefined && amount !== null && amount !== '' ? Number(amount) : undefined
+    });
+
+    if (!updated) {
+      return res.status(400).json({ error: { message: 'No valid updates provided (creditsHours and/or amount)' } });
+    }
+
+    if (st === 'ran') {
+      await recomputeSummariesFromStaging({
+        payrollPeriodId,
+        agencyId: period.agency_id,
+        periodStart: period.period_start,
+        periodEnd: period.period_end
+      });
+      const updatedPeriod = await PayrollPeriod.findById(payrollPeriodId);
+      const summaries = await PayrollSummary.listForPeriod(payrollPeriodId);
+      return res.json({ ok: true, period: updatedPeriod, summaries });
+    }
+
+    const lines = await PayrollManualPayLine.listForPeriod({ payrollPeriodId, agencyId: period.agency_id });
+    return res.json({ ok: true, lines });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const deletePayrollManualPayLine = async (req, res, next) => {
   try {
     const payrollPeriodId = parseInt(req.params.id, 10);
@@ -7311,9 +7382,11 @@ export const createPayrollManualBulk = async (req, res, next) => {
       }
       const rateAmount = Number(rate.rate_amount || 0);
       const rateUnit = String(rate.rate_unit || 'per_hour').trim().toLowerCase();
-      // quantity is minutes (pay_divisor 60) or units (pay_divisor 4, etc.)
-      const units = quantity;
-      const payHours = payDivisor > 0 ? units / payDivisor : 0;
+      // When inputType is 'minutes', always treat quantity as minutes (60 min = 1 hr).
+      // Otherwise use rule's pay_divisor (e.g. 4 units = 1 hr for 15-min slots).
+      const payHours = (inputType === 'minutes')
+        ? (quantity / 60)
+        : (payDivisor > 0 ? quantity / payDivisor : 0);
       let amount;
       if (rateUnit === 'per_hour') {
         amount = Math.round(payHours * rateAmount * 100) / 100;

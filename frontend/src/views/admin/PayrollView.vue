@@ -3157,14 +3157,14 @@
                   </div>
                 </div>
                 <div v-if="manualBulkError" class="warn-box" style="margin-top: 8px;">{{ manualBulkError }}</div>
-                <div v-else class="actions" style="margin-top: 12px; justify-content: flex-end;">
+                <div class="actions" style="margin-top: 12px; justify-content: flex-end;">
                   <button
                     class="btn btn-primary"
                     type="button"
                     @click="submitManualBulk"
                     :disabled="savingManualBulk || isPeriodPosted || !manualBulkAttendees.trim() || !manualBulkQuantity || Number(manualBulkQuantity) <= 0"
                   >
-                    {{ savingManualBulk ? 'Submitting…' : 'Submit Manual Bulk' }}
+                    {{ savingManualBulk ? 'Submitting…' : (manualBulkError ? 'Resubmit' : 'Submit Manual Bulk') }}
                   </button>
                 </div>
               </div>
@@ -3178,6 +3178,7 @@
                       <th>Provider</th>
                       <th>Category</th>
                       <th>Service</th>
+                      <th class="right">Hours</th>
                       <th class="right">Amount</th>
                       <th class="right"></th>
                     </tr>
@@ -3187,16 +3188,68 @@
                       <td>{{ nameForUserId(l.user_id) }}</td>
                       <td class="muted">{{ String(l.category || 'direct').toUpperCase() }}</td>
                       <td>{{ l.label }}</td>
-                      <td class="right">{{ fmtMoney(Number(l.amount || 0)) }}</td>
                       <td class="right">
-                        <button
-                          class="btn btn-danger btn-sm"
-                          type="button"
-                          @click="deleteManualPayLine(l)"
-                          :disabled="isPeriodPosted || deletingManualPayLineId === l.id"
-                        >
-                          {{ deletingManualPayLineId === l.id ? 'Deleting…' : 'Delete' }}
-                        </button>
+                        <template v-if="editingManualPayLineId === l.id">
+                          <input
+                            v-model.number="editingManualPayLineDraft.creditsHours"
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            style="width: 70px; text-align: right;"
+                          />
+                        </template>
+                        <template v-else>{{ fmtNum(Number(l.credits_hours ?? l.creditsHours ?? 0)) }} h</template>
+                      </td>
+                      <td class="right">
+                        <template v-if="editingManualPayLineId === l.id">
+                          <input
+                            v-model.number="editingManualPayLineDraft.amount"
+                            type="number"
+                            step="0.01"
+                            style="width: 90px; text-align: right;"
+                          />
+                        </template>
+                        <template v-else>{{ fmtMoney(Number(l.amount || 0)) }}</template>
+                      </td>
+                      <td class="right">
+                        <template v-if="editingManualPayLineId === l.id">
+                          <button
+                            class="btn btn-primary btn-sm"
+                            type="button"
+                            @click="saveEditManualPayLine(l)"
+                            :disabled="updatingManualPayLineId === l.id"
+                          >
+                            {{ updatingManualPayLineId === l.id ? 'Saving…' : 'Save' }}
+                          </button>
+                          <button
+                            class="btn btn-secondary btn-sm"
+                            type="button"
+                            @click="cancelEditManualPayLine"
+                            :disabled="updatingManualPayLineId === l.id"
+                            style="margin-left: 6px;"
+                          >
+                            Cancel
+                          </button>
+                        </template>
+                        <template v-else>
+                          <button
+                            class="btn btn-secondary btn-sm"
+                            type="button"
+                            @click="beginEditManualPayLine(l)"
+                            :disabled="isPeriodPosted || deletingManualPayLineId === l.id"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            class="btn btn-danger btn-sm"
+                            type="button"
+                            @click="deleteManualPayLine(l)"
+                            :disabled="isPeriodPosted || deletingManualPayLineId === l.id"
+                            style="margin-left: 6px;"
+                          >
+                            {{ deletingManualPayLineId === l.id ? 'Deleting…' : 'Delete' }}
+                          </button>
+                        </template>
                       </td>
                     </tr>
                   </tbody>
@@ -5912,6 +5965,9 @@ const manualPayLinesError = ref('');
 const manualPayLines = ref([]);
 const savingManualPayLines = ref(false);
 const deletingManualPayLineId = ref(null);
+const editingManualPayLineId = ref(null);
+const editingManualPayLineDraft = ref({ creditsHours: null, amount: null });
+const updatingManualPayLineId = ref(null);
 const manualPayLineDraftRowSeq = ref(1);
 const manualPayLineDraftRows = ref([
   { _key: manualPayLineDraftRowSeq.value++, userId: null, lineType: 'pay', category: 'indirect', ptoBucket: 'sick', creditsHours: '', label: '', amount: '' }
@@ -6548,6 +6604,48 @@ const saveManualPayLines = async () => {
   }
 };
 
+const beginEditManualPayLine = (line) => {
+  editingManualPayLineId.value = line.id;
+  editingManualPayLineDraft.value = {
+    creditsHours: Number(line.credits_hours ?? line.creditsHours ?? 0) || null,
+    amount: Number(line.amount ?? 0) || null
+  };
+};
+
+const cancelEditManualPayLine = () => {
+  editingManualPayLineId.value = null;
+  editingManualPayLineDraft.value = { creditsHours: null, amount: null };
+};
+
+const saveEditManualPayLine = async (line) => {
+  if (!selectedPeriodId.value || !line?.id) return;
+  const creditsHours = editingManualPayLineDraft.value?.creditsHours;
+  const amount = editingManualPayLineDraft.value?.amount;
+  if (creditsHours === null || creditsHours === undefined || creditsHours === '' || !Number.isFinite(Number(creditsHours)) || Number(creditsHours) < 0) {
+    manualPayLinesError.value = 'Hours must be a non-negative number';
+    return;
+  }
+  if (amount === null || amount === undefined || amount === '' || !Number.isFinite(Number(amount))) {
+    manualPayLinesError.value = 'Amount must be a valid number';
+    return;
+  }
+  try {
+    updatingManualPayLineId.value = line.id;
+    manualPayLinesError.value = '';
+    await api.patch(`/payroll/periods/${selectedPeriodId.value}/manual-pay-lines/${line.id}`, {
+      creditsHours: Number(creditsHours),
+      amount: Number(amount)
+    });
+    cancelEditManualPayLine();
+    await loadManualPayLines();
+    await loadPeriodDetails();
+  } catch (e) {
+    manualPayLinesError.value = e.response?.data?.error?.message || e.message || 'Failed to update manual pay line';
+  } finally {
+    updatingManualPayLineId.value = null;
+  }
+};
+
 const deleteManualPayLine = async (line) => {
   if (!selectedPeriodId.value || !line?.id) return;
   const ok = window.confirm('Delete this manual pay line?');
@@ -6556,6 +6654,7 @@ const deleteManualPayLine = async (line) => {
     deletingManualPayLineId.value = line.id;
     manualPayLinesError.value = '';
     await api.delete(`/payroll/periods/${selectedPeriodId.value}/manual-pay-lines/${line.id}`);
+    if (editingManualPayLineId.value === line.id) cancelEditManualPayLine();
     await loadManualPayLines();
     await loadPeriodDetails();
   } catch (e) {

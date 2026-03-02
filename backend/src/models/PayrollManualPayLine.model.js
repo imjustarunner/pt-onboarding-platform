@@ -96,6 +96,37 @@ class PayrollManualPayLine {
     return res?.insertId || null;
   }
 
+  static async updateById({ id, payrollPeriodId, agencyId, creditsHours, amount }) {
+    if (!id || !payrollPeriodId || !agencyId) return false;
+    const hasCredits = await this._hasCreditsHoursColumn();
+    const updates = [];
+    const params = [];
+    if (creditsHours !== undefined && creditsHours !== null) {
+      const hrs = Number(creditsHours);
+      if (Number.isFinite(hrs) && hrs >= 0) {
+        if (hasCredits) {
+          updates.push('credits_hours = ?');
+          params.push(Math.round(hrs * 100) / 100);
+        }
+      }
+    }
+    if (amount !== undefined && amount !== null) {
+      const amt = Number(amount);
+      if (Number.isFinite(amt)) {
+        updates.push('amount = ?');
+        params.push(Math.round(amt * 100) / 100);
+      }
+    }
+    if (!updates.length) return false;
+    params.push(id, payrollPeriodId, agencyId);
+    const [res] = await pool.execute(
+      `UPDATE payroll_manual_pay_lines SET ${updates.join(', ')}
+       WHERE id = ? AND payroll_period_id = ? AND agency_id = ?`,
+      params
+    );
+    return (res?.affectedRows || 0) > 0;
+  }
+
   static async sumByUserForPeriod({ payrollPeriodId, agencyId }) {
     const [rows] = await pool.execute(
       `SELECT user_id, COALESCE(SUM(amount), 0) AS amount
