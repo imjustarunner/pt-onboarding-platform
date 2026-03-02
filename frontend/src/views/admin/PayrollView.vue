@@ -1101,7 +1101,7 @@
           </div>
           <div v-if="(batchCatchUpResult.carryoverApplied || []).length > 0" class="card" style="margin-top: 10px; padding: 12px;">
             <strong>Late notes to add ({{ batchCatchUpResult.carryoverRowsApplied }} rows)</strong>
-            <div class="hint muted" style="margin-top: 4px;">Units that went from unpaid → finalized between runs. These will be added to the selected period when you click Add.</div>
+            <div class="hint muted" style="margin-top: 4px;">No note in Run 2 → draft or finalized in Run 3. These will be added to the selected period when you click Add. (1→2 was already paid.)</div>
             <div v-if="!batchCatchUpResult.applied && (batchCatchUpResult.rowsForApply || []).length > 0" class="actions" style="margin-top: 10px;">
               <button
                 class="btn btn-primary"
@@ -1113,15 +1113,13 @@
             </div>
             <table class="table" style="margin-top: 8px; font-size: 0.9em;">
               <thead>
-                <tr><th>User</th><th>Service code</th><th class="right">1→2 units</th><th class="right">2→3 units</th><th class="right">Total</th></tr>
+                <tr><th>User</th><th>Service code</th><th class="right">2→3 units</th></tr>
               </thead>
               <tbody>
                 <tr v-for="c in (batchCatchUpResult.carryoverApplied || [])" :key="`${c.userId}-${c.serviceCode}`">
                   <td>{{ c.providerName || getUserName(c.userId) }}</td>
                   <td>{{ c.serviceCode }}</td>
-                  <td class="right">{{ fmtNum(c.run1To2Units) }}</td>
-                  <td class="right">{{ fmtNum(c.run2To3Units) }}</td>
-                  <td class="right">{{ fmtNum(c.totalUnits) }}</td>
+                  <td class="right">{{ fmtNum(c.run2To3Units ?? c.totalUnits) }}</td>
                 </tr>
               </tbody>
             </table>
@@ -1136,18 +1134,17 @@
             Open <strong>Raw Import</strong> → <strong>Process H0031</strong> / <strong>Process H0032</strong> to edit. Unpaid rows are highlighted in amber.
           </div>
           <div v-if="batchCatchUpResult.superFlagCount > 0" class="warn-box" style="margin-top: 10px; padding: 12px;">
-            <strong>Still delinquent ({{ batchCatchUpResult.superFlagCount }}):</strong> Unpaid/no notes that were unpaid in Run 1 and are still unpaid in Run 3. Please address as soon as possible.
+            <strong>Still no note ({{ batchCatchUpResult.superFlagCount }}):</strong> No note in Run 2, still no note in Run 3. Please address.
             <table class="table" style="margin-top: 8px; font-size: 0.9em;">
               <thead>
-                <tr><th>User</th><th>Service code</th><th class="right">Run 1</th><th class="right">Run 2</th><th class="right">Run 3</th></tr>
+                <tr><th>User</th><th>Service code</th><th class="right">Run 2 no note</th><th class="right">Run 3 no note</th></tr>
               </thead>
               <tbody>
                 <tr v-for="f in (batchCatchUpResult.superFlag || [])" :key="`${f.userId}-${f.serviceCode}`">
                   <td>{{ f.providerName || getUserName(f.userId) }}</td>
                   <td>{{ f.serviceCode }}</td>
-                  <td class="right">{{ fmtNum(f.run1UnpaidUnits) }}</td>
-                  <td class="right">{{ fmtNum(f.run2UnpaidUnits) }}</td>
-                  <td class="right">{{ fmtNum(f.run3UnpaidUnits) }}</td>
+                  <td class="right">{{ fmtNum(f.run2NoNoteUnits ?? f.run2UnpaidUnits) }}</td>
+                  <td class="right">{{ fmtNum(f.run3NoNoteUnits ?? f.run3UnpaidUnits) }}</td>
                 </tr>
               </tbody>
             </table>

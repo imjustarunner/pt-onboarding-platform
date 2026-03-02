@@ -5353,38 +5353,35 @@ export const batchCatchUp = [
       const snap2 = await PayrollPeriodRunSnapshot.listForRun(run2.run.id);
       const snap3 = await PayrollPeriodRunSnapshot.listForRun(run3.run.id);
 
-      const result1to2 = computeSnapshotBasedCarryover({ baselineSnapshots: snap1, compareSnapshots: snap2, priorAgencyId: agencyId });
-      const result2to3 = computeSnapshotBasedCarryover({ baselineSnapshots: snap2, compareSnapshots: snap3, priorAgencyId: agencyId });
+      // Treat draft as finalized (paid). Only 2→3 matters: no note in Run 2 → draft/finalized in Run 3 = pay now.
+      // 1→2 was already paid; we only carry over what became done between Run 2 and Run 3.
+      const result2to3 = computeSnapshotBasedCarryover({
+        baselineSnapshots: snap2,
+        compareSnapshots: snap3,
+        priorAgencyId: agencyId,
+        treatDraftAsFinalized: true
+      });
 
-      // Super flag: unpaid in Run 1 that is STILL unpaid in Run 3 (should have been dealt with in Run 2)
-      // Include Run 2 unpaid so user can see progression: Run 1 → Run 2 → Run 3
-      const unpaidByKeyRun1 = new Map();
-      const unpaidByKeyRun2 = new Map();
-      const unpaidByKeyRun3 = new Map();
-      for (const r of snap1 || []) {
-        const u = Number(r.no_note_units || 0) + Number(r.draft_units || 0);
-        if (u > 1e-9) unpaidByKeyRun1.set(r.row_match_key, { userId: r.user_id, serviceCode: r.service_code, unpaid: u });
-      }
+      // Still not done: no note in Run 2 that is STILL no note in Run 3 (treat draft as done)
+      const noNoteByKeyRun2 = new Map();
+      const noNoteByKeyRun3 = new Map();
       for (const r of snap2 || []) {
-        const u = Number(r.no_note_units || 0) + Number(r.draft_units || 0);
-        if (u > 1e-9) unpaidByKeyRun2.set(r.row_match_key, { userId: r.user_id, serviceCode: r.service_code, unpaid: u });
+        const u = Number(r.no_note_units || 0);
+        if (u > 1e-9) noNoteByKeyRun2.set(r.row_match_key, { userId: r.user_id, serviceCode: r.service_code, unpaid: u });
       }
       for (const r of snap3 || []) {
-        const u = Number(r.no_note_units || 0) + Number(r.draft_units || 0);
-        if (u > 1e-9) unpaidByKeyRun3.set(r.row_match_key, { userId: r.user_id, serviceCode: r.service_code, unpaid: u });
+        const u = Number(r.no_note_units || 0);
+        if (u > 1e-9) noNoteByKeyRun3.set(r.row_match_key, { userId: r.user_id, serviceCode: r.service_code, unpaid: u });
       }
       const superFlagByUserCode = new Map();
-      for (const [key, r1] of unpaidByKeyRun1) {
-        const r3 = unpaidByKeyRun3.get(key);
+      for (const [key, r2] of noNoteByKeyRun2) {
+        const r3 = noNoteByKeyRun3.get(key);
         if (!r3 || Number(r3.unpaid || 0) <= 1e-9) continue;
-        const r2 = unpaidByKeyRun2.get(key);
-        const run2Unpaid = r2 ? Number(r2.unpaid || 0) : 0;
-        const k = `${r1.userId}:${(r1.serviceCode || '').toUpperCase()}`;
-        if (!superFlagByUserCode.has(k)) superFlagByUserCode.set(k, { userId: r1.userId, serviceCode: r1.serviceCode, run1Unpaid: 0, run2Unpaid: 0, run3Unpaid: 0 });
+        const k = `${r2.userId}:${(r2.serviceCode || '').toUpperCase()}`;
+        if (!superFlagByUserCode.has(k)) superFlagByUserCode.set(k, { userId: r2.userId, serviceCode: r2.serviceCode, run2NoNote: 0, run3NoNote: 0 });
         const t = superFlagByUserCode.get(k);
-        t.run1Unpaid = Number((t.run1Unpaid + (r1.unpaid || 0)).toFixed(2));
-        t.run2Unpaid = Number((t.run2Unpaid + run2Unpaid).toFixed(2));
-        t.run3Unpaid = Number((t.run3Unpaid + (r3.unpaid || 0)).toFixed(2));
+        t.run2NoNote = Number((t.run2NoNote + (r2.unpaid || 0)).toFixed(2));
+        t.run3NoNote = Number((t.run3NoNote + (r3.unpaid || 0)).toFixed(2));
       }
       const superFlagUserIds = Array.from(superFlagByUserCode.values()).map((t) => t.userId).filter((id) => id > 0);
       let superFlagUserMap = new Map();
@@ -5402,23 +5399,13 @@ export const batchCatchUp = [
           userId: t.userId,
           serviceCode: t.serviceCode,
           providerName,
-          run1UnpaidUnits: t.run1Unpaid,
-          run2UnpaidUnits: t.run2Unpaid,
-          run3UnpaidUnits: t.run3Unpaid,
-          message: 'Unpaid/no notes delinquent for over 2 weeks — please address as soon as possible. Notification sent to supervisor and admin team.'
+          run2NoNoteUnits: t.run2NoNote,
+          run3NoNoteUnits: t.run3NoNote,
+          message: 'No note in Run 2, still no note in Run 3 — please address.'
         };
       });
 
-      // Carryover applied: what was added from 1→2 and 2→3 (the late notes that got paid)
-      const carryover1to2ByKey = new Map();
-      for (const d of result1to2.deltas || []) {
-        const carry = Number(d.carryoverFinalizedUnits || 0);
-        if (carry <= 1e-9 || !d.userId) continue;
-        const k = `${d.userId}:${(d.serviceCode || '').toUpperCase()}`;
-        if (!carryover1to2ByKey.has(k)) carryover1to2ByKey.set(k, { userId: d.userId, serviceCode: d.serviceCode, units: 0 });
-        const t = carryover1to2ByKey.get(k);
-        t.units = Number((t.units + carry).toFixed(2));
-      }
+      // Carryover: only 2→3 (no note in Run 2 → draft/finalized in Run 3). 1→2 was already paid.
       const carryover2to3ByKey = new Map();
       for (const d of result2to3.deltas || []) {
         const carry = Number(d.carryoverFinalizedUnits || 0);
@@ -5428,7 +5415,7 @@ export const batchCatchUp = [
         const t = carryover2to3ByKey.get(k);
         t.units = Number((t.units + carry).toFixed(2));
       }
-      const carryoverAppliedUserIds = [...new Set([...carryover1to2ByKey.keys(), ...carryover2to3ByKey.keys()].map((k) => k.split(':')[0]).filter((id) => id && Number(id) > 0).map(Number))];
+      const carryoverAppliedUserIds = [...new Set([...carryover2to3ByKey.keys()].map((k) => k.split(':')[0]).filter((id) => id && Number(id) > 0).map(Number))];
       let carryoverUserMap = new Map();
       if (carryoverAppliedUserIds.length) {
         const [uRows] = await pool.execute(
@@ -5438,21 +5425,18 @@ export const batchCatchUp = [
         carryoverUserMap = new Map((uRows || []).map((u) => [u.id, u]));
       }
       const carryoverAppliedRows = [];
-      const allKeys = new Set([...carryover1to2ByKey.keys(), ...carryover2to3ByKey.keys()]);
-      for (const k of allKeys) {
+      for (const k of carryover2to3ByKey.keys()) {
         const [uidStr, code] = k.split(':');
         const userId = Number(uidStr);
         const u = carryoverUserMap.get(userId);
         const providerName = u ? [u.last_name, u.first_name].filter(Boolean).join(', ') : `User #${userId}`;
-        const c1 = carryover1to2ByKey.get(k);
-        const c2 = carryover2to3ByKey.get(k);
+        const c = carryover2to3ByKey.get(k);
         carryoverAppliedRows.push({
           userId,
           serviceCode: code,
           providerName,
-          run1To2Units: c1 ? c1.units : 0,
-          run2To3Units: c2 ? c2.units : 0,
-          totalUnits: Number(((c1?.units || 0) + (c2?.units || 0)).toFixed(2))
+          run2To3Units: c ? c.units : 0,
+          totalUnits: c ? c.units : 0
         });
       }
       carryoverAppliedRows.sort((a, b) => a.providerName.localeCompare(b.providerName) || a.serviceCode.localeCompare(b.serviceCode));
@@ -5468,7 +5452,7 @@ export const batchCatchUp = [
         if (!byProviderId.has(r.userId)) byProviderId.set(r.userId, { providerName: r.providerName, codes: [], totalRun3: 0 });
         const agg = byProviderId.get(r.userId);
         agg.codes.push(r.serviceCode);
-        agg.totalRun3 += Number(r.run3UnpaidUnits || 0);
+        agg.totalRun3 += Number(r.run3NoNoteUnits || 0);
       }
       for (const [providerId, agg] of byProviderId) {
         try {
@@ -5492,7 +5476,7 @@ export const batchCatchUp = [
       }
 
       const byUserCode = new Map();
-      for (const d of [...(result1to2.deltas || []), ...(result2to3.deltas || [])]) {
+      for (const d of result2to3.deltas || []) {
         const carry = Number(d.carryoverFinalizedUnits || 0);
         if (carry <= 1e-9 || !d.userId) continue;
         const k = `${d.userId}:${(d.serviceCode || '').toUpperCase()}`;
@@ -7854,15 +7838,18 @@ function computeStillUnpaidFromRunRows({ runRows }) {
   return rows;
 }
 
-function computeSnapshotBasedCarryover({ baselineSnapshots, compareSnapshots, priorAgencyId }) {
+function computeSnapshotBasedCarryover({ baselineSnapshots, compareSnapshots, priorAgencyId, treatDraftAsFinalized = false }) {
   const byKeyBase = new Map(); // row_match_key -> { userId, serviceCode, providerName, unpaid, finalized }
   const byKeyCur = new Map();
   const normCode = (v) => String(v || '').trim().toUpperCase();
+  // When treatDraftAsFinalized: unpaid = no_note only; finalized = finalized + draft (draft counts as paid)
+  const unpaidFn = (r) => treatDraftAsFinalized ? Number(r.no_note_units || 0) : Number(r.no_note_units || 0) + Number(r.draft_units || 0);
+  const finalizedFn = (r) => treatDraftAsFinalized ? Number(r.finalized_units || 0) + Number(r.draft_units || 0) : Number(r.finalized_units || 0);
 
   for (const r of baselineSnapshots || []) {
     const key = r.row_match_key;
-    const unpaid = Number(r.no_note_units || 0) + Number(r.draft_units || 0);
-    const finalized = Number(r.finalized_units || 0);
+    const unpaid = unpaidFn(r);
+    const finalized = finalizedFn(r);
     if (!byKeyBase.has(key)) byKeyBase.set(key, { userId: r.user_id, serviceCode: r.service_code, providerName: null, unpaid: 0, finalized: 0 });
     const b = byKeyBase.get(key);
     b.unpaid += unpaid;
@@ -7871,8 +7858,8 @@ function computeSnapshotBasedCarryover({ baselineSnapshots, compareSnapshots, pr
   }
   for (const r of compareSnapshots || []) {
     const key = r.row_match_key;
-    const unpaid = Number(r.no_note_units || 0) + Number(r.draft_units || 0);
-    const finalized = Number(r.finalized_units || 0);
+    const unpaid = unpaidFn(r);
+    const finalized = finalizedFn(r);
     if (!byKeyCur.has(key)) byKeyCur.set(key, { userId: r.user_id, serviceCode: r.service_code, providerName: null, unpaid: 0, finalized: 0 });
     const c = byKeyCur.get(key);
     c.unpaid += unpaid;
