@@ -53,12 +53,18 @@
     <section v-if="agencyId" class="momentum-shared-lists-section" aria-label="Shared lists">
       <div class="shared-lists-head" @click="sharedListsExpanded = !sharedListsExpanded">
         <h2 class="section-title">Shared lists</h2>
+        <span v-if="!sharedListsExpanded && sharedListsSummary" class="shared-lists-summary">
+          {{ sharedListsSummary.listCount }} list{{ sharedListsSummary.listCount !== 1 ? 's' : '' }},
+          {{ sharedListsSummary.totalTasks }} task{{ sharedListsSummary.totalTasks !== 1 ? 's' : '' }}
+          <span v-if="sharedListsSummary.hasRecentActivity" class="shared-lists-activity" title="Activity in last 24h">●</span>
+        </span>
         <span class="shared-lists-toggle">{{ sharedListsExpanded ? '▼' : '▶' }}</span>
       </div>
       <SharedListsView
         v-show="sharedListsExpanded"
         :agency-id="agencyId"
         @task-changed="fetchDigest"
+        @summary="sharedListsSummary = $event"
       />
     </section>
 
@@ -276,6 +282,7 @@ const notificationStore = useNotificationStore();
 const userId = computed(() => authStore.user?.id);
 
 const sharedListsExpanded = ref(false);
+const sharedListsSummary = ref(null);
 const digestLoading = ref(true);
 const checklistCount = ref(0);
 const checklistIncompleteCount = ref(0);
@@ -848,6 +855,19 @@ watch([() => props.programId, () => props.agencyId], () => {
   margin: 0;
   font-size: 16px;
   font-weight: 600;
+}
+
+.shared-lists-summary {
+  flex: 1;
+  margin: 0 8px;
+  font-size: 13px;
+  color: #6b7280;
+  font-weight: 400;
+}
+
+.shared-lists-activity {
+  color: var(--success, #22c55e);
+  margin-left: 4px;
 }
 
 .shared-lists-toggle {

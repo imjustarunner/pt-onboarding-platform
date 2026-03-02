@@ -10,6 +10,11 @@ import {
   listAttachments,
   deleteAttachment
 } from '../controllers/taskAttachments.controller.js';
+import {
+  requireTaskCommentAccess,
+  listComments,
+  createComment
+} from '../controllers/taskComments.controller.js';
 import { listNotesToSign, getNotesToSignCount, signNote, getClinicalNotesEligible } from '../controllers/notesToSign.controller.js';
 
 const router = express.Router();
@@ -25,6 +30,8 @@ router.delete('/tasks/:id', authenticate, deleteCustomTask);
 router.get('/tasks/:id/attachments', authenticate, requireTaskAccess, listAttachments);
 router.post('/tasks/:id/attachments', authenticate, requireTaskAccess, uploadMiddleware, uploadAttachment);
 router.delete('/tasks/:id/attachments/:attachmentId', authenticate, requireTaskAccess, deleteAttachment);
+router.get('/tasks/:id/comments', authenticate, requireTaskCommentAccess, listComments);
+router.post('/tasks/:id/comments', authenticate, requireTaskCommentAccess, createComment);
 router.post('/send-reminder-sms', authenticate, sendReminderSms);
 router.get('/company-events', authenticate, listMyCompanyEvents);
 router.get('/company-events/:eventId/ics', authenticate, downloadCompanyEventIcsForMe);

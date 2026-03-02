@@ -169,6 +169,7 @@
             <div class="task-more-wrap" ref="el => setTaskMenuRef(task.id, el)">
               <button type="button" class="btn-icon btn-sm" aria-label="More options" @click="openTaskMenu(task)">⋮</button>
               <div v-if="taskMenuTaskId === task.id" class="more-menu task-menu" @click.stop>
+                <button type="button" class="more-menu-item" @click="openComments(task); taskMenuTaskId = null">💬 Comments</button>
                 <button type="button" class="more-menu-item" @click="openAddToMeetingPicker(task); taskMenuTaskId = null">Add to meeting</button>
                 <button type="button" class="more-menu-item" @click="openAttachments(task); taskMenuTaskId = null">📎 Add attachment</button>
                 <button v-if="canEdit" type="button" class="more-menu-item" @click="convertToReminder(task); taskMenuTaskId = null">Convert to reminder</button>
@@ -240,6 +241,53 @@
       </div>
     </div>
 
+    <div v-if="commentsTask" class="comments-overlay" @click.self="commentsTask = null">
+      <div class="comments-panel">
+        <h4>Comments: {{ commentsTask?.title }}</h4>
+        <ul v-if="taskComments.length > 0" class="comments-list">
+          <li v-for="c in taskComments" :key="c.id" class="comment-item">
+            <span class="comment-author">{{ c.author_name }}</span>
+            <span class="comment-time">{{ formatCommentTime(c.created_at) }}</span>
+            <p class="comment-body" v-html="formatCommentBody(c.body)"></p>
+          </li>
+        </ul>
+        <p v-else-if="!commentsLoading" class="comments-empty">No comments yet. Type @ to mention a list member.</p>
+        <div v-if="commentsLoading" class="comments-loading">Loading…</div>
+        <div class="comment-input-wrap">
+          <textarea
+            ref="commentInputRef"
+            v-model="newCommentBody"
+            class="comment-input"
+            placeholder="Add a comment… Type @ to mention someone"
+            rows="2"
+            @input="(e) => onCommentInput(e)"
+            @keydown="onCommentKeydown"
+          />
+          <div v-if="mentionOpen" class="mention-dropdown">
+            <button
+              v-for="m in mentionFilteredMembers"
+              :key="m.user_id"
+              type="button"
+              class="mention-option"
+              @click="insertMention(m)"
+            >
+              {{ memberLabel(m) }}
+            </button>
+            <p v-if="mentionFilteredMembers.length === 0" class="mention-empty">No matching members</p>
+          </div>
+          <button
+            type="button"
+            class="btn btn-primary btn-sm"
+            :disabled="!newCommentBody.trim() || postingComment"
+            @click="postComment"
+          >
+            {{ postingComment ? '…' : 'Post' }}
+          </button>
+        </div>
+        <button type="button" class="btn btn-secondary btn-sm" @click="commentsTask = null">Close</button>
+      </div>
+    </div>
+
     <div v-if="showAddToMeetingPicker && addToMeetingTask" class="add-to-meeting-overlay" @click.self="closeAddToMeetingPicker">
       <div class="add-to-meeting-modal">
         <h4>Add "{{ addToMeetingTask?.title }}" to meeting</h4>
@@ -265,7 +313,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch, onUnmounted } from 'vue';
+import { ref, computed, onMounted, watch, onUnmounted, nextTick } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import { useSpeechToText } from '../../composables/useSpeechToText';
@@ -302,6 +350,15 @@ const addToMeetingTask = ref(null);
 const showAddToMeetingPicker = ref(false);
 const upcomingMeetings = ref([]);
 const meetingsLoading = ref(false);
+const commentsTask = ref(null);
+const taskComments = ref([]);
+const commentsLoading = ref(false);
+const postingComment = ref(false);
+const newCommentBody = ref('');
+const mentionOpen = ref(false);
+const mentionQuery = ref('');
+const commentInputRef = ref(null);
+const lastCursorPos = ref(0);
 const tasks = ref([]);
 const members = ref([]);
 const taskTab = ref('active');
@@ -332,6 +389,16 @@ const toggleSpeech = () => {
 const canEdit = computed(() => {
   const r = props.list?.my_role;
   return r === 'editor' || r === 'admin';
+});
+
+const mentionFilteredMembers = computed(() => {
+  const q = String(mentionQuery.value || '').toLowerCase().trim();
+  const list = members.value || [];
+  if (!q) return list;
+  return list.filter((m) => {
+    const label = memberLabel(m).toLowerCase();
+    return label.includes(q);
+  });
 });
 
 const fetchTasks = async () => {
@@ -532,6 +599,99 @@ const setTaskMenuRef = (taskId, el) => {
 
 const openTaskMenu = (task) => {
   taskMenuTaskId.value = taskMenuTaskId.value === task.id ? null : task.id;
+};
+
+const openComments = async (task) => {
+  commentsTask.value = task;
+  taskComments.value = [];
+  newCommentBody.value = '';
+  mentionOpen.value = false;
+  mentionQuery.value = '';
+  commentsLoading.value = true;
+  try {
+    const res = await api.get(`/me/tasks/${task.id}/comments`);
+    taskComments.value = res.data || [];
+  } catch (err) {
+    console.error('Failed to fetch comments:', err);
+  } finally {
+    commentsLoading.value = false;
+  }
+};
+
+const formatCommentTime = (d) => {
+  if (!d) return '';
+  const dt = new Date(d);
+  return isNaN(dt.getTime()) ? d : dt.toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' });
+};
+
+const formatCommentBody = (body) => {
+  if (!body) return '';
+  return String(body)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/@\[([^\]]*)\]\((\d+)\)/g, '<span class="comment-mention">@$1</span>');
+};
+
+const onCommentInput = (e) => {
+  const el = e?.target || commentInputRef.value;
+  const text = newCommentBody.value;
+  const cursorPos = el?.selectionStart ?? text.length;
+  lastCursorPos.value = cursorPos;
+  const beforeCursor = text.slice(0, cursorPos);
+  const atMatch = beforeCursor.match(/@([^\s@[\]]*)$/);
+  if (atMatch) {
+    mentionOpen.value = true;
+    mentionQuery.value = atMatch[1] || '';
+  } else {
+    mentionOpen.value = false;
+  }
+};
+
+const onCommentKeydown = (e) => {
+  if (mentionOpen.value && (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter')) {
+    e.preventDefault();
+    if (e.key === 'Enter' && mentionFilteredMembers.value.length === 1) {
+      insertMention(mentionFilteredMembers.value[0]);
+    }
+  }
+};
+
+const insertMention = (m) => {
+  const text = newCommentBody.value;
+  const cursorPos = lastCursorPos.value;
+  const beforeCursor = text.slice(0, cursorPos);
+  const atMatch = beforeCursor.match(/@([^\s@[\]]*)$/);
+  const insertText = `@[${memberLabel(m)}](${m.user_id}) `;
+  if (atMatch) {
+    const start = cursorPos - atMatch[0].length;
+    newCommentBody.value = text.slice(0, start) + insertText + text.slice(cursorPos);
+    mentionOpen.value = false;
+    mentionQuery.value = '';
+    nextTick(() => {
+      commentInputRef.value?.focus();
+      const newPos = start + insertText.length;
+      commentInputRef.value?.setSelectionRange(newPos, newPos);
+      lastCursorPos.value = newPos;
+    });
+  }
+};
+
+const postComment = async () => {
+  const body = newCommentBody.value.trim();
+  if (!body || !commentsTask.value) return;
+  postingComment.value = true;
+  try {
+    const res = await api.post(`/me/tasks/${commentsTask.value.id}/comments`, { body });
+    taskComments.value = [...taskComments.value, res.data];
+    newCommentBody.value = '';
+    mentionOpen.value = false;
+    emit('updated');
+  } catch (err) {
+    console.error('Failed to post comment:', err);
+  } finally {
+    postingComment.value = false;
+  }
 };
 
 const openAttachments = async (task) => {
@@ -1023,6 +1183,7 @@ watch(taskTab, () => fetchTasks());
   gap: 6px;
 }
 
+.comments-overlay,
 .attachments-overlay {
   position: fixed;
   inset: 0;
@@ -1033,6 +1194,7 @@ watch(taskTab, () => fetchTasks());
   z-index: 1001;
 }
 
+.comments-panel,
 .attachments-panel {
   background: white;
   border-radius: 12px;
@@ -1044,9 +1206,120 @@ watch(taskTab, () => fetchTasks());
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
 }
 
+.comments-panel h4,
 .attachments-panel h4 {
   margin: 0 0 16px 0;
   font-size: 16px;
+}
+
+.comments-list {
+  list-style: none;
+  margin: 0 0 16px 0;
+  padding: 0;
+}
+
+.comment-item {
+  padding: 12px 0;
+  border-bottom: 1px solid #eee;
+}
+
+.comment-item:last-child {
+  border-bottom: none;
+}
+
+.comment-author {
+  font-weight: 600;
+  font-size: 14px;
+  color: #374151;
+}
+
+.comment-time {
+  font-size: 12px;
+  color: #9ca3af;
+  margin-left: 8px;
+}
+
+.comment-body {
+  margin: 6px 0 0 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #4b5563;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.comment-mention {
+  background: #dbeafe;
+  color: #1d4ed8;
+  padding: 1px 4px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.comments-empty,
+.comments-loading {
+  color: #6b7280;
+  font-size: 14px;
+  margin: 12px 0;
+}
+
+.comment-input-wrap {
+  position: relative;
+  margin: 16px 0;
+}
+
+.comment-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: inherit;
+  resize: vertical;
+  min-height: 60px;
+}
+
+.comment-input:focus {
+  outline: none;
+  border-color: var(--primary, #3b82f6);
+}
+
+.mention-dropdown {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  right: 0;
+  margin-bottom: 4px;
+  background: white;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  max-height: 160px;
+  overflow-y: auto;
+  z-index: 10;
+}
+
+.mention-option {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  text-align: left;
+  border: none;
+  background: none;
+  font-size: 14px;
+  cursor: pointer;
+  color: #374151;
+}
+
+.mention-option:hover {
+  background: #f3f4f6;
+}
+
+.mention-empty {
+  padding: 8px 12px;
+  margin: 0;
+  font-size: 13px;
+  color: #9ca3af;
 }
 
 .attachments-list {

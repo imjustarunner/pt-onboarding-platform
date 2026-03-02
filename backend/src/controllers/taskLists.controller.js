@@ -52,11 +52,23 @@ export const listTaskLists = async (req, res, next) => {
     const lists = await TaskList.listByUserMembership(userId, { agencyId });
     const withCounts = await Promise.all(
       lists.map(async (l) => {
-        const [rows] = await pool.execute(
-          'SELECT COUNT(*) as c FROM tasks WHERE task_list_id = ? AND status NOT IN (?, ?)',
-          [l.id, 'completed', 'overridden']
-        ).catch(() => [[{ c: 0 }]]);
-        return { ...l, task_count: rows[0]?.c ?? 0 };
+        const [[countRow], [activityRow]] = await Promise.all([
+          pool.execute(
+            'SELECT COUNT(*) as c FROM tasks WHERE task_list_id = ? AND status NOT IN (?, ?)',
+            [l.id, 'completed', 'overridden']
+          ).catch(() => [[{ c: 0 }]]),
+          pool.execute(
+            `SELECT MAX(COALESCE(t.completed_at, t.updated_at)) as last_activity
+             FROM tasks t WHERE t.task_list_id = ?`,
+            [l.id]
+          ).catch(() => [[{ last_activity: null }]])
+        ]);
+        const lastActivity = activityRow[0]?.last_activity;
+        return {
+          ...l,
+          task_count: countRow?.c ?? 0,
+          last_activity_at: lastActivity && lastActivity !== '0' ? lastActivity : null
+        };
       })
     );
     res.json(withCounts);

@@ -30,6 +30,8 @@ class Notification {
     'client_note',
     // Platform chat (internal DM)
     'chat_message',
+    // Shared task list: mentioned in a comment
+    'task_comment_mention',
     // School portal ticketing
     'support_ticket_created',
     // Client pipeline automation

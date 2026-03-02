@@ -81,7 +81,7 @@ const props = defineProps({
   agencyId: { type: Number, default: null }
 });
 
-const emit = defineEmits(['task-changed']);
+const emit = defineEmits(['task-changed', 'summary']);
 
 const loading = ref(true);
 const creating = ref(false);
@@ -106,6 +106,18 @@ const fetchLists = async () => {
   try {
     const res = await api.get('/task-lists', { params: { agencyId: props.agencyId } });
     lists.value = Array.isArray(res.data) ? res.data : [];
+    const totalTasks = lists.value.reduce((s, l) => s + (l.task_count ?? 0), 0);
+    const lastActivity = lists.value.reduce((latest, l) => {
+      const at = l.last_activity_at ? new Date(l.last_activity_at).getTime() : 0;
+      return at > latest ? at : latest;
+    }, 0);
+    const hasRecentActivity = lastActivity > 0 && Date.now() - lastActivity < 24 * 60 * 60 * 1000; // last 24h
+    emit('summary', {
+      listCount: lists.value.length,
+      totalTasks,
+      hasRecentActivity,
+      lastActivityAt: lastActivity ? new Date(lastActivity).toISOString() : null
+    });
     emit('task-changed');
   } catch (err) {
     console.error('Failed to fetch task lists:', err);
