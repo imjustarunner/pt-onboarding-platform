@@ -84,7 +84,9 @@
                       ? 'Skills Groups'
                       : portalMode === 'school_staff'
                         ? 'School staff'
-                        : 'School portal'
+                        : portalMode === 'messages'
+                          ? 'Messages'
+                          : 'School portal'
             }}
           </div>
         </div>
@@ -270,7 +272,7 @@
             <div class="nav-label">Notifications</div>
           </button>
 
-          <button data-tour="school-nav-messages" class="nav-item" type="button" @click="openMessages">
+          <button data-tour="school-nav-messages" class="nav-item" type="button" @click="openMessages" :class="{ active: portalMode === 'messages' }">
             <div class="nav-icon">
               <img
                 v-if="brandingStore.getSchoolPortalCardIconUrl('messages', cardIconOrg)"
@@ -279,6 +281,9 @@
                 class="nav-icon-img"
               />
               <div v-else class="nav-icon-fallback" aria-hidden="true">CH</div>
+              <span v-if="messagesUnreadCount > 0" class="nav-badge" :class="{ pulse: messagesUnreadCount > 0 }" :title="`${messagesUnreadCount} unread`">
+                {{ messagesUnreadCount }}
+              </span>
             </div>
             <div class="nav-label">Messages</div>
           </button>
@@ -560,8 +565,11 @@
               <div v-else class="dash-card-icon-fallback" aria-hidden="true">CH</div>
             </div>
             <div class="dash-card-title">Messages</div>
-            <div class="dash-card-desc">Chat with providers and school staff.</div>
+            <div class="dash-card-desc">Chat with providers and school staff. New messages appear here.</div>
             <div class="dash-card-meta">
+              <span v-if="messagesUnreadCount > 0" class="dash-card-badge dash-card-badge-pulse" :title="`${messagesUnreadCount} unread`">
+                {{ messagesUnreadCount }}
+              </span>
               <span class="dash-card-cta">Open</span>
             </div>
           </button>
@@ -713,6 +721,17 @@
           />
           <div v-else class="empty-state">Organization not loaded.</div>
         </div>
+          </div>
+
+          <div v-else-if="portalMode === 'messages'">
+            <SchoolPortalMessagesPanel
+              v-if="organizationId"
+              :school-organization-id="organizationId"
+              :providers="store.eligibleProviders"
+              :providers-loading="store.eligibleProvidersLoading"
+              @unread-update="messagesUnreadCount = $event"
+            />
+            <div v-else class="empty-state">Organization not loaded.</div>
           </div>
 
           <div v-else-if="portalMode === 'notifications'">
@@ -988,6 +1007,7 @@ import ClientModal from '../../components/school/redesign/ClientModal.vue';
 import SkillsGroupsPanel from '../../components/school/redesign/SkillsGroupsPanel.vue';
 import ProvidersDirectoryPanel from '../../components/school/redesign/ProvidersDirectoryPanel.vue';
 import SchoolStaffPanel from '../../components/school/redesign/SchoolStaffPanel.vue';
+import SchoolPortalMessagesPanel from '../../components/school/redesign/SchoolPortalMessagesPanel.vue';
 import PublicDocumentsPanel from '../../components/school/redesign/PublicDocumentsPanel.vue';
 import SchoolNotificationsPanel from '../../components/school/redesign/SchoolNotificationsPanel.vue';
 import ComplianceCornerModal from '../../components/school/redesign/ComplianceCornerModal.vue';
@@ -1192,7 +1212,7 @@ const comingSoonTitle = computed(() => {
   return 'Coming soon';
 });
 const selectedClient = ref(null);
-const portalMode = ref('home'); // home | providers | days | roster | skills | school_staff | documents | faq
+const portalMode = ref('home'); // home | providers | days | roster | skills | school_staff | documents | faq | messages
 const rosterStatusFilterKey = ref(''); // client_status_key filter for roster panel (pending/waitlist)
 const adminSelectedClient = ref(null);
 const adminClientLoading = ref(false);
@@ -1227,12 +1247,16 @@ const applyRequestedPortalMode = async (mode) => {
     await openNotificationsPanel();
     return;
   }
+  if (m === 'messages') {
+    await openMessages();
+    return;
+  }
   if (m === 'home') {
     portalMode.value = 'home';
     return;
   }
   // fall back to direct set for other known modes
-  if (['roster', 'skills', 'school_staff'].includes(m)) {
+  if (['roster', 'skills', 'school_staff', 'messages'].includes(m)) {
     portalMode.value = m;
   }
 };
@@ -1445,8 +1469,28 @@ const loadNotificationsPreview = async () => {
   }
 };
 
-const openMessages = () => {
-  router.push({ path: route.path, query: { ...route.query, openChat: '1' } });
+const messagesUnreadCount = ref(0);
+const fetchMessagesUnread = async () => {
+  if (!authStore.user?.id) return;
+  try {
+    const resp = await api.get('/chat/threads', { skipGlobalLoading: true });
+    const threads = Array.isArray(resp.data) ? resp.data : [];
+    messagesUnreadCount.value = threads.reduce((s, t) => s + (Number(t.unread_count) || 0), 0);
+  } catch {
+    // ignore
+  }
+};
+const openMessages = async () => {
+  portalMode.value = 'messages';
+  try {
+    await router.replace({ query: { ...route.query, sp: 'messages' } });
+  } catch {
+    // ignore
+  }
+  if (!Array.isArray(store.eligibleProviders) || store.eligibleProviders.length === 0) {
+    await store.fetchEligibleProviders();
+  }
+  await fetchMessagesUnread();
 };
 
 const openNotificationsPanel = async () => {
@@ -1954,10 +1998,10 @@ onMounted(async () => {
     store.reset();
     store.setSchoolId(organizationId.value);
     // Default portal mode (query param overrides provider default).
-    if (isSchoolStaff.value) {
-      portalMode.value = 'home';
-    } else if (requestedPortalMode.value) {
+    if (requestedPortalMode.value) {
       await applyRequestedPortalMode(requestedPortalMode.value);
+    } else if (isSchoolStaff.value) {
+      portalMode.value = 'home';
     }
     await store.fetchDays();
     await store.fetchPortalStats();
@@ -1967,6 +2011,7 @@ onMounted(async () => {
     // Preload announcements preview so the card badge/snippet is populated.
     await loadNotificationsPreview();
     await loadBannerAnnouncements();
+    if (isSchoolStaff.value) await fetchMessagesUnread();
     if (portalMode.value === 'days' && store.selectedWeekday) await loadForDay(store.selectedWeekday);
     await openClientFromQuery();
   }
@@ -1990,10 +2035,10 @@ watch(organizationId, async (id) => {
   if (!id) return;
   store.reset();
   store.setSchoolId(id);
-  if (isSchoolStaff.value) {
-    portalMode.value = 'home';
-  } else if (requestedPortalMode.value) {
+  if (requestedPortalMode.value) {
     await applyRequestedPortalMode(requestedPortalMode.value);
+  } else if (isSchoolStaff.value) {
+    portalMode.value = 'home';
   }
   await store.fetchDays();
   await store.fetchPortalStats();
@@ -2011,7 +2056,6 @@ watch(
   () => requestedPortalMode.value,
   async (mode) => {
     if (!mode) return;
-    if (isSchoolStaff.value) return;
     await applyRequestedPortalMode(mode);
   }
 );
