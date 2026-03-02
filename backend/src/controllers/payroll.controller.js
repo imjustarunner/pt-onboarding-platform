@@ -31,6 +31,7 @@ import PayrollSummary from '../models/PayrollSummary.model.js';
 import PayrollAdpExportJob from '../models/PayrollAdpExportJob.model.js';
 import PayrollPeriodRun from '../models/PayrollPeriodRun.model.js';
 import PayrollPeriodRunRow from '../models/PayrollPeriodRunRow.model.js';
+import PayrollPeriodRunSnapshot from '../models/PayrollPeriodRunSnapshot.model.js';
 import PayrollRateTemplate from '../models/PayrollRateTemplate.model.js';
 import PayrollRateTemplateRate from '../models/PayrollRateTemplateRate.model.js';
 import Notification from '../models/Notification.model.js';
@@ -101,6 +102,7 @@ import {
   aggregatePerfectAttendanceBonusByUser,
   aggregateShiftCoverageBonusByUser
 } from '../services/shiftProgramPayroll.service.js';
+import { encryptBillingSecret } from '../services/billingEncryption.service.js';
 
 const TIER_WINDOW_PERIODS = 6; // 6 pay periods (~90 days)
 
@@ -1397,6 +1399,21 @@ function computeRowFingerprint({ agencyId, clinicianName, firstName, patientFirs
   });
 }
 
+// Deterministic match key (SHA256) for snapshot-based carryover. No fallback to clinician-derived patient name.
+// Same inputs always produce same key. Use empty string for missing patient_first_name.
+function computeRowMatchKey({ agencyId, serviceDate, serviceCode, providerName, patientFirstName }) {
+  const norm = (v) => String(v ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
+  const serviceYmd = ymdFromDbDate(serviceDate);
+  const parts = [
+    String(agencyId ?? ''),
+    serviceYmd,
+    String(serviceCode || '').trim().toUpperCase(),
+    norm(providerName || ''),
+    norm(patientFirstName || '')
+  ];
+  return crypto.createHash('sha256').update(parts.join('|')).digest('hex');
+}
+
 function compareToolBucket(noteStatus) {
   const st = String(noteStatus || '').trim().toUpperCase();
   if (st === 'NO_NOTE') return 'NO_NOTE';
@@ -2147,6 +2164,87 @@ export const ensureFuturePayrollPeriods = async (req, res, next) => {
     }
 
     res.json({ ok: true, agencyId, months, pastPeriods, checked, created, pastChecked, pastCreated });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Report of unpaid drafts (no_note + draft_payable=0) from prior pay periods.
+ * Use this to see what was marked unpaid in past periods so you can manually add them via carryover.
+ */
+export const getUnpaidDraftsReport = async (req, res, next) => {
+  try {
+    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId) : null;
+    const periodsLimit = Math.max(1, Math.min(20, parseInt(req.query.periods, 10) || 5));
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    const resolvedAgencyId = await requirePayrollAccess(req, res, agencyId);
+    if (!resolvedAgencyId) return;
+
+    const [periodRows] = await pool.execute(
+      `SELECT id, period_start, period_end, status
+       FROM payroll_periods
+       WHERE agency_id = ?
+       ORDER BY period_end DESC
+       LIMIT ${periodsLimit}`,
+      [resolvedAgencyId]
+    );
+
+    const report = [];
+    for (const pp of periodRows || []) {
+      const payrollPeriodId = pp.id;
+      const [latestImport] = await pool.execute(
+        `SELECT id FROM payroll_imports WHERE payroll_period_id = ? ORDER BY created_at DESC, id DESC LIMIT 1`,
+        [payrollPeriodId]
+      );
+      const payrollImportId = latestImport?.[0]?.id || null;
+      if (!payrollImportId) continue;
+
+      const [rows] = await pool.execute(
+        `SELECT
+           pir.user_id,
+           COALESCE(u.first_name, '') AS first_name,
+           COALESCE(u.last_name, pir.provider_name, '') AS last_name,
+           pir.service_code,
+           SUM(CASE WHEN UPPER(TRIM(pir.note_status)) = 'NO_NOTE' THEN pir.unit_count ELSE 0 END) AS no_note_units,
+           SUM(CASE WHEN UPPER(TRIM(pir.note_status)) = 'DRAFT' AND COALESCE(pir.draft_payable, 1) = 0 THEN pir.unit_count ELSE 0 END) AS draft_units
+         FROM payroll_import_rows pir
+         LEFT JOIN users u ON pir.user_id = u.id
+         WHERE pir.payroll_period_id = ?
+           AND pir.payroll_import_id = ?
+           AND pir.agency_id = ?
+           AND pir.user_id IS NOT NULL
+           AND (
+             UPPER(TRIM(pir.note_status)) = 'NO_NOTE'
+             OR (UPPER(TRIM(pir.note_status)) = 'DRAFT' AND COALESCE(pir.draft_payable, 1) = 0)
+           )
+         GROUP BY pir.user_id, pir.service_code, u.first_name, u.last_name, pir.provider_name
+         HAVING (no_note_units + draft_units) > 0
+         ORDER BY pir.user_id ASC, pir.service_code ASC`,
+        [payrollPeriodId, payrollImportId, resolvedAgencyId]
+      );
+
+      const totalUnits = (rows || []).reduce((s, r) => s + Number(r.no_note_units || 0) + Number(r.draft_units || 0), 0);
+      if ((rows || []).length > 0) {
+        report.push({
+          payrollPeriodId,
+          periodStart: ymdFromDbDate(pp.period_start),
+          periodEnd: ymdFromDbDate(pp.period_end),
+          status: pp.status,
+          rows: (rows || []).map((r) => ({
+            userId: r.user_id,
+            providerName: [r.last_name, r.first_name].filter(Boolean).join(', ') || '—',
+            serviceCode: r.service_code,
+            noNoteUnits: Number(r.no_note_units || 0),
+            draftUnits: Number(r.draft_units || 0),
+            totalUnpaidUnits: Number(r.no_note_units || 0) + Number(r.draft_units || 0)
+          })),
+          totalUnpaidUnits: totalUnits
+        });
+      }
+    }
+
+    res.json({ report, periodsScanned: (periodRows || []).length });
   } catch (e) {
     next(e);
   }
@@ -5072,6 +5170,333 @@ export const importPayrollAuto = [
   }
 ];
 
+/**
+ * One-time batch catch-up: upload 3 reports for the SAME pay period at 3 different times.
+ * File 1 = first run, File 2 = second run, File 3 = latest. Compares run2 vs run1, run3 vs run2,
+ * aggregates late notes, imports current, and adds carryover.
+ */
+async function detectPeriodFromParsed({ agencyId, parsed }) {
+  const dates = (parsed || []).map((r) => r.serviceDate).filter((d) => d instanceof Date && !Number.isNaN(d.getTime()));
+  if (!dates.length) return null;
+  const guess = await guessScheduledPayrollPeriodByMajorityDates({ agencyId, dates });
+  if (guess?.period) return guess.period;
+  const maxDate = dates.reduce((a, b) => (a.getTime() > b.getTime() ? a : b));
+  const periodEnd = previousFridayOnOrBefore(maxDate);
+  const periodStart = new Date(periodEnd.getTime());
+  periodStart.setUTCDate(periodStart.getUTCDate() - 13);
+  return PayrollPeriod.findByAgencyAndDates({
+    agencyId,
+    periodStart: formatYmd(periodStart),
+    periodEnd: formatYmd(periodEnd)
+  });
+}
+
+export const batchCatchUp = [
+  upload.fields([{ name: 'file1', maxCount: 1 }, { name: 'file2', maxCount: 1 }, { name: 'file3', maxCount: 1 }]),
+  async (req, res, next) => {
+    try {
+      const agencyId = await requirePayrollAccess(req, res, req.body?.agencyId || req.query?.agencyId);
+      if (!agencyId) return;
+      const f1 = req.files?.file1?.[0] || null;
+      const f2 = req.files?.file2?.[0] || null;
+      const f3 = req.files?.file3?.[0] || null;
+      if (!f1 || !f2 || !f3) {
+        return res.status(400).json({ error: { message: 'file1, file2, and file3 are required (same period, 3 different times)' } });
+      }
+
+      const parsed1 = parsePayrollFile(f1.buffer, f1.originalname || 'file1.csv')?.rows || [];
+      const parsed2 = parsePayrollFile(f2.buffer, f2.originalname || 'file2.csv')?.rows || [];
+      const parsed3 = parsePayrollFile(f3.buffer, f3.originalname || 'file3.csv')?.rows || [];
+      if (!parsed1.length || !parsed2.length || !parsed3.length) {
+        return res.status(400).json({ error: { message: 'Each file must contain rows. Check file format.' } });
+      }
+
+      const period1 = await detectPeriodFromParsed({ agencyId, parsed: parsed1 });
+      const period2 = await detectPeriodFromParsed({ agencyId, parsed: parsed2 });
+      const period3 = await detectPeriodFromParsed({ agencyId, parsed: parsed3 });
+      if (!period1?.id || !period2?.id || !period3?.id) {
+        return res.status(400).json({
+          error: {
+            message: 'Could not match all files to an existing pay period. Ensure the period exists and dates match.'
+          },
+          detected: { p1: period1?.id, p2: period2?.id, p3: period3?.id }
+        });
+      }
+      if (period1.id !== period2.id || period2.id !== period3.id) {
+        return res.status(400).json({
+          error: {
+            message: 'All three files must be for the same pay period. Detected different periods.',
+            periodIds: [period1.id, period2.id, period3.id]
+          }
+        });
+      }
+      const period = period1;
+
+      const agencyUsers = await getAgencyUsersForPayrollMatching(agencyId);
+      const nameToIds = new Map();
+      for (const u of agencyUsers || []) {
+        const first = String(u.first_name || '').trim();
+        const last = String(u.last_name || '').trim();
+        const a = normalizeName(`${first} ${last}`);
+        const b = normalizeName(`${last} ${first}`);
+        if (a) addNameKeyToIds(nameToIds, a, u.id);
+        if (b) addNameKeyToIds(nameToIds, b, u.id);
+      }
+
+      const createSnapshotRun = async (fileInfo) => {
+        const byKey = new Map();
+        const parsedForSnapshots = [];
+        for (const r of fileInfo.parsed || []) {
+          const userId = resolveUserIdForProviderName(nameToIds, r.providerName) || 0;
+          const providerName = String(r.providerName || '').trim();
+          const serviceCode = String(r.serviceCode || '').trim();
+          if (!serviceCode) continue;
+          const note = String(r.noteStatus || '').trim().toUpperCase();
+          const units = Number(r.unitCount || 0);
+          if (!Number.isFinite(units) || units <= 0) continue;
+          const k = `${userId || 0}:${serviceCode.toUpperCase()}`;
+          if (!byKey.has(k)) byKey.set(k, { userId: userId || 0, serviceCode, noNoteUnits: 0, draftUnits: 0, finalizedUnits: 0 });
+          const agg = byKey.get(k);
+          if (note === 'NO_NOTE') agg.noNoteUnits += units;
+          else if (note === 'DRAFT') agg.draftUnits += units;
+          else if (note === 'FINALIZED') agg.finalizedUnits += units;
+          parsedForSnapshots.push({
+            user_id: userId || 0,
+            provider_name: providerName,
+            patient_first_name: r.patientFirstName ?? '',
+            service_code: serviceCode,
+            service_date: r.serviceDate || null,
+            note_status: note,
+            draft_payable: note === 'DRAFT' ? 0 : 1,
+            unit_count: units
+          });
+        }
+        const rows = Array.from(byKey.values()).map((x) => ({
+          userId: x.userId,
+          serviceCode: x.serviceCode,
+          noNoteUnits: Number((x.noNoteUnits || 0).toFixed(2)),
+          draftUnits: Number((x.draftUnits || 0).toFixed(2)),
+          finalizedUnits: Number((x.finalizedUnits || 0).toFixed(2))
+        }));
+        const run = await PayrollPeriodRun.create({
+          payrollPeriodId: period.id,
+          agencyId: period.agency_id,
+          payrollImportId: null,
+          ranByUserId: req.user.id
+        });
+        await PayrollPeriodRunRow.bulkInsert({ payrollPeriodRunId: run.id, payrollPeriodId: period.id, agencyId: period.agency_id, rows });
+        const snapshotRows = await buildSnapshotRowsFromImportRows({ agencyId: period.agency_id, payrollPeriodId: period.id, importRows: parsedForSnapshots });
+        if (snapshotRows.length) {
+          await PayrollPeriodRunSnapshot.bulkInsert({
+            payrollPeriodRunId: run.id,
+            payrollPeriodId: period.id,
+            agencyId: period.agency_id,
+            rows: snapshotRows
+          });
+        }
+        return { run, snapshotRows };
+      };
+
+      const run1 = await createSnapshotRun({ parsed: parsed1 });
+      const run2 = await createSnapshotRun({ parsed: parsed2 });
+      const run3 = await createSnapshotRun({ parsed: parsed3 });
+
+      if (isEffectivelyPostedOrFinalized(period)) {
+        return res.status(409).json({ error: { message: 'This pay period is posted/finalized and cannot be re-imported.' } });
+      }
+
+      const snap1 = await PayrollPeriodRunSnapshot.listForRun(run1.run.id);
+      const snap2 = await PayrollPeriodRunSnapshot.listForRun(run2.run.id);
+      const snap3 = await PayrollPeriodRunSnapshot.listForRun(run3.run.id);
+
+      const result1to2 = computeSnapshotBasedCarryover({ baselineSnapshots: snap1, compareSnapshots: snap2, priorAgencyId: agencyId });
+      const result2to3 = computeSnapshotBasedCarryover({ baselineSnapshots: snap2, compareSnapshots: snap3, priorAgencyId: agencyId });
+
+      // Super flag: unpaid in Run 1 that is STILL unpaid in Run 3 (should have been dealt with in Run 2)
+      const unpaidByKeyRun1 = new Map();
+      const unpaidByKeyRun3 = new Map();
+      for (const r of snap1 || []) {
+        const u = Number(r.no_note_units || 0) + Number(r.draft_units || 0);
+        if (u > 1e-9) unpaidByKeyRun1.set(r.row_match_key, { userId: r.user_id, serviceCode: r.service_code, unpaid: u });
+      }
+      for (const r of snap3 || []) {
+        const u = Number(r.no_note_units || 0) + Number(r.draft_units || 0);
+        if (u > 1e-9) unpaidByKeyRun3.set(r.row_match_key, { userId: r.user_id, serviceCode: r.service_code, unpaid: u });
+      }
+      const superFlagByUserCode = new Map();
+      for (const [key, r1] of unpaidByKeyRun1) {
+        const r3 = unpaidByKeyRun3.get(key);
+        if (!r3 || Number(r3.unpaid || 0) <= 1e-9) continue;
+        const k = `${r1.userId}:${(r1.serviceCode || '').toUpperCase()}`;
+        if (!superFlagByUserCode.has(k)) superFlagByUserCode.set(k, { userId: r1.userId, serviceCode: r1.serviceCode, run1Unpaid: 0, run3Unpaid: 0 });
+        const t = superFlagByUserCode.get(k);
+        t.run1Unpaid = Number((t.run1Unpaid + (r1.unpaid || 0)).toFixed(2));
+        t.run3Unpaid = Number((t.run3Unpaid + (r3.unpaid || 0)).toFixed(2));
+      }
+      const superFlagUserIds = Array.from(superFlagByUserCode.values()).map((t) => t.userId).filter((id) => id > 0);
+      let superFlagUserMap = new Map();
+      if (superFlagUserIds.length) {
+        const [uRows] = await pool.execute(
+          `SELECT id, first_name, last_name FROM users WHERE id IN (${superFlagUserIds.map(() => '?').join(',')})`,
+          superFlagUserIds
+        );
+        superFlagUserMap = new Map((uRows || []).map((u) => [u.id, u]));
+      }
+      const superFlagRows = Array.from(superFlagByUserCode.values()).map((t) => {
+        const u = t.userId > 0 ? superFlagUserMap.get(t.userId) : null;
+        const providerName = u ? [u.last_name, u.first_name].filter(Boolean).join(', ') : (t.userId > 0 ? `User #${t.userId}` : 'Provider (unmatched)');
+        return {
+          userId: t.userId,
+          serviceCode: t.serviceCode,
+          providerName,
+          run1UnpaidUnits: t.run1Unpaid,
+          run3UnpaidUnits: t.run3Unpaid,
+          message: 'Unpaid/no notes delinquent for over 2 weeks — please address as soon as possible. Notification sent to supervisor and admin team.'
+        };
+      });
+
+      const periodLabel = `${ymdFromDbDate(period.period_start)} to ${ymdFromDbDate(period.period_end)}`;
+      const periodEndDate = period.period_end ? new Date(period.period_end) : null;
+      const weeksSincePeriodEnd = periodEndDate && !Number.isNaN(periodEndDate.getTime())
+        ? Math.max(2, Math.floor((Date.now() - periodEndDate.getTime()) / (7 * 24 * 60 * 60 * 1000)))
+        : 2;
+      const byProviderId = new Map();
+      for (const r of superFlagRows) {
+        if (r.userId <= 0) continue;
+        if (!byProviderId.has(r.userId)) byProviderId.set(r.userId, { providerName: r.providerName, codes: [], totalRun3: 0 });
+        const agg = byProviderId.get(r.userId);
+        agg.codes.push(r.serviceCode);
+        agg.totalRun3 += Number(r.run3UnpaidUnits || 0);
+      }
+      for (const [providerId, agg] of byProviderId) {
+        try {
+          const codesStr = [...new Set(agg.codes)].slice(0, 5).join(', ');
+          const suffix = agg.codes.length > 5 ? ` …` : '';
+          await Notification.create({
+            type: 'payroll_unpaid_notes_2_periods_old',
+            severity: 'warning',
+            title: 'Unpaid/no notes delinquent — please address',
+            message: `${agg.providerName} has unpaid notes and billing claims that are now delinquent for over ${weeksSincePeriodEnd} weeks (${periodLabel}). Please address as soon as possible. This notification has been sent to your supervisor and our admin team. If you require help with completing your notes, please reach out as soon as possible. Service codes: ${codesStr}${suffix}.`,
+            audienceJson: { provider: true, supervisor: true, clinicalPracticeAssistant: true, admin: true },
+            userId: providerId,
+            agencyId: period.agency_id,
+            relatedEntityType: 'payroll_period',
+            relatedEntityId: period.id,
+            actorSource: 'Payroll'
+          });
+        } catch (e) {
+          console.error('Failed to create super-flag notification for provider', providerId, e);
+        }
+      }
+
+      const byUserCode = new Map();
+      for (const d of [...(result1to2.deltas || []), ...(result2to3.deltas || [])]) {
+        const carry = Number(d.carryoverFinalizedUnits || 0);
+        if (carry <= 1e-9 || !d.userId) continue;
+        const k = `${d.userId}:${(d.serviceCode || '').toUpperCase()}`;
+        if (!byUserCode.has(k)) byUserCode.set(k, { userId: d.userId, serviceCode: d.serviceCode, units: 0, notes: 0 });
+        const t = byUserCode.get(k);
+        t.units = Number((t.units + carry).toFixed(2));
+        t.notes += Number(d.noteCount || 0) || 1;
+      }
+      const rows = Array.from(byUserCode.values())
+        .map((t) => ({
+          userId: t.userId,
+          serviceCode: t.serviceCode,
+          carryoverFinalizedUnits: t.units,
+          carryoverFinalizedRowCount: t.notes,
+          carryoverMeta: { categories: { old_note: { units: t.units, notes: t.notes }, late_addition: { units: 0, notes: 0 }, code_changed: { units: 0, notes: 0, fromCodes: [] } } }
+        }))
+        .filter((r) => Number(r?.carryoverFinalizedUnits || 0) > 1e-9);
+
+      const r3 = parsePayrollFile(f3.buffer, f3.originalname || 'file3.csv');
+      const parsedC = r3?.rows || [];
+      const missedC = r3?.missedAppointmentsPaidInFull || [];
+      const imp = await PayrollImport.create({
+        agencyId: period.agency_id,
+        payrollPeriodId: period.id,
+        source: 'csv',
+        originalFilename: f3.originalname,
+        uploadedByUserId: req.user.id
+      });
+      const h0032Manual = new Map();
+      try {
+        const [uaRows] = await pool.execute(
+          `SELECT user_id, h0032_requires_manual_minutes FROM user_agencies WHERE agency_id = ?`,
+          [period.agency_id]
+        );
+        for (const r of uaRows || []) h0032Manual.set(Number(r.user_id), Number(r.h0032_requires_manual_minutes) ? 1 : 0);
+      } catch { /* column may not exist */ }
+      const rowsToInsert = parsedC.map((r) => {
+        const userId = resolveUserIdForProviderName(nameToIds, r.providerName);
+        const codeKey = String(r.serviceCode || '').trim().toUpperCase();
+        let unitCount = Number(r.unitCount) || 0;
+        if (codeKey === 'H0031' && Math.abs(unitCount - 1) < 1e-9) unitCount = 60;
+        else if (codeKey === 'H0032' && Math.abs(unitCount - 1) < 1e-9) unitCount = 30;
+        const requiresProcessing = codeKey === 'H0031' || (codeKey === 'H0032' && !!h0032Manual.get(userId));
+        return {
+          payrollImportId: imp.id,
+          payrollPeriodId: period.id,
+          agencyId: period.agency_id,
+          userId,
+          providerName: r.providerName,
+          patientFirstName: r.patientFirstName,
+          serviceCode: r.serviceCode,
+          serviceDate: r.serviceDate ? formatYmd(r.serviceDate) : null,
+          noteStatus: r.noteStatus,
+          draftPayable: r.noteStatus === 'DRAFT' ? 1 : 0,
+          unitCount,
+          rowFingerprint: computeRowFingerprint({ agencyId: period.agency_id, clinicianName: r.providerName, patientFirstName: r.patientFirstName, serviceCode: r.serviceCode, serviceDate: r.serviceDate }),
+          requiresProcessing,
+          processedAt: null,
+          processedByUserId: null
+        };
+      });
+      await PayrollImportRow.bulkInsert(rowsToInsert);
+      try {
+        await PayrollImportMissedAppointment.replaceForImport({
+          payrollImportId: imp.id,
+          payrollPeriodId: period.id,
+          agencyId: period.agency_id,
+          rows: missedC
+        });
+      } catch (e) {
+        if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+      }
+      await pool.execute('DELETE FROM payroll_summaries WHERE payroll_period_id = ?', [period.id]);
+      await pool.execute(
+        `UPDATE payroll_periods SET status = 'raw_imported', ran_at = NULL, ran_by_user_id = NULL WHERE id = ?`,
+        [period.id]
+      );
+
+      await PayrollStageCarryover.replaceForPeriod({
+        payrollPeriodId: period.id,
+        agencyId: period.agency_id,
+        sourcePayrollPeriodId: period.id,
+        computedByUserId: req.user.id,
+        rows
+      });
+      await pool.execute('DELETE FROM payroll_summaries WHERE payroll_period_id = ?', [period.id]);
+      await pool.execute(
+        `UPDATE payroll_periods SET status = 'staged', ran_at = NULL, ran_by_user_id = NULL WHERE id = ?`,
+        [period.id]
+      );
+
+      res.json({
+        ok: true,
+        period: { id: period.id, periodStart: ymdFromDbDate(period.period_start), periodEnd: ymdFromDbDate(period.period_end) },
+        importedRows: rowsToInsert.length,
+        carryoverRowsApplied: rows.length,
+        rows,
+        superFlag: superFlagRows,
+        superFlagCount: superFlagRows.length
+      });
+    } catch (e) {
+      next(e);
+    }
+  }
+];
+
 // Detect pay period from a report (no import). This allows the UI to confirm/override.
 export const detectPayrollAuto = [
   upload.single('file'),
@@ -7067,11 +7492,123 @@ async function buildEffectiveSnapshotRowsNoCarryover(payrollPeriodId, agencyId) 
   return rows;
 }
 
+async function loadImportRowsForSnapshot(payrollPeriodId, payrollImportId) {
+  if (!payrollImportId) return [];
+  const [rows] = await pool.execute(
+    `SELECT
+       pir.user_id,
+       pir.provider_name,
+       pir.patient_first_name,
+       pir.service_code,
+       pir.service_date,
+       pir.note_status,
+       pir.draft_payable,
+       pir.unit_count
+     FROM payroll_import_rows pir
+     WHERE pir.payroll_period_id = ?
+       AND pir.payroll_import_id = ?`,
+    [payrollPeriodId, payrollImportId]
+  );
+  return rows || [];
+}
+
+async function buildSnapshotRowsFromImportRows({ agencyId, payrollPeriodId, importRows }) {
+  const byKey = new Map(); // row_match_key -> { rowMatchKey, userId, serviceCode, serviceDate, noNoteUnits, draftUnits, finalizedUnits, sampleForPayload }
+  for (const r of importRows || []) {
+    const providerName = String(r?.provider_name || '').trim();
+    const serviceCode = String(r?.service_code || '').trim();
+    const serviceDate = r?.service_date || null;
+    if (!serviceCode) continue;
+    const units = Number(r?.unit_count || 0);
+    if (!Number.isFinite(units) || units <= 0) continue;
+
+    const rowMatchKey = computeRowMatchKey({
+      agencyId,
+      serviceDate,
+      serviceCode,
+      providerName,
+      patientFirstName: r?.patient_first_name ?? ''
+    });
+
+    const st = String(r?.note_status || '').trim().toUpperCase();
+    let noNote = 0;
+    let draft = 0;
+    let finalized = 0;
+    if (st === 'NO_NOTE') noNote = units;
+    else if (st === 'DRAFT') {
+      if (Number(r?.draft_payable || 0)) finalized = units;
+      else draft = units;
+    } else finalized = units;
+
+    if (!byKey.has(rowMatchKey)) {
+      byKey.set(rowMatchKey, {
+        rowMatchKey,
+        userId: Number(r?.user_id || 0) || 0,
+        serviceCode,
+        serviceDate,
+        noNoteUnits: 0,
+        draftUnits: 0,
+        finalizedUnits: 0,
+        sampleForPayload: { providerName, patientFirstName: r?.patient_first_name ?? '', serviceCode, serviceDate, noteStatus: st }
+      });
+    }
+    const agg = byKey.get(rowMatchKey);
+    agg.noNoteUnits += noNote;
+    agg.draftUnits += draft;
+    agg.finalizedUnits += finalized;
+    if (r?.user_id) agg.userId = Number(r.user_id);
+  }
+
+  const rows = [];
+  for (const agg of byKey.values()) {
+    let payloadCiphertextB64 = null;
+    let payloadIvB64 = null;
+    let payloadAuthTagB64 = null;
+    let payloadKeyId = null;
+    try {
+      const enc = encryptBillingSecret(JSON.stringify(agg.sampleForPayload));
+      payloadCiphertextB64 = enc.ciphertextB64;
+      payloadIvB64 = enc.ivB64;
+      payloadAuthTagB64 = enc.authTagB64;
+      payloadKeyId = enc.keyId;
+    } catch {
+      // Encryption not configured; store null payload
+    }
+    rows.push({
+      rowMatchKey: agg.rowMatchKey,
+      userId: agg.userId,
+      serviceCode: agg.serviceCode,
+      serviceDate: agg.serviceDate,
+      noNoteUnits: Number(agg.noNoteUnits.toFixed(2)),
+      draftUnits: Number(agg.draftUnits.toFixed(2)),
+      finalizedUnits: Number(agg.finalizedUnits.toFixed(2)),
+      payloadCiphertextB64,
+      payloadIvB64,
+      payloadAuthTagB64,
+      payloadKeyId
+    });
+  }
+  return rows;
+}
+
 async function snapshotPayrollRun({ payrollPeriodId, agencyId, ranByUserId }) {
   const payrollImportId = await latestImportIdForPeriod(payrollPeriodId);
   const run = await PayrollPeriodRun.create({ payrollPeriodId, agencyId, payrollImportId, ranByUserId });
   const rows = await buildEffectiveSnapshotRowsNoCarryover(payrollPeriodId, agencyId);
   await PayrollPeriodRunRow.bulkInsert({ payrollPeriodRunId: run.id, payrollPeriodId, agencyId, rows });
+
+  if (payrollImportId) {
+    const importRows = await loadImportRowsForSnapshot(payrollPeriodId, payrollImportId);
+    const snapshotRows = await buildSnapshotRowsFromImportRows({ agencyId, payrollPeriodId, importRows });
+    if (snapshotRows.length) {
+      await PayrollPeriodRunSnapshot.bulkInsert({
+        payrollPeriodRunId: run.id,
+        payrollPeriodId,
+        agencyId,
+        rows: snapshotRows
+      });
+    }
+  }
   return run;
 }
 
@@ -7148,6 +7685,227 @@ function computeStillUnpaidFromRunRows({ runRows }) {
   return rows;
 }
 
+function computeSnapshotBasedCarryover({ baselineSnapshots, compareSnapshots, priorAgencyId }) {
+  const byKeyBase = new Map(); // row_match_key -> { userId, serviceCode, providerName, unpaid, finalized }
+  const byKeyCur = new Map();
+  const normCode = (v) => String(v || '').trim().toUpperCase();
+
+  for (const r of baselineSnapshots || []) {
+    const key = r.row_match_key;
+    const unpaid = Number(r.no_note_units || 0) + Number(r.draft_units || 0);
+    const finalized = Number(r.finalized_units || 0);
+    if (!byKeyBase.has(key)) byKeyBase.set(key, { userId: r.user_id, serviceCode: r.service_code, providerName: null, unpaid: 0, finalized: 0 });
+    const b = byKeyBase.get(key);
+    b.unpaid += unpaid;
+    b.finalized += finalized;
+    if (r.user_id) b.userId = r.user_id;
+  }
+  for (const r of compareSnapshots || []) {
+    const key = r.row_match_key;
+    const unpaid = Number(r.no_note_units || 0) + Number(r.draft_units || 0);
+    const finalized = Number(r.finalized_units || 0);
+    if (!byKeyCur.has(key)) byKeyCur.set(key, { userId: r.user_id, serviceCode: r.service_code, providerName: null, unpaid: 0, finalized: 0 });
+    const c = byKeyCur.get(key);
+    c.unpaid += unpaid;
+    c.finalized += finalized;
+    if (r.user_id) c.userId = r.user_id;
+  }
+
+  const totalsByUserCodeBase = new Map();
+  const totalsByUserCodeCur = new Map();
+  const totalsByProviderCodeBase = new Map();
+  const totalsByProviderCodeCur = new Map();
+  const normProviderKey = (v) => String(v || '').trim().replace(/\s+/g, ' ').toLowerCase();
+
+  for (const [key, b] of byKeyBase) {
+    const code = normCode(b.serviceCode);
+    if (b.userId > 0) {
+      const k = `${b.userId}:${code}`;
+      if (!totalsByUserCodeBase.has(k)) totalsByUserCodeBase.set(k, { userId: b.userId, serviceCode: code, providerName: null, unpaid: 0, finalized: 0 });
+      const t = totalsByUserCodeBase.get(k);
+      t.unpaid += b.unpaid;
+      t.finalized += b.finalized;
+    } else {
+      const k2 = `_provider:${code}`;
+      if (!totalsByProviderCodeBase.has(k2)) totalsByProviderCodeBase.set(k2, { providerKey: k2, providerName: null, serviceCode: code, unpaid: 0, finalized: 0 });
+      const t = totalsByProviderCodeBase.get(k2);
+      t.unpaid += b.unpaid;
+      t.finalized += b.finalized;
+    }
+  }
+  for (const [key, c] of byKeyCur) {
+    const code = normCode(c.serviceCode);
+    if (c.userId > 0) {
+      const k = `${c.userId}:${code}`;
+      if (!totalsByUserCodeCur.has(k)) totalsByUserCodeCur.set(k, { userId: c.userId, serviceCode: code, providerName: null, unpaid: 0, finalized: 0 });
+      const t = totalsByUserCodeCur.get(k);
+      t.unpaid += c.unpaid;
+      t.finalized += c.finalized;
+    } else {
+      const k2 = `_provider:${code}`;
+      if (!totalsByProviderCodeCur.has(k2)) totalsByProviderCodeCur.set(k2, { providerKey: k2, providerName: null, serviceCode: code, unpaid: 0, finalized: 0 });
+      const t = totalsByProviderCodeCur.get(k2);
+      t.unpaid += c.unpaid;
+      t.finalized += c.finalized;
+    }
+  }
+
+  const carryByUserCode = new Map();
+  const carryCountsByUserCode = new Map();
+  const carryByProviderCode = new Map();
+  const carryCountsByProviderCode = new Map();
+
+  for (const [rowKey, b] of byKeyBase.entries()) {
+    const c = byKeyCur.get(rowKey) || { unpaid: 0, finalized: 0 };
+    const unpaidDrop = Number((Number(b.unpaid || 0) - Number(c.unpaid || 0)).toFixed(2));
+    const finalizedDelta = Number((Number(c.finalized || 0) - Number(b.finalized || 0)).toFixed(2));
+    if (unpaidDrop <= 1e-9) continue;
+    if (finalizedDelta <= 1e-9) continue;
+    const carry = Math.max(0, Math.min(unpaidDrop, finalizedDelta));
+    if (carry <= 1e-9) continue;
+    const code = normCode(b.serviceCode);
+    if (b.userId > 0) {
+      const k = `${b.userId}:${code}`;
+      carryByUserCode.set(k, Number(((carryByUserCode.get(k) || 0) + carry).toFixed(2)));
+      carryCountsByUserCode.set(k, Number((carryCountsByUserCode.get(k) || 0) + 1));
+    } else {
+      const k2 = `_provider:${code}`;
+      carryByProviderCode.set(k2, Number(((carryByProviderCode.get(k2) || 0) + carry).toFixed(2)));
+      carryCountsByProviderCode.set(k2, Number((carryCountsByProviderCode.get(k2) || 0) + 1));
+    }
+  }
+
+  const lateAddedByUserCode = new Map();
+  for (const r of compareSnapshots || []) {
+    const rowKey = r.row_match_key;
+    if (byKeyBase.has(rowKey)) continue;
+    const code = normCode(r.service_code);
+    const finalized = Number(r.finalized_units || 0);
+    const draft = Number(r.draft_units || 0);
+    const noNote = Number(r.no_note_units || 0);
+    const userId = Number(r.user_id || 0);
+    if (userId > 0) {
+      const k = `${userId}:${code}`;
+      if (!lateAddedByUserCode.has(k)) lateAddedByUserCode.set(k, { userId, serviceCode: code, providerName: null, noNote: 0, draft: 0, finalized: 0, finalizedKeys: new Set(), draftKeys: new Set(), noNoteKeys: new Set() });
+      const t = lateAddedByUserCode.get(k);
+      t.finalized += finalized;
+      t.draft += draft;
+      t.noNote += noNote;
+      if (finalized > 0) t.finalizedKeys.add(rowKey);
+      if (draft > 0) t.draftKeys.add(rowKey);
+      if (noNote > 0) t.noNoteKeys.add(rowKey);
+    }
+  }
+
+  const outDeltas = [];
+  for (const [k, carry] of carryByUserCode.entries()) {
+    const [uidStr, code] = k.split(':');
+    const uid = Number(uidStr);
+    const base = totalsByUserCodeBase.get(k) || totalsByUserCodeCur.get(k) || { unpaid: 0, finalized: 0, providerName: null };
+    const cur = totalsByUserCodeCur.get(k) || totalsByUserCodeBase.get(k) || { unpaid: 0, finalized: 0, providerName: null };
+    outDeltas.push({
+      userId: uid,
+      serviceCode: code,
+      providerName: base.providerName || cur.providerName || null,
+      prevUnpaidUnits: Number((Number(base.unpaid || 0)).toFixed(2)),
+      currUnpaidUnits: Number((Number(cur.unpaid || 0)).toFixed(2)),
+      prevFinalizedUnits: Number((Number(base.finalized || 0)).toFixed(2)),
+      currFinalizedUnits: Number((Number(cur.finalized || 0)).toFixed(2)),
+      finalizedDelta: Number((Number(cur.finalized || 0) - Number(base.finalized || 0)).toFixed(2)),
+      carryoverFinalizedUnits: Number(carry || 0),
+      type: 'late_note_completion',
+      noteCount: Number((carryCountsByUserCode.get(k) || 0)),
+      flagged: 0
+    });
+  }
+  for (const [k, carry] of carryByProviderCode.entries()) {
+    const [providerKey, code] = k.split(':');
+    const base = totalsByProviderCodeBase.get(k) || totalsByProviderCodeCur.get(k) || { unpaid: 0, finalized: 0, providerName: null };
+    const cur = totalsByProviderCodeCur.get(k) || totalsByProviderCodeBase.get(k) || { unpaid: 0, finalized: 0, providerName: null };
+    outDeltas.push({
+      userId: 0,
+      serviceCode: code,
+      providerName: base.providerName || cur.providerName || providerKey || null,
+      prevUnpaidUnits: Number((Number(base.unpaid || 0)).toFixed(2)),
+      currUnpaidUnits: Number((Number(cur.unpaid || 0)).toFixed(2)),
+      prevFinalizedUnits: Number((Number(base.finalized || 0)).toFixed(2)),
+      currFinalizedUnits: Number((Number(cur.finalized || 0)).toFixed(2)),
+      finalizedDelta: Number((Number(cur.finalized || 0) - Number(base.finalized || 0)).toFixed(2)),
+      carryoverFinalizedUnits: Number(carry || 0),
+      type: 'late_note_completion',
+      noteCount: Number((carryCountsByProviderCode.get(k) || 0)),
+      flagged: 0
+    });
+  }
+
+  for (const [k, t] of lateAddedByUserCode.entries()) {
+    const base = totalsByUserCodeBase.get(k) || { unpaid: 0, finalized: 0, providerName: null };
+    const cur = totalsByUserCodeCur.get(k) || { unpaid: 0, finalized: 0, providerName: null };
+    const finalizedUnits = Number((t.finalized || 0).toFixed(2));
+    const draftUnits = Number((t.draft || 0).toFixed(2));
+    const noNoteUnits = Number((t.noNote || 0).toFixed(2));
+    if (finalizedUnits > 1e-9) {
+      outDeltas.push({
+        userId: t.userId,
+        serviceCode: t.serviceCode,
+        providerName: t.providerName || base.providerName || cur.providerName || null,
+        prevUnpaidUnits: Number((base.unpaid || 0).toFixed(2)),
+        currUnpaidUnits: Number((cur.unpaid || 0).toFixed(2)),
+        prevFinalizedUnits: Number((base.finalized || 0).toFixed(2)),
+        currFinalizedUnits: Number((cur.finalized || 0).toFixed(2)),
+        finalizedDelta: finalizedUnits,
+        carryoverFinalizedUnits: finalizedUnits,
+        type: 'late_added_service',
+        lateAddedStatus: 'FINALIZED',
+        noteCount: Number(t?.finalizedKeys?.size || 0),
+        flagged: 0
+      });
+    }
+    if (draftUnits > 1e-9 || noNoteUnits > 1e-9) {
+      outDeltas.push({
+        userId: t.userId,
+        serviceCode: t.serviceCode,
+        providerName: t.providerName || base.providerName || cur.providerName || null,
+        prevUnpaidUnits: Number((base.unpaid || 0).toFixed(2)),
+        currUnpaidUnits: Number((cur.unpaid || 0).toFixed(2)),
+        prevFinalizedUnits: Number((base.finalized || 0).toFixed(2)),
+        currFinalizedUnits: Number((cur.finalized || 0).toFixed(2)),
+        finalizedDelta: draftUnits + noNoteUnits,
+        carryoverFinalizedUnits: 0,
+        type: 'late_added_service',
+        lateAddedStatus: draftUnits > 0 ? 'DRAFT' : 'NO_NOTE',
+        noteCount: Number((t?.draftKeys?.size || 0) + (t?.noNoteKeys?.size || 0)),
+        flagged: 1
+      });
+    }
+  }
+
+  const stillUnpaidByKey = new Map();
+  for (const [key, c] of byKeyCur.entries()) {
+    const unpaid = Number(c.unpaid || 0);
+    if (unpaid <= 1e-9) continue;
+    const code = normCode(c.serviceCode);
+    if (c.userId > 0) {
+      const k = `${c.userId}:${code}`;
+      stillUnpaidByKey.set(k, (stillUnpaidByKey.get(k) || 0) + unpaid);
+    } else {
+      const k = `_provider:${code}`;
+      stillUnpaidByKey.set(k, (stillUnpaidByKey.get(k) || 0) + unpaid);
+    }
+  }
+  const stillUnpaid = [];
+  for (const [k, units] of stillUnpaidByKey.entries()) {
+    if (k.startsWith('_provider:')) {
+      stillUnpaid.push({ userId: 0, serviceCode: k.replace('_provider:', ''), providerName: null, stillUnpaidUnits: Number(units.toFixed(2)) });
+    } else {
+      const [uidStr, code] = k.split(':');
+      stillUnpaid.push({ userId: Number(uidStr), serviceCode: code, providerName: null, stillUnpaidUnits: Number(units.toFixed(2)) });
+    }
+  }
+
+  return { deltas: outDeltas, stillUnpaid };
+}
+
 export const listPayrollPeriodRuns = async (req, res, next) => {
   try {
     const payrollPeriodId = parseInt(req.params.id);
@@ -7219,30 +7977,43 @@ export const snapshotPayrollPeriodRunFromFile = [
         if (b) addNameKeyToIds(nameToIds, b, u.id);
       }
 
-      // Aggregate by (userId, serviceCode)
+      // Aggregate by (userId, serviceCode) for run-row fallback
       const byKey = new Map();
       const unmatched = new Set();
+      const parsedForSnapshots = []; // row-level for snapshot matching
       for (const r of parsed || []) {
-        const userId = resolveUserIdForProviderName(nameToIds, r.providerName);
-        if (!userId) {
-          const nm = String(r.providerName || '').trim();
-          if (nm) unmatched.add(nm);
-          continue;
-        }
+        const userId = resolveUserIdForProviderName(nameToIds, r.providerName) || 0;
+        const providerName = String(r.providerName || '').trim();
         const serviceCode = String(r.serviceCode || '').trim();
         if (!serviceCode) continue;
         const note = String(r.noteStatus || '').trim().toUpperCase();
         const units = Number(r.unitCount || 0);
         if (!Number.isFinite(units) || units <= 0) continue;
 
-        const k = `${userId}:${serviceCode.toUpperCase()}`;
+        if (!userId) {
+          const nm = providerName || 'unknown';
+          if (nm) unmatched.add(nm);
+        }
+
+        const k = `${userId || 0}:${serviceCode.toUpperCase()}`;
         if (!byKey.has(k)) {
-          byKey.set(k, { userId, serviceCode, noNoteUnits: 0, draftUnits: 0, finalizedUnits: 0 });
+          byKey.set(k, { userId: userId || 0, serviceCode, noNoteUnits: 0, draftUnits: 0, finalizedUnits: 0 });
         }
         const agg = byKey.get(k);
         if (note === 'NO_NOTE') agg.noNoteUnits += units;
-        else if (note === 'DRAFT') agg.draftUnits += units; // treat all drafts as payable for comparison purposes
+        else if (note === 'DRAFT') agg.draftUnits += units; // file has no draft_payable; treat as unpaid for comparison
         else if (note === 'FINALIZED') agg.finalizedUnits += units;
+
+        parsedForSnapshots.push({
+          user_id: userId || 0,
+          provider_name: providerName,
+          patient_first_name: r.patientFirstName ?? '',
+          service_code: serviceCode,
+          service_date: r.serviceDate || null,
+          note_status: note,
+          draft_payable: note === 'DRAFT' ? 0 : 1, // file has no override; treat DRAFT as unpaid
+          unit_count: units
+        });
       }
 
       const rows = Array.from(byKey.values()).map((x) => ({
@@ -7261,10 +8032,22 @@ export const snapshotPayrollPeriodRunFromFile = [
       });
       await PayrollPeriodRunRow.bulkInsert({ payrollPeriodRunId: run.id, payrollPeriodId, agencyId: period.agency_id, rows });
 
+      // Create row-level snapshots from parsed file so Process Changes gets accurate comparison
+      const snapshotRows = await buildSnapshotRowsFromImportRows({ agencyId: period.agency_id, payrollPeriodId, importRows: parsedForSnapshots });
+      if (snapshotRows.length) {
+        await PayrollPeriodRunSnapshot.bulkInsert({
+          payrollPeriodRunId: run.id,
+          payrollPeriodId,
+          agencyId: period.agency_id,
+          rows: snapshotRows
+        });
+      }
+
       res.json({
         ok: true,
         run,
         inserted: rows.length,
+        snapshotRows: snapshotRows.length,
         unmatchedProvidersSample: Array.from(unmatched).slice(0, 50)
       });
     } catch (e) {
@@ -7274,17 +8057,69 @@ export const snapshotPayrollPeriodRunFromFile = [
 ];
 
 // Carryover workflow (late notes): compare two runs of the prior pay period.
+// Supports multi-period: priorPeriodIds=123,456 returns { priorPeriods: [{ priorPeriodId, deltas, stillUnpaid, ... }] }.
 export const previewPayrollCarryover = async (req, res, next) => {
   try {
     const payrollPeriodId = parseInt(req.params.id);
+    const priorPeriodIdsParam = req.query.priorPeriodIds ? String(req.query.priorPeriodIds).trim() : null;
+    const priorPeriodIds = priorPeriodIdsParam
+      ? priorPeriodIdsParam.split(',').map((s) => parseInt(s.trim(), 10)).filter((n) => Number.isFinite(n) && n > 0)
+      : [];
     const priorPeriodId = req.query.priorPeriodId ? parseInt(req.query.priorPeriodId) : null;
     const baselineRunId = req.query.baselineRunId ? parseInt(req.query.baselineRunId) : null;
     const compareRunId = req.query.compareRunId ? parseInt(req.query.compareRunId) : null;
-    if (!priorPeriodId) return res.status(400).json({ error: { message: 'priorPeriodId is required' } });
+    const multiPeriod = priorPeriodIds.length > 0;
+    if (!priorPeriodId && !multiPeriod) return res.status(400).json({ error: { message: 'priorPeriodId or priorPeriodIds is required' } });
 
     const period = await PayrollPeriod.findById(payrollPeriodId);
     if (!period) return res.status(404).json({ error: { message: 'Pay period not found' } });
     if (!(await requirePayrollAccess(req, res, period.agency_id))) return;
+
+    if (multiPeriod) {
+      const priorPeriods = [];
+      for (const ppId of priorPeriodIds) {
+        const prior = await PayrollPeriod.findById(ppId);
+        if (!prior || prior.agency_id !== period.agency_id) continue;
+        const runs = await PayrollPeriodRun.listForPeriod(ppId);
+        if (!runs.length) {
+          priorPeriods.push({ priorPeriodId: ppId, prior, baselineRun: null, compareRun: null, deltas: [], stillUnpaid: [] });
+          continue;
+        }
+        // Compare most recent run to the one before it: e.g. run on 2/27 vs run on 2/13 (not original 1/30)
+        const compareId = runs[runs.length - 1].id;
+        const baselineId = runs.length >= 2 ? runs[runs.length - 2].id : runs[0].id;
+        const baseSnapshots = await PayrollPeriodRunSnapshot.listForRun(baselineId);
+        const curSnapshots = await PayrollPeriodRunSnapshot.listForRun(compareId);
+        let deltas = [];
+        let stillUnpaid = [];
+        if (baseSnapshots.length && curSnapshots.length) {
+          const result = computeSnapshotBasedCarryover({ baselineSnapshots: baseSnapshots, compareSnapshots: curSnapshots, priorAgencyId: prior.agency_id });
+          deltas = result.deltas;
+          stillUnpaid = result.stillUnpaid;
+        } else {
+          const baseRows = await PayrollPeriodRunRow.listForRun(baselineId);
+          const curRows = await PayrollPeriodRunRow.listForRun(compareId);
+          deltas = computeRunToRunUnpaidDeltas({ baselineRows: baseRows, compareRows: curRows });
+          stillUnpaid = computeStillUnpaidFromRunRows({ runRows: curRows });
+        }
+        const userIds = Array.from(new Set([...(deltas || []).map((d) => d.userId), ...(stillUnpaid || []).map((d) => d.userId)])).filter((x) => x > 0);
+        let userMap = new Map();
+        if (userIds.length) {
+          const ph = userIds.map(() => '?').join(',');
+          const [urows] = await pool.execute(`SELECT id, first_name, last_name FROM users WHERE id IN (${ph})`, userIds);
+          userMap = new Map((urows || []).map((u) => [u.id, u]));
+        }
+        priorPeriods.push({
+          priorPeriodId: ppId,
+          prior,
+          baselineRun: runs.length >= 2 ? runs[runs.length - 2] : runs[0],
+          compareRun: runs[runs.length - 1],
+          deltas: deltas.map((d) => ({ ...d, firstName: userMap.get(d.userId)?.first_name || null, lastName: userMap.get(d.userId)?.last_name || null })),
+          stillUnpaid: stillUnpaid.map((d) => ({ ...d, firstName: userMap.get(d.userId)?.first_name || null, lastName: userMap.get(d.userId)?.last_name || null }))
+        });
+      }
+      return res.json({ title: 'No-note/Draft Unpaid (Multi-Period)', period, priorPeriods });
+    }
 
     const prior = await PayrollPeriod.findById(priorPeriodId);
     if (!prior || prior.agency_id !== period.agency_id) {
@@ -7295,17 +8130,24 @@ export const previewPayrollCarryover = async (req, res, next) => {
     if (!runs.length) {
       return res.json({ title: 'No-note/Draft Unpaid', period, prior, baselineRun: null, compareRun: null, deltas: [] });
     }
-    const baselineId = baselineRunId || runs[0].id;
+    // Default: compare most recent run to the one before it (e.g. 2/27 run vs 2/13 run, not original 1/30)
     const compareId = compareRunId || runs[runs.length - 1].id;
+    const baselineId = baselineRunId || (runs.length >= 2 ? runs[runs.length - 2].id : runs[0].id);
 
     const baselineRun = (runs || []).find((r) => Number(r.id) === Number(baselineId)) || null;
     const compareRun = (runs || []).find((r) => Number(r.id) === Number(compareId)) || null;
 
-    // Prefer import-row comparison (fingerprint-based), which is more accurate than code-level aggregates.
-    // Falls back to run-row comparison if payroll_import_id isn't available.
+    // Prefer snapshot-based comparison (row_match_key) when both runs have snapshots.
+    // Fall back to import-row (fingerprint) or run-row comparison.
     let deltas = [];
     let stillUnpaid = [];
-    if (baselineRun?.payroll_import_id && compareRun?.payroll_import_id) {
+    const baseSnapshots = await PayrollPeriodRunSnapshot.listForRun(baselineId);
+    const curSnapshots = await PayrollPeriodRunSnapshot.listForRun(compareId);
+    if (baseSnapshots.length && curSnapshots.length) {
+      const result = computeSnapshotBasedCarryover({ baselineSnapshots: baseSnapshots, compareSnapshots: curSnapshots, priorAgencyId: prior.agency_id });
+      deltas = result.deltas;
+      stillUnpaid = result.stillUnpaid;
+    } else if (baselineRun?.payroll_import_id && compareRun?.payroll_import_id) {
       const baseImportId = Number(baselineRun.payroll_import_id);
       const curImportId = Number(compareRun.payroll_import_id);
 
@@ -7775,8 +8617,58 @@ export const previewPayrollCarryover = async (req, res, next) => {
             [payrollPeriodId]
           );
 
-          const fps = Array.from(new Set((curDraftRows || []).map((r) => String(r?.row_fingerprint || '').trim()).filter(Boolean)));
           const curUserIds = Array.from(new Set((curDraftRows || []).map((r) => Number(r?.user_id || 0)).filter((n) => n > 0)));
+          const matchKeys = Array.from(new Set((curDraftRows || []).map((r) => {
+            const providerName = String(r?.provider_name || '').trim();
+            const serviceCode = String(r?.service_code || '').trim();
+            if (!serviceCode) return null;
+            return computeRowMatchKey({ agencyId: period.agency_id, serviceDate: r?.service_date, serviceCode, providerName, patientFirstName: r?.patient_first_name ?? '' });
+          }).filter(Boolean)));
+          const fps = Array.from(new Set((curDraftRows || []).map((r) => String(r?.row_fingerprint || '').trim()).filter(Boolean)));
+
+          // Prefer snapshot-based lookup when we have snapshots for prior periods.
+          let prevByMatchKey = new Map();
+          if (prevIds.length && matchKeys.length) {
+            const latestRunIds = [];
+            for (const ppId of prevIds) {
+              const [runs] = await pool.execute(
+                `SELECT id FROM payroll_period_runs WHERE payroll_period_id = ? ORDER BY ran_at DESC, id DESC LIMIT 1`,
+                [ppId]
+              );
+              if (runs?.[0]?.id) latestRunIds.push(runs[0].id);
+            }
+            if (latestRunIds.length) {
+              const [snapRows] = await pool.execute(
+                `SELECT payroll_period_run_id, payroll_period_id, row_match_key, no_note_units, draft_units, finalized_units
+                 FROM payroll_period_run_snapshots
+                 WHERE payroll_period_run_id IN (${latestRunIds.map(() => '?').join(',')})
+                   AND row_match_key IN (${matchKeys.map(() => '?').join(',')})`,
+                [...latestRunIds, ...matchKeys]
+              );
+              const [periodRows] = await pool.execute(
+                `SELECT id, period_start, period_end FROM payroll_periods WHERE id IN (${prevIds.map(() => '?').join(',')})`,
+                prevIds
+              );
+              const periodMap = new Map((periodRows || []).map((p) => [p.id, p]));
+              for (const s of snapRows || []) {
+                const key = String(s?.row_match_key || '').trim();
+                if (!key) continue;
+                const ppId = Number(s?.payroll_period_id || 0);
+                const pp = periodMap.get(ppId);
+                const noteStatus = Number(s?.no_note_units || 0) > 0 ? 'NO_NOTE' : (Number(s?.draft_units || 0) > 0 ? 'DRAFT' : 'FINALIZED');
+                const draftPayable = 0;
+                if (!prevByMatchKey.has(key)) prevByMatchKey.set(key, []);
+                prevByMatchKey.get(key).push({
+                  payrollPeriodId: ppId,
+                  periodStart: pp ? String(pp.period_start || '').slice(0, 10) : '',
+                  periodEnd: pp ? String(pp.period_end || '').slice(0, 10) : '',
+                  noteStatus,
+                  draftPayable,
+                  serviceCode: null
+                });
+              }
+            }
+          }
 
           // Also match across code changes using a no-code identity key (DOS + clinician + patient-first-name).
           // This enables draft confirmation when a prior NO_NOTE becomes a DRAFT under a different code.
@@ -7833,7 +8725,7 @@ export const previewPayrollCarryover = async (req, res, next) => {
             prevByNoCode = new Map();
           }
 
-          if (fps.length || prevByNoCode.size) {
+          if (fps.length || prevByNoCode.size || prevByMatchKey.size) {
             const fpPlaceholders = fps.map(() => '?').join(',');
             const prevPlaceholders = prevIds.map(() => '?').join(',');
             const prevRows = fps.length
@@ -7879,11 +8771,21 @@ export const previewPayrollCarryover = async (req, res, next) => {
 
             draftReview = (curDraftRows || [])
               .map((r) => {
+                // Draft marked as payable (draft_payable=1) = already confirmed, treat like finalized. Do not re-address.
+                if (Number(r?.draft_payable || 0) === 1) return null;
                 const fp = String(r?.row_fingerprint || '').trim();
                 const nk = computeNoCodeKey(r);
+                const rowMatchKey = computeRowMatchKey({
+                  agencyId: period.agency_id,
+                  serviceDate: r?.service_date,
+                  serviceCode: String(r?.service_code || '').trim(),
+                  providerName: String(r?.provider_name || '').trim(),
+                  patientFirstName: r?.patient_first_name ?? ''
+                });
                 const priorFp = fp ? (prevByFp.get(fp) || []) : [];
                 const priorNc = nk ? (prevByNoCode.get(nk) || []) : [];
-                const prior = [...priorFp, ...priorNc];
+                const priorMk = rowMatchKey ? (prevByMatchKey.get(rowMatchKey) || []) : [];
+                const prior = [...priorFp, ...priorNc, ...priorMk];
                 if (!prior.length) return null;
 
                 // Require confirmation when we see:
@@ -7917,6 +8819,7 @@ export const previewPayrollCarryover = async (req, res, next) => {
                   patientFirstName: String(r?.patient_first_name || '').trim() || null,
                   clientHint: clientHint(r) || null,
                   rowFingerprint: fp,
+                  rowMatchKey: rowMatchKey || null,
                   noCodeKey: nk || null,
                   reasons,
                   prior
@@ -8133,13 +9036,33 @@ export const applyPayrollCarryover = async (req, res, next) => {
     } else {
       const runs = await PayrollPeriodRun.listForPeriod(priorPeriodId);
       if (!runs.length) return res.json({ ok: true, inserted: 0 });
-      const baselineId = baselineRunId || runs[0].id;
       const compareId = compareRunId || runs[runs.length - 1].id;
+      const baselineId = baselineRunId || (runs.length >= 2 ? runs[runs.length - 2].id : runs[0].id);
       const baselineRun = (runs || []).find((r) => Number(r.id) === Number(baselineId)) || null;
       const compareRun = (runs || []).find((r) => Number(r.id) === Number(compareId)) || null;
 
-      // Prefer fingerprint-based import-row comparison so we can compute note (row) counts, not just units.
-      if (baselineRun?.payroll_import_id && compareRun?.payroll_import_id) {
+      const baseSnapshots = await PayrollPeriodRunSnapshot.listForRun(baselineId);
+      const curSnapshots = await PayrollPeriodRunSnapshot.listForRun(compareId);
+      if (baseSnapshots.length && curSnapshots.length) {
+        const result = computeSnapshotBasedCarryover({ baselineSnapshots: baseSnapshots, compareSnapshots: curSnapshots, priorAgencyId: period.agency_id });
+        const byUserCode = new Map();
+        for (const d of result.deltas || []) {
+          const carry = Number(d.carryoverFinalizedUnits || 0);
+          if (carry <= 1e-9 || !d.userId) continue;
+          const k = `${d.userId}:${d.serviceCode}`;
+          if (!byUserCode.has(k)) byUserCode.set(k, { userId: d.userId, serviceCode: d.serviceCode, units: 0, notes: 0 });
+          const t = byUserCode.get(k);
+          t.units = Number((t.units + carry).toFixed(2));
+          t.notes += Number(d.noteCount || 0) || 1;
+        }
+        rows = Array.from(byUserCode.values()).map((t) => ({
+          userId: t.userId,
+          serviceCode: t.serviceCode,
+          carryoverFinalizedUnits: t.units,
+          carryoverFinalizedRowCount: t.notes,
+          carryoverMeta: { categories: { old_note: { units: t.units, notes: t.notes }, late_addition: { units: 0, notes: 0 }, code_changed: { units: 0, notes: 0, fromCodes: [] } } }
+        })).filter((r) => Number(r?.carryoverFinalizedUnits || 0) > 1e-9);
+      } else if (baselineRun?.payroll_import_id && compareRun?.payroll_import_id) {
         const baseImportId = Number(baselineRun.payroll_import_id);
         const curImportId = Number(compareRun.payroll_import_id);
 

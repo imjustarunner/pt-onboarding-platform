@@ -3,6 +3,7 @@ import { authenticate } from '../middleware/auth.middleware.js';
 import {
   createPayrollPeriod,
   listPayrollPeriods,
+  getUnpaidDraftsReport,
   getPayrollPeriod,
   patchPayrollImportRow,
   downloadPayrollRawCsv,
@@ -48,6 +49,7 @@ import {
   deletePayrollRateTemplate,
   applyPayrollRateTemplateToUser,
   importPayrollAuto,
+  batchCatchUp,
   detectPayrollAuto,
   importPayrollCsv,
   toolComparePayrollFiles,
@@ -181,6 +183,7 @@ router.use(authenticate);
 router.post('/periods', createPayrollPeriod);
 router.post('/periods/ensure-future', ensureFuturePayrollPeriods);
 router.get('/periods', listPayrollPeriods);
+router.get('/periods/unpaid-drafts-report', getUnpaidDraftsReport);
 router.get('/periods/:id', getPayrollPeriod);
 router.patch('/import-rows/:rowId', patchPayrollImportRow);
 router.get('/periods/:id/reports/sessions-units', getPayrollReportSessionsUnits);
@@ -342,6 +345,7 @@ router.post('/rate-templates/:id/apply', applyPayrollRateTemplateToUser);
 // and constrain ":id" to digits so "/periods/auto/import" doesn't get treated as id="auto".
 router.post('/periods/auto/import', ...importPayrollAuto);
 router.post('/periods/auto/detect', ...detectPayrollAuto);
+router.post('/periods/batch-catch-up', ...batchCatchUp);
 router.post('/periods/:id(\\d+)/import', ...importPayrollCsv);
 router.post('/periods/:id(\\d+)/supervision/import', ...importSupervisionCsv);
 

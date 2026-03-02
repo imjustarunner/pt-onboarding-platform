@@ -1026,6 +1026,54 @@
       <div class="hint">
         Use this when you re-run a <strong>prior</strong> pay period report to catch late notes. The system will auto-detect which prior pay period the upload belongs to, compare “then vs now”, and let you add only the differences into the <strong>present</strong> pay period.
       </div>
+      <div class="hint" style="margin-top: 6px;">
+        <strong>One-time batch catch-up:</strong> Upload 3 reports for the <strong>same pay period</strong> at 3 different times (first run, second run, latest). The system compares them and adds late notes in one step.
+      </div>
+
+      <div class="card" style="margin-top: 12px; padding: 12px; background: #f8f9fa;">
+        <div class="hint" style="font-weight: 600;">Batch catch-up (same period, 3 times)</div>
+        <div class="field-row" style="margin-top: 8px; grid-template-columns: 1fr 1fr 1fr; gap: 8px;">
+          <div class="field">
+            <label>First run</label>
+            <input type="file" accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" @change="onBatchFilePick($event, 1)" />
+          </div>
+          <div class="field">
+            <label>Second run</label>
+            <input type="file" accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" @change="onBatchFilePick($event, 2)" />
+          </div>
+          <div class="field">
+            <label>Latest</label>
+            <input type="file" accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" @change="onBatchFilePick($event, 3)" />
+          </div>
+        </div>
+        <div class="actions" style="margin-top: 10px;">
+          <button class="btn btn-primary" @click="runBatchCatchUp" :disabled="batchCatchUpLoading || !batchFiles[1] || !batchFiles[2] || !batchFiles[3] || !agencyId">
+            {{ batchCatchUpLoading ? 'Processing…' : 'Upload all 3 & add changes' }}
+          </button>
+        </div>
+        <div v-if="batchCatchUpResult" style="margin-top: 10px;">
+          <div class="hint" style="color: var(--success);">
+            Done. Imported {{ batchCatchUpResult.importedRows }} rows, applied {{ batchCatchUpResult.carryoverRowsApplied }} carryover rows. Select the period above to review.
+          </div>
+          <div v-if="batchCatchUpResult.superFlagCount > 0" class="warn-box" style="margin-top: 10px; padding: 12px;">
+            <strong>Attention ({{ batchCatchUpResult.superFlagCount }}):</strong> Unpaid/no notes are delinquent for over 2 weeks. Please address as soon as possible. This notification has been sent to supervisors and the admin team. If help is needed completing notes, please reach out.
+            <table class="table" style="margin-top: 8px; font-size: 0.9em;">
+              <thead>
+                <tr><th>User</th><th>Service code</th><th class="right">Run 1 unpaid</th><th class="right">Run 3 unpaid</th></tr>
+              </thead>
+              <tbody>
+                <tr v-for="f in (batchCatchUpResult.superFlag || [])" :key="`${f.userId}-${f.serviceCode}`">
+                  <td>{{ f.providerName || getUserName(f.userId) }}</td>
+                  <td>{{ f.serviceCode }}</td>
+                  <td class="right">{{ fmtNum(f.run1UnpaidUnits) }}</td>
+                  <td class="right">{{ fmtNum(f.run3UnpaidUnits) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div v-if="batchCatchUpError" class="warn-box" style="margin-top: 10px;">{{ batchCatchUpError }}</div>
+      </div>
 
       <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr 1fr;">
         <div class="field">
@@ -1110,6 +1158,47 @@
         </div>
       </div>
 
+    </div>
+
+    <!-- Unpaid Drafts Report: legacy-only for migration from old system -->
+    <div class="card" v-if="agencyId" style="margin-bottom: 12px;">
+      <h2 class="card-title">Unpaid Drafts Report (Legacy)</h2>
+      <div class="hint">
+        Shows no-note and unpaid draft units from prior periods. <strong>Legacy only</strong> — use when migrating from the old system to see what was left unpaid so you can manually add via carryover. The new snapshot-based system handles this automatically.
+      </div>
+      <div class="actions" style="margin-top: 10px;">
+        <button class="btn btn-secondary" @click="loadUnpaidDraftsReport" :disabled="unpaidDraftsLoading || !agencyId">
+          {{ unpaidDraftsLoading ? 'Loading…' : 'Load unpaid drafts from prior periods' }}
+        </button>
+      </div>
+      <div v-if="unpaidDraftsReport?.report?.length" class="table-wrap" style="margin-top: 12px;">
+        <div v-for="p in unpaidDraftsReport.report" :key="p.payrollPeriodId" style="margin-bottom: 16px;">
+          <div class="hint" style="font-weight: 600;">{{ p.periodStart }} → {{ p.periodEnd }} ({{ p.status }}) — {{ fmtNum(p.totalUnpaidUnits) }} unpaid units</div>
+          <table class="table" style="margin-top: 6px;">
+            <thead>
+              <tr>
+                <th>Provider</th>
+                <th>Service code</th>
+                <th class="right">No-note</th>
+                <th class="right">Draft unpaid</th>
+                <th class="right">Total unpaid</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="r in (p.rows || [])" :key="`${p.payrollPeriodId}-${r.userId}-${r.serviceCode}`">
+                <td>{{ r.providerName || '—' }}</td>
+                <td>{{ r.serviceCode }}</td>
+                <td class="right">{{ fmtNum(r.noNoteUnits) }}</td>
+                <td class="right">{{ fmtNum(r.draftUnits) }}</td>
+                <td class="right"><strong>{{ fmtNum(r.totalUnpaidUnits) }}</strong></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div v-else-if="unpaidDraftsReport && !unpaidDraftsReport.report?.length" class="hint muted" style="margin-top: 12px;">
+        No unpaid drafts found in the last {{ unpaidDraftsReport.periodsScanned || 5 }} pay periods.
+      </div>
     </div>
 
     <!-- Process Changes Aggregate (scoped to current agency) -->
@@ -3113,7 +3202,7 @@
             <div class="rates-box" style="padding: 0; border: none;">
               <h3 class="section-title">Staging Workspace (Editable Output)</h3>
               <div class="hint">
-                Adjust only these three columns: No Note / Draft / Finalized. Changes will not affect totals until you click <strong>Run Payroll</strong>.
+                Adjust only these three columns: No Note / Draft / Finalized. Changes will not affect totals until you click <strong>Run Payroll</strong>. Manual edits for unpaid and no-note rows remain editable until the period is posted.
               </div>
 
           <div class="field-row" style="grid-template-columns: 1fr 1fr 1fr; margin-top: 10px;">
@@ -4279,6 +4368,55 @@
               </div>
             </div>
 
+            <div v-if="carryoverMultiPeriodLoading" class="muted" style="margin-top: 10px;">Loading 2 ago vs 1 ago comparison…</div>
+            <div v-if="!carryoverMultiPeriodLoading && (carryoverPriorPeriods || []).length" class="card" style="margin-top: 10px;">
+              <h3 class="section-title" style="margin-top: 0;">2 payrolls ago vs 1 payroll ago vs today</h3>
+              <div class="hint">
+                Comparison across prior periods. Each section shows late-note completions and still-unpaid for that prior period.
+              </div>
+              <div v-for="(pp, idx) in carryoverPriorPeriods" :key="pp.priorPeriodId" class="period-block" style="margin-top: 12px; padding: 10px; border: 1px solid var(--border); border-radius: 6px;">
+                <div class="field-row" style="grid-template-columns: 1fr auto;">
+                  <span class="period-label"><strong>{{ idx === 0 ? '2 payrolls ago' : '1 payroll ago' }}</strong> — {{ pp.prior?.period_start ? pp.prior.period_start.slice(0, 10) : '' }} → {{ pp.prior?.period_end ? pp.prior.period_end.slice(0, 10) : '' }}</span>
+                  <span class="muted">{{ (pp.deltas || []).length }} delta(s), {{ (pp.stillUnpaid || []).length }} still unpaid</span>
+                </div>
+                <div class="table-wrap" style="margin-top: 8px;">
+                  <table class="table table-sm">
+                    <thead>
+                      <tr>
+                        <th>Provider</th>
+                        <th>Code</th>
+                        <th class="right">Prev Unpaid</th>
+                        <th class="right">Cur Unpaid</th>
+                        <th class="right">Finalized Δ</th>
+                        <th>Type</th>
+                        <th class="right">Carry</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="(d, i) in (pp.deltas || []).slice(0, 15)" :key="i">
+                        <td>{{ d.lastName ? `${d.lastName}, ${d.firstName || ''}` : (d.providerName || '—') }}</td>
+                        <td>{{ d.serviceCode }}</td>
+                        <td class="right">{{ fmtNum(d.prevUnpaidUnits) }}</td>
+                        <td class="right">{{ fmtNum(d.currUnpaidUnits) }}</td>
+                        <td class="right">{{ fmtNum(d.finalizedDelta ?? 0) }}</td>
+                        <td class="muted">{{ d.type === 'late_note_completion' ? 'Late note' : (d.type || '—') }}</td>
+                        <td class="right">{{ fmtNum(d.carryoverFinalizedUnits) }}</td>
+                      </tr>
+                      <tr v-if="(pp.deltas || []).length > 15">
+                        <td colspan="7" class="muted">… and {{ (pp.deltas || []).length - 15 }} more</td>
+                      </tr>
+                      <tr v-if="!(pp.deltas || []).length">
+                        <td colspan="7" class="muted">No changes detected.</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <div v-if="(pp.stillUnpaid || []).length" class="hint" style="margin-top: 6px;">
+                  Still unpaid: {{ (pp.stillUnpaid || []).map((s) => `${s.serviceCode} (${fmtNum(s.stillUnpaidUnits)})`).join(', ') }}
+                </div>
+              </div>
+            </div>
+
             <div v-if="carryoverError" class="error-box">{{ carryoverError }}</div>
             <div v-if="carryoverApplyResult" class="warn-box" style="margin-top: 10px;">
               <div><strong>Applied carryover:</strong> {{ Number(carryoverApplyResult.inserted || 0) }} row(s) added to payroll stage.</div>
@@ -5383,6 +5521,12 @@ const serviceCodeRulesError = ref('');
 const processImportFile = ref(null);
 const processingChanges = ref(false);
 const processError = ref('');
+const unpaidDraftsReport = ref(null);
+const unpaidDraftsLoading = ref(false);
+const batchFiles = ref({ 1: null, 2: null, 3: null });
+const batchCatchUpLoading = ref(false);
+const batchCatchUpResult = ref(null);
+const batchCatchUpError = ref('');
 const processDetectedHint = ref('');
 const processSourcePeriodId = ref(null);
 const processSourcePeriodLabel = ref('');
@@ -5428,6 +5572,8 @@ const carryoverDraftReviewSearch = ref('');
 const updatingCarryoverDraftRowId = ref(null);
 const carryoverPriorStillUnpaid = ref([]); // rows in the prior period that are STILL unpaid after the comparison run
 const carryoverPriorStillUnpaidMeta = ref(null); // { priorPeriodId, baselineRunId, compareRunId }
+const carryoverPriorPeriods = ref([]); // multi-period: [{ priorPeriodId, prior, deltas, stillUnpaid }] for 2 ago, 1 ago
+const carryoverMultiPeriodLoading = ref(false);
 const loadingPriorStillUnpaidForStage = ref(false);
 const priorStillUnpaidStageError = ref('');
 const applyingCarryover = ref(false);
@@ -8074,6 +8220,10 @@ const fmtNum = (v) => {
   const n = Number(v || 0);
   return n.toLocaleString(undefined, { maximumFractionDigits: 2 });
 };
+const getUserName = (userId) => {
+  const u = (sortedAgencyUsers.value || []).find((x) => Number(x?.id) === Number(userId));
+  return u ? `${u.last_name || ''}, ${u.first_name || ''}`.replace(/^,\s*|,\s*$/g, '').trim() || `User #${userId}` : `User #${userId}`;
+};
 const fmtInt = (v) => {
   const n = Number(v || 0);
   return n.toLocaleString(undefined, { maximumFractionDigits: 0 });
@@ -9678,6 +9828,27 @@ const defaultPriorPeriodId = computed(() => {
   return prior?.id || null;
 });
 
+const loadCarryoverMultiPeriod = async () => {
+  if (!selectedPeriodId.value) return;
+  const opts = carryoverCompareOptions.value || [];
+  const priorIds = opts.slice(0, 2).map((p) => p.id).filter(Boolean);
+  if (priorIds.length < 2) {
+    carryoverPriorPeriods.value = [];
+    return;
+  }
+  try {
+    carryoverMultiPeriodLoading.value = true;
+    const resp = await api.get(`/payroll/periods/${selectedPeriodId.value}/carryover/preview`, {
+      params: { priorPeriodIds: priorIds.join(',') }
+    });
+    carryoverPriorPeriods.value = resp.data?.priorPeriods || [];
+  } catch {
+    carryoverPriorPeriods.value = [];
+  } finally {
+    carryoverMultiPeriodLoading.value = false;
+  }
+};
+
 const openCarryoverModal = async () => {
   showCarryoverModal.value = true;
   carryoverError.value = '';
@@ -9685,12 +9856,14 @@ const openCarryoverModal = async () => {
   carryoverPreview.value = [];
   carryoverPriorStillUnpaid.value = [];
   carryoverPriorStillUnpaidMeta.value = null;
+  carryoverPriorPeriods.value = [];
   carryoverRuns.value = [];
   carryoverBaselineRunId.value = null;
   carryoverCompareRunId.value = null;
   manualCarryoverEnabled.value = false;
   manualCarryover.value = { userId: null, serviceCode: '', oldDoneNotesUnits: '' };
   carryoverPriorPeriodId.value = defaultPriorPeriodId.value;
+  loadCarryoverMultiPeriod();
   if (carryoverPriorPeriodId.value) {
     await loadCarryoverRuns();
     await loadCarryoverPreview();
@@ -10912,6 +11085,52 @@ onMounted(async () => {
 
 const onProcessFilePick = (evt) => {
   processImportFile.value = evt.target.files?.[0] || null;
+};
+
+const onBatchFilePick = (evt, slot) => {
+  batchFiles.value = { ...batchFiles.value, [slot]: evt.target.files?.[0] || null };
+  batchCatchUpResult.value = null;
+  batchCatchUpError.value = '';
+};
+
+const runBatchCatchUp = async () => {
+  if (!agencyId.value || !batchFiles.value[1] || !batchFiles.value[2] || !batchFiles.value[3]) return;
+  try {
+    batchCatchUpLoading.value = true;
+    batchCatchUpError.value = '';
+    batchCatchUpResult.value = null;
+    const fd = new FormData();
+    fd.append('file1', batchFiles.value[1]);
+    fd.append('file2', batchFiles.value[2]);
+    fd.append('file3', batchFiles.value[3]);
+    fd.append('agencyId', String(agencyId.value));
+    const resp = await api.post('/payroll/periods/batch-catch-up', fd);
+    batchCatchUpResult.value = resp.data || null;
+    await loadPeriods();
+    if (batchCatchUpResult.value?.period?.id) {
+      await selectPeriod(batchCatchUpResult.value.period.id);
+    }
+  } catch (e) {
+    batchCatchUpError.value = e.response?.data?.error?.message || e.message || 'Batch catch-up failed';
+  } finally {
+    batchCatchUpLoading.value = false;
+  }
+};
+
+const loadUnpaidDraftsReport = async () => {
+  if (!agencyId.value) return;
+  try {
+    unpaidDraftsLoading.value = true;
+    unpaidDraftsReport.value = null;
+    const resp = await api.get('/payroll/periods/unpaid-drafts-report', {
+      params: { agencyId: agencyId.value, periods: 5 }
+    });
+    unpaidDraftsReport.value = resp.data || null;
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || e.message || 'Failed to load unpaid drafts report';
+  } finally {
+    unpaidDraftsLoading.value = false;
+  }
 };
 
 const processAutoImport = async () => {
