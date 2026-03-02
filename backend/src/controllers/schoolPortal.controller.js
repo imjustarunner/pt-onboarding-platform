@@ -1518,6 +1518,20 @@ export const listSchoolStaff = async (req, res, next) => {
       }
     }
 
+    let contactByEmail = {};
+    try {
+      const [contactRows] = await pool.execute(
+        `SELECT id, email FROM school_contacts WHERE school_organization_id = ?`,
+        [orgId]
+      );
+      for (const c of contactRows || []) {
+        const e = c.email ? String(c.email).trim().toLowerCase() : '';
+        if (e) contactByEmail[e] = c.id;
+      }
+    } catch {
+      // school_contacts table may not exist
+    }
+
     const result = (rows || []).map((r) => {
       const emailNorm = r.email ? String(r.email).trim().toLowerCase() : '';
       const isPrimary = !!primaryEmail && emailNorm === primaryEmail;
@@ -1536,7 +1550,8 @@ export const listSchoolStaff = async (req, res, next) => {
         created_at: r.created_at,
         last_login: lastLoginByUser[r.id] || null,
         password_reset_expires_at: hasResetToken && !resetExpired ? r.passwordless_token_expires_at : null,
-        is_primary: isPrimary
+        is_primary: isPrimary,
+        school_contact_id: contactByEmail[emailNorm] || null
       };
     });
 
@@ -1651,19 +1666,28 @@ export const sendSchoolStaffResetPassword = async (req, res, next) => {
     const actorRole = String(req.user?.role || '').toLowerCase();
     const actorEmail = req.user?.email || req.user?.username;
 
+    const isAgencyAdmin =
+      actorRole === 'super_admin' ||
+      actorRole === 'admin' ||
+      actorRole === 'staff' ||
+      actorRole === 'support' ||
+      actorRole === 'clinical_practice_assistant' ||
+      actorRole === 'provider_plus';
     const isPrimary = actorRole === 'school_staff' && (await isPrimarySchoolContact(actorId, actorEmail, orgId));
-    if (!isPrimary) {
+    if (!isAgencyAdmin && !isPrimary) {
       return res.status(403).json({
-        error: { message: 'Only the primary school contact can send password reset links from the portal' }
+        error: { message: 'Only the primary school contact or agency admin/staff can send password reset links from the portal' }
       });
     }
 
-    const ok = await userHasOrgOrAffiliatedAgencyAccess({
-      userId: actorId,
-      role: actorRole,
-      schoolOrganizationId: orgId
-    });
-    if (!ok) return res.status(403).json({ error: { message: 'You do not have access to this school organization' } });
+    if (!isAgencyAdmin) {
+        const ok = await userHasOrgOrAffiliatedAgencyAccess({
+        userId: actorId,
+        role: actorRole,
+        schoolOrganizationId: orgId
+      });
+      if (!ok) return res.status(403).json({ error: { message: 'You do not have access to this school organization' } });
+    }
 
     const user = await User.findById(targetUserId);
     if (!user) return res.status(404).json({ error: { message: 'User not found' } });
@@ -1847,19 +1871,28 @@ export const addSchoolStaff = async (req, res, next) => {
     const actorRole = String(req.user?.role || '').toLowerCase();
     const actorEmail = req.user?.email || req.user?.username;
 
+    const isAgencyAdmin =
+      actorRole === 'super_admin' ||
+      actorRole === 'admin' ||
+      actorRole === 'staff' ||
+      actorRole === 'support' ||
+      actorRole === 'clinical_practice_assistant' ||
+      actorRole === 'provider_plus';
     const isPrimary = actorRole === 'school_staff' && (await isPrimarySchoolContact(actorId, actorEmail, orgId));
-    if (!isPrimary) {
+    if (!isAgencyAdmin && !isPrimary) {
       return res.status(403).json({
-        error: { message: 'Only the primary school contact can add school staff from the portal' }
+        error: { message: 'Only the primary school contact or agency admin/staff can add school staff from the portal' }
       });
     }
 
-    const ok = await userHasOrgOrAffiliatedAgencyAccess({
-      userId: actorId,
-      role: actorRole,
-      schoolOrganizationId: orgId
-    });
-    if (!ok) return res.status(403).json({ error: { message: 'You do not have access to this school organization' } });
+    if (!isAgencyAdmin) {
+      const ok = await userHasOrgOrAffiliatedAgencyAccess({
+        userId: actorId,
+        role: actorRole,
+        schoolOrganizationId: orgId
+      });
+      if (!ok) return res.status(403).json({ error: { message: 'You do not have access to this school organization' } });
+    }
 
     const emailRaw = req.body?.email;
     const fullName = req.body?.fullName !== undefined ? String(req.body.fullName || '').trim() : null;
@@ -2035,6 +2068,207 @@ export const addSchoolStaff = async (req, res, next) => {
       emailSent,
       message: emailSent ? 'School staff added and setup email sent' : 'School staff added; share the setup link manually'
     });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Update a school staff member (admin/super_admin only).
+ * PUT /api/school-portal/:organizationId/school-staff/:userId
+ * Body: { firstName?, lastName?, email? }
+ */
+export const updateSchoolStaff = async (req, res, next) => {
+  try {
+    const { organizationId, userId: targetUserIdParam } = req.params;
+    const orgId = parseInt(organizationId, 10);
+    const targetUserId = parseInt(targetUserIdParam, 10);
+    if (!orgId || !targetUserId) return res.status(400).json({ error: { message: 'Invalid organizationId or userId' } });
+
+    const actorRole = String(req.user?.role || '').toLowerCase();
+    const isAgencyAdmin =
+      actorRole === 'super_admin' ||
+      actorRole === 'admin' ||
+      actorRole === 'staff' ||
+      actorRole === 'support' ||
+      actorRole === 'clinical_practice_assistant' ||
+      actorRole === 'provider_plus';
+    if (!isAgencyAdmin) {
+      return res.status(403).json({ error: { message: 'Only agency admin/staff can edit school staff from the portal' } });
+    }
+
+    const ok = await userHasOrgOrAffiliatedAgencyAccess({
+      userId: req.user?.id,
+      role: actorRole,
+      schoolOrganizationId: orgId
+    });
+    if (!ok) return res.status(403).json({ error: { message: 'You do not have access to this school organization' } });
+
+    const user = await User.findById(targetUserId);
+    if (!user) return res.status(404).json({ error: { message: 'User not found' } });
+    if (String(user.role || '').toLowerCase() !== 'school_staff') {
+      return res.status(400).json({ error: { message: 'Only school_staff users can be edited via this endpoint' } });
+    }
+
+    const membership = await User.getAgencyMembership(targetUserId, orgId);
+    if (!membership) return res.status(400).json({ error: { message: 'User is not assigned to this school' } });
+
+    const firstName = req.body?.firstName !== undefined ? String(req.body.firstName || '').trim() : undefined;
+    const lastName = req.body?.lastName !== undefined ? String(req.body.lastName || '').trim() : undefined;
+    const email = req.body?.email !== undefined ? String(req.body.email || '').trim().toLowerCase() : undefined;
+    if (email !== undefined && (!email || !email.includes('@'))) {
+      return res.status(400).json({ error: { message: 'Invalid email address' } });
+    }
+
+    const updates = {};
+    if (firstName !== undefined) updates.firstName = firstName || 'School';
+    if (lastName !== undefined) updates.lastName = lastName || 'Staff';
+    if (email !== undefined) updates.email = email;
+
+    if (Object.keys(updates).length) {
+      await User.update(targetUserId, updates);
+    }
+
+    const oldEmail = user.email ? String(user.email).trim().toLowerCase() : '';
+    const newEmail = email || oldEmail;
+    if (newEmail && (updates.email !== undefined || updates.firstName !== undefined || updates.lastName !== undefined)) {
+      try {
+        const fullName =
+          updates.firstName !== undefined || updates.lastName !== undefined
+            ? `${updates.firstName ?? user.first_name ?? ''} ${updates.lastName ?? user.last_name ?? ''}`.trim()
+            : `${user.first_name || ''} ${user.last_name || ''}`.trim();
+        const [contactRows] = await pool.execute(
+          `SELECT id FROM school_contacts WHERE school_organization_id = ? AND email = ? LIMIT 1`,
+          [orgId, oldEmail]
+        );
+        if (contactRows?.length) {
+          const contactId = contactRows[0].id;
+          const updateParts = [];
+          const updateVals = [];
+          if (updates.email !== undefined) {
+            updateParts.push('email = ?');
+            updateVals.push(newEmail);
+          }
+          if (fullName) {
+            updateParts.push('full_name = ?');
+            updateVals.push(fullName);
+          }
+          if (updateParts.length) {
+            updateVals.push(contactId, orgId);
+            await pool.execute(
+              `UPDATE school_contacts SET ${updateParts.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND school_organization_id = ?`,
+              updateVals
+            );
+          }
+        } else {
+          await pool.execute(
+            `INSERT INTO school_contacts (school_organization_id, full_name, email, role_title, notes, is_primary)
+             VALUES (?, ?, ?, ?, NULL, 0)
+             ON DUPLICATE KEY UPDATE full_name = COALESCE(VALUES(full_name), full_name), updated_at = CURRENT_TIMESTAMP`,
+            [orgId, fullName || `${user.first_name || ''} ${user.last_name || ''}`.trim() || null, newEmail, null]
+          );
+        }
+      } catch (e) {
+        if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+      }
+    }
+
+    const updated = await User.findById(targetUserId);
+    res.json({
+      ok: true,
+      user: {
+        id: updated.id,
+        first_name: updated.first_name,
+        last_name: updated.last_name,
+        email: updated.email
+      }
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Set a school staff member as the primary contact (admin/super_admin only).
+ * POST /api/school-portal/:organizationId/school-staff/:userId/set-primary
+ */
+export const setPrimarySchoolStaff = async (req, res, next) => {
+  try {
+    const { organizationId, userId: targetUserIdParam } = req.params;
+    const orgId = parseInt(organizationId, 10);
+    const targetUserId = parseInt(targetUserIdParam, 10);
+    if (!orgId || !targetUserId) return res.status(400).json({ error: { message: 'Invalid organizationId or userId' } });
+
+    const actorRole = String(req.user?.role || '').toLowerCase();
+    const isAgencyAdmin =
+      actorRole === 'super_admin' ||
+      actorRole === 'admin' ||
+      actorRole === 'staff' ||
+      actorRole === 'support' ||
+      actorRole === 'clinical_practice_assistant' ||
+      actorRole === 'provider_plus';
+    if (!isAgencyAdmin) {
+      return res.status(403).json({ error: { message: 'Only agency admin/staff can change the primary contact' } });
+    }
+
+    const ok = await userHasOrgOrAffiliatedAgencyAccess({
+      userId: req.user?.id,
+      role: actorRole,
+      schoolOrganizationId: orgId
+    });
+    if (!ok) return res.status(403).json({ error: { message: 'You do not have access to this school organization' } });
+
+    const user = await User.findById(targetUserId);
+    if (!user) return res.status(404).json({ error: { message: 'User not found' } });
+    if (String(user.role || '').toLowerCase() !== 'school_staff') {
+      return res.status(400).json({ error: { message: 'Only school_staff users can be set as primary' } });
+    }
+
+    const membership = await User.getAgencyMembership(targetUserId, orgId);
+    if (!membership) return res.status(400).json({ error: { message: 'User is not assigned to this school' } });
+
+    const email = (user.email || user.username || '').trim().toLowerCase();
+    if (!email || !email.includes('@')) {
+      return res.status(400).json({ error: { message: 'User must have an email to be set as primary contact' } });
+    }
+
+    const conn = await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      await conn.execute(`UPDATE school_contacts SET is_primary = FALSE WHERE school_organization_id = ?`, [orgId]);
+      const [existing] = await conn.execute(
+        `SELECT id FROM school_contacts WHERE school_organization_id = ? AND email = ? LIMIT 1`,
+        [orgId, email]
+      );
+      if (existing?.length) {
+        await conn.execute(
+          `UPDATE school_contacts SET is_primary = TRUE, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND school_organization_id = ?`,
+          [existing[0].id, orgId]
+        );
+      } else {
+        const fullName = `${user.first_name || ''} ${user.last_name || ''}`.trim() || null;
+        await conn.execute(
+          `INSERT INTO school_contacts (school_organization_id, full_name, email, role_title, notes, is_primary)
+           VALUES (?, ?, ?, NULL, NULL, 1)`,
+          [orgId, fullName, email]
+        );
+      }
+      await conn.commit();
+    } catch (e) {
+      try {
+        await conn.rollback();
+      } catch {
+        // ignore
+      }
+      if (e?.code === 'ER_NO_SUCH_TABLE') {
+        return res.status(400).json({ error: { message: 'School contacts are not enabled (missing school_contacts table)' } });
+      }
+      throw e;
+    } finally {
+      conn.release();
+    }
+
+    res.json({ ok: true, message: 'Primary contact updated' });
   } catch (e) {
     next(e);
   }

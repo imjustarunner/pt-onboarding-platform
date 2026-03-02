@@ -40,6 +40,23 @@
 
         <div class="card-actions">
           <button
+            v-if="canEdit"
+            class="btn btn-secondary btn-sm"
+            type="button"
+            @click="openEdit(u)"
+          >
+            Edit
+          </button>
+          <button
+            v-if="canSetPrimary(u)"
+            class="btn btn-secondary btn-sm"
+            type="button"
+            @click="setPrimary(u)"
+            :disabled="settingPrimaryId === u.id"
+          >
+            {{ settingPrimaryId === u.id ? 'Setting…' : 'Set as primary' }}
+          </button>
+          <button
             v-if="u.id !== currentUserId"
             class="btn btn-secondary btn-sm"
             type="button"
@@ -99,6 +116,34 @@
       <div v-if="addSuccess" class="success">{{ addSuccess }}</div>
     </div>
 
+    <div v-if="showEditModal" class="modal-overlay" @click.self="closeEdit">
+      <div class="modal" @click.stop>
+        <div class="modal-header">
+          <strong>Edit school staff</strong>
+          <button class="btn btn-secondary btn-sm" type="button" @click="closeEdit">Close</button>
+        </div>
+        <div class="modal-body">
+          <label class="field">
+            First name
+            <input v-model="editForm.firstName" class="input" type="text" placeholder="First name" />
+          </label>
+          <label class="field">
+            Last name
+            <input v-model="editForm.lastName" class="input" type="text" placeholder="Last name" />
+          </label>
+          <label class="field">
+            Email
+            <input v-model="editForm.email" class="input" type="email" placeholder="Email" />
+          </label>
+          <div class="modal-actions">
+            <button class="btn btn-primary" type="button" @click="saveEdit" :disabled="savingEdit">
+              {{ savingEdit ? 'Saving…' : 'Save' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div v-if="canRequest && !canAdd" class="request-box">
       <div style="font-weight: 800; margin-bottom: 8px;">Request an additional account</div>
       <div class="row">
@@ -150,8 +195,12 @@ const canRemove = (u) =>
   isAgencyAdmin.value ||
   (roleNorm.value === 'school_staff' && isCurrentUserPrimary.value && u.id !== currentUserId.value);
 const canSendReset = (u) =>
-  roleNorm.value === 'school_staff' && isCurrentUserPrimary.value && u.id !== currentUserId.value;
-const canAdd = computed(() => roleNorm.value === 'school_staff' && isCurrentUserPrimary.value);
+  (isAgencyAdmin.value || (roleNorm.value === 'school_staff' && isCurrentUserPrimary.value)) && u.id !== currentUserId.value;
+const canAdd = computed(
+  () => isAgencyAdmin.value || (roleNorm.value === 'school_staff' && isCurrentUserPrimary.value)
+);
+const canEdit = computed(() => isAgencyAdmin.value);
+const canSetPrimary = (u) => isAgencyAdmin.value && !u.is_primary && u.id !== currentUserId.value;
 const canManageTickets = computed(() =>
   ['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus'].includes(roleNorm.value)
 );
@@ -177,6 +226,12 @@ const adding = ref(false);
 const addName = ref('');
 const addEmail = ref('');
 const addSuccess = ref('');
+
+const showEditModal = ref(false);
+const editTarget = ref(null);
+const editForm = ref({ firstName: '', lastName: '', email: '' });
+const savingEdit = ref(false);
+const settingPrimaryId = ref(null);
 
 const formatDate = (d) => {
   if (!d) return '—';
@@ -208,6 +263,67 @@ const load = async () => {
     staff.value = [];
   } finally {
     loading.value = false;
+  }
+};
+
+const openEdit = (u) => {
+  editTarget.value = u;
+  editForm.value = {
+    firstName: u.first_name || '',
+    lastName: u.last_name || '',
+    email: u.email || ''
+  };
+  showEditModal.value = true;
+};
+
+const closeEdit = () => {
+  showEditModal.value = false;
+  editTarget.value = null;
+};
+
+const saveEdit = async () => {
+  const u = editTarget.value;
+  if (!u?.id) return;
+  const firstName = String(editForm.value.firstName || '').trim();
+  const lastName = String(editForm.value.lastName || '').trim();
+  const email = String(editForm.value.email || '').trim().toLowerCase();
+  if (!email || !email.includes('@')) {
+    error.value = 'Please enter a valid email address.';
+    return;
+  }
+  try {
+    savingEdit.value = true;
+    error.value = '';
+    await api.put(`/school-portal/${props.schoolOrganizationId}/school-staff/${u.id}`, {
+      firstName: firstName || undefined,
+      lastName: lastName || undefined,
+      email
+    });
+    closeEdit();
+    await load();
+    success.value = 'Staff updated.';
+    setTimeout(() => { success.value = ''; }, 3000);
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to update staff';
+  } finally {
+    savingEdit.value = false;
+  }
+};
+
+const setPrimary = async (u) => {
+  if (!u?.id) return;
+  if (!confirm(`Set ${[u.first_name, u.last_name].filter(Boolean).join(' ') || u.email} as the primary contact for this school?`)) return;
+  try {
+    settingPrimaryId.value = u.id;
+    error.value = '';
+    await api.post(`/school-portal/${props.schoolOrganizationId}/school-staff/${u.id}/set-primary`);
+    await load();
+    success.value = 'Primary contact updated.';
+    setTimeout(() => { success.value = ''; }, 3000);
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to set primary contact';
+  } finally {
+    settingPrimaryId.value = null;
   }
 };
 
@@ -442,6 +558,45 @@ onMounted(load);
   color: var(--text-primary);
   margin-top: 6px;
 }
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.modal {
+  width: 400px;
+  max-width: 95vw;
+  background: white;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+.modal-header {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.modal-body {
+  padding: 16px;
+}
+.modal-body .field {
+  margin-bottom: 12px;
+}
+.modal-body .field:last-of-type {
+  margin-bottom: 16px;
+}
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 @media (max-width: 820px) {
   .row { grid-template-columns: 1fr; }
 }

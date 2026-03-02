@@ -5224,41 +5224,157 @@ export const batchCatchUp = [
       const f1 = req.files?.file1?.[0] || null;
       const f2 = req.files?.file2?.[0] || null;
       const f3 = req.files?.file3?.[0] || null;
-      if (!f1 || !f2) {
-        return res.status(400).json({ error: { message: 'file1 and file2 are required (same period, 2 or 3 runs)' } });
-      }
-      const twoRunMode = !f3;
+      const useDbBaseline = String(req.body?.useDbBaseline ?? req.query?.useDbBaseline ?? 'false').toLowerCase() === 'true';
+      const priorPeriodIdRaw = req.body?.priorPeriodId ?? req.query?.priorPeriodId;
+      const priorPeriodId = priorPeriodIdRaw ? parseInt(priorPeriodIdRaw, 10) : null;
 
-      const parsed1 = parsePayrollFile(f1.buffer, f1.originalname || 'file1.csv')?.rows || [];
-      const parsed2 = parsePayrollFile(f2.buffer, f2.originalname || 'file2.csv')?.rows || [];
-      const parsed3 = f3 ? (parsePayrollFile(f3.buffer, f3.originalname || 'file3.csv')?.rows || []) : [];
-      if (!parsed1.length || !parsed2.length) {
-        return res.status(400).json({ error: { message: 'Each file must contain rows. Check file format.' } });
-      }
-      if (!twoRunMode && !parsed3.length) {
-        return res.status(400).json({ error: { message: 'File 3 must contain rows when using 3-run mode.' } });
-      }
+      let period;
+      let twoRunMode;
+      let run1;
+      let run2;
+      let run3 = null;
 
-      const period1 = await detectPeriodFromParsed({ agencyId, parsed: parsed1 });
-      const period2 = await detectPeriodFromParsed({ agencyId, parsed: parsed2 });
-      const period3 = !twoRunMode ? await detectPeriodFromParsed({ agencyId, parsed: parsed3 }) : period2;
-      if (!period1?.id || !period2?.id || (!twoRunMode && !period3?.id)) {
-        return res.status(400).json({
-          error: {
-            message: 'Could not match all files to an existing pay period. Ensure the period exists and dates match.'
-          },
-          detected: { p1: period1?.id, p2: period2?.id, p3: period3?.id }
-        });
-      }
-      if (period1.id !== period2.id || (!twoRunMode && period2.id !== period3.id)) {
-        return res.status(400).json({
-          error: {
-            message: 'All files must be for the same pay period. Detected different periods.',
-            periodIds: [period1.id, period2.id, period3?.id]
+      if (useDbBaseline && priorPeriodId && f2) {
+        // Import + draft audit flow: use prior period's DB run as baseline, file2 as compare.
+        period = await PayrollPeriod.findById(priorPeriodId);
+        if (!period || period.agency_id !== agencyId) {
+          return res.status(400).json({ error: { message: 'Prior period not found or does not belong to this agency.' } });
+        }
+        const runs = await PayrollPeriodRun.listForPeriod(priorPeriodId);
+        if (!runs?.length) {
+          const hasImport = await latestImportIdForPeriod(priorPeriodId);
+          if (hasImport) {
+            const run = await snapshotPayrollRun({
+              payrollPeriodId: priorPeriodId,
+              agencyId: period.agency_id,
+              ranByUserId: req.user.id
+            });
+            run1 = { run, snapshotRows: await PayrollPeriodRunSnapshot.listForRun(run.id) };
+          } else {
+            return res.status(400).json({
+              error: {
+                message: 'Create baseline first: import Run 1 into the prior period, do draft audit (mark drafts unpaid), then create a baseline run.'
+              }
+            });
           }
+        } else {
+          const latestRun = runs[runs.length - 1];
+          run1 = { run: latestRun, snapshotRows: await PayrollPeriodRunSnapshot.listForRun(latestRun.id) };
+        }
+        twoRunMode = true;
+        const parsed2 = parsePayrollFile(f2.buffer, f2.originalname || 'file2.csv')?.rows || [];
+        if (!parsed2.length) {
+          return res.status(400).json({ error: { message: 'Run 2 file must contain rows.' } });
+        }
+        const period2 = await detectPeriodFromParsed({ agencyId, parsed: parsed2 });
+        if (!period2?.id || period2.id !== period.id) {
+          return res.status(400).json({
+            error: { message: 'Run 2 file must be for the same pay period as the prior period.' },
+            detected: { p2: period2?.id }
+          });
+        }
+        const agencyUsers = await getAgencyUsersForPayrollMatching(agencyId);
+        const nameToIds = new Map();
+        for (const u of agencyUsers || []) {
+          const first = String(u.first_name || '').trim();
+          const last = String(u.last_name || '').trim();
+          const a = normalizeName(`${first} ${last}`);
+          const b = normalizeName(`${last} ${first}`);
+          if (a) addNameKeyToIds(nameToIds, a, u.id);
+          if (b) addNameKeyToIds(nameToIds, b, u.id);
+        }
+        const createSnapshotRunFromParsed = (parsed) => {
+          const byKey = new Map();
+          const parsedForSnapshots = [];
+          for (const r of parsed || []) {
+            const userId = resolveUserIdForProviderName(nameToIds, r.providerName) || 0;
+            const providerName = String(r.providerName || '').trim();
+            const serviceCode = String(r.serviceCode || '').trim();
+            if (!serviceCode) continue;
+            const note = String(r.noteStatus || '').trim().toUpperCase();
+            const units = Number(r.unitCount || 0);
+            if (!Number.isFinite(units) || units <= 0) continue;
+            const k = `${userId || 0}:${serviceCode.toUpperCase()}`;
+            if (!byKey.has(k)) byKey.set(k, { userId: userId || 0, serviceCode, noNoteUnits: 0, draftUnits: 0, finalizedUnits: 0 });
+            const agg = byKey.get(k);
+            if (note === 'NO_NOTE') agg.noNoteUnits += units;
+            else if (note === 'DRAFT') agg.draftUnits += units;
+            else if (note === 'FINALIZED') agg.finalizedUnits += units;
+            parsedForSnapshots.push({
+              user_id: userId || 0,
+              provider_name: providerName,
+              patient_first_name: r.patientFirstName ?? '',
+              service_code: serviceCode,
+              service_date: r.serviceDate || null,
+              note_status: note,
+              draft_payable: note === 'DRAFT' ? 0 : 1,
+              unit_count: units
+            });
+          }
+          return { parsedForSnapshots, byKey };
+        };
+        const file2Info = createSnapshotRunFromParsed(parsed2);
+        const rows = Array.from(file2Info.byKey.values()).map((x) => ({
+          userId: x.userId,
+          serviceCode: x.serviceCode,
+          noNoteUnits: Number((x.noNoteUnits || 0).toFixed(2)),
+          draftUnits: Number((x.draftUnits || 0).toFixed(2)),
+          finalizedUnits: Number((x.finalizedUnits || 0).toFixed(2))
+        }));
+        const r2 = await PayrollPeriodRun.create({
+          payrollPeriodId: period.id,
+          agencyId: period.agency_id,
+          payrollImportId: null,
+          ranByUserId: req.user.id
         });
+        await PayrollPeriodRunRow.bulkInsert({ payrollPeriodRunId: r2.id, payrollPeriodId: period.id, agencyId: period.agency_id, rows });
+        const snapshotRows2 = await buildSnapshotRowsFromImportRows({ agencyId: period.agency_id, payrollPeriodId: period.id, importRows: file2Info.parsedForSnapshots });
+        if (snapshotRows2.length) {
+          await PayrollPeriodRunSnapshot.bulkInsert({
+            payrollPeriodRunId: r2.id,
+            payrollPeriodId: period.id,
+            agencyId: period.agency_id,
+            rows: snapshotRows2
+          });
+        }
+        run2 = { run: r2, snapshotRows: snapshotRows2 };
+      } else {
+        if (!f1 || !f2) {
+          return res.status(400).json({ error: { message: 'file1 and file2 are required (same period, 2 or 3 runs)' } });
+        }
+        twoRunMode = !f3;
+
+        const parsed1 = parsePayrollFile(f1.buffer, f1.originalname || 'file1.csv')?.rows || [];
+        const parsed2 = parsePayrollFile(f2.buffer, f2.originalname || 'file2.csv')?.rows || [];
+        const parsed3 = f3 ? (parsePayrollFile(f3.buffer, f3.originalname || 'file3.csv')?.rows || []) : [];
+        if (!parsed1.length || !parsed2.length) {
+          return res.status(400).json({ error: { message: 'Each file must contain rows. Check file format.' } });
+        }
+        if (!twoRunMode && !parsed3.length) {
+          return res.status(400).json({ error: { message: 'File 3 must contain rows when using 3-run mode.' } });
+        }
+
+        const period1 = await detectPeriodFromParsed({ agencyId, parsed: parsed1 });
+        const period2 = await detectPeriodFromParsed({ agencyId, parsed: parsed2 });
+        const period3 = !twoRunMode ? await detectPeriodFromParsed({ agencyId, parsed: parsed3 }) : period2;
+        if (!period1?.id || !period2?.id || (!twoRunMode && !period3?.id)) {
+          return res.status(400).json({
+            error: {
+              message: 'Could not match all files to an existing pay period. Ensure the period exists and dates match.'
+            },
+            detected: { p1: period1?.id, p2: period2?.id, p3: period3?.id }
+          });
+        }
+        if (period1.id !== period2.id || (!twoRunMode && period2.id !== period3.id)) {
+          return res.status(400).json({
+            error: {
+              message: 'All files must be for the same pay period. Detected different periods.',
+              periodIds: [period1.id, period2.id, period3?.id]
+            }
+          });
+        }
+        period = period1;
       }
-      const period = period1;
 
       const agencyUsers = await getAgencyUsersForPayrollMatching(agencyId);
       const nameToIds = new Map();
@@ -5325,9 +5441,11 @@ export const batchCatchUp = [
         return { run, snapshotRows };
       };
 
-      const run1 = await createSnapshotRun({ parsed: parsed1 });
-      const run2 = await createSnapshotRun({ parsed: parsed2 });
-      const run3 = twoRunMode ? null : await createSnapshotRun({ parsed: parsed3 });
+      if (!useDbBaseline) {
+        run1 = await createSnapshotRun({ parsed: parsed1 });
+        run2 = await createSnapshotRun({ parsed: parsed2 });
+        run3 = twoRunMode ? null : await createSnapshotRun({ parsed: parsed3 });
+      }
 
       const destinationPeriodIdRaw = req.body?.destinationPeriodId ?? req.body?.destination_period_id ?? req.query?.destinationPeriodId;
       const destinationPeriodId = destinationPeriodIdRaw ? parseInt(destinationPeriodIdRaw, 10) : null;

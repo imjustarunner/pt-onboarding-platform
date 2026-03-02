@@ -415,8 +415,57 @@
                 <div class="hint" style="margin-top: 8px;">This period will be used for all following steps.</div>
               </div>
 
+              <div v-else-if="wizardStep?.key === 'upload_prior_run1'" class="hint">
+                <div>Upload the <strong>first</strong> billing report for the prior pay period. This will be imported so you can mark drafts as unpaid (draft audit) before comparing with Run 2.</div>
+                <div class="field" style="margin-top: 10px;">
+                  <label>Prior pay period</label>
+                  <select v-model="wizardPriorPeriodId" :disabled="!agencyId || !(wizardPriorPeriodOptions || []).length" style="min-width: 260px;">
+                    <option :value="null" disabled>Select prior period…</option>
+                    <option v-for="p in wizardPriorPeriodOptions" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
+                  </select>
+                </div>
+                <div class="field" style="margin-top: 10px;">
+                  <label>Run 1 file</label>
+                  <input type="file" accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" @change="onWizardPriorRun1Pick" />
+                </div>
+                <div class="actions" style="margin-top: 10px;">
+                  <button class="btn btn-primary" type="button" @click="wizardImportPriorRun1AndNext" :disabled="wizardPriorImportLoading || !wizardPriorRun1File || !wizardPriorPeriodId">
+                    {{ wizardPriorImportLoading ? 'Importing…' : 'Import Run 1 & Next' }}
+                  </button>
+                  <button class="btn btn-secondary" type="button" @click="wizardNext">Skip</button>
+                </div>
+                <div v-if="wizardPriorImportResult" class="hint" style="color: var(--success); margin-top: 8px;">{{ wizardPriorImportResult }}</div>
+                <div v-if="wizardPriorImportError" class="warn-box" style="margin-top: 10px;">{{ wizardPriorImportError }}</div>
+              </div>
+
+              <div v-else-if="wizardStep?.key === 'draft_audit_prior'" class="hint">
+                <div>Mark drafts as <strong>unpaid</strong> for the prior period (Run 1). This tracks providers who are skirting the system. Required before comparing with Run 2.</div>
+                <div class="field" style="margin-top: 10px;">
+                  <label>Prior pay period</label>
+                  <select v-model="wizardPriorPeriodId" :disabled="!agencyId || !(wizardPriorPeriodOptions || []).length" style="min-width: 260px;">
+                    <option :value="null" disabled>Select prior period…</option>
+                    <option v-for="p in wizardPriorPeriodOptions" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
+                  </select>
+                </div>
+                <div class="actions" style="margin-top: 10px;">
+                  <button class="btn btn-primary" type="button" @click="wizardOpenPriorDraftAudit" :disabled="!wizardPriorPeriodId">
+                    Open Draft Audit (Raw Import)
+                  </button>
+                  <button class="btn btn-secondary" type="button" @click="wizardCreatePriorBaselineRun" :disabled="wizardPriorBaselineLoading || !wizardPriorPeriodId">
+                    {{ wizardPriorBaselineLoading ? 'Creating…' : 'Create baseline run (after draft audit)' }}
+                  </button>
+                  <button class="btn btn-secondary" type="button" @click="wizardNext">Skip</button>
+                </div>
+                <div class="hint muted" style="margin-top: 8px;">Open Draft Audit, mark drafts unpaid, then click Create baseline run. Then proceed to Batch catch-up.</div>
+                <div v-if="wizardPriorBaselineResult" class="hint" style="color: var(--success); margin-top: 8px;">{{ wizardPriorBaselineResult }}</div>
+                <div v-if="wizardPriorBaselineError" class="warn-box" style="margin-top: 10px;">{{ wizardPriorBaselineError }}</div>
+              </div>
+
               <div v-else-if="wizardStep?.key === 'batch_catchup'" class="hint">
-                <div>Upload 2 or 3 billing reports for the <strong>same</strong> prior pay period. 2-run: first vs second. 3-run: first, second, latest. Select rows, edit units if needed, then add.</div>
+                <div v-if="wizardPriorPeriodId" class="hint" style="margin-bottom: 10px;">
+                  <strong>Import + draft audit path:</strong> Prior period has Run 1 + draft audit. Upload Run 2 to compare.
+                </div>
+                <div class="hint muted" style="margin-bottom: 8px;">Or <strong>double-check with file compare:</strong> Upload 2 or 3 files (unchanged logic).</div>
                 <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr 1fr; gap: 8px;">
                   <div class="field">
                     <label>First run</label>
@@ -438,9 +487,19 @@
                     <option v-for="p in periods" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
                   </select>
                 </div>
+                <div v-if="wizardPriorPeriodId" class="card" style="margin-top: 10px; padding: 10px; background: #f0f8ff;">
+                  <div class="hint" style="font-weight: 600;">Import + draft audit path</div>
+                  <div class="field" style="margin-top: 8px;">
+                    <label>Run 2 file</label>
+                    <input type="file" accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" @change="onBatchFilePick($event, 2)" />
+                  </div>
+                  <button class="btn btn-primary" type="button" @click="wizardRunBatchCatchUpDbBaseline" :disabled="batchCatchUpLoading || !batchFiles[2] || !agencyId || !batchCatchUpDestinationPeriodId" style="margin-top: 8px;">
+                    {{ batchCatchUpLoading ? 'Comparing…' : 'Upload Run 2 & compare' }}
+                  </button>
+                </div>
                 <div class="actions" style="margin-top: 10px; justify-content: flex-start; flex-wrap: wrap; gap: 8px;">
                   <button class="btn btn-primary" type="button" @click="wizardRunBatchCatchUp" :disabled="batchCatchUpLoading || !batchFiles[1] || !batchFiles[2] || !agencyId">
-                    {{ batchCatchUpLoading ? 'Comparing…' : (batchFiles[3] ? 'Upload 3 & compare' : 'Upload 2 & compare') }}
+                    {{ batchCatchUpLoading ? 'Comparing…' : (batchFiles[3] ? 'Upload 3 & compare (file)' : 'Upload 2 & compare (file)') }}
                   </button>
                   <button class="btn btn-secondary" type="button" @click="wizardNext">Skip</button>
                 </div>
@@ -1112,6 +1171,17 @@
 
       <div class="card" style="margin-top: 12px; padding: 12px; background: #f8f9fa;">
         <div class="hint" style="font-weight: 600;">Batch catch-up (same period, 2 or 3 runs)</div>
+        <div class="hint muted" style="margin-top: 4px;">Import + draft audit path: Import Run 1, do draft audit (mark drafts unpaid), create baseline run, then upload Run 2. Or use file compare (2 or 3 files) to double-check.</div>
+        <div class="field-row" style="margin-top: 8px; grid-template-columns: 1fr 1fr; gap: 8px;">
+          <div class="field">
+            <label>Prior period (for DB baseline)</label>
+            <select v-model="batchCatchUpPriorPeriodId" :disabled="!agencyId || !(processPriorPeriodOptions || []).length" style="min-width: 220px;">
+              <option :value="null">None (use file compare)</option>
+              <option v-for="p in processPriorPeriodOptions" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
+            </select>
+            <div class="hint muted" style="font-size: 0.85em;">If prior has import + draft audit, select it and upload only Run 2.</div>
+          </div>
+        </div>
         <div class="field-row" style="margin-top: 8px; grid-template-columns: 1fr 1fr 1fr; gap: 8px;" :key="`batch-files-${batchCatchUpResetKey}`">
           <div class="field">
             <label>First run</label>
@@ -1136,9 +1206,12 @@
             </select>
             <div class="hint muted" style="margin-top: 4px;">Late notes will be added to this period when you click Add.</div>
           </div>
-          <div class="actions" style="margin: 0;">
+          <div class="actions" style="margin: 0; flex-wrap: wrap; gap: 8px;">
+            <button v-if="batchCatchUpPriorPeriodId" class="btn btn-primary" @click="runBatchCatchUpDbBaseline" :disabled="batchCatchUpLoading || !batchFiles[2] || !agencyId || !batchCatchUpDestinationPeriodId">
+              {{ batchCatchUpLoading ? 'Comparing…' : 'Upload Run 2 & compare (DB baseline)' }}
+            </button>
             <button class="btn btn-primary" @click="runBatchCatchUp" :disabled="batchCatchUpLoading || !batchFiles[1] || !batchFiles[2] || !agencyId">
-              {{ batchCatchUpLoading ? 'Comparing…' : (batchFiles[3] ? 'Upload all 3 & compare' : 'Upload 2 & compare') }}
+              {{ batchCatchUpLoading ? 'Comparing…' : (batchFiles[3] ? 'Upload 3 & compare (file)' : 'Upload 2 & compare (file)') }}
             </button>
           </div>
         </div>
@@ -5728,9 +5801,39 @@ const batchCatchUpError = ref('');
 const batchCatchUpDestinationPeriodId = ref(null);
 const batchCatchUpSelection = ref({}); // { 'userId:code': { selected, units } }
 const batchCatchUpResetKey = ref(0);
+const batchCatchUpPriorPeriodId = ref(null);
+
+const wizardPriorPeriodId = ref(null);
+const wizardPriorRun1File = ref(null);
+const wizardPriorImportLoading = ref(false);
+const wizardPriorImportResult = ref('');
+const wizardPriorImportError = ref('');
+const wizardPriorBaselineLoading = ref(false);
+const wizardPriorBaselineResult = ref('');
+const wizardPriorBaselineError = ref('');
 const processDetectedHint = ref('');
 const processSourcePeriodId = ref(null);
 const processSourcePeriodLabel = ref('');
+
+const wizardPriorPeriodOptions = computed(() => {
+  const dest = selectedPeriodForUi.value || selectedPeriod.value || null;
+  const destStart = String(dest?.period_start || '').slice(0, 10);
+  const destId = Number(selectedPeriodId.value || 0);
+  const list = Array.isArray(periods.value) ? periods.value : [];
+  const filtered = list.filter((p) => {
+    if (!p?.id) return false;
+    const pid = Number(p.id || 0);
+    if (destId && pid === destId) return false;
+    if (String(p?.status || '').toLowerCase() === 'draft') return false;
+    if (destStart) {
+      const end = String(p?.period_end || '').slice(0, 10);
+      if (end && end >= destStart) return false;
+    }
+    return true;
+  });
+  filtered.sort((a, b) => String(b?.period_end || '').localeCompare(String(a?.period_end || '')));
+  return filtered;
+});
 
 const processPriorPeriodOptions = computed(() => {
   const dest = selectedPeriodForUi.value || selectedPeriod.value || null;
@@ -6481,6 +6584,8 @@ const wizardImportError = ref('');
 const wizardSteps = computed(() => {
   const steps = [
     { key: 'select_period', title: 'Select current pay period' },
+    { key: 'upload_prior_run1', title: 'Upload prior period Run 1 (optional)' },
+    { key: 'draft_audit_prior', title: 'Draft audit prior period (required if Run 1)' },
     { key: 'batch_catchup', title: 'Batch catch-up (prior period, optional)' },
     { key: 'upload_current', title: 'Upload current period billing report' },
     { key: 'drafts', title: 'Draft audit (mark unpaid)' },
@@ -6602,6 +6707,90 @@ const wizardDiscardAndExit = async () => {
 const wizardOpenRawMode = async (mode) => {
   rawMode.value = mode;
   showRawModal.value = true;
+};
+
+const onWizardPriorRun1Pick = (evt) => {
+  wizardPriorRun1File.value = evt.target.files?.[0] || null;
+  wizardPriorImportResult.value = '';
+  wizardPriorImportError.value = '';
+};
+
+const wizardImportPriorRun1AndNext = async () => {
+  if (!wizardPriorPeriodId.value || !wizardPriorRun1File.value || !agencyId.value) return;
+  try {
+    wizardPriorImportLoading.value = true;
+    wizardPriorImportResult.value = '';
+    wizardPriorImportError.value = '';
+    const fd = new FormData();
+    fd.append('file', wizardPriorRun1File.value);
+    const resp = await api.post(`/payroll/periods/${wizardPriorPeriodId.value}/import`, fd);
+    wizardPriorImportResult.value = `Imported ${resp.data?.inserted ?? '?'} rows. Do draft audit next.`;
+    wizardPriorRun1File.value = null;
+    await loadPeriods();
+    await wizardNext();
+  } catch (e) {
+    wizardPriorImportError.value = e.response?.data?.error?.message || e.message || 'Import failed';
+  } finally {
+    wizardPriorImportLoading.value = false;
+  }
+};
+
+const wizardOpenPriorDraftAudit = async () => {
+  if (!wizardPriorPeriodId.value) return;
+  await selectPeriod(wizardPriorPeriodId.value);
+  rawMode.value = 'draft_audit';
+  showRawModal.value = true;
+  showPayrollWizardModal.value = false;
+};
+
+const wizardCreatePriorBaselineRun = async () => {
+  if (!wizardPriorPeriodId.value) return;
+  try {
+    wizardPriorBaselineLoading.value = true;
+    wizardPriorBaselineResult.value = '';
+    wizardPriorBaselineError.value = '';
+    await api.post(`/payroll/periods/${wizardPriorPeriodId.value}/runs/snapshot`);
+    wizardPriorBaselineResult.value = 'Baseline run created. You can now upload Run 2 in Batch catch-up.';
+    await loadPeriods();
+  } catch (e) {
+    wizardPriorBaselineError.value = e.response?.data?.error?.message || e.message || 'Failed to create baseline run';
+  } finally {
+    wizardPriorBaselineLoading.value = false;
+  }
+};
+
+const wizardRunBatchCatchUpDbBaseline = async () => {
+  if (!agencyId.value || !batchFiles.value[2] || !wizardPriorPeriodId.value) return;
+  try {
+    batchCatchUpLoading.value = true;
+    batchCatchUpError.value = '';
+    batchCatchUpResult.value = null;
+    batchCatchUpSelection.value = {};
+    const fd = new FormData();
+    fd.append('file2', batchFiles.value[2]);
+    fd.append('agencyId', String(agencyId.value));
+    fd.append('priorPeriodId', String(wizardPriorPeriodId.value));
+    fd.append('useDbBaseline', 'true');
+    const destId = batchCatchUpDestinationPeriodId.value || selectedPeriodId.value;
+    if (destId) fd.append('destinationPeriodId', String(destId));
+    const resp = await api.post('/payroll/periods/batch-catch-up', fd);
+    batchCatchUpResult.value = resp.data || null;
+    const applied = batchCatchUpResult.value?.carryoverApplied || [];
+    const sel = {};
+    for (const c of applied) {
+      const k = `${c.userId}:${(c.serviceCode || '').toUpperCase()}`;
+      sel[k] = { selected: true, units: Number(c.run2To3Units ?? c.totalUnits ?? 0) };
+    }
+    batchCatchUpSelection.value = sel;
+    if (batchCatchUpResult.value?.destinationPeriodId && !batchCatchUpDestinationPeriodId.value) {
+      batchCatchUpDestinationPeriodId.value = batchCatchUpResult.value.destinationPeriodId;
+    }
+    await loadPeriods();
+  } catch (e) {
+    batchCatchUpError.value = e.response?.data?.error?.message || e.message || 'Batch catch-up failed';
+  } finally {
+    batchCatchUpLoading.value = false;
+  }
 };
 
 const wizardRunBatchCatchUp = async () => {
@@ -11421,6 +11610,40 @@ const resetBatchCatchUp = () => {
   batchCatchUpError.value = '';
   batchFiles.value = { 1: null, 2: null, 3: null };
   batchCatchUpResetKey.value += 1;
+};
+
+const runBatchCatchUpDbBaseline = async () => {
+  if (!agencyId.value || !batchFiles.value[2] || !batchCatchUpPriorPeriodId.value) return;
+  try {
+    batchCatchUpLoading.value = true;
+    batchCatchUpError.value = '';
+    batchCatchUpResult.value = null;
+    batchCatchUpSelection.value = {};
+    const fd = new FormData();
+    fd.append('file2', batchFiles.value[2]);
+    fd.append('agencyId', String(agencyId.value));
+    fd.append('priorPeriodId', String(batchCatchUpPriorPeriodId.value));
+    fd.append('useDbBaseline', 'true');
+    const destId = batchCatchUpDestinationPeriodId.value || selectedPeriodId.value;
+    if (destId) fd.append('destinationPeriodId', String(destId));
+    const resp = await api.post('/payroll/periods/batch-catch-up', fd);
+    batchCatchUpResult.value = resp.data || null;
+    const applied = batchCatchUpResult.value?.carryoverApplied || [];
+    const sel = {};
+    for (const c of applied) {
+      const k = `${c.userId}:${(c.serviceCode || '').toUpperCase()}`;
+      sel[k] = { selected: true, units: Number(c.run2To3Units ?? c.totalUnits ?? 0) };
+    }
+    batchCatchUpSelection.value = sel;
+    if (batchCatchUpResult.value?.destinationPeriodId && !batchCatchUpDestinationPeriodId.value) {
+      batchCatchUpDestinationPeriodId.value = batchCatchUpResult.value.destinationPeriodId;
+    }
+    await loadPeriods();
+  } catch (e) {
+    batchCatchUpError.value = e.response?.data?.error?.message || e.message || 'Batch catch-up failed';
+  } finally {
+    batchCatchUpLoading.value = false;
+  }
 };
 
 const runBatchCatchUp = async () => {
