@@ -416,7 +416,7 @@
               </div>
 
               <div v-else-if="wizardStep?.key === 'batch_catchup'" class="hint">
-                <div>Upload 2 or 3 billing reports for the <strong>same</strong> prior pay period. 2-run: first vs second. 3-run: first, second, latest. The system compares them and adds late notes. You can skip this if not needed.</div>
+                <div>Upload 2 or 3 billing reports for the <strong>same</strong> prior pay period. 2-run: first vs second. 3-run: first, second, latest. Select rows, edit units if needed, then add.</div>
                 <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr 1fr; gap: 8px;">
                   <div class="field">
                     <label>First run</label>
@@ -431,16 +431,55 @@
                     <input type="file" accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" @change="onBatchFilePick($event, 3)" />
                   </div>
                 </div>
+                <div class="field" style="margin-top: 10px;">
+                  <label>Add late notes to</label>
+                  <select v-model="batchCatchUpDestinationPeriodId" :disabled="!agencyId || !(periods || []).length" style="min-width: 260px;">
+                    <option :value="null" disabled>Select pay period…</option>
+                    <option v-for="p in periods" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
+                  </select>
+                </div>
                 <div class="actions" style="margin-top: 10px; justify-content: flex-start; flex-wrap: wrap; gap: 8px;">
-                  <button class="btn btn-primary" type="button" @click="wizardRunBatchCatchUpAndNext" :disabled="batchCatchUpLoading || !batchFiles[1] || !batchFiles[2] || !agencyId">
-                    {{ batchCatchUpLoading ? 'Processing…' : 'Add and Next' }}
+                  <button class="btn btn-primary" type="button" @click="wizardRunBatchCatchUp" :disabled="batchCatchUpLoading || !batchFiles[1] || !batchFiles[2] || !agencyId">
+                    {{ batchCatchUpLoading ? 'Comparing…' : (batchFiles[3] ? 'Upload 3 & compare' : 'Upload 2 & compare') }}
                   </button>
                   <button class="btn btn-secondary" type="button" @click="wizardNext">Skip</button>
                 </div>
-                <div v-if="batchCatchUpResult" style="margin-top: 10px;">
-                  <div class="hint" style="color: var(--success);">Done. Imported {{ batchCatchUpResult.importedRows }} rows, applied {{ batchCatchUpResult.carryoverRowsApplied }} carryover rows.</div>
+                <div v-if="batchCatchUpResult && !batchCatchUpResult.applied" style="margin-top: 10px;">
+                  <div class="hint">Compare complete. Select rows, edit units if needed, then add.</div>
+                  <div v-if="(batchCatchUpResult.carryoverApplied || []).length > 0" class="card" style="margin-top: 10px; padding: 12px;">
+                    <strong>Late notes to add ({{ batchCatchUpSelectedCount }} of {{ batchCatchUpResult.carryoverRowsApplied }} selected)</strong>
+                    <div class="actions" style="margin-top: 10px;">
+                      <button class="btn btn-primary" type="button" @click="wizardApplyBatchCatchUpAndNext" :disabled="batchCatchUpApplying || !batchCatchUpDestinationPeriodId || batchCatchUpSelectedCount === 0 || isBatchCatchUpDestPosted">
+                        {{ batchCatchUpApplying ? 'Adding…' : 'Add selected & Next' }}
+                      </button>
+                    </div>
+                    <table class="table" style="margin-top: 8px; font-size: 0.9em;">
+                      <thead>
+                        <tr><th style="width: 36px;"></th><th>User</th><th>Service code</th><th>Type</th><th class="right">Units</th></tr>
+                      </thead>
+                      <tbody>
+                        <tr v-for="c in (batchCatchUpResult.carryoverApplied || [])" :key="`wz-${c.userId}-${c.serviceCode}`" :style="!batchCatchUpRowSelected(c) ? { opacity: 0.5 } : {}">
+                          <td><input type="checkbox" :checked="batchCatchUpRowSelected(c)" @change="batchCatchUpToggleRow(c, $event.target.checked)" /></td>
+                          <td>{{ c.providerName || getUserName(c.userId) }}</td>
+                          <td>{{ c.serviceCode }}</td>
+                          <td><span class="badge" :class="batchCatchUpTypeBadgeClass(c)">{{ batchCatchUpTypeLabel(c) }}</span></td>
+                          <td class="right"><input type="number" :value="batchCatchUpRowUnits(c)" @input="batchCatchUpSetRowUnits(c, $event.target.value)" min="0" step="0.01" style="width: 80px; text-align: right;" /></td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  <div v-if="batchCatchUpResult.superFlagCount > 0" class="warn-box" style="margin-top: 10px; padding: 10px; font-size: 0.9em;">
+                    <strong>Still no note ({{ batchCatchUpResult.superFlagCount }}):</strong> Please address before continuing.
+                  </div>
                   <div v-if="(batchCatchUpResult.h0031PendingCount || 0) + (batchCatchUpResult.h0032PendingCount || 0) > 0" class="warn-box" style="margin-top: 8px; padding: 10px; font-size: 0.9em;">
                     {{ batchCatchUpResult.h0031PendingCount || 0 }} H0031 and {{ batchCatchUpResult.h0032PendingCount || 0 }} H0032 rows need minutes updated (you’ll do that in later steps).
+                  </div>
+                </div>
+                <div v-if="batchCatchUpResult?.applied" style="margin-top: 10px;">
+                  <div class="actions" style="align-items: center; gap: 12px;">
+                    <div class="hint" style="color: var(--success); margin: 0;">Done. Applied {{ batchCatchUpResult.carryoverRowsApplied }} late-note carryover rows.</div>
+                    <button class="btn btn-secondary btn-sm" type="button" @click="resetBatchCatchUp">Reset</button>
+                    <button class="btn btn-primary" type="button" @click="wizardNext">Next</button>
                   </div>
                 </div>
                 <div v-if="batchCatchUpError" class="warn-box" style="margin-top: 10px;">{{ batchCatchUpError }}</div>
@@ -1073,7 +1112,7 @@
 
       <div class="card" style="margin-top: 12px; padding: 12px; background: #f8f9fa;">
         <div class="hint" style="font-weight: 600;">Batch catch-up (same period, 2 or 3 runs)</div>
-        <div class="field-row" style="margin-top: 8px; grid-template-columns: 1fr 1fr 1fr; gap: 8px;">
+        <div class="field-row" style="margin-top: 8px; grid-template-columns: 1fr 1fr 1fr; gap: 8px;" :key="`batch-files-${batchCatchUpResetKey}`">
           <div class="field">
             <label>First run</label>
             <input type="file" accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" @change="onBatchFilePick($event, 1)" />
@@ -1104,8 +1143,9 @@
           </div>
         </div>
         <div v-if="batchCatchUpResult" style="margin-top: 10px;">
-          <div class="hint" style="color: var(--success);" v-if="batchCatchUpResult.applied">
-            Done. Applied {{ batchCatchUpResult.carryoverRowsApplied }} late-note carryover rows. Select the period above to review.
+          <div v-if="batchCatchUpResult.applied" class="actions" style="align-items: center; gap: 12px;">
+            <div class="hint" style="color: var(--success); margin: 0;">Done. Applied {{ batchCatchUpResult.carryoverRowsApplied }} late-note carryover rows. Select the period above to review.</div>
+            <button class="btn btn-secondary btn-sm" @click="resetBatchCatchUp">Reset</button>
           </div>
           <div class="hint" v-else>
             Compare complete. Review what would be added below, then click <strong>Add to current period</strong> when ready.
@@ -5687,6 +5727,7 @@ const batchCatchUpResult = ref(null);
 const batchCatchUpError = ref('');
 const batchCatchUpDestinationPeriodId = ref(null);
 const batchCatchUpSelection = ref({}); // { 'userId:code': { selected, units } }
+const batchCatchUpResetKey = ref(0);
 const processDetectedHint = ref('');
 const processSourcePeriodId = ref(null);
 const processSourcePeriodLabel = ref('');
@@ -6570,14 +6611,26 @@ const wizardRunBatchCatchUp = async () => {
     batchCatchUpLoading.value = true;
     batchCatchUpError.value = '';
     batchCatchUpResult.value = null;
+    batchCatchUpSelection.value = {};
     const fd = new FormData();
     fd.append('file1', batchFiles.value[1]);
     fd.append('file2', batchFiles.value[2]);
     if (batchFiles.value[3]) fd.append('file3', batchFiles.value[3]);
     fd.append('agencyId', String(agencyId.value));
-    if (selectedPeriodId.value) fd.append('destinationPeriodId', String(selectedPeriodId.value));
+    const destId = batchCatchUpDestinationPeriodId.value || selectedPeriodId.value;
+    if (destId) fd.append('destinationPeriodId', String(destId));
     const resp = await api.post('/payroll/periods/batch-catch-up', fd);
     batchCatchUpResult.value = resp.data || null;
+    const applied = batchCatchUpResult.value?.carryoverApplied || [];
+    const sel = {};
+    for (const c of applied) {
+      const k = `${c.userId}:${(c.serviceCode || '').toUpperCase()}`;
+      sel[k] = { selected: true, units: Number(c.run2To3Units ?? c.totalUnits ?? 0) };
+    }
+    batchCatchUpSelection.value = sel;
+    if (batchCatchUpResult.value?.destinationPeriodId && !batchCatchUpDestinationPeriodId.value) {
+      batchCatchUpDestinationPeriodId.value = batchCatchUpResult.value.destinationPeriodId;
+    }
     await loadPeriods();
     if (savedPeriodId) selectedPeriodId.value = savedPeriodId;
   } catch (e) {
@@ -6589,6 +6642,11 @@ const wizardRunBatchCatchUp = async () => {
 
 const wizardRunBatchCatchUpAndNext = async () => {
   await wizardRunBatchCatchUp();
+  if (!batchCatchUpError.value) await wizardNext();
+};
+
+const wizardApplyBatchCatchUpAndNext = async () => {
+  await applyBatchCatchUpToPeriod();
   if (!batchCatchUpError.value) await wizardNext();
 };
 
@@ -11355,6 +11413,14 @@ const onBatchFilePick = (evt, slot) => {
   batchFiles.value = { ...batchFiles.value, [slot]: evt.target.files?.[0] || null };
   batchCatchUpResult.value = null;
   batchCatchUpError.value = '';
+};
+
+const resetBatchCatchUp = () => {
+  batchCatchUpResult.value = null;
+  batchCatchUpSelection.value = {};
+  batchCatchUpError.value = '';
+  batchFiles.value = { 1: null, 2: null, 3: null };
+  batchCatchUpResetKey.value += 1;
 };
 
 const runBatchCatchUp = async () => {
