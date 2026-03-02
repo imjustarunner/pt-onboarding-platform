@@ -969,10 +969,17 @@ export const identifyLogin = async (req, res, next) => {
 
     // If still unresolved:
     // - single org => use it
-    // - multi-org => keep unresolved (no org dropdown; stay on current login context)
+    // - multi-org on generic login (no requested slug) => pick a sensible default so SSO can work.
+    //   Prefer PlotTwistCo as "main" org when user accesses generic platform login (e.g. plottwisthq.com).
     if (!resolved) {
       if ((orgs || []).length === 1) {
         resolved = orgs[0];
+      } else if ((orgs || []).length > 1 && !requested) {
+        const plottwistSlug = (o) => {
+          const s = pickSlug(o);
+          return s && (s === 'plottwistco' || s === 'plottwisthq' || s === 'plottwist' || (s && s.includes('plottwist')));
+        };
+        resolved = (orgs || []).find(plottwistSlug) || orgs[0];
       }
     }
 

@@ -679,7 +679,7 @@
                         <div
                           v-if="canEditUser"
                           class="agency-item-row"
-                          title="Optional per-organization login email alias. This email can be used to log into the same account under this organization."
+                          title="Optional per-organization login email alias. Leave empty to use the primary login email above."
                         >
                           <span class="muted" style="font-size: 12px; font-weight: 700;">Login Email</span>
                           <input
@@ -4050,12 +4050,13 @@ const saveAliasForAgency = async (agencyId, email) => {
     const aId = parseInt(agencyId, 10);
     if (!aId) return;
     const e = String(email || '').trim().toLowerCase();
-    if (!e || !e.includes('@')) {
-      alert('Please enter a valid email address for the login alias.');
-      return;
-    }
     savingAgencyAliasId.value = aId;
-    await api.post(`/users/${userId.value}/login-email-alias`, { agencyId: aId, email: e });
+    if (!e || !e.includes('@')) {
+      // Clear/remove the alias — user will use primary login email for this agency
+      await api.delete(`/users/${userId.value}/login-email-alias`, { data: { agencyId: aId } });
+    } else {
+      await api.post(`/users/${userId.value}/login-email-alias`, { agencyId: aId, email: e });
+    }
     await fetchUserAgencies();
   } catch (err) {
     alert(err.response?.data?.error?.message || 'Failed to save login email alias');

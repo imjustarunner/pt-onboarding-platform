@@ -1583,6 +1583,38 @@ export const addUserLoginEmailAlias = async (req, res, next) => {
   }
 };
 
+export const removeUserLoginEmailAlias = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const userId = parseInt(id, 10);
+    const agencyId = req.body?.agencyId ? parseInt(req.body.agencyId, 10) : null;
+
+    if (!userId || !agencyId) {
+      return res.status(400).json({ error: { message: 'agencyId is required' } });
+    }
+
+    const role = String(req.user?.role || '').toLowerCase();
+    if (!['admin', 'super_admin', 'support'].includes(role)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const membership = await User.getAgencyMembership(userId, agencyId);
+    if (!membership) {
+      return res.status(400).json({ error: { message: 'User is not assigned to this organization' } });
+    }
+
+    const pool = (await import('../config/database.js')).default;
+    const [result] = await pool.execute(
+      'DELETE FROM user_login_emails WHERE user_id = ? AND agency_id = ?',
+      [userId, agencyId]
+    );
+
+    res.json({ ok: true, deleted: (result?.affectedRows || 0) > 0 });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const updateUser = async (req, res, next) => {
   try {
     const { id } = req.params;
