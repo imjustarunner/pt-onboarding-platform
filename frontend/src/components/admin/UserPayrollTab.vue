@@ -525,11 +525,17 @@
             <div class="field-row" style="grid-template-columns: 1fr 1fr; margin-top: 10px;">
               <div class="field">
                 <label>Effective start (optional)</label>
-                <input v-model="salaryDraft.effectiveStart" type="date" :disabled="!editingSalary" />
+                <div style="display: flex; gap: 8px; align-items: center;">
+                  <input v-model="salaryDraft.effectiveStart" type="date" :disabled="!editingSalary" />
+                  <button v-if="editingSalary && salaryDraft.effectiveStart" type="button" class="btn btn-secondary" @click="salaryDraft.effectiveStart = ''" title="Clear date">Clear</button>
+                </div>
               </div>
               <div class="field">
                 <label>Effective end (optional)</label>
-                <input v-model="salaryDraft.effectiveEnd" type="date" :disabled="!editingSalary" />
+                <div style="display: flex; gap: 8px; align-items: center;">
+                  <input v-model="salaryDraft.effectiveEnd" type="date" :disabled="!editingSalary" />
+                  <button v-if="editingSalary && salaryDraft.effectiveEnd" type="button" class="btn btn-secondary" @click="salaryDraft.effectiveEnd = ''" title="Clear date">Clear</button>
+                </div>
               </div>
             </div>
 
