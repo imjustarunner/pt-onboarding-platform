@@ -4087,6 +4087,9 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
       const codeChangedFromCodes = Array.isArray(codeChangedMeta?.fromCodes) ? codeChangedMeta.fromCodes : [];
 
       const codeKey = String(code || '').trim().toUpperCase();
+      // SALARY is paid only via the Salary card (payroll_salary_positions), not per-code rates.
+      // Skip SALARY from session pay so the compensation-table SALARY cell is never used.
+      if (codeKey === 'SALARY') continue;
       const rule = ruleByCode.get(codeKey) || null;
       const defaults = payrollDefaultsForCode(codeKey);
       const category = String(rule?.category ?? defaults?.category ?? 'direct').trim().toLowerCase();

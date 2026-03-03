@@ -499,8 +499,11 @@
             <div class="muted" v-if="!(salaryPositions && salaryPositions.length)" style="margin-bottom: 8px;">No salary position on file.</div>
 
             <div class="field">
-              <label>Salary per pay period ($)</label>
-              <input v-model="salaryDraft.salaryPerPayPeriod" type="number" step="0.01" min="0" :disabled="!editingSalary" />
+              <label>Annual salary ($)</label>
+              <input v-model="salaryDraft.annualSalary" type="number" step="0.01" min="0" placeholder="e.g. 80000" :disabled="!editingSalary" />
+              <div class="muted" style="margin-top: 4px;" v-if="salaryBiWeeklyEquivalent">
+                Bi-weekly (every 2 weeks): {{ fmtMoney(salaryBiWeeklyEquivalent) }}
+              </div>
             </div>
 
             <div class="field">
@@ -592,6 +595,7 @@ const salaryPositionsError = ref('');
 const salaryPositions = ref([]); // history (most recent first)
 const salaryDraft = ref({
   id: null,
+  annualSalary: '',
   salaryPerPayPeriod: '',
   includeServicePay: false,
   prorateByDays: true,
@@ -599,6 +603,12 @@ const salaryDraft = ref({
   effectiveEnd: ''
 });
 const savingSalary = ref(false);
+
+const salaryBiWeeklyEquivalent = computed(() => {
+  const annual = Number(salaryDraft.value.annualSalary || 0);
+  if (!Number.isFinite(annual) || annual <= 0) return null;
+  return Math.round((annual / 26) * 100) / 100;
+});
 
 const loadSalaryPositions = async () => {
   if (!selectedAgencyId.value) return;
@@ -609,9 +619,12 @@ const loadSalaryPositions = async () => {
     const list = resp.data?.positions || [];
     salaryPositions.value = list;
     const cur = list?.[0] || null;
+    const perPeriod = cur?.salary_per_pay_period != null ? Number(cur.salary_per_pay_period) : null;
+    const annual = perPeriod != null && perPeriod > 0 ? Math.round(perPeriod * 26 * 100) / 100 : '';
     salaryDraft.value = {
       id: cur?.id || null,
-      salaryPerPayPeriod: cur?.salary_per_pay_period === null || cur?.salary_per_pay_period === undefined ? '' : String(cur.salary_per_pay_period),
+      annualSalary: annual === '' ? '' : String(annual),
+      salaryPerPayPeriod: perPeriod == null ? '' : String(perPeriod),
       includeServicePay: !!cur?.include_service_pay,
       prorateByDays: cur?.prorate_by_days === undefined || cur?.prorate_by_days === null ? true : !!cur?.prorate_by_days,
       effectiveStart: String(cur?.effective_start || '').slice(0, 10),
@@ -630,9 +643,11 @@ const saveSalaryPosition = async () => {
   try {
     savingSalary.value = true;
     salaryPositionsError.value = '';
-    const salaryPerPayPeriod = Number(salaryDraft.value.salaryPerPayPeriod || 0);
+    const annual = Number(salaryDraft.value.annualSalary || 0);
+    const perPeriod = Number(salaryDraft.value.salaryPerPayPeriod || 0);
+    const salaryPerPayPeriod = annual > 0 ? Math.round((annual / 26) * 100) / 100 : perPeriod;
     if (!Number.isFinite(salaryPerPayPeriod) || salaryPerPayPeriod < 0) {
-      salaryPositionsError.value = 'Salary per pay period must be a non-negative number.';
+      salaryPositionsError.value = 'Enter a valid annual salary (e.g. 80000) or per-period amount.';
       return;
     }
     await api.post(`/payroll/users/${props.userId}/salary-positions`, {
@@ -949,6 +964,7 @@ const fullRateRows = computed(() => {
   for (const r of serviceCodeRules.value || []) {
     const code = String(r.service_code || '').trim();
     if (!code) continue;
+    if (code.toUpperCase() === 'SALARY') continue; // Salary is paid via Salary card only, not per-code
     codes.set(code, { serviceCode: code });
   }
   const out = Array.from(codes.values()).sort((a, b) => a.serviceCode.localeCompare(b.serviceCode));
