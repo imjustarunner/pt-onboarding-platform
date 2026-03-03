@@ -1,5 +1,11 @@
 import pool from '../config/database.js';
 
+const PRIVATE_CROSS_USER_TYPES = new Set([
+  'chat_message',
+  'inbound_client_message',
+  'support_safety_net_alert'
+]);
+
 class Notification {
   // Valid notification types - enforced at application layer
   // This replaces ENUM validation which caused migration issues in Cloud SQL
@@ -214,18 +220,15 @@ class Notification {
     if (!uid || !Array.isArray(notifications) || notifications.length === 0) return notifications;
 
     const agencyWide = notifications.filter((n) => n.user_id == null);
-    const agencyViewableTypes = new Set([
-      'user_login',
-      'user_logout',
-      'first_login',
-      'first_login_pending',
-      'client_assigned',
-      'payroll_unpaid_notes_2_periods_old',
-      'payroll_missing_notes_reminder',
-      'payroll_unsigned_draft_notes'
-    ]);
-    const agencyViewableWithUserId = notifications.filter((n) => n.user_id != null && agencyViewableTypes.has(String(n?.type || '')));
-    const ids = [...new Set([...agencyWide.map((n) => n.id), ...agencyViewableWithUserId.map((n) => n.id)])].filter(Boolean);
+    // Any non-private cross-user notification should support per-viewer read state for admin-like agency feeds.
+    const crossUserPerViewer = notifications.filter(
+      (n) =>
+        n.user_id != null &&
+        Number(n.user_id) !== uid &&
+        !PRIVATE_CROSS_USER_TYPES.has(String(n?.type || ''))
+    );
+    const crossUserPerViewerIds = new Set(crossUserPerViewer.map((n) => Number(n.id)).filter(Boolean));
+    const ids = [...new Set([...agencyWide.map((n) => n.id), ...crossUserPerViewer.map((n) => n.id)])].filter(Boolean);
     if (ids.length === 0) return notifications;
     const placeholders = ids.map(() => '?').join(',');
     const [rows] = await pool.execute(
@@ -249,14 +252,14 @@ class Notification {
       n._is_read_for_viewer = state.is_read;
       n._muted_until_for_viewer = state.muted_until;
     }
-    for (const n of agencyViewableWithUserId) {
+    for (const n of crossUserPerViewer) {
       const state = byId.get(Number(n.id)) || { is_read: false };
       n._user_read_state = state;
       n._is_read_for_viewer = state.is_read;
       n._muted_until_for_viewer = state.muted_until;
     }
     for (const n of notifications) {
-      if (n.user_id != null && !agencyViewableTypes.has(String(n?.type || ''))) {
+      if (n.user_id != null && !crossUserPerViewerIds.has(Number(n.id))) {
         n._is_read_for_viewer = Number(n.user_id) === uid ? !!n.is_read : false;
         n._muted_until_for_viewer = n.muted_until;
       }
@@ -277,19 +280,11 @@ class Notification {
     if (Number(notification.user_id) === uid) {
       return (await this.markAsRead(notificationId, userId)) !== false;
     }
-    // user_login/user_logout/first_login/client_assigned: use per-user read state for admins viewing agency feed
-    const agencyViewableTypes = new Set([
-      'user_login',
-      'user_logout',
-      'first_login',
-      'first_login_pending',
-      'client_assigned',
-      'payroll_unpaid_notes_2_periods_old',
-      'payroll_missing_notes_reminder',
-      'payroll_unsigned_draft_notes'
-    ]);
-    const isAgencyViewable = agencyViewableTypes.has(String(notification.type || ''));
-    if (notification.user_id != null && !isAgencyViewable) {
+    if (
+      notification.user_id != null &&
+      Number(notification.user_id) !== uid &&
+      PRIVATE_CROSS_USER_TYPES.has(String(notification.type || ''))
+    ) {
       return false; // Cannot mark another user's personal notification
     }
 
@@ -362,17 +357,14 @@ class Notification {
       agencyWideCount += 1;
     }
 
-    // Agency-viewable types (first_login, client_assigned, etc.): user_id is subject, admins mark via notification_user_reads
-    // Exclude user_login/user_logout where user_id = viewer (user shouldn't see/mark their own)
+    // Cross-user notifications: admins/support/etc can mark as read for themselves using notification_user_reads.
+    // Keep message-private items excluded from cross-user mark-read.
     const [agencyViewable] = await pool.execute(
       `SELECT n.id FROM notifications n
        LEFT JOIN notification_user_reads nur ON n.id = nur.notification_id AND nur.user_id = ?
-       WHERE n.agency_id = ? AND n.user_id IS NOT NULL AND n.type IN (
-         'user_login','user_logout','first_login','first_login_pending','client_assigned',
-         'payroll_unpaid_notes_2_periods_old','payroll_missing_notes_reminder','payroll_unsigned_draft_notes'
-       )
+       WHERE n.agency_id = ? AND n.user_id IS NOT NULL AND n.user_id != ?
+       AND n.type NOT IN ('chat_message','inbound_client_message','support_safety_net_alert')
        AND n.is_resolved = FALSE
-       AND (n.type NOT IN ('user_login','user_logout') OR n.user_id != ?)
        AND (nur.notification_id IS NULL OR (nur.is_read = FALSE AND (nur.muted_until IS NULL OR nur.muted_until <= NOW())))`,
       [uid, agencyId, uid]
     );
@@ -427,12 +419,9 @@ class Notification {
     const [agencyViewable] = await pool.execute(
       `SELECT n.id FROM notifications n
        LEFT JOIN notification_user_reads nur ON n.id = nur.notification_id AND nur.user_id = ?
-       WHERE n.agency_id = ? AND n.user_id IS NOT NULL AND n.type IN (
-         'user_login','user_logout','first_login','first_login_pending','client_assigned',
-         'payroll_unpaid_notes_2_periods_old','payroll_missing_notes_reminder','payroll_unsigned_draft_notes'
-       )
+       WHERE n.agency_id = ? AND n.user_id IS NOT NULL AND n.user_id != ?
+       AND n.type NOT IN ('chat_message','inbound_client_message','support_safety_net_alert')
        AND n.is_resolved = FALSE
-       AND (n.type NOT IN ('user_login','user_logout') OR n.user_id != ?)
        AND (nur.notification_id IS NULL OR (nur.is_read = FALSE AND (nur.muted_until IS NULL OR nur.muted_until <= NOW())))`,
       [uid, agencyId, uid]
     );
