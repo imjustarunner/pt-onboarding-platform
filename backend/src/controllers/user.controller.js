@@ -2826,6 +2826,16 @@ export const getUserScheduleSummary = async (req, res, next) => {
 
     // 4b) Supervision sessions (app-scheduled, optionally synced to Google)
     let supervisionSessions = [];
+    let supervisionJoinUrlBase = null;
+    try {
+      const { isTwilioVideoConfigured } = await import('../services/twilioVideo.service.js');
+      const frontendUrl = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
+      if (isTwilioVideoConfigured() && frontendUrl) {
+        supervisionJoinUrlBase = frontendUrl;
+      }
+    } catch {
+      // ignore
+    }
     try {
       const rows = await SupervisionSession.listForUserInWindow({
         agencyId,
@@ -2861,7 +2871,8 @@ export const getUserScheduleSummary = async (req, res, next) => {
           modality: r.modality,
           locationText: r.location_text,
           notes: r.notes,
-          googleMeetLink: r.google_meet_link || null
+          googleMeetLink: r.google_meet_link || null,
+          joinUrl: supervisionJoinUrlBase && r.id ? `${supervisionJoinUrlBase}/join/supervision/${r.id}` : null
         };
       });
     } catch (e) {
@@ -2880,6 +2891,15 @@ export const getUserScheduleSummary = async (req, res, next) => {
       });
       const actorId = Number(req.user?.id || 0);
       const canSeePrivateTitle = actorId === Number(providerId);
+      let isTwilioVideoConfigured = false;
+      try {
+        const { isTwilioVideoConfigured: twilioOk } = await import('../services/twilioVideo.service.js');
+        isTwilioVideoConfigured = twilioOk();
+      } catch {
+        // ignore
+      }
+      const frontendUrl = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
+
       scheduleEvents = (rows || []).map((r) => {
         const isPrivate = Number(r.is_private || 0) === 1;
         const titleRaw = String(r.title || '').trim();
@@ -2890,10 +2910,14 @@ export const getUserScheduleSummary = async (req, res, next) => {
         const isAllDay = Number(r.all_day || 0) === 1;
         const startAtOut = isAllDay ? null : (toIsoUtcForSchedule(r.start_at) || toMysqlDateTimeWall(r.start_at) || r.start_at || null);
         const endAtOut = isAllDay ? null : (toIsoUtcForSchedule(r.end_at) || toMysqlDateTimeWall(r.end_at) || r.end_at || null);
+        const kind = String(r.kind || '').trim().toUpperCase() || 'PERSONAL_EVENT';
+        const appJoinUrl = (kind === 'TEAM_MEETING' && isTwilioVideoConfigured && frontendUrl)
+          ? `${frontendUrl}/join/team-meeting/${Number(r.id || 0)}`
+          : null;
         return {
           id: Number(r.id || 0),
           agencyId: Number(r.agency_id || 0) || null,
-          kind: String(r.kind || '').trim().toUpperCase() || 'PERSONAL_EVENT',
+          kind,
           title,
           isPrivate,
           allDay: Number(r.all_day || 0) === 1,
@@ -2903,7 +2927,9 @@ export const getUserScheduleSummary = async (req, res, next) => {
           endDate: r.end_date ? String(r.end_date).slice(0, 10) : null,
           reasonCode: String(r.reason_code || '').trim().toUpperCase() || null,
           googleEventId: r.google_event_id || null,
-          htmlLink: r.google_html_link || null
+          htmlLink: r.google_html_link || null,
+          meetLink: r.google_meet_link ? String(r.google_meet_link).trim().slice(0, 1024) : null,
+          appJoinUrl
         };
       });
     } catch (e) {
@@ -3241,6 +3267,18 @@ export const createUserScheduleEvent = async (req, res, next) => {
       if (saved?.id && kind === 'TEAM_MEETING' && attendeeUserIds?.length) {
         const ProviderScheduleEventAttendee = (await import('../models/ProviderScheduleEventAttendee.model.js')).default;
         await ProviderScheduleEventAttendee.upsertForEvent(saved.id, attendeeUserIds);
+      }
+      if (saved?.id && kind === 'TEAM_MEETING' && result?.eventId) {
+        const { isTwilioVideoConfigured } = await import('../services/twilioVideo.service.js');
+        const frontendUrl = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
+        if (isTwilioVideoConfigured() && frontendUrl) {
+          const appJoinUrl = `${frontendUrl}/join/team-meeting/${saved.id}`;
+          await GoogleCalendarService.appendToEventDescription({
+            subjectEmail,
+            googleEventId: result.eventId,
+            appendText: `Join with app: ${appJoinUrl}`
+          }).catch(() => {});
+        }
       }
     } catch (e) {
       if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;

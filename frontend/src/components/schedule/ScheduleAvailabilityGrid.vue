@@ -331,7 +331,7 @@
         <span>{{ joinPromptSessionLabel }}</span>
       </div>
       <div class="join-prompt-actions">
-        <button class="btn btn-primary btn-sm" type="button" :disabled="supvMeetOpening" @click="joinPromptSessionNow">
+        <button class="btn btn-primary btn-sm btn-join-pulse" type="button" :disabled="supvMeetOpening" @click="joinPromptSessionNow">
           {{ supvMeetOpening ? 'Joining…' : 'Join now' }}
         </button>
         <button class="btn btn-secondary btn-sm" type="button" @click="dismissJoinPromptForSession(joinPromptSession.id)">
@@ -1029,9 +1029,9 @@
             <textarea v-model="supvNotes" class="input" rows="4" placeholder="Optional notes for the Google Calendar description…" />
           </div>
 
-          <div v-if="selectedSupvSession?.googleMeetLink" class="muted" style="margin-top: 8px;">
-            <div>Meet link:</div>
-            <a :href="selectedSupvSession.googleMeetLink" target="_blank" rel="noreferrer">
+          <div v-if="selectedSupvSession?.joinUrl || selectedSupvSession?.googleMeetLink" class="muted" style="margin-top: 8px;">
+            <div v-if="selectedSupvSession?.googleMeetLink">Meet link:</div>
+            <a v-if="selectedSupvSession?.googleMeetLink" :href="selectedSupvSession.googleMeetLink" target="_blank" rel="noreferrer">
               {{ selectedSupvSession.googleMeetLink }}
             </a>
             <div style="margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap;">
@@ -1041,14 +1041,20 @@
                 :disabled="supvMeetOpening"
                 @click="startTrackedSupvMeet"
               >
-                {{ supvMeetOpening ? 'Joining…' : 'Join Meet (tracked)' }}
+                {{ supvMeetOpening ? 'Joining…' : (selectedSupvSession?.joinUrl ? 'Join with app' : 'Join Meet (tracked)') }}
               </button>
-              <a class="btn btn-secondary btn-sm" :href="selectedSupvSession.googleMeetLink" target="_blank" rel="noreferrer">
+              <a
+                v-if="selectedSupvSession?.joinUrl || selectedSupvSession?.googleMeetLink"
+                class="btn btn-secondary btn-sm"
+                :href="selectedSupvSession?.joinUrl || selectedSupvSession?.googleMeetLink"
+                target="_blank"
+                rel="noreferrer"
+              >
                 Open in new tab
               </a>
             </div>
             <div class="muted" style="margin-top: 6px; font-size: 12px;">
-              Starts in-app tracking for opened/closed meeting activity.
+              {{ selectedSupvSession?.joinUrl ? 'Join via in-app video.' : 'Starts in-app tracking for opened/closed meeting activity.' }}
             </div>
           </div>
           <div v-else class="muted" style="margin-top: 8px;">
@@ -1218,7 +1224,7 @@
               :key="`stack-item-${item.id}`"
               class="stack-details-item"
               type="button"
-              :disabled="!item.link && !item.sessionId && !item.googleEvent"
+              :disabled="!item.link && !item.appJoinUrl && !item.sessionId && !item.googleEvent"
               @click="openStackDetailsItem(item)"
             >
               <div class="stack-details-label">{{ item.label }}</div>
@@ -3317,6 +3323,8 @@ const cellBlocks = (dayName, hour, minute = 0) => {
       shortLabel: showLabel ? scheduleEventShortLabel(ev) : '',
       title: scheduleEventBlockTitle(ev, dayName, hour),
       link: String(ev?.htmlLink || '').trim() || null,
+      appJoinUrl: String(ev?.appJoinUrl || '').trim() || null,
+      eventId: Number(ev?.id || 0) || null,
       agencyId: Number(ev?._agencyId || 0) || null,
       segmentClass,
       hideAgencyDot: shouldHideQuarterAgencyDot(segmentClass, minute)
@@ -6370,7 +6378,9 @@ const endTrackedSupvMeet = async () => {
 };
 
 const startTrackedSupvMeetForSession = async (session) => {
-  const link = String(session?.googleMeetLink || '').trim();
+  const appUrl = String(session?.joinUrl || '').trim();
+  const meetLink = String(session?.googleMeetLink || '').trim();
+  const link = appUrl || meetLink;
   const sid = Number(session?.id || 0);
   if (!link || !sid) return;
   try {
@@ -6425,7 +6435,8 @@ const joinPromptSession = computed(() => {
     const sid = Number(s?.id || 0);
     if (!sid || dismissed.has(sid)) continue;
     const meet = String(s?.googleMeetLink || '').trim();
-    if (!meet) continue;
+    const appJoin = String(s?.joinUrl || '').trim();
+    if (!meet && !appJoin) continue;
     const status = String(s?.status || '').trim().toUpperCase();
     if (status === 'CANCELLED') continue;
     const start = parseMaybeDate(s?.startAt);
@@ -6717,6 +6728,11 @@ const onCellBlockClick = (e, block, dayName, hour) => {
     return;
   }
   if (kind === 'sevt') {
+    const appJoinUrl = String(block?.appJoinUrl || '').trim();
+    if (appJoinUrl) {
+      window.location.href = appJoinUrl;
+      return;
+    }
     const link = String(block?.link || '').trim();
     if (link) window.open(link, '_blank', 'noreferrer');
     return;
@@ -6729,7 +6745,7 @@ const onCellBlockClick = (e, block, dayName, hour) => {
       blockText.includes('google meet') ||
       blockText.includes('meet');
     const hasMeetSessionInCell = supervisionSessionsInCell(dayName, hour)
-      .some((s) => String(s?.googleMeetLink || '').trim());
+      .some((s) => String(s?.googleMeetLink || s?.joinUrl || '').trim());
     const shouldRouteToSupv = looksLikeSupervision || hasMeetSessionInCell;
     if (shouldRouteToSupv) {
       clearGevtClickTimer();
@@ -7013,7 +7029,8 @@ const buildStackDetailsForBlock = (block, dayName, hour) => {
         id: `sevt-${String(ev?.id || ev?.googleEventId || idx)}`,
         label: String(ev?.title || '').trim() || 'Schedule event',
         subLabel: ev?.allDay ? 'All day' : formatRangeFromRaw(ev?.startAt, ev?.endAt),
-        link: String(ev?.htmlLink || '').trim() || ''
+        link: String(ev?.htmlLink || '').trim() || '',
+        appJoinUrl: String(ev?.appJoinUrl || '').trim() || ''
       }))
     };
   }
@@ -7054,6 +7071,12 @@ const openStackDetailsItem = (item) => {
     openGoogleEventModal(item.googleEvent);
     return;
   }
+  const appJoinUrl = String(item?.appJoinUrl || '').trim();
+  if (appJoinUrl) {
+    closeStackDetailsModal();
+    window.location.href = appJoinUrl;
+    return;
+  }
   const link = String(item?.link || '').trim();
   if (link) {
     window.open(link, '_blank', 'noreferrer');
@@ -7072,10 +7095,11 @@ const onCellBlockDoubleClick = (e, block, dayName, hour) => {
   e?.stopPropagation?.();
   const kind = String(block?.kind || '');
   if (kind !== 'gevt') return;
-  const hasMeetSessionInCell = supervisionSessionsInCell(dayName, hour)
-    .some((s) => String(s?.googleMeetLink || '').trim());
+  const sessions = supervisionSessionsInCell(dayName, hour);
+  const hasMeetSessionInCell = sessions.some((s) => String(s?.googleMeetLink || s?.joinUrl || '').trim());
   if (!hasMeetSessionInCell) return;
-  const link = String(block?.link || '').trim();
+  const firstWithLink = sessions.find((s) => String(s?.joinUrl || s?.googleMeetLink || '').trim());
+  const link = String(block?.link || firstWithLink?.joinUrl || firstWithLink?.googleMeetLink || '').trim();
   if (!link) return;
   clearGevtClickTimer();
   window.open(link, '_blank', 'noreferrer');

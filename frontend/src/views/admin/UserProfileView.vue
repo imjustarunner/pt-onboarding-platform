@@ -1918,6 +1918,12 @@
           :userRole="accountForm?.role || user?.role"
         />
 
+        <UserSupervisionTab
+          v-if="activeTab === 'supervision'"
+          :userId="userId"
+          :agency-id="agencyStore.currentAgency?.id"
+        />
+
       </div>
     </div>
     
@@ -2160,6 +2166,7 @@ import UserAdminDocsTab from '../../components/admin/UserAdminDocsTab.vue';
 import UserActivityLogTab from '../../components/admin/UserActivityLogTab.vue';
 import UserPayrollTab from '../../components/admin/UserPayrollTab.vue';
 import UserDepartmentTab from '../../components/admin/UserDepartmentTab.vue';
+import UserSupervisionTab from '../../components/admin/UserSupervisionTab.vue';
 import SupervisorAssignmentManager from '../../components/admin/SupervisorAssignmentManager.vue';
 import MovePendingToActiveModal from '../../components/admin/MovePendingToActiveModal.vue';
 import LeaveOfAbsenceModal from '../../components/admin/LeaveOfAbsenceModal.vue';
@@ -2372,6 +2379,10 @@ const tabs = computed(() => {
   }
   if (canViewPayroll.value && canViewDepartmentsTab.value) {
     baseTabs.push({ id: 'departments', label: 'Departments' });
+  }
+
+  if (canViewPayroll.value || canViewProviderInfo.value) {
+    baseTabs.push({ id: 'supervision', label: 'Supervision' });
   }
   
   if (canViewActivityLog.value) {

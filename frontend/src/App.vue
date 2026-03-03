@@ -644,6 +644,29 @@
         <span class="kudos-toast-plus" aria-hidden="true">+1</span>
         <span class="kudos-toast-message">{{ kudosToast.reason }}</span>
       </button>
+      <div
+        v-if="joinReminderToast.visible"
+        class="join-reminder-toast"
+        role="alert"
+      >
+        <span class="join-reminder-toast-icon" aria-hidden="true">📅</span>
+        <span class="join-reminder-toast-message">{{ joinReminderToast.message }}</span>
+        <button
+          type="button"
+          class="join-reminder-toast-btn btn-join-pulse"
+          @click="joinReminderToastJoin"
+        >
+          Join
+        </button>
+        <button
+          type="button"
+          class="join-reminder-toast-dismiss"
+          aria-label="Dismiss"
+          @click.stop="joinReminderToast.visible = false"
+        >
+          ×
+        </button>
+      </div>
       </div>
     </div>
   </BrandingProvider>
@@ -1540,6 +1563,8 @@ const loginActivityToast = ref({ visible: false, message: '', type: null });
 const loginActivityToastTimer = ref(null);
 const kudosToast = ref({ visible: false, message: '', reason: '' });
 const kudosToastTimer = ref(null);
+const joinReminderToast = ref({ visible: false, message: '', prompt: null });
+let joinReminderPollInterval = null;
 const showNewNotificationToast = async () => {
   // Fetch latest to check for login/logout, kudos, etc.
   try {
@@ -1642,6 +1667,35 @@ const textMeReminder = async () => {
   }
 };
 
+const fetchJoinPrompts = async () => {
+  if (!isAuthenticated.value || !user.value?.id) return;
+  try {
+    const params = {};
+    const aid = agencyStore.currentAgency?.id;
+    if (aid) params.agencyId = Number(aid);
+    const resp = await api.get('/supervision/my-prompts', { params, skipGlobalLoading: true });
+    const prompts = Array.isArray(resp.data?.prompts) ? resp.data.prompts : [];
+    const first = prompts[0];
+    if (first && (first.joinUrl || first.googleMeetLink)) {
+      const start = first.startAt ? new Date(first.startAt) : null;
+      const isLive = first.isLive;
+      const msg = isLive ? 'Supervision in progress' : (start ? `Supervision starting at ${start.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : 'Supervision starting soon');
+      joinReminderToast.value = { visible: true, message: msg, prompt: first };
+    } else {
+      joinReminderToast.value = { visible: false, message: '', prompt: null };
+    }
+  } catch {
+    joinReminderToast.value = { visible: false, message: '', prompt: null };
+  }
+};
+
+const joinReminderToastJoin = () => {
+  const p = joinReminderToast.value?.prompt;
+  const link = String(p?.joinUrl || p?.googleMeetLink || '').trim();
+  if (link) window.open(link, '_blank', 'noreferrer');
+  joinReminderToast.value = { visible: false, message: '', prompt: null };
+};
+
 const goToNotifications = () => {
   showLoginNotificationsModal.value = false;
   notificationsNudgeVisible.value = false;
@@ -1692,6 +1746,18 @@ watch(shouldFetchNotificationsCounts, (enabled) => {
     notificationsCountsLoadedOnce.value = false;
     if (notificationsInterval) clearInterval(notificationsInterval);
     notificationsInterval = null;
+  }
+}, { immediate: true });
+
+watch(isAuthenticated, (auth) => {
+  if (auth) {
+    fetchJoinPrompts();
+    if (joinReminderPollInterval) clearInterval(joinReminderPollInterval);
+    joinReminderPollInterval = setInterval(fetchJoinPrompts, 2 * 60 * 1000);
+  } else {
+    joinReminderToast.value = { visible: false, message: '', prompt: null };
+    if (joinReminderPollInterval) clearInterval(joinReminderPollInterval);
+    joinReminderPollInterval = null;
   }
 }, { immediate: true });
 
@@ -1881,6 +1947,8 @@ onUnmounted(() => {
   buildingsPendingInterval = null;
   if (notificationsInterval) clearInterval(notificationsInterval);
   notificationsInterval = null;
+  if (joinReminderPollInterval) clearInterval(joinReminderPollInterval);
+  joinReminderPollInterval = null;
 });
 </script>
 
@@ -2654,6 +2722,59 @@ onUnmounted(() => {
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+/* Join reminder toast – 5 min before + during meeting */
+.join-reminder-toast {
+  position: fixed;
+  top: 16px;
+  right: 20px;
+  z-index: 1550;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 18px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: white;
+  color: var(--text-primary);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.22);
+  font-size: 14px;
+  animation: newNotificationToastIn 0.3s ease-out;
+}
+.join-reminder-toast-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+.join-reminder-toast-message {
+  font-weight: 600;
+}
+.join-reminder-toast-btn {
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-weight: 700;
+  font-size: 13px;
+  background: var(--primary, #2563eb);
+  color: white;
+  border: none;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.join-reminder-toast-btn:hover {
+  filter: brightness(1.08);
+}
+.join-reminder-toast-dismiss {
+  padding: 2px 8px;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.join-reminder-toast-dismiss:hover {
+  color: var(--text-primary);
 }
 
 .mobile-nav-link-obnoxious {

@@ -374,6 +374,36 @@ export class GoogleCalendarService {
     }
   }
 
+  /**
+   * Append text to a calendar event's description (e.g. app join URL for team meetings).
+   */
+  static async appendToEventDescription({ subjectEmail, googleEventId, appendText }) {
+    const subject = String(subjectEmail || '').trim().toLowerCase();
+    const gid = String(googleEventId || '').trim();
+    const append = String(appendText || '').trim();
+    if (!subject || !gid || !append) return { ok: false, reason: 'missing_params' };
+    if (!this.isConfigured()) return { ok: false, reason: 'not_configured' };
+
+    try {
+      const cal = this.buildCalendarClientForSubject(subject);
+      const getResp = await cal.events.get({ calendarId: 'primary', eventId: gid });
+      const data = getResp?.data || {};
+      const currentDesc = String(data?.description || '').trim();
+      const newDesc = currentDesc ? `${currentDesc}\n\n${append}` : append;
+
+      await cal.events.patch({
+        calendarId: 'primary',
+        eventId: gid,
+        requestBody: { description: newDesc },
+        sendUpdates: 'all'
+      });
+      return { ok: true };
+    } catch (e) {
+      logGoogleUnauthorizedHint(e, { context: 'GoogleCalendarService.appendToEventDescription' });
+      return { ok: false, reason: 'google_api_error', error: String(e?.message || e) };
+    }
+  }
+
   static async dryRunBookedOfficeEvent({ officeEventId }) {
     const eid = parseInt(officeEventId, 10);
     if (!eid) return { ok: false, reason: 'invalid_office_event_id' };
@@ -608,6 +638,7 @@ export class GoogleCalendarService {
     summary,
     description = null,
     createMeetLink = false,
+    appJoinUrl = null,
     existingGoogleEventId = null,
     existingMeetLink = null
   }) {
@@ -629,9 +660,14 @@ export class GoogleCalendarService {
     );
     const attendees = [{ email: attendee }, ...extraAttendees.map((email) => ({ email }))];
 
+    let finalDescription = description ? String(description) : '';
+    if (appJoinUrl && String(appJoinUrl).trim()) {
+      const joinLine = `\n\nJoin video: ${String(appJoinUrl).trim()}`;
+      finalDescription = (finalDescription + joinLine).trim();
+    }
     const requestBody = {
       summary: String(summary || 'Supervision').trim() || 'Supervision',
-      description: description ? String(description) : undefined,
+      description: finalDescription || undefined,
       start: { dateTime: toRfc3339Local(startAt), timeZone },
       end: { dateTime: toRfc3339Local(endAt), timeZone },
       attendees,

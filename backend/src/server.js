@@ -59,6 +59,7 @@ import fontRoutes from './routes/font.routes.js';
 import activityLogRoutes from './routes/activityLog.routes.js';
 import supervisorAssignmentRoutes from './routes/supervisorAssignment.routes.js';
 import supervisionSessionsRoutes from './routes/supervisionSessions.routes.js';
+import teamMeetingsRoutes from './routes/teamMeetings.routes.js';
 import agencyCampaignsRoutes from './routes/agencyCampaigns.routes.js';
 import healthCheckRoutes from './routes/healthCheck.routes.js';
 import referralUploadRoutes from './routes/referralUpload.routes.js';
@@ -574,6 +575,7 @@ app.use('/api/fonts', fontRoutes);
 app.use('/api/activity-log', activityLogRoutes);
 app.use('/api/supervisor-assignments', supervisorAssignmentRoutes);
 app.use('/api/supervision', supervisionSessionsRoutes);
+app.use('/api/team-meetings', teamMeetingsRoutes);
 app.use('/api/agency-campaigns', agencyCampaignsRoutes);
 app.use('/api/organizations', referralUploadRoutes); // Organization routes (referral upload, etc.)
 app.use('/api/referrals', referralOcrRoutes);
@@ -1059,6 +1061,28 @@ if (!isBootstrap) {
 
   scheduleDailyDigest();
   setInterval(scheduleDailyDigest, 15 * 60 * 1000);
+
+  // Join reminder (email/SMS 5 min before supervision + team meetings)
+  const scheduleJoinReminder = async () => {
+    try {
+      const { runJoinReminderTick } = await import('./services/joinReminder.service.js');
+      await runJoinReminderTick();
+    } catch (error) {
+      const msg = String(error?.message || '');
+      const missing =
+        error?.code === 'ER_NO_SUCH_TABLE' ||
+        error?.code === 'ER_BAD_FIELD_ERROR' ||
+        msg.includes('join_reminder');
+      if (missing) {
+        console.warn('Join reminder tables not found. Run migration 522_meeting_join_reminder_trigger.sql');
+      } else {
+        console.error('Error in join reminder scheduler:', error);
+      }
+    }
+  };
+
+  scheduleJoinReminder();
+  setInterval(scheduleJoinReminder, 5 * 60 * 1000);
 
   // Agency birthday/anniversary automation (runs hourly; deduped per agency/day/type)
   const scheduleAgencyAnnouncementAutomation = async () => {

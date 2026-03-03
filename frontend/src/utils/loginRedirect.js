@@ -10,6 +10,7 @@
 
 /** Path segments that are NOT organization slugs (first segment of path) */
 const NON_SLUG_SEGMENTS = [
+  'join',
   'login',
   'logout',
   'schools',

@@ -607,6 +607,18 @@ class SupervisionSession {
     return this.findById(sid);
   }
 
+  static async setTwilioRoom(sessionId, { roomSid, uniqueName }) {
+    const sid = parseInt(sessionId, 10);
+    if (!sid) return null;
+    await pool.execute(
+      `UPDATE supervision_sessions
+       SET twilio_room_sid = ?, twilio_room_unique_name = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [roomSid || null, uniqueName || null, sid]
+    );
+    return this.findById(sid);
+  }
+
   static async listForUserInWindow({ agencyId, userId, windowStart, windowEnd }) {
     const aId = parseInt(agencyId, 10);
     const uId = parseInt(userId, 10);
@@ -673,6 +685,75 @@ class SupervisionSession {
       [uId, uId, uId, aId, uId, uId, uId, windowEnd, windowStart]
     );
     return rows || [];
+  }
+
+  /**
+   * List supervision sessions for a supervisee (past and upcoming) with artifacts.
+   * Used for "My supervision" tab and dashboard.
+   */
+  static async listSessionsForSuperviseeWithArtifacts({ superviseeUserId, agencyId = null, limit = 50 }) {
+    const uid = parseInt(superviseeUserId, 10);
+    if (!uid) return [];
+    const whereAgency = Number(agencyId) > 0 ? 'AND ss.agency_id = ?' : '';
+    const args = [uid, uid, uid];
+    if (Number(agencyId) > 0) args.push(Number(agencyId));
+    args.push(limit);
+
+    const [rows] = await pool.execute(
+      `SELECT
+         ss.id,
+         ss.agency_id,
+         ss.session_type,
+         ss.start_at,
+         ss.end_at,
+         ss.status,
+         ss.google_meet_link,
+         ss.twilio_room_unique_name,
+         ss.modality,
+         ss.notes,
+         ss.supervisor_user_id,
+         CONCAT(COALESCE(sup.first_name, ''), ' ', COALESCE(sup.last_name, '')) AS supervisor_name,
+         ssa2.transcript_url,
+         ssa2.transcript_text,
+         ssa2.summary_text,
+         ssa2.summary_model,
+         ssa2.summary_generated_at
+       FROM supervision_sessions ss
+       JOIN users sup ON sup.id = ss.supervisor_user_id
+       LEFT JOIN supervision_session_artifacts ssa2 ON ssa2.session_id = ss.id
+       WHERE (
+           ss.supervisee_user_id = ?
+           OR EXISTS (
+             SELECT 1 FROM supervision_session_attendees ssa
+             WHERE ssa.session_id = ss.id AND ssa.user_id = ? AND ssa.participant_role = 'supervisee'
+           )
+         )
+         ${whereAgency}
+         AND (ss.status IS NULL OR ss.status <> 'CANCELLED')
+       ORDER BY ss.start_at DESC
+       LIMIT ?`,
+      args
+    );
+
+    return (rows || []).map((r) => ({
+      id: Number(r.id),
+      agencyId: Number(r.agency_id),
+      sessionType: String(r.session_type || 'individual'),
+      startAt: r.start_at,
+      endAt: r.end_at,
+      status: r.status,
+      googleMeetLink: r.google_meet_link || null,
+      twilioRoomUniqueName: r.twilio_room_unique_name || null,
+      modality: r.modality || null,
+      notes: r.notes || null,
+      supervisorUserId: Number(r.supervisor_user_id || 0),
+      supervisorName: String(r.supervisor_name || '').trim() || null,
+      transcriptUrl: r.transcript_url || null,
+      transcriptText: r.transcript_text || null,
+      summaryText: r.summary_text || null,
+      summaryModel: r.summary_model || null,
+      summaryGeneratedAt: r.summary_generated_at || null
+    }));
   }
 
   /**

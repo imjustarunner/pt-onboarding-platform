@@ -4,6 +4,8 @@ import {
   listSupervisionProviderCandidates,
   listSupervisionAttendanceLogs,
   markSupervisionMeetingLifecycle,
+  getSupervisionVideoToken,
+  saveClientTranscript,
   getSupervisionSessionArtifacts,
   upsertSupervisionSessionArtifacts,
   createSupervisionSession,
@@ -13,22 +15,33 @@ import {
   cancelSupervisionSession,
   getSuperviseeHoursSummary,
   getMySupervisionPrompts,
+  getMySupervisionSessions,
+  getSuperviseeSessions,
   getMyPresenterAssignments,
   getSessionPresenters,
-  markSessionPresenterPresented
+  markSessionPresenterPresented,
+  getSupervisionJoinInfo
 } from '../controllers/supervisionSessions.controller.js';
 
 const router = express.Router();
+
+// Public: resolve session to org slug for join redirect (no auth)
+router.get('/join-info/:sessionId', getSupervisionJoinInfo);
+
 router.use(authenticate);
 
 router.get('/providers', listSupervisionProviderCandidates);
 router.get('/attendance-logs', listSupervisionAttendanceLogs);
 router.get('/supervisee/:superviseeId/hours-summary', getSuperviseeHoursSummary);
 router.get('/my-prompts', getMySupervisionPrompts);
+router.get('/my-sessions', getMySupervisionSessions);
+router.get('/supervisee/:superviseeId/sessions', getSuperviseeSessions);
 router.get('/my-presenter-assignments', getMyPresenterAssignments);
 router.get('/sessions/:id/presenters', getSessionPresenters);
 router.post('/sessions/:id/presenters/:userId/presented', markSessionPresenterPresented);
 router.post('/sessions/:id/meeting-lifecycle', markSupervisionMeetingLifecycle);
+router.get('/sessions/:id/video-token', getSupervisionVideoToken);
+router.post('/sessions/:id/client-transcript', saveClientTranscript);
 router.get('/sessions/:id/artifacts', getSupervisionSessionArtifacts);
 router.post('/sessions/:id/artifacts', upsertSupervisionSessionArtifacts);
 router.post('/sessions', createSupervisionSessionValidators, createSupervisionSession);

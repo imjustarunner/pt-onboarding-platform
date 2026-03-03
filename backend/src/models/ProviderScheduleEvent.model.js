@@ -93,6 +93,18 @@ class ProviderScheduleEvent {
     );
     return rows || [];
   }
+
+  static async setTwilioRoom(eventId, { roomSid, uniqueName }) {
+    const eid = parseInt(eventId, 10);
+    if (!eid) return null;
+    await pool.execute(
+      `UPDATE provider_schedule_events
+       SET twilio_room_sid = ?, twilio_room_unique_name = ?
+       WHERE id = ?`,
+      [roomSid || null, uniqueName || null, eid]
+    );
+    return this.findById(eid);
+  }
 }
 
 export default ProviderScheduleEvent;

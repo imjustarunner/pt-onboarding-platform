@@ -85,7 +85,7 @@
           <div class="invite-title">{{ prompt.sessionTypeLabel }} with {{ prompt.supervisorName || 'Supervisor' }}</div>
           <div class="invite-time">{{ prompt.timeLabel }}</div>
           <div class="invite-actions">
-            <button type="button" class="btn btn-primary btn-sm" @click="joinSupervisionPrompt(prompt)">Join</button>
+            <button type="button" class="btn btn-primary btn-sm btn-join-pulse" @click="joinSupervisionPrompt(prompt)">Join</button>
             <button type="button" class="btn btn-secondary btn-sm" @click="dismissOptionalSupervisionPrompt(prompt.id)">Dismiss</button>
           </div>
         </article>
@@ -109,7 +109,7 @@
             {{ item.timeLabel }}<span v-if="item.reminderLabel"> • {{ item.reminderLabel }}</span>
           </div>
           <div class="invite-actions">
-            <button type="button" class="btn btn-primary btn-sm" @click="joinSupervisionPrompt(item)">View session</button>
+            <button type="button" class="btn btn-primary btn-sm btn-join-pulse" @click="joinSupervisionPrompt(item)">View session</button>
             <button type="button" class="btn btn-secondary btn-sm" @click="dismissPresenterAssignment(item.presenterAssignmentId)">Dismiss</button>
           </div>
         </article>
@@ -757,6 +757,9 @@
           <div v-if="!previewMode && isOnboardingComplete && activeTab === 'supervision'" class="my-panel">
             <SupervisionModal />
           </div>
+          <div v-if="!previewMode && isOnboardingComplete && activeTab === 'my_supervision'" class="my-panel">
+            <UserSupervisionTab userId="me" :agency-id="currentAgencyId" />
+          </div>
 
           <div v-if="!previewMode && isOnboardingComplete && activeTab === 'tools_aids'" class="my-panel dashboard-embedded-view">
             <ToolsAidsView />
@@ -869,6 +872,7 @@
             <p v-if="activeTab === 'on_demand_training'" class="preview-text">On-demand training content preview</p>
             <p v-if="activeTab === 'social_feeds'" class="preview-text">Feed content preview</p>
             <p v-if="activeTab === 'supervision'" class="preview-text">Supervision content preview</p>
+            <p v-if="activeTab === 'my_supervision'" class="preview-text">My supervision content preview</p>
             <p v-if="activeTab === 'providers'" class="preview-text">Providers content preview</p>
           </div>
         </div>
@@ -978,7 +982,7 @@
         </p>
         <div class="supervision-splash-actions">
           <button type="button" class="btn btn-secondary btn-sm" @click="activeTab = 'my_schedule'">Open Schedule</button>
-          <button type="button" class="btn btn-primary btn-sm" @click="joinSupervisionPrompt(mandatorySupervisionPrompt)">Join now</button>
+          <button type="button" class="btn btn-primary btn-sm btn-join-pulse" @click="joinSupervisionPrompt(mandatorySupervisionPrompt)">Join now</button>
         </div>
       </div>
     </div>
@@ -1017,6 +1021,7 @@ import OnDemandTrainingLibraryView from './OnDemandTrainingLibraryView.vue';
 import ProviderClientsTab from '../components/dashboard/ProviderClientsTab.vue';
 import SupervisionModal from '../components/supervision/SupervisionModal.vue';
 import ProvidersPanel from '../components/supervision/ProvidersPanel.vue';
+import UserSupervisionTab from '../components/admin/UserSupervisionTab.vue';
 import SkillBuilderAvailabilityModal from '../components/availability/SkillBuilderAvailabilityModal.vue';
 import SkillBuildersAvailabilityModal from '../components/availability/SkillBuildersAvailabilityModal.vue';
 import LastPaycheckModal from '../components/dashboard/LastPaycheckModal.vue';
@@ -1560,7 +1565,9 @@ const dismissPresenterAssignment = (assignmentId) => {
 };
 
 const joinSupervisionPrompt = (prompt) => {
-  const link = String(prompt?.googleMeetLink || '').trim();
+  const appUrl = String(prompt?.joinUrl || '').trim();
+  const meetLink = String(prompt?.googleMeetLink || '').trim();
+  const link = appUrl || meetLink;
   if (link) {
     window.open(link, '_blank', 'noreferrer');
     return;
@@ -2144,6 +2151,17 @@ const dashboardCards = computed(() => {
         description: 'View and support your supervisees.'
       });
     }
+    // My supervision card (supervisees – providers, interns, etc. who have supervision sessions)
+    if (!isSupervisor(authStore.user) && !isLimitedAccessNonProvider) {
+      cards.push({
+        id: 'my_supervision',
+        label: 'My Supervision',
+        kind: 'content',
+        badgeCount: 0,
+        iconUrl: brandingStore.getDashboardCardIconUrl('supervision', cardIconOrgOverride),
+        description: 'Your supervision sessions, transcripts, and summaries.'
+      });
+    }
     // Providers card (provider_plus only) – view all providers as though supervising them
     if (String(u?.role || '').toLowerCase() === 'provider_plus') {
       cards.push({
@@ -2204,6 +2222,7 @@ const railCards = computed(() => {
         chats: 14,
         notifications: 15,
         supervision: 16,
+        my_supervision: 16.5,
         providers: 17
       })[k] ?? 999;
     }
@@ -2225,6 +2244,7 @@ const railCards = computed(() => {
       chats: 13,
         notifications: 14,
         supervision: 15,
+        my_supervision: 15.5,
         providers: 16
     })[k] ?? 999;
   };

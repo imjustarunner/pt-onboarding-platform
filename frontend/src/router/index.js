@@ -103,6 +103,20 @@ const routes = [
     component: () => import('../views/PublicProviderFinderView.vue'),
     meta: { requiresGuest: false }
   },
+  // Join supervision (no org slug): resolve session → redirect to /{slug}/join/supervision/:id
+  {
+    path: '/join/supervision/:sessionId',
+    name: 'JoinSupervision',
+    component: () => import('../views/supervision/JoinSupervisionView.vue'),
+    meta: { requiresGuest: false }
+  },
+  // Join team meeting (no org slug): resolve event → redirect to /{slug}/join/team-meeting/:id
+  {
+    path: '/join/team-meeting/:eventId',
+    name: 'JoinTeamMeeting',
+    component: () => import('../views/teamMeeting/JoinTeamMeetingView.vue'),
+    meta: { requiresGuest: false }
+  },
   // Organization-specific routes (supports Agency, School, Program, Learning)
   // School splash page (public, no auth required)
   {
@@ -166,6 +180,18 @@ const routes = [
     path: '/:organizationSlug/change-password',
     name: 'OrganizationChangePassword',
     component: () => import('../views/ChangePasswordView.vue'),
+    meta: { requiresAuth: true, organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/join/supervision/:sessionId',
+    name: 'OrganizationJoinSupervision',
+    component: () => import('../views/supervision/JoinSupervisionView.vue'),
+    meta: { requiresAuth: true, organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/join/team-meeting/:eventId',
+    name: 'OrganizationJoinTeamMeeting',
+    component: () => import('../views/teamMeeting/JoinTeamMeetingView.vue'),
     meta: { requiresAuth: true, organizationSlug: true }
   },
   {
@@ -1647,18 +1673,20 @@ router.beforeEach(async (to, from, next) => {
       next();
       return;
     }
+    const redirectPath = to.fullPath || to.path;
+    const redirectQuery = redirectPath && redirectPath !== '/' ? `?redirect=${encodeURIComponent(redirectPath)}` : '';
     // If this is an organization-slug route, always keep the slug in the login redirect
     // so users land on "/:organizationSlug/login" (branded) instead of platform "/login".
     const slug =
       (to.meta.organizationSlug && typeof to.params.organizationSlug === 'string' && to.params.organizationSlug) ||
       null;
     if (slug) {
-      next(`/${slug}/login`);
+      next(`/${slug}/login${redirectQuery}`);
       return;
     }
     // Otherwise, redirect based on stored agencies/user role.
     const loginUrl = getLoginUrl(authStore.user);
-    next(loginUrl);
+    next(loginUrl + redirectQuery);
   } else if (to.meta.requiresProviderMobileAccess) {
     if (hasProviderMobileAccess(authStore.user)) {
       next();

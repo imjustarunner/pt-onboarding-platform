@@ -5,6 +5,11 @@ import SupervisionSessionArtifact from '../models/SupervisionSessionArtifact.mod
 import SupervisorAssignment from '../models/SupervisorAssignment.model.js';
 import GoogleCalendarService from '../services/googleCalendar.service.js';
 import { fetchMeetTranscriptForSession } from '../services/googleMeetTranscript.service.js';
+import {
+  isTwilioVideoConfigured,
+  createOrGetRoom,
+  createAccessToken
+} from '../services/twilioVideo.service.js';
 import PayrollRateCard from '../models/PayrollRateCard.model.js';
 import PayrollRate from '../models/PayrollRate.model.js';
 import { callGeminiText } from '../services/geminiText.service.js';
@@ -119,6 +124,12 @@ function canViewSessionArtifacts(roleRaw) {
     'supervisor',
     'supervisee'
   ].includes(role);
+}
+
+/** Transcript is admin-only; summary is visible to supervisor and supervisee. */
+function canViewTranscript(roleRaw) {
+  const role = String(roleRaw || '').toLowerCase();
+  return ['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant'].includes(role);
 }
 
 function buildSupervisionSummaryPrompt(transcriptText) {
@@ -512,6 +523,127 @@ export const markSupervisionMeetingLifecycle = async (req, res, next) => {
   }
 };
 
+/**
+ * Public endpoint: resolve session to org slug for join redirect.
+ * Used when user hits /join/supervision/:sessionId without org slug.
+ */
+export const getSupervisionJoinInfo = async (req, res, next) => {
+  try {
+    const sessionId = parseInt(req.params.sessionId, 10);
+    if (!sessionId) return res.status(400).json({ error: { message: 'Invalid session id' } });
+
+    const [rows] = await pool.execute(
+      `SELECT a.slug, a.portal_url
+       FROM supervision_sessions ss
+       JOIN agencies a ON a.id = ss.agency_id AND a.is_active = TRUE
+       WHERE ss.id = ? AND (ss.status IS NULL OR ss.status <> 'CANCELLED')
+       LIMIT 1`,
+      [sessionId]
+    );
+    const row = rows?.[0];
+    if (!row) return res.status(404).json({ error: { message: 'Session not found' } });
+
+    const orgSlug = String(row.slug || row.portal_url || '').trim();
+    if (!orgSlug) return res.status(404).json({ error: { message: 'Session organization has no portal' } });
+
+    res.json({ orgSlug, sessionId });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const getSupervisionVideoToken = async (req, res, next) => {
+  try {
+    if (!isTwilioVideoConfigured()) {
+      return res.status(503).json({ error: { message: 'Twilio Video is not configured' } });
+    }
+
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ error: { message: 'Invalid session id' } });
+
+    const row = await SupervisionSession.findById(id);
+    if (!row) return res.status(404).json({ error: { message: 'Session not found' } });
+
+    const ok = await canScheduleSession(req, {
+      agencyId: row.agency_id,
+      supervisorUserId: row.supervisor_user_id,
+      superviseeUserId: row.supervisee_user_id
+    });
+    if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const actorUserId = Number(req.user?.id || 0);
+    if (!actorUserId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+
+    const roomName = row.twilio_room_unique_name || `supervision-${id}`;
+    const roomResult = await createOrGetRoom({ sessionId: id, uniqueName: roomName });
+
+    if (!roomResult) {
+      return res.status(500).json({ error: { message: 'Failed to create or get video room' } });
+    }
+
+    if (!row.twilio_room_sid) {
+      await SupervisionSession.setTwilioRoom(id, {
+        roomSid: roomResult.roomSid,
+        uniqueName: roomResult.uniqueName
+      });
+    }
+
+    const token = createAccessToken({
+      identity: `user-${actorUserId}`,
+      roomName: roomResult.uniqueName,
+      ttlSeconds: 14400
+    });
+
+    if (!token) {
+      return res.status(500).json({ error: { message: 'Failed to generate access token' } });
+    }
+
+    res.json({
+      token,
+      roomName: roomResult.uniqueName,
+      roomSid: roomResult.roomSid
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const saveClientTranscript = async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ error: { message: 'Invalid session id' } });
+
+    const row = await SupervisionSession.findById(id);
+    if (!row) return res.status(404).json({ error: { message: 'Session not found' } });
+
+    const ok = await canScheduleSession(req, {
+      agencyId: row.agency_id,
+      supervisorUserId: row.supervisor_user_id,
+      superviseeUserId: row.supervisee_user_id
+    });
+    if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const transcript = String(req.body?.transcript || '').trim();
+    if (!transcript) return res.status(400).json({ error: { message: 'transcript is required' } });
+
+    await SupervisionSessionArtifact.ensureTagged({ sessionId: id });
+    await SupervisionSessionArtifact.upsertBySessionId({
+      sessionId: id,
+      transcriptText: transcript.slice(0, 120000),
+      updatedByUserId: Number(req.user?.id || 0) || null
+    });
+
+    const { triggerSupervisionSummaryFromTranscript } = await import('../services/supervisionTranscriptSummary.service.js');
+    await triggerSupervisionSummaryFromTranscript(id).catch((e) => {
+      console.error('[Supervision] AI summary from client transcript:', e?.message);
+    });
+
+    res.json({ ok: true, sessionId: id });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const listSupervisionAttendanceLogs = async (req, res, next) => {
   try {
     const actorId = Number(req.user?.id || 0);
@@ -620,6 +752,10 @@ export const getSupervisionSessionArtifacts = async (req, res, next) => {
 
     let artifact = await SupervisionSessionArtifact.findBySessionId(id);
 
+    if (artifact && !canViewTranscript(role)) {
+      artifact = { ...artifact, transcript_url: null, transcript_text: null };
+    }
+
     const hasTranscriptUrl = !!String(artifact?.transcript_url || '').trim();
     const hasTranscriptText = !!String(artifact?.transcript_text || '').trim();
     const canAttemptAutoPull = !hasTranscriptUrl && !hasTranscriptText
@@ -673,14 +809,22 @@ export const upsertSupervisionSessionArtifacts = async (req, res, next) => {
     const summaryTextInput = req.body?.summaryText;
     const autoSummarize = req.body?.autoSummarize === true;
 
-    const transcriptUrl = transcriptUrlInput === undefined ? undefined : String(transcriptUrlInput || '').trim().slice(0, 2048);
-    const transcriptText = transcriptTextInput === undefined ? undefined : String(transcriptTextInput || '').trim().slice(0, 120000);
+    const mayEditTranscript = canViewTranscript(role);
+    const transcriptUrl = mayEditTranscript && transcriptUrlInput !== undefined
+      ? String(transcriptUrlInput || '').trim().slice(0, 2048)
+      : undefined;
+    const transcriptTextForPrompt = transcriptTextInput !== undefined
+      ? String(transcriptTextInput || '').trim().slice(0, 120000)
+      : null;
+    const transcriptText = mayEditTranscript && transcriptTextInput !== undefined
+      ? transcriptTextForPrompt
+      : undefined;
     let summaryText = summaryTextInput === undefined ? undefined : String(summaryTextInput || '').trim().slice(0, 120000);
     let summaryModel = undefined;
     let summaryGeneratedAt = undefined;
 
-    if (autoSummarize && transcriptText) {
-      const prompt = buildSupervisionSummaryPrompt(transcriptText);
+    if (autoSummarize && transcriptTextForPrompt) {
+      const prompt = buildSupervisionSummaryPrompt(transcriptTextForPrompt);
       const summaryResp = await callGeminiText({
         prompt,
         temperature: 0.1,
@@ -691,7 +835,7 @@ export const upsertSupervisionSessionArtifacts = async (req, res, next) => {
       summaryGeneratedAt = mysqlNowDateTime();
     }
 
-    const artifact = await SupervisionSessionArtifact.upsertBySessionId({
+    let artifact = await SupervisionSessionArtifact.upsertBySessionId({
       sessionId: id,
       taggedAt: mysqlNowDateTime(),
       transcriptUrl,
@@ -701,6 +845,10 @@ export const upsertSupervisionSessionArtifacts = async (req, res, next) => {
       summaryGeneratedAt,
       updatedByUserId: Number(req.user?.id || 0) || null
     });
+
+    if (artifact && !mayEditTranscript) {
+      artifact = { ...artifact, transcript_url: null, transcript_text: null };
+    }
 
     res.json({ ok: true, sessionId: id, artifact });
   } catch (e) {
@@ -864,6 +1012,11 @@ export const createSupervisionSession = async (req, res, next) => {
       ? `Group supervision (${participantCount})`
       : `Supervision — ${(supervisee.first_name || '').trim()} ${(supervisee.last_name || '').trim()}`.trim();
     const desc = notes ? String(notes) : null;
+    const useTwilioVideo = isTwilioVideoConfigured();
+    const frontendUrl = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
+    const appJoinUrl = useTwilioVideo && frontendUrl
+      ? `${frontendUrl}/join/supervision/${created.id}`
+      : null;
     const sync = await GoogleCalendarService.upsertSupervisionSession({
       supervisionSessionId: created.id,
       hostEmail,
@@ -873,7 +1026,8 @@ export const createSupervisionSession = async (req, res, next) => {
       endAt,
       summary,
       description: desc,
-      createMeetLink
+      createMeetLink: useTwilioVideo ? false : createMeetLink,
+      appJoinUrl
     });
 
     if (sync?.ok) {
@@ -973,7 +1127,11 @@ export const patchSupervisionSession = async (req, res, next) => {
 
     const summary = `Supervision — ${(supervisee?.first_name || '').trim()} ${(supervisee?.last_name || '').trim()}`.trim();
     const desc = updated?.notes ? String(updated.notes) : null;
-
+    const useTwilioVideo = isTwilioVideoConfigured();
+    const frontendUrl = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
+    const appJoinUrl = useTwilioVideo && frontendUrl
+      ? `${frontendUrl}/join/supervision/${id}`
+      : null;
     const sync = await GoogleCalendarService.upsertSupervisionSession({
       supervisionSessionId: id,
       hostEmail,
@@ -982,7 +1140,8 @@ export const patchSupervisionSession = async (req, res, next) => {
       endAt: nextEnd,
       summary,
       description: desc,
-      createMeetLink: createMeetLink && !String(row.google_meet_link || '').trim(),
+      createMeetLink: useTwilioVideo ? false : (createMeetLink && !String(row.google_meet_link || '').trim()),
+      appJoinUrl,
       existingGoogleEventId: row.google_event_id || null,
       existingMeetLink: row.google_meet_link || null
     });
@@ -1097,6 +1256,9 @@ export const getMySupervisionPrompts = async (req, res, next) => {
       now
     });
 
+    const frontendUrl = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
+    const useAppJoin = isTwilioVideoConfigured() && frontendUrl;
+
     const prompts = (rows || []).map((row) => {
       const start = new Date(row.startAt || 0);
       const end = new Date(row.endAt || 0);
@@ -1108,6 +1270,7 @@ export const getMySupervisionPrompts = async (req, res, next) => {
         : false;
       return {
         ...row,
+        joinUrl: useAppJoin && row.id ? `${frontendUrl}/join/supervision/${row.id}` : null,
         startsInMinutes,
         isLive: Number.isFinite(start.getTime()) && Number.isFinite(end.getTime()) ? now >= start && now <= end : false,
         inPromptWindow,
@@ -1116,6 +1279,94 @@ export const getMySupervisionPrompts = async (req, res, next) => {
     }).filter((row) => row.inPromptWindow);
 
     res.json({ ok: true, prompts, now: now.toISOString() });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const getMySupervisionSessions = async (req, res, next) => {
+  try {
+    const userId = Number(req.user?.id || 0);
+    const agencyId = req.query?.agencyId ? Number(req.query.agencyId) : null;
+    if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+
+    const sessions = await SupervisionSession.listSessionsForSuperviseeWithArtifacts({
+      superviseeUserId: userId,
+      agencyId: Number.isFinite(agencyId) && agencyId > 0 ? agencyId : null,
+      limit: 50
+    });
+
+    const role = String(req.user?.role || '').toLowerCase();
+    const includeTranscript = canViewTranscript(role);
+    const sanitized = (sessions || []).map((s) => {
+      const out = { ...s };
+      if (!includeTranscript) out.transcriptText = null;
+      return out;
+    });
+
+    const frontendUrl = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
+    const withJoinUrl = sanitized.map((s) => ({
+      ...s,
+      joinUrl: frontendUrl ? `${frontendUrl}/join/supervision/${s.id}` : null
+    }));
+
+    res.json({ ok: true, sessions: withJoinUrl });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const getSuperviseeSessions = async (req, res, next) => {
+  try {
+    const superviseeId = parseInt(req.params.superviseeId, 10);
+    const agencyId = req.query?.agencyId ? Number(req.query.agencyId) : null;
+    const actorId = Number(req.user?.id || 0);
+    if (!actorId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+    if (!superviseeId) return res.status(400).json({ error: { message: 'Invalid supervisee id' } });
+
+    const role = String(req.user?.role || '').toLowerCase();
+    const aId = Number.isFinite(agencyId) && agencyId > 0 ? agencyId : null;
+
+    if (role !== 'super_admin' && role !== 'admin' && role !== 'support' && role !== 'staff' && role !== 'clinical_practice_assistant') {
+      const [rows] = await pool.execute(
+        `SELECT agency_id FROM supervision_sessions
+         WHERE supervisee_user_id = ? OR EXISTS (
+           SELECT 1 FROM supervision_session_attendees ssa
+           WHERE ssa.session_id = supervision_sessions.id AND ssa.user_id = ? AND ssa.participant_role = 'supervisee'
+         )
+         LIMIT 1`,
+        [superviseeId, superviseeId]
+      );
+      const agencyIdFromSession = rows?.[0]?.agency_id;
+      const checkAgencyId = aId || Number(agencyIdFromSession || 0);
+      const ok = await canScheduleSession(req, {
+        agencyId: checkAgencyId || 1,
+        supervisorUserId: 0,
+        superviseeUserId: superviseeId
+      });
+      if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const sessions = await SupervisionSession.listSessionsForSuperviseeWithArtifacts({
+      superviseeUserId: superviseeId,
+      agencyId: aId,
+      limit: 50
+    });
+
+    const includeTranscript = canViewTranscript(role);
+    const sanitized = (sessions || []).map((s) => {
+      const out = { ...s };
+      if (!includeTranscript) out.transcriptText = null;
+      return out;
+    });
+
+    const frontendUrl = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
+    const withJoinUrl = sanitized.map((s) => ({
+      ...s,
+      joinUrl: frontendUrl ? `${frontendUrl}/join/supervision/${s.id}` : null
+    }));
+
+    res.json({ ok: true, sessions: withJoinUrl });
   } catch (e) {
     next(e);
   }

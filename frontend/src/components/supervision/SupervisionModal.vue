@@ -404,6 +404,15 @@
                     </button>
                     <button
                       type="button"
+                      class="btn btn-primary btn-sm"
+                      style="margin-left: 0.5rem;"
+                      :disabled="twilioVideoLoading"
+                      @click="startAppVideoMeeting(s)"
+                    >
+                      {{ twilioVideoLoading && twilioVideoSessionId === s.id ? 'Joining…' : 'Join with app' }}
+                    </button>
+                    <button
+                      type="button"
                       class="btn btn-secondary btn-sm"
                       style="margin-left: 0.5rem;"
                       @click="openAgendaForSession(s.id)"
@@ -497,6 +506,35 @@
         @updated="() => {}"
       />
     </div>
+    <div v-if="showTwilioVideoModal && twilioVideoToken" class="supervision-agenda-overlay" style="z-index: 10001;">
+      <div class="supervision-modal" style="max-width: 900px; max-height: 90vh;">
+        <div class="supervision-modal-header">
+          <h2>Supervision video (in-app)</h2>
+          <button type="button" class="supervision-modal-close" aria-label="Close" @click="closeTwilioVideoModal">&times;</button>
+        </div>
+        <div class="supervision-modal-body" style="padding: 12px;">
+          <p class="summary-meta" style="margin-bottom: 12px;">Attendance is tracked automatically when you join and leave.</p>
+          <SupervisionTwilioVideoRoom
+            :token="twilioVideoToken"
+            :room-name="twilioVideoRoomName"
+            :session-id="twilioVideoSessionId"
+            @disconnected="closeTwilioVideoModal"
+          />
+        </div>
+      </div>
+    </div>
+    <div v-if="twilioVideoError" class="supervision-agenda-overlay" style="z-index: 10002;" @click.self="twilioVideoError = ''">
+      <div class="supervision-modal" style="max-width: 400px;">
+        <div class="supervision-modal-header">
+          <h2>Could not join</h2>
+          <button type="button" class="supervision-modal-close" aria-label="Close" @click="twilioVideoError = ''">&times;</button>
+        </div>
+        <div class="supervision-modal-body">
+          <p class="supervision-error-inline">{{ twilioVideoError }}</p>
+          <p v-if="twilioVideoError.includes('not configured')" class="summary-meta">Twilio Video must be configured by your administrator. Use the Google Meet link instead if available.</p>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -511,6 +549,7 @@ import ModuleAssignmentDialog from '../admin/ModuleAssignmentDialog.vue';
 import UserSpecificDocumentUploadDialog from '../documents/UserSpecificDocumentUploadDialog.vue';
 import ClientModal from '../school/redesign/ClientModal.vue';
 import MeetingAgendaPanel from '../meetings/MeetingAgendaPanel.vue';
+import SupervisionTwilioVideoRoom from './SupervisionTwilioVideoRoom.vue';
 
 const route = useRoute();
 
@@ -572,6 +611,12 @@ const trackedMeetingWindow = ref(null);
 const trackedMeetingPoll = ref(null);
 const trackedMeetingSessionId = ref(null);
 const trackedMeetingClientSessionKey = ref('');
+const showTwilioVideoModal = ref(false);
+const twilioVideoToken = ref('');
+const twilioVideoRoomName = ref('');
+const twilioVideoSessionId = ref(null);
+const twilioVideoLoading = ref(false);
+const twilioVideoError = ref('');
 const sessionArtifactsById = ref({});
 const artifactDraftById = ref({});
 const artifactLoadingById = ref({});
@@ -753,6 +798,33 @@ async function endTrackedMeeting() {
     trackedMeetingClientSessionKey.value = '';
     meetingTrackerSaving.value = false;
   }
+}
+
+async function startAppVideoMeeting(session) {
+  const sid = Number(session?.id || 0);
+  if (!sid) return;
+  twilioVideoLoading.value = true;
+  twilioVideoSessionId.value = sid;
+  twilioVideoError.value = '';
+  try {
+    const resp = await api.get(`/supervision/sessions/${sid}/video-token`);
+    const data = resp?.data || {};
+    twilioVideoToken.value = data.token || '';
+    twilioVideoRoomName.value = data.roomName || `supervision-${sid}`;
+    showTwilioVideoModal.value = true;
+  } catch (err) {
+    twilioVideoError.value = err?.response?.data?.error?.message || err?.message || 'Failed to join video room';
+  } finally {
+    twilioVideoLoading.value = false;
+    if (!showTwilioVideoModal.value) twilioVideoSessionId.value = null;
+  }
+}
+
+function closeTwilioVideoModal() {
+  showTwilioVideoModal.value = false;
+  twilioVideoToken.value = '';
+  twilioVideoRoomName.value = '';
+  twilioVideoSessionId.value = null;
 }
 
 async function startTrackedMeeting(session) {

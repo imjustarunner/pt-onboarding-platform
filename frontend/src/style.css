@@ -1636,3 +1636,16 @@ h2 {
 h3 {
   font-size: 20px;
 }
+
+/* Subtle pulse for Join buttons when meeting is about to start */
+.btn-join-pulse {
+  animation: btn-join-pulse 2s ease-in-out infinite;
+}
+@keyframes btn-join-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(198, 154, 43, 0.35);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(198, 154, 43, 0);
+  }
+}

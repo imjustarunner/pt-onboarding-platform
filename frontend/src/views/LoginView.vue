@@ -579,7 +579,12 @@ const handleLogin = async () => {
       return;
     }
 
-    router.push(getDashboardRoute());
+    const redirectPath = route.query?.redirect;
+    if (redirectPath && typeof redirectPath === 'string' && redirectPath.startsWith('/')) {
+      router.push(redirectPath);
+    } else {
+      router.push(getDashboardRoute());
+    }
   } else {
     error.value = result.error;
     lastErrorCode.value = result.code || null;
