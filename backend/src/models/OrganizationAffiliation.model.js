@@ -11,12 +11,13 @@ class OrganizationAffiliation {
   }
 
   /**
-   * True if agency has at least one affiliated org with organization_type
-   * that supports session workflows outside pure school-only programs.
+   * True if agency has at least one affiliated org with organization_type = 'learning'.
+   * Used to gate individual/group session booking to agencies with learning org context.
+   * Program-only orgs do not qualify (no clinical/learning).
    */
   static async agencyHasLearningOrg(agencyId) {
     const orgs = await this.listActiveOrganizationsForAgency(agencyId);
-    return (orgs || []).some((o) => ['learning', 'program'].includes(String(o?.organization_type || '').toLowerCase()));
+    return (orgs || []).some((o) => String(o?.organization_type || '').toLowerCase() === 'learning');
   }
 
   static async listActiveOrganizationsForAgency(agencyId) {
