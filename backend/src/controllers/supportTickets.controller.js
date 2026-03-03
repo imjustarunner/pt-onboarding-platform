@@ -1138,7 +1138,12 @@ export const deleteSupportTicketMessage = async (req, res, next) => {
       return res.status(409).json({ error: { message: 'Ticket messages are not enabled (missing migration)' } });
     }
     if (!(await hasSupportTicketMessagesSoftDeleteColumns())) {
-      return res.status(409).json({ error: { message: 'Message delete is not enabled (missing migration)' } });
+      return res.status(409).json({
+        error: {
+          message:
+            'Message deletion is not available. Please contact your administrator to run the support ticket messages migration.'
+        }
+      });
     }
 
     const [mRows] = await pool.execute(
@@ -1158,10 +1163,12 @@ export const deleteSupportTicketMessage = async (req, res, next) => {
     const authorRole = String(msg.author_role || '').toLowerCase();
     const isAdminLike = role === 'super_admin' || role === 'admin' || role === 'support' || role === 'staff';
     const isSchoolStaff = role === 'school_staff';
+    const isMessageAuthor = Number(msg.author_user_id) === Number(req.user.id);
+    const isTicketCreator = Number(ticket.created_by_user_id) === Number(req.user.id);
     const canDelete =
       (isAdminLike && authorRole === 'school_staff') ||
-      (isSchoolStaff && Number(msg.author_user_id) === Number(req.user.id));
-    if (!canDelete) return res.status(403).json({ error: { message: 'Access denied' } });
+      (isSchoolStaff && (isMessageAuthor || (authorRole === 'school_staff' && isTicketCreator)));
+    if (!canDelete) return res.status(403).json({ error: { message: 'You can only delete your own messages.' } });
 
     await pool.execute(
       `UPDATE support_ticket_messages

@@ -78,6 +78,7 @@
               :depth="0"
               :current-user-id="currentUserId"
               :current-user-role="currentUserRole"
+              :ticket-created-by-user-id="ticket?.created_by_user_id ?? null"
               @reply="setReplyTarget"
               @delete="deleteMessage"
             />

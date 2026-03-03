@@ -2485,14 +2485,16 @@ const openPtoChooserModal = async () => {
 const closePtoChooserModal = () => { showPtoChooser.value = false; };
 
 const addPtoItem = (formRef) => {
-  const next = Array.isArray(formRef.value.items) ? formRef.value.items.slice() : [];
+  const form = formRef?.value ?? formRef;
+  const next = Array.isArray(form?.items) ? form.items.slice() : [];
   next.push({ date: '', hours: '' });
-  formRef.value.items = next;
+  form.items = next;
 };
 const removePtoItem = (formRef, idx) => {
-  const next = Array.isArray(formRef.value.items) ? formRef.value.items.slice() : [];
+  const form = formRef?.value ?? formRef;
+  const next = Array.isArray(form?.items) ? form.items.slice() : [];
   next.splice(idx, 1);
-  formRef.value.items = next;
+  form.items = next;
 };
 
 const openPtoSick = () => {

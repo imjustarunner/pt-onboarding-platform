@@ -79,6 +79,7 @@
                 :expanded="expanded"
                 :current-user-id="currentUserId"
                 :current-user-role="currentUserRole"
+                :ticket-created-by-user-id="ticket?.created_by_user_id ?? null"
                 :highlight-id="highlightMessageId"
                 @toggle="toggleExpanded"
                 @reply="setReplyTarget"

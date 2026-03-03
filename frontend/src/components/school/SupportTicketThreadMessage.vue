@@ -27,6 +27,7 @@
         :depth="depth + 1"
         :current-user-id="currentUserId"
         :current-user-role="currentUserRole"
+        :ticket-created-by-user-id="ticketCreatedByUserId"
         :highlight-id="highlightId"
         @reply="$emit('reply', $event)"
         @delete="$emit('delete', $event)"
@@ -44,6 +45,7 @@ const props = defineProps({
   depth: { type: Number, default: 0 },
   currentUserId: { type: [Number, String], default: null },
   currentUserRole: { type: String, default: '' },
+  ticketCreatedByUserId: { type: [Number, String], default: null },
   highlightId: { type: [Number, String], default: null }
 });
 
@@ -71,8 +73,10 @@ const canDelete = computed(() => {
   const isSchoolStaff = role === 'school_staff';
   const authorRole = String(props.node?.author_role || '').toLowerCase();
   const authorUserId = props.node?.author_user_id;
+  const isMessageAuthor = Number(authorUserId) === Number(props.currentUserId);
+  const isTicketCreator = Number(props.ticketCreatedByUserId) === Number(props.currentUserId);
   if (isAdminLike) return authorRole === 'school_staff';
-  if (isSchoolStaff) return authorRole === 'school_staff' && Number(authorUserId) === Number(props.currentUserId);
+  if (isSchoolStaff) return authorRole === 'school_staff' && (isMessageAuthor || isTicketCreator);
   return false;
 });
 
