@@ -2788,8 +2788,8 @@ export const getPayrollReportSupervisionConflicts = async (req, res, next) => {
          AND ss.start_at >= ?
          AND ss.start_at < DATE_ADD(?, INTERVAL 1 DAY)
          ${providerIds.length ? ` AND ssar.user_id IN (${providerIds.map(() => '?').join(',')})` : ''}
-       GROUP BY ssar.user_id, DATE(ss.start_at), LOWER(TRIM(COALESCE(ss.session_type, 'individual')))
-       ORDER BY ss.start_at ASC, ssar.user_id ASC`,
+       GROUP BY ssar.user_id, DATE_FORMAT(ss.start_at, '%Y-%m-%d'), LOWER(TRIM(COALESCE(ss.session_type, 'individual')))
+       ORDER BY service_date ASC, ssar.user_id ASC`,
       [
         period.agency_id,
         period.period_start,
@@ -3465,7 +3465,7 @@ async function buildResolvedSupervisionUnitsByUserCode({
        AND COALESCE(ssar.total_seconds, 0) > 0
      GROUP BY
        ssar.user_id,
-       DATE(ss.start_at),
+       DATE_FORMAT(ss.start_at, '%Y-%m-%d'),
        LOWER(TRIM(COALESCE(ss.session_type, 'individual'))),
        LOWER(TRIM(COALESCE(ssa.participant_role,
          CASE WHEN ssar.user_id = ss.supervisor_user_id THEN 'supervisor' ELSE 'supervisee' END
