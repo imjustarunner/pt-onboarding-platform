@@ -6352,7 +6352,13 @@ export const listPayrollAgencyUsers = async (req, res, next) => {
        JOIN user_agencies ua ON u.id = ua.user_id
        WHERE ua.agency_id = ?
        ${activeFilter}
-       ORDER BY u.last_name ASC, u.first_name ASC`,
+       UNION
+       SELECT DISTINCT u.id, u.first_name, u.last_name, u.email, u.role${supField}${activeField}${medcancelField}
+       FROM users u
+       WHERE u.role = 'super_admin'
+         AND (u.is_archived = FALSE OR u.is_archived IS NULL)
+         ${activeFilter}
+       ORDER BY last_name ASC, first_name ASC`,
       [resolvedAgencyId]
     );
     res.json(rows || []);

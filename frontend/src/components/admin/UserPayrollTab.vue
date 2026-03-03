@@ -477,8 +477,14 @@
         <div class="settings-card">
           <div class="settings-head">
             <div>
-              <h3 class="card-title" style="margin: 0;">Salary</h3>
-              <div class="muted" style="margin-top: 4px;">True salary paid each pay period.</div>
+              <h3 class="card-title" style="margin: 0;">Salary{{ selectedAgencyName ? ` for ${selectedAgencyName}` : '' }}</h3>
+              <div class="muted" style="margin-top: 4px;">True salary paid each pay period. Each company can have a different salary.</div>
+              <div v-if="payrollAgencyOptions.length > 1" class="field" style="margin-top: 10px;">
+                <label>Company</label>
+                <select v-model="selectedAgencyId" class="agency-select-inline">
+                  <option v-for="a in payrollAgencyOptions" :key="a.id" :value="a.id">{{ a.name }}</option>
+                </select>
+              </div>
             </div>
             <div class="actions">
               <button class="btn btn-secondary" type="button" @click="loadSalaryPositions" :disabled="salaryPositionsLoading || savingSalary">Reload</button>
@@ -567,6 +573,12 @@ const payrollAgencyOptions = computed(() => {
   const list = Array.isArray(props.userAgencies) ? props.userAgencies : [];
   // Payroll runs at the agency organization level only.
   return list.filter((a) => String(a?.organization_type || 'agency').toLowerCase() === 'agency');
+});
+const selectedAgencyName = computed(() => {
+  const id = selectedAgencyId.value;
+  if (!id) return '';
+  const a = (payrollAgencyOptions.value || []).find((ag) => Number(ag?.id) === Number(id));
+  return a?.name || '';
 });
 const loading = ref(false);
 const error = ref('');
