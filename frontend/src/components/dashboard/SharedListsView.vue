@@ -96,7 +96,8 @@ let pollTimer = null;
 
 const canManage = (list) => list.my_role === 'admin' || list.my_role === 'editor';
 
-const fetchLists = async () => {
+const fetchLists = async (opts = {}) => {
+  const { emitTaskChanged = true } = typeof opts === 'object' && opts !== null ? opts : {};
   if (!props.agencyId) {
     lists.value = [];
     loading.value = false;
@@ -118,7 +119,7 @@ const fetchLists = async () => {
       hasRecentActivity,
       lastActivityAt: lastActivity ? new Date(lastActivity).toISOString() : null
     });
-    emit('task-changed');
+    if (emitTaskChanged) emit('task-changed');
   } catch (err) {
     console.error('Failed to fetch task lists:', err);
     lists.value = [];
@@ -159,7 +160,7 @@ const openManage = (list) => {
 const startPolling = () => {
   if (pollTimer) return;
   pollTimer = setInterval(() => {
-    if (props.agencyId && !loading.value) fetchLists();
+    if (props.agencyId && !loading.value) fetchLists({ emitTaskChanged: false });
   }, POLL_INTERVAL_MS);
 };
 
