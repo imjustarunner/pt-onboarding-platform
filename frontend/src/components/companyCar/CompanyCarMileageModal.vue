@@ -2,7 +2,7 @@
   <div class="modal-overlay" @click.self="$emit('close')">
     <div class="modal company-car-mileage-modal" style="width: min(560px, 100%);">
       <div class="modal-header">
-        <h2>Company Car Mileage</h2>
+        <h2>{{ editTrip ? 'Edit trip' : 'Company Car Mileage' }}</h2>
         <button type="button" class="btn-close" @click="$emit('close')" aria-label="Close">&times;</button>
       </div>
       <div class="modal-body">
@@ -111,7 +111,7 @@
             :disabled="submitting || !canSubmit"
             @click="submit"
           >
-            {{ submitting ? 'Submitting…' : 'Submit' }}
+            {{ submitting ? (editTrip ? 'Saving…' : 'Submitting…') : (editTrip ? 'Save changes' : 'Submit') }}
           </button>
         </div>
       </div>
@@ -127,7 +127,8 @@ import AddressSearchSelect from './AddressSearchSelect.vue';
 const props = defineProps({
   agencyId: { type: Number, required: true },
   manageAccess: { type: Boolean, default: false },
-  show: { type: Boolean, default: true }
+  show: { type: Boolean, default: true },
+  editTrip: { type: Object, default: null }
 });
 
 const emit = defineEmits(['close', 'submitted']);
@@ -307,7 +308,7 @@ async function submit() {
       .filter(Boolean);
 
     const miles = effectiveMiles.value;
-    await api.post('/company-car/company-car-trips', {
+    const payload = {
       agencyId: props.agencyId,
       companyCarId: form.value.companyCarId,
       userId: props.manageAccess ? form.value.userId : undefined,
@@ -318,7 +319,15 @@ async function submit() {
       destinations,
       reasonForTravel: form.value.reasonForTravel.trim(),
       notes: form.value.notes?.trim() || null
-    });
+    };
+
+    if (props.editTrip?.id) {
+      await api.patch(`/company-car/company-car-trips/${props.editTrip.id}`, payload, {
+        params: { agencyId: props.agencyId }
+      });
+    } else {
+      await api.post('/company-car/company-car-trips', payload);
+    }
     emit('submitted');
     emit('close');
   } catch (e) {
@@ -330,24 +339,34 @@ async function submit() {
 
 function resetForm() {
   const today = new Date().toISOString().slice(0, 10);
+  const t = props.editTrip;
+  let destinations = [null];
+  if (t?.destinations_json) {
+    try {
+      const arr = typeof t.destinations_json === 'string' ? JSON.parse(t.destinations_json) : t.destinations_json;
+      destinations = Array.isArray(arr) && arr.length > 0 ? arr.map((d) => d) : [null];
+    } catch {
+      // ignore
+    }
+  }
   form.value = {
-    companyCarId: cars.value.length === 1 ? cars.value[0].id : null,
-    userId: agencyUsers.value.length ? agencyUsers.value[0].id : null,
-    driveDate: today,
+    companyCarId: t?.company_car_id ?? (cars.value.length === 1 ? cars.value[0].id : null),
+    userId: t?.user_id ?? (agencyUsers.value.length ? agencyUsers.value[0].id : null),
+    driveDate: t?.drive_date ? String(t.drive_date).slice(0, 10) : today,
     startLocationId: startLocations.value.length === 1 ? startLocations.value[0].id : null,
     roundTrip: false,
-    startOdometerMiles: null,
-    endOdometerMiles: null,
-    destinations: [null],
-    reasonForTravel: '',
-    notes: ''
+    startOdometerMiles: t?.start_odometer_miles ?? null,
+    endOdometerMiles: t?.end_odometer_miles ?? null,
+    destinations,
+    reasonForTravel: t?.reason_for_travel ?? '',
+    notes: t?.notes ?? ''
   };
-  calculatedMiles.value = null;
+  calculatedMiles.value = t?.miles ?? null;
   mileageError.value = '';
 }
 
 watch(
-  () => [props.agencyId, props.show],
+  () => [props.agencyId, props.show, props.editTrip],
   async () => {
     if (!props.agencyId || !props.show) return;
     loading.value = true;

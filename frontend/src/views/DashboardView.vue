@@ -728,7 +728,7 @@
                 :agency-id="Number(currentAgencyId)"
                 :manage-access="!!authStore.user?.companyCarManageAccess"
                 :current-user-id="authStore.user?.id"
-                @open-modal="showCompanyCarMileageModal = true"
+                @open-modal="(trip) => { pendingCompanyCarEditTrip = trip; showCompanyCarMileageModal = true }"
               />
             </div>
           </div>
@@ -908,7 +908,8 @@
       :agency-id="Number(currentAgencyId)"
       :manage-access="!!authStore.user?.companyCarManageAccess"
       :show="showCompanyCarMileageModal"
-      @close="showCompanyCarMileageModal = false"
+      :edit-trip="pendingCompanyCarEditTrip"
+      @close="showCompanyCarMileageModal = false; pendingCompanyCarEditTrip = null"
       @submitted="onCompanyCarMileageSubmitted"
     />
 
@@ -2440,6 +2441,7 @@ const pendingPtoModalOpen = ref(false);
 const pendingCompanyCardModalOpen = ref(false);
 const showBudgetSubmitExpensesModal = ref(false);
 const showCompanyCarMileageModal = ref(false);
+const pendingCompanyCarEditTrip = ref(null);
 const pendingTimeModalOpen = ref(null); // 'meeting' | 'excess' | 'correction' | 'overtime'
 const openRegularMileageModal = () => {
   pendingMileageModalOpen.value = 'standard';
@@ -2510,6 +2512,7 @@ const openCompanyCarMileage = () => {
 
 const onCompanyCarMileageSubmitted = () => {
   showCompanyCarMileageModal.value = false;
+  pendingCompanyCarEditTrip.value = null;
 };
 
 const onCompanyCardSubmittedFromModal = () => {

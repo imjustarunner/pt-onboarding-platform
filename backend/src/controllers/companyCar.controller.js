@@ -289,6 +289,77 @@ export async function createCompanyCarTrip(req, res) {
   }
 }
 
+export async function updateCompanyCarTrip(req, res) {
+  try {
+    const access = await requireCompanyCarAccess(req, res);
+    if (!access) return;
+    const { agencyId, manageAccess } = access;
+
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id)) {
+      return res.status(400).json({ error: { message: 'Invalid trip id' } });
+    }
+
+    const trip = await CompanyCarTrip.findById(id);
+    if (!trip || trip.agency_id !== agencyId) {
+      return res.status(404).json({ error: { message: 'Trip not found' } });
+    }
+
+    if (!manageAccess && trip.user_id !== req.user.id) {
+      return res.status(403).json({ error: { message: 'You can only edit your own trips' } });
+    }
+
+    const body = req.body || {};
+    const companyCarId = body.companyCarId != null ? parseInt(body.companyCarId, 10) : undefined;
+    const driveDate = body.driveDate != null ? String(body.driveDate).slice(0, 10) : undefined;
+    const startOdometerMiles = body.startOdometerMiles;
+    const endOdometerMiles = body.endOdometerMiles;
+    const milesOverride = body.miles != null ? Number(body.miles) : undefined;
+    const destinations = Array.isArray(body.destinations)
+      ? body.destinations
+      : (body.destinations != null ? [body.destinations] : undefined);
+    const reasonForTravel = body.reasonForTravel != null ? String(body.reasonForTravel).trim() : undefined;
+    const notes = body.notes !== undefined ? (body.notes ? String(body.notes).trim() : null) : undefined;
+    const driverUserId = manageAccess && body.userId != null ? parseInt(body.userId, 10) : undefined;
+
+    if (companyCarId !== undefined) {
+      const car = await CompanyCar.findById(companyCarId);
+      if (!car || car.agency_id !== agencyId) {
+        return res.status(400).json({ error: { message: 'Invalid company car' } });
+      }
+    }
+    if (driveDate !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(driveDate)) {
+      return res.status(400).json({ error: { message: 'driveDate must be YYYY-MM-DD' } });
+    }
+    if (reasonForTravel !== undefined && !reasonForTravel) {
+      return res.status(400).json({ error: { message: 'reasonForTravel is required' } });
+    }
+    if (driverUserId !== undefined && manageAccess) {
+      const hasAccess = await userHasAgencyAccess(driverUserId, agencyId);
+      if (!hasAccess) {
+        return res.status(400).json({ error: { message: 'Driver must belong to this agency' } });
+      }
+    }
+
+    const updated = await CompanyCarTrip.update({
+      id,
+      agencyId,
+      companyCarId,
+      userId: driverUserId,
+      driveDate,
+      startOdometerMiles,
+      endOdometerMiles,
+      miles: milesOverride,
+      destinations,
+      reasonForTravel,
+      notes
+    });
+    res.json(updated);
+  } catch (e) {
+    res.status(500).json({ error: { message: e.message || 'Failed to update trip' } });
+  }
+}
+
 export async function deleteCompanyCarTrip(req, res) {
   try {
     const access = await requireCompanyCarAccess(req, res);
@@ -313,6 +384,66 @@ export async function deleteCompanyCarTrip(req, res) {
     res.json({ success: true });
   } catch (e) {
     res.status(500).json({ error: { message: e.message || 'Failed to delete trip' } });
+  }
+}
+
+function csvEscape(val) {
+  const s = val == null ? '' : String(val);
+  if (s.includes('"') || s.includes(',') || s.includes('\n')) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+
+export async function exportCompanyCarTripsCsv(req, res) {
+  try {
+    const access = await requireCompanyCarAccess(req, res);
+    if (!access) return;
+    const { agencyId, manageAccess } = access;
+
+    const companyCarId = req.query.companyCarId ? parseInt(req.query.companyCarId, 10) : null;
+    const userId = req.query.userId ? parseInt(req.query.userId, 10) : null;
+    const fromDate = req.query.fromDate ? String(req.query.fromDate).slice(0, 10) : null;
+    const toDate = req.query.toDate ? String(req.query.toDate).slice(0, 10) : null;
+
+    const filterUserId = manageAccess ? userId : req.user.id;
+    const trips = await CompanyCarTrip.list({
+      agencyId,
+      companyCarId: Number.isFinite(companyCarId) ? companyCarId : null,
+      userId: filterUserId,
+      fromDate: fromDate || null,
+      toDate: toDate || null,
+      limit: 10000,
+      offset: 0
+    });
+
+    const header = 'Date,Car,Driver,Miles,Destinations,Reason,Notes,Created';
+    const lines = (trips || []).map((t) => {
+      const dests = (() => {
+        try {
+          const arr = typeof t.destinations_json === 'string' ? JSON.parse(t.destinations_json) : t.destinations_json;
+          return Array.isArray(arr) ? arr.join('; ') : '';
+        } catch {
+          return '';
+        }
+      })();
+      const driver = [t.user_first_name, t.user_last_name].filter(Boolean).join(' ');
+      return [
+        csvEscape(t.drive_date),
+        csvEscape(t.company_car_name),
+        csvEscape(driver),
+        csvEscape(Number(t.miles || 0).toFixed(1)),
+        csvEscape(dests),
+        csvEscape(t.reason_for_travel),
+        csvEscape(t.notes || ''),
+        csvEscape(t.created_at)
+      ].join(',');
+    });
+    const csv = [header, ...lines].join('\n');
+    const filename = `company-car-trips-${agencyId}-${new Date().toISOString().slice(0, 10)}.csv`;
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(csv);
+  } catch (e) {
+    res.status(500).json({ error: { message: e.message || 'Failed to export' } });
   }
 }
 

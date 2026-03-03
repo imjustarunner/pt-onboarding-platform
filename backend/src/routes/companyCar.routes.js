@@ -7,7 +7,9 @@ import {
   uploadCompanyCarPhoto,
   listCompanyCarTrips,
   createCompanyCarTrip,
+  updateCompanyCarTrip,
   deleteCompanyCarTrip,
+  exportCompanyCarTripsCsv,
   listCompanyCarUsualPlaces,
   listCompanyCarStartLocations,
   listCompanyCarDestinationOptions,
@@ -26,7 +28,9 @@ router.patch('/company-cars/:id', updateCompanyCar);
 router.post('/company-cars/:id/photo', ...uploadCompanyCarPhoto);
 
 router.get('/company-car-trips', listCompanyCarTrips);
+router.get('/company-car-trips/export.csv', exportCompanyCarTripsCsv);
 router.post('/company-car-trips', createCompanyCarTrip);
+router.patch('/company-car-trips/:id', updateCompanyCarTrip);
 router.delete('/company-car-trips/:id', deleteCompanyCarTrip);
 
 router.get('/company-car-usual-places', listCompanyCarUsualPlaces);

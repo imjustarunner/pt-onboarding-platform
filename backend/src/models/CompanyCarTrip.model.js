@@ -128,6 +128,79 @@ class CompanyCarTrip {
     return Number(rows?.[0]?.total_miles || 0);
   }
 
+  static async update({
+    id,
+    agencyId,
+    companyCarId,
+    userId,
+    driveDate,
+    startOdometerMiles,
+    endOdometerMiles,
+    miles: milesOverride,
+    destinations,
+    reasonForTravel,
+    notes
+  }) {
+    const existing = await this.findById(id);
+    if (!existing || existing.agency_id !== agencyId) return null;
+
+    const updates = [];
+    const values = [];
+
+    if (companyCarId !== undefined) {
+      updates.push('company_car_id = ?');
+      values.push(companyCarId);
+    }
+    if (userId !== undefined) {
+      updates.push('user_id = ?');
+      values.push(userId);
+    }
+    if (driveDate !== undefined) {
+      updates.push('drive_date = ?');
+      values.push(driveDate);
+    }
+    if (startOdometerMiles !== undefined) {
+      updates.push('start_odometer_miles = ?');
+      values.push(Number(startOdometerMiles) || 0);
+    }
+    if (endOdometerMiles !== undefined) {
+      updates.push('end_odometer_miles = ?');
+      values.push(Number(endOdometerMiles) || 0);
+    }
+    if (milesOverride !== undefined && Number.isFinite(Number(milesOverride))) {
+      updates.push('miles = ?');
+      values.push(Math.round(Number(milesOverride) * 100) / 100);
+    } else if (startOdometerMiles !== undefined || endOdometerMiles !== undefined) {
+      const start = startOdometerMiles !== undefined ? Number(startOdometerMiles) || 0 : existing.start_odometer_miles;
+      const end = endOdometerMiles !== undefined ? Number(endOdometerMiles) || 0 : existing.end_odometer_miles;
+      updates.push('miles = ?');
+      values.push(Math.max(0, end - start));
+    }
+    if (destinations !== undefined) {
+      const destinationsJson = Array.isArray(destinations) && destinations.length > 0
+        ? JSON.stringify(destinations.map((d) => String(d || '').trim()).filter(Boolean))
+        : null;
+      updates.push('destinations_json = ?');
+      values.push(destinationsJson);
+    }
+    if (reasonForTravel !== undefined) {
+      updates.push('reason_for_travel = ?');
+      values.push(String(reasonForTravel || '').trim().slice(0, 255));
+    }
+    if (notes !== undefined) {
+      updates.push('notes = ?');
+      values.push(notes ? String(notes).trim().slice(0, 65535) : null);
+    }
+
+    if (updates.length === 0) return existing;
+    values.push(id, agencyId);
+    await pool.execute(
+      `UPDATE company_car_trips SET ${updates.join(', ')} WHERE id = ? AND agency_id = ?`,
+      values
+    );
+    return this.findById(id);
+  }
+
   static async deleteById({ id, agencyId }) {
     const [result] = await pool.execute(
       `DELETE FROM company_car_trips WHERE id = ? AND agency_id = ? LIMIT 1`,

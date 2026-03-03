@@ -4424,6 +4424,14 @@ const saveAccount = async () => {
 
     // Always fetch fresh user data to ensure all fields are up to date
     await fetchUser();
+    // If editing own profile, refresh auth store so Dashboard/nav reflect new flags (e.g. company car access)
+    if (parseInt(authStore.user?.id || 0, 10) === parseInt(userId.value || 0, 10)) {
+      try {
+        await authStore.refreshUser();
+      } catch {
+        // ignore
+      }
+    }
     isEditingAccount.value = false;
     if (credentialSaveWarning) {
       alert(`Account updated, but credential update did not save: ${credentialSaveWarning}`);

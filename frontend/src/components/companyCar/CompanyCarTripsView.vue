@@ -4,6 +4,14 @@
       <h3 style="margin: 0;">Company Car Trips</h3>
       <div class="actions" style="gap: 8px;">
         <button
+          type="button"
+          class="btn btn-secondary btn-sm"
+          :disabled="exporting || !trips.length"
+          @click="downloadCsv"
+        >
+          {{ exporting ? 'Exporting…' : 'Download CSV' }}
+        </button>
+        <button
           v-if="manageAccess"
           type="button"
           class="btn btn-secondary btn-sm"
@@ -19,7 +27,7 @@
           style="display: none;"
           @change="onImportFile"
         />
-        <button type="button" class="btn btn-primary btn-sm" @click="$emit('open-modal')">
+        <button type="button" class="btn btn-primary btn-sm" @click="openLogModal()">
           Log trip
         </button>
       </div>
@@ -103,10 +111,10 @@
               <button
                 v-if="manageAccess || t.user_id === currentUserId"
                 type="button"
-                class="btn btn-danger btn-sm"
-                @click="deleteTrip(t.id)"
+                class="btn btn-secondary btn-sm"
+                @click="openLogModal(t)"
               >
-                Delete
+                Edit
               </button>
             </td>
           </tr>
@@ -141,6 +149,7 @@ const newCarName = ref('');
 const creatingCar = ref(false);
 const uploadingPhotoId = ref(null);
 const photoInputRefs = ref({});
+const exporting = ref(false);
 
 function carPhotoUrl(car) {
   return car?.photoUrl ? toUploadsUrl(car.photoUrl) : null;
@@ -266,16 +275,31 @@ async function loadTrips() {
   }
 }
 
-async function deleteTrip(id) {
-  if (!confirm('Delete this trip?')) return;
+function openLogModal(trip = null) {
+  emit('open-modal', trip);
+}
+
+async function downloadCsv() {
+  if (!props.agencyId) return;
+  exporting.value = true;
   try {
-    await api.delete(`/company-car/company-car-trips/${id}`, {
-      params: { agencyId: props.agencyId }
+    const params = new URLSearchParams({ agencyId: String(props.agencyId) });
+    const res = await api.get(`/company-car/company-car-trips/export.csv?${params}`, {
+      responseType: 'blob'
     });
-    await loadTrips();
-    emit('trip-deleted');
+    const blob = new Blob([res.data], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `company-car-trips-${props.agencyId}-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   } catch (e) {
-    alert(e.response?.data?.error?.message || 'Failed to delete');
+    alert(e.response?.data?.error?.message || 'Failed to export');
+  } finally {
+    exporting.value = false;
   }
 }
 
