@@ -2855,6 +2855,7 @@ export const listSchoolPortalNotificationsFeed = async (req, res, next) => {
     const allowDocsLinks = categories.school_portal_docs_links !== false;
     const allowChecklist = categories.school_portal_checklist_updates !== false;
     const allowAssignments = categories.school_portal_client_assignments !== false;
+    const allowIntakePacketSubmitted = categories.school_portal_intake_packet_submitted !== false;
 
     // Manual announcements (all, newest-first)
     let announcements = [];
@@ -3619,6 +3620,61 @@ export const listSchoolPortalNotificationsFeed = async (req, res, next) => {
       docsLinks = [];
     }
 
+    // Intake packet/link submissions (digital forms submitted to this school)
+    let intakePacketSubmitted = [];
+    try {
+      if (!allowIntakePacketSubmitted) {
+        intakePacketSubmitted = [];
+      } else {
+        const [intakeRows] = await pool.execute(
+          `SELECT
+             s.id,
+             s.submitted_at,
+             s.signer_name,
+             s.client_id,
+             isc.full_name AS client_full_name,
+             c.initials AS client_initials,
+             c.identifier_code AS client_identifier_code
+           FROM intake_submissions s
+           JOIN intake_links l ON s.intake_link_id = l.id
+           LEFT JOIN intake_submission_clients isc ON isc.intake_submission_id = s.id
+           LEFT JOIN clients c ON c.id = COALESCE(isc.client_id, s.client_id)
+           WHERE l.organization_id = ?
+             AND LOWER(COALESCE(l.scope_type, 'agency')) = 'school'
+             AND s.submitted_at IS NOT NULL
+           ORDER BY s.submitted_at DESC, s.id DESC
+           LIMIT 200`,
+          [orgId]
+        );
+        const seen = new Set();
+        intakePacketSubmitted = (intakeRows || [])
+          .filter((r) => {
+            const key = `${r.id}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          })
+          .map((r) => {
+            const signer = String(r.signer_name || '').trim() || 'Parent/Guardian';
+            const clientLabel =
+              r.client_identifier_code || r.client_initials || r.client_full_name || '—';
+            return {
+              id: `intake_submitted:${r.id}`,
+              kind: 'intake_packet_submitted',
+              created_at: r.submitted_at,
+              title: 'Intake packet submitted',
+              message: `${clientLabel}: ${signer} submitted via digital form`,
+              actor_name: signer,
+              client_id: r.client_id ? Number(r.client_id) : null,
+              client_initials: r.client_initials || null,
+              client_identifier_code: r.client_identifier_code || null
+            };
+          });
+      }
+    } catch {
+      intakePacketSubmitted = [];
+    }
+
     const all = [
       ...announcements,
       ...events,
@@ -3629,6 +3685,7 @@ export const listSchoolPortalNotificationsFeed = async (req, res, next) => {
       ...messages,
       ...ticketActivity,
       ...clientCreated,
+      ...intakePacketSubmitted,
       ...providerSlots,
       ...docsLinks,
       ...providerDayAdded

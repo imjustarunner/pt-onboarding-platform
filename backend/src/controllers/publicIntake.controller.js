@@ -27,6 +27,7 @@ import { verifyRecaptchaV3 } from '../services/captcha.service.js';
 import ActivityLogService from '../services/activityLog.service.js';
 import PlatformRetentionSettings from '../models/PlatformRetentionSettings.model.js';
 import Notification from '../models/Notification.model.js';
+import { notifyNewPacketUploaded } from '../services/clientNotifications.service.js';
 import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
 import { sendEmailFromIdentity } from '../services/unifiedEmail/unifiedEmailSender.service.js';
 
@@ -2114,6 +2115,33 @@ export const finalizePublicIntake = async (req, res, next) => {
           link,
           organizationId: req.body?.organizationId || null
         });
+
+        // Notify admin/CPA team (same as paper packet upload) so they can process the intake
+        let agencyId = clientRow?.agency_id || null;
+        if (!agencyId && link?.organization_id) {
+          const scope = String(link?.scope_type || '').toLowerCase();
+          if (scope === 'school') {
+            agencyId = await AgencySchool.getActiveAgencyIdForSchool(link.organization_id);
+          }
+          if (!agencyId) {
+            agencyId = await OrganizationAffiliation.getActiveAgencyIdForOrganization(link.organization_id);
+          }
+          if (!agencyId) agencyId = link.organization_id;
+        }
+        const schoolOrgId =
+          clientRow?.school_organization_id ||
+          clientRow?.organization_id ||
+          (String(link?.scope_type || '').toLowerCase() === 'school' ? link?.organization_id : null) ||
+          req.body?.organizationId ||
+          null;
+        const clientLabel =
+          clientPayload?.fullName || clientRow?.identifier_code || clientRow?.initials || `ID ${clientId}`;
+        notifyNewPacketUploaded({
+          agencyId,
+          schoolOrganizationId: schoolOrgId,
+          clientId,
+          clientNameOrIdentifier: clientLabel
+        }).catch(() => {});
       }
 
       if (updatedSubmission.signer_email && EmailService.isConfigured()) {
@@ -2492,6 +2520,33 @@ export const submitPublicIntake = async (req, res, next) => {
           link,
           organizationId: req.body?.organizationId || null
         });
+
+        // Notify admin/CPA team (same as paper packet upload) so they can process the intake
+        let agencyId = clientRow?.agency_id || null;
+        if (!agencyId && link?.organization_id) {
+          const scope = String(link?.scope_type || '').toLowerCase();
+          if (scope === 'school') {
+            agencyId = await AgencySchool.getActiveAgencyIdForSchool(link.organization_id);
+          }
+          if (!agencyId) {
+            agencyId = await OrganizationAffiliation.getActiveAgencyIdForOrganization(link.organization_id);
+          }
+          if (!agencyId) agencyId = link.organization_id;
+        }
+        const schoolOrgId =
+          clientRow?.school_organization_id ||
+          clientRow?.organization_id ||
+          (String(link?.scope_type || '').toLowerCase() === 'school' ? link?.organization_id : null) ||
+          req.body?.organizationId ||
+          null;
+        const clientLabel =
+          clientPayload?.fullName || clientRow?.identifier_code || clientRow?.initials || `ID ${clientId}`;
+        notifyNewPacketUploaded({
+          agencyId,
+          schoolOrganizationId: schoolOrgId,
+          clientId,
+          clientNameOrIdentifier: clientLabel
+        }).catch(() => {});
       }
 
       if (updatedSubmission.signer_email && EmailService.isConfigured()) {
