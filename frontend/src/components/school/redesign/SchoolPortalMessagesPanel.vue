@@ -50,7 +50,16 @@
         </div>
         <template v-else>
           <div class="card-title title-row">
-            <span>{{ selectedLabel }}</span>
+            <span class="title-row-label">{{ selectedLabel }}</span>
+            <button
+              v-if="selectedType === 'chat'"
+              class="btn btn-danger btn-sm"
+              type="button"
+              @click="deleteThread"
+              :disabled="sending || messagesLoading"
+            >
+              Delete thread
+            </button>
           </div>
           <div v-if="messagesLoading" class="muted">Loading…</div>
           <div v-else-if="messagesError" class="error">{{ messagesError }}</div>
@@ -64,7 +73,31 @@
               <div class="bubble">
                 <div class="meta">
                   <span>{{ m.senderName }}</span>
-                  <span>{{ formatTime(m.created_at) }}</span>
+                  <span>
+                    {{ formatTime(m.created_at) }}
+                    <span v-if="selectedType === 'chat' && m.isMine" class="receipt">{{ m.is_read_by_other ? '✓✓' : '✓' }}</span>
+                    <template v-if="selectedType === 'chat'">
+                      <button
+                        v-if="m.isMine && !m.is_read_by_other"
+                        class="msg-action"
+                        type="button"
+                        @click="unsend(m)"
+                        :disabled="sending"
+                        title="Unsend (only before read)"
+                      >
+                        Unsend
+                      </button>
+                      <button
+                        class="msg-action"
+                        type="button"
+                        @click="deleteForMe(m)"
+                        :disabled="sending"
+                        title="Delete for me"
+                      >
+                        Delete
+                      </button>
+                    </template>
+                  </span>
                 </div>
                 <div class="text">{{ m.body }}</div>
               </div>
@@ -117,6 +150,7 @@
           </div>
           <div v-if="newChatType === 'staff'" class="picker-list">
             <div v-if="staffLoading" class="muted">Loading school staff…</div>
+            <div v-else-if="!staff.length" class="muted">No other school staff at this school.</div>
             <button
               v-else
               v-for="s in staff"
@@ -183,7 +217,13 @@ const newChatError = ref('');
 
 const allItems = computed(() => {
   const items = [];
-  for (const t of threads.value || []) {
+  const orgId = Number(props.schoolOrganizationId);
+  const schoolThreads = (threads.value || []).filter(
+    (t) =>
+      orgId &&
+      (Number(t.agency_id) === orgId || Number(t.organization_id) === orgId)
+  );
+  for (const t of schoolThreads) {
     const other = t.other_participant;
     const label = other ? `${other.first_name || ''} ${other.last_name || ''}`.trim() || other.email || 'Unknown' : 'Unknown';
     const role = other?.role?.toLowerCase?.() || '';
@@ -219,7 +259,15 @@ const allItems = computed(() => {
   });
 });
 
-const totalUnread = computed(() => (threads.value || []).reduce((s, t) => s + (t.unread_count || 0), 0));
+const schoolThreadsForUnread = computed(() => {
+  const orgId = Number(props.schoolOrganizationId);
+  return (threads.value || []).filter(
+    (t) => orgId && (Number(t.agency_id) === orgId || Number(t.organization_id) === orgId)
+  );
+});
+const totalUnread = computed(() =>
+  schoolThreadsForUnread.value.reduce((s, t) => s + (t.unread_count || 0), 0)
+);
 
 const selectedLabel = computed(() => {
   const item = allItems.value.find((i) => i.key === selectedKey.value);
@@ -231,7 +279,8 @@ const displayMessages = computed(() => {
     return (chatMessages.value || []).map((m) => ({
       ...m,
       isMine: Number(m.sender_user_id) === Number(meId.value),
-      senderName: `${m.sender_first_name || ''} ${m.sender_last_name || ''}`.trim() || 'Unknown'
+      senderName: `${m.sender_first_name || ''} ${m.sender_last_name || ''}`.trim() || 'Unknown',
+      is_read_by_other: m.is_read_by_other
     }));
   }
   if (selectedType.value === 'ticket' && ticketData.value) {
@@ -365,6 +414,63 @@ const scrollToBottom = async () => {
   if (el) el.scrollTop = el.scrollHeight;
 };
 
+const activeThreadId = computed(() => {
+  if (!selectedKey.value || !selectedKey.value.startsWith('chat-')) return null;
+  return parseInt(selectedKey.value.replace('chat-', ''), 10);
+});
+
+const deleteThread = async () => {
+  const tid = activeThreadId.value;
+  if (!tid) return;
+  if (!window.confirm('Delete this thread for you? The other person will still have it.')) return;
+  try {
+    sending.value = true;
+    messagesError.value = '';
+    await api.post(`/chat/threads/${tid}/delete-for-me`, {}, { skipGlobalLoading: true });
+    selectedKey.value = null;
+    selectedType.value = null;
+    chatMessages.value = [];
+    await loadThreads();
+  } catch (e) {
+    messagesError.value = e.response?.data?.error?.message || 'Failed to delete thread';
+  } finally {
+    sending.value = false;
+  }
+};
+
+const unsend = async (m) => {
+  const tid = activeThreadId.value;
+  if (!tid || !m?.id) return;
+  if (Number(m.sender_user_id) !== Number(meId.value)) return;
+  if (m.is_read_by_other) return;
+  try {
+    sending.value = true;
+    messagesError.value = '';
+    await api.delete(`/chat/threads/${tid}/messages/${m.id}`, { skipGlobalLoading: true });
+    await loadChatMessages();
+    await loadThreads();
+  } catch (e) {
+    messagesError.value = e.response?.data?.error?.message || 'Failed to unsend message';
+  } finally {
+    sending.value = false;
+  }
+};
+
+const deleteForMe = async (m) => {
+  const tid = activeThreadId.value;
+  if (!tid || !m?.id) return;
+  try {
+    sending.value = true;
+    messagesError.value = '';
+    await api.post(`/chat/threads/${tid}/messages/${m.id}/delete-for-me`, {}, { skipGlobalLoading: true });
+    await loadChatMessages();
+  } catch (e) {
+    messagesError.value = e.response?.data?.error?.message || 'Failed to delete message';
+  } finally {
+    sending.value = false;
+  }
+};
+
 const send = async () => {
   const body = draft.value.trim();
   if (!body) return;
@@ -484,11 +590,34 @@ onMounted(() => {
   loadAll();
 });
 
-watch(() => props.schoolOrganizationId, loadAll);
+watch(
+  () => props.schoolOrganizationId,
+  (newId, oldId) => {
+    if (Number(newId) !== Number(oldId)) {
+      selectedKey.value = null;
+      selectedType.value = null;
+    }
+    loadAll();
+  }
+);
 
 watch(showNewChat, (open) => {
   if (open && newChatType.value === 'staff') loadStaff();
 });
+watch(newChatType, (type) => {
+  if (type === 'staff') loadStaff();
+});
+
+watch(
+  () => allItems.value,
+  (items) => {
+    if (selectedKey.value && !items.some((i) => i.key === selectedKey.value)) {
+      selectedKey.value = null;
+      selectedType.value = null;
+    }
+  },
+  { deep: true }
+);
 </script>
 
 <style scoped>
@@ -610,6 +739,11 @@ watch(showNewChat, (open) => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 12px;
+}
+.title-row-label {
+  flex: 1;
+  min-width: 0;
 }
 .bubble-list {
   flex: 1;
@@ -640,6 +774,28 @@ watch(showNewChat, (open) => {
 }
 .bubble .text {
   white-space: pre-wrap;
+}
+.receipt {
+  margin-left: 6px;
+  font-weight: 700;
+  color: rgba(16, 185, 129, 0.9);
+}
+.msg-action {
+  margin-left: 8px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+}
+.msg-action:hover {
+  color: var(--text-primary);
+  text-decoration: underline;
+}
+.msg-action:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 .composer {
   margin-top: 12px;

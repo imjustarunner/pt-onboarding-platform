@@ -1,9 +1,23 @@
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import Notification from '../models/Notification.model.js';
+import { decryptChatText, encryptChatText, isChatEncryptionConfigured } from '../services/chatEncryption.service.js';
 
 const ONLINE_ACTIVITY_MS = 5 * 60 * 1000;
 const ONLINE_HEARTBEAT_MS = 2 * 60 * 1000;
+
+async function hasChatMessageEncryptionColumns() {
+  try {
+    const [rows] = await pool.execute(
+      `SELECT 1 FROM information_schema.columns
+       WHERE table_schema = DATABASE() AND table_name = 'chat_messages' AND column_name = 'body_ciphertext'
+       LIMIT 1`
+    );
+    return rows?.length > 0;
+  } catch {
+    return false;
+  }
+}
 
 async function assertAgencyOrOrgAccess(reqUser, agencyId, organizationId = null) {
   if (reqUser.role === 'super_admin') return true;
@@ -436,8 +450,12 @@ export const listMessages = async (req, res, next) => {
     // yielding "Incorrect arguments to mysqld_stmt_execute". We inline a validated integer.
     const parsed = req.query.limit ? parseInt(req.query.limit, 10) : null;
     const limit = Number.isFinite(parsed) ? Math.min(Math.max(parsed, 1), 200) : 60;
+    const hasEncryptionCols = await hasChatMessageEncryptionColumns();
+    const encCols = hasEncryptionCols
+      ? ', m.body_ciphertext, m.body_iv, m.body_auth_tag, m.encryption_key_id'
+      : '';
     const [rows] = await pool.execute(
-      `SELECT m.id, m.thread_id, m.sender_user_id, m.body, m.created_at,
+      `SELECT m.id, m.thread_id, m.sender_user_id, m.body${encCols}, m.created_at,
               u.first_name AS sender_first_name, u.last_name AS sender_last_name
        FROM chat_messages m
        JOIN users u ON u.id = m.sender_user_id
@@ -454,7 +472,20 @@ export const listMessages = async (req, res, next) => {
       const id = m?.id ? Number(m.id) : null;
       const isMine = Number(m?.sender_user_id) === me;
       const isReadByOther = !!(isMine && id && otherLastReadMessageId && id <= otherLastReadMessageId);
-      return { ...m, is_read_by_other: isReadByOther };
+      let body = m?.body;
+      if (!body && m?.body_ciphertext && m?.body_iv && m?.body_auth_tag) {
+        try {
+          body = decryptChatText({
+            ciphertextB64: m.body_ciphertext,
+            ivB64: m.body_iv,
+            authTagB64: m.body_auth_tag,
+            keyId: m.encryption_key_id || null
+          });
+        } catch {
+          body = '[Unable to decrypt message]';
+        }
+      }
+      return { ...m, body: body || '', is_read_by_other: isReadByOther };
     });
     res.json(enriched);
   } catch (e) {
@@ -475,9 +506,32 @@ export const sendMessage = async (req, res, next) => {
     const agencyId = t.agency_id;
     await assertAgencyOrOrgAccess(req.user, agencyId, t.organization_id || null);
 
+    let bodyPlain = body;
+    let bodyCipher = null;
+    let bodyIv = null;
+    let bodyTag = null;
+    let bodyKeyId = null;
+    const hasEncCols = await hasChatMessageEncryptionColumns();
+    if (hasEncCols && isChatEncryptionConfigured()) {
+      try {
+        const enc = encryptChatText(body);
+        bodyCipher = enc.ciphertextB64;
+        bodyIv = enc.ivB64;
+        bodyTag = enc.authTagB64;
+        bodyKeyId = enc.keyId;
+        bodyPlain = null;
+      } catch (e) {
+        console.warn('[chat] Encryption failed, storing plaintext:', e?.message || e);
+      }
+    }
     const [ins] = await pool.execute(
-      'INSERT INTO chat_messages (thread_id, sender_user_id, body) VALUES (?, ?, ?)',
-      [threadId, req.user.id, body]
+      hasEncCols && bodyCipher
+        ? `INSERT INTO chat_messages (thread_id, sender_user_id, body, body_ciphertext, body_iv, body_auth_tag, encryption_key_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`
+        : 'INSERT INTO chat_messages (thread_id, sender_user_id, body) VALUES (?, ?, ?)',
+      hasEncCols && bodyCipher
+        ? [threadId, req.user.id, bodyPlain, bodyCipher, bodyIv, bodyTag, bodyKeyId]
+        : [threadId, req.user.id, body]
     );
     await pool.execute('UPDATE chat_threads SET updated_at = NOW() WHERE id = ?', [threadId]);
 
@@ -528,7 +582,9 @@ export const sendMessage = async (req, res, next) => {
        WHERE m.id = ?`,
       [ins.insertId]
     );
-    res.status(201).json(row[0]);
+    const out = row[0] || {};
+    if (!out.body && body) out.body = body;
+    res.status(201).json(out);
   } catch (e) {
     next(e);
   }
@@ -543,11 +599,26 @@ export const unsendMessage = async (req, res, next) => {
     }
     await assertThreadAccess(req.user.id, threadId);
 
+    const hasEncCols = await hasChatMessageEncryptionColumns();
+    const encCols = hasEncCols ? ', body_ciphertext, body_iv, body_auth_tag, encryption_key_id' : '';
     const [[msg]] = await pool.execute(
-      'SELECT id, thread_id, sender_user_id, body, created_at FROM chat_messages WHERE id = ? AND thread_id = ? LIMIT 1',
+      `SELECT id, thread_id, sender_user_id, body${encCols}, created_at FROM chat_messages WHERE id = ? AND thread_id = ? LIMIT 1`,
       [messageId, threadId]
     );
     if (!msg) return res.status(404).json({ error: { message: 'Message not found' } });
+    let msgBody = msg.body;
+    if (!msgBody && msg.body_ciphertext && msg.body_iv && msg.body_auth_tag) {
+      try {
+        msgBody = decryptChatText({
+          ciphertextB64: msg.body_ciphertext,
+          ivB64: msg.body_iv,
+          authTagB64: msg.body_auth_tag,
+          keyId: msg.encryption_key_id || null
+        });
+      } catch {
+        msgBody = '';
+      }
+    }
     if (Number(msg.sender_user_id) !== Number(req.user.id)) {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
@@ -584,7 +655,7 @@ export const unsendMessage = async (req, res, next) => {
     try {
       const senderUser = await User.findById(req.user.id);
       const senderName = `${senderUser?.first_name || ''} ${senderUser?.last_name || ''}`.trim() || 'Someone';
-      const b = String(msg.body || '');
+      const b = String(msgBody || '');
       const snippet = b.length > 120 ? b.slice(0, 117) + '…' : b;
       const notificationMessage = `${senderName}: ${snippet}`;
       for (const rid of recipientIds) {
@@ -618,11 +689,26 @@ export const deleteForMe = async (req, res, next) => {
     }
     await assertThreadAccess(req.user.id, threadId);
 
+    const hasEncCols = await hasChatMessageEncryptionColumns();
+    const encCols = hasEncCols ? ', body_ciphertext, body_iv, body_auth_tag, encryption_key_id' : '';
     const [[msg]] = await pool.execute(
-      'SELECT id, thread_id, sender_user_id, body FROM chat_messages WHERE id = ? AND thread_id = ? LIMIT 1',
+      `SELECT id, thread_id, sender_user_id, body${encCols} FROM chat_messages WHERE id = ? AND thread_id = ? LIMIT 1`,
       [messageId, threadId]
     );
     if (!msg) return res.status(404).json({ error: { message: 'Message not found' } });
+    let msgBody = msg.body;
+    if (!msgBody && msg.body_ciphertext && msg.body_iv && msg.body_auth_tag) {
+      try {
+        msgBody = decryptChatText({
+          ciphertextB64: msg.body_ciphertext,
+          ivB64: msg.body_iv,
+          authTagB64: msg.body_auth_tag,
+          keyId: msg.encryption_key_id || null
+        });
+      } catch {
+        msgBody = '';
+      }
+    }
 
     await pool.execute(
       `INSERT INTO chat_message_deletes (message_id, user_id)
@@ -645,7 +731,7 @@ export const deleteForMe = async (req, res, next) => {
     try {
       const senderUser = await User.findById(msg.sender_user_id);
       const senderName = `${senderUser?.first_name || ''} ${senderUser?.last_name || ''}`.trim() || 'Someone';
-      const b = String(msg.body || '');
+      const b = String(msgBody || '');
       const snippet = b.length > 120 ? b.slice(0, 117) + '…' : b;
       const notificationMessage = `${senderName}: ${snippet}`;
       await pool.execute(
