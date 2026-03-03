@@ -162,54 +162,112 @@
     <section v-if="fullListItems.length > 0 && fullListExpanded" class="momentum-full-list-section" aria-label="Full running list">
       <div class="full-list-header">
         <h2 class="section-title">Full running list</h2>
-        <button
-          v-if="selectedFullListCount > 0"
-          type="button"
-          class="btn btn-primary btn-sm add-selected-btn"
-          @click="openAddSelectedToSticky"
-        >
-          Add {{ selectedFullListCount }} to sticky
-        </button>
+        <input
+          v-model="fullListSearchQuery"
+          type="search"
+          class="full-list-search"
+          placeholder="Search…"
+          aria-label="Search list"
+        />
+        <div v-if="selectedFullListCount > 0" class="full-list-actions">
+          <button
+            v-if="selectedRemovableCount > 0"
+            type="button"
+            class="btn btn-secondary btn-sm"
+            @click="removeSelectedItems"
+          >
+            Remove {{ selectedRemovableCount }}
+          </button>
+          <button
+            type="button"
+            class="btn btn-primary btn-sm add-selected-btn"
+            @click="openAddSelectedToSticky"
+          >
+            Add {{ selectedFullListCount }} to sticky
+          </button>
+        </div>
       </div>
       <div class="full-list-table-wrap">
         <table class="full-list-table" aria-label="Full running list">
           <thead>
             <tr>
               <th class="col-check"><span class="sr-only">Select</span></th>
-              <th class="col-item">Item</th>
-              <th class="col-urgency">Urgency</th>
-              <th class="col-category">Category</th>
-              <th class="col-project">Project</th>
-              <th class="col-due">Due</th>
+              <th class="col-item sortable" :class="{ sorted: fullListSortBy === 'label' }" @click="setFullListSort('label')">
+                Item <span v-if="fullListSortBy === 'label'" class="sort-icon">{{ fullListSortDir === 'asc' ? '▲' : '▼' }}</span>
+              </th>
+              <th class="col-urgency sortable" :class="{ sorted: fullListSortBy === 'urgency' }" @click="setFullListSort('urgency')">
+                Urgency <span v-if="fullListSortBy === 'urgency'" class="sort-icon">{{ fullListSortDir === 'asc' ? '▲' : '▼' }}</span>
+              </th>
+              <th class="col-category sortable" :class="{ sorted: fullListSortBy === 'category' }" @click="setFullListSort('category')">
+                Category <span v-if="fullListSortBy === 'category'" class="sort-icon">{{ fullListSortDir === 'asc' ? '▲' : '▼' }}</span>
+              </th>
+              <th class="col-project sortable" :class="{ sorted: fullListSortBy === 'project' }" @click="setFullListSort('project')">
+                Project <span v-if="fullListSortBy === 'project'" class="sort-icon">{{ fullListSortDir === 'asc' ? '▲' : '▼' }}</span>
+              </th>
+              <th class="col-due sortable" :class="{ sorted: fullListSortBy === 'due' }" @click="setFullListSort('due')">
+                Due <span v-if="fullListSortBy === 'due'" class="sort-icon">{{ fullListSortDir === 'asc' ? '▲' : '▼' }}</span>
+              </th>
+              <th class="col-actions"><span class="sr-only">Actions</span></th>
             </tr>
           </thead>
           <tbody>
+            <tr v-if="fullListDisplayItems.length === 0" class="full-list-empty-row">
+              <td colspan="7" class="muted">No items match your search.</td>
+            </tr>
             <tr
-              v-for="(item, i) in fullListItems"
-              :key="`full-${i}`"
+              v-for="(row, di) in fullListDisplayItems"
+              :key="`full-${row.originalIndex}`"
               class="full-list-row"
-              :data-add-to-sticky="(typeof item === 'object' ? item.label : item) || ''"
+              :data-add-to-sticky="(typeof row.item === 'object' ? row.item.label : row.item) || ''"
             >
               <td class="col-check">
                 <label class="full-list-item-row">
                   <input
                     type="checkbox"
                     class="full-list-checkbox"
-                    :checked="selectedFullListIndices.has(i)"
-                    @change="toggleFullListSelection(i)"
+                    :checked="selectedFullListIndices.has(row.originalIndex)"
+                    @change="toggleFullListSelection(row.originalIndex)"
                   />
                 </label>
               </td>
               <td class="col-item">
-                <span class="full-list-item-text">{{ typeof item === 'object' ? item.label : item }}</span>
+                <span
+                  v-if="editingFullListIndex !== row.originalIndex"
+                  class="full-list-item-text"
+                  :class="{ 'editable': canEditFullListItem(row.item) }"
+                  @dblclick="canEditFullListItem(row.item) && startEditFullListItem(row.originalIndex)"
+                >
+                  {{ typeof row.item === 'object' ? row.item.label : row.item }}
+                </span>
+                <input
+                  v-else
+                  ref="fullListEditInputRef"
+                  type="text"
+                  class="full-list-edit-input"
+                  :value="getFullListEditValue(row.item)"
+                  @blur="finishEditFullListItem"
+                  @keydown.enter="finishEditFullListItem"
+                  @keydown.escape="cancelEditFullListItem"
+                />
               </td>
               <td class="col-urgency">
-                <span v-if="item.urgency" class="urgency-badge" :class="`urgency-${item.urgency}`">{{ item.urgency }}</span>
+                <span v-if="row.item.urgency" class="urgency-badge" :class="`urgency-${row.item.urgency}`">{{ row.item.urgency }}</span>
                 <span v-else class="muted">—</span>
               </td>
-              <td class="col-category">{{ formatFullListCategory(item) }}</td>
-              <td class="col-project">{{ item.task_list_name || '—' }}</td>
-              <td class="col-due">{{ formatFullListDue(item) }}</td>
+              <td class="col-category">{{ formatFullListCategory(row.item) }}</td>
+              <td class="col-project">{{ row.item.task_list_name || '—' }}</td>
+              <td class="col-due">{{ formatFullListDue(row.item) }}</td>
+              <td class="col-actions">
+                <button
+                  v-if="canEditFullListItem(row.item)"
+                  type="button"
+                  class="btn-icon btn-edit"
+                  aria-label="Edit"
+                  @click="startEditFullListItem(row.originalIndex)"
+                >
+                  ✎
+                </button>
+              </td>
             </tr>
           </tbody>
         </table>
@@ -256,7 +314,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, computed, onMounted, watch, nextTick } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
@@ -449,8 +507,8 @@ const fullListItems = computed(() => {
   const payroll = payrollNotesItems.value || [];
   for (const i of payroll) add(i);
   if (notesToSignCount.value > 0) add({ label: `Sign supervisee notes (${notesToSignCount.value} pending)`, source: 'notes-to-sign' });
-  for (const i of checklistIncompleteItems.value || []) add({ label: i.title || i.label, source: 'checklist' });
-  for (const i of consolidatedUndoneStickyItems.value || []) add(i);
+  for (const i of checklistIncompleteItems.value || []) add({ ...i, label: i.title || i.label, source: 'checklist' });
+  for (const i of undoneStickyEntries.value || []) add(i);
   for (const t of tasks.value || []) {
     if (t.status !== 'completed') {
       const baseLabel = t.title || t.task;
@@ -459,6 +517,7 @@ const fullListItems = computed(() => {
       add({
         label,
         source: 'task',
+        task_id: t.id,
         urgency: t.urgency,
         due_date: t.due_date,
         task_list_name: t.task_list_name,
@@ -480,6 +539,11 @@ const fullListItems = computed(() => {
 });
 
 const fullListExpanded = ref(false);
+const fullListSearchQuery = ref('');
+const fullListSortBy = ref('label');
+const fullListSortDir = ref('asc');
+const editingFullListIndex = ref(null);
+const fullListEditInputRef = ref(null);
 const showNotesCompleteCelebration = ref(false);
 const momentumStore = useMomentumStickiesStore();
 const selectedFullListIndices = ref(new Set());
@@ -487,7 +551,152 @@ const showStickyPicker = ref(false);
 const stickyPickerMode = ref('single');
 const stickyPickerPendingItems = ref([]);
 
+const fullListDisplayItems = computed(() => {
+  const items = fullListItems.value;
+  const q = String(fullListSearchQuery.value || '').toLowerCase().trim();
+  let filtered = items.map((item, i) => ({ item, originalIndex: i }));
+  if (q) {
+    filtered = filtered.filter(({ item }) => {
+      const label = typeof item === 'object' ? (item.label || item.title || '') : String(item);
+      return label.toLowerCase().includes(q);
+    });
+  }
+  const by = fullListSortBy.value;
+  const dir = fullListSortDir.value === 'asc' ? 1 : -1;
+  filtered.sort((a, b) => {
+    const itemA = a.item;
+    const itemB = b.item;
+    let cmp = 0;
+    if (by === 'label') {
+      const la = typeof itemA === 'object' ? (itemA.label || itemA.title || '') : String(itemA);
+      const lb = typeof itemB === 'object' ? (itemB.label || itemB.title || '') : String(itemB);
+      cmp = la.localeCompare(lb);
+    } else if (by === 'urgency') {
+      const ua = (itemA.urgency || '').toLowerCase();
+      const ub = (itemB.urgency || '').toLowerCase();
+      const order = { high: 3, medium: 2, low: 1 };
+      cmp = (order[ua] || 0) - (order[ub] || 0);
+    } else if (by === 'category') {
+      const ca = formatFullListCategory(itemA);
+      const cb = formatFullListCategory(itemB);
+      cmp = ca.localeCompare(cb);
+    } else if (by === 'project') {
+      const pa = itemA.task_list_name || '—';
+      const pb = itemB.task_list_name || '—';
+      cmp = pa.localeCompare(pb);
+    } else if (by === 'due') {
+      const da = itemA.due_date ? new Date(itemA.due_date).getTime() : 0;
+      const db = itemB.due_date ? new Date(itemB.due_date).getTime() : 0;
+      cmp = da - db;
+    }
+    return cmp * dir;
+  });
+  return filtered;
+});
+
+const setFullListSort = (by) => {
+  if (fullListSortBy.value === by) {
+    fullListSortDir.value = fullListSortDir.value === 'asc' ? 'desc' : 'asc';
+  } else {
+    fullListSortBy.value = by;
+    fullListSortDir.value = 'asc';
+  }
+};
+
+const canEditFullListItem = (item) => {
+  if (!item) return false;
+  if (item.source === 'task' && item.task_id && item.task_type === 'custom') return true;
+  if (item.source === 'sticky' && item.entry_id && item.sticky_id) return true;
+  return false;
+};
+
+const getFullListEditValue = (item) => {
+  if (!item) return '';
+  return typeof item === 'object' ? (item.label || item.title || '') : String(item);
+};
+
+const startEditFullListItem = (originalIndex) => {
+  editingFullListIndex.value = originalIndex;
+  nextTick(() => {
+    const el = Array.isArray(fullListEditInputRef.value) ? fullListEditInputRef.value.find(Boolean) : fullListEditInputRef.value;
+    el?.focus();
+  });
+};
+
+const cancelEditFullListItem = () => {
+  editingFullListIndex.value = null;
+};
+
+const finishEditFullListItem = async () => {
+  const idx = editingFullListIndex.value;
+  if (idx == null) return;
+  const item = fullListItems.value[idx];
+  const inputEl = Array.isArray(fullListEditInputRef.value) ? fullListEditInputRef.value.find(Boolean) : fullListEditInputRef.value;
+  const newVal = inputEl?.value?.trim();
+  editingFullListIndex.value = null;
+  if (!newVal || newVal === getFullListEditValue(item)) return;
+  try {
+    if (item.source === 'task') {
+      await api.put(`/me/tasks/${item.task_id}`, { title: newVal }, { skipGlobalLoading: true });
+    } else if (item.source === 'sticky') {
+      await api.patch(
+        `/users/${userId.value}/momentum-stickies/${item.sticky_id}/entries/${item.entry_id}`,
+        { text: newVal },
+        { skipGlobalLoading: true }
+      );
+    }
+    await fetchDigest();
+  } catch (err) {
+    console.error('Failed to update item:', err);
+  }
+};
+
 const selectedFullListCount = computed(() => selectedFullListIndices.value.size);
+
+const selectedRemovableCount = computed(() => {
+  let n = 0;
+  for (const i of selectedFullListIndices.value) {
+    const item = fullListItems.value[i];
+    if (!item) continue;
+    if (item.source === 'task' && item.task_id && item.task_type === 'custom') n++;
+    else if (item.source === 'checklist' && item.checklist_item_id && item.type === 'custom') n++;
+    else if (item.source === 'sticky' && item.entry_id && item.sticky_id) n++;
+  }
+  return n;
+});
+
+const removeSelectedItems = async () => {
+  const items = fullListItems.value
+    .map((item, i) => ({ item, i }))
+    .filter(({ i }) => selectedFullListIndices.value.has(i));
+  const toRemove = items.filter(({ item }) => {
+    if (item.source === 'task' && item.task_id && item.task_type === 'custom') return true;
+    if (item.source === 'checklist' && item.checklist_item_id && item.type === 'custom') return true;
+    if (item.source === 'sticky' && item.entry_id && item.sticky_id) return true;
+    return false;
+  });
+  if (toRemove.length === 0) return;
+  for (const { item } of toRemove) {
+    try {
+      if (item.source === 'task') {
+        await api.delete(`/me/tasks/${item.task_id}`, { skipGlobalLoading: true });
+      } else if (item.source === 'checklist') {
+        await api.post(`/users/${userId.value}/custom-checklist/${item.checklist_item_id}/complete`, {}, { skipGlobalLoading: true });
+      } else if (item.source === 'sticky') {
+        await api.patch(
+          `/users/${userId.value}/momentum-stickies/${item.sticky_id}/entries/${item.entry_id}`,
+          { is_checked: true },
+          { skipGlobalLoading: true }
+        );
+      }
+    } catch (err) {
+      console.error('Failed to remove item:', err);
+    }
+  }
+  selectedFullListIndices.value = new Set();
+  await fetchDigest();
+  emit('update-count', checklistIncompleteCount.value);
+};
 
 const formatFullListCategory = (item) => {
   if (!item) return '—';
@@ -577,18 +786,18 @@ const supportTicketsRoute = computed(() => {
 const flattenChecklistIncomplete = (data) => {
   const out = [];
   for (const item of data.trainingItems || []) {
-    out.push({ title: item.title, label: item.title });
+    out.push({ title: item.title, label: item.title, checklist_item_id: item.id, type: item.type });
   }
   for (const item of data.documentItems || []) {
-    out.push({ title: item.title, label: item.title });
+    out.push({ title: item.title, label: item.title, checklist_item_id: item.id, type: item.type });
   }
   for (const item of data.customItems || []) {
-    if (!item.is_completed) out.push({ title: item.title, label: item.title });
+    if (!item.is_completed) out.push({ title: item.title, label: item.title, checklist_item_id: item.checklist_item_id, type: 'custom' });
   }
   for (const focus of data.trainingFocusesWithItems || []) {
     for (const mod of focus.modules || []) {
       for (const item of mod.checklistItems || []) {
-        if (!item.is_completed) out.push({ title: item.title, label: item.title });
+        if (!item.is_completed) out.push({ title: item.title, label: item.title, checklist_item_id: item.checklist_item_id, type: item.type });
       }
     }
   }
@@ -601,7 +810,7 @@ const flattenUndoneStickyEntries = (stickies) => {
     for (const entry of sticky.entries || []) {
       if (!entry.is_checked) {
         const text = String(entry.text || '').trim();
-        if (text) out.push({ label: text.length > 60 ? `${text.slice(0, 57)}...` : text, source: 'sticky' });
+        if (text) out.push({ label: text.length > 60 ? `${text.slice(0, 57)}...` : text, source: 'sticky', entry_id: entry.id, sticky_id: sticky.id });
       }
     }
   }
@@ -946,12 +1155,35 @@ watch([() => props.programId, () => props.agencyId], () => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 12px;
   margin-bottom: 12px;
 }
 
+.full-list-search {
+  flex: 1;
+  min-width: 140px;
+  max-width: 220px;
+  padding: 6px 10px;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.full-list-search:focus {
+  outline: none;
+  border-color: var(--primary, #3b82f6);
+}
+
 .full-list-header .section-title {
   margin: 0;
+}
+
+.full-list-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
 .add-selected-btn {
@@ -1078,6 +1310,62 @@ watch([() => props.programId, () => props.agencyId], () => {
   font-size: 14px;
 }
 
+.full-list-table th.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+
+.full-list-table th.sortable:hover {
+  background: #f3f4f6;
+}
+
+.full-list-table th.sorted {
+  font-weight: 700;
+}
+
+.sort-icon {
+  font-size: 10px;
+  margin-left: 2px;
+  opacity: 0.8;
+}
+
+.full-list-item-text.editable {
+  cursor: text;
+}
+
+.full-list-item-text.editable:hover {
+  text-decoration: underline;
+}
+
+.full-list-edit-input {
+  width: 100%;
+  padding: 4px 8px;
+  border: 1px solid var(--primary, #3b82f6);
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.full-list-edit-input:focus {
+  outline: none;
+}
+
+.col-actions {
+  width: 44px;
+}
+
+.btn-edit {
+  background: none;
+  border: none;
+  font-size: 14px;
+  cursor: pointer;
+  color: #6b7280;
+  padding: 2px 6px;
+}
+
+.btn-edit:hover {
+  color: var(--primary, #3b82f6);
+}
+
 .full-list-table th {
   text-align: left;
   padding: 10px 12px;
@@ -1099,6 +1387,11 @@ watch([() => props.programId, () => props.agencyId], () => {
 
 .full-list-table tbody tr:last-child td {
   border-bottom: none;
+}
+
+.full-list-empty-row td {
+  padding: 24px;
+  text-align: center;
 }
 
 .full-list-table tbody tr:hover {
