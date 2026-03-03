@@ -517,10 +517,12 @@ app.use('/api/progress', progressRoutes);
 app.use('/api/modules', contentRoutes);
 app.use('/api/quizzes', quizRoutes);
 app.use('/api/signatures', signatureRoutes);
-// Mount specific /agencies/schools routes before generic /agencies/:id routes.
+// Mount agency public routes (resolve, slug, portal, login-theme) FIRST so unauthenticated
+// login-page branding requests succeed. agencySchools/agencyDepartments use router.use(authenticate)
+// and would 401 all /api/agencies/* requests if mounted before agencyRoutes.
+app.use('/api/agencies', agencyRoutes);
 app.use('/api/agencies', agencySchoolsRoutes);
 app.use('/api/agencies', agencyDepartmentsRoutes);
-app.use('/api/agencies', agencyRoutes);
 app.use('/api/agencies', agencyDashboardRoutes);
 app.use('/api/agencies', socialFeedLinksRoutes);
 app.use('/api/me', meRoutes);
