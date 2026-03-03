@@ -132,8 +132,8 @@ class PayrollImportRow {
         : '';
     const groupByClause =
       by === 'provider_service_code'
-        ? 'pir.user_id, pir.provider_name, pir.service_code'
-        : (by === 'service_code' ? 'pir.service_code' : 'pir.user_id, pir.provider_name');
+        ? 'pir.user_id, u.first_name, u.last_name, pir.provider_name, pir.service_code'
+        : (by === 'service_code' ? 'pir.service_code' : 'pir.user_id, u.first_name, u.last_name, pir.provider_name');
     const orderByClause =
       by === 'service_code'
         ? 'pir.service_code ASC'

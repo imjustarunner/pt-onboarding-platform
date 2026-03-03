@@ -2670,7 +2670,7 @@ export const getPayrollReportHolidayHours = async (req, res, next) => {
          AND pir.agency_id = ?
          AND pir.user_id IS NOT NULL
          AND ${payableClause}
-       GROUP BY pir.user_id, pir.service_code
+       GROUP BY pir.user_id, u.first_name, u.last_name, pir.service_code
        ORDER BY u.last_name ASC, u.first_name ASC, pir.service_code ASC`,
       [period.agency_id, payrollPeriodId, payrollImportId, period.agency_id]
     );
@@ -2763,7 +2763,7 @@ export const getPayrollReportSupervisionConflicts = async (req, res, next) => {
          AND UPPER(TRIM(pir.service_code)) IN (${supervisionCodes.map(() => '?').join(',')})
          AND ${payableClause}
          ${providerIds.length ? ` AND pir.user_id IN (${providerIds.map(() => '?').join(',')})` : ''}
-       GROUP BY pir.user_id, DATE(pir.service_date), UPPER(TRIM(pir.service_code))
+       GROUP BY pir.user_id, DATE_FORMAT(pir.service_date, '%Y-%m-%d'), UPPER(TRIM(pir.service_code))
        ORDER BY pir.service_date ASC, pir.user_id ASC`,
       [
         payrollPeriodId,
@@ -3436,7 +3436,7 @@ async function buildResolvedSupervisionUnitsByUserCode({
        AND pir.user_id IS NOT NULL
        AND UPPER(TRIM(pir.service_code)) IN (${supervisionCodes.map(() => '?').join(',')})
        AND ${payableClause}
-     GROUP BY pir.user_id, DATE(pir.service_date), UPPER(TRIM(pir.service_code))`,
+     GROUP BY pir.user_id, DATE_FORMAT(pir.service_date, '%Y-%m-%d'), UPPER(TRIM(pir.service_code))`,
     [payrollPeriodId, agencyId, ...supervisionCodes]
   );
 
@@ -9951,7 +9951,7 @@ export const runPayrollPeriod = async (req, res, next) => {
              AND UPPER(TRIM(pir.service_code)) IN ('99414','99415','99416')
              AND (pir.note_status = 'FINALIZED' OR (pir.note_status = 'DRAFT' AND pir.draft_payable = 1))
              AND r.id IS NULL
-           GROUP BY pir.user_id, DATE(pir.service_date)
+           GROUP BY pir.user_id, DATE_FORMAT(pir.service_date, '%Y-%m-%d')
            ORDER BY DATE(pir.service_date) ASC, pir.user_id ASC
            LIMIT 25`,
           [period.agency_id, period.period_start, period.period_end, payrollPeriodId, period.agency_id]
