@@ -1640,7 +1640,7 @@ const fetchSuperviseesForSchedule = async () => {
     if (!isSupervisor(authStore.user)) return;
 
     superviseesLoading.value = true;
-    const resp = await api.get(`/supervisor-assignments/supervisor/${myId}`);
+    const resp = await api.get(`/supervisor-assignments/supervisor/${myId}`, { skipGlobalLoading: true });
 
     const rows = Array.isArray(resp.data) ? resp.data : [];
     supervisees.value = rows
@@ -2269,7 +2269,7 @@ async function loadDashboardSocialFeeds() {
     return;
   }
   try {
-    const res = await api.get('/dashboard/social-feeds', { params: { agencyId: currentAgencyId.value } });
+    const res = await api.get('/dashboard/social-feeds', { params: { agencyId: currentAgencyId.value }, skipGlobalLoading: true });
     dashboardSocialFeeds.value = Array.isArray(res.data?.feeds) ? res.data.feeds : [];
   } catch {
     dashboardSocialFeeds.value = [];
@@ -2412,7 +2412,7 @@ const loadMyAssignedSchools = async () => {
   try {
     assignedSchoolsLoading.value = true;
     const api = (await import('../services/api')).default;
-    const resp = await api.get('/payroll/me/assigned-schools', { params: { agencyId: currentAgencyId.value } });
+    const resp = await api.get('/payroll/me/assigned-schools', { params: { agencyId: currentAgencyId.value }, skipGlobalLoading: true });
     assignedSchools.value = resp.data || [];
   } catch {
     assignedSchools.value = [];
@@ -2621,7 +2621,7 @@ const loadCurrentTier = async () => {
   if (!currentAgencyId.value) return;
   try {
     const api = (await import('../services/api')).default;
-    const resp = await api.get('/payroll/me/current-tier', { params: { agencyId: currentAgencyId.value } });
+    const resp = await api.get('/payroll/me/current-tier', { params: { agencyId: currentAgencyId.value }, skipGlobalLoading: true });
     const t = resp.data?.tier || null;
     const label = String(t?.label || '').trim();
     const status = String(t?.status || '').trim().toLowerCase();
@@ -2738,8 +2738,8 @@ const loadAgencyDashboardBanner = async () => {
     dashboardBannerLoading.value = true;
     dashboardBannerError.value = '';
     const [birthdayResp, scheduledResp] = await Promise.allSettled([
-      api.get(`/agencies/${announcementAgencyId.value}/dashboard-banner`),
-      api.get(`/agencies/${announcementAgencyId.value}/announcements/banner`)
+      api.get(`/agencies/${announcementAgencyId.value}/dashboard-banner`, { skipGlobalLoading: true }),
+      api.get(`/agencies/${announcementAgencyId.value}/announcements/banner`, { skipGlobalLoading: true })
     ]);
 
     if (birthdayResp.status === 'fulfilled') {
@@ -2774,7 +2774,7 @@ const loadMyCompanyEvents = async () => {
     return;
   }
   try {
-    const resp = await api.get('/me/company-events');
+    const resp = await api.get('/me/company-events', { skipGlobalLoading: true });
     const rows = Array.isArray(resp.data) ? resp.data : [];
     const sorted = rows
       .slice()
@@ -2792,7 +2792,7 @@ const loadMyCompanyEvents = async () => {
 
 onMounted(async () => {
   if (!props.previewMode && authStore.isAuthenticated) {
-    api.post('/auth/activity-log', { actionType: 'dashboard_view' }).catch(() => {});
+    api.post('/auth/activity-log', { actionType: 'dashboard_view' }, { skipGlobalLoading: true }).catch(() => {});
   }
   // Remember Google quick-login only after a successful OAuth callback hit dashboard.
   if (String(route.query?.sso || '') === '1') {

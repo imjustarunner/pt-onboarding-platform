@@ -73,8 +73,8 @@ const load = async () => {
     if (!agencyId) throw new Error('No organization context available.');
 
     const [summaryResp, periodsResp] = await Promise.all([
-      api.get('/payroll/me/dashboard-summary', { params: { agencyId } }),
-      api.get('/payroll/me/periods', { params: { agencyId } })
+      api.get('/payroll/me/dashboard-summary', { params: { agencyId }, skipGlobalLoading: true }),
+      api.get('/payroll/me/periods', { params: { agencyId }, skipGlobalLoading: true })
     ]);
     summary.value = summaryResp?.data || null;
     periods.value = Array.isArray(periodsResp?.data) ? periodsResp.data.slice(0, 8) : [];

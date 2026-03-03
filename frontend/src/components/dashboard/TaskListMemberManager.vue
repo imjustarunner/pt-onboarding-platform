@@ -100,7 +100,7 @@ const canRemove = (m) => {
 const fetchMembers = async () => {
   if (!props.list?.id) return;
   try {
-    const res = await api.get(`/task-lists/${props.list.id}`);
+    const res = await api.get(`/task-lists/${props.list.id}`, { skipGlobalLoading: true });
     members.value = res.data?.members || [];
   } catch (err) {
     console.error('Failed to fetch members:', err);
@@ -114,7 +114,7 @@ const fetchAgencyUsers = async () => {
     return;
   }
   try {
-    const res = await api.get(`/task-lists/${props.list.id}/agency-users`);
+    const res = await api.get(`/task-lists/${props.list.id}/agency-users`, { skipGlobalLoading: true });
     const users = Array.isArray(res.data) ? res.data : [];
     const memberIds = new Set(members.value.map((m) => Number(m.user_id)));
     availableUsers.value = users.filter((u) => !memberIds.has(Number(u.id)));

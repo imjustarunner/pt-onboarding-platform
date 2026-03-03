@@ -407,8 +407,8 @@ const fetchTasks = async () => {
   try {
     const statusParam = taskTab.value === 'done' ? 'completed' : 'open';
     const [tasksRes, listRes] = await Promise.all([
-      api.get(`/task-lists/${props.list.id}/tasks`, { params: { status: statusParam } }),
-      api.get(`/task-lists/${props.list.id}`)
+      api.get(`/task-lists/${props.list.id}/tasks`, { params: { status: statusParam }, skipGlobalLoading: true }),
+      api.get(`/task-lists/${props.list.id}`, { skipGlobalLoading: true })
     ]);
     tasks.value = Array.isArray(tasksRes.data) ? tasksRes.data : [];
     members.value = listRes.data?.members || [];
@@ -775,8 +775,8 @@ const printList = () => {
 
 const convertListToSticky = async () => {
   const [activeRes, doneRes] = await Promise.all([
-    api.get(`/task-lists/${props.list?.id}/tasks`, { params: { status: 'open' } }),
-    api.get(`/task-lists/${props.list?.id}/tasks`, { params: { status: 'completed' } })
+    api.get(`/task-lists/${props.list?.id}/tasks`, { params: { status: 'open' }, skipGlobalLoading: true }),
+    api.get(`/task-lists/${props.list?.id}/tasks`, { params: { status: 'completed' }, skipGlobalLoading: true })
   ]);
   const allTasks = [...(activeRes.data || []), ...(doneRes.data || [])];
   const items = allTasks.map((t) => ({

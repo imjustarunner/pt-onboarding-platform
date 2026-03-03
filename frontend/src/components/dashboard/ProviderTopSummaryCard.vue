@@ -181,7 +181,7 @@ const load = async () => {
   try {
     loading.value = true;
     error.value = '';
-    const resp = await api.get('/payroll/me/dashboard-summary', { params: { agencyId: agencyId.value } });
+    const resp = await api.get('/payroll/me/dashboard-summary', { params: { agencyId: agencyId.value }, skipGlobalLoading: true });
     summary.value = resp.data || null;
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message || 'Failed to load dashboard summary';

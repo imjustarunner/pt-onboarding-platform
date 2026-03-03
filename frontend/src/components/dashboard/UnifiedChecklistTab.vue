@@ -187,7 +187,7 @@ const fetchChecklist = async () => {
     const params = {};
     if (props.programId) params.programId = props.programId;
     if (props.agencyId) params.agencyId = props.agencyId;
-    const response = await api.get(`/users/${userId}/unified-checklist`, { params });
+    const response = await api.get(`/users/${userId}/unified-checklist`, { params, skipGlobalLoading: true });
     checklist.value = response.data;
     
     emit('update-count', checklist.value.counts.total);
@@ -203,7 +203,7 @@ const toggleCustomItem = async (item) => {
     // Mark incomplete
     try {
       const userId = authStore.user?.id;
-      await api.post(`/users/${userId}/custom-checklist/${item.checklist_item_id}/incomplete`);
+      await api.post(`/users/${userId}/custom-checklist/${item.checklist_item_id}/incomplete`, {}, { skipGlobalLoading: true });
       await fetchChecklist();
     } catch (err) {
       error.value = err.response?.data?.error?.message || 'Failed to update checklist item';
@@ -212,7 +212,7 @@ const toggleCustomItem = async (item) => {
     // Mark complete
     try {
       const userId = authStore.user?.id;
-      await api.post(`/users/${userId}/custom-checklist/${item.checklist_item_id}/complete`);
+      await api.post(`/users/${userId}/custom-checklist/${item.checklist_item_id}/complete`, {}, { skipGlobalLoading: true });
       await fetchChecklist();
     } catch (err) {
       error.value = err.response?.data?.error?.message || 'Failed to update checklist item';
