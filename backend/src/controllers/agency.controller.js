@@ -913,10 +913,17 @@ const getRequestHost = (req) => {
  * Used by custom domains like "app.agency2.com" to determine which org to brand for.
  *
  * GET /api/agencies/resolve
+ * Query param: host - optional; when frontend and API are on different domains (e.g. app.itsco.health
+ * calling a Cloud Run API), the frontend passes its hostname so we can resolve custom domains.
  */
 export const resolvePortalByHost = async (req, res, next) => {
   try {
-    const host = getRequestHost(req);
+    const reqHost = getRequestHost(req);
+    const queryHost = String(req.query?.host || '').trim();
+    // Use query host when: (1) provided and looks like a hostname, (2) request host didn't resolve
+    const host = queryHost && /^[a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9]$/.test(queryHost)
+      ? queryHost.toLowerCase()
+      : reqHost;
     if (!host) return res.json({ host: null, portalUrl: null });
 
     const agency = await Agency.findByCustomDomain(host);

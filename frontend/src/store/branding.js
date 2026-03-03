@@ -360,9 +360,12 @@ export const useBrandingStore = defineStore('branding', () => {
           }
         }
 
-        // Call backend (same-origin) to resolve host -> portalUrl
+        // Call backend to resolve host -> portalUrl.
+        // Pass host explicitly when API is on a different domain (e.g. app.itsco.health frontend
+        // calling Cloud Run API) so the backend can resolve custom domains correctly.
+        const clientHost = window.location.hostname;
         const resp = await api.get('/agencies/resolve', {
-          params: { _t: Date.now() },
+          params: { host: clientHost, _t: Date.now() },
           skipGlobalLoading: true,
           timeout: 15000
         });
