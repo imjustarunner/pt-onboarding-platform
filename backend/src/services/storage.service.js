@@ -479,6 +479,39 @@ class StorageService {
   }
 
   /**
+   * Save a company car photo to GCS (for vehicle identification).
+   * Stored under uploads/company_car_photos/ so it can be served via /uploads/*.
+   * @param {number} companyCarId - Company car ID (for metadata)
+   * @param {Buffer} fileBuffer - File content
+   * @param {string} filename - Filename (will be sanitized)
+   * @param {string} contentType - MIME type (e.g., image/jpeg)
+   * @returns {Promise<{path: string, key: string, filename: string, relativePath: string}>}
+   */
+  static async saveCompanyCarPhoto(companyCarId, fileBuffer, filename, contentType = 'image/jpeg') {
+    const sanitizedFilename = this.sanitizeFilename(filename);
+    const unique = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}`;
+    const key = `uploads/company_car_photos/car_${companyCarId || 'unknown'}/${unique}-${sanitizedFilename}`;
+
+    const bucket = await this.getGCSBucket();
+    const file = bucket.file(key);
+
+    await file.save(fileBuffer, {
+      contentType,
+      metadata: {
+        companyCarId: String(companyCarId || ''),
+        uploadedAt: new Date().toISOString()
+      }
+    });
+
+    return {
+      path: key,
+      key,
+      filename: sanitizedFilename,
+      relativePath: key
+    };
+  }
+
+  /**
    * Save a font file to GCS
    * Only metadata (file path) is stored in MySQL - the actual file is in GCS
    * @param {Buffer} fileBuffer - File content as buffer

@@ -661,6 +661,8 @@ class User {
       medcancelEnabled,
       medcancelRateSchedule,
       companyCardEnabled,
+      companyCarSubmitAccess,
+      companyCarManageAccess,
       skillBuilderEligible,
       hasSkillBuilderCoordinatorAccess,
       skillBuilderConfirmRequiredNextLogin,
@@ -1092,6 +1094,38 @@ class User {
         } else {
           // If caller provided this field but DB doesn't have column, fail loudly so admins know to run migrations.
           throw new Error('Database is missing users.company_card_enabled. Run migrations (see database/migrations/173_users_add_company_card_enabled.sql).');
+        }
+      } catch (err) {
+        throw err;
+      }
+    }
+
+    // Company Car access (submit vs manage)
+    if (companyCarSubmitAccess !== undefined) {
+      try {
+        const dbName = process.env.DB_NAME || 'onboarding_stage';
+        const [columns] = await pool.execute(
+          "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME = 'company_car_submit_access'",
+          [dbName]
+        );
+        if (columns.length > 0) {
+          updates.push('company_car_submit_access = ?');
+          values.push(companyCarSubmitAccess ? 1 : 0);
+        }
+      } catch (err) {
+        throw err;
+      }
+    }
+    if (companyCarManageAccess !== undefined) {
+      try {
+        const dbName = process.env.DB_NAME || 'onboarding_stage';
+        const [columns] = await pool.execute(
+          "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME = 'company_car_manage_access'",
+          [dbName]
+        );
+        if (columns.length > 0) {
+          updates.push('company_car_manage_access = ?');
+          values.push(companyCarManageAccess ? 1 : 0);
         }
       } catch (err) {
         throw err;

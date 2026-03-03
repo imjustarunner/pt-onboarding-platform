@@ -261,6 +261,8 @@ export const getCurrentUser = async (req, res, next) => {
       medcancelEnabled: ['low', 'high'].includes(String(user.medcancel_rate_schedule || '').toLowerCase()),
       medcancelRateSchedule: user.medcancel_rate_schedule || null,
       companyCardEnabled: Boolean(user.company_card_enabled),
+      companyCarSubmitAccess: Boolean(user.company_car_submit_access),
+      companyCarManageAccess: Boolean(user.company_car_manage_access),
       has_supervisor_privileges: !!(user.has_supervisor_privileges === true || user.has_supervisor_privileges === 1 || user.has_supervisor_privileges === '1'),
       has_provider_access: !!(user.has_provider_access === true || user.has_provider_access === 1 || user.has_provider_access === '1'),
       has_staff_access: !!(user.has_staff_access === true || user.has_staff_access === 1 || user.has_staff_access === '1'),
@@ -1646,6 +1648,8 @@ export const updateUser = async (req, res, next) => {
       medcancelEnabled,
       medcancelRateSchedule,
       companyCardEnabled,
+      companyCarSubmitAccess,
+      companyCarManageAccess,
       billingAcknowledged,
       skillBuilderEligible,
       hasSkillBuilderCoordinatorAccess,
@@ -2042,6 +2046,10 @@ export const updateUser = async (req, res, next) => {
 
     // Company Card (contract feature)
     if (companyCardEnabled !== undefined) updateData.companyCardEnabled = Boolean(companyCardEnabled);
+
+    // Company Car access (submit-only vs full manage)
+    if (companyCarSubmitAccess !== undefined) updateData.companyCarSubmitAccess = Boolean(companyCarSubmitAccess);
+    if (companyCarManageAccess !== undefined) updateData.companyCarManageAccess = Boolean(companyCarManageAccess);
 
     // Skill Builder eligibility (provider program)
     if (skillBuilderEligible !== undefined) updateData.skillBuilderEligible = Boolean(skillBuilderEligible);
@@ -5397,6 +5405,8 @@ export const getAccountInfo = async (req, res, next) => {
       isHourlyWorker: !!(user.is_hourly_worker === 1 || user.is_hourly_worker === true || user.is_hourly_worker === '1'),
       hasHiringAccess: !!(user.has_hiring_access === 1 || user.has_hiring_access === true || user.has_hiring_access === '1'),
       companyCardEnabled: !!(user.company_card_enabled === 1 || user.company_card_enabled === true || user.company_card_enabled === '1'),
+      companyCarSubmitAccess: !!(user.company_car_submit_access === 1 || user.company_car_submit_access === true || user.company_car_submit_access === '1'),
+      companyCarManageAccess: !!(user.company_car_manage_access === 1 || user.company_car_manage_access === true || user.company_car_manage_access === '1'),
       skillBuilderEligible: !!(user.skill_builder_eligible === 1 || user.skill_builder_eligible === true || user.skill_builder_eligible === '1'),
       ...(resetLinkSent && {
         resetLinkSentAt: resetLinkSent.resetLinkSentAt,

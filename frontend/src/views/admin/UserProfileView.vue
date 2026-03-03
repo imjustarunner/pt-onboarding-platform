@@ -488,6 +488,38 @@
 
                 <label
                   class="compact-toggle"
+                  title="Can submit company car mileage trips."
+                >
+                  <span class="compact-title">Company car submit</span>
+                  <div class="toggle-switch toggle-switch-sm">
+                    <input
+                      id="company-car-submit-toggle"
+                      type="checkbox"
+                      v-model="accountForm.companyCarSubmitAccess"
+                      :disabled="!isEditingAccount"
+                    />
+                    <span class="slider"></span>
+                  </div>
+                </label>
+
+                <label
+                  class="compact-toggle"
+                  title="Full access: manage cars, import spreadsheet, view all trips."
+                >
+                  <span class="compact-title">Company car manage</span>
+                  <div class="toggle-switch toggle-switch-sm">
+                    <input
+                      id="company-car-manage-toggle"
+                      type="checkbox"
+                      v-model="accountForm.companyCarManageAccess"
+                      :disabled="!isEditingAccount"
+                    />
+                    <span class="slider"></span>
+                  </div>
+                </label>
+
+                <label
+                  class="compact-toggle"
                   title="If enabled, this provider must submit (or confirm) at least 6 hours/week via Submit → Additional Availability."
                 >
                   <span class="compact-title">Skill Builder eligible</span>
@@ -2364,6 +2396,8 @@ const accountForm = ref({
   homePostalCode: '',
   medcancelRateSchedule: 'none',
   companyCardEnabled: false,
+  companyCarSubmitAccess: false,
+  companyCarManageAccess: false,
   skillBuilderEligible: false,
   hasSkillBuilderCoordinatorAccess: false,
   externalBusyIcsUrl: '',
@@ -3526,7 +3560,15 @@ const fetchUser = async () => {
       user.value?.company_card_enabled !== undefined
         ? (user.value.company_card_enabled === true || user.value.company_card_enabled === 1 || user.value.company_card_enabled === '1')
         : (user.value?.companyCardEnabled !== undefined ? Boolean(user.value.companyCardEnabled) : (accountForm.value?.companyCardEnabled || false));
-    
+    const currentCompanyCarSubmitAccess =
+      user.value?.company_car_submit_access !== undefined
+        ? (user.value.company_car_submit_access === true || user.value.company_car_submit_access === 1 || user.value.company_car_submit_access === '1')
+        : (user.value?.companyCarSubmitAccess !== undefined ? Boolean(user.value.companyCarSubmitAccess) : (accountForm.value?.companyCarSubmitAccess || false));
+    const currentCompanyCarManageAccess =
+      user.value?.company_car_manage_access !== undefined
+        ? (user.value.company_car_manage_access === true || user.value.company_car_manage_access === 1 || user.value.company_car_manage_access === '1')
+        : (user.value?.companyCarManageAccess !== undefined ? Boolean(user.value.companyCarManageAccess) : (accountForm.value?.companyCarManageAccess || false));
+
     accountForm.value = {
       firstName: user.value.first_name || accountForm.value?.firstName || '',
       lastName: user.value.last_name || accountForm.value?.lastName || '',
@@ -3542,6 +3584,8 @@ const fetchUser = async () => {
       workPhoneExtension: user.value.work_phone_extension || accountForm.value?.workPhoneExtension || '',
       medcancelRateSchedule: ['low', 'high', 'none'].includes(currentMedcancelRateSchedule) ? currentMedcancelRateSchedule : 'none',
       companyCardEnabled: currentCompanyCardEnabled,
+      companyCarSubmitAccess: currentCompanyCarSubmitAccess,
+      companyCarManageAccess: currentCompanyCarManageAccess,
       skillBuilderEligible: user.value.skill_builder_eligible === true || user.value.skill_builder_eligible === 1 || user.value.skill_builder_eligible === '1' || false,
       hasSkillBuilderCoordinatorAccess:
         user.value.has_skill_builder_coordinator_access === true ||
@@ -4302,6 +4346,8 @@ const saveAccount = async () => {
       homePostalCode: accountForm.value.homePostalCode,
       medcancelRateSchedule: String(accountForm.value.medcancelRateSchedule || 'none').toLowerCase(),
       companyCardEnabled: Boolean(accountForm.value.companyCardEnabled),
+      companyCarSubmitAccess: Boolean(accountForm.value.companyCarSubmitAccess),
+      companyCarManageAccess: Boolean(accountForm.value.companyCarManageAccess),
       skillBuilderEligible: Boolean(accountForm.value.skillBuilderEligible),
       hasPayrollAccess: Boolean(accountForm.value.hasPayrollAccess),
       isHourlyWorker: Boolean(accountForm.value.isHourlyWorker),

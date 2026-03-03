@@ -638,6 +638,8 @@ export const login = async (req, res, next) => {
     const medcancelRateSchedule = freshUser?.medcancel_rate_schedule || null;
     const medcancelEnabled = ['low', 'high'].includes(String(medcancelRateSchedule || '').toLowerCase());
     const companyCardEnabled = Boolean(freshUser?.company_card_enabled);
+    const companyCarSubmitAccess = Boolean(freshUser?.company_car_submit_access);
+    const companyCarManageAccess = Boolean(freshUser?.company_car_manage_access);
 
     const responseData = {
       token,
@@ -653,6 +655,8 @@ export const login = async (req, res, next) => {
         medcancelEnabled,
         medcancelRateSchedule,
         companyCardEnabled,
+        companyCarSubmitAccess,
+        companyCarManageAccess,
         requiresPasswordChange: pw.requiresPasswordChange || tempActive,
         passwordExpiresAt: pw.passwordExpiresAt,
         passwordExpired: pw.passwordExpired,
