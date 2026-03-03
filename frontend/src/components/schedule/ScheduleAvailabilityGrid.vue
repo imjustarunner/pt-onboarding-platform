@@ -626,7 +626,7 @@
               </div>
             </div>
 
-            <label class="sched-toggle" style="margin-top: 8px;">
+            <label v-if="!summary?.twilioVideoConfigured" class="sched-toggle" style="margin-top: 8px;">
               <input type="checkbox" v-model="createSupervisionMeetLink" />
               <span>Create Google Meet link</span>
             </label>
@@ -716,7 +716,7 @@
             <div class="muted" style="margin-top: 6px;">
               Busy participants can still be invited, but they are marked above before booking.
             </div>
-            <label class="sched-toggle" style="margin-top: 8px;">
+            <label v-if="!summary?.twilioVideoConfigured" class="sched-toggle" style="margin-top: 8px;">
               <input type="checkbox" v-model="createMeetingMeetLink" />
               <span>Create Google Meet link</span>
             </label>
@@ -1130,7 +1130,7 @@
             <div v-if="supvArtifactError" class="error" style="margin-top: 6px;">{{ supvArtifactError }}</div>
           </div>
 
-          <label class="sched-toggle" style="margin-top: 10px;">
+          <label v-if="!summary?.twilioVideoConfigured" class="sched-toggle" style="margin-top: 10px;">
             <input type="checkbox" v-model="supvCreateMeetLink" />
             <span>Create Google Meet link (only if missing)</span>
           </label>
@@ -2391,6 +2391,7 @@ const load = async ({ forceRefresh = false } = {}) => {
       merged.googleBusy = first.googleBusy || [];
       merged.googleBusyError = first.googleBusyError || null;
       merged.externalCalendars = first.externalCalendars || [];
+      merged.twilioVideoConfigured = okOnes.some((r) => !!r.data?.twilioVideoConfigured);
 
       summary.value = merged;
       setScheduleSummary(cacheKey, summary.value);

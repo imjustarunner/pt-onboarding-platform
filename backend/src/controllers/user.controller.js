@@ -3048,6 +3048,14 @@ export const getUserScheduleSummary = async (req, res, next) => {
       }
     }
 
+    let twilioVideoConfigured = false;
+    try {
+      const { isTwilioVideoConfigured } = await import('../services/twilioVideo.service.js');
+      twilioVideoConfigured = isTwilioVideoConfigured();
+    } catch {
+      // ignore
+    }
+
     res.json({
       ok: true,
       providerId,
@@ -3063,6 +3071,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
       supervisionSessions,
       scheduleEvents,
       externalCalendarsAvailable,
+      twilioVideoConfigured,
       ...(externalCalendarIds.length ? { externalCalendars } : {}),
       ...(includeGoogleBusy ? { googleBusy, googleBusyError } : {}),
       ...(includeGoogleEvents ? { googleEvents, googleEventsError } : {}),
