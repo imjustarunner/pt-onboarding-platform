@@ -535,7 +535,7 @@ const openAddSelectedToSticky = async () => {
   stickyPickerPendingItems.value = items;
   showStickyPicker.value = true;
   try {
-    const { data } = await api.get(`/users/${userId.value}/momentum-stickies`);
+    const { data } = await api.get(`/users/${userId.value}/momentum-stickies`, { skipGlobalLoading: true });
     momentumStore.setStickies(data || []);
   } catch {
     momentumStore.setStickies([]);
@@ -628,16 +628,17 @@ const fetchDigest = async () => {
   try {
     const fetches = [
       api.get(`/users/${userId.value}/unified-checklist`, {
-        params: { programId: props.programId || undefined, agencyId: props.agencyId || undefined }
+        params: { programId: props.programId || undefined, agencyId: props.agencyId || undefined },
+        skipGlobalLoading: true
       }).catch(() => ({ data: {} })),
-      api.get('/tasks').catch(() => ({ data: [] })),
-      api.get('/support-tickets/mine').catch(() => ({ data: [] })),
-      api.get(`/users/${userId.value}/momentum-stickies`).catch(() => ({ data: [] })),
-      api.get('/me/notes-to-sign/count').catch(() => ({ data: { count: 0 } }))
+      api.get('/tasks', { skipGlobalLoading: true }).catch(() => ({ data: [] })),
+      api.get('/support-tickets/mine', { skipGlobalLoading: true }).catch(() => ({ data: [] })),
+      api.get(`/users/${userId.value}/momentum-stickies`, { skipGlobalLoading: true }).catch(() => ({ data: [] })),
+      api.get('/me/notes-to-sign/count', { skipGlobalLoading: true }).catch(() => ({ data: { count: 0 } }))
     ];
     if (props.agencyId) {
       fetches.push(
-        api.get('/payroll/me/dashboard-summary', { params: { agencyId: props.agencyId } }).catch(() => ({ data: null }))
+        api.get('/payroll/me/dashboard-summary', { params: { agencyId: props.agencyId }, skipGlobalLoading: true }).catch(() => ({ data: null }))
       );
     }
 
@@ -678,7 +679,7 @@ const fetchDigest = async () => {
 
     if (props.agencyId) {
       try {
-        const eligRes = await api.get('/me/clinical-notes-eligible', { params: { agencyId: props.agencyId } });
+        const eligRes = await api.get('/me/clinical-notes-eligible', { params: { agencyId: props.agencyId }, skipGlobalLoading: true });
         clinicalNotesEligible.value = !!eligRes?.data?.eligible;
       } catch {
         clinicalNotesEligible.value = false;
@@ -699,7 +700,8 @@ const fetchDigest = async () => {
           payrollNotesCount: payrollNotesCount.value,
           notesToSignCount: notesToSignCount.value,
           delinquencyScore
-        }
+        },
+        skipGlobalLoading: true
       });
       if (digestRes?.data?.topFocus?.length || digestRes?.data?.alsoOnRadar?.length) {
         geminiDigest.value = digestRes.data;
@@ -711,7 +713,7 @@ const fetchDigest = async () => {
 
     if (props.agencyId && props.kudosEnabled && payrollNotesCount.value === 0) {
       try {
-        const notesCompleteRes = await api.post('/kudos/notes-complete', { agencyId: props.agencyId });
+        const notesCompleteRes = await api.post('/kudos/notes-complete', { agencyId: props.agencyId }, { skipGlobalLoading: true });
         if (notesCompleteRes?.data?.awarded) {
           showNotesCompleteCelebration.value = true;
         }
@@ -733,7 +735,7 @@ const onChecklistCountUpdate = (count) => {
 
 const refreshNotesToSignCount = async () => {
   try {
-    const res = await api.get('/me/notes-to-sign/count');
+    const res = await api.get('/me/notes-to-sign/count', { skipGlobalLoading: true });
     notesToSignCount.value = Number(res?.data?.count ?? 0);
   } catch {
     notesToSignCount.value = 0;

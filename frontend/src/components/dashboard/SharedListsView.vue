@@ -104,7 +104,7 @@ const fetchLists = async () => {
   }
   loading.value = true;
   try {
-    const res = await api.get('/task-lists', { params: { agencyId: props.agencyId } });
+    const res = await api.get('/task-lists', { params: { agencyId: props.agencyId }, skipGlobalLoading: true });
     lists.value = Array.isArray(res.data) ? res.data : [];
     const totalTasks = lists.value.reduce((s, l) => s + (l.task_count ?? 0), 0);
     const lastActivity = lists.value.reduce((latest, l) => {
@@ -132,7 +132,7 @@ const createList = async () => {
   if (!name || !props.agencyId) return;
   creating.value = true;
   try {
-    await api.post('/task-lists', { agencyId: props.agencyId, name });
+    await api.post('/task-lists', { agencyId: props.agencyId, name }, { skipGlobalLoading: true });
     newListName.value = '';
     showCreateForm.value = false;
     await fetchLists();
