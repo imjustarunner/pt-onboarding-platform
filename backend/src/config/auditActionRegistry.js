@@ -14,6 +14,8 @@ const AUDIT_ACTION_REGISTRY = {
   password_reset_link_sent: { label: 'Password reset link sent', category: 'Authentication' },
   grant_payroll_access: { label: 'Payroll access granted', category: 'Staff' },
   revoke_payroll_access: { label: 'Payroll access revoked', category: 'Staff' },
+  grant_medical_records_release_access: { label: 'Medical records release access granted', category: 'Staff' },
+  revoke_medical_records_release_access: { label: 'Medical records release access revoked', category: 'Staff' },
   user_profile_updated: { label: 'User profile updated', category: 'Staff' },
   user_archived: { label: 'User archived', category: 'Staff' },
   user_restored: { label: 'User restored from archive', category: 'Staff' },

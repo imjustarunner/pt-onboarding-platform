@@ -920,6 +920,25 @@ class StorageService {
     return { path: key, key, filename: sanitizedFilename, relativePath: key };
   }
 
+  static async saveIntakeUpload({ submissionId, stepId, fileBuffer, filename, mimeType }) {
+    const sanitizedFilename = this.sanitizeFilename(filename || `upload-${Date.now()}`);
+    const stepSlug = String(stepId || 'unknown').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 64);
+    const key = `intake_uploads/${submissionId || 'unknown'}/${stepSlug}/${Date.now()}-${sanitizedFilename}`;
+    const bucket = await this.getGCSBucket();
+    const file = bucket.file(key);
+
+    await file.save(fileBuffer, {
+      contentType: mimeType || 'application/octet-stream',
+      metadata: {
+        submissionId: String(submissionId || ''),
+        stepId: String(stepId || ''),
+        uploadedAt: new Date().toISOString()
+      }
+    });
+
+    return { path: key, key, filename: sanitizedFilename, relativePath: key };
+  }
+
   static async saveIntakeTextDocument({ submissionId, clientId, fileBuffer, filename }) {
     const sanitizedFilename = this.sanitizeFilename(filename || `intake-text-${clientId || 'unknown'}-${Date.now()}.txt`);
     const key = `intake_signed/${submissionId || 'unknown'}/intake_text/${sanitizedFilename}`;

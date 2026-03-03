@@ -40,7 +40,7 @@
           </div>
           <div class="cover-title">{{ currentIntro?.displayName || t('welcome') }}</div>
           <div v-if="currentIntro?.subtitle" class="cover-subtitle">{{ currentIntro.subtitle }}</div>
-          <div class="cover-subtitle">
+          <div v-if="introIndex === 0" class="cover-subtitle">
             {{ t('formTimeLimit') }}
           </div>
           <div class="actions">
@@ -54,7 +54,7 @@
       <div v-else-if="step === 1" class="step">
         <h3>{{ t('questions') }}</h3>
         <div v-if="stepError" class="error" style="margin-bottom: 10px;">{{ stepError }}</div>
-        <div class="form-group">
+        <div v-if="!isMedicalRecordsRequest" class="form-group">
           <label>{{ t('whoIsIntakeFor') }}</label>
           <div class="radio-group">
             <label class="radio-row">
@@ -69,7 +69,7 @@
         </div>
         <div class="form-grid">
           <div class="form-group">
-            <label>{{ intakeForSelf ? t('yourFirstName') : t('guardianFirstName') }}</label>
+            <label>{{ (intakeForSelf || isMedicalRecordsRequest) ? t('yourFirstName') : t('guardianFirstName') }}</label>
             <input
               id="guardianFirstName"
               v-model="guardianFirstName"
@@ -79,11 +79,17 @@
             <div v-if="consentErrors.guardianFirstName" class="error-text">{{ consentErrors.guardianFirstName }}</div>
           </div>
           <div class="form-group">
-            <label>{{ intakeForSelf ? t('yourLastName') : t('guardianLastName') }}</label>
-            <input v-model="guardianLastName" type="text" />
+            <label>{{ (intakeForSelf || isMedicalRecordsRequest) ? t('yourLastName') : t('guardianLastName') }}</label>
+            <input
+              id="guardianLastName"
+              v-model="guardianLastName"
+              type="text"
+              :class="{ 'input-error': !!consentErrors.guardianLastName }"
+            />
+            <div v-if="consentErrors.guardianLastName" class="error-text">{{ consentErrors.guardianLastName }}</div>
           </div>
           <div class="form-group">
-            <label>{{ intakeForSelf ? t('yourEmail') : t('guardianEmail') }}</label>
+            <label>{{ (intakeForSelf || isMedicalRecordsRequest) ? t('yourEmail') : t('guardianEmail') }}</label>
             <input
               id="guardianEmail"
               v-model="guardianEmail"
@@ -93,10 +99,10 @@
             <div v-if="consentErrors.guardianEmail" class="error-text">{{ consentErrors.guardianEmail }}</div>
           </div>
           <div class="form-group">
-            <label>{{ intakeForSelf ? t('yourPhoneOptional') : t('guardianPhoneOptional') }}</label>
+            <label>{{ (intakeForSelf || isMedicalRecordsRequest) ? t('yourPhoneOptional') : t('guardianPhoneOptional') }}</label>
             <input v-model="guardianPhone" type="tel" />
           </div>
-          <div class="form-group">
+          <div v-if="!isMedicalRecordsRequest" class="form-group">
             <label>{{ t('relationship') }}</label>
             <input v-model="guardianRelationship" type="text" :placeholder="t('relationshipPlaceholder')" />
           </div>
@@ -381,8 +387,26 @@
 
         <div v-else-if="step === 2 && currentFlowStep?.type !== 'questions'" class="step">
         <h3 v-if="currentFlowStep?.type === 'document'">Document</h3>
+        <h3 v-else-if="currentFlowStep?.type === 'upload'">{{ currentFlowStep?.label || 'Upload' }}</h3>
         <h3 v-else-if="currentFlowStep?.type === 'questions'">Questions</h3>
         <div v-if="stepError" class="error" style="margin-bottom: 10px;">{{ stepError }}</div>
+        <div v-if="currentFlowStep?.type === 'upload'" class="upload-step">
+          <p class="muted">{{ currentFlowStep?.label || 'Upload' }} ({{ currentFlowStep?.required ? 'required' : 'optional' }})</p>
+          <input
+            ref="uploadStepInputRef"
+            type="file"
+            :accept="currentFlowStep?.accept || '.pdf,.doc,.docx'"
+            :multiple="(currentFlowStep?.maxFiles || 1) > 1"
+            @change="onUploadStepFilesChange"
+          />
+          <div v-if="uploadStepFiles.length" class="uploaded-files">
+            <div v-for="(f, i) in uploadStepFiles" :key="i" class="uploaded-file-row">
+              <span>{{ f.name }}</span>
+              <button type="button" class="btn btn-secondary btn-xs" @click="removeUploadStepFile(i)">Remove</button>
+            </div>
+          </div>
+        </div>
+
         <div class="doc-nav" v-if="currentFlowStep?.type === 'document'">
           <button class="btn btn-secondary btn-sm" type="button" :disabled="currentDocIndex === 0" @click="goToPrevious">
             Previous
@@ -517,24 +541,27 @@
           <button
             class="btn btn-primary"
             type="button"
-            :disabled="submitLoading"
-            @click="currentFlowStep?.type === 'document' ? completeCurrentDocument() : completeQuestionStep()"
+            :disabled="submitLoading || (currentFlowStep?.type === 'upload' && currentFlowStep?.required && uploadStepFiles.length === 0)"
+            @click="currentFlowStep?.type === 'document' ? completeCurrentDocument() : (currentFlowStep?.type === 'upload' ? completeUploadStep() : completeQuestionStep())"
           >
-            {{ submitLoading ? t('submitting') : (currentFlowStep?.type === 'document' ? (currentDoc?.document_action_type === 'signature' ? t('signContinue') : t('markReviewedContinue')) : t('continue')) }}
+            {{ submitLoading ? t('submitting') : (currentFlowStep?.type === 'upload' ? 'Continue' : (currentFlowStep?.type === 'document' ? (currentDoc?.document_action_type === 'signature' ? t('signContinue') : t('markReviewedContinue')) : t('continue'))) }}
           </button>
         </div>
 
       </div>
 
       <div v-else-if="step === 3" class="step">
-        <h3>All Set</h3>
-        <p>Your documents were completed successfully. A copy will be emailed to the guardian.</p>
-        <p class="muted">Download links expire in 14 days. After that, the files are deleted once uploaded to Therapy Notes.</p>
-        <div v-if="downloadUrl" class="actions">
+        <h3>{{ jobApplicationSubmitted ? 'Application Submitted' : 'All Set' }}</h3>
+        <p v-if="jobApplicationSubmitted">
+          Thank you for your application. We have received your materials and will review them shortly.
+        </p>
+        <p v-else>Your documents were completed successfully. A copy will be emailed to the guardian.</p>
+        <p v-if="!jobApplicationSubmitted" class="muted">Download links expire in 14 days. After that, the files are deleted once uploaded to Therapy Notes.</p>
+        <div v-if="downloadUrl && !jobApplicationSubmitted" class="actions">
           <a class="btn btn-primary" :href="downloadUrl" target="_blank" rel="noopener">View Packet PDF</a>
           <a class="btn btn-secondary" :href="downloadUrl" download>Download Packet PDF</a>
         </div>
-        <div v-if="clientBundleLinks.length" class="bundle-list">
+        <div v-if="clientBundleLinks.length && !jobApplicationSubmitted" class="bundle-list">
           <div class="bundle-title">Download per-child packets</div>
           <div v-for="bundle in clientBundleLinks" :key="bundle.clientId || bundle.filename" class="bundle-item">
             <div class="bundle-name">{{ bundle.clientName || `Client ${bundle.clientId}` }}</div>
@@ -542,7 +569,7 @@
             <a class="btn btn-outline btn-sm" :href="bundle.downloadUrl" download>Download</a>
           </div>
         </div>
-        <div v-if="clients.length" class="bundle-list">
+        <div v-if="clients.length && !jobApplicationSubmitted" class="bundle-list">
           <div class="bundle-title">Intake answers and clinical summary</div>
           <div v-for="(clientEntry, idx) in clients" :key="`intake-copy-${idx}`" class="bundle-item">
             <div class="bundle-name">
@@ -667,6 +694,7 @@ const INTAKE_TRANSLATIONS = {
     submitting: 'Submitting...',
     protectedByRecaptcha: 'Protected by reCAPTCHA',
     guardianInfo: 'Guardian Information',
+    yourInformation: 'Your Information',
     guardianFirst: 'Guardian first name',
     guardianLast: 'Guardian last name',
     guardianPhone: 'Guardian phone',
@@ -744,6 +772,7 @@ const INTAKE_TRANSLATIONS = {
     submitting: 'Enviando...',
     protectedByRecaptcha: 'Protegido por reCAPTCHA',
     guardianInfo: 'Información del tutor',
+    yourInformation: 'Su información',
     guardianFirst: 'Nombre del tutor',
     guardianLast: 'Apellido del tutor',
     guardianPhone: 'Teléfono del tutor',
@@ -783,7 +812,12 @@ const intakeLocale = computed(() => {
   const code = String(link.value?.language_code || 'en').toLowerCase();
   return code.startsWith('es') ? 'es' : 'en';
 });
-const t = (key) => INTAKE_TRANSLATIONS[intakeLocale.value]?.[key] ?? INTAKE_TRANSLATIONS.en[key] ?? key;
+const customMessages = computed(() => link.value?.custom_messages || null);
+const t = (key) => {
+  const custom = customMessages.value?.[key];
+  if (custom && String(custom).trim()) return String(custom).trim();
+  return INTAKE_TRANSLATIONS[intakeLocale.value]?.[key] ?? INTAKE_TRANSLATIONS.en[key] ?? key;
+};
 
 const loading = ref(true);
 const error = ref('');
@@ -823,8 +857,9 @@ const intakeSteps = computed(() =>
 const flowSteps = computed(() => {
   if (intakeSteps.value.length) {
     return intakeSteps.value
-      .filter((s) => s?.type === 'document')
+      .filter((s) => s?.type === 'document' || s?.type === 'upload')
       .map((s) => {
+        if (s.type === 'upload') return { ...s };
         const template = templates.value.find((t) => Number(t.id) === Number(s.templateId));
         return { ...s, template };
       });
@@ -865,6 +900,9 @@ const pageNotice = ref('');
 const showSkipToSignature = ref(false);
 let pageNoticeTimer = null;
 const docStatus = reactive({});
+const uploadStatus = reactive({});
+const uploadStepFiles = ref([]);
+const uploadStepInputRef = ref(null);
 const fieldValuesByTemplate = reactive({});
 const sessionToken = ref(String(route.query?.session || '').trim());
 const submissionStorageKey = computed(() =>
@@ -889,8 +927,10 @@ const intakeResponses = reactive({
 });
 const downloadUrl = ref('');
 const clientBundleLinks = ref([]);
+const jobApplicationSubmitted = ref(false);
 const consentErrors = reactive({
   guardianFirstName: '',
+  guardianLastName: '',
   guardianEmail: '',
   clientFirstName: '',
   clientLastName: '',
@@ -1060,6 +1100,8 @@ const handleMarkerClick = (marker) => {
   activeMarkerId.value = id;
 };
 const requiresOrganizationId = computed(() => String(link.value?.scope_type || '') === 'agency');
+const isJobApplication = computed(() => String(link.value?.form_type || '').toLowerCase() === 'job_application');
+const isMedicalRecordsRequest = computed(() => String(link.value?.form_type || '').toLowerCase() === 'medical_records_request');
 const intakeFields = computed(() => Array.isArray(link.value?.intake_fields) ? link.value.intake_fields : []);
 const guardianFields = computed(() => intakeFields.value.filter((f) => (f.scope || 'client') === 'guardian'));
 const submissionFields = computed(() => intakeFields.value.filter((f) => (f.scope || 'client') === 'submission'));
@@ -1127,11 +1169,11 @@ const buildIntakeAnswerSections = (clientIndex) => {
     { key: 'guardian_last', label: t('guardianLast'), value: guardianLastName.value },
     { key: 'guardian_email', label: t('guardianEmail'), value: guardianEmail.value },
     { key: 'guardian_phone', label: t('guardianPhone'), value: guardianPhone.value },
-    { key: 'relationship', label: t('relationship'), value: guardianRelationship.value }
+    ...(isMedicalRecordsRequest.value ? [] : [{ key: 'relationship', label: t('relationship'), value: guardianRelationship.value }])
   ].filter((line) => hasValue(line.value))
     .map((line) => ({ ...line, value: formatAnswerValue(line.value) }));
 
-  sections.push({ title: t('guardianInfo'), lines: guardianInfo });
+  sections.push({ title: isMedicalRecordsRequest.value ? t('yourInformation') : t('guardianInfo'), lines: guardianInfo });
 
   const guardianLines = buildAnswerLinesForScope(guardianFields.value, intakeResponses.guardian || {});
   sections.push({ title: t('guardianQuestions'), lines: guardianLines });
@@ -1715,10 +1757,11 @@ const ensureSessionToken = async () => {
 const submitConsent = async () => {
   consentErrors.guardianFirstName = guardianFirstName.value.trim() ? '' : t('required');
   consentErrors.guardianEmail = guardianEmail.value.trim() ? '' : t('required');
+  consentErrors.guardianLastName = isJobApplication.value && !guardianLastName.value.trim() ? t('required') : '';
   const clientFirst = intakeForSelf.value ? guardianFirstName.value : clients.value?.[0]?.firstName;
   const clientLast = intakeForSelf.value ? guardianLastName.value : clients.value?.[0]?.lastName;
-  consentErrors.clientFirstName = String(clientFirst || '').trim() ? '' : t('required');
-  consentErrors.clientLastName = String(clientLast || '').trim() ? '' : t('required');
+  consentErrors.clientFirstName = isJobApplication.value ? '' : (String(clientFirst || '').trim() ? '' : t('required'));
+  consentErrors.clientLastName = isJobApplication.value ? '' : (String(clientLast || '').trim() ? '' : t('required'));
   consentErrors.organizationId =
     requiresOrganizationId.value && !String(organizationId.value || '').trim()
       ? t('required')
@@ -1727,6 +1770,7 @@ const submitConsent = async () => {
   if (
     consentErrors.guardianFirstName
     || consentErrors.guardianEmail
+    || consentErrors.guardianLastName
     || consentErrors.clientFirstName
     || consentErrors.clientLastName
     || consentErrors.organizationId
@@ -1740,13 +1784,15 @@ const submitConsent = async () => {
       ? 'guardianFirstName'
       : consentErrors.guardianEmail
         ? 'guardianEmail'
-        : consentErrors.clientFirstName
-          ? (intakeForSelf.value ? 'guardianFirstName' : 'clientFirstName_0')
-          : consentErrors.clientLastName
-            ? (intakeForSelf.value ? 'guardianLastName' : 'clientLastName_0')
-            : consentErrors.organizationId
-              ? 'organizationId'
-              : null;
+        : consentErrors.guardianLastName
+          ? 'guardianLastName'
+          : consentErrors.clientFirstName
+            ? (intakeForSelf.value ? 'guardianFirstName' : 'clientFirstName_0')
+            : consentErrors.clientLastName
+              ? (intakeForSelf.value ? 'guardianLastName' : 'clientLastName_0')
+              : consentErrors.organizationId
+                ? 'organizationId'
+                : null;
     if (firstMissingId) {
       const el = document.getElementById(firstMissingId);
       if (el?.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -1967,6 +2013,7 @@ const finalizePacket = async () => {
     });
     downloadUrl.value = resp.data?.downloadUrl || '';
     clientBundleLinks.value = resp.data?.clientBundles || [];
+    jobApplicationSubmitted.value = !!resp.data?.jobApplicationSubmitted;
     step.value = 3;
     localStorage.removeItem(submissionStorageKey.value);
   } catch (e) {
@@ -1982,6 +2029,7 @@ const resetIntakeState = () => {
   guardianEmail.value = '';
   guardianPhone.value = '';
   guardianRelationship.value = '';
+  jobApplicationSubmitted.value = false;
   signerInitials.value = '';
   clients.value = [{ firstName: '', lastName: '' }];
   intakeResponses.guardian = {};
@@ -2069,6 +2117,7 @@ const focusNextField = () => {
 
 const syncDocIndexFromFlow = () => {
   if (!flowSteps.value.length) return;
+  if (currentFlowStep.value?.type === 'upload') return;
   const templateId = currentFlowStep.value?.template?.id;
   if (!templateId) return;
   const idx = templates.value.findIndex((t) => Number(t.id) === Number(templateId));
@@ -2232,6 +2281,10 @@ watch(intakeForSelf, (val) => {
   consentErrors.clientLastName = '';
 });
 
+watch(isMedicalRecordsRequest, (val) => {
+  if (val) intakeForSelf.value = true;
+});
+
 const buildQuestionPrefillMap = () => {
   const map = {};
   intakeSteps.value.forEach((step) => {
@@ -2323,10 +2376,63 @@ const advanceIntro = () => {
 const nextFlowStep = async () => {
   if (currentFlowIndex.value < flowSteps.value.length - 1) {
     currentFlowIndex.value += 1;
+    if (currentFlowStep.value?.type === 'upload') {
+      uploadStepFiles.value = [];
+    }
   } else {
     await finalizePacket();
   }
 };
+
+const onUploadStepFilesChange = (e) => {
+  const files = Array.from(e.target?.files || []);
+  const step = currentFlowStep.value;
+  if (!step || step.type !== 'upload') return;
+  const max = Math.max(1, step.maxFiles || 1);
+  uploadStepFiles.value = files.slice(0, max);
+  if (uploadStepInputRef.value) uploadStepInputRef.value.value = '';
+};
+
+const removeUploadStepFile = (idx) => {
+  uploadStepFiles.value = uploadStepFiles.value.filter((_, i) => i !== idx);
+};
+
+const completeUploadStep = async () => {
+  const s = currentFlowStep.value;
+  if (!s || s.type !== 'upload') return;
+  if (s.required && uploadStepFiles.value.length === 0) {
+    stepError.value = 'Please select at least one file to upload.';
+    return;
+  }
+  if (!submissionId.value) {
+    stepError.value = 'Session expired. Please start over.';
+    return;
+  }
+  try {
+    submitLoading.value = true;
+    stepError.value = '';
+    const formData = new FormData();
+    formData.append('stepId', s.id);
+    formData.append('label', s.label || 'Upload');
+    uploadStepFiles.value.forEach((f, i) => {
+      formData.append('files', f);
+    });
+    await api.post(`/public-intake/${publicKey}/${submissionId.value}/upload`, formData);
+    uploadStatus[s.id] = true;
+    uploadStepFiles.value = [];
+    await nextFlowStep();
+  } catch (e) {
+    stepError.value = e.response?.data?.error?.message || 'Upload failed. Please try again.';
+  } finally {
+    submitLoading.value = false;
+  }
+};
+
+watch(currentFlowStep, (step) => {
+  if (step?.type === 'upload') {
+    uploadStepFiles.value = [];
+  }
+});
 
 watch(currentDoc, async () => {
   reviewPage.value = 1;
@@ -2617,6 +2723,28 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   gap: 8px;
+  font-size: 14px;
+}
+.upload-step {
+  margin: 16px 0;
+}
+.upload-step input[type="file"] {
+  margin: 10px 0;
+  padding: 8px;
+}
+.uploaded-files {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.uploaded-file-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--bg-alt);
+  border-radius: 8px;
   font-size: 14px;
 }
 .signature-block {

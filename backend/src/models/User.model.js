@@ -292,7 +292,7 @@ class User {
     try {
       const dbName = process.env.DB_NAME || 'onboarding_stage';
       const [columns] = await pool.execute(
-        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('pending_completed_at', 'pending_auto_complete_at', 'pending_identity_verified', 'pending_access_locked', 'pending_completion_notified', 'work_email', 'personal_email', 'preferred_name', 'username', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'has_hiring_access', 'provider_accepting_new_clients', 'provider_school_info_blurb', 'personal_phone', 'work_phone', 'work_phone_extension', 'system_phone_number', 'home_street_address', 'home_address_line2', 'home_city', 'home_state', 'home_postal_code', 'medcancel_enabled', 'medcancel_rate_schedule', 'company_card_enabled', 'profile_photo_path', 'password_changed_at', 'title', 'service_focus', 'languages_spoken', 'credential', 'skill_builder_eligible', 'has_skill_builder_coordinator_access', 'skill_builder_confirm_required_next_login', 'is_hourly_worker', 'sso_password_override')",
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('pending_completed_at', 'pending_auto_complete_at', 'pending_identity_verified', 'pending_access_locked', 'pending_completion_notified', 'work_email', 'personal_email', 'preferred_name', 'username', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'has_hiring_access', 'has_medical_records_release_access', 'provider_accepting_new_clients', 'provider_school_info_blurb', 'personal_phone', 'work_phone', 'work_phone_extension', 'system_phone_number', 'home_street_address', 'home_address_line2', 'home_city', 'home_state', 'home_postal_code', 'medcancel_enabled', 'medcancel_rate_schedule', 'company_card_enabled', 'profile_photo_path', 'password_changed_at', 'title', 'service_focus', 'languages_spoken', 'credential', 'skill_builder_eligible', 'has_skill_builder_coordinator_access', 'skill_builder_confirm_required_next_login', 'is_hourly_worker', 'sso_password_override')",
         [dbName]
       );
       const existingColumns = columns.map(c => c.COLUMN_NAME);
@@ -332,6 +332,7 @@ class User {
       if (existingColumns.includes('has_skill_builder_coordinator_access')) query += ', has_skill_builder_coordinator_access';
       if (existingColumns.includes('skill_builder_confirm_required_next_login')) query += ', skill_builder_confirm_required_next_login';
       if (existingColumns.includes('has_hiring_access')) query += ', has_hiring_access';
+      if (existingColumns.includes('has_medical_records_release_access')) query += ', has_medical_records_release_access';
       if (existingColumns.includes('is_hourly_worker')) query += ', is_hourly_worker';
       if (existingColumns.includes('sso_password_override')) query += ', sso_password_override';
     } catch (err) {
@@ -668,6 +669,7 @@ class User {
       skillBuilderConfirmRequiredNextLogin,
       isHourlyWorker,
       hasHiringAccess,
+      hasMedicalRecordsReleaseAccess,
       externalBusyIcsUrl
     } = userData;
     
@@ -1220,6 +1222,23 @@ class User {
         }
       } catch (err) {
         console.warn('has_hiring_access column check failed:', err.message);
+      }
+    }
+
+    // Medical records release access (view/download ROI submissions in Submitted Documents)
+    if (hasMedicalRecordsReleaseAccess !== undefined) {
+      try {
+        const dbName = process.env.DB_NAME || 'onboarding_stage';
+        const [columns] = await pool.execute(
+          "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME = 'has_medical_records_release_access'",
+          [dbName]
+        );
+        if (columns.length > 0) {
+          updates.push('has_medical_records_release_access = ?');
+          values.push(hasMedicalRecordsReleaseAccess ? 1 : 0);
+        }
+      } catch (err) {
+        console.warn('has_medical_records_release_access column check failed:', err.message);
       }
     }
 

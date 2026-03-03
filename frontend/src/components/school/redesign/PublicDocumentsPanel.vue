@@ -17,14 +17,14 @@
 
     <div class="card" style="margin-top: 12px;">
       <div class="card-header" style="display:flex; align-items:center; justify-content: space-between; gap: 10px;">
-        <h3 style="margin:0;">Affiliated intake links</h3>
+        <h3 style="margin:0;">Affiliated digital forms</h3>
         <div class="muted" style="font-size: 12px;">{{ intakeLinks.length }} item(s)</div>
       </div>
 
       <div v-if="intakeLinksError" class="error" style="margin-top: 10px;">{{ intakeLinksError }}</div>
-      <div v-else-if="loading" class="loading" style="margin-top: 10px;">Loading intake links…</div>
+      <div v-else-if="loading" class="loading" style="margin-top: 10px;">Loading digital forms…</div>
       <div v-else-if="!intakeLinks.length" class="empty-state" style="margin-top: 10px;">
-        No intake links assigned to this school/program yet.
+        No digital forms assigned to this school/program yet.
       </div>
       <div v-else class="table-wrap" style="margin-top: 10px;">
         <table class="table">
@@ -38,7 +38,7 @@
           <tbody>
             <tr v-for="l in intakeLinks" :key="l.id">
               <td>
-                <strong>{{ l.title || `Intake link #${l.id}` }}</strong>
+                <strong>{{ l.title || `Form #${l.id}` }}</strong>
                 <div class="muted" style="font-size: 12px; margin-top: 2px;">
                   <span>{{ intakeLinkUrlFor(l) || '—' }}</span>
                 </div>
@@ -280,7 +280,7 @@
     <div v-if="qrModalOpen" class="modal-overlay" @click.self="closeQrModal">
       <div class="modal" @click.stop>
         <div class="modal-header">
-          <strong>{{ qrModalTitle || 'Intake link QR' }}</strong>
+          <strong>{{ qrModalTitle || 'Digital form QR' }}</strong>
           <button class="btn btn-secondary btn-sm" type="button" @click="closeQrModal">Close</button>
         </div>
         <div class="modal-body">
@@ -499,13 +499,13 @@ const load = async () => {
     } else {
       intakeLinks.value = [];
       const e = intakeRes.reason;
-      intakeLinksError.value = e?.response?.data?.error?.message || 'Failed to load intake links';
+      intakeLinksError.value = e?.response?.data?.error?.message || 'Failed to load digital forms';
     }
   } catch (e) {
     docs.value = [];
     intakeLinks.value = [];
     error.value = e?.response?.data?.error?.message || 'Failed to load documents';
-    intakeLinksError.value = e?.response?.data?.error?.message || 'Failed to load intake links';
+    intakeLinksError.value = e?.response?.data?.error?.message || 'Failed to load digital forms';
   } finally {
     loading.value = false;
   }
@@ -542,7 +542,7 @@ const copyIntakeLink = async (link) => {
 const openIntakeQr = async (link) => {
   const url = intakeLinkUrlFor(link);
   if (!url) return;
-  qrModalTitle.value = String(link?.title || '').trim() || `Intake link #${link?.id || ''}`;
+  qrModalTitle.value = String(link?.title || '').trim() || `Form #${link?.id || ''}`;
   qrModalUrl.value = url;
   qrModalDataUrl.value = '';
   qrModalOpen.value = true;

@@ -2,10 +2,10 @@
   <div class="container">
     <div class="page-header">
       <div>
-        <h1>Intake Links</h1>
-        <p class="subtitle">Configure digital intake links, documents, and custom fields.</p>
+        <h1>Digital Forms</h1>
+        <p class="subtitle">Configure digital forms, intake links, documents, and custom fields.</p>
       </div>
-      <button class="btn btn-primary" type="button" @click="openCreate">New Intake Link</button>
+      <button class="btn btn-primary" type="button" @click="openCreate">New Digital Form</button>
     </div>
 
     <div class="quick-create">
@@ -30,7 +30,7 @@
         </div>
         <div class="form-group">
           <label>Title</label>
-          <input v-model="quickTitle" type="text" placeholder="e.g., School Intake Link" />
+          <input v-model="quickTitle" type="text" placeholder="e.g., School Intake or Summer Pickup Form" />
         </div>
         <div class="form-group">
           <label>Language</label>
@@ -51,6 +51,13 @@
         <option value="school">School</option>
         <option value="program">Program</option>
       </select>
+      <select v-model="filterFormType">
+        <option value="all">All Types</option>
+        <option value="intake">Intake</option>
+        <option value="public_form">Public Form</option>
+        <option value="job_application">Job Application</option>
+        <option value="medical_records_request">Medical Records</option>
+      </select>
       <select v-model="filterOrgId">
         <option value="all">All Orgs</option>
         <option v-for="org in organizations" :key="org.id" :value="org.id">
@@ -66,6 +73,7 @@
         <thead>
           <tr>
             <th>Title</th>
+            <th>Type</th>
             <th>Scope</th>
             <th>Language</th>
             <th>Active</th>
@@ -77,6 +85,11 @@
         <tbody>
           <tr v-for="link in filteredLinks" :key="link.id">
             <td>{{ link.title || `Link ${link.id}` }}</td>
+            <td>
+              <span :class="['badge', getFormTypeBadgeClass(link.form_type)]">
+                {{ getFormTypeLabel(link.form_type) }}
+              </span>
+            </td>
             <td>
               {{ link.scope_type }}
               <span v-if="link.organization_id">
@@ -101,7 +114,7 @@
     </div>
 
     <div class="template-panel">
-      <h3>Intake Field Templates</h3>
+      <h3>Digital Form Field Templates</h3>
       <div class="form-grid">
         <div class="form-group">
           <label>Agency</label>
@@ -137,7 +150,7 @@
     <div v-if="showForm" class="modal-overlay" @click.self="closeForm">
       <div class="modal" @click.stop>
         <div class="modal-header">
-          <strong>{{ editingId ? 'Edit Intake Link' : 'Create Intake Link' }}</strong>
+          <strong>{{ editingId ? 'Edit Digital Form' : 'Create Digital Form' }}</strong>
           <button class="btn btn-secondary btn-sm" type="button" @click="closeForm">Close</button>
         </div>
         <div class="modal-body">
@@ -158,6 +171,38 @@
               <input v-model="form.description" type="text" />
             </div>
             <div class="form-group">
+              <label>Form Type</label>
+              <select v-model="form.formType">
+                <option value="intake">Intake (person-tied)</option>
+                <option value="public_form">Public Form (standalone)</option>
+                <option value="job_application">Job Application</option>
+                <option value="medical_records_request">Medical Records Request</option>
+              </select>
+              <small v-if="form.formType === 'public_form'" class="form-help">
+                Standalone forms (e.g. additional driver, consent) are externally clickable and not tied to a person. Completed documents land in Submitted Documents for staff to assign to a client.
+              </small>
+              <small v-if="form.formType === 'job_application'" class="form-help">
+                Each job gets its own link. Applicants upload resume, cover letter, etc. Documents land in Submitted Documents.
+              </small>
+              <small v-if="form.formType === 'medical_records_request'" class="form-help">
+                View-only form. Documents land in Submitted Documents and cannot be assigned to a client.
+              </small>
+            </div>
+            <div v-if="form.formType === 'job_application'" class="form-group">
+              <label>Agency</label>
+              <select v-model.number="form.organizationId" @change="fetchJobDescriptions">
+                <option :value="null">Select agency</option>
+                <option v-for="a in agencyList" :key="a.id" :value="a.id">{{ a.name }}</option>
+              </select>
+            </div>
+            <div v-if="form.formType === 'job_application'" class="form-group">
+              <label>Job</label>
+              <select v-model.number="form.jobDescriptionId">
+                <option :value="null">Select job</option>
+                <option v-for="j in jobDescriptionsForForm" :key="j.id" :value="j.id">{{ j.title }}</option>
+              </select>
+            </div>
+            <div class="form-group" v-if="form.formType !== 'job_application'">
               <label>Scope</label>
               <select v-model="form.scopeType">
                 <option value="agency">Agency</option>
@@ -165,7 +210,7 @@
                 <option value="program">Program</option>
               </select>
             </div>
-            <div v-if="form.scopeType !== 'agency'" class="form-group">
+            <div v-if="form.scopeType !== 'agency' && form.formType !== 'job_application'" class="form-group">
               <label>Organization</label>
               <select v-model.number="form.organizationId">
                 <option :value="null">Select</option>
@@ -187,10 +232,11 @@
             </div>
             <div class="form-group">
               <label>Create Client</label>
-              <select v-model="form.createClient">
+              <select v-model="form.createClient" :disabled="['public_form', 'job_application', 'medical_records_request'].includes(form.formType)">
                 <option :value="true">Yes</option>
                 <option :value="false">No</option>
               </select>
+              <small v-if="['public_form', 'job_application', 'medical_records_request'].includes(form.formType)" class="form-help">These forms do not create clients; documents go to Submitted Documents.</small>
             </div>
             <div class="form-group">
               <label>Create Guardian (default)</label>
@@ -210,6 +256,31 @@
             <div class="form-group" v-if="form.retentionPolicy.mode === 'days'">
               <label>Days to retain</label>
               <input v-model.number="form.retentionPolicy.days" type="number" min="1" max="3650" />
+            </div>
+          </div>
+
+          <div class="form-group custom-messages-section">
+            <label>Custom intro messages (optional)</label>
+            <p class="muted" style="margin-bottom: 8px;">
+              Override the default text shown on the intake cover and intro screens. Leave blank to use defaults.
+            </p>
+            <div class="form-grid">
+              <div class="form-group" style="grid-column: 1 / -1;">
+                <label>Cover screen subtitle</label>
+                <textarea
+                  v-model="form.customMessages.beginSubtitle"
+                  rows="2"
+                  placeholder="e.g., Begin to start a secure intake session. This link creates a unique session for each person."
+                />
+              </div>
+              <div class="form-group" style="grid-column: 1 / -1;">
+                <label>Form time limit message</label>
+                <textarea
+                  v-model="form.customMessages.formTimeLimit"
+                  rows="2"
+                  placeholder="e.g., This form must be completed within 1 hour. Each new page adds 5 minutes. The session is unique and cannot be saved or resumed."
+                />
+              </div>
             </div>
           </div>
 
@@ -263,17 +334,40 @@
               <div class="step-actions">
                 <button class="btn btn-secondary btn-sm" type="button" @click="addStep('questions')">+ Add Questions</button>
                 <button class="btn btn-secondary btn-sm" type="button" @click="addStep('document')">+ Add Document</button>
+                <button class="btn btn-secondary btn-sm" type="button" @click="addStep('upload')">+ Add Upload</button>
               </div>
 
               <div v-if="form.intakeSteps.length === 0" class="muted">No steps yet.</div>
 
               <div v-for="(step, idx) in safeSteps" :key="step.id" class="step-card">
                 <div class="step-header">
-                  <strong>{{ step.type === 'document' ? 'Document' : 'Questions' }}</strong>
+                  <strong>{{ getStepTypeLabel(step.type) }}</strong>
                   <div class="step-controls">
                     <button class="btn btn-xs btn-secondary" type="button" @click="moveStep(idx, -1)" :disabled="idx === 0">↑</button>
                     <button class="btn btn-xs btn-secondary" type="button" @click="moveStep(idx, 1)" :disabled="idx === form.intakeSteps.length - 1">↓</button>
                     <button class="btn btn-xs btn-danger" type="button" @click="removeStep(idx)">Remove</button>
+                  </div>
+                </div>
+
+                <div v-if="step.type === 'upload'" class="form-grid">
+                  <div class="form-group">
+                    <label>Label</label>
+                    <input v-model="step.label" type="text" placeholder="e.g., Resume, Cover Letter" />
+                  </div>
+                  <div class="form-group">
+                    <label>Accepted file types</label>
+                    <input v-model="step.accept" type="text" placeholder="e.g., .pdf,.doc,.docx or application/pdf" />
+                    <small class="form-help">Leave blank for PDF only. Use .pdf,.doc,.docx for multiple types.</small>
+                  </div>
+                  <div class="form-group">
+                    <label>Max files</label>
+                    <input v-model.number="step.maxFiles" type="number" min="1" max="10" placeholder="1" />
+                  </div>
+                  <div class="form-group">
+                    <label class="checkbox">
+                      <input v-model="step.required" type="checkbox" />
+                      Required
+                    </label>
                   </div>
                 </div>
 
@@ -336,7 +430,7 @@
                   </div>
                 </div>
 
-                <div v-else class="question-builder">
+                <div v-else-if="step.type === 'questions'" class="question-builder">
                   <div class="question-list">
                     <div v-for="(field, fIdx) in getStepFields(step)" :key="field.id || fIdx" class="question-block">
                       <div class="question-row">
@@ -409,6 +503,7 @@
               <div v-if="safeSteps.length" class="step-actions step-actions-bottom">
                 <button class="btn btn-secondary btn-sm" type="button" @click="addStep('questions')">+ Add Questions</button>
                 <button class="btn btn-secondary btn-sm" type="button" @click="addStep('document')">+ Add Document</button>
+                <button class="btn btn-secondary btn-sm" type="button" @click="addStep('upload')">+ Add Upload</button>
               </div>
             </div>
           </div>
@@ -449,15 +544,22 @@ const form = reactive({
   title: '',
   description: '',
   languageCode: 'en',
+  formType: 'intake',
   scopeType: 'school',
   organizationId: null,
   programId: null,
+  jobDescriptionId: null,
+  requiresAssignment: true,
   isActive: true,
   createClient: true,
   createGuardian: true,
   retentionPolicy: {
     mode: 'inherit',
     days: 14
+  },
+  customMessages: {
+    beginSubtitle: '',
+    formTimeLimit: ''
   },
   allowAllDocuments: false,
   allowedDocumentTemplateIds: [],
@@ -478,6 +580,7 @@ const openDocumentStepSelectId = ref(null);
 const documentStepFilter = ref('');
 const documentStepSelectRef = ref(null);
 const documentStepFilterInputRef = ref(null);
+const jobDescriptionsForForm = ref([]);
 
 const organizationsForScope = computed(() => {
   const type = form.scopeType;
@@ -501,6 +604,20 @@ const organizationLookup = computed(() => {
   return map;
 });
 
+const getStepTypeLabel = (t) => {
+  const m = { questions: 'Questions', document: 'Document', upload: 'Upload' };
+  return m[t] || t || 'Step';
+};
+const getFormTypeLabel = (t) => {
+  const m = { intake: 'Intake', public_form: 'Public Form', job_application: 'Job Application', medical_records_request: 'Medical Records' };
+  return m[t] || t || 'Intake';
+};
+const getFormTypeBadgeClass = (t) => {
+  if (t === 'public_form') return 'badge-info';
+  if (t === 'job_application') return 'badge-success';
+  if (t === 'medical_records_request') return 'badge-warning';
+  return 'badge-secondary';
+};
 const getLanguageLabel = (code) => {
   const lang = String(code || '').toLowerCase();
   if (lang === 'es' || lang.startsWith('es')) return 'Spanish';
@@ -508,17 +625,34 @@ const getLanguageLabel = (code) => {
   return lang ? lang.toUpperCase() : 'English';
 };
 
+const fetchJobDescriptions = async () => {
+  if (!form.organizationId) {
+    jobDescriptionsForForm.value = [];
+    return;
+  }
+  try {
+    const r = await api.get('/hiring/job-descriptions', { params: { agencyId: form.organizationId } });
+    jobDescriptionsForForm.value = Array.isArray(r.data) ? r.data : [];
+  } catch {
+    jobDescriptionsForForm.value = [];
+  }
+};
+
 const resetForm = () => {
   form.title = '';
   form.description = '';
   form.languageCode = 'en';
+  form.formType = 'intake';
   form.scopeType = 'school';
   form.organizationId = null;
   form.programId = null;
+  form.jobDescriptionId = null;
+  form.requiresAssignment = true;
   form.isActive = true;
   form.createClient = true;
   form.createGuardian = true;
   form.retentionPolicy = { mode: 'inherit', days: 14 };
+  form.customMessages = { beginSubtitle: '', formTimeLimit: '' };
   form.allowAllDocuments = false;
   form.allowedDocumentTemplateIds = [];
   form.intakeFieldsText = '';
@@ -537,13 +671,17 @@ const serializeDraft = () => ({
     title: form.title,
     description: form.description,
     languageCode: form.languageCode,
+    formType: form.formType,
     scopeType: form.scopeType,
     organizationId: form.organizationId,
     programId: form.programId,
+    jobDescriptionId: form.jobDescriptionId,
+    requiresAssignment: form.requiresAssignment,
     isActive: form.isActive,
     createClient: form.createClient,
     createGuardian: form.createGuardian,
     retentionPolicy: form.retentionPolicy ? { ...form.retentionPolicy } : null,
+    customMessages: form.customMessages ? { ...form.customMessages } : { beginSubtitle: '', formTimeLimit: '' },
     allowAllDocuments: form.allowAllDocuments,
     allowedDocumentTemplateIds: Array.isArray(form.allowedDocumentTemplateIds)
       ? [...form.allowedDocumentTemplateIds]
@@ -570,15 +708,21 @@ const applyDraft = (draft) => {
   form.title = data.title ?? '';
   form.description = data.description ?? '';
   form.languageCode = data.languageCode || 'en';
+  form.formType = data.formType || 'intake';
   form.scopeType = data.scopeType || 'school';
   form.organizationId = data.organizationId ?? null;
   form.programId = data.programId ?? null;
+  form.jobDescriptionId = data.jobDescriptionId ?? null;
+  form.requiresAssignment = data.requiresAssignment ?? true;
   form.isActive = data.isActive ?? true;
   form.createClient = data.createClient ?? true;
   form.createGuardian = data.createGuardian ?? true;
   form.retentionPolicy = data.retentionPolicy
     ? { mode: data.retentionPolicy.mode || 'inherit', days: data.retentionPolicy.days ?? 14 }
     : { mode: 'inherit', days: 14 };
+  form.customMessages = data.customMessages
+    ? { beginSubtitle: data.customMessages.beginSubtitle ?? '', formTimeLimit: data.customMessages.formTimeLimit ?? '' }
+    : { beginSubtitle: '', formTimeLimit: '' };
   form.allowAllDocuments = data.allowAllDocuments ?? false;
   form.allowedDocumentTemplateIds = Array.isArray(data.allowedDocumentTemplateIds)
     ? data.allowedDocumentTemplateIds
@@ -630,7 +774,7 @@ const fetchData = async () => {
       fieldTemplates.value = r.data || [];
     }
   } catch (e) {
-    error.value = e.response?.data?.error?.message || 'Failed to load intake links';
+    error.value = e.response?.data?.error?.message || 'Failed to load digital forms';
   } finally {
     loading.value = false;
   }
@@ -697,7 +841,7 @@ const duplicateLink = async (link) => {
       links.value = [newLink, ...links.value];
     }
   } catch (e) {
-    error.value = e.response?.data?.error?.message || 'Failed to duplicate intake link';
+    error.value = e.response?.data?.error?.message || 'Failed to duplicate form';
   }
 };
 
@@ -707,9 +851,12 @@ const editLink = (link) => {
   form.title = link.title || '';
   form.description = link.description || '';
   form.languageCode = link.language_code || 'en';
+  form.formType = link.form_type || 'intake';
   form.scopeType = link.scope_type || 'school';
   form.organizationId = link.organization_id || null;
   form.programId = link.program_id || null;
+  form.jobDescriptionId = link.job_description_id || null;
+  form.requiresAssignment = link.requires_assignment !== false;
   form.isActive = !!link.is_active;
   form.createClient = !!link.create_client;
   form.createGuardian = !!link.create_guardian;
@@ -724,9 +871,15 @@ const editLink = (link) => {
   })();
   form.allowAllDocuments = false;
   form.allowedDocumentTemplateIds = link.allowed_document_template_ids || [];
+  form.customMessages = link.custom_messages
+    ? { beginSubtitle: link.custom_messages.beginSubtitle ?? '', formTimeLimit: link.custom_messages.formTimeLimit ?? '' }
+    : { beginSubtitle: '', formTimeLimit: '' };
   form.intakeFieldsText = link.intake_fields ? JSON.stringify(link.intake_fields, null, 2) : '';
   form.intakeSteps = normalizeIntakeSteps(link);
   showForm.value = true;
+  if (form.formType === 'job_application' && form.organizationId) {
+    fetchJobDescriptions();
+  }
 };
 
 const applyFieldTemplate = (template) => {
@@ -794,20 +947,35 @@ const save = async () => {
       ? selectableTemplates.value.map((t) => t.id)
       : form.allowedDocumentTemplateIds;
     const { intakeSteps, intakeFields, allowedDocumentTemplateIds } = buildPayloadFromSteps(selectedTemplateIds);
+    const customMessagesPayload = (() => {
+      const cm = form.customMessages || {};
+      const hasAny = (cm.beginSubtitle || '').trim() || (cm.formTimeLimit || '').trim();
+      if (!hasAny) return null;
+      return {
+        beginSubtitle: (cm.beginSubtitle || '').trim() || undefined,
+        formTimeLimit: (cm.formTimeLimit || '').trim() || undefined
+      };
+    })();
     const payload = {
       title: form.title,
       description: form.description,
       languageCode: form.languageCode,
-      scopeType: form.scopeType,
+      formType: form.formType,
+      scopeType: form.formType === 'job_application' ? 'agency' : form.scopeType,
       isActive: form.isActive,
       createClient: form.createClient,
       createGuardian: form.createGuardian,
+      requiresAssignment: form.requiresAssignment,
       retentionPolicy: form.retentionPolicy ? { ...form.retentionPolicy } : null,
+      customMessages: customMessagesPayload,
       allowedDocumentTemplateIds,
       intakeFields,
       intakeSteps
     };
-    if (form.scopeType !== 'agency' && form.organizationId) {
+    if (form.formType === 'job_application' && form.jobDescriptionId) {
+      payload.jobDescriptionId = form.jobDescriptionId;
+    }
+    if (form.scopeType !== 'agency' && form.organizationId && form.formType !== 'job_application') {
       payload.organizationId = form.organizationId;
     }
     if (form.scopeType === 'program' && form.programId) {
@@ -822,7 +990,7 @@ const save = async () => {
     clearDraft();
     showForm.value = false;
   } catch (e) {
-    formError.value = formatApiError(e, 'Failed to save intake link');
+    formError.value = formatApiError(e, 'Failed to save digital form');
   } finally {
     saving.value = false;
   }
@@ -993,6 +1161,11 @@ const sanitizeSteps = (steps) => {
       } else if (next.type === 'document') {
         if (next.templateId === undefined) next.templateId = null;
         if (next.checkboxDisclaimer === undefined) next.checkboxDisclaimer = '';
+      } else if (next.type === 'upload') {
+        next.label = next.label ?? '';
+        next.accept = next.accept ?? '.pdf,.doc,.docx';
+        next.maxFiles = Math.max(1, Math.min(10, parseInt(next.maxFiles, 10) || 1));
+        next.required = next.required !== false;
       }
       return next;
     });
@@ -1025,6 +1198,11 @@ const addStep = (type) => {
   const step = { id: createId('step'), type };
   if (type === 'questions') {
     step.fields = [];
+  } else if (type === 'upload') {
+    step.label = '';
+    step.accept = '.pdf,.doc,.docx';
+    step.maxFiles = 1;
+    step.required = true;
   } else {
     step.templateId = null;
     step.checkboxDisclaimer = '';
@@ -1129,6 +1307,7 @@ const buildPayloadFromSteps = (selectedTemplateIds = []) => {
     } else if (step.type === 'document' && step.templateId) {
       allowedDocumentTemplateIds.push(step.templateId);
     }
+    // upload steps don't add to allowedDocumentTemplateIds
   });
   if (allowedDocumentTemplateIds.length === 0 && Array.isArray(selectedTemplateIds) && selectedTemplateIds.length) {
     selectedTemplateIds.forEach((id) => allowedDocumentTemplateIds.push(id));
@@ -1137,11 +1316,15 @@ const buildPayloadFromSteps = (selectedTemplateIds = []) => {
 };
 
 const filterScope = ref('all');
+const filterFormType = ref('all');
 const filterOrgId = ref('all');
 const filteredLinks = computed(() => {
   let list = links.value;
   if (filterScope.value !== 'all') {
     list = list.filter((l) => l.scope_type === filterScope.value);
+  }
+  if (filterFormType.value !== 'all') {
+    list = list.filter((l) => (l.form_type || 'intake') === filterFormType.value);
   }
   if (filterOrgId.value !== 'all') {
     const target = Number(filterOrgId.value);

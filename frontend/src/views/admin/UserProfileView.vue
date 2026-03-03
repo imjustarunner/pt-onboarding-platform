@@ -617,6 +617,21 @@
                   </div>
                 </label>
                 <label
+                  class="compact-toggle"
+                  title="Allows access to view and download medical records release submissions in Submitted Documents."
+                >
+                  <span class="compact-title">Medical records release access</span>
+                  <div class="toggle-switch toggle-switch-sm">
+                    <input
+                      id="medical-records-release-access-toggle"
+                      type="checkbox"
+                      v-model="accountForm.hasMedicalRecordsReleaseAccess"
+                      :disabled="!isEditingAccount"
+                    />
+                    <span class="slider"></span>
+                  </div>
+                </label>
+                <label
                   v-if="canToggleSupervisorPrivileges"
                   class="compact-toggle"
                   title="Allows this user to be assigned as a supervisor while maintaining their primary role."
@@ -2408,7 +2423,8 @@ const accountForm = ref({
   hasStaffAccess: false,
   hasPayrollAccess: false,
   isHourlyWorker: false,
-  hasHiringAccess: false
+  hasHiringAccess: false,
+  hasMedicalRecordsReleaseAccess: false
 });
 
 const forcingSkillBuilderConfirm = ref(false);
@@ -3600,7 +3616,8 @@ const fetchUser = async () => {
       hasStaffAccess: user.value.has_staff_access === true || user.value.has_staff_access === 1 || user.value.has_staff_access === '1' || false,
       hasPayrollAccess: accountInfo.value?.hasPayrollAccess === true || accountForm.value?.hasPayrollAccess || false,
       isHourlyWorker: user.value?.is_hourly_worker === true || user.value?.is_hourly_worker === 1 || user.value?.is_hourly_worker === '1' || accountForm.value?.isHourlyWorker || false,
-      hasHiringAccess: user.value?.has_hiring_access === true || user.value?.has_hiring_access === 1 || user.value?.has_hiring_access === '1' || accountForm.value?.hasHiringAccess || false
+      hasHiringAccess: user.value?.has_hiring_access === true || user.value?.has_hiring_access === 1 || user.value?.has_hiring_access === '1' || accountForm.value?.hasHiringAccess || false,
+      hasMedicalRecordsReleaseAccess: user.value?.has_medical_records_release_access === true || user.value?.has_medical_records_release_access === 1 || user.value?.has_medical_records_release_access === '1' || accountForm.value?.hasMedicalRecordsReleaseAccess || false
     };
     
     // Render the page as soon as the base user record is loaded.
@@ -3687,6 +3704,9 @@ const fetchAccountInfo = async () => {
     }
     if (response.data?.hasHiringAccess !== undefined) {
       accountForm.value.hasHiringAccess = Boolean(response.data.hasHiringAccess);
+    }
+    if (response.data?.hasMedicalRecordsReleaseAccess !== undefined) {
+      accountForm.value.hasMedicalRecordsReleaseAccess = Boolean(response.data.hasMedicalRecordsReleaseAccess);
     }
   } catch (err) {
     accountInfoError.value = err.response?.data?.error?.message || 'Failed to load account information';
@@ -4352,6 +4372,7 @@ const saveAccount = async () => {
       hasPayrollAccess: Boolean(accountForm.value.hasPayrollAccess),
       isHourlyWorker: Boolean(accountForm.value.isHourlyWorker),
       hasHiringAccess: Boolean(accountForm.value.hasHiringAccess),
+      hasMedicalRecordsReleaseAccess: Boolean(accountForm.value.hasMedicalRecordsReleaseAccess),
       credential: credentialText || null,
       role: accountForm.value.role
     };

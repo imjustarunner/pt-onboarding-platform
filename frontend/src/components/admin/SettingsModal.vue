@@ -359,7 +359,7 @@ const allCategories = [
       },
       {
         id: 'intake-links',
-        label: 'Intake Links',
+        label: 'Digital Forms',
         icon: '🔗',
         component: 'IntakeLinksView',
         roles: ['super_admin', 'admin', 'support', 'staff'],

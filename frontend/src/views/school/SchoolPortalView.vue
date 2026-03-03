@@ -584,7 +584,7 @@
               />
               <div v-else class="dash-card-icon-fallback" aria-hidden="true">QR</div>
             </div>
-            <div class="dash-card-title">Digital intake links</div>
+            <div class="dash-card-title">Digital forms</div>
             <div class="dash-card-desc">Replaces the paper intake packet. Share QR code or link for parents to complete forms.</div>
             <div class="dash-card-meta">
               <span class="dash-card-cta">Open</span>
@@ -896,13 +896,13 @@
     <div v-if="showIntakeModal" class="modal-overlay" @click.self="closeIntakeModal">
       <div class="modal" @click.stop>
         <div class="modal-header">
-          <strong>Digital intake links</strong>
+          <strong>Digital forms</strong>
           <button class="btn btn-secondary btn-sm" type="button" @click="closeIntakeModal">Close</button>
         </div>
         <div class="modal-body">
-          <div v-if="intakeLinkLoading" class="muted">Loading intake link…</div>
+          <div v-if="intakeLinkLoading" class="muted">Loading form…</div>
           <div v-else-if="intakeLinkError" class="error">{{ intakeLinkError }}</div>
-          <div v-else-if="!intakeLinkUrl" class="muted">No intake link configured for this school yet.</div>
+          <div v-else-if="!intakeLinkUrl" class="muted">No digital form configured for this school yet.</div>
           <div v-else class="intake-link-body">
             <div v-for="link in intakeLinks" :key="link.id" class="intake-link-block">
               <div class="intake-link-meta">

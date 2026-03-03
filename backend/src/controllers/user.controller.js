@@ -1656,6 +1656,7 @@ export const updateUser = async (req, res, next) => {
       hasPayrollAccess,
       isHourlyWorker,
       hasHiringAccess,
+      hasMedicalRecordsReleaseAccess,
       externalBusyIcsUrl
     } = req.body;
     const loginEmailAliases = req.body?.loginEmailAliases;
@@ -2075,6 +2076,18 @@ export const updateUser = async (req, res, next) => {
     // Hiring process access (applicants / prospective)
     if (hasHiringAccess !== undefined) updateData.hasHiringAccess = Boolean(hasHiringAccess);
 
+    // Medical records release access (view/download ROI submissions in Submitted Documents)
+    // Admins can grant for themselves or others; must be explicitly enabled; all changes audited.
+    let prevMedicalRecordsReleaseAccess = null;
+    if (hasMedicalRecordsReleaseAccess !== undefined) {
+      if (req.user.role !== 'admin' && req.user.role !== 'super_admin') {
+        return res.status(403).json({ error: { message: 'Only admins or super admins can change Medical records release access' } });
+      }
+      const targetUserBefore = await User.findById(id);
+      prevMedicalRecordsReleaseAccess = !!(targetUserBefore?.has_medical_records_release_access === 1 || targetUserBefore?.has_medical_records_release_access === true);
+      updateData.hasMedicalRecordsReleaseAccess = Boolean(hasMedicalRecordsReleaseAccess);
+    }
+
     // External busy calendar (ICS) URL (admin/support/super admin only)
     if (externalBusyIcsUrl !== undefined) {
       if (req.user.role !== 'admin' && req.user.role !== 'super_admin') {
@@ -2117,6 +2130,27 @@ export const updateUser = async (req, res, next) => {
         }
       } catch (e) {
         console.warn('Admin audit log failed:', e?.message || e);
+      }
+    }
+
+    // Audit: medical records release access grant/revoke (admin can grant for self or others; all changes tracked)
+    if (hasMedicalRecordsReleaseAccess !== undefined && (req.user.role === 'admin' || req.user.role === 'super_admin')) {
+      const nextEnabled = !!hasMedicalRecordsReleaseAccess;
+      if (prevMedicalRecordsReleaseAccess !== nextEnabled) {
+        try {
+          const agencyId = await getFirstAgencyForAudit(req.user.id, parseInt(id), req.user.role);
+          if (agencyId) {
+            await AdminAuditLog.logAction({
+              actionType: nextEnabled ? 'grant_medical_records_release_access' : 'revoke_medical_records_release_access',
+              actorUserId: req.user.id,
+              targetUserId: parseInt(id),
+              agencyId,
+              metadata: { previous: prevMedicalRecordsReleaseAccess, next: nextEnabled }
+            });
+          }
+        } catch (e) {
+          console.warn('Admin audit log failed:', e?.message || e);
+        }
       }
     }
 
@@ -5404,6 +5438,7 @@ export const getAccountInfo = async (req, res, next) => {
       hasPayrollAccess: (await User.listPayrollAgencyIds(userIdInt)).length > 0,
       isHourlyWorker: !!(user.is_hourly_worker === 1 || user.is_hourly_worker === true || user.is_hourly_worker === '1'),
       hasHiringAccess: !!(user.has_hiring_access === 1 || user.has_hiring_access === true || user.has_hiring_access === '1'),
+      hasMedicalRecordsReleaseAccess: !!(user.has_medical_records_release_access === 1 || user.has_medical_records_release_access === true || user.has_medical_records_release_access === '1'),
       companyCardEnabled: !!(user.company_card_enabled === 1 || user.company_card_enabled === true || user.company_card_enabled === '1'),
       companyCarSubmitAccess: !!(user.company_car_submit_access === 1 || user.company_car_submit_access === true || user.company_car_submit_access === '1'),
       companyCarManageAccess: !!(user.company_car_manage_access === 1 || user.company_car_manage_access === true || user.company_car_manage_access === '1'),

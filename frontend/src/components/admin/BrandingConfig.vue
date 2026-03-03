@@ -673,12 +673,12 @@
             <div class="icon-description">Icon for the "Skill Builders Availability" action card</div>
           </div>
           <div class="icon-row">
-            <div class="icon-label">Intake Links Icon</div>
+            <div class="icon-label">Digital Forms Icon</div>
             <div class="icon-selector-cell">
               <IconSelector v-model="platformForm.intakeLinksIconId" />
               <button v-if="platformForm.intakeLinksIconId" @click="platformForm.intakeLinksIconId = null" class="btn btn-sm btn-danger" type="button" title="Remove icon">Clear</button>
             </div>
-            <div class="icon-description">Icon for the "Intake Links" action card</div>
+            <div class="icon-description">Icon for the "Digital Forms" action card</div>
           </div>
           <div class="icon-row">
             <div class="icon-label">Audit Center Icon</div>
@@ -1335,12 +1335,12 @@
             <div class="icon-description">Icon for the "Skill Builders Availability" action card</div>
           </div>
           <div class="icon-row">
-            <div class="icon-label">Intake Links Icon</div>
+            <div class="icon-label">Digital Forms Icon</div>
             <div class="icon-selector-cell">
               <IconSelector v-model="agencyBrandingForm.intakeLinksIconId" />
               <button v-if="agencyBrandingForm.intakeLinksIconId" @click="agencyBrandingForm.intakeLinksIconId = null" class="btn btn-sm btn-danger" type="button" title="Remove icon">Clear</button>
             </div>
-            <div class="icon-description">Icon for the "Intake Links" action card</div>
+            <div class="icon-description">Icon for the "Digital Forms" action card</div>
           </div>
           <div class="icon-row">
             <div class="icon-label">Audit Center Icon</div>

@@ -32,6 +32,8 @@
           <option value="office_availability_request_pending">Office Requests</option>
           <option value="budget_expense_pending_approval">Budget Expense Approval</option>
           <option value="client_assigned">Client Assigned</option>
+          <option value="unassigned_document_submitted">Unassigned Documents</option>
+          <option value="medical_records_release_submitted">Medical Records Release</option>
         </select>
       </div>
       <div class="filter-group">
@@ -113,7 +115,8 @@
             :class="{
               'unread': !notification.is_read && !notification.is_resolved && (!notification.muted_until || new Date(notification.muted_until) <= new Date()),
               'resolved': notification.is_resolved,
-              'muted': notification.muted_until && new Date(notification.muted_until) > new Date()
+              'muted': notification.muted_until && new Date(notification.muted_until) > new Date(),
+              'notification-medical-records': notification.type === 'medical_records_release_submitted'
             }"
             @click="handleNotificationClick(notification)"
           >
@@ -348,7 +351,9 @@ const getTypeLabel = (type) => {
     new_packet_uploaded: 'New Packet Uploaded',
     office_availability_request_pending: 'Office Requests',
     budget_expense_pending_approval: 'Budget Expense Approval',
-    client_assigned: 'Client Assigned'
+    client_assigned: 'Client Assigned',
+    unassigned_document_submitted: 'Unassigned Documents',
+    medical_records_release_submitted: 'Medical Records Release'
   };
   return labels[type] || type;
 };
@@ -521,6 +526,9 @@ const getNotificationNavigationPath = async (notification) => {
   } else if (notification.type === 'client_assigned' && notification.related_entity_type === 'client' && notification.related_entity_id) {
     const base = route.params.organizationSlug ? `/${route.params.organizationSlug}/admin/clients` : '/admin/clients';
     return `${base}?clientId=${notification.related_entity_id}`;
+  } else if ((notification.type === 'unassigned_document_submitted' || notification.type === 'medical_records_release_submitted') && notification.agency_id) {
+    const base = route.params.organizationSlug ? `/${route.params.organizationSlug}/admin/unassigned-documents` : '/admin/unassigned-documents';
+    return `${base}?agencyId=${notification.agency_id}`;
   } else if (notification.type === 'office_availability_request_pending' && notification.agency_id) {
     const agencyId = notification.agency_id;
     const base = route.params.organizationSlug ? `/${route.params.organizationSlug}/admin/availability-intake` : '/admin/availability-intake';
@@ -964,6 +972,30 @@ watch(() => route.query, (newQuery) => {
 .severity-urgent {
   background: #f8d7da;
   color: #721c24;
+}
+
+/* Medical records release: high-priority red/white styling */
+.notification-item.notification-medical-records {
+  background: #dc3545;
+  border-color: #c82333;
+  color: white;
+}
+
+.notification-item.notification-medical-records .notification-title,
+.notification-item.notification-medical-records .notification-message,
+.notification-item.notification-medical-records .notification-meta,
+.notification-item.notification-medical-records .meta-item {
+  color: white !important;
+}
+
+.notification-item.notification-medical-records .severity-badge {
+  background: white;
+  color: #dc3545;
+}
+
+.notification-item.notification-medical-records:hover {
+  background: #c82333;
+  border-color: #bd2130;
 }
 
 .notification-title {

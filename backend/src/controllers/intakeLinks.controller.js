@@ -2,6 +2,7 @@ import { validationResult } from 'express-validator';
 import crypto from 'crypto';
 import IntakeLink from '../models/IntakeLink.model.js';
 import User from '../models/User.model.js';
+import HiringJobDescription from '../models/HiringJobDescription.model.js';
 import pool from '../config/database.js';
 
 const parseJsonField = (raw) => {
@@ -84,21 +85,82 @@ export const createIntakeLink = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Access denied for requested organization.' } });
     }
 
+    const formTypeRaw = String(req.body.formType || 'intake').toLowerCase();
+    const formType = ['public_form', 'job_application', 'medical_records_request'].includes(formTypeRaw) ? formTypeRaw : 'intake';
+    const createClientDefault = ['public_form', 'medical_records_request', 'job_application'].includes(formType) ? false : (req.body.createClient !== false);
+    const requiresAssignmentDefault = formType === 'medical_records_request' ? false : true;
+    let jobDescriptionId = req.body.jobDescriptionId ? asNumberOrNull(req.body.jobDescriptionId) : null;
+    let effectiveOrgId = organizationId;
+    if (formType === 'job_application') {
+      if (!jobDescriptionId) return res.status(400).json({ error: { message: 'jobDescriptionId is required for job application forms' } });
+      const jd = await HiringJobDescription.findById(jobDescriptionId);
+      if (!jd || !jd.is_active) return res.status(400).json({ error: { message: 'Invalid or inactive job description' } });
+      effectiveOrgId = jd.agency_id;
+      if (!isSuperAdmin(req.user?.role) && !userOrgIds.includes(Number(effectiveOrgId))) {
+        return res.status(403).json({ error: { message: 'Access denied for this job' } });
+      }
+    }
     const link = await IntakeLink.create({
       publicKey,
       title: req.body.title || null,
       description: req.body.description || null,
       languageCode,
       scopeType,
-      organizationId,
+      formType,
+      organizationId: effectiveOrgId,
       programId: req.body.programId ? parseInt(req.body.programId, 10) : null,
+      jobDescriptionId: formType === 'job_application' ? jobDescriptionId : null,
       isActive: req.body.isActive !== false,
-      createClient: req.body.createClient !== false,
+      createClient: req.body.createClient !== undefined ? req.body.createClient : createClientDefault,
       createGuardian: createGuardianDefault,
+      requiresAssignment: req.body.requiresAssignment !== undefined ? req.body.requiresAssignment : requiresAssignmentDefault,
       allowedDocumentTemplateIds: parseJsonField(req.body.allowedDocumentTemplateIds),
       intakeFields: parseJsonField(req.body.intakeFields),
       intakeSteps: parseJsonField(req.body.intakeSteps),
       retentionPolicy: parseJsonField(req.body.retentionPolicy),
+      customMessages: parseJsonField(req.body.customMessages),
+      createdByUserId: req.user?.id || null
+    });
+
+    res.status(201).json({ link });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const createIntakeLinkFromJob = async (req, res, next) => {
+  try {
+    const jobDescriptionId = parseInt(req.params.jobDescriptionId, 10);
+    if (!jobDescriptionId) return res.status(400).json({ error: { message: 'jobDescriptionId is required' } });
+
+    const jd = await HiringJobDescription.findById(jobDescriptionId);
+    if (!jd || !jd.is_active) return res.status(404).json({ error: { message: 'Job not found or inactive' } });
+
+    const userOrgIds = isSuperAdmin(req.user?.role) ? [] : await getUserOrganizationIds(req.user?.id);
+    if (!isSuperAdmin(req.user?.role) && !userOrgIds.includes(Number(jd.agency_id))) {
+      return res.status(403).json({ error: { message: 'Access denied for this job' } });
+    }
+
+    const publicKey = crypto.randomBytes(24).toString('hex');
+    const link = await IntakeLink.create({
+      publicKey,
+      title: `Apply: ${jd.title || 'Job Application'}`,
+      description: jd.description || null,
+      languageCode: 'en',
+      scopeType: 'agency',
+      formType: 'job_application',
+      organizationId: jd.agency_id,
+      programId: null,
+      jobDescriptionId,
+      isActive: true,
+      createClient: false,
+      createGuardian: false,
+      requiresAssignment: true,
+      allowedDocumentTemplateIds: [],
+      intakeFields: null,
+      intakeSteps: null,
+      retentionPolicy: null,
+      customMessages: null,
       createdByUserId: req.user?.id || null
     });
 
@@ -133,13 +195,26 @@ export const updateIntakeLink = async (req, res, next) => {
     const scopeType = req.body.scopeType ?? undefined;
     const languageCode =
       req.body.languageCode !== undefined ? String(req.body.languageCode || '').trim().toLowerCase() : undefined;
+    const formTypeRaw = req.body.formType !== undefined ? String(req.body.formType || 'intake').toLowerCase() : undefined;
+    const formType = formTypeRaw && ['public_form', 'job_application', 'medical_records_request'].includes(formTypeRaw) ? formTypeRaw : (formTypeRaw === 'intake' ? 'intake' : undefined);
+    const jobDescriptionId = req.body.jobDescriptionId !== undefined ? asNumberOrNull(req.body.jobDescriptionId) : undefined;
+    if (formType === 'job_application' && jobDescriptionId && existing) {
+      const jd = await HiringJobDescription.findById(jobDescriptionId);
+      const orgId = Number(existing.organization_id || req.body.organizationId);
+      if (jd && Number(jd.agency_id) !== orgId) {
+        return res.status(400).json({ error: { message: 'Invalid jobDescriptionId for selected organization' } });
+      }
+    }
     const updates = {
       title: req.body.title ?? null,
       description: req.body.description ?? null,
       language_code: languageCode === undefined ? undefined : (languageCode || null),
       scope_type: scopeType,
+      form_type: formType,
       organization_id: req.body.organizationId ? parseInt(req.body.organizationId, 10) : null,
       program_id: req.body.programId ? parseInt(req.body.programId, 10) : null,
+      job_description_id: jobDescriptionId,
+      requires_assignment: req.body.requiresAssignment !== undefined ? (req.body.requiresAssignment ? 1 : 0) : undefined,
       is_active: req.body.isActive !== undefined ? (req.body.isActive ? 1 : 0) : undefined,
       create_client: req.body.createClient !== undefined ? (req.body.createClient ? 1 : 0) : undefined,
       create_guardian: req.body.createGuardian !== undefined ? (req.body.createGuardian ? 1 : 0) : undefined,
@@ -150,6 +225,11 @@ export const updateIntakeLink = async (req, res, next) => {
         if (req.body.retentionPolicy === undefined) return undefined;
         const parsed = parseJsonField(req.body.retentionPolicy);
         return parsed ? JSON.stringify(parsed) : null;
+      })(),
+      custom_messages: (() => {
+        if (req.body.customMessages === undefined) return undefined;
+        const parsed = parseJsonField(req.body.customMessages);
+        return parsed ? JSON.stringify(parsed) : null;
       })()
     };
 
@@ -157,7 +237,7 @@ export const updateIntakeLink = async (req, res, next) => {
       updates.create_guardian = 0;
     }
 
-    const filtered = Object.fromEntries(Object.entries(updates).filter(([, v]) => v !== undefined));
+    const filtered = Object.fromEntries(Object.entries(updates).filter(([k, v]) => v !== undefined));
     if (!Object.keys(filtered).length) {
       return res.status(400).json({ error: { message: 'No updates provided' } });
     }
@@ -193,22 +273,26 @@ export const duplicateIntakeLink = async (req, res, next) => {
     }
 
     const publicKey = crypto.randomBytes(24).toString('hex');
-    const title = existing.title ? `${existing.title} (Copy)` : 'Intake Link (Copy)';
+    const title = existing.title ? `${existing.title} (Copy)` : 'Digital Form (Copy)';
     const link = await IntakeLink.create({
       publicKey,
       title,
       description: existing.description || null,
       languageCode: existing.language_code || 'en',
       scopeType: existing.scope_type || 'agency',
+      formType: existing.form_type || 'intake',
       organizationId: existing.organization_id || null,
       programId: existing.program_id || null,
+      jobDescriptionId: existing.job_description_id || null,
       isActive: false,
       createClient: existing.create_client !== false,
       createGuardian: existing.create_guardian !== false,
+      requiresAssignment: existing.requires_assignment !== false,
       allowedDocumentTemplateIds: existing.allowed_document_template_ids || [],
       intakeFields: existing.intake_fields || null,
       intakeSteps: existing.intake_steps || null,
       retentionPolicy: existing.retention_policy_json || null,
+      customMessages: existing.custom_messages || null,
       createdByUserId: req.user?.id || null
     });
 

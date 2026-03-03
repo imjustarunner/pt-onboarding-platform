@@ -8,38 +8,46 @@ class IntakeLink {
       description = null,
       languageCode = 'en',
       scopeType = 'agency',
+      formType = 'intake',
       organizationId = null,
       programId = null,
+      jobDescriptionId = null,
       isActive = true,
       createClient = true,
       createGuardian = false,
+      requiresAssignment = true,
       allowedDocumentTemplateIds = null,
       intakeFields = null,
       intakeSteps = null,
       retentionPolicy = null,
+      customMessages = null,
       createdByUserId = null
     } = data;
 
     const [result] = await pool.execute(
       `INSERT INTO intake_links
-       (public_key, title, description, language_code, scope_type, organization_id, program_id, is_active,
-        create_client, create_guardian, allowed_document_template_ids, intake_fields, intake_steps, retention_policy_json, created_by_user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (public_key, title, description, language_code, scope_type, form_type, organization_id, program_id, job_description_id, is_active,
+        create_client, create_guardian, requires_assignment, allowed_document_template_ids, intake_fields, intake_steps, retention_policy_json, custom_messages, created_by_user_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         publicKey,
         title,
         description,
         languageCode,
         scopeType,
+        formType,
         organizationId,
         programId,
+        jobDescriptionId,
         isActive ? 1 : 0,
         createClient ? 1 : 0,
         createGuardian ? 1 : 0,
+        requiresAssignment ? 1 : 0,
         allowedDocumentTemplateIds ? JSON.stringify(allowedDocumentTemplateIds) : null,
         intakeFields ? JSON.stringify(intakeFields) : null,
         intakeSteps ? JSON.stringify(intakeSteps) : null,
         retentionPolicy ? JSON.stringify(retentionPolicy) : null,
+        customMessages ? JSON.stringify(customMessages) : null,
         createdByUserId
       ]
     );
@@ -116,13 +124,25 @@ class IntakeLink {
         retentionPolicy = null;
       }
     }
+    let customMessages = null;
+    if (row.custom_messages) {
+      try {
+        customMessages = typeof row.custom_messages === 'string'
+          ? JSON.parse(row.custom_messages)
+          : row.custom_messages;
+      } catch {
+        customMessages = null;
+      }
+    }
     return {
       ...row,
       language_code: row.language_code || 'en',
+      form_type: row.form_type || 'intake',
       allowed_document_template_ids: allowed,
       intake_fields: intakeFields,
       intake_steps: intakeSteps,
-      retention_policy_json: retentionPolicy
+      retention_policy_json: retentionPolicy,
+      custom_messages: customMessages
     };
   }
 }

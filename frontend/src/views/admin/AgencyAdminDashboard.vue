@@ -434,11 +434,22 @@ const quickActions = computed(() => {
   },
   {
     id: 'intake_links',
-    title: 'Intake Links',
-    description: 'Configure digital intake links and questions',
+    title: 'Digital Forms',
+    description: 'Configure digital forms, intake links, and public submissions',
     to: '/admin/intake-links',
     emoji: '🔗',
     iconKey: 'intake_links',
+    category: 'Documents',
+    roles: ['admin', 'support', 'super_admin', 'staff'],
+    capabilities: ['canSignDocuments']
+  },
+  {
+    id: 'unassigned_documents',
+    title: 'Submitted Documents',
+    description: 'Assign public form submissions to clients',
+    to: '/admin/unassigned-documents',
+    emoji: '📋',
+    iconKey: 'manage_documents',
     category: 'Documents',
     roles: ['admin', 'support', 'super_admin', 'staff'],
     capabilities: ['canSignDocuments']

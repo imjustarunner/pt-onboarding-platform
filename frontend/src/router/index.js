@@ -578,6 +578,12 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin'], requiresCapability: 'canSignDocuments', organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/admin/unassigned-documents',
+    name: 'OrganizationUnassignedDocuments',
+    component: () => import('../views/admin/UnassignedDocumentsView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin', 'staff'], requiresCapability: 'canSignDocuments', organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/admin/documents/new',
     name: 'OrganizationDocumentTemplateCreate',
     component: () => import('../views/admin/DocumentTemplateEditorView.vue'),
@@ -1094,6 +1100,12 @@ const routes = [
     name: 'DocumentsLibrary',
     component: () => import('../views/admin/DocumentsLibraryView.vue'),
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin'], requiresCapability: 'canSignDocuments' }
+  },
+  {
+    path: '/admin/unassigned-documents',
+    name: 'UnassignedDocuments',
+    component: () => import('../views/admin/UnassignedDocumentsView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin', 'staff'], requiresCapability: 'canSignDocuments' }
   },
   {
     path: '/admin/documents/new',

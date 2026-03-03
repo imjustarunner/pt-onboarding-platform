@@ -89,7 +89,11 @@ class Notification {
     // School portal: primary sent password reset link (notify agency admin)
     'school_primary_password_reset_sent',
     // School portal: primary removed staff (notify agency admin to remove from school group email)
-    'school_primary_staff_removed'
+    'school_primary_staff_removed',
+    // Public form submission (no client) - document landed in Unassigned Documents
+    'unassigned_document_submitted',
+    // Medical records release (ROI) - only visible to users with has_medical_records_release_access
+    'medical_records_release_submitted'
   ];
 
   static async create(notificationData) {

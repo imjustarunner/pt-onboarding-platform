@@ -379,8 +379,8 @@ const quickActions = computed(() => {
   },
   {
     id: 'intake_links',
-    title: 'Intake Links',
-    description: 'Configure intake links, documents, and questions',
+    title: 'Digital Forms',
+    description: 'Configure digital forms, documents, and questions',
     to: '/admin/intake-links',
     emoji: '🔗',
     iconKey: 'intake_links',

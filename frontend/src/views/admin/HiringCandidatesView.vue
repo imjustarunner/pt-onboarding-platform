@@ -32,6 +32,10 @@
     <div class="grid" data-tour="hiring-grid">
       <div class="panel list-panel" data-tour="hiring-list-panel">
         <div class="list-controls" data-tour="hiring-search">
+          <select v-model="filterJobId" class="input" @change="refresh" style="max-width: 200px;">
+            <option value="">All jobs</option>
+            <option v-for="j in jobDescriptions" :key="j.id" :value="String(j.id)">{{ j.title }}</option>
+          </select>
           <input v-model="q" class="input" placeholder="Search name/email…" @keyup.enter="refresh" />
           <button class="btn btn-secondary" @click="refresh" :disabled="loading">Search</button>
         </div>
@@ -49,11 +53,27 @@
             <div class="name">{{ c.first_name }} {{ c.last_name }}</div>
             <div class="meta">
               <span class="pill">{{ c.stage || 'applied' }}</span>
+              <span v-if="c.job_title" class="muted small">{{ c.job_title }}</span>
               <span class="email">{{ c.personal_email || c.email }}</span>
             </div>
           </button>
 
           <div v-if="candidates.length === 0" class="empty">No applicants found.</div>
+        </div>
+
+        <div v-if="!loading && candidates.length > 0" class="report-section">
+          <div class="report-header">
+            <strong>Applicants by job</strong>
+            <button class="btn btn-secondary btn-sm" type="button" @click="downloadApplicantsCsv">
+              Download CSV
+            </button>
+          </div>
+          <div class="report-list">
+            <div v-for="g in applicantsByJob" :key="g.jobId || '_none'" class="report-row">
+              <span class="report-job">{{ g.jobTitle || 'No job' }}</span>
+              <span class="report-count">{{ g.count }}</span>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -457,6 +477,7 @@
               </div>
               <div class="row-actions">
                 <button class="btn btn-secondary" @click="selectJobForCreate(j)" type="button">Select</button>
+                <button class="btn btn-primary" @click="createApplicationLink(j)" type="button">Create application link</button>
                 <button v-if="j.hasFile" class="btn btn-secondary" @click="viewJobFile(j)" type="button">View file</button>
                 <button class="btn btn-secondary" @click="startEditJob(j)" type="button">Edit</button>
                 <button class="btn btn-danger" @click="removeJobDescription(j)" type="button">Delete</button>
@@ -521,6 +542,7 @@ import DOMPurify from 'dompurify';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
+import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
@@ -531,6 +553,7 @@ const loading = ref(false);
 const error = ref('');
 const candidates = ref([]);
 const q = ref('');
+const filterJobId = ref('');
 
 const selectedId = ref(null);
 const detailLoading = ref(false);
@@ -595,6 +618,40 @@ const candidateName = computed(() => {
   if (!u) return '';
   return `${u.first_name || ''} ${u.last_name || ''}`.trim();
 });
+
+const applicantsByJob = computed(() => {
+  const list = candidates.value || [];
+  const byJob = new Map();
+  for (const c of list) {
+    const jid = c.job_description_id ?? '_none';
+    const jtitle = c.job_title || 'No job';
+    if (!byJob.has(jid)) byJob.set(jid, { jobId: jid === '_none' ? null : jid, jobTitle: jtitle, count: 0 });
+    byJob.get(jid).count++;
+  }
+  return Array.from(byJob.values()).sort((a, b) => b.count - a.count);
+});
+
+const downloadApplicantsCsv = () => {
+  const list = candidates.value || [];
+  const headers = ['Name', 'Email', 'Job', 'Stage', 'Applied role', 'Source'];
+  const escape = (s) => String(s || '').replace(/"/g, '""');
+  const rows = list.map((c) => [
+    `"${escape(`${c.first_name || ''} ${c.last_name || ''}`.trim())}"`,
+    `"${escape(c.personal_email || c.email)}"`,
+    `"${escape(c.job_title)}"`,
+    `"${escape(c.stage || 'applied')}"`,
+    `"${escape(c.applied_role)}"`,
+    `"${escape(c.source)}"`
+  ]);
+  const csv = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `applicants-${effectiveAgencyId.value || 'export'}-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+};
 
 const candidatePhotoUrl = ref('');
 const loadCandidatePhoto = async () => {
@@ -712,7 +769,12 @@ const refresh = async () => {
     loading.value = true;
     error.value = '';
     const r = await api.get('/hiring/candidates', {
-      params: { agencyId: effectiveAgencyId.value, status: 'PROSPECTIVE', q: q.value || undefined }
+      params: {
+        agencyId: effectiveAgencyId.value,
+        status: 'PROSPECTIVE',
+        q: q.value || undefined,
+        jobDescriptionId: filterJobId.value || undefined
+      }
     });
     candidates.value = r.data || [];
   } catch (e) {
@@ -1244,6 +1306,23 @@ const viewJobFile = async (j) => {
   }
 };
 
+const createApplicationLink = async (j) => {
+  if (!j?.id) return;
+  try {
+    const r = await api.post(`/intake-links/from-job/${j.id}`);
+    const link = r.data?.link;
+    if (!link?.public_key) {
+      alert('Link created but no URL returned');
+      return;
+    }
+    const url = buildPublicIntakeUrl(link.public_key);
+    await navigator.clipboard.writeText(url);
+    alert(`Application link created and copied to clipboard:\n\n${url}\n\nConfigure document templates and steps in Digital Forms.`);
+  } catch (e) {
+    alert(e.response?.data?.error?.message || 'Failed to create application link');
+  }
+};
+
 // Formatting helpers
 const formatTime = (iso) => {
   try {
@@ -1419,6 +1498,35 @@ onUnmounted(() => {
 }
 .textarea {
   resize: vertical;
+}
+.report-section {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid #e5e7eb;
+}
+.report-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.report-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.report-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+  font-size: 13px;
+}
+.report-job {
+  color: #374151;
+}
+.report-count {
+  font-weight: 600;
+  color: #6b7280;
 }
 .list {
   display: flex;

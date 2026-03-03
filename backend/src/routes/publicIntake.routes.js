@@ -1,4 +1,5 @@
 import express from 'express';
+import multer from 'multer';
 import { body } from 'express-validator';
 import { publicIntakeLimiter } from '../middleware/rateLimiter.middleware.js';
 import {
@@ -11,8 +12,14 @@ import {
   getSchoolIntakeLink,
   previewPublicTemplate,
   signPublicIntakeDocument,
-  submitPublicIntake
+  submitPublicIntake,
+  uploadIntakeFiles
 } from '../controllers/publicIntake.controller.js';
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024 }
+});
 import { authenticate } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
@@ -46,6 +53,12 @@ router.post(
     body('signatureData').notEmpty().withMessage('signatureData is required')
   ],
   submitPublicIntake
+);
+
+router.post(
+  '/:publicKey/:submissionId/upload',
+  upload.array('files', 10),
+  uploadIntakeFiles
 );
 
 router.post(

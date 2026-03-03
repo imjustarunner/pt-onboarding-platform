@@ -14,15 +14,19 @@ import ClientPhiDocument from '../models/ClientPhiDocument.model.js';
 import PhiDocumentAuditLog from '../models/PhiDocumentAuditLog.model.js';
 import Client from '../models/Client.model.js';
 import StorageService from '../services/storage.service.js';
+import DocumentEncryptionService from '../services/documentEncryption.service.js';
 import EmailService from '../services/email.service.js';
 import Agency from '../models/Agency.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import User from '../models/User.model.js';
+import HiringJobDescription from '../models/HiringJobDescription.model.js';
+import HiringProfile from '../models/HiringProfile.model.js';
 import config from '../config/config.js';
 import { verifyRecaptchaV3 } from '../services/captcha.service.js';
 import ActivityLogService from '../services/activityLog.service.js';
 import PlatformRetentionSettings from '../models/PlatformRetentionSettings.model.js';
+import Notification from '../models/Notification.model.js';
 import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
 import { sendEmailFromIdentity } from '../services/unifiedEmail/unifiedEmailSender.service.js';
 
@@ -47,9 +51,21 @@ const deleteSubmissionData = async (submissionId) => {
   const docs = await IntakeSubmissionDocument.listBySubmissionId(submissionId);
   const clients = await IntakeSubmissionClient.listBySubmissionId(submissionId);
   const phiDocs = await ClientPhiDocument.listByIntakeSubmissionId(submissionId);
+  let uploadPaths = [];
+  try {
+    const pool = (await import('../config/database.js')).default;
+    const [uploadRows] = await pool.execute(
+      'SELECT storage_path FROM intake_submission_uploads WHERE intake_submission_id = ?',
+      [submissionId]
+    );
+    uploadPaths = (uploadRows || []).map((r) => String(r?.storage_path || '').trim()).filter(Boolean);
+  } catch {
+    // table may not exist yet
+  }
   const paths = new Set([
     ...(Array.isArray(docs) ? docs.map((d) => String(d?.signed_pdf_path || '').trim()) : []),
-    ...(Array.isArray(clients) ? clients.map((c) => String(c?.bundle_pdf_path || '').trim()) : [])
+    ...(Array.isArray(clients) ? clients.map((c) => String(c?.bundle_pdf_path || '').trim()) : []),
+    ...uploadPaths
   ].filter(Boolean));
   for (const doc of phiDocs || []) {
     const p = String(doc?.storage_path || '').trim();
@@ -951,6 +967,58 @@ const toOrgPayload = (org) => {
   };
 };
 
+const notifyUnassignedDocuments = async ({ link, submission, docCount }) => {
+  if (!link || !submission || !docCount || docCount < 1) return;
+  try {
+    const { agency } = await resolveIntakeOrgContext(link);
+    const agencyId = agency?.id || link?.organization_id || null;
+    if (!agencyId) return;
+    const signerName = String(submission?.signer_name || '').trim() || 'Someone';
+    const formTitle = String(link?.title || '').trim() || 'Public form';
+    const isMedicalRecords = String(link?.form_type || '').toLowerCase() === 'medical_records_request';
+
+    if (isMedicalRecords) {
+      await Notification.create({
+        type: 'medical_records_release_submitted',
+        severity: 'critical',
+        title: 'Medical Records Release Submitted',
+        message: `${formTitle}: ${signerName} submitted a medical records release. View in Submitted Documents.`,
+        audienceJson: {
+          admin: true,
+          clinicalPracticeAssistant: false,
+          supervisor: false,
+          provider: false
+        },
+        userId: null,
+        agencyId,
+        relatedEntityType: 'intake_submission',
+        relatedEntityId: submission.id,
+        actorUserId: null
+      });
+    } else {
+      await Notification.create({
+        type: 'unassigned_document_submitted',
+        severity: 'info',
+        title: 'New unassigned document(s)',
+        message: `${formTitle}: ${signerName} submitted ${docCount} document(s). Assign to a client in Unassigned Documents.`,
+        audienceJson: {
+          admin: true,
+          clinicalPracticeAssistant: false,
+          supervisor: false,
+          provider: false
+        },
+        userId: null,
+        agencyId,
+        relatedEntityType: 'intake_submission',
+        relatedEntityId: submission.id,
+        actorUserId: null
+      });
+    }
+  } catch {
+    // best-effort; do not block submission
+  }
+};
+
 const resolveIntakeOrgContext = async (link) => {
   if (!link) return { organization: null, agency: null };
 
@@ -1085,12 +1153,14 @@ export const getPublicIntakeLink = async (req, res, next) => {
         description: link.description,
         language_code: link.language_code || 'en',
         scope_type: link.scope_type,
+        form_type: link.form_type || 'intake',
         organization_id: link.organization_id,
         program_id: link.program_id,
         create_client: link.create_client,
         create_guardian: link.create_guardian,
         intake_fields: link.intake_fields,
-        intake_steps: link.intake_steps
+        intake_steps: link.intake_steps,
+        custom_messages: link.custom_messages || null
       },
       recaptcha: {
         siteKey: config.recaptcha?.siteKey || null,
@@ -1545,38 +1615,49 @@ export const finalizePublicIntake = async (req, res, next) => {
     }
 
     // Idempotent retry: if already submitted, return existing result (no duplicate work, no data loss)
-    if (String(submission.status || '').toLowerCase() === 'submitted' && submission.combined_pdf_path) {
-      let downloadUrl = null;
-      try {
-        downloadUrl = await StorageService.getSignedUrl(submission.combined_pdf_path, 60 * 24 * 14);
-      } catch {
-        // best-effort
+    const isJobApplication = String(link.form_type || '').toLowerCase() === 'job_application';
+    if (String(submission.status || '').toLowerCase() === 'submitted') {
+      if (isJobApplication && submission.guardian_user_id) {
+        return res.json({
+          success: true,
+          submission,
+          jobApplicationSubmitted: true,
+          candidateId: submission.guardian_user_id
+        });
       }
-      const clientRows = await IntakeSubmissionClient.listBySubmissionId(submissionId);
-      const clientBundles = [];
-      for (const c of clientRows || []) {
-        if (c?.bundle_pdf_path) {
-          try {
-            const url = await StorageService.getSignedUrl(c.bundle_pdf_path, 60 * 24 * 14);
-            clientBundles.push({
-              clientId: c.client_id,
-              clientName: c.full_name || null,
-              filename: `intake-client-${c.client_id || 'unknown'}.pdf`,
-              downloadUrl: url
-            });
-          } catch {
-            // best-effort
+      if (submission.combined_pdf_path) {
+        let downloadUrl = null;
+        try {
+          downloadUrl = await StorageService.getSignedUrl(submission.combined_pdf_path, 60 * 24 * 14);
+        } catch {
+          // best-effort
+        }
+        const clientRows = await IntakeSubmissionClient.listBySubmissionId(submissionId);
+        const clientBundles = [];
+        for (const c of clientRows || []) {
+          if (c?.bundle_pdf_path) {
+            try {
+              const url = await StorageService.getSignedUrl(c.bundle_pdf_path, 60 * 24 * 14);
+              clientBundles.push({
+                clientId: c.client_id,
+                clientName: c.full_name || null,
+                filename: `intake-client-${c.client_id || 'unknown'}.pdf`,
+                downloadUrl: url
+              });
+            } catch {
+              // best-effort
+            }
           }
         }
+        const signedDocs = await IntakeSubmissionDocument.listBySubmissionId(submissionId);
+        return res.json({
+          success: true,
+          submission,
+          documents: signedDocs || [],
+          downloadUrl,
+          clientBundles
+        });
       }
-      const signedDocs = await IntakeSubmissionDocument.listBySubmissionId(submissionId);
-      return res.json({
-        success: true,
-        submission,
-        documents: signedDocs || [],
-        downloadUrl,
-        clientBundles
-      });
     }
 
     if (link.create_client) {
@@ -1590,8 +1671,15 @@ export const finalizePublicIntake = async (req, res, next) => {
     {
       const gEmail = String(req.body?.guardian?.email || '').trim();
       const gFirst = String(req.body?.guardian?.firstName || '').trim();
-      if (!gEmail || !gFirst) {
-        return res.status(400).json({ error: { message: 'Guardian name and email are required.' } });
+      const gLast = String(req.body?.guardian?.lastName || '').trim();
+      if (isJobApplication) {
+        if (!gEmail || !gFirst || !gLast) {
+          return res.status(400).json({ error: { message: 'First name, last name, and email are required.' } });
+        }
+      } else {
+        if (!gEmail || !gFirst) {
+          return res.status(400).json({ error: { message: 'Guardian name and email are required.' } });
+        }
       }
     }
 
@@ -1608,6 +1696,117 @@ export const finalizePublicIntake = async (req, res, next) => {
       retention_expires_at: retentionExpiresAt,
       session_token: String(req.body?.sessionToken || '').trim() || null
     });
+
+    // Job application: create candidate, migrate uploads, return success (no client, no document validation)
+    if (isJobApplication) {
+      const agencyId = parseInt(link.organization_id, 10);
+      if (!agencyId) {
+        return res.status(400).json({ error: { message: 'Job application link is not associated with an organization.' } });
+      }
+      const gFirst = String(req.body?.guardian?.firstName || '').trim();
+      const gLast = String(req.body?.guardian?.lastName || '').trim();
+      const gEmail = String(req.body?.guardian?.email || '').trim();
+      const gPhone = req.body?.guardian?.phoneNumber !== undefined ? String(req.body.guardian.phoneNumber || '').trim()
+  : req.body?.guardian?.phone !== undefined ? String(req.body.guardian.phone || '').trim() : null;
+
+      const user = await User.create({
+        email: gEmail,
+        passwordHash: null,
+        firstName: gFirst,
+        lastName: gLast,
+        phoneNumber: gPhone || null,
+        personalEmail: gEmail,
+        role: 'provider',
+        status: 'PROSPECTIVE'
+      });
+      await User.assignToAgency(user.id, agencyId);
+
+      const jobDescriptionId = link.job_description_id ? parseInt(link.job_description_id, 10) : null;
+      if (jobDescriptionId) {
+        const jd = await HiringJobDescription.findById(jobDescriptionId);
+        if (jd && Number(jd.agency_id) === Number(agencyId) && Number(jd.is_active) === 1) {
+          await HiringProfile.upsert({
+            candidateUserId: user.id,
+            stage: 'applied',
+            appliedRole: null,
+            source: 'job_application_link',
+            jobDescriptionId,
+            coverLetterText: null
+          });
+        }
+      } else {
+        await HiringProfile.upsert({
+          candidateUserId: user.id,
+          stage: 'applied',
+          appliedRole: null,
+          source: 'job_application_link',
+          jobDescriptionId: null,
+          coverLetterText: null
+        });
+      }
+
+      // Migrate intake_submission_uploads to user_admin_docs
+      const pool = (await import('../config/database.js')).default;
+      let uploadRows = [];
+      try {
+        const [rows] = await pool.execute(
+          `SELECT id, storage_path, original_filename, mime_type, upload_label,
+                  is_encrypted, encryption_key_id, encryption_wrapped_key, encryption_iv, encryption_auth_tag, encryption_aad
+           FROM intake_submission_uploads WHERE intake_submission_id = ?`,
+          [submissionId]
+        );
+        uploadRows = rows || [];
+      } catch (e) {
+        if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+      }
+
+      for (const row of uploadRows) {
+        const storagePath = String(row?.storage_path || '').trim();
+        if (!storagePath) continue;
+        let fileBuffer;
+        try {
+          fileBuffer = await StorageService.readObject(storagePath);
+        } catch (e) {
+          // best-effort: skip if file missing
+          continue;
+        }
+        if (Number(row?.is_encrypted) === 1 && row?.encryption_wrapped_key && row?.encryption_iv && row?.encryption_auth_tag) {
+          try {
+            fileBuffer = await DocumentEncryptionService.decryptBuffer({
+              encryptedBuffer: fileBuffer,
+              encryptionKeyId: row.encryption_key_id || null,
+              encryptionWrappedKeyB64: row.encryption_wrapped_key,
+              encryptionIvB64: row.encryption_iv,
+              encryptionAuthTagB64: row.encryption_auth_tag,
+              aad: row.encryption_aad || undefined
+            });
+          } catch (e) {
+            continue;
+          }
+        }
+        const originalName = row.original_filename || 'upload';
+        const mimeType = row.mime_type || 'application/octet-stream';
+        const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+        const safeExt = originalName.includes('.') ? `.${originalName.split('.').pop()}` : '';
+        const filename = `application-${user.id}-${uniqueSuffix}${safeExt}`;
+        const storageResult = await StorageService.saveAdminDoc(fileBuffer, filename, mimeType);
+        const docType = (row.upload_label || '').toLowerCase().includes('resume') ? 'resume' : 'application_material';
+        await pool.execute(
+          `INSERT INTO user_admin_docs (user_id, title, doc_type, storage_path, original_name, mime_type, created_by_user_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [user.id, row.upload_label || 'Application material', docType, storageResult.relativePath, originalName, mimeType, user.id]
+        );
+      }
+
+      await IntakeSubmission.updateById(submissionId, { guardian_user_id: user.id });
+
+      return res.json({
+        success: true,
+        submission: await IntakeSubmission.findById(submissionId),
+        jobApplicationSubmitted: true,
+        candidateId: user.id
+      });
+    }
 
     let createdClients = [];
     if (link.create_client) {
@@ -1643,9 +1842,14 @@ export const finalizePublicIntake = async (req, res, next) => {
     }
     const answersPdf = await buildAnswersPdfBuffer({ link, intakeData });
 
-    const rawClients = createdClients.length
+    let rawClients = createdClients.length
       ? createdClients.map((c) => ({ id: c.id, fullName: c.full_name || c.initials || '', initials: c.initials, contactPhone: c.contact_phone }))
       : (Array.isArray(req.body?.clients) ? req.body.clients : (req.body?.client ? [req.body.client] : []));
+    // Public forms (create_client=false): use signer as virtual entry so documents are created with client_id=null
+    if (!link.create_client && !rawClients.length) {
+      const signerName = String(updatedSubmission?.signer_name || '').trim() || 'Signer';
+      rawClients = [{ id: null, fullName: signerName, initials: updatedSubmission?.signer_initials || null, contactPhone: null }];
+    }
     const primaryClientName = String(rawClients?.[0]?.fullName || '').trim() || null;
 
     const intakeClientRows = [];
@@ -1959,6 +2163,14 @@ export const finalizePublicIntake = async (req, res, next) => {
       }
     }
 
+    if (!link.create_client && signedDocsOrdered.length > 0) {
+      await notifyUnassignedDocuments({
+        link,
+        submission: updatedSubmission,
+        docCount: signedDocsOrdered.length
+      });
+    }
+
     res.json({
       success: true,
       submission: updatedSubmission,
@@ -2084,9 +2296,14 @@ export const submitPublicIntake = async (req, res, next) => {
     const pdfPaths = [];
     const clientBundles = [];
     const workflowData = buildWorkflowData({ submission: { ...updatedSubmission, submitted_at: now } });
-    const rawClients = createdClients.length
+    let rawClients = createdClients.length
       ? createdClients.map((c) => ({ id: c.id, fullName: c.full_name || c.initials || '', initials: c.initials, contactPhone: c.contact_phone }))
       : (Array.isArray(req.body?.clients) ? req.body.clients : (req.body?.client ? [req.body.client] : []));
+    // Public forms (create_client=false): use signer as virtual entry so documents are created with client_id=null
+    if (!link.create_client && !rawClients.length) {
+      const signerName = String(updatedSubmission?.signer_name || '').trim() || 'Signer';
+      rawClients = [{ id: null, fullName: signerName, initials: updatedSubmission?.signer_initials || null, contactPhone: null }];
+    }
     const primaryClientName = String(rawClients?.[0]?.fullName || '').trim() || null;
 
     const intakeClientRows = [];
@@ -2324,6 +2541,14 @@ export const submitPublicIntake = async (req, res, next) => {
       }
     }
 
+    if (!link.create_client && signedDocs.length > 0) {
+      await notifyUnassignedDocuments({
+        link,
+        submission: updatedSubmission,
+        docCount: signedDocs.length
+      });
+    }
+
     res.json({
       success: true,
       submission: updatedSubmission,
@@ -2345,6 +2570,131 @@ export const getSchoolIntakeLink = async (req, res, next) => {
     const link = activeLinks[0] || null;
     if (!activeLinks.length) return res.status(404).json({ error: { message: 'No intake link configured for school' } });
     res.json({ link, links: activeLinks });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * POST /public-intake/:publicKey/:submissionId/upload
+ * Upload files for an intake upload step. Uses multipart/form-data with field 'files'.
+ */
+export const uploadIntakeFiles = async (req, res, next) => {
+  try {
+    const publicKey = String(req.params.publicKey || '').trim();
+    const submissionId = parseInt(req.params.submissionId, 10);
+    const stepId = String(req.body?.stepId || '').trim();
+    const label = String(req.body?.label || 'Upload').trim().slice(0, 255);
+
+    if (!submissionId || !stepId) {
+      return res.status(400).json({ error: { message: 'submissionId and stepId are required' } });
+    }
+
+    const link = await IntakeLink.findByPublicKey(publicKey);
+    if (!link || !link.is_active) {
+      return res.status(404).json({ error: { message: 'Intake link not found' } });
+    }
+    const submission = await IntakeSubmission.findById(submissionId);
+    if (!submission || submission.intake_link_id !== link.id) {
+      return res.status(404).json({ error: { message: 'Submission not found' } });
+    }
+    if (String(submission.status || '').toLowerCase() === 'submitted') {
+      return res.status(400).json({ error: { message: 'Submission already finalized' } });
+    }
+
+    const files = Array.isArray(req.files) ? req.files : (req.file ? [req.file] : []);
+    if (!files.length) {
+      return res.status(400).json({ error: { message: 'No files uploaded' } });
+    }
+
+    const pool = (await import('../config/database.js')).default;
+    const saved = [];
+    const useEncryption = DocumentEncryptionService.isConfigured();
+    if (!useEncryption && process.env.NODE_ENV === 'production') {
+      console.warn('Intake uploads stored unencrypted: REFERRAL_KMS_KEY or DOCUMENTS_KMS_KEY not configured');
+    }
+
+    for (const f of files) {
+      if (!f?.buffer) continue;
+      const sanitizedFilename = StorageService.sanitizeFilename(f.originalname || f.name || `upload-${Date.now()}`);
+      const encryptionAad = JSON.stringify({
+        intakeSubmissionId: submissionId,
+        stepId,
+        uploadLabel: label,
+        filename: sanitizedFilename
+      });
+
+      let fileBuffer = f.buffer;
+      let storagePath;
+      let isEncrypted = 0;
+      let encryptionKeyId = null;
+      let encryptionWrappedKey = null;
+      let encryptionIv = null;
+      let encryptionAuthTag = null;
+      let encryptionAlg = null;
+      let encryptionAadVal = null;
+
+      if (useEncryption) {
+        const encResult = await DocumentEncryptionService.encryptBuffer(f.buffer, { aad: encryptionAad });
+        fileBuffer = encResult.encryptedBuffer;
+        isEncrypted = 1;
+        encryptionKeyId = encResult.encryptionKeyId;
+        encryptionWrappedKey = encResult.encryptionWrappedKeyB64;
+        encryptionIv = encResult.encryptionIvB64;
+        encryptionAuthTag = encResult.encryptionAuthTagB64;
+        encryptionAlg = encResult.encryptionAlg;
+        encryptionAadVal = encryptionAad;
+      }
+
+      const result = await StorageService.saveIntakeUpload({
+        submissionId,
+        stepId,
+        fileBuffer,
+        filename: sanitizedFilename,
+        mimeType: useEncryption ? 'application/octet-stream' : (f.mimetype || null)
+      });
+      storagePath = result.relativePath;
+
+      try {
+        await pool.execute(
+          `INSERT INTO intake_submission_uploads
+           (intake_submission_id, step_id, upload_label, storage_path, original_filename, file_size, mime_type,
+            is_encrypted, encryption_key_id, encryption_wrapped_key, encryption_iv, encryption_auth_tag, encryption_alg, encryption_aad)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            submissionId,
+            stepId,
+            label,
+            storagePath,
+            f.originalname || f.name || null,
+            f.size || null,
+            f.mimetype || null,
+            isEncrypted,
+            encryptionKeyId,
+            encryptionWrappedKey,
+            encryptionIv,
+            encryptionAuthTag,
+            encryptionAlg,
+            encryptionAadVal
+          ]
+        );
+      } catch (e) {
+        if (e?.code === 'ER_NO_SUCH_TABLE') {
+          return res.status(503).json({
+            error: { message: 'Upload feature not available (run migration 517_intake_submission_uploads.sql)' }
+          });
+        }
+        if (e?.code === 'ER_BAD_FIELD_ERROR' && String(e?.message || '').includes('is_encrypted')) {
+          return res.status(503).json({
+            error: { message: 'Upload encryption not available (run migration 518_intake_submission_uploads_encryption.sql)' }
+          });
+        }
+        throw e;
+      }
+      saved.push({ path: result.relativePath, originalName: f.originalname || f.name });
+    }
+
+    res.json({ success: true, count: saved.length, uploads: saved });
   } catch (error) {
     next(error);
   }

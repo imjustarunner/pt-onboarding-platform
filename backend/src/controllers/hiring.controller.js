@@ -73,6 +73,7 @@ export const listCandidates = async (req, res, next) => {
     const status = req.query.status ? String(req.query.status).trim() : 'PROSPECTIVE';
     const statusNorm = String(status || '').trim().toUpperCase();
     const q = String(req.query.q || '').trim();
+    const jobDescriptionId = req.query.jobDescriptionId ? parseInt(req.query.jobDescriptionId, 10) : null;
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 200, 1), 500);
 
     // IMPORTANT:
@@ -109,6 +110,10 @@ export const listCandidates = async (req, res, next) => {
       const like = `%${q}%`;
       params.push(like, like, like, like);
     }
+    if (jobDescriptionId && Number.isFinite(jobDescriptionId)) {
+      whereSql += ` AND hp.job_description_id = ?`;
+      params.push(jobDescriptionId);
+    }
 
     const [rows] = await pool.execute(
       `SELECT
@@ -123,11 +128,14 @@ export const listCandidates = async (req, res, next) => {
         hp.stage,
         hp.applied_role,
         hp.source,
+        hp.job_description_id,
+        jd.title AS job_title,
         hp.created_at AS hiring_created_at,
         hp.updated_at AS hiring_updated_at
       FROM users u
       JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
       LEFT JOIN hiring_profiles hp ON hp.candidate_user_id = u.id
+      LEFT JOIN hiring_job_descriptions jd ON jd.id = hp.job_description_id
       ${whereSql}
       -- Note: users table does not consistently have updated_at; prefer created_at for stable ordering.
       ORDER BY COALESCE(hp.updated_at, hp.created_at, u.created_at) DESC, u.id DESC

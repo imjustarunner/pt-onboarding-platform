@@ -63,8 +63,9 @@ const MESSAGE_PRIVATE_TYPES = new Set(['chat_message', 'inbound_client_message',
 
 const SELF_ACTIVITY_TYPES = new Set(['user_login', 'user_logout']);
 
-function filterNotificationsForViewer(notifications, viewerUserId, viewerRole) {
+function filterNotificationsForViewer(notifications, viewerUserId, viewerRole, opts = {}) {
   const uid = Number(viewerUserId);
+  const { hasMedicalRecordsReleaseAccess = false } = opts;
   return (notifications || [])
     .filter((n) => audienceAllows(n, viewerRole))
     .filter((n) => {
@@ -75,6 +76,14 @@ function filterNotificationsForViewer(notifications, viewerUserId, viewerRole) {
     .filter((n) => {
       // Don't show users their own login/logout notifications
       if (SELF_ACTIVITY_TYPES.has(String(n?.type || '')) && Number(n?.user_id) === uid) return false;
+      return true;
+    })
+    .filter((n) => {
+      // Medical records release: only visible to users with has_medical_records_release_access (or super_admin)
+      if (String(n?.type || '') === 'medical_records_release_submitted') {
+        if (viewerRole === 'super_admin') return true;
+        return !!hasMedicalRecordsReleaseAccess;
+      }
       return true;
     });
 }
@@ -211,6 +220,10 @@ export const getNotifications = async (req, res, next) => {
     const userId = req.user.id;
     const userRole = req.user.role;
 
+    const fullUser = await User.findById(userId);
+    const hasMedicalRecordsReleaseAccess = !!(fullUser?.has_medical_records_release_access === 1 || fullUser?.has_medical_records_release_access === true);
+    const filterOpts = { hasMedicalRecordsReleaseAccess };
+
     // Determine which agencies the user can access
     let accessibleAgencyIds = [];
     
@@ -267,7 +280,7 @@ export const getNotifications = async (req, res, next) => {
 
       // Sort by created_at descending
       allNotifications.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-      let filtered = filterNotificationsForViewer(allNotifications, userId, userRole);
+      let filtered = filterNotificationsForViewer(allNotifications, userId, userRole, filterOpts);
       await appendNotificationContext(filtered);
       const limitNum = limitParam ? parseInt(limitParam, 10) : 0;
       if (Number.isFinite(limitNum) && limitNum > 0) filtered = filtered.slice(0, limitNum);
@@ -301,7 +314,7 @@ export const getNotifications = async (req, res, next) => {
       }
 
       await Notification.applyReadStateForViewer(allNotifications, userId);
-      let filtered = filterNotificationsForViewer(allNotifications, userId, userRole);
+      let filtered = filterNotificationsForViewer(allNotifications, userId, userRole, filterOpts);
       if (isRead !== undefined) {
         const wantRead = isRead === 'true';
         filtered = filtered.filter((n) => (n._is_read_for_viewer === wantRead));
@@ -329,7 +342,7 @@ export const getNotifications = async (req, res, next) => {
         isResolved: isResolved !== undefined ? isResolved === 'true' : undefined
       });
       const scoped = agencyId ? (personal || []).filter((n) => Number(n.agency_id) === Number(agencyId)) : (personal || []);
-      let filtered = filterNotificationsForViewer(scoped, userId, userRole);
+      let filtered = filterNotificationsForViewer(scoped, userId, userRole, filterOpts);
       await appendNotificationContext(filtered);
       const limitNumPersonal = limitParam ? parseInt(limitParam, 10) : 0;
       if (Number.isFinite(limitNumPersonal) && limitNumPersonal > 0) filtered = filtered.slice(0, limitNumPersonal);
@@ -364,7 +377,7 @@ export const getNotifications = async (req, res, next) => {
     }
 
     await Notification.applyReadStateForViewer(allNotifications, userId);
-    let filtered = filterNotificationsForViewer(allNotifications, userId, userRole);
+    let filtered = filterNotificationsForViewer(allNotifications, userId, userRole, filterOpts);
     if (isRead !== undefined) {
       const wantRead = isRead === 'true';
       filtered = filtered.filter((n) => (n._is_read_for_viewer === wantRead));
@@ -419,6 +432,10 @@ export const getNotificationCounts = async (req, res, next) => {
     const userRole = req.user.role;
     const requestedScope = String(req.query?.scope || '').trim().toLowerCase();
 
+    const fullUser = await User.findById(userId);
+    const hasMedicalRecordsReleaseAccess = !!(fullUser?.has_medical_records_release_access === 1 || fullUser?.has_medical_records_release_access === true);
+    const filterOpts = { hasMedicalRecordsReleaseAccess };
+
     let agencyIds = [];
 
     // Managed-feed counts: align with admin Notifications page unread logic.
@@ -444,7 +461,7 @@ export const getNotificationCounts = async (req, res, next) => {
           isResolved: false
         });
         await Notification.applyReadStateForViewer(notifications, userId);
-        const visible = filterNotificationsForViewer(notifications, userId, userRole).filter(isUnmuted);
+        const visible = filterNotificationsForViewer(notifications, userId, userRole, filterOpts).filter(isUnmuted);
         counts[aid] = visible.filter((n) => !n._is_read_for_viewer && !n.is_resolved).length;
       }
       return res.json(counts);
@@ -481,7 +498,7 @@ export const getNotificationCounts = async (req, res, next) => {
         const filteredNotifications = notifications.filter(n => 
           n.user_id && allSuperviseeIds.includes(n.user_id)
         );
-        filteredCounts[agencyId] = filterNotificationsForViewer(filteredNotifications, userId, userRole).length;
+        filteredCounts[agencyId] = filterNotificationsForViewer(filteredNotifications, userId, userRole, filterOpts).length;
       }
       
       return res.json(filteredCounts);
@@ -496,7 +513,7 @@ export const getNotificationCounts = async (req, res, next) => {
             isResolved: false
           });
           await Notification.applyReadStateForViewer(notifications, userId);
-          const visible = filterNotificationsForViewer(notifications, userId, userRole).filter(isUnmuted);
+          const visible = filterNotificationsForViewer(notifications, userId, userRole, filterOpts).filter(isUnmuted);
           counts[aid] = visible.filter((n) => !n._is_read_for_viewer && !n.is_resolved).length;
         }
         return res.json(counts);
@@ -509,7 +526,7 @@ export const getNotificationCounts = async (req, res, next) => {
       if (agencyIds.length === 0) return res.json({});
 
       const unread = await Notification.findUnreadUnmutedByUserAcrossAgencies(userId, agencyIds);
-      const filtered = filterNotificationsForViewer(unread, userId, userRole);
+      const filtered = filterNotificationsForViewer(unread, userId, userRole, filterOpts);
       const counts = {};
       for (const aid of agencyIds) counts[aid] = 0;
       for (const n of filtered || []) {
@@ -535,7 +552,7 @@ export const getNotificationCounts = async (req, res, next) => {
         isResolved: false
       });
       await Notification.applyReadStateForViewer(notifications, userId);
-      const visible = filterNotificationsForViewer(notifications, userId, userRole).filter(isUnmuted);
+      const visible = filterNotificationsForViewer(notifications, userId, userRole, filterOpts).filter(isUnmuted);
       counts[aid] = visible.filter((n) => !n._is_read_for_viewer && !n.is_resolved).length;
     }
     res.json(counts);

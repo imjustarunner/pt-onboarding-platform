@@ -100,7 +100,7 @@ describe('PublicDocumentsPanel', () => {
     });
     await flush();
 
-    expect(wrapper.text()).toContain('Affiliated intake links');
+    expect(wrapper.text()).toContain('Affiliated digital forms');
     expect(wrapper.text()).toContain('My intake link');
 
     const qrBtn = wrapper.findAll('button').find((b) => b.text().trim() === 'QR');
