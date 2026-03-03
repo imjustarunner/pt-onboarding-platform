@@ -1390,6 +1390,7 @@
 
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { isSupervisor } from '../../utils/helpers.js';
 import api from '../../services/api';
 import { getScheduleSummary, setScheduleSummary, invalidateScheduleSummaryCacheForUser } from '../../utils/scheduleSummaryCache';
 import { useAuthStore } from '../../store/auth';
@@ -2198,10 +2199,7 @@ const canManageOffices = computed(() => {
   return ['clinical_practice_assistant', 'provider_plus', 'admin', 'super_admin', 'superadmin', 'support', 'staff'].includes(role);
 });
 const currentUserRole = computed(() => String(authStore.user?.role || '').trim().toLowerCase());
-const isSupervisorRole = computed(() => currentUserRole.value === 'supervisor');
-const canScheduleSupervisionFromGrid = computed(() => {
-  return isSupervisorRole.value;
-});
+const canScheduleSupervisionFromGrid = computed(() => isSupervisor(authStore.user));
 const isViewingOtherUserSchedule = computed(() => {
   if (!isAdminMode.value) return false;
   const actorId = Number(authStore.user?.id || 0);
@@ -6738,23 +6736,6 @@ const onCellBlockClick = (e, block, dayName, hour) => {
     return;
   }
   if (kind === 'gevt') {
-    const blockText = `${String(block?.shortLabel || '')} ${String(block?.title || '')}`.toLowerCase();
-    const looksLikeSupervision =
-      blockText.includes('supervision') ||
-      blockText.includes('practice support') ||
-      blockText.includes('google meet') ||
-      blockText.includes('meet');
-    const hasMeetSessionInCell = supervisionSessionsInCell(dayName, hour)
-      .some((s) => String(s?.googleMeetLink || s?.joinUrl || '').trim());
-    const shouldRouteToSupv = looksLikeSupervision || hasMeetSessionInCell;
-    if (shouldRouteToSupv) {
-      clearGevtClickTimer();
-      gevtClickTimer.value = window.setTimeout(() => {
-        openSupvModal(dayName, hour);
-        gevtClickTimer.value = null;
-      }, 240);
-      return;
-    }
     const events = googleEventsInCell(dayName, hour);
     const ev = events.find((e) => block?.key === `gevt-${String(e?.id || e?.summary || '')}` || e?.htmlLink === block?.link) || events[0];
     if (ev) {
