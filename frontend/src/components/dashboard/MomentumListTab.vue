@@ -9,7 +9,7 @@
       <div v-if="digestLoading" class="digest-loading">Loading focus...</div>
       <div v-else class="digest-content">
         <div v-if="topFocusItems.length > 0" class="digest-top-focus">
-          <h3>Top 3 Focus</h3>
+          <h3>Top focus</h3>
           <ol class="focus-list">
             <li
               v-for="(item, i) in topFocusItems"
@@ -17,7 +17,33 @@
               class="focus-item"
               data-add-to-sticky
             >
-              {{ item.label }}
+              <span class="focus-item-label">{{ item.label }}</span>
+              <div class="focus-item-actions">
+                <router-link
+                  v-if="item.source === 'payroll' || item.source === 'notes-to-sign'"
+                  :to="item.source === 'payroll' ? fullListRoute : notesToSignRoute"
+                  class="btn btn-secondary btn-xs"
+                >
+                  Complete →
+                </router-link>
+                <button
+                  v-else-if="canActOnDigestItem(item)"
+                  type="button"
+                  class="btn btn-secondary btn-xs"
+                  :disabled="digestActingIndex === i"
+                  @click="actOnDigestItem(item, 'top', i)"
+                >
+                  {{ digestActingIndex === i ? '…' : 'Done' }}
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-xs"
+                  title="Snooze for this session"
+                  @click="snoozeDigestItem(item.label)"
+                >
+                  Snooze
+                </button>
+              </div>
             </li>
           </ol>
         </div>
@@ -30,7 +56,33 @@
               class="radar-item"
               data-add-to-sticky
             >
-              {{ item.label }}
+              <span class="radar-item-label">{{ item.label }}</span>
+              <div class="radar-item-actions">
+                <router-link
+                  v-if="item.source === 'payroll' || item.source === 'notes-to-sign'"
+                  :to="item.source === 'payroll' ? fullListRoute : notesToSignRoute"
+                  class="btn btn-secondary btn-xs"
+                >
+                  Complete →
+                </router-link>
+                <button
+                  v-else-if="canActOnDigestItem(item)"
+                  type="button"
+                  class="btn btn-secondary btn-xs"
+                  :disabled="digestActingRadarIndex === i"
+                  @click="actOnDigestItem(item, 'radar', i)"
+                >
+                  {{ digestActingRadarIndex === i ? '…' : 'Done' }}
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-xs"
+                  title="Snooze for this session"
+                  @click="snoozeDigestItem(item.label)"
+                >
+                  Snooze
+                </button>
+              </div>
             </li>
           </ul>
         </div>
@@ -355,6 +407,10 @@ const tickets = ref([]);
 const payrollNotesSummary = ref(null);
 const geminiDigest = ref(null);
 const clinicalNotesEligible = ref(false);
+const DIGEST_SNOOZED_KEY = 'momentum_digest_snoozed';
+const digestSnoozedLabels = ref(new Set(JSON.parse(sessionStorage.getItem(DIGEST_SNOOZED_KEY) || '[]')));
+const digestActingIndex = ref(null);
+const digestActingRadarIndex = ref(null);
 
 const digestLabel = computed(() => {
   const hour = new Date().getHours();
@@ -394,10 +450,7 @@ const payrollNotesCount = computed(() => {
 
 const delinquencyScore = computed(() => Number(payrollNotesSummary.value?.delinquencyScore ?? 0) || 0);
 
-const topFocusItems = computed(() => {
-  if (geminiDigest.value?.topFocus?.length) {
-    return geminiDigest.value.topFocus;
-  }
+const topFocusItemsRaw = computed(() => {
   const items = [];
   const payroll = payrollNotesItems.value || [];
   const escalateNotes = delinquencyScore.value >= 2 && payrollNotesCount.value > 0;
@@ -411,75 +464,126 @@ const topFocusItems = computed(() => {
     items.push({ label: `Sign supervisee notes (${notesToSignCount.value} pending)`, source: 'notes-to-sign' });
   }
   if (payroll.length > 0 && !escalateNotes) {
-    for (let i = 0; items.length < 3 && i < payroll.length; i++) {
+    for (let i = 0; items.length < 5 && i < payroll.length; i++) {
       items.push({ label: payroll[i].label, source: 'payroll' });
     }
   }
   const checklist = checklistIncompleteItems.value || [];
-  const undone = consolidatedUndoneStickyItems.value || [];
+  const undone = undoneStickyEntries.value || [];
   const t = tasks.value || [];
   const tk = tickets.value || [];
 
-  for (let i = 0; items.length < 3 && i < checklist.length; i++) {
-    items.push({ label: checklist[i].title || checklist[i].label, source: 'checklist' });
+  for (let i = 0; items.length < 5 && i < checklist.length; i++) {
+    const c = checklist[i];
+    items.push({ ...c, label: c.title || c.label, source: 'checklist' });
   }
-  for (let i = 0; items.length < 3 && i < undone.length; i++) {
-    items.push({ label: undone[i].label, source: 'sticky' });
+  for (let i = 0; items.length < 5 && i < undone.length; i++) {
+    items.push(undone[i]);
   }
-  for (let i = 0; items.length < 3 && i < t.length; i++) {
+  for (let i = 0; items.length < 5 && i < t.length; i++) {
     if (t[i].status !== 'completed') {
-      items.push({ label: t[i].title || t[i].task, source: 'task' });
+      const baseLabel = t[i].title || t[i].task;
+      const label = t[i].target_count != null ? `${baseLabel} (${t[i].target_count})` : baseLabel;
+      items.push({ label, source: 'task', task_id: t[i].id, task_type: t[i].task_type });
     }
   }
-  for (let i = 0; items.length < 3 && i < tk.length; i++) {
+  for (let i = 0; items.length < 5 && i < tk.length; i++) {
     if (String(tk[i].status || '').toLowerCase() === 'open') {
       items.push({ label: tk[i].subject || tk[i].question?.slice(0, 50) || 'Support ticket', source: 'ticket' });
     }
   }
-  return items.slice(0, 3);
+  return items.slice(0, 5);
 });
 
-const alsoOnRadar = computed(() => {
-  if (geminiDigest.value?.alsoOnRadar?.length) {
-    return geminiDigest.value.alsoOnRadar;
-  }
+const alsoOnRadarRaw = computed(() => {
   const items = [];
   const payroll = payrollNotesItems.value || [];
   const checklist = checklistIncompleteItems.value || [];
-  const undone = consolidatedUndoneStickyItems.value || [];
+  const undone = undoneStickyEntries.value || [];
   const t = tasks.value || [];
   const tk = tickets.value || [];
 
-  const topLabels = new Set(topFocusItems.value.map((f) => f.label));
+  const topLabels = new Set(topFocusItemsRaw.value.map((f) => f.label));
   if (notesToSignCount.value > 0 && !topLabels.has(`Sign supervisee notes (${notesToSignCount.value} pending)`)) {
     items.push({ label: `Sign supervisee notes (${notesToSignCount.value} pending)`, source: 'notes-to-sign' });
   }
-  for (let i = 0; items.length < 5 && i < payroll.length; i++) {
+  for (let i = 0; items.length < 8 && i < payroll.length; i++) {
     if (!topLabels.has(payroll[i].label)) items.push({ label: payroll[i].label, source: 'payroll' });
   }
   let used = 0;
-  for (let i = 0; items.length < 5 && used < checklist.length; i++) {
-    const lbl = checklist[used]?.title || checklist[used]?.label;
-    if (!topLabels.has(lbl)) items.push({ label: lbl, source: 'checklist' });
+  for (let i = 0; items.length < 8 && used < checklist.length; i++) {
+    const c = checklist[used];
+    const lbl = c?.title || c?.label;
+    if (!topLabels.has(lbl)) items.push({ ...c, label: lbl, source: 'checklist' });
     used++;
   }
-  for (let i = 0; items.length < 5 && i < undone.length; i++) {
-    if (!topLabels.has(undone[i].label)) items.push({ label: undone[i].label, source: 'sticky' });
+  for (let i = 0; items.length < 8 && i < undone.length; i++) {
+    if (!topLabels.has(undone[i].label)) items.push(undone[i]);
   }
-  for (let i = 0; items.length < 5 && i < t.length; i++) {
+  for (let i = 0; items.length < 8 && i < t.length; i++) {
     if (t[i].status !== 'completed') {
-      const lbl = t[i].title || t[i].task;
-      if (!topLabels.has(lbl)) items.push({ label: lbl, source: 'task' });
+      const lbl = (t[i].target_count != null ? `${t[i].title || t[i].task} (${t[i].target_count})` : t[i].title || t[i].task);
+      if (!topLabels.has(lbl)) items.push({ label: lbl, source: 'task', task_id: t[i].id, task_type: t[i].task_type });
     }
   }
-  for (let i = 0; items.length < 5 && i < tk.length; i++) {
+  for (let i = 0; items.length < 8 && i < tk.length; i++) {
     if (String(tk[i].status || '').toLowerCase() === 'open') {
       const lbl = tk[i].subject || tk[i].question?.slice(0, 50) || 'Support ticket';
       if (!topLabels.has(lbl)) items.push({ label: lbl, source: 'ticket' });
     }
   }
-  return items.slice(0, 5);
+  return items.slice(0, 8);
 });
+
+const topFocusItems = computed(() => {
+  const snoozed = digestSnoozedLabels.value;
+  return topFocusItemsRaw.value.filter((item) => !snoozed.has(item.label));
+});
+
+const alsoOnRadar = computed(() => {
+  const snoozed = digestSnoozedLabels.value;
+  return alsoOnRadarRaw.value.filter((item) => !snoozed.has(item.label));
+});
+
+const canActOnDigestItem = (item) => {
+  if (!item) return false;
+  if (item.source === 'task' && item.task_id && item.task_type === 'custom') return true;
+  if (item.source === 'checklist' && item.checklist_item_id && item.type === 'custom') return true;
+  if (item.source === 'sticky' && item.entry_id && item.sticky_id) return true;
+  return false;
+};
+
+const actOnDigestItem = async (item, type, index) => {
+  if (!canActOnDigestItem(item)) return;
+  if (type === 'top') digestActingIndex.value = index;
+  else digestActingRadarIndex.value = index;
+  try {
+    if (item.source === 'task') {
+      await api.delete(`/me/tasks/${item.task_id}`, { skipGlobalLoading: true });
+    } else if (item.source === 'checklist') {
+      await api.post(`/users/${userId.value}/custom-checklist/${item.checklist_item_id}/complete`, {}, { skipGlobalLoading: true });
+    } else if (item.source === 'sticky') {
+      await api.patch(
+        `/users/${userId.value}/momentum-stickies/${item.sticky_id}/entries/${item.entry_id}`,
+        { is_checked: true },
+        { skipGlobalLoading: true }
+      );
+    }
+    await fetchDigest();
+  } catch (err) {
+    console.error('Failed to complete digest item:', err);
+  } finally {
+    digestActingIndex.value = null;
+    digestActingRadarIndex.value = null;
+  }
+};
+
+const snoozeDigestItem = (label) => {
+  const next = new Set(digestSnoozedLabels.value);
+  next.add(label);
+  digestSnoozedLabels.value = next;
+  sessionStorage.setItem(DIGEST_SNOOZED_KEY, JSON.stringify([...next]));
+};
 
 const showQuickLinks = computed(
   () =>
@@ -900,24 +1004,6 @@ const fetchDigest = async () => {
     await notificationStore.fetchCounts?.();
 
     geminiDigest.value = null;
-    const delinquencyScore = Number(payrollNotesSummary.value?.delinquencyScore ?? 0) || 0;
-    try {
-      const digestRes = await api.get(`/users/${userId.value}/momentum-digest`, {
-        params: {
-          agencyId: props.agencyId || undefined,
-          programId: props.programId || undefined,
-          payrollNotesCount: payrollNotesCount.value,
-          notesToSignCount: notesToSignCount.value,
-          delinquencyScore
-        },
-        skipGlobalLoading: true
-      });
-      if (digestRes?.data?.topFocus?.length || digestRes?.data?.alsoOnRadar?.length) {
-        geminiDigest.value = digestRes.data;
-      }
-    } catch {
-      // Fallback to rule-based digest
-    }
     notificationCount.value = Number(notificationStore.unreadCount || 0);
 
     if (props.agencyId && props.kudosEnabled && payrollNotesCount.value === 0) {
@@ -1025,8 +1111,40 @@ watch([() => props.programId, () => props.agencyId], () => {
 
 .focus-item,
 .radar-item {
-  margin-bottom: 4px;
+  margin-bottom: 8px;
   font-size: 14px;
+  color: #1a1a1a;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.focus-item-label,
+.radar-item-label {
+  flex: 1;
+  min-width: 0;
+}
+
+.focus-item-actions,
+.radar-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.focus-item-actions .btn-ghost,
+.radar-item-actions .btn-ghost {
+  background: none;
+  border: none;
+  color: rgba(0, 0, 0, 0.5);
+  font-size: 12px;
+}
+
+.focus-item-actions .btn-ghost:hover,
+.radar-item-actions .btn-ghost:hover {
   color: #1a1a1a;
 }
 
