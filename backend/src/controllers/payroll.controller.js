@@ -2764,7 +2764,7 @@ export const getPayrollReportSupervisionConflicts = async (req, res, next) => {
          AND ${payableClause}
          ${providerIds.length ? ` AND pir.user_id IN (${providerIds.map(() => '?').join(',')})` : ''}
        GROUP BY pir.user_id, DATE_FORMAT(pir.service_date, '%Y-%m-%d'), UPPER(TRIM(pir.service_code))
-       ORDER BY pir.service_date ASC, pir.user_id ASC`,
+       ORDER BY DATE_FORMAT(pir.service_date, '%Y-%m-%d') ASC, pir.user_id ASC`,
       [
         payrollPeriodId,
         payrollImportId,
@@ -9952,7 +9952,7 @@ export const runPayrollPeriod = async (req, res, next) => {
              AND (pir.note_status = 'FINALIZED' OR (pir.note_status = 'DRAFT' AND pir.draft_payable = 1))
              AND r.id IS NULL
            GROUP BY pir.user_id, DATE_FORMAT(pir.service_date, '%Y-%m-%d')
-           ORDER BY DATE(pir.service_date) ASC, pir.user_id ASC
+           ORDER BY DATE_FORMAT(pir.service_date, '%Y-%m-%d') ASC, pir.user_id ASC
            LIMIT 25`,
           [period.agency_id, period.period_start, period.period_end, payrollPeriodId, period.agency_id]
         );
