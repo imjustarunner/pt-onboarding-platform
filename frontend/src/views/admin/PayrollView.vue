@@ -1225,7 +1225,7 @@
           </div>
           <div v-if="(batchCatchUpResult.carryoverApplied || []).length > 0" class="card" style="margin-top: 10px; padding: 12px;">
             <strong>Late notes to add ({{ batchCatchUpSelectedCount }} of {{ batchCatchUpResult.carryoverRowsApplied }} selected)</strong>
-            <div class="hint muted" style="margin-top: 4px;">{{ batchCatchUpResult.twoRunMode ? 'No note in Run 1 → draft or finalized in Run 2.' : 'No note in Run 2 → draft or finalized in Run 3. (1→2 was already paid.)' }} Check the rows to add, edit units if needed, then click Add.</div>
+            <div class="hint muted" style="margin-top: 4px;">{{ batchCatchUpResult.twoRunMode ? 'No note in Run 1 → finalized in Run 2.' : 'No note in Run 2 → finalized in Run 3. (1→2 was already paid.)' }} Check the rows to add, edit units if needed, then click Add.</div>
             <div v-if="!batchCatchUpResult.applied && (batchCatchUpResult.rowsForApply || []).length > 0" class="actions" style="margin-top: 10px;">
               <button
                 class="btn btn-primary"

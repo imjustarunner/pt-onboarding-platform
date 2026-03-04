@@ -5492,8 +5492,7 @@ export const batchCatchUp = [
       const result2to3 = computeSnapshotBasedCarryover({
         baselineSnapshots: baselineSnap,
         compareSnapshots: compareSnap,
-        priorAgencyId: agencyId,
-        treatDraftAsFinalized: true
+        priorAgencyId: agencyId
       });
 
       // Still not done: no note in baseline that is STILL no note in compare
