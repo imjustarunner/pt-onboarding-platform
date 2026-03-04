@@ -708,7 +708,21 @@ export const getLobbyParticipants = async (req, res, next) => {
     }
 
     const lobbyName = `supervision-${id}-lobby`;
-    const participants = await listRoomParticipants(lobbyName);
+    const raw = await listRoomParticipants(lobbyName);
+    const participants = [];
+    for (const p of raw || []) {
+      const m = String(p?.identity || '').match(/^user-(\d+)$/);
+      const uid = m ? parseInt(m[1], 10) : null;
+      let displayName = p?.identity || 'Participant';
+      if (uid) {
+        const [rows] = await pool.execute('SELECT first_name, last_name FROM users WHERE id = ? LIMIT 1', [uid]);
+        const u = rows?.[0];
+        if (u) {
+          displayName = `${String(u.first_name || '').trim()} ${String(u.last_name || '').trim()}`.trim() || displayName;
+        }
+      }
+      participants.push({ ...p, displayName });
+    }
 
     res.json({ participants });
   } catch (e) {

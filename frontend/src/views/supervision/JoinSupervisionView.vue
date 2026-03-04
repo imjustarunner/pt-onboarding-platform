@@ -8,7 +8,7 @@
         <span class="join-video-title">Supervision video</span>
       </div>
       <div v-if="isInLobby" class="lobby-banner">
-        Waiting for supervisor to admit you…
+        <strong>Admit</strong> — Waiting for supervisor to admit you to the room…
       </div>
       <SupervisionVideoLobbyPanel
         v-else

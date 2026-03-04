@@ -3230,6 +3230,10 @@ const supervisionSessionsInCell = (dayName, hour, minute = 0) => {
     const startLocal = new Date(startRaw.includes('T') ? startRaw : startRaw.replace(' ', 'T'));
     const endLocal = new Date(endRaw.includes('T') ? endRaw : endRaw.replace(' ', 'T'));
     if (Number.isNaN(startLocal.getTime()) || Number.isNaN(endLocal.getTime())) continue;
+    // Align with hasSupervision/supervisionLabel: session must fall on this day (avoids day-offset bugs)
+    const idx = dayIndexForDateLocal(localYmd(startLocal), ws);
+    const sessionDay = ALL_DAYS[idx] || null;
+    if (sessionDay !== dayName) continue;
     if (endLocal > cellStart && startLocal < cellEnd) hits.push(ev);
   }
   return hits;

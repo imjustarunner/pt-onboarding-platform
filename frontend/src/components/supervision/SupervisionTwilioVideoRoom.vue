@@ -198,7 +198,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onUnmounted, watch, nextTick } from 'vue';
+import { ref, computed, onUnmounted, watch, nextTick, markRaw } from 'vue';
 import { connect, LocalVideoTrack, LocalDataTrack, createLocalVideoTrack, createLocalAudioTrack } from 'twilio-video';
 import BrandingLogo from '../BrandingLogo.vue';
 import MeetingAgendaPanel from '../meetings/MeetingAgendaPanel.vue';
@@ -567,7 +567,7 @@ async function connectRoom() {
         }
       }
     });
-    room.value = r;
+    room.value = markRaw(r);
     localParticipantSid.value = r.localParticipant?.sid ?? null;
 
     r.on('transcription', (ev) => {
@@ -938,6 +938,7 @@ onUnmounted(() => {
   position: relative;
   aspect-ratio: 16 / 10;
   min-height: 120px;
+  contain: layout style;
 }
 .video-track-wrap.video-placeholder-wrap {
   grid-column: span 1;

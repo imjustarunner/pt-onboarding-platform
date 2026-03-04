@@ -656,7 +656,7 @@
           class="join-reminder-toast-btn btn-join-pulse"
           @click="joinReminderToastJoin"
         >
-          Join
+          Join now
         </button>
         <button
           type="button"
@@ -1753,7 +1753,7 @@ watch(isAuthenticated, (auth) => {
   if (auth) {
     fetchJoinPrompts();
     if (joinReminderPollInterval) clearInterval(joinReminderPollInterval);
-    joinReminderPollInterval = setInterval(fetchJoinPrompts, 2 * 60 * 1000);
+    joinReminderPollInterval = setInterval(fetchJoinPrompts, 60 * 1000);
   } else {
     joinReminderToast.value = { visible: false, message: '', prompt: null };
     if (joinReminderPollInterval) clearInterval(joinReminderPollInterval);
@@ -1776,6 +1776,9 @@ watch(showEngagementMenu, (enabled) => {
 watch(() => route.path, (path) => {
   if (path && (path.includes('/admin/communications') || path.includes('/tickets'))) {
     void communicationsCountsStore.fetchCounts();
+  }
+  if (path && (path.includes('/dashboard') || path.includes('/join/supervision')) && isAuthenticated.value) {
+    void fetchJoinPrompts();
   }
 });
 

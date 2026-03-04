@@ -1,6 +1,8 @@
 <template>
   <div v-if="isSupervisor && sessionId" class="lobby-panel">
-    <h4 class="lobby-panel-title">Waiting to join</h4>
+    <h4 class="lobby-panel-title">Waiting to join — Admit participants</h4>
+    <div v-if="admitSuccess" class="lobby-panel-success">Admitted. They’re joining the room…</div>
+    <div v-else-if="admitError" class="lobby-panel-error">{{ admitError }}</div>
     <div v-if="loading" class="lobby-panel-loading">Loading…</div>
     <div v-else-if="participants.length === 0" class="lobby-panel-empty">No one waiting</div>
     <ul v-else class="lobby-panel-list">
@@ -31,6 +33,8 @@ const props = defineProps({
 const participants = ref([]);
 const loading = ref(false);
 const admittingUserId = ref(null);
+const admitSuccess = ref(false);
+const admitError = ref('');
 let pollInterval = null;
 
 function parseUserId(identity) {
@@ -60,10 +64,15 @@ async function fetchLobbyParticipants() {
 async function admit(userId) {
   if (!props.sessionId || !userId) return;
   admittingUserId.value = userId;
+  admitError.value = '';
+  admitSuccess.value = false;
   try {
     await api.post(`/supervision/sessions/${props.sessionId}/admit/${userId}`);
+    admitSuccess.value = true;
     await fetchLobbyParticipants();
+    setTimeout(() => { admitSuccess.value = false; }, 4000);
   } catch (e) {
+    admitError.value = e?.response?.data?.error?.message || e?.message || 'Admit failed';
     console.warn('[SupervisionVideoLobbyPanel] Admit failed:', e?.message);
   } finally {
     admittingUserId.value = null;
@@ -73,7 +82,7 @@ async function admit(userId) {
 function startPolling() {
   if (!props.sessionId || !props.isSupervisor) return;
   fetchLobbyParticipants();
-  pollInterval = setInterval(fetchLobbyParticipants, 3000);
+  pollInterval = setInterval(fetchLobbyParticipants, 2000);
 }
 
 function stopPolling() {
@@ -116,6 +125,16 @@ onUnmounted(stopPolling);
 .lobby-panel-empty {
   font-size: 13px;
   color: var(--text-secondary);
+}
+.lobby-panel-success {
+  font-size: 13px;
+  color: var(--success, #22c55e);
+  margin-bottom: 8px;
+}
+.lobby-panel-error {
+  font-size: 13px;
+  color: var(--danger, #ef4444);
+  margin-bottom: 8px;
 }
 .lobby-panel-list {
   list-style: none;

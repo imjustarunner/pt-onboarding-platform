@@ -98,7 +98,14 @@ export const getSupervisionActivity = async (req, res, next) => {
     if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
 
     const limit = parseInt(req.query?.limit, 10) || 500;
-    const activity = await VideoMeetingActivity.list({ sessionId, limit: Math.min(limit, 1000) });
+    let activity = [];
+    try {
+      activity = await VideoMeetingActivity.list({ sessionId, limit: Math.min(limit, 1000) });
+    } catch (e) {
+      if (e?.code === 'ER_NO_SUCH_TABLE') return res.json({ ok: true, activity: [] });
+      console.warn('[getSupervisionActivity] Failed to list activity:', e?.message);
+      return res.json({ ok: true, activity: [] });
+    }
 
     res.json({ ok: true, activity });
   } catch (e) {
