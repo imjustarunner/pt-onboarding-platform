@@ -34,7 +34,6 @@ import { useAuthStore } from '../../store/auth';
 import BrandingLogo from '../../components/BrandingLogo.vue';
 import SupervisionTwilioVideoRoom from '../../components/supervision/SupervisionTwilioVideoRoom.vue';
 import SupervisionVideoLobbyPanel from '../../components/supervision/SupervisionVideoLobbyPanel.vue';
-import SupervisionVideoLobbyPanel from '../../components/supervision/SupervisionVideoLobbyPanel.vue';
 import api from '../../services/api';
 
 const router = useRouter();
