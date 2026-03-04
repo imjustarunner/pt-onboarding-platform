@@ -19,6 +19,7 @@
         :key="videoRoomKey"
         :token="token"
         :room-name="roomName"
+        :session-title="sessionTitle"
         :session-id="sessionId"
         @disconnected="onDisconnected"
       />
@@ -47,6 +48,7 @@ const resolving = ref(false);
 const error = ref('');
 const token = ref('');
 const roomName = ref('');
+const sessionTitle = ref('');
 const videoRoomKey = ref(0);
 const admissionPollInterval = ref(null);
 const isSupervisor = ref(false);
@@ -62,6 +64,7 @@ async function pollAdmissionStatus() {
     if (data.admitted && data.token && data.roomName) {
       token.value = String(data.token).trim();
       roomName.value = data.roomName;
+      sessionTitle.value = data.sessionTitle || data.session_title || '';
       videoRoomKey.value += 1;
       if (admissionPollInterval.value) {
         clearInterval(admissionPollInterval.value);
@@ -118,6 +121,7 @@ async function fetchTokenAndJoin() {
     }
     token.value = tok;
     roomName.value = rn;
+    sessionTitle.value = data.sessionTitle || data.session_title || '';
     if (String(rn || '').endsWith('-lobby')) {
       admissionPollInterval.value = setInterval(pollAdmissionStatus, 2000);
     }

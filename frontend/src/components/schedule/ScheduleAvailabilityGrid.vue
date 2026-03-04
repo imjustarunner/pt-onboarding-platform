@@ -1219,6 +1219,7 @@
           <SupervisionTwilioVideoRoom
             :token="supvAppVideoToken"
             :room-name="supvAppVideoRoomName"
+            :session-title="supvAppVideoSessionTitle"
             :session-id="supvAppVideoSessionId"
             @disconnected="closeSupvAppVideoModal"
           />
@@ -6139,6 +6140,8 @@ const submitRequest = async () => {
       if (sessionId && createAgendaDraftItems.value.length) {
         postAgendaItemsForNewMeeting('supervision_session', sessionId).catch(() => {});
       }
+      forceRefreshSummary = true;
+      invalidateScheduleSummaryCacheForUser(props.userId);
     } else if (requestType.value === 'extend_assignment') {
       const contexts = selectedActionContexts().filter(
         (x) => Number(x?.officeLocationId || 0) > 0 && Number(x?.standingAssignmentId || 0) > 0
@@ -6479,6 +6482,7 @@ const supvSummaryText = ref('');
 const showSupvAppVideoModal = ref(false);
 const supvAppVideoToken = ref('');
 const supvAppVideoRoomName = ref('');
+const supvAppVideoSessionTitle = ref('');
 const supvAppVideoSessionId = ref(0);
 const supvAppVideoIsSupervisor = ref(false);
 const supvAppVideoFullscreen = ref(false);
@@ -6550,6 +6554,7 @@ const startAppVideoMeetingFromGrid = async (session) => {
     await logSupvMeetingLifecycle({ sessionId: sid, eventType: 'opened' });
     supvAppVideoToken.value = tok;
     supvAppVideoRoomName.value = rn;
+    supvAppVideoSessionTitle.value = data.sessionTitle || data.session_title || '';
     supvAppVideoSessionId.value = sid;
     supvAppVideoIsSupervisor.value = !!data.isSupervisor;
     supvAppVideoFullscreen.value = true;
@@ -6568,6 +6573,7 @@ const closeSupvAppVideoModal = () => {
   showSupvAppVideoModal.value = false;
   supvAppVideoToken.value = '';
   supvAppVideoRoomName.value = '';
+  supvAppVideoSessionTitle.value = '';
   supvAppVideoSessionId.value = 0;
   supvAppVideoIsSupervisor.value = false;
   supvAppVideoFullscreen.value = false;

@@ -41,6 +41,43 @@ function parseDateTimeLocalString(s) {
   return null;
 }
 
+async function buildSupervisionSessionTitle(sessionId, row) {
+  if (!sessionId || !row) return null;
+  const [nameRows] = await pool.execute(
+    `SELECT
+       CONCAT(COALESCE(sup.first_name,''), ' ', COALESCE(sup.last_name,'')) AS supervisor_name,
+       CONCAT(COALESCE(sv.first_name,''), ' ', COALESCE(sv.last_name,'')) AS supervisee_name,
+       ss.session_type
+     FROM supervision_sessions ss
+     JOIN users sup ON sup.id = ss.supervisor_user_id
+     LEFT JOIN users sv ON sv.id = ss.supervisee_user_id
+     WHERE ss.id = ?
+     LIMIT 1`,
+    [sessionId]
+  );
+  const nr = nameRows?.[0];
+  if (!nr) return null;
+  const supName = String(nr.supervisor_name || '').trim();
+  const svName = String(nr.supervisee_name || '').trim();
+  const st = String(nr.session_type || 'individual').toLowerCase();
+  const typeLabel = st === 'group' ? 'Group' : st === 'triadic' ? 'Triadic' : 'Individual';
+  const names = [supName, svName].filter(Boolean);
+  if (st === 'group') {
+    const [extraRows] = await pool.execute(
+      `SELECT CONCAT(COALESCE(u.first_name,''), ' ', COALESCE(u.last_name,'')) AS name
+       FROM supervision_session_attendees ssa
+       JOIN users u ON u.id = ssa.user_id
+       WHERE ssa.session_id = ? AND ssa.user_id NOT IN (?, ?)
+       ORDER BY ssa.id`,
+      [sessionId, row.supervisor_user_id, row.supervisee_user_id]
+    );
+    const extraNames = (extraRows || []).map((r) => String(r?.name || '').trim()).filter(Boolean);
+    const allNames = [...new Set([...names, ...extraNames])];
+    return allNames.length ? `${typeLabel} Supervision with ${allNames.join(', ')}` : `${typeLabel} Supervision`;
+  }
+  return names.length ? `${typeLabel} Supervision with ${names.join(' and ')}` : `${typeLabel} Supervision`;
+}
+
 async function requireUsersInAgency({ agencyId, supervisorUserId, superviseeUserId }) {
   const supAgencies = await User.getAgencies(supervisorUserId);
   const svAgencies = await User.getAgencies(superviseeUserId);
@@ -621,11 +658,14 @@ export const getSupervisionVideoToken = async (req, res, next) => {
       return res.status(500).json({ error: { message: 'Failed to generate access token' } });
     }
 
+    const sessionTitle = await buildSupervisionSessionTitle(id, row);
+
     const payload = {
       token: String(token).trim(),
       roomName: roomResult.uniqueName,
       roomSid: roomResult.roomSid,
-      isSupervisor: !!isSupervisor
+      isSupervisor: !!isSupervisor,
+      sessionTitle: sessionTitle || null
     };
     if (req.query?.debug === '1') {
       try {
@@ -768,11 +808,14 @@ export const getAdmissionStatus = async (req, res, next) => {
       return res.status(500).json({ error: { message: 'Failed to generate token' } });
     }
 
+    const sessionTitle = await buildSupervisionSessionTitle(id, row);
+
     res.json({
       admitted: true,
       token: String(token).trim(),
       roomName: roomResult.uniqueName,
-      roomSid: roomResult.roomSid
+      roomSid: roomResult.roomSid,
+      sessionTitle: sessionTitle || null
     });
   } catch (e) {
     next(e);

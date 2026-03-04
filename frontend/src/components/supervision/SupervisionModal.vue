@@ -569,6 +569,7 @@
           <SupervisionTwilioVideoRoom
             :token="twilioVideoToken"
             :room-name="twilioVideoRoomName"
+            :session-title="twilioVideoSessionTitle"
             :session-id="twilioVideoSessionId"
             @disconnected="closeTwilioVideoModal"
           />
@@ -668,6 +669,7 @@ const trackedMeetingClientSessionKey = ref('');
 const showTwilioVideoModal = ref(false);
 const twilioVideoToken = ref('');
 const twilioVideoRoomName = ref('');
+const twilioVideoSessionTitle = ref('');
 const twilioVideoSessionId = ref(null);
 const twilioVideoIsSupervisor = ref(false);
 const twilioVideoFullscreen = ref(false);
@@ -910,6 +912,7 @@ async function startAppVideoMeeting(session) {
     }
     twilioVideoToken.value = tok;
     twilioVideoRoomName.value = rn;
+    twilioVideoSessionTitle.value = data.sessionTitle || data.session_title || '';
     twilioVideoIsSupervisor.value = !!data.isSupervisor;
     twilioVideoFullscreen.value = true;
     showTwilioVideoModal.value = true;
@@ -925,6 +928,7 @@ function closeTwilioVideoModal() {
   showTwilioVideoModal.value = false;
   twilioVideoToken.value = '';
   twilioVideoRoomName.value = '';
+  twilioVideoSessionTitle.value = '';
   twilioVideoSessionId.value = null;
   twilioVideoIsSupervisor.value = false;
   twilioVideoFullscreen.value = false;

@@ -1,7 +1,7 @@
 <template>
   <div class="twilio-video-room">
     <div class="video-room-header">
-      <span class="video-room-title">{{ roomName || 'Video room' }}</span>
+      <span class="video-room-title">{{ sessionTitle || roomName || 'Video room' }}</span>
       <button type="button" class="btn btn-danger btn-sm" :disabled="disconnecting" @click="disconnect">
         {{ disconnecting ? 'Leaving…' : (room ? 'Leave' : 'Close') }}
       </button>
@@ -207,6 +207,7 @@ import api from '../../services/api';
 const props = defineProps({
   token: { type: String, required: true },
   roomName: { type: String, default: '' },
+  sessionTitle: { type: String, default: '' },
   sessionId: { type: [Number, String], default: null },
   eventId: { type: [Number, String], default: null },
   isHost: { type: Boolean, default: false }

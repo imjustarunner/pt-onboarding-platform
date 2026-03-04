@@ -2826,6 +2826,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
 
     // 4b) Supervision sessions (app-scheduled, optionally synced to Google)
     let supervisionSessions = [];
+    const supervisionGoogleEventIds = new Set();
     let supervisionJoinUrlBase = null;
     try {
       const { isTwilioVideoConfigured } = await import('../services/twilioVideo.service.js');
@@ -2844,6 +2845,8 @@ export const getUserScheduleSummary = async (req, res, next) => {
         windowEnd
       });
       supervisionSessions = (rows || []).map((r) => {
+        const gid = String(r?.google_event_id || '').trim();
+        if (gid) supervisionGoogleEventIds.add(gid);
         const isSupervisor = Number(r.supervisor_user_id) === Number(providerId);
         const sessionType = String(r.session_type || 'individual').trim().toLowerCase();
         const superviseeNames = String(r.supervisee_names || '').trim();
@@ -2865,8 +2868,8 @@ export const getUserScheduleSummary = async (req, res, next) => {
           isRequired,
           presenterRole: r.viewer_presenter_role || null,
           presenterStatus: r.viewer_presenter_status || null,
-          startAt: toIsoUtcForSchedule(r.start_at) || toMysqlDateTimeWall(r.start_at) || r.start_at,
-          endAt: toIsoUtcForSchedule(r.end_at) || toMysqlDateTimeWall(r.end_at) || r.end_at,
+          startAt: toMysqlDateTimeWall(r.start_at) || r.start_at,
+          endAt: toMysqlDateTimeWall(r.end_at) || r.end_at,
           status: r.status,
           modality: r.modality,
           locationText: r.location_text,
@@ -2981,9 +2984,14 @@ export const getUserScheduleSummary = async (req, res, next) => {
           maxItems: 250
         });
         if (r?.ok) {
-          googleEvents = isAdminOrSuperAdmin(req)
+          let events = isAdminOrSuperAdmin(req)
             ? (r.events || [])
             : (r.events || []).map((event) => sanitizeGoogleEventForSchedule(event));
+          // Exclude Google events that correspond to app supervision sessions — show app's supervision block only
+          if (supervisionGoogleEventIds.size) {
+            events = events.filter((ev) => !supervisionGoogleEventIds.has(String(ev?.id || '').trim()));
+          }
+          googleEvents = events;
         }
         else googleEventsError = r?.error || r?.reason || 'Google events are not available';
       } catch {

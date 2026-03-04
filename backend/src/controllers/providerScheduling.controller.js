@@ -209,6 +209,16 @@ export const upsertProviderSchoolAssignment = async (req, res, next) => {
     );
 
     if (!existing[0]) {
+      // Ensure provider is in user_agencies for the school so they appear in School Portal Providers list.
+      try {
+        await pool.execute(
+          `INSERT INTO user_agencies (user_id, agency_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE user_id = user_id`,
+          [providerUserId, schoolOrganizationId]
+        );
+      } catch (e) {
+        // Best-effort; do not block assignment creation
+      }
+
       const [result] = await pool.execute(
         `INSERT INTO provider_school_assignments
           (provider_user_id, school_organization_id, day_of_week, slots_total, slots_available, start_time, end_time, is_active, accepting_new_clients_override)
@@ -226,6 +236,16 @@ export const upsertProviderSchoolAssignment = async (req, res, next) => {
         actorUserId: req.user?.id
       });
       return res.status(201).json(rows[0] || null);
+    }
+
+    // Ensure provider remains in user_agencies for the school (idempotent).
+    try {
+      await pool.execute(
+        `INSERT INTO user_agencies (user_id, agency_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE user_id = user_id`,
+        [providerUserId, schoolOrganizationId]
+      );
+    } catch {
+      // Best-effort
     }
 
     // Preserve used slots so reducing total doesn't incorrectly "refund" availability.
