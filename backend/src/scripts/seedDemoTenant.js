@@ -41,6 +41,12 @@ const parseArgs = () => {
   return out;
 };
 
+const toPositiveInt = (raw, fallback) => {
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isInteger(n) || n < 1) return fallback;
+  return n;
+};
+
 const getSourceAgency = async ({ sourceSlug, sourceAgencyId }) => {
   if (sourceAgencyId) {
     const byId = await Agency.findById(Number(sourceAgencyId));
@@ -184,6 +190,8 @@ async function main() {
   }
 
   const baseSlug = slugify(args['demo-slug'] || `${sourceAgency.slug || sourceAgency.portal_url || sourceAgency.name}-demo`);
+  const providerCount = toPositiveInt(args['provider-count'], 10);
+  const clientCount = toPositiveInt(args['client-count'], 60);
   const parentSlug = baseSlug;
   const parentName = `Demo ${sourceAgency.name || sourceAgency.slug || 'Agency'}`;
 
@@ -243,7 +251,7 @@ async function main() {
     { key: 'admin', role: 'admin', firstName: 'Demo', lastName: 'Admin' },
     { key: 'support', role: 'support', firstName: 'Demo', lastName: 'Support' },
     { key: 'staff', role: 'staff', firstName: 'Demo', lastName: 'Staff' },
-    { key: 'provider', role: 'provider', firstName: 'Demo', lastName: 'Provider' },
+    { key: 'provider-core', role: 'provider', firstName: 'Demo', lastName: 'Provider Core' },
     { key: 'providerplus', role: 'provider_plus', firstName: 'Demo', lastName: 'ProviderPlus' }
   ];
 
@@ -258,6 +266,20 @@ async function main() {
       passwordHash
     });
     createdUsers[u.key] = user;
+  }
+
+  // Generate additional fake providers for richer scheduling/training demos.
+  for (let i = 1; i <= providerCount; i += 1) {
+    const num = String(i).padStart(2, '0');
+    const email = `provider${num}.${baseSlug}@example.demo`;
+    const provider = await getOrCreateUser({
+      email,
+      firstName: `Provider${num}`,
+      lastName: 'Demo',
+      role: 'provider',
+      passwordHash
+    });
+    createdUsers[`provider-${num}`] = provider;
   }
 
   const allOrgIds = [parent.id, school.id, program.id, learning.id, clinical.id];
@@ -275,35 +297,34 @@ async function main() {
     }
   }
 
-  const providerId = createdUsers.provider.id;
-  await createFakeClientIfMissing({
-    agencyId: parent.id,
-    organizationId: school.id,
-    providerId,
-    createdByUserId: createdUsers.admin.id,
-    initials: 'DM',
-    fullName: 'Demo Minor'
-  });
-  await createFakeClientIfMissing({
-    agencyId: parent.id,
-    organizationId: program.id,
-    providerId,
-    createdByUserId: createdUsers.admin.id,
-    initials: 'DP',
-    fullName: 'Demo Program Client'
-  });
-  await createFakeClientIfMissing({
-    agencyId: parent.id,
-    organizationId: learning.id,
-    providerId,
-    createdByUserId: createdUsers.admin.id,
-    initials: 'DL',
-    fullName: 'Demo Learning Client'
-  });
+  const providerUsers = Object.entries(createdUsers)
+    .filter(([, u]) => String(u?.role || '').toLowerCase() === 'provider' || String(u?.role || '').toLowerCase() === 'provider_plus')
+    .map(([, u]) => u);
+  const targetOrgs = [school, program, learning, clinical];
+  const firstNames = ['Alex', 'Jordan', 'Taylor', 'Morgan', 'Riley', 'Casey', 'Skyler', 'Avery', 'Quinn', 'Parker'];
+  const lastNames = ['Stone', 'Reed', 'Hayes', 'Brooks', 'Carter', 'Dawson', 'Flynn', 'West', 'Lane', 'Cruz'];
+
+  for (let i = 1; i <= clientCount; i += 1) {
+    const provider = providerUsers[(i - 1) % providerUsers.length];
+    const org = targetOrgs[(i - 1) % targetOrgs.length];
+    const fn = firstNames[(i - 1) % firstNames.length];
+    const ln = lastNames[Math.floor((i - 1) / firstNames.length) % lastNames.length];
+    const initials = `D${String(i).padStart(3, '0')}`;
+    await createFakeClientIfMissing({
+      agencyId: parent.id,
+      organizationId: org.id,
+      providerId: provider.id,
+      createdByUserId: createdUsers.admin.id,
+      initials,
+      fullName: `${fn} ${ln} Demo`
+    });
+  }
 
   console.log('Demo tenant ready.');
   console.log(`Parent demo slug: ${parent.slug}`);
   console.log(`Demo org slugs: ${school.slug}, ${program.slug}, ${learning.slug}, ${clinical.slug}`);
+  console.log(`Generated provider users: ${providerCount + 1} (includes provider-core)`);
+  console.log(`Generated/ensured clients: ${clientCount}`);
   console.log(`Demo login password for generated users: ${password}`);
 }
 
