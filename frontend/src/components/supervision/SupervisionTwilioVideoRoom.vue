@@ -306,7 +306,18 @@ function networkQualityClass(level) {
 
 function attachTrack(track, container) {
   if (!track || !container) return;
-  track.attach(container);
+  try {
+    track.detach().forEach((el) => el.remove());
+  } catch {
+    // ignore
+  }
+  while (container.firstChild) container.removeChild(container.firstChild);
+  const mediaEl = track.attach();
+  if (mediaEl?.tagName === 'VIDEO') {
+    mediaEl.setAttribute('playsinline', 'true');
+    mediaEl.autoplay = true;
+  }
+  container.appendChild(mediaEl);
 }
 
 function detachTrack(track) {
@@ -542,6 +553,10 @@ async function connectRoom() {
     return;
   }
   try {
+    if (room.value) {
+      try { room.value.disconnect(); } catch { /* ignore */ }
+      room.value = null;
+    }
     connecting.value = true;
     error.value = '';
     transcriptLines.value = [];
@@ -551,12 +566,29 @@ async function connectRoom() {
 
     const chatDataTrack = new LocalDataTrack({ name: 'chat' });
     localDataTrack.value = chatDataTrack;
+    let initialVideoTrack = null;
+    let initialAudioTrack = null;
+    try {
+      initialVideoTrack = await createLocalVideoTrack();
+      localVideoTrack.value = initialVideoTrack;
+    } catch {
+      cameraMuted.value = true;
+    }
+    try {
+      initialAudioTrack = await createLocalAudioTrack();
+      localAudioTrack.value = initialAudioTrack;
+    } catch {
+      micMuted.value = true;
+    }
+    const tracks = [chatDataTrack];
+    if (initialVideoTrack) tracks.push(initialVideoTrack);
+    if (initialAudioTrack) tracks.push(initialAudioTrack);
 
     const r = await connect(props.token, {
       name: props.roomName,
-      audio: true,
-      video: true,
-      tracks: [chatDataTrack],
+      audio: false,
+      video: false,
+      tracks,
       receiveTranscriptions: true,
       dominantSpeaker: true,
       networkQuality: { local: 1, remote: 1 },
@@ -614,6 +646,19 @@ async function connectRoom() {
         }
         syncMutedFromTracks();
       }
+    });
+    r.localParticipant.on('trackSubscribed', (track) => {
+      if (track.kind === 'video') {
+        localVideoTrack.value = track;
+        track.on('enabled', syncMutedFromTracks);
+        track.on('disabled', syncMutedFromTracks);
+      }
+      if (track.kind === 'audio') {
+        localAudioTrack.value = track;
+        track.on('enabled', syncMutedFromTracks);
+        track.on('disabled', syncMutedFromTracks);
+      }
+      syncMutedFromTracks();
     });
     r.localParticipant.on('trackUnsubscribed', (track) => {
       if (track.kind === 'video' && localVideoTrack.value === track) localVideoTrack.value = null;

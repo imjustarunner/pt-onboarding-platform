@@ -7,11 +7,11 @@
         <BrandingLogo size="medium" class="join-video-logo" />
         <span class="join-video-title">Supervision video</span>
       </div>
-      <div v-if="isInLobby" class="lobby-banner">
+      <div v-if="isInLobby && lobbyEnabledForSession" class="lobby-banner">
         <strong>Admit</strong> — Waiting for supervisor to admit you to the room…
       </div>
       <SupervisionVideoLobbyPanel
-        v-else
+        v-else-if="!isInLobby && isSupervisor && lobbyEnabledForSession"
         :session-id="sessionId"
         :is-supervisor="isSupervisor"
       />
@@ -52,8 +52,10 @@ const sessionTitle = ref('');
 const videoRoomKey = ref(0);
 const admissionPollInterval = ref(null);
 const isSupervisor = ref(false);
+const roomMode = ref('main');
+const lobbyEnabledForSession = ref(false);
 
-const isInLobby = computed(() => String(roomName.value || '').endsWith('-lobby'));
+const isInLobby = computed(() => roomMode.value === 'lobby' || String(roomName.value || '').endsWith('-lobby'));
 
 async function pollAdmissionStatus() {
   const sid = sessionId.value;
@@ -65,6 +67,8 @@ async function pollAdmissionStatus() {
       token.value = String(data.token).trim();
       roomName.value = data.roomName;
       sessionTitle.value = data.sessionTitle || data.session_title || '';
+      roomMode.value = String(data.roomMode || 'main').toLowerCase();
+      lobbyEnabledForSession.value = !!data.lobbyEnabledForSession;
       videoRoomKey.value += 1;
       if (admissionPollInterval.value) {
         clearInterval(admissionPollInterval.value);
@@ -113,6 +117,8 @@ async function fetchTokenAndJoin() {
     const tok = (data.token || data.data?.token || data.result?.token || '').trim();
     const rn = data.roomName || data.room_name || data.data?.roomName || `supervision-${sid}`;
     isSupervisor.value = !!data.isSupervisor;
+    roomMode.value = String(data.roomMode || (String(rn || '').endsWith('-lobby') ? 'lobby' : 'main')).toLowerCase();
+    lobbyEnabledForSession.value = !!data.lobbyEnabledForSession;
     if (!tok) {
       console.warn('[JoinSupervisionView] video-token empty:', { status: resp?.status, data });
       const errMsg = data?.error?.message || data?.error || '';
@@ -122,7 +128,7 @@ async function fetchTokenAndJoin() {
     token.value = tok;
     roomName.value = rn;
     sessionTitle.value = data.sessionTitle || data.session_title || '';
-    if (String(rn || '').endsWith('-lobby')) {
+    if (roomMode.value === 'lobby') {
       admissionPollInterval.value = setInterval(pollAdmissionStatus, 2000);
     }
   } catch (e) {

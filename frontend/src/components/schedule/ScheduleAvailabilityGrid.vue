@@ -2740,8 +2740,13 @@ const unrequestAllPendingRequests = async () => {
   }
 };
 
-const supervisionDateYmd = (ev) =>
-  ev?.startDateYmd ? String(ev.startDateYmd).slice(0, 10) : (ev?.startAt ? localYmd(new Date(String(ev.startAt).includes('T') ? ev.startAt : ev.startAt.replace(' ', 'T'))) : null);
+const supervisionDateYmd = (ev) => {
+  const fromApi = String(ev?.startDateYmd || '').trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(fromApi)) return fromApi;
+  const raw = String(ev?.startAt || '').trim();
+  const m = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+  return m ? m[1] : null;
+};
 
 const hasSupervision = (dayName, hour) => {
   const s = summary.value;

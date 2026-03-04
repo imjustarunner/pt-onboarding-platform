@@ -668,7 +668,10 @@ export const getSupervisionVideoToken = async (req, res, next) => {
       roomName: roomResult.uniqueName,
       roomSid: roomResult.roomSid,
       isSupervisor: !!isSupervisor,
-      sessionTitle: sessionTitle || null
+      sessionTitle: sessionTitle || null,
+      sessionType,
+      roomMode: useLobby ? 'lobby' : 'main',
+      lobbyEnabledForSession: !skipLobbyForSupervisee
     };
     if (req.query?.debug === '1') {
       try {
@@ -798,8 +801,16 @@ export const getAdmissionStatus = async (req, res, next) => {
     if (!actorUserId) return res.status(401).json({ error: { message: 'Not authenticated' } });
 
     const isSupervisor = actorUserId === Number(row.supervisor_user_id);
+    const sessionType = String(row.session_type || 'individual').toLowerCase();
+    const skipLobbyForSupervisee = sessionType === 'individual' || sessionType === 'triadic';
     if (isSupervisor) {
-      return res.json({ admitted: true, role: 'supervisor' });
+      return res.json({
+        admitted: true,
+        role: 'supervisor',
+        sessionType,
+        roomMode: 'main',
+        lobbyEnabledForSession: !skipLobbyForSupervisee
+      });
     }
 
     const [admitted] = await pool.execute(
@@ -808,7 +819,12 @@ export const getAdmissionStatus = async (req, res, next) => {
     );
 
     if (!admitted?.length) {
-      return res.json({ admitted: false });
+      return res.json({
+        admitted: false,
+        sessionType,
+        roomMode: skipLobbyForSupervisee ? 'main' : 'lobby',
+        lobbyEnabledForSession: !skipLobbyForSupervisee
+      });
     }
 
     const mainName = row.twilio_room_unique_name || `supervision-${id}`;
@@ -832,7 +848,10 @@ export const getAdmissionStatus = async (req, res, next) => {
       token: String(token).trim(),
       roomName: roomResult.uniqueName,
       roomSid: roomResult.roomSid,
-      sessionTitle: sessionTitle || null
+      sessionTitle: sessionTitle || null,
+      sessionType,
+      roomMode: 'main',
+      lobbyEnabledForSession: !skipLobbyForSupervisee
     });
   } catch (e) {
     next(e);
