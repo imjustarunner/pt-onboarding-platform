@@ -281,6 +281,11 @@ jobs:
           if [ -n "${QUICKBOOKS_ENV}" ]; then ENV_VARS="${ENV_VARS}|QUICKBOOKS_ENV=${QUICKBOOKS_ENV}"; fi
           if [ -n "${QBO_VENDOR_DISPLAY_NAME}" ]; then ENV_VARS="${ENV_VARS}|QBO_VENDOR_DISPLAY_NAME=${QBO_VENDOR_DISPLAY_NAME}"; fi
 
+          # Remove DB_USER/DB_PASSWORD from Secret Manager refs (if set) so we can use plain env vars.
+          # Must be separate from deploy: cannot remove-secrets and update-env-vars same key in one command.
+          gcloud run services update $SERVICE_NAME --region $REGION \
+            --remove-secrets=DB_USER,DB_PASSWORD,CLINICAL_DB_USER,CLINICAL_DB_PASSWORD 2>/dev/null || true
+
           gcloud run deploy $SERVICE_NAME \
             --image $IMAGE_NAME:$GITHUB_SHA \
             --platform managed \
