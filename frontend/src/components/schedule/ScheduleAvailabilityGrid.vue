@@ -331,8 +331,8 @@
         <span>{{ joinPromptSessionLabel }}</span>
       </div>
       <div class="join-prompt-actions">
-        <button class="btn btn-primary btn-sm btn-join-pulse" type="button" :disabled="supvMeetOpening" @click="joinPromptSessionNow">
-          {{ supvMeetOpening ? 'Joining…' : 'Join now' }}
+        <button class="btn btn-primary btn-sm btn-join-pulse" type="button" :disabled="supvMeetOpening || supvAppVideoLoading" @click="joinPromptSessionNow">
+          {{ (supvMeetOpening || supvAppVideoLoading) ? 'Joining…' : 'Join now' }}
         </button>
         <button class="btn btn-secondary btn-sm" type="button" @click="dismissJoinPromptForSession(joinPromptSession.id)">
           Dismiss
@@ -1044,10 +1044,10 @@
               <button
                 class="btn btn-primary btn-sm"
                 type="button"
-                :disabled="supvMeetOpening"
+                :disabled="supvMeetOpening || supvAppVideoLoading"
                 @click="startTrackedSupvMeet"
               >
-                {{ supvMeetOpening ? 'Joining…' : (selectedSupvSession?.joinUrl ? 'Join with app' : 'Join Meet (tracked)') }}
+                {{ (supvMeetOpening || supvAppVideoLoading) ? 'Joining…' : (selectedSupvSession?.joinUrl ? 'Join with app' : 'Join Meet (tracked)') }}
               </button>
               <a
                 v-if="selectedSupvSession?.joinUrl || selectedSupvSession?.googleMeetLink"
@@ -1173,6 +1173,34 @@
       </div>
     </div>
 
+    <div v-if="showSupvAppVideoModal && supvAppVideoToken" class="modal-backdrop" style="z-index: 10001;" @click.self="closeSupvAppVideoModal">
+      <div class="modal" style="max-width: 900px; max-height: 90vh;">
+        <div class="modal-head">
+          <div class="modal-title">Supervision video (in-app)</div>
+          <button class="btn btn-secondary btn-sm" type="button" @click="closeSupvAppVideoModal">Close</button>
+        </div>
+        <div class="modal-body" style="padding: 12px;">
+          <p class="muted" style="margin-bottom: 12px;">Attendance is tracked automatically when you join and leave.</p>
+          <SupervisionTwilioVideoRoom
+            :token="supvAppVideoToken"
+            :room-name="supvAppVideoRoomName"
+            :session-id="supvAppVideoSessionId"
+            @disconnected="closeSupvAppVideoModal"
+          />
+        </div>
+      </div>
+    </div>
+    <div v-if="supvAppVideoError" class="modal-backdrop" style="z-index: 10002;" @click.self="supvAppVideoError = ''">
+      <div class="modal" style="max-width: 400px;">
+        <div class="modal-head">
+          <div class="modal-title">Could not join</div>
+          <button class="btn btn-secondary btn-sm" type="button" @click="supvAppVideoError = ''">Close</button>
+        </div>
+        <div class="modal-body">
+          <p class="error">{{ supvAppVideoError }}</p>
+        </div>
+      </div>
+    </div>
     <div v-if="showSupvMeetTrackerModal" class="modal-backdrop" @click.self="endTrackedSupvMeet">
       <div class="modal" style="max-width: 560px;">
         <div class="modal-head">
@@ -1389,6 +1417,7 @@ import { useAgencyStore } from '../../store/agency';
 import { useUserPreferencesStore } from '../../store/userPreferences';
 import OfficeWeeklyRoomGrid from './OfficeWeeklyRoomGrid.vue';
 import MeetingAgendaPanel from '../meetings/MeetingAgendaPanel.vue';
+import SupervisionTwilioVideoRoom from '../supervision/SupervisionTwilioVideoRoom.vue';
 
 const props = defineProps({
   userId: { type: Number, required: true },
@@ -6356,6 +6385,12 @@ const supvArtifactError = ref('');
 const supvTranscriptUrl = ref('');
 const supvTranscriptText = ref('');
 const supvSummaryText = ref('');
+const showSupvAppVideoModal = ref(false);
+const supvAppVideoToken = ref('');
+const supvAppVideoRoomName = ref('');
+const supvAppVideoSessionId = ref(0);
+const supvAppVideoError = ref('');
+const supvAppVideoLoading = ref(false);
 
 const clearSupvMeetPolling = () => {
   if (supvMeetPollTimer.value) {
@@ -6403,12 +6438,55 @@ const endTrackedSupvMeet = async () => {
   }
 };
 
+const startAppVideoMeetingFromGrid = async (session) => {
+  const sid = Number(session?.id || 0);
+  if (!sid) return;
+  supvAppVideoLoading.value = true;
+  supvAppVideoError.value = '';
+  try {
+    const resp = await api.get(`/supervision/sessions/${sid}/video-token`);
+    const data = resp?.data || {};
+    const tok = data.token || data.data?.token || '';
+    if (!tok) {
+      console.warn('[ScheduleGrid] video-token 200 but token empty:', { status: resp?.status, data });
+      supvAppVideoError.value =
+        'Video token was empty. Check Network tab: GET /api/supervision/sessions/' + sid + '/video-token.';
+      return;
+    }
+    supvMeetClientSessionKey.value = `web-${sid}-${Number(authStore.user?.id || 0)}-${Date.now()}`;
+    await logSupvMeetingLifecycle({ sessionId: sid, eventType: 'opened' });
+    supvAppVideoToken.value = tok;
+    supvAppVideoRoomName.value = data.roomName || `supervision-${sid}`;
+    supvAppVideoSessionId.value = sid;
+    showSupvAppVideoModal.value = true;
+  } catch (e) {
+    supvAppVideoError.value = e?.response?.data?.error?.message || e?.message || 'Failed to join video room.';
+  } finally {
+    supvAppVideoLoading.value = false;
+  }
+};
+
+const closeSupvAppVideoModal = () => {
+  if (supvAppVideoSessionId.value) {
+    void logSupvMeetingLifecycle({ sessionId: supvAppVideoSessionId.value, eventType: 'closed' });
+  }
+  showSupvAppVideoModal.value = false;
+  supvAppVideoToken.value = '';
+  supvAppVideoRoomName.value = '';
+  supvAppVideoSessionId.value = 0;
+};
+
 const startTrackedSupvMeetForSession = async (session) => {
   const appUrl = String(session?.joinUrl || '').trim();
   const meetLink = String(session?.googleMeetLink || '').trim();
-  const link = appUrl || meetLink;
   const sid = Number(session?.id || 0);
-  if (!link || !sid) return;
+  if (!sid) return;
+  if (appUrl) {
+    await startAppVideoMeetingFromGrid(session);
+    return;
+  }
+  const link = meetLink;
+  if (!link) return;
   try {
     supvMeetOpening.value = true;
     supvMeetTrackerError.value = '';
