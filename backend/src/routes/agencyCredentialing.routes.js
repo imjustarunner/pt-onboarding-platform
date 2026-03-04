@@ -5,7 +5,19 @@ import {
   listAgencyProvidersCredentialing,
   patchAgencyProvidersCredentialing,
   downloadAgencyProvidersCredentialingCsv,
-  deleteAgencyProvidersCredentialingField
+  deleteAgencyProvidersCredentialingField,
+  listInsuranceDefinitions,
+  createInsuranceDefinition,
+  getInsuranceDefinition,
+  updateInsuranceDefinition,
+  deleteInsuranceDefinition,
+  listCredentialingByInsurance,
+  listUserCredentialing,
+  upsertUserInsuranceCredentialing,
+  updateUserInsuranceCredentialing,
+  deleteUserInsuranceCredentialing,
+  revealCredential,
+  listCredentialingTimeline
 } from '../controllers/agencyCredentialing.controller.js';
 
 const router = express.Router();
@@ -23,6 +35,28 @@ router.get('/:agencyId/credentialing/providers.csv', authenticate, downloadAgenc
 
 // Optional cleanup endpoint (purge stored values by field_key across providers in an agency)
 router.delete('/:agencyId/credentialing/field/:fieldKey', authenticate, deleteAgencyProvidersCredentialingField);
+
+// Insurance definitions CRUD
+router.get('/:agencyId/credentialing/insurances', authenticate, listInsuranceDefinitions);
+router.post('/:agencyId/credentialing/insurances', authenticate, createInsuranceDefinition);
+router.get('/:agencyId/credentialing/insurances/:id', authenticate, getInsuranceDefinition);
+router.patch('/:agencyId/credentialing/insurances/:id', authenticate, updateInsuranceDefinition);
+router.delete('/:agencyId/credentialing/insurances/:id', authenticate, deleteInsuranceDefinition);
+
+// View by insurance
+router.get('/:agencyId/credentialing/by-insurance', authenticate, listCredentialingByInsurance);
+
+// User insurance credentialing (for credentialing tab)
+router.get('/:agencyId/credentialing/users/:userId', authenticate, listUserCredentialing);
+router.post('/:agencyId/credentialing/user-insurance', authenticate, upsertUserInsuranceCredentialing);
+router.patch('/:agencyId/credentialing/user-insurance/:id', authenticate, updateUserInsuranceCredentialing);
+router.delete('/:agencyId/credentialing/user-insurance', authenticate, deleteUserInsuranceCredentialing);
+
+// Credential reveal (decrypt)
+router.post('/:agencyId/credentialing/reveal', authenticate, revealCredential);
+
+// Timeline
+router.get('/:agencyId/credentialing/timeline', authenticate, listCredentialingTimeline);
 
 export default router;
 

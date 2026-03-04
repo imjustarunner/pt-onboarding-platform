@@ -1562,6 +1562,10 @@
           <UserInformationTab :userId="userId" />
         </div>
 
+        <div v-if="activeTab === 'credentialing'" class="tab-panel">
+          <CredentialingTab :userId="userId" />
+        </div>
+
         <div v-if="activeTab === 'school_affiliation'" class="tab-panel">
           <h2>School Affiliation</h2>
           <p class="hint" style="margin-top: -6px;">
@@ -2173,6 +2177,7 @@ import UserTrainingTab from '../../components/admin/UserTrainingTab.vue';
 import UserDocumentsTab from '../../components/admin/UserDocumentsTab.vue';
 import UserInformationTab from '../../components/admin/UserInformationTab.vue';
 import ProviderInfoTab from '../../components/admin/ProviderInfoTab.vue';
+import CredentialingTab from '../../components/admin/CredentialingTab.vue';
 import UserCommunicationsTab from '../../components/admin/UserCommunicationsTab.vue';
 import UserAdminDocsTab from '../../components/admin/UserAdminDocsTab.vue';
 import UserActivityLogTab from '../../components/admin/UserActivityLogTab.vue';
@@ -2333,6 +2338,16 @@ const canViewProviderInfo = computed(() => {
   return true;
 });
 
+const canViewCredentialingTab = computed(() => {
+  const u = authStore.user;
+  if (!u?.capabilities?.canManageCredentialing) return false;
+  const target = user.value;
+  if (!target) return false;
+  const role = String(target.role || '').toLowerCase();
+  const providerLikeRoles = ['provider', 'provider_plus', 'clinical_practice_assistant', 'super_admin', 'admin'];
+  return providerLikeRoles.includes(role);
+});
+
 const isViewingSchoolStaff = computed(() => {
   // IMPORTANT: Do not read accountForm here (it is declared later in this file).
   // The bundler may hoist this computed above accountForm initialization, causing a TDZ crash.
@@ -2377,6 +2392,7 @@ const tabs = computed(() => {
     { id: 'account', label: 'Account' },
     { id: 'additional', label: 'Additional' },
     ...(canViewProviderInfo.value ? [{ id: 'provider_info', label: 'Provider Info' }] : []),
+    ...(canViewCredentialingTab.value ? [{ id: 'credentialing', label: 'Credentialing' }] : []),
     ...(canViewSchoolAffiliation.value ? [{ id: 'school_affiliation', label: 'School Affiliation' }] : []),
     ...(canViewProviderInfo.value ? [{ id: 'schedule_availability', label: 'Schedule & Availability' }] : []),
     { id: 'training', label: 'Training' },

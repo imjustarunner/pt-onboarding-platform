@@ -1,5 +1,5 @@
 <template>
-  <div class="container">
+  <div class="container credentialing-page">
     <div class="page-header">
       <div>
         <router-link :to="orgTo('/admin')" class="back-link">← Back to Admin Dashboard</router-link>
@@ -13,7 +13,7 @@
         <button class="btn btn-secondary" type="button" @click="refresh" :disabled="loading || saving">
           Refresh
         </button>
-        <button class="btn btn-secondary" type="button" @click="exportCsv" :disabled="loading || !selectedAgencyId">
+        <button class="btn btn-secondary" type="button" @click="showCsvModal = true" :disabled="loading || !selectedAgencyId">
           Export CSV
         </button>
       </div>
@@ -32,21 +32,98 @@
           <input v-model="search" type="text" placeholder="Search name/email…" />
         </div>
       </div>
-      <div style="margin-top: 10px;">
+      <div style="margin-top: 10px; display: flex; gap: 16px; flex-wrap: wrap; align-items: center;">
         <label style="display:flex; align-items:center; gap:8px; margin:0;">
           <input type="checkbox" v-model="showSources" :disabled="loading" />
           <span class="muted" style="font-size: 13px;">Show field keys / sources</span>
         </label>
+        <div class="view-toggle">
+          <label style="display:flex; align-items:center; gap:8px; margin:0;">
+            <span class="muted" style="font-size: 13px;">View:</span>
+            <select v-model="viewMode" :disabled="loading">
+              <option value="by_provider">By Provider</option>
+              <option value="by_insurance">By Insurance</option>
+            </select>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="showCsvModal" class="modal-overlay" @click.self="showCsvModal = false">
+      <div class="modal card">
+        <h3>Export CSV</h3>
+        <p class="hint">Select columns to include in the export.</p>
+        <div class="csv-columns">
+          <label v-for="col in csvColumnOptions" :key="col.key" class="checkbox-label">
+            <input type="checkbox" v-model="csvSelectedColumns" :value="col.key" />
+            {{ col.label }}
+          </label>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-secondary" @click="showCsvModal = false">Cancel</button>
+          <button class="btn btn-primary" @click="doExportCsv">Export</button>
+        </div>
       </div>
     </div>
 
     <div v-if="error" class="error" style="margin-top: 12px;">{{ error }}</div>
     <div v-if="info" class="success" style="margin-top: 12px;">{{ info }}</div>
 
+    <details class="card timeline-card" style="margin-top: 14px;">
+      <summary>Credentialing timeline</summary>
+      <CredentialingTimeline :agency-id="selectedAgencyId" />
+    </details>
+
     <div class="card" style="margin-top: 14px;">
-      <div class="muted" v-if="!loading">Providers: {{ filteredRows.length }}</div>
+      <div class="muted" v-if="!loading">
+        {{ viewMode === 'by_provider' ? `Providers: ${filteredRows.length}` : `Insurances: ${byInsuranceData.length}` }}
+      </div>
       <div v-if="loading" class="loading" style="margin-top: 10px;">Loading…</div>
 
+      <!-- View 2: By Insurance -->
+      <div v-else-if="viewMode === 'by_insurance'" class="by-insurance-view" style="margin-top: 12px;">
+        <div v-if="byInsuranceLoading" class="loading">Loading by insurance…</div>
+        <div v-else-if="byInsuranceData.length === 0" class="empty-state muted">No insurance credentialing data.</div>
+        <div v-else class="insurance-sections">
+          <details
+            v-for="ins in byInsuranceData"
+            :key="ins.insurance.id"
+            class="insurance-section"
+            :open="byInsuranceData.length <= 5"
+          >
+            <summary>
+              <strong>{{ ins.insurance.name }}</strong>
+              <span class="muted">({{ ins.providers.length }} provider{{ ins.providers.length !== 1 ? 's' : '' }})</span>
+            </summary>
+            <table class="table" style="margin-top: 8px;">
+              <thead>
+                <tr>
+                  <th>Provider</th>
+                  <th>Effective</th>
+                  <th>Submitted</th>
+                  <th>Resubmitted</th>
+                  <th>PIN/Ref</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="p in ins.providers" :key="p.user_id">
+                  <td>
+                    <router-link :to="orgTo(`/admin/users/${p.user_id}?tab=credentialing`)">
+                      {{ p.first_name }} {{ p.last_name }}
+                    </router-link>
+                  </td>
+                  <td>{{ p.effective_date || '—' }}</td>
+                  <td>{{ p.submitted_date || '—' }}</td>
+                  <td>{{ p.resubmitted_date || '—' }}</td>
+                  <td>{{ p.pin_or_reference || '—' }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </details>
+        </div>
+      </div>
+
+      <!-- View 1: By Provider -->
       <div v-else class="table-wrap" style="overflow:auto; margin-top: 10px;">
         <table class="table" style="min-width: 1400px;">
           <thead>
@@ -76,9 +153,17 @@
           <tbody>
             <tr v-for="r in filteredRows" :key="r.userId">
               <td style="min-width: 220px;">
-                <router-link :to="orgTo(`/admin/users/${r.userId}?tab=provider_info`)">
+                <router-link :to="orgTo(`/admin/users/${r.userId}?tab=credentialing`)">
                   {{ r.first_name }} {{ r.last_name }}
                 </router-link>
+                <div v-if="(r.in_network || []).length" class="in-network-badges">
+                  <span
+                    v-for="name in (r.in_network || []).slice(0, 5)"
+                    :key="name"
+                    class="badge"
+                  >{{ name }}</span>
+                  <span v-if="(r.in_network || []).length > 5" class="muted">+{{ (r.in_network || []).length - 5 }}</span>
+                </div>
               </td>
 
               <td>
@@ -308,6 +393,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
+import CredentialingTimeline from '../../components/admin/CredentialingTimeline.vue';
 
 const route = useRoute();
 const agencyStore = useAgencyStore();
@@ -329,6 +415,35 @@ const search = ref('');
 
 const rows = ref([]);
 const showSources = ref(false);
+const viewMode = ref('by_provider');
+
+const byInsuranceData = ref([]);
+const byInsuranceLoading = ref(false);
+
+const showCsvModal = ref(false);
+const csvColumnOptions = [
+  { key: 'first_name', label: 'First name' },
+  { key: 'last_name', label: 'Last name' },
+  { key: 'date_of_birth', label: 'DOB' },
+  { key: 'first_client_date', label: 'First client date' },
+  { key: 'npi_number', label: 'NPI number' },
+  { key: 'npi_id', label: 'NPI id' },
+  { key: 'taxonomy_code', label: 'Taxonomy' },
+  { key: 'zipcode', label: 'Zip' },
+  { key: 'license_type_number', label: 'License type/number' },
+  { key: 'license_issued', label: 'Issued' },
+  { key: 'license_expires', label: 'Expires' },
+  { key: 'medicaid_provider_type', label: 'Medicaid provider type' },
+  { key: 'tax_id', label: 'Tax ID' },
+  { key: 'medicaid_location_id', label: 'Medicaid location id' },
+  { key: 'medicaid_effective_date', label: 'Medicaid effective' },
+  { key: 'medicaid_revalidation', label: 'Medicaid revalidation' },
+  { key: 'medicare_number', label: 'Medicare #' },
+  { key: 'caqh_provider_id', label: 'CAQH id' },
+  { key: 'personal_email', label: 'Personal email' },
+  { key: 'cell_number', label: 'Cell' }
+];
+const csvSelectedColumns = ref(csvColumnOptions.map((c) => c.key));
 
 const editingUserId = ref(null);
 // draftValues: Map<fieldKey, value> for the currently-edited user row.
@@ -509,6 +624,19 @@ const refresh = async () => {
   }
 };
 
+const fetchByInsurance = async () => {
+  if (!selectedAgencyId.value) return;
+  byInsuranceLoading.value = true;
+  try {
+    const res = await api.get(`/agencies/${selectedAgencyId.value}/credentialing/by-insurance`);
+    byInsuranceData.value = res.data?.byInsurance || [];
+  } catch {
+    byInsuranceData.value = [];
+  } finally {
+    byInsuranceLoading.value = false;
+  }
+};
+
 watch(
   () => showSources.value,
   async () => {
@@ -527,12 +655,14 @@ const sourceLabel = (row, uiKey) => {
   return `src: ${src}${defId ? ` (#${defId})` : ''}${dup}`;
 };
 
-const exportCsv = async () => {
+const doExportCsv = async () => {
   try {
     if (!selectedAgencyId.value) return;
+    const cols = csvSelectedColumns.value?.length ? csvSelectedColumns.value.join(',') : null;
     error.value = '';
     const res = await api.get(`/agencies/${selectedAgencyId.value}/credentialing/providers.csv`, {
-      responseType: 'blob'
+      responseType: 'blob',
+      params: cols ? { columns: cols } : {}
     });
     const blob = new Blob([res.data], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
@@ -543,6 +673,7 @@ const exportCsv = async () => {
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
+    showCsvModal.value = false;
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to export CSV';
   }
@@ -555,6 +686,9 @@ onMounted(async () => {
   if (!selectedAgencyId.value && agencies.value.length) {
     selectedAgencyId.value = agencies.value[0].id;
   }
+  if (viewMode.value === 'by_insurance' && selectedAgencyId.value) {
+    await fetchByInsurance();
+  }
 });
 
 watch(
@@ -562,7 +696,90 @@ watch(
   async (next, prev) => {
     if (!next || next === prev) return;
     await refresh();
-  }
+    await fetchByInsurance();
+  },
+  { immediate: false }
 );
+
+watch(viewMode, (mode) => {
+  if (mode === 'by_insurance' && selectedAgencyId.value && byInsuranceData.value.length === 0) {
+    fetchByInsurance();
+  }
+});
 </script>
 
+<style scoped>
+.credentialing-page {
+  font-family: var(--agency-font-family, var(--font-body));
+  font-size: 1rem;
+}
+.credentialing-page .table,
+.credentialing-page input,
+.credentialing-page select,
+.credentialing-page .card {
+  font-family: var(--agency-font-family, var(--font-body));
+}
+.in-network-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+.in-network-badges .badge {
+  font-family: var(--agency-font-family, var(--font-body));
+  font-size: 0.8125rem;
+  padding: 2px 6px;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-primary);
+}
+.insurance-section {
+  margin-bottom: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-family: var(--agency-font-family, var(--font-body));
+}
+.insurance-section summary {
+  cursor: pointer;
+  font-family: var(--agency-font-family, var(--font-header));
+}
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.modal-overlay .modal {
+  max-width: 480px;
+  max-height: 80vh;
+  overflow: auto;
+  font-family: var(--agency-font-family, var(--font-body));
+}
+.csv-columns {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  margin: 12px 0;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  cursor: pointer;
+  font-family: var(--agency-font-family, var(--font-body));
+}
+.modal-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+</style>

@@ -1,6 +1,10 @@
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import UserInfoValue from '../models/UserInfoValue.model.js';
+import InsuranceCredentialingDefinition from '../models/InsuranceCredentialingDefinition.model.js';
+import UserInsuranceCredentialing from '../models/UserInsuranceCredentialing.model.js';
+import CredentialingChangeLog from '../models/CredentialingChangeLog.model.js';
+import { encryptChatText, decryptChatText } from '../services/chatEncryption.service.js';
 import { validationResult } from 'express-validator';
 import crypto from 'crypto';
 
@@ -11,7 +15,7 @@ function csvEscape(v) {
 }
 
 const ACTIVE_STATUSES = new Set(['ACTIVE_EMPLOYEE', 'ACTIVE']);
-const PROVIDER_ROLES = new Set(['provider']);
+const PROVIDER_ROLES = new Set(['provider', 'provider_plus', 'clinical_practice_assistant', 'super_admin', 'admin']);
 
 function isMeaningfulValue(v) {
   if (v === null || v === undefined) return false;
@@ -228,6 +232,22 @@ async function assertAgencyAccess(req, agencyId) {
   }
 }
 
+/** Require credential management privilege for the agency. Super_admin always passes. */
+async function assertCredentialPrivilege(req, agencyId) {
+  if (req.user.role === 'super_admin') return;
+  const role = String(req.user.role || '').toLowerCase();
+  if (!['admin', 'support', 'staff'].includes(role)) {
+    const err = new Error('Access denied');
+    err.statusCode = 403;
+    throw err;
+  }
+  const credAgencyIds = await User.listCredentialingAgencyIds(req.user.id);
+  if (credAgencyIds.includes(Number(agencyId))) return;
+  const err = new Error('Access denied');
+  err.statusCode = 403;
+  throw err;
+}
+
 function isActiveUserRow(u) {
   const st = String(u?.status || '').toUpperCase();
   return ACTIVE_STATUSES.has(st);
@@ -245,18 +265,38 @@ export const listAgencyProvidersCredentialing = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Invalid agencyId' } });
     }
 
-    await assertAgencyAccess(req, agencyId);
+    await assertCredentialPrivilege(req, agencyId);
     const includeDebug = String(req.query.debug || '').toLowerCase() === 'true';
 
     const [users] = await pool.execute(
       `SELECT u.id AS userId, u.first_name, u.last_name, u.role, u.status, u.personal_email, u.personal_phone
        FROM users u
-       JOIN user_agencies ua ON ua.user_id = u.id
-       WHERE ua.agency_id = ?
-        AND LOWER(COALESCE(u.role,'')) IN ('provider')
-         AND UPPER(COALESCE(u.status,'')) IN ('ACTIVE_EMPLOYEE','ACTIVE')
+       JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
+       WHERE UPPER(COALESCE(u.status,'')) IN ('ACTIVE_EMPLOYEE','ACTIVE')
+         AND (
+           LOWER(COALESCE(u.role,'')) IN ('provider','provider_plus','clinical_practice_assistant','super_admin')
+           OR (
+             LOWER(COALESCE(u.role,'')) = 'admin'
+             AND (
+               EXISTS (
+                 SELECT 1 FROM supervisor_assignments sa
+                 WHERE sa.supervisor_id = u.id AND sa.agency_id = ?
+                 AND (
+                   EXISTS (SELECT 1 FROM client_provider_assignments cpa
+                     WHERE cpa.provider_user_id = sa.supervisee_id AND cpa.organization_id = ? AND cpa.is_active = 1)
+                   OR EXISTS (SELECT 1 FROM clients c
+                     WHERE c.provider_id = sa.supervisee_id AND c.organization_id = ?)
+                 )
+               )
+               OR EXISTS (SELECT 1 FROM client_provider_assignments cpa
+                 WHERE cpa.provider_user_id = u.id AND cpa.organization_id = ? AND cpa.is_active = 1)
+               OR EXISTS (SELECT 1 FROM clients c
+                 WHERE c.provider_id = u.id AND c.organization_id = ?)
+             )
+           )
+         )
        ORDER BY COALESCE(u.last_name,''), COALESCE(u.first_name,''), u.id`,
-      [agencyId]
+      [agencyId, agencyId, agencyId, agencyId, agencyId, agencyId]
     );
 
     const userIds = (users || []).map((u) => Number(u.userId)).filter((n) => Number.isInteger(n) && n > 0);
@@ -307,6 +347,25 @@ export const listAgencyProvidersCredentialing = async (req, res, next) => {
         }
         if (row.fields[k] !== undefined) continue;
         row.fields[k] = v.value ?? null;
+      }
+
+      const [insRows] = await pool.execute(
+        `SELECT uic.user_id, icd.name AS insurance_name
+         FROM user_insurance_credentialing uic
+         JOIN insurance_credentialing_definitions icd ON icd.id = uic.insurance_credentialing_definition_id
+         WHERE icd.agency_id = ? AND uic.user_id IN (${placeholders})`,
+        [agencyId, ...userIds]
+      );
+      const inNetworkByUser = new Map();
+      for (const ir of insRows || []) {
+        const uid = Number(ir.user_id);
+        const name = String(ir.insurance_name || '').trim();
+        if (!uid || !name) continue;
+        if (!inNetworkByUser.has(uid)) inNetworkByUser.set(uid, []);
+        inNetworkByUser.get(uid).push(name);
+      }
+      for (const [uid, row] of rowsByUserId) {
+        row.in_network = inNetworkByUser.get(uid) || [];
       }
     }
 
@@ -360,7 +419,7 @@ export const patchAgencyProvidersCredentialing = async (req, res, next) => {
     if (!Number.isInteger(agencyId) || agencyId <= 0) {
       return res.status(400).json({ error: { message: 'Invalid agencyId' } });
     }
-    await assertAgencyAccess(req, agencyId);
+    await assertCredentialPrivilege(req, agencyId);
 
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -449,7 +508,25 @@ export const patchAgencyProvidersCredentialing = async (req, res, next) => {
     for (const u of uivUpdates) {
       const defId = defIdByFieldKey.get(String(u.storageKey));
       if (!defId) continue;
+      const [oldRows] = await pool.execute(
+        'SELECT uiv.value FROM user_info_values uiv WHERE uiv.user_id = ? AND uiv.field_definition_id = ? LIMIT 1',
+        [u.userId, defId]
+      );
+      const oldVal = oldRows?.[0]?.value ?? null;
       await UserInfoValue.createOrUpdate(u.userId, defId, u.value);
+      try {
+        await CredentialingChangeLog.create({
+          userId: u.userId,
+          agencyId,
+          fieldChanged: u.fieldKey,
+          oldValue: oldVal != null ? String(oldVal) : null,
+          newValue: u.value != null ? String(u.value) : null,
+          changedByUserId: req.user?.id || null,
+          insuranceCredentialingDefinitionId: null
+        });
+      } catch {
+        // best-effort; don't fail the main update
+      }
       // Cleanup: if the value used to live under an alias field_key, clear those alias values
       // so Provider Info and Credentialing stop showing duplicates for this user.
       if (Array.isArray(u.aliasKeysToClear) && u.aliasKeysToClear.length) {
@@ -484,18 +561,38 @@ export const downloadAgencyProvidersCredentialingCsv = async (req, res, next) =>
     if (!Number.isInteger(agencyId) || agencyId <= 0) {
       return res.status(400).json({ error: { message: 'Invalid agencyId' } });
     }
-    await assertAgencyAccess(req, agencyId);
+    await assertCredentialPrivilege(req, agencyId);
 
     // Reuse the JSON method but avoid extra work in response formatting.
     const [users] = await pool.execute(
       `SELECT u.id AS userId, u.first_name, u.last_name, u.role, u.status, u.personal_email, u.personal_phone
        FROM users u
-       JOIN user_agencies ua ON ua.user_id = u.id
-       WHERE ua.agency_id = ?
-         AND LOWER(COALESCE(u.role,'')) IN ('provider')
-         AND UPPER(COALESCE(u.status,'')) IN ('ACTIVE_EMPLOYEE','ACTIVE')
+       JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
+       WHERE UPPER(COALESCE(u.status,'')) IN ('ACTIVE_EMPLOYEE','ACTIVE')
+         AND (
+           LOWER(COALESCE(u.role,'')) IN ('provider','provider_plus','clinical_practice_assistant','super_admin')
+           OR (
+             LOWER(COALESCE(u.role,'')) = 'admin'
+             AND (
+               EXISTS (
+                 SELECT 1 FROM supervisor_assignments sa
+                 WHERE sa.supervisor_id = u.id AND sa.agency_id = ?
+                 AND (
+                   EXISTS (SELECT 1 FROM client_provider_assignments cpa
+                     WHERE cpa.provider_user_id = sa.supervisee_id AND cpa.organization_id = ? AND cpa.is_active = 1)
+                   OR EXISTS (SELECT 1 FROM clients c
+                     WHERE c.provider_id = sa.supervisee_id AND c.organization_id = ?)
+                 )
+               )
+               OR EXISTS (SELECT 1 FROM client_provider_assignments cpa
+                 WHERE cpa.provider_user_id = u.id AND cpa.organization_id = ? AND cpa.is_active = 1)
+               OR EXISTS (SELECT 1 FROM clients c
+                 WHERE c.provider_id = u.id AND c.organization_id = ?)
+             )
+           )
+         )
        ORDER BY COALESCE(u.last_name,''), COALESCE(u.first_name,''), u.id`,
-      [agencyId]
+      [agencyId, agencyId, agencyId, agencyId, agencyId, agencyId]
     );
 
     const userIds = (users || []).map((u) => Number(u.userId)).filter((n) => Number.isInteger(n) && n > 0);
@@ -527,12 +624,22 @@ export const downloadAgencyProvidersCredentialingCsv = async (req, res, next) =>
       }
     }
 
-    const header = CREDENTIALING_COLUMNS.map((c) => c.label);
+    const columnsParam = String(req.query.columns || '').trim();
+    const selectedKeys = columnsParam
+      ? columnsParam.split(',').map((k) => String(k).trim()).filter(Boolean)
+      : null;
+    const exportColumns = selectedKeys?.length
+      ? CREDENTIALING_COLUMNS.filter((c) => selectedKeys.includes(c.key))
+      : CREDENTIALING_COLUMNS;
+    if (!exportColumns.length) {
+      return res.status(400).json({ error: { message: 'No valid columns selected' } });
+    }
+
+    const header = exportColumns.map((c) => c.label);
     const lines = [header.join(',')];
     for (const u of users || []) {
       const uid = Number(u.userId);
       const f = fieldsByUserId.get(uid) || {};
-      // Normalize to canonical keys for export.
       for (const col of CREDENTIALING_COLUMNS) {
         if (col.kind !== 'uiv') continue;
         const readKeys = Array.isArray(col.readFieldKeys) && col.readFieldKeys.length ? col.readFieldKeys : [col.fieldKey];
@@ -541,7 +648,7 @@ export const downloadAgencyProvidersCredentialingCsv = async (req, res, next) =>
           f[col.fieldKey] = v;
         }
       }
-      const row = CREDENTIALING_COLUMNS.map((c) => {
+      const row = exportColumns.map((c) => {
         if (c.kind === 'users') {
           if (c.usersCol === 'personal_phone') return csvEscape(u.personal_phone || '');
           return csvEscape(u[c.usersCol] || '');
@@ -571,7 +678,7 @@ export const deleteAgencyProvidersCredentialingField = async (req, res, next) =>
     if (!fieldKey) {
       return res.status(400).json({ error: { message: 'fieldKey required' } });
     }
-    await assertAgencyAccess(req, agencyId);
+    await assertCredentialPrivilege(req, agencyId);
 
     const [result] = await pool.execute(
       `DELETE uiv
@@ -580,11 +687,406 @@ export const deleteAgencyProvidersCredentialingField = async (req, res, next) =>
        JOIN user_agencies ua ON ua.user_id = uiv.user_id AND ua.agency_id = ?
        JOIN users u ON u.id = uiv.user_id
        WHERE uifd.field_key = ?
-         AND LOWER(COALESCE(u.role,'')) IN ('provider')`,
-      [agencyId, fieldKey]
+         AND (
+           LOWER(COALESCE(u.role,'')) IN ('provider','provider_plus','clinical_practice_assistant','super_admin')
+           OR (
+             LOWER(COALESCE(u.role,'')) = 'admin'
+             AND (
+               EXISTS (
+                 SELECT 1 FROM supervisor_assignments sa
+                 WHERE sa.supervisor_id = u.id AND sa.agency_id = ?
+                 AND (
+                   EXISTS (SELECT 1 FROM client_provider_assignments cpa
+                     WHERE cpa.provider_user_id = sa.supervisee_id AND cpa.organization_id = ? AND cpa.is_active = 1)
+                   OR EXISTS (SELECT 1 FROM clients c WHERE c.provider_id = sa.supervisee_id AND c.organization_id = ?)
+                 )
+               )
+               OR EXISTS (SELECT 1 FROM client_provider_assignments cpa
+                 WHERE cpa.provider_user_id = u.id AND cpa.organization_id = ? AND cpa.is_active = 1)
+               OR EXISTS (SELECT 1 FROM clients c WHERE c.provider_id = u.id AND c.organization_id = ?)
+             )
+           )
+         )`,
+      [agencyId, fieldKey, agencyId, agencyId, agencyId, agencyId, agencyId]
     );
 
     res.json({ ok: true, deleted: Number(result?.affectedRows || 0) });
+  } catch (e) {
+    next(e);
+  }
+};
+
+// --- Insurance definitions CRUD ---
+export const listInsuranceDefinitions = async (req, res, next) => {
+  try {
+    const agencyId = parseInt(req.params.agencyId, 10);
+    if (!Number.isInteger(agencyId) || agencyId <= 0) {
+      return res.status(400).json({ error: { message: 'Invalid agencyId' } });
+    }
+    await assertCredentialPrivilege(req, agencyId);
+    const list = await InsuranceCredentialingDefinition.listByAgencyId(agencyId);
+    // Return without raw ciphertext for list; frontend uses masked display
+    const safe = (list || []).map((r) => ({
+      id: r.id,
+      agency_id: r.agency_id,
+      name: r.name,
+      parent_id: r.parent_id,
+      contact_phone: r.contact_phone,
+      contact_email: r.contact_email,
+      reminder_notes: r.reminder_notes,
+      sort_order: r.sort_order,
+      created_at: r.created_at,
+      updated_at: r.updated_at,
+      has_login_credentials: !!(r.login_username_ciphertext || r.login_password_ciphertext)
+    }));
+    res.json({ insurances: safe });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const createInsuranceDefinition = async (req, res, next) => {
+  try {
+    const agencyId = parseInt(req.params.agencyId, 10);
+    if (!Number.isInteger(agencyId) || agencyId <= 0) {
+      return res.status(400).json({ error: { message: 'Invalid agencyId' } });
+    }
+    await assertCredentialPrivilege(req, agencyId);
+    const { name, parentId, contactPhone, contactEmail, reminderNotes, sortOrder } = req.body || {};
+    if (!name || !String(name).trim()) {
+      return res.status(400).json({ error: { message: 'name required' } });
+    }
+    const created = await InsuranceCredentialingDefinition.create({
+      agencyId,
+      name: String(name).trim(),
+      parentId: parentId ? parseInt(parentId, 10) : null,
+      contactPhone: contactPhone ? String(contactPhone).trim() : null,
+      contactEmail: contactEmail ? String(contactEmail).trim() : null,
+      reminderNotes: reminderNotes ? String(reminderNotes).trim() : null,
+      sortOrder: sortOrder != null ? parseInt(sortOrder, 10) : 0
+    });
+    res.status(201).json(created);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const getInsuranceDefinition = async (req, res, next) => {
+  try {
+    const agencyId = parseInt(req.params.agencyId, 10);
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(agencyId) || agencyId <= 0 || !Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ error: { message: 'Invalid agencyId or id' } });
+    }
+    await assertCredentialPrivilege(req, agencyId);
+    const def = await InsuranceCredentialingDefinition.findById(id);
+    if (!def || Number(def.agency_id) !== agencyId) {
+      return res.status(404).json({ error: { message: 'Insurance definition not found' } });
+    }
+    const safe = {
+      ...def,
+      login_username_ciphertext: undefined,
+      login_password_ciphertext: undefined,
+      has_login_credentials: !!(def.login_username_ciphertext || def.login_password_ciphertext)
+    };
+    res.json(safe);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const updateInsuranceDefinition = async (req, res, next) => {
+  try {
+    const agencyId = parseInt(req.params.agencyId, 10);
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(agencyId) || agencyId <= 0 || !Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ error: { message: 'Invalid agencyId or id' } });
+    }
+    await assertCredentialPrivilege(req, agencyId);
+    const def = await InsuranceCredentialingDefinition.findById(id);
+    if (!def || Number(def.agency_id) !== agencyId) {
+      return res.status(404).json({ error: { message: 'Insurance definition not found' } });
+    }
+    const body = req.body || {};
+    const updates = {};
+    if (body.name != null) updates.name = String(body.name).trim();
+    if (body.parentId != null) updates.parent_id = body.parentId ? parseInt(body.parentId, 10) : null;
+    if (body.contactPhone != null) updates.contact_phone = body.contactPhone ? String(body.contactPhone).trim() : null;
+    if (body.contactEmail != null) updates.contact_email = body.contactEmail ? String(body.contactEmail).trim() : null;
+    if (body.reminderNotes != null) updates.reminder_notes = body.reminderNotes ? String(body.reminderNotes).trim() : null;
+    if (body.sortOrder != null) updates.sort_order = parseInt(body.sortOrder, 10);
+    if (body.loginUsername != null && body.loginUsername !== '') {
+      const enc = encryptChatText(body.loginUsername);
+      updates.login_username_ciphertext = enc.ciphertextB64;
+      updates.login_username_iv = enc.ivB64;
+      updates.login_username_auth_tag = enc.authTagB64;
+      updates.login_username_key_id = enc.keyId;
+    }
+    if (body.loginPassword != null && body.loginPassword !== '') {
+      const enc = encryptChatText(body.loginPassword);
+      updates.login_password_ciphertext = enc.ciphertextB64;
+      updates.login_password_iv = enc.ivB64;
+      updates.login_password_auth_tag = enc.authTagB64;
+      updates.login_password_key_id = enc.keyId;
+    }
+    const updated = await InsuranceCredentialingDefinition.update(id, updates);
+    res.json(updated);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const deleteInsuranceDefinition = async (req, res, next) => {
+  try {
+    const agencyId = parseInt(req.params.agencyId, 10);
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(agencyId) || agencyId <= 0 || !Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ error: { message: 'Invalid agencyId or id' } });
+    }
+    await assertCredentialPrivilege(req, agencyId);
+    const def = await InsuranceCredentialingDefinition.findById(id);
+    if (!def || Number(def.agency_id) !== agencyId) {
+      return res.status(404).json({ error: { message: 'Insurance definition not found' } });
+    }
+    await InsuranceCredentialingDefinition.delete(id);
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+};
+
+// --- User insurance credentialing ---
+export const listCredentialingByInsurance = async (req, res, next) => {
+  try {
+    const agencyId = parseInt(req.params.agencyId, 10);
+    if (!Number.isInteger(agencyId) || agencyId <= 0) {
+      return res.status(400).json({ error: { message: 'Invalid agencyId' } });
+    }
+    await assertCredentialPrivilege(req, agencyId);
+    const insurances = await InsuranceCredentialingDefinition.listByAgencyId(agencyId);
+    const result = [];
+    for (const ins of insurances || []) {
+      const rows = await UserInsuranceCredentialing.listByInsuranceId(ins.id);
+      result.push({
+        insurance: { id: ins.id, name: ins.name, parent_id: ins.parent_id },
+        providers: (rows || []).map((r) => ({
+          id: r.id,
+          user_id: r.user_id,
+          first_name: r.first_name,
+          last_name: r.last_name,
+          role: r.role,
+          effective_date: r.effective_date,
+          submitted_date: r.submitted_date,
+          resubmitted_date: r.resubmitted_date,
+          pin_or_reference: r.pin_or_reference,
+          notes: r.notes,
+          has_user_credentials: !!(r.user_level_username_ciphertext || r.user_level_password_ciphertext)
+        }))
+      });
+    }
+    res.json({ byInsurance: result });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const listUserCredentialing = async (req, res, next) => {
+  try {
+    const agencyId = parseInt(req.params.agencyId, 10);
+    const userId = parseInt(req.params.userId, 10);
+    if (!Number.isInteger(agencyId) || agencyId <= 0 || !Number.isInteger(userId) || userId <= 0) {
+      return res.status(400).json({ error: { message: 'Invalid agencyId or userId' } });
+    }
+    await assertCredentialPrivilege(req, agencyId);
+    const rows = await UserInsuranceCredentialing.listByUserId(userId);
+    const byAgency = await InsuranceCredentialingDefinition.listByAgencyId(agencyId);
+    const agencyInsIds = new Set((byAgency || []).map((i) => i.id));
+    const filtered = (rows || []).filter((r) => agencyInsIds.has(r.insurance_credentialing_definition_id));
+    const safe = filtered.map((r) => ({
+      id: r.id,
+      user_id: r.user_id,
+      insurance_credentialing_definition_id: r.insurance_credentialing_definition_id,
+      insurance_name: r.insurance_name,
+      effective_date: r.effective_date,
+      submitted_date: r.submitted_date,
+      resubmitted_date: r.resubmitted_date,
+      pin_or_reference: r.pin_or_reference,
+      notes: r.notes,
+      has_user_credentials: !!(r.user_level_username_ciphertext || r.user_level_password_ciphertext)
+    }));
+    res.json({ credentialing: safe });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const upsertUserInsuranceCredentialing = async (req, res, next) => {
+  try {
+    const agencyId = parseInt(req.params.agencyId, 10);
+    if (!Number.isInteger(agencyId) || agencyId <= 0) {
+      return res.status(400).json({ error: { message: 'Invalid agencyId' } });
+    }
+    await assertCredentialPrivilege(req, agencyId);
+    const { userId, insuranceCredentialingDefinitionId, effectiveDate, submittedDate, resubmittedDate, pinOrReference, notes } = req.body || {};
+    if (!userId || !insuranceCredentialingDefinitionId) {
+      return res.status(400).json({ error: { message: 'userId and insuranceCredentialingDefinitionId required' } });
+    }
+    const def = await InsuranceCredentialingDefinition.findById(parseInt(insuranceCredentialingDefinitionId, 10));
+    if (!def || Number(def.agency_id) !== agencyId) {
+      return res.status(400).json({ error: { message: 'Insurance definition not found or wrong agency' } });
+    }
+    const created = await UserInsuranceCredentialing.upsert({
+      userId: parseInt(userId, 10),
+      insuranceCredentialingDefinitionId: parseInt(insuranceCredentialingDefinitionId, 10),
+      effectiveDate: effectiveDate || null,
+      submittedDate: submittedDate || null,
+      resubmittedDate: resubmittedDate || null,
+      pinOrReference: pinOrReference ? String(pinOrReference).trim() : null,
+      notes: notes ? String(notes).trim() : null,
+      updatedByUserId: req.user.id
+    });
+    res.json(created);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const updateUserInsuranceCredentialing = async (req, res, next) => {
+  try {
+    const agencyId = parseInt(req.params.agencyId, 10);
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(agencyId) || agencyId <= 0 || !Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ error: { message: 'Invalid agencyId or id' } });
+    }
+    await assertCredentialPrivilege(req, agencyId);
+    const [rows] = await pool.execute(
+      `SELECT uic.*, icd.agency_id FROM user_insurance_credentialing uic
+       JOIN insurance_credentialing_definitions icd ON icd.id = uic.insurance_credentialing_definition_id
+       WHERE uic.id = ?`,
+      [id]
+    );
+    const row = rows?.[0];
+    if (!row || Number(row.agency_id) !== agencyId) {
+      return res.status(404).json({ error: { message: 'User insurance credentialing not found' } });
+    }
+    const body = req.body || {};
+    const updates = {};
+    if (body.effectiveDate != null) updates.effective_date = body.effectiveDate || null;
+    if (body.submittedDate != null) updates.submitted_date = body.submittedDate || null;
+    if (body.resubmittedDate != null) updates.resubmitted_date = body.resubmittedDate || null;
+    if (body.pinOrReference != null) updates.pin_or_reference = body.pinOrReference ? String(body.pinOrReference).trim() : null;
+    if (body.notes != null) updates.notes = body.notes ? String(body.notes).trim() : null;
+    if (Object.keys(updates).length) {
+      const setClauses = Object.keys(updates).map((k) => `${k} = ?`);
+      const vals = Object.values(updates);
+      vals.push(req.user.id, id);
+      await pool.execute(
+        `UPDATE user_insurance_credentialing SET ${setClauses.join(', ')}, updated_by_user_id = ? WHERE id = ?`,
+        vals
+      );
+    }
+    if (body.loginUsername != null && body.loginUsername !== '' || body.loginPassword != null && body.loginPassword !== '') {
+      const usernameEnc = body.loginUsername != null && body.loginUsername !== ''
+        ? encryptChatText(body.loginUsername)
+        : null;
+      const passwordEnc = body.loginPassword != null && body.loginPassword !== ''
+        ? encryptChatText(body.loginPassword)
+        : null;
+      await UserInsuranceCredentialing.updateCredentials(id, { usernameEnc, passwordEnc }, req.user.id);
+    }
+    const updated = await UserInsuranceCredentialing.findByUserAndInsurance(row.user_id, row.insurance_credentialing_definition_id);
+    res.json(updated);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const deleteUserInsuranceCredentialing = async (req, res, next) => {
+  try {
+    const agencyId = parseInt(req.params.agencyId, 10);
+    const { userId, insuranceCredentialingDefinitionId } = req.body || req.query;
+    if (!userId || !insuranceCredentialingDefinitionId) {
+      return res.status(400).json({ error: { message: 'userId and insuranceCredentialingDefinitionId required' } });
+    }
+    await assertCredentialPrivilege(req, agencyId);
+    const def = await InsuranceCredentialingDefinition.findById(parseInt(insuranceCredentialingDefinitionId, 10));
+    if (!def || Number(def.agency_id) !== agencyId) {
+      return res.status(400).json({ error: { message: 'Insurance definition not found or wrong agency' } });
+    }
+    await UserInsuranceCredentialing.delete(parseInt(userId, 10), parseInt(insuranceCredentialingDefinitionId, 10));
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+};
+
+// --- Credential reveal (decrypt and return; audit recommended) ---
+export const revealCredential = async (req, res, next) => {
+  try {
+    const agencyId = parseInt(req.params.agencyId, 10);
+    if (!Number.isInteger(agencyId) || agencyId <= 0) {
+      return res.status(400).json({ error: { message: 'Invalid agencyId' } });
+    }
+    await assertCredentialPrivilege(req, agencyId);
+    const { type, id, insuranceDefinitionId } = req.body || {};
+    if (!type || !['insurance_login', 'user_level'].includes(type)) {
+      return res.status(400).json({ error: { message: 'type must be insurance_login or user_level' } });
+    }
+    let plaintext = null;
+    if (type === 'insurance_login') {
+      const def = await InsuranceCredentialingDefinition.findById(parseInt(insuranceDefinitionId || id, 10));
+      if (!def || Number(def.agency_id) !== agencyId) {
+        return res.status(404).json({ error: { message: 'Insurance definition not found' } });
+      }
+      const field = req.body.field === 'password' ? 'password' : 'username';
+      const cipher = field === 'password'
+        ? (def.login_password_ciphertext && { ciphertextB64: def.login_password_ciphertext, ivB64: def.login_password_iv, authTagB64: def.login_password_auth_tag, keyId: def.login_password_key_id })
+        : (def.login_username_ciphertext && { ciphertextB64: def.login_username_ciphertext, ivB64: def.login_username_iv, authTagB64: def.login_username_auth_tag, keyId: def.login_username_key_id });
+      if (!cipher) {
+        return res.status(404).json({ error: { message: 'No stored credential' } });
+      }
+      plaintext = decryptChatText(cipher);
+    } else if (type === 'user_level') {
+      const uicId = parseInt(id, 10);
+      const [rows] = await pool.execute(
+        `SELECT uic.*, icd.agency_id FROM user_insurance_credentialing uic
+         JOIN insurance_credentialing_definitions icd ON icd.id = uic.insurance_credentialing_definition_id
+         WHERE uic.id = ?`,
+        [uicId]
+      );
+      const row = rows?.[0];
+      if (!row || Number(row.agency_id) !== agencyId) {
+        return res.status(404).json({ error: { message: 'User insurance credentialing not found' } });
+      }
+      const field = req.body.field === 'password' ? 'password' : 'username';
+      const cipher = field === 'password'
+        ? (row.user_level_password_ciphertext && { ciphertextB64: row.user_level_password_ciphertext, ivB64: row.user_level_password_iv, authTagB64: row.user_level_password_auth_tag, keyId: row.user_level_password_key_id })
+        : (row.user_level_username_ciphertext && { ciphertextB64: row.user_level_username_ciphertext, ivB64: row.user_level_username_iv, authTagB64: row.user_level_username_auth_tag, keyId: row.user_level_username_key_id });
+      if (!cipher) {
+        return res.status(404).json({ error: { message: 'No stored credential' } });
+      }
+      plaintext = decryptChatText(cipher);
+    }
+    res.json({ value: plaintext });
+  } catch (e) {
+    next(e);
+  }
+};
+
+// --- Timeline ---
+export const listCredentialingTimeline = async (req, res, next) => {
+  try {
+    const agencyId = parseInt(req.params.agencyId, 10);
+    const userId = req.query.userId ? parseInt(req.query.userId, 10) : null;
+    if (!Number.isInteger(agencyId) || agencyId <= 0) {
+      return res.status(400).json({ error: { message: 'Invalid agencyId' } });
+    }
+    await assertCredentialPrivilege(req, agencyId);
+    const limit = Math.min(parseInt(req.query.limit, 10) || 200, 500);
+    const rows = userId
+      ? await CredentialingChangeLog.listByUserId(userId, limit)
+      : await CredentialingChangeLog.listByAgencyId(agencyId, limit);
+    res.json({ timeline: rows || [] });
   } catch (e) {
     next(e);
   }

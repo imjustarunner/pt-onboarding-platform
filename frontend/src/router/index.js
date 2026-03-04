@@ -720,7 +720,7 @@ const routes = [
     path: '/:organizationSlug/admin/credentialing',
     name: 'OrganizationAgencyCredentialing',
     component: () => import('../views/admin/AgencyCredentialingView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff'], organizationSlug: true }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff'], requiresCapability: 'canManageCredentialing', organizationSlug: true }
   },
   {
     path: '/:organizationSlug/admin/hiring',
@@ -1238,7 +1238,7 @@ const routes = [
     path: '/admin/credentialing',
     name: 'AgencyCredentialing',
     component: () => import('../views/admin/AgencyCredentialingView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff'] }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff'], requiresCapability: 'canManageCredentialing' }
   },
   {
     path: '/admin/hiring',

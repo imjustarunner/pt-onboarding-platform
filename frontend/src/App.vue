@@ -187,7 +187,7 @@
 
                     <router-link :to="orgTo('/admin/users')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" >Users</router-link>
                     <router-link :to="orgTo('/admin/clients')" v-if="isAdmin || user?.role === 'provider'" >Clients</router-link>
-                    <router-link :to="orgTo('/admin/credentialing')" v-if="isAdmin || user?.role === 'support' || user?.role === 'staff'" >Credentialing</router-link>
+                    <router-link :to="orgTo('/admin/credentialing')" v-if="canSeeCredentialing" >Credentialing</router-link>
 
                     <div class="nav-dropdown-sep" />
 
@@ -1259,6 +1259,15 @@ const canSeeBudgetManagement = computed(() => {
   if (!caps.canAccessBudgetManagement) return false;
   const deptIds = Array.isArray(user.value?.departmentAgencyIds) ? user.value.departmentAgencyIds : [];
   return currentAgencyId.value && deptIds.includes(currentAgencyId.value);
+});
+
+const canSeeCredentialing = computed(() => {
+  if (user.value?.role === 'super_admin') return true;
+  const caps = user.value?.capabilities || {};
+  if (!caps.canManageCredentialing) return false;
+  const ids = Array.isArray(user.value?.credentialingAgencyIds) ? user.value.credentialingAgencyIds : [];
+  if (!currentAgencyId.value) return false;
+  return ids.includes(currentAgencyId.value);
 });
 
 const canSeeApplicantsTopNavLink = computed(() => {

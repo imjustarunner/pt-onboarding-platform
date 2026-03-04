@@ -17,21 +17,29 @@ import { sendEmailFromIdentity } from '../services/unifiedEmail/unifiedEmailSend
 import pool from '../config/database.js';
 
 async function buildPayrollCaps(user) {
-  const payrollAgencyIds = user?.id ? await User.listPayrollAgencyIds(user.id) : [];
-  const departmentAgencyIds = user?.id ? await User.listDepartmentAgencyIds(user.id) : [];
+  const [payrollAgencyIds, departmentAgencyIds, credentialingAgencyIds] = user?.id
+    ? await Promise.all([
+        User.listPayrollAgencyIds(user.id),
+        User.listDepartmentAgencyIds(user.id),
+        User.listCredentialingAgencyIds(user.id)
+      ])
+    : [[], [], []];
   const baseCaps = getUserCapabilities(user);
   const canManagePayroll = user?.role === 'super_admin' || payrollAgencyIds.length > 0;
   const canAccessBudgetManagement =
     canManagePayroll ||
     (user?.role === 'assistant_admin' && departmentAgencyIds.length > 0) ||
     (user?.role === 'provider_plus' && departmentAgencyIds.length > 0);
+  const canManageCredentialing = user?.role === 'super_admin' || credentialingAgencyIds.length > 0;
   return {
     payrollAgencyIds,
     departmentAgencyIds,
+    credentialingAgencyIds,
     capabilities: {
       ...baseCaps,
       canManagePayroll,
       canAccessBudgetManagement,
+      canManageCredentialing,
       canViewMyPayroll: true
     }
   };

@@ -231,19 +231,26 @@ export const requireCapability = (required) => {
 
       let caps = getUserCapabilities(userForCaps);
 
-      // canManagePayroll and canAccessBudgetManagement require async resolution from user_agencies
+      // canManagePayroll, canAccessBudgetManagement, canManageCredentialing require async resolution from user_agencies
       const needsPayrollCaps = requiredList.some((k) => k === 'canManagePayroll' || k === 'canAccessBudgetManagement');
-      if (needsPayrollCaps && userForCaps?.id) {
-        const [payrollAgencyIds, departmentAgencyIds] = await Promise.all([
+      const needsCredentialingCap = requiredList.some((k) => k === 'canManageCredentialing');
+      if ((needsPayrollCaps || needsCredentialingCap) && userForCaps?.id) {
+        const [payrollAgencyIds, departmentAgencyIds, credentialingAgencyIds] = await Promise.all([
           User.listPayrollAgencyIds(userForCaps.id),
-          User.listDepartmentAgencyIds(userForCaps.id)
+          User.listDepartmentAgencyIds(userForCaps.id),
+          User.listCredentialingAgencyIds(userForCaps.id)
         ]);
-        const canManagePayroll = userForCaps.role === 'super_admin' || payrollAgencyIds.length > 0;
-        const canAccessBudgetManagement =
-          canManagePayroll ||
-          ((userForCaps.role === 'assistant_admin' || userForCaps.role === 'provider_plus') &&
-            departmentAgencyIds.length > 0);
-        caps = { ...caps, canManagePayroll, canAccessBudgetManagement };
+        if (needsPayrollCaps) {
+          const canManagePayroll = userForCaps.role === 'super_admin' || payrollAgencyIds.length > 0;
+          const canAccessBudgetManagement =
+            canManagePayroll ||
+            ((userForCaps.role === 'assistant_admin' || userForCaps.role === 'provider_plus') &&
+              departmentAgencyIds.length > 0);
+          caps = { ...caps, canManagePayroll, canAccessBudgetManagement };
+        }
+        if (needsCredentialingCap) {
+          caps = { ...caps, canManageCredentialing: userForCaps.role === 'super_admin' || credentialingAgencyIds.length > 0 };
+        }
       }
 
       req.userCapabilities = caps;

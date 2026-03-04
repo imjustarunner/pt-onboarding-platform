@@ -1710,6 +1710,31 @@ class User {
     }
   }
 
+  /** Agencies where user has credential management privilege. */
+  static async listCredentialingAgencyIds(userId) {
+    try {
+      const [rows] = await pool.execute(
+        'SELECT agency_id FROM user_agencies WHERE user_id = ? AND can_manage_credentialing = 1',
+        [userId]
+      );
+      return (rows || []).map((r) => r.agency_id);
+    } catch {
+      return [];
+    }
+  }
+
+  static async setAgencyCredentialingAccess(userId, agencyId, enabled) {
+    try {
+      await pool.execute(
+        'UPDATE user_agencies SET can_manage_credentialing = ? WHERE user_id = ? AND agency_id = ?',
+        [enabled ? 1 : 0, userId, agencyId]
+      );
+      return this.getAgencyMembership(userId, agencyId);
+    } catch {
+      return null;
+    }
+  }
+
   static async assignToProgram(userId, programId) {
     await pool.execute(
       'INSERT INTO user_programs (user_id, program_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE user_id = user_id',
