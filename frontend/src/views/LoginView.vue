@@ -413,6 +413,7 @@ const resetToUsernameStep = () => {
   needsOrgChoice.value = false;
   password.value = '';
   lastErrorCode.value = null;
+  lastVerifiedUsername.value = '';
 };
 
 const verifyUsername = async ({ orgSlugOverride = null, reason = 'user' } = {}) => {

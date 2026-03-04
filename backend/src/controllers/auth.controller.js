@@ -64,6 +64,27 @@ const isSsoPolicyRequiredForRole = ({ featureFlags, userRole }) => {
       : [roleNorm];
   return ssoEnabled && roleAliases.some((r) => requiredRoles.includes(r)) && !SSO_EXCLUDED_ROLES.has(roleNorm);
 };
+/** If user is forced to SSO by any org (googleSsoRequiredRoles includes their role), return slug for Google start. */
+const getSsoForcedSlugFromOrgs = ({ user, userRole, orgs, requestedOrgSlug, resolvedSlug, pickSlug }) => {
+  if (isSsoPasswordOverrideEnabled(user)) return null;
+  const orgList = Array.isArray(orgs) ? orgs : [];
+  let forced = false;
+  let slugForGoogle = null;
+  const hasMembership = (slug) =>
+    slug && orgList.some((o) => (pickSlug(o) || '').toLowerCase() === String(slug).trim().toLowerCase());
+  for (const org of orgList) {
+    const flags = parseFeatureFlags(org?.feature_flags ?? null);
+    if (isSsoPolicyRequiredForRole({ featureFlags: flags, userRole })) {
+      forced = true;
+      const s = pickSlug(org);
+      if (s && !slugForGoogle) slugForGoogle = s;
+    }
+  }
+  if (!forced) return null;
+  if (requestedOrgSlug && hasMembership(requestedOrgSlug)) return String(requestedOrgSlug).trim().toLowerCase();
+  if (resolvedSlug && hasMembership(resolvedSlug)) return String(resolvedSlug).trim().toLowerCase();
+  return slugForGoogle ? String(slugForGoogle).trim().toLowerCase() : null;
+};
 const isDomainAllowedForOrg = ({ email, featureFlags }) => {
   const normalizedEmail = String(email || '').trim().toLowerCase();
   const domain = normalizedEmail.includes('@') ? normalizedEmail.split('@')[1] : '';
@@ -401,24 +422,29 @@ export const login = async (req, res, next) => {
       });
     }
 
-    // Optional org-level SSO enforcement: if this login attempt is for a specific org slug,
-    // and that org has Google SSO enabled for this role, block local password login.
-    if (orgSlug) {
-      try {
-        const org = (await Agency.findBySlug(orgSlug)) || (await Agency.findByPortalUrl(orgSlug));
-        const featureFlags = parseFeatureFlags(org?.feature_flags ?? null);
-        const loginIdentifiers = await getUserLoginIdentifiers(user?.id);
-        if (isWorkspaceEligibleForSso({ user, identifier, featureFlags, identifierUsedToFindUser: identifier, loginIdentifiers })) {
-          return res.status(403).json({
-            error: {
-              message: 'This organization requires Google sign-in. Please continue with Google.',
-              code: 'SSO_REQUIRED'
-            }
-          });
+    // SSO enforcement: block password login when user is forced to Google SSO by any org (everywhere, every slug).
+    const pickSlugForLogin = (org) => String(org?.portal_url || org?.portalUrl || org?.slug || '').trim().toLowerCase() || null;
+    let userOrgs = [];
+    try {
+      userOrgs = (await User.getAgencies(user.id)) || [];
+    } catch {
+      // best-effort
+    }
+    const ssoForcedSlugLogin = getSsoForcedSlugFromOrgs({
+      user,
+      userRole: String(user?.role || '').toLowerCase(),
+      orgs: userOrgs,
+      requestedOrgSlug: orgSlug,
+      resolvedSlug: orgSlug,
+      pickSlug: pickSlugForLogin
+    });
+    if (ssoForcedSlugLogin) {
+      return res.status(403).json({
+        error: {
+          message: 'This organization requires Google sign-in. Please continue with Google.',
+          code: 'SSO_REQUIRED'
         }
-      } catch {
-        // Best-effort: if org lookup fails, do not block login.
-      }
+      });
     }
 
     // Check user status and access using new lifecycle system
@@ -753,35 +779,54 @@ export const identifyLogin = async (req, res, next) => {
     }
 
     const userRole = String(user?.role || '').toLowerCase();
+    const pickSlug = (org) => String(org?.portal_url || org?.portalUrl || org?.slug || '').trim().toLowerCase() || null;
     if (userRole === 'super_admin') {
-      // Keep platform /login username-first + password by default.
-      // On org-branded login pages, allow Google routing when org SSO is enabled,
-      // so super admins are not blocked behind password-only verify flow.
+      // If SSO is forced for super_admin by any org, route to Google everywhere (platform + every slug).
+      let superAdminOrgs = [];
+      try {
+        superAdminOrgs = (await User.getAgencies(user.id)) || [];
+      } catch {
+        // best-effort
+      }
+      const ssoForcedSlug = getSsoForcedSlugFromOrgs({
+        user,
+        userRole,
+        orgs: superAdminOrgs,
+        requestedOrgSlug,
+        resolvedSlug: null,
+        pickSlug
+      });
+      if (ssoForcedSlug) {
+        const googleStartUrl = `/auth/google/start?orgSlug=${encodeURIComponent(ssoForcedSlug)}`;
+        notifyRescueAttempt({ matched: true, method: 'google', resolvedSlug: ssoForcedSlug });
+        return res.json({
+          matched: true,
+          normalizedUsername,
+          needsOrgChoice: false,
+          resolvedOrg: null,
+          login: { method: 'google', googleStartUrl }
+        });
+      }
+      // Legacy: on org-branded login, allow Google when org has SSO enabled (even if not required for super_admin).
       if (requestedOrgSlug) {
-        let useGoogle = rescueMode;
         try {
           const org = (await Agency.findBySlug(requestedOrgSlug)) || (await Agency.findByPortalUrl(requestedOrgSlug));
           const flags = parseFeatureFlags(org?.feature_flags ?? null);
           if (flags?.googleSsoEnabled === true) {
-            useGoogle = true;
+            const googleStartUrl = `/auth/google/start?orgSlug=${encodeURIComponent(requestedOrgSlug)}`;
+            notifyRescueAttempt({ matched: true, method: 'google', resolvedSlug: requestedOrgSlug });
+            return res.json({
+              matched: true,
+              normalizedUsername,
+              needsOrgChoice: false,
+              resolvedOrg: null,
+              login: { method: 'google', googleStartUrl }
+            });
           }
         } catch {
-          // best-effort: fall back to default behavior below
-        }
-
-        if (useGoogle) {
-          const googleStartUrl = `/auth/google/start?orgSlug=${encodeURIComponent(requestedOrgSlug)}`;
-          notifyRescueAttempt({ matched: true, method: 'google', resolvedSlug: requestedOrgSlug });
-          return res.json({
-            matched: true,
-            normalizedUsername,
-            needsOrgChoice: false,
-            resolvedOrg: null,
-            login: { method: 'google', googleStartUrl }
-          });
+          // best-effort
         }
       }
-
       notifyRescueAttempt({ matched: true, method: 'password', resolvedSlug: requestedOrgSlug });
       return res.json({
         matched: true,
@@ -794,7 +839,6 @@ export const identifyLogin = async (req, res, next) => {
 
     // IMPORTANT: prefer portal_url (public portal identifier) over slug (internal identifier).
     // Many child orgs (school/program/learning) use portal_url as the actual path segment.
-    const pickSlug = (org) => String(org?.portal_url || org?.portalUrl || org?.slug || '').trim().toLowerCase() || null;
     const pickType = (org) => String(org?.organization_type || org?.organizationType || 'agency').trim().toLowerCase();
 
     let orgs = [];
@@ -993,9 +1037,23 @@ export const identifyLogin = async (req, res, next) => {
     let loginMethod = 'password';
     let googleStartUrl = null;
 
+    // If SSO is forced for this user by ANY org, route to Google everywhere (platform + every slug).
+    const ssoForcedSlug = getSsoForcedSlugFromOrgs({
+      user,
+      userRole,
+      orgs,
+      requestedOrgSlug: requested,
+      resolvedSlug,
+      pickSlug
+    });
+    if (ssoForcedSlug) {
+      loginMethod = 'google';
+      googleStartUrl = `/auth/google/start?orgSlug=${encodeURIComponent(ssoForcedSlug)}`;
+    }
+
     // Rescue mode is a fail-safe: after we can match the user and org context,
     // route to Google start directly instead of depending on normal pre-check heuristics.
-    if (rescueMode) {
+    if (!googleStartUrl && rescueMode) {
       const rescueSlug = resolvedSlug || requestedOrgSlug;
       if (rescueSlug) {
         loginMethod = 'google';
@@ -1003,7 +1061,7 @@ export const identifyLogin = async (req, res, next) => {
       }
     }
 
-    if (resolvedSlug) {
+    if (!googleStartUrl && resolvedSlug) {
       try {
         const org = (await Agency.findBySlug(resolvedSlug)) || (await Agency.findByPortalUrl(resolvedSlug));
         const flags = parseFeatureFlags(org?.feature_flags ?? null);
