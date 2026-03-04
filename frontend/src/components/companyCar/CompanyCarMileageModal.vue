@@ -1,4 +1,5 @@
 <template>
+  <Teleport to="body">
   <div class="modal-overlay" @click.self="$emit('close')">
     <div class="modal company-car-mileage-modal" style="width: min(560px, 100%);">
       <div class="modal-header">
@@ -34,13 +35,29 @@
 
         <div class="field" style="margin-top: 12px;">
           <label>Start location</label>
-          <select v-model="form.startLocationId" class="full-width">
-            <option :value="null" disabled>Select start (office or owner home)…</option>
-            <option v-for="loc in startLocations" :key="loc.id" :value="loc.id">
-              {{ loc.name }}{{ loc.addressLine ? ` — ${loc.addressLine}` : '' }}
-            </option>
-          </select>
-          <div class="hint" style="margin-top: 4px;">Start is always office or owner home — never a school.</div>
+          <AddressSearchSelect
+            :options="startLocationOptions"
+            :model-value="getStartLocationValue(form.startLocation)"
+            placeholder="Select start (office or owner home)…"
+            :limit="50"
+            @update:model-value="form.startLocation = $event"
+          />
+          <div class="hint" style="margin-top: 4px;">Start is always office or owner home — never a school. Type to add a custom address.</div>
+        </div>
+
+        <div class="field" style="margin-top: 12px;">
+          <label>Starting odometer (miles) <span class="required">*</span></label>
+          <input
+            v-model.number="form.startOdometerMiles"
+            type="number"
+            min="0"
+            step="0.1"
+            :placeholder="editTrip ? 'Required' : 'From last trip'"
+            :readonly="!editTrip"
+          />
+          <div class="hint" style="margin-top: 4px;">
+            {{ editTrip ? 'Starting mileage for this trip.' : "Auto-filled from the previous trip's ending mileage for this car." }}
+          </div>
         </div>
 
         <div class="field" style="margin-top: 12px;">
@@ -51,6 +68,7 @@
                 :options="destinationOptions"
                 :model-value="getDestinationValue(dest)"
                 placeholder="Type to search schools or places…"
+                :limit="0"
                 @update:model-value="(v) => setDestination(di, v)"
               />
             </div>
@@ -79,18 +97,15 @@
           Calculated miles: <strong>{{ calculatedMiles.toFixed(1) }}</strong>
         </div>
 
-        <div class="field-row" style="margin-top: 12px; grid-template-columns: 1fr 1fr; gap: 12px;">
-          <div class="field">
-            <label>Starting odometer (miles)</label>
-            <input v-model.number="form.startOdometerMiles" type="number" min="0" step="0.1" placeholder="Optional" />
+        <div class="field" style="margin-top: 12px;">
+          <label>Ending odometer (miles) <span class="required">*</span></label>
+          <div v-if="computedEndOdometer !== null" class="odometer-display">
+            {{ computedEndOdometer.toFixed(1) }}
           </div>
-          <div class="field">
-            <label>Ending odometer (miles)</label>
-            <input v-model.number="form.endOdometerMiles" type="number" min="0" step="0.1" placeholder="Optional" />
+          <div v-else class="hint">Click "Calculate miles" above to compute based on start location and destinations.</div>
+          <div v-if="computedEndOdometer !== null" class="hint" style="margin-top: 4px;">
+            Calculated from start odometer + trip miles.
           </div>
-        </div>
-        <div v-if="computedMilesFromOdometer !== null" class="hint" style="margin-top: 4px;">
-          Miles from odometer: <strong>{{ computedMilesFromOdometer.toFixed(1) }}</strong>
         </div>
 
         <div class="field" style="margin-top: 12px;">
@@ -117,12 +132,16 @@
       </div>
     </div>
   </div>
+  </Teleport>
 </template>
 
 <script setup>
 import { ref, computed, watch } from 'vue';
 import api from '../../services/api';
+import { useAuthStore } from '../../store/auth';
 import AddressSearchSelect from './AddressSearchSelect.vue';
+
+const authStore = useAuthStore();
 
 const props = defineProps({
   agencyId: { type: Number, required: true },
@@ -145,7 +164,7 @@ const form = ref({
   companyCarId: null,
   userId: null,
   driveDate: '',
-  startLocationId: null,
+  startLocation: null,
   roundTrip: false,
   startOdometerMiles: null,
   endOdometerMiles: null,
@@ -154,11 +173,24 @@ const form = ref({
   notes: ''
 });
 
+const startLocationOptions = computed(() =>
+  (startLocations.value || []).map((l) => ({
+    ...l,
+    searchText: `${l.name || ''} ${l.addressLine || ''}`.toLowerCase()
+  }))
+);
+
+function getStartLocationValue(loc) {
+  if (!loc) return null;
+  if (typeof loc === 'object' && loc?.id) return loc;
+  return { id: `custom-${loc}`, name: loc, addressLine: loc, searchText: String(loc).toLowerCase() };
+}
+
 const startAddressForCalculate = computed(() => {
-  const id = form.value.startLocationId;
-  if (!id) return '';
-  const loc = startLocations.value.find((l) => l.id === id);
-  return loc?.addressLine || '';
+  const loc = form.value.startLocation;
+  if (!loc) return '';
+  if (typeof loc === 'object') return loc.addressLine || loc.name || '';
+  return String(loc).trim();
 });
 
 function getDestinationValue(dest) {
@@ -169,6 +201,10 @@ function getDestinationValue(dest) {
 
 function setDestination(idx, val) {
   form.value.destinations[idx] = val || null;
+  const dr = val?.defaultReason;
+  if (dr && !form.value.reasonForTravel?.trim()) {
+    form.value.reasonForTravel = dr;
+  }
 }
 
 const mileageCalculating = ref(false);
@@ -191,30 +227,28 @@ const canCalculateMileage = computed(() => {
   return !!origin && dests.length > 0;
 });
 
-const computedMilesFromOdometer = computed(() => {
-  const start = form.value.startOdometerMiles;
-  const end = form.value.endOdometerMiles;
-  if (start != null && end != null && !Number.isNaN(start) && !Number.isNaN(end) && end >= start) {
-    return end - start;
+const computedEndOdometer = computed(() => {
+  const start = Number(form.value.startOdometerMiles);
+  const miles = calculatedMiles.value;
+  if (Number.isFinite(start) && start >= 0 && miles != null && Number.isFinite(miles) && miles >= 0) {
+    return start + miles;
   }
   return null;
 });
 
-const effectiveMiles = computed(() => {
-  if (calculatedMiles.value !== null && Number.isFinite(calculatedMiles.value)) {
-    return calculatedMiles.value;
-  }
-  return computedMilesFromOdometer.value;
-});
+const effectiveMiles = computed(() => calculatedMiles.value);
 
 const canSubmit = computed(() => {
-  const hasMiles = effectiveMiles.value !== null && effectiveMiles.value >= 0;
+  const startOdom = Number(form.value.startOdometerMiles);
+  const hasValidStart = Number.isFinite(startOdom) && startOdom >= 0;
+  const hasCalculatedMiles = calculatedMiles.value != null && Number.isFinite(calculatedMiles.value) && calculatedMiles.value >= 0;
   return (
     form.value.companyCarId &&
     form.value.driveDate &&
     /^\d{4}-\d{2}-\d{2}$/.test(form.value.driveDate) &&
     form.value.reasonForTravel?.trim() &&
-    hasMiles
+    hasValidStart &&
+    hasCalculatedMiles
   );
 });
 
@@ -262,10 +296,13 @@ async function loadCars() {
 
 async function loadStartLocations() {
   try {
-    const res = await api.get('/company-car/start-locations', { params: { agencyId: props.agencyId } });
+    const params = { agencyId: props.agencyId };
+    const driverId = props.manageAccess ? form.value.userId : authStore.user?.id;
+    if (driverId) params.driverId = driverId;
+    const res = await api.get('/company-car/start-locations', { params });
     startLocations.value = res.data?.startLocations || [];
-    if (startLocations.value.length === 1 && !form.value.startLocationId) {
-      form.value.startLocationId = startLocations.value[0].id;
+    if (startLocations.value.length === 1 && !form.value.startLocation) {
+      form.value.startLocation = startLocations.value[0];
     }
   } catch {
     startLocations.value = [];
@@ -294,6 +331,22 @@ async function loadAgencyUsers() {
   }
 }
 
+async function loadLatestEndOdometer() {
+  const carId = form.value.companyCarId;
+  if (!carId || props.editTrip) return;
+  try {
+    const res = await api.get('/company-car/latest-trip-end-odometer', {
+      params: { agencyId: props.agencyId, companyCarId: carId }
+    });
+    const end = res.data?.endOdometerMiles;
+    if (end != null && Number.isFinite(end)) {
+      form.value.startOdometerMiles = end;
+    }
+  } catch {
+    // ignore
+  }
+}
+
 async function submit() {
   if (!canSubmit.value) return;
   error.value = '';
@@ -308,13 +361,14 @@ async function submit() {
       .filter(Boolean);
 
     const miles = effectiveMiles.value;
+    const endOdom = computedEndOdometer.value;
     const payload = {
       agencyId: props.agencyId,
       companyCarId: form.value.companyCarId,
       userId: props.manageAccess ? form.value.userId : undefined,
       driveDate: form.value.driveDate,
       startOdometerMiles: form.value.startOdometerMiles ?? 0,
-      endOdometerMiles: form.value.endOdometerMiles ?? 0,
+      endOdometerMiles: endOdom != null ? endOdom : form.value.endOdometerMiles ?? 0,
       miles: miles != null ? miles : undefined,
       destinations,
       reasonForTravel: form.value.reasonForTravel.trim(),
@@ -337,32 +391,63 @@ async function submit() {
   }
 }
 
-function resetForm() {
+function resetFormWithTrip(t) {
+  if (!t) return;
   const today = new Date().toISOString().slice(0, 10);
-  const t = props.editTrip;
   let destinations = [null];
-  if (t?.destinations_json) {
+  const destJson = t.destinations_json ?? t.destinationsJson;
+  if (destJson) {
     try {
-      const arr = typeof t.destinations_json === 'string' ? JSON.parse(t.destinations_json) : t.destinations_json;
-      destinations = Array.isArray(arr) && arr.length > 0 ? arr.map((d) => d) : [null];
+      const arr = typeof destJson === 'string' ? JSON.parse(destJson) : destJson;
+      destinations = Array.isArray(arr) && arr.length > 0 ? arr.map((d) => (typeof d === 'string' ? d : d?.name || d?.addressLine || String(d))) : [null];
     } catch {
       // ignore
     }
   }
+  const startOdom = t.start_odometer_miles ?? t.startOdometerMiles;
+  const miles = t.miles;
+  const driveDateRaw = t.drive_date ?? t.driveDate;
+  const driveDate = driveDateRaw
+    ? (driveDateRaw instanceof Date ? driveDateRaw : new Date(driveDateRaw)).toISOString().slice(0, 10)
+    : today;
   form.value = {
-    companyCarId: t?.company_car_id ?? (cars.value.length === 1 ? cars.value[0].id : null),
-    userId: t?.user_id ?? (agencyUsers.value.length ? agencyUsers.value[0].id : null),
-    driveDate: t?.drive_date ? String(t.drive_date).slice(0, 10) : today,
-    startLocationId: startLocations.value.length === 1 ? startLocations.value[0].id : null,
+    companyCarId: t.company_car_id ?? t.companyCarId ?? (cars.value.length === 1 ? cars.value[0].id : null),
+    userId: t.user_id ?? t.userId ?? (agencyUsers.value.length ? agencyUsers.value[0].id : null),
+    driveDate,
+    startLocation: startLocations.value.length === 1 ? startLocations.value[0] : null,
     roundTrip: false,
-    startOdometerMiles: t?.start_odometer_miles ?? null,
-    endOdometerMiles: t?.end_odometer_miles ?? null,
+    startOdometerMiles: startOdom != null && Number.isFinite(Number(startOdom)) ? Number(startOdom) : null,
+    endOdometerMiles: null,
     destinations,
-    reasonForTravel: t?.reason_for_travel ?? '',
-    notes: t?.notes ?? ''
+    reasonForTravel: String(t.reason_for_travel ?? t.reasonForTravel ?? '').trim(),
+    notes: t.notes != null ? String(t.notes) : ''
   };
-  calculatedMiles.value = t?.miles ?? null;
+  calculatedMiles.value = miles != null && Number.isFinite(Number(miles)) ? Number(miles) : null;
   mileageError.value = '';
+}
+
+function resetForm() {
+  const today = new Date().toISOString().slice(0, 10);
+  const t = props.editTrip;
+  if (t) {
+    resetFormWithTrip(t);
+  } else {
+    let destinations = [null];
+    form.value = {
+      companyCarId: cars.value.length === 1 ? cars.value[0].id : null,
+      userId: agencyUsers.value.length ? agencyUsers.value[0].id : null,
+      driveDate: today,
+      startLocation: startLocations.value.length === 1 ? startLocations.value[0] : null,
+      roundTrip: false,
+      startOdometerMiles: null,
+      endOdometerMiles: null,
+      destinations,
+      reasonForTravel: '',
+      notes: ''
+    };
+    calculatedMiles.value = null;
+    mileageError.value = '';
+  }
 }
 
 watch(
@@ -371,15 +456,68 @@ watch(
     if (!props.agencyId || !props.show) return;
     loading.value = true;
     error.value = '';
-    await Promise.all([loadCars(), loadStartLocations(), loadDestinationOptions(), loadAgencyUsers()]);
-    resetForm();
+    await Promise.all([loadCars(), loadDestinationOptions(), loadAgencyUsers()]);
+    await loadStartLocations();
+
+    if (props.editTrip?.id) {
+      resetFormWithTrip(props.editTrip);
+      try {
+        const res = await api.get(`/company-car/company-car-trips/${props.editTrip.id}`, {
+          params: { agencyId: props.agencyId },
+          skipGlobalLoading: true
+        });
+        const t = res.data?.trip;
+        if (t) {
+          resetFormWithTrip(t);
+        }
+      } catch (e) {
+        error.value = e.response?.data?.error?.message || 'Failed to load trip';
+      }
+    } else {
+      resetForm();
+      await loadLatestEndOdometer();
+    }
     loading.value = false;
   },
   { immediate: true }
 );
+
+watch(() => form.value.userId, () => {
+  if (!props.agencyId || !props.show) return;
+  loadStartLocations();
+});
+
+watch(() => form.value.companyCarId, () => {
+  if (!props.agencyId || !props.show || props.editTrip) return;
+  loadLatestEndOdometer();
+});
 </script>
 
 <style scoped>
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 10000;
+}
+.modal {
+  background: var(--bg, #fff);
+  border-radius: 8px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
+  max-height: 90vh;
+  overflow-y: auto;
+}
 .required { color: var(--danger, #dc3545); }
 .dest-row input { min-width: 0; }
+.odometer-display {
+  padding: 8px 12px;
+  background: var(--bg-secondary, #f8f9fa);
+  border: 1px solid var(--border-color, #e9ecef);
+  border-radius: 6px;
+  font-weight: 500;
+  font-size: 16px;
+}
 </style>

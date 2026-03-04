@@ -11,45 +11,25 @@
         >
           {{ exporting ? 'Exporting…' : 'Download CSV' }}
         </button>
-        <button
-          v-if="manageAccess"
-          type="button"
-          class="btn btn-secondary btn-sm"
-          :disabled="importing"
-          @click="triggerImportInput"
-        >
-          {{ importing ? 'Importing…' : 'Import from spreadsheet' }}
-        </button>
-        <button
-          v-if="manageAccess"
-          type="button"
-          class="btn btn-secondary btn-sm"
-          @click="downloadImportTemplate"
-        >
-          Download template
-        </button>
-        <input
-          ref="importInputRef"
-          type="file"
-          accept=".csv,.xlsx"
-          style="display: none;"
-          @change="onImportFile"
-        />
-        <button type="button" class="btn btn-primary btn-sm" @click="openLogModal()">
+        <button type="button" class="btn btn-primary btn-sm" @click="showLogModal = true; editingTrip = null">
           Log trip
         </button>
       </div>
     </div>
 
+    <CompanyCarMileageModal
+      v-if="showLogModal && props.agencyId"
+      :agency-id="Number(props.agencyId)"
+      :manage-access="props.manageAccess"
+      :show="showLogModal"
+      :edit-trip="editingTrip"
+      @close="closeLogModal"
+      @submitted="onTripSubmitted"
+    />
+
     <div v-if="totalMiles !== null" class="hint" style="margin-bottom: 12px;">
       Total mileage: <strong>{{ totalMiles.toFixed(1) }}</strong> miles
     </div>
-
-    <div v-if="manageAccess" class="hint" style="margin-bottom: 8px; font-size: 12px;">
-      CSV format: driver_name, date, starting_odometer_mileage, ending_odometer_mileage, destinations, reason_for_travel, full_description
-    </div>
-    <div v-if="importError" class="warn-box" style="margin-bottom: 12px;">{{ importError }}</div>
-    <div v-if="importSuccess" class="success-box" style="margin-bottom: 12px;">{{ importSuccess }}</div>
 
     <div v-if="manageAccess" class="card company-cars-card" style="margin-bottom: 12px;">
       <h4 style="margin: 0 0 10px 0;">Company cars</h4>
@@ -97,33 +77,41 @@
 
     <div v-if="loading" class="muted">Loading trips…</div>
     <div v-else-if="!trips.length" class="muted">No trips yet. Log a trip or import from your spreadsheet.</div>
-    <div v-else class="table-wrap">
-      <table class="table">
+    <div v-else class="table-wrap trips-table-wrap">
+      <table class="table trips-table">
         <thead>
           <tr>
-            <th>Date</th>
-            <th>Car</th>
-            <th>Driver</th>
-            <th class="right">Miles</th>
-            <th>Destinations</th>
-            <th>Reason</th>
-            <th class="right"></th>
+            <th class="col-date">Date</th>
+            <th class="col-car">Car</th>
+            <th class="col-driver">Driver</th>
+            <th class="col-num right">Start</th>
+            <th class="col-num right">End</th>
+            <th class="col-num right">Miles</th>
+            <th class="col-dest">Destinations</th>
+            <th class="col-reason">Reason</th>
+            <th class="col-actions"></th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="t in trips" :key="t.id">
-            <td>{{ t.drive_date }}</td>
-            <td>{{ t.company_car_name || '—' }}</td>
-            <td>{{ [t.user_first_name, t.user_last_name].filter(Boolean).join(' ') || '—' }}</td>
-            <td class="right">{{ Number(t.miles || 0).toFixed(1) }}</td>
-            <td>{{ formatDestinations(t.destinations_json) }}</td>
-            <td>{{ t.reason_for_travel || '—' }}</td>
-            <td class="right">
+            <td class="col-date">{{ formatDate(t.drive_date) }}</td>
+            <td class="col-car">{{ t.company_car_name || '—' }}</td>
+            <td class="col-driver">{{ [t.user_first_name, t.user_last_name].filter(Boolean).join(' ') || '—' }}</td>
+            <td class="col-num right">{{ formatOdometer(t.start_odometer_miles) }}</td>
+            <td class="col-num right">{{ formatOdometer(t.end_odometer_miles) }}</td>
+            <td class="col-num right">{{ formatMiles(t) }}</td>
+            <td class="col-dest" :title="formatDestinations(t.destinations_json)">
+              <span class="cell-truncate">{{ formatDestinations(t.destinations_json) }}</span>
+            </td>
+            <td class="col-reason" :title="t.reason_for_travel || ''">
+              <span class="cell-truncate">{{ t.reason_for_travel || '—' }}</span>
+            </td>
+            <td class="col-actions">
               <button
                 v-if="manageAccess || t.user_id === currentUserId"
                 type="button"
                 class="btn btn-secondary btn-sm"
-                @click="openLogModal(t)"
+                @click="editingTrip = t; showLogModal = true"
               >
                 Edit
               </button>
@@ -139,31 +127,32 @@
 import { ref, watch } from 'vue';
 import api from '../../services/api';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
+import CompanyCarMileageModal from './CompanyCarMileageModal.vue';
 
 const props = defineProps({
   agencyId: { type: Number, required: true },
   manageAccess: { type: Boolean, default: false },
-  currentUserId: { type: Number, default: null }
+  currentUserId: { type: Number, default: null },
 });
 
-const emit = defineEmits(['open-modal', 'trip-deleted']);
 
 const loading = ref(true);
 const trips = ref([]);
 const cars = ref([]);
 const totalMiles = ref(null);
-const importing = ref(false);
-const importError = ref('');
-const importSuccess = ref('');
-const importInputRef = ref(null);
 const newCarName = ref('');
+const showLogModal = ref(false);
+const editingTrip = ref(null);
 const creatingCar = ref(false);
 const uploadingPhotoId = ref(null);
 const photoInputRefs = ref({});
 const exporting = ref(false);
 
 function carPhotoUrl(car) {
-  return car?.photoUrl ? toUploadsUrl(car.photoUrl) : null;
+  if (!car?.photoUrl) return null;
+  const base = toUploadsUrl(car.photoUrl);
+  const t = car.updated_at || car.updatedAt;
+  return t ? `${base}?t=${encodeURIComponent(String(t))}` : base;
 }
 
 function setPhotoInputRef(carId, el) {
@@ -193,6 +182,32 @@ async function onPhotoUpload(carId, ev) {
   }
 }
 
+function formatDate(val) {
+  if (!val) return '—';
+  const s = String(val);
+  return s.slice(0, 10) || '—';
+}
+
+function formatOdometer(val) {
+  if (val == null || val === '') return '—';
+  const n = Number(val);
+  if (!Number.isFinite(n)) return '—';
+  return n % 1 === 0 ? String(Math.round(n)) : n.toFixed(1);
+}
+
+function formatMiles(t) {
+  const miles = Number(t?.miles);
+  if (Number.isFinite(miles) && miles > 0) return miles % 1 === 0 ? String(Math.round(miles)) : miles.toFixed(1);
+  const start = Number(t?.start_odometer_miles);
+  const end = Number(t?.end_odometer_miles);
+  if (Number.isFinite(start) && Number.isFinite(end) && end >= start) {
+    const m = end - start;
+    return m % 1 === 0 ? String(Math.round(m)) : m.toFixed(1);
+  }
+  const m = Number(miles || 0);
+  return m % 1 === 0 ? String(Math.round(m)) : m.toFixed(1);
+}
+
 function formatDestinations(json) {
   if (!json) return '—';
   try {
@@ -200,60 +215,6 @@ function formatDestinations(json) {
     return Array.isArray(arr) ? arr.join(', ') : '—';
   } catch {
     return '—';
-  }
-}
-
-function triggerImportInput() {
-  importInputRef.value?.click();
-}
-
-function downloadImportTemplate() {
-  const header = 'driver_name,date,starting_odometer_mileage,ending_odometer_mileage,destinations,reason_for_travel,full_description';
-  const example = 'Jane Doe,2025-03-01,10000,10050,Office; Client Site,Client visit,Round trip to downtown';
-  const csv = [header, example].join('\n');
-  const blob = new Blob([csv], { type: 'text/csv' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'company-car-trips-import-template.csv';
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-}
-
-async function onImportFile(ev) {
-  const file = ev.target?.files?.[0];
-  ev.target.value = '';
-  if (!file || !props.agencyId) return;
-
-  await loadCars();
-  if (!cars.value.length) {
-    importError.value = 'Add a company car first before importing.';
-    return;
-  }
-
-  importing.value = true;
-  importError.value = '';
-  importSuccess.value = '';
-  try {
-    const fd = new FormData();
-    fd.append('file', file);
-    fd.append('agencyId', String(props.agencyId));
-    fd.append('companyCarId', String(cars.value[0].id));
-
-    const res = await api.post('/company-car/import', fd);
-    const created = res.data?.created ?? 0;
-    const skipped = res.data?.skipped ?? 0;
-    const errors = res.data?.errors ?? 0;
-    const totalMiles = res.data?.totalImportedMiles ?? 0;
-    importSuccess.value = `Imported ${created} trip(s) (${totalMiles.toFixed(1)} miles total). ${skipped} skipped, ${errors} errors.`;
-    await loadTrips();
-    emit('trip-deleted'); // refresh parent if needed
-  } catch (e) {
-    importError.value = e.response?.data?.error?.message || 'Import failed';
-  } finally {
-    importing.value = false;
   }
 }
 
@@ -298,8 +259,15 @@ async function loadTrips() {
   }
 }
 
-function openLogModal(trip = null) {
-  emit('open-modal', trip);
+function onTripSubmitted() {
+  showLogModal.value = false;
+  editingTrip.value = null;
+  loadTrips();
+}
+
+function closeLogModal() {
+  showLogModal.value = false;
+  editingTrip.value = null;
 }
 
 async function downloadCsv() {
@@ -387,5 +355,60 @@ watch(
   height: 0;
   opacity: 0;
   pointer-events: none;
+}
+
+.trips-table-wrap {
+  overflow-x: auto;
+}
+
+.trips-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+
+.trips-table .col-date { width: 100px; }
+.trips-table .col-car { width: 100px; }
+.trips-table .col-driver { width: 110px; }
+.trips-table .col-num { width: 72px; }
+.trips-table .col-dest { width: 22%; min-width: 140px; }
+.trips-table .col-reason { width: 28%; min-width: 180px; }
+.trips-table .col-actions { width: 70px; }
+
+.trips-table th,
+.trips-table td {
+  padding: 8px 10px;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border-color, #e9ecef);
+}
+
+.trips-table .col-num,
+.trips-table .col-actions {
+  vertical-align: middle;
+}
+
+.trips-table th {
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-muted, #6c757d);
+}
+
+.trips-table tbody tr:hover {
+  background: var(--bg-secondary, #f8f9fa);
+}
+
+.cell-truncate {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.35;
+  font-size: 13px;
+}
+
+.trips-table .right {
+  text-align: right;
 }
 </style>

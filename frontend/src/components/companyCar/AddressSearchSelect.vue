@@ -46,7 +46,9 @@ const props = defineProps({
   options: { type: Array, default: () => [] },
   modelValue: { type: [Object, String], default: null },
   placeholder: { type: String, default: 'Type to search…' },
-  disabled: { type: Boolean, default: false }
+  disabled: { type: Boolean, default: false },
+  /** Max options to show. 0 = no limit (show all). Default 20. */
+  limit: { type: Number, default: 20 }
 });
 
 const emit = defineEmits(['update:modelValue']);
@@ -126,9 +128,10 @@ function escapeHtml(s) {
 const filteredOptions = computed(() => {
   const q = String(searchQuery.value || '').trim();
   const base = (props.options || []).slice();
+  const limit = props.limit > 0 ? props.limit : base.length;
 
   if (!q) {
-    return base.slice(0, 20).map((o) => ({
+    return base.slice(0, limit).map((o) => ({
       ...o,
       highlightedName: escapeHtml(o.name || '')
     }));
@@ -149,7 +152,7 @@ const filteredOptions = computed(() => {
     return String(a?.name || '').localeCompare(String(b?.name || ''));
   });
 
-  return scored.slice(0, 20);
+  return scored.slice(0, limit);
 });
 
 function onInput(e) {

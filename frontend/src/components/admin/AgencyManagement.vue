@@ -616,6 +616,16 @@
               </div>
             </div>
 
+            <div class="form-group" style="margin-top: 10px;">
+              <label>Default mileage reason (Company Car)</label>
+              <input
+                v-model="agencyForm.companyCarDefaultReason"
+                type="text"
+                placeholder="e.g. Client visits"
+              />
+              <small class="hint">Auto-fills &quot;Reason for travel&quot; when drivers select this school as a destination.</small>
+            </div>
+
             <div v-if="schoolContactsForEditor.length" style="margin-top: 10px;">
               <div style="font-weight: 700; font-size: 13px; margin-bottom: 6px;">Imported contacts</div>
               <div style="display: grid; gap: 8px;">
@@ -5092,6 +5102,7 @@ const defaultAgencyForm = () => ({
     primaryContactRole: '',
     secondaryContactText: ''
   },
+  companyCarDefaultReason: '',
   streetAddress: '',
   city: '',
   state: '',
@@ -6410,6 +6421,7 @@ const editAgency = async (agency) => {
       primaryContactRole: agency?.school_profile?.primary_contact_role || '',
       secondaryContactText: agency?.school_profile?.secondary_contact_text || ''
     },
+    companyCarDefaultReason: agency.company_car_default_reason ?? agency.companyCarDefaultReason ?? '',
     streetAddress: agency.street_address || '',
     city: agency.city || '',
     state: agency.state || '',
@@ -7188,6 +7200,9 @@ const saveAgency = async () => {
       city: agencyForm.value.city?.trim() || null,
       state: agencyForm.value.state?.trim() || null,
       postalCode: agencyForm.value.postalCode?.trim() || null,
+      ...(String(agencyForm.value.organizationType || '').toLowerCase() === 'school'
+        ? { companyCarDefaultReason: agencyForm.value.companyCarDefaultReason?.trim() || null }
+        : {}),
       portalUrl: agencyForm.value.portalUrl?.trim().toLowerCase() || null,
       tierSystemEnabled: !!agencyForm.value.tierSystemEnabled,
       tierThresholds: {

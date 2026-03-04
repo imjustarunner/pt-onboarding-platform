@@ -714,21 +714,23 @@
 
             <div v-else-if="submitPanelView === 'availability'">
               <div class="hint" style="margin-top: 6px;">Additional Availability</div>
-              <AdditionalAvailabilitySubmit v-if="currentAgencyId" :agency-id="Number(currentAgencyId)" />
+              <div v-if="!currentAgencyId" class="hint" style="margin-top: 12px;">Select an organization from the brand menu (top left) to continue.</div>
+              <AdditionalAvailabilitySubmit v-else :agency-id="Number(currentAgencyId)" />
             </div>
 
             <div v-else-if="submitPanelView === 'virtual_hours'">
               <div class="hint" style="margin-top: 6px;">Virtual Working Hours</div>
-              <VirtualWorkingHoursEditor v-if="currentAgencyId" :agency-id="Number(currentAgencyId)" />
+              <div v-if="!currentAgencyId" class="hint" style="margin-top: 12px;">Select an organization from the brand menu (top left) to continue.</div>
+              <VirtualWorkingHoursEditor v-else :agency-id="Number(currentAgencyId)" />
             </div>
 
             <div v-else-if="submitPanelView === 'company_car'">
+              <div v-if="!currentAgencyId" class="hint" style="margin-top: 12px;">Select an organization from the brand menu (top left) to continue.</div>
               <CompanyCarTripsView
-                v-if="currentAgencyId"
+                v-else
                 :agency-id="Number(currentAgencyId)"
                 :manage-access="!!authStore.user?.companyCarManageAccess"
                 :current-user-id="authStore.user?.id"
-                @open-modal="(trip) => { pendingCompanyCarEditTrip = trip; showCompanyCarMileageModal = true }"
               />
             </div>
           </div>
@@ -907,16 +909,6 @@
       @submitted="onBudgetExpensesSubmitted"
     />
 
-    <CompanyCarMileageModal
-      v-if="showCompanyCarMileageModal && currentAgencyId && !previewMode"
-      :agency-id="Number(currentAgencyId)"
-      :manage-access="!!authStore.user?.companyCarManageAccess"
-      :show="showCompanyCarMileageModal"
-      :edit-trip="pendingCompanyCarEditTrip"
-      @close="showCompanyCarMileageModal = false; pendingCompanyCarEditTrip = null"
-      @submitted="onCompanyCarMileageSubmitted"
-    />
-
     <div
       v-if="(pendingMileageModalOpen || pendingReimbursementModalOpen || pendingMedcancelModalOpen || pendingPtoModalOpen || pendingCompanyCardModalOpen || pendingTimeModalOpen) && currentAgencyId && !previewMode"
       style="position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; opacity: 0; pointer-events: none;"
@@ -1026,7 +1018,6 @@ import SkillBuilderAvailabilityModal from '../components/availability/SkillBuild
 import SkillBuildersAvailabilityModal from '../components/availability/SkillBuildersAvailabilityModal.vue';
 import LastPaycheckModal from '../components/dashboard/LastPaycheckModal.vue';
 import BudgetSubmitExpensesModal from '../components/budget/BudgetSubmitExpensesModal.vue';
-import CompanyCarMileageModal from '../components/companyCar/CompanyCarMileageModal.vue';
 import CompanyCarTripsView from '../components/companyCar/CompanyCarTripsView.vue';
 import SocialFeedsPanel from '../components/dashboard/SocialFeedsPanel.vue';
 import PresenceStatusWidget from '../components/dashboard/PresenceStatusWidget.vue';
@@ -2460,8 +2451,6 @@ const pendingMedcancelModalOpen = ref(false);
 const pendingPtoModalOpen = ref(false);
 const pendingCompanyCardModalOpen = ref(false);
 const showBudgetSubmitExpensesModal = ref(false);
-const showCompanyCarMileageModal = ref(false);
-const pendingCompanyCarEditTrip = ref(null);
 const pendingTimeModalOpen = ref(null); // 'meeting' | 'excess' | 'correction' | 'overtime'
 const openRegularMileageModal = () => {
   pendingMileageModalOpen.value = 'standard';
@@ -2528,11 +2517,6 @@ const openCompanyCardModal = () => {
 
 const openCompanyCarMileage = () => {
   submitPanelView.value = 'company_car';
-};
-
-const onCompanyCarMileageSubmitted = () => {
-  showCompanyCarMileageModal.value = false;
-  pendingCompanyCarEditTrip.value = null;
 };
 
 const onCompanyCardSubmittedFromModal = () => {

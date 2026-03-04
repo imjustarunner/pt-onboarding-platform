@@ -11,7 +11,8 @@ class CompanyCarTrip {
     miles: milesOverride = null,
     destinations = [],
     reasonForTravel,
-    notes = null
+    notes = null,
+    importBatchId = null
   }) {
     const miles = Number.isFinite(Number(milesOverride)) && Number(milesOverride) >= 0
       ? Math.round(Number(milesOverride) * 100) / 100
@@ -20,24 +21,39 @@ class CompanyCarTrip {
       ? JSON.stringify(destinations.map((d) => String(d || '').trim()).filter(Boolean))
       : null;
 
-    const [result] = await pool.execute(
-      `INSERT INTO company_car_trips
-       (agency_id, company_car_id, user_id, drive_date, start_odometer_miles, end_odometer_miles, miles, destinations_json, reason_for_travel, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        agencyId,
-        companyCarId,
-        userId,
-        driveDate,
-        Number(startOdometerMiles) || 0,
-        Number(endOdometerMiles) || 0,
-        miles,
-        destinationsJson,
-        String(reasonForTravel || '').trim().slice(0, 255),
-        notes ? String(notes).trim().slice(0, 65535) : null
-      ]
-    );
-    return this.findById(result.insertId);
+    const baseParams = [
+      agencyId,
+      companyCarId,
+      userId,
+      driveDate,
+      Number(startOdometerMiles) || 0,
+      Number(endOdometerMiles) || 0,
+      miles,
+      destinationsJson,
+      String(reasonForTravel || '').trim().slice(0, 255),
+      notes ? String(notes).trim().slice(0, 65535) : null
+    ];
+
+    try {
+      const [result] = await pool.execute(
+        `INSERT INTO company_car_trips
+         (agency_id, company_car_id, user_id, drive_date, start_odometer_miles, end_odometer_miles, miles, destinations_json, reason_for_travel, notes, import_batch_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [...baseParams, importBatchId || null]
+      );
+      return this.findById(result.insertId);
+    } catch (e) {
+      if (e.message && /Unknown column 'import_batch_id'/.test(e.message)) {
+        const [result] = await pool.execute(
+          `INSERT INTO company_car_trips
+           (agency_id, company_car_id, user_id, drive_date, start_odometer_miles, end_odometer_miles, miles, destinations_json, reason_for_travel, notes)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          baseParams
+        );
+        return this.findById(result.insertId);
+      }
+      throw e;
+    }
   }
 
   static async findById(id) {
@@ -80,7 +96,8 @@ class CompanyCarTrip {
       params.push(toDate);
     }
 
-    params.push(lim, off);
+    const limInt = Math.floor(lim);
+    const offInt = Math.floor(off);
 
     const [rows] = await pool.execute(
       `SELECT t.*,
@@ -93,7 +110,7 @@ class CompanyCarTrip {
        LEFT JOIN company_cars c ON c.id = t.company_car_id
        WHERE ${conditions.join(' AND ')}
        ORDER BY t.drive_date DESC, t.id DESC
-       LIMIT ? OFFSET ?`,
+       LIMIT ${limInt} OFFSET ${offInt}`,
       params
     );
     return rows || [];
@@ -207,6 +224,51 @@ class CompanyCarTrip {
       [id, agencyId]
     );
     return (result?.affectedRows || 0) > 0;
+  }
+
+  static async deleteAllByAgency({ agencyId }) {
+    const [result] = await pool.execute(
+      `DELETE FROM company_car_trips WHERE agency_id = ?`,
+      [agencyId]
+    );
+    return { deleted: result?.affectedRows || 0 };
+  }
+
+  static async recalculateMilesForAgency({ agencyId }) {
+    const [result] = await pool.execute(
+      `UPDATE company_car_trips
+       SET miles = GREATEST(0, end_odometer_miles - start_odometer_miles)
+       WHERE agency_id = ?
+         AND (miles = 0 OR miles IS NULL)
+         AND start_odometer_miles IS NOT NULL
+         AND end_odometer_miles IS NOT NULL
+         AND end_odometer_miles >= start_odometer_miles`,
+      [agencyId]
+    );
+    return { updated: result?.affectedRows || 0 };
+  }
+
+  static async deleteByLastImportBatch({ agencyId }) {
+    try {
+      const [rows] = await pool.execute(
+        `SELECT import_batch_id FROM company_car_trips
+         WHERE agency_id = ? AND import_batch_id IS NOT NULL
+         ORDER BY created_at DESC LIMIT 1`,
+        [agencyId]
+      );
+      const batchId = rows?.[0]?.import_batch_id;
+      if (!batchId) return { deleted: 0 };
+      const [result] = await pool.execute(
+        `DELETE FROM company_car_trips WHERE agency_id = ? AND import_batch_id = ?`,
+        [agencyId, batchId]
+      );
+      return { deleted: result?.affectedRows || 0 };
+    } catch (e) {
+      if (e.message && /Unknown column 'import_batch_id'/.test(e.message)) {
+        return { deleted: 0 };
+      }
+      throw e;
+    }
   }
 }
 

@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import pool from '../config/database.js';
 import path from 'path';
 import User from '../models/User.model.js';
@@ -48,6 +49,10 @@ async function userHasAgencyAccess(userId, agencyId) {
 }
 
 async function requireCompanyCarAccess(req, res, { requireManage = false } = {}) {
+  if (!req.user?.id) {
+    res.status(401).json({ error: { message: 'Authentication required' } });
+    return null;
+  }
   const agencyId = parseAgencyId(req);
   if (!agencyId) {
     res.status(400).json({ error: { message: 'agencyId is required' } });
@@ -76,23 +81,137 @@ async function requireCompanyCarAccess(req, res, { requireManage = false } = {})
   return { agencyId, manageAccess };
 }
 
+function normalizeNameForMatch(s) {
+  return String(s || '')
+    .toLowerCase()
+    .replace(/[\u2018\u2019\u201A\u0027']/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 async function findUserByNameInAgency(agencyId, name) {
   const nameTrimmed = String(name || '').trim().replace(/\s+/g, ' ');
   if (!nameTrimmed) return null;
 
-  // Try "First Last" and "Last, First"
-  const [rows] = await pool.execute(
-    `SELECT u.id FROM users u
-     INNER JOIN user_agencies ua ON ua.user_id = u.id
-     WHERE ua.agency_id = ?
-       AND (
+  const nameNorm = normalizeNameForMatch(nameTrimmed).replace(/\s/g, '');
+
+  try {
+    const [rows] = await pool.execute(
+      `SELECT u.id FROM users u
+       INNER JOIN user_agencies ua ON ua.user_id = u.id
+       WHERE ua.agency_id = ?
+         AND (
+           LOWER(TRIM(REPLACE(CONCAT(COALESCE(u.first_name,''), ' ', COALESCE(u.last_name,'')), '  ', ' '))) = LOWER(?)
+           OR LOWER(TRIM(REPLACE(CONCAT(COALESCE(u.last_name,''), ', ', COALESCE(u.first_name,'')), '  ', ' '))) = LOWER(?)
+           OR LOWER(TRIM(REPLACE(CONCAT(COALESCE(u.preferred_name, u.first_name), ' ', COALESCE(u.last_name,'')), '  ', ' '))) = LOWER(?)
+           OR LOWER(TRIM(REPLACE(CONCAT(COALESCE(u.last_name,''), ', ', COALESCE(u.preferred_name, u.first_name)), '  ', ' '))) = LOWER(?)
+           OR LOWER(REPLACE(REPLACE(REPLACE(CONCAT(COALESCE(u.first_name,''), COALESCE(u.last_name,'')), '''', ''), CHAR(39), ''), ' ', '')) = LOWER(?)
+         )
+       LIMIT 1`,
+      [agencyId, nameTrimmed, nameTrimmed, nameTrimmed, nameTrimmed, nameNorm]
+    );
+    return rows?.[0]?.id || null;
+  } catch (e) {
+    if (e.message && /Unknown column 'preferred_name'/.test(e.message)) {
+      const [rows] = await pool.execute(
+        `SELECT u.id FROM users u
+         INNER JOIN user_agencies ua ON ua.user_id = u.id
+         WHERE ua.agency_id = ?
+           AND (
+             LOWER(TRIM(REPLACE(CONCAT(COALESCE(u.first_name,''), ' ', COALESCE(u.last_name,'')), '  ', ' '))) = LOWER(?)
+             OR LOWER(TRIM(REPLACE(CONCAT(COALESCE(u.last_name,''), ', ', COALESCE(u.first_name,'')), '  ', ' '))) = LOWER(?)
+           )
+         LIMIT 1`,
+        [agencyId, nameTrimmed, nameTrimmed]
+      );
+      return rows?.[0]?.id || null;
+    }
+    throw e;
+  }
+}
+
+function parseNameToFirstLast(name) {
+  const s = String(name || '').trim();
+  if (!s) return { firstName: '', lastName: '' };
+  const commaIdx = s.indexOf(',');
+  if (commaIdx >= 0) {
+    return {
+      lastName: s.slice(0, commaIdx).trim(),
+      firstName: s.slice(commaIdx + 1).trim()
+    };
+  }
+  const parts = s.split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return { firstName: '', lastName: '' };
+  if (parts.length === 1) return { firstName: parts[0], lastName: '' };
+  return {
+    firstName: parts[0],
+    lastName: parts.slice(1).join(' ')
+  };
+}
+
+async function findUserByNameGlobally(name) {
+  const nameTrimmed = String(name || '').trim().replace(/\s+/g, ' ');
+  if (!nameTrimmed) return null;
+  const nameNorm = normalizeNameForMatch(nameTrimmed).replace(/\s/g, '');
+  try {
+    const [rows] = await pool.execute(
+      `SELECT u.id FROM users u
+       WHERE (
          LOWER(TRIM(REPLACE(CONCAT(COALESCE(u.first_name,''), ' ', COALESCE(u.last_name,'')), '  ', ' '))) = LOWER(?)
          OR LOWER(TRIM(REPLACE(CONCAT(COALESCE(u.last_name,''), ', ', COALESCE(u.first_name,'')), '  ', ' '))) = LOWER(?)
+         OR LOWER(TRIM(REPLACE(CONCAT(COALESCE(u.preferred_name, u.first_name), ' ', COALESCE(u.last_name,'')), '  ', ' '))) = LOWER(?)
+         OR LOWER(REPLACE(REPLACE(REPLACE(CONCAT(COALESCE(u.first_name,''), COALESCE(u.last_name,'')), '''', ''), CHAR(39), ''), ' ', '')) = LOWER(?)
        )
-     LIMIT 1`,
-    [agencyId, nameTrimmed, nameTrimmed]
-  );
-  return rows?.[0]?.id || null;
+       LIMIT 1`,
+      [nameTrimmed, nameTrimmed, nameTrimmed, nameNorm]
+    );
+    return rows?.[0]?.id || null;
+  } catch (e) {
+    if (e.message && /Unknown column 'preferred_name'/.test(e.message)) {
+      const [rows] = await pool.execute(
+        `SELECT u.id FROM users u
+         WHERE (
+           LOWER(TRIM(REPLACE(CONCAT(COALESCE(u.first_name,''), ' ', COALESCE(u.last_name,'')), '  ', ' '))) = LOWER(?)
+           OR LOWER(TRIM(REPLACE(CONCAT(COALESCE(u.last_name,''), ', ', COALESCE(u.first_name,'')), '  ', ' '))) = LOWER(?)
+         )
+         LIMIT 1`,
+        [nameTrimmed, nameTrimmed]
+      );
+      return rows?.[0]?.id || null;
+    }
+    throw e;
+  }
+}
+
+async function findOrCreateDriverInAgency(agencyId, name) {
+  let userId = await findUserByNameInAgency(agencyId, name);
+  if (userId) return userId;
+
+  userId = await findUserByNameGlobally(name);
+  if (userId) {
+    await User.assignToAgency(userId, agencyId);
+    console.log(`[companyCar import] Added existing user ${userId} to agency ${agencyId} for driver "${name}"`);
+    return userId;
+  }
+
+  const { firstName, lastName } = parseNameToFirstLast(name);
+  if (!firstName && !lastName) return null;
+  try {
+    const created = await User.create({
+      role: 'staff',
+      status: 'ACTIVE_EMPLOYEE',
+      firstName: firstName || 'Unknown',
+      lastName: lastName || 'Driver',
+      email: null,
+      passwordHash: null
+    });
+    await User.assignToAgency(created.id, agencyId);
+    console.log(`[companyCar import] Created driver "${name}" (id=${created.id}) and added to agency ${agencyId}`);
+    return created.id;
+  } catch (e) {
+    console.error(`[companyCar import] Failed to create driver "${name}":`, e?.message || e);
+    return null;
+  }
 }
 
 export async function listCompanyCars(req, res) {
@@ -195,6 +314,30 @@ export const uploadCompanyCarPhoto = [
   }
 ];
 
+export async function getLatestTripEndOdometer(req, res) {
+  try {
+    const access = await requireCompanyCarAccess(req, res);
+    if (!access) return;
+    const { agencyId } = access;
+    const companyCarId = parseInt(req.query.companyCarId, 10);
+    if (!Number.isFinite(companyCarId) || companyCarId <= 0) {
+      return res.status(400).json({ error: { message: 'companyCarId is required' } });
+    }
+    const [rows] = await pool.execute(
+      `SELECT end_odometer_miles FROM company_car_trips
+       WHERE agency_id = ? AND company_car_id = ?
+       ORDER BY drive_date DESC, id DESC LIMIT 1`,
+      [agencyId, companyCarId]
+    );
+    const endOdom = rows?.[0]?.end_odometer_miles;
+    res.json({
+      endOdometerMiles: endOdom != null && Number.isFinite(Number(endOdom)) ? Number(endOdom) : null
+    });
+  } catch (e) {
+    res.status(500).json({ error: { message: e.message || 'Failed to get latest trip' } });
+  }
+}
+
 export async function listCompanyCarTrips(req, res) {
   try {
     const access = await requireCompanyCarAccess(req, res);
@@ -229,7 +372,12 @@ export async function listCompanyCarTrips(req, res) {
 
     res.json({ trips, totalMiles });
   } catch (e) {
-    res.status(500).json({ error: { message: e.message || 'Failed to list trips' } });
+    console.error('[listCompanyCarTrips]', e);
+    const msg = e.message || 'Failed to list trips';
+    const hint = /doesn't exist|unknown table/i.test(msg)
+      ? ' Run migrations: database/migrations/508_create_company_cars.sql, 509_create_company_car_trips.sql, etc.'
+      : '';
+    res.status(500).json({ error: { message: msg + hint } });
   }
 }
 
@@ -264,6 +412,14 @@ export async function createCompanyCarTrip(req, res) {
     if (!reasonForTravel) {
       return res.status(400).json({ error: { message: 'reasonForTravel is required' } });
     }
+    const startOdom = Number(startOdometerMiles);
+    const endOdom = Number(endOdometerMiles);
+    if (!Number.isFinite(startOdom) || startOdom < 0) {
+      return res.status(400).json({ error: { message: 'Starting odometer (miles) is required and must be 0 or greater' } });
+    }
+    if (!Number.isFinite(endOdom) || endOdom < startOdom) {
+      return res.status(400).json({ error: { message: 'Ending odometer (miles) is required and must be greater than or equal to starting odometer' } });
+    }
 
     const car = await CompanyCar.findById(companyCarId);
     if (!car || car.agency_id !== agencyId) {
@@ -293,12 +449,43 @@ export async function createCompanyCarTrip(req, res) {
     });
 
     for (const d of destinations.filter(Boolean)) {
-      await CompanyCarUsualPlace.upsertAndIncrement({ agencyId, name: d });
+      const name = typeof d === 'string' ? d : (d?.name || d?.addressLine || String(d));
+      await CompanyCarUsualPlace.upsertAndIncrement({
+        agencyId,
+        name,
+        defaultReason: reasonForTravel || null
+      });
     }
 
     res.status(201).json(trip);
   } catch (e) {
     res.status(500).json({ error: { message: e.message || 'Failed to create trip' } });
+  }
+}
+
+export async function getCompanyCarTrip(req, res) {
+  try {
+    const access = await requireCompanyCarAccess(req, res);
+    if (!access) return;
+    const { agencyId, manageAccess } = access;
+
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id)) {
+      return res.status(400).json({ error: { message: 'Invalid trip id' } });
+    }
+
+    const trip = await CompanyCarTrip.findById(id);
+    if (!trip || trip.agency_id !== agencyId) {
+      return res.status(404).json({ error: { message: 'Trip not found' } });
+    }
+
+    if (!manageAccess && trip.user_id !== req.user.id) {
+      return res.status(403).json({ error: { message: 'You can only view your own trips' } });
+    }
+
+    res.json({ trip });
+  } catch (e) {
+    res.status(500).json({ error: { message: e.message || 'Failed to get trip' } });
   }
 }
 
@@ -346,6 +533,16 @@ export async function updateCompanyCarTrip(req, res) {
     }
     if (reasonForTravel !== undefined && !reasonForTravel) {
       return res.status(400).json({ error: { message: 'reasonForTravel is required' } });
+    }
+    if (startOdometerMiles !== undefined || endOdometerMiles !== undefined) {
+      const startOdom = Number(startOdometerMiles ?? trip.start_odometer_miles ?? 0);
+      const endOdom = Number(endOdometerMiles ?? trip.end_odometer_miles ?? 0);
+      if (!Number.isFinite(startOdom) || startOdom < 0) {
+        return res.status(400).json({ error: { message: 'Starting odometer (miles) is required and must be 0 or greater' } });
+      }
+      if (!Number.isFinite(endOdom) || endOdom < startOdom) {
+        return res.status(400).json({ error: { message: 'Ending odometer (miles) is required and must be greater than or equal to starting odometer' } });
+      }
     }
     if (driverUserId !== undefined && manageAccess) {
       const hasAccess = await userHasAgencyAccess(driverUserId, agencyId);
@@ -466,14 +663,30 @@ export async function listAgencyUsersForCompanyCar(req, res) {
     if (!access) return;
     const { agencyId } = access;
 
-    const [rows] = await pool.execute(
-      `SELECT u.id, u.first_name, u.last_name, u.email
+    let [rows] = await pool.execute(
+      `SELECT DISTINCT u.id, u.first_name, u.last_name, u.email
        FROM users u
        INNER JOIN user_agencies ua ON ua.user_id = u.id
+       LEFT JOIN company_car_trips t ON t.user_id = u.id AND t.agency_id = ?
        WHERE ua.agency_id = ?
+         AND (
+           COALESCE(u.company_car_submit_access, 0) = 1
+           OR COALESCE(u.company_car_manage_access, 0) = 1
+           OR t.id IS NOT NULL
+         )
        ORDER BY u.last_name ASC, u.first_name ASC`,
-      [agencyId]
+      [agencyId, agencyId]
     );
+    if (!rows?.length) {
+      [rows] = await pool.execute(
+        `SELECT u.id, u.first_name, u.last_name, u.email
+         FROM users u
+         INNER JOIN user_agencies ua ON ua.user_id = u.id
+         WHERE ua.agency_id = ?
+         ORDER BY u.last_name ASC, u.first_name ASC`,
+        [agencyId]
+      );
+    }
     res.json({ users: rows || [] });
   } catch (e) {
     res.status(500).json({ error: { message: e.message || 'Failed to list users' } });
@@ -528,6 +741,7 @@ export async function listCompanyCarStartLocations(req, res) {
     const access = await requireCompanyCarAccess(req, res);
     if (!access) return;
     const { agencyId } = access;
+    const driverId = parseInt(req.query.driverId, 10);
 
     const [startRows] = await pool.execute(
       `SELECT id, name, address_line, display_order
@@ -560,7 +774,70 @@ export async function listCompanyCarStartLocations(req, res) {
       addressLine: formatAddressLine([r.street_address, r.city, r.state, r.postal_code])
     }));
 
-    const combined = [...startLocations, ...offices].slice(0, 8);
+    const officesAndStart = [...startLocations, ...offices];
+    const existingAddrNorm = new Set(
+      officesAndStart.map((l) => (l.addressLine || '').toLowerCase().replace(/\s+/g, ' ').trim()).filter(Boolean)
+    );
+
+    const selectedDriverHome = [];
+    if (Number.isFinite(driverId) && driverId > 0) {
+      const [[userRow]] = await pool.execute(
+        `SELECT first_name, last_name, home_street_address, home_city, home_state, home_postal_code
+         FROM users WHERE id = ? AND id IN (SELECT user_id FROM user_agencies WHERE agency_id = ?)`,
+        [driverId, agencyId]
+      );
+      if (userRow) {
+        const addr = formatAddressLine([
+          userRow.home_street_address,
+          userRow.home_city,
+          userRow.home_state,
+          userRow.home_postal_code
+        ]);
+        if (addr) {
+          const name = [userRow.first_name, userRow.last_name].filter(Boolean).join(' ') || 'Driver';
+          selectedDriverHome.push({
+            id: 'driver-home',
+            source: 'driver_home',
+            name: `${name}'s home`,
+            addressLine: addr
+          });
+          existingAddrNorm.add(addr.toLowerCase().replace(/\s+/g, ' ').trim());
+        }
+      }
+    }
+
+    const [otherDriverRows] = await pool.execute(
+      `SELECT DISTINCT u.id, u.first_name, u.last_name, u.home_street_address, u.home_city, u.home_state, u.home_postal_code
+       FROM users u
+       INNER JOIN user_agencies ua ON ua.user_id = u.id
+       LEFT JOIN company_car_trips t ON t.user_id = u.id AND t.agency_id = ?
+       WHERE ua.agency_id = ?
+         AND (COALESCE(u.company_car_submit_access, 0) = 1
+              OR COALESCE(u.company_car_manage_access, 0) = 1
+              OR t.id IS NOT NULL)
+         AND (u.home_street_address IS NOT NULL AND u.home_street_address != '')`,
+      [agencyId, agencyId]
+    );
+
+    const otherDriversHomes = [];
+    for (const r of otherDriverRows || []) {
+      if (r.id === driverId) continue;
+      const addr = formatAddressLine([r.home_street_address, r.home_city, r.home_state, r.home_postal_code]);
+      if (!addr) continue;
+      const addrNorm = addr.toLowerCase().replace(/\s+/g, ' ').trim();
+      if (existingAddrNorm.has(addrNorm)) continue;
+      existingAddrNorm.add(addrNorm);
+      const name = [r.first_name, r.last_name].filter(Boolean).join(' ') || 'Driver';
+      otherDriversHomes.push({
+        id: `driver-home-${r.id}`,
+        source: 'driver_home',
+        name: `${name}'s home`,
+        addressLine: addr
+      });
+    }
+    otherDriversHomes.sort((a, b) => a.name.localeCompare(b.name));
+
+    const combined = [...selectedDriverHome, ...officesAndStart, ...otherDriversHomes].slice(0, 25);
     res.json({ startLocations: combined });
   } catch (e) {
     res.status(500).json({ error: { message: e.message || 'Failed to list start locations' } });
@@ -573,25 +850,49 @@ export async function listCompanyCarDestinationOptions(req, res) {
     if (!access) return;
     const { agencyId } = access;
 
-    const [schoolRows] = await pool.execute(
-      `SELECT s.id, s.name, s.street_address, s.city, s.state, s.postal_code
-       FROM agency_schools asx
-       INNER JOIN agencies s ON s.id = asx.school_organization_id
-       WHERE asx.agency_id = ? AND asx.is_active = TRUE
-         AND s.organization_type = 'school'
-       ORDER BY s.name ASC`,
-      [agencyId]
-    );
-
-    const [affRows] = await pool.execute(
-      `SELECT s.id, s.name, s.street_address, s.city, s.state, s.postal_code
-       FROM organization_affiliations oa
-       INNER JOIN agencies s ON s.id = oa.organization_id
-       WHERE oa.agency_id = ? AND oa.is_active = TRUE
-         AND s.organization_type = 'school'
-       ORDER BY s.name ASC`,
-      [agencyId]
-    );
+    let schoolRows = [];
+    let affRows = [];
+    try {
+      [schoolRows] = await pool.execute(
+        `SELECT s.id, s.name, s.street_address, s.city, s.state, s.postal_code, s.company_car_default_reason
+         FROM agency_schools asx
+         INNER JOIN agencies s ON s.id = asx.school_organization_id
+         WHERE asx.agency_id = ? AND asx.is_active = TRUE
+           AND s.organization_type = 'school'
+         ORDER BY s.name ASC`,
+        [agencyId]
+      );
+      [affRows] = await pool.execute(
+        `SELECT s.id, s.name, s.street_address, s.city, s.state, s.postal_code, s.company_car_default_reason
+         FROM organization_affiliations oa
+         INNER JOIN agencies s ON s.id = oa.organization_id
+         WHERE oa.agency_id = ? AND oa.is_active = TRUE
+           AND s.organization_type = 'school'
+         ORDER BY s.name ASC`,
+        [agencyId]
+      );
+    } catch (e) {
+      if (e.message && /Unknown column 'company_car_default_reason'/.test(e.message)) {
+        [schoolRows] = await pool.execute(
+          `SELECT s.id, s.name, s.street_address, s.city, s.state, s.postal_code
+           FROM agency_schools asx
+           INNER JOIN agencies s ON s.id = asx.school_organization_id
+           WHERE asx.agency_id = ? AND asx.is_active = TRUE
+             AND s.organization_type = 'school'
+           ORDER BY s.name ASC`,
+          [agencyId]
+        );
+        [affRows] = await pool.execute(
+          `SELECT s.id, s.name, s.street_address, s.city, s.state, s.postal_code
+           FROM organization_affiliations oa
+           INNER JOIN agencies s ON s.id = oa.organization_id
+           WHERE oa.agency_id = ? AND oa.is_active = TRUE
+             AND s.organization_type = 'school'
+           ORDER BY s.name ASC`,
+          [agencyId]
+        );
+      } else throw e;
+    }
 
     const schoolIds = new Set();
     const schools = [];
@@ -599,36 +900,54 @@ export async function listCompanyCarDestinationOptions(req, res) {
       if (schoolIds.has(r.id)) continue;
       schoolIds.add(r.id);
       const addr = formatAddressLine([r.street_address, r.city, r.state, r.postal_code]);
+      const defaultReason = r.company_car_default_reason ? String(r.company_car_default_reason).trim() : null;
       schools.push({
         id: `school-${r.id}`,
         source: 'school',
         name: r.name || 'School',
         addressLine: addr,
-        searchText: `${r.name || ''} ${addr}`.toLowerCase()
+        searchText: `${r.name || ''} ${addr}`.toLowerCase(),
+        defaultReason: defaultReason || undefined
       });
     }
     schools.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
 
-    const [usualRows] = await pool.execute(
-      `SELECT id, name, address
-       FROM company_car_usual_places
-       WHERE agency_id = ?
-       ORDER BY use_count DESC, name ASC
-       LIMIT 100`,
-      [agencyId]
-    );
+    let usualRows = [];
+    try {
+      [usualRows] = await pool.execute(
+        `SELECT id, name, address, default_reason
+         FROM company_car_usual_places
+         WHERE agency_id = ?
+         ORDER BY use_count DESC, name ASC
+         LIMIT 100`,
+        [agencyId]
+      );
+    } catch (e) {
+      if (e.message && /Unknown column 'default_reason'/.test(e.message)) {
+        [usualRows] = await pool.execute(
+          `SELECT id, name, address
+           FROM company_car_usual_places
+           WHERE agency_id = ?
+           ORDER BY use_count DESC, name ASC
+           LIMIT 100`,
+          [agencyId]
+        );
+      } else throw e;
+    }
 
     const usualNames = new Set();
     const usualPlaces = (usualRows || []).map((r) => {
       const addr = r.address || '';
       const name = r.name || '';
       usualNames.add(name.toLowerCase());
+      const defaultReason = r.default_reason ? String(r.default_reason).trim() : null;
       return {
         id: `usual-${r.id}`,
         source: 'usual',
         name,
         addressLine: addr,
-        searchText: `${name} ${addr}`.toLowerCase()
+        searchText: `${name} ${addr}`.toLowerCase(),
+        defaultReason: defaultReason || undefined
       };
     });
 
@@ -682,7 +1001,13 @@ export const importCompanyCarTrips = [
         req.file.originalname,
         req.file.mimetype
       );
+      console.log(`[companyCar import] Parsed ${rows.length} rows from ${req.file.originalname}`);
+      if (rows.length > 0) {
+        const r0 = rows[0];
+        console.log(`[companyCar import] First row sample: start=${r0.startOdometerMiles} end=${r0.endOdometerMiles} miles=${r0.endOdometerMiles != null && r0.startOdometerMiles != null ? r0.endOdometerMiles - r0.startOdometerMiles : 'n/a'}`);
+      }
 
+      const importBatchId = crypto.randomUUID();
       const created = [];
       const skipped = [];
       const errors = [];
@@ -693,16 +1018,24 @@ export const importCompanyCarTrips = [
           skipped.push({ row: row.rowIndex, reason: 'Invalid or missing date' });
           continue;
         }
-        const start = row.startOdometerMiles;
-        const end = row.endOdometerMiles;
-        if (start == null || end == null || end < start) {
-          skipped.push({ row: row.rowIndex, reason: 'Invalid odometer values' });
+        const start = Number(row.startOdometerMiles);
+        const end = Number(row.endOdometerMiles);
+        if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) {
+          skipped.push({ row: row.rowIndex, reason: 'Invalid odometer values (need start and end)' });
           continue;
         }
 
-        const userId = await findUserByNameInAgency(agencyId, row.name);
+        const driverNames = String(row.name || '')
+          .split(',')
+          .map((n) => n.trim())
+          .filter(Boolean);
+        let userId = null;
+        for (const name of driverNames) {
+          userId = await findOrCreateDriverInAgency(agencyId, name);
+          if (userId) break;
+        }
         if (!userId) {
-          errors.push({ row: row.rowIndex, name: row.name, reason: 'Driver not found in agency' });
+          errors.push({ row: row.rowIndex, name: row.name, reason: 'Driver not found and could not be created' });
           continue;
         }
 
@@ -714,9 +1047,11 @@ export const importCompanyCarTrips = [
             driveDate: row.driveDate,
             startOdometerMiles: start,
             endOdometerMiles: end,
+            miles: end - start,
             destinations: row.destinations || [],
             reasonForTravel: row.reasonForTravel || 'Imported',
-            notes: row.notes || null
+            notes: row.notes || null,
+            importBatchId
           });
           created.push({ id: trip.id, row: row.rowIndex, miles: trip.miles || end - start });
           totalImportedMiles += Number(trip.miles || end - start);
@@ -729,11 +1064,18 @@ export const importCompanyCarTrips = [
         }
       }
 
+      const errorSamples = errors.slice(0, 10).map((e) => e.name ? `${e.reason}: "${e.name}"` : e.reason);
+      if (errors.length > 0) {
+        console.log(`[companyCar import] Sample errors:`, errorSamples);
+      }
+
       res.json({
         created: created.length,
         skipped: skipped.length,
         errors: errors.length,
         totalImportedMiles: Math.round(totalImportedMiles * 100) / 100,
+        importBatchId,
+        errorSamples,
         details: { created, skipped, errors }
       });
     } catch (e) {
@@ -741,3 +1083,42 @@ export const importCompanyCarTrips = [
     }
   }
 ];
+
+export async function undoLastImport(req, res) {
+  try {
+    const access = await requireCompanyCarAccess(req, res, { requireManage: true });
+    if (!access) return;
+    const { agencyId } = access;
+
+    const { deleted } = await CompanyCarTrip.deleteByLastImportBatch({ agencyId });
+    res.json({ deleted });
+  } catch (e) {
+    res.status(500).json({ error: { message: e.message || 'Failed to undo import' } });
+  }
+}
+
+export async function deleteAllCompanyCarTrips(req, res) {
+  try {
+    const access = await requireCompanyCarAccess(req, res, { requireManage: true });
+    if (!access) return;
+    const { agencyId } = access;
+
+    const { deleted } = await CompanyCarTrip.deleteAllByAgency({ agencyId });
+    res.json({ deleted });
+  } catch (e) {
+    res.status(500).json({ error: { message: e.message || 'Failed to delete trips' } });
+  }
+}
+
+export async function recalculateCompanyCarMiles(req, res) {
+  try {
+    const access = await requireCompanyCarAccess(req, res, { requireManage: true });
+    if (!access) return;
+    const { agencyId } = access;
+
+    const { updated } = await CompanyCarTrip.recalculateMilesForAgency({ agencyId });
+    res.json({ updated });
+  } catch (e) {
+    res.status(500).json({ error: { message: e.message || 'Failed to recalculate miles' } });
+  }
+}
