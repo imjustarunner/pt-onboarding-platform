@@ -3,6 +3,7 @@ import { authenticate } from '../middleware/auth.middleware.js';
 import {
   getTeamMeetingJoinInfo,
   getTeamMeetingVideoToken,
+  setTeamMeetingRecordingRules,
   saveTeamMeetingClientTranscript
 } from '../controllers/teamMeetings.controller.js';
 
@@ -14,6 +15,7 @@ router.get('/join-info/:eventId', getTeamMeetingJoinInfo);
 router.use(authenticate);
 
 router.get('/:eventId/video-token', getTeamMeetingVideoToken);
+router.post('/:eventId/recording-rules', setTeamMeetingRecordingRules);
 router.post('/:eventId/client-transcript', saveTeamMeetingClientTranscript);
 
 export default router;

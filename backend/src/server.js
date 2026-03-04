@@ -257,6 +257,8 @@ const uploadsHandler = async (req, res, next) => {
         const ext = path.extname(storageKey).toLowerCase();
         const contentTypes = {
           '.pdf': 'application/pdf',
+          '.mp4': 'video/mp4',
+          '.webm': 'video/webm',
           '.png': 'image/png',
           '.jpg': 'image/jpeg',
           '.jpeg': 'image/jpeg',

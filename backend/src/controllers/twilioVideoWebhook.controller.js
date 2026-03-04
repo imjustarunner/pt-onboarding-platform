@@ -11,6 +11,7 @@ import SupervisionSessionArtifact from '../models/SupervisionSessionArtifact.mod
 import ProviderScheduleEventArtifact from '../models/ProviderScheduleEventArtifact.model.js';
 import AgencyMeetingAttendanceRollup from '../models/AgencyMeetingAttendanceRollup.model.js';
 import { transcribeRoomRecordings } from '../services/twilioVideoRecording.service.js';
+import { createDownloadAndStoreMeetingRecording } from '../services/twilioVideoComposition.service.js';
 
 async function recomputeAttendanceRollupForUser({ sessionId, userId }) {
   const sid = Number(sessionId || 0);
@@ -71,27 +72,34 @@ async function recomputeAttendanceRollupForUser({ sessionId, userId }) {
 }
 
 /**
- * Process team-meeting room-ended: transcribe recordings and save to artifacts.
+ * Process team-meeting room-ended: transcribe recordings, create composition, download/store video, save to artifacts.
  */
 async function processTeamMeetingRoomEnded({ roomSid, roomName, eventId }) {
   const eid = Number(eventId || 0);
   if (!eid || !roomSid) return;
   try {
     const existing = await ProviderScheduleEventArtifact.findByEventId(eid);
-    if (existing?.transcript_text && String(existing.transcript_text).trim()) {
+    const hasTranscript = !!(existing?.transcript_text && String(existing.transcript_text).trim());
+    if (hasTranscript) {
       const { triggerTeamMeetingSummaryFromTranscript } = await import('../services/teamMeetingTranscriptSummary.service.js');
-      await triggerTeamMeetingSummaryFromTranscript(eid).catch((e) => {
+      void triggerTeamMeetingSummaryFromTranscript(eid).catch((e) => {
         console.error('[TwilioVideo] Team meeting AI summary error:', e?.message);
       });
-      return;
     }
+
     await new Promise((r) => setTimeout(r, 5000));
-    const transcript = await transcribeRoomRecordings({
-      roomSid,
-      roomName,
-      sessionId: eid,
-      userId: 0
-    });
+
+    const [transcriptResult, recordingResult] = await Promise.all([
+      hasTranscript ? Promise.resolve(null) : transcribeRoomRecordings({
+        roomSid,
+        roomName,
+        sessionId: eid,
+        userId: 0
+      }),
+      createDownloadAndStoreMeetingRecording({ roomSid, eventId: eid })
+    ]);
+
+    const transcript = transcriptResult;
     if (transcript && String(transcript).trim()) {
       await ProviderScheduleEventArtifact.ensureTagged({ eventId: eid });
       await ProviderScheduleEventArtifact.upsertByEventId({
@@ -100,8 +108,18 @@ async function processTeamMeetingRoomEnded({ roomSid, roomName, eventId }) {
         updatedByUserId: null
       });
       const { triggerTeamMeetingSummaryFromTranscript } = await import('../services/teamMeetingTranscriptSummary.service.js');
-      await triggerTeamMeetingSummaryFromTranscript(eid).catch((e) => {
+      void triggerTeamMeetingSummaryFromTranscript(eid).catch((e) => {
         console.error('[TwilioVideo] Team meeting AI summary error:', e?.message);
+      });
+    }
+
+    if (recordingResult?.recordingPath || recordingResult?.recordingUrl) {
+      await ProviderScheduleEventArtifact.ensureTagged({ eventId: eid });
+      await ProviderScheduleEventArtifact.upsertByEventId({
+        eventId: eid,
+        recordingPath: recordingResult.recordingPath,
+        recordingUrl: recordingResult.recordingUrl,
+        updatedByUserId: null
       });
     }
   } catch (e) {
@@ -219,12 +237,17 @@ export const videoRoomStatusWebhook = async (req, res) => {
     if (event === 'room-ended') {
       const sessionIdMatch = roomName.match(/^supervision-(\d+)$/);
       const eventIdMatch = roomName.match(/^team-meeting-(\d+)$/);
+      const huddleMatch = roomName.match(/^huddle-(\d+)$/);
       if (sessionIdMatch && roomSid) {
         const sessionId = parseInt(sessionIdMatch[1], 10);
         void processRoomEnded({ roomSid, roomName, sessionId });
       }
       if (eventIdMatch && roomSid) {
         const eventId = parseInt(eventIdMatch[1], 10);
+        void processTeamMeetingRoomEnded({ roomSid, roomName, eventId });
+      }
+      if (huddleMatch && roomSid) {
+        const eventId = parseInt(huddleMatch[1], 10);
         void processTeamMeetingRoomEnded({ roomSid, roomName, eventId });
       }
       return res.status(200).send('OK');
@@ -305,13 +328,15 @@ export const videoRoomStatusWebhook = async (req, res) => {
       return res.status(200).send('OK');
     }
 
-    // Team meeting
+    // Team meeting or Huddle
     const eventIdMatch = roomName.match(/^team-meeting-(\d+)$/);
-    if (eventIdMatch) {
-      const eventId = parseInt(eventIdMatch[1], 10);
+    const huddleMatch = roomName.match(/^huddle-(\d+)$/);
+    const meetingEventIdMatch = eventIdMatch || huddleMatch;
+    if (meetingEventIdMatch) {
+      const eventId = parseInt(meetingEventIdMatch[1], 10);
       const [rows] = await pool.execute(
         `SELECT id, provider_id FROM provider_schedule_events
-         WHERE id = ? AND UPPER(COALESCE(kind, '')) = 'TEAM_MEETING'
+         WHERE id = ? AND UPPER(COALESCE(kind, '')) IN ('TEAM_MEETING', 'HUDDLE')
            AND UPPER(COALESCE(status, 'ACTIVE')) <> 'CANCELLED'
          LIMIT 1`,
         [eventId]

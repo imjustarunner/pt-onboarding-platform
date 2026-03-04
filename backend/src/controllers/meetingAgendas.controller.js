@@ -44,7 +44,8 @@ async function canManageMeetingAgenda(userId, meetingType, meetingId) {
 
   if (meetingType === 'provider_schedule_event') {
     const event = await ProviderScheduleEvent.findById(mid);
-    if (!event || String(event.kind || '').toUpperCase() !== 'TEAM_MEETING') return false;
+    const kind = String(event?.kind || '').toUpperCase();
+    if (!event || (kind !== 'TEAM_MEETING' && kind !== 'HUDDLE')) return false;
 
     if (uid === Number(event.provider_id) || uid === Number(event.created_by_user_id)) return true;
 
@@ -331,7 +332,7 @@ export const listUpcomingMeetings = async (req, res, next) => {
     const [teamRows] = await pool.execute(
       `SELECT pse.id, pse.agency_id, pse.start_at, pse.end_at, pse.title
        FROM provider_schedule_events pse
-       WHERE UPPER(COALESCE(pse.kind,'')) = 'TEAM_MEETING'
+       WHERE UPPER(COALESCE(pse.kind,'')) IN ('TEAM_MEETING', 'HUDDLE')
          AND UPPER(COALESCE(pse.status,'ACTIVE')) = 'ACTIVE'
          AND (pse.start_at >= ? OR (pse.all_day = 1 AND pse.end_date >= CURDATE()))
          AND (pse.provider_id = ? OR pse.created_by_user_id = ?)

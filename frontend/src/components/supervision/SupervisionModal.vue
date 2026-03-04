@@ -506,14 +506,35 @@
         @updated="() => {}"
       />
     </div>
-    <div v-if="showTwilioVideoModal && twilioVideoToken" class="supervision-agenda-overlay" style="z-index: 10001;">
-      <div class="supervision-modal" style="max-width: 900px; max-height: 90vh;">
-        <div class="supervision-modal-header">
-          <h2>Supervision video (in-app)</h2>
-          <button type="button" class="supervision-modal-close" aria-label="Close" @click="closeTwilioVideoModal">&times;</button>
+    <div v-if="showTwilioVideoModal && twilioVideoToken" class="supervision-agenda-overlay supervision-video-overlay" style="z-index: 10001;">
+      <div class="supervision-modal supervision-video-modal" :class="{ 'video-modal-fullscreen': twilioVideoFullscreen }">
+        <div class="supervision-modal-header supervision-video-header">
+          <div class="supervision-video-header-brand">
+            <BrandingLogo size="medium" class="supervision-video-logo" />
+            <h2>Supervision video (in-app)</h2>
+          </div>
+          <div class="supervision-video-header-actions">
+            <a
+              v-if="organizationSlug && twilioVideoSessionId"
+              :href="`/${organizationSlug}/join/supervision/${twilioVideoSessionId}`"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="btn btn-ghost btn-sm"
+            >
+              Open in new tab
+            </a>
+            <button type="button" class="btn btn-secondary btn-sm" aria-label="Toggle fullscreen" @click="twilioVideoFullscreen = !twilioVideoFullscreen">
+              {{ twilioVideoFullscreen ? 'Exit fullscreen' : 'Fullscreen' }}
+            </button>
+            <button type="button" class="supervision-modal-close" aria-label="Close" @click="closeTwilioVideoModal">&times;</button>
+          </div>
         </div>
-        <div class="supervision-modal-body" style="padding: 12px;">
+        <div class="supervision-modal-body supervision-video-body">
           <p class="summary-meta" style="margin-bottom: 12px;">Attendance is tracked automatically when you join and leave.</p>
+          <SupervisionVideoLobbyPanel
+            :session-id="twilioVideoSessionId"
+            :is-supervisor="twilioVideoIsSupervisor"
+          />
           <SupervisionTwilioVideoRoom
             :token="twilioVideoToken"
             :room-name="twilioVideoRoomName"
@@ -549,7 +570,9 @@ import ModuleAssignmentDialog from '../admin/ModuleAssignmentDialog.vue';
 import UserSpecificDocumentUploadDialog from '../documents/UserSpecificDocumentUploadDialog.vue';
 import ClientModal from '../school/redesign/ClientModal.vue';
 import MeetingAgendaPanel from '../meetings/MeetingAgendaPanel.vue';
+import BrandingLogo from '../BrandingLogo.vue';
 import SupervisionTwilioVideoRoom from './SupervisionTwilioVideoRoom.vue';
+import SupervisionVideoLobbyPanel from './SupervisionVideoLobbyPanel.vue';
 
 const route = useRoute();
 
@@ -615,6 +638,8 @@ const showTwilioVideoModal = ref(false);
 const twilioVideoToken = ref('');
 const twilioVideoRoomName = ref('');
 const twilioVideoSessionId = ref(null);
+const twilioVideoIsSupervisor = ref(false);
+const twilioVideoFullscreen = ref(false);
 const twilioVideoLoading = ref(false);
 const twilioVideoError = ref('');
 const sessionArtifactsById = ref({});
@@ -622,6 +647,8 @@ const artifactDraftById = ref({});
 const artifactLoadingById = ref({});
 const artifactSavingById = ref({});
 const artifactErrorById = ref({});
+
+const organizationSlug = computed(() => route.params?.organizationSlug || '');
 
 // Link to user's own dashboard; chat drawer will open a thread with the supervisee via openChatWith/agencyId (avoids admin-only chats page).
 const chatsLink = computed(() => {
@@ -818,6 +845,8 @@ async function startAppVideoMeeting(session) {
     }
     twilioVideoToken.value = tok;
     twilioVideoRoomName.value = rn;
+    twilioVideoIsSupervisor.value = !!data.isSupervisor;
+    twilioVideoFullscreen.value = true;
     showTwilioVideoModal.value = true;
   } catch (err) {
     twilioVideoError.value = err?.response?.data?.error?.message || err?.message || 'Failed to join video room';
@@ -832,6 +861,8 @@ function closeTwilioVideoModal() {
   twilioVideoToken.value = '';
   twilioVideoRoomName.value = '';
   twilioVideoSessionId.value = null;
+  twilioVideoIsSupervisor.value = false;
+  twilioVideoFullscreen.value = false;
 }
 
 async function startTrackedMeeting(session) {
@@ -1989,5 +2020,51 @@ onUnmounted(() => {
   width: 100%;
   padding: 0.35rem 0.5rem;
   font-size: 0.9rem;
+}
+
+/* Supervision video modal – larger, with logo and fullscreen */
+.supervision-video-overlay .supervision-video-modal {
+  width: min(95vw, 1400px);
+  max-width: min(95vw, 1400px);
+  max-height: 90vh;
+}
+.supervision-video-overlay .supervision-video-modal.video-modal-fullscreen {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  max-width: none;
+  max-height: none;
+  border-radius: 0;
+  z-index: 10002;
+}
+.supervision-video-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.supervision-video-header-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.supervision-video-logo {
+  flex-shrink: 0;
+}
+.supervision-video-header-brand h2 {
+  flex: 0 1 auto;
+}
+.supervision-video-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.supervision-video-body {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
 }
 </style>

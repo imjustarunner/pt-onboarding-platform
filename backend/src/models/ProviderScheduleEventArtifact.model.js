@@ -39,6 +39,8 @@ class ProviderScheduleEventArtifact {
     summaryText = undefined,
     summaryModel = undefined,
     summaryGeneratedAt = undefined,
+    recordingUrl = undefined,
+    recordingPath = undefined,
     updatedByUserId = null
   }) {
     const eid = parseInt(eventId, 10);
@@ -55,9 +57,11 @@ class ProviderScheduleEventArtifact {
           summary_text,
           summary_model,
           summary_generated_at,
+          recording_url,
+          recording_path,
           updated_by_user_id
         )
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE
          tagged_at = COALESCE(VALUES(tagged_at), tagged_at),
          transcript_url = CASE WHEN VALUES(transcript_url) IS NULL THEN transcript_url ELSE VALUES(transcript_url) END,
@@ -68,6 +72,8 @@ class ProviderScheduleEventArtifact {
            WHEN VALUES(summary_generated_at) IS NULL THEN summary_generated_at
            ELSE VALUES(summary_generated_at)
          END,
+         recording_url = CASE WHEN VALUES(recording_url) IS NULL THEN recording_url ELSE VALUES(recording_url) END,
+         recording_path = CASE WHEN VALUES(recording_path) IS NULL THEN recording_path ELSE VALUES(recording_path) END,
          updated_by_user_id = VALUES(updated_by_user_id),
          updated_at = CURRENT_TIMESTAMP`,
       [
@@ -78,6 +84,8 @@ class ProviderScheduleEventArtifact {
         summaryText === undefined ? null : (summaryText || null),
         summaryModel === undefined ? null : (summaryModel || null),
         summaryGeneratedAt === undefined ? null : (summaryGeneratedAt || null),
+        recordingUrl === undefined ? null : (recordingUrl || null),
+        recordingPath === undefined ? null : (recordingPath || null),
         updatedBy
       ]
     );

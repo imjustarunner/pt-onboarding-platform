@@ -8,7 +8,9 @@ import { fetchMeetTranscriptForSession } from '../services/googleMeetTranscript.
 import {
   isTwilioVideoConfigured,
   createOrGetRoom,
-  createAccessTokenAsync
+  createOrGetRoomByUniqueName,
+  createAccessTokenAsync,
+  listRoomParticipants
 } from '../services/twilioVideo.service.js';
 import PayrollRateCard from '../models/PayrollRateCard.model.js';
 import PayrollRate from '../models/PayrollRate.model.js';
@@ -574,18 +576,40 @@ export const getSupervisionVideoToken = async (req, res, next) => {
     const actorUserId = Number(req.user?.id || 0);
     if (!actorUserId) return res.status(401).json({ error: { message: 'Not authenticated' } });
 
-    const roomName = row.twilio_room_unique_name || `supervision-${id}`;
-    const roomResult = await createOrGetRoom({ sessionId: id, uniqueName: roomName });
+    const roomParam = req.query?.room || '';
+    const isSupervisor = actorUserId === Number(row.supervisor_user_id);
+
+    // Supervisor always goes to main room. Supervisee: lobby first (default), then main when admitted.
+    const useLobby = roomParam === 'lobby' || (!roomParam && !isSupervisor);
+    let roomResult;
+
+    if (useLobby && !isSupervisor) {
+      const lobbyName = `supervision-${id}-lobby`;
+      roomResult = await createOrGetRoomByUniqueName(lobbyName);
+    } else {
+      const mainName = row.twilio_room_unique_name || `supervision-${id}`;
+      roomResult = await createOrGetRoom({ sessionId: id, uniqueName: mainName });
+
+      if (!isSupervisor && roomParam === 'main') {
+        const [admitted] = await pool.execute(
+          'SELECT 1 FROM supervision_session_video_admissions WHERE session_id = ? AND user_id = ? LIMIT 1',
+          [id, actorUserId]
+        );
+        if (!admitted?.length) {
+          return res.status(403).json({ error: { message: 'Not admitted yet. Wait in the lobby.' } });
+        }
+      }
+
+      if (!row.twilio_room_sid && roomParam !== 'lobby') {
+        await SupervisionSession.setTwilioRoom(id, {
+          roomSid: roomResult.roomSid,
+          uniqueName: roomResult.uniqueName
+        });
+      }
+    }
 
     if (!roomResult) {
       return res.status(500).json({ error: { message: 'Failed to create or get video room' } });
-    }
-
-    if (!row.twilio_room_sid) {
-      await SupervisionSession.setTwilioRoom(id, {
-        roomSid: roomResult.roomSid,
-        uniqueName: roomResult.uniqueName
-      });
     }
 
     const token = await createAccessTokenAsync({
@@ -597,7 +621,12 @@ export const getSupervisionVideoToken = async (req, res, next) => {
       return res.status(500).json({ error: { message: 'Failed to generate access token' } });
     }
 
-    const payload = { token: String(token).trim(), roomName: roomResult.uniqueName, roomSid: roomResult.roomSid };
+    const payload = {
+      token: String(token).trim(),
+      roomName: roomResult.uniqueName,
+      roomSid: roomResult.roomSid,
+      isSupervisor: !!isSupervisor
+    };
     if (req.query?.debug === '1') {
       try {
         const { default: jwt } = await import('jsonwebtoken');
@@ -606,6 +635,145 @@ export const getSupervisionVideoToken = async (req, res, next) => {
       } catch (_) { /* ignore */ }
     }
     res.json(payload);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const getLobbyParticipants = async (req, res, next) => {
+  try {
+    if (!isTwilioVideoConfigured()) {
+      return res.status(503).json({ error: { message: 'Twilio Video is not configured' } });
+    }
+
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ error: { message: 'Invalid session id' } });
+
+    const row = await SupervisionSession.findById(id);
+    if (!row) return res.status(404).json({ error: { message: 'Session not found' } });
+
+    const ok = await canScheduleSession(req, {
+      agencyId: row.agency_id,
+      supervisorUserId: row.supervisor_user_id,
+      superviseeUserId: row.supervisee_user_id
+    });
+    if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const actorUserId = Number(req.user?.id || 0);
+    if (!actorUserId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+
+    const isSupervisor = actorUserId === Number(row.supervisor_user_id);
+    if (!isSupervisor) {
+      return res.status(403).json({ error: { message: 'Only the supervisor can view lobby participants' } });
+    }
+
+    const lobbyName = `supervision-${id}-lobby`;
+    const participants = await listRoomParticipants(lobbyName);
+
+    res.json({ participants });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const admitToMainRoom = async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const userId = parseInt(req.params.userId, 10);
+    if (!id || !userId) return res.status(400).json({ error: { message: 'Invalid session or user id' } });
+
+    const row = await SupervisionSession.findById(id);
+    if (!row) return res.status(404).json({ error: { message: 'Session not found' } });
+
+    const actorUserId = Number(req.user?.id || 0);
+    if (!actorUserId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+
+    const isSupervisor = actorUserId === Number(row.supervisor_user_id);
+    if (!isSupervisor) {
+      return res.status(403).json({ error: { message: 'Only the supervisor can admit participants' } });
+    }
+
+    const ok = await canScheduleSession(req, {
+      agencyId: row.agency_id,
+      supervisorUserId: row.supervisor_user_id,
+      superviseeUserId: row.supervisee_user_id
+    });
+    if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const isParticipant =
+      userId === Number(row.supervisee_user_id) ||
+      (await pool.execute('SELECT 1 FROM supervision_session_attendees WHERE session_id = ? AND user_id = ? LIMIT 1', [id, userId]))[0]?.length > 0;
+    if (!isParticipant) {
+      return res.status(400).json({ error: { message: 'User is not a participant in this session' } });
+    }
+
+    await pool.execute(
+      'INSERT IGNORE INTO supervision_session_video_admissions (session_id, user_id) VALUES (?, ?)',
+      [id, userId]
+    );
+
+    res.json({ ok: true, admitted: userId });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const getAdmissionStatus = async (req, res, next) => {
+  try {
+    if (!isTwilioVideoConfigured()) {
+      return res.status(503).json({ error: { message: 'Twilio Video is not configured' } });
+    }
+
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ error: { message: 'Invalid session id' } });
+
+    const row = await SupervisionSession.findById(id);
+    if (!row) return res.status(404).json({ error: { message: 'Session not found' } });
+
+    const ok = await canScheduleSession(req, {
+      agencyId: row.agency_id,
+      supervisorUserId: row.supervisor_user_id,
+      superviseeUserId: row.supervisee_user_id
+    });
+    if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const actorUserId = Number(req.user?.id || 0);
+    if (!actorUserId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+
+    const isSupervisor = actorUserId === Number(row.supervisor_user_id);
+    if (isSupervisor) {
+      return res.json({ admitted: true, role: 'supervisor' });
+    }
+
+    const [admitted] = await pool.execute(
+      'SELECT 1 FROM supervision_session_video_admissions WHERE session_id = ? AND user_id = ? LIMIT 1',
+      [id, actorUserId]
+    );
+
+    if (!admitted?.length) {
+      return res.json({ admitted: false });
+    }
+
+    const mainName = row.twilio_room_unique_name || `supervision-${id}`;
+    const roomResult = await createOrGetRoom({ sessionId: id, uniqueName: mainName });
+    if (!roomResult) {
+      return res.status(500).json({ error: { message: 'Failed to get main room' } });
+    }
+
+    const token = await createAccessTokenAsync({
+      identity: `user-${actorUserId}`,
+      roomName: roomResult.uniqueName
+    });
+    if (!token) {
+      return res.status(500).json({ error: { message: 'Failed to generate token' } });
+    }
+
+    res.json({
+      admitted: true,
+      token: String(token).trim(),
+      roomName: roomResult.uniqueName,
+      roomSid: roomResult.roomSid
+    });
   } catch (e) {
     next(e);
   }

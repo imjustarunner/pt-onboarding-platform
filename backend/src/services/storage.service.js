@@ -1038,6 +1038,28 @@ class StorageService {
   /**
    * Save a reimbursement receipt to GCS under uploads/ so it can be served via /uploads/*.
    */
+  /**
+   * Save a team meeting / huddle video recording to GCS under uploads/ so it can be served via /uploads/*.
+   */
+  static async saveMeetingRecording({ eventId, fileBuffer, filename, contentType = 'video/mp4' }) {
+    const eid = parseInt(eventId, 10) || 0;
+    const sanitizedFilename = this.sanitizeFilename(filename || `meeting-${eid}-${Date.now()}.mp4`);
+    const unique = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}`;
+    const key = `uploads/meeting_recordings/event_${eid || 'unknown'}/${unique}-${sanitizedFilename}`;
+    const bucket = await this.getGCSBucket();
+    const file = bucket.file(key);
+
+    await file.save(fileBuffer, {
+      contentType,
+      metadata: {
+        eventId: String(eid || ''),
+        uploadedAt: new Date().toISOString()
+      }
+    });
+
+    return { path: key, key, filename: sanitizedFilename, relativePath: key };
+  }
+
   static async saveReimbursementReceipt(fileBuffer, filename, contentType = 'application/pdf') {
     const sanitizedFilename = this.sanitizeFilename(filename);
     const key = `uploads/reimbursements/${sanitizedFilename}`;

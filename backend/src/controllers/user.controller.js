@@ -2911,7 +2911,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
         const startAtOut = isAllDay ? null : (toIsoUtcForSchedule(r.start_at) || toMysqlDateTimeWall(r.start_at) || r.start_at || null);
         const endAtOut = isAllDay ? null : (toIsoUtcForSchedule(r.end_at) || toMysqlDateTimeWall(r.end_at) || r.end_at || null);
         const kind = String(r.kind || '').trim().toUpperCase() || 'PERSONAL_EVENT';
-        const appJoinUrl = (kind === 'TEAM_MEETING' && isTwilioVideoConfigured && frontendUrl)
+        const appJoinUrl = ((kind === 'TEAM_MEETING' || kind === 'HUDDLE') && isTwilioVideoConfigured && frontendUrl)
           ? `${frontendUrl}/join/team-meeting/${Number(r.id || 0)}`
           : null;
         return {
@@ -3086,7 +3086,8 @@ const SCHEDULE_EVENT_KIND_LABELS = {
   PERSONAL_EVENT: 'Personal Event',
   SCHEDULE_HOLD: 'Schedule Hold',
   INDIRECT_SERVICES: 'Indirect Services',
-  TEAM_MEETING: 'Team Meeting'
+  TEAM_MEETING: 'Team Meeting',
+  HUDDLE: 'Huddle'
 };
 
 function nextDateYmd(ymd) {
@@ -3130,8 +3131,11 @@ export const createUserScheduleEvent = async (req, res, next) => {
     if (!subjectEmail) return res.status(400).json({ error: { message: 'Provider email is required to create calendar events' } });
 
     const kind = String(req.body?.kind || '').trim().toUpperCase();
-    if (!['PERSONAL_EVENT', 'SCHEDULE_HOLD', 'INDIRECT_SERVICES', 'TEAM_MEETING'].includes(kind)) {
-      return res.status(400).json({ error: { message: 'kind must be PERSONAL_EVENT, SCHEDULE_HOLD, INDIRECT_SERVICES, or TEAM_MEETING' } });
+    if (!['PERSONAL_EVENT', 'SCHEDULE_HOLD', 'INDIRECT_SERVICES', 'TEAM_MEETING', 'HUDDLE'].includes(kind)) {
+      return res.status(400).json({ error: { message: 'kind must be PERSONAL_EVENT, SCHEDULE_HOLD, INDIRECT_SERVICES, TEAM_MEETING, or HUDDLE' } });
+    }
+    if (kind === 'HUDDLE' && actorRole !== 'provider_plus') {
+      return res.status(403).json({ error: { message: 'Only provider_plus can schedule Huddle meetings' } });
     }
     const isPrivate = req.body?.isPrivate === true;
 
@@ -3181,20 +3185,20 @@ export const createUserScheduleEvent = async (req, res, next) => {
         .map((v) => Number(v || 0))
         .filter((n) => n > 0 && n !== userId))
     );
-    if (kind === 'TEAM_MEETING' && !attendeeUserIds.length) {
-      return res.status(400).json({ error: { message: 'TEAM_MEETING requires at least one attendeeUserId.' } });
+    if ((kind === 'TEAM_MEETING' || kind === 'HUDDLE') && !attendeeUserIds.length) {
+      return res.status(400).json({ error: { message: `${kind} requires at least one attendeeUserId.` } });
     }
-    if (kind !== 'TEAM_MEETING' && attendeeUserIds.length) {
-      return res.status(400).json({ error: { message: 'attendeeUserIds are only supported for TEAM_MEETING.' } });
+    if (!['TEAM_MEETING', 'HUDDLE'].includes(kind) && attendeeUserIds.length) {
+      return res.status(400).json({ error: { message: 'attendeeUserIds are only supported for TEAM_MEETING and HUDDLE.' } });
     }
-    const createMeetLink = kind === 'TEAM_MEETING'
+    const createMeetLink = (kind === 'TEAM_MEETING' || kind === 'HUDDLE')
       ? req.body?.createMeetLink !== false
       : false;
 
     let attendeeEmails = [];
     if (attendeeUserIds.length) {
       if (!agencyId) {
-        return res.status(400).json({ error: { message: 'agencyId is required for TEAM_MEETING attendees.' } });
+        return res.status(400).json({ error: { message: 'agencyId is required for TEAM_MEETING and HUDDLE attendees.' } });
       }
       const placeholders = attendeeUserIds.map(() => '?').join(',');
       const [attendeeRows] = await pool.execute(
@@ -3273,11 +3277,11 @@ export const createUserScheduleEvent = async (req, res, next) => {
         googleMeetLink: result.meetLink || null,
         createdByUserId: actorUserId
       });
-      if (saved?.id && kind === 'TEAM_MEETING' && attendeeUserIds?.length) {
+      if (saved?.id && (kind === 'TEAM_MEETING' || kind === 'HUDDLE') && attendeeUserIds?.length) {
         const ProviderScheduleEventAttendee = (await import('../models/ProviderScheduleEventAttendee.model.js')).default;
         await ProviderScheduleEventAttendee.upsertForEvent(saved.id, attendeeUserIds);
       }
-      if (saved?.id && kind === 'TEAM_MEETING' && result?.eventId) {
+      if (saved?.id && (kind === 'TEAM_MEETING' || kind === 'HUDDLE') && result?.eventId) {
         const { isTwilioVideoConfigured } = await import('../services/twilioVideo.service.js');
         const frontendUrl = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
         if (isTwilioVideoConfigured() && frontendUrl) {

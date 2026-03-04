@@ -3708,18 +3708,23 @@ async function getEffectiveStagingAggregates(payrollPeriodId, { agencyId = null,
       try {
         const AgencyMeetingAttendanceRollup = (await import('../models/AgencyMeetingAttendanceRollup.model.js')).default;
         const meetingRows = await AgencyMeetingAttendanceRollup.listForAgencyInWindow(agencyId, periodStart, periodEnd);
-        const meetingUnitsByUser = new Map();
+        const meetingUnitsByUserCode = new Map(); // key: `${uid}:${code}`
         for (const r of meetingRows || []) {
           const uid = Number(r?.user_id || 0);
           if (!uid) continue;
           const sec = Number(r?.total_seconds || 0);
           const units = Math.round((sec / 60) * 100) / 100;
           if (units < 1e-9) continue;
-          meetingUnitsByUser.set(uid, (meetingUnitsByUser.get(uid) || 0) + units);
+          const kind = String(r?.kind || '').toUpperCase();
+          const isHost = uid === Number(r?.provider_id || 0);
+          const code = (kind === 'HUDDLE' && isHost) ? '99415' : 'MEETING';
+          const k = `${uid}:${code}`;
+          meetingUnitsByUserCode.set(k, (meetingUnitsByUserCode.get(k) || 0) + units);
         }
-        const meetingCode = 'MEETING';
-        for (const [uid, units] of meetingUnitsByUser.entries()) {
-          const k = `${uid}:${meetingCode}`;
+        for (const [k, units] of meetingUnitsByUserCode.entries()) {
+          const parts = k.split(':');
+          const uid = Number(parts[0] || 0);
+          const meetingCode = parts[1] || 'MEETING';
           if (outMap.has(k)) {
             const row = outMap.get(k);
             row.finalizedUnits = Number(row.finalizedUnits || 0) + units;

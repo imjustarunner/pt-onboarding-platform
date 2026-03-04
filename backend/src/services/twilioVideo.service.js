@@ -67,7 +67,7 @@ export async function createOrGetRoomByUniqueName(uniqueName) {
     const createParams = {
       uniqueName: name,
       type: 'group',
-      maxParticipants: 10,
+      maxParticipants: 100,
       recordParticipantsOnConnect: true,
       transcribeParticipantsOnConnect: true,
       transcriptionsConfiguration: { languageCode: 'en-US', speechModel: 'long' },
@@ -94,6 +94,92 @@ export async function createOrGetRoomByUniqueName(uniqueName) {
 export async function createOrGetRoom({ sessionId, uniqueName }) {
   const name = uniqueName || `supervision-${sessionId}`;
   return createOrGetRoomByUniqueName(name);
+}
+
+/**
+ * List connected participants in a Twilio Video room.
+ * @param {string} roomUniqueNameOrSid - Room unique name (e.g. "supervision-6-lobby") or SID
+ * @returns {Promise<Array<{ sid: string, identity: string }>>}
+ */
+/**
+ * Update recording rules for a room.
+ * Uses REST API directly (Twilio Node SDK may not expose recordingRules).
+ * @param {string} roomSidOrName - Room SID or unique name
+ * @param {Array<{type: 'include'|'exclude', all?: boolean, publisher?: string, kind?: 'audio'|'video'}>} rules
+ * @returns {Promise<boolean>} true if successful
+ */
+export async function updateRecordingRules(roomSidOrName, rules) {
+  const cfg = getVideoConfig();
+  if (!cfg) return false;
+
+  const accountSid = process.env.TWILIO_ACCOUNT_SID;
+  const authToken = process.env.TWILIO_AUTH_TOKEN;
+  if (!accountSid || !authToken) return false;
+
+  const url = `https://video.twilio.com/v1/Rooms/${encodeURIComponent(roomSidOrName)}/RecordingRules`;
+  const body = new URLSearchParams({
+    Rules: JSON.stringify(rules)
+  }).toString();
+
+  try {
+    const auth = Buffer.from(`${accountSid}:${authToken}`).toString('base64');
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Authorization: `Basic ${auth}`
+      },
+      body
+    });
+    if (!resp.ok) {
+      const errText = await resp.text();
+      console.error('[TwilioVideo] updateRecordingRules failed:', resp.status, errText?.slice(0, 300));
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.error('[TwilioVideo] updateRecordingRules error:', e?.message);
+    return false;
+  }
+}
+
+/**
+ * Set recording to host-only (host's audio + video including screen).
+ * @param {string} roomSidOrName - Room SID or unique name
+ * @param {string} hostIdentity - Participant identity (e.g. "user-123")
+ * @returns {Promise<boolean>}
+ */
+export async function setHostOnlyRecordingRules(roomSidOrName, hostIdentity) {
+  const rules = [
+    { type: 'exclude', all: true },
+    { type: 'include', publisher: hostIdentity, kind: 'audio' },
+    { type: 'include', publisher: hostIdentity, kind: 'video' }
+  ];
+  return updateRecordingRules(roomSidOrName, rules);
+}
+
+/**
+ * Set recording to all participants (default).
+ * @param {string} roomSidOrName - Room SID or unique name
+ * @returns {Promise<boolean>}
+ */
+export async function setRecordAllRecordingRules(roomSidOrName) {
+  const rules = [{ type: 'include', all: true }];
+  return updateRecordingRules(roomSidOrName, rules);
+}
+
+export async function listRoomParticipants(roomUniqueNameOrSid) {
+  const cfg = getVideoConfig();
+  if (!cfg) return [];
+
+  const client = TwilioService.getClient();
+  try {
+    const participants = await client.video.v1.rooms(roomUniqueNameOrSid).participants.list({ status: 'connected' });
+    return (participants || []).map((p) => ({ sid: p.sid, identity: p.identity }));
+  } catch (e) {
+    console.error('[TwilioVideo] listRoomParticipants error:', e?.message);
+    return [];
+  }
 }
 
 /**

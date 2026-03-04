@@ -7,6 +7,7 @@
         :token="token"
         :room-name="roomName"
         :event-id="eventId"
+        :is-host="isHost"
         @disconnected="onDisconnected"
       />
     </div>
@@ -32,6 +33,7 @@ const resolving = ref(false);
 const error = ref('');
 const token = ref('');
 const roomName = ref('');
+const isHost = ref(false);
 
 async function resolveAndRedirect() {
   const eid = eventId.value;
@@ -69,6 +71,7 @@ async function fetchTokenAndJoin() {
     const data = resp?.data || {};
     token.value = data.token || '';
     roomName.value = data.roomName || `team-meeting-${eid}`;
+    isHost.value = !!data.isHost;
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to join video room';
   }

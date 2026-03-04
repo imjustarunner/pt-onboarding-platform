@@ -5,6 +5,9 @@ import {
   listSupervisionAttendanceLogs,
   markSupervisionMeetingLifecycle,
   getSupervisionVideoToken,
+  getLobbyParticipants,
+  admitToMainRoom,
+  getAdmissionStatus,
   saveClientTranscript,
   getSupervisionSessionArtifacts,
   upsertSupervisionSessionArtifacts,
@@ -41,6 +44,9 @@ router.get('/sessions/:id/presenters', getSessionPresenters);
 router.post('/sessions/:id/presenters/:userId/presented', markSessionPresenterPresented);
 router.post('/sessions/:id/meeting-lifecycle', markSupervisionMeetingLifecycle);
 router.get('/sessions/:id/video-token', getSupervisionVideoToken);
+router.get('/sessions/:id/lobby-participants', getLobbyParticipants);
+router.get('/sessions/:id/admission-status', getAdmissionStatus);
+router.post('/sessions/:id/admit/:userId', admitToMainRoom);
 router.post('/sessions/:id/client-transcript', saveClientTranscript);
 router.get('/sessions/:id/artifacts', getSupervisionSessionArtifacts);
 router.post('/sessions/:id/artifacts', upsertSupervisionSessionArtifacts);

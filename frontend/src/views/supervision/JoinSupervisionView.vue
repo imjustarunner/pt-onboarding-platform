@@ -3,7 +3,20 @@
     <div v-if="resolving" class="join-placeholder">Resolving session…</div>
     <div v-else-if="error" class="join-error">{{ error }}</div>
     <div v-else-if="token && roomName" class="join-video">
+      <div class="join-video-header">
+        <BrandingLogo size="medium" class="join-video-logo" />
+        <span class="join-video-title">Supervision video</span>
+      </div>
+      <div v-if="isInLobby" class="lobby-banner">
+        Waiting for supervisor to admit you…
+      </div>
+      <SupervisionVideoLobbyPanel
+        v-else
+        :session-id="sessionId"
+        :is-supervisor="isSupervisor"
+      />
       <SupervisionTwilioVideoRoom
+        :key="videoRoomKey"
         :token="token"
         :room-name="roomName"
         :session-id="sessionId"
@@ -15,10 +28,13 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
+import BrandingLogo from '../../components/BrandingLogo.vue';
 import SupervisionTwilioVideoRoom from '../../components/supervision/SupervisionTwilioVideoRoom.vue';
+import SupervisionVideoLobbyPanel from '../../components/supervision/SupervisionVideoLobbyPanel.vue';
+import SupervisionVideoLobbyPanel from '../../components/supervision/SupervisionVideoLobbyPanel.vue';
 import api from '../../services/api';
 
 const router = useRouter();
@@ -32,6 +48,31 @@ const resolving = ref(false);
 const error = ref('');
 const token = ref('');
 const roomName = ref('');
+const videoRoomKey = ref(0);
+const admissionPollInterval = ref(null);
+const isSupervisor = ref(false);
+
+const isInLobby = computed(() => String(roomName.value || '').endsWith('-lobby'));
+
+async function pollAdmissionStatus() {
+  const sid = sessionId.value;
+  if (!sid || !isInLobby.value) return;
+  try {
+    const resp = await api.get(`/supervision/sessions/${sid}/admission-status`);
+    const data = resp?.data || {};
+    if (data.admitted && data.token && data.roomName) {
+      token.value = String(data.token).trim();
+      roomName.value = data.roomName;
+      videoRoomKey.value += 1;
+      if (admissionPollInterval.value) {
+        clearInterval(admissionPollInterval.value);
+        admissionPollInterval.value = null;
+      }
+    }
+  } catch {
+    // ignore, will retry
+  }
+}
 
 async function resolveAndRedirect() {
   const sid = sessionId.value;
@@ -69,6 +110,7 @@ async function fetchTokenAndJoin() {
     const data = resp?.data || {};
     const tok = (data.token || data.data?.token || data.result?.token || '').trim();
     const rn = data.roomName || data.room_name || data.data?.roomName || `supervision-${sid}`;
+    isSupervisor.value = !!data.isSupervisor;
     if (!tok) {
       console.warn('[JoinSupervisionView] video-token empty:', { status: resp?.status, data });
       const errMsg = data?.error?.message || data?.error || '';
@@ -77,10 +119,19 @@ async function fetchTokenAndJoin() {
     }
     token.value = tok;
     roomName.value = rn;
+    if (String(rn || '').endsWith('-lobby')) {
+      admissionPollInterval.value = setInterval(pollAdmissionStatus, 2000);
+    }
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to join video room';
   }
 }
+
+onUnmounted(() => {
+  if (admissionPollInterval.value) {
+    clearInterval(admissionPollInterval.value);
+  }
+});
 
 function onDisconnected() {
   const slug = organizationSlug.value;
@@ -133,5 +184,27 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   min-height: 0;
+}
+.join-video-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.join-video-logo {
+  flex-shrink: 0;
+}
+.join-video-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+.lobby-banner {
+  padding: 12px 16px;
+  background: rgba(59, 130, 246, 0.15);
+  border: 1px solid rgba(59, 130, 246, 0.4);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 14px;
+  margin-bottom: 12px;
 }
 </style>

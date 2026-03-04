@@ -658,7 +658,7 @@
             </div>
           </div>
 
-          <div v-if="requestType === 'agency_meeting'" style="margin-top: 10px;">
+          <div v-if="requestType === 'agency_meeting' || requestType === 'huddle'" style="margin-top: 10px;">
             <div v-if="meetingCandidatesLoading" class="muted" style="margin-top: 6px;">
               Loading agency participants…
             </div>
@@ -727,7 +727,7 @@
               <input type="checkbox" v-model="createMeetingMeetLink" />
               <span>Create Google Meet link</span>
             </label>
-            <div v-if="requestType === 'agency_meeting'" class="agenda-draft-section" style="margin-top: 12px;">
+            <div v-if="requestType === 'agency_meeting' || requestType === 'huddle'" class="agenda-draft-section" style="margin-top: 12px;">
               <label class="lbl">Agenda items (optional)</label>
               <div style="display: flex; gap: 8px; margin-bottom: 6px;">
                 <input
@@ -983,7 +983,7 @@
               ((requestType === 'office' || requestType === 'individual_session' || requestType === 'group_session') && (bookingMetadataLoading || !officeBookingValid || !!bookingClassificationInvalidReason)) ||
               (requestType === 'school' && !canUseSchool(modalDay, modalHour, modalEndHour)) ||
               (requestType === 'supervision' && !supervisionCanSubmit) ||
-              (requestType === 'agency_meeting' && !meetingCanSubmit) ||
+              ((requestType === 'agency_meeting' || requestType === 'huddle') && !meetingCanSubmit) ||
               ((requestType === 'intake_virtual_on' || requestType === 'intake_virtual_off' || requestType === 'intake_inperson_on' || requestType === 'intake_inperson_off') && !modalContext.officeEventId) ||
               (requestType === 'extend_assignment' && !(modalContext.standingAssignmentId > 0)) ||
               (requestType === 'forfeit_slot' && (!ackForfeit || !selectedActionContexts().some((x) => (Number(x?.officeEventId || 0) > 0 || Number(x?.standingAssignmentId || 0) > 0) && Number(x?.officeLocationId || 0) > 0))) ||
@@ -1173,14 +1173,35 @@
       </div>
     </div>
 
-    <div v-if="showSupvAppVideoModal && supvAppVideoToken" class="modal-backdrop" style="z-index: 10001;" @click.self="closeSupvAppVideoModal">
-      <div class="modal" style="max-width: 900px; max-height: 90vh; display: flex; flex-direction: column; overflow: hidden;" @click.stop>
-        <div class="modal-head" style="flex-shrink: 0;">
-          <div class="modal-title">Supervision video (in-app)</div>
-          <button class="btn btn-secondary btn-sm" type="button" @click.stop="closeSupvAppVideoModal">Close</button>
+    <div v-if="showSupvAppVideoModal && supvAppVideoToken" class="modal-backdrop supv-video-backdrop" style="z-index: 10001;" @click.self="closeSupvAppVideoModal">
+      <div class="modal supv-video-modal" :class="{ 'supv-video-fullscreen': supvAppVideoFullscreen }" @click.stop>
+        <div class="modal-head supv-video-head" style="flex-shrink: 0;">
+          <div class="supv-video-head-brand">
+            <BrandingLogo size="medium" class="supv-video-logo" />
+            <div class="modal-title">Supervision video (in-app)</div>
+          </div>
+          <div class="supv-video-head-actions">
+            <a
+              v-if="supvAppVideoOrgSlug && supvAppVideoSessionId"
+              :href="`/${supvAppVideoOrgSlug}/join/supervision/${supvAppVideoSessionId}`"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="btn btn-ghost btn-sm"
+            >
+              Open in new tab
+            </a>
+            <button class="btn btn-secondary btn-sm" type="button" @click.stop="supvAppVideoFullscreen = !supvAppVideoFullscreen">
+              {{ supvAppVideoFullscreen ? 'Exit fullscreen' : 'Fullscreen' }}
+            </button>
+            <button class="btn btn-secondary btn-sm" type="button" @click.stop="closeSupvAppVideoModal">Close</button>
+          </div>
         </div>
-        <div class="modal-body" style="padding: 12px; overflow-y: auto; flex: 1; min-height: 0;">
+        <div class="modal-body supv-video-body" style="padding: 12px; overflow-y: auto; flex: 1; min-height: 0;">
           <p class="muted" style="margin-bottom: 12px;">Attendance is tracked automatically when you join and leave.</p>
+          <SupervisionVideoLobbyPanel
+            :session-id="supvAppVideoSessionId"
+            :is-supervisor="supvAppVideoIsSupervisor"
+          />
           <SupervisionTwilioVideoRoom
             :token="supvAppVideoToken"
             :room-name="supvAppVideoRoomName"
@@ -1409,6 +1430,7 @@
 
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { useRoute } from 'vue-router';
 import { isSupervisor } from '../../utils/helpers.js';
 import api from '../../services/api';
 import { getScheduleSummary, setScheduleSummary, invalidateScheduleSummaryCacheForUser } from '../../utils/scheduleSummaryCache';
@@ -1417,7 +1439,9 @@ import { useAgencyStore } from '../../store/agency';
 import { useUserPreferencesStore } from '../../store/userPreferences';
 import OfficeWeeklyRoomGrid from './OfficeWeeklyRoomGrid.vue';
 import MeetingAgendaPanel from '../meetings/MeetingAgendaPanel.vue';
+import BrandingLogo from '../BrandingLogo.vue';
 import SupervisionTwilioVideoRoom from '../supervision/SupervisionTwilioVideoRoom.vue';
+import SupervisionVideoLobbyPanel from '../supervision/SupervisionVideoLobbyPanel.vue';
 
 const props = defineProps({
   userId: { type: Number, required: true },
@@ -1436,8 +1460,11 @@ const props = defineProps({
 });
 const emit = defineEmits(['update:weekStartYmd']);
 
+const route = useRoute();
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
+
+const supvAppVideoOrgSlug = computed(() => String(route.params?.organizationSlug || '').trim());
 
 const defaultScheduleColors = () => ({
   request: '#F2C94C',
@@ -2222,6 +2249,7 @@ const canManageOffices = computed(() => {
   return ['clinical_practice_assistant', 'provider_plus', 'admin', 'super_admin', 'superadmin', 'support', 'staff'].includes(role);
 });
 const currentUserRole = computed(() => String(authStore.user?.role || '').trim().toLowerCase());
+const isProviderPlus = computed(() => currentUserRole.value === 'provider_plus');
 const canScheduleSupervisionFromGrid = computed(() => isSupervisor(authStore.user));
 const isViewingOtherUserSchedule = computed(() => {
   if (!isAdminMode.value) return false;
@@ -3511,7 +3539,7 @@ const modalActionSource = ref('general'); // general | plus_or_blank | office_bl
 const requestNotes = ref('');
 const submitting = ref(false);
 const modalError = ref('');
-const SCHEDULE_EVENT_ACTIONS = new Set(['personal_event', 'schedule_hold', 'schedule_hold_all_day', 'indirect_services', 'agency_meeting']);
+const SCHEDULE_EVENT_ACTIONS = new Set(['personal_event', 'schedule_hold', 'schedule_hold_all_day', 'indirect_services', 'agency_meeting', 'huddle']);
 const AGENCY_OPTIONAL_ACTIONS = new Set([
   'office',
   'individual_session',
@@ -3579,7 +3607,7 @@ const isScheduleEventRequestType = computed(() => SCHEDULE_EVENT_ACTIONS.has(Str
 const quarterMinuteOptions = [0, 15, 30, 45];
 const isQuarterHourRequestType = computed(() => {
   const t = String(requestType.value || '');
-  return ['supervision', 'agency_meeting', 'personal_event', 'schedule_hold', 'indirect_services'].includes(t);
+  return ['supervision', 'agency_meeting', 'huddle', 'personal_event', 'schedule_hold', 'indirect_services'].includes(t);
 });
 const canUseQuarterHourInput = computed(
   () => isQuarterHourRequestType.value && !(isScheduleEventRequestType.value && scheduleEventAllDay.value)
@@ -3597,6 +3625,7 @@ const scheduleHoldReasonOptions = computed(() => SCHEDULE_HOLD_REASON_OPTIONS);
 const scheduleEventTitlePlaceholder = computed(() => {
   const kind = String(requestType.value || '');
   if (kind === 'agency_meeting') return 'Agency meeting';
+  if (kind === 'huddle') return 'Huddle';
   if (kind === 'schedule_hold' || kind === 'schedule_hold_all_day') return 'Schedule hold';
   if (kind === 'indirect_services') return 'Indirect services';
   return 'Personal event';
@@ -3724,6 +3753,14 @@ const availableQuickActions = computed(() => {
       disabledReason: '',
       visible: !supervisionOnlyMode,
       tone: 'teal'
+    },
+    {
+      id: 'huddle',
+      label: 'Huddle',
+      description: 'Provider Plus: schedule a huddle with one or more participants (99415 for host, MEETING for participants)',
+      disabledReason: isProviderPlus.value ? '' : 'Provider Plus only',
+      visible: !supervisionOnlyMode && isProviderPlus.value,
+      tone: 'cyan'
     },
     {
       id: 'personal_event',
@@ -3856,7 +3893,7 @@ const visibleQuickActions = computed(() => {
 });
 
 const actionRequiresAgency = computed(() => !AGENCY_OPTIONAL_ACTIONS.has(String(requestType.value || '')));
-const scheduleEventRequiresAgency = computed(() => ['indirect_services', 'agency_meeting'].includes(String(requestType.value || '')));
+const scheduleEventRequiresAgency = computed(() => ['indirect_services', 'agency_meeting', 'huddle'].includes(String(requestType.value || '')));
 
 const intakeActionHelpText = computed(() => {
   const labels = {
@@ -3877,6 +3914,7 @@ const submitActionLabel = computed(() => {
     school: 'Submit school request',
     supervision: isGroupSupervisionType.value ? 'Schedule group supervision' : 'Schedule supervision',
     agency_meeting: 'Create agency meeting',
+    huddle: 'Create huddle',
     personal_event: 'Create personal event',
     schedule_hold: 'Create schedule hold',
     schedule_hold_all_day: 'Create all-day hold',
@@ -5573,6 +5611,7 @@ const selectedActionContexts = () => {
 
 const defaultScheduleEventTitleForAction = (actionId) => {
   if (actionId === 'agency_meeting') return 'Agency Meeting';
+  if (actionId === 'huddle') return 'Huddle';
   if (actionId === 'schedule_hold' || actionId === 'schedule_hold_all_day') return 'Schedule Hold';
   if (actionId === 'indirect_services') return 'Indirect Services';
   return 'Personal Event';
@@ -5589,6 +5628,7 @@ const effectiveScheduleHoldReason = () => {
 
 const scheduleEventKindForAction = (actionId) => {
   if (actionId === 'agency_meeting') return 'TEAM_MEETING';
+  if (actionId === 'huddle') return 'HUDDLE';
   if (actionId === 'indirect_services') return 'INDIRECT_SERVICES';
   if (actionId === 'schedule_hold' || actionId === 'schedule_hold_all_day') return 'SCHEDULE_HOLD';
   return 'PERSONAL_EVENT';
@@ -5689,11 +5729,11 @@ const submitRequest = async () => {
       if (!uid) throw new Error('Provider is required.');
       const normalizedAction = String(requestType.value || '');
       const eventKind = scheduleEventKindForAction(normalizedAction);
-      const meetingAttendeeUserIds = normalizedAction === 'agency_meeting'
+      const meetingAttendeeUserIds = (normalizedAction === 'agency_meeting' || normalizedAction === 'huddle')
         ? Array.from(selectedMeetingParticipantIdSet.value.values()).map((n) => Number(n || 0)).filter((n) => n > 0)
         : [];
-      if (normalizedAction === 'agency_meeting' && !meetingAttendeeUserIds.length) {
-        throw new Error('Select at least one meeting participant.');
+      if ((normalizedAction === 'agency_meeting' || normalizedAction === 'huddle') && !meetingAttendeeUserIds.length) {
+        throw new Error('Select at least one participant.');
       }
       const eventAgencyId = scheduleEventRequiresAgency.value
         ? (Number(effectiveAgencyId.value || 0) || null)
@@ -5704,7 +5744,7 @@ const submitRequest = async () => {
       const title = String(scheduleEventTitle.value || '').trim() || defaultScheduleEventTitleForAction(normalizedAction);
       const reasonCode = eventKind === 'SCHEDULE_HOLD' ? effectiveScheduleHoldReason() : null;
       const isPrivate = !!scheduleEventPrivate.value;
-      const meetingTimeZone = normalizedAction === 'agency_meeting' ? browserIanaTimeZone() : null;
+      const meetingTimeZone = (normalizedAction === 'agency_meeting' || normalizedAction === 'huddle') ? browserIanaTimeZone() : null;
       if (scheduleEventAllDay.value || normalizedAction === 'schedule_hold_all_day') {
         const ranges = mergeSelectedSlotsByDay({ dayName: dn, startHour: h, endHour: endH });
         const dates = Array.from(new Set(ranges.map((x) => String(x.dateYmd || '').slice(0, 10)).filter(Boolean)));
@@ -5722,7 +5762,7 @@ const submitRequest = async () => {
             endDate,
             reasonCode,
             isPrivate,
-            ...(normalizedAction === 'agency_meeting'
+            ...((normalizedAction === 'agency_meeting' || normalizedAction === 'huddle')
               ? {
                   attendeeUserIds: meetingAttendeeUserIds,
                   createMeetLink: !!createMeetingMeetLink.value,
@@ -5749,7 +5789,7 @@ const submitRequest = async () => {
             endAt,
             reasonCode,
             isPrivate,
-            ...(normalizedAction === 'agency_meeting'
+            ...((normalizedAction === 'agency_meeting' || normalizedAction === 'huddle')
               ? {
                   attendeeUserIds: meetingAttendeeUserIds,
                   createMeetLink: !!createMeetingMeetLink.value,
@@ -5763,7 +5803,7 @@ const submitRequest = async () => {
       }
       if (createdScheduleEvents.length) {
         refreshInBackground = true;
-        if (requestType.value === 'agency_meeting' && createAgendaDraftItems.value.length) {
+        if ((requestType.value === 'agency_meeting' || requestType.value === 'huddle') && createAgendaDraftItems.value.length) {
           const items = [...createAgendaDraftItems.value];
           for (const ev of createdScheduleEvents) {
             const eid = ev?.providerScheduleEventId ?? ev?.id;
@@ -6188,13 +6228,13 @@ const submitRequest = async () => {
 };
 
 watch(requestType, (t) => {
-  if (!['supervision', 'agency_meeting', 'personal_event', 'schedule_hold', 'indirect_services'].includes(String(t || ''))) {
+  if (!['supervision', 'agency_meeting', 'huddle', 'personal_event', 'schedule_hold', 'indirect_services'].includes(String(t || ''))) {
     modalStartMinute.value = 0;
     modalEndMinute.value = 0;
   }
   if (t === 'supervision') {
     void loadSupervisionProviders();
-  } else if (t === 'agency_meeting') {
+  } else if (t === 'agency_meeting' || t === 'huddle') {
     void loadMeetingCandidates();
   } else if ((t === 'office' || t === 'individual_session' || t === 'group_session') && showClinicalBookingFields.value) {
     void loadBookingMetadataForProvider();
@@ -6204,7 +6244,7 @@ watch(requestType, (t) => {
     }
     if (t === 'schedule_hold_all_day') scheduleEventAllDay.value = true;
     if (t === 'schedule_hold') scheduleEventAllDay.value = false;
-    if (t === 'personal_event' || t === 'indirect_services' || t === 'agency_meeting') {
+    if (t === 'personal_event' || t === 'indirect_services' || t === 'agency_meeting' || t === 'huddle') {
       scheduleEventAllDay.value = false;
     }
   }
@@ -6235,7 +6275,7 @@ watch(supervisionIncludeAllAgencies, () => {
 });
 
 watch(meetingIncludeAllAgencies, () => {
-  if (String(requestType.value || '') !== 'agency_meeting' || !showRequestModal.value) return;
+  if (!['agency_meeting', 'huddle'].includes(String(requestType.value || '')) || !showRequestModal.value) return;
   selectedMeetingParticipantIds.value = [];
   meetingParticipantSearch.value = '';
   void loadMeetingCandidates();
@@ -6243,12 +6283,12 @@ watch(meetingIncludeAllAgencies, () => {
 
 watch([showRequestModal, requestType, effectiveAgencyId], ([isOpen, type, agencyId], [prevOpen, prevType, prevAgencyId]) => {
   if (!isOpen) return;
-  if (String(type || '') !== 'agency_meeting') return;
+  if (!['agency_meeting', 'huddle'].includes(String(type || ''))) return;
   if (meetingUsingAllAgencies.value) return;
   const currentAgencyId = Number(agencyId || 0);
   const previousAgencyId = Number(prevAgencyId || 0);
   const agencyChanged = currentAgencyId > 0 && currentAgencyId !== previousAgencyId;
-  const stayedOnMeeting = String(prevType || '') === 'agency_meeting' && isOpen === !!prevOpen;
+  const stayedOnMeeting = ['agency_meeting', 'huddle'].includes(String(prevType || '')) && isOpen === !!prevOpen;
   if (!agencyChanged || !stayedOnMeeting) return;
   selectedMeetingParticipantIds.value = [];
   meetingParticipantSearch.value = '';
@@ -6261,7 +6301,7 @@ watch([showRequestModal, requestType, effectiveAgencyId], ([isOpen, type, agency
 });
 
 watch([requestType, modalDay, modalHour, modalEndHour, modalStartMinute, modalEndMinute], ([type]) => {
-  if (String(type || '') !== 'agency_meeting' || !showRequestModal.value) return;
+  if (!['agency_meeting', 'huddle'].includes(String(type || '')) || !showRequestModal.value) return;
   void loadMeetingBusyByParticipant();
 });
 
@@ -6389,6 +6429,8 @@ const showSupvAppVideoModal = ref(false);
 const supvAppVideoToken = ref('');
 const supvAppVideoRoomName = ref('');
 const supvAppVideoSessionId = ref(0);
+const supvAppVideoIsSupervisor = ref(false);
+const supvAppVideoFullscreen = ref(false);
 const supvAppVideoError = ref('');
 const supvAppVideoLoading = ref(false);
 
@@ -6458,6 +6500,8 @@ const startAppVideoMeetingFromGrid = async (session) => {
     supvAppVideoToken.value = tok;
     supvAppVideoRoomName.value = rn;
     supvAppVideoSessionId.value = sid;
+    supvAppVideoIsSupervisor.value = !!data.isSupervisor;
+    supvAppVideoFullscreen.value = true;
     showSupvAppVideoModal.value = true;
   } catch (e) {
     supvAppVideoError.value = e?.response?.data?.error?.message || e?.message || 'Failed to join video room.';
@@ -6474,6 +6518,8 @@ const closeSupvAppVideoModal = () => {
   supvAppVideoToken.value = '';
   supvAppVideoRoomName.value = '';
   supvAppVideoSessionId.value = 0;
+  supvAppVideoIsSupervisor.value = false;
+  supvAppVideoFullscreen.value = false;
 };
 
 const startTrackedSupvMeetForSession = async (session) => {
@@ -8023,6 +8069,45 @@ defineExpose({ resetToOpenFinder });
   max-height: calc(100vh - 24px);
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
+}
+
+/* Supervision video modal – larger, with logo and fullscreen */
+.supv-video-backdrop .supv-video-modal {
+  max-width: min(95vw, 1400px);
+  width: min(95vw, 1400px);
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.supv-video-backdrop .supv-video-modal.supv-video-fullscreen {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  max-width: none;
+  max-height: none;
+  border-radius: 0;
+  z-index: 10002;
+}
+.supv-video-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.supv-video-head-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.supv-video-logo {
+  flex-shrink: 0;
+}
+.supv-video-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 @media (min-width: 768px) {
   .modal--request {

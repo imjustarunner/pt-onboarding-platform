@@ -10,7 +10,9 @@ import ProviderScheduleEventArtifact from '../models/ProviderScheduleEventArtifa
 import {
   isTwilioVideoConfigured,
   createOrGetRoomByUniqueName,
-  createAccessTokenAsync
+  createAccessTokenAsync,
+  setHostOnlyRecordingRules,
+  setRecordAllRecordingRules
 } from '../services/twilioVideo.service.js';
 
 async function canAccessTeamMeeting(req, event) {
@@ -55,7 +57,7 @@ export const getTeamMeetingJoinInfo = async (req, res, next) => {
        FROM provider_schedule_events pse
        JOIN agencies a ON a.id = pse.agency_id AND a.is_active = TRUE
        WHERE pse.id = ?
-         AND UPPER(COALESCE(pse.kind, '')) = 'TEAM_MEETING'
+         AND UPPER(COALESCE(pse.kind, '')) IN ('TEAM_MEETING', 'HUDDLE')
          AND UPPER(COALESCE(pse.status, 'ACTIVE')) <> 'CANCELLED'
        LIMIT 1`,
       [eventId]
@@ -87,8 +89,9 @@ export const getTeamMeetingVideoToken = async (req, res, next) => {
     const row = await ProviderScheduleEvent.findById(eventId);
     if (!row) return res.status(404).json({ error: { message: 'Event not found' } });
 
-    if (String(row.kind || '').toUpperCase() !== 'TEAM_MEETING') {
-      return res.status(400).json({ error: { message: 'Event is not a team meeting' } });
+    const kindNorm = String(row.kind || '').toUpperCase();
+    if (kindNorm !== 'TEAM_MEETING' && kindNorm !== 'HUDDLE') {
+      return res.status(400).json({ error: { message: 'Event is not a team meeting or huddle' } });
     }
 
     const ok = await canAccessTeamMeeting(req, row);
@@ -97,7 +100,7 @@ export const getTeamMeetingVideoToken = async (req, res, next) => {
     const actorUserId = Number(req.user?.id || 0);
     if (!actorUserId) return res.status(401).json({ error: { message: 'Not authenticated' } });
 
-    const roomName = row.twilio_room_unique_name || `team-meeting-${eventId}`;
+    const roomName = row.twilio_room_unique_name || (kindNorm === 'HUDDLE' ? `huddle-${eventId}` : `team-meeting-${eventId}`);
     const roomResult = await createOrGetRoomByUniqueName(roomName);
 
     if (!roomResult) {
@@ -120,11 +123,63 @@ export const getTeamMeetingVideoToken = async (req, res, next) => {
       return res.status(500).json({ error: { message: 'Failed to generate access token' } });
     }
 
+    const isHost = actorUserId === Number(row.provider_id);
+
     res.json({
       token,
       roomName: roomResult.uniqueName,
-      roomSid: roomResult.roomSid
+      roomSid: roomResult.roomSid,
+      isHost
     });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Set recording rules: host-only (host's screen + audio) or record all.
+ * Host only.
+ */
+export const setTeamMeetingRecordingRules = async (req, res, next) => {
+  try {
+    if (!isTwilioVideoConfigured()) {
+      return res.status(503).json({ error: { message: 'Twilio Video is not configured' } });
+    }
+
+    const eventId = parseInt(req.params.eventId, 10);
+    if (!eventId) return res.status(400).json({ error: { message: 'Invalid event id' } });
+
+    const row = await ProviderScheduleEvent.findById(eventId);
+    if (!row) return res.status(404).json({ error: { message: 'Event not found' } });
+
+    const kindNorm = String(row.kind || '').toUpperCase();
+    if (kindNorm !== 'TEAM_MEETING' && kindNorm !== 'HUDDLE') {
+      return res.status(400).json({ error: { message: 'Event is not a team meeting or huddle' } });
+    }
+
+    const ok = await canAccessTeamMeeting(req, row);
+    if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const actorUserId = Number(req.user?.id || 0);
+    if (!actorUserId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+
+    const isHost = actorUserId === Number(row.provider_id);
+    if (!isHost) {
+      return res.status(403).json({ error: { message: 'Only the host can change recording settings' } });
+    }
+
+    const recordHostOnly = req.body?.recordHostOnly === true;
+    const roomSidOrName = row.twilio_room_sid || row.twilio_room_unique_name || (kindNorm === 'HUDDLE' ? `huddle-${eventId}` : `team-meeting-${eventId}`);
+
+    const success = recordHostOnly
+      ? await setHostOnlyRecordingRules(roomSidOrName, `user-${actorUserId}`)
+      : await setRecordAllRecordingRules(roomSidOrName);
+
+    if (!success) {
+      return res.status(500).json({ error: { message: 'Failed to update recording rules' } });
+    }
+
+    res.json({ ok: true, recordHostOnly });
   } catch (e) {
     next(e);
   }
@@ -141,8 +196,9 @@ export const saveTeamMeetingClientTranscript = async (req, res, next) => {
     const row = await ProviderScheduleEvent.findById(eventId);
     if (!row) return res.status(404).json({ error: { message: 'Event not found' } });
 
-    if (String(row.kind || '').toUpperCase() !== 'TEAM_MEETING') {
-      return res.status(400).json({ error: { message: 'Event is not a team meeting' } });
+    const kindNorm = String(row.kind || '').toUpperCase();
+    if (kindNorm !== 'TEAM_MEETING' && kindNorm !== 'HUDDLE') {
+      return res.status(400).json({ error: { message: 'Event is not a team meeting or huddle' } });
     }
 
     const ok = await canAccessTeamMeeting(req, row);

@@ -63,7 +63,7 @@ class AgencyMeetingAttendanceRollup {
        FROM agency_meeting_attendance_rollups r
        JOIN provider_schedule_events pse ON pse.id = r.event_id
        WHERE pse.agency_id = ?
-         AND UPPER(COALESCE(pse.kind, '')) = 'TEAM_MEETING'
+         AND UPPER(COALESCE(pse.kind, '')) IN ('TEAM_MEETING', 'HUDDLE')
          AND UPPER(COALESCE(pse.status, 'ACTIVE')) <> 'CANCELLED'
          AND pse.start_at >= ?
          AND pse.start_at < DATE_ADD(?, INTERVAL 1 DAY)
