@@ -76,6 +76,23 @@ jobs:
           ENV_VARS="${ENV_VARS}|DB_HOST=/cloudsql/${{ secrets.CLOUD_SQL_CONNECTION_NAME }}"
           ENV_VARS="${ENV_VARS}|DB_PORT=3306"
           ENV_VARS="${ENV_VARS}|DB_NAME=onboarding_stage"
+          if [ -n "${{ secrets.DB_USER }}" ]; then
+            ENV_VARS="${ENV_VARS}|DB_USER=${{ secrets.DB_USER }}"
+          fi
+          if [ -n "${{ secrets.DB_PASSWORD }}" ]; then
+            ENV_VARS="${ENV_VARS}|DB_PASSWORD=${{ secrets.DB_PASSWORD }}"
+          fi
+          if [ -n "${{ secrets.DB_CONNECTION_LIMIT }}" ]; then
+            ENV_VARS="${ENV_VARS}|DB_CONNECTION_LIMIT=${{ secrets.DB_CONNECTION_LIMIT }}"
+          fi
+
+          # JWT (required for auth).
+          if [ -n "${{ secrets.JWT_SECRET }}" ]; then
+            ENV_VARS="${ENV_VARS}|JWT_SECRET=${{ secrets.JWT_SECRET }}"
+          fi
+          if [ -n "${{ secrets.JWT_EXPIRES_IN }}" ]; then
+            ENV_VARS="${ENV_VARS}|JWT_EXPIRES_IN=${{ secrets.JWT_EXPIRES_IN }}"
+          fi
           ENV_VARS="${ENV_VARS}|STORAGE_TYPE=gcs"
           ENV_VARS="${ENV_VARS}|GCS_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }}"
           ENV_VARS="${ENV_VARS}|GCS_BUCKET_NAME=${{ secrets.GCS_BUCKET_NAME }}"
@@ -96,6 +113,30 @@ jobs:
           if [ -n "${{ secrets.GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON_BASE64 }}" ]; then
             ENV_VARS="${ENV_VARS}|GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON_BASE64=${{ secrets.GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON_BASE64 }}"
           fi
+          if [ -n "${{ secrets.GOOGLE_WORKSPACE_IMPERSONATE_USER }}" ]; then
+            ENV_VARS="${ENV_VARS}|GOOGLE_WORKSPACE_IMPERSONATE_USER=${{ secrets.GOOGLE_WORKSPACE_IMPERSONATE_USER }}"
+          fi
+          if [ -n "${{ secrets.GOOGLE_WORKSPACE_DRIVE_IMPERSONATE_USER }}" ]; then
+            ENV_VARS="${ENV_VARS}|GOOGLE_WORKSPACE_DRIVE_IMPERSONATE_USER=${{ secrets.GOOGLE_WORKSPACE_DRIVE_IMPERSONATE_USER }}"
+          fi
+          if [ -n "${{ secrets.GMAIL_IMPERSONATE_USER }}" ]; then
+            ENV_VARS="${ENV_VARS}|GMAIL_IMPERSONATE_USER=${{ secrets.GMAIL_IMPERSONATE_USER }}"
+          fi
+          if [ -n "${{ secrets.GOOGLE_WORKSPACE_FROM_NAME }}" ]; then
+            ENV_VARS="${ENV_VARS}|GOOGLE_WORKSPACE_FROM_NAME=${{ secrets.GOOGLE_WORKSPACE_FROM_NAME }}"
+          fi
+          if [ -n "${{ secrets.GOOGLE_WORKSPACE_FROM_ADDRESS }}" ]; then
+            ENV_VARS="${ENV_VARS}|GOOGLE_WORKSPACE_FROM_ADDRESS=${{ secrets.GOOGLE_WORKSPACE_FROM_ADDRESS }}"
+          fi
+          if [ -n "${{ secrets.GOOGLE_WORKSPACE_DEFAULT_FROM }}" ]; then
+            ENV_VARS="${ENV_VARS}|GOOGLE_WORKSPACE_DEFAULT_FROM=${{ secrets.GOOGLE_WORKSPACE_DEFAULT_FROM }}"
+          fi
+          if [ -n "${{ secrets.GOOGLE_WORKSPACE_REPLY_TO }}" ]; then
+            ENV_VARS="${ENV_VARS}|GOOGLE_WORKSPACE_REPLY_TO=${{ secrets.GOOGLE_WORKSPACE_REPLY_TO }}"
+          fi
+          if [ -n "${{ secrets.EXPENSE_RECEIPTS_DRIVE_FOLDER_ID }}" ]; then
+            ENV_VARS="${ENV_VARS}|EXPENSE_RECEIPTS_DRIVE_FOLDER_ID=${{ secrets.EXPENSE_RECEIPTS_DRIVE_FOLDER_ID }}"
+          fi
 
           # reCAPTCHA Enterprise config (optional)
           if [ -n "${{ secrets.RECAPTCHA_SITE_KEY }}" ]; then
@@ -107,6 +148,59 @@ jobs:
           if [ -n "${{ secrets.RECAPTCHA_ENTERPRISE_PROJECT_ID }}" ]; then
             ENV_VARS="${ENV_VARS}|RECAPTCHA_ENTERPRISE_PROJECT_ID=${{ secrets.RECAPTCHA_ENTERPRISE_PROJECT_ID }}"
           fi
+          if [ -n "${{ secrets.RECAPTCHA_SECRET_KEY }}" ]; then
+            ENV_VARS="${ENV_VARS}|RECAPTCHA_SECRET_KEY=${{ secrets.RECAPTCHA_SECRET_KEY }}"
+          fi
+          if [ -n "${{ secrets.RECAPTCHA_MIN_SCORE }}" ]; then
+            ENV_VARS="${ENV_VARS}|RECAPTCHA_MIN_SCORE=${{ secrets.RECAPTCHA_MIN_SCORE }}"
+          fi
+
+          # Google Maps, OAuth (optional).
+          if [ -n "${{ secrets.GOOGLE_MAPS_API_KEY }}" ]; then
+            ENV_VARS="${ENV_VARS}|GOOGLE_MAPS_API_KEY=${{ secrets.GOOGLE_MAPS_API_KEY }}"
+          fi
+          if [ -n "${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}" ]; then
+            ENV_VARS="${ENV_VARS}|GOOGLE_OAUTH_CLIENT_ID=${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}"
+          fi
+          if [ -n "${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}" ]; then
+            ENV_VARS="${ENV_VARS}|GOOGLE_OAUTH_CLIENT_SECRET=${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}"
+          fi
+          if [ -n "${{ secrets.GOOGLE_OAUTH_REDIRECT_URI }}" ]; then
+            ENV_VARS="${ENV_VARS}|GOOGLE_OAUTH_REDIRECT_URI=${{ secrets.GOOGLE_OAUTH_REDIRECT_URI }}"
+          fi
+          if [ -n "${{ secrets.GOOGLE_OAUTH_ALLOWED_REDIRECT_HOSTS }}" ]; then
+            ENV_VARS="${ENV_VARS}|GOOGLE_OAUTH_ALLOWED_REDIRECT_HOSTS=${{ secrets.GOOGLE_OAUTH_ALLOWED_REDIRECT_HOSTS }}"
+          fi
+          if [ -n "${{ secrets.GOOGLE_OAUTH_STATE_SECRET }}" ]; then
+            ENV_VARS="${ENV_VARS}|GOOGLE_OAUTH_STATE_SECRET=${{ secrets.GOOGLE_OAUTH_STATE_SECRET }}"
+          fi
+
+          # Email AI status drafts (optional).
+          if [ -n "${{ secrets.EMAIL_AI_STATUS_DRAFTS_ENABLED }}" ]; then
+            ENV_VARS="${ENV_VARS}|EMAIL_AI_STATUS_DRAFTS_ENABLED=${{ secrets.EMAIL_AI_STATUS_DRAFTS_ENABLED }}"
+          fi
+
+          # Meta / Instagram marketing (optional).
+          if [ -n "${{ secrets.META_APP_ID }}" ]; then
+            ENV_VARS="${ENV_VARS}|META_APP_ID=${{ secrets.META_APP_ID }}"
+          fi
+          if [ -n "${{ secrets.META_APP_SECRET }}" ]; then
+            ENV_VARS="${ENV_VARS}|META_APP_SECRET=${{ secrets.META_APP_SECRET }}"
+          fi
+          if [ -n "${{ secrets.META_INSTAGRAM_REDIRECT_URI }}" ]; then
+            ENV_VARS="${ENV_VARS}|META_INSTAGRAM_REDIRECT_URI=${{ secrets.META_INSTAGRAM_REDIRECT_URI }}"
+          fi
+          if [ -n "${{ secrets.BACKEND_PUBLIC_URL }}" ]; then
+            ENV_VARS="${ENV_VARS}|BACKEND_PUBLIC_URL=${{ secrets.BACKEND_PUBLIC_URL }}"
+          fi
+
+          # Clinical KB bucket (optional; for NoteAid / clinical knowledge base).
+          if [ -n "${{ secrets.CLINICAL_KB_BUCKET }}" ]; then
+            ENV_VARS="${ENV_VARS}|CLINICAL_KB_BUCKET=${{ secrets.CLINICAL_KB_BUCKET }}"
+          fi
+          if [ -n "${{ secrets.DATA_STORE_ID }}" ]; then
+            ENV_VARS="${ENV_VARS}|DATA_STORE_ID=${{ secrets.DATA_STORE_ID }}"
+          fi
 
           # Clinical Director Agent (ADK) integration (optional; set secrets to enable).
           if [ -n "${{ secrets.CLINICAL_DIRECTOR_AGENT_URL }}" ]; then
@@ -114,6 +208,205 @@ jobs:
           fi
           if [ -n "${{ secrets.CLINICAL_DIRECTOR_ADK_APP_NAME }}" ]; then
             ENV_VARS="${ENV_VARS}|CLINICAL_DIRECTOR_ADK_APP_NAME=${{ secrets.CLINICAL_DIRECTOR_ADK_APP_NAME }}"
+          fi
+
+          # Twilio Video (supervision/team meetings; optional; set secrets to enable).
+          if [ -n "${{ secrets.TWILIO_ACCOUNT_SID }}" ]; then
+            ENV_VARS="${ENV_VARS}|TWILIO_ACCOUNT_SID=${{ secrets.TWILIO_ACCOUNT_SID }}"
+          fi
+          if [ -n "${{ secrets.TWILIO_AUTH_TOKEN }}" ]; then
+            ENV_VARS="${ENV_VARS}|TWILIO_AUTH_TOKEN=${{ secrets.TWILIO_AUTH_TOKEN }}"
+          fi
+          if [ -n "${{ secrets.TWILIO_API_KEY_SID }}" ]; then
+            ENV_VARS="${ENV_VARS}|TWILIO_API_KEY_SID=${{ secrets.TWILIO_API_KEY_SID }}"
+          fi
+          if [ -n "${{ secrets.TWILIO_API_KEY_SECRET }}" ]; then
+            ENV_VARS="${ENV_VARS}|TWILIO_API_KEY_SECRET=${{ secrets.TWILIO_API_KEY_SECRET }}"
+          fi
+
+          # Twilio SMS/Voice webhooks and Video webhook (optional).
+          if [ -n "${{ secrets.TWILIO_SMS_WEBHOOK_URL }}" ]; then
+            ENV_VARS="${ENV_VARS}|TWILIO_SMS_WEBHOOK_URL=${{ secrets.TWILIO_SMS_WEBHOOK_URL }}"
+          fi
+          if [ -n "${{ secrets.TWILIO_VOICE_WEBHOOK_URL }}" ]; then
+            ENV_VARS="${ENV_VARS}|TWILIO_VOICE_WEBHOOK_URL=${{ secrets.TWILIO_VOICE_WEBHOOK_URL }}"
+          fi
+          if [ -n "${{ secrets.TWILIO_VIDEO_WEBHOOK_URL }}" ]; then
+            ENV_VARS="${ENV_VARS}|TWILIO_VIDEO_WEBHOOK_URL=${{ secrets.TWILIO_VIDEO_WEBHOOK_URL }}"
+          fi
+          if [ -n "${{ secrets.TWILIO_VALIDATE_SIGNATURE }}" ]; then
+            ENV_VARS="${ENV_VARS}|TWILIO_VALIDATE_SIGNATURE=${{ secrets.TWILIO_VALIDATE_SIGNATURE }}"
+          fi
+          if [ -n "${{ secrets.TWILIO_DEFAULT_FROM }}" ]; then
+            ENV_VARS="${ENV_VARS}|TWILIO_DEFAULT_FROM=${{ secrets.TWILIO_DEFAULT_FROM }}"
+          fi
+          if [ -n "${{ secrets.TWILIO_BROADCAST_FROM }}" ]; then
+            ENV_VARS="${ENV_VARS}|TWILIO_BROADCAST_FROM=${{ secrets.TWILIO_BROADCAST_FROM }}"
+          fi
+          if [ -n "${{ secrets.TWILIO_NOTIFICATIONS_FROM }}" ]; then
+            ENV_VARS="${ENV_VARS}|TWILIO_NOTIFICATIONS_FROM=${{ secrets.TWILIO_NOTIFICATIONS_FROM }}"
+          fi
+          if [ -n "${{ secrets.SMS_VOICE_RETENTION_DAYS }}" ]; then
+            ENV_VARS="${ENV_VARS}|SMS_VOICE_RETENTION_DAYS=${{ secrets.SMS_VOICE_RETENTION_DAYS }}"
+          fi
+          if [ -n "${{ secrets.TWILIO_SMS_ALERT_THRESHOLD }}" ]; then
+            ENV_VARS="${ENV_VARS}|TWILIO_SMS_ALERT_THRESHOLD=${{ secrets.TWILIO_SMS_ALERT_THRESHOLD }}"
+          fi
+          if [ -n "${{ secrets.TWILIO_CALL_MINUTES_ALERT_THRESHOLD }}" ]; then
+            ENV_VARS="${ENV_VARS}|TWILIO_CALL_MINUTES_ALERT_THRESHOLD=${{ secrets.TWILIO_CALL_MINUTES_ALERT_THRESHOLD }}"
+          fi
+
+          # Audit log cold storage (optional; defaults in code if unset).
+          if [ -n "${{ secrets.AUDIT_LOG_COLD_STORAGE_ENABLED }}" ]; then
+            ENV_VARS="${ENV_VARS}|AUDIT_LOG_COLD_STORAGE_ENABLED=${{ secrets.AUDIT_LOG_COLD_STORAGE_ENABLED }}"
+          fi
+          if [ -n "${{ secrets.AUDIT_LOG_HOT_DAYS }}" ]; then
+            ENV_VARS="${ENV_VARS}|AUDIT_LOG_HOT_DAYS=${{ secrets.AUDIT_LOG_HOT_DAYS }}"
+          fi
+          if [ -n "${{ secrets.AUDIT_LOG_COLD_STORAGE_BATCH_SIZE }}" ]; then
+            ENV_VARS="${ENV_VARS}|AUDIT_LOG_COLD_STORAGE_BATCH_SIZE=${{ secrets.AUDIT_LOG_COLD_STORAGE_BATCH_SIZE }}"
+          fi
+          if [ -n "${{ secrets.AUDIT_LOG_COLD_STORAGE_PREFIX }}" ]; then
+            ENV_VARS="${ENV_VARS}|AUDIT_LOG_COLD_STORAGE_PREFIX=${{ secrets.AUDIT_LOG_COLD_STORAGE_PREFIX }}"
+          fi
+          if [ -n "${{ secrets.AUDIT_LOG_DELETE_AFTER_EXPORT }}" ]; then
+            ENV_VARS="${ENV_VARS}|AUDIT_LOG_DELETE_AFTER_EXPORT=${{ secrets.AUDIT_LOG_DELETE_AFTER_EXPORT }}"
+          fi
+
+          # Clinical DB (optional; for clinical data plane).
+          if [ -n "${{ secrets.CLINICAL_DB_HOST }}" ]; then
+            ENV_VARS="${ENV_VARS}|CLINICAL_DB_HOST=${{ secrets.CLINICAL_DB_HOST }}"
+          fi
+          if [ -n "${{ secrets.CLINICAL_DB_PORT }}" ]; then
+            ENV_VARS="${ENV_VARS}|CLINICAL_DB_PORT=${{ secrets.CLINICAL_DB_PORT }}"
+          fi
+          if [ -n "${{ secrets.CLINICAL_DB_NAME }}" ]; then
+            ENV_VARS="${ENV_VARS}|CLINICAL_DB_NAME=${{ secrets.CLINICAL_DB_NAME }}"
+          fi
+          if [ -n "${{ secrets.CLINICAL_DB_USER }}" ]; then
+            ENV_VARS="${ENV_VARS}|CLINICAL_DB_USER=${{ secrets.CLINICAL_DB_USER }}"
+          fi
+          if [ -n "${{ secrets.CLINICAL_DB_PASSWORD }}" ]; then
+            ENV_VARS="${ENV_VARS}|CLINICAL_DB_PASSWORD=${{ secrets.CLINICAL_DB_PASSWORD }}"
+          fi
+          if [ -n "${{ secrets.CLINICAL_AUDIO_BUCKET }}" ]; then
+            ENV_VARS="${ENV_VARS}|CLINICAL_AUDIO_BUCKET=${{ secrets.CLINICAL_AUDIO_BUCKET }}"
+          fi
+          if [ -n "${{ secrets.CLINICAL_DB_CONNECTION_LIMIT }}" ]; then
+            ENV_VARS="${ENV_VARS}|CLINICAL_DB_CONNECTION_LIMIT=${{ secrets.CLINICAL_DB_CONNECTION_LIMIT }}"
+          fi
+
+          # Demo mode (optional; set secrets to enable).
+          if [ -n "${{ secrets.DEMO_MODE_ENABLED }}" ]; then
+            ENV_VARS="${ENV_VARS}|DEMO_MODE_ENABLED=${{ secrets.DEMO_MODE_ENABLED }}"
+          fi
+          if [ -n "${{ secrets.DEMO_MODE_USER_ALLOWLIST }}" ]; then
+            ENV_VARS="${ENV_VARS}|DEMO_MODE_USER_ALLOWLIST=${{ secrets.DEMO_MODE_USER_ALLOWLIST }}"
+          fi
+          if [ -n "${{ secrets.DEMO_MODE_FAKE_AGENCY_IDS }}" ]; then
+            ENV_VARS="${ENV_VARS}|DEMO_MODE_FAKE_AGENCY_IDS=${{ secrets.DEMO_MODE_FAKE_AGENCY_IDS }}"
+          fi
+
+          # Billing / encryption / webhooks.
+          if [ -n "${{ secrets.LEARNING_BILLING_RENEWAL_SECRET }}" ]; then
+            ENV_VARS="${ENV_VARS}|LEARNING_BILLING_RENEWAL_SECRET=${{ secrets.LEARNING_BILLING_RENEWAL_SECRET }}"
+          fi
+          if [ -n "${{ secrets.BILLING_JOB_SECRET }}" ]; then
+            ENV_VARS="${ENV_VARS}|BILLING_JOB_SECRET=${{ secrets.BILLING_JOB_SECRET }}"
+          fi
+          if [ -n "${{ secrets.BILLING_ENCRYPTION_KEY_BASE64 }}" ]; then
+            ENV_VARS="${ENV_VARS}|BILLING_ENCRYPTION_KEY_BASE64=${{ secrets.BILLING_ENCRYPTION_KEY_BASE64 }}"
+          fi
+          if [ -n "${{ secrets.BILLING_ENCRYPTION_KEY_ID }}" ]; then
+            ENV_VARS="${ENV_VARS}|BILLING_ENCRYPTION_KEY_ID=${{ secrets.BILLING_ENCRYPTION_KEY_ID }}"
+          fi
+
+          # Push notifications (VAPID).
+          if [ -n "${{ secrets.VAPID_PUBLIC_KEY }}" ]; then
+            ENV_VARS="${ENV_VARS}|VAPID_PUBLIC_KEY=${{ secrets.VAPID_PUBLIC_KEY }}"
+          fi
+
+          # Document/referral encryption (KMS).
+          if [ -n "${{ secrets.REFERRAL_KMS_KEY }}" ]; then
+            ENV_VARS="${ENV_VARS}|REFERRAL_KMS_KEY=${{ secrets.REFERRAL_KMS_KEY }}"
+          fi
+          if [ -n "${{ secrets.DOCUMENTS_KMS_KEY }}" ]; then
+            ENV_VARS="${ENV_VARS}|DOCUMENTS_KMS_KEY=${{ secrets.DOCUMENTS_KMS_KEY }}"
+          fi
+
+          # Admin actions token.
+          if [ -n "${{ secrets.ADMIN_ACTIONS_TOKEN }}" ]; then
+            ENV_VARS="${ENV_VARS}|ADMIN_ACTIONS_TOKEN=${{ secrets.ADMIN_ACTIONS_TOKEN }}"
+          fi
+
+          # AI / Gemini / Vertex.
+          if [ -n "${{ secrets.GEMINI_API_KEY }}" ]; then
+            ENV_VARS="${ENV_VARS}|GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}"
+          fi
+          if [ -n "${{ secrets.GEMINI_FORCE_API_KEY }}" ]; then
+            ENV_VARS="${ENV_VARS}|GEMINI_FORCE_API_KEY=${{ secrets.GEMINI_FORCE_API_KEY }}"
+          fi
+          if [ -n "${{ secrets.GEMINI_MODEL }}" ]; then
+            ENV_VARS="${ENV_VARS}|GEMINI_MODEL=${{ secrets.GEMINI_MODEL }}"
+          fi
+          if [ -n "${{ secrets.VERTEX_AUTH_SOURCE }}" ]; then
+            ENV_VARS="${ENV_VARS}|VERTEX_AUTH_SOURCE=${{ secrets.VERTEX_AUTH_SOURCE }}"
+          fi
+          if [ -n "${{ secrets.VERTEX_AI_LOCATION }}" ]; then
+            ENV_VARS="${ENV_VARS}|VERTEX_AI_LOCATION=${{ secrets.VERTEX_AI_LOCATION }}"
+          fi
+          if [ -n "${{ secrets.VERTEX_AI_MODEL }}" ]; then
+            ENV_VARS="${ENV_VARS}|VERTEX_AI_MODEL=${{ secrets.VERTEX_AI_MODEL }}"
+          fi
+          if [ -n "${{ secrets.ADK_AGENT_URL }}" ]; then
+            ENV_VARS="${ENV_VARS}|ADK_AGENT_URL=${{ secrets.ADK_AGENT_URL }}"
+          fi
+          if [ -n "${{ secrets.VERTEX_AI_AGENT_TIMEOUT_MS }}" ]; then
+            ENV_VARS="${ENV_VARS}|VERTEX_AI_AGENT_TIMEOUT_MS=${{ secrets.VERTEX_AI_AGENT_TIMEOUT_MS }}"
+          fi
+          if [ -n "${{ secrets.VERTEX_AGENT_ENGINE_ID }}" ]; then
+            ENV_VARS="${ENV_VARS}|VERTEX_AGENT_ENGINE_ID=${{ secrets.VERTEX_AGENT_ENGINE_ID }}"
+          fi
+          if [ -n "${{ secrets.VERTEX_AI_AGENT_MODEL }}" ]; then
+            ENV_VARS="${ENV_VARS}|VERTEX_AI_AGENT_MODEL=${{ secrets.VERTEX_AI_AGENT_MODEL }}"
+          fi
+          if [ -n "${{ secrets.PROJECT_ID }}" ]; then
+            ENV_VARS="${ENV_VARS}|PROJECT_ID=${{ secrets.PROJECT_ID }}"
+          fi
+
+          # Malware scan (VirusTotal).
+          if [ -n "${{ secrets.VIRUSTOTAL_API_KEY }}" ]; then
+            ENV_VARS="${ENV_VARS}|VIRUSTOTAL_API_KEY=${{ secrets.VIRUSTOTAL_API_KEY }}"
+          fi
+
+          # Clinical KB prefix.
+          if [ -n "${{ secrets.CLINICAL_KB_PREFIX }}" ]; then
+            ENV_VARS="${ENV_VARS}|CLINICAL_KB_PREFIX=${{ secrets.CLINICAL_KB_PREFIX }}"
+          fi
+
+          # Email sending mode.
+          if [ -n "${{ secrets.EMAIL_SENDING_MODE }}" ]; then
+            ENV_VARS="${ENV_VARS}|EMAIL_SENDING_MODE=${{ secrets.EMAIL_SENDING_MODE }}"
+          fi
+
+          # QuickBooks (optional).
+          if [ -n "${{ secrets.QUICKBOOKS_CLIENT_ID }}" ]; then
+            ENV_VARS="${ENV_VARS}|QUICKBOOKS_CLIENT_ID=${{ secrets.QUICKBOOKS_CLIENT_ID }}"
+          fi
+          if [ -n "${{ secrets.QUICKBOOKS_CLIENT_SECRET }}" ]; then
+            ENV_VARS="${ENV_VARS}|QUICKBOOKS_CLIENT_SECRET=${{ secrets.QUICKBOOKS_CLIENT_SECRET }}"
+          fi
+          if [ -n "${{ secrets.QUICKBOOKS_REDIRECT_URI }}" ]; then
+            ENV_VARS="${ENV_VARS}|QUICKBOOKS_REDIRECT_URI=${{ secrets.QUICKBOOKS_REDIRECT_URI }}"
+          fi
+          if [ -n "${{ secrets.QUICKBOOKS_OAUTH_STATE_SECRET }}" ]; then
+            ENV_VARS="${ENV_VARS}|QUICKBOOKS_OAUTH_STATE_SECRET=${{ secrets.QUICKBOOKS_OAUTH_STATE_SECRET }}"
+          fi
+          if [ -n "${{ secrets.QUICKBOOKS_ENV }}" ]; then
+            ENV_VARS="${ENV_VARS}|QUICKBOOKS_ENV=${{ secrets.QUICKBOOKS_ENV }}"
+          fi
+          if [ -n "${{ secrets.QBO_VENDOR_DISPLAY_NAME }}" ]; then
+            ENV_VARS="${ENV_VARS}|QBO_VENDOR_DISPLAY_NAME=${{ secrets.QBO_VENDOR_DISPLAY_NAME }}"
           fi
 
           gcloud run deploy $SERVICE_NAME \
