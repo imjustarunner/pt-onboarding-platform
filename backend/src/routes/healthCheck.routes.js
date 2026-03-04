@@ -2,8 +2,39 @@ import express from 'express';
 import pool from '../config/database.js';
 import jwt from 'jsonwebtoken';
 import config from '../config/config.js';
+import { isTwilioVideoConfigured } from '../services/twilioVideo.service.js';
 
 const router = express.Router();
+
+/**
+ * Twilio Video config check (for debugging production)
+ * GET /api/health-check/twilio-video
+ * Returns whether Twilio Video env vars are present (no secrets exposed)
+ */
+router.get('/twilio-video', (req, res) => {
+  const hasAccountSid = !!process.env.TWILIO_ACCOUNT_SID;
+  const hasAuthToken = !!process.env.TWILIO_AUTH_TOKEN;
+  const hasApiKeySid = !!process.env.TWILIO_API_KEY_SID;
+  const hasApiKeySecret = !!process.env.TWILIO_API_KEY_SECRET;
+  const hasFrontendUrl = !!(process.env.FRONTEND_URL || '').trim();
+  let configured = false;
+  try {
+    configured = isTwilioVideoConfigured();
+  } catch (e) {
+    return res.status(500).json({ error: String(e?.message || e), envVarsPresent: { hasAccountSid, hasAuthToken, hasApiKeySid, hasApiKeySecret } });
+  }
+  res.json({
+    twilioVideoConfigured: configured,
+    envVarsPresent: { hasAccountSid, hasAuthToken, hasApiKeySid, hasApiKeySecret, hasFrontendUrl },
+    requestHost: req.headers?.host || null,
+    nodeEnv: process.env.NODE_ENV || 'undefined',
+    hint: !configured
+      ? 'Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_API_KEY_SID, TWILIO_API_KEY_SECRET in production env'
+      : !hasFrontendUrl
+        ? 'FRONTEND_URL is missing – join links need it'
+        : null
+  });
+});
 
 /**
  * Database Audit Health Check Endpoint

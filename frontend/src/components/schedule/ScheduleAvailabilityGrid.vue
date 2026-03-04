@@ -516,6 +516,19 @@
           <div v-if="!visibleQuickActions.length" class="modern-help" style="margin-top: 10px;">
             No actions are available for this slot. Choose an assigned/booked office slot or select an office from the toolbar.
           </div>
+
+          <div v-if="actionRequiresAgency && actionAgencyOptions.length" style="margin-top: 10px;">
+            <label class="lbl">Agency for this action</label>
+            <select v-model.number="selectedActionAgencyId" class="input" :disabled="actionAgencyOptions.length === 1">
+              <option v-for="opt in actionAgencyOptions" :key="`action-agency-${opt.id}`" :value="Number(opt.id)">
+                {{ opt.label }}
+              </option>
+            </select>
+            <div class="muted" style="margin-top: 6px; font-size: 12px;">
+              Schedule view can include multiple agencies; this chooses where the new item is created. For supervision groups, use the in-section all-agencies toggle to widen participant discovery.
+            </div>
+          </div>
+
           <div v-if="requestType === 'school' && !canUseSchool(modalDay, modalHour, modalEndHour)" class="muted" style="margin-top: 6px;">
             School daytime availability must be on weekdays and between 06:00 and 18:00.
           </div>
@@ -624,10 +637,6 @@
               </div>
             </div>
 
-            <label v-if="!summary?.twilioVideoConfigured" class="sched-toggle" style="margin-top: 8px;">
-              <input type="checkbox" v-model="createSupervisionMeetLink" />
-              <span>Create Google Meet link</span>
-            </label>
             <div v-if="requestType === 'supervision'" class="agenda-draft-section" style="margin-top: 12px;">
               <label class="lbl">Agenda items (optional)</label>
               <div style="display: flex; gap: 8px; margin-bottom: 6px;">
@@ -874,18 +883,6 @@
             </div>
           </div>
 
-          <div v-if="actionRequiresAgency && actionAgencyOptions.length > 1" style="margin-top: 10px;">
-            <label class="lbl">Agency for this action</label>
-            <select v-model.number="selectedActionAgencyId" class="input">
-              <option v-for="opt in actionAgencyOptions" :key="`action-agency-${opt.id}`" :value="Number(opt.id)">
-                {{ opt.label }}
-              </option>
-            </select>
-            <div class="muted" style="margin-top: 6px; font-size: 12px;">
-              Schedule view can include multiple agencies; this chooses where the new item is created. For supervision groups, use the in-section all-agencies toggle to widen participant discovery.
-            </div>
-          </div>
-
           <div v-if="isScheduleEventRequestType" style="margin-top: 10px;">
             <div class="modern-help">
               Creates a calendar event for this provider. It appears in Google titles when enabled.
@@ -1067,17 +1064,7 @@
             </div>
           </div>
           <div v-else class="muted" style="margin-top: 8px;">
-            <div>No Google Meet link is attached yet.</div>
-            <div style="margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap;">
-              <button
-                class="btn btn-primary btn-sm"
-                type="button"
-                :disabled="supvSaving || !selectedSupvSessionId"
-                @click="ensureSupvMeetLink"
-              >
-                {{ supvSaving ? 'Creating…' : 'Create Meet link' }}
-              </button>
-            </div>
+            No video link yet. Join link appears when Twilio Video is configured.
           </div>
 
           <div style="margin-top: 12px;">
@@ -1138,11 +1125,6 @@
             <div v-if="supvArtifactLoading" class="muted" style="margin-top: 6px;">Loading transcript/summary...</div>
             <div v-if="supvArtifactError" class="error" style="margin-top: 6px;">{{ supvArtifactError }}</div>
           </div>
-
-          <label v-if="!summary?.twilioVideoConfigured" class="sched-toggle" style="margin-top: 10px;">
-            <input type="checkbox" v-model="supvCreateMeetLink" />
-            <span>Create Google Meet link (only if missing)</span>
-          </label>
 
           <div style="margin-top: 12px;">
             <label class="lbl">Presenter tracking</label>
@@ -2277,49 +2259,67 @@ const load = async ({ forceRefresh = false } = {}) => {
     summary.value = cached;
     error.value = '';
     loading.value = false;
+    api.get('/health-check/twilio-video', { skipAuthRedirect: true }).then((r) => {
+      if (r?.data?.twilioVideoConfigured && summary.value) {
+        summary.value = { ...summary.value, twilioVideoConfigured: true };
+      }
+    }).catch(() => {});
+    return;
   }
 
   try {
     if (!cached) loading.value = true;
     error.value = '';
 
+    const twilioCheckPromise = api.get('/health-check/twilio-video', { skipAuthRedirect: true }).catch(() => ({ data: {} }));
+
     if (ids.length === 1) {
-      const resp = await api.get(`/users/${props.userId}/schedule-summary`, {
-        params: {
-          weekStart: weekStart.value,
-          agencyId: ids[0],
-          includeGoogleBusy: showGoogleBusy.value ? 'true' : 'false',
-          includeGoogleEvents: showGoogleEvents.value ? 'true' : 'false',
-          ...(showExternalBusy.value && selectedExternalCalendarIds.value.length
-            ? { externalCalendarIds: selectedExternalCalendarIds.value.join(',') }
-            : {})
-        }
-      });
-      summary.value = resp.data || null;
+      const [resp, twilioResp] = await Promise.all([
+        api.get(`/users/${props.userId}/schedule-summary`, {
+          params: {
+            weekStart: weekStart.value,
+            agencyId: ids[0],
+            includeGoogleBusy: showGoogleBusy.value ? 'true' : 'false',
+            includeGoogleEvents: showGoogleEvents.value ? 'true' : 'false',
+            ...(showExternalBusy.value && selectedExternalCalendarIds.value.length
+              ? { externalCalendarIds: selectedExternalCalendarIds.value.join(',') }
+              : {})
+          }
+        }),
+        twilioCheckPromise
+      ]);
+      const data = resp.data || null;
+      if (data && twilioResp?.data?.twilioVideoConfigured) {
+        data.twilioVideoConfigured = true;
+      }
+      summary.value = data;
       setScheduleSummary(cacheKey, summary.value);
     } else {
-      const results = await Promise.all(
-        ids.map((agencyId) =>
-          api
-            .get(`/users/${props.userId}/schedule-summary`, {
-              params: {
-                weekStart: weekStart.value,
+      const [results, twilioResp] = await Promise.all([
+        Promise.all(
+          ids.map((agencyId) =>
+            api
+              .get(`/users/${props.userId}/schedule-summary`, {
+                params: {
+                  weekStart: weekStart.value,
+                  agencyId,
+                  includeGoogleBusy: showGoogleBusy.value ? 'true' : 'false',
+                  includeGoogleEvents: showGoogleEvents.value ? 'true' : 'false',
+                  ...(showExternalBusy.value && selectedExternalCalendarIds.value.length
+                    ? { externalCalendarIds: selectedExternalCalendarIds.value.join(',') }
+                    : {})
+                }
+              })
+              .then((r) => ({ ok: true, agencyId, data: r.data }))
+              .catch((e) => ({
+                ok: false,
                 agencyId,
-                includeGoogleBusy: showGoogleBusy.value ? 'true' : 'false',
-                includeGoogleEvents: showGoogleEvents.value ? 'true' : 'false',
-                ...(showExternalBusy.value && selectedExternalCalendarIds.value.length
-                  ? { externalCalendarIds: selectedExternalCalendarIds.value.join(',') }
-                  : {})
-              }
-            })
-            .then((r) => ({ ok: true, agencyId, data: r.data }))
-            .catch((e) => ({
-              ok: false,
-              agencyId,
-              error: e?.response?.data?.error?.message || e?.message || 'Failed to load schedule'
-            }))
-        )
-      );
+                error: e?.response?.data?.error?.message || e?.message || 'Failed to load schedule'
+              }))
+          )
+        ),
+        twilioCheckPromise
+      ]);
 
       const okOnes = results.filter((r) => r.ok && r.data);
       const first = okOnes[0]?.data || null;
@@ -2400,7 +2400,7 @@ const load = async ({ forceRefresh = false } = {}) => {
       merged.googleBusy = first.googleBusy || [];
       merged.googleBusyError = first.googleBusyError || null;
       merged.externalCalendars = first.externalCalendars || [];
-      merged.twilioVideoConfigured = okOnes.some((r) => !!r.data?.twilioVideoConfigured);
+      merged.twilioVideoConfigured = okOnes.some((r) => !!r.data?.twilioVideoConfigured) || !!twilioResp?.data?.twilioVideoConfigured;
 
       summary.value = merged;
       setScheduleSummary(cacheKey, summary.value);
@@ -6021,7 +6021,7 @@ const submitRequest = async () => {
         startAt,
         endAt,
         notes: requestNotes.value || '',
-        createMeetLink: !!createSupervisionMeetLink.value,
+        createMeetLink: false,
         modality: 'virtual'
       });
       const sessionId = supvRes?.data?.session?.id;
@@ -6685,8 +6685,7 @@ const saveSupvSession = async () => {
     await api.patch(`/supervision/sessions/${id}`, {
       startAt,
       endAt,
-      notes: supvNotes.value || '',
-      createMeetLink: !!supvCreateMeetLink.value
+      notes: supvNotes.value || ''
     });
     await load();
     closeSupvModal();
