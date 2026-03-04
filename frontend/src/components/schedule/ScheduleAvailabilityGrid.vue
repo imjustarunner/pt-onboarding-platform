@@ -527,17 +527,15 @@
           </div>
 
           <div v-if="requestType === 'supervision' && availableSupervisionParticipants.length" style="margin-top: 10px;">
-            <label class="lbl">Supervision type</label>
-            <select v-model="supervisionSessionType" class="input" style="margin-bottom: 8px;">
-              <option value="individual">Individual supervision</option>
-              <option value="group">Group supervision</option>
-            </select>
+            <div v-if="supervisionEffectiveSessionTypeLabel" class="lbl" style="margin-bottom: 4px;">
+              {{ supervisionEffectiveSessionTypeLabel }}
+            </div>
             <label v-if="supervisionCanUseAllAgencies" class="sched-toggle" style="margin-top: 8px; margin-bottom: 8px;">
               <input type="checkbox" v-model="supervisionIncludeAllAgencies" />
               <span>Show group supervisees from all my agencies</span>
             </label>
             <div class="muted" style="margin-top: 6px;">
-              Individual supervision lists your direct supervisees in the selected agency. Group supervision lists all supervisees under supervision in the selected scope.
+              Add participants below. Individual = 1 supervisee; triadic = 2 supervisees (billed as individual); group = 3+ supervisees (99416, different rate).
             </div>
             <label class="lbl">Primary participant</label>
             <input
@@ -618,11 +616,11 @@
                 </div>
               </div>
               <div
-                v-if="requestType === 'supervision' && supervisionSessionType === 'group' && supervisionSelectedParticipantCount < 2"
+                v-if="requestType === 'supervision' && isGroupSupervisionType && supervisionSelectedParticipantCount < 3"
                 class="muted"
                 style="margin-top: 6px;"
               >
-                Group supervision requires at least 2 participants.
+                Group supervision requires at least 3 participants (primary + 2 additional).
               </div>
             </div>
 
@@ -930,6 +928,25 @@
             </label>
           </div>
 
+          <div v-if="canUseQuarterHourInput && !disableEndTimeInput" class="row" style="gap: 8px; margin-top: 10px; margin-bottom: 10px;">
+            <label class="sched-inline compact" style="flex: 1;">
+              <span>Start time</span>
+              <select v-model.number="modalStartHour" class="sched-select compact">
+                <option v-for="h in startHourOptions" :key="`start-${h}`" :value="h">
+                  {{ hourLabel(h) }}
+                </option>
+              </select>
+            </label>
+            <label class="sched-inline compact" style="flex: 1;">
+              <span>Start min</span>
+              <select v-model.number="modalStartMinute" class="sched-select compact">
+                <option v-for="m in quarterMinuteOptions" :key="`start-min-${m}`" :value="m">
+                  :{{ String(m).padStart(2, '0') }}
+                </option>
+              </select>
+            </label>
+          </div>
+
           <label class="lbl" style="margin-top: 10px;">End time</label>
           <select
             v-model.number="modalEndHour"
@@ -942,14 +959,6 @@
           </select>
 
           <div v-if="canUseQuarterHourInput && !disableEndTimeInput" class="row" style="gap: 8px; margin-top: 8px;">
-            <label class="sched-inline compact" style="flex: 1;">
-              <span>Start min</span>
-              <select v-model.number="modalStartMinute" class="sched-select compact">
-                <option v-for="m in quarterMinuteOptions" :key="`start-min-${m}`" :value="m">
-                  :{{ String(m).padStart(2, '0') }}
-                </option>
-              </select>
-            </label>
             <label class="sched-inline compact" style="flex: 1;">
               <span>End min</span>
               <select v-model.number="modalEndMinute" class="sched-select compact">
@@ -3468,6 +3477,7 @@ const clearSelectedActionSlots = () => {
 const showRequestModal = ref(false);
 const modalDay = ref('Monday');
 const modalHour = ref(7);
+const modalStartHour = ref(7);
 const modalEndHour = ref(8);
 const modalStartMinute = ref(0);
 const modalEndMinute = ref(0);
@@ -3555,7 +3565,7 @@ const endMinuteOptions = computed(
 );
 const modalTimeRangeLabel = computed(() => {
   if (canUseQuarterHourInput.value) {
-    return `${hourMinuteLabel(modalHour.value, modalStartMinute.value)}-${hourMinuteLabel(modalEndHour.value, modalEndMinute.value)}`;
+    return `${hourMinuteLabel(effectiveModalStartHour.value, modalStartMinute.value)}-${hourMinuteLabel(modalEndHour.value, modalEndMinute.value)}`;
   }
   return `${hourLabel(modalHour.value)}-${hourLabel(modalEndHour.value)}`;
 });
@@ -4150,7 +4160,6 @@ const officeRequestSummary = computed(() => {
 
 const supervisionProvidersLoading = ref(false);
 const supervisionProviders = ref([]);
-const supervisionSessionType = ref('individual');
 const supervisionIncludeAllAgencies = ref(false);
 const selectedSupervisionParticipantId = ref(0);
 const selectedSupervisionAdditionalParticipantIds = ref([]);
@@ -4184,7 +4193,20 @@ const supervisionSelectedParticipantCount = computed(() => {
   const extras = selectedSupervisionAdditionalParticipantIdSet.value.size;
   return primary + extras;
 });
-const isGroupSupervisionType = computed(() => String(supervisionSessionType.value || '').toLowerCase() === 'group');
+/** Derived from participant count: 0 additional = individual, 1 = triadic (billed as individual), 2+ = group (99416) */
+const supervisionEffectiveSessionType = computed(() => {
+  const extras = selectedSupervisionAdditionalParticipantIdSet.value.size;
+  if (extras >= 2) return 'group';
+  if (extras === 1) return 'triadic';
+  return 'individual';
+});
+const supervisionEffectiveSessionTypeLabel = computed(() => {
+  const t = supervisionEffectiveSessionType.value;
+  if (t === 'group') return 'Group supervision (99416)';
+  if (t === 'triadic') return 'Triadic supervision (counts as individual for everyone)';
+  return 'Individual supervision';
+});
+const isGroupSupervisionType = computed(() => supervisionEffectiveSessionType.value === 'group');
 const supervisionCanUseAllAgencies = computed(
   () => isGroupSupervisionType.value && (effectiveAgencyIds.value || []).length > 1
 );
@@ -4195,7 +4217,7 @@ const supervisionCanSubmit = computed(() => {
   if (supervisionProvidersLoading.value) return false;
   if ((availableSupervisionParticipants.value || []).length === 0) return false;
   if (!Number(selectedSupervisionParticipantId.value || 0)) return false;
-  if (isGroupSupervisionType.value && supervisionSelectedParticipantCount.value < 2) return false;
+  if (isGroupSupervisionType.value && supervisionSelectedParticipantCount.value < 3) return false;
   return true;
 });
 
@@ -4442,7 +4464,7 @@ const loadMeetingBusyByParticipant = async () => {
     meetingBusyByUserId.value = {};
     return;
   }
-  const ranges = mergeSelectedSlotsByDay({ dayName: modalDay.value, startHour: Number(modalHour.value), endHour: Number(modalEndHour.value) })
+  const ranges = mergeSelectedSlotsByDay({ dayName: modalDay.value, startHour: Number(effectiveModalStartHour.value || modalHour.value), endHour: Number(modalEndHour.value) })
     .map((row) => {
       const dateYmd = String(row?.dateYmd || '').slice(0, 10);
       const startHour = Number(row?.startHour || 0);
@@ -4536,8 +4558,19 @@ const loadSupervisionProviders = async () => {
   }
 };
 
+const effectiveModalStartHour = computed(() =>
+  canUseQuarterHourInput.value ? Number(modalStartHour.value || modalHour.value || 0) : Number(modalHour.value || 0)
+);
+const startHourOptions = computed(() => {
+  const clicked = Number(modalHour.value || 0);
+  if (!canUseQuarterHourInput.value) return [clicked];
+  const minH = Math.max(7, clicked - 1);
+  const out = [];
+  for (let h = minH; h <= clicked; h++) out.push(h);
+  return out;
+});
 const endHourOptions = computed(() => {
-  const start = Number(modalHour.value || 0);
+  const start = Number(effectiveModalStartHour.value || modalHour.value || 0);
   // Grid hours are 7..21 (end 22). Allow multi-hour ranges up to end-of-grid.
   const maxEnd = 22;
   const out = [];
@@ -4547,7 +4580,12 @@ const endHourOptions = computed(() => {
 });
 
 const ensureModalEndTimeValid = () => {
-  const startH = Number(modalHour.value || 0);
+  if (canUseQuarterHourInput.value) {
+    const allowed = startHourOptions.value;
+    let sh = Number(modalStartHour.value || modalHour.value || 0);
+    if (!allowed.includes(sh)) modalStartHour.value = allowed[allowed.length - 1] ?? sh;
+  }
+  const startH = Number(effectiveModalStartHour.value || modalHour.value || 0);
   const maxEnd = 22;
   const minEndH = canUseQuarterHourInput.value ? startH : (startH + 1);
   let endH = Number(modalEndHour.value || 0);
@@ -4690,6 +4728,7 @@ const openSlotActionModal = ({
   modalActionSource.value = String(actionSource || 'general');
   modalDay.value = String(dayName);
   modalHour.value = Number(hour);
+  modalStartHour.value = Number(hour);
   // Default to a 1-hour range; clamp to end-of-grid.
   const nextEnd = Math.min(Number(hour) + 1, 22);
   modalEndHour.value = nextEnd > Number(hour) ? nextEnd : Number(hour) + 1;
@@ -4713,7 +4752,6 @@ const openSlotActionModal = ({
   resetBookingSelectionDefaults();
   resetBookingMetadataState();
   supervisionParticipantSearch.value = '';
-  supervisionSessionType.value = 'individual';
   supervisionIncludeAllAgencies.value = false;
   selectedSupervisionParticipantId.value = 0;
   selectedSupervisionAdditionalParticipantIds.value = [];
@@ -4751,6 +4789,7 @@ const openSlotActionModal = ({
       const maxHour = Math.max(...rows.map((x) => Number(x.hour || 0)));
       if (Number.isFinite(minHour) && Number.isFinite(maxHour)) {
         modalHour.value = minHour;
+        modalStartHour.value = minHour;
         modalEndHour.value = Math.min(maxHour + 1, 22);
       }
     }
@@ -5399,6 +5438,7 @@ const closeModal = () => {
   scheduleEventPrivate.value = false;
   modalStartMinute.value = 0;
   modalEndMinute.value = 0;
+  modalStartHour.value = modalHour.value;
   scheduleHoldReasonCode.value = 'DOCUMENTATION';
   scheduleHoldCustomReason.value = '';
   modalError.value = '';
@@ -5596,7 +5636,7 @@ const submitRequest = async () => {
     let forceRefreshSummary = false;
 
     const dn = modalDay.value;
-    const h = Number(modalHour.value);
+    const h = Number(effectiveModalStartHour.value || modalHour.value);
     const endH = Number(modalEndHour.value);
     const startMinute = canUseQuarterHourInput.value ? Number(modalStartMinute.value || 0) : 0;
     const endMinute = canUseQuarterHourInput.value ? Number(modalEndMinute.value || 0) : 0;
@@ -5952,7 +5992,7 @@ const submitRequest = async () => {
       });
     } else if (requestType.value === 'supervision') {
       if (supervisionProvidersLoading.value) throw new Error('Providers are still loading.');
-      const sessionType = isGroupSupervisionType.value ? 'group' : 'individual';
+      const sessionType = supervisionEffectiveSessionType.value;
       const participantId = Number(selectedSupervisionParticipantId.value || 0);
       const additionalAttendeeUserIds = Array.from(
         new Set(
@@ -5964,8 +6004,8 @@ const submitRequest = async () => {
       const actorId = Number(authStore.user?.id || 0);
       if (!actorId) throw new Error('Not signed in.');
       if (!participantId) throw new Error('Please select a participant.');
-      if (sessionType === 'group' && additionalAttendeeUserIds.length < 1) {
-        throw new Error('Group supervision requires selecting at least one additional participant.');
+      if (sessionType === 'group' && additionalAttendeeUserIds.length < 2) {
+        throw new Error('Group supervision requires at least 2 additional participants.');
       }
       const dayIdx = ALL_DAYS.indexOf(String(dn));
       if (dayIdx < 0) throw new Error('Invalid day');
@@ -6157,15 +6197,11 @@ watch([modalLockRoomToAssigned, () => modalContext.value?.roomId], ([locked, roo
   officeBookingRecurrence.value = 'ONCE';
 });
 
-watch(supervisionSessionType, (nextType) => {
+watch(supervisionEffectiveSessionType, (nextType) => {
   if (String(nextType || '') !== 'group' && supervisionIncludeAllAgencies.value) {
     supervisionIncludeAllAgencies.value = false;
-    return;
   }
   if (String(requestType.value || '') === 'supervision' && showRequestModal.value) {
-    selectedSupervisionParticipantId.value = 0;
-    selectedSupervisionAdditionalParticipantIds.value = [];
-    supervisionParticipantSearch.value = '';
     void loadSupervisionProviders();
   }
 });
@@ -7087,7 +7123,7 @@ const onCellBlockDoubleClick = (e, block, dayName, hour) => {
   window.open(link, '_blank', 'noreferrer');
 };
 
-watch([modalHour, modalEndHour, modalStartMinute, modalEndMinute, canUseQuarterHourInput, disableEndTimeInput], () => {
+watch([modalHour, modalStartHour, modalEndHour, modalStartMinute, modalEndMinute, canUseQuarterHourInput, disableEndTimeInput], () => {
   if (disableEndTimeInput.value) {
     modalStartMinute.value = 0;
     modalEndMinute.value = 0;

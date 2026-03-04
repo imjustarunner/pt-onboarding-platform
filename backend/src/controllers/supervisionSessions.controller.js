@@ -89,7 +89,7 @@ function supervisionServiceCodeForParticipant({ participantRole, sessionType }) 
   const role = String(participantRole || '').trim().toLowerCase();
   const st = String(sessionType || 'individual').trim().toLowerCase();
   if (role === 'supervisor') return '99415';
-  if (st === 'group' || st === 'triadic') return '99416';
+  if (st === 'group') return '99416';
   return '99414';
 }
 

@@ -292,7 +292,7 @@ class User {
     try {
       const dbName = process.env.DB_NAME || 'onboarding_stage';
       const [columns] = await pool.execute(
-        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('pending_completed_at', 'pending_auto_complete_at', 'pending_identity_verified', 'pending_access_locked', 'pending_completion_notified', 'work_email', 'personal_email', 'preferred_name', 'username', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'has_hiring_access', 'has_medical_records_release_access', 'provider_accepting_new_clients', 'provider_school_info_blurb', 'personal_phone', 'work_phone', 'work_phone_extension', 'system_phone_number', 'home_street_address', 'home_address_line2', 'home_city', 'home_state', 'home_postal_code', 'medcancel_enabled', 'medcancel_rate_schedule', 'company_card_enabled', 'profile_photo_path', 'password_changed_at', 'title', 'service_focus', 'languages_spoken', 'credential', 'skill_builder_eligible', 'has_skill_builder_coordinator_access', 'skill_builder_confirm_required_next_login', 'is_hourly_worker', 'sso_password_override')",
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('pending_completed_at', 'pending_auto_complete_at', 'pending_identity_verified', 'pending_access_locked', 'pending_completion_notified', 'work_email', 'personal_email', 'preferred_name', 'username', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'has_hiring_access', 'has_medical_records_release_access', 'provider_accepting_new_clients', 'provider_school_info_blurb', 'personal_phone', 'work_phone', 'work_phone_extension', 'system_phone_number', 'home_street_address', 'home_address_line2', 'home_city', 'home_state', 'home_postal_code', 'medcancel_enabled', 'medcancel_rate_schedule', 'company_card_enabled', 'company_car_submit_access', 'company_car_manage_access', 'profile_photo_path', 'password_changed_at', 'title', 'service_focus', 'languages_spoken', 'credential', 'skill_builder_eligible', 'has_skill_builder_coordinator_access', 'skill_builder_confirm_required_next_login', 'is_hourly_worker', 'sso_password_override')",
         [dbName]
       );
       const existingColumns = columns.map(c => c.COLUMN_NAME);
@@ -323,6 +323,8 @@ class User {
       if (existingColumns.includes('medcancel_enabled')) query += ', medcancel_enabled';
       if (existingColumns.includes('medcancel_rate_schedule')) query += ', medcancel_rate_schedule';
       if (existingColumns.includes('company_card_enabled')) query += ', company_card_enabled';
+      if (existingColumns.includes('company_car_submit_access')) query += ', company_car_submit_access';
+      if (existingColumns.includes('company_car_manage_access')) query += ', company_car_manage_access';
       if (existingColumns.includes('profile_photo_path')) query += ', profile_photo_path';
       if (existingColumns.includes('title')) query += ', title';
       if (existingColumns.includes('service_focus')) query += ', service_focus';

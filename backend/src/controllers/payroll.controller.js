@@ -3405,7 +3405,7 @@ function mapSupervisionServiceCodeForPayroll({ participantRole, sessionType, par
   const st = String(sessionType || 'individual').trim().toLowerCase();
   if (role === 'supervisor') return '99415';
   if (isProviderPlusRole(participantUserRole)) return '99415';
-  if (st === 'group' || st === 'triadic') return '99416';
+  if (st === 'group') return '99416';
   return '99414';
 }
 
