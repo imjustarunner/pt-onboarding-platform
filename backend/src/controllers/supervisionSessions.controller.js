@@ -615,9 +615,12 @@ export const getSupervisionVideoToken = async (req, res, next) => {
 
     const roomParam = req.query?.room || '';
     const isSupervisor = actorUserId === Number(row.supervisor_user_id);
+    const sessionType = String(row.session_type || 'individual').toLowerCase();
 
-    // Supervisor always goes to main room. Supervisee: lobby first (default), then main when admitted.
-    const useLobby = roomParam === 'lobby' || (!roomParam && !isSupervisor);
+    // Supervisor always goes to main room. Supervisee: for individual/triadic, go directly to main room
+    // (avoids admit flow issues). For group (3+), use lobby first, then admit.
+    const skipLobbyForSupervisee = sessionType === 'individual' || sessionType === 'triadic';
+    const useLobby = roomParam === 'lobby' || (!roomParam && !isSupervisor && !skipLobbyForSupervisee);
     let roomResult;
 
     if (useLobby && !isSupervisor) {

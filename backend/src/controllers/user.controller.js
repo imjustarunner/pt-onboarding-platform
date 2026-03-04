@@ -2860,6 +2860,9 @@ export const getUserScheduleSummary = async (req, res, next) => {
         const hasViewerRequired = r?.viewer_is_required !== null && r?.viewer_is_required !== undefined;
         const isPrimarySupervisee = Number(r?.supervisee_user_id || 0) === Number(providerId);
         const isRequired = hasViewerRequired ? Number(r.viewer_is_required) === 1 : isPrimarySupervisee;
+        const startWall = toMysqlDateTimeWall(r.start_at) || r.start_at;
+        const endWall = toMysqlDateTimeWall(r.end_at) || r.end_at;
+        const startDateYmd = startWall ? String(startWall).slice(0, 10) : null;
         return {
           id: r.id,
           role: isSupervisor ? 'supervisor' : 'supervisee',
@@ -2868,8 +2871,9 @@ export const getUserScheduleSummary = async (req, res, next) => {
           isRequired,
           presenterRole: r.viewer_presenter_role || null,
           presenterStatus: r.viewer_presenter_status || null,
-          startAt: toMysqlDateTimeWall(r.start_at) || r.start_at,
-          endAt: toMysqlDateTimeWall(r.end_at) || r.end_at,
+          startAt: startWall,
+          endAt: endWall,
+          startDateYmd,
           status: r.status,
           modality: r.modality,
           locationText: r.location_text,

@@ -2740,6 +2740,9 @@ const unrequestAllPendingRequests = async () => {
   }
 };
 
+const supervisionDateYmd = (ev) =>
+  ev?.startDateYmd ? String(ev.startDateYmd).slice(0, 10) : (ev?.startAt ? localYmd(new Date(String(ev.startAt).includes('T') ? ev.startAt : ev.startAt.replace(' ', 'T'))) : null);
+
 const hasSupervision = (dayName, hour) => {
   const s = summary.value;
   if (!s) return false;
@@ -2751,7 +2754,9 @@ const hasSupervision = (dayName, hour) => {
     const startLocal = new Date(startRaw.includes('T') ? startRaw : startRaw.replace(' ', 'T'));
     const endLocal = new Date(endRaw.includes('T') ? endRaw : endRaw.replace(' ', 'T'));
     if (Number.isNaN(startLocal.getTime()) || Number.isNaN(endLocal.getTime())) continue;
-    const idx = dayIndexForDateLocal(localYmd(startLocal), s.weekStart || weekStart.value);
+    const dateYmd = supervisionDateYmd(ev);
+    if (!dateYmd) continue;
+    const idx = dayIndexForDateLocal(dateYmd, s.weekStart || weekStart.value);
     const dn = ALL_DAYS[idx] || null;
     if (dn !== dayName) continue;
     const cellDate = addDaysYmd(s.weekStart || weekStart.value, dayIdxFromWeekStartMonday(dayName));
@@ -2773,7 +2778,9 @@ const supervisionLabel = (dayName, hour) => {
     const startLocal = new Date(startRaw.includes('T') ? startRaw : startRaw.replace(' ', 'T'));
     const endLocal = new Date(endRaw.includes('T') ? endRaw : endRaw.replace(' ', 'T'));
     if (Number.isNaN(startLocal.getTime()) || Number.isNaN(endLocal.getTime())) continue;
-    const idx = dayIndexForDateLocal(localYmd(startLocal), s.weekStart || weekStart.value);
+    const dateYmd = supervisionDateYmd(ev);
+    if (!dateYmd) continue;
+    const idx = dayIndexForDateLocal(dateYmd, s.weekStart || weekStart.value);
     const dn = ALL_DAYS[idx] || null;
     if (dn !== dayName) continue;
     const cellDate = addDaysYmd(s.weekStart || weekStart.value, dayIdxFromWeekStartMonday(dayName));
@@ -2791,7 +2798,9 @@ const supervisionLabel = (dayName, hour) => {
     const startLocal = new Date(startRaw.includes('T') ? startRaw : startRaw.replace(' ', 'T'));
     const endLocal = new Date(endRaw.includes('T') ? endRaw : endRaw.replace(' ', 'T'));
     if (Number.isNaN(startLocal.getTime()) || Number.isNaN(endLocal.getTime())) continue;
-    const idx = dayIndexForDateLocal(localYmd(startLocal), s.weekStart || weekStart.value);
+    const dateYmd = supervisionDateYmd(ev);
+    if (!dateYmd) continue;
+    const idx = dayIndexForDateLocal(dateYmd, s.weekStart || weekStart.value);
     const dn = ALL_DAYS[idx] || null;
     if (dn !== dayName) continue;
     const cellDate = addDaysYmd(s.weekStart || weekStart.value, dayIdxFromWeekStartMonday(dayName));
@@ -2821,7 +2830,9 @@ const supervisionTitle = (dayName, hour) => {
     const startLocal = new Date(startRaw.includes('T') ? startRaw : startRaw.replace(' ', 'T'));
     const endLocal = new Date(endRaw.includes('T') ? endRaw : endRaw.replace(' ', 'T'));
     if (Number.isNaN(startLocal.getTime()) || Number.isNaN(endLocal.getTime())) continue;
-    const idx = dayIndexForDateLocal(localYmd(startLocal), s.weekStart || weekStart.value);
+    const dateYmd = supervisionDateYmd(ev);
+    if (!dateYmd) continue;
+    const idx = dayIndexForDateLocal(dateYmd, s.weekStart || weekStart.value);
     const dn = ALL_DAYS[idx] || null;
     if (dn !== dayName) continue;
     const cellDate = addDaysYmd(s.weekStart || weekStart.value, dayIdxFromWeekStartMonday(dayName));
@@ -3230,8 +3241,9 @@ const supervisionSessionsInCell = (dayName, hour, minute = 0) => {
     const startLocal = new Date(startRaw.includes('T') ? startRaw : startRaw.replace(' ', 'T'));
     const endLocal = new Date(endRaw.includes('T') ? endRaw : endRaw.replace(' ', 'T'));
     if (Number.isNaN(startLocal.getTime()) || Number.isNaN(endLocal.getTime())) continue;
-    // Align with hasSupervision/supervisionLabel: session must fall on this day (avoids day-offset bugs)
-    const idx = dayIndexForDateLocal(localYmd(startLocal), ws);
+    const dateYmd = supervisionDateYmd(ev);
+    if (!dateYmd) continue;
+    const idx = dayIndexForDateLocal(dateYmd, ws);
     const sessionDay = ALL_DAYS[idx] || null;
     if (sessionDay !== dayName) continue;
     if (endLocal > cellStart && startLocal < cellEnd) hits.push(ev);

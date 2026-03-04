@@ -582,29 +582,38 @@ async function connectRoom() {
       cameraMuted.value = !vt || !vt.isEnabled;
       micMuted.value = !at || !at.isEnabled;
     };
-    r.localParticipant.videoTracks.forEach((pub) => {
-      localVideoTrack.value = pub.track;
-      pub.track.on('enabled', syncMutedFromTracks);
-      pub.track.on('disabled', syncMutedFromTracks);
-    });
-    r.localParticipant.audioTracks.forEach((pub) => {
-      localAudioTrack.value = pub.track;
-      pub.track.on('enabled', syncMutedFromTracks);
-      pub.track.on('disabled', syncMutedFromTracks);
-    });
-    syncMutedFromTracks();
-    r.localParticipant.on('trackSubscribed', (track) => {
-      if (track.kind === 'video') {
-        localVideoTrack.value = track;
-        track.on('enabled', syncMutedFromTracks);
-        track.on('disabled', syncMutedFromTracks);
-      }
-      if (track.kind === 'audio') {
-        localAudioTrack.value = track;
-        track.on('enabled', syncMutedFromTracks);
-        track.on('disabled', syncMutedFromTracks);
-      }
+    const applyLocalTracks = () => {
+      r.localParticipant.videoTracks.forEach((pub) => {
+        if (pub.track) {
+          localVideoTrack.value = pub.track;
+          pub.track.on('enabled', syncMutedFromTracks);
+          pub.track.on('disabled', syncMutedFromTracks);
+        }
+      });
+      r.localParticipant.audioTracks.forEach((pub) => {
+        if (pub.track) {
+          localAudioTrack.value = pub.track;
+          pub.track.on('enabled', syncMutedFromTracks);
+          pub.track.on('disabled', syncMutedFromTracks);
+        }
+      });
       syncMutedFromTracks();
+    };
+    applyLocalTracks();
+    r.localParticipant.on('trackPublished', (publication) => {
+      if (publication.track) {
+        if (publication.kind === 'video') {
+          localVideoTrack.value = publication.track;
+          publication.track.on('enabled', syncMutedFromTracks);
+          publication.track.on('disabled', syncMutedFromTracks);
+        }
+        if (publication.kind === 'audio') {
+          localAudioTrack.value = publication.track;
+          publication.track.on('enabled', syncMutedFromTracks);
+          publication.track.on('disabled', syncMutedFromTracks);
+        }
+        syncMutedFromTracks();
+      }
     });
     r.localParticipant.on('trackUnsubscribed', (track) => {
       if (track.kind === 'video' && localVideoTrack.value === track) localVideoTrack.value = null;
