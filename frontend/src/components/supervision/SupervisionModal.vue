@@ -571,6 +571,7 @@
             :room-name="twilioVideoRoomName"
             :session-title="twilioVideoSessionTitle"
             :session-id="twilioVideoSessionId"
+            :is-host="twilioVideoIsSupervisor"
             @disconnected="closeTwilioVideoModal"
           />
         </div>

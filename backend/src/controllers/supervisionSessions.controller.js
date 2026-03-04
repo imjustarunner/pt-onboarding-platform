@@ -673,6 +673,29 @@ export const getSupervisionVideoToken = async (req, res, next) => {
       roomMode: useLobby ? 'lobby' : 'main',
       lobbyEnabledForSession: !skipLobbyForSupervisee
     };
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/fe6563d2-089e-457a-8c8f-9a4cae053f92', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '572cc7' },
+      body: JSON.stringify({
+        sessionId: '572cc7',
+        runId: `run-${Date.now()}`,
+        hypothesisId: 'H5',
+        location: 'backend/src/controllers/supervisionSessions.controller.js',
+        message: 'getSupervisionVideoToken:mode-decision',
+        data: {
+          sessionId: id,
+          actorUserId,
+          sessionType,
+          isSupervisor,
+          roomParam,
+          useLobby,
+          roomName: roomResult?.uniqueName || null
+        },
+        timestamp: Date.now()
+      })
+    }).catch(() => {});
+    // #endregion
     if (req.query?.debug === '1') {
       try {
         const { default: jwt } = await import('jsonwebtoken');

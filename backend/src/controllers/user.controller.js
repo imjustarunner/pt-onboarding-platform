@@ -2294,7 +2294,7 @@ function startOfWeekIsoYmd(dateStr) {
   const d = new Date(`${String(dateStr || '').slice(0, 10)}T00:00:00`);
   if (Number.isNaN(d.getTime())) return null;
   const day = d.getDay(); // 0=Sun..6=Sat
-  const diff = 0 - day; // shift to Sunday (align with weekly-grid/materializer)
+  const diff = day === 0 ? -6 : (1 - day); // shift to Monday
   d.setDate(d.getDate() + diff);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
@@ -3067,6 +3067,33 @@ export const getUserScheduleSummary = async (req, res, next) => {
     } catch {
       // ignore
     }
+
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/fe6563d2-089e-457a-8c8f-9a4cae053f92', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '572cc7' },
+      body: JSON.stringify({
+        sessionId: '572cc7',
+        runId: `run-${Date.now()}`,
+        hypothesisId: 'H4',
+        location: 'backend/src/controllers/user.controller.js',
+        message: 'getUserScheduleSummary:supervision-payload',
+        data: {
+          providerId,
+          agencyId,
+          weekStart,
+          supervisionCount: Array.isArray(supervisionSessions) ? supervisionSessions.length : 0,
+          firstSessions: (Array.isArray(supervisionSessions) ? supervisionSessions.slice(0, 3) : []).map((s) => ({
+            id: s?.id,
+            startAt: s?.startAt,
+            endAt: s?.endAt,
+            startDateYmd: s?.startDateYmd
+          }))
+        },
+        timestamp: Date.now()
+      })
+    }).catch(() => {});
+    // #endregion
 
     res.json({
       ok: true,

@@ -39,8 +39,8 @@
           class="video-track-wrap"
           :class="{ 'dominant-speaker': dominantSpeakerSid === p.sid }"
         >
-          <div ref="(el) => setRemoteVideoEl(p.sid, el)" class="video-track" />
-          <span class="participant-identity">{{ p.identity }}</span>
+          <div :ref="getRemoteVideoRef(p.sid)" class="video-track" />
+          <span class="participant-identity">{{ participantLabel(p.identity) }}</span>
           <span
             v-if="networkQualityBySid[p.sid] != null"
             class="network-quality-badge"
@@ -50,7 +50,10 @@
             {{ networkQualityLabel(networkQualityBySid[p.sid]) }}
           </span>
         </div>
-        <div v-if="remoteParticipants.length === 0" class="video-track-wrap video-placeholder-wrap">
+        <div
+          v-if="remoteParticipants.length === 0 && (!localVideoTrack || cameraMuted)"
+          class="video-track-wrap video-placeholder-wrap"
+        >
           <div class="video-placeholder">
             <BrandingLogo size="small" class="placeholder-logo" />
             <span>Waiting for others to join…</span>
@@ -198,11 +201,12 @@
 </template>
 
 <script setup>
-import { ref, computed, onUnmounted, watch, nextTick, markRaw } from 'vue';
+import { ref, computed, onUnmounted, watch, nextTick, markRaw, toRaw } from 'vue';
 import { connect, LocalVideoTrack, LocalDataTrack, createLocalVideoTrack, createLocalAudioTrack } from 'twilio-video';
 import BrandingLogo from '../BrandingLogo.vue';
 import MeetingAgendaPanel from '../meetings/MeetingAgendaPanel.vue';
 import api from '../../services/api';
+import { useAuthStore } from '../../store/auth';
 
 const props = defineProps({
   token: { type: String, required: true },
@@ -230,6 +234,10 @@ const error = ref('');
 const localVideoEl = ref(null);
 const remoteVideoEls = ref({});
 const remoteVideoTracksBySid = ref({});
+const remoteVideoRefFnsBySid = ref({});
+const remoteAttachedTrackSidBySid = ref({});
+const remoteAudioElsByKey = ref({});
+const participantDisplayNamesByIdentity = ref({});
 const transcriptLines = ref([]);
 const screenTrack = ref(null);
 const screenShareEl = ref(null);
@@ -250,6 +258,41 @@ const polls = ref([]);
 const questionInput = ref('');
 const qaItems = ref([]);
 const chatMessagesEl = ref(null);
+const authStore = useAuthStore();
+
+function debugLog({ hypothesisId, message, data = {} }) {
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/fe6563d2-089e-457a-8c8f-9a4cae053f92', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '572cc7' },
+    body: JSON.stringify({
+      sessionId: '572cc7',
+      runId: (typeof window !== 'undefined' && window.__supvDebugRunId) || 'run-unknown',
+      hypothesisId,
+      location: 'frontend/src/components/supervision/SupervisionTwilioVideoRoom.vue',
+      message,
+      data,
+      timestamp: Date.now()
+    })
+  }).catch(() => {});
+  // #endregion
+}
+
+function myDisplayName() {
+  const first = String(authStore.user?.first_name || authStore.user?.firstName || '').trim();
+  const last = String(authStore.user?.last_name || authStore.user?.lastName || '').trim();
+  const full = `${first} ${last}`.trim();
+  return full || String(authStore.user?.email || '').trim() || 'Participant';
+}
+
+function participantLabel(identity) {
+  const id = String(identity || '').trim();
+  if (!id) return 'Participant';
+  const mapped = String(participantDisplayNamesByIdentity.value[id] || '').trim();
+  if (mapped) return mapped;
+  const m = id.match(/^user-(\d+)$/);
+  return m?.[1] ? `User ${m[1]}` : id;
+}
 
 const screenShareSupported = computed(() =>
   typeof navigator !== 'undefined' &&
@@ -281,6 +324,7 @@ const sortedRemoteParticipants = computed(() => {
 const totalParticipants = computed(() => 1 + remoteParticipants.value.length);
 const gridSizeClass = computed(() => {
   const n = totalParticipants.value;
+  if (n <= 1) return 'grid-cols-1';
   if (n <= 2) return 'grid-cols-2';
   if (n <= 4) return 'grid-cols-2';
   if (n <= 9) return 'grid-cols-3';
@@ -292,10 +336,108 @@ function setRemoteVideoEl(sid, el) {
   if (el) {
     remoteVideoEls.value[sid] = el;
     const track = remoteVideoTracksBySid.value[sid];
-    if (track) attachTrack(track, el);
+    const safeTrack = track ? toRaw(track) : null;
+    const trackKey = String(safeTrack?.sid || safeTrack?.name || '').trim() || 'video';
+    const alreadyAttached = String(remoteAttachedTrackSidBySid.value[sid] || '') === trackKey;
+    if (track && !alreadyAttached) {
+      attachTrack(track, el);
+      remoteAttachedTrackSidBySid.value = {
+        ...remoteAttachedTrackSidBySid.value,
+        [sid]: trackKey
+      };
+    }
+    // #region agent log
+    debugLog({
+      hypothesisId: 'H3',
+      message: 'setRemoteVideoEl:mounted',
+      data: {
+        sid,
+        hasTrackReady: !!track,
+        childCount: el?.childElementCount ?? 0,
+        alreadyAttached
+      }
+    });
+    // #endregion
     return;
   }
   delete remoteVideoEls.value[sid];
+}
+
+function getRemoteVideoRef(sid) {
+  const key = String(sid || '').trim();
+  if (!key) return () => {};
+  if (!remoteVideoRefFnsBySid.value[key]) {
+    remoteVideoRefFnsBySid.value[key] = (el) => setRemoteVideoEl(key, el);
+  }
+  return remoteVideoRefFnsBySid.value[key];
+}
+
+function remoteAudioKey(participantSid, track) {
+  const tsid = String(track?.sid || track?.name || '').trim();
+  return `${String(participantSid || 'unknown')}:${tsid || 'audio'}`;
+}
+
+function attachRemoteAudioTrack(participantSid, track) {
+  if (!track || typeof document === 'undefined') return;
+  const safeTrack = toRaw(track);
+  const key = remoteAudioKey(participantSid, safeTrack);
+  if (remoteAudioElsByKey.value[key]) return;
+  try {
+    const mediaEl = safeTrack.attach();
+    mediaEl.autoplay = true;
+    mediaEl.muted = false;
+    mediaEl.setAttribute('playsinline', 'true');
+    mediaEl.style.display = 'none';
+    document.body.appendChild(mediaEl);
+    remoteAudioElsByKey.value = { ...remoteAudioElsByKey.value, [key]: mediaEl };
+    // #region agent log
+    debugLog({
+      hypothesisId: 'H15',
+      message: 'remote:audio-attached',
+      data: {
+        participantSid,
+        trackSid: safeTrack?.sid || null,
+        key
+      }
+    });
+    // #endregion
+  } catch (e) {
+    // #region agent log
+    debugLog({
+      hypothesisId: 'H15',
+      message: 'remote:audio-attach-error',
+      data: {
+        participantSid,
+        trackSid: safeTrack?.sid || null,
+        errorName: e?.name || null,
+        errorMessage: e?.message || null
+      }
+    });
+    // #endregion
+  }
+}
+
+function detachRemoteAudioTrack(participantSid, track) {
+  const key = remoteAudioKey(participantSid, toRaw(track));
+  const el = remoteAudioElsByKey.value[key];
+  if (el?.remove) el.remove();
+  if (track) {
+    try { toRaw(track).detach().forEach((node) => node.remove()); } catch { /* ignore */ }
+  }
+  const next = { ...remoteAudioElsByKey.value };
+  delete next[key];
+  remoteAudioElsByKey.value = next;
+}
+
+function detachAllRemoteAudioForParticipant(participantSid) {
+  const prefix = `${String(participantSid || 'unknown')}:`;
+  const next = { ...remoteAudioElsByKey.value };
+  for (const [key, el] of Object.entries(remoteAudioElsByKey.value)) {
+    if (!key.startsWith(prefix)) continue;
+    if (el?.remove) el.remove();
+    delete next[key];
+  }
+  remoteAudioElsByKey.value = next;
 }
 
 function networkQualityLabel(level) {
@@ -313,24 +455,57 @@ function networkQualityClass(level) {
 
 function attachTrack(track, container) {
   if (!track || !container) return;
+  const safeTrack = toRaw(track);
   try {
-    track.detach().forEach((el) => el.remove());
+    safeTrack.detach().forEach((el) => el.remove());
   } catch {
     // ignore
   }
   while (container.firstChild) container.removeChild(container.firstChild);
-  const mediaEl = track.attach();
-  if (mediaEl?.tagName === 'VIDEO') {
-    mediaEl.setAttribute('playsinline', 'true');
-    mediaEl.autoplay = true;
+  try {
+    const mediaEl = safeTrack.attach();
+    if (mediaEl?.tagName === 'VIDEO') {
+      mediaEl.setAttribute('playsinline', 'true');
+      mediaEl.autoplay = true;
+      mediaEl.muted = true;
+    }
+    container.appendChild(mediaEl);
+    // #region agent log
+    debugLog({
+      hypothesisId: 'H2',
+      message: 'attachTrack:appended-media',
+      data: {
+        kind: track?.kind || null,
+        trackSid: track?.sid || null,
+        mediaTag: mediaEl?.tagName || null,
+        containerClass: container?.className || null,
+        containerChildren: container?.childElementCount ?? 0,
+        trackEnabled: typeof track?.isEnabled === 'boolean' ? track.isEnabled : null,
+        streamActive: mediaEl?.srcObject?.active ?? null
+      }
+    });
+    // #endregion
+  } catch (e) {
+    // #region agent log
+    debugLog({
+      hypothesisId: 'H7',
+      message: 'attachTrack:error',
+      data: {
+        kind: track?.kind || null,
+        trackSid: track?.sid || null,
+        errorName: e?.name || null,
+        errorMessage: e?.message || null
+      }
+    });
+    // #endregion
   }
-  container.appendChild(mediaEl);
 }
 
 function detachTrack(track) {
   if (!track) return;
+  const safeTrack = toRaw(track);
   try {
-    track.detach().forEach((el) => el.remove());
+    safeTrack.detach().forEach((el) => el.remove());
   } catch {
     // ignore
   }
@@ -373,8 +548,29 @@ async function persistActivity(activityType, payload) {
   if (!base) return null;
   try {
     const resp = await api.post(base, { activityType, payload });
+    // #region agent log
+    debugLog({
+      hypothesisId: 'H18',
+      message: 'activity:persist-success',
+      data: {
+        activityType,
+        hasId: !!(resp?.data?.id)
+      }
+    });
+    // #endregion
     return resp?.data?.id ?? null;
   } catch (e) {
+    // #region agent log
+    debugLog({
+      hypothesisId: 'H18',
+      message: 'activity:persist-error',
+      data: {
+        activityType,
+        status: e?.response?.status || null,
+        errorMessage: e?.response?.data?.error?.message || e?.message || null
+      }
+    });
+    // #endregion
     console.warn('[SupervisionTwilioVideoRoom] Failed to persist activity:', e?.message);
     return null;
   }
@@ -397,10 +593,12 @@ async function loadActivity() {
 function applyActivity(a, isOwn) {
   const id = `activity-${a.id}-${Date.now()}`;
   if (a.activityType === 'chat') {
+    const identity = String(a.participantIdentity || '').trim();
+    const senderLabel = isOwn ? 'You' : participantLabel(identity);
     chatMessages.value.push({
       id,
       text: a.payload?.text || '',
-      senderLabel: a.participantIdentity?.replace(/^user-/, 'User ') || 'Unknown',
+      senderLabel: senderLabel || 'Unknown',
       isOwn
     });
     if (!chatPanelOpen.value) chatUnreadCount.value++;
@@ -435,6 +633,17 @@ function setupDataTrackListeners(room) {
   const handleMessage = (msg, participant) => {
     try {
       const data = typeof msg === 'string' ? JSON.parse(msg) : msg;
+      if (data?.type === 'presence') {
+        const identity = String(participant?.identity || '').trim();
+        const displayName = String(data?.displayName || '').trim();
+        if (identity && displayName) {
+          participantDisplayNamesByIdentity.value = {
+            ...participantDisplayNamesByIdentity.value,
+            [identity]: displayName
+          };
+        }
+        return;
+      }
       const participantIdentity = participant?.identity || 'unknown';
       applyActivity(
         {
@@ -474,11 +683,146 @@ function setupDataTrackListeners(room) {
   });
 }
 
+function safeSendData(payload, context) {
+  if (!localDataTrack.value) return false;
+  const dt = toRaw(localDataTrack.value);
+  if (!dt) return false;
+  try {
+    dt.send(JSON.stringify(payload));
+    // #region agent log
+    debugLog({
+      hypothesisId: 'H18',
+      message: 'dataTrack:send-success',
+      data: { context, type: payload?.type || null }
+    });
+    // #endregion
+    return true;
+  } catch (e) {
+    // #region agent log
+    debugLog({
+      hypothesisId: 'H18',
+      message: 'dataTrack:send-error',
+      data: {
+        context,
+        type: payload?.type || null,
+        errorName: e?.name || null,
+        errorMessage: e?.message || null
+      }
+    });
+    // #endregion
+    return false;
+  }
+}
+
+function broadcastPresence() {
+  if (!localDataTrack.value || !room.value?.localParticipant) return;
+  try {
+    localDataTrack.value.send(JSON.stringify({ type: 'presence', displayName: myDisplayName() }));
+    const meIdentity = String(room.value.localParticipant.identity || '').trim();
+    if (meIdentity) {
+      participantDisplayNamesByIdentity.value = {
+        ...participantDisplayNamesByIdentity.value,
+        [meIdentity]: myDisplayName()
+      };
+    }
+  } catch {
+    // ignore
+  }
+}
+
+async function ensureLocalOutboundTracksHealthy(reason = 'unknown') {
+  if (!room.value?.localParticipant) return;
+  const lp = room.value.localParticipant;
+  const lv = localVideoTrack.value ? toRaw(localVideoTrack.value) : null;
+  const la = localAudioTrack.value ? toRaw(localAudioTrack.value) : null;
+  const lvEnded = !!(lv?.mediaStreamTrack?.readyState && lv.mediaStreamTrack.readyState !== 'live');
+  const laEnded = !!(la?.mediaStreamTrack?.readyState && la.mediaStreamTrack.readyState !== 'live');
+  // #region agent log
+  debugLog({
+    hypothesisId: 'H16',
+    message: 'outbound:health-check',
+    data: {
+      reason,
+      cameraMuted: cameraMuted.value,
+      micMuted: micMuted.value,
+      hasVideoTrack: !!lv,
+      hasAudioTrack: !!la,
+      videoReadyState: lv?.mediaStreamTrack?.readyState || null,
+      audioReadyState: la?.mediaStreamTrack?.readyState || null
+    }
+  });
+  // #endregion
+  try {
+    if (!cameraMuted.value && (!lv || lvEnded)) {
+      if (lv) {
+        try { lp.unpublishTrack(lv); } catch { /* ignore */ }
+        try { lv.stop(); } catch { /* ignore */ }
+      }
+      const nextV = await createLocalVideoTrack();
+      localVideoTrack.value = nextV;
+      await lp.publishTrack(nextV);
+      cameraMuted.value = false;
+      nextV.on('enabled', () => { cameraMuted.value = false; });
+      nextV.on('disabled', () => { cameraMuted.value = true; });
+      // #region agent log
+      debugLog({
+        hypothesisId: 'H16',
+        message: 'outbound:video-republished',
+        data: { reason, readyState: nextV?.mediaStreamTrack?.readyState || null }
+      });
+      // #endregion
+    }
+    if (!micMuted.value && (!la || laEnded)) {
+      if (la) {
+        try { lp.unpublishTrack(la); } catch { /* ignore */ }
+        try { la.stop(); } catch { /* ignore */ }
+      }
+      const nextA = await createLocalAudioTrack();
+      localAudioTrack.value = nextA;
+      await lp.publishTrack(nextA);
+      micMuted.value = false;
+      nextA.on('enabled', () => { micMuted.value = false; });
+      nextA.on('disabled', () => { micMuted.value = true; });
+      // #region agent log
+      debugLog({
+        hypothesisId: 'H16',
+        message: 'outbound:audio-republished',
+        data: { reason, readyState: nextA?.mediaStreamTrack?.readyState || null }
+      });
+      // #endregion
+    }
+  } catch (e) {
+    // #region agent log
+    debugLog({
+      hypothesisId: 'H16',
+      message: 'outbound:repair-error',
+      data: {
+        reason,
+        errorName: e?.name || null,
+        errorMessage: e?.message || null
+      }
+    });
+    // #endregion
+  }
+}
+
 function sendChatMessage() {
   const text = String(chatInput.value || '').trim();
-  if (!text || !localDataTrack.value) return;
+  // #region agent log
+  debugLog({
+    hypothesisId: 'H18',
+    message: 'chat:send-attempt',
+    data: {
+      textLen: text.length,
+      hasDataTrack: !!localDataTrack.value,
+      panelOpen: chatPanelOpen.value,
+      activeTab: chatTab.value
+    }
+  });
+  // #endregion
+  if (!text) return;
   const payload = { type: 'chat', text };
-  localDataTrack.value.send(JSON.stringify(payload));
+  safeSendData(payload, 'chat');
   chatInput.value = '';
   applyActivity(
     { id: `local-${Date.now()}`, participantIdentity: room.value?.localParticipant?.identity || 'You', activityType: 'chat', payload: { text } },
@@ -496,10 +840,22 @@ async function createPoll() {
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
-  if (!question || !options.length || !localDataTrack.value) return;
+  // #region agent log
+  debugLog({
+    hypothesisId: 'H18',
+    message: 'poll:create-attempt',
+    data: {
+      questionLen: question.length,
+      optionsCount: options.length,
+      hasDataTrack: !!localDataTrack.value,
+      isHost: isHost.value
+    }
+  });
+  // #endregion
+  if (!question || !options.length) return;
   const id = await persistActivity('poll', { question, options });
   const payload = { type: 'poll', id: id || `poll-${Date.now()}`, question, options };
-  localDataTrack.value.send(JSON.stringify(payload));
+  safeSendData(payload, 'poll');
   pollQuestion.value = '';
   pollOptionsText.value = '';
   polls.value.push({ id: payload.id, question, options, votes: {}, userVote: null, closed: false });
@@ -508,7 +864,7 @@ async function createPoll() {
 function votePoll(poll, optionIndex) {
   if (poll.userVote != null) return;
   const payload = { type: 'poll_vote', pollId: poll.id, optionIndex };
-  if (localDataTrack.value) localDataTrack.value.send(JSON.stringify(payload));
+  safeSendData(payload, 'poll_vote');
   poll.userVote = optionIndex;
   poll.votes = { ...poll.votes, [optionIndex]: (poll.votes[optionIndex] || 0) + 1 };
   persistActivity('poll_vote', { pollId: poll.id, optionIndex });
@@ -516,10 +872,20 @@ function votePoll(poll, optionIndex) {
 
 function submitQuestion() {
   const text = String(questionInput.value || '').trim();
-  if (!text || !localDataTrack.value) return;
+  // #region agent log
+  debugLog({
+    hypothesisId: 'H18',
+    message: 'qa:ask-attempt',
+    data: {
+      textLen: text.length,
+      hasDataTrack: !!localDataTrack.value
+    }
+  });
+  // #endregion
+  if (!text) return;
   const id = `q-${Date.now()}`;
   const payload = { type: 'question', id, text };
-  localDataTrack.value.send(JSON.stringify(payload));
+  safeSendData(payload, 'question');
   questionInput.value = '';
   qaItems.value.push({ id, text, answer: null, answerDraft: '' });
   persistActivity('question', { id, text });
@@ -527,9 +893,9 @@ function submitQuestion() {
 
 async function submitAnswer(q) {
   const text = String(q.answerDraft || '').trim();
-  if (!text || !localDataTrack.value) return;
+  if (!text) return;
   const payload = { type: 'answer', inReplyToId: q.id, text };
-  localDataTrack.value.send(JSON.stringify(payload));
+  safeSendData(payload, 'answer');
   q.answer = text;
   q.answerDraft = '';
   persistActivity('answer', { inReplyToId: q.id, text });
@@ -546,6 +912,24 @@ function toggleAgendaPanel() {
 
 watch(chatPanelOpen, (open) => {
   if (open) chatUnreadCount.value = 0;
+  // #region agent log
+  const panelEl = typeof document !== 'undefined'
+    ? document.querySelector('.video-room-chat-panel')
+    : null;
+  const rect = panelEl?.getBoundingClientRect?.() || null;
+  debugLog({
+    hypothesisId: 'H17',
+    message: 'chat:panel-toggle',
+    data: {
+      open,
+      activeTab: chatTab.value,
+      viewportW: typeof window !== 'undefined' ? window.innerWidth : null,
+      viewportH: typeof window !== 'undefined' ? window.innerHeight : null,
+      panelW: rect ? Math.round(rect.width) : null,
+      panelH: rect ? Math.round(rect.height) : null
+    }
+  });
+  // #endregion
 });
 
 function isValidToken(t) {
@@ -560,6 +944,16 @@ async function connectRoom() {
     return;
   }
   try {
+    if (typeof window !== 'undefined') window.__supvDebugRunId = `run-${Date.now()}`;
+    debugLog({
+      hypothesisId: 'H1',
+      message: 'connectRoom:start',
+      data: {
+        roomName: props.roomName,
+        tokenLen: String(props.token || '').length,
+        hadExistingRoom: !!room.value
+      }
+    });
     if (room.value) {
       try { room.value.disconnect(); } catch { /* ignore */ }
       room.value = null;
@@ -587,6 +981,16 @@ async function connectRoom() {
     } catch {
       micMuted.value = true;
     }
+    debugLog({
+      hypothesisId: 'H1',
+      message: 'connectRoom:initial-tracks',
+      data: {
+        hasInitialVideoTrack: !!initialVideoTrack,
+        hasInitialAudioTrack: !!initialAudioTrack,
+        cameraMuted: cameraMuted.value,
+        micMuted: micMuted.value
+      }
+    });
     const tracks = [chatDataTrack];
     if (initialVideoTrack) tracks.push(initialVideoTrack);
     if (initialAudioTrack) tracks.push(initialAudioTrack);
@@ -608,6 +1012,16 @@ async function connectRoom() {
     });
     room.value = markRaw(r);
     localParticipantSid.value = r.localParticipant?.sid ?? null;
+    debugLog({
+      hypothesisId: 'H2',
+      message: 'connectRoom:connected',
+      data: {
+        localParticipantSid: localParticipantSid.value,
+        localVideoPublications: r.localParticipant?.videoTracks?.size ?? 0,
+        localAudioPublications: r.localParticipant?.audioTracks?.size ?? 0,
+        remoteParticipantsCount: r.participants?.size ?? 0
+      }
+    });
 
     r.on('transcription', (ev) => {
       if (ev?.transcription && ev.partial_results === false) {
@@ -682,6 +1096,17 @@ async function connectRoom() {
         ...remoteParticipants.value.filter((p) => p.sid !== participant.sid),
         { sid: participant.sid, identity: participant.identity }
       ];
+      // #region agent log
+      debugLog({
+        hypothesisId: 'H14',
+        message: 'participant:add',
+        data: {
+          sid: participant.sid,
+          identity: participant.identity,
+          remoteCount: remoteParticipants.value.length
+        }
+      });
+      // #endregion
       participant.tracks.forEach((pub) => {
         if (pub.track && pub.kind === 'video') {
           if (isScreenTrack(pub.track)) {
@@ -690,8 +1115,16 @@ async function connectRoom() {
           } else {
             remoteVideoTracksBySid.value = { ...remoteVideoTracksBySid.value, [participant.sid]: pub.track };
             const el = remoteVideoEls.value[participant.sid];
-            if (el) attachTrack(pub.track, el);
+            if (el) {
+              attachTrack(pub.track, el);
+              const safeTrack = toRaw(pub.track);
+              const trackKey = String(safeTrack?.sid || safeTrack?.name || '').trim() || 'video';
+              remoteAttachedTrackSidBySid.value = { ...remoteAttachedTrackSidBySid.value, [participant.sid]: trackKey };
+            }
           }
+        }
+        if (pub.track && pub.kind === 'audio') {
+          attachRemoteAudioTrack(participant.sid, pub.track);
         }
       });
       participant.on('trackSubscribed', (track) => {
@@ -702,8 +1135,37 @@ async function connectRoom() {
           } else {
             remoteVideoTracksBySid.value = { ...remoteVideoTracksBySid.value, [participant.sid]: track };
             const el = remoteVideoEls.value[participant.sid];
-            if (el) attachTrack(track, el);
+            if (el) {
+              attachTrack(track, el);
+              const safeTrack = toRaw(track);
+              const trackKey = String(safeTrack?.sid || safeTrack?.name || '').trim() || 'video';
+              remoteAttachedTrackSidBySid.value = { ...remoteAttachedTrackSidBySid.value, [participant.sid]: trackKey };
+            }
+            debugLog({
+              hypothesisId: 'H3',
+              message: 'remote:trackSubscribed:video',
+              data: {
+                participantSid: participant.sid,
+                participantIdentity: participant.identity,
+                hasTargetEl: !!el,
+                trackName: String(track?.name || '')
+              }
+            });
           }
+        }
+        if (track.kind === 'audio') {
+          attachRemoteAudioTrack(participant.sid, track);
+          // #region agent log
+          debugLog({
+            hypothesisId: 'H15',
+            message: 'remote:trackSubscribed:audio',
+            data: {
+              participantSid: participant.sid,
+              participantIdentity: participant.identity,
+              trackName: String(track?.name || '')
+            }
+          });
+          // #endregion
         }
       });
       participant.on('trackUnsubscribed', (track) => {
@@ -715,6 +1177,9 @@ async function connectRoom() {
           const next = { ...remoteVideoTracksBySid.value };
           if (next[participant.sid] === track) delete next[participant.sid];
           remoteVideoTracksBySid.value = next;
+        }
+        if (track.kind === 'audio') {
+          detachRemoteAudioTrack(participant.sid, track);
         }
       });
     };
@@ -740,10 +1205,13 @@ async function connectRoom() {
       updateNetworkQuality(p);
       p.on('networkQualityLevelChanged', () => updateNetworkQuality(p));
       addParticipant(p);
+      broadcastPresence();
+      void ensureLocalOutboundTracksHealthy('participantConnected');
     });
 
     setupDataTrackListeners(r);
     loadActivity();
+    broadcastPresence();
 
     r.participants.forEach(addParticipant);
     r.on('participantDisconnected', (participant) => {
@@ -761,6 +1229,21 @@ async function connectRoom() {
       const next = { ...remoteVideoTracksBySid.value };
       delete next[participant.sid];
       remoteVideoTracksBySid.value = next;
+      const nextAttached = { ...remoteAttachedTrackSidBySid.value };
+      delete nextAttached[participant.sid];
+      remoteAttachedTrackSidBySid.value = nextAttached;
+      detachAllRemoteAudioForParticipant(participant.sid);
+      // #region agent log
+      debugLog({
+        hypothesisId: 'H14',
+        message: 'participant:disconnected',
+        data: {
+          sid: participant.sid,
+          identity: participant.identity,
+          remoteCount: remoteParticipants.value.length
+        }
+      });
+      // #endregion
     });
 
     r.on('disconnected', async () => {
@@ -786,6 +1269,12 @@ async function connectRoom() {
       localParticipantSid.value = null;
       networkQualityBySid.value = {};
       remoteVideoTracksBySid.value = {};
+      remoteAttachedTrackSidBySid.value = {};
+      detachAllRemoteAudioForParticipant('unknown');
+      Object.values(remoteAudioElsByKey.value || {}).forEach((el) => {
+        try { el?.remove?.(); } catch { /* ignore */ }
+      });
+      remoteAudioElsByKey.value = {};
       localDataTrack.value = null;
       chatMessages.value = [];
       polls.value = [];
@@ -802,26 +1291,126 @@ async function connectRoom() {
 
 async function toggleCamera() {
   const track = localVideoTrack.value;
-  if (track) {
-    if (cameraMuted.value) {
-      track.enable();
+  const safeTrack = track ? toRaw(track) : null;
+  const isTrackEnded = safeTrack?.mediaStreamTrack?.readyState && safeTrack.mediaStreamTrack.readyState !== 'live';
+
+  const recreateCameraTrack = async (reason) => {
+    if (!room.value) return null;
+    try {
+      if (safeTrack) {
+        try { room.value.localParticipant.unpublishTrack(safeTrack); } catch { /* ignore */ }
+        try { safeTrack.stop(); } catch { /* ignore */ }
+      }
+      const newTrack = await createLocalVideoTrack();
+      localVideoTrack.value = newTrack;
+      await room.value.localParticipant.publishTrack(newTrack);
       cameraMuted.value = false;
-    } else {
-      track.disable();
-      cameraMuted.value = true;
+      newTrack.on('enabled', () => { cameraMuted.value = false; });
+      newTrack.on('disabled', () => { cameraMuted.value = true; });
+      // #region agent log
+      debugLog({
+        hypothesisId: 'H13',
+        message: 'camera:recreated-track',
+        data: {
+          reason,
+          trackReadyState: newTrack?.mediaStreamTrack?.readyState || null,
+          trackEnabled: typeof newTrack?.isEnabled === 'boolean' ? newTrack.isEnabled : null
+        }
+      });
+      // #endregion
+      return newTrack;
+    } catch (e) {
+      // #region agent log
+      debugLog({
+        hypothesisId: 'H13',
+        message: 'camera:recreate-error',
+        data: {
+          reason,
+          errorName: e?.name || null,
+          errorMessage: e?.message || null
+        }
+      });
+      // #endregion
+      throw e;
+    }
+  };
+
+  // #region agent log
+  debugLog({
+    hypothesisId: 'H8',
+    message: 'toggleCamera:start',
+    data: {
+      hasTrack: !!track,
+      cameraMuted: cameraMuted.value,
+      trackEnabled: typeof safeTrack?.isEnabled === 'boolean' ? safeTrack.isEnabled : null,
+      trackReadyState: safeTrack?.mediaStreamTrack?.readyState || null,
+      isTrackEnded: !!isTrackEnded
+    }
+  });
+  // #endregion
+  if (safeTrack) {
+    try {
+      if (isTrackEnded && cameraMuted.value) {
+        await recreateCameraTrack('toggle-on-ended-track');
+        return;
+      }
+      if (cameraMuted.value) {
+        safeTrack.enable();
+        cameraMuted.value = false;
+      } else {
+        safeTrack.disable();
+        cameraMuted.value = true;
+      }
+      // #region agent log
+      debugLog({
+        hypothesisId: 'H8',
+        message: 'toggleCamera:existing-track-updated',
+        data: {
+          cameraMuted: cameraMuted.value,
+          trackEnabled: typeof safeTrack?.isEnabled === 'boolean' ? safeTrack.isEnabled : null,
+          trackReadyState: safeTrack?.mediaStreamTrack?.readyState || null
+        }
+      });
+      // #endregion
+    } catch (e) {
+      // #region agent log
+      debugLog({
+        hypothesisId: 'H8',
+        message: 'toggleCamera:existing-track-error',
+        data: {
+          errorName: e?.name || null,
+          errorMessage: e?.message || null
+        }
+      });
+      // #endregion
     }
     return;
   }
   if (!room.value) return;
   try {
     error.value = '';
-    const newTrack = await createLocalVideoTrack();
-    localVideoTrack.value = newTrack;
-    await room.value.localParticipant.publishTrack(newTrack);
-    cameraMuted.value = false;
-    newTrack.on('enabled', () => { cameraMuted.value = false; });
-    newTrack.on('disabled', () => { cameraMuted.value = true; });
+    const newTrack = await recreateCameraTrack('toggle-without-track');
+    // #region agent log
+    debugLog({
+      hypothesisId: 'H8',
+      message: 'toggleCamera:new-track-published',
+      data: {
+        trackEnabled: typeof newTrack?.isEnabled === 'boolean' ? newTrack.isEnabled : null,
+        trackReadyState: newTrack?.mediaStreamTrack?.readyState || null
+      }
+    });
+    // #endregion
   } catch (e) {
+    // #region agent log
+    debugLog({
+      hypothesisId: 'H8',
+      message: 'toggleCamera:error',
+      data: {
+        errorName: e?.name || null,
+        errorMessage: e?.message || null
+      }
+    });
+    // #endregion
     if (e?.name !== 'NotAllowedError') {
       error.value = e?.message || 'Could not access camera. Please check permissions.';
     }
@@ -830,13 +1419,50 @@ async function toggleCamera() {
 
 async function toggleMic() {
   const track = localAudioTrack.value;
-  if (track) {
-    if (micMuted.value) {
-      track.enable();
-      micMuted.value = false;
-    } else {
-      track.disable();
-      micMuted.value = true;
+  const safeTrack = track ? toRaw(track) : null;
+  // #region agent log
+  debugLog({
+    hypothesisId: 'H9',
+    message: 'toggleMic:start',
+    data: {
+      hasTrack: !!track,
+      micMuted: micMuted.value,
+      trackEnabled: typeof safeTrack?.isEnabled === 'boolean' ? safeTrack.isEnabled : null,
+      trackReadyState: safeTrack?.mediaStreamTrack?.readyState || null
+    }
+  });
+  // #endregion
+  if (safeTrack) {
+    try {
+      if (micMuted.value) {
+        safeTrack.enable();
+        micMuted.value = false;
+      } else {
+        safeTrack.disable();
+        micMuted.value = true;
+      }
+      // #region agent log
+      debugLog({
+        hypothesisId: 'H9',
+        message: 'toggleMic:existing-track-updated',
+        data: {
+          micMuted: micMuted.value,
+          trackEnabled: typeof safeTrack?.isEnabled === 'boolean' ? safeTrack.isEnabled : null,
+          trackReadyState: safeTrack?.mediaStreamTrack?.readyState || null
+        }
+      });
+      // #endregion
+    } catch (e) {
+      // #region agent log
+      debugLog({
+        hypothesisId: 'H9',
+        message: 'toggleMic:existing-track-error',
+        data: {
+          errorName: e?.name || null,
+          errorMessage: e?.message || null
+        }
+      });
+      // #endregion
     }
     return;
   }
@@ -849,7 +1475,27 @@ async function toggleMic() {
     micMuted.value = false;
     newTrack.on('enabled', () => { micMuted.value = false; });
     newTrack.on('disabled', () => { micMuted.value = true; });
+    // #region agent log
+    debugLog({
+      hypothesisId: 'H9',
+      message: 'toggleMic:new-track-published',
+      data: {
+        trackEnabled: typeof newTrack?.isEnabled === 'boolean' ? newTrack.isEnabled : null,
+        trackReadyState: newTrack?.mediaStreamTrack?.readyState || null
+      }
+    });
+    // #endregion
   } catch (e) {
+    // #region agent log
+    debugLog({
+      hypothesisId: 'H9',
+      message: 'toggleMic:error',
+      data: {
+        errorName: e?.name || null,
+        errorMessage: e?.message || null
+      }
+    });
+    // #endregion
     if (e?.name !== 'NotAllowedError') {
       error.value = e?.message || 'Could not access microphone. Please check permissions.';
     }
@@ -868,6 +1514,45 @@ async function toggleScreenShare() {
     screenTrack.value = null;
     sharedScreenTrack.value = null;
     sharedScreenIdentity.value = '';
+    const currentLocal = localVideoTrack.value ? toRaw(localVideoTrack.value) : null;
+    const localReadyState = currentLocal?.mediaStreamTrack?.readyState || null;
+    if (!currentLocal || localReadyState !== 'live') {
+      try {
+        const old = currentLocal;
+        if (old) {
+          try { room.value.localParticipant.unpublishTrack(old); } catch { /* ignore */ }
+          try { old.stop(); } catch { /* ignore */ }
+        }
+        const recovered = await createLocalVideoTrack();
+        localVideoTrack.value = recovered;
+        await room.value.localParticipant.publishTrack(recovered);
+        cameraMuted.value = false;
+        recovered.on('enabled', () => { cameraMuted.value = false; });
+        recovered.on('disabled', () => { cameraMuted.value = true; });
+        // #region agent log
+        debugLog({
+          hypothesisId: 'H13',
+          message: 'toggleScreenShare:recovered-local-camera',
+          data: {
+            priorReadyState: localReadyState,
+            newReadyState: recovered?.mediaStreamTrack?.readyState || null
+          }
+        });
+        // #endregion
+      } catch (e) {
+        // #region agent log
+        debugLog({
+          hypothesisId: 'H13',
+          message: 'toggleScreenShare:recover-local-camera-error',
+          data: {
+            priorReadyState: localReadyState,
+            errorName: e?.name || null,
+            errorMessage: e?.message || null
+          }
+        });
+        // #endregion
+      }
+    }
     return;
   }
   try {
@@ -928,10 +1613,78 @@ watch(
 
 watch([localVideoTrack, localVideoEl, cameraMuted], ([track, el, muted], [prevTrack]) => {
   if (prevTrack && prevTrack !== track) detachTrack(prevTrack);
+  if (!track || !el) {
+    debugLog({
+      hypothesisId: 'H2',
+      message: 'local:watch-missing-track-or-el',
+      data: {
+        hasTrack: !!track,
+        hasEl: !!el,
+        muted
+      }
+    });
+  }
   if (!track || !el) return;
+  // #region agent log
+  debugLog({
+    hypothesisId: 'H2',
+    message: 'local:watch-attach-branch',
+    data: {
+      hasTrack: !!track,
+      hasEl: !!el,
+      muted,
+      trackSid: track?.sid || null,
+      trackEnabled: typeof track?.isEnabled === 'boolean' ? track.isEnabled : null
+    }
+  });
+  // #endregion
   if (muted) detachTrack(track);
   else attachTrack(track, el);
 }, { flush: 'post' });
+
+watch(localVideoEl, (el) => {
+  // #region agent log
+  debugLog({
+    hypothesisId: 'H10',
+    message: 'localVideoEl:changed',
+    data: {
+      hasEl: !!el,
+      childCount: el?.childElementCount ?? 0,
+      cameraMuted: cameraMuted.value,
+      hasTrack: !!localVideoTrack.value
+    }
+  });
+  // #endregion
+}, { flush: 'post' });
+
+watch([totalParticipants, gridSizeClass], ([count, grid]) => {
+  // #region agent log
+  debugLog({
+    hypothesisId: 'H11',
+    message: 'layout:grid-class',
+    data: {
+      totalParticipants: count,
+      gridClass: grid,
+      remoteParticipants: remoteParticipants.value.length
+    }
+  });
+  // #endregion
+}, { immediate: true });
+
+watch([() => remoteParticipants.value.length, localVideoTrack, cameraMuted], ([remoteCount, localTrack, camMuted]) => {
+  // #region agent log
+  debugLog({
+    hypothesisId: 'H12',
+    message: 'layout:placeholder-visibility',
+    data: {
+      remoteCount,
+      hasLocalTrack: !!localTrack,
+      cameraMuted: camMuted,
+      shouldShowWaitingTile: remoteCount === 0 && (!localTrack || camMuted)
+    }
+  });
+  // #endregion
+}, { immediate: true });
 
 watch([sharedScreenTrack, screenShareEl], ([track, el], [prevTrack]) => {
   if (prevTrack && prevTrack !== track) detachTrack(prevTrack);
@@ -988,7 +1741,8 @@ onUnmounted(() => {
   min-height: 200px;
   align-content: start;
 }
-.video-room-grid.grid-cols-2 { grid-template-columns: repeat(2, 1fr); }
+.video-room-grid.grid-cols-1 { grid-template-columns: 1fr; }
+.video-room-grid.grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .video-room-grid.grid-cols-3 { grid-template-columns: repeat(3, 1fr); }
 .video-room-grid.grid-cols-4 { grid-template-columns: repeat(4, 1fr); }
 .video-room-grid.grid-cols-5 { grid-template-columns: repeat(5, 1fr); }
@@ -1057,6 +1811,15 @@ onUnmounted(() => {
   min-height: 200px;
   object-fit: cover;
 }
+.video-track :deep(video) {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+.video-track-screenshare :deep(video) {
+  object-fit: contain;
+}
 .video-placeholder {
   position: absolute;
   inset: 0;
@@ -1117,13 +1880,11 @@ onUnmounted(() => {
 }
 
 .video-room-agenda-panel {
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: min(400px, 90vw);
+  position: relative;
+  width: 100%;
+  max-height: 40vh;
   background: var(--bg-card);
-  border-left: 1px solid var(--border);
+  border-top: 1px solid var(--border);
   overflow-y: auto;
   z-index: 10;
 }
@@ -1135,15 +1896,14 @@ onUnmounted(() => {
 }
 
 .video-room-chat-panel {
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: min(320px, 90vw);
+  position: relative;
+  width: 100%;
+  max-height: 40vh;
   background: var(--bg-card);
-  border-left: 1px solid var(--border);
+  border-top: 1px solid var(--border);
   display: flex;
   flex-direction: column;
+  overflow: hidden;
   z-index: 10;
 }
 

@@ -24,7 +24,9 @@ export default class VideoMeetingActivity {
     }
 
     const enc = encryptPayload(payload || {});
-    const payloadJson = enc ? null : JSON.stringify(payload || {});
+    // Keep payload_json populated for backward-compatible schemas where this
+    // column is NOT NULL even when encrypted columns are present.
+    const payloadJson = JSON.stringify(payload || {});
     const payloadCiphertext = enc?.ciphertextB64 ?? null;
     const payloadIv = enc?.ivB64 ?? null;
     const payloadAuthTag = enc?.authTagB64 ?? null;

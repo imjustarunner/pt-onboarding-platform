@@ -1225,6 +1225,7 @@
             :room-name="supvAppVideoRoomName"
             :session-title="supvAppVideoSessionTitle"
             :session-id="supvAppVideoSessionId"
+            :is-host="supvAppVideoIsSupervisor"
             @disconnected="closeSupvAppVideoModal"
           />
         </div>
@@ -2350,6 +2351,24 @@ const googleBusyDisabledHint = ref('');
 const autoDisabledGoogleBusy = ref(false);
 const isGoogleInvalidGrant = (msg) => String(msg || '').toLowerCase().includes('invalid_grant');
 
+const debugLog = ({ hypothesisId, message, data = {} }) => {
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/fe6563d2-089e-457a-8c8f-9a4cae053f92', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '572cc7' },
+    body: JSON.stringify({
+      sessionId: '572cc7',
+      runId: (typeof window !== 'undefined' && window.__supvDebugRunId) || 'run-unknown',
+      hypothesisId,
+      location: 'frontend/src/components/schedule/ScheduleAvailabilityGrid.vue',
+      message,
+      data,
+      timestamp: Date.now()
+    })
+  }).catch(() => {});
+  // #endregion
+};
+
 const load = async ({ forceRefresh = false } = {}) => {
   if (!props.userId) return;
   if (!effectiveAgencyIds.value.length) {
@@ -2406,6 +2425,23 @@ const load = async ({ forceRefresh = false } = {}) => {
         data.twilioVideoConfigured = true;
       }
       summary.value = data;
+      const firstSupv = Array.isArray(summary.value?.supervisionSessions) ? summary.value.supervisionSessions[0] : null;
+      debugLog({
+        hypothesisId: 'H4',
+        message: 'schedule-load:single-agency-summary',
+        data: {
+          weekStart: summary.value?.weekStart,
+          supervisionCount: Array.isArray(summary.value?.supervisionSessions) ? summary.value.supervisionSessions.length : 0,
+          firstSession: firstSupv
+            ? {
+                id: firstSupv.id,
+                startAt: firstSupv.startAt,
+                endAt: firstSupv.endAt,
+                startDateYmd: firstSupv.startDateYmd
+              }
+            : null
+        }
+      });
       setScheduleSummary(cacheKey, summary.value);
     } else {
       const [results, twilioResp] = await Promise.all([
@@ -2516,6 +2552,23 @@ const load = async ({ forceRefresh = false } = {}) => {
       merged.twilioVideoConfigured = okOnes.some((r) => !!r.data?.twilioVideoConfigured) || !!twilioResp?.data?.twilioVideoConfigured;
 
       summary.value = merged;
+      const firstSupv = Array.isArray(summary.value?.supervisionSessions) ? summary.value.supervisionSessions[0] : null;
+      debugLog({
+        hypothesisId: 'H4',
+        message: 'schedule-load:multi-agency-summary',
+        data: {
+          weekStart: summary.value?.weekStart,
+          supervisionCount: Array.isArray(summary.value?.supervisionSessions) ? summary.value.supervisionSessions.length : 0,
+          firstSession: firstSupv
+            ? {
+                id: firstSupv.id,
+                startAt: firstSupv.startAt,
+                endAt: firstSupv.endAt,
+                startDateYmd: firstSupv.startDateYmd
+              }
+            : null
+        }
+      });
       setScheduleSummary(cacheKey, summary.value);
     }
 
@@ -2751,6 +2804,14 @@ const supervisionDateYmd = (ev) => {
   const m = raw.match(/^(\d{4}-\d{2}-\d{2})/);
   return m ? m[1] : null;
 };
+const supervisionDayName = (ev) => {
+  const ymd = supervisionDateYmd(ev);
+  if (!ymd) return null;
+  const d = new Date(`${ymd}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return null;
+  const dayNamesSunFirst = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  return dayNamesSunFirst[d.getDay()] || null;
+};
 
 const hasSupervision = (dayName, hour) => {
   const s = summary.value;
@@ -2763,10 +2824,7 @@ const hasSupervision = (dayName, hour) => {
     const startLocal = new Date(startRaw.includes('T') ? startRaw : startRaw.replace(' ', 'T'));
     const endLocal = new Date(endRaw.includes('T') ? endRaw : endRaw.replace(' ', 'T'));
     if (Number.isNaN(startLocal.getTime()) || Number.isNaN(endLocal.getTime())) continue;
-    const dateYmd = supervisionDateYmd(ev);
-    if (!dateYmd) continue;
-    const idx = dayIndexForDateLocal(dateYmd, s.weekStart || weekStart.value);
-    const dn = ALL_DAYS[idx] || null;
+    const dn = supervisionDayName(ev);
     if (dn !== dayName) continue;
     const cellDate = addDaysYmd(s.weekStart || weekStart.value, dayIdxFromWeekStartMonday(dayName));
     const cellStart = new Date(`${cellDate}T${pad2(hour)}:00:00`);
@@ -2787,10 +2845,7 @@ const supervisionLabel = (dayName, hour) => {
     const startLocal = new Date(startRaw.includes('T') ? startRaw : startRaw.replace(' ', 'T'));
     const endLocal = new Date(endRaw.includes('T') ? endRaw : endRaw.replace(' ', 'T'));
     if (Number.isNaN(startLocal.getTime()) || Number.isNaN(endLocal.getTime())) continue;
-    const dateYmd = supervisionDateYmd(ev);
-    if (!dateYmd) continue;
-    const idx = dayIndexForDateLocal(dateYmd, s.weekStart || weekStart.value);
-    const dn = ALL_DAYS[idx] || null;
+    const dn = supervisionDayName(ev);
     if (dn !== dayName) continue;
     const cellDate = addDaysYmd(s.weekStart || weekStart.value, dayIdxFromWeekStartMonday(dayName));
     const cellStart = new Date(`${cellDate}T${pad2(hour)}:00:00`);
@@ -2807,10 +2862,7 @@ const supervisionLabel = (dayName, hour) => {
     const startLocal = new Date(startRaw.includes('T') ? startRaw : startRaw.replace(' ', 'T'));
     const endLocal = new Date(endRaw.includes('T') ? endRaw : endRaw.replace(' ', 'T'));
     if (Number.isNaN(startLocal.getTime()) || Number.isNaN(endLocal.getTime())) continue;
-    const dateYmd = supervisionDateYmd(ev);
-    if (!dateYmd) continue;
-    const idx = dayIndexForDateLocal(dateYmd, s.weekStart || weekStart.value);
-    const dn = ALL_DAYS[idx] || null;
+    const dn = supervisionDayName(ev);
     if (dn !== dayName) continue;
     const cellDate = addDaysYmd(s.weekStart || weekStart.value, dayIdxFromWeekStartMonday(dayName));
     const cellStart = new Date(`${cellDate}T${pad2(hour)}:00:00`);
@@ -2839,10 +2891,7 @@ const supervisionTitle = (dayName, hour) => {
     const startLocal = new Date(startRaw.includes('T') ? startRaw : startRaw.replace(' ', 'T'));
     const endLocal = new Date(endRaw.includes('T') ? endRaw : endRaw.replace(' ', 'T'));
     if (Number.isNaN(startLocal.getTime()) || Number.isNaN(endLocal.getTime())) continue;
-    const dateYmd = supervisionDateYmd(ev);
-    if (!dateYmd) continue;
-    const idx = dayIndexForDateLocal(dateYmd, s.weekStart || weekStart.value);
-    const dn = ALL_DAYS[idx] || null;
+    const dn = supervisionDayName(ev);
     if (dn !== dayName) continue;
     const cellDate = addDaysYmd(s.weekStart || weekStart.value, dayIdxFromWeekStartMonday(dayName));
     const cellStart = new Date(`${cellDate}T${pad2(hour)}:00:00`);
@@ -3252,8 +3301,27 @@ const supervisionSessionsInCell = (dayName, hour, minute = 0) => {
     if (Number.isNaN(startLocal.getTime()) || Number.isNaN(endLocal.getTime())) continue;
     const dateYmd = supervisionDateYmd(ev);
     if (!dateYmd) continue;
-    const idx = dayIndexForDateLocal(dateYmd, ws);
-    const sessionDay = ALL_DAYS[idx] || null;
+    const sessionDay = supervisionDayName(ev);
+    if (sessionDay !== dayName && typeof window !== 'undefined') {
+      const key = `supv-day-mismatch-${String(ev?.id || 'x')}-${dayName}-${hour}-${minute}`;
+      window.__supvDayMismatchLogOnce = window.__supvDayMismatchLogOnce || {};
+      if (!window.__supvDayMismatchLogOnce[key]) {
+        window.__supvDayMismatchLogOnce[key] = true;
+        debugLog({
+          hypothesisId: 'H4',
+          message: 'supervisionSessionsInCell:day-mismatch',
+          data: {
+            sessionId: ev?.id,
+            startAt: ev?.startAt,
+            startDateYmd: ev?.startDateYmd,
+            dateYmd,
+            computedSessionDay: sessionDay,
+            requestedDay: dayName,
+            weekStart: ws
+          }
+        });
+      }
+    }
     if (sessionDay !== dayName) continue;
     if (endLocal > cellStart && startLocal < cellEnd) hits.push(ev);
   }
@@ -6572,6 +6640,19 @@ const startAppVideoMeetingFromGrid = async (session) => {
     const data = resp?.data || {};
     const tok = (data.token || data.data?.token || data.result?.token || '').trim();
     const rn = data.roomName || data.room_name || data.data?.roomName || `supervision-${sid}`;
+    if (typeof window !== 'undefined') window.__supvDebugRunId = `run-${Date.now()}`;
+    debugLog({
+      hypothesisId: 'H5',
+      message: 'startAppVideoMeetingFromGrid:video-token-response',
+      data: {
+        sessionId: sid,
+        roomName: rn,
+        isSupervisor: !!data.isSupervisor,
+        roomMode: data.roomMode || null,
+        lobbyEnabledForSession: !!data.lobbyEnabledForSession,
+        sessionType: data.sessionType || null
+      }
+    });
     if (!tok) {
       console.warn('[ScheduleGrid] video-token empty:', { status: resp?.status, data });
       supvAppVideoError.value = data?.error?.message || data?.error || 'Video token was empty.';
