@@ -1534,6 +1534,11 @@ const scheduleWrapVars = computed(() => ({
 
 const ALL_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const SUNDAY_FIRST_DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+/** weekStart is always Monday; Sunday = day before = -1 */
+const dayIdxFromWeekStartMonday = (dayName) => {
+  const idx = ALL_DAYS.indexOf(String(dayName || ''));
+  return idx < 0 ? 0 : (idx + 1) % 7 - 1;
+};
 const hours = Array.from({ length: 15 }, (_, i) => 7 + i); // 7..21
 
 const loading = ref(false);
@@ -2025,9 +2030,8 @@ const weekdayFromYmd = (ymd) => {
 };
 
 const dayDateLabel = (dayName) => {
-  const idx = ALL_DAYS.indexOf(String(dayName || ''));
-  if (idx < 0) return '';
-  const ymd = addDaysYmd(weekStart.value, idx);
+  if (ALL_DAYS.indexOf(String(dayName || '')) < 0) return '';
+  const ymd = addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dayName));
   // Use noon to avoid DST edge-cases around midnight.
   const d = new Date(`${ymd}T12:00:00`);
   if (Number.isNaN(d.getTime())) return ymd;
@@ -2037,9 +2041,8 @@ const dayDateLabel = (dayName) => {
 const weekStart = ref(startOfWeekMondayYmd(props.weekStartYmd || new Date()));
 
 const isTodayDay = (dayName) => {
-  const idx = ALL_DAYS.indexOf(String(dayName || ''));
-  if (idx < 0) return false;
-  const ymd = addDaysYmd(weekStart.value, idx);
+  if (ALL_DAYS.indexOf(String(dayName || '')) < 0) return false;
+  const ymd = addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dayName));
   return ymd === todayLocalYmd.value;
 };
 
@@ -2208,9 +2211,8 @@ const availabilityClass = (dayName, hour, minute = 0) => {
   const virtual = Array.isArray(a.virtualSlots) ? a.virtualSlots : [];
   const office = Array.isArray(a.inPersonSlots) ? a.inPersonSlots : [];
 
-  const dayIdx = ALL_DAYS.indexOf(String(dayName));
-  if (dayIdx < 0) return '';
-  const cellDate = addDaysYmd(weekStart.value, dayIdx);
+  if (ALL_DAYS.indexOf(String(dayName)) < 0) return '';
+  const cellDate = addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dayName));
   const cellStart = new Date(`${cellDate}T${pad2(hour)}:${pad2(minute)}:00`);
   const duration = showQuarterDetail.value ? 15 : 60;
   const cellEnd = new Date(cellStart.getTime() + (duration * 60 * 1000));
@@ -2645,7 +2647,7 @@ const hasSupervision = (dayName, hour) => {
     const idx = dayIndexForDateLocal(localYmd(startLocal), s.weekStart || weekStart.value);
     const dn = ALL_DAYS[idx] || null;
     if (dn !== dayName) continue;
-    const cellDate = addDaysYmd(s.weekStart || weekStart.value, ALL_DAYS.indexOf(dayName));
+    const cellDate = addDaysYmd(s.weekStart || weekStart.value, dayIdxFromWeekStartMonday(dayName));
     const cellStart = new Date(`${cellDate}T${pad2(hour)}:00:00`);
     const cellEnd = new Date(`${cellDate}T${pad2(hour + 1)}:00:00`);
     if (endLocal > cellStart && startLocal < cellEnd) return true;
@@ -2667,7 +2669,7 @@ const supervisionLabel = (dayName, hour) => {
     const idx = dayIndexForDateLocal(localYmd(startLocal), s.weekStart || weekStart.value);
     const dn = ALL_DAYS[idx] || null;
     if (dn !== dayName) continue;
-    const cellDate = addDaysYmd(s.weekStart || weekStart.value, ALL_DAYS.indexOf(dayName));
+    const cellDate = addDaysYmd(s.weekStart || weekStart.value, dayIdxFromWeekStartMonday(dayName));
     const cellStart = new Date(`${cellDate}T${pad2(hour)}:00:00`);
     const cellEnd = new Date(`${cellDate}T${pad2(hour + 1)}:00:00`);
     if (!(endLocal > cellStart && startLocal < cellEnd)) continue;
@@ -2685,7 +2687,7 @@ const supervisionLabel = (dayName, hour) => {
     const idx = dayIndexForDateLocal(localYmd(startLocal), s.weekStart || weekStart.value);
     const dn = ALL_DAYS[idx] || null;
     if (dn !== dayName) continue;
-    const cellDate = addDaysYmd(s.weekStart || weekStart.value, ALL_DAYS.indexOf(dayName));
+    const cellDate = addDaysYmd(s.weekStart || weekStart.value, dayIdxFromWeekStartMonday(dayName));
     const cellStart = new Date(`${cellDate}T${pad2(hour)}:00:00`);
     const cellEnd = new Date(`${cellDate}T${pad2(hour + 1)}:00:00`);
     if (endLocal > cellStart && startLocal < cellEnd) listInCell.push(ev);
@@ -2715,7 +2717,7 @@ const supervisionTitle = (dayName, hour) => {
     const idx = dayIndexForDateLocal(localYmd(startLocal), s.weekStart || weekStart.value);
     const dn = ALL_DAYS[idx] || null;
     if (dn !== dayName) continue;
-    const cellDate = addDaysYmd(s.weekStart || weekStart.value, ALL_DAYS.indexOf(dayName));
+    const cellDate = addDaysYmd(s.weekStart || weekStart.value, dayIdxFromWeekStartMonday(dayName));
     const cellStart = new Date(`${cellDate}T${pad2(hour)}:00:00`);
     const cellEnd = new Date(`${cellDate}T${pad2(hour + 1)}:00:00`);
     if (endLocal > cellStart && startLocal < cellEnd) hits.push(ev);
@@ -2733,9 +2735,8 @@ const scheduleEventsInCell = (dayName, hour, minute = 0) => {
   const s = summary.value;
   if (!s) return [];
   const ws = s.weekStart || weekStart.value;
-  const dayIdx = ALL_DAYS.indexOf(String(dayName));
-  if (dayIdx < 0) return [];
-  const cellDate = addDaysYmd(ws, dayIdx);
+  if (ALL_DAYS.indexOf(String(dayName)) < 0) return [];
+  const cellDate = addDaysYmd(ws, dayIdxFromWeekStartMonday(dayName));
   const cellStart = new Date(`${cellDate}T${pad2(hour)}:${pad2(minute)}:00`);
   const cellEnd = new Date(cellStart.getTime() + ((showQuarterDetail.value ? 15 : 60) * 60 * 1000));
   const list = Array.isArray(s.scheduleEvents) ? s.scheduleEvents : [];
@@ -2799,10 +2800,9 @@ const quarterSegmentForRange = (dayName, hour, minute, startRaw, endRaw) => {
   const s = parseLocalDateTime(startRaw);
   const e = parseLocalDateTime(endRaw);
   if (!s || !e) return 'single';
-  const dayIdx = ALL_DAYS.indexOf(String(dayName));
-  if (dayIdx < 0) return 'single';
+  if (ALL_DAYS.indexOf(String(dayName)) < 0) return 'single';
   const ws = summary.value?.weekStart || weekStart.value;
-  const cellDate = addDaysYmd(ws, dayIdx);
+  const cellDate = addDaysYmd(ws, dayIdxFromWeekStartMonday(dayName));
   const cellStart = new Date(`${cellDate}T${pad2(hour)}:${pad2(minute)}:00`);
   if (Number.isNaN(cellStart.getTime())) return 'single';
   const stepMs = 15 * 60 * 1000;
@@ -2919,7 +2919,7 @@ const hasBusyIntervals = (busyList, dayName, hour, ws, minute = 0) => {
     }
 
     // Check overlap against the cell’s local hour window.
-    const cellDate = addDaysYmd(ws, ALL_DAYS.indexOf(dayName));
+    const cellDate = addDaysYmd(ws, dayIdxFromWeekStartMonday(dayName));
     const cellStart = new Date(`${cellDate}T${pad2(hour)}:${pad2(minute)}:00`);
     const cellEnd = new Date(cellStart.getTime() + ((showQuarterDetail.value ? 15 : 60) * 60 * 1000));
     if (end > cellStart && start < cellEnd) return true;
@@ -2927,9 +2927,8 @@ const hasBusyIntervals = (busyList, dayName, hour, ws, minute = 0) => {
   return false;
 };
 const busyRangeForCell = (busyList, dayName, hour, ws, minute = 0) => {
-  const dayIdx = ALL_DAYS.indexOf(String(dayName));
-  if (dayIdx < 0) return null;
-  const cellDate = addDaysYmd(ws, dayIdx);
+  if (ALL_DAYS.indexOf(String(dayName)) < 0) return null;
+  const cellDate = addDaysYmd(ws, dayIdxFromWeekStartMonday(dayName));
   const cellStart = new Date(`${cellDate}T${pad2(hour)}:${pad2(minute)}:00`);
   const cellEnd = new Date(cellStart.getTime() + ((showQuarterDetail.value ? 15 : 60) * 60 * 1000));
   let minStart = null;
@@ -2956,9 +2955,8 @@ const googleEventsInCell = (dayName, hour, minute = 0) => {
   const s = summary.value;
   if (!s) return [];
   const ws = weekStart.value;
-  const dayIdx = ALL_DAYS.indexOf(String(dayName));
-  if (dayIdx < 0) return [];
-  const cellDate = addDaysYmd(ws, dayIdx);
+  if (ALL_DAYS.indexOf(String(dayName)) < 0) return [];
+  const cellDate = addDaysYmd(ws, dayIdxFromWeekStartMonday(dayName));
   const cellStart = new Date(`${cellDate}T${pad2(hour)}:${pad2(minute)}:00`);
   const cellEnd = new Date(cellStart.getTime() + ((showQuarterDetail.value ? 15 : 60) * 60 * 1000));
   const list = Array.isArray(s.googleEvents) ? s.googleEvents : [];
@@ -3069,9 +3067,8 @@ const officeEventsInCell = (dayName, hour, minute = 0) => {
   const s = summary.value;
   if (!s) return [];
   const ws = weekStart.value;
-  const dayIdx = ALL_DAYS.indexOf(String(dayName));
-  if (dayIdx < 0) return [];
-  const cellDate = addDaysYmd(ws, dayIdx);
+  if (ALL_DAYS.indexOf(String(dayName)) < 0) return [];
+  const cellDate = addDaysYmd(ws, dayIdxFromWeekStartMonday(dayName));
   const cellStart = new Date(`${cellDate}T${pad2(hour)}:${pad2(minute)}:00`);
   const cellEnd = new Date(cellStart.getTime() + ((showQuarterDetail.value ? 15 : 60) * 60 * 1000));
   const hits = (s?.officeEvents || []).filter((e) => {
@@ -3114,9 +3111,8 @@ const supervisionSessionsInCell = (dayName, hour, minute = 0) => {
   const s = summary.value;
   if (!s) return [];
   const ws = s.weekStart || weekStart.value;
-  const dayIdx = ALL_DAYS.indexOf(String(dayName));
-  if (dayIdx < 0) return [];
-  const cellDate = addDaysYmd(ws, dayIdx);
+  if (ALL_DAYS.indexOf(String(dayName)) < 0) return [];
+  const cellDate = addDaysYmd(ws, dayIdxFromWeekStartMonday(dayName));
   const cellStart = new Date(`${cellDate}T${pad2(hour)}:${pad2(minute)}:00`);
   const cellEnd = new Date(cellStart.getTime() + ((showQuarterDetail.value ? 15 : 60) * 60 * 1000));
   const hits = [];
@@ -3193,9 +3189,8 @@ const firstExternalBusyQuarter = (dayName, hour) => {
   if (!s) return '';
   const cals = Array.isArray(s.externalCalendars) ? s.externalCalendars : [];
   const ws = s.weekStart || weekStart.value;
-  const dayIdx = ALL_DAYS.indexOf(String(dayName));
-  if (dayIdx < 0) return '';
-  const cellDate = addDaysYmd(ws, dayIdx);
+  if (ALL_DAYS.indexOf(String(dayName)) < 0) return '';
+  const cellDate = addDaysYmd(ws, dayIdxFromWeekStartMonday(dayName));
   const cellStart = new Date(`${cellDate}T${pad2(hour)}:00:00`);
   const cellEnd = new Date(`${cellDate}T${pad2(Number(hour) + 1)}:00:00`);
   let earliest = null;
@@ -3455,7 +3450,7 @@ const selectedActionKeys = computed(() => selectedActionSlots.value.map((x) => x
 const selectedActionCount = computed(() => selectedActionSlots.value.length);
 const selectedActionKeySet = computed(() => new Set(selectedActionKeys.value));
 const isActionCellSelected = (dayName, hour) => {
-  const dateYmd = addDaysYmd(weekStart.value, ALL_DAYS.indexOf(String(dayName || '')));
+  const dateYmd = addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dayName));
   const key = `${String(dateYmd).slice(0, 10)}|${Number(hour)}|0`;
   return selectedActionKeySet.value.has(key);
 };
@@ -3997,9 +3992,8 @@ const modalOfficeRoomOptions = computed(() => {
   const officeId = Number(selectedOfficeLocationId.value || 0);
   if (!officeId || !g || !Array.isArray(g.rooms) || !Array.isArray(g.slots)) return [];
 
-  const dayIdx = ALL_DAYS.indexOf(String(modalDay.value));
-  if (dayIdx < 0) return [];
-  const date = addDaysYmd(weekStart.value, dayIdx);
+  if (ALL_DAYS.indexOf(String(modalDay.value)) < 0) return [];
+  const date = addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(modalDay.value));
   const startH = Number(modalHour.value);
   const endH = Number(modalEndHour.value);
   if (!(endH > startH)) return [];
@@ -4657,7 +4651,7 @@ const buildModalContext = ({ dayName, hour, roomId = 0, slot = null, dateYmd = n
   ).trim().toUpperCase();
   return {
     dayName: String(dayName),
-    dateYmd: String(dateYmd || addDaysYmd(weekStart.value, ALL_DAYS.indexOf(String(dayName || '')))).slice(0, 10),
+    dateYmd: String(dateYmd || addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dayName))).slice(0, 10),
     hour: Number(hour),
     agencyId: Number(slot?._agencyId || top?._agencyId || 0) || null,
     officeEventId: Number(slot?.eventId || slot?.officeEventId || top?.id || 0) || null,
@@ -4794,7 +4788,7 @@ const openSlotActionModal = ({
       }
     }
   }
-  const fallbackDate = String(dateYmd || addDaysYmd(weekStart.value, ALL_DAYS.indexOf(String(dayName || '')))).slice(0, 10);
+  const fallbackDate = String(dateYmd || addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dayName))).slice(0, 10);
   const fallbackRow = {
     key: actionSlotKey({ dateYmd: fallbackDate, hour, roomId }),
     dateYmd: fallbackDate,
@@ -4845,7 +4839,7 @@ const onCellClick = (dayName, hour, event = null, options = {}) => {
     suppressClickAfterDrag.value = false;
     return;
   }
-  const dateYmd = String(options?.dateYmd || addDaysYmd(weekStart.value, ALL_DAYS.indexOf(String(dayName || '')))).slice(0, 10);
+  const dateYmd = String(options?.dateYmd || addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dayName))).slice(0, 10);
   const roomId = Number(options?.roomId || 0) || 0;
   const slot = options?.slot || null;
   const item = {
@@ -4960,7 +4954,7 @@ const onCellDoubleClick = (dayName, hour, event = null, options = {}) => {
   if (!canBookFromGrid.value) return;
   event?.preventDefault?.();
   event?.stopPropagation?.();
-  const dateYmd = String(options?.dateYmd || addDaysYmd(weekStart.value, ALL_DAYS.indexOf(String(dayName || '')))).slice(0, 10);
+  const dateYmd = String(options?.dateYmd || addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dayName))).slice(0, 10);
   const roomId = Number(options?.roomId || 0) || 0;
   const slot = options?.slot || null;
   const isOpenForRoom = viewMode.value === 'office_layout' && roomId > 0
@@ -4984,7 +4978,7 @@ const onCellMouseDown = (dayName, hour, event = null) => {
   if (!canBookFromGrid.value) return;
   if (Number(event?.button) !== 0) return;
   mouseDownClient.value = { x: event?.clientX ?? 0, y: event?.clientY ?? 0 };
-  const dateYmd = addDaysYmd(weekStart.value, ALL_DAYS.indexOf(String(dayName || '')));
+  const dateYmd = addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dayName));
   const item = {
     key: actionSlotKey({ dateYmd, hour, roomId: 0 }),
     dateYmd,
@@ -5007,7 +5001,7 @@ const onCellMouseEnter = (dayName, hour, event = null) => {
   const dx = (event?.clientX ?? 0) - mouseDownClient.value.x;
   const dy = (event?.clientY ?? 0) - mouseDownClient.value.y;
   if (dx * dx + dy * dy < DRAG_THRESHOLD_PX * DRAG_THRESHOLD_PX) return;
-  const dateYmd = addDaysYmd(weekStart.value, ALL_DAYS.indexOf(String(dayName || '')));
+  const dateYmd = addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dayName));
   const current = {
     key: actionSlotKey({ dateYmd, hour, roomId: 0 }),
     dateYmd,
@@ -5250,9 +5244,8 @@ const officeOverlayStats = computed(() => {
 const officeOverlay = (dayName, hour) => {
   const id = Number(selectedOfficeLocationId.value || 0);
   if (!id) return '';
-  const dayIdx = ALL_DAYS.indexOf(String(dayName));
-  if (dayIdx < 0) return '';
-  const date = addDaysYmd(weekStart.value, dayIdx);
+  if (ALL_DAYS.indexOf(String(dayName)) < 0) return '';
+  const date = addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dayName));
   const rec = officeOverlayStats.value.get(officeOverlayKey(date, hour));
   if (!rec) return '';
   if (rec.open > 0) return `${rec.open} open rooms`;
@@ -5263,9 +5256,8 @@ const officeOverlay = (dayName, hour) => {
 };
 
 const officeOverlayTitle = (dayName, hour) => {
-  const dayIdx = ALL_DAYS.indexOf(String(dayName));
-  if (dayIdx < 0) return '';
-  const date = addDaysYmd(weekStart.value, dayIdx);
+  if (ALL_DAYS.indexOf(String(dayName)) < 0) return '';
+  const date = addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dayName));
   const rec = officeOverlayStats.value.get(officeOverlayKey(date, hour));
   if (!rec) return '';
   return [
@@ -5408,9 +5400,8 @@ const submitOfficeAssign = async () => {
   try {
     officeAssignLoading.value = true;
     officeAssignError.value = '';
-    const dayIdx = ALL_DAYS.indexOf(String(officeAssignDay.value));
-    if (dayIdx < 0) throw new Error('Invalid day');
-    const dateYmd = addDaysYmd(weekStart.value, dayIdx);
+    if (ALL_DAYS.indexOf(String(officeAssignDay.value)) < 0) throw new Error('Invalid day');
+    const dateYmd = addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(officeAssignDay.value));
     await api.post(`/office-slots/${officeAssignBuildingId.value}/open-slots/assign`, {
       roomId: officeAssignRoomId.value,
       assignedUserId: Number(props.userId),
@@ -5576,7 +5567,7 @@ const scheduleEventKindForAction = (actionId) => {
 
 const mergeSelectedSlotsByDay = ({ dayName, startHour, endHour }) => {
   const selected = sortedSelectedActionSlots();
-  const fallbackDate = addDaysYmd(weekStart.value, ALL_DAYS.indexOf(String(dayName)));
+  const fallbackDate = addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dayName));
   const seedRows = selected.length
     ? selected.map((x) => ({ dateYmd: String(x.dateYmd || fallbackDate).slice(0, 10), hour: Number(x.hour) }))
     : [{ dateYmd: fallbackDate, hour: Number(startHour) }];
@@ -5794,8 +5785,8 @@ const submitRequest = async () => {
             await api.post(`/office-slots/${ctx.officeLocationId}/assignments/${standingAssignmentId}/booking-plan`, {
               bookedFrequency: recurrence,
               bookedOccurrenceCount: Number(occurrenceCount || 6),
-              bookingStartDate: String(ctx?.dateYmd || '').slice(0, 10) || addDaysYmd(weekStart.value, ALL_DAYS.indexOf(String(dn))),
-              recurringUntilDate: addDaysYmd(String(ctx?.dateYmd || '').slice(0, 10) || addDaysYmd(weekStart.value, ALL_DAYS.indexOf(String(dn))), 364),
+              bookingStartDate: String(ctx?.dateYmd || '').slice(0, 10) || addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dn)),
+              recurringUntilDate: addDaysYmd(String(ctx?.dateYmd || '').slice(0, 10) || addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dn)), 364),
               ...normalizeBookingSelectionPayload()
             });
             if (officeEventId > 0) {
@@ -5813,8 +5804,8 @@ const submitRequest = async () => {
             await api.post(`/office-slots/${ctx.officeLocationId}/events/${officeEventId}/booking-plan`, {
               bookedFrequency: recurrence,
               bookedOccurrenceCount: Number(occurrenceCount || 6),
-              bookingStartDate: String(ctx?.dateYmd || '').slice(0, 10) || addDaysYmd(weekStart.value, ALL_DAYS.indexOf(String(dn))),
-              recurringUntilDate: addDaysYmd(String(ctx?.dateYmd || '').slice(0, 10) || addDaysYmd(weekStart.value, ALL_DAYS.indexOf(String(dn))), 364),
+              bookingStartDate: String(ctx?.dateYmd || '').slice(0, 10) || addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dn)),
+              recurringUntilDate: addDaysYmd(String(ctx?.dateYmd || '').slice(0, 10) || addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dn)), 364),
               ...normalizeBookingSelectionPayload()
             });
             // eslint-disable-next-line no-await-in-loop
@@ -5845,7 +5836,7 @@ const submitRequest = async () => {
         ? Math.min(104, Math.max(1, Number(officeBookingOccurrenceCount.value) || 6))
         : null;
       const targets = sortedSelectedActionSlots().length ? sortedSelectedActionSlots() : [{
-        dateYmd: addDaysYmd(weekStart.value, ALL_DAYS.indexOf(String(dn))),
+        dateYmd: addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dn)),
         hour: h
       }];
       for (const t of targets) {
@@ -5879,7 +5870,7 @@ const submitRequest = async () => {
         : null;
       if (occurrenceCount) officeBookingOccurrenceCount.value = occurrenceCount;
       const baseRoomId = viewMode.value === 'office_layout' ? (Number(selectedOfficeRoomId.value || 0) || Number(modalContext.value?.roomId || 0) || 0) : 0;
-      const baseDateYmd = addDaysYmd(weekStart.value, ALL_DAYS.indexOf(String(dn)));
+      const baseDateYmd = addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dn));
       const targets = Array.from({ length: Math.max(1, endH - h) }, (_, i) => ({
         dateYmd: baseDateYmd,
         dayName: dn,
@@ -5945,7 +5936,7 @@ const submitRequest = async () => {
       if (isAdminMode.value) throw new Error('School availability requests must be created from the provider schedule.');
       if (!canUseSchool(dn, h, endH)) throw new Error('School daytime availability must be on weekdays and between 06:00 and 18:00.');
       const targets = sortedSelectedActionSlots().length ? sortedSelectedActionSlots() : [{
-        dateYmd: addDaysYmd(weekStart.value, ALL_DAYS.indexOf(String(dn))),
+        dateYmd: addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dn)),
         dayName: dn,
         hour: h
       }];
@@ -6739,7 +6730,7 @@ const onCellBlockClick = (e, block, dayName, hour) => {
     if (stackDetails) openStackDetailsModal(stackDetails);
     return;
   }
-  const dateYmd = addDaysYmd(weekStart.value, ALL_DAYS.indexOf(String(dayName || '')));
+  const dateYmd = addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dayName));
   const officeId = ['oa', 'ot', 'ob', 'intake-ip', 'intake-vi'].includes(String(block?.kind || ''))
     ? Number(block?.buildingId || selectedOfficeLocationId.value || 0) || null
     : null;
@@ -6800,7 +6791,7 @@ const onCellBlockClick = (e, block, dayName, hour) => {
       dayName,
       hour,
       roomId: Number(officeTop?.roomId || 0) || 0,
-      dateYmd: addDaysYmd(weekStart.value, ALL_DAYS.indexOf(String(dayName || ''))),
+      dateYmd: addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dayName)),
       slot: officeTop,
       preserveSelectionRange: false,
       initialRequestType,

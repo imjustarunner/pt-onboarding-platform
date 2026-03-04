@@ -809,7 +809,16 @@ async function startAppVideoMeeting(session) {
   try {
     const resp = await api.get(`/supervision/sessions/${sid}/video-token`);
     const data = resp?.data || {};
-    twilioVideoToken.value = data.token || '';
+    const tok = data.token || data.data?.token || '';
+    if (!tok) {
+      console.warn('[SupervisionModal] video-token 200 but token empty:', { status: resp?.status, data });
+      twilioVideoError.value =
+        'Video token was empty. Check Network tab: GET /api/supervision/sessions/' +
+        sid +
+        '/video-token – status and response body.';
+      return;
+    }
+    twilioVideoToken.value = tok;
     twilioVideoRoomName.value = data.roomName || `supervision-${sid}`;
     showTwilioVideoModal.value = true;
   } catch (err) {
