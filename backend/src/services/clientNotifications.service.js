@@ -232,6 +232,22 @@ export async function notifyClientBecameCurrent({
   }
 }
 
+/** Guard: skip if we already created client_terminated notifications for this client recently.
+ * Prevents duplicate notifications when terminate is triggered multiple times (race, double-click, etc). */
+async function clientTerminationAlreadyNotifiedRecently({ agencyId, clientId }) {
+  const [rows] = await pool.execute(
+    `SELECT id FROM notifications
+     WHERE agency_id = ?
+       AND type = 'client_terminated'
+       AND related_entity_type = 'client'
+       AND related_entity_id = ?
+       AND created_at >= DATE_SUB(NOW(), INTERVAL 60 SECOND)
+     LIMIT 1`,
+    [agencyId, clientId]
+  );
+  return !!rows[0]?.id;
+}
+
 export async function notifyClientTerminated({
   agencyId,
   schoolOrganizationId,
@@ -242,6 +258,8 @@ export async function notifyClientTerminated({
   providerUserId
 }) {
   if (!agencyId || !clientId) return;
+
+  if (await clientTerminationAlreadyNotifiedRecently({ agencyId, clientId })) return;
 
   const agencyStaff = await getAgencyAdminStaffUserIds(agencyId);
   const schoolStaff = schoolOrganizationId ? await getSchoolStaffUserIds(schoolOrganizationId) : [];
