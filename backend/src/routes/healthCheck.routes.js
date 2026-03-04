@@ -23,9 +23,17 @@ router.get('/twilio-video', (req, res) => {
   } catch (e) {
     return res.status(500).json({ error: String(e?.message || e), envVarsPresent: { hasAccountSid, hasAuthToken, hasApiKeySid, hasApiKeySecret } });
   }
+  // Diagnostic: which TWILIO_* keys exist (names only, no values) – helps debug Cloud Run / env loading
+  const twilioKeys = Object.keys(process.env).filter((k) => k.startsWith('TWILIO_')).sort();
+  const twilioKeyLengths = Object.fromEntries(
+    twilioKeys.map((k) => [k, process.env[k] ? String(process.env[k]).length : 0])
+  );
+
   res.json({
     twilioVideoConfigured: configured,
     envVarsPresent: { hasAccountSid, hasAuthToken, hasApiKeySid, hasApiKeySecret, hasFrontendUrl },
+    twilioKeysPresent: twilioKeys,
+    twilioKeyLengths,
     requestHost: req.headers?.host || null,
     nodeEnv: process.env.NODE_ENV || 'undefined',
     hint: !configured
