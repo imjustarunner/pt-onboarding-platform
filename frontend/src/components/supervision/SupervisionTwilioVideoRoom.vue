@@ -116,6 +116,16 @@
           <span v-if="chatUnreadCount > 0" class="chat-badge">{{ chatUnreadCount }}</span>
         </button>
         <button
+          type="button"
+          class="control-btn"
+          :class="{ active: shareDisplayName }"
+          :title="shareDisplayName ? 'Your display name is visible to participants.' : 'Your display name is hidden. Other participants will see Anonymous.'"
+          @click="toggleDisplayNameVisibility"
+        >
+          <span class="control-icon">{{ shareDisplayName ? '🙋' : '🕶️' }}</span>
+          <span>{{ shareDisplayName ? 'Name visible' : 'Name hidden' }}</span>
+        </button>
+        <button
           v-if="agendaAvailable"
           type="button"
           class="control-btn"
@@ -145,7 +155,10 @@
         <div v-if="chatTab === 'chat'" class="chat-tab-content">
           <div ref="chatMessagesEl" class="chat-messages">
             <div v-for="m in chatMessages" :key="m.id" class="chat-msg" :class="{ 'chat-msg-own': m.isOwn }">
-              <span class="chat-msg-sender">{{ m.senderLabel }}</span>
+              <span class="chat-msg-sender">
+                {{ m.senderLabel }}
+                <span v-if="m.isAnonymous && !m.isOwn" class="chat-msg-anonymous">(hidden)</span>
+              </span>
               <span class="chat-msg-text">{{ m.text }}</span>
             </div>
           </div>
@@ -155,7 +168,7 @@
           </form>
         </div>
         <div v-if="chatTab === 'polls'" class="chat-tab-content">
-          <div v-if="isHost" class="poll-create">
+          <div v-if="canCreatePoll" class="poll-create">
             <input v-model="pollQuestion" type="text" placeholder="Poll question" class="chat-input" />
             <input v-model="pollOptionsText" type="text" placeholder="Options (comma-separated)" class="chat-input" />
             <button type="button" class="btn btn-primary btn-sm" :disabled="!pollQuestion.trim() || !pollOptionsText.trim()" @click="createPoll">Create poll</button>
@@ -259,6 +272,12 @@ const questionInput = ref('');
 const qaItems = ref([]);
 const chatMessagesEl = ref(null);
 const authStore = useAuthStore();
+const DISPLAY_NAME_VISIBILITY_STORAGE_KEY = 'twilio_video_share_display_name';
+const shareDisplayName = ref(true);
+
+if (typeof window !== 'undefined' && window.localStorage.getItem(DISPLAY_NAME_VISIBILITY_STORAGE_KEY) === '0') {
+  shareDisplayName.value = false;
+}
 
 function debugLog({ hypothesisId, message, data = {} }) {
   // #region agent log
@@ -279,6 +298,7 @@ function debugLog({ hypothesisId, message, data = {} }) {
 }
 
 function myDisplayName() {
+  if (!shareDisplayName.value) return 'Anonymous';
   const first = String(authStore.user?.first_name || authStore.user?.firstName || '').trim();
   const last = String(authStore.user?.last_name || authStore.user?.lastName || '').trim();
   const full = `${first} ${last}`.trim();
@@ -291,7 +311,11 @@ function participantLabel(identity) {
   const mapped = String(participantDisplayNamesByIdentity.value[id] || '').trim();
   if (mapped) return mapped;
   const m = id.match(/^user-(\d+)$/);
-  return m?.[1] ? `User ${m[1]}` : id;
+  return m?.[1] ? 'Participant' : id;
+}
+
+function getDataTrackName(source) {
+  return String(source?.trackName || source?.name || source?.track?.name || '').trim().toLowerCase();
 }
 
 const screenShareSupported = computed(() =>
@@ -310,6 +334,7 @@ const agendaMeetingType = computed(() => {
 });
 const agendaMeetingId = computed(() => Number(props.sessionId || props.eventId || 0) || null);
 const agendaAvailable = computed(() => !!agendaMeetingType.value && !!agendaMeetingId.value);
+const canCreatePoll = computed(() => Boolean(props.isHost || props.eventId));
 
 const sortedRemoteParticipants = computed(() => {
   const list = [...remoteParticipants.value];
@@ -594,12 +619,17 @@ function applyActivity(a, isOwn) {
   const id = `activity-${a.id}-${Date.now()}`;
   if (a.activityType === 'chat') {
     const identity = String(a.participantIdentity || '').trim();
-    const senderLabel = isOwn ? 'You' : participantLabel(identity);
+    const payloadSender = String(a.payload?.senderDisplayName || '').trim();
+    const isAnonymous = payloadSender.toLowerCase() === 'anonymous';
+    const senderLabel = isOwn
+      ? (shareDisplayName.value ? 'You' : 'You (hidden)')
+      : (payloadSender || participantLabel(identity));
     chatMessages.value.push({
       id,
       text: a.payload?.text || '',
       senderLabel: senderLabel || 'Unknown',
-      isOwn
+      isOwn,
+      isAnonymous
     });
     if (!chatPanelOpen.value) chatUnreadCount.value++;
   } else if (a.activityType === 'poll') {
@@ -670,14 +700,14 @@ function setupDataTrackListeners(room) {
 
   room.participants.forEach((participant) => {
     participant.dataTracks.forEach((pub) => {
-      if (pub.isSubscribed && pub.trackName === 'chat') {
+      if (pub.isSubscribed && getDataTrackName(pub) === 'chat' && pub.track) {
         pub.track.on('message', (msg) => handleMessage(msg, participant));
       }
     });
   });
 
   room.on('trackSubscribed', (track, publication, participant) => {
-    if (track.kind === 'data' && track.name === 'chat') {
+    if (track.kind === 'data' && getDataTrackName(track) === 'chat') {
       track.on('message', (msg) => handleMessage(msg, participant));
     }
   });
@@ -728,6 +758,14 @@ function broadcastPresence() {
   } catch {
     // ignore
   }
+}
+
+function toggleDisplayNameVisibility() {
+  shareDisplayName.value = !shareDisplayName.value;
+  if (typeof window !== 'undefined') {
+    window.localStorage.setItem(DISPLAY_NAME_VISIBILITY_STORAGE_KEY, shareDisplayName.value ? '1' : '0');
+  }
+  broadcastPresence();
 }
 
 async function ensureLocalOutboundTracksHealthy(reason = 'unknown') {
@@ -808,6 +846,7 @@ async function ensureLocalOutboundTracksHealthy(reason = 'unknown') {
 
 function sendChatMessage() {
   const text = String(chatInput.value || '').trim();
+  const senderDisplayName = myDisplayName();
   // #region agent log
   debugLog({
     hypothesisId: 'H18',
@@ -821,14 +860,14 @@ function sendChatMessage() {
   });
   // #endregion
   if (!text) return;
-  const payload = { type: 'chat', text };
+  const payload = { type: 'chat', text, senderDisplayName };
   safeSendData(payload, 'chat');
   chatInput.value = '';
   applyActivity(
-    { id: `local-${Date.now()}`, participantIdentity: room.value?.localParticipant?.identity || 'You', activityType: 'chat', payload: { text } },
+    { id: `local-${Date.now()}`, participantIdentity: room.value?.localParticipant?.identity || 'You', activityType: 'chat', payload: { text, senderDisplayName } },
     true
   );
-  persistActivity('chat', { text });
+  persistActivity('chat', { text, senderDisplayName });
   nextTick(() => {
     if (chatMessagesEl.value) chatMessagesEl.value.scrollTop = chatMessagesEl.value.scrollHeight;
   });
@@ -848,11 +887,12 @@ async function createPoll() {
       questionLen: question.length,
       optionsCount: options.length,
       hasDataTrack: !!localDataTrack.value,
-      isHost: isHost.value
+      isHost: props.isHost,
+      canCreatePoll: canCreatePoll.value
     }
   });
   // #endregion
-  if (!question || !options.length) return;
+  if (!canCreatePoll.value || !question || !options.length) return;
   const id = await persistActivity('poll', { question, options });
   const payload = { type: 'poll', id: id || `poll-${Date.now()}`, question, options };
   safeSendData(payload, 'poll');
@@ -1947,19 +1987,34 @@ onUnmounted(() => {
 .chat-msg {
   padding: 8px 10px;
   border-radius: 8px;
-  background: var(--bg-secondary, #2a2a2a);
+  border: 1px solid #c7d2fe;
+  background: #eef2ff;
+  color: #111827;
 }
 
 .chat-msg-own {
-  background: rgba(37, 99, 235, 0.2);
+  border-color: #1d4ed8;
+  background: #1d4ed8;
+  color: #eff6ff;
   margin-left: 24px;
 }
 
 .chat-msg-sender {
   display: block;
   font-size: 11px;
-  color: var(--text-secondary);
+  color: #374151;
   margin-bottom: 4px;
+}
+
+.chat-msg-own .chat-msg-sender {
+  color: #bfdbfe;
+}
+
+.chat-msg-anonymous {
+  margin-left: 6px;
+  font-size: 11px;
+  font-style: italic;
+  opacity: 0.85;
 }
 
 .chat-msg-text {
