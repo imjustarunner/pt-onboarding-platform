@@ -1213,9 +1213,13 @@
         <div class="modal-body supv-video-body" style="padding: 12px; overflow-y: auto; flex: 1; min-height: 0;">
           <p class="muted" style="margin-bottom: 12px;">Attendance is tracked automatically when you join and leave.</p>
           <SupervisionVideoLobbyPanel
+            v-if="supvAppVideoRoomMode !== 'lobby' && supvAppVideoIsSupervisor && supvAppVideoLobbyEnabled"
             :session-id="supvAppVideoSessionId"
             :is-supervisor="supvAppVideoIsSupervisor"
           />
+          <div v-else-if="supvAppVideoRoomMode === 'lobby' && supvAppVideoLobbyEnabled" class="hint" style="margin-bottom: 12px;">
+            Waiting for supervisor to admit you to the room…
+          </div>
           <SupervisionTwilioVideoRoom
             :token="supvAppVideoToken"
             :room-name="supvAppVideoRoomName"
@@ -6506,6 +6510,8 @@ const supvAppVideoRoomName = ref('');
 const supvAppVideoSessionTitle = ref('');
 const supvAppVideoSessionId = ref(0);
 const supvAppVideoIsSupervisor = ref(false);
+const supvAppVideoRoomMode = ref('main');
+const supvAppVideoLobbyEnabled = ref(false);
 const supvAppVideoFullscreen = ref(false);
 const supvAppVideoError = ref('');
 const supvAppVideoLoading = ref(false);
@@ -6578,6 +6584,8 @@ const startAppVideoMeetingFromGrid = async (session) => {
     supvAppVideoSessionTitle.value = data.sessionTitle || data.session_title || '';
     supvAppVideoSessionId.value = sid;
     supvAppVideoIsSupervisor.value = !!data.isSupervisor;
+    supvAppVideoRoomMode.value = String(data.roomMode || (String(rn || '').endsWith('-lobby') ? 'lobby' : 'main')).toLowerCase();
+    supvAppVideoLobbyEnabled.value = !!data.lobbyEnabledForSession;
     supvAppVideoFullscreen.value = true;
     showSupvAppVideoModal.value = true;
   } catch (e) {
@@ -6597,6 +6605,8 @@ const closeSupvAppVideoModal = () => {
   supvAppVideoSessionTitle.value = '';
   supvAppVideoSessionId.value = 0;
   supvAppVideoIsSupervisor.value = false;
+  supvAppVideoRoomMode.value = 'main';
+  supvAppVideoLobbyEnabled.value = false;
   supvAppVideoFullscreen.value = false;
 };
 

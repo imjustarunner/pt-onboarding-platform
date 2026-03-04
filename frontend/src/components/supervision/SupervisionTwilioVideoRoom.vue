@@ -229,6 +229,7 @@ const disconnecting = ref(false);
 const error = ref('');
 const localVideoEl = ref(null);
 const remoteVideoEls = ref({});
+const remoteVideoTracksBySid = ref({});
 const transcriptLines = ref([]);
 const screenTrack = ref(null);
 const screenShareEl = ref(null);
@@ -288,7 +289,13 @@ const gridSizeClass = computed(() => {
 });
 
 function setRemoteVideoEl(sid, el) {
-  if (el) remoteVideoEls.value[sid] = el;
+  if (el) {
+    remoteVideoEls.value[sid] = el;
+    const track = remoteVideoTracksBySid.value[sid];
+    if (track) attachTrack(track, el);
+    return;
+  }
+  delete remoteVideoEls.value[sid];
 }
 
 function networkQualityLabel(level) {
@@ -681,10 +688,9 @@ async function connectRoom() {
             sharedScreenTrack.value = pub.track;
             sharedScreenIdentity.value = participant.identity;
           } else {
-            setTimeout(() => {
-              const el = remoteVideoEls.value[participant.sid];
-              if (el) attachTrack(pub.track, el);
-            }, 100);
+            remoteVideoTracksBySid.value = { ...remoteVideoTracksBySid.value, [participant.sid]: pub.track };
+            const el = remoteVideoEls.value[participant.sid];
+            if (el) attachTrack(pub.track, el);
           }
         }
       });
@@ -694,10 +700,9 @@ async function connectRoom() {
             sharedScreenTrack.value = track;
             sharedScreenIdentity.value = participant.identity;
           } else {
-            setTimeout(() => {
-              const el = remoteVideoEls.value[participant.sid];
-              if (el) attachTrack(track, el);
-            }, 100);
+            remoteVideoTracksBySid.value = { ...remoteVideoTracksBySid.value, [participant.sid]: track };
+            const el = remoteVideoEls.value[participant.sid];
+            if (el) attachTrack(track, el);
           }
         }
       });
@@ -705,6 +710,11 @@ async function connectRoom() {
         if (isScreenTrack(track) && sharedScreenTrack.value === track) {
           sharedScreenTrack.value = null;
           sharedScreenIdentity.value = '';
+        }
+        if (track.kind === 'video') {
+          const next = { ...remoteVideoTracksBySid.value };
+          if (next[participant.sid] === track) delete next[participant.sid];
+          remoteVideoTracksBySid.value = next;
         }
       });
     };
@@ -748,6 +758,9 @@ async function connectRoom() {
         detachTrack(pub.track);
       });
       remoteParticipants.value = remoteParticipants.value.filter((p) => p.sid !== participant.sid);
+      const next = { ...remoteVideoTracksBySid.value };
+      delete next[participant.sid];
+      remoteVideoTracksBySid.value = next;
     });
 
     r.on('disconnected', async () => {
@@ -772,6 +785,7 @@ async function connectRoom() {
       dominantSpeakerSid.value = null;
       localParticipantSid.value = null;
       networkQualityBySid.value = {};
+      remoteVideoTracksBySid.value = {};
       localDataTrack.value = null;
       chatMessages.value = [];
       polls.value = [];
@@ -912,14 +926,8 @@ watch(
   { immediate: true }
 );
 
-watch(localVideoTrack, (track, prev) => {
-  if (prev) detachTrack(prev);
-  if (track && localVideoEl.value && !cameraMuted.value) attachTrack(track, localVideoEl.value);
-}, { flush: 'post' });
-
-watch(cameraMuted, (muted) => {
-  const track = localVideoTrack.value;
-  const el = localVideoEl.value;
+watch([localVideoTrack, localVideoEl, cameraMuted], ([track, el, muted], [prevTrack]) => {
+  if (prevTrack && prevTrack !== track) detachTrack(prevTrack);
   if (!track || !el) return;
   if (muted) detachTrack(track);
   else attachTrack(track, el);

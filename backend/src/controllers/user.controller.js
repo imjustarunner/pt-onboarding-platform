@@ -2862,7 +2862,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
         const isRequired = hasViewerRequired ? Number(r.viewer_is_required) === 1 : isPrimarySupervisee;
         const startWall = toMysqlDateTimeWall(r.start_at) || r.start_at;
         const endWall = toMysqlDateTimeWall(r.end_at) || r.end_at;
-        const startDateYmd = startWall ? String(startWall).slice(0, 10) : null;
+        const startDateYmd = String(r?.start_date_ymd || '').trim() || (startWall ? String(startWall).slice(0, 10) : null);
         return {
           id: r.id,
           role: isSupervisor ? 'supervisor' : 'supervisee',

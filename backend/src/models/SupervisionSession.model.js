@@ -625,6 +625,7 @@ class SupervisionSession {
     const [rows] = await pool.execute(
       `SELECT
          ss.*,
+         DATE_FORMAT(ss.start_at, '%Y-%m-%d') AS start_date_ymd,
          sup.first_name AS supervisor_first_name,
          sup.last_name AS supervisor_last_name,
          sup.email AS supervisor_email,
