@@ -20,6 +20,14 @@
         >
           {{ importing ? 'Importing…' : 'Import from spreadsheet' }}
         </button>
+        <button
+          v-if="manageAccess"
+          type="button"
+          class="btn btn-secondary btn-sm"
+          @click="downloadImportTemplate"
+        >
+          Download template
+        </button>
         <input
           ref="importInputRef"
           type="file"
@@ -37,6 +45,9 @@
       Total mileage: <strong>{{ totalMiles.toFixed(1) }}</strong> miles
     </div>
 
+    <div v-if="manageAccess" class="hint" style="margin-bottom: 8px; font-size: 12px;">
+      CSV format: driver_name, date, starting_odometer_mileage, ending_odometer_mileage, destinations, reason_for_travel, full_description
+    </div>
     <div v-if="importError" class="warn-box" style="margin-bottom: 12px;">{{ importError }}</div>
     <div v-if="importSuccess" class="success-box" style="margin-bottom: 12px;">{{ importSuccess }}</div>
 
@@ -173,9 +184,7 @@ async function onPhotoUpload(carId, ev) {
     const fd = new FormData();
     fd.append('photo', file);
     fd.append('agencyId', String(props.agencyId));
-    await api.post(`/company-car/company-cars/${carId}/photo`, fd, {
-      headers: { 'Content-Type': 'multipart/form-data' }
-    });
+    await api.post(`/company-car/company-cars/${carId}/photo`, fd);
     await loadCars();
   } catch (e) {
     alert(e.response?.data?.error?.message || 'Failed to upload photo');
@@ -198,6 +207,21 @@ function triggerImportInput() {
   importInputRef.value?.click();
 }
 
+function downloadImportTemplate() {
+  const header = 'driver_name,date,starting_odometer_mileage,ending_odometer_mileage,destinations,reason_for_travel,full_description';
+  const example = 'Jane Doe,2025-03-01,10000,10050,Office; Client Site,Client visit,Round trip to downtown';
+  const csv = [header, example].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'company-car-trips-import-template.csv';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 async function onImportFile(ev) {
   const file = ev.target?.files?.[0];
   ev.target.value = '';
@@ -218,13 +242,12 @@ async function onImportFile(ev) {
     fd.append('agencyId', String(props.agencyId));
     fd.append('companyCarId', String(cars.value[0].id));
 
-    const res = await api.post('/company-car/import', fd, {
-      headers: { 'Content-Type': 'multipart/form-data' }
-    });
+    const res = await api.post('/company-car/import', fd);
     const created = res.data?.created ?? 0;
     const skipped = res.data?.skipped ?? 0;
     const errors = res.data?.errors ?? 0;
-    importSuccess.value = `Imported ${created} trip(s). ${skipped} skipped, ${errors} errors.`;
+    const totalMiles = res.data?.totalImportedMiles ?? 0;
+    importSuccess.value = `Imported ${created} trip(s) (${totalMiles.toFixed(1)} miles total). ${skipped} skipped, ${errors} errors.`;
     await loadTrips();
     emit('trip-deleted'); // refresh parent if needed
   } catch (e) {

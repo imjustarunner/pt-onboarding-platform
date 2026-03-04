@@ -82,21 +82,23 @@ export default class CompanyCarImportParserService {
       });
 
       const nameVal =
+        normalized['driver name'] ||
         normalized['name'] ||
         normalized['driver'] ||
-        normalized['driver name'] ||
         '';
       const dateVal =
         normalized['date'] ||
         normalized['drive date'] ||
         '';
       const startVal =
+        normalized['starting odometer mileage'] ||
         normalized['starting odometer miles'] ||
         normalized['starting odometer'] ||
         normalized['start odometer'] ||
         normalized['start odometer miles'] ||
         '';
       const endVal =
+        normalized['ending odometer mileage'] ||
         normalized['ending odometer miles'] ||
         normalized['ending odometer'] ||
         normalized['end odometer'] ||
@@ -112,6 +114,11 @@ export default class CompanyCarImportParserService {
         normalized['reason for travel'] ||
         normalized['reason'] ||
         normalized['purpose'] ||
+        '';
+      const notesVal =
+        normalized['full description'] ||
+        normalized['notes'] ||
+        normalized['description'] ||
         '';
 
       if (!nameVal && !dateVal && !startVal && !endVal) continue;
@@ -132,7 +139,8 @@ export default class CompanyCarImportParserService {
         startOdometerMiles: startOdometer,
         endOdometerMiles: endOdometer,
         destinations,
-        reasonForTravel: String(reasonVal || '').trim().slice(0, 255)
+        reasonForTravel: String(reasonVal || '').trim().slice(0, 255),
+        notes: String(notesVal || '').trim().slice(0, 65535) || null
       });
     }
     return rows;

@@ -11,7 +11,16 @@ import multer from 'multer';
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 }
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const name = String(file?.originalname || '').toLowerCase();
+    const ok = name.endsWith('.csv') || name.endsWith('.xlsx') || name.endsWith('.xls') ||
+      file.mimetype === 'text/csv' || file.mimetype === 'application/csv' ||
+      file.mimetype === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+      file.mimetype === 'application/vnd.ms-excel';
+    if (ok) return cb(null, true);
+    cb(new Error('Please upload a .csv or .xlsx file.'), false);
+  }
 });
 
 const photoUpload = multer({
@@ -68,16 +77,20 @@ async function requireCompanyCarAccess(req, res, { requireManage = false } = {})
 }
 
 async function findUserByNameInAgency(agencyId, name) {
-  const nameTrimmed = String(name || '').trim();
+  const nameTrimmed = String(name || '').trim().replace(/\s+/g, ' ');
   if (!nameTrimmed) return null;
 
+  // Try "First Last" and "Last, First"
   const [rows] = await pool.execute(
     `SELECT u.id FROM users u
      INNER JOIN user_agencies ua ON ua.user_id = u.id
      WHERE ua.agency_id = ?
-       AND LOWER(TRIM(CONCAT(COALESCE(u.first_name,''), ' ', COALESCE(u.last_name,'')))) = LOWER(?)
+       AND (
+         LOWER(TRIM(REPLACE(CONCAT(COALESCE(u.first_name,''), ' ', COALESCE(u.last_name,'')), '  ', ' '))) = LOWER(?)
+         OR LOWER(TRIM(REPLACE(CONCAT(COALESCE(u.last_name,''), ', ', COALESCE(u.first_name,'')), '  ', ' '))) = LOWER(?)
+       )
      LIMIT 1`,
-    [agencyId, nameTrimmed]
+    [agencyId, nameTrimmed, nameTrimmed]
   );
   return rows?.[0]?.id || null;
 }
@@ -673,6 +686,7 @@ export const importCompanyCarTrips = [
       const created = [];
       const skipped = [];
       const errors = [];
+      let totalImportedMiles = 0;
 
       for (const row of rows) {
         if (!row.driveDate || !/^\d{4}-\d{2}-\d{2}$/.test(row.driveDate)) {
@@ -701,9 +715,11 @@ export const importCompanyCarTrips = [
             startOdometerMiles: start,
             endOdometerMiles: end,
             destinations: row.destinations || [],
-            reasonForTravel: row.reasonForTravel || 'Imported'
+            reasonForTravel: row.reasonForTravel || 'Imported',
+            notes: row.notes || null
           });
-          created.push({ id: trip.id, row: row.rowIndex });
+          created.push({ id: trip.id, row: row.rowIndex, miles: trip.miles || end - start });
+          totalImportedMiles += Number(trip.miles || end - start);
 
           for (const d of (row.destinations || []).filter(Boolean)) {
             await CompanyCarUsualPlace.upsertAndIncrement({ agencyId, name: d });
@@ -717,6 +733,7 @@ export const importCompanyCarTrips = [
         created: created.length,
         skipped: skipped.length,
         errors: errors.length,
+        totalImportedMiles: Math.round(totalImportedMiles * 100) / 100,
         details: { created, skipped, errors }
       });
     } catch (e) {
