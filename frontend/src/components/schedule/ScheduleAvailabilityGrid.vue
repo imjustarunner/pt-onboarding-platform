@@ -1259,17 +1259,52 @@
         <div class="modal-body">
           <div v-if="!stackDetailsItems.length" class="muted">No overlapping details available for this block.</div>
           <div v-else class="stack-details-list">
-            <button
+            <div
               v-for="item in stackDetailsItems"
               :key="`stack-item-${item.id}`"
-              class="stack-details-item"
-              type="button"
-              :disabled="!item.link && !item.appJoinUrl && !item.sessionId && !item.googleEvent"
-              @click="openStackDetailsItem(item)"
+              class="stack-details-item-wrap"
             >
-              <div class="stack-details-label">{{ item.label }}</div>
-              <div v-if="item.subLabel" class="stack-details-sub">{{ item.subLabel }}</div>
-            </button>
+              <button
+                class="stack-details-item"
+                type="button"
+                :disabled="!item.link && !item.appJoinUrl && !item.sessionId && !item.googleEvent"
+                @click="openStackDetailsItem(item)"
+              >
+                <div class="stack-details-label">{{ item.label }}</div>
+                <div v-if="item.subLabel" class="stack-details-sub">{{ item.subLabel }}</div>
+              </button>
+              <div v-if="item.eventId && item.appJoinUrl" class="stack-details-activity-row">
+                <button
+                  type="button"
+                  class="btn btn-outline btn-sm"
+                  :disabled="teamMeetingActivityLoadingById[item.eventId]"
+                  @click.stop="toggleTeamMeetingActivity(item.eventId)"
+                >
+                  {{ teamMeetingActivityExpandedById[item.eventId] ? 'Hide' : 'View' }} meeting chat & Q&A
+                </button>
+                <div v-if="teamMeetingActivityExpandedById[item.eventId]" class="stack-details-activity-content">
+                  <div v-if="teamMeetingActivityLoadingById[item.eventId]" class="muted">Loading…</div>
+                  <div v-else-if="teamMeetingActivityErrorById[item.eventId]" class="error-inline">{{ teamMeetingActivityErrorById[item.eventId] }}</div>
+                  <div v-else-if="!teamMeetingActivityById[item.eventId]?.length" class="muted">No chat, polls, or Q&A recorded for this meeting.</div>
+                  <div v-else class="activity-list">
+                    <div
+                      v-for="a in teamMeetingActivityById[item.eventId]"
+                      :key="a.id"
+                      class="activity-item"
+                      :class="`activity-${a.activityType}`"
+                    >
+                      <span class="activity-sender">{{ a.participantIdentity?.replace(/^user-/, 'User ') }}</span>
+                      <span v-if="a.activityType === 'chat'" class="activity-text">{{ a.payload?.text }}</span>
+                      <span v-else-if="a.activityType === 'poll'" class="activity-text">Poll: {{ a.payload?.question }} — {{ (a.payload?.options || []).join(', ') }}</span>
+                      <span v-else-if="a.activityType === 'poll_vote'" class="activity-text">Voted on poll</span>
+                      <span v-else-if="a.activityType === 'question'" class="activity-text">Q: {{ a.payload?.text }}</span>
+                      <span v-else-if="a.activityType === 'answer'" class="activity-text">A: {{ a.payload?.text }}</span>
+                      <span class="activity-time">{{ formatActivityTime(a.createdAt) }}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -6955,11 +6990,44 @@ const clearGevtClickTimer = () => {
 const showStackDetailsModal = ref(false);
 const stackDetailsTitle = ref('');
 const stackDetailsItems = ref([]);
+const teamMeetingActivityExpandedById = ref({});
+const teamMeetingActivityById = ref({});
+const teamMeetingActivityLoadingById = ref({});
+const teamMeetingActivityErrorById = ref({});
 const closeStackDetailsModal = () => {
   showStackDetailsModal.value = false;
   stackDetailsTitle.value = '';
   stackDetailsItems.value = [];
+  teamMeetingActivityExpandedById.value = {};
 };
+const formatActivityTime = (createdAt) => {
+  if (!createdAt) return '';
+  try {
+    const d = new Date(createdAt);
+    return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  } catch {
+    return '';
+  }
+};
+async function toggleTeamMeetingActivity(eventId) {
+  const eid = Number(eventId || 0);
+  if (!eid) return;
+  const expanded = !teamMeetingActivityExpandedById.value[eid];
+  teamMeetingActivityExpandedById.value = { ...teamMeetingActivityExpandedById.value, [eid]: expanded };
+  if (!expanded) return;
+  if (teamMeetingActivityById.value[eid]?.length) return;
+  teamMeetingActivityLoadingById.value = { ...teamMeetingActivityLoadingById.value, [eid]: true };
+  teamMeetingActivityErrorById.value = { ...teamMeetingActivityErrorById.value, [eid]: '' };
+  try {
+    const resp = await api.get(`/team-meetings/${eid}/activity`);
+    teamMeetingActivityById.value = { ...teamMeetingActivityById.value, [eid]: resp?.data?.activity || [] };
+  } catch (err) {
+    teamMeetingActivityErrorById.value = { ...teamMeetingActivityErrorById.value, [eid]: err?.response?.data?.error?.message || 'Failed to load chat & Q&A.' };
+    teamMeetingActivityById.value = { ...teamMeetingActivityById.value, [eid]: [] };
+  } finally {
+    teamMeetingActivityLoadingById.value = { ...teamMeetingActivityLoadingById.value, [eid]: false };
+  }
+}
 const openStackDetailsModal = ({ title = '', items = [] } = {}) => {
   stackDetailsTitle.value = String(title || '').trim() || 'Overlapping items';
   stackDetailsItems.value = Array.isArray(items) ? items : [];
@@ -7163,7 +7231,8 @@ const buildStackDetailsForBlock = (block, dayName, hour) => {
         label: String(ev?.title || '').trim() || 'Schedule event',
         subLabel: ev?.allDay ? 'All day' : formatRangeFromRaw(ev?.startAt, ev?.endAt),
         link: String(ev?.htmlLink || '').trim() || '',
-        appJoinUrl: String(ev?.appJoinUrl || '').trim() || ''
+        appJoinUrl: String(ev?.appJoinUrl || '').trim() || '',
+        eventId: Number(ev?.id || 0) || null
       }))
     };
   }
@@ -7812,6 +7881,42 @@ defineExpose({ resetToOpenFinder });
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+.stack-details-item-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.stack-details-activity-row {
+  margin-left: 12px;
+  padding-left: 12px;
+  border-left: 2px solid var(--border);
+}
+.stack-details-activity-content {
+  margin-top: 6px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+.stack-details-activity-content .activity-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.stack-details-activity-content .activity-item {
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--bg-secondary, #f3f4f6);
+  font-size: 13px;
+}
+.stack-details-activity-content .activity-sender {
+  font-weight: 600;
+  margin-right: 6px;
+}
+.stack-details-activity-content .activity-time {
+  display: block;
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 2px;
 }
 .stack-details-item {
   width: 100%;

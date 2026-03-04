@@ -967,6 +967,14 @@
 
     <div v-if="mandatorySupervisionPrompt" class="supervision-splash" role="dialog" aria-modal="true" aria-label="Join group supervision">
       <div class="supervision-splash-card">
+        <button
+          type="button"
+          class="supervision-splash-dismiss"
+          aria-label="Dismiss"
+          @click="dismissMandatorySupervisionPrompt(mandatorySupervisionPrompt?.id)"
+        >
+          ×
+        </button>
         <h3>Join Group Supervision Now</h3>
         <p>
           {{ mandatorySupervisionPrompt.sessionTypeLabel }} with {{ mandatorySupervisionPrompt.supervisorName || 'your supervisor' }} is active.
@@ -975,6 +983,7 @@
         <div class="supervision-splash-actions">
           <button type="button" class="btn btn-secondary btn-sm" @click="activeTab = 'my_schedule'">Open Schedule</button>
           <button type="button" class="btn btn-primary btn-sm btn-join-pulse" @click="joinSupervisionPrompt(mandatorySupervisionPrompt)">Join now</button>
+          <button type="button" class="btn btn-outline btn-sm" @click="dismissMandatorySupervisionPrompt(mandatorySupervisionPrompt?.id)">Dismiss</button>
         </div>
       </div>
     </div>
@@ -1462,6 +1471,7 @@ const announcementAgencyId = computed(() => {
 
 const supervisionPromptRows = ref([]);
 const dismissedOptionalSupervisionPromptIds = ref(new Set());
+const dismissedMandatorySupervisionPromptIds = ref(new Set());
 const presenterAssignmentRows = ref([]);
 const dismissedPresenterAssignmentIds = ref(new Set());
 const supervisionPromptPollMs = 30000;
@@ -1487,7 +1497,8 @@ const promptTimeLabel = (row) => {
 
 const mandatorySupervisionPrompt = computed(() => {
   const rows = Array.isArray(supervisionPromptRows.value) ? supervisionPromptRows.value : [];
-  const required = rows.filter((r) => r?.isRequired);
+  const dismissed = dismissedMandatorySupervisionPromptIds.value || new Set();
+  const required = rows.filter((r) => r?.isRequired && !dismissed.has(Number(r?.id || 0)));
   if (!required.length) return null;
   const first = required.slice().sort((a, b) => new Date(a?.startAt || 0).getTime() - new Date(b?.startAt || 0).getTime())[0];
   return {
@@ -1547,6 +1558,12 @@ const dismissOptionalSupervisionPrompt = (sessionId) => {
   const sid = Number(sessionId || 0);
   if (!sid) return;
   dismissedOptionalSupervisionPromptIds.value = new Set([...(dismissedOptionalSupervisionPromptIds.value || new Set()), sid]);
+};
+
+const dismissMandatorySupervisionPrompt = (sessionId) => {
+  const sid = Number(sessionId || 0);
+  if (!sid) return;
+  dismissedMandatorySupervisionPromptIds.value = new Set([...(dismissedMandatorySupervisionPromptIds.value || new Set()), sid]);
 };
 
 const dismissPresenterAssignment = (assignmentId) => {
@@ -4045,12 +4062,37 @@ h1 {
 }
 
 .supervision-splash-card {
+  position: relative;
   width: min(560px, 94vw);
   border-radius: 14px;
   border: 1px solid var(--border);
   background: var(--bg-card);
   padding: 18px;
   box-shadow: var(--shadow-lg);
+}
+
+.supervision-splash-dismiss {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.supervision-splash-dismiss:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
 }
 
 .supervision-splash-card h3 {

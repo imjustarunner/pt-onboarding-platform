@@ -482,6 +482,37 @@
                         <div v-if="artifactErrorById[s.id]" class="supervision-error-inline">
                           {{ artifactErrorById[s.id] }}
                         </div>
+                        <div class="supervision-activity-section">
+                          <button
+                            type="button"
+                            class="btn btn-outline btn-sm"
+                            :disabled="activityLoadingById[s.id]"
+                            @click="toggleSessionActivity(s.id)"
+                          >
+                            {{ activityExpandedById[s.id] ? 'Hide' : 'View' }} meeting chat & Q&A
+                          </button>
+                          <div v-if="activityExpandedById[s.id]" class="supervision-activity-content">
+                            <div v-if="activityLoadingById[s.id]" class="summary-meta">Loading…</div>
+                            <div v-else-if="activityErrorById[s.id]" class="supervision-error-inline">{{ activityErrorById[s.id] }}</div>
+                            <div v-else-if="!sessionActivityById[s.id]?.length" class="summary-meta">No chat, polls, or Q&A recorded for this session.</div>
+                            <div v-else class="activity-list">
+                              <div
+                                v-for="a in sessionActivityById[s.id]"
+                                :key="a.id"
+                                class="activity-item"
+                                :class="`activity-${a.activityType}`"
+                              >
+                                <span class="activity-sender">{{ a.participantIdentity?.replace(/^user-/, 'User ') }}</span>
+                                <span v-if="a.activityType === 'chat'" class="activity-text">{{ a.payload?.text }}</span>
+                                <span v-else-if="a.activityType === 'poll'" class="activity-text">Poll: {{ a.payload?.question }} — {{ (a.payload?.options || []).join(', ') }}</span>
+                                <span v-else-if="a.activityType === 'poll_vote'" class="activity-text">Voted on poll</span>
+                                <span v-else-if="a.activityType === 'question'" class="activity-text">Q: {{ a.payload?.text }}</span>
+                                <span v-else-if="a.activityType === 'answer'" class="activity-text">A: {{ a.payload?.text }}</span>
+                                <span class="activity-time">{{ formatActivityTime(a.createdAt) }}</span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </li>
@@ -647,6 +678,10 @@ const artifactDraftById = ref({});
 const artifactLoadingById = ref({});
 const artifactSavingById = ref({});
 const artifactErrorById = ref({});
+const activityLoadingById = ref({});
+const activityErrorById = ref({});
+const activityExpandedById = ref({});
+const sessionActivityById = ref({});
 
 const organizationSlug = computed(() => route.params?.organizationSlug || '');
 
@@ -788,6 +823,36 @@ async function saveSessionArtifact(sessionId, { autoSummarize = false } = {}) {
     };
   } finally {
     artifactSavingById.value = { ...artifactSavingById.value, [sid]: false };
+  }
+}
+
+function formatActivityTime(createdAt) {
+  if (!createdAt) return '';
+  try {
+    const d = new Date(createdAt);
+    return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  } catch {
+    return '';
+  }
+}
+
+async function toggleSessionActivity(sessionId) {
+  const sid = Number(sessionId || 0);
+  if (!sid) return;
+  const expanded = !activityExpandedById.value[sid];
+  activityExpandedById.value = { ...activityExpandedById.value, [sid]: expanded };
+  if (!expanded) return;
+  if (sessionActivityById.value[sid]?.length) return;
+  activityLoadingById.value = { ...activityLoadingById.value, [sid]: true };
+  activityErrorById.value = { ...activityErrorById.value, [sid]: '' };
+  try {
+    const resp = await api.get(`/supervision/sessions/${sid}/activity`);
+    sessionActivityById.value = { ...sessionActivityById.value, [sid]: resp?.data?.activity || [] };
+  } catch (err) {
+    activityErrorById.value = { ...activityErrorById.value, [sid]: err?.response?.data?.error?.message || 'Failed to load chat & Q&A.' };
+    sessionActivityById.value = { ...sessionActivityById.value, [sid]: [] };
+  } finally {
+    activityLoadingById.value = { ...activityLoadingById.value, [sid]: false };
   }
 }
 
@@ -1856,6 +1921,37 @@ onUnmounted(() => {
 .summary-link-button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+.supervision-activity-section {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.supervision-activity-content {
+  margin-top: 8px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.activity-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.activity-item {
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--bg-secondary, #f3f4f6);
+  font-size: 13px;
+}
+.activity-sender {
+  font-weight: 600;
+  margin-right: 6px;
+}
+.activity-time {
+  display: block;
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 2px;
 }
 
 /* Supervisee detail hero (photo + name) */

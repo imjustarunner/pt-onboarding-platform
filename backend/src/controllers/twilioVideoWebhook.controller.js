@@ -222,6 +222,38 @@ async function processRoomEnded({ roomSid, roomName, sessionId }) {
 }
 
 /**
+ * Handle Twilio Video composition status callbacks.
+ * POST /api/twilio/video/composition-status
+ * Twilio POSTs when composition processing completes (status=completed) or fails.
+ */
+export const videoCompositionStatusWebhook = async (req, res) => {
+  try {
+    const compositionSid = String(req.body?.CompositionSid || '').trim();
+    const status = String(req.body?.CompositionStatus || '').trim().toLowerCase();
+
+    if (!compositionSid) return res.status(200).send('OK');
+
+    if (status === 'completed') {
+      const { processCompositionCompleted } = await import('../services/twilioVideoComposition.service.js');
+      void processCompositionCompleted(compositionSid).catch((e) => {
+        console.error('[TwilioVideo] composition completed handler error:', e?.message);
+      });
+    } else if (status === 'failed' || status === 'deleted') {
+      try {
+        await pool.execute(`DELETE FROM twilio_composition_pending WHERE composition_sid = ?`, [compositionSid]);
+      } catch {
+        // ignore
+      }
+    }
+
+    return res.status(200).send('OK');
+  } catch (e) {
+    console.error('[TwilioVideo] composition webhook error:', e?.message);
+    return res.status(200).send('OK');
+  }
+};
+
+/**
  * Handle Twilio Video room status callbacks.
  * POST /api/twilio/video/webhook
  */

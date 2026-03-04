@@ -87,3 +87,44 @@ Automatic transcription after a room ends requires converting Twilio’s mka/opu
 ## 7. Fallback
 
 If Twilio Video is not configured (`TWILIO_API_KEY_SID` / `TWILIO_API_KEY_SECRET` missing), the "Join with app" button will show an error. Users can continue using the Google Meet link ("Open Meet" / "Start tracked") for sessions that have one.
+
+## 8. Enhanced Video Features (enabled by default)
+
+The app uses several Twilio Programmable Video features to improve the call experience:
+
+- **Dominant speaker detection** – Highlights the active speaker in the grid (blue border). The dominant speaker is moved to the front of the participant list.
+- **Network quality API** – Shows connection quality (Poor / Fair / Good) per participant to help troubleshoot.
+- **Bandwidth profile** – Uses `collaboration` mode to prioritize audio and the dominant speaker when bandwidth is limited.
+
+## 9. Composition Status Callback (replaces polling)
+
+When `TWILIO_VIDEO_WEBHOOK_URL` is set, team meeting compositions use a **status callback** instead of polling. Twilio POSTs to `/api/twilio/video/composition-status` when the composition is ready.
+
+- Ensure your webhook URL is publicly reachable (e.g. `https://api.yourdomain.com/api/twilio/video/webhook`).
+- The composition-status URL is derived automatically: `/composition-status` replaces `/webhook` in the path.
+- No extra configuration needed; polling is skipped when the callback is configured.
+
+## 10. External Recording Storage
+
+**Twilio S3 only** – Twilio supports pushing recordings directly to AWS S3 buckets via [Recording Settings](https://www.twilio.com/docs/video/api/external-s3-recordings). Google Cloud Storage is **not** supported by Twilio for this.
+
+**Our app flow** – We already store recordings in **Google Cloud Storage (GCS)** via a custom pipeline:
+
+1. When a room ends, we create a composition.
+2. When the composition is ready (callback or polling), we download the MP4 from Twilio.
+3. We upload to GCS (`StorageService.saveMeetingRecording`) and save the path in `provider_schedule_event_artifacts`.
+
+This gives you GCS storage without Twilio’s S3 feature. For compliance or retention, you can add lifecycle rules in GCS.
+
+## 11. Room Monitor (debugging)
+
+For troubleshooting connection issues (bandwidth, jitter, packet loss), use Twilio’s [Video Log Analyzer API](https://www.twilio.com/docs/video/troubleshooting/video-log-analyzer-api):
+
+- Create a room with `videoLogAnalyzer: true` in connect options (or enable in Twilio Console).
+- Use the Video Log Analyzer to inspect participant logs.
+
+The app does not enable this by default; enable it only when debugging.
+
+## 12. DataTrack API (future)
+
+Twilio’s DataTrack API lets you send custom data between participants (chat, annotations, file metadata) without a separate backend. It could support in-meeting chat, polls, or shared notes. Implemented. See the Chat panel in the video room (Chat, Polls, Q&A tabs). Meeting owners can view past activity via "View meeting chat & Q&A" in the supervision modal, or GET /api/team-meetings/:eventId/activity for team meetings.

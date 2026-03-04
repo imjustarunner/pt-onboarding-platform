@@ -14,21 +14,41 @@
         <span class="participant-identity">{{ sharedScreenIdentity }}</span>
       </div>
       <div class="video-room-grid" :class="gridSizeClass">
-        <div class="video-track-wrap video-track-local">
+        <div
+          class="video-track-wrap video-track-local"
+          :class="{ 'dominant-speaker': dominantSpeakerSid === localParticipantSid }"
+        >
           <div v-if="localVideoTrack && !cameraMuted" ref="localVideoEl" class="video-track" />
           <div v-else class="video-placeholder">
             <BrandingLogo size="small" class="placeholder-logo" />
             <span>You (camera off)</span>
           </div>
           <span class="participant-identity">You</span>
+          <span
+            v-if="networkQualityBySid[localParticipantSid] != null"
+            class="network-quality-badge"
+            :class="networkQualityClass(networkQualityBySid[localParticipantSid])"
+            :title="networkQualityLabel(networkQualityBySid[localParticipantSid])"
+          >
+            {{ networkQualityLabel(networkQualityBySid[localParticipantSid]) }}
+          </span>
         </div>
         <div
-          v-for="p in remoteParticipants"
+          v-for="p in sortedRemoteParticipants"
           :key="p.sid"
           class="video-track-wrap"
+          :class="{ 'dominant-speaker': dominantSpeakerSid === p.sid }"
         >
           <div ref="(el) => setRemoteVideoEl(p.sid, el)" class="video-track" />
           <span class="participant-identity">{{ p.identity }}</span>
+          <span
+            v-if="networkQualityBySid[p.sid] != null"
+            class="network-quality-badge"
+            :class="networkQualityClass(networkQualityBySid[p.sid])"
+            :title="networkQualityLabel(networkQualityBySid[p.sid])"
+          >
+            {{ networkQualityLabel(networkQualityBySid[p.sid]) }}
+          </span>
         </div>
         <div v-if="remoteParticipants.length === 0" class="video-track-wrap video-placeholder-wrap">
           <div class="video-placeholder">
@@ -81,14 +101,85 @@
           <span class="control-icon">{{ recordHostOnly ? '📹' : '📽️' }}</span>
           <span>{{ recordingRulesLoading ? 'Updating…' : (recordHostOnly ? 'Host only' : 'Record all') }}</span>
         </button>
+        <button
+          type="button"
+          class="control-btn"
+          :class="{ active: chatPanelOpen }"
+          title="Chat, polls & Q&A"
+          @click="chatPanelOpen = !chatPanelOpen"
+        >
+          <span class="control-icon">💬</span>
+          <span>Chat</span>
+          <span v-if="chatUnreadCount > 0" class="chat-badge">{{ chatUnreadCount }}</span>
+        </button>
+      </div>
+      <div v-if="room && chatPanelOpen" class="video-room-chat-panel">
+        <div class="chat-panel-tabs">
+          <button type="button" class="chat-tab" :class="{ active: chatTab === 'chat' }" @click="chatTab = 'chat'">Chat</button>
+          <button type="button" class="chat-tab" :class="{ active: chatTab === 'polls' }" @click="chatTab = 'polls'">Polls</button>
+          <button type="button" class="chat-tab" :class="{ active: chatTab === 'qa' }" @click="chatTab = 'qa'">Q&A</button>
+        </div>
+        <div v-if="chatTab === 'chat'" class="chat-tab-content">
+          <div ref="chatMessagesEl" class="chat-messages">
+            <div v-for="m in chatMessages" :key="m.id" class="chat-msg" :class="{ 'chat-msg-own': m.isOwn }">
+              <span class="chat-msg-sender">{{ m.senderLabel }}</span>
+              <span class="chat-msg-text">{{ m.text }}</span>
+            </div>
+          </div>
+          <form class="chat-input-form" @submit.prevent="sendChatMessage">
+            <input v-model="chatInput" type="text" placeholder="Type a message…" maxlength="2000" class="chat-input" />
+            <button type="submit" class="btn btn-primary btn-sm" :disabled="!chatInput.trim()">Send</button>
+          </form>
+        </div>
+        <div v-if="chatTab === 'polls'" class="chat-tab-content">
+          <div v-if="isHost" class="poll-create">
+            <input v-model="pollQuestion" type="text" placeholder="Poll question" class="chat-input" />
+            <input v-model="pollOptionsText" type="text" placeholder="Options (comma-separated)" class="chat-input" />
+            <button type="button" class="btn btn-primary btn-sm" :disabled="!pollQuestion.trim() || !pollOptionsText.trim()" @click="createPoll">Create poll</button>
+          </div>
+          <div class="chat-messages">
+            <div v-for="p in polls" :key="p.id" class="poll-card">
+              <div class="poll-question">{{ p.question }}</div>
+              <div class="poll-options">
+                <button
+                  v-for="(opt, idx) in p.options"
+                  :key="idx"
+                  type="button"
+                  class="poll-option-btn"
+                  :class="{ selected: p.userVote === idx }"
+                  :disabled="p.closed"
+                  @click="votePoll(p, idx)"
+                >
+                  {{ opt }} <span v-if="p.votes && p.votes[idx] != null">({{ p.votes[idx] }})</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div v-if="chatTab === 'qa'" class="chat-tab-content">
+          <div class="chat-messages">
+            <div v-for="q in qaItems" :key="q.id" class="qa-item">
+              <div class="qa-question"><strong>Q:</strong> {{ q.text }}</div>
+              <div v-if="q.answer" class="qa-answer"><strong>A:</strong> {{ q.answer }}</div>
+              <div v-else-if="isHost" class="qa-answer-form">
+                <input v-model="q.answerDraft" type="text" placeholder="Type answer…" class="chat-input" />
+                <button type="button" class="btn btn-primary btn-sm" @click="submitAnswer(q)">Submit</button>
+              </div>
+            </div>
+          </div>
+          <form class="chat-input-form" @submit.prevent="submitQuestion">
+            <input v-model="questionInput" type="text" placeholder="Ask a question…" maxlength="500" class="chat-input" />
+            <button type="submit" class="btn btn-primary btn-sm" :disabled="!questionInput.trim()">Ask</button>
+          </form>
+        </div>
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onUnmounted, watch } from 'vue';
-import { connect, LocalVideoTrack } from 'twilio-video';
+import { ref, computed, onUnmounted, watch, nextTick } from 'vue';
+import { connect, LocalVideoTrack, LocalDataTrack } from 'twilio-video';
 import BrandingLogo from '../BrandingLogo.vue';
 import api from '../../services/api';
 
@@ -108,6 +199,9 @@ const localAudioTrack = ref(null);
 const cameraMuted = ref(false);
 const micMuted = ref(false);
 const remoteParticipants = ref([]);
+const dominantSpeakerSid = ref(null);
+const localParticipantSid = ref(null);
+const networkQualityBySid = ref({});
 const connecting = ref(true);
 const disconnecting = ref(false);
 const error = ref('');
@@ -120,6 +214,18 @@ const sharedScreenTrack = ref(null);
 const sharedScreenIdentity = ref('');
 const recordHostOnly = ref(false);
 const recordingRulesLoading = ref(false);
+const chatPanelOpen = ref(false);
+const chatTab = ref('chat');
+const chatInput = ref('');
+const chatMessages = ref([]);
+const chatUnreadCount = ref(0);
+const localDataTrack = ref(null);
+const pollQuestion = ref('');
+const pollOptionsText = ref('');
+const polls = ref([]);
+const questionInput = ref('');
+const qaItems = ref([]);
+const chatMessagesEl = ref(null);
 
 const screenShareSupported = computed(() =>
   typeof navigator !== 'undefined' &&
@@ -129,6 +235,16 @@ const screenShareSupported = computed(() =>
 const showRecordHostOnlyToggle = computed(() =>
   Boolean(props.eventId && props.isHost)
 );
+
+const sortedRemoteParticipants = computed(() => {
+  const list = [...remoteParticipants.value];
+  const dominant = dominantSpeakerSid.value;
+  if (!dominant) return list;
+  const idx = list.findIndex((p) => p.sid === dominant);
+  if (idx <= 0) return list;
+  const [speaker] = list.splice(idx, 1);
+  return [speaker, ...list];
+});
 
 const totalParticipants = computed(() => 1 + remoteParticipants.value.length);
 const gridSizeClass = computed(() => {
@@ -142,6 +258,19 @@ const gridSizeClass = computed(() => {
 
 function setRemoteVideoEl(sid, el) {
   if (el) remoteVideoEls.value[sid] = el;
+}
+
+function networkQualityLabel(level) {
+  if (level == null) return '';
+  const labels = { 1: 'Poor', 2: 'Fair', 3: 'Good', 4: 'Very good', 5: 'Excellent' };
+  return labels[level] ?? '';
+}
+
+function networkQualityClass(level) {
+  if (level == null) return '';
+  if (level <= 2) return 'nq-poor';
+  if (level <= 3) return 'nq-fair';
+  return 'nq-good';
 }
 
 function attachTrack(track, container) {
@@ -173,6 +302,185 @@ async function postTranscriptToBackend(text) {
   }
 }
 
+function activityApiBase() {
+  const sid = props.sessionId ? Number(props.sessionId) : null;
+  const eid = props.eventId ? Number(props.eventId) : null;
+  if (eid) return `/team-meetings/${eid}/activity`;
+  if (sid) return `/supervision/sessions/${sid}/activity`;
+  return null;
+}
+
+async function persistActivity(activityType, payload) {
+  const base = activityApiBase();
+  if (!base) return null;
+  try {
+    const resp = await api.post(base, { activityType, payload });
+    return resp?.data?.id ?? null;
+  } catch (e) {
+    console.warn('[SupervisionTwilioVideoRoom] Failed to persist activity:', e?.message);
+    return null;
+  }
+}
+
+async function loadActivity() {
+  const base = activityApiBase();
+  if (!base) return;
+  try {
+    const resp = await api.get(base);
+    const list = resp?.data?.activity || [];
+    for (const a of list) {
+      applyActivity(a, false);
+    }
+  } catch (e) {
+    console.warn('[SupervisionTwilioVideoRoom] Failed to load activity:', e?.message);
+  }
+}
+
+function applyActivity(a, isOwn) {
+  const id = `activity-${a.id}-${Date.now()}`;
+  if (a.activityType === 'chat') {
+    chatMessages.value.push({
+      id,
+      text: a.payload?.text || '',
+      senderLabel: a.participantIdentity?.replace(/^user-/, 'User ') || 'Unknown',
+      isOwn
+    });
+    if (!chatPanelOpen.value) chatUnreadCount.value++;
+  } else if (a.activityType === 'poll') {
+    polls.value.push({
+      id: a.payload?.id ?? a.id,
+      question: a.payload?.question || '',
+      options: a.payload?.options || [],
+      votes: {},
+      userVote: null,
+      closed: false
+    });
+  } else if (a.activityType === 'poll_vote') {
+    const p = polls.value.find((x) => String(x.id) === String(a.payload?.pollId));
+    if (p && a.payload?.optionIndex != null) {
+      p.votes = { ...p.votes, [a.payload.optionIndex]: (p.votes[a.payload.optionIndex] || 0) + 1 };
+    }
+  } else if (a.activityType === 'question') {
+    qaItems.value.push({
+      id: a.payload?.id ?? a.id,
+      text: a.payload?.text || '',
+      answer: null,
+      answerDraft: ''
+    });
+  } else if (a.activityType === 'answer') {
+    const q = qaItems.value.find((x) => String(x.id) === String(a.payload?.inReplyToId));
+    if (q) q.answer = a.payload?.text || '';
+  }
+}
+
+function setupDataTrackListeners(room) {
+  const handleMessage = (msg, participant) => {
+    try {
+      const data = typeof msg === 'string' ? JSON.parse(msg) : msg;
+      const participantIdentity = participant?.identity || 'unknown';
+      applyActivity(
+        {
+          id: `dt-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          participantIdentity,
+          activityType: data?.type || 'chat',
+          payload: data || {}
+        },
+        false
+      );
+    } catch {
+      // plain text chat
+      applyActivity(
+        {
+          id: `dt-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          participantIdentity: participant?.identity || 'unknown',
+          activityType: 'chat',
+          payload: { text: String(msg) }
+        },
+        false
+      );
+    }
+  };
+
+  room.participants.forEach((participant) => {
+    participant.dataTracks.forEach((pub) => {
+      if (pub.isSubscribed && pub.trackName === 'chat') {
+        pub.track.on('message', (msg) => handleMessage(msg, participant));
+      }
+    });
+  });
+
+  room.on('trackSubscribed', (track, publication, participant) => {
+    if (track.kind === 'data' && track.name === 'chat') {
+      track.on('message', (msg) => handleMessage(msg, participant));
+    }
+  });
+}
+
+function sendChatMessage() {
+  const text = String(chatInput.value || '').trim();
+  if (!text || !localDataTrack.value) return;
+  const payload = { type: 'chat', text };
+  localDataTrack.value.send(JSON.stringify(payload));
+  chatInput.value = '';
+  applyActivity(
+    { id: `local-${Date.now()}`, participantIdentity: room.value?.localParticipant?.identity || 'You', activityType: 'chat', payload: { text } },
+    true
+  );
+  persistActivity('chat', { text });
+  nextTick(() => {
+    if (chatMessagesEl.value) chatMessagesEl.value.scrollTop = chatMessagesEl.value.scrollHeight;
+  });
+}
+
+async function createPoll() {
+  const question = String(pollQuestion.value || '').trim();
+  const options = String(pollOptionsText.value || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (!question || !options.length || !localDataTrack.value) return;
+  const id = await persistActivity('poll', { question, options });
+  const payload = { type: 'poll', id: id || `poll-${Date.now()}`, question, options };
+  localDataTrack.value.send(JSON.stringify(payload));
+  pollQuestion.value = '';
+  pollOptionsText.value = '';
+  polls.value.push({ id: payload.id, question, options, votes: {}, userVote: null, closed: false });
+}
+
+function votePoll(poll, optionIndex) {
+  if (poll.userVote != null) return;
+  const payload = { type: 'poll_vote', pollId: poll.id, optionIndex };
+  if (localDataTrack.value) localDataTrack.value.send(JSON.stringify(payload));
+  poll.userVote = optionIndex;
+  poll.votes = { ...poll.votes, [optionIndex]: (poll.votes[optionIndex] || 0) + 1 };
+  persistActivity('poll_vote', { pollId: poll.id, optionIndex });
+}
+
+function submitQuestion() {
+  const text = String(questionInput.value || '').trim();
+  if (!text || !localDataTrack.value) return;
+  const id = `q-${Date.now()}`;
+  const payload = { type: 'question', id, text };
+  localDataTrack.value.send(JSON.stringify(payload));
+  questionInput.value = '';
+  qaItems.value.push({ id, text, answer: null, answerDraft: '' });
+  persistActivity('question', { id, text });
+}
+
+async function submitAnswer(q) {
+  const text = String(q.answerDraft || '').trim();
+  if (!text || !localDataTrack.value) return;
+  const payload = { type: 'answer', inReplyToId: q.id, text };
+  localDataTrack.value.send(JSON.stringify(payload));
+  q.answer = text;
+  q.answerDraft = '';
+  persistActivity('answer', { inReplyToId: q.id, text });
+}
+
+watch(chatPanelOpen, (open) => {
+  if (open) chatUnreadCount.value = 0;
+});
+
 function isValidToken(t) {
   const s = String(t || '').trim();
   return s.length > 50 && !/^(undefined|null)$/i.test(s);
@@ -188,13 +496,30 @@ async function connectRoom() {
     connecting.value = true;
     error.value = '';
     transcriptLines.value = [];
+    chatMessages.value = [];
+    polls.value = [];
+    qaItems.value = [];
+
+    const chatDataTrack = new LocalDataTrack({ name: 'chat' });
+    localDataTrack.value = chatDataTrack;
+
     const r = await connect(props.token, {
       name: props.roomName,
       audio: true,
       video: true,
-      receiveTranscriptions: false
+      tracks: [chatDataTrack],
+      receiveTranscriptions: false,
+      dominantSpeaker: true,
+      networkQuality: { local: 1, remote: 1 },
+      bandwidthProfile: {
+        video: {
+          mode: 'collaboration',
+          trackSwitchOffMode: 'predicted'
+        }
+      }
     });
     room.value = r;
+    localParticipantSid.value = r.localParticipant?.sid ?? null;
 
     r.on('transcription', (ev) => {
       if (ev?.transcription && ev.partial_results === false) {
@@ -260,9 +585,37 @@ async function connectRoom() {
       });
     };
 
+    r.on('dominantSpeakerChanged', (participant) => {
+      dominantSpeakerSid.value = participant?.sid ?? null;
+    });
+
+    const updateNetworkQuality = (participant) => {
+      const level = participant?.networkQualityLevel ?? null;
+      const sid = participant?.sid;
+      if (sid != null) {
+        networkQualityBySid.value = { ...networkQualityBySid.value, [sid]: level };
+      }
+    };
+    updateNetworkQuality(r.localParticipant);
+    r.localParticipant.on('networkQualityLevelChanged', () => updateNetworkQuality(r.localParticipant));
+    r.participants.forEach((p) => {
+      updateNetworkQuality(p);
+      p.on('networkQualityLevelChanged', () => updateNetworkQuality(p));
+    });
+    r.on('participantConnected', (p) => {
+      updateNetworkQuality(p);
+      p.on('networkQualityLevelChanged', () => updateNetworkQuality(p));
+      addParticipant(p);
+    });
+
+    setupDataTrackListeners(r);
+    loadActivity();
+
     r.participants.forEach(addParticipant);
-    r.on('participantConnected', addParticipant);
     r.on('participantDisconnected', (participant) => {
+      if (dominantSpeakerSid.value === participant.sid) dominantSpeakerSid.value = null;
+      networkQualityBySid.value = { ...networkQualityBySid.value };
+      delete networkQualityBySid.value[participant.sid];
       participant.tracks.forEach((pub) => {
         if (isScreenTrack(pub.track) && sharedScreenTrack.value === pub.track) {
           sharedScreenTrack.value = null;
@@ -292,6 +645,13 @@ async function connectRoom() {
       micMuted.value = false;
       remoteParticipants.value = [];
       transcriptLines.value = [];
+      dominantSpeakerSid.value = null;
+      localParticipantSid.value = null;
+      networkQualityBySid.value = {};
+      localDataTrack.value = null;
+      chatMessages.value = [];
+      polls.value = [];
+      qaItems.value = [];
       emit('disconnected');
     });
 
@@ -450,6 +810,7 @@ onUnmounted(() => {
   color: var(--text-secondary);
 }
 .video-room-content {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -554,5 +915,191 @@ onUnmounted(() => {
   padding: 4px 8px;
   border-radius: 4px;
   font-size: 12px;
+}
+.video-track-wrap.dominant-speaker {
+  border: 2px solid #2563eb;
+  box-shadow: 0 0 12px rgba(37, 99, 235, 0.4);
+}
+.network-quality-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+}
+.network-quality-badge.nq-poor {
+  background: #b91c1c;
+  color: #fff;
+}
+.network-quality-badge.nq-fair {
+  background: #d97706;
+  color: #fff;
+}
+.network-quality-badge.nq-good {
+  background: #059669;
+  color: #fff;
+}
+
+.chat-badge {
+  margin-left: 4px;
+  padding: 1px 5px;
+  border-radius: 10px;
+  background: #b91c1c;
+  color: #fff;
+  font-size: 11px;
+}
+
+.video-room-chat-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(320px, 90vw);
+  background: var(--bg-card);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  z-index: 10;
+}
+
+.chat-panel-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+}
+
+.chat-tab {
+  flex: 1;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.chat-tab.active {
+  color: var(--primary);
+  font-weight: 600;
+  border-bottom: 2px solid var(--primary);
+}
+
+.chat-tab-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.chat-msg {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--bg-secondary, #2a2a2a);
+}
+
+.chat-msg-own {
+  background: rgba(37, 99, 235, 0.2);
+  margin-left: 24px;
+}
+
+.chat-msg-sender {
+  display: block;
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+
+.chat-msg-text {
+  font-size: 14px;
+}
+
+.chat-input-form {
+  display: flex;
+  gap: 8px;
+  padding: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.chat-input {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.poll-create {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.poll-card {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+}
+
+.poll-question {
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.poll-options {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.poll-option-btn {
+  padding: 6px 10px;
+  text-align: left;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.poll-option-btn.selected {
+  border-color: var(--primary);
+  background: rgba(37, 99, 235, 0.15);
+}
+
+.qa-item {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+}
+
+.qa-question {
+  margin-bottom: 8px;
+}
+
+.qa-answer {
+  margin-left: 16px;
+  color: var(--text-secondary);
+}
+
+.qa-answer-form {
+  margin-top: 8px;
+  display: flex;
+  gap: 8px;
 }
 </style>

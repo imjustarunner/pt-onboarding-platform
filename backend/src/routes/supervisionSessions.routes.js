@@ -25,6 +25,7 @@ import {
   markSessionPresenterPresented,
   getSupervisionJoinInfo
 } from '../controllers/supervisionSessions.controller.js';
+import { getSupervisionActivity, postSupervisionActivity } from '../controllers/videoMeetingActivity.controller.js';
 
 const router = express.Router();
 
@@ -50,6 +51,8 @@ router.post('/sessions/:id/admit/:userId', admitToMainRoom);
 router.post('/sessions/:id/client-transcript', saveClientTranscript);
 router.get('/sessions/:id/artifacts', getSupervisionSessionArtifacts);
 router.post('/sessions/:id/artifacts', upsertSupervisionSessionArtifacts);
+router.get('/sessions/:id/activity', getSupervisionActivity);
+router.post('/sessions/:id/activity', postSupervisionActivity);
 router.post('/sessions', createSupervisionSessionValidators, createSupervisionSession);
 router.patch('/sessions/:id', patchSupervisionSessionValidators, patchSupervisionSession);
 router.post('/sessions/:id/cancel', cancelSupervisionSession);

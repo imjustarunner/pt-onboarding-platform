@@ -8,7 +8,7 @@ import {
   voiceSupportNoticeWebhook,
   voiceStatusWebhook
 } from '../controllers/twilioVoice.controller.js';
-import { videoRoomStatusWebhook } from '../controllers/twilioVideoWebhook.controller.js';
+import { videoRoomStatusWebhook, videoCompositionStatusWebhook } from '../controllers/twilioVideoWebhook.controller.js';
 import TwilioService from '../services/twilio.service.js';
 
 const router = express.Router();
@@ -45,6 +45,7 @@ router.post('/voice/dial-complete', withOptionalSignatureValidation(voiceDialCom
 router.post('/voice/support-notice', withOptionalSignatureValidation(voiceSupportNoticeWebhook));
 router.post('/voice/voicemail-complete', withOptionalSignatureValidation(voiceVoicemailCompleteWebhook));
 router.post('/video/webhook', withOptionalSignatureValidation(videoRoomStatusWebhook));
+router.post('/video/composition-status', withOptionalSignatureValidation(videoCompositionStatusWebhook));
 
 export default router;
 

@@ -6,6 +6,7 @@ import {
   setTeamMeetingRecordingRules,
   saveTeamMeetingClientTranscript
 } from '../controllers/teamMeetings.controller.js';
+import { getTeamMeetingActivity, postTeamMeetingActivity } from '../controllers/videoMeetingActivity.controller.js';
 
 const router = express.Router();
 
@@ -17,5 +18,7 @@ router.use(authenticate);
 router.get('/:eventId/video-token', getTeamMeetingVideoToken);
 router.post('/:eventId/recording-rules', setTeamMeetingRecordingRules);
 router.post('/:eventId/client-transcript', saveTeamMeetingClientTranscript);
+router.get('/:eventId/activity', getTeamMeetingActivity);
+router.post('/:eventId/activity', postTeamMeetingActivity);
 
 export default router;
