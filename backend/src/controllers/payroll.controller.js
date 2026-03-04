@@ -5329,13 +5329,14 @@ export const batchCatchUp = [
           draftUnits: Number((x.draftUnits || 0).toFixed(2)),
           finalizedUnits: Number((x.finalizedUnits || 0).toFixed(2))
         }));
+        const runRows = rows.filter((r) => Number(r.userId || 0) > 0);
         const r2 = await PayrollPeriodRun.create({
           payrollPeriodId: period.id,
           agencyId: period.agency_id,
           payrollImportId: null,
           ranByUserId: req.user.id
         });
-        await PayrollPeriodRunRow.bulkInsert({ payrollPeriodRunId: r2.id, payrollPeriodId: period.id, agencyId: period.agency_id, rows });
+        await PayrollPeriodRunRow.bulkInsert({ payrollPeriodRunId: r2.id, payrollPeriodId: period.id, agencyId: period.agency_id, rows: runRows });
         const snapshotRows2 = await buildSnapshotRowsFromImportRows({ agencyId: period.agency_id, payrollPeriodId: period.id, importRows: file2Info.parsedForSnapshots });
         if (snapshotRows2.length) {
           await PayrollPeriodRunSnapshot.bulkInsert({
@@ -5430,13 +5431,14 @@ export const batchCatchUp = [
           draftUnits: Number((x.draftUnits || 0).toFixed(2)),
           finalizedUnits: Number((x.finalizedUnits || 0).toFixed(2))
         }));
+        const runRows = rows.filter((r) => Number(r.userId || 0) > 0);
         const run = await PayrollPeriodRun.create({
           payrollPeriodId: period.id,
           agencyId: period.agency_id,
           payrollImportId: null,
           ranByUserId: req.user.id
         });
-        await PayrollPeriodRunRow.bulkInsert({ payrollPeriodRunId: run.id, payrollPeriodId: period.id, agencyId: period.agency_id, rows });
+        await PayrollPeriodRunRow.bulkInsert({ payrollPeriodRunId: run.id, payrollPeriodId: period.id, agencyId: period.agency_id, rows: runRows });
         const snapshotRows = await buildSnapshotRowsFromImportRows({ agencyId: period.agency_id, payrollPeriodId: period.id, importRows: parsedForSnapshots });
         if (snapshotRows.length) {
           await PayrollPeriodRunSnapshot.bulkInsert({
