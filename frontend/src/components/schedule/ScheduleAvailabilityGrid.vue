@@ -6007,8 +6007,8 @@ const submitRequest = async () => {
       if (sessionType === 'group' && additionalAttendeeUserIds.length < 2) {
         throw new Error('Group supervision requires at least 2 additional participants.');
       }
-      const dayIdx = ALL_DAYS.indexOf(String(dn));
-      if (dayIdx < 0) throw new Error('Invalid day');
+      const dayIdx = orderedDays.value.indexOf(String(dn)) - (effectiveWeekStartsOn.value === 'sunday' ? 1 : 0);
+      if (dayIdx < -1) throw new Error('Invalid day');
       const dateYmd = addDaysYmd(weekStart.value, dayIdx);
       const startAt = `${dateYmd}T${pad2(h)}:${pad2(startMinute)}:00`;
       const endAt = `${dateYmd}T${pad2(endH)}:${pad2(endMinute)}:00`;
@@ -6720,7 +6720,8 @@ const cancelSupvSession = async () => {
     supvSaving.value = true;
     supvModalError.value = '';
     await api.post(`/supervision/sessions/${id}/cancel`);
-    await load();
+    invalidateScheduleSummaryCacheForUser(props.userId);
+    await load({ forceRefresh: true });
     closeSupvModal();
   } catch (e) {
     supvModalError.value = e.response?.data?.error?.message || e.message || 'Failed to cancel session';
