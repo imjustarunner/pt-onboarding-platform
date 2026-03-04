@@ -22,6 +22,13 @@
             <label>Cell Phone Number:</label>
             <span>{{ accountInfo.phoneNumber || 'Not provided' }}</span>
           </div>
+          <div class="info-item">
+            <label>Texting / Calling Number:</label>
+            <span v-if="textingNumbersLoading">Loading…</span>
+            <span v-else-if="assignedTextingNumbers.length">{{ assignedTextingNumbers.map(n => n.phone_number).join(', ') }}</span>
+            <span v-else class="muted">Not assigned</span>
+            <router-link v-if="canManageTexting" :to="textingSettingsLink" class="link-inline">Assign in settings</router-link>
+          </div>
         </div>
       </div>
       
@@ -133,6 +140,7 @@
 
 <script setup>
 import { ref, onMounted, computed } from 'vue';
+import { useRoute } from 'vue-router';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 
@@ -148,6 +156,34 @@ const props = defineProps({
 });
 
 const authStore = useAuthStore();
+
+const textingNumbersLoading = ref(false);
+const assignedTextingNumbers = ref([]);
+
+const canManageTexting = computed(() => {
+  const role = String(authStore.user?.role || '').toLowerCase();
+  return role === 'admin' || role === 'support' || role === 'super_admin' || role === 'clinical_practice_assistant';
+});
+
+const route = useRoute();
+const textingSettingsLink = computed(() => {
+  const slug = route.params?.organizationSlug;
+  const base = slug ? `/${slug}/admin/settings` : '/admin/settings';
+  return `${base}?category=system&item=sms-numbers`;
+});
+
+const fetchAssignedTextingNumbers = async () => {
+  if (!props.userId) return;
+  try {
+    textingNumbersLoading.value = true;
+    const r = await api.get(`/sms-numbers/user/${props.userId}/assigned`);
+    assignedTextingNumbers.value = Array.isArray(r.data?.numbers) ? r.data.numbers : [];
+  } catch {
+    assignedTextingNumbers.value = [];
+  } finally {
+    textingNumbersLoading.value = false;
+  }
+};
 const loading = ref(true);
 const error = ref('');
 const accountInfo = ref({ loginEmail: '', personalEmail: '', phoneNumber: '', status: null, passwordlessLoginLink: null, passwordlessTokenExpiresAt: null, passwordlessTokenExpiresInHours: null, passwordlessTokenIsExpired: false });
@@ -350,6 +386,7 @@ const activateUser = async () => {
 
 onMounted(() => {
   fetchAccountInfo();
+  fetchAssignedTextingNumbers();
 });
 </script>
 
@@ -408,6 +445,9 @@ onMounted(() => {
   color: var(--text-primary);
   font-size: 14px;
 }
+
+.info-item .muted { color: var(--text-secondary); }
+.info-item .link-inline { display: inline-block; font-size: 13px; margin-top: 4px; }
 
 .accounts-list {
   display: flex;

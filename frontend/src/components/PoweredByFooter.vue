@@ -1,6 +1,6 @@
 <template>
-  <div v-if="showPoweredBy && (platformOrgName || platformLogoUrl)" class="powered-by-footer">
-    <div class="powered-by-content">
+  <div v-if="showFooter" class="powered-by-footer">
+    <div v-if="showPoweredBy && (platformOrgName || platformLogoUrl)" class="powered-by-content">
       <span class="powered-by-text">Platform powered by</span>
       <img
         v-if="platformLogoUrl"
@@ -10,6 +10,11 @@
         @error="handleLogoError"
       />
       <span v-if="platformOrgName" class="powered-by-name">{{ platformOrgName }}</span>
+    </div>
+    <div v-if="privacyPolicyUrl || termsUrl" class="legal-links">
+      <a v-if="privacyPolicyUrl" :href="privacyPolicyUrl" target="_blank" rel="noopener noreferrer" class="legal-link">Privacy Policy</a>
+      <span v-if="privacyPolicyUrl && termsUrl" class="legal-sep">|</span>
+      <a v-if="termsUrl" :href="termsUrl" target="_blank" rel="noopener noreferrer" class="legal-link">Terms</a>
     </div>
   </div>
 </template>
@@ -21,6 +26,11 @@ import { toUploadsUrl } from '../utils/uploadsUrl';
 
 const brandingStore = useBrandingStore();
 const showPoweredBy = computed(() => brandingStore.showPoweredBy);
+
+// Show footer when we have powered-by content OR legal links (e.g. on login page)
+const privacyPolicyUrl = computed(() => brandingStore.platformBranding?.privacy_policy_url?.trim() || null);
+const termsUrl = computed(() => brandingStore.platformBranding?.terms_url?.trim() || null);
+const showFooter = computed(() => (showPoweredBy.value && (platformOrgName.value || platformLogoUrl.value)) || privacyPolicyUrl.value || termsUrl.value);
 
 // Get platform organization name and logo from branding store
 const platformOrgName = computed(() => {
@@ -92,6 +102,30 @@ const handleLogoError = (event) => {
   color: var(--text-secondary, #64748b);
   font-weight: 600;
   letter-spacing: 0.02em;
+}
+
+.legal-links {
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+.legal-links:first-child {
+  margin-top: 0;
+}
+
+.legal-link {
+  color: var(--text-secondary, #64748b);
+  text-decoration: none;
+}
+
+.legal-link:hover {
+  text-decoration: underline;
+  color: var(--text-primary, #334155);
+}
+
+.legal-sep {
+  margin: 0 8px;
+  color: var(--text-secondary, #94a3b8);
 }
 </style>
 

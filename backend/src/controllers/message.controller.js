@@ -1,8 +1,11 @@
+import multer from 'multer';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import Client from '../models/Client.model.js';
 import MessageLog from '../models/MessageLog.model.js';
+import StorageService from '../services/storage.service.js';
 import Agency from '../models/Agency.model.js';
+import UserCallSettings from '../models/UserCallSettings.model.js';
 import TwilioOptInState from '../models/TwilioOptInState.model.js';
 import TwilioNumberAssignment from '../models/TwilioNumberAssignment.model.js';
 import NotificationGatekeeperService from '../services/notificationGatekeeper.service.js';
@@ -142,12 +145,13 @@ export const getThread = async (req, res, next) => {
 
 export const sendMessage = async (req, res, next) => {
   try {
-    const { userId, clientId, body } = req.body;
+    const { userId, clientId, body, mediaUrls } = req.body;
     if (userId && parseIntOrNull(userId) && parseIntOrNull(userId) !== req.user.id) {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
-    if (!clientId || !body) {
-      return res.status(400).json({ error: { message: 'clientId and body are required' } });
+    const hasMedia = Array.isArray(mediaUrls) && mediaUrls.length > 0;
+    if (!clientId || (!body && !hasMedia)) {
+      return res.status(400).json({ error: { message: 'clientId and (body or mediaUrls) are required' } });
     }
 
     const uid = req.user.id;
@@ -178,8 +182,21 @@ export const sendMessage = async (req, res, next) => {
     if (resolved?.error === 'number_not_accessible') {
       return res.status(403).json({ error: { message: 'Selected number is not accessible for this agency' } });
     }
-    if (!resolved?.number && !user.system_phone_number) {
-      return res.status(400).json({ error: { message: 'No system phone number assigned for sending' } });
+    if (!resolved?.number) {
+      return res.status(400).json({
+        error: {
+          message:
+            'You need a texting number assigned to you to send messages. Contact your administrator to get a number assigned.'
+        }
+      });
+    }
+
+    const callSettings = await UserCallSettings.getByUserId(uid);
+    const smsOutboundEnabled = callSettings?.sms_outbound_enabled !== false && callSettings?.sms_outbound_enabled !== 0;
+    if (!smsOutboundEnabled) {
+      return res.status(403).json({
+        error: { message: 'Outbound texting is disabled in your communication settings.' }
+      });
     }
 
     let activeEscalation = null;
@@ -195,7 +212,7 @@ export const sendMessage = async (req, res, next) => {
         }
       });
     }
-    const fromNumber = resolved?.number?.phone_number || user.system_phone_number;
+    const fromNumber = resolved.number.phone_number;
     const numberId = resolved?.number?.id || null;
     const ownerType = resolved?.ownerType || (resolved?.number ? 'agency' : 'staff');
     const assignedUserId = resolved?.assignment?.user_id || uid;
@@ -222,6 +239,9 @@ export const sendMessage = async (req, res, next) => {
       context: { severity: 'info' }
     });
 
+    const outboundMetadata = { provider: 'twilio', gatekeeper: decision, numberId };
+    if (hasMedia) outboundMetadata.media_urls = mediaUrls;
+
     const outboundLog = await MessageLog.createOutbound({
       agencyId: client.agency_id || null,
       userId: uid,
@@ -229,20 +249,23 @@ export const sendMessage = async (req, res, next) => {
       numberId,
       ownerType,
       clientId: cid,
-      body,
+      body: body || (hasMedia ? '[MMS]' : ''),
       fromNumber,
       toNumber: client.contact_phone,
       deliveryStatus: 'pending',
-      metadata: { provider: 'twilio', gatekeeper: decision, numberId }
+      metadata: outboundMetadata
     });
 
     try {
       const msg = await TwilioService.sendSms({
         to: MessageLog.normalizePhone(client.contact_phone) || client.contact_phone,
         from: MessageLog.normalizePhone(fromNumber) || fromNumber,
-        body
+        body: body || '',
+        mediaUrl: hasMedia ? mediaUrls : null
       });
-      const updated = await MessageLog.markSent(outboundLog.id, msg.sid, { provider: 'twilio', status: msg.status, gatekeeper: decision });
+      const sentMetadata = { provider: 'twilio', status: msg.status, gatekeeper: decision };
+      if (hasMedia) sentMetadata.media_urls = mediaUrls;
+      const updated = await MessageLog.markSent(outboundLog.id, msg.sid, sentMetadata);
       try {
         const contact = await AgencyContact.findByPhone(client.contact_phone, client.agency_id);
         if (contact) {
@@ -292,6 +315,35 @@ export const sendMessage = async (req, res, next) => {
     next(e);
   }
 };
+
+const smsMediaUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowed = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif'];
+    if (allowed.includes(file.mimetype)) cb(null, true);
+    else cb(new Error('Invalid file type. Only JPG, PNG, and GIF images are allowed for MMS.'), false);
+  }
+});
+
+export const uploadSmsMedia = [
+  smsMediaUpload.single('file'),
+  async (req, res, next) => {
+    try {
+      if (!req.file) return res.status(400).json({ error: { message: 'No file uploaded' } });
+      const result = await StorageService.saveSmsMedia({
+        userId: req.user?.id,
+        fileBuffer: req.file.buffer,
+        filename: req.file.originalname,
+        contentType: req.file.mimetype
+      });
+      const url = await StorageService.getSignedUrl(result.key, 60 * 24);
+      res.json({ url, key: result.key });
+    } catch (e) {
+      next(e);
+    }
+  }
+];
 
 export const deleteThread = async (req, res, next) => {
   try {

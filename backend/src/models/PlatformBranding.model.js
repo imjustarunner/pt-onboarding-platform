@@ -682,6 +682,8 @@ class PlatformBranding {
       organizationLogoIconId,
       organizationLogoUrl,
       organizationLogoPath,
+      privacyPolicyUrl,
+      termsUrl,
       companyProfileIconId,
       teamRolesIconId,
       billingIconId,
@@ -1462,6 +1464,27 @@ class PlatformBranding {
         );
         err.status = 409;
         throw err;
+      }
+
+      // Privacy policy and terms URLs (migration 532) - login page footer links
+      if (privacyPolicyUrl !== undefined || termsUrl !== undefined) {
+        try {
+          const [cols] = await pool.execute(
+            "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'platform_branding' AND COLUMN_NAME = 'privacy_policy_url'"
+          );
+          if (cols.length > 0) {
+            if (privacyPolicyUrl !== undefined) {
+              updates.push('privacy_policy_url = ?');
+              values.push(privacyPolicyUrl?.trim() || null);
+            }
+            if (termsUrl !== undefined) {
+              updates.push('terms_url = ?');
+              values.push(termsUrl?.trim() || null);
+            }
+          }
+        } catch (e) {
+          console.warn('PlatformBranding.update: Error checking for privacy_policy_url column:', e.message);
+        }
       }
 
       // Settings sidebar navigation icon defaults (platform-branding only; not part of dashboard quick-actions)

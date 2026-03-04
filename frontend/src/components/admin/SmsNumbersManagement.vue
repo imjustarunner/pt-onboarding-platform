@@ -169,6 +169,11 @@
 
       <div class="card">
         <h3>Numbers</h3>
+        <p class="provider-number-guidance muted">
+          <strong>Provider-only model:</strong> Each provider must have their own number assigned for texting and calling clients.
+          Agency numbers are for company events, after-hours, and support fallback—not for 1:1 client communication.
+          Assign one number per provider. <strong>Non-providers</strong> (admin, support) can have a number and be added to additional numbers via &quot;Add to pool&quot; to receive and respond to messages.
+        </p>
         <div class="toolbar">
           <div class="inline">
             <input v-model="newNumber" class="input" placeholder="+15551234567" />
@@ -339,6 +344,30 @@
               <option :value="false">Disabled</option>
             </select>
           </div>
+          <div class="form-group form-group-full">
+            <div class="section-divider"><h4>Voice IVR Menu</h4></div>
+            <p class="muted">When callers dial this number, play a menu before connecting. Requires Voice support fallback phone in settings.</p>
+            <div class="checkbox">
+              <input type="checkbox" v-model="ruleDraft.ivr_menu.enabled" />
+              <span>Enable IVR menu</span>
+            </div>
+            <label>Menu prompt</label>
+            <input v-model="ruleDraft.ivr_menu.prompt" class="input" placeholder="Press 1 for scheduling, 2 for support, 3 for your provider." />
+            <div class="ivr-options">
+              <div v-for="(opt, i) in ruleDraft.ivr_menu.options" :key="i" class="ivr-option-row">
+                <input v-model="opt.digit" class="input input-sm" placeholder="1" maxlength="1" style="width: 40px;" />
+                <select v-model="opt.action" class="select">
+                  <option value="main_line">Main line (provider)</option>
+                  <option value="extension_menu">Extension directory</option>
+                  <option value="dial_support">Support phone</option>
+                  <option value="dial_phone">Specific phone</option>
+                </select>
+                <input v-if="opt.action === 'dial_phone'" v-model="opt.phone" class="input" placeholder="+15551234567" />
+                <button type="button" class="btn btn-secondary btn-sm" @click="removeIvrOption(i)">Remove</button>
+              </div>
+              <button type="button" class="btn btn-secondary btn-sm" @click="addIvrOption">Add option</button>
+            </div>
+          </div>
         </div>
         <div class="actions">
           <button class="btn" :disabled="savingRules" @click="saveRules">
@@ -447,7 +476,13 @@ const ruleDraft = ref({
   opt_out: { rule_type: 'opt_out', auto_reply_text: '', enabled: true },
   help: { rule_type: 'help', auto_reply_text: '', enabled: true },
   emergency_forward: { rule_type: 'emergency_forward', forward_to_user_id: null, forward_to_phone: '', enabled: false },
-  forward_inbound: { rule_type: 'forward_inbound', auto_reply_text: '', forward_to_user_id: null, forward_to_phone: '', enabled: false }
+  forward_inbound: { rule_type: 'forward_inbound', auto_reply_text: '', forward_to_user_id: null, forward_to_phone: '', enabled: false },
+  ivr_menu: {
+    rule_type: 'ivr_menu',
+    enabled: false,
+    prompt: '',
+    options: []
+  }
 });
 const savingRules = ref(false);
 
@@ -694,19 +729,60 @@ const loadRules = async (numberId) => {
   setRule('help', ruleDraft.value.help);
   setRule('emergency_forward', ruleDraft.value.emergency_forward);
   setRule('forward_inbound', ruleDraft.value.forward_inbound);
+  const ivrFound = pick('ivr_menu');
+  if (ivrFound?.schedule_json) {
+    try {
+      const cfg = typeof ivrFound.schedule_json === 'string' ? JSON.parse(ivrFound.schedule_json) : ivrFound.schedule_json;
+      ruleDraft.value.ivr_menu = {
+        ...ruleDraft.value.ivr_menu,
+        ...ivrFound,
+        enabled: ivrFound.enabled !== 0,
+        prompt: cfg?.prompt || '',
+        options: Object.entries(cfg?.options || {}).map(([digit, opt]) => ({
+          digit,
+          action: opt?.action || 'main_line',
+          phone: opt?.phone || ''
+        }))
+      };
+    } catch {
+      ruleDraft.value.ivr_menu = { ...ruleDraft.value.ivr_menu, ...ivrFound, enabled: ivrFound.enabled !== 0 };
+    }
+  } else if (ivrFound) {
+    ruleDraft.value.ivr_menu = { ...ruleDraft.value.ivr_menu, ...ivrFound, enabled: ivrFound.enabled !== 0 };
+  }
+};
+
+const addIvrOption = () => {
+  ruleDraft.value.ivr_menu.options = [...(ruleDraft.value.ivr_menu.options || []), { digit: '', action: 'main_line', phone: '' }];
+};
+const removeIvrOption = (i) => {
+  ruleDraft.value.ivr_menu.options = ruleDraft.value.ivr_menu.options.filter((_, j) => j !== i);
 };
 
 const saveRules = async () => {
   if (!selectedNumber.value?.id) return;
   savingRules.value = true;
   try {
-    const rules = Object.values(ruleDraft.value).map((r) => ({
-      rule_type: r.rule_type,
-      auto_reply_text: r.auto_reply_text || null,
-      forward_to_user_id: r.forward_to_user_id || null,
-      forward_to_phone: r.forward_to_phone || null,
-      enabled: r.enabled !== false
-    }));
+    const rules = Object.values(ruleDraft.value).map((r) => {
+        const base = {
+          rule_type: r.rule_type,
+          auto_reply_text: r.auto_reply_text || null,
+          forward_to_user_id: r.forward_to_user_id || null,
+          forward_to_phone: r.forward_to_phone || null,
+          enabled: r.enabled !== false
+        };
+        if (r.rule_type === 'ivr_menu') {
+          const opts = (r.options || []).filter((o) => o.digit);
+          const options = {};
+          for (const o of opts) {
+            const opt = { action: o.action || 'main_line' };
+            if (o.action === 'dial_phone' && o.phone) opt.phone = o.phone;
+            options[String(o.digit)] = opt;
+          }
+          base.schedule_json = r.enabled && (r.prompt || opts.length) ? { prompt: r.prompt || 'Please choose an option.', options } : null;
+        }
+        return base;
+      });
     await api.put(`/sms-numbers/${selectedNumber.value.id}/rules`, { rules });
   } finally {
     savingRules.value = false;
@@ -813,6 +889,12 @@ onMounted(async () => {
   flex-direction: column;
   gap: 6px;
 }
+.form-group-full { grid-column: 1 / -1; }
+.section-divider { margin: 16px 0 10px; padding-top: 12px; border-top: 1px solid var(--border); }
+.section-divider h4 { margin: 0 0 8px 0; font-size: 15px; }
+.ivr-options { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.ivr-option-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.input-sm { font-size: 14px; padding: 6px 8px; }
 .toolbar {
   margin-bottom: 10px;
 }

@@ -10,6 +10,7 @@ import {
   listAgencyNumbers,
   getAgencyWebhookStatus,
   listUserAvailableNumbers,
+  listUserAssignedNumbers,
   purchaseNumber,
   releaseNumber,
   resolveOutboundPreview,
@@ -52,6 +53,8 @@ router.put('/:numberId/rules', upsertNumberRules);
 
 // Current user available numbers
 router.get('/available', listUserAvailableNumbers);
+// User's assigned numbers (admin or self)
+router.get('/user/:userId/assigned', listUserAssignedNumbers);
 router.get('/resolve', resolveOutboundPreview);
 router.get('/resolve-reminder', resolveReminderPreview);
 router.get('/consent/client/:clientId', getClientConsentStates);

@@ -334,24 +334,39 @@ export const unassignNumber = async (req, res, next) => {
   }
 };
 
+export const listUserAssignedNumbers = async (req, res, next) => {
+  try {
+    const targetUserId = parseInt(req.params.userId, 10);
+    if (!targetUserId) return res.status(400).json({ error: { message: 'Invalid userId' } });
+
+    const role = String(req.user?.role || '').toLowerCase();
+    const isAdmin = ['admin', 'support', 'super_admin', 'clinical_practice_assistant'].includes(role);
+    if (!isAdmin && req.user?.id !== targetUserId) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const assignments = await TwilioNumberAssignment.listByUserId(targetUserId);
+    const numbers = assignments.map((a) => ({
+      id: a.number_id,
+      phone_number: a.phone_number,
+      is_primary: a.is_primary === 1 || a.is_primary === true
+    }));
+
+    res.json({ numbers });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const listUserAvailableNumbers = async (req, res, next) => {
   try {
     const userId = req.user?.id;
-    const role = String(req.user?.role || '').toLowerCase();
     if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
     const assignments = await TwilioNumberAssignment.listByUserId(userId);
-    const assignedNumberIds = new Set(assignments.map((a) => Number(a.number_id)));
 
-    // Providers see only their assigned numbers (no agency/platform numbers they are not assigned to)
-    const isProviderOnly = role === 'provider' || role === 'school_staff';
-    let agencyNumbers = [];
-    if (!isProviderOnly) {
-      const agencyIds = await User.getAgencies(userId);
-      const agencyId = agencyIds?.[0]?.id || null;
-      const numbers = agencyId ? await TwilioNumber.listByAgency(agencyId, { includeInactive: false }) : [];
-      agencyNumbers = (numbers || []).filter((n) => !assignedNumberIds.has(Number(n.id)));
-    }
-
+    // Provider-only model: no agency numbers for client texting. Each provider/staff
+    // must have their own assigned number. Agency numbers are for company events,
+    // after-hours, etc., not for 1:1 client communication.
     res.json({
       assigned: assignments.map((a) => ({
         id: a.number_id,
@@ -360,12 +375,7 @@ export const listUserAvailableNumbers = async (req, res, next) => {
         is_primary: a.is_primary === 1 || a.is_primary === true,
         owner_type: 'staff'
       })),
-      agency: agencyNumbers.map((n) => ({
-        id: n.id,
-        phone_number: n.phone_number,
-        agency_id: n.agency_id,
-        owner_type: 'agency'
-      }))
+      agency: []
     });
   } catch (e) {
     next(e);
@@ -457,7 +467,13 @@ export const getClientConsentStates = async (req, res, next) => {
     const ok = (requesterAgencies || []).some((a) => Number(a?.id) === Number(client.agency_id));
     if (!ok && req.user?.role !== 'super_admin') return res.status(403).json({ error: { message: 'Access denied' } });
 
-    const numbers = await TwilioNumber.listByAgency(client.agency_id, { includeInactive: false });
+    // Provider-only model: return consent only for numbers the user is assigned to.
+    const assignments = await TwilioNumberAssignment.listByUserId(req.user?.id);
+    const assignedNumberIds = new Set((assignments || []).map((a) => Number(a.number_id)).filter(Boolean));
+    const allNumbers = await TwilioNumber.listByAgency(client.agency_id, { includeInactive: false });
+    const numbers =
+      assignedNumberIds.size > 0 ? (allNumbers || []).filter((n) => assignedNumberIds.has(Number(n.id))) : [];
+
     const states = [];
     for (const n of numbers || []) {
       const state = await TwilioOptInState.findByClientNumber({ clientId, numberId: n.id });
@@ -499,6 +515,17 @@ export const updateClientConsentState = async (req, res, next) => {
     const requesterAgencies = await User.getAgencies(req.user?.id);
     const ok = (requesterAgencies || []).some((a) => Number(a?.id) === Number(client.agency_id));
     if (!ok && req.user?.role !== 'super_admin') return res.status(403).json({ error: { message: 'Access denied' } });
+
+    // Provider-only model: non-admin can only update consent for numbers they're assigned to.
+    const role = String(req.user?.role || '').toLowerCase();
+    const isAdmin = ['admin', 'support', 'super_admin', 'clinical_practice_assistant'].includes(role);
+    if (!isAdmin) {
+      const assignments = await TwilioNumberAssignment.listByUserId(req.user?.id);
+      const assignedIds = new Set((assignments || []).map((a) => Number(a.number_id)));
+      if (!assignedIds.has(Number(numberId))) {
+        return res.status(403).json({ error: { message: 'You can only update consent for numbers assigned to you' } });
+      }
+    }
 
     const updated = await TwilioOptInState.upsert({
       agencyId: client.agency_id,

@@ -2,6 +2,7 @@ import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import Client from '../models/Client.model.js';
 import UserPreferences from '../models/UserPreferences.model.js';
+import UserCallSettings from '../models/UserCallSettings.model.js';
 import { createNotificationAndDispatch } from '../services/notificationDispatcher.service.js';
 import MessageLog from '../models/MessageLog.model.js';
 import MessageAutoReplyThrottle from '../models/MessageAutoReplyThrottle.model.js';
@@ -200,6 +201,16 @@ export const inboundSmsWebhook = async (req, res, next) => {
       });
     }
 
+    // Extract MMS media URLs (Twilio sends MediaUrl0, MediaUrl1, ...)
+    const mediaUrls = [];
+    for (let i = 0; ; i++) {
+      const url = req.body?.[`MediaUrl${i}`];
+      if (!url || typeof url !== 'string') break;
+      mediaUrls.push(url.trim());
+    }
+    const metadata = { provider: 'twilio', numberId };
+    if (mediaUrls.length > 0) metadata.media_urls = mediaUrls;
+
     // Log inbound message
     const inboundLog = await MessageLog.createInbound({
       agencyId,
@@ -208,11 +219,11 @@ export const inboundSmsWebhook = async (req, res, next) => {
       numberId,
       ownerType,
       clientId,
-      body,
+      body: body || (mediaUrls.length > 0 ? '[MMS]' : ''),
       fromNumber: from,
       toNumber: to,
       twilioMessageSid: messageSid,
-      metadata: { provider: 'twilio', numberId }
+      metadata
     });
 
     // Log to contact_communication_logs if sender maps to an agency contact
@@ -321,10 +332,22 @@ export const inboundSmsWebhook = async (req, res, next) => {
       }
     }
 
-    // Notify all eligible users (multi-recipient SMS pool) or primary owner
-    if (agencyId && eligibleUserIds.length > 0) {
+    // Notify all eligible users (multi-recipient SMS pool) or primary owner.
+    // Filter out users who have sms_inbound_enabled = false.
+    let notifyUserIds = eligibleUserIds;
+    if (eligibleUserIds.length > 0) {
+      const withSmsInbound = [];
+      for (const uid of eligibleUserIds) {
+        const settings = await UserCallSettings.getByUserId(uid);
+        const enabled = settings?.sms_inbound_enabled !== false && settings?.sms_inbound_enabled !== 0;
+        if (enabled) withSmsInbound.push(uid);
+      }
+      notifyUserIds = withSmsInbound;
+    }
+
+    if (agencyId && notifyUserIds.length > 0) {
       const clinicianName = ownerUser ? `${ownerUser.first_name} ${ownerUser.last_name?.slice(0, 1) || ''}.` : 'assigned clinician';
-      for (const userId of eligibleUserIds) {
+      for (const userId of notifyUserIds) {
         await createNotificationAndDispatch(
           {
             type: 'inbound_client_message',
@@ -343,11 +366,13 @@ export const inboundSmsWebhook = async (req, res, next) => {
         );
       }
 
-      // Safety net: notify support staff who are NOT already in the eligible pool
-      const eligibleSet = new Set(eligibleUserIds.map(Number));
+      // Safety net: notify support staff who are NOT already in the eligible pool (and have sms_inbound enabled)
+      const eligibleSet = new Set(notifyUserIds.map(Number));
       const supportIds = await listSupportStaffIdsForAgency(agencyId);
       for (const supportUserId of supportIds) {
         if (eligibleSet.has(Number(supportUserId))) continue;
+        const supportSettings = await UserCallSettings.getByUserId(supportUserId);
+        if (supportSettings?.sms_inbound_enabled === false || supportSettings?.sms_inbound_enabled === 0) continue;
         await createNotificationAndDispatch(
           {
             type: 'support_safety_net_alert',

@@ -81,8 +81,8 @@
       <div v-else-if="activeTab === 'calls'">
         <div class="card calls-settings-card">
           <div class="top" style="margin-bottom:8px;">
-            <span class="badge ticket">CALL SETTINGS</span>
-            <span class="owner">Manage voice routing behavior for your user account.</span>
+            <span class="badge ticket">CALL & TEXT SETTINGS</span>
+            <span class="owner">Your number is used for both calling and texting. Toggle each per your preference.</span>
           </div>
           <div class="grid">
             <div class="form-group">
@@ -95,6 +95,20 @@
             <div class="form-group">
               <label>Outbound calls</label>
               <select v-model="callSettings.outbound_enabled" class="select">
+                <option :value="true">Enabled</option>
+                <option :value="false">Disabled</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Inbound texts</label>
+              <select v-model="callSettings.sms_inbound_enabled" class="select">
+                <option :value="true">Enabled</option>
+                <option :value="false">Disabled</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Outbound texts</label>
+              <select v-model="callSettings.sms_outbound_enabled" class="select">
                 <option :value="true">Enabled</option>
                 <option :value="false">Disabled</option>
               </select>
@@ -191,7 +205,9 @@
             </div>
           </div>
           <audio v-if="voicemailAudioSrc" :src="voicemailAudioSrc" controls style="margin-top:8px; width:100%;" />
+          <audio v-if="recordingAudioSrc" :src="recordingAudioSrc" controls style="margin-top:8px; width:100%;" />
         </div>
+        <div v-if="callsSuccessMessage" class="success-box">{{ callsSuccessMessage }}</div>
         <div v-if="callsError" class="error-box">{{ callsError }}</div>
         <div v-else-if="callsLoading" class="loading">Loading call activity…</div>
         <div v-else-if="!callsEnabled" class="empty">
@@ -199,7 +215,7 @@
         </div>
         <div v-else-if="callRows.length === 0" class="empty">No call logs yet.</div>
         <div v-else class="list" data-tour="comms-list">
-          <div v-for="c in callRows" :key="`call-${c.id || c.sid || c.created_at}`" class="row">
+          <div v-for="c in callRows" :key="`call-${c.id || c.sid || c.created_at}`" class="row call-row">
             <div class="left">
               <div class="top">
                 <span class="badge ticket">CALL</span>
@@ -209,10 +225,92 @@
               <div class="body">
                 Status: {{ String(c.status || c.call_status || 'unknown').toUpperCase() }}
                 <span v-if="c.duration_seconds || c.duration"> · Duration: {{ c.duration_seconds || c.duration }}s</span>
+                <div v-if="getCallRecordingSid(c)" class="recording-row">
+                  <button
+                    type="button"
+                    class="btn btn-secondary btn-xs"
+                    :disabled="playingRecordingId === c.id"
+                    @click="playCallRecording(c)"
+                  >
+                    {{ playingRecordingId === c.id ? 'Loading…' : '▶ Play recording' }}
+                  </button>
+                </div>
               </div>
             </div>
             <div class="right">
               <div class="time">{{ formatTime(c.started_at || c.created_at || c.end_time) }}</div>
+              <div v-if="isActiveCall(c)" class="call-actions">
+                <button
+                  v-if="!isCallOnHold(c)"
+                  type="button"
+                  class="btn btn-secondary btn-xs"
+                  :disabled="holdLoading === (c.twilio_call_sid || c.sid)"
+                  @click="holdCall(c)"
+                >
+                  {{ holdLoading === (c.twilio_call_sid || c.sid) ? '…' : 'Hold' }}
+                </button>
+                <button
+                  v-else
+                  type="button"
+                  class="btn btn-secondary btn-xs"
+                  :disabled="resumeLoading === (c.twilio_call_sid || c.sid)"
+                  @click="resumeCall(c)"
+                >
+                  {{ resumeLoading === (c.twilio_call_sid || c.sid) ? '…' : 'Resume' }}
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-secondary btn-xs"
+                  :disabled="transferLoading"
+                  @click="openTransferModal(c)"
+                >
+                  Transfer
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div v-if="transferModalOpen" class="modal-overlay" @click.self="closeTransferModal">
+          <div class="modal transfer-modal">
+            <h3>Transfer call</h3>
+            <div v-if="transferError" class="error-box">{{ transferError }}</div>
+            <div class="form-group">
+              <label>Transfer to</label>
+              <select v-model="transferTargetType" class="select">
+                <option value="phone">Phone number</option>
+                <option value="user">Provider / staff</option>
+              </select>
+            </div>
+            <div v-if="transferTargetType === 'phone'" class="form-group">
+              <label for="transfer-phone">Phone number</label>
+              <input
+                id="transfer-phone"
+                v-model="transferToPhone"
+                type="tel"
+                class="input"
+                placeholder="+1234567890"
+                @keydown.enter="submitTransfer"
+              />
+            </div>
+            <div v-else class="form-group">
+              <label for="transfer-user">Provider / staff</label>
+              <select id="transfer-user" v-model="transferToUserId" class="select">
+                <option value="">Select a person…</option>
+                <option v-for="u in transferTargets" :key="u.id" :value="u.id">
+                  {{ u.label }} {{ u.role ? `(${formatRole(u.role)})` : '' }}
+                </option>
+              </select>
+            </div>
+            <div class="modal-actions">
+              <button type="button" class="btn btn-secondary" @click="closeTransferModal">Cancel</button>
+              <button
+                type="button"
+                class="btn btn-primary"
+                :disabled="!canSubmitTransfer || transferLoading"
+                @click="submitTransfer"
+              >
+                {{ transferLoading ? 'Transferring…' : 'Transfer' }}
+              </button>
             </div>
           </div>
         </div>
@@ -339,11 +437,20 @@ const error = ref('');
 const rows = ref([]);
 const callsLoading = ref(false);
 const callsError = ref('');
+const callsSuccessMessage = ref('');
+
+const showCallsSuccess = (msg) => {
+  callsSuccessMessage.value = msg;
+  callsError.value = '';
+  setTimeout(() => { callsSuccessMessage.value = ''; }, 3000);
+};
 const callsEnabled = ref(false);
 const callRows = ref([]);
 const callSettings = ref({
   inbound_enabled: true,
   outbound_enabled: true,
+  sms_inbound_enabled: true,
+  sms_outbound_enabled: true,
   forward_to_phone: '',
   allow_call_recording: false,
   voicemail_enabled: false,
@@ -369,6 +476,54 @@ const platformStatus = ref('pending');
 const schoolLoading = ref(false);
 const schoolError = ref('');
 const schoolRows = ref([]);
+
+const transferModalOpen = ref(false);
+const transferCallRef = ref(null);
+const transferTargetType = ref('phone');
+const transferToPhone = ref('');
+const transferToUserId = ref('');
+const transferTargets = ref([]);
+const transferLoading = ref(false);
+const transferError = ref('');
+
+const canSubmitTransfer = computed(() => {
+  if (transferTargetType.value === 'phone') return !!String(transferToPhone.value || '').trim();
+  return !!transferToUserId.value;
+});
+const holdLoading = ref(null);
+const resumeLoading = ref(null);
+const playingRecordingId = ref(null);
+const recordingAudioSrc = ref('');
+
+const getCallRecordingSid = (c) => {
+  const md = c?.metadata;
+  if (!md) return null;
+  try {
+    const parsed = typeof md === 'object' ? md : JSON.parse(md || '{}');
+    return parsed?.recording_sid || null;
+  } catch {
+    return null;
+  }
+};
+
+const isCallOnHold = (c) => {
+  const md = c?.metadata;
+  if (!md) return false;
+  if (typeof md === 'object') return md.is_on_hold === true || !!md.hold_resume_url;
+  try {
+    const parsed = typeof md === 'string' ? JSON.parse(md) : md;
+    return parsed?.is_on_hold === true || !!parsed?.hold_resume_url;
+  } catch {
+    return false;
+  }
+};
+
+const isActiveCall = (c) => {
+  const sid = c?.twilio_call_sid || c?.sid;
+  if (!sid) return false;
+  const s = String(c?.status || c?.call_status || '').toLowerCase();
+  return ['in-progress', 'ringing', 'initiating', 'queued'].includes(s);
+};
 
 const chatsLink = computed(() => {
   const slug = route.params.organizationSlug;
@@ -504,12 +659,109 @@ const loadCalls = async () => {
   }
 };
 
+const openTransferModal = async (c) => {
+  transferCallRef.value = c;
+  transferTargetType.value = 'phone';
+  transferToPhone.value = '';
+  transferToUserId.value = '';
+  transferError.value = '';
+  transferModalOpen.value = true;
+  try {
+    const params = {};
+    if (currentAgencyId.value) params.agencyId = currentAgencyId.value;
+    const resp = await api.get('/communications/calls/transfer-targets', { params });
+    transferTargets.value = Array.isArray(resp.data?.users) ? resp.data.users : [];
+  } catch {
+    transferTargets.value = [];
+  }
+};
+
+const closeTransferModal = () => {
+  transferModalOpen.value = false;
+  transferCallRef.value = null;
+  transferTargetType.value = 'phone';
+  transferToPhone.value = '';
+  transferToUserId.value = '';
+  transferError.value = '';
+};
+
+const submitTransfer = async () => {
+  const call = transferCallRef.value;
+  const sid = call?.twilio_call_sid || call?.sid;
+  if (!sid) return;
+  const body =
+    transferTargetType.value === 'phone'
+      ? { toPhone: String(transferToPhone.value || '').trim() }
+      : { toUserId: Number(transferToUserId.value) };
+  if (!body.toPhone && !body.toUserId) return;
+  try {
+    transferLoading.value = true;
+    transferError.value = '';
+    await api.post(`/communications/calls/transfer/${sid}`, body);
+    closeTransferModal();
+    showCallsSuccess('Call transferred');
+    await loadCalls();
+  } catch (e) {
+    transferError.value = e.response?.data?.error?.message || 'Transfer failed';
+  } finally {
+    transferLoading.value = false;
+  }
+};
+
+const holdCall = async (c) => {
+  const sid = c?.twilio_call_sid || c?.sid;
+  if (!sid) return;
+  try {
+    holdLoading.value = sid;
+    callsError.value = '';
+    await api.post(`/communications/calls/hold/${sid}`);
+    showCallsSuccess('Call on hold');
+    await loadCalls();
+  } catch (e) {
+    callsError.value = e.response?.data?.error?.message || 'Hold failed';
+  } finally {
+    holdLoading.value = null;
+  }
+};
+
+const resumeCall = async (c) => {
+  const sid = c?.twilio_call_sid || c?.sid;
+  if (!sid) return;
+  try {
+    resumeLoading.value = sid;
+    callsError.value = '';
+    await api.post(`/communications/calls/hold/${sid}/resume`, {});
+    showCallsSuccess('Call resumed');
+    await loadCalls();
+  } catch (e) {
+    callsError.value = e.response?.data?.error?.message || 'Resume failed';
+  } finally {
+    resumeLoading.value = null;
+  }
+};
+
+const playCallRecording = async (c) => {
+  if (!c?.id) return;
+  try {
+    playingRecordingId.value = c.id;
+    const resp = await api.get(`/communications/calls/${c.id}/recording`, { responseType: 'blob' });
+    if (recordingAudioSrc.value) URL.revokeObjectURL(recordingAudioSrc.value);
+    recordingAudioSrc.value = URL.createObjectURL(resp.data);
+  } catch (e) {
+    callsError.value = e.response?.data?.error?.message || 'Failed to load recording';
+  } finally {
+    playingRecordingId.value = null;
+  }
+};
+
 const loadCallSettings = async () => {
   try {
     const resp = await api.get('/communications/calls/settings');
     callSettings.value = {
       inbound_enabled: resp.data?.inbound_enabled !== false,
       outbound_enabled: resp.data?.outbound_enabled !== false,
+      sms_inbound_enabled: resp.data?.sms_inbound_enabled !== false,
+      sms_outbound_enabled: resp.data?.sms_outbound_enabled !== false,
       forward_to_phone: resp.data?.forward_to_phone || '',
       allow_call_recording: resp.data?.allow_call_recording === true,
       voicemail_enabled: resp.data?.voicemail_enabled === true,
@@ -528,6 +780,8 @@ const saveCallSettings = async () => {
     await api.put('/communications/calls/settings', {
       inbound_enabled: callSettings.value.inbound_enabled,
       outbound_enabled: callSettings.value.outbound_enabled,
+      sms_inbound_enabled: callSettings.value.sms_inbound_enabled,
+      sms_outbound_enabled: callSettings.value.sms_outbound_enabled,
       forward_to_phone: callSettings.value.forward_to_phone || null,
       allow_call_recording: callSettings.value.allow_call_recording,
       voicemail_enabled: callSettings.value.voicemail_enabled,
@@ -863,6 +1117,7 @@ watch([platformChannel, platformStatus, currentAgencyId], async () => {
 
 onBeforeUnmount(() => {
   if (voicemailAudioSrc.value) URL.revokeObjectURL(voicemailAudioSrc.value);
+  if (recordingAudioSrc.value) URL.revokeObjectURL(recordingAudioSrc.value);
 });
 </script>
 
@@ -984,6 +1239,9 @@ onBeforeUnmount(() => {
   padding: 10px 12px;
   cursor: pointer;
 }
+.row.call-row {
+  cursor: default;
+}
 .row.unread {
   border-color: rgba(14, 165, 233, 0.5);
   background: rgba(14, 165, 233, 0.08);
@@ -1092,6 +1350,49 @@ onBeforeUnmount(() => {
   align-items: flex-end;
   gap: 4px;
 }
+.call-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+.recording-row {
+  margin-top: 6px;
+}
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.transfer-modal {
+  background: white;
+  border-radius: 12px;
+  padding: 20px 24px;
+  width: 360px;
+  max-width: 92vw;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+}
+.transfer-modal h3 {
+  margin: 0 0 8px;
+  font-size: 18px;
+}
+.modal-hint {
+  margin: 0 0 14px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.transfer-modal .form-group {
+  margin-bottom: 16px;
+}
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 16px;
+}
 .badge.status {
   font-size: 10px;
   padding: 2px 6px;
@@ -1099,6 +1400,14 @@ onBeforeUnmount(() => {
 .time { font-weight: 600; color: var(--text-primary); }
 .numbers { margin-top: 6px; }
 .empty { color: var(--text-secondary); padding: 18px 6px; }
+.success-box {
+  background: #e8f5e9;
+  border: 1px solid #a5d6a7;
+  padding: 10px 12px;
+  border-radius: 8px;
+  margin: 12px 0;
+  color: #2e7d32;
+}
 .error-box {
   background: #fee;
   border: 1px solid #fcc;

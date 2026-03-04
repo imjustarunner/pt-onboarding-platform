@@ -3,7 +3,11 @@ import { inboundSmsWebhook } from '../controllers/twilioWebhook.controller.js';
 import {
   inboundVoiceWebhook,
   outboundBridgeWebhook,
+  voiceConferenceJoinWebhook,
   voiceDialCompleteWebhook,
+  voiceRecordingStatusWebhook,
+  voiceResumeWebhook,
+  voiceTransferDialWebhook,
   voiceVoicemailCompleteWebhook,
   voiceSupportNoticeWebhook,
   voiceStatusWebhook
@@ -42,6 +46,12 @@ router.post('/voice/inbound', withOptionalSignatureValidation(inboundVoiceWebhoo
 router.post('/voice/outbound-bridge', withOptionalSignatureValidation(outboundBridgeWebhook));
 router.post('/voice/status', withOptionalSignatureValidation(voiceStatusWebhook));
 router.post('/voice/dial-complete', withOptionalSignatureValidation(voiceDialCompleteWebhook));
+router.post('/voice/recording-status', withOptionalSignatureValidation(voiceRecordingStatusWebhook));
+router.get('/voice/conference-join', voiceConferenceJoinWebhook);
+router.get('/voice/resume', voiceResumeWebhook);
+router.post('/voice/resume', voiceResumeWebhook);
+router.get('/voice/transfer-dial', voiceTransferDialWebhook);
+router.post('/voice/transfer-dial', voiceTransferDialWebhook);
 router.post('/voice/support-notice', withOptionalSignatureValidation(voiceSupportNoticeWebhook));
 router.post('/voice/voicemail-complete', withOptionalSignatureValidation(voiceVoicemailCompleteWebhook));
 router.post('/video/webhook', withOptionalSignatureValidation(videoRoomStatusWebhook));

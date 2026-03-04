@@ -101,12 +101,9 @@ export async function resolveOutboundNumber({ userId, clientId, requestedNumberI
     }
   }
 
-  const agencyId = clientId
-    ? (await Client.findById(clientId, { includeSensitive: false }))?.agency_id
-    : (await findAgencyIdForUser(userId));
-  const agencyNumber = await findFallbackAgencyNumber(agencyId);
-  if (agencyNumber) return { number: agencyNumber, assignment: null, ownerType: 'agency' };
-
+  // Provider-only model: no agency fallback for client texting/calling.
+  // Each provider must have their own assigned number. Agency numbers are for
+  // company events, after-hours, etc., not for 1:1 client communication.
   return { number: null, assignment: null, ownerType: null };
 }
 

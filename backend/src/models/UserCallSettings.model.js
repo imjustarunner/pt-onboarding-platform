@@ -24,28 +24,63 @@ class UserCallSettings {
     const voicemailEnabled = patch.voicemail_enabled !== undefined ? !!patch.voicemail_enabled : false;
     const voicemailMessage = patch.voicemail_message ? String(patch.voicemail_message).trim() : null;
     const forwardToPhone = patch.forward_to_phone ? this.normalizePhone(patch.forward_to_phone) || patch.forward_to_phone : null;
+    const smsInboundEnabled = patch.sms_inbound_enabled !== undefined ? !!patch.sms_inbound_enabled : true;
+    const smsOutboundEnabled = patch.sms_outbound_enabled !== undefined ? !!patch.sms_outbound_enabled : true;
 
-    await pool.execute(
-      `INSERT INTO user_call_settings (user_id, inbound_enabled, outbound_enabled, forward_to_phone, allow_call_recording, voicemail_enabled, voicemail_message)
-       VALUES (?, ?, ?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE
-         inbound_enabled = COALESCE(VALUES(inbound_enabled), inbound_enabled),
-         outbound_enabled = COALESCE(VALUES(outbound_enabled), outbound_enabled),
-         forward_to_phone = VALUES(forward_to_phone),
-         allow_call_recording = COALESCE(VALUES(allow_call_recording), allow_call_recording),
-         voicemail_enabled = COALESCE(VALUES(voicemail_enabled), voicemail_enabled),
-         voicemail_message = VALUES(voicemail_message),
-         updated_at = CURRENT_TIMESTAMP`,
-      [
-        userId,
-        inboundEnabled ? 1 : 0,
-        outboundEnabled ? 1 : 0,
-        forwardToPhone,
-        allowCallRecording ? 1 : 0,
-        voicemailEnabled ? 1 : 0,
-        voicemailMessage
-      ]
-    );
+    try {
+      await pool.execute(
+        `INSERT INTO user_call_settings (user_id, inbound_enabled, outbound_enabled, forward_to_phone, allow_call_recording, voicemail_enabled, voicemail_message, sms_inbound_enabled, sms_outbound_enabled)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+           inbound_enabled = COALESCE(VALUES(inbound_enabled), inbound_enabled),
+           outbound_enabled = COALESCE(VALUES(outbound_enabled), outbound_enabled),
+           forward_to_phone = VALUES(forward_to_phone),
+           allow_call_recording = COALESCE(VALUES(allow_call_recording), allow_call_recording),
+           voicemail_enabled = COALESCE(VALUES(voicemail_enabled), voicemail_enabled),
+           voicemail_message = VALUES(voicemail_message),
+           sms_inbound_enabled = COALESCE(VALUES(sms_inbound_enabled), sms_inbound_enabled),
+           sms_outbound_enabled = COALESCE(VALUES(sms_outbound_enabled), sms_outbound_enabled),
+           updated_at = CURRENT_TIMESTAMP`,
+        [
+          userId,
+          inboundEnabled ? 1 : 0,
+          outboundEnabled ? 1 : 0,
+          forwardToPhone,
+          allowCallRecording ? 1 : 0,
+          voicemailEnabled ? 1 : 0,
+          voicemailMessage,
+          smsInboundEnabled ? 1 : 0,
+          smsOutboundEnabled ? 1 : 0
+        ]
+      );
+    } catch (err) {
+      // Fallback if migration 530 hasn't run yet (sms_inbound_enabled columns missing)
+      if (err?.message?.includes('sms_inbound_enabled') || err?.message?.includes('Unknown column')) {
+        await pool.execute(
+          `INSERT INTO user_call_settings (user_id, inbound_enabled, outbound_enabled, forward_to_phone, allow_call_recording, voicemail_enabled, voicemail_message)
+           VALUES (?, ?, ?, ?, ?, ?, ?)
+           ON DUPLICATE KEY UPDATE
+             inbound_enabled = COALESCE(VALUES(inbound_enabled), inbound_enabled),
+             outbound_enabled = COALESCE(VALUES(outbound_enabled), outbound_enabled),
+             forward_to_phone = VALUES(forward_to_phone),
+             allow_call_recording = COALESCE(VALUES(allow_call_recording), allow_call_recording),
+             voicemail_enabled = COALESCE(VALUES(voicemail_enabled), voicemail_enabled),
+             voicemail_message = VALUES(voicemail_message),
+             updated_at = CURRENT_TIMESTAMP`,
+          [
+            userId,
+            inboundEnabled ? 1 : 0,
+            outboundEnabled ? 1 : 0,
+            forwardToPhone,
+            allowCallRecording ? 1 : 0,
+            voicemailEnabled ? 1 : 0,
+            voicemailMessage
+          ]
+        );
+      } else {
+        throw err;
+      }
+    }
 
     return this.getByUserId(userId);
   }

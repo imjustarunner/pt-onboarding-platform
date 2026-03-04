@@ -30,12 +30,14 @@
           type="button"
           @click="selectClient(t.client_id)"
         >
-          <div class="thread-top">
-            <span class="client">Client: {{ t.client_initials || `#${t.client_id}` }}</span>
-            <span class="time">{{ formatTime(t.created_at) }}</span>
+          <div class="thread-avatar">{{ (t.client_initials || '?').slice(0, 2) }}</div>
+          <div class="thread-content">
+            <div class="thread-top">
+              <span class="client">{{ t.client_initials || `Client #${t.client_id}` }}</span>
+              <span class="time">{{ formatRelativeTime(t.created_at) }}</span>
+            </div>
+            <div class="thread-body">{{ t.body || '—' }}</div>
           </div>
-          <div class="thread-body">{{ t.body || '—' }}</div>
-          <div class="thread-meta">{{ t.direction }}</div>
         </button>
       </aside>
 
@@ -51,11 +53,13 @@
             class="bubble"
             :class="m.direction === 'INBOUND' ? 'in' : 'out'"
           >
-            <div class="meta">
-              <span>{{ m.direction }}</span>
-              <span>{{ formatTime(m.created_at) }}</span>
+            <div v-if="getMediaUrls(m).length" class="bubble-media">
+              <a v-for="(url, i) in getMediaUrls(m)" :key="i" :href="url" target="_blank" rel="noopener" class="bubble-media-link">
+                <img :src="url" :alt="`Image ${i + 1}`" class="bubble-media-img" loading="lazy" />
+              </a>
             </div>
-            <div class="text">{{ m.body }}</div>
+            <div v-if="m.body && m.body !== '[MMS]'" class="bubble-text">{{ m.body }}</div>
+            <div class="bubble-time">{{ formatRelativeTime(m.created_at) }}</div>
           </div>
         </div>
       </section>
@@ -81,7 +85,7 @@
         <div class="field">
           <label>From number</label>
           <select v-model="selectedNumberId" class="select">
-            <option v-if="availableNumbers.length === 0" :value="''">No numbers available</option>
+            <option v-if="availableNumbers.length === 0" :value="''">No number assigned—contact your administrator</option>
             <option v-for="n in availableNumbers" :key="n.id" :value="String(n.id)">
               {{ n.phone_number }} · {{ n.owner_type === 'staff' ? 'Assigned' : 'Agency' }}
             </option>
@@ -90,12 +94,23 @@
         <div class="field">
           <label>Message</label>
           <textarea v-model="draft" rows="6" placeholder="Type your message…" />
+          <div v-if="pendingMediaUrls.length" class="pending-media">
+            <span v-for="(url, i) in pendingMediaUrls" :key="i" class="pending-media-item">
+              <img :src="url" alt="Attached" class="pending-media-thumb" />
+              <button type="button" class="pending-media-remove" @click="removePendingMedia(i)" aria-label="Remove">×</button>
+            </span>
+          </div>
+          <input ref="fileInputRef" type="file" accept="image/jpeg,image/png,image/gif" class="hidden" @change="onFileSelected" />
+          <button type="button" class="btn btn-secondary btn-sm" @click="triggerFileInput">📷 Attach image</button>
         </div>
         <div class="actions">
-          <button class="btn btn-secondary" type="button" @click="startCall" :disabled="calling || !selectedClientId">
+          <button class="btn btn-secondary" type="button" @click="startCall" :disabled="calling || conferencing || !selectedClientId">
             {{ calling ? 'Calling…' : 'Call selected client' }}
           </button>
-          <button class="btn btn-primary" type="button" @click="send" :disabled="sending || !selectedClientId || !draft.trim()">
+          <button class="btn btn-secondary" type="button" @click="startConference" :disabled="calling || conferencing || !selectedClientId">
+            {{ conferencing ? 'Starting…' : 'Conference call' }}
+          </button>
+          <button class="btn btn-primary" type="button" @click="send" :disabled="sending || !selectedClientId || (!draft.trim() && !pendingMediaUrls.length)">
             {{ sending ? 'Sending…' : 'Send' }}
           </button>
         </div>
@@ -118,6 +133,7 @@ const loadingThreads = ref(false);
 const loadingThread = ref(false);
 const sending = ref(false);
 const calling = ref(false);
+const conferencing = ref(false);
 const error = ref('');
 const threads = ref([]);
 const thread = ref(null);
@@ -125,6 +141,8 @@ const selectedClientId = ref('');
 const availableNumbers = ref([]);
 const selectedNumberId = ref('');
 const draft = ref('');
+const pendingMediaUrls = ref([]);
+const fileInputRef = ref(null);
 const consentLoading = ref(false);
 const savingConsent = ref(false);
 const consentStates = ref([]);
@@ -154,11 +172,56 @@ const selectedConsentStatusLabel = computed(() => {
   return String(s).replace('_', ' ');
 });
 
+const getMediaUrls = (m) => {
+  const meta = m?.metadata;
+  if (!meta) return [];
+  const urls = typeof meta === 'string' ? (() => { try { return JSON.parse(meta)?.media_urls; } catch { return []; } })() : meta?.media_urls;
+  return Array.isArray(urls) ? urls : [];
+};
+
+const triggerFileInput = () => fileInputRef.value?.click();
+const removePendingMedia = (i) => {
+  pendingMediaUrls.value = pendingMediaUrls.value.filter((_, j) => j !== i);
+};
+const onFileSelected = async (e) => {
+  const file = e?.target?.files?.[0];
+  if (!file) return;
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+    const r = await api.post('/messages/upload-media', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+    const url = r.data?.url;
+    if (url) pendingMediaUrls.value = [...pendingMediaUrls.value, url];
+  } catch (err) {
+    error.value = err?.response?.data?.error?.message || 'Failed to upload image';
+  }
+  e.target.value = '';
+};
+
 const formatTime = (d) => {
   try {
     return new Date(d).toLocaleString();
   } catch {
     return d;
+  }
+};
+
+const formatRelativeTime = (d) => {
+  try {
+    const date = new Date(d);
+    if (Number.isNaN(date.getTime())) return '';
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return date.toLocaleDateString();
+  } catch {
+    return '';
   }
 };
 
@@ -260,16 +323,20 @@ const selectClient = async (clientId) => {
 
 const send = async () => {
   const cid = Number(selectedClientId.value || 0);
-  if (!cid || !draft.value.trim()) return;
+  const hasText = draft.value.trim();
+  const hasMedia = pendingMediaUrls.value.length > 0;
+  if (!cid || (!hasText && !hasMedia)) return;
   try {
     sending.value = true;
     error.value = '';
     await api.post('/messages/send', {
       clientId: cid,
       numberId: selectedNumberId.value || null,
-      body: draft.value.trim()
+      body: draft.value.trim() || '',
+      mediaUrls: hasMedia ? pendingMediaUrls.value : undefined
     });
     draft.value = '';
+    pendingMediaUrls.value = [];
     await Promise.all([loadThread(cid), loadThreads()]);
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to send SMS';
@@ -293,6 +360,24 @@ const startCall = async () => {
     error.value = e.response?.data?.error?.message || 'Failed to start call';
   } finally {
     calling.value = false;
+  }
+};
+
+const startConference = async () => {
+  const cid = Number(selectedClientId.value || 0);
+  if (!cid) return;
+  try {
+    conferencing.value = true;
+    error.value = '';
+    await api.post('/communications/calls/start-conference', {
+      clientId: cid,
+      numberId: selectedNumberId.value || null
+    });
+    await loadThreads();
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to start conference';
+  } finally {
+    conferencing.value = false;
   }
 };
 
@@ -345,38 +430,77 @@ watch(selectedNumberId, async () => {
 .panel {
   background: white;
   border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 12px;
+  border-radius: 16px;
+  padding: 16px;
   min-height: 480px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
 }
 .panel-title { font-weight: 600; margin-bottom: 10px; }
 .thread-row {
   width: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
   text-align: left;
   border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 10px;
+  border-radius: 12px;
+  padding: 12px;
   margin-bottom: 8px;
   background: white;
+  transition: border-color 0.15s, background 0.15s;
 }
-.thread-row.active { border-color: var(--primary); background: rgba(23, 178, 106, 0.08); }
-.thread-top { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--text-secondary); }
-.thread-body { margin: 6px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.thread-meta { font-size: 12px; color: var(--text-secondary); }
-.bubble-list { display: flex; flex-direction: column; gap: 10px; }
+.thread-row:hover { border-color: var(--primary); }
+.thread-row.active { border-color: var(--primary); background: rgba(23, 178, 106, 0.06); }
+.thread-avatar {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 14px;
+}
+.thread-content { flex: 1; min-width: 0; }
+.thread-top { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
+.thread-top .client { font-weight: 600; color: var(--text); }
+.thread-top .time { color: var(--text-secondary); font-size: 12px; }
+.thread-body { margin: 4px 0 0; font-size: 13px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bubble-list { display: flex; flex-direction: column; gap: 12px; padding: 8px 0; }
 .bubble {
-  max-width: 92%;
-  border-radius: 12px;
-  border: 1px solid var(--border);
-  padding: 10px 12px;
+  max-width: 78%;
+  border-radius: 18px;
+  padding: 12px 16px;
+  position: relative;
 }
-.bubble.in { background: rgba(253,176,34,0.12); }
-.bubble.out { background: rgba(23,178,106,0.12); margin-left: auto; }
-.meta { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; }
-.text { white-space: pre-wrap; }
+.bubble.in {
+  background: #e8e8ed;
+  border-bottom-left-radius: 4px;
+  align-self: flex-start;
+}
+.bubble.out {
+  background: var(--primary);
+  color: white;
+  border-bottom-right-radius: 4px;
+  margin-left: auto;
+  align-self: flex-end;
+}
+.bubble-media { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+.bubble-media-link { display: block; }
+.bubble-media-img { max-width: 200px; max-height: 200px; border-radius: 8px; object-fit: cover; }
+.bubble-text { white-space: pre-wrap; line-height: 1.4; font-size: 15px; }
+.bubble-time { font-size: 11px; opacity: 0.8; margin-top: 4px; }
+.pending-media { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.pending-media-item { position: relative; }
+.pending-media-thumb { width: 60px; height: 60px; object-fit: cover; border-radius: 8px; border: 1px solid var(--border); }
+.pending-media-remove { position: absolute; top: -6px; right: -6px; width: 20px; height: 20px; border-radius: 50%; background: #c00; color: white; border: none; font-size: 14px; line-height: 1; cursor: pointer; }
+.hidden { position: absolute; opacity: 0; pointer-events: none; width: 0; height: 0; }
 .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
-textarea { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; resize: vertical; }
-.actions { display: flex; justify-content: flex-end; margin-top: 8px; }
+.composer textarea { border: 1px solid var(--border); border-radius: 12px; padding: 12px 16px; resize: vertical; font-size: 15px; min-height: 80px; }
+.actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
 .consent-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .btn-xs { padding: 4px 8px; font-size: 12px; line-height: 1; }
 .muted { color: var(--text-secondary); }

@@ -60,6 +60,7 @@ Before using Twilio features, run these migrations:
 358_create_agency_notification_preferences.sql
 473_twilio_assignments_sms_access_enabled.sql
 474_create_user_extensions.sql
+530_add_sms_toggles_to_user_call_settings.sql   # SMS inbound/outbound toggles
 ```
 
 ---
@@ -124,6 +125,33 @@ Full URLs: `https://<your-backend-domain>/api/twilio/webhook` and `https://<your
 - **API:** `GET /api/sms-numbers/agency/:agencyId/usage?periodStart=YYYY-MM-DD&periodEnd=YYYY-MM-DD`
 - Returns: `outboundSms`, `inboundSms`, `notificationSms`, `callMinutes`, `phoneNumbers`
 - Optional env vars for alerts: `TWILIO_SMS_ALERT_THRESHOLD`, `TWILIO_CALL_MINUTES_ALERT_THRESHOLD`
+
+---
+
+## 9. A2P 10DLC Registration (US Numbers)
+
+US carriers require **A2P 10DLC** registration for business SMS on 10-digit long code numbers. This is a **one-time setup per brand**, not per number.
+
+### What You Need
+
+1. **Brand registration** – Business verification (EIN, address, etc.)
+2. **Campaign registration** – Use case (e.g. "Healthcare 1:1 patient communication")
+3. **Authentication+** – Brand representative email verification (2FA)
+
+### Where to Register
+
+- **Twilio Console:** [Messaging → Regulatory Compliance → A2P 10DLC](https://console.twilio.com/us1/develop/sms/regulatory-compliance/a2p-10dlc)
+- Or follow Twilio’s [A2P 10DLC quickstart](https://www.twilio.com/docs/messaging/compliance/a2p-10dlc/quickstart)
+
+### Low-Volume Path
+
+If you send under **6,000 message segments per day**, use **Low-Volume Standard** – simpler and faster approval.
+
+### After Registration
+
+- New numbers purchased in-app are linked to your registered brand/campaign
+- No new document submission per number
+- 1:1 healthcare communication is a standard, well-supported use case
 
 ---
 

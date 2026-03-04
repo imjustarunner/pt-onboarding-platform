@@ -125,6 +125,8 @@ export const getCallSettings = async (req, res, next) => {
     res.json({
       inbound_enabled: boolOrDefault(settings?.inbound_enabled, true),
       outbound_enabled: boolOrDefault(settings?.outbound_enabled, true),
+      sms_inbound_enabled: boolOrDefault(settings?.sms_inbound_enabled, true),
+      sms_outbound_enabled: boolOrDefault(settings?.sms_outbound_enabled, true),
       forward_to_phone: settings?.forward_to_phone || fallbackForwardPhone,
       allow_call_recording: boolOrDefault(settings?.allow_call_recording, false),
       voicemail_enabled: boolOrDefault(settings?.voicemail_enabled, false),
@@ -145,6 +147,8 @@ export const updateCallSettings = async (req, res, next) => {
     const patch = {
       inbound_enabled: boolOrDefault(req.body?.inbound_enabled, boolOrDefault(existing?.inbound_enabled, true)),
       outbound_enabled: boolOrDefault(req.body?.outbound_enabled, boolOrDefault(existing?.outbound_enabled, true)),
+      sms_inbound_enabled: boolOrDefault(req.body?.sms_inbound_enabled, boolOrDefault(existing?.sms_inbound_enabled, true)),
+      sms_outbound_enabled: boolOrDefault(req.body?.sms_outbound_enabled, boolOrDefault(existing?.sms_outbound_enabled, true)),
       allow_call_recording: boolOrDefault(req.body?.allow_call_recording, boolOrDefault(existing?.allow_call_recording, false)),
       forward_to_phone: req.body?.forward_to_phone ?? existing?.forward_to_phone ?? null,
       voicemail_enabled: boolOrDefault(req.body?.voicemail_enabled, boolOrDefault(existing?.voicemail_enabled, false)),
@@ -187,7 +191,12 @@ export const startOutboundCall = async (req, res, next) => {
       requestedNumberId: req.body?.numberId ? parseIntOrNull(req.body.numberId) : null
     });
     if (!resolved?.number?.phone_number) {
-      return res.status(400).json({ error: { message: 'No caller ID number is assigned for this user/agency' } });
+      return res.status(400).json({
+        error: {
+          message:
+            'You need a phone number assigned to you to make calls. Contact your administrator to get a number assigned.'
+        }
+      });
     }
 
     const providerPhone = getProviderTargetPhone(user, settings);
@@ -267,6 +276,273 @@ export const startOutboundCall = async (req, res, next) => {
       actionType: 'outbound_call_failed',
       metadata: { error: String(e?.message || '').slice(0, 400) }
     });
+    next(e);
+  }
+};
+
+export const startConferenceCall = async (req, res, next) => {
+  try {
+    const userId = parseIntOrNull(req.user?.id);
+    if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+
+    const clientId = parseIntOrNull(req.body?.clientId);
+    if (!clientId) return res.status(400).json({ error: { message: 'clientId is required' } });
+
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ error: { message: 'User not found' } });
+
+    const client = await Client.findById(clientId, { includeSensitive: true });
+    if (!client) return res.status(404).json({ error: { message: 'Client not found' } });
+    if (!client.contact_phone) {
+      return res.status(400).json({ error: { message: 'Client does not have a contact phone assigned' } });
+    }
+    await assertClientAgencyAccess(userId, client);
+
+    const settings = await UserCallSettings.getByUserId(userId);
+    const outboundEnabled = boolOrDefault(settings?.outbound_enabled, true);
+    if (!outboundEnabled) {
+      return res.status(403).json({ error: { message: 'Outbound calls are disabled in your call settings' } });
+    }
+
+    const resolved = await resolveOutboundNumber({
+      userId,
+      clientId,
+      requestedNumberId: req.body?.numberId ? parseIntOrNull(req.body.numberId) : null
+    });
+    if (!resolved?.number?.phone_number) {
+      return res.status(400).json({
+        error: { message: 'You need a phone number assigned to you to make conference calls.' }
+      });
+    }
+
+    const providerPhone = getProviderTargetPhone(user, settings);
+    if (!providerPhone) {
+      return res.status(400).json({ error: { message: 'No provider forwarding phone set.' } });
+    }
+    const clientPhone = MessageLog.normalizePhone(client.contact_phone) || client.contact_phone;
+    if (!clientPhone) return res.status(400).json({ error: { message: 'Client phone number is invalid' } });
+
+    const voiceBase = getVoiceBaseUrl();
+    if (!voiceBase) {
+      return res.status(500).json({ error: { message: 'Voice webhook URL is not configured' } });
+    }
+
+    const roomId = `conf-${Date.now()}-${crypto.randomBytes(8).toString('hex')}`;
+    const conferenceUrl = `${voiceBase}/conference-join?room=${encodeURIComponent(roomId)}`;
+
+    const nowIso = new Date().toISOString().slice(0, 19).replace('T', ' ');
+    const callLog = await CallLog.create({
+      agencyId: client.agency_id || null,
+      numberId: resolved.number.id || null,
+      userId,
+      clientId,
+      direction: 'OUTBOUND',
+      fromNumber: resolved.number.phone_number,
+      toNumber: clientPhone,
+      targetPhone: providerPhone,
+      status: 'initiated',
+      startedAt: nowIso,
+      metadata: {
+        provider: 'twilio',
+        conference: true,
+        conferenceRoom: roomId,
+        ownerType: resolved.ownerType || null,
+        agencyId: client.agency_id || null
+      }
+    });
+
+    const statusCallback = `${voiceBase}/status?callLogId=${callLog.id}`;
+
+    const [providerCall, clientCall] = await Promise.all([
+      TwilioService.createCall({
+        to: providerPhone,
+        from: resolved.number.phone_number,
+        url: conferenceUrl,
+        statusCallback,
+        record: boolOrDefault(settings?.allow_call_recording, false)
+      }),
+      TwilioService.createCall({
+        to: clientPhone,
+        from: resolved.number.phone_number,
+        url: conferenceUrl,
+        statusCallback,
+        record: false
+      })
+    ]);
+
+    await CallLog.updateById(callLog.id, {
+      twilio_call_sid: providerCall?.sid || null,
+      status: 'in-progress',
+      metadata: {
+        ...parseJsonObject(callLog.metadata),
+        clientCallSid: clientCall?.sid || null,
+        twilioStatus: providerCall?.status || null
+      }
+    });
+
+    await logAuditEvent(req, {
+      actionType: 'conference_call_started',
+      agencyId: client.agency_id || null,
+      metadata: { clientId, callLogId: callLog.id, conferenceRoom: roomId }
+    });
+
+    res.status(201).json({
+      ...callLog,
+      id: callLog.id,
+      twilio_call_sid: providerCall?.sid,
+      status: 'in-progress',
+      conference_room: roomId
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const getTransferTargets = async (req, res, next) => {
+  try {
+    const userId = parseIntOrNull(req.user?.id);
+    if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+
+    const agencyId = parseIntOrNull(req.query?.agencyId);
+    const userAgencyIds = await getAgencyIdsForUser(userId);
+    const agencyIds = agencyId
+      ? (userAgencyIds.includes(agencyId) ? [agencyId] : userAgencyIds)
+      : userAgencyIds;
+    if (!agencyIds.length) return res.json({ users: [] });
+
+    const placeholders = agencyIds.map(() => '?').join(',');
+    const [rows] = await pool.execute(
+      `SELECT DISTINCT u.id, u.first_name, u.last_name, u.role
+       FROM users u
+       JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id IN (${placeholders})
+       LEFT JOIN user_call_settings ucs ON ucs.user_id = u.id
+       WHERE (u.is_archived = FALSE OR u.is_archived IS NULL)
+         AND TRIM(COALESCE(ucs.forward_to_phone, u.personal_phone, u.work_phone, u.phone_number, '')) != ''
+       ORDER BY u.first_name ASC, u.last_name ASC`,
+      agencyIds
+    );
+
+    const users = (rows || []).map((r) => ({
+      id: Number(r.id),
+      first_name: r.first_name,
+      last_name: r.last_name,
+      role: r.role,
+      label: [r.first_name, r.last_name].filter(Boolean).join(' ') || `User #${r.id}`
+    }));
+    return res.json({ users });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const transferCall = async (req, res, next) => {
+  try {
+    const userId = parseIntOrNull(req.user?.id);
+    if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+
+    const callSid = String(req.params?.callSid || '').trim();
+    if (!callSid) return res.status(400).json({ error: { message: 'callSid is required' } });
+
+    const toPhone = req.body?.toPhone;
+    const toUserId = parseIntOrNull(req.body?.toUserId);
+    if (!toPhone && !toUserId) {
+      return res.status(400).json({ error: { message: 'toPhone or toUserId is required' } });
+    }
+
+    let targetPhone = toPhone ? MessageLog.normalizePhone(toPhone) || toPhone : null;
+    if (!targetPhone && toUserId) {
+      const targetUser = await User.findById(toUserId);
+      const targetSettings = await UserCallSettings.getByUserId(toUserId);
+      targetPhone = getProviderTargetPhone(targetUser, targetSettings);
+    }
+    if (!targetPhone) {
+      return res.status(400).json({ error: { message: 'Could not resolve target phone number' } });
+    }
+
+    const voiceBase = getVoiceBaseUrl();
+    if (!voiceBase) return res.status(500).json({ error: { message: 'Voice webhook URL is not configured' } });
+
+    const callLog = await CallLog.findBySid(callSid);
+    const fromNumber = callLog?.from_number || callLog?.to_number;
+    const transferUrl = `${voiceBase}/transfer-dial?to=${encodeURIComponent(targetPhone)}${fromNumber ? `&callerId=${encodeURIComponent(fromNumber)}` : ''}`;
+    await TwilioService.updateCall(callSid, { url: transferUrl });
+
+    await logAuditEvent(req, {
+      actionType: 'call_transferred',
+      metadata: { callSid, toPhone: targetPhone }
+    });
+
+    res.json({ ok: true, callSid });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const holdCall = async (req, res, next) => {
+  try {
+    const userId = parseIntOrNull(req.user?.id);
+    if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+
+    const callSid = String(req.params?.callSid || '').trim();
+    if (!callSid) return res.status(400).json({ error: { message: 'callSid is required' } });
+
+    const voiceBase = getVoiceBaseUrl();
+    if (!voiceBase) return res.status(500).json({ error: { message: 'Voice webhook URL is not configured' } });
+
+    const callLog = await CallLog.findBySid(callSid);
+    if (!callLog?.id) return res.status(404).json({ error: { message: 'Call not found' } });
+
+    const resumeUrl = `${voiceBase}/resume?callLogId=${callLog.id}`;
+    const md = parseJsonObject(callLog.metadata);
+    await CallLog.updateById(callLog.id, {
+      metadata: { ...md, hold_resume_url: resumeUrl, is_on_hold: true }
+    });
+
+    const holdMusicUrl = 'https://api.twilio.com/cowbell.mp3';
+    const twiml = `<Response><Play loop="0">${holdMusicUrl}</Play></Response>`;
+    await TwilioService.updateCall(callSid, { twiml });
+
+    await logAuditEvent(req, {
+      actionType: 'call_held',
+      metadata: { callSid }
+    });
+
+    res.json({ ok: true, callSid, resumeUrl });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const holdCallResume = async (req, res, next) => {
+  try {
+    const userId = parseIntOrNull(req.user?.id);
+    if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+
+    const callSid = String(req.params?.callSid || '').trim();
+    if (!callSid) return res.status(400).json({ error: { message: 'callSid is required' } });
+
+    let resumeUrl = req.body?.resumeUrl || req.body?.url;
+    if (!resumeUrl) {
+      const callLog = await CallLog.findBySid(callSid);
+      const md = parseJsonObject(callLog?.metadata);
+      resumeUrl = md?.hold_resume_url || null;
+    }
+    if (!resumeUrl) {
+      return res.status(400).json({ error: { message: 'Call is not on hold or resume URL is missing' } });
+    }
+
+    const callLog = await CallLog.findBySid(callSid);
+    if (callLog?.id) {
+      const md = parseJsonObject(callLog.metadata);
+      await CallLog.updateById(callLog.id, {
+        metadata: { ...md, hold_resume_url: undefined, is_on_hold: false }
+      });
+    }
+
+    await TwilioService.updateCall(callSid, { url: resumeUrl });
+    await logAuditEvent(req, { actionType: 'call_resumed', metadata: { callSid } });
+    res.json({ ok: true, callSid });
+  } catch (e) {
     next(e);
   }
 };
@@ -377,6 +653,47 @@ export const streamVoicemailAudio = async (req, res, next) => {
       agencyId: row.agency_id || null,
       metadata: { voicemailId, callLogId: row.call_log_id || null }
     });
+    res.setHeader('Content-Type', 'audio/mpeg');
+    res.setHeader('Content-Length', String(buffer.length));
+    return res.status(200).send(buffer);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const streamCallRecording = async (req, res, next) => {
+  try {
+    const userId = parseIntOrNull(req.user?.id);
+    if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+
+    const callLogId = parseIntOrNull(req.params?.callLogId);
+    if (!callLogId) return res.status(400).json({ error: { message: 'Invalid callLogId' } });
+
+    const callLog = await CallLog.findById(callLogId);
+    if (!callLog) return res.status(404).json({ error: { message: 'Call not found' } });
+
+    const md = parseJsonObject(callLog.metadata);
+    const recordingSid = md?.recording_sid || null;
+    if (!recordingSid) return res.status(404).json({ error: { message: 'No recording for this call' } });
+
+    const role = String(req.user?.role || '').toLowerCase();
+    const agencyIds = await getAgencyIdsForUser(userId);
+    const canAgencyView = ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'provider_plus'].includes(role);
+    const isProviderOrSchoolStaff = role === 'provider' || role === 'school_staff';
+
+    let hasAccess = false;
+    if (canAgencyView) {
+      hasAccess = role === 'super_admin' || !callLog.agency_id || agencyIds.includes(Number(callLog.agency_id));
+    } else if (isProviderOrSchoolStaff) {
+      hasAccess = Number(callLog.user_id) === Number(userId);
+      if (!hasAccess && callLog.number_id) {
+        const assignments = await TwilioNumberAssignment.listByUserId(userId);
+        hasAccess = (assignments || []).some((a) => Number(a.number_id) === Number(callLog.number_id));
+      }
+    }
+    if (!hasAccess) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const buffer = await TwilioService.downloadRecordingMedia({ recordingSid, format: 'mp3' });
     res.setHeader('Content-Type', 'audio/mpeg');
     res.setHeader('Content-Length', String(buffer.length));
     return res.status(200).send(buffer);

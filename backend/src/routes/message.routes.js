@@ -1,6 +1,6 @@
 import express from 'express';
 import { authenticate } from '../middleware/auth.middleware.js';
-import { deleteMessageLog, deleteThread, getRecentMessages, getThread, sendMessage } from '../controllers/message.controller.js';
+import { deleteMessageLog, deleteThread, getRecentMessages, getThread, sendMessage, uploadSmsMedia } from '../controllers/message.controller.js';
 
 const router = express.Router();
 
@@ -11,6 +11,9 @@ router.get('/recent', getRecentMessages);
 
 // Thread for a specific (user, client)
 router.get('/thread/:userId/:clientId', getThread);
+
+// Upload MMS media (returns signed URL for Twilio)
+router.post('/upload-media', uploadSmsMedia);
 
 // Send outbound message (masked) via Twilio
 router.post('/send', sendMessage);

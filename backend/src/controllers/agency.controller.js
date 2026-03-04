@@ -1141,7 +1141,9 @@ export const getLoginThemeByPortalUrl = async (req, res, next) => {
       platform: {
         organizationName: platformBranding.organization_name || '',
         logoUrl: platformLogoUrl,
-        tagline: platformBranding.tagline
+        tagline: platformBranding.tagline,
+        privacyPolicyUrl: platformBranding.privacy_policy_url || null,
+        termsUrl: platformBranding.terms_url || null
       }
     });
   } catch (error) {

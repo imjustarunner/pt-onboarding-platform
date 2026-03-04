@@ -10,9 +10,13 @@ class TwilioService {
     return twilio(accountSid, authToken);
   }
 
-  static async sendSms({ to, from, body }) {
+  static async sendSms({ to, from, body, mediaUrl = null }) {
     const client = this.getClient();
-    const msg = await client.messages.create({ to, from, body });
+    const payload = { to, from, body };
+    if (mediaUrl) {
+      payload.mediaUrl = Array.isArray(mediaUrl) ? mediaUrl : [mediaUrl];
+    }
+    const msg = await client.messages.create(payload);
     return msg; // includes sid/status
   }
 
@@ -85,6 +89,23 @@ class TwilioService {
     }
     if (record) payload.record = true;
     const call = await client.calls.create(payload);
+    return call;
+  }
+
+  /**
+   * Update an in-progress call to redirect to new TwiML URL or inline TwiML.
+   * Used for transfer, hold, etc.
+   */
+  static async updateCall(callSid, { url = null, twiml = null }) {
+    const client = this.getClient();
+    const payload = {};
+    if (url) {
+      payload.url = url;
+      payload.method = 'POST';
+    }
+    if (twiml) payload.twiml = twiml;
+    if (!url && !twiml) throw new Error('Either url or twiml is required');
+    const call = await client.calls(callSid).update(payload);
     return call;
   }
 

@@ -1148,6 +1148,28 @@ class StorageService {
   }
 
   /**
+   * Save SMS/MMS media (images) for outbound messages.
+   * Returns storage key for getSignedUrl. Twilio fetches from signed URL when we send.
+   */
+  static async saveSmsMedia({ userId, fileBuffer, filename, contentType }) {
+    const sanitizedFilename = this.sanitizeFilename(filename || `mms-${Date.now()}.jpg`);
+    const unique = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const key = `uploads/sms_media/${userId || 'unknown'}/${unique}-${sanitizedFilename}`;
+    const bucket = await this.getGCSBucket();
+    const file = bucket.file(key);
+
+    await file.save(fileBuffer, {
+      contentType: contentType || 'image/jpeg',
+      metadata: {
+        userId: String(userId || ''),
+        uploadedAt: new Date().toISOString()
+      }
+    });
+
+    return { path: key, key, filename: sanitizedFilename, relativePath: key };
+  }
+
+  /**
    * Read any object from GCS by key.
    * Intended for internal server-side use (e.g. uploading an existing receipt to Drive).
    */

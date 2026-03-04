@@ -186,6 +186,18 @@
                     This is the system-assigned number used for masked texting. It can’t be edited here.
                   </small>
                 </div>
+                <div class="form-group">
+                  <label>Texting / Calling Number</label>
+                  <div class="texting-number-display">
+                    <span v-if="textingNumbersLoading">Loading…</span>
+                    <span v-else-if="assignedTextingNumbers.length">{{ assignedTextingNumbers.map(n => n.phone_number).join(', ') }}</span>
+                    <span v-else class="muted">Not assigned</span>
+                    <router-link v-if="canManageTexting" :to="textingSettingsLink" class="link-inline">Assign in settings</router-link>
+                  </div>
+                  <small class="form-help">
+                    Twilio number for client SMS and voice. Assigned in Settings → Texting Numbers.
+                  </small>
+                </div>
 
                 <div class="form-group form-group-full">
                   <div class="section-divider" style="margin: 8px 0 6px;">
@@ -3540,6 +3552,30 @@ const systemPhoneNumberDisplay = computed(() => {
   return str ? str : '—';
 });
 
+const textingNumbersLoading = ref(false);
+const assignedTextingNumbers = ref([]);
+const canManageTexting = computed(() => {
+  const role = String(authStore.user?.role || '').toLowerCase();
+  return role === 'admin' || role === 'support' || role === 'super_admin' || role === 'clinical_practice_assistant';
+});
+const textingSettingsLink = computed(() => {
+  const slug = route.params?.organizationSlug;
+  const base = slug ? `/${slug}/admin/settings` : '/admin/settings';
+  return `${base}?category=system&item=sms-numbers`;
+});
+const fetchAssignedTextingNumbers = async () => {
+  if (!userId.value) return;
+  try {
+    textingNumbersLoading.value = true;
+    const r = await api.get(`/sms-numbers/user/${userId.value}/assigned`);
+    assignedTextingNumbers.value = Array.isArray(r.data?.numbers) ? r.data.numbers : [];
+  } catch {
+    assignedTextingNumbers.value = [];
+  } finally {
+    textingNumbersLoading.value = false;
+  }
+};
+
 
 const fetchUser = async () => {
   try {
@@ -3643,7 +3679,8 @@ const fetchUser = async () => {
       fetchProviderCredential(),
       loadExternalCalendars(),
       loadOfficeAssignments(),
-      loadLeaveOfAbsence()
+      loadLeaveOfAbsence(),
+      fetchAssignedTextingNumbers()
     ]);
   } catch (err) {
     error.value = err.response?.data?.error?.message || 'Failed to load user';
@@ -5104,6 +5141,15 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.texting-number-display {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.texting-number-display .muted { color: var(--text-secondary); }
+.texting-number-display .link-inline { font-size: 13px; }
+
 .collapse-icon {
   display: inline-block;
   transition: transform 0.2s;

@@ -6,6 +6,7 @@ import CallLog from '../models/CallLog.model.js';
 import CallVoicemail from '../models/CallVoicemail.model.js';
 import UserCallSettings from '../models/UserCallSettings.model.js';
 import UserExtension from '../models/UserExtension.model.js';
+import TwilioNumberRule from '../models/TwilioNumberRule.model.js';
 import { resolveInboundRoute } from '../services/twilioNumberRouting.service.js';
 import { verifySignedPayload } from './calls.controller.js';
 import TwilioService from '../services/twilio.service.js';
@@ -119,15 +120,18 @@ export const outboundBridgeWebhook = async (req, res, next) => {
     const settings = callLog.user_id ? await UserCallSettings.getByUserId(callLog.user_id) : null;
     const cfg = await getAgencyVoiceConfig(callLog.agency_id);
     const dialAction = `${base}/dial-complete?callLogId=${callLog.id}`;
+    const recordEnabled = boolOrDefault(settings?.allow_call_recording, false);
     const xml = twimlXml((vr) => {
       if (cfg.providerPreConnectMessage) vr.say(cfg.providerPreConnectMessage);
-      const dial = vr.dial({
+      const dialOpts = {
         callerId: fromNumber,
         action: dialAction,
         method: 'POST',
         timeout: cfg.providerRingTimeoutSeconds,
-        record: boolOrDefault(settings?.allow_call_recording, false) ? 'record-from-answer' : undefined
-      });
+        record: recordEnabled ? 'record-from-answer' : undefined
+      };
+      if (recordEnabled) dialOpts.recordingStatusCallback = `${base}/recording-status`;
+      const dial = vr.dial(dialOpts);
       dial.number({}, toNumber);
     });
     return res.status(200).type('text/xml').send(xml);
@@ -142,6 +146,7 @@ export const inboundVoiceWebhook = async (req, res, next) => {
     const to = req.body?.To;
     const digits = String(req.body?.Digits || '').trim();
     const mainLine = req.query?.mainLine === '1' || req.body?.mainLine === '1';
+    const fromIvr = req.query?.ivr === '1' || req.body?.ivr === '1';
     if (!from || !to) {
       return res.status(200).type('text/xml').send(twimlXml((vr) => {
         vr.say('We could not process your call.');
@@ -155,8 +160,49 @@ export const inboundVoiceWebhook = async (req, res, next) => {
     const base = voiceBaseFromRequest(req);
     const inboundUrl = `${base}/inbound`;
 
-    // Extension dialed: resolve and route to that user
-    if (digits && digits !== '0') {
+    // IVR menu: digits from IVR Gather → route by option
+    const ivrRule = numberId ? await TwilioNumberRule.getActiveRule(numberId, 'ivr_menu') : null;
+    const ivrConfig = ivrRule?.schedule_json ? parseJsonObject(ivrRule.schedule_json) : null;
+    if (fromIvr && digits && ivrConfig?.options) {
+      const opt = ivrConfig.options[digits] || ivrConfig.options[String(digits)];
+      if (opt?.action === 'main_line') {
+        // Fall through to main line below
+      } else if (opt?.action === 'extension_menu') {
+        const hasExtensions = agencyId && (await UserExtension.agencyHasExtensions(agencyId, numberId));
+        if (hasExtensions) {
+          return res.status(200).type('text/xml').send(twimlXml((vr) => {
+            const gather = vr.gather({
+              numDigits: 4,
+              timeout: 5,
+              action: inboundUrl,
+              method: 'POST',
+              finishOnKey: '#'
+            });
+            gather.say('Press the extension you wish to reach, or stay on the line for the main line.');
+            vr.redirect({ method: 'POST' }, `${inboundUrl}?mainLine=1`);
+          }));
+        }
+      } else if (opt?.action === 'dial_support') {
+        const cfg = await getAgencyVoiceConfig(agencyId);
+        if (cfg.supportPhone) {
+          return res.status(200).type('text/xml').send(twimlXml((vr) => {
+            vr.say(opt.prompt || cfg.supportPreConnectMessage || 'Please hold.');
+            const dial = vr.dial({ callerId: MessageLog.normalizePhone(to) || to });
+            dial.number({}, cfg.supportPhone);
+          }));
+        }
+      } else if (opt?.action === 'dial_phone' && opt.phone) {
+        const targetPhone = MessageLog.normalizePhone(opt.phone) || opt.phone;
+        return res.status(200).type('text/xml').send(twimlXml((vr) => {
+          vr.say(opt.prompt || 'Please hold.');
+          const dial = vr.dial({ callerId: MessageLog.normalizePhone(to) || to });
+          dial.number({}, targetPhone);
+        }));
+      }
+    }
+
+    // Extension dialed: resolve and route to that user (skip if we came from IVR with main_line)
+    if (digits && digits !== '0' && !fromIvr) {
       const extRecord = await UserExtension.resolveExtension({
         agencyId,
         numberId,
@@ -187,15 +233,18 @@ export const inboundVoiceWebhook = async (req, res, next) => {
             });
             const cfg = await getAgencyVoiceConfig(agencyId);
             const dialAction = `${base}/dial-complete?callLogId=${created.id}`;
+            const extRecordEnabled = boolOrDefault(extSettings?.allow_call_recording, false);
             return res.status(200).type('text/xml').send(twimlXml((vr) => {
               if (cfg.providerPreConnectMessage) vr.say(cfg.providerPreConnectMessage);
-              const dial = vr.dial({
+              const dialOpts = {
                 callerId: MessageLog.normalizePhone(to) || to,
                 action: dialAction,
                 method: 'POST',
                 timeout: cfg.providerRingTimeoutSeconds,
-                record: boolOrDefault(extSettings?.allow_call_recording, false) ? 'record-from-answer' : undefined
-              });
+                record: extRecordEnabled ? 'record-from-answer' : undefined
+              };
+              if (extRecordEnabled) dialOpts.recordingStatusCallback = `${base}/recording-status`;
+              const dial = vr.dial(dialOpts);
               dial.number({}, targetPhone);
             }));
           }
@@ -216,8 +265,24 @@ export const inboundVoiceWebhook = async (req, res, next) => {
       }));
     }
 
+    // IVR menu: first-time call, show menu
+    const forceMainLine = fromIvr && ivrConfig?.options?.[digits]?.action === 'main_line';
+    if (ivrConfig?.prompt && !digits && !mainLine && !forceMainLine) {
+      return res.status(200).type('text/xml').send(twimlXml((vr) => {
+        const gather = vr.gather({
+          numDigits: 1,
+          timeout: 5,
+          action: `${inboundUrl}?ivr=1`,
+          method: 'POST',
+          finishOnKey: ''
+        });
+        gather.say(ivrConfig.prompt);
+        vr.redirect({ method: 'POST' }, `${inboundUrl}?mainLine=1`);
+      }));
+    }
+
     const hasExtensions = agencyId && (await UserExtension.agencyHasExtensions(agencyId, numberId));
-    if (hasExtensions && !digits && !mainLine) {
+    if (hasExtensions && !digits && !mainLine && !forceMainLine) {
       return res.status(200).type('text/xml').send(twimlXml((vr) => {
         const gather = vr.gather({
           numDigits: 4,
@@ -269,15 +334,18 @@ export const inboundVoiceWebhook = async (req, res, next) => {
 
     const cfg = await getAgencyVoiceConfig(route?.agencyId || null);
     const dialAction = `${base}/dial-complete?callLogId=${created.id}`;
+    const mainRecordEnabled = boolOrDefault(settings?.allow_call_recording, false);
     const xml = twimlXml((vr) => {
       if (cfg.providerPreConnectMessage) vr.say(cfg.providerPreConnectMessage);
-      const dial = vr.dial({
+      const dialOpts = {
         callerId: MessageLog.normalizePhone(to) || to,
         action: dialAction,
         method: 'POST',
         timeout: cfg.providerRingTimeoutSeconds,
-        record: boolOrDefault(settings?.allow_call_recording, false) ? 'record-from-answer' : undefined
-      });
+        record: mainRecordEnabled ? 'record-from-answer' : undefined
+      };
+      if (mainRecordEnabled) dialOpts.recordingStatusCallback = `${base}/recording-status`;
+      const dial = vr.dial(dialOpts);
       dial.number({}, targetPhone);
     });
     return res.status(200).type('text/xml').send(xml);
@@ -419,6 +487,117 @@ export const voiceSupportNoticeWebhook = async (req, res, next) => {
       vr.say(msg);
       vr.hangup();
     }));
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const voiceResumeWebhook = async (req, res, next) => {
+  try {
+    const callLogId = parseInt(req.query?.callLogId, 10);
+    if (!Number.isFinite(callLogId) || callLogId < 1) {
+      return res.status(200).type('text/xml').send(twimlXml((vr) => {
+        vr.say('Unable to resume this call.');
+        vr.hangup();
+      }));
+    }
+
+    const callLog = await CallLog.findById(callLogId);
+    if (!callLog?.target_phone) {
+      return res.status(200).type('text/xml').send(twimlXml((vr) => {
+        vr.say('Unable to reconnect this call.');
+        vr.hangup();
+      }));
+    }
+
+    const base = voiceBaseFromRequest(req);
+    const dialAction = `${base}/dial-complete?callLogId=${callLog.id}`;
+    const cfg = await getAgencyVoiceConfig(callLog.agency_id || null);
+
+    const xml = twimlXml((vr) => {
+      vr.say(cfg?.providerPreConnectMessage || 'Please hold while we reconnect your call.');
+      const dial = vr.dial({
+        callerId: MessageLog.normalizePhone(callLog.to_number) || callLog.to_number || undefined,
+        action: dialAction,
+        method: 'POST',
+        timeout: cfg?.providerRingTimeoutSeconds || 20
+      });
+      dial.number({}, callLog.target_phone);
+    });
+    return res.status(200).type('text/xml').send(xml);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const voiceRecordingStatusWebhook = async (req, res, next) => {
+  try {
+    const callSid = req.body?.CallSid || null;
+    const recordingSid = req.body?.RecordingSid || null;
+    const recordingUrl = req.body?.RecordingUrl || null;
+    const recordingStatus = req.body?.RecordingStatus || null;
+    const recordingDuration = req.body?.RecordingDuration || null;
+
+    if (recordingStatus !== 'completed' || !callSid || !recordingSid) {
+      return res.status(200).send('ok');
+    }
+
+    const callLog = await CallLog.findBySid(callSid);
+    if (callLog?.id) {
+      const md = parseJsonObject(callLog.metadata);
+      await CallLog.updateById(callLog.id, {
+        metadata: {
+          ...md,
+          recording_sid: recordingSid,
+          recording_url: recordingUrl,
+          recording_duration: recordingDuration ? parseInt(recordingDuration, 10) : null
+        }
+      });
+    }
+    return res.status(200).send('ok');
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const voiceTransferDialWebhook = async (req, res, next) => {
+  try {
+    const to = req.query?.to || req.body?.to;
+    const callerId = req.query?.callerId || req.body?.CallerId || req.body?.To;
+    if (!to) {
+      return res.status(200).type('text/xml').send(twimlXml((vr) => {
+        vr.say('Transfer failed. No target number.');
+        vr.hangup();
+      }));
+    }
+    const xml = twimlXml((vr) => {
+      vr.say('Please hold while we transfer your call.');
+      const dial = vr.dial({ callerId: callerId || undefined });
+      dial.number({}, to);
+    });
+    return res.status(200).type('text/xml').send(xml);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const voiceConferenceJoinWebhook = async (req, res, next) => {
+  try {
+    const room = String(req.query?.room || req.body?.room || '').trim();
+    if (!room) {
+      return res.status(200).type('text/xml').send(twimlXml((vr) => {
+        vr.say('Invalid conference room.');
+        vr.hangup();
+      }));
+    }
+    const xml = twimlXml((vr) => {
+      const dial = vr.dial({ timeout: 30 });
+      dial.conference({
+        startConferenceOnEnter: true,
+        endConferenceOnExit: true
+      }, room);
+    });
+    return res.status(200).type('text/xml').send(xml);
   } catch (e) {
     next(e);
   }

@@ -209,6 +209,16 @@
           </div>
           <small>Alternative: Select an icon from the Icon Library if you prefer to use an icon instead of a logo URL.</small>
         </div>
+        <div class="form-group">
+          <label>Privacy Policy URL</label>
+          <input v-model="platformForm.privacyPolicyUrl" type="url" placeholder="https://example.com/privacy" />
+          <small>Link shown on the login page footer. Used for A2P/SMS compliance and general legal disclosure.</small>
+        </div>
+        <div class="form-group">
+          <label>Terms & Conditions URL</label>
+          <input v-model="platformForm.termsUrl" type="url" placeholder="https://example.com/terms" />
+          <small>Link shown on the login page footer. Used for A2P/SMS compliance and general legal disclosure.</small>
+        </div>
         <div class="form-section-divider">
           <h4>Fonts</h4>
           <p class="section-description">Configure default fonts for the platform.</p>
@@ -2154,6 +2164,8 @@ const platformForm = ref({
       organizationLogoIconId: null,
       organizationLogoUrl: null,
       organizationLogoPath: null,
+      privacyPolicyUrl: null,
+      termsUrl: null,
 
   // Settings sidebar navigation icon defaults (replaces emojis)
   companyProfileIconId: null,
@@ -3034,6 +3046,8 @@ const applySelectedTemplate = async (event) => {
           organizationLogoIconId: brandingStore.platformBranding.organization_logo_icon_id ?? null,
           organizationLogoUrl: brandingStore.platformBranding.organization_logo_url ?? null,
           organizationLogoPath: brandingStore.platformBranding.organization_logo_path ?? null,
+          privacyPolicyUrl: brandingStore.platformBranding.privacy_policy_url ?? null,
+          termsUrl: brandingStore.platformBranding.terms_url ?? null,
 
           companyProfileIconId: brandingStore.platformBranding.company_profile_icon_id ?? null,
           teamRolesIconId: brandingStore.platformBranding.team_roles_icon_id ?? null,
@@ -3472,6 +3486,8 @@ const savePlatformBranding = async () => {
       organizationLogoIconId: platformForm.value.organizationLogoIconId ?? null,
       organizationLogoUrl: platformLogoInputMethod.value === 'url' ? (platformForm.value.organizationLogoUrl?.trim() || null) : null,
       organizationLogoPath: platformLogoInputMethod.value === 'upload' ? (platformForm.value.organizationLogoPath || null) : null,
+      privacyPolicyUrl: platformForm.value.privacyPolicyUrl?.trim() || null,
+      termsUrl: platformForm.value.termsUrl?.trim() || null,
 
       // Settings sidebar navigation icon defaults
       companyProfileIconId: platformForm.value.companyProfileIconId ?? null,
@@ -3649,6 +3665,8 @@ const savePlatformBranding = async () => {
       platformForm.value.organizationLogoIconId = response.data.organization_logo_icon_id ?? platformForm.value.organizationLogoIconId ?? null;
       platformForm.value.organizationLogoUrl = response.data.organization_logo_url ?? platformForm.value.organizationLogoUrl ?? null;
       platformForm.value.organizationLogoPath = response.data.organization_logo_path ?? platformForm.value.organizationLogoPath ?? null;
+      platformForm.value.privacyPolicyUrl = response.data.privacy_policy_url ?? platformForm.value.privacyPolicyUrl ?? null;
+      platformForm.value.termsUrl = response.data.terms_url ?? platformForm.value.termsUrl ?? null;
 
       // Update other fields
       platformForm.value.tagline = response.data.tagline ?? platformForm.value.tagline;
@@ -3697,8 +3715,10 @@ const savePlatformBranding = async () => {
       platformForm.value.organizationLogoIconId = brandingStore.platformBranding.organization_logo_icon_id ?? null;
       platformForm.value.organizationLogoUrl = brandingStore.platformBranding.organization_logo_url ?? null;
       platformForm.value.organizationLogoPath = brandingStore.platformBranding.organization_logo_path ?? null;
+      platformForm.value.privacyPolicyUrl = brandingStore.platformBranding.privacy_policy_url ?? null;
+      platformForm.value.termsUrl = brandingStore.platformBranding.terms_url ?? null;
     }
-    
+
     console.log('Platform branding saved. Updated form icon IDs:', {
       trainingFocus: platformForm.value.trainingFocusDefaultIconId,
       module: platformForm.value.moduleDefaultIconId,
@@ -3782,6 +3802,8 @@ onMounted(async () => {
         organizationLogoIconId: brandingStore.platformBranding.organization_logo_icon_id ?? null,
         organizationLogoUrl: brandingStore.platformBranding.organization_logo_url ?? null,
         organizationLogoPath: brandingStore.platformBranding.organization_logo_path ?? null,
+        privacyPolicyUrl: brandingStore.platformBranding.privacy_policy_url ?? null,
+        termsUrl: brandingStore.platformBranding.terms_url ?? null,
 
         companyProfileIconId: brandingStore.platformBranding.company_profile_icon_id ?? null,
         teamRolesIconId: brandingStore.platformBranding.team_roles_icon_id ?? null,
@@ -3820,7 +3842,9 @@ onActivated(async () => {
       platformForm.value.organizationLogoIconId = brandingStore.platformBranding.organization_logo_icon_id ?? null;
       platformForm.value.organizationLogoUrl = brandingStore.platformBranding.organization_logo_url ?? null;
       platformForm.value.organizationLogoPath = brandingStore.platformBranding.organization_logo_path ?? null;
-      
+      platformForm.value.privacyPolicyUrl = brandingStore.platformBranding.privacy_policy_url ?? null;
+      platformForm.value.termsUrl = brandingStore.platformBranding.terms_url ?? null;
+
       // Set logo input method based on what's available
       if (platformForm.value.organizationLogoPath) {
         platformLogoInputMethod.value = 'upload';
