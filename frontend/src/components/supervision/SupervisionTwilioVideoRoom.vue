@@ -106,12 +106,32 @@
           class="control-btn"
           :class="{ active: chatPanelOpen }"
           title="Chat, polls & Q&A"
-          @click="chatPanelOpen = !chatPanelOpen"
+          @click="toggleChatPanel"
         >
           <span class="control-icon">💬</span>
           <span>Chat</span>
           <span v-if="chatUnreadCount > 0" class="chat-badge">{{ chatUnreadCount }}</span>
         </button>
+        <button
+          v-if="agendaAvailable"
+          type="button"
+          class="control-btn"
+          :class="{ active: agendaPanelOpen }"
+          title="Agenda – check off items, add new ones"
+          @click="toggleAgendaPanel"
+        >
+          <span class="control-icon">📋</span>
+          <span>Agenda</span>
+        </button>
+      </div>
+      <div v-if="room && agendaPanelOpen" class="video-room-agenda-panel">
+        <MeetingAgendaPanel
+          :meeting-type="agendaMeetingType"
+          :meeting-id="agendaMeetingId"
+          :can-add-item="true"
+          @close="agendaPanelOpen = false"
+          @updated="() => {}"
+        />
       </div>
       <div v-if="room && chatPanelOpen" class="video-room-chat-panel">
         <div class="chat-panel-tabs">
@@ -179,8 +199,9 @@
 
 <script setup>
 import { ref, computed, onUnmounted, watch, nextTick } from 'vue';
-import { connect, LocalVideoTrack, LocalDataTrack } from 'twilio-video';
+import { connect, LocalVideoTrack, LocalDataTrack, createLocalVideoTrack, createLocalAudioTrack } from 'twilio-video';
 import BrandingLogo from '../BrandingLogo.vue';
+import MeetingAgendaPanel from '../meetings/MeetingAgendaPanel.vue';
 import api from '../../services/api';
 
 const props = defineProps({
@@ -215,6 +236,7 @@ const sharedScreenIdentity = ref('');
 const recordHostOnly = ref(false);
 const recordingRulesLoading = ref(false);
 const chatPanelOpen = ref(false);
+const agendaPanelOpen = ref(false);
 const chatTab = ref('chat');
 const chatInput = ref('');
 const chatMessages = ref([]);
@@ -235,6 +257,14 @@ const screenShareSupported = computed(() =>
 const showRecordHostOnlyToggle = computed(() =>
   Boolean(props.eventId && props.isHost)
 );
+
+const agendaMeetingType = computed(() => {
+  if (props.sessionId) return 'supervision_session';
+  if (props.eventId) return 'provider_schedule_event';
+  return null;
+});
+const agendaMeetingId = computed(() => Number(props.sessionId || props.eventId || 0) || null);
+const agendaAvailable = computed(() => !!agendaMeetingType.value && !!agendaMeetingId.value);
 
 const sortedRemoteParticipants = computed(() => {
   const list = [...remoteParticipants.value];
@@ -291,14 +321,23 @@ async function postTranscriptToBackend(text) {
   if (!text || !String(text).trim()) return;
   const sid = props.sessionId ? Number(props.sessionId) : null;
   const eid = props.eventId ? Number(props.eventId) : null;
-  try {
-    if (eid) {
-      await api.post(`/team-meetings/${eid}/client-transcript`, { transcript: String(text).trim() });
-    } else if (sid) {
-      await api.post(`/supervision/sessions/${sid}/client-transcript`, { transcript: String(text).trim() });
+  const payload = { transcript: String(text).trim() };
+  const maxAttempts = 3;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      if (eid) {
+        await api.post(`/team-meetings/${eid}/client-transcript`, payload);
+      } else if (sid) {
+        await api.post(`/supervision/sessions/${sid}/client-transcript`, payload);
+      }
+      return;
+    } catch (e) {
+      if (attempt < maxAttempts) {
+        await new Promise((r) => setTimeout(r, 2000));
+      } else {
+        console.warn('[SupervisionTwilioVideoRoom] Failed to post transcript after retries:', e?.message);
+      }
     }
-  } catch (e) {
-    console.warn('[SupervisionTwilioVideoRoom] Failed to post transcript:', e?.message);
   }
 }
 
@@ -477,6 +516,15 @@ async function submitAnswer(q) {
   persistActivity('answer', { inReplyToId: q.id, text });
 }
 
+function toggleChatPanel() {
+  chatPanelOpen.value = !chatPanelOpen.value;
+  if (chatPanelOpen.value) agendaPanelOpen.value = false;
+}
+function toggleAgendaPanel() {
+  agendaPanelOpen.value = !agendaPanelOpen.value;
+  if (agendaPanelOpen.value) chatPanelOpen.value = false;
+}
+
 watch(chatPanelOpen, (open) => {
   if (open) chatUnreadCount.value = 0;
 });
@@ -508,7 +556,7 @@ async function connectRoom() {
       audio: true,
       video: true,
       tracks: [chatDataTrack],
-      receiveTranscriptions: false,
+      receiveTranscriptions: true,
       dominantSpeaker: true,
       networkQuality: { local: 1, remote: 1 },
       bandwidthProfile: {
@@ -527,19 +575,40 @@ async function connectRoom() {
       }
     });
 
+    const syncMutedFromTracks = () => {
+      const vt = localVideoTrack.value;
+      const at = localAudioTrack.value;
+      cameraMuted.value = !vt || !vt.isEnabled;
+      micMuted.value = !at || !at.isEnabled;
+    };
     r.localParticipant.videoTracks.forEach((pub) => {
       localVideoTrack.value = pub.track;
+      pub.track.on('enabled', syncMutedFromTracks);
+      pub.track.on('disabled', syncMutedFromTracks);
     });
     r.localParticipant.audioTracks.forEach((pub) => {
       localAudioTrack.value = pub.track;
+      pub.track.on('enabled', syncMutedFromTracks);
+      pub.track.on('disabled', syncMutedFromTracks);
     });
+    syncMutedFromTracks();
     r.localParticipant.on('trackSubscribed', (track) => {
-      if (track.kind === 'video') localVideoTrack.value = track;
-      if (track.kind === 'audio') localAudioTrack.value = track;
+      if (track.kind === 'video') {
+        localVideoTrack.value = track;
+        track.on('enabled', syncMutedFromTracks);
+        track.on('disabled', syncMutedFromTracks);
+      }
+      if (track.kind === 'audio') {
+        localAudioTrack.value = track;
+        track.on('enabled', syncMutedFromTracks);
+        track.on('disabled', syncMutedFromTracks);
+      }
+      syncMutedFromTracks();
     });
     r.localParticipant.on('trackUnsubscribed', (track) => {
       if (track.kind === 'video' && localVideoTrack.value === track) localVideoTrack.value = null;
       if (track.kind === 'audio' && localAudioTrack.value === track) localAudioTrack.value = null;
+      syncMutedFromTracks();
     });
 
     const isScreenTrack = (track) =>
@@ -662,27 +731,59 @@ async function connectRoom() {
   }
 }
 
-function toggleCamera() {
+async function toggleCamera() {
   const track = localVideoTrack.value;
-  if (!track) return;
-  if (cameraMuted.value) {
-    track.enable();
+  if (track) {
+    if (cameraMuted.value) {
+      track.enable();
+      cameraMuted.value = false;
+    } else {
+      track.disable();
+      cameraMuted.value = true;
+    }
+    return;
+  }
+  if (!room.value) return;
+  try {
+    error.value = '';
+    const newTrack = await createLocalVideoTrack();
+    localVideoTrack.value = newTrack;
+    await room.value.localParticipant.publishTrack(newTrack);
     cameraMuted.value = false;
-  } else {
-    track.disable();
-    cameraMuted.value = true;
+    newTrack.on('enabled', () => { cameraMuted.value = false; });
+    newTrack.on('disabled', () => { cameraMuted.value = true; });
+  } catch (e) {
+    if (e?.name !== 'NotAllowedError') {
+      error.value = e?.message || 'Could not access camera. Please check permissions.';
+    }
   }
 }
 
-function toggleMic() {
+async function toggleMic() {
   const track = localAudioTrack.value;
-  if (!track) return;
-  if (micMuted.value) {
-    track.enable();
+  if (track) {
+    if (micMuted.value) {
+      track.enable();
+      micMuted.value = false;
+    } else {
+      track.disable();
+      micMuted.value = true;
+    }
+    return;
+  }
+  if (!room.value) return;
+  try {
+    error.value = '';
+    const newTrack = await createLocalAudioTrack();
+    localAudioTrack.value = newTrack;
+    await room.value.localParticipant.publishTrack(newTrack);
     micMuted.value = false;
-  } else {
-    track.disable();
-    micMuted.value = true;
+    newTrack.on('enabled', () => { micMuted.value = false; });
+    newTrack.on('disabled', () => { micMuted.value = true; });
+  } catch (e) {
+    if (e?.name !== 'NotAllowedError') {
+      error.value = e?.message || 'Could not access microphone. Please check permissions.';
+    }
   }
 }
 
@@ -949,6 +1050,24 @@ onUnmounted(() => {
   background: #b91c1c;
   color: #fff;
   font-size: 11px;
+}
+
+.video-room-agenda-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(400px, 90vw);
+  background: var(--bg-card);
+  border-left: 1px solid var(--border);
+  overflow-y: auto;
+  z-index: 10;
+}
+
+.video-room-agenda-panel .meeting-agenda-panel {
+  margin: 12px;
+  max-width: none;
+  max-height: none;
 }
 
 .video-room-chat-panel {

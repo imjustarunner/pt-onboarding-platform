@@ -51,17 +51,18 @@ async function downloadVideoRecordingMedia(recordingSid) {
  * @returns {Promise<string>} Combined transcript text or empty string
  */
 export async function transcribeRoomRecordings({ roomSid, roomName, sessionId, userId }) {
-  const client = TwilioService.getClient();
-  const sid = Number(sessionId || 0);
-  if (!sid) return '';
-
-  let recordings = [];
   try {
-    recordings = await client.video.v1.rooms(roomSid).recordings.list({ limit: 50 });
-  } catch (e) {
-    console.error('[TwilioVideoRecording] list recordings error:', e?.message);
-    return '';
-  }
+    const client = TwilioService.getClient();
+    const sid = Number(sessionId || 0);
+    if (!sid) return '';
+
+    let recordings = [];
+    try {
+      recordings = await client.video.v1.rooms(roomSid).recordings.list({ limit: 50 });
+    } catch (e) {
+      console.error('[TwilioVideoRecording] list recordings error:', e?.message);
+      return '';
+    }
 
   const audioRecordings = (recordings || []).filter(
     (r) => String(r?.type || '').toLowerCase() === 'audio' && String(r?.status || '') === 'completed'
@@ -118,4 +119,8 @@ export async function transcribeRoomRecordings({ roomSid, roomName, sessionId, u
   }
 
   return transcripts.join('\n\n').trim();
+  } catch (e) {
+    console.error('[TwilioVideoRecording] transcribeRoomRecordings error:', e?.message);
+    return '';
+  }
 }

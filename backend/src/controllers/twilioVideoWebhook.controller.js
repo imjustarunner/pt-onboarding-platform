@@ -182,6 +182,7 @@ async function recomputeTeamMeetingAttendanceForUser({ eventId, userId }) {
  * Process room-ended: transcribe recordings and save to artifacts.
  * Runs asynchronously (fire-and-forget) so webhook responds quickly.
  * If client already posted a transcript (Twilio real-time transcription), skip recording pipeline.
+ * Retries up to 4 times with 30s delay between attempts (Twilio recordings can take 1–2 min to be ready).
  */
 async function processRoomEnded({ roomSid, roomName, sessionId }) {
   const sid = Number(sessionId || 0);
@@ -196,14 +197,26 @@ async function processRoomEnded({ roomSid, roomName, sessionId }) {
       });
       return;
     }
-    // Delay to allow Twilio to finish processing recordings
-    await new Promise((r) => setTimeout(r, 5000));
-    const transcript = await transcribeRoomRecordings({
-      roomSid,
-      roomName,
-      sessionId: sid,
-      userId: 0
-    });
+    let transcript = '';
+    const maxAttempts = 4;
+    const delayMs = 30000;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      if (attempt > 1) {
+        await new Promise((r) => setTimeout(r, delayMs));
+      } else {
+        await new Promise((r) => setTimeout(r, 5000));
+      }
+      transcript = await transcribeRoomRecordings({
+        roomSid,
+        roomName,
+        sessionId: sid,
+        userId: 0
+      });
+      if (transcript && String(transcript).trim()) break;
+      if (attempt < maxAttempts) {
+        console.warn(`[TwilioVideo] No transcript on attempt ${attempt}/${maxAttempts}, retrying in ${delayMs / 1000}s…`);
+      }
+    }
     if (transcript && String(transcript).trim()) {
       await SupervisionSessionArtifact.ensureTagged({ sessionId: sid });
       await SupervisionSessionArtifact.upsertBySessionId({
@@ -215,6 +228,8 @@ async function processRoomEnded({ roomSid, roomName, sessionId }) {
       await triggerSupervisionSummaryFromTranscript(sid).catch((e) => {
         console.error('[TwilioVideo] AI summary error:', e?.message);
       });
+    } else {
+      console.warn(`[TwilioVideo] No transcript after ${maxAttempts} attempts for session ${sid}`);
     }
   } catch (e) {
     console.error('[TwilioVideo] processRoomEnded error:', e?.message);

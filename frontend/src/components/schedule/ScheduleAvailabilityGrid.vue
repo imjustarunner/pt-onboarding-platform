@@ -586,21 +586,10 @@
 
             <div style="margin-top: 8px;">
               <label class="lbl">Additional participants (optional)</label>
-              <div class="row" style="gap: 8px; margin-top: 6px; flex-wrap: wrap;">
-                <button class="btn btn-secondary btn-sm" type="button" @click="selectAllFilteredSupervisionAdditionalParticipants">
-                  Add all shown
-                </button>
-                <button class="btn btn-secondary btn-sm" type="button" @click="selectAllAvailableSupervisionAdditionalParticipants">
-                  Add everyone in list
-                </button>
-                <button class="btn btn-secondary btn-sm" type="button" @click="clearSupervisionAdditionalParticipants">
-                  Clear additional
-                </button>
-              </div>
-              <div class="muted" style="margin-top: 6px;">
+              <div class="muted" style="margin-top: 4px;">
                 Selected: {{ supervisionSelectedParticipantCount }} (primary + additional)
               </div>
-              <div v-if="selectedSupervisionParticipantChips.length" class="supervision-selected-chips">
+              <div v-if="selectedSupervisionParticipantChips.length" class="supervision-selected-chips" style="margin-top: 6px;">
                 <button
                   v-for="chip in selectedSupervisionParticipantChips"
                   :key="`supv-chip-${chip.kind}-${chip.id}`"
@@ -613,19 +602,44 @@
                   <span aria-hidden="true">x</span>
                 </button>
               </div>
-              <div class="participant-scroll" style="margin-top: 6px;">
-                <div class="participant-grid">
-                  <button
-                    v-for="p in filteredSupervisionAdditionalParticipants"
-                    :key="`supv-extra-${p.id}`"
-                    type="button"
-                    class="participant-card"
-                    :class="{ on: selectedSupervisionAdditionalParticipantIdSet.has(Number(p.id)) }"
-                    @click="toggleSupervisionAdditionalParticipant(Number(p.id))"
-                  >
-                    <span class="participant-name">{{ supervisionParticipantLabel(p) }}</span>
-                    <span class="participant-role">{{ String(p.role || '').trim() || 'provider' }}</span>
+              <button
+                v-if="!showAdditionalParticipantsPicker"
+                type="button"
+                class="btn btn-secondary btn-sm"
+                style="margin-top: 8px;"
+                @click="showAdditionalParticipantsPicker = true"
+              >
+                Add additional participants
+              </button>
+              <div v-else style="margin-top: 8px;">
+                <div class="row" style="gap: 8px; margin-bottom: 6px; flex-wrap: wrap;">
+                  <button class="btn btn-secondary btn-sm" type="button" @click="selectAllFilteredSupervisionAdditionalParticipants">
+                    Add all shown
                   </button>
+                  <button class="btn btn-secondary btn-sm" type="button" @click="selectAllAvailableSupervisionAdditionalParticipants">
+                    Add everyone in list
+                  </button>
+                  <button class="btn btn-secondary btn-sm" type="button" @click="clearSupervisionAdditionalParticipants">
+                    Clear additional
+                  </button>
+                  <button class="btn btn-ghost btn-sm" type="button" @click="showAdditionalParticipantsPicker = false">
+                    Hide picker
+                  </button>
+                </div>
+                <div class="participant-scroll">
+                  <div class="participant-grid">
+                    <button
+                      v-for="p in filteredSupervisionAdditionalParticipants"
+                      :key="`supv-extra-${p.id}`"
+                      type="button"
+                      class="participant-card"
+                      :class="{ on: selectedSupervisionAdditionalParticipantIdSet.has(Number(p.id)) }"
+                      @click="toggleSupervisionAdditionalParticipant(Number(p.id))"
+                    >
+                      <span class="participant-name">{{ supervisionParticipantLabel(p) }}</span>
+                      <span class="participant-role">{{ String(p.role || '').trim() || 'provider' }}</span>
+                    </button>
+                  </div>
                 </div>
               </div>
               <div
@@ -1006,7 +1020,7 @@
         <div v-if="supvModalError" class="error" style="margin-top: 10px;">{{ supvModalError }}</div>
 
         <div class="muted" style="margin-top: 6px;">
-          {{ supvDayLabel }} • {{ hourLabel(supvStartHour) }}–{{ hourLabel(supvEndHour) }}
+          {{ supvDisplayDayLabel }} • {{ hourLabel(supvStartHour) }}–{{ hourLabel(supvEndHour) }}
         </div>
 
         <div class="modal-body">
@@ -4259,6 +4273,7 @@ const supervisionProviders = ref([]);
 const supervisionIncludeAllAgencies = ref(false);
 const selectedSupervisionParticipantId = ref(0);
 const selectedSupervisionAdditionalParticipantIds = ref([]);
+const showAdditionalParticipantsPicker = ref(false);
 const createSupervisionMeetLink = ref(true);
 const supervisionParticipantSearch = ref('');
 
@@ -5525,6 +5540,7 @@ const closeModal = () => {
   modalActionSource.value = 'general';
   requestType.value = '';
   requestTypeChosenByUser.value = false;
+  showAdditionalParticipantsPicker.value = false;
   requestNotes.value = '';
   scheduleEventTitle.value = '';
   scheduleEventAllDay.value = false;
@@ -6674,6 +6690,16 @@ const supvOptions = computed(() => {
 const selectedSupvSession = computed(() => {
   const list = supervisionSessionsInCell(supvDayLabel.value, supvStartHour.value);
   return list.find((x) => Number(x?.id) === Number(selectedSupvSessionId.value)) || null;
+});
+
+/** Day label for display: derive from session startAt when available to avoid timezone/day mismatch. */
+const supvDisplayDayLabel = computed(() => {
+  const ev = selectedSupvSession.value;
+  if (!ev?.startAt) return supvDayLabel.value;
+  const d = parseMaybeDate(ev.startAt);
+  if (!d) return supvDayLabel.value;
+  const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  return dayNames[d.getDay()] || supvDayLabel.value;
 });
 
 const canManagePresenterStatus = computed(() => {
