@@ -65,7 +65,7 @@ export async function createOrGetRoomByUniqueName(uniqueName) {
 
     const createParams = {
       uniqueName: name,
-      type: 'go',
+      type: 'group',
       maxParticipants: 10,
       recordParticipantsOnConnect: true,
       transcribeParticipantsOnConnect: true,
@@ -97,11 +97,13 @@ export async function createOrGetRoom({ sessionId, uniqueName }) {
 
 /**
  * Generate an access token for a user to join a Twilio Video room.
+ * If TWILIO_VIDEO_TOKEN_FUNCTION_URL is set, fetches token from that Twilio Function
+ * (workaround for "Invalid Access Token issuer/subject" when local generation fails).
  * @param {Object} opts
  * @param {string} opts.identity - User identity (e.g. "user-123")
  * @param {string} opts.roomName - Room unique name or SID
  * @param {number} [opts.ttlSeconds=14400] - Token TTL (default 4 hours)
- * @returns {Promise<string | null>} JWT token string
+ * @returns {string | null} JWT token string (sync when using local generation)
  */
 export function createAccessToken({ identity, roomName, ttlSeconds = 14400 }) {
   const cfg = getVideoConfig();
@@ -114,4 +116,30 @@ export function createAccessToken({ identity, roomName, ttlSeconds = 14400 }) {
   });
   token.addGrant(videoGrant);
   return token.toJwt();
+}
+
+/**
+ * Generate access token, optionally via Twilio Function URL.
+ * Use when local token generation fails with "Invalid Access Token issuer/subject".
+ * Set TWILIO_VIDEO_TOKEN_FUNCTION_URL to your deployed Function URL.
+ * @returns {Promise<string | null>}
+ */
+export async function createAccessTokenAsync({ identity, roomName }) {
+  const functionUrl = (process.env.TWILIO_VIDEO_TOKEN_FUNCTION_URL || '').trim();
+  if (functionUrl) {
+    try {
+      const resp = await fetch(functionUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identity: String(identity || 'anonymous'), roomName })
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data?.token) return data.token;
+      }
+    } catch (e) {
+      console.error('[TwilioVideo] Token Function fetch error:', e?.message);
+    }
+  }
+  return createAccessToken({ identity, roomName });
 }

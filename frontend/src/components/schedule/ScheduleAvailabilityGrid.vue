@@ -1174,12 +1174,12 @@
     </div>
 
     <div v-if="showSupvAppVideoModal && supvAppVideoToken" class="modal-backdrop" style="z-index: 10001;" @click.self="closeSupvAppVideoModal">
-      <div class="modal" style="max-width: 900px; max-height: 90vh;">
-        <div class="modal-head">
+      <div class="modal" style="max-width: 900px; max-height: 90vh; display: flex; flex-direction: column; overflow: hidden;" @click.stop>
+        <div class="modal-head" style="flex-shrink: 0;">
           <div class="modal-title">Supervision video (in-app)</div>
-          <button class="btn btn-secondary btn-sm" type="button" @click="closeSupvAppVideoModal">Close</button>
+          <button class="btn btn-secondary btn-sm" type="button" @click.stop="closeSupvAppVideoModal">Close</button>
         </div>
-        <div class="modal-body" style="padding: 12px;">
+        <div class="modal-body" style="padding: 12px; overflow-y: auto; flex: 1; min-height: 0;">
           <p class="muted" style="margin-bottom: 12px;">Attendance is tracked automatically when you join and leave.</p>
           <SupervisionTwilioVideoRoom
             :token="supvAppVideoToken"

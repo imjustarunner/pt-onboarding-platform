@@ -8,7 +8,7 @@ import { fetchMeetTranscriptForSession } from '../services/googleMeetTranscript.
 import {
   isTwilioVideoConfigured,
   createOrGetRoom,
-  createAccessToken
+  createAccessTokenAsync
 } from '../services/twilioVideo.service.js';
 import PayrollRateCard from '../models/PayrollRateCard.model.js';
 import PayrollRate from '../models/PayrollRate.model.js';
@@ -588,10 +588,9 @@ export const getSupervisionVideoToken = async (req, res, next) => {
       });
     }
 
-    const token = createAccessToken({
+    const token = await createAccessTokenAsync({
       identity: `user-${actorUserId}`,
-      roomName: roomResult.uniqueName,
-      ttlSeconds: 14400
+      roomName: roomResult.uniqueName
     });
 
     if (!token) {

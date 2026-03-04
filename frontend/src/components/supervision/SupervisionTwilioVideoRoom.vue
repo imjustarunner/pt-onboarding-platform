@@ -3,7 +3,7 @@
     <div class="video-room-header">
       <span class="video-room-title">{{ roomName || 'Video room' }}</span>
       <button type="button" class="btn btn-danger btn-sm" :disabled="disconnecting" @click="disconnect">
-        {{ disconnecting ? 'Leaving…' : 'Leave' }}
+        {{ disconnecting ? 'Leaving…' : (room ? 'Leave' : 'Close') }}
       </button>
     </div>
     <div v-if="error" class="video-room-error">{{ error }}</div>
@@ -99,7 +99,7 @@ async function connectRoom() {
     transcriptLines.value = [];
     const r = await connect(props.token, {
       name: props.roomName,
-      receiveTranscriptions: true
+      receiveTranscriptions: false
     });
     room.value = r;
 
@@ -171,10 +171,15 @@ async function connectRoom() {
 }
 
 function disconnect() {
-  if (!room.value || disconnecting.value) return;
-  disconnecting.value = true;
-  room.value.disconnect();
-  // Room 'disconnected' handler will POST transcript, clear state, and emit
+  if (disconnecting.value) return;
+  if (room.value) {
+    disconnecting.value = true;
+    room.value.disconnect();
+    // Room 'disconnected' handler will POST transcript, clear state, and emit
+  } else {
+    // Not connected (e.g. error state) – emit so parent can close modal
+    emit('disconnected');
+  }
 }
 
 watch(

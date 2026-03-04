@@ -2,7 +2,7 @@ import express from 'express';
 import pool from '../config/database.js';
 import jwt from 'jsonwebtoken';
 import config from '../config/config.js';
-import { isTwilioVideoConfigured } from '../services/twilioVideo.service.js';
+import { isTwilioVideoConfigured, createAccessTokenAsync } from '../services/twilioVideo.service.js';
 
 const router = express.Router();
 
@@ -42,6 +42,52 @@ router.get('/twilio-video', (req, res) => {
         ? 'FRONTEND_URL is missing – join links need it'
         : null
   });
+});
+
+/**
+ * Twilio Video token diagnostic (for "authorization with Token failed" debugging)
+ * GET /api/health-check/twilio-video-token-test
+ * Creates a test token and returns its decoded payload. Paste the token at jwt.io to verify.
+ * Uses TWILIO_VIDEO_TOKEN_FUNCTION_URL when set (workaround for "Invalid Access Token issuer/subject").
+ */
+router.get('/twilio-video-token-test', async (req, res) => {
+  if (!isTwilioVideoConfigured()) {
+    return res.status(503).json({ error: 'Twilio Video not configured' });
+  }
+  try {
+    const token = await createAccessTokenAsync({
+      identity: 'test-user-diagnostic',
+      roomName: 'test-room-diagnostic'
+    });
+    if (!token) {
+      return res.status(500).json({ error: 'createAccessToken returned null' });
+    }
+    const decoded = jwt.decode(token, { complete: true });
+    const payload = decoded?.payload || {};
+    res.json({
+      tokenGenerated: true,
+      tokenLength: token.length,
+      token,
+      decodedPayload: {
+        iss: payload.iss,
+        sub: payload.sub,
+        exp: payload.exp,
+        jti: payload.jti,
+        grants: payload.grants
+      },
+      hint: 'Paste token at jwt.io to verify structure. iss=API Key SID (must be US1), sub=Account SID. If "authorization failed" persists, try a fresh API Key from Twilio Console.',
+      credentialCheck: {
+        accountSidPrefix: (process.env.TWILIO_ACCOUNT_SID || '').slice(0, 6),
+        accountSidLength: (process.env.TWILIO_ACCOUNT_SID || '').length,
+        apiKeySidPrefix: (process.env.TWILIO_API_KEY_SID || '').slice(0, 6),
+        apiKeySidLength: (process.env.TWILIO_API_KEY_SID || '').length,
+        apiKeySecretLength: (process.env.TWILIO_API_KEY_SECRET || '').length,
+        apiKeySecretHasContent: !!(process.env.TWILIO_API_KEY_SECRET || '').trim()
+      }
+    });
+  } catch (e) {
+    res.status(500).json({ error: String(e?.message || e) });
+  }
 });
 
 /**

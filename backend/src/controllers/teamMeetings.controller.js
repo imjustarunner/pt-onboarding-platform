@@ -10,7 +10,7 @@ import ProviderScheduleEventArtifact from '../models/ProviderScheduleEventArtifa
 import {
   isTwilioVideoConfigured,
   createOrGetRoomByUniqueName,
-  createAccessToken
+  createAccessTokenAsync
 } from '../services/twilioVideo.service.js';
 
 async function canAccessTeamMeeting(req, event) {
@@ -111,10 +111,9 @@ export const getTeamMeetingVideoToken = async (req, res, next) => {
       });
     }
 
-    const token = createAccessToken({
+    const token = await createAccessTokenAsync({
       identity: `user-${actorUserId}`,
-      roomName: roomResult.uniqueName,
-      ttlSeconds: 14400
+      roomName: roomResult.uniqueName
     });
 
     if (!token) {
