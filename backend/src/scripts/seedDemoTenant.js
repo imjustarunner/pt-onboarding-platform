@@ -125,6 +125,44 @@ const createFakeClientIfMissing = async ({ agencyId, organizationId, providerId,
   });
 };
 
+const tableExists = async (tableName) => {
+  const [rows] = await pool.execute(
+    `SELECT COUNT(*) AS cnt
+     FROM information_schema.tables
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = ?`,
+    [tableName]
+  );
+  return Number(rows?.[0]?.cnt || 0) > 0;
+};
+
+const ensureClientAssignments = async ({ clientId, organizationId, providerId }) => {
+  const cid = Number.parseInt(clientId, 10);
+  const orgId = Number.parseInt(organizationId, 10);
+  const provId = Number.parseInt(providerId, 10);
+  if (!Number.isInteger(cid) || cid < 1 || !Number.isInteger(orgId) || orgId < 1) return;
+
+  const hasOrgAssignments = await tableExists('client_organization_assignments');
+  if (hasOrgAssignments) {
+    await pool.execute(
+      `INSERT INTO client_organization_assignments (client_id, organization_id, is_active)
+       VALUES (?, ?, TRUE)
+       ON DUPLICATE KEY UPDATE is_active = TRUE, updated_at = CURRENT_TIMESTAMP`,
+      [cid, orgId]
+    );
+  }
+
+  const hasProviderAssignments = await tableExists('client_provider_assignments');
+  if (hasProviderAssignments && Number.isInteger(provId) && provId > 0) {
+    await pool.execute(
+      `INSERT INTO client_provider_assignments (client_id, organization_id, provider_user_id, service_day, is_active)
+       VALUES (?, ?, ?, 'Tuesday', TRUE)
+       ON DUPLICATE KEY UPDATE provider_user_id = VALUES(provider_user_id), is_active = TRUE, updated_at = CURRENT_TIMESTAMP`,
+      [cid, orgId, provId]
+    );
+  }
+};
+
 const getAgencyTableColumns = async () => {
   const [rows] = await pool.execute(
     `SELECT COLUMN_NAME
@@ -310,13 +348,18 @@ async function main() {
     const fn = firstNames[(i - 1) % firstNames.length];
     const ln = lastNames[Math.floor((i - 1) / firstNames.length) % lastNames.length];
     const initials = `D${String(i).padStart(3, '0')}`;
-    await createFakeClientIfMissing({
+    const client = await createFakeClientIfMissing({
       agencyId: parent.id,
       organizationId: org.id,
       providerId: provider.id,
       createdByUserId: createdUsers.admin.id,
       initials,
       fullName: `${fn} ${ln} Demo`
+    });
+    await ensureClientAssignments({
+      clientId: client?.id,
+      organizationId: org.id,
+      providerId: provider.id
     });
   }
 
