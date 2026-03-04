@@ -124,12 +124,15 @@ function canViewAgencySupervisionLogs(roleRaw) {
   return ['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant'].includes(role);
 }
 
-function supervisionServiceCodeForParticipant({ participantRole, sessionType }) {
+function supervisionServiceCodesForParticipant({ participantRole, sessionType }) {
   const role = String(participantRole || '').trim().toLowerCase();
   const st = String(sessionType || 'individual').trim().toLowerCase();
-  if (role === 'supervisor') return '99415';
-  if (st === 'group') return '99416';
-  return '99414';
+  if (st === 'group') {
+    if (role === 'supervisor') return ['99416', '99415'];
+    return ['99416', '99414'];
+  }
+  if (role === 'supervisor') return ['99415'];
+  return ['99414'];
 }
 
 function isSupervisionMeetingCode(codeRaw) {
@@ -148,6 +151,12 @@ function mysqlNowDateTime() {
   const d = new Date();
   const p2 = (n) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`;
+}
+
+function csvCell(value) {
+  const raw = value == null ? '' : String(value);
+  if (!raw.includes('"') && !raw.includes(',') && !raw.includes('\n')) return raw;
+  return `"${raw.replace(/"/g, '""')}"`;
 }
 
 function canViewSessionArtifacts(roleRaw) {
@@ -251,6 +260,87 @@ async function recomputeAttendanceRollupForUser({ sessionId, userId }) {
   };
 }
 
+async function finalizeSupervisionSession({
+  sessionId,
+  actorUserId = null,
+  source = 'manual_submit',
+  forceMissed = false
+}) {
+  const sid = Number(sessionId || 0);
+  if (!sid) return null;
+  const row = await SupervisionSession.findById(sid);
+  if (!row) return null;
+  const status = String(row.status || '').trim().toUpperCase();
+  if (status === 'CANCELLED' || status === 'RESCHEDULED') {
+    return { skipped: true, reason: 'not_finalizable', session: row };
+  }
+  if (status === 'FINALIZED' || status === 'MISSED') {
+    return { skipped: true, reason: 'already_finalized', session: row };
+  }
+
+  const rollups = await SupervisionSession.listAttendanceRollupsForSession(sid);
+  const totalSeconds = (rollups || []).reduce((sum, r) => sum + Number(r?.total_seconds || 0), 0);
+  const hasAttendanceData = totalSeconds > 0;
+
+  const artifact = await SupervisionSessionArtifact.findBySessionId(sid);
+  const hasTranscriptData =
+    !!String(artifact?.transcript_text || '').trim() ||
+    !!String(artifact?.transcript_url || '').trim() ||
+    !!String(artifact?.summary_text || '').trim();
+
+  const finalizeAsMissed = forceMissed || (!hasAttendanceData && !hasTranscriptData);
+  const finalizedAt = mysqlNowDateTime();
+  const normalizedSource = String(source || 'manual_submit').trim().toLowerCase();
+
+  await SupervisionSession.markAttendanceRollupsFinalized(sid, true);
+  const updated = await SupervisionSession.setStatus(sid, finalizeAsMissed ? 'MISSED' : 'FINALIZED', {
+    finalizedAt,
+    finalizedByUserId: actorUserId ? Number(actorUserId) : null,
+    finalizeSource: normalizedSource,
+    finalTotalSeconds: finalizeAsMissed ? 0 : totalSeconds,
+    supersededBySessionId: null
+  });
+
+  return {
+    skipped: false,
+    status: finalizeAsMissed ? 'MISSED' : 'FINALIZED',
+    finalTotalSeconds: finalizeAsMissed ? 0 : totalSeconds,
+    session: updated
+  };
+}
+
+async function autoFinalizeOverdueSessions({ agencyId = null, actorUserId = null } = {}) {
+  const where = [
+    `UPPER(COALESCE(ss.status, 'SCHEDULED')) IN ('SCHEDULED', 'IN_PROGRESS', 'COMPLETED_PENDING_FINALIZE')`,
+    'ss.end_at <= DATE_SUB(NOW(), INTERVAL 15 MINUTE)'
+  ];
+  const params = [];
+  if (Number(agencyId) > 0) {
+    where.push('ss.agency_id = ?');
+    params.push(Number(agencyId));
+  }
+  const [rows] = await pool.execute(
+    `SELECT ss.id
+     FROM supervision_sessions ss
+     WHERE ${where.join(' AND ')}
+     ORDER BY ss.end_at ASC
+     LIMIT 200`,
+    params
+  );
+  const finalized = [];
+  for (const r of rows || []) {
+    // eslint-disable-next-line no-await-in-loop
+    const out = await finalizeSupervisionSession({
+      sessionId: Number(r.id || 0),
+      actorUserId,
+      source: 'auto_plus_15',
+      forceMissed: false
+    });
+    if (!out?.skipped) finalized.push(out);
+  }
+  return finalized;
+}
+
 async function getSupervisionPayEligibility({ agencyId, userId }) {
   const uid = Number(userId || 0);
   const aId = Number(agencyId || 0);
@@ -290,7 +380,9 @@ async function resolveSupervisionPayForParticipant({
   if (!uid || !aId) {
     return {
       serviceCode: null,
-      rateAmount: 0,
+      serviceCodes: [],
+      rateBreakdown: [],
+      rateAmountTotalPerHour: 0,
       rateUnit: 'per_hour',
       rateSource: 'none',
       payable: false,
@@ -298,37 +390,53 @@ async function resolveSupervisionPayForParticipant({
     };
   }
 
-  const serviceCode = supervisionServiceCodeForParticipant({ participantRole, sessionType });
+  const serviceCodes = supervisionServiceCodesForParticipant({ participantRole, sessionType });
+  const serviceCode = serviceCodes[0] || null;
   const asOf = String(asOfDate || '').slice(0, 10) || null;
   const rateCard = await PayrollRateCard.findForUser(aId, uid);
-  const perCodeRate = await PayrollRate.findBestRate({
-    agencyId: aId,
-    userId: uid,
-    serviceCode,
-    asOf
-  });
 
   if (String(participantRole || '').toLowerCase() === 'supervisor') {
-    // Supervisors: always paid at Supervision rate (99415); fall back to indirect for resilience.
-    if (perCodeRate) {
-      return {
-        serviceCode,
-        rateAmount: Number(perCodeRate.rate_amount || 0),
-        rateUnit: isSupervisionMeetingCode(serviceCode)
-          ? 'per_hour'
-          : (String(perCodeRate.rate_unit || 'per_hour').trim().toLowerCase() || 'per_hour'),
-        rateSource: 'per_code_rate',
-        payable: true,
-        reason: null
-      };
+    const rateBreakdown = [];
+    for (const code of serviceCodes) {
+      // eslint-disable-next-line no-await-in-loop
+      const perCodeRate = await PayrollRate.findBestRate({
+        agencyId: aId,
+        userId: uid,
+        serviceCode: code,
+        asOf
+      });
+      if (perCodeRate) {
+        rateBreakdown.push({
+          serviceCode: code,
+          rateAmount: Number(perCodeRate.rate_amount || 0),
+          rateUnit: isSupervisionMeetingCode(code)
+            ? 'per_hour'
+            : (String(perCodeRate.rate_unit || 'per_hour').trim().toLowerCase() || 'per_hour'),
+          rateSource: 'per_code_rate',
+          payable: true,
+          reason: null
+        });
+      } else {
+        rateBreakdown.push({
+          serviceCode: code,
+          rateAmount: Number(rateCard?.indirect_rate || 0),
+          rateUnit: 'per_hour',
+          rateSource: rateCard ? 'indirect_rate_fallback' : 'none',
+          payable: true,
+          reason: rateCard ? 'missing_supervision_rate_used_indirect' : 'missing_supervision_rate'
+        });
+      }
     }
+    const rateAmountTotalPerHour = rateBreakdown.reduce((sum, r) => sum + Number(r.rateAmount || 0), 0);
     return {
       serviceCode,
-      rateAmount: Number(rateCard?.indirect_rate || 0),
+      serviceCodes,
+      rateBreakdown,
+      rateAmountTotalPerHour,
       rateUnit: 'per_hour',
-      rateSource: rateCard ? 'indirect_rate_fallback' : 'none',
+      rateSource: rateBreakdown.every((r) => r.rateSource === 'per_code_rate') ? 'per_code_rate' : 'mixed',
       payable: true,
-      reason: rateCard ? 'missing_supervision_rate_used_indirect' : 'missing_supervision_rate'
+      reason: rateBreakdown.find((r) => r.reason)?.reason || null
     };
   }
 
@@ -336,7 +444,16 @@ async function resolveSupervisionPayForParticipant({
   if (!eligibility.eligible) {
     return {
       serviceCode,
-      rateAmount: 0,
+      serviceCodes,
+      rateBreakdown: serviceCodes.map((code) => ({
+        serviceCode: code,
+        rateAmount: 0,
+        rateUnit: 'per_hour',
+        rateSource: 'none',
+        payable: false,
+        reason: 'requires_100_hours_or_hourly_worker'
+      })),
+      rateAmountTotalPerHour: 0,
       rateUnit: 'per_hour',
       rateSource: 'none',
       payable: false,
@@ -345,27 +462,47 @@ async function resolveSupervisionPayForParticipant({
     };
   }
 
-  if (perCodeRate) {
-    return {
-      serviceCode,
-      rateAmount: Number(perCodeRate.rate_amount || 0),
-      rateUnit: isSupervisionMeetingCode(serviceCode)
-        ? 'per_hour'
-        : (String(perCodeRate.rate_unit || 'per_hour').trim().toLowerCase() || 'per_hour'),
-      rateSource: 'per_code_rate',
+  const rateBreakdown = [];
+  for (const code of serviceCodes) {
+    // eslint-disable-next-line no-await-in-loop
+    const perCodeRate = await PayrollRate.findBestRate({
+      agencyId: aId,
+      userId: uid,
+      serviceCode: code,
+      asOf
+    });
+    if (perCodeRate) {
+      rateBreakdown.push({
+        serviceCode: code,
+        rateAmount: Number(perCodeRate.rate_amount || 0),
+        rateUnit: isSupervisionMeetingCode(code)
+          ? 'per_hour'
+          : (String(perCodeRate.rate_unit || 'per_hour').trim().toLowerCase() || 'per_hour'),
+        rateSource: 'per_code_rate',
+        payable: true,
+        reason: null
+      });
+      continue;
+    }
+    rateBreakdown.push({
+      serviceCode: code,
+      rateAmount: Number(rateCard?.indirect_rate || 0),
+      rateUnit: 'per_hour',
+      rateSource: rateCard ? 'indirect_rate_fallback' : 'none',
       payable: true,
-      reason: null,
-      eligibility
-    };
+      reason: rateCard ? 'missing_meeting_rate_used_indirect' : 'missing_meeting_rate'
+    });
   }
-
+  const rateAmountTotalPerHour = rateBreakdown.reduce((sum, r) => sum + Number(r.rateAmount || 0), 0);
   return {
     serviceCode,
-    rateAmount: Number(rateCard?.indirect_rate || 0),
+    serviceCodes,
+    rateBreakdown,
+    rateAmountTotalPerHour,
     rateUnit: 'per_hour',
-    rateSource: rateCard ? 'indirect_rate_fallback' : 'none',
+    rateSource: rateBreakdown.every((r) => r.rateSource === 'per_code_rate') ? 'per_code_rate' : 'mixed',
     payable: true,
-    reason: rateCard ? 'missing_meeting_rate_used_indirect' : 'missing_meeting_rate',
+    reason: rateBreakdown.find((r) => r.reason)?.reason || null,
     eligibility
   };
 }
@@ -484,7 +621,10 @@ export const markSupervisionMeetingLifecycle = async (req, res, next) => {
     if (!id) return res.status(400).json({ error: { message: 'Invalid session id' } });
     const row = await SupervisionSession.findById(id);
     if (!row) return res.status(404).json({ error: { message: 'Session not found' } });
-
+    const status = String(row.status || '').trim().toUpperCase();
+    if (['CANCELLED', 'RESCHEDULED', 'MISSED', 'FINALIZED'].includes(status)) {
+      return res.status(400).json({ error: { message: `Session is ${status.toLowerCase()} and cannot be finalized.` } });
+    }
     const ok = await canScheduleSession(req, {
       agencyId: row.agency_id,
       supervisorUserId: row.supervisor_user_id,
@@ -539,6 +679,12 @@ export const markSupervisionMeetingLifecycle = async (req, res, next) => {
       status: eventType === 'joined' ? 'JOINED' : 'LEFT'
     });
 
+    if (eventType === 'joined') {
+      await SupervisionSession.setStatus(id, 'IN_PROGRESS');
+    } else if (eventType === 'left') {
+      await SupervisionSession.setStatus(id, 'COMPLETED_PENDING_FINALIZE');
+    }
+
     // Ensure each tracked meeting has an artifact shell tied to the session.
     if (eventTypeRaw === 'opened' || eventTypeRaw === 'closed') {
       await SupervisionSessionArtifact.ensureTagged({
@@ -548,6 +694,9 @@ export const markSupervisionMeetingLifecycle = async (req, res, next) => {
     }
 
     const rollup = await recomputeAttendanceRollupForUser({ sessionId: id, userId: actorUserId });
+
+    // Keep overdue sessions finalized when users revisit supervision flows.
+    await autoFinalizeOverdueSessions({ agencyId: Number(row.agency_id || 0), actorUserId });
     res.json({
       ok: true,
       sessionId: id,
@@ -556,6 +705,52 @@ export const markSupervisionMeetingLifecycle = async (req, res, next) => {
       eventAt,
       clientSessionKey,
       rollup
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const finalizeSupervisionSessionBySubmit = async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ error: { message: 'Invalid session id' } });
+    const row = await SupervisionSession.findById(id);
+    if (!row) return res.status(404).json({ error: { message: 'Session not found' } });
+    const status = String(row.status || '').trim().toUpperCase();
+    if (['CANCELLED', 'RESCHEDULED', 'MISSED', 'FINALIZED'].includes(status)) {
+      return res.status(400).json({ error: { message: `Session is ${status.toLowerCase()} and is not joinable.` } });
+    }
+
+    const ok = await canScheduleSession(req, {
+      agencyId: row.agency_id,
+      supervisorUserId: row.supervisor_user_id,
+      superviseeUserId: row.supervisee_user_id
+    });
+    if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const actorUserId = Number(req.user?.id || 0);
+    if (!actorUserId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+
+    const forceMissed = req.body?.markMissed === true;
+    const result = await finalizeSupervisionSession({
+      sessionId: id,
+      actorUserId,
+      source: 'manual_submit',
+      forceMissed
+    });
+
+    if (result?.reason === 'not_finalizable') {
+      return res.status(400).json({ error: { message: 'Session cannot be finalized from its current state.' } });
+    }
+
+    res.json({
+      ok: true,
+      sessionId: id,
+      finalized: !result?.skipped,
+      status: result?.status || String(result?.session?.status || '').trim().toUpperCase() || null,
+      finalTotalSeconds: Number(result?.finalTotalSeconds || result?.session?.final_total_seconds || 0),
+      session: result?.session || null
     });
   } catch (e) {
     next(e);
@@ -602,6 +797,10 @@ export const getSupervisionVideoToken = async (req, res, next) => {
 
     const row = await SupervisionSession.findById(id);
     if (!row) return res.status(404).json({ error: { message: 'Session not found' } });
+    const status = String(row.status || '').trim().toUpperCase();
+    if (['CANCELLED', 'RESCHEDULED', 'MISSED', 'FINALIZED'].includes(status)) {
+      return res.status(400).json({ error: { message: `Session is ${status.toLowerCase()} and is not joinable.` } });
+    }
 
     const ok = await canScheduleSession(req, {
       agencyId: row.agency_id,
@@ -720,6 +919,10 @@ export const getLobbyParticipants = async (req, res, next) => {
 
     const row = await SupervisionSession.findById(id);
     if (!row) return res.status(404).json({ error: { message: 'Session not found' } });
+    const status = String(row.status || '').trim().toUpperCase();
+    if (['CANCELLED', 'RESCHEDULED', 'MISSED', 'FINALIZED'].includes(status)) {
+      return res.status(400).json({ error: { message: `Session is ${status.toLowerCase()} and is not joinable.` } });
+    }
 
     const ok = await canScheduleSession(req, {
       agencyId: row.agency_id,
@@ -932,6 +1135,7 @@ export const listSupervisionAttendanceLogs = async (req, res, next) => {
     if (!canViewAgencySupervisionLogs(role)) {
       return res.status(403).json({ error: { message: 'Only admin/staff roles can view supervision attendance logs' } });
     }
+    await autoFinalizeOverdueSessions({ agencyId, actorUserId: actorId });
 
     const startDate = String(req.query?.startDate || '').slice(0, 10) || null;
     const endDate = String(req.query?.endDate || '').slice(0, 10) || null;
@@ -958,7 +1162,7 @@ export const listSupervisionAttendanceLogs = async (req, res, next) => {
       });
       const hours = Number(r.total_seconds || 0) / 3600;
       const unitHours = Number.isFinite(hours) ? Math.round(hours * 100) / 100 : 0;
-      const rate = Number(pay.rateAmount || 0);
+      const rate = Number(pay.rateAmountTotalPerHour || pay.rateAmount || 0);
       const amount = pay.payable ? Math.round(unitHours * rate * 100) / 100 : 0;
 
       logs.push({
@@ -989,6 +1193,8 @@ export const listSupervisionAttendanceLogs = async (req, res, next) => {
           payable: !!pay.payable,
           reason: pay.reason || null,
           serviceCode: pay.serviceCode || null,
+          serviceCodes: Array.isArray(pay.serviceCodes) ? pay.serviceCodes : (pay.serviceCode ? [pay.serviceCode] : []),
+          rateBreakdown: Array.isArray(pay.rateBreakdown) ? pay.rateBreakdown : [],
           rateAmount: rate,
           rateUnit: pay.rateUnit || 'per_hour',
           rateSource: pay.rateSource || 'none',
@@ -999,6 +1205,111 @@ export const listSupervisionAttendanceLogs = async (req, res, next) => {
     }
 
     res.json({ ok: true, agencyId, count: logs.length, logs });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const exportSupervisionAttendanceLogsCsv = async (req, res, next) => {
+  try {
+    const actorId = Number(req.user?.id || 0);
+    if (!actorId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+    const role = String(req.user?.role || '').toLowerCase();
+
+    const agencyId = Number(req.query?.agencyId || 0);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+
+    const actorAgencies = await User.getAgencies(actorId);
+    const hasAgencyAccess = (actorAgencies || []).some((a) => Number(a?.id) === agencyId);
+    if (!hasAgencyAccess) return res.status(403).json({ error: { message: 'Access denied for this agency' } });
+    if (!canViewAgencySupervisionLogs(role)) {
+      return res.status(403).json({ error: { message: 'Only admin/staff roles can export supervision attendance logs' } });
+    }
+    await autoFinalizeOverdueSessions({ agencyId, actorUserId: actorId });
+
+    const startDate = String(req.query?.startDate || '').slice(0, 10) || null;
+    const endDate = String(req.query?.endDate || '').slice(0, 10) || null;
+    const sessionId = req.query?.sessionId ? Number(req.query.sessionId) : null;
+    const userId = req.query?.userId ? Number(req.query.userId) : null;
+
+    const rows = await SupervisionSession.listAttendanceLogsForAgency({
+      agencyId,
+      startDate,
+      endDate,
+      sessionId,
+      userId
+    });
+
+    const headers = [
+      'sessionId',
+      'sessionType',
+      'sessionStatus',
+      'participantName',
+      'participantEmail',
+      'participantRole',
+      'startAt',
+      'endAt',
+      'firstJoinedAt',
+      'lastLeftAt',
+      'totalSeconds',
+      'totalHours',
+      'segmentCount',
+      'isFinalized',
+      'serviceCodes',
+      'rateAmountPerHour',
+      'computedAmount',
+      'payable',
+      'payReason',
+      'transcriptUrl',
+      'summaryText'
+    ];
+
+    const outLines = [headers.join(',')];
+    for (const r of rows || []) {
+      const participantRole = String(r.participant_role || '').trim().toLowerCase() || 'supervisee';
+      // eslint-disable-next-line no-await-in-loop
+      const pay = await resolveSupervisionPayForParticipant({
+        agencyId,
+        userId: Number(r.user_id),
+        participantRole,
+        sessionType: String(r.session_type || 'individual'),
+        asOfDate: String(r.start_at || '').slice(0, 10)
+      });
+      const totalSeconds = Number(r.total_seconds || 0);
+      const totalHours = Math.round((totalSeconds / 3600) * 100) / 100;
+      const rate = Number(pay.rateAmountTotalPerHour || pay.rateAmount || 0);
+      const computedAmount = pay.payable ? Math.round(totalHours * rate * 100) / 100 : 0;
+      const values = [
+        Number(r.session_id || 0),
+        String(r.session_type || 'individual'),
+        String(r.session_status || ''),
+        String(r.participant_name || '').trim(),
+        String(r.participant_email || '').trim().toLowerCase(),
+        participantRole,
+        r.start_at || '',
+        r.end_at || '',
+        r.first_joined_at || '',
+        r.last_left_at || '',
+        totalSeconds,
+        totalHours,
+        Number(r.segment_count || 0),
+        Number(r.is_finalized || 0) === 1 ? 'true' : 'false',
+        Array.isArray(pay.serviceCodes) ? pay.serviceCodes.join('|') : (pay.serviceCode || ''),
+        rate,
+        computedAmount,
+        pay.payable ? 'true' : 'false',
+        pay.reason || '',
+        String(r.artifact_transcript_url || '').trim(),
+        String(r.artifact_summary_text || '').trim()
+      ];
+      outLines.push(values.map(csvCell).join(','));
+    }
+
+    const filenameStart = startDate || 'all';
+    const filenameEnd = endDate || 'all';
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="supervision-attendance-${agencyId}-${filenameStart}-to-${filenameEnd}.csv"`);
+    res.status(200).send(outLines.join('\n'));
   } catch (e) {
     next(e);
   }
@@ -1242,6 +1553,15 @@ export const createSupervisionSession = async (req, res, next) => {
       notes: notes ? String(notes) : null,
       createdByUserId: req.user.id
     });
+
+    // Ensure newly scheduled sessions immediately appear in supervision rosters.
+    await SupervisorAssignment.ensure(
+      supervisorUserId,
+      superviseeUserId,
+      agencyId,
+      req.user.id,
+      { isPrimary: false }
+    );
 
     const requiredSet = new Set([superviseeUserId, ...additionalAttendeeUserIds, ...requiredAttendeeUserIds]);
     const optionalSet = new Set(optionalAttendeeUserIds.filter((uid) => !requiredSet.has(uid)));
@@ -1501,6 +1821,7 @@ export const getSuperviseeHoursSummary = async (req, res, next) => {
         }
       }
     }
+    await autoFinalizeOverdueSessions({ agencyId, actorUserId: requesterId });
 
     const summary = await SupervisionSession.getHoursSummaryForSupervisee(agencyId, superviseeId);
     res.json({
@@ -1562,6 +1883,7 @@ export const getMySupervisionSessions = async (req, res, next) => {
     const userId = Number(req.user?.id || 0);
     const agencyId = req.query?.agencyId ? Number(req.query.agencyId) : null;
     if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+    await autoFinalizeOverdueSessions({ agencyId, actorUserId: userId });
 
     const sessions = await SupervisionSession.listSessionsForSuperviseeWithArtifacts({
       superviseeUserId: userId,
@@ -1619,6 +1941,7 @@ export const getSuperviseeSessions = async (req, res, next) => {
       });
       if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
     }
+    await autoFinalizeOverdueSessions({ agencyId: aId, actorUserId: actorId });
 
     const sessions = await SupervisionSession.listSessionsForSuperviseeWithArtifacts({
       superviseeUserId: superviseeId,

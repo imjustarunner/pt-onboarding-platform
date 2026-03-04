@@ -518,6 +518,54 @@
                   </li>
                 </ul>
               </div>
+              <div class="upcoming-sessions" style="margin-top: 1rem;">
+                <div class="supervision-actions-row" style="justify-content: space-between; align-items: center;">
+                  <h4 style="margin: 0; font-size: 0.95rem;">Recent sessions (audit trail)</h4>
+                  <button
+                    type="button"
+                    class="btn btn-secondary btn-sm"
+                    :disabled="!sessionHistory.length"
+                    @click="exportSessionHistoryCsv"
+                  >
+                    Export CSV
+                  </button>
+                </div>
+                <div v-if="sessionHistoryLoading" class="summary-meta" style="margin-top: 0.5rem;">Loading session history…</div>
+                <div v-else-if="sessionHistoryError" class="supervision-error-inline" style="margin-top: 0.5rem;">{{ sessionHistoryError }}</div>
+                <ul v-else-if="sessionHistory.length" class="supervision-docs-list">
+                  <li v-for="s in sessionHistory" :key="`history-${s.id}`">
+                    <strong>{{ formatSessionDate(s.startAt) }}</strong> – {{ formatSessionDate(s.endAt) }}
+                    <span class="summary-meta"> · {{ String(s.sessionType || 'individual') }}</span>
+                    <span class="summary-meta"> · Status: {{ String(s.status || '').toLowerCase() }}</span>
+                    <span class="summary-meta" v-if="s.totalHours != null"> · {{ fmtNum(s.totalHours) }} hrs</span>
+                    <span class="summary-meta" v-if="s.segmentCount"> · {{ s.segmentCount }} segments</span>
+                    <span class="summary-meta" v-if="s.firstJoinedAt"> · joined {{ formatSessionDate(s.firstJoinedAt) }}</span>
+                    <span class="summary-meta" v-if="s.lastLeftAt"> · left {{ formatSessionDate(s.lastLeftAt) }}</span>
+                    <span class="summary-meta" v-if="s.sessionFinalizedAt"> · finalized {{ formatSessionDate(s.sessionFinalizedAt) }}</span>
+                    <div class="supervision-actions-row" style="margin-top: 0.35rem;">
+                      <button
+                        v-if="isFinalizableSession(s)"
+                        type="button"
+                        class="btn btn-primary btn-sm"
+                        :disabled="!!sessionFinalizeLoadingById[s.id]"
+                        @click="submitFinalizeSession(s, false)"
+                      >
+                        {{ sessionFinalizeLoadingById[s.id] ? 'Finalizing…' : 'Submit session' }}
+                      </button>
+                      <button
+                        v-if="isFinalizableSession(s)"
+                        type="button"
+                        class="btn btn-secondary btn-sm"
+                        :disabled="!!sessionFinalizeLoadingById[s.id]"
+                        @click="submitFinalizeSession(s, true)"
+                      >
+                        Mark missed
+                      </button>
+                    </div>
+                  </li>
+                </ul>
+                <p v-else class="summary-meta" style="margin-top: 0.5rem;">No recent sessions found.</p>
+              </div>
             </section>
           </div>
         </template>
@@ -685,6 +733,10 @@ const activityLoadingById = ref({});
 const activityErrorById = ref({});
 const activityExpandedById = ref({});
 const sessionActivityById = ref({});
+const sessionHistory = ref([]);
+const sessionHistoryLoading = ref(false);
+const sessionHistoryError = ref('');
+const sessionFinalizeLoadingById = ref({});
 
 const organizationSlug = computed(() => route.params?.organizationSlug || '');
 
@@ -827,6 +879,87 @@ async function saveSessionArtifact(sessionId, { autoSummarize = false } = {}) {
   } finally {
     artifactSavingById.value = { ...artifactSavingById.value, [sid]: false };
   }
+}
+
+function isFinalizableSession(session) {
+  const status = String(session?.status || '').trim().toUpperCase();
+  if (['FINALIZED', 'MISSED', 'CANCELLED', 'RESCHEDULED'].includes(status)) return false;
+  const endMs = new Date(session?.endAt || 0).getTime();
+  return Number.isFinite(endMs) && endMs <= Date.now();
+}
+
+async function submitFinalizeSession(session, markMissed = false) {
+  const sid = Number(session?.id || 0);
+  if (!sid) return;
+  sessionFinalizeLoadingById.value = { ...sessionFinalizeLoadingById.value, [sid]: true };
+  sessionHistoryError.value = '';
+  try {
+    await api.post(`/supervision/sessions/${sid}/finalize`, { markMissed: !!markMissed });
+    await fetchSessionHistory();
+    await fetchSuperviseeExtras();
+  } catch (err) {
+    sessionHistoryError.value = err?.response?.data?.error?.message || 'Failed to finalize session.';
+  } finally {
+    sessionFinalizeLoadingById.value = { ...sessionFinalizeLoadingById.value, [sid]: false };
+  }
+}
+
+function exportSessionHistoryCsv() {
+  const rows = Array.isArray(sessionHistory.value) ? sessionHistory.value : [];
+  if (!rows.length) return;
+  const csvCell = (value) => {
+    const raw = value == null ? '' : String(value);
+    if (!raw.includes('"') && !raw.includes(',') && !raw.includes('\n')) return raw;
+    return `"${raw.replace(/"/g, '""')}"`;
+  };
+  const headers = [
+    'sessionId',
+    'sessionType',
+    'status',
+    'startAt',
+    'endAt',
+    'supervisorName',
+    'totalSeconds',
+    'totalHours',
+    'segmentCount',
+    'firstJoinedAt',
+    'lastLeftAt',
+    'sessionFinalizedAt',
+    'sessionFinalizeSource',
+    'summaryText',
+    'transcriptUrl'
+  ];
+  const lines = [headers.join(',')];
+  for (const row of rows) {
+    const values = [
+      Number(row.id || 0),
+      String(row.sessionType || 'individual'),
+      String(row.status || ''),
+      row.startAt || '',
+      row.endAt || '',
+      String(row.supervisorName || ''),
+      Number(row.totalSeconds || 0),
+      Number(row.totalHours || 0),
+      Number(row.segmentCount || 0),
+      row.firstJoinedAt || '',
+      row.lastLeftAt || '',
+      row.sessionFinalizedAt || '',
+      row.sessionFinalizeSource || '',
+      row.summaryText || '',
+      row.transcriptUrl || ''
+    ];
+    lines.push(values.map(csvCell).join(','));
+  }
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  const stamp = new Date().toISOString().slice(0, 10);
+  anchor.href = url;
+  anchor.download = `supervision-history-${Number(selectedSupervisee.value?.supervisee_id || 0)}-${stamp}.csv`;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
 }
 
 function formatActivityTime(createdAt) {
@@ -1013,6 +1146,7 @@ async function submitScheduleMeeting() {
     scheduleNotes.value = '';
     await fetchScheduleSummary();
     await fetchSuperviseeExtras();
+    await fetchSessionHistory();
   } catch (err) {
     scheduleError.value = err?.response?.data?.error?.message || 'Failed to schedule meeting.';
   } finally {
@@ -1494,6 +1628,31 @@ async function fetchSuperviseeExtras() {
   }
 }
 
+async function fetchSessionHistory() {
+  const s = selectedSupervisee.value;
+  const agencyId = selectedSuperviseeAgencyId.value;
+  if (!s?.supervisee_id || !agencyId) {
+    sessionHistory.value = [];
+    return;
+  }
+  sessionHistoryLoading.value = true;
+  sessionHistoryError.value = '';
+  try {
+    const response = await api.get(`/supervision/supervisee/${s.supervisee_id}/sessions`, {
+      params: { agencyId }
+    });
+    const rows = Array.isArray(response?.data?.sessions) ? response.data.sessions : [];
+    sessionHistory.value = rows
+      .slice(0, 100)
+      .sort((a, b) => new Date(b?.startAt || 0).getTime() - new Date(a?.startAt || 0).getTime());
+  } catch (err) {
+    sessionHistoryError.value = err?.response?.data?.error?.message || 'Failed to load session history.';
+    sessionHistory.value = [];
+  } finally {
+    sessionHistoryLoading.value = false;
+  }
+}
+
 async function fetchScheduleSummary() {
   const s = selectedSupervisee.value;
   const agencyId = selectedSuperviseeAgencyId.value;
@@ -1661,6 +1820,9 @@ watch(selectedSupervisee, (v) => {
   artifactLoadingById.value = {};
   artifactSavingById.value = {};
   artifactErrorById.value = {};
+  sessionHistory.value = [];
+  sessionHistoryError.value = '';
+  sessionFinalizeLoadingById.value = {};
   if (v) {
     fetchSuperviseeSummary();
     fetchSuperviseeExtras();
@@ -1670,6 +1832,7 @@ watch(selectedSupervisee, (v) => {
     fetchClients();
     fetchCompliancePending();
     fetchAffiliatedPortals();
+    fetchSessionHistory();
   } else {
     summaryLoading.value = false;
   }

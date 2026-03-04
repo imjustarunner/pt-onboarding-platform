@@ -3403,10 +3403,12 @@ function isProviderPlusRole(roleRaw) {
 function mapSupervisionServiceCodeForPayroll({ participantRole, sessionType, participantUserRole }) {
   const role = String(participantRole || '').trim().toLowerCase();
   const st = String(sessionType || 'individual').trim().toLowerCase();
-  if (role === 'supervisor') return '99415';
-  if (isProviderPlusRole(participantUserRole)) return '99415';
-  if (st === 'group') return '99416';
-  return '99414';
+  if (st === 'group') {
+    if (role === 'supervisor' || isProviderPlusRole(participantUserRole)) return ['99416', '99415'];
+    return ['99416', '99414'];
+  }
+  if (role === 'supervisor' || isProviderPlusRole(participantUserRole)) return ['99415'];
+  return ['99414'];
 }
 
 function isSupervisionMeetingCode(codeRaw) {
@@ -3483,15 +3485,17 @@ async function buildResolvedSupervisionUnitsByUserCode({
       // Interns are never paid for supervision/practice-support meetings.
       continue;
     }
-    const serviceCode = mapSupervisionServiceCodeForPayroll({
+    const serviceCodes = mapSupervisionServiceCodeForPayroll({
       participantRole: r.participant_role,
       sessionType: r.session_type,
       participantUserRole: r.participant_user_role
     });
     const minutes = Number(r.total_seconds || 0) / 60;
     if (!(Number.isFinite(minutes) && minutes > 0)) continue;
-    const key = `${uid}:${serviceDate}:${serviceCode}`;
-    appByUserDateCode.set(key, (appByUserDateCode.get(key) || 0) + minutes);
+    for (const serviceCode of serviceCodes) {
+      const key = `${uid}:${serviceDate}:${serviceCode}`;
+      appByUserDateCode.set(key, (appByUserDateCode.get(key) || 0) + minutes);
+    }
   }
 
   const legacyByUserDateCode = new Map();

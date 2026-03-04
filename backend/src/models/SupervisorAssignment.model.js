@@ -14,6 +14,17 @@ class SupervisorAssignment {
     return this.findById(result.insertId);
   }
 
+  static async ensure(supervisorId, superviseeId, agencyId, createdByUserId = null, { isPrimary = false } = {}) {
+    const supId = Number(supervisorId || 0);
+    const svId = Number(superviseeId || 0);
+    const aId = Number(agencyId || 0);
+    if (!supId || !svId || !aId) return null;
+    const existing = await this.isAssigned(supId, svId, aId);
+    if (existing) return true;
+    await this.create(supId, svId, aId, createdByUserId, { isPrimary });
+    return true;
+  }
+
   /**
    * Clear primary flag for a supervisee within an agency
    */

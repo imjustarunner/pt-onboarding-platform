@@ -336,8 +336,17 @@ export const videoRoomStatusWebhook = async (req, res) => {
       const session = rows?.[0] || null;
       if (!session) return res.status(200).send('OK');
 
+      const [attendeeRows] = await pool.execute(
+        `SELECT 1
+         FROM supervision_session_attendees
+         WHERE session_id = ? AND user_id = ?
+         LIMIT 1`,
+        [sessionId, userId]
+      );
       const isParticipant =
-        Number(session.supervisor_user_id) === userId || Number(session.supervisee_user_id) === userId;
+        Number(session.supervisor_user_id) === userId
+        || Number(session.supervisee_user_id) === userId
+        || (attendeeRows || []).length > 0;
       if (!isParticipant) return res.status(200).send('OK');
 
       let attendee = await SupervisionSession.findAttendeeBySessionUser(sessionId, userId);
@@ -370,6 +379,11 @@ export const videoRoomStatusWebhook = async (req, res) => {
         userId,
         status: eventType === 'joined' ? 'JOINED' : 'LEFT'
       });
+      if (eventType === 'joined') {
+        await SupervisionSession.setStatus(sessionId, 'IN_PROGRESS');
+      } else if (eventType === 'left') {
+        await SupervisionSession.setStatus(sessionId, 'COMPLETED_PENDING_FINALIZE');
+      }
 
       await recomputeAttendanceRollupForUser({ sessionId, userId });
       return res.status(200).send('OK');

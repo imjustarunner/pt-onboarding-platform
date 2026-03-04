@@ -3,7 +3,9 @@ import { authenticate } from '../middleware/auth.middleware.js';
 import {
   listSupervisionProviderCandidates,
   listSupervisionAttendanceLogs,
+  exportSupervisionAttendanceLogsCsv,
   markSupervisionMeetingLifecycle,
+  finalizeSupervisionSessionBySubmit,
   getSupervisionVideoToken,
   getLobbyParticipants,
   admitToMainRoom,
@@ -36,6 +38,7 @@ router.use(authenticate);
 
 router.get('/providers', listSupervisionProviderCandidates);
 router.get('/attendance-logs', listSupervisionAttendanceLogs);
+router.get('/attendance-logs/export', exportSupervisionAttendanceLogsCsv);
 router.get('/supervisee/:superviseeId/hours-summary', getSuperviseeHoursSummary);
 router.get('/my-prompts', getMySupervisionPrompts);
 router.get('/my-sessions', getMySupervisionSessions);
@@ -44,6 +47,7 @@ router.get('/my-presenter-assignments', getMyPresenterAssignments);
 router.get('/sessions/:id/presenters', getSessionPresenters);
 router.post('/sessions/:id/presenters/:userId/presented', markSessionPresenterPresented);
 router.post('/sessions/:id/meeting-lifecycle', markSupervisionMeetingLifecycle);
+router.post('/sessions/:id/finalize', finalizeSupervisionSessionBySubmit);
 router.get('/sessions/:id/video-token', getSupervisionVideoToken);
 router.get('/sessions/:id/lobby-participants', getLobbyParticipants);
 router.get('/sessions/:id/admission-status', getAdmissionStatus);

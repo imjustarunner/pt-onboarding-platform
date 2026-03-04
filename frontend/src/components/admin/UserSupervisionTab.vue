@@ -1,5 +1,10 @@
 <template>
   <div class="user-supervision-tab">
+    <div v-if="sessions.length" class="toolbar">
+      <button type="button" class="btn btn-secondary btn-sm" @click="exportSessionsCsv">
+        Export CSV
+      </button>
+    </div>
     <div v-if="loading" class="loading">Loading supervision sessions…</div>
     <div v-else-if="error" class="error">{{ error }}</div>
     <div v-else-if="!sessions.length" class="empty-state">
@@ -34,6 +39,14 @@
           >
             Join
           </a>
+        </div>
+        <div class="session-stats">
+          <span>Attended: <strong>{{ fmtHours(session.totalHours || 0) }} hrs</strong></span>
+          <span v-if="session.segmentCount">Segments: {{ session.segmentCount }}</span>
+          <span v-if="session.firstJoinedAt">First joined: {{ formatSessionDate(session.firstJoinedAt) }}</span>
+          <span v-if="session.lastLeftAt">Last left: {{ formatSessionDate(session.lastLeftAt) }}</span>
+          <span v-if="session.sessionFinalizedAt">Finalized: {{ formatSessionDate(session.sessionFinalizedAt) }}</span>
+          <span v-if="session.status">Status: {{ String(session.status || '').toLowerCase() }}</span>
         </div>
         <details v-if="session.transcriptText" class="artifact-block">
           <summary>Transcript</summary>
@@ -112,6 +125,71 @@ function renderedSummary(text) {
     .replace(/\n/g, '<br>');
 }
 
+function fmtHours(v) {
+  const n = Number(v || 0);
+  if (!Number.isFinite(n)) return '0.00';
+  return (Math.round(n * 100) / 100).toFixed(2);
+}
+
+function csvCell(value) {
+  const raw = value == null ? '' : String(value);
+  if (!raw.includes('"') && !raw.includes(',') && !raw.includes('\n')) return raw;
+  return `"${raw.replace(/"/g, '""')}"`;
+}
+
+function exportSessionsCsv() {
+  const rows = Array.isArray(sessions.value) ? sessions.value : [];
+  if (!rows.length) return;
+  const headers = [
+    'sessionId',
+    'sessionType',
+    'status',
+    'startAt',
+    'endAt',
+    'supervisorName',
+    'totalSeconds',
+    'totalHours',
+    'segmentCount',
+    'firstJoinedAt',
+    'lastLeftAt',
+    'sessionFinalizedAt',
+    'sessionFinalizeSource',
+    'transcriptUrl',
+    'summaryText'
+  ];
+  const lines = [headers.join(',')];
+  for (const s of rows) {
+    const values = [
+      Number(s.id || 0),
+      String(s.sessionType || 'individual'),
+      String(s.status || ''),
+      s.startAt || '',
+      s.endAt || '',
+      String(s.supervisorName || ''),
+      Number(s.totalSeconds || 0),
+      Number(s.totalHours || 0),
+      Number(s.segmentCount || 0),
+      s.firstJoinedAt || '',
+      s.lastLeftAt || '',
+      s.sessionFinalizedAt || '',
+      s.sessionFinalizeSource || '',
+      s.transcriptUrl || '',
+      s.summaryText || ''
+    ];
+    lines.push(values.map(csvCell).join(','));
+  }
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const stamp = new Date().toISOString().slice(0, 10);
+  a.href = url;
+  a.download = `supervision-sessions-${String(props.userId)}-${stamp}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 onMounted(fetchSessions);
 watch([() => props.userId, () => props.agencyId], fetchSessions);
 </script>
@@ -119,6 +197,11 @@ watch([() => props.userId, () => props.agencyId], fetchSessions);
 <style scoped>
 .user-supervision-tab {
   padding: 16px 0;
+}
+.toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 12px;
 }
 .loading,
 .error,
@@ -180,6 +263,14 @@ details[open] .session-meta-clickable::before {
 .session-supervisor {
   color: var(--text-secondary);
   font-size: 0.9em;
+}
+.session-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-top: 10px;
+  font-size: 0.85em;
+  color: var(--text-secondary);
 }
 .session-artifacts {
   margin-top: 12px;

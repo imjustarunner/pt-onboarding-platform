@@ -2043,6 +2043,9 @@
                   <button class="btn btn-secondary btn-sm" type="button" @click="loadSupervisionAttendanceReport" :disabled="supervisionAttendanceLoading || !selectedPeriodId">
                     Refresh
                   </button>
+                  <button class="btn btn-secondary btn-sm" type="button" @click="downloadSupervisionAttendanceCsv" :disabled="supervisionAttendanceLoading || !selectedPeriodId || !agencyId">
+                    Export CSV
+                  </button>
                   <button class="btn btn-secondary btn-sm" type="button" @click="showSupervisionAttendanceModal = false" style="margin-left: 8px;">
                     Close
                   </button>
@@ -9906,6 +9909,37 @@ const loadSupervisionAttendanceReport = async () => {
   } catch (e) {
     supervisionAttendanceError.value = e.response?.data?.error?.message || e.message || 'Failed to load supervision attendance report';
     supervisionAttendanceRows.value = [];
+  } finally {
+    supervisionAttendanceLoading.value = false;
+  }
+};
+
+const downloadSupervisionAttendanceCsv = async () => {
+  if (!agencyId.value || !selectedPeriod.value) return;
+  try {
+    supervisionAttendanceLoading.value = true;
+    supervisionAttendanceError.value = '';
+    const startDate = String(selectedPeriod.value?.period_start || '').slice(0, 10);
+    const endDate = String(selectedPeriod.value?.period_end || '').slice(0, 10);
+    const resp = await api.get('/supervision/attendance-logs/export', {
+      params: {
+        agencyId: Number(agencyId.value),
+        startDate,
+        endDate
+      },
+      responseType: 'blob'
+    });
+    const blob = new Blob([resp.data], { type: 'text/csv;charset=utf-8;' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `supervision-attendance-${Number(agencyId.value)}-${startDate}-to-${endDate}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  } catch (e) {
+    supervisionAttendanceError.value = e.response?.data?.error?.message || e.message || 'Failed to export supervision attendance CSV';
   } finally {
     supervisionAttendanceLoading.value = false;
   }

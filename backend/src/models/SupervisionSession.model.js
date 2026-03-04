@@ -241,6 +241,79 @@ class SupervisionSession {
     );
   }
 
+  static async listAttendanceRollupsForSession(sessionId) {
+    const sid = parseInt(sessionId, 10);
+    if (!sid) return [];
+    const [rows] = await pool.execute(
+      `SELECT session_id, user_id, first_joined_at, last_left_at, total_seconds, segment_count, is_finalized
+       FROM supervision_session_attendance_rollups
+       WHERE session_id = ?
+       ORDER BY user_id ASC`,
+      [sid]
+    );
+    return rows || [];
+  }
+
+  static async markAttendanceRollupsFinalized(sessionId, isFinalized = true) {
+    const sid = parseInt(sessionId, 10);
+    if (!sid) return;
+    await pool.execute(
+      `UPDATE supervision_session_attendance_rollups
+       SET is_finalized = ?,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE session_id = ?`,
+      [isFinalized ? 1 : 0, sid]
+    );
+  }
+
+  static async clearAttendanceRollups(sessionId) {
+    const sid = parseInt(sessionId, 10);
+    if (!sid) return;
+    await pool.execute(
+      `UPDATE supervision_session_attendance_rollups
+       SET is_finalized = 0,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE session_id = ?`,
+      [sid]
+    );
+  }
+
+  static async setStatus(id, status, extras = {}) {
+    const sid = parseInt(id, 10);
+    if (!sid) return null;
+    const nextStatus = String(status || '').trim().toUpperCase();
+    const updates = ['status = ?', 'updated_at = CURRENT_TIMESTAMP'];
+    const args = [nextStatus];
+    if (Object.prototype.hasOwnProperty.call(extras, 'finalizedAt')) {
+      updates.push('finalized_at = ?');
+      args.push(extras.finalizedAt || null);
+    }
+    if (Object.prototype.hasOwnProperty.call(extras, 'finalizedByUserId')) {
+      updates.push('finalized_by_user_id = ?');
+      args.push(extras.finalizedByUserId ? Number(extras.finalizedByUserId) : null);
+    }
+    if (Object.prototype.hasOwnProperty.call(extras, 'finalizeSource')) {
+      updates.push('finalize_source = ?');
+      args.push(extras.finalizeSource ? String(extras.finalizeSource) : null);
+    }
+    if (Object.prototype.hasOwnProperty.call(extras, 'finalTotalSeconds')) {
+      updates.push('final_total_seconds = ?');
+      args.push(Number(extras.finalTotalSeconds || 0));
+    }
+    if (Object.prototype.hasOwnProperty.call(extras, 'supersededBySessionId')) {
+      updates.push('superseded_by_session_id = ?');
+      args.push(extras.supersededBySessionId ? Number(extras.supersededBySessionId) : null);
+    }
+    args.push(sid);
+    await pool.execute(
+      `UPDATE supervision_sessions
+       SET ${updates.join(', ')}
+       WHERE id = ?`,
+      args
+    );
+    return this.findById(sid);
+  }
+
   static async listAttendanceEventsForSessionUser({ sessionId, userId }) {
     const sid = parseInt(sessionId, 10);
     const uid = parseInt(userId, 10);
@@ -571,13 +644,16 @@ class SupervisionSession {
     const updates = [];
     const values = [];
 
+    let timingChanged = false;
     if (startAt !== undefined) {
       updates.push('start_at = ?');
       values.push(startAt);
+      timingChanged = true;
     }
     if (endAt !== undefined) {
       updates.push('end_at = ?');
       values.push(endAt);
+      timingChanged = true;
     }
     if (sessionType !== undefined) {
       updates.push('session_type = ?');
@@ -604,6 +680,23 @@ class SupervisionSession {
        WHERE id = ?`,
       [...values, sid]
     );
+    if (timingChanged) {
+      // Rescheduling interrupts the existing finalization flow.
+      await pool.execute(
+        `UPDATE supervision_sessions
+         SET status = 'SCHEDULED',
+             finalized_at = NULL,
+             finalized_by_user_id = NULL,
+             finalize_source = NULL,
+             final_total_seconds = NULL,
+             superseded_by_session_id = NULL,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?
+           AND UPPER(COALESCE(status, 'SCHEDULED')) IN ('FINALIZED', 'MISSED', 'COMPLETED_PENDING_FINALIZE')`,
+        [sid]
+      );
+      await this.clearAttendanceRollups(sid);
+    }
     return this.findById(sid);
   }
 
@@ -718,10 +811,22 @@ class SupervisionSession {
          ssa2.transcript_text,
          ssa2.summary_text,
          ssa2.summary_model,
-         ssa2.summary_generated_at
+         ssa2.summary_generated_at,
+         ssar.first_joined_at,
+         ssar.last_left_at,
+         ssar.total_seconds,
+         ssar.segment_count,
+         ssar.is_finalized,
+         ss.finalized_at,
+         ss.finalized_by_user_id,
+         ss.finalize_source,
+         ss.final_total_seconds
        FROM supervision_sessions ss
        JOIN users sup ON sup.id = ss.supervisor_user_id
        LEFT JOIN supervision_session_artifacts ssa2 ON ssa2.session_id = ss.id
+       LEFT JOIN supervision_session_attendance_rollups ssar
+         ON ssar.session_id = ss.id
+        AND ssar.user_id = ?
        WHERE (
            ss.supervisee_user_id = ?
            OR EXISTS (
@@ -753,7 +858,17 @@ class SupervisionSession {
       transcriptText: r.transcript_text || null,
       summaryText: r.summary_text || null,
       summaryModel: r.summary_model || null,
-      summaryGeneratedAt: r.summary_generated_at || null
+      summaryGeneratedAt: r.summary_generated_at || null,
+      firstJoinedAt: r.first_joined_at || null,
+      lastLeftAt: r.last_left_at || null,
+      totalSeconds: Number(r.total_seconds || 0),
+      totalHours: Math.round((Number(r.total_seconds || 0) / 3600) * 100) / 100,
+      segmentCount: Number(r.segment_count || 0),
+      isFinalized: Number(r.is_finalized || 0) === 1,
+      sessionFinalizedAt: r.finalized_at || null,
+      sessionFinalizeSource: r.finalize_source || null,
+      sessionFinalTotalSeconds: r.final_total_seconds == null ? null : Number(r.final_total_seconds || 0),
+      sessionFinalizedByUserId: r.finalized_by_user_id ? Number(r.finalized_by_user_id) : null
     }));
   }
 
@@ -766,22 +881,18 @@ class SupervisionSession {
     const uId = parseInt(superviseeUserId, 10);
     const [rows] = await pool.execute(
       `SELECT
-         COALESCE(SUM(TIMESTAMPDIFF(SECOND, ss.start_at, ss.end_at)), 0) AS total_seconds,
-         COUNT(ss.id) AS session_count
-       FROM supervision_sessions ss
+         COALESCE(SUM(ssar.total_seconds), 0) AS total_seconds,
+         COUNT(DISTINCT ss.id) AS session_count
+       FROM supervision_session_attendance_rollups ssar
+       JOIN supervision_sessions ss ON ss.id = ssar.session_id
        WHERE ss.agency_id = ?
+         AND ssar.user_id = ?
+         AND COALESCE(ssar.total_seconds, 0) > 0
          AND (
-           ss.supervisee_user_id = ?
-           OR EXISTS (
-             SELECT 1
-             FROM supervision_session_attendees ssa
-             WHERE ssa.session_id = ss.id
-               AND ssa.user_id = ?
-               AND ssa.participant_role = 'supervisee'
-           )
-         )
-         AND (ss.status IS NULL OR ss.status <> 'CANCELLED')`,
-      [aId, uId, uId]
+           UPPER(COALESCE(ss.status, 'SCHEDULED')) = 'FINALIZED'
+           OR (ss.finalized_at IS NULL AND UPPER(COALESCE(ss.status, 'SCHEDULED')) NOT IN ('CANCELLED', 'MISSED', 'RESCHEDULED'))
+         )`,
+      [aId, uId]
     );
     const r = rows?.[0] || null;
     const totalSeconds = Number(r?.total_seconds || 0);
