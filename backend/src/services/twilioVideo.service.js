@@ -67,7 +67,7 @@ export async function createOrGetRoomByUniqueName(uniqueName) {
     const createParams = {
       uniqueName: name,
       type: 'group',
-      maxParticipants: 100,
+      maxParticipants: 50, // Twilio limit: 1–50
       recordParticipantsOnConnect: true,
       transcribeParticipantsOnConnect: true,
       transcriptionsConfiguration: { languageCode: 'en-US', speechModel: 'long' },
