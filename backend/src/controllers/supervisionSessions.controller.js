@@ -597,11 +597,15 @@ export const getSupervisionVideoToken = async (req, res, next) => {
       return res.status(500).json({ error: { message: 'Failed to generate access token' } });
     }
 
-    res.json({
-      token,
-      roomName: roomResult.uniqueName,
-      roomSid: roomResult.roomSid
-    });
+    const payload = { token: String(token).trim(), roomName: roomResult.uniqueName, roomSid: roomResult.roomSid };
+    if (req.query?.debug === '1') {
+      try {
+        const { default: jwt } = await import('jsonwebtoken');
+        const decoded = jwt.decode(token);
+        payload._debug = { iss: decoded?.iss, sub: decoded?.sub, room: decoded?.grants?.video?.room, exp: decoded?.exp };
+      } catch (_) { /* ignore */ }
+    }
+    res.json(payload);
   } catch (e) {
     next(e);
   }

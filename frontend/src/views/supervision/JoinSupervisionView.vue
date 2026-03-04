@@ -67,17 +67,16 @@ async function fetchTokenAndJoin() {
   try {
     const resp = await api.get(`/supervision/sessions/${sid}/video-token`);
     const data = resp?.data || {};
-    const tok = data.token || data.data?.token || '';
+    const tok = (data.token || data.data?.token || data.result?.token || '').trim();
+    const rn = data.roomName || data.room_name || data.data?.roomName || `supervision-${sid}`;
     if (!tok) {
-      console.warn('[JoinSupervisionView] video-token 200 but token empty:', { status: resp?.status, data });
-      error.value =
-        'Video token was empty. Check Network tab: GET /api/supervision/sessions/' +
-        sid +
-        '/video-token – status and response body.';
+      console.warn('[JoinSupervisionView] video-token empty:', { status: resp?.status, data });
+      const errMsg = data?.error?.message || data?.error || '';
+      error.value = errMsg || 'Video token was empty. Check Network tab: GET /api/supervision/sessions/' + sid + '/video-token.';
       return;
     }
     token.value = tok;
-    roomName.value = data.roomName || `supervision-${sid}`;
+    roomName.value = rn;
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to join video room';
   }

@@ -9,6 +9,7 @@
  *   TWILIO_VIDEO_WEBHOOK_URL (e.g. https://your-app.com/api/twilio/video/webhook)
  */
 
+import crypto from 'crypto';
 import twilio from 'twilio';
 import TwilioService from './twilio.service.js';
 
@@ -124,21 +125,62 @@ export function createAccessToken({ identity, roomName, ttlSeconds = 14400 }) {
  * Set TWILIO_VIDEO_TOKEN_FUNCTION_URL to your deployed Function URL.
  * @returns {Promise<string | null>}
  */
+/**
+ * Compute X-Twilio-Signature for Protected Twilio Functions.
+ * Algorithm: HMAC-SHA1(url + sorted params as key+value, authToken), base64.
+ */
+function computeTwilioSignature(url, params, authToken) {
+  const sortedKeys = Object.keys(params).sort();
+  let data = url;
+  for (const k of sortedKeys) {
+    data += k + (params[k] ?? '');
+  }
+  const hmac = crypto.createHmac('sha1', authToken);
+  hmac.update(data);
+  return hmac.digest('base64');
+}
+
 export async function createAccessTokenAsync({ identity, roomName }) {
   const functionUrl = (process.env.TWILIO_VIDEO_TOKEN_FUNCTION_URL || '').trim();
+  const authToken = process.env.TWILIO_AUTH_TOKEN || '';
   if (functionUrl) {
     try {
-      const resp = await fetch(functionUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ identity: String(identity || 'anonymous'), roomName })
-      });
-      if (resp.ok) {
-        const data = await resp.json();
-        if (data?.token) return data.token;
+      const params = {
+        identity: String(identity || 'anonymous'),
+        roomName: String(roomName || '')
+      };
+      const body = new URLSearchParams(params).toString();
+      const headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
+      if (authToken) {
+        headers['X-Twilio-Signature'] = computeTwilioSignature(functionUrl, params, authToken);
       }
+      const resp = await fetch(functionUrl, { method: 'POST', headers, body });
+      const rawText = await resp.text();
+      let data = (() => { try { return JSON.parse(rawText); } catch { return {}; } })();
+      if (typeof data === 'string') {
+        try { data = JSON.parse(data); } catch { data = {}; }
+      }
+      let tok = data?.token || data?.body?.token;
+      if (!tok && typeof data?.body === 'string') {
+        try { tok = JSON.parse(data.body)?.token; } catch { /* ignore */ }
+      }
+      if (!tok && resp.ok && rawText.includes('"token"')) {
+        const m = rawText.match(/"token"\s*:\s*"([^"]+)"/);
+        if (m?.[1]) tok = m[1];
+      }
+      if (tok) {
+        const parts = String(tok).split('.');
+        if (parts.length !== 3) {
+          console.warn('[TwilioVideo] Token malformed (expected 3 JWT parts, got', parts.length, ')');
+          tok = null;
+        }
+      }
+      if (tok) return tok;
+      console.warn('[TwilioVideo] Token Function failed:', resp.status, 'body:', rawText?.slice(0, 200) || '(empty)');
+      return null; // Do NOT fall back to local - Twilio rejects local tokens with "authorization failed"
     } catch (e) {
       console.error('[TwilioVideo] Token Function fetch error:', e?.message);
+      return null;
     }
   }
   return createAccessToken({ identity, roomName });

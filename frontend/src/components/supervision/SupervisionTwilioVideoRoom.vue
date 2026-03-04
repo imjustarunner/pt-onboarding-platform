@@ -87,9 +87,14 @@ async function postTranscriptToBackend(text) {
   }
 }
 
+function isValidToken(t) {
+  const s = String(t || '').trim();
+  return s.length > 50 && !/^(undefined|null)$/i.test(s);
+}
+
 async function connectRoom() {
-  if (!props.token) {
-    error.value = 'No token provided';
+  if (!isValidToken(props.token)) {
+    error.value = 'No token provided. The backend may have failed to generate a token. Check the Network tab for GET /api/supervision/sessions/:id/video-token.';
     connecting.value = false;
     return;
   }

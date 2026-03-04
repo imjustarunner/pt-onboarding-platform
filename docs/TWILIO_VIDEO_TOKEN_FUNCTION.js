@@ -16,7 +16,10 @@
  *
  * USAGE:
  * POST with JSON body: { "identity": "user-123", "roomName": "supervision-6" }
+ * Or form-urlencoded: identity=user-123&roomName=supervision-6
  * Returns: { "token": "eyJ...", "roomName": "supervision-6" }
+ *
+ * If Function is Protected: caller must send X-Twilio-Signature header (backend does this automatically).
  */
 const AccessToken = Twilio.jwt.AccessToken;
 const VideoGrant = AccessToken.VideoGrant;

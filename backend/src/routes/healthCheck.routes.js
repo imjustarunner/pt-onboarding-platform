@@ -28,9 +28,13 @@ router.get('/twilio-video', (req, res) => {
   const twilioKeyLengths = Object.fromEntries(
     twilioKeys.map((k) => [k, process.env[k] ? String(process.env[k]).length : 0])
   );
+  const tokenFunctionUrl = (process.env.TWILIO_VIDEO_TOKEN_FUNCTION_URL || '').trim();
+  const tokenFunctionUrlSet = !!tokenFunctionUrl;
 
   res.json({
     twilioVideoConfigured: configured,
+    tokenFunctionUrlSet,
+    tokenFunctionUrlPrefix: tokenFunctionUrl ? tokenFunctionUrl.slice(0, 40) + '…' : null,
     envVarsPresent: { hasAccountSid, hasAuthToken, hasApiKeySid, hasApiKeySecret, hasFrontendUrl },
     twilioKeysPresent: twilioKeys,
     twilioKeyLengths,

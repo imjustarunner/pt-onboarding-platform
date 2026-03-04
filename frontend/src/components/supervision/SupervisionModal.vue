@@ -809,17 +809,15 @@ async function startAppVideoMeeting(session) {
   try {
     const resp = await api.get(`/supervision/sessions/${sid}/video-token`);
     const data = resp?.data || {};
-    const tok = data.token || data.data?.token || '';
+    const tok = (data.token || data.data?.token || data.result?.token || '').trim();
+    const rn = data.roomName || data.room_name || data.data?.roomName || `supervision-${sid}`;
     if (!tok) {
-      console.warn('[SupervisionModal] video-token 200 but token empty:', { status: resp?.status, data });
-      twilioVideoError.value =
-        'Video token was empty. Check Network tab: GET /api/supervision/sessions/' +
-        sid +
-        '/video-token – status and response body.';
+      console.warn('[SupervisionModal] video-token empty:', { status: resp?.status, data });
+      twilioVideoError.value = data?.error?.message || data?.error || 'Video token was empty.';
       return;
     }
     twilioVideoToken.value = tok;
-    twilioVideoRoomName.value = data.roomName || `supervision-${sid}`;
+    twilioVideoRoomName.value = rn;
     showTwilioVideoModal.value = true;
   } catch (err) {
     twilioVideoError.value = err?.response?.data?.error?.message || err?.message || 'Failed to join video room';

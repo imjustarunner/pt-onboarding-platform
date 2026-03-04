@@ -6446,17 +6446,17 @@ const startAppVideoMeetingFromGrid = async (session) => {
   try {
     const resp = await api.get(`/supervision/sessions/${sid}/video-token`);
     const data = resp?.data || {};
-    const tok = data.token || data.data?.token || '';
+    const tok = (data.token || data.data?.token || data.result?.token || '').trim();
+    const rn = data.roomName || data.room_name || data.data?.roomName || `supervision-${sid}`;
     if (!tok) {
-      console.warn('[ScheduleGrid] video-token 200 but token empty:', { status: resp?.status, data });
-      supvAppVideoError.value =
-        'Video token was empty. Check Network tab: GET /api/supervision/sessions/' + sid + '/video-token.';
+      console.warn('[ScheduleGrid] video-token empty:', { status: resp?.status, data });
+      supvAppVideoError.value = data?.error?.message || data?.error || 'Video token was empty.';
       return;
     }
     supvMeetClientSessionKey.value = `web-${sid}-${Number(authStore.user?.id || 0)}-${Date.now()}`;
     await logSupvMeetingLifecycle({ sessionId: sid, eventType: 'opened' });
     supvAppVideoToken.value = tok;
-    supvAppVideoRoomName.value = data.roomName || `supervision-${sid}`;
+    supvAppVideoRoomName.value = rn;
     supvAppVideoSessionId.value = sid;
     showSupvAppVideoModal.value = true;
   } catch (e) {
