@@ -3284,12 +3284,16 @@ export const downloadPayrollExportCsv = async (req, res, next) => {
     const header = [
       'Employee',
       'Direct Hour Credits',
+      'Direct Taxable Pay',
       'Direct Hourly Rate',
       'Indirect Hour Credits',
+      'Indirect Taxable Pay',
       'Indirect Hourly Rate',
       'Total Taxable Pay',
+      'Total Extra Taxable Pay (No Hours)',
       'PTO Requested (Hours)',
       'Bonus Added (Taxable)',
+      'Salary (Taxable)',
       'Mileage',
       'Reimbursement',
       'Tuition Reimbursement',
@@ -3391,6 +3395,11 @@ export const downloadPayrollExportCsv = async (req, res, next) => {
       const tuition = safeNum(adjFromBreakdown?.tuitionReimbursementAmount ?? adjFallback?.tuition_reimbursement_amount ?? 0);
       const bonus = safeNum(adjFromBreakdown?.bonusAmount ?? adjFallback?.bonus_amount ?? 0);
       const salary = safeNum(adjFromBreakdown?.salaryAmount ?? adjFallback?.salary_amount ?? 0);
+      const medcancel = safeNum(adjFromBreakdown?.medcancelAmount ?? adjFallback?.medcancel_amount ?? 0);
+      const otherTaxable = safeNum(adjFromBreakdown?.otherTaxableAmount ?? adjFallback?.other_taxable_amount ?? 0);
+      const imatter = safeNum(adjFromBreakdown?.imatterAmount ?? adjFallback?.imatter_amount ?? 0);
+      const missedAppointments = safeNum(adjFromBreakdown?.missedAppointmentsAmount ?? adjFallback?.missed_appointments_amount ?? 0);
+      const extraTaxableNoHours = medcancel + otherTaxable + imatter + missedAppointments;
       const breakdownPtoHours = safeNum(adjFromBreakdown?.ptoHours ?? 0);
       const fallbackPtoHours = safeNum(adjFallback?.sick_pto_hours ?? 0) + safeNum(adjFallback?.training_pto_hours ?? 0);
       const ptoTakenHours = breakdownPtoHours > 0
@@ -3407,12 +3416,16 @@ export const downloadPayrollExportCsv = async (req, res, next) => {
         [
           csvEscape(employee),
           fmt2(directCredits),
+          fmt2(directTaxablePay),
           fmt2(directRate),
           fmt2(indirectCredits),
+          fmt2(indirectTaxablePay),
           fmt2(indirectRate),
           fmt2(taxableTotal),
+          fmt2(extraTaxableNoHours),
           fmt2(ptoRequestedHours),
           fmt2(bonus),
+          fmt2(salary),
           fmt2(mileage),
           fmt2(reimbursement),
           fmt2(tuition),
