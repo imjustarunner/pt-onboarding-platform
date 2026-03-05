@@ -3,6 +3,7 @@
  * then load the full Express app. Heavy route imports (payroll, budget, etc.)
  * can take 60+ seconds; Cloud Run would fail before we reach app.listen().
  */
+console.log('[bootstrap] Starting...');
 import http from 'http';
 
 const PORT = parseInt(process.env.PORT || '8080', 10);
@@ -27,4 +28,8 @@ server.listen(PORT, HOST, () => {
       console.error('❌ Failed to load application:', err);
       process.exit(1);
     });
+});
+server.on('error', (err) => {
+  console.error('❌ Bootstrap server error:', err);
+  process.exit(1);
 });
