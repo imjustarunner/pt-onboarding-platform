@@ -96,6 +96,29 @@ function isUnmuted(notification) {
   return t <= Date.now();
 }
 
+function uniquePositiveIds(values) {
+  return Array.from(
+    new Set(
+      (values || [])
+        .map((v) => Number(v))
+        .filter((v) => Number.isFinite(v) && v > 0)
+    )
+  );
+}
+
+function dedupeNotificationsById(notifications) {
+  const seen = new Set();
+  const out = [];
+  for (const n of notifications || []) {
+    const id = Number(n?.id || 0);
+    if (!Number.isFinite(id) || id <= 0) continue;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push(n);
+  }
+  return out;
+}
+
 const PERSONAL_ONLY_ROLES = new Set(['provider', 'staff', 'intern', 'facilitator']);
 
 async function appendNotificationContext(notifications) {
@@ -251,6 +274,7 @@ export const getNotifications = async (req, res, next) => {
         }
         accessibleAgencyIds = [requestedAgencyId];
       }
+      accessibleAgencyIds = uniquePositiveIds(accessibleAgencyIds);
 
       if (accessibleAgencyIds.length === 0) {
         return res.json([]);
@@ -278,9 +302,10 @@ export const getNotifications = async (req, res, next) => {
         allNotifications.push(...filteredNotifications);
       }
 
+      const dedupedNotifications = dedupeNotificationsById(allNotifications);
       // Sort by created_at descending
-      allNotifications.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-      let filtered = filterNotificationsForViewer(allNotifications, userId, userRole, filterOpts);
+      dedupedNotifications.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+      let filtered = filterNotificationsForViewer(dedupedNotifications, userId, userRole, filterOpts);
       await appendNotificationContext(filtered);
       const limitNum = limitParam ? parseInt(limitParam, 10) : 0;
       if (Number.isFinite(limitNum) && limitNum > 0) filtered = filtered.slice(0, limitNum);
@@ -298,6 +323,7 @@ export const getNotifications = async (req, res, next) => {
         }
         accessibleAgencyIds = [requestedAgencyId];
       }
+      accessibleAgencyIds = uniquePositiveIds(accessibleAgencyIds);
 
       if (accessibleAgencyIds.length === 0) {
         return res.json([]);
@@ -313,8 +339,9 @@ export const getNotifications = async (req, res, next) => {
         allNotifications.push(...notifications);
       }
 
-      await Notification.applyReadStateForViewer(allNotifications, userId);
-      let filtered = filterNotificationsForViewer(allNotifications, userId, userRole, filterOpts);
+      const dedupedNotifications = dedupeNotificationsById(allNotifications);
+      await Notification.applyReadStateForViewer(dedupedNotifications, userId);
+      let filtered = filterNotificationsForViewer(dedupedNotifications, userId, userRole, filterOpts);
       if (isRead !== undefined) {
         const wantRead = isRead === 'true';
         filtered = filtered.filter((n) => (n._is_read_for_viewer === wantRead));
@@ -335,6 +362,7 @@ export const getNotifications = async (req, res, next) => {
           return res.status(403).json({ error: { message: 'Access denied to this agency' } });
         }
       }
+      accessibleAgencyIds = uniquePositiveIds(accessibleAgencyIds);
 
       const personal = await Notification.findByUser(userId, {
         type: type || undefined,
@@ -362,6 +390,7 @@ export const getNotifications = async (req, res, next) => {
       }
     }
 
+    accessibleAgencyIds = uniquePositiveIds(accessibleAgencyIds);
     if (accessibleAgencyIds.length === 0) {
       return res.json([]);
     }
@@ -376,8 +405,9 @@ export const getNotifications = async (req, res, next) => {
       allNotifications.push(...notifications);
     }
 
-    await Notification.applyReadStateForViewer(allNotifications, userId);
-    let filtered = filterNotificationsForViewer(allNotifications, userId, userRole, filterOpts);
+    const dedupedNotifications = dedupeNotificationsById(allNotifications);
+    await Notification.applyReadStateForViewer(dedupedNotifications, userId);
+    let filtered = filterNotificationsForViewer(dedupedNotifications, userId, userRole, filterOpts);
     if (isRead !== undefined) {
       const wantRead = isRead === 'true';
       filtered = filtered.filter((n) => (n._is_read_for_viewer === wantRead));
