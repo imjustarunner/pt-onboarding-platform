@@ -1654,6 +1654,7 @@ export const updateUser = async (req, res, next) => {
       skillBuilderEligible,
       hasSkillBuilderCoordinatorAccess,
       hasPayrollAccess,
+      hasCredentialingAccess,
       isHourlyWorker,
       hasHiringAccess,
       hasMedicalRecordsReleaseAccess,
@@ -2071,6 +2072,14 @@ export const updateUser = async (req, res, next) => {
       }
       updateData.hasPayrollAccess = Boolean(hasPayrollAccess);
     }
+    // Credentialing access (profile toggle: set for all agencies for this user)
+    if (hasCredentialingAccess !== undefined) {
+      // Only admins/super_admins can grant credentialing access (including for themselves).
+      if (req.user.role !== 'admin' && req.user.role !== 'super_admin') {
+        return res.status(403).json({ error: { message: 'Only admins or super admins can change Credentialing access' } });
+      }
+      updateData.hasCredentialingAccess = Boolean(hasCredentialingAccess);
+    }
     // Hourly worker (drives Direct/Indirect ratio card visibility)
     if (isHourlyWorker !== undefined) updateData.isHourlyWorker = Boolean(isHourlyWorker);
     // Hiring process access (applicants / prospective)
@@ -2213,6 +2222,68 @@ export const updateUser = async (req, res, next) => {
         return res.status(500).json({ error: { message: 'Failed to update payroll access' } });
       } finally {
         if (payrollConn) payrollConn.release();
+      }
+    }
+
+    // When hasCredentialingAccess was provided, set it for all agencies for this user
+    if (hasCredentialingAccess !== undefined) {
+      let credentialingConn;
+      try {
+        credentialingConn = await pool.getConnection();
+        await credentialingConn.beginTransaction();
+        const targetUserId = parseInt(id, 10);
+        const actorUserId = Number(req.user?.id || 0);
+        const nextEnabled = !!hasCredentialingAccess;
+
+        const [rows] = await credentialingConn.execute(
+          'SELECT agency_id, can_manage_credentialing FROM user_agencies WHERE user_id = ?',
+          [targetUserId]
+        );
+
+        await credentialingConn.execute(
+          'UPDATE user_agencies SET can_manage_credentialing = ? WHERE user_id = ?',
+          [nextEnabled ? 1 : 0, targetUserId]
+        );
+
+        for (const row of (rows || [])) {
+          const agencyId = Number(row?.agency_id || 0);
+          if (!agencyId) continue;
+          const prevEnabled = normalizeBoolFlag(row?.can_manage_credentialing);
+          if (prevEnabled === nextEnabled) continue;
+          await credentialingConn.execute(
+            `INSERT INTO admin_audit_log
+             (action_type, actor_user_id, target_user_id, module_id, track_id, agency_id, metadata)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [
+              nextEnabled ? 'grant_credentialing_access' : 'revoke_credentialing_access',
+              actorUserId,
+              targetUserId,
+              null,
+              null,
+              agencyId,
+              JSON.stringify({
+                previous: prevEnabled,
+                next: nextEnabled,
+                source: 'user_profile_toggle',
+                scope: 'all_agencies'
+              })
+            ]
+          );
+        }
+
+        await credentialingConn.commit();
+      } catch (credentialingErr) {
+        if (credentialingConn) {
+          try {
+            await credentialingConn.rollback();
+          } catch {
+            // ignore
+          }
+        }
+        console.error('Error setting credentialing access for all agencies:', credentialingErr);
+        return res.status(500).json({ error: { message: 'Failed to update credentialing access' } });
+      } finally {
+        if (credentialingConn) credentialingConn.release();
       }
     }
 
@@ -5526,6 +5597,7 @@ export const getAccountInfo = async (req, res, next) => {
         ? (user.has_supervisor_privileges || false) 
         : undefined, // Only include for eligible roles
       hasPayrollAccess: (await User.listPayrollAgencyIds(userIdInt)).length > 0,
+      hasCredentialingAccess: (await User.listCredentialingAgencyIds(userIdInt)).length > 0,
       isHourlyWorker: !!(user.is_hourly_worker === 1 || user.is_hourly_worker === true || user.is_hourly_worker === '1'),
       hasHiringAccess: !!(user.has_hiring_access === 1 || user.has_hiring_access === true || user.has_hiring_access === '1'),
       hasMedicalRecordsReleaseAccess: !!(user.has_medical_records_release_access === 1 || user.has_medical_records_release_access === true || user.has_medical_records_release_access === '1'),

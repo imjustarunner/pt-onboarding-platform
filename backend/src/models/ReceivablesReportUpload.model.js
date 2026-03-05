@@ -4,9 +4,11 @@ class ReceivablesReportUpload {
   static async create({ agencyId, uploadedByUserId = null, originalFilename = null, minServiceDate = null, maxServiceDate = null }) {
     const [result] = await pool.execute(
       `INSERT INTO agency_receivables_report_uploads
-       (agency_id, uploaded_by_user_id, original_filename, min_service_date, max_service_date)
-       VALUES (?, ?, ?, ?, ?)`,
-      [agencyId, uploadedByUserId, originalFilename, minServiceDate, maxServiceDate]
+       (agency_id, run_number, uploaded_by_user_id, original_filename, min_service_date, max_service_date)
+       SELECT ?, COALESCE(MAX(u.run_number), 0) + 1, ?, ?, ?, ?
+       FROM agency_receivables_report_uploads u
+       WHERE u.agency_id = ?`,
+      [agencyId, uploadedByUserId, originalFilename, minServiceDate, maxServiceDate, agencyId]
     );
     return result.insertId;
   }

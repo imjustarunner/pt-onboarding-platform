@@ -3,9 +3,11 @@ import pool from '../config/database.js';
 class PayrollPeriodRun {
   static async create({ payrollPeriodId, agencyId, payrollImportId = null, ranByUserId }) {
     const [result] = await pool.execute(
-      `INSERT INTO payroll_period_runs (payroll_period_id, agency_id, payroll_import_id, ran_by_user_id)
-       VALUES (?, ?, ?, ?)`,
-      [payrollPeriodId, agencyId, payrollImportId, ranByUserId]
+      `INSERT INTO payroll_period_runs (payroll_period_id, agency_id, payroll_import_id, run_number, ran_by_user_id)
+       SELECT ?, ?, ?, COALESCE(MAX(r.run_number), 0) + 1, ?
+       FROM payroll_period_runs r
+       WHERE r.payroll_period_id = ?`,
+      [payrollPeriodId, agencyId, payrollImportId, ranByUserId, payrollPeriodId]
     );
     return this.findById(result.insertId);
   }
@@ -21,7 +23,7 @@ class PayrollPeriodRun {
        FROM payroll_period_runs r
        LEFT JOIN users u ON r.ran_by_user_id = u.id
        WHERE r.payroll_period_id = ?
-       ORDER BY r.ran_at ASC, r.id ASC`,
+       ORDER BY r.run_number ASC, r.ran_at ASC, r.id ASC`,
       [payrollPeriodId]
     );
     return rows || [];

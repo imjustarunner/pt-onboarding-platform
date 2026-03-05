@@ -1,5 +1,6 @@
 import Agency from '../models/Agency.model.js';
 import Client from '../models/Client.model.js';
+import ClientNotes from '../models/ClientNotes.model.js';
 import ClientStatusHistory from '../models/ClientStatusHistory.model.js';
 import multer from 'multer';
 import StorageService from '../services/storage.service.js';
@@ -232,6 +233,26 @@ export const uploadReferralPacket = [
         clientId: client.id,
         clientNameOrIdentifier: client.identifier_code || client.initials || `ID ${client.id}`
       }).catch(() => {});
+
+      // If the uploader added a quick note, save it as the first comment (visible in View & Comment).
+      const uploadNote = String(req.body?.uploadNote || '').trim();
+      if (uploadNote && uploadNote.length <= 500 && uploaderId) {
+        try {
+          await ClientNotes.create(
+            {
+              client_id: client.id,
+              author_id: uploaderId,
+              message: uploadNote,
+              is_internal_only: false,
+              category: 'comment',
+              urgency: 'low'
+            },
+            { hasAgencyAccess: false, canViewInternalNotes: false }
+          );
+        } catch (e) {
+          console.warn('Failed to save upload note as comment:', e.message);
+        }
+      }
 
       res.json({
         success: true,

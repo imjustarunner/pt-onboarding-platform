@@ -74,11 +74,11 @@
             <span class="unread-legend-text">New updates</span>
           </div>
           <div class="unread-legend-item">
-            <span class="ticket-status-badge ticket-status-open ticket-status-legend" aria-hidden="true">Ticket Open</span>
+            <span class="ticket-status-badge ticket-status-open ticket-status-legend" aria-hidden="true">1</span>
             <span class="unread-legend-text">Ticket open</span>
           </div>
           <div class="unread-legend-item">
-            <span class="ticket-status-badge ticket-status-answered ticket-status-legend" aria-hidden="true">Ticket Answered</span>
+            <span class="ticket-status-badge ticket-status-answered ticket-status-legend" aria-hidden="true">1</span>
             <span class="unread-legend-text">Ticket answered</span>
           </div>
           <div v-if="showAssignedColumn" class="unread-legend-item">

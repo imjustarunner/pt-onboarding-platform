@@ -418,6 +418,14 @@ const buildDocumentFieldValuesForClient = ({ link, intakeData, clientIndex = 0, 
   return merged;
 };
 
+/** Format YYYY-MM-DD as MM/DD/YYYY for display. */
+const formatDateForDisplay = (val) => {
+  const s = String(val || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  const [, yyyy, mm, dd] = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return `${mm}/${dd}/${yyyy}`;
+};
+
 const normalizeAnswerValue = (val) => {
   if (val === null || val === undefined) return '';
   if (typeof val === 'boolean') return val ? 'Yes' : 'No';
@@ -431,7 +439,10 @@ const normalizeAnswerValue = (val) => {
       return String(val);
     }
   }
-  return String(val);
+  const str = String(val);
+  const formatted = formatDateForDisplay(str);
+  if (formatted) return formatted;
+  return str;
 };
 
 const buildIntakeFieldIndex = (link) => {
@@ -497,6 +508,37 @@ const buildIntakeAnswersText = ({ link, intakeData, clientIndex = 0 }) => {
     output.push(`${label}: ${normalizeAnswerValue(value)}`);
   };
 
+  const clientFirst =
+    clientPayload?.firstName ||
+    clientResponses?.client_first ||
+    clientResponses?.clientFirst ||
+    submissionResponses?.client_first ||
+    submissionResponses?.clientFirst;
+  const clientLast =
+    clientPayload?.lastName ||
+    clientResponses?.client_last ||
+    clientResponses?.clientLast ||
+    submissionResponses?.client_last ||
+    submissionResponses?.clientLast;
+  const clientName =
+    String(clientPayload?.fullName || '').trim() ||
+    `${String(clientFirst || '').trim()} ${String(clientLast || '').trim()}`.trim();
+
+  // Client info first (requested: first page shows client, not parent)
+  pushHeader(`Client ${clientIndex + 1}${clientName ? ` - ${clientName}` : ''} Information`);
+  pushLine('Client first name', clientFirst);
+  pushLine('Client last name', clientLast);
+  const clientLines = buildAnswerLinesForScope({
+    fields: getOrderedFieldsByScope(fields, 'client'),
+    responses: clientResponses
+  });
+  if (clientLines.length) {
+    clientLines.forEach((line) => output.push(`${line.label}: ${line.value}`));
+  } else {
+    output.push('No client answers captured.');
+  }
+
+  // Guardian info second
   pushHeader('Guardian Information');
   pushLine('Guardian first name', guardianPayload.firstName);
   pushLine('Guardian last name', guardianPayload.lastName);
@@ -520,34 +562,6 @@ const buildIntakeAnswersText = ({ link, intakeData, clientIndex = 0 }) => {
   if (submissionLines.length) {
     pushHeader('One-Time Questions');
     submissionLines.forEach((line) => output.push(`${line.label}: ${line.value}`));
-  }
-
-  const clientFirst =
-    clientPayload?.firstName ||
-    clientResponses?.client_first ||
-    clientResponses?.clientFirst ||
-    submissionResponses?.client_first ||
-    submissionResponses?.clientFirst;
-  const clientLast =
-    clientPayload?.lastName ||
-    clientResponses?.client_last ||
-    clientResponses?.clientLast ||
-    submissionResponses?.client_last ||
-    submissionResponses?.clientLast;
-  const clientName =
-    String(clientPayload?.fullName || '').trim() ||
-    `${String(clientFirst || '').trim()} ${String(clientLast || '').trim()}`.trim();
-  pushLine('Client first name', clientFirst);
-  pushLine('Client last name', clientLast);
-  pushHeader(`Client ${clientIndex + 1}${clientName ? ` - ${clientName}` : ''} Questions`);
-  const clientLines = buildAnswerLinesForScope({
-    fields: getOrderedFieldsByScope(fields, 'client'),
-    responses: clientResponses
-  });
-  if (clientLines.length) {
-    clientLines.forEach((line) => output.push(`${line.label}: ${line.value}`));
-  } else {
-    output.push('No client answers captured.');
   }
 
   return output.join('\n').trim();

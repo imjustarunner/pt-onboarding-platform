@@ -53,6 +53,19 @@
             </label>
           </div>
 
+          <div v-if="isAuthenticated" class="form-group upload-note-group">
+            <label for="upload-note">Quick note <span class="optional">(optional)</span></label>
+            <textarea
+              id="upload-note"
+              v-model="uploadNote"
+              rows="2"
+              placeholder="e.g., interested in skills groups"
+              maxlength="500"
+              class="upload-note-input"
+            />
+            <p class="muted upload-note-hint">This note will appear as the first comment from you once the client is created.</p>
+          </div>
+
           <div v-if="error" class="error-message">
             {{ error }}
           </div>
@@ -246,6 +259,7 @@ const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase()
 const fileInput = ref(null);
 const selectedFile = ref(null);
 const selectedImages = ref([]);
+const uploadNote = ref('');
 const isDragging = ref(false);
 const uploading = ref(false);
 const error = ref('');
@@ -863,6 +877,10 @@ const handleUpload = async () => {
     const d = new Date();
     const ymd = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     formData.append('submissionDate', ymd);
+    const noteText = String(uploadNote.value || '').trim();
+    if (noteText) {
+      formData.append('uploadNote', noteText);
+    }
 
     const response = await api.post(`/organizations/${props.organizationSlug}/upload-referral`, formData);
 
@@ -870,6 +888,7 @@ const handleUpload = async () => {
     clientId.value = response.data?.clientId || null;
     phiDocumentId.value = response.data?.phiDocumentId || null;
     selectedImages.value = [];
+    uploadNote.value = '';
     const agencyId = response.data?.agencyId || null;
     if (agencyId) {
       await loadPacketConfig(agencyId);
@@ -1175,6 +1194,28 @@ const applyInitials = async () => {
 }
 .form-group {
   margin-bottom: 24px;
+}
+
+.upload-note-group .optional {
+  font-weight: normal;
+  color: var(--text-secondary);
+  font-size: 0.9em;
+}
+
+.upload-note-input {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 14px;
+  resize: vertical;
+  min-height: 56px;
+}
+
+.upload-note-hint {
+  font-size: 12px;
+  margin-top: 6px;
+  margin-bottom: 0;
 }
 
 .file-label {

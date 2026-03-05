@@ -76,7 +76,16 @@ class ReceivablesReportRow {
     return result.affectedRows || 0;
   }
 
-  static async listOutstanding({ agencyId, startYmd = null, endYmd = null, minOutstanding = 0.01, limit = 200, offset = 0 }) {
+  static async listOutstanding({
+    agencyId,
+    startYmd = null,
+    endYmd = null,
+    minOutstanding = 0.01,
+    collectionsStatus = null,
+    managedOnly = false,
+    limit = 200,
+    offset = 0
+  }) {
     const lim = Math.max(0, Math.min(1000, parseInt(limit, 10) || 200));
     const off = Math.max(0, parseInt(offset, 10) || 0);
     const where = ['r.agency_id = ?', 'r.patient_outstanding_amount >= ?'];
@@ -89,15 +98,36 @@ class ReceivablesReportRow {
       where.push('r.service_date <= ?');
       params.push(String(endYmd).slice(0, 10));
     }
+    const status = String(collectionsStatus || '').trim().toLowerCase();
+    if (status && ['open', 'managed', 'closed'].includes(status)) {
+      where.push('r.collections_status = ?');
+      params.push(status);
+    }
+    if (managedOnly) {
+      where.push('r.collections_status = ?');
+      params.push('managed');
+    }
 
     const [rows] = await pool.execute(
       `SELECT
          r.id,
+         r.upload_id,
+         u.run_number AS upload_run_number,
          r.service_date,
          r.patient_balance_status,
          r.patient_responsibility_amount,
          r.patient_amount_paid,
          r.patient_outstanding_amount,
+         r.collections_status,
+         r.managed_at,
+         r.managed_by_user_id,
+         r.managed_note,
+         r.last_email_draft_at,
+         r.paid_at,
+         r.paid_by_user_id,
+         r.paid_note,
+         r.reimbursed_percent,
+         r.reimbursed_updated_at,
          r.row_type,
          r.payment_type,
          r.patient_name_ciphertext_b64,
@@ -111,8 +141,15 @@ class ReceivablesReportRow {
          r.claim_id_ciphertext_b64,
          r.claim_id_iv_b64,
          r.claim_id_auth_tag_b64,
-         r.claim_id_key_id
+         r.claim_id_key_id,
+         mb.first_name AS managed_by_first_name,
+         mb.last_name AS managed_by_last_name,
+         pb.first_name AS paid_by_first_name,
+         pb.last_name AS paid_by_last_name
        FROM agency_receivables_report_rows r
+       JOIN agency_receivables_report_uploads u ON u.id = r.upload_id
+       LEFT JOIN users mb ON mb.id = r.managed_by_user_id
+       LEFT JOIN users pb ON pb.id = r.paid_by_user_id
        WHERE ${where.join(' AND ')}
        ORDER BY r.service_date ASC, r.id ASC
        LIMIT ${lim} OFFSET ${off}`,

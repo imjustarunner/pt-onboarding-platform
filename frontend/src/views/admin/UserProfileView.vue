@@ -599,6 +599,22 @@
                   </div>
                 </label>
                 <label
+                  v-if="showCredentialingAccessToggle"
+                  class="compact-toggle"
+                  title="Enable to allow this user to access Credentialing management for their assigned agencies. Changes are audited."
+                >
+                  <span class="compact-title">Credentialing access</span>
+                  <div class="toggle-switch toggle-switch-sm">
+                    <input
+                      id="credentialing-access-toggle"
+                      type="checkbox"
+                      v-model="accountForm.hasCredentialingAccess"
+                      :disabled="!isEditingAccount"
+                    />
+                    <span class="slider"></span>
+                  </div>
+                </label>
+                <label
                   class="compact-toggle"
                   title="Hourly workers see the Direct/Indirect ratio card and receive ratio notifications."
                 >
@@ -2340,12 +2356,15 @@ const canViewProviderInfo = computed(() => {
 
 const canViewCredentialingTab = computed(() => {
   const u = authStore.user;
-  if (!u?.capabilities?.canManageCredentialing) return false;
+  const role = String(u?.role || '').toLowerCase();
+  const hasCapability = u?.capabilities?.canManageCredentialing === true;
+  const hasRoleFallback = ['super_admin', 'admin', 'support', 'staff'].includes(role);
+  if (!hasCapability && !hasRoleFallback) return false;
   const target = user.value;
   if (!target) return false;
-  const role = String(target.role || '').toLowerCase();
+  const targetRole = String(target.role || '').toLowerCase();
   const providerLikeRoles = ['provider', 'provider_plus', 'clinical_practice_assistant', 'super_admin', 'admin'];
-  return providerLikeRoles.includes(role);
+  return providerLikeRoles.includes(targetRole);
 });
 
 const isViewingSchoolStaff = computed(() => {
@@ -2461,6 +2480,7 @@ const accountForm = ref({
   hasProviderAccess: false,
   hasStaffAccess: false,
   hasPayrollAccess: false,
+  hasCredentialingAccess: false,
   isHourlyWorker: false,
   hasHiringAccess: false,
   hasMedicalRecordsReleaseAccess: false
@@ -3113,6 +3133,10 @@ const showPayrollAccessToggle = computed(() => {
   const role = String(user.value?.role || accountForm.value?.role || '').trim().toLowerCase();
   return role && role !== 'super_admin';
 });
+const showCredentialingAccessToggle = computed(() => {
+  const role = String(user.value?.role || accountForm.value?.role || '').trim().toLowerCase();
+  return role && role !== 'super_admin';
+});
 
 // Watch for role changes to reset supervisor privileges if role becomes ineligible
 watch(() => accountForm.value.role, (newRole) => {
@@ -3678,6 +3702,7 @@ const fetchUser = async () => {
       hasProviderAccess: user.value.has_provider_access === true || user.value.has_provider_access === 1 || user.value.has_provider_access === '1' || false,
       hasStaffAccess: user.value.has_staff_access === true || user.value.has_staff_access === 1 || user.value.has_staff_access === '1' || false,
       hasPayrollAccess: accountInfo.value?.hasPayrollAccess === true || accountForm.value?.hasPayrollAccess || false,
+      hasCredentialingAccess: accountInfo.value?.hasCredentialingAccess === true || accountForm.value?.hasCredentialingAccess || false,
       isHourlyWorker: user.value?.is_hourly_worker === true || user.value?.is_hourly_worker === 1 || user.value?.is_hourly_worker === '1' || accountForm.value?.isHourlyWorker || false,
       hasHiringAccess: user.value?.has_hiring_access === true || user.value?.has_hiring_access === 1 || user.value?.has_hiring_access === '1' || accountForm.value?.hasHiringAccess || false,
       hasMedicalRecordsReleaseAccess: user.value?.has_medical_records_release_access === true || user.value?.has_medical_records_release_access === 1 || user.value?.has_medical_records_release_access === '1' || accountForm.value?.hasMedicalRecordsReleaseAccess || false
@@ -3762,6 +3787,9 @@ const fetchAccountInfo = async () => {
     // Contracts & flags: payroll, hourly worker, hiring access (from account-info)
     if (response.data?.hasPayrollAccess !== undefined) {
       accountForm.value.hasPayrollAccess = Boolean(response.data.hasPayrollAccess);
+    }
+    if (response.data?.hasCredentialingAccess !== undefined) {
+      accountForm.value.hasCredentialingAccess = Boolean(response.data.hasCredentialingAccess);
     }
     if (response.data?.isHourlyWorker !== undefined) {
       accountForm.value.isHourlyWorker = Boolean(response.data.isHourlyWorker);
@@ -4434,6 +4462,7 @@ const saveAccount = async () => {
       companyCarManageAccess: Boolean(accountForm.value.companyCarManageAccess),
       skillBuilderEligible: Boolean(accountForm.value.skillBuilderEligible),
       hasPayrollAccess: Boolean(accountForm.value.hasPayrollAccess),
+      hasCredentialingAccess: Boolean(accountForm.value.hasCredentialingAccess),
       isHourlyWorker: Boolean(accountForm.value.isHourlyWorker),
       hasHiringAccess: Boolean(accountForm.value.hasHiringAccess),
       hasMedicalRecordsReleaseAccess: Boolean(accountForm.value.hasMedicalRecordsReleaseAccess),

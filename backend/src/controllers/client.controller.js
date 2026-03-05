@@ -2302,12 +2302,12 @@ export const updateClientComplianceChecklist = async (req, res, next) => {
     const currentClient = await Client.findById(clientId, { includeSensitive: true });
     if (!currentClient) return res.status(404).json({ error: { message: 'Client not found' } });
 
-    // Permission: provider assigned to client, or agency staff/admin/support/super_admin.
+    // Permission: provider or provider_plus assigned to client, or agency staff/admin/support/super_admin.
     const isSuper = userRole === 'super_admin';
     const roleNorm = String(userRole || '').toLowerCase();
     const isAgencyStaffRole = ['admin', 'support', 'staff'].includes(roleNorm);
     let isAssignedProvider = false;
-    if (roleNorm === 'provider') {
+    if (roleNorm === 'provider' || roleNorm === 'provider_plus') {
       // Prefer new multi-provider assignment table; fall back to legacy clients.provider_id.
       try {
         const [rows] = await pool.execute(

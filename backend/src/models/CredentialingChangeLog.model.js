@@ -4,6 +4,12 @@ import pool from '../config/database.js';
  * Credentialing change log for timeline display.
  */
 class CredentialingChangeLog {
+  static clampLimit(limit, fallback = 100) {
+    const parsed = Number.parseInt(limit, 10);
+    if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+    return Math.min(parsed, 500);
+  }
+
   static async create({
     userId,
     agencyId,
@@ -23,6 +29,7 @@ class CredentialingChangeLog {
   }
 
   static async listByUserId(userId, limit = 100) {
+    const safeLimit = CredentialingChangeLog.clampLimit(limit, 100);
     const [rows] = await pool.execute(
       `SELECT ccl.*, u.first_name AS changed_by_first_name, u.last_name AS changed_by_last_name,
               icd.name AS insurance_name
@@ -31,13 +38,14 @@ class CredentialingChangeLog {
        LEFT JOIN insurance_credentialing_definitions icd ON icd.id = ccl.insurance_credentialing_definition_id
        WHERE ccl.user_id = ?
        ORDER BY ccl.changed_at DESC
-       LIMIT ?`,
-      [userId, limit]
+       LIMIT ${safeLimit}`,
+      [userId]
     );
     return rows || [];
   }
 
   static async listByAgencyId(agencyId, limit = 200) {
+    const safeLimit = CredentialingChangeLog.clampLimit(limit, 200);
     const [rows] = await pool.execute(
       `SELECT ccl.*, u.first_name AS changed_by_first_name, u.last_name AS changed_by_last_name,
               target.first_name AS target_first_name, target.last_name AS target_last_name,
@@ -48,8 +56,8 @@ class CredentialingChangeLog {
        LEFT JOIN insurance_credentialing_definitions icd ON icd.id = ccl.insurance_credentialing_definition_id
        WHERE ccl.agency_id = ?
        ORDER BY ccl.changed_at DESC
-       LIMIT ?`,
-      [agencyId, limit]
+       LIMIT ${safeLimit}`,
+      [agencyId]
     );
     return rows || [];
   }
