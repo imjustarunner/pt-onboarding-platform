@@ -3,7 +3,6 @@ import crypto from 'crypto';
 import IntakeLink from '../models/IntakeLink.model.js';
 import User from '../models/User.model.js';
 import HiringJobDescription from '../models/HiringJobDescription.model.js';
-import LearningProgramClass from '../models/LearningProgramClass.model.js';
 import pool from '../config/database.js';
 
 const parseJsonField = (raw) => {
@@ -96,18 +95,7 @@ export const createIntakeLink = async (req, res, next) => {
     let jobDescriptionId = req.body.jobDescriptionId ? asNumberOrNull(req.body.jobDescriptionId) : null;
     let effectiveOrgId = organizationId;
     if (scopeType === 'learning_class') {
-      if (!learningClassId) {
-        return res.status(400).json({ error: { message: 'learningClassId is required when scopeType is learning_class' } });
-      }
-      const klass = await LearningProgramClass.findById(learningClassId);
-      if (!klass) return res.status(404).json({ error: { message: 'Learning class not found' } });
-      if (String(klass.organization_type || '').toLowerCase() !== 'learning') {
-        return res.status(400).json({ error: { message: 'learningClassId must belong to a learning organization' } });
-      }
-      effectiveOrgId = asNumberOrNull(klass.organization_id);
-      if (!isSuperAdmin(req.user?.role) && !userOrgIds.includes(Number(effectiveOrgId))) {
-        return res.status(403).json({ error: { message: 'Access denied for this learning class' } });
-      }
+      return res.status(400).json({ error: { message: 'learning_class scope is not yet available' } });
     }
     if (formType === 'job_application') {
       if (!jobDescriptionId) return res.status(400).json({ error: { message: 'jobDescriptionId is required for job application forms' } });
@@ -237,21 +225,7 @@ export const updateIntakeLink = async (req, res, next) => {
         ? asNumberOrNull(req.body.organizationId)
         : asNumberOrNull(existing.organization_id);
     if (requestedScopeType === 'learning_class') {
-      if (!resolvedLearningClassId) {
-        return res.status(400).json({ error: { message: 'learningClassId is required when scopeType is learning_class' } });
-      }
-      const klass = await LearningProgramClass.findById(resolvedLearningClassId);
-      if (!klass) return res.status(404).json({ error: { message: 'Learning class not found' } });
-      if (String(klass.organization_type || '').toLowerCase() !== 'learning') {
-        return res.status(400).json({ error: { message: 'learningClassId must belong to a learning organization' } });
-      }
-      resolvedOrganizationId = asNumberOrNull(klass.organization_id);
-      if (!isSuperAdmin(req.user?.role)) {
-        const userOrgIds = await getUserOrganizationIds(req.user?.id);
-        if (!userOrgIds.includes(Number(resolvedOrganizationId))) {
-          return res.status(403).json({ error: { message: 'Access denied for this learning class' } });
-        }
-      }
+      return res.status(400).json({ error: { message: 'learning_class scope is not yet available' } });
     }
 
     const updates = {
