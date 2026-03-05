@@ -2182,9 +2182,28 @@ const dashboardCards = computed(() => {
       });
     }
 
-    // Skill Builders availability (coordinator access)
+    // Sub Coordinator access (backed by users.has_skill_builder_coordinator_access)
+    // grants elevated affiliated-org tools.
     if (isSkillBuilderCoordinator.value) {
       const orgOverride = agencyStore.currentAgency?.value || agencyStore.currentAgency || null;
+      cards.push({
+        id: 'sub_coordinator_school_overview',
+        label: 'School Overview',
+        kind: 'link',
+        to: '/admin/schools/overview?orgType=school',
+        badgeCount: 0,
+        iconUrl: brandingStore.getAdminQuickActionIconUrl('school_overview', orgOverride),
+        description: 'Manage affiliated school dashboards and staffing/slot views.'
+      });
+      cards.push({
+        id: 'sub_coordinator_program_overview',
+        label: 'Program Overview',
+        kind: 'link',
+        to: '/admin/schools/overview?orgType=program',
+        badgeCount: 0,
+        iconUrl: brandingStore.getAdminQuickActionIconUrl('program_overview', orgOverride),
+        description: 'Manage affiliated program + learning dashboards.'
+      });
       cards.push({
         id: 'skill_builders_availability',
         label: 'Skill Builders',
@@ -2216,22 +2235,24 @@ const railCards = computed(() => {
         my: 0,
         my_schedule: 1,
         program_shifts: 2,
-        skill_builders_availability: 3,
-        clients: 4,
-        tools_aids: 5,
-        checklist: 6,
-        training: 7,
-        documents: 8,
-        submit: 9,
-        payroll: 10,
-        on_demand_training: 11,
-        social_feeds: 12,
-        communications: 13,
-        chats: 14,
-        notifications: 15,
-        supervision: 16,
-        my_supervision: 16.5,
-        providers: 17
+        sub_coordinator_school_overview: 3,
+        sub_coordinator_program_overview: 3.5,
+        skill_builders_availability: 4,
+        clients: 5,
+        tools_aids: 6,
+        checklist: 7,
+        training: 8,
+        documents: 9,
+        submit: 10,
+        payroll: 11,
+        on_demand_training: 12,
+        social_feeds: 13,
+        communications: 14,
+        chats: 15,
+        notifications: 16,
+        supervision: 17,
+        my_supervision: 17.5,
+        providers: 18
       })[k] ?? 999;
     }
     return ({
@@ -2240,20 +2261,22 @@ const railCards = computed(() => {
       training: 2,
       my_schedule: 3,
       program_shifts: 4,
-      skill_builders_availability: 5,
-      clients: 6,
-      tools_aids: 6,
-      submit: 7,
-      payroll: 8,
-      my: 9,
-      on_demand_training: 10,
-      social_feeds: 11,
-      communications: 12,
-      chats: 13,
-        notifications: 14,
-        supervision: 15,
-        my_supervision: 15.5,
-        providers: 16
+      sub_coordinator_school_overview: 5,
+      sub_coordinator_program_overview: 5.5,
+      skill_builders_availability: 6,
+      clients: 7,
+      tools_aids: 7,
+      submit: 8,
+      payroll: 9,
+      my: 10,
+      on_demand_training: 11,
+      social_feeds: 12,
+      communications: 13,
+      chats: 14,
+      notifications: 15,
+      supervision: 16,
+      my_supervision: 16.5,
+      providers: 17
     })[k] ?? 999;
   };
 

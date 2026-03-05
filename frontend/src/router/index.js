@@ -503,13 +503,23 @@ const routes = [
     path: '/:organizationSlug/admin/schools/overview',
     name: 'OrganizationSchoolOverviewDashboard',
     component: () => import('../views/admin/SchoolOverviewDashboard.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant'], organizationSlug: true }
+    meta: {
+      requiresAuth: true,
+      requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant'],
+      allowSubCoordinator: true,
+      organizationSlug: true
+    }
   },
   {
     path: '/:organizationSlug/admin/school-portals',
     name: 'OrganizationSchoolPortals',
     component: () => import('../views/admin/SchoolOverviewDashboard.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant'], organizationSlug: true }
+    meta: {
+      requiresAuth: true,
+      requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant'],
+      allowSubCoordinator: true,
+      organizationSlug: true
+    }
   },
   {
     path: '/:organizationSlug/admin/settings',
@@ -998,13 +1008,21 @@ const routes = [
     path: '/admin/schools/overview',
     name: 'SchoolOverviewDashboard',
     component: () => import('../views/admin/SchoolOverviewDashboard.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant'] }
+    meta: {
+      requiresAuth: true,
+      requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant'],
+      allowSubCoordinator: true
+    }
   },
   {
     path: '/admin/school-portals',
     name: 'SchoolPortals',
     component: () => import('../views/admin/SchoolOverviewDashboard.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant'] }
+    meta: {
+      requiresAuth: true,
+      requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant'],
+      allowSubCoordinator: true
+    }
   },
   {
     path: '/admin/settings',
@@ -1119,7 +1137,7 @@ const routes = [
     path: '/admin/skill-builders-availability',
     name: 'SkillBuildersAvailability',
     component: () => import('../views/admin/SkillBuildersAvailabilityView.vue'),
-    meta: { requiresAuth: true, requiresRole: 'schedule_manager' }
+    meta: { requiresAuth: true, requiresRole: 'schedule_manager', allowSubCoordinator: true }
   },
   {
     path: '/admin/documents',
@@ -1425,6 +1443,15 @@ const getSlugAwarePath = (targetPath, to, authStore) => {
   if (!slug) return path;
   if (path.startsWith(`/${slug}/`)) return path;
   return `/${slug}${path}`;
+};
+
+const hasSubCoordinatorAccess = (userLike) => {
+  const u = userLike || {};
+  return (
+    u.has_skill_builder_coordinator_access === true ||
+    u.has_skill_builder_coordinator_access === 1 ||
+    u.has_skill_builder_coordinator_access === '1'
+  );
 };
 
 router.beforeEach(async (to, from, next) => {
@@ -1795,7 +1822,9 @@ router.beforeEach(async (to, from, next) => {
       return userRole === role;
     });
 
-    if (hasRequiredRole) {
+    const hasSubCoordinatorRoleBypass = to.meta.allowSubCoordinator === true && hasSubCoordinatorAccess(authStore.user);
+
+    if (hasRequiredRole || hasSubCoordinatorRoleBypass) {
       // Optional: capability gate (e.g., canViewTraining / canSignDocuments)
       const required = to.meta.requiresCapability
         ? (Array.isArray(to.meta.requiresCapability) ? to.meta.requiresCapability : [to.meta.requiresCapability])

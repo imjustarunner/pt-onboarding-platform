@@ -57,12 +57,12 @@
           </div>
 
           <button
-            v-if="canRepairProviderSlots && activeTab === 'school_affiliation' && selectedSchoolAffiliationId"
+            v-if="canRepairProviderSlots && isAffiliationTabActive && selectedSchoolAffiliationId"
             type="button"
             class="btn btn-secondary btn-sm"
             :disabled="repairingProviderSlots"
             @click="repairProviderSlots"
-            :title="'Recalculate and repair stored slot availability for this school'"
+            :title="'Recalculate and repair stored slot availability for this affiliation'"
           >
             {{ repairingProviderSlots ? 'Repairing…' : 'Repair slots' }}
           </button>
@@ -548,9 +548,9 @@
 
                 <label
                   class="compact-toggle"
-                  title="If enabled, this user can access the Skill Builders availability quick action (agency-scoped)."
+                  title="If enabled, this user is a Sub Coordinator: elevated access for affiliated school/program/learning organizations (and Skill Builders availability)."
                 >
-                  <span class="compact-title">Skill Builder coordinator</span>
+                  <span class="compact-title">Sub coordinator</span>
                   <div class="toggle-switch toggle-switch-sm">
                     <input
                       id="skill-builder-coordinator-toggle"
@@ -561,6 +561,9 @@
                     <span class="slider"></span>
                   </div>
                 </label>
+                <div class="compact-subtitle muted" style="margin-top: -4px;">
+                  Sub coordinator grants higher permissions for each affiliated school/program/learning organization.
+                </div>
 
                 <div
                   v-if="canRequireSkillBuilderConfirmNextLogin && (accountForm.skillBuilderEligible || user?.skill_builder_eligible)"
@@ -700,7 +703,7 @@
                               class="btn btn-secondary btn-sm affiliations-details-trigger"
                               @click.prevent="toggleAffiliationsPopover(Number(agency.id))"
                               :aria-expanded="isAffiliationsPopoverOpenFor(Number(agency.id)) ? 'true' : 'false'"
-                              :title="`Show affiliated schools/programs (${(affiliatedOrgsByAgencyId[String(agency.id)] || []).length})`"
+                              :title="`Show affiliated orgs (${(affiliatedOrgsByAgencyId[String(agency.id)] || []).length})`"
                             >
                               Schools
                               <span class="muted" style="font-weight: 700;">
@@ -710,7 +713,7 @@
 
                             <div v-if="isAffiliationsPopoverOpenFor(Number(agency.id))" class="affiliations-popover">
                               <div class="affiliations-popover-title">
-                                Schools &amp; other orgs under {{ agency.name }}
+                                Affiliated orgs under {{ agency.name }}
                               </div>
                               <div
                                 v-for="org in (affiliatedOrgsByAgencyId[String(agency.id)] || [])"
@@ -726,7 +729,7 @@
                                   </div>
                                   <div class="affiliations-popover-item-actions">
                                     <button
-                                      v-if="isSchoolOrProgramOrg(org)"
+                                      v-if="isAffiliationOrg(org)"
                                       class="btn btn-secondary btn-sm"
                                       type="button"
                                       @click="openSchoolSchedulingFromAgencyRow(org)"
@@ -890,7 +893,7 @@
                           </div>
                           <div class="affiliations-popover-item-actions">
                             <button
-                              v-if="isSchoolOrProgramOrg(org)"
+                              v-if="isAffiliationOrg(org)"
                               class="btn btn-secondary btn-sm"
                               type="button"
                               @click="openSchoolSchedulingFromAgencyRow(org)"
@@ -1582,24 +1585,24 @@
           <CredentialingTab :userId="userId" />
         </div>
 
-        <div v-if="activeTab === 'school_affiliation'" class="tab-panel">
-          <h2>School Affiliation</h2>
+        <div v-if="isAffiliationTabActive" class="tab-panel">
+          <h2>{{ activeAffiliationTabLabel }}</h2>
           <p class="hint" style="margin-top: -6px;">
-            Configure provider availability for schools/programs: global Open/Closed, per-school override, and day/hour slots.
+            Configure provider availability for this affiliation type: global Open/Closed, per-affiliation override, and day/hour slots.
           </p>
 
           <div v-if="schoolAffiliationsLoading" class="loading">Loading affiliations…</div>
           <div v-else-if="schoolAffiliationsError" class="error">{{ schoolAffiliationsError }}</div>
-          <div v-else-if="schoolAffiliations.length === 0" class="empty-state">
-            <p>No school/program affiliations found for this provider.</p>
+          <div v-else-if="affiliationsForActiveTab.length === 0" class="empty-state">
+            <p>No {{ activeAffiliationPluralLabel.toLowerCase() }} affiliations found for this provider.</p>
           </div>
           <div v-else class="school-affiliation-panel">
             <div class="form-grid" style="grid-template-columns: minmax(240px, 1fr) minmax(240px, 1fr); gap: 12px;">
               <div class="form-group">
-                <label>School / Program</label>
+                <label>{{ activeAffiliationSingleLabel }}</label>
                 <select v-model="selectedSchoolAffiliationId" :disabled="savingSchoolAffiliation">
                   <option value="">Select…</option>
-                  <option v-for="o in schoolAffiliations" :key="o.id" :value="String(o.id)">
+                  <option v-for="o in affiliationsForActiveTab" :key="o.id" :value="String(o.id)">
                     {{ o.name }} <span v-if="o.organization_type">({{ o.organization_type }})</span>
                   </option>
                 </select>
@@ -1640,7 +1643,7 @@
             </div>
 
             <!-- Provider School Info blurb: one per provider, shared across all schools -->
-            <div v-if="schoolAffiliations.length > 0" class="card" style="margin-top: 12px;">
+            <div v-if="affiliationsForActiveTab.length > 0" class="card" style="margin-top: 12px;">
               <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; cursor: pointer;" @click="providerSchoolBlurbExpanded = !providerSchoolBlurbExpanded">
                 <div style="display:flex; align-items:center; gap: 8px;">
                   <span class="collapse-icon" :class="{ expanded: providerSchoolBlurbExpanded }">▸</span>
@@ -1679,7 +1682,7 @@
             <div v-if="selectedSchoolAffiliationId" style="margin-top: 14px;">
               <div class="form-group form-group-full">
                 <label class="toggle-label">
-                  <span>Open for this school even if globally closed</span>
+                  <span>Open for this {{ activeAffiliationSingleLabel.toLowerCase() }} even if globally closed</span>
                   <div class="toggle-switch">
                     <input
                       type="checkbox"
@@ -1690,13 +1693,13 @@
                   </div>
                 </label>
                 <small class="form-help">
-                  When enabled, assignments can proceed for this school even if the provider is globally closed.
+                  When enabled, assignments can proceed for this {{ activeAffiliationSingleLabel.toLowerCase() }} even if the provider is globally closed.
                 </small>
               </div>
 
               <div class="card" style="margin-top: 12px;">
                 <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
-                  <h3 style="margin:0;">School bell schedule (reference)</h3>
+                  <h3 style="margin:0;">Affiliation schedule (reference)</h3>
                 </div>
                 <div v-if="schoolAssignmentsLoading" class="loading">Loading bell schedule…</div>
                 <div v-else class="form-grid" style="grid-template-columns: minmax(160px, 1fr) minmax(160px, 1fr); gap: 12px; margin-top: 10px;">
@@ -1711,7 +1714,7 @@
                   <div class="form-group form-group-full">
                     <label>Notes</label>
                     <textarea :value="selectedSchoolBellScheduleNotesDisplay" rows="3" disabled style="width: 100%;" />
-                    <small class="form-help">Configured in the school’s Organization Settings → General.</small>
+                    <small class="form-help">Configured in the organization's settings.</small>
                   </div>
                 </div>
               </div>
@@ -2387,6 +2390,20 @@ const canViewSchoolAffiliation = computed(() => {
   return providerLikeRoles.includes(role) || hasProviderAccess;
 });
 
+const AFFILIATION_TAB_CONFIG = Object.freeze({
+  school_affiliation: { type: 'school', label: 'School Affiliation', singleLabel: 'School', pluralLabel: 'Schools' },
+  program_affiliation: { type: 'program', label: 'Program Affiliation', singleLabel: 'Program', pluralLabel: 'Programs' },
+  learning_affiliation: { type: 'learning', label: 'Learning Affiliation', singleLabel: 'Learning Organization', pluralLabel: 'Learning Organizations' }
+});
+
+const isAffiliationTabId = (tabId) => Object.prototype.hasOwnProperty.call(AFFILIATION_TAB_CONFIG, String(tabId || ''));
+const isAffiliationTabActive = computed(() => isAffiliationTabId(activeTab.value));
+const activeAffiliationConfig = computed(() => AFFILIATION_TAB_CONFIG[String(activeTab.value)] || null);
+const activeAffiliationOrgType = computed(() => String(activeAffiliationConfig.value?.type || ''));
+const activeAffiliationTabLabel = computed(() => String(activeAffiliationConfig.value?.label || 'Affiliation'));
+const activeAffiliationSingleLabel = computed(() => String(activeAffiliationConfig.value?.singleLabel || 'Affiliation'));
+const activeAffiliationPluralLabel = computed(() => String(activeAffiliationConfig.value?.pluralLabel || 'Affiliations'));
+
 const supervisees = ref([]);
 const supervisors = ref([]);
 const superviseesLoading = ref(false);
@@ -2412,7 +2429,13 @@ const tabs = computed(() => {
     { id: 'additional', label: 'Additional' },
     ...(canViewProviderInfo.value ? [{ id: 'provider_info', label: 'Provider Info' }] : []),
     ...(canViewCredentialingTab.value ? [{ id: 'credentialing', label: 'Credentialing' }] : []),
-    ...(canViewSchoolAffiliation.value ? [{ id: 'school_affiliation', label: 'School Affiliation' }] : []),
+    ...(canViewSchoolAffiliation.value
+      ? [
+        { id: 'school_affiliation', label: 'School Affiliation' },
+        { id: 'program_affiliation', label: 'Program Affiliation' },
+        { id: 'learning_affiliation', label: 'Learning Affiliation' }
+      ]
+      : []),
     ...(canViewProviderInfo.value ? [{ id: 'schedule_availability', label: 'Schedule & Availability' }] : []),
     { id: 'training', label: 'Training' },
     { id: 'documents', label: 'Documents' },
@@ -2503,6 +2526,24 @@ const schoolAffiliationsLoading = ref(false);
 const schoolAffiliationsError = ref('');
 const schoolAffiliations = ref([]);
 const selectedSchoolAffiliationId = ref('');
+const affiliationsForActiveTab = computed(() => {
+  const type = activeAffiliationOrgType.value;
+  const list = Array.isArray(schoolAffiliations.value) ? schoolAffiliations.value : [];
+  if (!type) return [];
+  return list.filter((o) => String(o?.organization_type || '').toLowerCase() === type);
+});
+
+const ensureSelectedAffiliationForActiveTab = () => {
+  if (!isAffiliationTabActive.value) return;
+  const list = affiliationsForActiveTab.value || [];
+  if (list.length === 0) {
+    selectedSchoolAffiliationId.value = '';
+    return;
+  }
+  const selectedId = Number(selectedSchoolAffiliationId.value || 0);
+  const existsInTab = list.some((o) => Number(o?.id) === selectedId);
+  if (!existsInTab) selectedSchoolAffiliationId.value = String(list[0].id);
+};
 
 const selectedSchoolAffiliation = computed(() => {
   const id = Number(selectedSchoolAffiliationId.value || 0);
@@ -2907,12 +2948,11 @@ const loadSchoolAffiliations = async () => {
     schoolAffiliationsError.value = '';
     const r = await api.get('/provider-self/affiliations', { params: { providerUserId: userId.value } });
     schoolAffiliations.value = r.data?.affiliations || [];
-    if (!selectedSchoolAffiliationId.value && schoolAffiliations.value.length > 0) {
-      selectedSchoolAffiliationId.value = String(schoolAffiliations.value[0].id);
-    }
+    ensureSelectedAffiliationForActiveTab();
   } catch (e) {
     schoolAffiliationsError.value = e.response?.data?.error?.message || 'Failed to load affiliations';
     schoolAffiliations.value = [];
+    selectedSchoolAffiliationId.value = '';
   } finally {
     schoolAffiliationsLoading.value = false;
   }
@@ -3156,9 +3196,10 @@ watch(() => accountForm.value.role, (newRole) => {
 });
 
 watch(activeTab, async (t) => {
-  if (t === 'school_affiliation') {
+  if (isAffiliationTabId(t)) {
     if (!canViewSchoolAffiliation.value) return;
     await loadSchoolAffiliations();
+    ensureSelectedAffiliationForActiveTab();
     await loadSchoolAssignments();
     syncProviderSchoolBlurbFromUser();
   }
@@ -3217,11 +3258,11 @@ watch(selectedProviderProfileAgencyId, async () => {
 
 const orgTypeFor = (org) => String(org?.organization_type || 'agency').toLowerCase();
 const isAgencyOrg = (org) => orgTypeFor(org) === 'agency';
-const isSchoolOrProgramOrg = (org) => !isAgencyOrg(org);
+const isAffiliationOrg = (org) => !isAgencyOrg(org);
 
 // Compact affiliations display on User Profile:
 // - show agencies in the main list
-// - show schools/programs/etc in a small hover/click popover per agency
+// - show school/program/learning orgs in a small hover/click popover per agency
 const hoverAffiliationsPopoverAgencyId = ref(null);
 const pinnedAffiliationsPopoverAgencyId = ref(null);
 const isAffiliationsPopoverOpenFor = (agencyId) => {
@@ -4386,7 +4427,10 @@ const addAgency = async () => {
 const openSchoolSchedulingFromAgencyRow = async (org) => {
   const id = Number(org?.id || 0);
   if (!id) return;
-  activeTab.value = 'school_affiliation';
+  const orgType = String(org?.organization_type || '').toLowerCase();
+  if (orgType === 'program') activeTab.value = 'program_affiliation';
+  else if (orgType === 'learning') activeTab.value = 'learning_affiliation';
+  else activeTab.value = 'school_affiliation';
   await nextTick();
   await loadSchoolAffiliations();
   selectedSchoolAffiliationId.value = String(id);

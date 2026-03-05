@@ -11,6 +11,7 @@ class IntakeLink {
       formType = 'intake',
       organizationId = null,
       programId = null,
+      learningClassId = null,
       jobDescriptionId = null,
       isActive = true,
       createClient = true,
@@ -26,9 +27,9 @@ class IntakeLink {
 
     const [result] = await pool.execute(
       `INSERT INTO intake_links
-       (public_key, title, description, language_code, scope_type, form_type, organization_id, program_id, job_description_id, is_active,
+       (public_key, title, description, language_code, scope_type, form_type, organization_id, program_id, learning_class_id, job_description_id, is_active,
         create_client, create_guardian, requires_assignment, allowed_document_template_ids, intake_fields, intake_steps, retention_policy_json, custom_messages, created_by_user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         publicKey,
         title,
@@ -38,6 +39,7 @@ class IntakeLink {
         formType,
         organizationId,
         programId,
+        learningClassId,
         jobDescriptionId,
         isActive ? 1 : 0,
         createClient ? 1 : 0,
@@ -70,14 +72,15 @@ class IntakeLink {
     return this.normalize(rows[0] || null);
   }
 
-  static async findByScope({ scopeType, organizationId = null, programId = null }) {
+  static async findByScope({ scopeType, organizationId = null, programId = null, learningClassId = null }) {
     const [rows] = await pool.execute(
       `SELECT * FROM intake_links
        WHERE scope_type = ?
          AND (organization_id = ? OR (organization_id IS NULL AND ? IS NULL))
          AND (program_id = ? OR (program_id IS NULL AND ? IS NULL))
+         AND (learning_class_id = ? OR (learning_class_id IS NULL AND ? IS NULL))
        ORDER BY updated_at DESC, id DESC`,
-      [scopeType, organizationId, organizationId, programId, programId]
+      [scopeType, organizationId, organizationId, programId, programId, learningClassId, learningClassId]
     );
     return rows.map(row => this.normalize(row));
   }

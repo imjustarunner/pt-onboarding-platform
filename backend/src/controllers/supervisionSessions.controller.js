@@ -341,6 +341,24 @@ async function autoFinalizeOverdueSessions({ agencyId = null, actorUserId = null
   return finalized;
 }
 
+async function maybeReopenAutoFinalizedSessionForJoin(row) {
+  if (!row?.id) return row;
+  const status = String(row.status || '').trim().toUpperCase();
+  const finalizeSource = String(row.finalize_source || '').trim().toLowerCase();
+  if (!['FINALIZED', 'MISSED'].includes(status) || finalizeSource !== 'auto_plus_15') {
+    return row;
+  }
+  await SupervisionSession.setStatus(row.id, 'IN_PROGRESS', {
+    finalizedAt: null,
+    finalizedByUserId: null,
+    finalizeSource: null,
+    finalTotalSeconds: null,
+    supersededBySessionId: null
+  });
+  await SupervisionSession.markAttendanceRollupsFinalized(row.id, false);
+  return SupervisionSession.findById(row.id);
+}
+
 async function getSupervisionPayEligibility({ agencyId, userId }) {
   const uid = Number(userId || 0);
   const aId = Number(agencyId || 0);
@@ -619,11 +637,12 @@ export const markSupervisionMeetingLifecycle = async (req, res, next) => {
   try {
     const id = parseInt(req.params.id, 10);
     if (!id) return res.status(400).json({ error: { message: 'Invalid session id' } });
-    const row = await SupervisionSession.findById(id);
+    let row = await SupervisionSession.findById(id);
     if (!row) return res.status(404).json({ error: { message: 'Session not found' } });
+    row = await maybeReopenAutoFinalizedSessionForJoin(row);
     const status = String(row.status || '').trim().toUpperCase();
     if (['CANCELLED', 'RESCHEDULED', 'MISSED', 'FINALIZED'].includes(status)) {
-      return res.status(400).json({ error: { message: `Session is ${status.toLowerCase()} and cannot be finalized.` } });
+      return res.status(400).json({ error: { message: `Session is ${status.toLowerCase()} and is not joinable.` } });
     }
     const ok = await canScheduleSession(req, {
       agencyId: row.agency_id,
@@ -715,8 +734,9 @@ export const finalizeSupervisionSessionBySubmit = async (req, res, next) => {
   try {
     const id = parseInt(req.params.id, 10);
     if (!id) return res.status(400).json({ error: { message: 'Invalid session id' } });
-    const row = await SupervisionSession.findById(id);
+    let row = await SupervisionSession.findById(id);
     if (!row) return res.status(404).json({ error: { message: 'Session not found' } });
+    row = await maybeReopenAutoFinalizedSessionForJoin(row);
     const status = String(row.status || '').trim().toUpperCase();
     if (['CANCELLED', 'RESCHEDULED', 'MISSED', 'FINALIZED'].includes(status)) {
       return res.status(400).json({ error: { message: `Session is ${status.toLowerCase()} and is not joinable.` } });
@@ -795,8 +815,9 @@ export const getSupervisionVideoToken = async (req, res, next) => {
     const id = parseInt(req.params.id, 10);
     if (!id) return res.status(400).json({ error: { message: 'Invalid session id' } });
 
-    const row = await SupervisionSession.findById(id);
+    let row = await SupervisionSession.findById(id);
     if (!row) return res.status(404).json({ error: { message: 'Session not found' } });
+    row = await maybeReopenAutoFinalizedSessionForJoin(row);
     const status = String(row.status || '').trim().toUpperCase();
     if (['CANCELLED', 'RESCHEDULED', 'MISSED', 'FINALIZED'].includes(status)) {
       return res.status(400).json({ error: { message: `Session is ${status.toLowerCase()} and is not joinable.` } });

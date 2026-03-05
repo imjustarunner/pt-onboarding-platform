@@ -1,5 +1,7 @@
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
+import AgencySchool from '../models/AgencySchool.model.js';
+import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import { syncSchoolPortalDayProvider } from '../services/schoolPortalDaySync.service.js';
 
 const allowedDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
@@ -61,6 +63,84 @@ async function resolveTargetProviderId(req) {
   }
 
   return { ok: true, providerUserId: targetId, provider: targetUser };
+}
+
+async function getProviderAffiliationContext(providerUserId) {
+  const directOrgs = await User.getAgencies(providerUserId);
+  const directList = Array.isArray(directOrgs) ? directOrgs : [];
+  const directAgencyIds = Array.from(
+    new Set(
+      directList
+        .filter((o) => String(o?.organization_type || '').toLowerCase() === 'agency')
+        .map((o) => parseInt(o?.id, 10))
+        .filter((n) => Number.isFinite(n) && n > 0)
+    )
+  );
+
+  const affiliatedOrgs = [];
+  for (const agencyId of directAgencyIds) {
+    try {
+      const orgAff = await OrganizationAffiliation.listActiveOrganizationsForAgency(agencyId);
+      if (Array.isArray(orgAff) && orgAff.length) affiliatedOrgs.push(...orgAff);
+    } catch {
+      // Backward-compatible: table may not exist yet in older environments.
+    }
+
+    // Legacy fallback for schools in environments still using agency_schools.
+    try {
+      const legacySchools = await AgencySchool.listByAgency(agencyId, { includeInactive: false });
+      for (const row of legacySchools || []) {
+        const sid = parseInt(row?.school_organization_id, 10);
+        if (!sid) continue;
+        affiliatedOrgs.push({
+          id: sid,
+          name: row?.school_name || `School #${sid}`,
+          slug: row?.school_slug || null,
+          organization_type: row?.school_organization_type || 'school',
+          is_active: row?.is_active
+        });
+      }
+    } catch {
+      // ignore legacy fallback errors
+    }
+  }
+
+  const affiliatedProgramIds = new Set(
+    (affiliatedOrgs || [])
+      .filter((o) => String(o?.organization_type || '').toLowerCase() === 'program')
+      .map((o) => parseInt(o?.id, 10))
+      .filter((n) => Number.isFinite(n) && n > 0)
+  );
+  const affiliatedLearningIds = new Set(
+    (affiliatedOrgs || [])
+      .filter((o) => String(o?.organization_type || '').toLowerCase() === 'learning')
+      .map((o) => parseInt(o?.id, 10))
+      .filter((n) => Number.isFinite(n) && n > 0)
+  );
+
+  const byId = new Map();
+  for (const o of [...directList, ...affiliatedOrgs]) {
+    const id = parseInt(o?.id, 10);
+    if (!id) continue;
+    if (!byId.has(id)) byId.set(id, o);
+  }
+  const all = Array.from(byId.values());
+
+  const visibleAffiliations = all
+    .filter((o) => String(o?.organization_type || 'agency').toLowerCase() !== 'agency')
+    .filter((o) => {
+      const type = String(o?.organization_type || '').toLowerCase();
+      // Product rule: only show Program affiliations when they are attached to one
+      // of the provider's agency memberships.
+      if (type === 'program') return affiliatedProgramIds.has(parseInt(o?.id, 10));
+      if (type === 'learning') return affiliatedLearningIds.has(parseInt(o?.id, 10));
+      return true;
+    });
+
+  return {
+    directAgencyIds,
+    affiliations: visibleAffiliations
+  };
 }
 
 async function computeProviderUsedByDay({ connection, schoolId, providerUserId, days }) {
@@ -136,7 +216,7 @@ export const repairProviderSchoolSlots = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Admin/staff access required' } });
     }
 
-    const aff = await ensureSchoolAffiliation(req, target.providerUserId, schoolId);
+    const aff = await ensureSchoolAffiliation(target.providerUserId, schoolId);
     if (!aff.ok) return res.status(aff.status).json({ error: { message: aff.message } });
 
     await connection.beginTransaction();
@@ -196,11 +276,12 @@ export const repairProviderSchoolSlots = async (req, res, next) => {
   }
 };
 
-async function ensureSchoolAffiliation(req, providerUserId, schoolId) {
+async function ensureSchoolAffiliation(providerUserId, schoolId) {
   const sid = parseInt(schoolId, 10);
   if (!sid) return { ok: false, status: 400, message: 'Invalid schoolId' };
-  const orgs = await User.getAgencies(providerUserId);
-  const allowed = (orgs || []).some((o) => parseInt(o.id, 10) === sid);
+  const ctx = await getProviderAffiliationContext(providerUserId);
+  const orgs = Array.isArray(ctx?.affiliations) ? ctx.affiliations : [];
+  const allowed = orgs.some((o) => parseInt(o.id, 10) === sid);
   if (!allowed) return { ok: false, status: 403, message: 'Provider is not affiliated with this organization' };
   return { ok: true, schoolId: sid, orgs };
 }
@@ -210,9 +291,8 @@ export const listProviderAffiliations = async (req, res, next) => {
     const target = await resolveTargetProviderId(req);
     if (!target.ok) return res.status(target.status).json({ error: { message: target.message } });
 
-    const orgs = await User.getAgencies(target.providerUserId);
-    const affiliations = (orgs || [])
-      .filter((o) => String(o.organization_type || 'agency').toLowerCase() !== 'agency')
+    const ctx = await getProviderAffiliationContext(target.providerUserId);
+    const affiliations = (ctx?.affiliations || [])
       .map((o) => ({
         id: o.id,
         name: o.name,
@@ -238,7 +318,7 @@ export const getProviderSchoolAssignments = async (req, res, next) => {
     const target = await resolveTargetProviderId(req);
     if (!target.ok) return res.status(target.status).json({ error: { message: target.message } });
 
-    const aff = await ensureSchoolAffiliation(req, target.providerUserId, schoolId);
+    const aff = await ensureSchoolAffiliation(target.providerUserId, schoolId);
     if (!aff.ok) return res.status(aff.status).json({ error: { message: aff.message } });
 
     // School bell schedule / notes (school-level quick reference)
@@ -382,7 +462,7 @@ export const upsertProviderSchoolAssignments = async (req, res, next) => {
     const target = await resolveTargetProviderId(req);
     if (!target.ok) return res.status(target.status).json({ error: { message: target.message } });
 
-    const aff = await ensureSchoolAffiliation(req, target.providerUserId, schoolId);
+    const aff = await ensureSchoolAffiliation(target.providerUserId, schoolId);
     if (!aff.ok) return res.status(aff.status).json({ error: { message: aff.message } });
 
     const days = Array.isArray(req.body?.days) ? req.body.days : [];

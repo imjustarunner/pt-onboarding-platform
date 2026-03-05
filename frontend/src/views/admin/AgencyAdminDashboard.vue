@@ -397,6 +397,7 @@ const quickActions = computed(() => {
     iconKey: 'school_overview',
     category: 'Management',
     roles: ['admin', 'support', 'super_admin', 'staff'],
+    allowSubCoordinator: true,
     capabilities: ['canAccessPlatform']
   },
   {
@@ -408,6 +409,7 @@ const quickActions = computed(() => {
     iconKey: 'program_overview',
     category: 'Management',
     roles: ['admin', 'support', 'super_admin', 'staff'],
+    allowSubCoordinator: true,
     capabilities: ['canAccessPlatform']
   },
   {
@@ -573,6 +575,7 @@ const quickActions = computed(() => {
     iconKey: 'skill_builders_availability',
     category: 'Scheduling',
     roles: ['admin', 'support', 'super_admin', 'staff', 'clinical_practice_assistant'],
+    allowSubCoordinator: true,
     capabilities: ['canAccessPlatform']
   },
   {

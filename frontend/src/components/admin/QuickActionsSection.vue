@@ -125,10 +125,20 @@ const hasCapability = (key) => {
   return !!caps?.[key];
 };
 
+const hasSubCoordinatorAccess = computed(() => {
+  const u = authStore.user || {};
+  return (
+    u.has_skill_builder_coordinator_access === true ||
+    u.has_skill_builder_coordinator_access === 1 ||
+    u.has_skill_builder_coordinator_access === '1'
+  );
+});
+
 const isAllowed = (action) => {
   const role = authStore.user?.role;
   const roles = Array.isArray(action.roles) ? action.roles : null;
-  if (roles && !roles.includes(role)) return false;
+  const allowSubCoordinator = action?.allowSubCoordinator === true;
+  if (roles && !roles.includes(role) && !(allowSubCoordinator && hasSubCoordinatorAccess.value)) return false;
   const caps = Array.isArray(action.capabilities) ? action.capabilities : null;
   if (caps && !caps.every((c) => hasCapability(c))) return false;
   return true;
