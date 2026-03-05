@@ -32,7 +32,7 @@
             </div>
             <div v-if="captchaError" class="error">{{ captchaError }}</div>
             <div v-if="showRecaptchaWidget" class="recaptcha-widget">
-              <div ref="recaptchaWidgetElStart" />
+              <div id="recaptcha-widget-start" ref="recaptchaWidgetElStart" />
               <div v-if="captchaWidgetFailed" class="muted" style="margin-top: 6px; color: var(--warning, #b8860b);">
                 Verification widget failed to load. You may continue.
               </div>
@@ -86,7 +86,7 @@
           <div v-if="captchaError" class="recaptcha-verify-first">{{ t('captchaRetry') }}</div>
           <div v-if="captchaError" class="error">{{ captchaError }}</div>
           <div class="recaptcha-widget">
-            <div ref="recaptchaWidgetEl" />
+            <div id="recaptcha-widget-form" ref="recaptchaWidgetEl" />
             <div v-if="!captchaToken" class="muted" style="margin-top: 6px;">
               {{ t('completeCaptchaToContinue') }}
             </div>
@@ -1467,11 +1467,13 @@ const ensureRecaptchaWidget = async () => {
     const grecaptcha = await loadRecaptchaScript();
     const renderFn = grecaptcha?.enterprise?.render || grecaptcha?.render;
     if (!renderFn) return false;
+    const getId = () => (step.value === -1 ? 'recaptcha-widget-start' : 'recaptcha-widget-form');
     let el = step.value === -1 ? recaptchaWidgetElStart.value : recaptchaWidgetEl.value;
-    for (let i = 0; !el && i < 5; i++) {
+    for (let i = 0; !el && i < 8; i++) {
       await nextTick();
-      await new Promise((r) => setTimeout(r, 50 * (i + 1)));
+      await new Promise((r) => setTimeout(r, 80 * (i + 1)));
       el = step.value === -1 ? recaptchaWidgetElStart.value : recaptchaWidgetEl.value;
+      if (!el) el = document.getElementById(getId());
     }
     if (!el) {
       console.warn('[recaptcha] widget container not ready', { step: step.value });
