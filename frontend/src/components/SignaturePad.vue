@@ -1,5 +1,5 @@
 <template>
-  <div class="signature-pad-container">
+  <div class="signature-pad-container" :class="{ compact: compact }">
     <div v-if="!signed" class="signature-area">
       <div class="signature-hint">Please sign here with your finger or mouse.</div>
       <canvas
@@ -23,16 +23,33 @@
       <div class="success">
         ✓ Signature saved successfully
       </div>
-      <div class="signature-preview">
-        <img :src="signatureData" alt="Saved signature" />
+      <div v-if="compact" class="signature-compact">
+        <div class="signature-preview-small">
+          <img :src="signatureData" alt="Saved signature" />
+        </div>
+        <div class="signature-links">
+          <button type="button" class="link-btn" @click="showExpanded = !showExpanded">
+            {{ showExpanded ? 'Hide signature' : 'Show signature' }}
+          </button>
+          <span class="link-sep">·</span>
+          <button type="button" class="link-btn" @click="resetSignature">Change signature</button>
+        </div>
+        <div v-if="showExpanded" class="signature-preview-expanded">
+          <img :src="signatureData" alt="Saved signature" />
+        </div>
       </div>
-      <button @click="resetSignature" class="btn btn-secondary">Sign Again</button>
+      <template v-else>
+        <div class="signature-preview">
+          <img :src="signatureData" alt="Saved signature" />
+        </div>
+        <button @click="resetSignature" class="btn btn-secondary">Sign Again</button>
+      </template>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, nextTick } from 'vue';
+import { ref, onMounted, nextTick, watch } from 'vue';
 import api from '../services/api';
 
 const props = defineProps({
@@ -40,6 +57,10 @@ const props = defineProps({
     type: [String, Number],
     required: false,
     default: null
+  },
+  compact: {
+    type: Boolean,
+    default: false
   }
 });
 
@@ -51,6 +72,7 @@ const hasSignature = ref(false);
 const signed = ref(false);
 const saving = ref(false);
 const signatureData = ref('');
+const showExpanded = ref(false);
 
 let ctx = null;
 
@@ -59,7 +81,7 @@ const setupCanvas = () => {
   
   ctx = canvas.value.getContext('2d');
   canvas.value.width = canvas.value.offsetWidth;
-  canvas.value.height = 300;
+  canvas.value.height = props.compact ? 120 : 300;
   
   ctx.strokeStyle = '#000';
   ctx.lineWidth = 2;
@@ -154,13 +176,24 @@ const saveSignature = async () => {
 const resetSignature = () => {
   signed.value = false;
   signatureData.value = '';
-  clearSignature();
+  hasSignature.value = false;
 };
 
-onMounted(async () => {
+const initCanvas = async () => {
   await nextTick();
   setupCanvas();
-  
+};
+
+watch(
+  () => signed.value,
+  (isSigned) => {
+    if (!isSigned) nextTick().then(setupCanvas);
+  }
+);
+
+onMounted(async () => {
+  await initCanvas();
+
   // Check if signature already exists
   if (!props.moduleId) return;
   try {
@@ -231,6 +264,64 @@ onMounted(async () => {
   max-width: 100%;
   border: 1px solid #ddd;
   border-radius: 4px;
+}
+
+/* Compact mode */
+.signature-compact {
+  margin-top: 12px;
+}
+
+.signature-preview-small {
+  display: inline-block;
+  max-height: 60px;
+  padding: 8px;
+  background: #f8f9fa;
+  border-radius: 6px;
+  border: 1px solid #ddd;
+}
+
+.signature-preview-small img {
+  display: block;
+  max-height: 44px;
+  max-width: 180px;
+  object-fit: contain;
+}
+
+.signature-links {
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+.link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--primary, #1f4e79);
+  cursor: pointer;
+  text-decoration: underline;
+  font-size: inherit;
+}
+
+.link-btn:hover {
+  text-decoration: none;
+}
+
+.link-sep {
+  color: var(--text-secondary, #6b7280);
+  margin: 0 4px;
+}
+
+.signature-preview-expanded {
+  margin-top: 12px;
+  padding: 16px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border: 1px solid #ddd;
+}
+
+.signature-preview-expanded img {
+  max-width: 100%;
+  display: block;
 }
 
 .btn:disabled {

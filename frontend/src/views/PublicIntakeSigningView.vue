@@ -433,6 +433,11 @@
           </button>
         </div>
 
+        <div v-if="currentFlowStep?.type === 'document' && currentDoc?.document_action_type === 'signature'" class="signature-summary signature-summary-top">
+          <span v-if="guardianDisplayName">Guardian: {{ guardianDisplayName }}</span>
+          <span v-if="clientDisplayNames.length"> · Client{{ clientDisplayNames.length > 1 ? 's' : '' }}: {{ clientDisplayNames.join(', ') }}</span>
+        </div>
+
         <div class="doc-preview" v-if="currentFlowStep?.type === 'document'">
           <div v-if="currentDoc?.template_type === 'html'" v-html="currentDoc.html_content" class="html-preview"></div>
           <div v-else-if="pdfUrl" class="pdf-preview-container">
@@ -449,9 +454,19 @@
             <p v-if="checkboxMarkers.length && checkboxDisclaimer" class="note">
               {{ checkboxDisclaimer }}
             </p>
+            <div v-if="showSkipToSignature" class="page-notice-actions" style="margin-top: 12px;">
+              <button class="btn btn-primary btn-sm" type="button" @click="skipToSignaturePage">
+                Skip to signature page
+              </button>
+              <button class="btn btn-outline btn-sm" type="button" @click="dismissSkipNotice">
+                Continue reviewing pages
+              </button>
+            </div>
           </div>
           <div v-else class="muted">Document preview not available.</div>
         </div>
+
+        <div v-if="pageNotice" class="page-notice">{{ pageNotice }}</div>
 
         <div v-if="currentFlowStep?.type === 'document' && requiredFieldsForList.length" class="field-inputs">
           <h4>Required Fields</h4>
@@ -495,25 +510,7 @@
         </div>
 
         <div v-if="currentFlowStep?.type === 'document' && currentDoc?.document_action_type === 'signature'" class="signature-block" ref="signatureBlockRef">
-          <div class="signature-summary">
-            <div v-if="guardianDisplayName" class="summary-row">
-              <strong>Guardian:</strong>
-              <span>{{ guardianDisplayName }}</span>
-            </div>
-            <div v-if="guardianEmail" class="summary-row">
-              <strong>Email:</strong>
-              <span>{{ guardianEmail }}</span>
-            </div>
-            <div v-if="guardianRelationship" class="summary-row">
-              <strong>Relationship:</strong>
-              <span>{{ guardianRelationship }}</span>
-            </div>
-            <div v-if="clientDisplayNames.length" class="summary-row">
-              <strong>Client{{ clientDisplayNames.length > 1 ? 's' : '' }}:</strong>
-              <span>{{ clientDisplayNames.join(', ') }}</span>
-            </div>
-          </div>
-          <SignaturePad @signed="onSigned" />
+          <SignaturePad compact @signed="onSigned" />
           <label
             v-if="allowSignatureReuseActions && lastSignatureData && !signatureData"
             class="checkbox-row signature-confirm"
@@ -524,20 +521,7 @@
           <div v-if="signatureData" class="muted" style="margin-top: 6px;">Signature ready for this document.</div>
         </div>
 
-        <div v-if="pageNotice" class="page-notice">{{ pageNotice }}</div>
-        <div v-if="showSkipToSignature" class="page-notice-actions">
-          <button class="btn btn-primary btn-sm" type="button" @click="skipToSignaturePage">
-            Skip to signature page
-          </button>
-          <button class="btn btn-outline btn-sm" type="button" @click="dismissSkipNotice">
-            Continue reviewing pages
-          </button>
-        </div>
-
         <div class="actions">
-          <button v-if="currentFlowStep?.type === 'document' && displayedFieldDefinitions.length" class="btn btn-secondary" type="button" @click="focusNextField">
-            Next Field
-          </button>
           <button
             class="btn btn-primary"
             type="button"
@@ -569,20 +553,6 @@
             <a class="btn btn-outline btn-sm" :href="bundle.downloadUrl" download>Download</a>
           </div>
         </div>
-        <div v-if="clients.length && !jobApplicationSubmitted" class="bundle-list">
-          <div class="bundle-title">Intake answers and clinical summary</div>
-          <div v-for="(clientEntry, idx) in clients" :key="`intake-copy-${idx}`" class="bundle-item">
-            <div class="bundle-name">
-              {{ buildClientDisplayName(clientEntry, idx) }}
-            </div>
-            <button class="btn btn-secondary btn-sm" type="button" @click="openAnswerModal(idx)">
-              Intake answers
-            </button>
-            <button class="btn btn-secondary btn-sm" type="button" @click="openSummaryModal(idx)">
-              Clinical summary
-            </button>
-          </div>
-        </div>
         <div class="actions">
           <button class="btn btn-secondary" type="button" @click="endSession">
             End session
@@ -592,45 +562,6 @@
     </div>
   </div>
 
-  <div v-if="answerModalIndex !== null" class="modal-overlay" @click.self="closeAnswerModal">
-    <div class="modal">
-      <div class="modal-header">
-        <strong>Intake answers</strong>
-        <button class="btn btn-secondary btn-sm" type="button" @click="closeAnswerModal">Close</button>
-      </div>
-      <div class="modal-body">
-        <div class="modal-actions">
-          <button class="btn btn-secondary btn-sm" type="button" @click="copyAllAnswers">Copy all</button>
-        </div>
-        <div v-for="section in answerSections" :key="section.title" class="answer-section">
-          <div class="answer-title">{{ section.title }}</div>
-          <div v-for="line in section.lines" :key="line.key" class="answer-row">
-            <div class="answer-label">{{ line.label }}</div>
-            <div class="answer-value">{{ line.value }}</div>
-            <button class="btn btn-secondary btn-xs" type="button" @click="copyText(`${line.label}: ${line.value}`)">
-              Copy
-            </button>
-          </div>
-          <div v-if="!section.lines.length" class="muted">{{ t('noAnswersCaptured') }}</div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div v-if="summaryModalIndex !== null" class="modal-overlay" @click.self="closeSummaryModal">
-    <div class="modal">
-      <div class="modal-header">
-        <strong>Clinical summary</strong>
-        <button class="btn btn-secondary btn-sm" type="button" @click="closeSummaryModal">Close</button>
-      </div>
-      <div class="modal-body">
-        <div class="modal-actions">
-          <button class="btn btn-secondary btn-sm" type="button" @click="copyClinicalSummary">Copy summary</button>
-        </div>
-        <pre class="summary-text">{{ activeClinicalSummary }}</pre>
-      </div>
-    </div>
-  </div>
 </template>
 
 <script setup>
@@ -684,6 +615,7 @@ const INTAKE_TRANSLATIONS = {
     additionalQuestions: 'Additional Questions',
     remove: 'Remove',
     clientN: 'Client',
+    information: 'Information',
     iConsentContinue: 'I Consent and Continue',
     saving: 'Saving...',
     enterSsn: 'Enter SSN',
@@ -762,6 +694,7 @@ const INTAKE_TRANSLATIONS = {
     additionalQuestions: 'Preguntas adicionales',
     remove: 'Eliminar',
     clientN: 'Cliente',
+    information: 'Información',
     iConsentContinue: 'Acepto y continúo',
     saving: 'Guardando...',
     enterSsn: 'Ingrese SSN',
@@ -1122,6 +1055,13 @@ const matchesToken = (field, pattern) => {
 };
 
 const hasValue = (val) => val !== null && val !== undefined && (typeof val !== 'string' || val.trim() !== '');
+/** Format YYYY-MM-DD as MM/DD/YYYY for display. */
+const formatDateForDisplay = (val) => {
+  const s = String(val || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  const [, yyyy, mm, dd] = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return `${mm}/${dd}/${yyyy}`;
+};
 const formatAnswerValue = (val) => {
   if (val === null || val === undefined) return '';
   if (typeof val === 'boolean') return val ? t('yes') : t('no');
@@ -1135,211 +1075,10 @@ const formatAnswerValue = (val) => {
       return String(val);
     }
   }
-  return String(val);
-};
-
-const buildAnswerLinesForScope = (fields, responses) =>
-  (fields || [])
-    .filter((field) => field?.key && field?.type !== 'info')
-    .filter((field) => isIntakeFieldVisible(field, responses))
-    .map((field) => {
-      const value = responses?.[field.key];
-      if (!hasValue(value)) return null;
-      return {
-        key: field.key,
-        label: String(field?.label || field?.key || '').trim() || String(field?.key || '').trim(),
-        value: formatAnswerValue(value)
-      };
-    })
-    .filter(Boolean);
-
-const buildClientDisplayName = (clientEntry, idx) => {
-  const name = `${String(clientEntry?.firstName || '').trim()} ${String(clientEntry?.lastName || '').trim()}`.trim();
-  if (name) return name;
-  return `Client ${idx + 1}`;
-};
-
-const answerModalIndex = ref(null);
-const summaryModalIndex = ref(null);
-
-const buildIntakeAnswerSections = (clientIndex) => {
-  const sections = [];
-  const guardianInfo = [
-    { key: 'guardian_first', label: t('guardianFirst'), value: guardianFirstName.value },
-    { key: 'guardian_last', label: t('guardianLast'), value: guardianLastName.value },
-    { key: 'guardian_email', label: t('guardianEmail'), value: guardianEmail.value },
-    { key: 'guardian_phone', label: t('guardianPhone'), value: guardianPhone.value },
-    ...(isMedicalRecordsRequest.value ? [] : [{ key: 'relationship', label: t('relationship'), value: guardianRelationship.value }])
-  ].filter((line) => hasValue(line.value))
-    .map((line) => ({ ...line, value: formatAnswerValue(line.value) }));
-
-  sections.push({ title: isMedicalRecordsRequest.value ? t('yourInformation') : t('guardianInfo'), lines: guardianInfo });
-
-  const guardianLines = buildAnswerLinesForScope(guardianFields.value, intakeResponses.guardian || {});
-  sections.push({ title: t('guardianQuestions'), lines: guardianLines });
-
-  const submissionLines = buildAnswerLinesForScope(submissionFields.value, intakeResponses.submission || {});
-  sections.push({ title: t('oneTimeQuestions'), lines: submissionLines });
-
-  const clientLines = buildAnswerLinesForScope(
-    clientFields.value,
-    intakeResponses.clients?.[clientIndex] || {}
-  );
-  sections.push({ title: `${t('clientN')} ${clientIndex + 1} ${t('questions')}`, lines: clientLines });
-  return sections;
-};
-
-const parsePscScore = (value) => {
-  if (!hasValue(value)) return null;
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return Math.max(0, Math.min(2, Math.round(value)));
-  }
-  const raw = String(value || '').trim();
-  if (!raw) return null;
-  const numeric = Number(raw);
-  if (Number.isFinite(numeric)) {
-    return Math.max(0, Math.min(2, Math.round(numeric)));
-  }
-  const normalized = raw.toLowerCase();
-  if (normalized.includes('never') || normalized.includes('not at all')) return 0;
-  if (normalized.includes('sometimes') || normalized.includes('somewhat')) return 1;
-  if (normalized.includes('often') || normalized.includes('very')) return 2;
-  return null;
-};
-
-const summaryExcludePattern = /insurance|member id|policy|subscriber|payer|medicaid|medicare|coverage|group|plan|billing|ssn|social security|address|street|city|state|zip|postal|phone|email|contact|relationship|guardian first|guardian last|client first|client last|full name|middle name|date of birth|birthdate|dob|grade|school/i;
-
-const buildClinicalSummaryText = (clientIndex) => {
-  const sections = [];
-  const clientName = buildClientDisplayName(clients.value?.[clientIndex], clientIndex);
-  sections.push(t('clinicalIntakeSummary'));
-  sections.push('=======================');
-  sections.push(`Client: ${clientName}`);
-  sections.push('');
-
-  const clientResponses = intakeResponses.clients?.[clientIndex] || {};
-  const pscItems = [];
-  for (let i = 1; i <= 17; i += 1) {
-    const key = `psc_${i}`;
-    const raw = clientResponses?.[key];
-    if (!hasValue(raw)) continue;
-    const score = parsePscScore(raw);
-    const field = intakeFields.value.find((f) => f?.key === key);
-    const label = String(field?.label || key).trim() || key;
-    pscItems.push({ index: i, label, value: formatAnswerValue(raw), score });
-  }
-
-  if (pscItems.length) {
-    const attentionKeys = [1, 3, 7, 13, 17];
-    const internalKeys = [2, 6, 9, 11, 15];
-    const externalKeys = [4, 5, 8, 10, 12, 14, 16];
-    const sumScores = (keys) =>
-      keys.reduce((acc, idx) => {
-        const item = pscItems.find((entry) => entry.index === idx);
-        return acc + (item?.score ?? 0);
-      }, 0);
-    const totalScore = pscItems.reduce((acc, entry) => acc + (entry?.score ?? 0), 0);
-    const answered = pscItems.filter((entry) => entry.score !== null).length;
-    sections.push('PSC-17 Results');
-    sections.push('--------------');
-    sections.push(`Total score: ${totalScore} (${answered} of 17 answered)`);
-    sections.push(`Attention: ${sumScores(attentionKeys)}`);
-    sections.push(`Internalizing: ${sumScores(internalKeys)}`);
-    sections.push(`Externalizing: ${sumScores(externalKeys)}`);
-    sections.push('');
-    sections.push('PSC-17 Item Responses');
-    sections.push('---------------------');
-    pscItems
-      .sort((a, b) => a.index - b.index)
-      .forEach((entry) => {
-        const scoreLabel = entry.score === null ? 'n/a' : entry.score;
-        sections.push(`${entry.index}. ${entry.label}: ${entry.value} (score ${scoreLabel})`);
-      });
-    sections.push('');
-  }
-
-  const clinicalLines = [
-    ...buildAnswerLinesForScope(guardianFields.value, intakeResponses.guardian || {}),
-    ...buildAnswerLinesForScope(submissionFields.value, intakeResponses.submission || {}),
-    ...buildAnswerLinesForScope(clientFields.value, clientResponses)
-  ].filter((line) => !/^psc_\d+$/i.test(line.key || ''));
-
-  if (clinicalLines.length) {
-    sections.push(t('clinicalResponses'));
-    sections.push('------------------');
-    clinicalLines.forEach((line) => {
-      if (summaryExcludePattern.test(line.label)) return;
-      sections.push(`${line.label}: ${line.value}`);
-    });
-  } else if (!pscItems.length) {
-    sections.push(t('noClinicalResponses'));
-  }
-
-  return sections.join('\n').trim();
-};
-
-const answerSections = computed(() => {
-  if (answerModalIndex.value === null) return [];
-  return buildIntakeAnswerSections(answerModalIndex.value);
-});
-
-const activeClinicalSummary = computed(() => {
-  if (summaryModalIndex.value === null) return '';
-  return buildClinicalSummaryText(summaryModalIndex.value);
-});
-
-const copyText = async (text) => {
-  const value = String(text || '').trim();
-  if (!value) return;
-  try {
-    await navigator.clipboard.writeText(value);
-  } catch {
-    const textarea = document.createElement('textarea');
-    textarea.value = value;
-    textarea.style.position = 'fixed';
-    textarea.style.opacity = '0';
-    document.body.appendChild(textarea);
-    textarea.focus();
-    textarea.select();
-    document.execCommand('copy');
-    document.body.removeChild(textarea);
-  }
-};
-
-const copyAllAnswers = () => {
-  const sections = answerSections.value || [];
-  const lines = [];
-  sections.forEach((section) => {
-    lines.push(section.title);
-    lines.push('-'.repeat(section.title.length));
-    if (section.lines.length) {
-      section.lines.forEach((line) => lines.push(`${line.label}: ${line.value}`));
-    } else {
-      lines.push(t('noAnswersCaptured'));
-    }
-    lines.push('');
-  });
-  copyText(lines.join('\n').trim());
-};
-
-const copyClinicalSummary = () => {
-  copyText(activeClinicalSummary.value);
-};
-
-const openAnswerModal = (idx) => {
-  answerModalIndex.value = idx;
-};
-
-const closeAnswerModal = () => {
-  answerModalIndex.value = null;
-};
-
-const openSummaryModal = (idx) => {
-  summaryModalIndex.value = idx;
-};
-
-const closeSummaryModal = () => {
-  summaryModalIndex.value = null;
+  const str = String(val);
+  const formatted = formatDateForDisplay(str);
+  if (formatted) return formatted;
+  return str;
 };
 
 const guardianLocationKeys = computed(() => {
@@ -2776,6 +2515,15 @@ onMounted(async () => {
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 8px;
+}
+.signature-summary-top {
+  font-size: 13px;
+  padding: 8px 12px;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 12px;
+  color: var(--text-secondary);
 }
 .signature-summary {
   border: 1px solid var(--border);

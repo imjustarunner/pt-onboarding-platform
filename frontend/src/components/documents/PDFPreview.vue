@@ -319,8 +319,8 @@ onMounted(() => {
   border: 1px solid var(--border, #ddd);
   border-radius: 8px;
   background: white;
-  height: 80vh;
-  min-height: 520px;
+  height: 65vh;
+  min-height: 360px;
   overflow: auto;
   padding: 0;
   width: 100%;
