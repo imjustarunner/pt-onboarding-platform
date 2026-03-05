@@ -107,6 +107,15 @@
               <button class="btn btn-secondary btn-sm" type="button" @click="editLink(link)">Edit</button>
               <button class="btn btn-secondary btn-sm" type="button" @click="duplicateLink(link)">Duplicate</button>
               <button class="btn btn-secondary btn-sm" type="button" @click="copyLink(link)">Copy URL</button>
+              <button
+                class="btn btn-danger btn-sm"
+                type="button"
+                :disabled="!link.is_active"
+                :title="link.is_active ? 'Deactivate form and remove from use' : 'Already deactivated'"
+                @click="deleteLink(link)"
+              >
+                Delete
+              </button>
             </td>
           </tr>
         </tbody>
@@ -202,7 +211,15 @@
                 <option v-for="j in jobDescriptionsForForm" :key="j.id" :value="j.id">{{ j.title }}</option>
               </select>
             </div>
-            <div class="form-group" v-if="form.formType !== 'job_application'">
+            <div v-if="form.formType === 'medical_records_request'" class="form-group">
+              <label>Agency</label>
+              <select v-model.number="form.organizationId">
+                <option :value="null">Select agency</option>
+                <option v-for="a in agencyList" :key="a.id" :value="a.id">{{ a.name }}</option>
+              </select>
+              <small class="form-help">One medical release form per agency. The requester will not need to select an agency.</small>
+            </div>
+            <div class="form-group" v-if="form.formType !== 'job_application' && form.formType !== 'medical_records_request'">
               <label>Scope</label>
               <select v-model="form.scopeType">
                 <option value="agency">Agency</option>
@@ -230,15 +247,15 @@
                 <option :value="false">No</option>
               </select>
             </div>
-            <div class="form-group">
+            <div v-if="form.formType !== 'job_application'" class="form-group">
               <label>Create Client</label>
-              <select v-model="form.createClient" :disabled="['public_form', 'job_application', 'medical_records_request'].includes(form.formType)">
+              <select v-model="form.createClient" :disabled="['public_form', 'medical_records_request'].includes(form.formType)">
                 <option :value="true">Yes</option>
                 <option :value="false">No</option>
               </select>
-              <small v-if="['public_form', 'job_application', 'medical_records_request'].includes(form.formType)" class="form-help">These forms do not create clients; documents go to Submitted Documents.</small>
+              <small v-if="['public_form', 'medical_records_request'].includes(form.formType)" class="form-help">These forms do not create clients; documents go to Submitted Documents.</small>
             </div>
-            <div class="form-group">
+            <div v-if="form.formType !== 'job_application'" class="form-group">
               <label>Create Guardian (default)</label>
               <select v-model="form.createGuardian">
                 <option :value="true">Yes</option>
@@ -786,6 +803,13 @@ watch(selectedAgencyId, async (next) => {
   fieldTemplates.value = r.data || [];
 });
 
+watch(() => form.formType, (newVal) => {
+  if (newVal === 'job_application') {
+    form.createClient = false;
+    form.createGuardian = false;
+  }
+});
+
 watch(showForm, (open) => {
   if (open) {
     loadDraft();
@@ -842,6 +866,21 @@ const duplicateLink = async (link) => {
     }
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to duplicate form';
+  }
+};
+
+const deleteLink = async (link) => {
+  if (!link?.is_active) return;
+  if (!window.confirm(`Deactivate "${link.title || `Link ${link.id}`}"? The form will no longer accept submissions and will be removed from use.`)) return;
+  try {
+    const resp = await api.delete(`/intake-links/${link.id}`);
+    const updated = resp.data?.link;
+    if (updated) {
+      const idx = links.value.findIndex((l) => l.id === link.id);
+      if (idx >= 0) links.value[idx] = updated;
+    }
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to delete form';
   }
 };
 
@@ -961,10 +1000,10 @@ const save = async () => {
       description: form.description,
       languageCode: form.languageCode,
       formType: form.formType,
-      scopeType: form.formType === 'job_application' ? 'agency' : form.scopeType,
+      scopeType: ['job_application', 'medical_records_request'].includes(form.formType) ? 'agency' : form.scopeType,
       isActive: form.isActive,
-      createClient: form.createClient,
-      createGuardian: form.createGuardian,
+      createClient: form.formType === 'job_application' ? false : form.createClient,
+      createGuardian: form.formType === 'job_application' ? false : form.createGuardian,
       requiresAssignment: form.requiresAssignment,
       retentionPolicy: form.retentionPolicy ? { ...form.retentionPolicy } : null,
       customMessages: customMessagesPayload,
@@ -975,7 +1014,9 @@ const save = async () => {
     if (form.formType === 'job_application' && form.jobDescriptionId) {
       payload.jobDescriptionId = form.jobDescriptionId;
     }
-    if (form.scopeType !== 'agency' && form.organizationId && form.formType !== 'job_application') {
+    if (['job_application', 'medical_records_request'].includes(form.formType) && form.organizationId) {
+      payload.organizationId = form.organizationId;
+    } else if (form.scopeType !== 'agency' && form.organizationId) {
       payload.organizationId = form.organizationId;
     }
     if (form.scopeType === 'program' && form.programId) {

@@ -1,6 +1,6 @@
 <template>
   <div class="public-intake container">
-    <div v-if="loading" class="loading">{{ t('loadingLink') }}</div>
+    <div v-if="loading" class="loading">{{ loadingText }}</div>
     <div v-else-if="error" class="error">{{ error }}</div>
 
     <div v-else class="intake-card">
@@ -12,7 +12,7 @@
       >
         Dev Fill
       </button>
-      <h2>{{ link?.title || t('digitalIntake') }}</h2>
+      <h2>{{ link?.title || defaultTitle }}</h2>
       <p v-if="link?.description" class="muted">{{ link.description }}</p>
 
       <div v-if="step === -1" class="step cover-step">
@@ -22,11 +22,11 @@
             <div class="cover-title">{{ screen.displayName }}</div>
           </div>
           <div class="cover-subtitle">
-            {{ t('beginSubtitle') }}
+            {{ beginSubtitleText }}
           </div>
           <div class="actions">
             <button class="btn btn-primary" type="button" @click="beginIntakeSession">
-              {{ t('beginIntake') }}
+              {{ beginIntakeButtonText }}
             </button>
           </div>
           <div v-if="beginError" class="error" style="margin-top: 10px;">{{ beginError }}</div>
@@ -54,7 +54,7 @@
       <div v-else-if="step === 1" class="step">
         <h3>{{ t('questions') }}</h3>
         <div v-if="stepError" class="error" style="margin-bottom: 10px;">{{ stepError }}</div>
-        <div v-if="!isMedicalRecordsRequest" class="form-group">
+        <div v-if="!isMedicalRecordsRequest && !isJobApplication" class="form-group">
           <label>{{ t('whoIsIntakeFor') }}</label>
           <div class="radio-group">
             <label class="radio-row">
@@ -69,7 +69,7 @@
         </div>
         <div class="form-grid">
           <div class="form-group">
-            <label>{{ (intakeForSelf || isMedicalRecordsRequest) ? t('yourFirstName') : t('guardianFirstName') }}</label>
+            <label>{{ (intakeForSelf || isMedicalRecordsRequest || isJobApplication) ? t('yourFirstName') : t('guardianFirstName') }}</label>
             <input
               id="guardianFirstName"
               v-model="guardianFirstName"
@@ -79,7 +79,7 @@
             <div v-if="consentErrors.guardianFirstName" class="error-text">{{ consentErrors.guardianFirstName }}</div>
           </div>
           <div class="form-group">
-            <label>{{ (intakeForSelf || isMedicalRecordsRequest) ? t('yourLastName') : t('guardianLastName') }}</label>
+            <label>{{ (intakeForSelf || isMedicalRecordsRequest || isJobApplication) ? t('yourLastName') : t('guardianLastName') }}</label>
             <input
               id="guardianLastName"
               v-model="guardianLastName"
@@ -89,7 +89,7 @@
             <div v-if="consentErrors.guardianLastName" class="error-text">{{ consentErrors.guardianLastName }}</div>
           </div>
           <div class="form-group">
-            <label>{{ (intakeForSelf || isMedicalRecordsRequest) ? t('yourEmail') : t('guardianEmail') }}</label>
+            <label>{{ (intakeForSelf || isMedicalRecordsRequest || isJobApplication) ? t('yourEmail') : t('guardianEmail') }}</label>
             <input
               id="guardianEmail"
               v-model="guardianEmail"
@@ -99,17 +99,17 @@
             <div v-if="consentErrors.guardianEmail" class="error-text">{{ consentErrors.guardianEmail }}</div>
           </div>
           <div class="form-group">
-            <label>{{ (intakeForSelf || isMedicalRecordsRequest) ? t('yourPhoneOptional') : t('guardianPhoneOptional') }}</label>
+            <label>{{ (intakeForSelf || isMedicalRecordsRequest || isJobApplication) ? t('yourPhoneOptional') : t('guardianPhoneOptional') }}</label>
             <input v-model="guardianPhone" type="tel" />
           </div>
-          <div v-if="!isMedicalRecordsRequest" class="form-group">
+          <div v-if="!isMedicalRecordsRequest && !isJobApplication" class="form-group">
             <label>{{ t('relationship') }}</label>
             <input v-model="guardianRelationship" type="text" :placeholder="t('relationshipPlaceholder')" />
           </div>
         </div>
 
         <div v-if="visibleGuardianFields.length" class="custom-fields">
-          <h4>{{ t('guardianQuestions') }}</h4>
+          <h4>{{ guardianSectionTitle }}</h4>
           <div class="form-grid">
             <div v-for="field in visibleGuardianFields" :key="field.key" class="form-group">
               <div v-if="field.type === 'info'" class="info-block">
@@ -210,7 +210,7 @@
           </div>
         </div>
 
-        <div class="clients-block">
+        <div v-if="!isMedicalRecordsRequest && !isJobApplication" class="clients-block">
           <div class="clients-header">
             <h4>{{ intakeForSelf ? t('client') : t('clients') }}</h4>
           </div>
@@ -434,8 +434,8 @@
         </div>
 
         <div v-if="currentFlowStep?.type === 'document' && currentDoc?.document_action_type === 'signature'" class="signature-summary signature-summary-top">
-          <span v-if="guardianDisplayName">Guardian: {{ guardianDisplayName }}</span>
-          <span v-if="clientDisplayNames.length"> · Client{{ clientDisplayNames.length > 1 ? 's' : '' }}: {{ clientDisplayNames.join(', ') }}</span>
+          <span v-if="guardianDisplayName">{{ signerLabel }}: {{ guardianDisplayName }}</span>
+          <span v-if="clientDisplayNames.length && !isJobApplication"> · Client{{ clientDisplayNames.length > 1 ? 's' : '' }}: {{ clientDisplayNames.join(', ') }}</span>
         </div>
 
         <div class="doc-preview" v-if="currentFlowStep?.type === 'document'">
@@ -539,7 +539,7 @@
         <p v-if="jobApplicationSubmitted">
           Thank you for your application. We have received your materials and will review them shortly.
         </p>
-        <p v-else>Your documents were completed successfully. A copy will be emailed to the guardian.</p>
+        <p v-else>{{ completionEmailMessage }}</p>
         <p v-if="!jobApplicationSubmitted" class="muted">Download links expire in 14 days. After that, the files are deleted once uploaded to Therapy Notes.</p>
         <div v-if="downloadUrl && !jobApplicationSubmitted" class="actions">
           <a class="btn btn-primary" :href="downloadUrl" target="_blank" rel="noopener">View Packet PDF</a>
@@ -575,10 +575,18 @@ import { useAuthStore } from '../store/auth';
 
 const INTAKE_TRANSLATIONS = {
   en: {
-    loadingLink: 'Loading intake link...',
-    digitalIntake: 'Digital Intake',
     beginSubtitle: 'Begin to start a secure intake session. This link creates a unique session for each person.',
+    beginSubtitleJob: 'Start your job application. This link creates a unique session for your application.',
+    beginSubtitleMedical: 'Request your medical records. This link creates a unique session for your request.',
     beginIntake: 'Begin intake',
+    beginIntakeJob: 'Start job application',
+    beginIntakeMedical: 'Start medical records request',
+    loadingLink: 'Loading intake link...',
+    loadingLinkJob: 'Loading job application...',
+    loadingLinkMedical: 'Loading medical records request...',
+    digitalIntake: 'Digital Intake',
+    digitalIntakeJob: 'Job Application',
+    digitalIntakeMedical: 'Medical Records Request',
     welcome: 'Welcome',
     formTimeLimit: 'This form must be completed within 1 hour. Each new page adds 5 minutes. The session is unique and cannot be saved or resumed.',
     next: 'Next',
@@ -639,6 +647,16 @@ const INTAKE_TRANSLATIONS = {
     required: 'Required',
     organizationRequired: 'Organization is required.',
     guardianRequired: 'Guardian name and guardian email are required.',
+    applicantRequired: 'Name and email are required.',
+    requesterRequired: 'Name and email are required.',
+    signerLabelGuardian: 'Guardian',
+    signerLabelApplicant: 'Applicant',
+    signerLabelRequester: 'Requester',
+    applicantInformation: 'Applicant Information',
+    requesterInformation: 'Requester Information',
+    completionEmailGuardian: 'Your documents were completed successfully. A copy will be emailed to the guardian.',
+    completionEmailApplicant: 'Your application was submitted successfully. A copy will be emailed to you.',
+    completionEmailRequester: 'Your request was submitted successfully. A copy will be emailed to you.',
     completeCaptcha: 'Please complete the captcha verification above.',
     captchaFailed: 'Captcha verification failed. Please try again.',
     noDocumentSelected: 'No document selected.',
@@ -655,9 +673,17 @@ const INTAKE_TRANSLATIONS = {
   },
   es: {
     loadingLink: 'Cargando enlace de admisión...',
+    loadingLinkJob: 'Cargando solicitud de empleo...',
+    loadingLinkMedical: 'Cargando solicitud de registros médicos...',
     digitalIntake: 'Admisión Digital',
+    digitalIntakeJob: 'Solicitud de Empleo',
+    digitalIntakeMedical: 'Solicitud de Registros Médicos',
     beginSubtitle: 'Comience para iniciar una sesión de admisión segura. Este enlace crea una sesión única para cada persona.',
+    beginSubtitleJob: 'Comience su solicitud de empleo. Este enlace crea una sesión única para su solicitud.',
+    beginSubtitleMedical: 'Solicite sus registros médicos. Este enlace crea una sesión única para su solicitud.',
     beginIntake: 'Comenzar admisión',
+    beginIntakeJob: 'Comenzar solicitud de empleo',
+    beginIntakeMedical: 'Comenzar solicitud de registros médicos',
     welcome: 'Bienvenido',
     formTimeLimit: 'Este formulario debe completarse en 1 hora. Cada página nueva agrega 5 minutos. La sesión es única y no se puede guardar ni reanudar.',
     next: 'Siguiente',
@@ -751,6 +777,47 @@ const t = (key) => {
   if (custom && String(custom).trim()) return String(custom).trim();
   return INTAKE_TRANSLATIONS[intakeLocale.value]?.[key] ?? INTAKE_TRANSLATIONS.en[key] ?? key;
 };
+
+const formTypeKey = computed(() => String(link.value?.form_type || '').toLowerCase());
+const beginSubtitleText = computed(() => {
+  const custom = customMessages.value?.beginSubtitle;
+  if (custom && String(custom).trim()) return String(custom).trim();
+  if (formTypeKey.value === 'job_application') return t('beginSubtitleJob');
+  if (formTypeKey.value === 'medical_records_request') return t('beginSubtitleMedical');
+  return t('beginSubtitle');
+});
+const beginIntakeButtonText = computed(() => {
+  const custom = customMessages.value?.beginIntake;
+  if (custom && String(custom).trim()) return String(custom).trim();
+  if (formTypeKey.value === 'job_application') return t('beginIntakeJob');
+  if (formTypeKey.value === 'medical_records_request') return t('beginIntakeMedical');
+  return t('beginIntake');
+});
+const loadingText = computed(() => {
+  if (formTypeKey.value === 'job_application') return t('loadingLinkJob');
+  if (formTypeKey.value === 'medical_records_request') return t('loadingLinkMedical');
+  return t('loadingLink');
+});
+const defaultTitle = computed(() => {
+  if (formTypeKey.value === 'job_application') return t('digitalIntakeJob');
+  if (formTypeKey.value === 'medical_records_request') return t('digitalIntakeMedical');
+  return t('digitalIntake');
+});
+const signerLabel = computed(() => {
+  if (formTypeKey.value === 'job_application') return t('signerLabelApplicant');
+  if (formTypeKey.value === 'medical_records_request') return t('signerLabelRequester');
+  return t('signerLabelGuardian');
+});
+const completionEmailMessage = computed(() => {
+  if (formTypeKey.value === 'job_application') return t('completionEmailApplicant');
+  if (formTypeKey.value === 'medical_records_request') return t('completionEmailRequester');
+  return t('completionEmailGuardian');
+});
+const guardianSectionTitle = computed(() => {
+  if (formTypeKey.value === 'job_application') return t('applicantInformation');
+  if (formTypeKey.value === 'medical_records_request') return t('requesterInformation');
+  return t('guardianQuestions');
+});
 
 const loading = ref(true);
 const error = ref('');
@@ -1032,7 +1099,11 @@ const handleMarkerClick = (marker) => {
   currentFieldValues.value[id] = currentFieldValues.value[id] !== true;
   activeMarkerId.value = id;
 };
-const requiresOrganizationId = computed(() => String(link.value?.scope_type || '') === 'agency');
+const requiresOrganizationId = computed(
+  () =>
+    String(link.value?.scope_type || '') === 'agency' &&
+    String(link.value?.form_type || '').toLowerCase() !== 'medical_records_request'
+);
 const isJobApplication = computed(() => String(link.value?.form_type || '').toLowerCase() === 'job_application');
 const isMedicalRecordsRequest = computed(() => String(link.value?.form_type || '').toLowerCase() === 'medical_records_request');
 const intakeFields = computed(() => Array.isArray(link.value?.intake_fields) ? link.value.intake_fields : []);
@@ -1305,6 +1376,9 @@ const loadLink = async () => {
     if (!templates.value.length) {
       error.value = 'No documents configured for this intake link.';
     }
+    if (String(link.value?.form_type || '').toLowerCase() === 'job_application') {
+      intakeForSelf.value = true;
+    }
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to load intake link';
   } finally {
@@ -1516,7 +1590,7 @@ const submitConsent = async () => {
   ) {
     error.value = consentErrors.organizationId
       ? t('organizationRequired')
-      : t('guardianRequired');
+      : (formTypeKey.value === 'job_application' ? t('applicantRequired') : formTypeKey.value === 'medical_records_request' ? t('requesterRequired') : t('guardianRequired'));
     stepError.value = '';
     await nextTick();
     const firstMissingId = consentErrors.guardianFirstName

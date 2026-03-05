@@ -20,8 +20,8 @@
         <!-- Option 1: Digital Link -->
         <div class="action-card" @click="openIntakeLink">
           <div class="action-icon">🔗</div>
-          <h3>Parent Intake Link</h3>
-          <p>Same link as the QR code for this school</p>
+          <h3>{{ digitalLinkTitle }}</h3>
+          <p>{{ digitalLinkSubtitle }}</p>
           <span class="action-note">Open link</span>
         </div>
 
@@ -96,6 +96,20 @@ const intakeLinkUrl = computed(() => {
   const key = intakeLink.value?.public_key || '';
   if (!key) return '';
   return buildPublicIntakeUrl(key);
+});
+
+const formTypeKey = computed(() => String(intakeLink.value?.form_type || '').toLowerCase());
+
+const digitalLinkTitle = computed(() => {
+  if (formTypeKey.value === 'job_application') return 'Job Application';
+  if (formTypeKey.value === 'medical_records_request') return 'Medical Records Request';
+  return 'Parent Intake Link';
+});
+
+const digitalLinkSubtitle = computed(() => {
+  if (formTypeKey.value === 'job_application') return 'Start your job application';
+  if (formTypeKey.value === 'medical_records_request') return 'Request your medical records';
+  return 'Same link as the QR code for this school';
 });
 
 const loadIntakeLink = async () => {
