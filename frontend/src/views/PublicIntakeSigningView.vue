@@ -1463,24 +1463,38 @@ const ensureRecaptchaWidget = async () => {
     const grecaptcha = await loadRecaptchaScript();
     const renderFn = grecaptcha?.enterprise?.render || grecaptcha?.render;
     if (!renderFn) return false;
-    const el = step.value === -1 ? recaptchaWidgetElStart.value : recaptchaWidgetEl.value;
-    if (!el) return false;
+    let el = step.value === -1 ? recaptchaWidgetElStart.value : recaptchaWidgetEl.value;
+    if (!el) {
+      await nextTick();
+      el = step.value === -1 ? recaptchaWidgetElStart.value : recaptchaWidgetEl.value;
+    }
+    if (!el) {
+      console.warn('[recaptcha] widget container not ready', { step: step.value });
+      return false;
+    }
     if (recaptchaWidgetId.value !== null) return true;
     const api = grecaptcha.enterprise || grecaptcha;
-    recaptchaWidgetId.value = api.render(el, {
-      sitekey: recaptchaSiteKey.value,
-      callback: (token) => {
-        captchaToken.value = String(token || '').trim();
-        captchaError.value = '';
-        console.info('[recaptcha] widget token', { hasToken: !!captchaToken.value, length: captchaToken.value.length });
-      },
-      'expired-callback': () => {
-        captchaToken.value = '';
-      },
-      'error-callback': () => {
-        captchaToken.value = '';
-      }
-    });
+    const doRender = () => {
+      recaptchaWidgetId.value = api.render(el, {
+        sitekey: recaptchaSiteKey.value,
+        callback: (token) => {
+          captchaToken.value = String(token || '').trim();
+          captchaError.value = '';
+          console.info('[recaptcha] widget token', { hasToken: !!captchaToken.value, length: captchaToken.value.length });
+        },
+        'expired-callback': () => {
+          captchaToken.value = '';
+        },
+        'error-callback': () => {
+          captchaToken.value = '';
+        }
+      });
+    };
+    const readyFn = grecaptcha.enterprise?.ready || grecaptcha?.ready;
+    if (readyFn) {
+      await new Promise((resolve) => readyFn(resolve));
+    }
+    doRender();
     return true;
   } catch (err) {
     console.warn('[recaptcha] widget init failed', err);
@@ -2359,6 +2373,8 @@ onMounted(async () => {
   await loadLink();
   if (!sessionToken.value) {
     step.value = -1;
+    await nextTick();
+    await updateRecaptchaMode();
     return;
   }
   if (introScreens.value.length) {

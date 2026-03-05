@@ -65,7 +65,7 @@ const verifyRecaptchaEnterpriseAdc = async ({ token, expectedAction, remoteip, u
   }
 };
 
-const verifyRecaptchaEnterprise = async ({ token, expectedAction, siteKeyOverride } = {}) => {
+const verifyRecaptchaEnterprise = async ({ token, expectedAction, remoteip, userAgent, siteKeyOverride } = {}) => {
   const siteKey = siteKeyOverride || config.recaptcha?.siteKey;
   const url = buildEnterpriseUrl();
   if (!url) {
@@ -89,7 +89,9 @@ const verifyRecaptchaEnterprise = async ({ token, expectedAction, siteKeyOverrid
         event: {
           token: cleanedToken,
           siteKey,
-          expectedAction
+          expectedAction: expectedAction || undefined,
+          userIpAddress: remoteip || undefined,
+          userAgent: userAgent || undefined
         }
       }),
       signal: controller.signal
@@ -115,19 +117,27 @@ const verifyRecaptchaEnterprise = async ({ token, expectedAction, siteKeyOverrid
   }
 };
 
-export const verifyRecaptchaV3 = async ({ token, remoteip, expectedAction, userAgent, siteKeyOverride } = {}) => {
+export const verifyRecaptchaV3 = async ({ token, remoteip, expectedAction, userAgent, siteKeyOverride, checkboxKey } = {}) => {
+  // Checkbox keys with explicit widget render do not support actions (per reCAPTCHA docs)
+  const useAction = !checkboxKey && expectedAction;
   if (config.recaptcha?.enterpriseApiKey) {
     const useAdc = String(process.env.RECAPTCHA_ENTERPRISE_USE_ADC || '').toLowerCase() === 'true';
     if (useAdc) {
       return verifyRecaptchaEnterpriseAdc({
         token,
-        expectedAction,
+        expectedAction: useAction ? expectedAction : undefined,
         remoteip,
         userAgent: userAgent || null,
         siteKeyOverride
       });
     }
-    return verifyRecaptchaEnterprise({ token, expectedAction, siteKeyOverride });
+    return verifyRecaptchaEnterprise({
+      token,
+      expectedAction: useAction ? expectedAction : undefined,
+      remoteip,
+      userAgent: userAgent || null,
+      siteKeyOverride
+    });
   }
   const secretKey = config.recaptcha?.secretKey || process.env.RECAPTCHA_SECRET_KEY || null;
   if (!secretKey) {

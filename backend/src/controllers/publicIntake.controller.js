@@ -1266,7 +1266,8 @@ export const createPublicConsent = async (req, res, next) => {
           remoteip: getClientIpAddress(req),
           expectedAction: 'public_intake_consent',
           userAgent: req.get('user-agent'),
-          siteKeyOverride: intakeSiteKey || undefined
+          siteKeyOverride: intakeSiteKey || undefined,
+          checkboxKey: !!process.env.RECAPTCHA_SITE_KEY_INTAKE
         });
         if (!verification.ok) {
           console.warn('[recaptcha] public intake verification failed', {
