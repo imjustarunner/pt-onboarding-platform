@@ -33,7 +33,10 @@
             <div v-if="captchaError" class="error">{{ captchaError }}</div>
             <div v-if="showRecaptchaWidget" class="recaptcha-widget">
               <div ref="recaptchaWidgetElStart" />
-              <div v-if="!captchaToken" class="muted" style="margin-top: 6px;">
+              <div v-if="captchaWidgetFailed" class="muted" style="margin-top: 6px; color: var(--warning, #b8860b);">
+                Verification widget failed to load. You may continue.
+              </div>
+              <div v-else-if="!captchaToken" class="muted" style="margin-top: 6px;">
                 {{ t('completeCaptchaToContinue') }}
               </div>
               <div v-else class="muted" style="margin-top: 6px; font-size: 0.9em;">
@@ -46,7 +49,7 @@
             <button
               class="btn btn-primary"
               type="button"
-              :disabled="(recaptchaSiteKey && showRecaptchaWidget && !captchaToken) || consentLoading"
+              :disabled="(recaptchaSiteKey && showRecaptchaWidget && !captchaToken && !captchaWidgetFailed) || consentLoading"
               @click="beginIntakeSession"
             >
               {{ beginIntakeButtonText }}
@@ -401,7 +404,7 @@
           <button
             class="btn btn-primary"
             type="button"
-            :disabled="consentLoading || (recaptchaSiteKey && showRecaptchaWidget && !captchaToken)"
+            :disabled="consentLoading || (recaptchaSiteKey && showRecaptchaWidget && !captchaToken && !captchaWidgetFailed)"
             @click="submitConsent"
           >
             {{ consentLoading ? t('saving') : t('iConsentContinue') }}
@@ -877,6 +880,7 @@ const showRecaptchaWidget = ref(false);
 const recaptchaWidgetEl = ref(null);
 const recaptchaWidgetElStart = ref(null);
 const recaptchaWidgetId = ref(null);
+const captchaWidgetFailed = ref(false);
 const sessionExpiryMinutes = computed(() => 30 + Math.max(0, Number(templates.value.length || 0)) * 5);
 const approvalContext = computed(() => {
   const mode = String(route.query?.mode || '').trim();
@@ -1483,6 +1487,11 @@ const ensureRecaptchaWidget = async () => {
         callback: (token) => {
           captchaToken.value = String(token || '').trim();
           captchaError.value = '';
+          captchaWidgetFailed.value = false;
+          if (captchaWidgetFallbackTimer) {
+            clearTimeout(captchaWidgetFallbackTimer);
+            captchaWidgetFallbackTimer = null;
+          }
           console.info('[recaptcha] widget token', { hasToken: !!captchaToken.value, length: captchaToken.value.length });
         },
         'expired-callback': () => {
@@ -1519,8 +1528,14 @@ const resetRecaptchaWidget = async () => {
   }
 };
 
+let captchaWidgetFallbackTimer = null;
 const updateRecaptchaMode = async () => {
   if (!recaptchaSiteKey.value) return;
+  captchaWidgetFailed.value = false;
+  if (captchaWidgetFallbackTimer) {
+    clearTimeout(captchaWidgetFallbackTimer);
+    captchaWidgetFallbackTimer = null;
+  }
   try {
     const grecaptcha = await loadRecaptchaScript();
     if (!grecaptcha) return;
@@ -1531,9 +1546,17 @@ const updateRecaptchaMode = async () => {
       showRecaptchaWidget.value = true;
       await nextTick();
       await ensureRecaptchaWidget();
+      captchaWidgetFallbackTimer = setTimeout(() => {
+        if (!captchaToken.value) {
+          captchaWidgetFailed.value = true;
+          console.warn('[recaptcha] widget did not render in time, allowing continue');
+        }
+        captchaWidgetFallbackTimer = null;
+      }, 10000);
     }
   } catch (err) {
     console.warn('[recaptcha] mode init failed', err);
+    captchaWidgetFailed.value = true;
   }
 };
 
@@ -1697,7 +1720,7 @@ const submitConsent = async () => {
     }
     return;
   }
-  if (recaptchaSiteKey.value) {
+  if (recaptchaSiteKey.value && !captchaWidgetFailed.value) {
     // If we're in widget-mode, the token only exists after user interaction.
     if (showRecaptchaWidget.value) {
       const token = String(captchaToken.value || '').trim();
@@ -1748,6 +1771,7 @@ const submitConsent = async () => {
     };
     if (recaptchaSiteKey.value) {
       payload.captchaToken = captchaToken.value || '';
+      if (captchaWidgetFailed.value) payload.captchaWidgetFailed = true;
     }
     const resp = await api.post(`/public-intake/${publicKey}/consent`, payload);
     submissionId.value = resp.data?.submission?.id || null;

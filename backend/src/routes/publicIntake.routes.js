@@ -41,6 +41,7 @@ router.post(
     body('signerEmail').notEmpty().withMessage('signerEmail is required'),
     body('signerPhone').optional().isString(),
     body('captchaToken').optional().isString(),
+    body('captchaWidgetFailed').optional().isBoolean(),
     body('sessionToken').optional().isString()
   ],
   createPublicConsent

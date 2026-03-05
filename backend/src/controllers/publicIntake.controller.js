@@ -1279,9 +1279,12 @@ export const createPublicConsent = async (req, res, next) => {
       return res.status(500).json({ error: { message: 'Captcha is not configured' } });
     }
     if (needsCaptcha && captchaConfigured) {
+      const captchaWidgetFailed = !!req.body.captchaWidgetFailed;
       const captchaToken = String(req.body.captchaToken || '').trim();
       if (!captchaToken) {
-        if (config.nodeEnv === 'production') {
+        if (captchaWidgetFailed) {
+          console.warn('[recaptcha] widget failed to render, allowing bypass (temporary)');
+        } else if (config.nodeEnv === 'production') {
           return res.status(400).json({ error: { message: 'Captcha is required' } });
         }
       } else {
