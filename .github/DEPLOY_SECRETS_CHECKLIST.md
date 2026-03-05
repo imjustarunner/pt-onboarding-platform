@@ -27,6 +27,8 @@ Each secret is only used if it exists (non-empty). Missing optional secrets = fe
 - `RECAPTCHA_SITE_KEY`
 - `RECAPTCHA_SECRET_KEY`
 - `RECAPTCHA_MIN_SCORE`
+- `RECAPTCHA_MIN_SCORE_INTAKE` – optional; lower threshold for public intake (default 0.3)
+- `RECAPTCHA_SITE_KEY_INTAKE` – **checkbox key** for public intake; when set, parents must complete "I'm not a robot" challenge
 - `RECAPTCHA_ENTERPRISE_API_KEY`
 - `RECAPTCHA_ENTERPRISE_PROJECT_ID`
 

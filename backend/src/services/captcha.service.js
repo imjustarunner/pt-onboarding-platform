@@ -16,8 +16,8 @@ const buildEnterpriseUrl = () => {
   return `https://recaptchaenterprise.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/assessments?key=${encodeURIComponent(apiKey)}`;
 };
 
-const verifyRecaptchaEnterpriseAdc = async ({ token, expectedAction, remoteip, userAgent } = {}) => {
-  const siteKey = config.recaptcha?.siteKey;
+const verifyRecaptchaEnterpriseAdc = async ({ token, expectedAction, remoteip, userAgent, siteKeyOverride } = {}) => {
+  const siteKey = siteKeyOverride || config.recaptcha?.siteKey;
   const projectId = config.recaptcha?.enterpriseProjectId;
   if (!siteKey) return { ok: false, reason: 'missing_site_key' };
   if (!projectId) return { ok: false, reason: 'missing_project' };
@@ -65,8 +65,8 @@ const verifyRecaptchaEnterpriseAdc = async ({ token, expectedAction, remoteip, u
   }
 };
 
-const verifyRecaptchaEnterprise = async ({ token, expectedAction } = {}) => {
-  const siteKey = config.recaptcha?.siteKey;
+const verifyRecaptchaEnterprise = async ({ token, expectedAction, siteKeyOverride } = {}) => {
+  const siteKey = siteKeyOverride || config.recaptcha?.siteKey;
   const url = buildEnterpriseUrl();
   if (!url) {
     return { ok: false, reason: 'missing_enterprise_config' };
@@ -115,7 +115,7 @@ const verifyRecaptchaEnterprise = async ({ token, expectedAction } = {}) => {
   }
 };
 
-export const verifyRecaptchaV3 = async ({ token, remoteip, expectedAction, userAgent } = {}) => {
+export const verifyRecaptchaV3 = async ({ token, remoteip, expectedAction, userAgent, siteKeyOverride } = {}) => {
   if (config.recaptcha?.enterpriseApiKey) {
     const useAdc = String(process.env.RECAPTCHA_ENTERPRISE_USE_ADC || '').toLowerCase() === 'true';
     if (useAdc) {
@@ -123,10 +123,11 @@ export const verifyRecaptchaV3 = async ({ token, remoteip, expectedAction, userA
         token,
         expectedAction,
         remoteip,
-        userAgent: userAgent || null
+        userAgent: userAgent || null,
+        siteKeyOverride
       });
     }
-    return verifyRecaptchaEnterprise({ token, expectedAction });
+    return verifyRecaptchaEnterprise({ token, expectedAction, siteKeyOverride });
   }
   const secretKey = config.recaptcha?.secretKey || process.env.RECAPTCHA_SECRET_KEY || null;
   if (!secretKey) {

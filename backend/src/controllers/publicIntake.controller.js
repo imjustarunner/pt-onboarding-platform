@@ -1178,8 +1178,9 @@ export const getPublicIntakeLink = async (req, res, next) => {
         custom_messages: link.custom_messages || null
       },
       recaptcha: {
-        siteKey: config.recaptcha?.siteKey || null,
-        useEnterprise: !!config.recaptcha?.enterpriseApiKey
+        siteKey: process.env.RECAPTCHA_SITE_KEY_INTAKE || config.recaptcha?.siteKey || null,
+        useEnterprise: !!config.recaptcha?.enterpriseApiKey,
+        forceWidget: !!process.env.RECAPTCHA_SITE_KEY_INTAKE
       },
       organization: toOrgPayload(organization),
       agency: toOrgPayload(agency),
@@ -1259,11 +1260,13 @@ export const createPublicConsent = async (req, res, next) => {
           return res.status(400).json({ error: { message: 'Captcha is required' } });
         }
       } else {
+        const intakeSiteKey = process.env.RECAPTCHA_SITE_KEY_INTAKE || config.recaptcha?.siteKey;
         const verification = await verifyRecaptchaV3({
           token: captchaToken,
           remoteip: getClientIpAddress(req),
           expectedAction: 'public_intake_consent',
-          userAgent: req.get('user-agent')
+          userAgent: req.get('user-agent'),
+          siteKeyOverride: intakeSiteKey || undefined
         });
         if (!verification.ok) {
           console.warn('[recaptcha] public intake verification failed', {

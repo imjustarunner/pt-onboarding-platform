@@ -832,6 +832,7 @@ const recaptchaSiteKey = ref(import.meta.env.VITE_RECAPTCHA_SITE_KEY || '');
 const useEnterpriseRecaptcha = ref(
   String(import.meta.env.VITE_RECAPTCHA_USE_ENTERPRISE || '').toLowerCase() === 'true'
 );
+const forceRecaptchaWidget = ref(false);
 const captchaToken = ref('');
 const captchaError = ref('');
 const showRecaptchaWidget = ref(false);
@@ -1368,9 +1369,11 @@ const loadLink = async () => {
     if (typeof recaptchaConfig.useEnterprise === 'boolean') {
       useEnterpriseRecaptcha.value = recaptchaConfig.useEnterprise;
     }
+    forceRecaptchaWidget.value = !!recaptchaConfig.forceWidget;
     console.info('[recaptcha] config', {
       hasSiteKey: !!recaptchaSiteKey.value,
-      useEnterprise: useEnterpriseRecaptcha.value
+      useEnterprise: useEnterpriseRecaptcha.value,
+      forceWidget: forceRecaptchaWidget.value
     });
     await updateRecaptchaMode();
     if (!templates.value.length) {
@@ -1398,9 +1401,15 @@ const loadRecaptchaScript = () => {
   }
   return new Promise((resolve, reject) => {
     const script = document.createElement('script');
-    script.src = useEnterpriseRecaptcha.value
-      ? `https://www.google.com/recaptcha/enterprise.js?render=${encodeURIComponent(recaptchaSiteKey.value)}`
-      : `https://www.google.com/recaptcha/api.js?render=${encodeURIComponent(recaptchaSiteKey.value)}`;
+    if (forceRecaptchaWidget.value) {
+      script.src = useEnterpriseRecaptcha.value
+        ? 'https://www.google.com/recaptcha/enterprise.js?render=explicit'
+        : 'https://www.google.com/recaptcha/api.js?render=explicit';
+    } else {
+      script.src = useEnterpriseRecaptcha.value
+        ? `https://www.google.com/recaptcha/enterprise.js?render=${encodeURIComponent(recaptchaSiteKey.value)}`
+        : `https://www.google.com/recaptcha/api.js?render=${encodeURIComponent(recaptchaSiteKey.value)}`;
+    }
     script.async = true;
     script.defer = true;
     script.setAttribute('data-recaptcha', 'true');
@@ -1413,10 +1422,12 @@ const loadRecaptchaScript = () => {
 const ensureRecaptchaWidget = async () => {
   try {
     const grecaptcha = await loadRecaptchaScript();
-    if (!grecaptcha?.enterprise?.render) return false;
+    const renderFn = grecaptcha?.enterprise?.render || grecaptcha?.render;
+    if (!renderFn) return false;
     if (!recaptchaWidgetEl.value) return false;
     if (recaptchaWidgetId.value !== null) return true;
-    recaptchaWidgetId.value = grecaptcha.enterprise.render(recaptchaWidgetEl.value, {
+    const api = grecaptcha.enterprise || grecaptcha;
+    recaptchaWidgetId.value = api.render(recaptchaWidgetEl.value, {
       sitekey: recaptchaSiteKey.value,
       callback: (token) => {
         captchaToken.value = String(token || '').trim();
@@ -1442,8 +1453,9 @@ const resetRecaptchaWidget = async () => {
   captchaError.value = '';
   try {
     const grecaptcha = await loadRecaptchaScript();
-    if (grecaptcha?.enterprise?.reset && recaptchaWidgetId.value !== null) {
-      grecaptcha.enterprise.reset(recaptchaWidgetId.value);
+    const api = grecaptcha?.enterprise || grecaptcha;
+    if (api?.reset && recaptchaWidgetId.value !== null) {
+      api.reset(recaptchaWidgetId.value);
     }
   } catch {
     // ignore
@@ -1456,9 +1468,9 @@ const updateRecaptchaMode = async () => {
     const grecaptcha = await loadRecaptchaScript();
     if (!grecaptcha) return;
     const hasExecute = !!(grecaptcha.enterprise?.execute || grecaptcha.execute);
-    const hasRender = !!grecaptcha.enterprise?.render;
-    // Enterprise challenge/checkbox keys don't expose execute(); they require a rendered widget.
-    if (useEnterpriseRecaptcha.value && !hasExecute && hasRender) {
+    const hasRender = !!(grecaptcha.enterprise?.render || grecaptcha.render);
+    // Force widget when RECAPTCHA_SITE_KEY_INTAKE is set (checkbox key); or when key has no execute (checkbox).
+    if (forceRecaptchaWidget.value || (useEnterpriseRecaptcha.value && !hasExecute && hasRender)) {
       showRecaptchaWidget.value = true;
       await nextTick();
       await ensureRecaptchaWidget();
