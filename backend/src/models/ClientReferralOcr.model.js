@@ -1,12 +1,12 @@
 import pool from '../config/database.js';
 
 class ClientReferralOcr {
-  static async create({ clientId, phiDocumentId, requestedByUserId = null, status = 'queued', expiresAt = null }) {
+  static async create({ clientId = null, referralDraftId = null, phiDocumentId, requestedByUserId = null, status = 'queued', expiresAt = null }) {
     const [result] = await pool.execute(
       `INSERT INTO client_referral_ocr_requests
-       (client_id, phi_document_id, requested_by_user_id, status, expires_at)
-       VALUES (?, ?, ?, ?, ?)`,
-      [clientId, phiDocumentId, requestedByUserId, status, expiresAt]
+       (client_id, referral_draft_id, phi_document_id, requested_by_user_id, status, expires_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [clientId, referralDraftId, phiDocumentId, requestedByUserId, status, expiresAt]
     );
     return this.findById(result.insertId);
   }
@@ -25,6 +25,16 @@ class ClientReferralOcr {
        WHERE client_id = ?
        ORDER BY created_at DESC, id DESC`,
       [clientId]
+    );
+    return rows;
+  }
+
+  static async findByDraftId(referralDraftId) {
+    const [rows] = await pool.execute(
+      `SELECT * FROM client_referral_ocr_requests
+       WHERE referral_draft_id = ?
+       ORDER BY created_at DESC, id DESC`,
+      [referralDraftId]
     );
     return rows;
   }

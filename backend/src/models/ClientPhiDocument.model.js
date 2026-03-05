@@ -7,6 +7,7 @@ class ClientPhiDocument {
       agencyId,
       schoolOrganizationId,
       intakeSubmissionId = null,
+      referralDraftId = null,
       storagePath,
       originalName = null,
       documentTitle = null,
@@ -33,16 +34,17 @@ class ClientPhiDocument {
 
     const [result] = await pool.execute(
       `INSERT INTO client_phi_documents
-       (client_id, agency_id, school_organization_id, intake_submission_id, storage_path, original_name, document_title, document_type, mime_type, uploaded_by_user_id,
+       (client_id, agency_id, school_organization_id, intake_submission_id, referral_draft_id, storage_path, original_name, document_title, document_type, mime_type, uploaded_by_user_id,
         scan_status, scan_result, scanned_at, quarantine_path,
         is_encrypted, encryption_key_id, encryption_wrapped_key, encryption_iv, encryption_auth_tag, encryption_alg,
         exported_to_ehr_at, exported_to_ehr_by_user_id, removed_at, removed_by_user_id, removed_reason, expires_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         clientId,
         agencyId,
         schoolOrganizationId,
         intakeSubmissionId,
+        referralDraftId,
         storagePath,
         originalName,
         documentTitle,
@@ -91,6 +93,16 @@ class ClientPhiDocument {
        WHERE intake_submission_id = ?
        ORDER BY id ASC`,
       [intakeSubmissionId]
+    );
+    return rows;
+  }
+
+  static async findByDraftId(referralDraftId) {
+    const [rows] = await pool.execute(
+      `SELECT * FROM client_phi_documents
+       WHERE referral_draft_id = ?
+       ORDER BY uploaded_at DESC, id DESC`,
+      [referralDraftId]
     );
     return rows;
   }
@@ -171,6 +183,20 @@ class ClientPhiDocument {
     if (!updates.length) return this.findById(id);
     values.push(id);
     await pool.execute(`UPDATE client_phi_documents SET ${updates.join(', ')} WHERE id = ?`, values);
+    return this.findById(id);
+  }
+
+  static async updateById(id, updates) {
+    if (!id || !updates) return this.findById(id);
+    const fields = [];
+    const values = [];
+    for (const [key, val] of Object.entries(updates)) {
+      fields.push(`${key} = ?`);
+      values.push(val);
+    }
+    if (!fields.length) return this.findById(id);
+    values.push(id);
+    await pool.execute(`UPDATE client_phi_documents SET ${fields.join(', ')} WHERE id = ?`, values);
     return this.findById(id);
   }
 }

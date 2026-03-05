@@ -3,6 +3,7 @@ import pool from '../config/database.js';
 import Client from '../models/Client.model.js';
 import ClientPhiDocument from '../models/ClientPhiDocument.model.js';
 import ClientReferralOcr from '../models/ClientReferralOcr.model.js';
+import ReferralPacketDraft from '../models/ReferralPacketDraft.model.js';
 import User from '../models/User.model.js';
 import StorageService from '../services/storage.service.js';
 import DocumentEncryptionService from '../services/documentEncryption.service.js';
@@ -27,6 +28,13 @@ async function userCanAccessClient({ requestingUserId, requestingUserRole, clien
   const userAgencies = await User.getAgencies(requestingUserId);
   const userAgencyIds = userAgencies.map(a => a.id);
   return userAgencyIds.includes(client.agency_id) || userAgencyIds.includes(client.organization_id);
+}
+
+async function userCanAccessDraft({ requestingUserId, requestingUserRole, draft }) {
+  if (requestingUserRole === 'super_admin') return true;
+  const userAgencies = await User.getAgencies(requestingUserId);
+  const userAgencyIds = userAgencies.map(a => a.id);
+  return userAgencyIds.includes(draft.agency_id) || userAgencyIds.includes(draft.organization_id);
 }
 
 const normalizeNamePart = (value) => {
@@ -55,6 +63,7 @@ const hydrateRequest = async (request) => {
   const clean = {
     id: request.id,
     client_id: request.client_id,
+    referral_draft_id: request.referral_draft_id || null,
     phi_document_id: request.phi_document_id,
     requested_by_user_id: request.requested_by_user_id,
     status: request.status,
@@ -92,23 +101,37 @@ export const requestReferralOcr = async (req, res, next) => {
     }
 
     const clientId = parseInt(req.params.clientId, 10);
+    const draftId = parseInt(req.params.draftId, 10);
     const phiDocumentId = req.body?.phiDocumentId ? parseInt(req.body.phiDocumentId, 10) : null;
-    if (!clientId) return res.status(400).json({ error: { message: 'clientId is required' } });
+    if (!clientId && !draftId) return res.status(400).json({ error: { message: 'clientId or draftId is required' } });
 
-    const client = await Client.findById(clientId, { includeSensitive: true });
-    if (!client) return res.status(404).json({ error: { message: 'Client not found' } });
-
-    const allowed = await userCanAccessClient({ requestingUserId: req.user.id, requestingUserRole: req.user.role, client });
-    if (!allowed) return res.status(403).json({ error: { message: 'Access denied' } });
+    let client = null;
+    let draft = null;
+    if (clientId) {
+      client = await Client.findById(clientId, { includeSensitive: true });
+      if (!client) return res.status(404).json({ error: { message: 'Client not found' } });
+      const allowed = await userCanAccessClient({ requestingUserId: req.user.id, requestingUserRole: req.user.role, client });
+      if (!allowed) return res.status(403).json({ error: { message: 'Access denied' } });
+    } else {
+      draft = await ReferralPacketDraft.findById(draftId);
+      if (!draft) return res.status(404).json({ error: { message: 'Referral draft not found' } });
+      const allowed = await userCanAccessDraft({ requestingUserId: req.user.id, requestingUserRole: req.user.role, draft });
+      if (!allowed) return res.status(403).json({ error: { message: 'Access denied' } });
+    }
 
     let doc = null;
     if (phiDocumentId) {
       doc = await ClientPhiDocument.findById(phiDocumentId);
-      if (!doc || doc.client_id !== clientId) {
+      const ownerMatches = clientId
+        ? Number(doc?.client_id) === Number(clientId)
+        : Number(doc?.referral_draft_id) === Number(draftId);
+      if (!doc || !ownerMatches) {
         return res.status(404).json({ error: { message: 'PHI document not found for client' } });
       }
     } else {
-      const docs = await ClientPhiDocument.findByClientId(clientId);
+      const docs = clientId
+        ? await ClientPhiDocument.findByClientId(clientId)
+        : await ClientPhiDocument.findByDraftId(draftId);
       doc = docs?.[0] || null;
     }
 
@@ -118,7 +141,8 @@ export const requestReferralOcr = async (req, res, next) => {
 
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
     const request = await ClientReferralOcr.create({
-      clientId,
+      clientId: clientId || null,
+      referralDraftId: draftId || null,
       phiDocumentId: doc.id,
       requestedByUserId: req.user.id,
       status: 'queued',
@@ -135,15 +159,24 @@ export const requestReferralOcr = async (req, res, next) => {
 export const listReferralOcrRequests = async (req, res, next) => {
   try {
     const clientId = parseInt(req.params.clientId, 10);
-    if (!clientId) return res.status(400).json({ error: { message: 'clientId is required' } });
+    const draftId = parseInt(req.params.draftId, 10);
+    if (!clientId && !draftId) return res.status(400).json({ error: { message: 'clientId or draftId is required' } });
 
-    const client = await Client.findById(clientId, { includeSensitive: true });
-    if (!client) return res.status(404).json({ error: { message: 'Client not found' } });
+    if (clientId) {
+      const client = await Client.findById(clientId, { includeSensitive: true });
+      if (!client) return res.status(404).json({ error: { message: 'Client not found' } });
+      const allowed = await userCanAccessClient({ requestingUserId: req.user.id, requestingUserRole: req.user.role, client });
+      if (!allowed) return res.status(403).json({ error: { message: 'Access denied' } });
+    } else {
+      const draft = await ReferralPacketDraft.findById(draftId);
+      if (!draft) return res.status(404).json({ error: { message: 'Referral draft not found' } });
+      const allowed = await userCanAccessDraft({ requestingUserId: req.user.id, requestingUserRole: req.user.role, draft });
+      if (!allowed) return res.status(403).json({ error: { message: 'Access denied' } });
+    }
 
-    const allowed = await userCanAccessClient({ requestingUserId: req.user.id, requestingUserRole: req.user.role, client });
-    if (!allowed) return res.status(403).json({ error: { message: 'Access denied' } });
-
-    const requests = await ClientReferralOcr.findByClientId(clientId);
+    const requests = clientId
+      ? await ClientReferralOcr.findByClientId(clientId)
+      : await ClientReferralOcr.findByDraftId(draftId);
     const now = Date.now();
     for (const r of requests || []) {
       if (!r?.expires_at) continue;
@@ -164,7 +197,9 @@ export const listReferralOcrRequests = async (req, res, next) => {
         });
       }
     }
-    const refreshed = await ClientReferralOcr.findByClientId(clientId);
+    const refreshed = clientId
+      ? await ClientReferralOcr.findByClientId(clientId)
+      : await ClientReferralOcr.findByDraftId(draftId);
     const hydrated = [];
     for (const r of refreshed || []) {
       hydrated.push(await hydrateRequest(r));
@@ -189,11 +224,23 @@ export const processReferralOcrRequest = async (req, res, next) => {
       }
     }
 
-    const client = await Client.findById(request.client_id, { includeSensitive: true });
-    if (!client) return res.status(404).json({ error: { message: 'Client not found' } });
+    if (!request.client_id && !request.referral_draft_id) {
+      return res.status(400).json({ error: { message: 'OCR request has no owner context' } });
+    }
 
-    const allowed = await userCanAccessClient({ requestingUserId: req.user.id, requestingUserRole: req.user.role, client });
-    if (!allowed) return res.status(403).json({ error: { message: 'Access denied' } });
+    let client = null;
+    let draft = null;
+    if (request.client_id) {
+      client = await Client.findById(request.client_id, { includeSensitive: true });
+      if (!client) return res.status(404).json({ error: { message: 'Client not found' } });
+      const allowed = await userCanAccessClient({ requestingUserId: req.user.id, requestingUserRole: req.user.role, client });
+      if (!allowed) return res.status(403).json({ error: { message: 'Access denied' } });
+    } else {
+      draft = await ReferralPacketDraft.findById(request.referral_draft_id);
+      if (!draft) return res.status(404).json({ error: { message: 'Referral draft not found' } });
+      const allowed = await userCanAccessDraft({ requestingUserId: req.user.id, requestingUserRole: req.user.role, draft });
+      if (!allowed) return res.status(403).json({ error: { message: 'Access denied' } });
+    }
 
     const doc = await ClientPhiDocument.findById(request.phi_document_id);
     if (!doc) return res.status(404).json({ error: { message: 'PHI document not found' } });
@@ -216,7 +263,7 @@ export const processReferralOcrRequest = async (req, res, next) => {
     }
 
     await ClientReferralOcr.updateById(requestId, { status: 'processing', error_message: null });
-    const languageHint = await getPacketOcrLanguageHint(client.agency_id);
+    const languageHint = await getPacketOcrLanguageHint(client?.agency_id || draft?.agency_id || null);
     let text = '';
     try {
       text = await ReferralOcrService.extractText({ buffer, mimeType: doc.mime_type, languageHint });
@@ -260,13 +307,8 @@ export const setReferralProfileInitials = async (req, res, next) => {
     }
 
     const clientId = parseInt(req.params.clientId, 10);
-    if (!clientId) return res.status(400).json({ error: { message: 'clientId is required' } });
-
-    const client = await Client.findById(clientId, { includeSensitive: true });
-    if (!client) return res.status(404).json({ error: { message: 'Client not found' } });
-
-    const allowed = await userCanAccessClient({ requestingUserId: req.user.id, requestingUserRole: req.user.role, client });
-    if (!allowed) return res.status(403).json({ error: { message: 'Access denied' } });
+    const draftId = parseInt(req.params.draftId, 10);
+    if (!clientId && !draftId) return res.status(400).json({ error: { message: 'clientId or draftId is required' } });
 
     const firstName = String(req.body?.firstName || '').trim();
     const lastName = String(req.body?.lastName || '').trim();
@@ -279,9 +321,26 @@ export const setReferralProfileInitials = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Unable to generate abbreviated initials' } });
     }
 
-    await Client.update(clientId, { initials }, req.user.id);
-    const updated = await Client.findById(clientId, { includeSensitive: true });
-    res.json({ client: updated, initials });
+    if (clientId) {
+      const client = await Client.findById(clientId, { includeSensitive: true });
+      if (!client) return res.status(404).json({ error: { message: 'Client not found' } });
+      const allowed = await userCanAccessClient({ requestingUserId: req.user.id, requestingUserRole: req.user.role, client });
+      if (!allowed) return res.status(403).json({ error: { message: 'Access denied' } });
+      await Client.update(clientId, { initials }, req.user.id);
+      const updated = await Client.findById(clientId, { includeSensitive: true });
+      return res.json({ client: updated, initials });
+    }
+
+    const draft = await ReferralPacketDraft.findById(draftId);
+    if (!draft) return res.status(404).json({ error: { message: 'Referral draft not found' } });
+    const allowed = await userCanAccessDraft({ requestingUserId: req.user.id, requestingUserRole: req.user.role, draft });
+    if (!allowed) return res.status(403).json({ error: { message: 'Access denied' } });
+    const updatedDraft = await ReferralPacketDraft.updateById(draftId, {
+      first_name: firstName,
+      last_name: lastName,
+      initials
+    });
+    return res.json({ draft: updatedDraft, initials });
   } catch (error) {
     next(error);
   }
@@ -290,20 +349,30 @@ export const setReferralProfileInitials = async (req, res, next) => {
 export const clearReferralOcrResult = async (req, res, next) => {
   try {
     const clientId = parseInt(req.params.clientId, 10);
+    const draftId = parseInt(req.params.draftId, 10);
     const requestId = parseInt(req.params.requestId, 10);
-    if (!clientId) return res.status(400).json({ error: { message: 'clientId is required' } });
+    if (!clientId && !draftId) return res.status(400).json({ error: { message: 'clientId or draftId is required' } });
     if (!requestId) return res.status(400).json({ error: { message: 'requestId is required' } });
 
     const request = await ClientReferralOcr.findById(requestId);
-    if (!request || request.client_id !== clientId) {
+    const ownerMatches = clientId
+      ? Number(request?.client_id) === Number(clientId)
+      : Number(request?.referral_draft_id) === Number(draftId);
+    if (!request || !ownerMatches) {
       return res.status(404).json({ error: { message: 'OCR request not found' } });
     }
 
-    const client = await Client.findById(clientId, { includeSensitive: true });
-    if (!client) return res.status(404).json({ error: { message: 'Client not found' } });
-
-    const allowed = await userCanAccessClient({ requestingUserId: req.user.id, requestingUserRole: req.user.role, client });
-    if (!allowed) return res.status(403).json({ error: { message: 'Access denied' } });
+    if (clientId) {
+      const client = await Client.findById(clientId, { includeSensitive: true });
+      if (!client) return res.status(404).json({ error: { message: 'Client not found' } });
+      const allowed = await userCanAccessClient({ requestingUserId: req.user.id, requestingUserRole: req.user.role, client });
+      if (!allowed) return res.status(403).json({ error: { message: 'Access denied' } });
+    } else {
+      const draft = await ReferralPacketDraft.findById(draftId);
+      if (!draft) return res.status(404).json({ error: { message: 'Referral draft not found' } });
+      const allowed = await userCanAccessDraft({ requestingUserId: req.user.id, requestingUserRole: req.user.role, draft });
+      if (!allowed) return res.status(403).json({ error: { message: 'Access denied' } });
+    }
 
     const updated = await ClientReferralOcr.updateById(requestId, {
       result_text_encrypted: null,

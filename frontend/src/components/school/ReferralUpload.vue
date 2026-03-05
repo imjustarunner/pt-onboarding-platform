@@ -7,7 +7,7 @@
       </div>
       
       <div class="modal-body">
-        <form @submit.prevent="handleUpload" class="upload-form">
+        <form class="upload-form">
           <div class="form-group">
             <label for="file-input" class="file-label">
               <div
@@ -25,7 +25,7 @@
                   @change="handleFileSelect"
                   accept=".pdf,.jpg,.jpeg,.png"
                   multiple
-                  :disabled="!isAuthenticated"
+                  :disabled="!isAuthenticated || uploadComplete"
                 />
                 <div v-if="!selectedFile && selectedImages.length === 0" class="file-placeholder">
                   <span class="file-icon">📄</span>
@@ -91,7 +91,7 @@
             </button>
           </div>
 
-          <div v-if="canUseOcr && clientId && phiDocumentId" class="ocr-panel">
+          <div v-if="canUseOcr && draftId && phiDocumentId" class="ocr-panel">
             <h3>Extract Handwritten Data</h3>
             <p class="muted">Use OCR to extract text and quickly copy details for Therapy Notes entry.</p>
             <div class="ocr-actions">
@@ -216,18 +216,28 @@
             </button>
             <button
               v-if="!uploadComplete"
-              type="submit"
+              type="button"
               class="btn btn-primary"
               :disabled="!isAuthenticated || (!selectedFile && selectedImages.length === 0) || uploading"
+              @click="handleUpload"
             >
               <span v-if="uploading">Uploading...</span>
               <span v-else>Upload Referral Packet</span>
             </button>
             <button
+              v-else-if="!clientSubmitted"
+              type="button"
+              class="btn btn-primary"
+              :disabled="submittingClient"
+              @click="handleSubmitClient"
+            >
+              {{ submittingClient ? 'Submitting…' : 'Submit Client' }}
+            </button>
+            <button
               v-else
               type="button"
               class="btn btn-primary"
-              @click="confirmClose() ? $emit('close') : null"
+              @click="$emit('close')"
             >
               Close
             </button>
@@ -239,7 +249,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue';
 import { PDFDocument } from 'pdf-lib';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
@@ -268,8 +278,10 @@ const authEmail = ref('');
 const authPassword = ref('');
 const authLoading = ref(false);
 const authError = ref('');
-const clientId = ref(null);
+const draftId = ref(null);
 const phiDocumentId = ref(null);
+const submittingClient = ref(false);
+const clientSubmitted = ref(false);
 const ocrLoading = ref(false);
 const ocrError = ref('');
 const ocrText = ref('');
@@ -281,6 +293,7 @@ const packetConfig = ref({ questions: [], ignore: [] });
 const initialsSet = ref(false);
 const firstName = ref('');
 const lastName = ref('');
+const hasAttemptedDraftResume = ref(false);
 
 const abbreviatedName = computed(() => {
   const clean = (value) => String(value || '').replace(/[^A-Za-z]/g, '');
@@ -807,11 +820,20 @@ const combineImagesToPdf = async () => {
 onMounted(() => {
   window.addEventListener('dragover', preventDocumentDragDefaults, false);
   window.addEventListener('drop', preventDocumentDragDefaults, false);
+  if (isAuthenticated.value) {
+    loadLatestDraft();
+  }
 });
 
 onBeforeUnmount(() => {
   window.removeEventListener('dragover', preventDocumentDragDefaults, false);
   window.removeEventListener('drop', preventDocumentDragDefaults, false);
+});
+
+watch(isAuthenticated, (next) => {
+  if (next) {
+    loadLatestDraft();
+  }
 });
 
 const formatFileSize = (bytes) => {
@@ -838,12 +860,43 @@ const handleLogin = async () => {
     authError.value = e?.response?.data?.error?.message || 'Login failed. Please try again.';
   } finally {
     authLoading.value = false;
+    if (isAuthenticated.value) {
+      await loadLatestDraft();
+    }
   }
 };
 
-const uploadComplete = computed(() => !!clientId.value);
+const loadLatestDraft = async () => {
+  if (!isAuthenticated.value || hasAttemptedDraftResume.value || uploadComplete.value) return;
+  hasAttemptedDraftResume.value = true;
+  try {
+    const response = await api.get(`/organizations/${props.organizationSlug}/upload-referral/latest-draft`);
+    const draft = response.data?.draft || null;
+    if (!draft?.id) return;
+
+    draftId.value = Number(draft.id);
+    phiDocumentId.value = draft.phiDocumentId ? Number(draft.phiDocumentId) : null;
+    uploadNote.value = String(draft.uploadNote || '');
+    firstName.value = String(draft.firstName || '');
+    lastName.value = String(draft.lastName || '');
+    initialsSet.value = !!String(draft.initials || '').trim();
+    success.value = 'Resumed your latest in-progress packet draft.';
+
+    if (draft.agencyId) {
+      await loadPacketConfig(draft.agencyId);
+    }
+  } catch {
+    // silent: no draft to resume or endpoint unavailable
+  }
+};
+
+const uploadComplete = computed(() => !!draftId.value);
 
 const confirmClose = () => {
+  if (clientSubmitted.value) return true;
+  if (uploadComplete.value && !submittingClient.value) {
+    return window.confirm('Packet is uploaded but not submitted yet. Close anyway?');
+  }
   if (canUseOcr.value && uploadComplete.value && !initialsSet.value) {
     return window.confirm('Initials were not set. Close anyway?');
   }
@@ -851,6 +904,12 @@ const confirmClose = () => {
 };
 
 const handleUpload = async () => {
+  if (uploadComplete.value) {
+    return;
+  }
+  if (uploading.value) {
+    return;
+  }
   if (!isAuthenticated.value) {
     error.value = 'Please sign in before uploading a referral packet.';
     return;
@@ -885,15 +944,14 @@ const handleUpload = async () => {
     const response = await api.post(`/organizations/${props.organizationSlug}/upload-referral`, formData);
 
     success.value = 'Referral packet uploaded successfully!';
-    clientId.value = response.data?.clientId || null;
+    draftId.value = response.data?.draftId || null;
     phiDocumentId.value = response.data?.phiDocumentId || null;
-    selectedImages.value = [];
-    uploadNote.value = '';
+    success.value = 'Packet uploaded. Review OCR/initials, then click Submit Client.';
     const agencyId = response.data?.agencyId || null;
     if (agencyId) {
       await loadPacketConfig(agencyId);
     }
-    if (clientId.value && phiDocumentId.value) {
+    if (draftId.value && phiDocumentId.value) {
       // OCR can be run immediately after upload.
     }
     
@@ -917,13 +975,13 @@ const copyText = async (text) => {
 const copyLines = (lines) => copyText((lines || []).join('\n'));
 
 const runOcr = async () => {
-  if (!clientId.value) return;
+  if (!draftId.value) return;
   ocrLoading.value = true;
   ocrError.value = '';
   ocrText.value = '';
   ocrWipeMessage.value = '';
   try {
-    const existing = await api.get(`/referrals/${clientId.value}/ocr`);
+    const existing = await api.get(`/referral-packet-drafts/${draftId.value}/ocr`);
     const requests = existing.data?.requests || [];
     const latest = requests.find((r) => Number(r.phi_document_id) === Number(phiDocumentId.value)) || requests[0];
     if (latest?.status === 'completed' && latest?.result_text) {
@@ -934,15 +992,15 @@ const runOcr = async () => {
       }
       return;
     }
-    if (latest?.status && latest.status !== 'completed') {
+    if (latest?.status && ['queued', 'processing'].includes(String(latest.status))) {
       ocrError.value = latest.error_message || 'OCR already queued. Please wait a moment.';
       return;
     }
-    const req = await api.post(`/referrals/${clientId.value}/ocr`, {
+    const req = await api.post(`/referral-packet-drafts/${draftId.value}/ocr`, {
       phiDocumentId: phiDocumentId.value || null
     });
     ocrRequestId.value = req.data?.request?.id || null;
-    const result = await api.post(`/referrals/${clientId.value}/ocr/${ocrRequestId.value}/process`);
+    const result = await api.post(`/referral-packet-drafts/${draftId.value}/ocr/${ocrRequestId.value}/process`);
     const request = result.data?.request || {};
     if (request.status && request.status !== 'completed') {
       ocrError.value = request.error_message || 'OCR failed. Please try again later.';
@@ -962,13 +1020,13 @@ const runOcr = async () => {
 };
 
 const clearOcr = async () => {
-  if (!clientId.value || !ocrRequestId.value) return;
+  if (!draftId.value || !ocrRequestId.value) return;
   if (!window.confirm('Wipe extracted info for this packet? This cannot be undone.')) return;
   ocrClearing.value = true;
   ocrError.value = '';
   ocrWipeMessage.value = '';
   try {
-    await api.post(`/referrals/${clientId.value}/ocr/${ocrRequestId.value}/clear`);
+    await api.post(`/referral-packet-drafts/${draftId.value}/ocr/${ocrRequestId.value}/clear`);
     ocrText.value = '';
     ocrWipeMessage.value = 'Extracted info wiped.';
   } catch (e) {
@@ -980,11 +1038,15 @@ const clearOcr = async () => {
 
 
 const applyInitials = async () => {
-  if (!clientId.value || !ocrRequestId.value || !abbreviatedName.value) return;
+  if (!draftId.value || !abbreviatedName.value) return;
   ocrLoading.value = true;
   ocrError.value = '';
   try {
-    await api.post(`/referrals/${clientId.value}/ocr/${ocrRequestId.value}/identify`, {
+    if (!ocrRequestId.value) {
+      ocrError.value = 'Please run OCR once before setting initials.';
+      return;
+    }
+    await api.post(`/referral-packet-drafts/${draftId.value}/ocr/${ocrRequestId.value}/identify`, {
       firstName: firstName.value,
       lastName: lastName.value
     });
@@ -993,6 +1055,31 @@ const applyInitials = async () => {
     ocrError.value = e.response?.data?.error?.message || 'Failed to set initials.';
   } finally {
     ocrLoading.value = false;
+  }
+};
+
+const handleSubmitClient = async () => {
+  if (!draftId.value || submittingClient.value) return;
+  submittingClient.value = true;
+  error.value = '';
+  success.value = '';
+  try {
+    const d = new Date();
+    const ymd = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const payload = {
+      submissionDate: ymd,
+      uploadNote: String(uploadNote.value || '').trim() || null,
+      firstName: String(firstName.value || '').trim() || null,
+      lastName: String(lastName.value || '').trim() || null
+    };
+    const response = await api.post(`/organizations/${props.organizationSlug}/upload-referral/${draftId.value}/submit`, payload);
+    success.value = 'Client created successfully from referral packet.';
+    clientSubmitted.value = true;
+    emit('uploaded', response.data);
+  } catch (err) {
+    error.value = err.response?.data?.error?.message || 'Failed to submit client. Please try again.';
+  } finally {
+    submittingClient.value = false;
   }
 };
 </script>

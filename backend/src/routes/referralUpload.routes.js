@@ -1,5 +1,5 @@
 import express from 'express';
-import { uploadReferralPacket } from '../controllers/referralUpload.controller.js';
+import { getLatestReferralPacketDraft, submitReferralPacketDraft, uploadReferralPacket } from '../controllers/referralUpload.controller.js';
 import { duplicateOrganization, getOrganizationAffiliation, applyAffiliatedAgencyBranding } from '../controllers/organization.controller.js';
 import { authenticate, requireBackofficeAdmin } from '../middleware/auth.middleware.js';
 import { body } from 'express-validator';
@@ -9,6 +9,8 @@ const router = express.Router();
 // Requires credentials for upload
 // POST /api/organizations/:slug/upload-referral
 router.post('/:slug/upload-referral', authenticate, uploadReferralPacket);
+router.get('/:slug/upload-referral/latest-draft', authenticate, getLatestReferralPacketDraft);
+router.post('/:slug/upload-referral/:draftId/submit', authenticate, submitReferralPacketDraft);
 
 // Protected org management routes
 // POST /api/organizations/:id/duplicate

@@ -64,6 +64,7 @@ import agencyCampaignsRoutes from './routes/agencyCampaigns.routes.js';
 import healthCheckRoutes from './routes/healthCheck.routes.js';
 import referralUploadRoutes from './routes/referralUpload.routes.js';
 import referralOcrRoutes from './routes/referralOcr.routes.js';
+import referralPacketDraftRoutes from './routes/referralPacketDraft.routes.js';
 import publicIntakeRoutes from './routes/publicIntake.routes.js';
 import intakeLinksRoutes from './routes/intakeLinks.routes.js';
 import intakeFieldTemplatesRoutes from './routes/intakeFieldTemplates.routes.js';
@@ -127,6 +128,7 @@ import agentsRoutes from './routes/agents.routes.js';
 import clinicalNoteGeneratorRoutes from './routes/clinicalNoteGenerator.routes.js';
 import complianceCornerRoutes from './routes/complianceCorner.routes.js';
 import learningBillingRoutes from './routes/learningBilling.routes.js';
+import learningProgramClassesRoutes from './routes/learningProgramClasses.routes.js';
 import clinicalDataRoutes from './routes/clinicalData.routes.js';
 import betaFeedbackRoutes from './routes/betaFeedback.routes.js';
 import meRoutes from './routes/me.routes.js';
@@ -581,6 +583,7 @@ app.use('/api/team-meetings', teamMeetingsRoutes);
 app.use('/api/agency-campaigns', agencyCampaignsRoutes);
 app.use('/api/organizations', referralUploadRoutes); // Organization routes (referral upload, etc.)
 app.use('/api/referrals', referralOcrRoutes);
+app.use('/api/referral-packet-drafts', referralPacketDraftRoutes);
 app.use('/api/public-intake', publicIntakeRoutes);
 app.use('/api/intake-links', intakeLinksRoutes);
 app.use('/api/intake-field-templates', intakeFieldTemplatesRoutes);
@@ -592,6 +595,7 @@ app.use('/api/guardian-portal', guardianPortalRoutes); // Guardian portal routes
 app.use('/api/bulk-import', bulkImportRoutes); // Bulk import routes (legacy migration tool)
 app.use('/api/office-schedule', officeScheduleRoutes);
 app.use('/api/learning-billing', learningBillingRoutes);
+app.use('/api/learning-program-classes', learningProgramClassesRoutes);
 app.use('/api/billing-policy', billingPolicyRoutes);
 app.use('/api/clinical-data', clinicalDataRoutes);
 app.use('/api/offices', officeSettingsRoutes);

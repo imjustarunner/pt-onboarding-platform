@@ -5,6 +5,7 @@ import ClientStatusHistory from '../models/ClientStatusHistory.model.js';
 import multer from 'multer';
 import StorageService from '../services/storage.service.js';
 import ClientPhiDocument from '../models/ClientPhiDocument.model.js';
+import ReferralPacketDraft from '../models/ReferralPacketDraft.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
 import { notifyNewPacketUploaded } from '../services/clientNotifications.service.js';
@@ -38,6 +39,31 @@ const upload = multer({
 });
 
 const QUARANTINE_PREFIX = 'referrals_quarantine/';
+
+const normalizeNamePart = (value) => {
+  const raw = String(value || '').replace(/[^A-Za-z]/g, '');
+  if (!raw) return '';
+  const part = raw.slice(0, 3);
+  return part.charAt(0).toUpperCase() + part.slice(1).toLowerCase();
+};
+
+const buildAbbreviatedName = (firstName, lastName) => {
+  const first = normalizeNamePart(firstName);
+  const last = normalizeNamePart(lastName);
+  return `${first}${last}`.trim();
+};
+
+const resolveAgencyIdForOrganization = async (organizationId) => {
+  let agencyId =
+    (await OrganizationAffiliation.getActiveAgencyIdForOrganization(organizationId)) ||
+    (await AgencySchool.getActiveAgencyIdForSchool(organizationId)) ||
+    null;
+  if (!agencyId) {
+    const allAgencies = await Agency.findAll(true, false, 'agency');
+    agencyId = allAgencies?.[0]?.id || organizationId;
+  }
+  return agencyId;
+};
 
 /**
  * Upload referral packet (no authentication required)
@@ -111,30 +137,10 @@ export const uploadReferralPacket = [
       
       // Note: referral packets are PHI. Do not return a public URL here.
 
-      // Determine agency_id
-      let agencyId = null;
-      
-      // Prefer the active affiliated agency for this school.
-      agencyId =
-        (await OrganizationAffiliation.getActiveAgencyIdForOrganization(organization.id)) ||
-        (await AgencySchool.getActiveAgencyIdForSchool(organization.id)) ||
-        null;
-      if (!agencyId) {
-        const allAgencies = await Agency.findAll(true, false, 'agency');
-        agencyId = allAgencies?.[0]?.id || organization.id;
-      }
+      const agencyId = await resolveAgencyIdForOrganization(organization.id);
 
       const isInternalUpload = !!req.user?.id;
-      const source = isInternalUpload ? 'SCHOOL_UPLOAD_INTERNAL' : 'SCHOOL_UPLOAD';
       const uploaderId = isInternalUpload ? req.user.id : null;
-      const uploaderLabel = isInternalUpload
-        ? `${req.user.first_name || ''} ${req.user.last_name || ''}`.trim() || req.user.email || `User ${req.user.id}`
-        : 'public_upload';
-
-      const identifierCode = await generateUniqueSixDigitClientCode({ agencyId });
-      const paperworkStatusId = await resolvePaperworkStatusId({ agencyId });
-      const clientStatusId = await getClientStatusIdByKey({ agencyId, statusKey: 'packet' });
-      const clientType = orgType === 'school' ? 'school' : 'clinical';
 
       // Use client-provided submission date (user's local date) to avoid timezone drift.
       // Server UTC date can be a day off for users in US timezones (e.g. evening upload = next day UTC).
@@ -144,53 +150,24 @@ export const uploadReferralPacket = [
         submissionDate = new Date().toISOString().split('T')[0];
       }
 
-      // Create client record with status = PACKET
-      // Note: initials will need to be extracted from OCR or provided separately
-      // For now, we'll use a placeholder
-      const client = await Client.create({
-        organization_id: organization.id,
-        agency_id: agencyId,
-        provider_id: null, // No provider assigned yet
-        initials: 'TBD', // Placeholder - should be extracted from OCR or form
-        identifier_code: identifierCode,
-        client_type: clientType,
-        status: 'PACKET',
-        submission_date: submissionDate,
-        document_status: 'PACKET',
-        paperwork_status_id: paperworkStatusId,
-        client_status_id: clientStatusId,
-        source,
-        created_by_user_id: uploaderId
-      });
-
-      await seedClientAffiliations({
-        clientId: client.id,
+      const uploadNote = String(req.body?.uploadNote || '').trim();
+      const draft = await ReferralPacketDraft.create({
+        organizationId: organization.id,
         agencyId,
-        organizationId: organization.id
+        uploadedByUserId: uploaderId,
+        submissionDate,
+        uploadNote: uploadNote || null,
+        status: 'draft'
       });
-      await seedClientPaperworkItems({ clientId: client.id, agencyId });
-
-      // Log to status history
-      await ClientStatusHistory.create({
-        client_id: client.id,
-        changed_by_user_id: uploaderId,
-        field_changed: 'created',
-        from_value: null,
-        to_value: JSON.stringify({ source, status: 'PACKET', document_status: 'PACKET' }),
-        note: `Client created via referral packet upload (${uploaderLabel})`
-      });
-
-      // TODO: Trigger OCR processing (future enhancement)
-      // await OCRService.processReferralPacket(client.id, fileUrl);
-      // After OCR, update client with extracted initials and other data
 
       // Track packet as PHI and store metadata for secure access + auditing
       let phiDoc = null;
       try {
         phiDoc = await ClientPhiDocument.create({
-          clientId: client.id,
+          clientId: null,
           agencyId,
           schoolOrganizationId: organization.id,
+          referralDraftId: draft.id,
           storagePath: quarantinePath,
           originalName: req.file.originalname || null,
           mimeType: req.file.mimetype || null,
@@ -207,12 +184,14 @@ export const uploadReferralPacket = [
           const ip = req.headers['x-forwarded-for']?.toString().split(',')[0].trim() || req.ip || null;
           await PhiDocumentAuditLog.create({
             documentId: phiDoc.id,
-            clientId: client.id,
+            clientId: null,
             action: 'uploaded',
             actorUserId: uploaderId,
-            actorLabel: uploaderLabel,
+            actorLabel: isInternalUpload
+              ? `${req.user.first_name || ''} ${req.user.last_name || ''}`.trim() || req.user.email || `User ${req.user.id}`
+              : 'public_upload',
             ipAddress: ip,
-            metadata: { source, organizationId: organization.id }
+            metadata: { source: 'REFERRAL_DRAFT_UPLOAD', organizationId: organization.id, draftId: draft.id }
           });
         } catch {
           // best-effort logging
@@ -225,41 +204,16 @@ export const uploadReferralPacket = [
         phiDoc = null;
       }
 
-      // Notify support/admin team that a new packet was uploaded (best-effort).
-      // This satisfies the spec requirement to notify support so they can finalize the placeholder client.
-      notifyNewPacketUploaded({
-        agencyId,
-        schoolOrganizationId: organization.id,
-        clientId: client.id,
-        clientNameOrIdentifier: client.identifier_code || client.initials || `ID ${client.id}`
-      }).catch(() => {});
-
-      // If the uploader added a quick note, save it as the first comment (visible in View & Comment).
-      const uploadNote = String(req.body?.uploadNote || '').trim();
-      if (uploadNote && uploadNote.length <= 500 && uploaderId) {
-        try {
-          await ClientNotes.create(
-            {
-              client_id: client.id,
-              author_id: uploaderId,
-              message: uploadNote,
-              is_internal_only: false,
-              category: 'comment',
-              urgency: 'low'
-            },
-            { hasAgencyAccess: false, canViewInternalNotes: false }
-          );
-        } catch (e) {
-          console.warn('Failed to save upload note as comment:', e.message);
-        }
+      if (phiDoc?.id) {
+        await ReferralPacketDraft.updateById(draft.id, { phi_document_id: phiDoc.id });
       }
 
       res.json({
         success: true,
-        message: 'Referral packet uploaded successfully. Client record created.',
+        message: 'Referral packet uploaded successfully. Review and submit to create the client.',
+        draftId: draft.id,
         phiDocumentId: phiDoc?.id || null,
         organizationId: organization.id,
-        clientId: client.id,
         agencyId
       });
     } catch (error) {
@@ -268,3 +222,229 @@ export const uploadReferralPacket = [
     }
   }
 ];
+
+export const getLatestReferralPacketDraft = async (req, res, next) => {
+  try {
+    const { slug } = req.params;
+    const organization = await Agency.findBySlug(slug);
+    if (!organization) {
+      return res.status(404).json({ error: { message: 'Organization not found' } });
+    }
+
+    const orgType = String(organization.organization_type || 'agency').toLowerCase();
+    if (orgType !== 'school' && orgType !== 'program') {
+      return res.status(403).json({
+        error: { message: 'Referral upload is only available for school or program organizations' }
+      });
+    }
+
+    if (!req.user?.id) {
+      return res.json({ draft: null });
+    }
+
+    const draft = await ReferralPacketDraft.findLatestOpenDraft({
+      organizationId: organization.id,
+      uploadedByUserId: req.user.id
+    });
+
+    return res.json({
+      draft: draft
+        ? {
+            id: draft.id,
+            organizationId: draft.organization_id,
+            agencyId: draft.agency_id,
+            phiDocumentId: draft.phi_document_id || null,
+            submissionDate: draft.submission_date || null,
+            uploadNote: draft.upload_note || '',
+            firstName: draft.first_name || '',
+            lastName: draft.last_name || '',
+            initials: draft.initials || '',
+            status: draft.status
+          }
+        : null
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const submitReferralPacketDraft = async (req, res, next) => {
+  try {
+    const { slug, draftId: draftIdParam } = req.params;
+    const draftId = parseInt(draftIdParam, 10);
+    if (!draftId) {
+      return res.status(400).json({ error: { message: 'draftId is required' } });
+    }
+
+    const organization = await Agency.findBySlug(slug);
+    if (!organization) {
+      return res.status(404).json({ error: { message: 'Organization not found' } });
+    }
+
+    const orgType = String(organization.organization_type || 'agency').toLowerCase();
+    if (orgType !== 'school' && orgType !== 'program') {
+      return res.status(403).json({
+        error: { message: 'Referral upload is only available for school or program organizations' }
+      });
+    }
+
+    const draft = await ReferralPacketDraft.findById(draftId);
+    if (!draft || Number(draft.organization_id) !== Number(organization.id)) {
+      return res.status(404).json({ error: { message: 'Referral packet draft not found' } });
+    }
+
+    if (draft.status === 'submitted' && draft.created_client_id) {
+      return res.json({
+        success: true,
+        message: 'Referral packet draft already submitted.',
+        draftId: draft.id,
+        clientId: draft.created_client_id,
+        alreadySubmitted: true
+      });
+    }
+
+    const claimed = await ReferralPacketDraft.claimForSubmit(draft.id);
+    if (!claimed) {
+      const latest = await ReferralPacketDraft.findById(draft.id);
+      if (latest?.status === 'submitted' && latest.created_client_id) {
+        return res.json({
+          success: true,
+          message: 'Referral packet draft already submitted.',
+          draftId: latest.id,
+          clientId: latest.created_client_id,
+          alreadySubmitted: true
+        });
+      }
+      return res.status(409).json({ error: { message: 'This draft is already being submitted. Please wait.' } });
+    }
+
+    const isInternalUpload = !!req.user?.id;
+    const source = isInternalUpload ? 'SCHOOL_UPLOAD_INTERNAL' : 'SCHOOL_UPLOAD';
+    const uploaderId = draft.uploaded_by_user_id || (isInternalUpload ? req.user.id : null);
+    const uploaderLabel = isInternalUpload
+      ? `${req.user.first_name || ''} ${req.user.last_name || ''}`.trim() || req.user.email || `User ${req.user.id}`
+      : 'public_upload';
+
+    const agencyId = draft.agency_id || (await resolveAgencyIdForOrganization(organization.id));
+    const identifierCode = await generateUniqueSixDigitClientCode({ agencyId });
+    const paperworkStatusId = await resolvePaperworkStatusId({ agencyId });
+    const clientStatusId = await getClientStatusIdByKey({ agencyId, statusKey: 'packet' });
+    const clientType = orgType === 'school' ? 'school' : 'clinical';
+
+    let submissionDate = req.body?.submissionDate || req.body?.submission_date || draft.submission_date;
+    if (typeof submissionDate === 'string') submissionDate = submissionDate.trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(submissionDate || ''))) {
+      submissionDate = new Date().toISOString().split('T')[0];
+    }
+
+    const firstName = String(req.body?.firstName || draft.first_name || '').trim();
+    const lastName = String(req.body?.lastName || draft.last_name || '').trim();
+    const computedInitials = buildAbbreviatedName(firstName, lastName);
+    const initials = computedInitials || String(draft.initials || '').trim() || 'TBD';
+    const noteFromRequest = String(req.body?.uploadNote || '').trim();
+    const uploadNote = noteFromRequest || String(draft.upload_note || '').trim();
+
+    const client = await Client.create({
+      organization_id: organization.id,
+      agency_id: agencyId,
+      provider_id: null,
+      initials,
+      identifier_code: identifierCode,
+      client_type: clientType,
+      status: 'PACKET',
+      submission_date: submissionDate,
+      document_status: 'PACKET',
+      paperwork_status_id: paperworkStatusId,
+      client_status_id: clientStatusId,
+      source,
+      created_by_user_id: uploaderId
+    });
+
+    await seedClientAffiliations({
+      clientId: client.id,
+      agencyId,
+      organizationId: organization.id
+    });
+    await seedClientPaperworkItems({ clientId: client.id, agencyId });
+
+    await ClientStatusHistory.create({
+      client_id: client.id,
+      changed_by_user_id: uploaderId,
+      field_changed: 'created',
+      from_value: null,
+      to_value: JSON.stringify({ source, status: 'PACKET', document_status: 'PACKET' }),
+      note: `Client created via referral packet submit (${uploaderLabel})`
+    });
+
+    if (draft.phi_document_id) {
+      await ReferralPacketDraft.updateById(draft.id, {
+        first_name: firstName || null,
+        last_name: lastName || null,
+        initials: initials || null
+      });
+      await ClientPhiDocument.updateById(draft.phi_document_id, {
+        client_id: client.id,
+        referral_draft_id: null
+      });
+    }
+
+    notifyNewPacketUploaded({
+      agencyId,
+      schoolOrganizationId: organization.id,
+      clientId: client.id,
+      clientNameOrIdentifier: client.identifier_code || client.initials || `ID ${client.id}`
+    }).catch(() => {});
+
+    if (uploadNote && uploadNote.length <= 500 && uploaderId) {
+      try {
+        await ClientNotes.create(
+          {
+            client_id: client.id,
+            author_id: uploaderId,
+            message: uploadNote,
+            is_internal_only: false,
+            category: 'comment',
+            urgency: 'low'
+          },
+          { hasAgencyAccess: false, canViewInternalNotes: false }
+        );
+      } catch (e) {
+        console.warn('Failed to save upload note as comment:', e.message);
+      }
+    }
+
+    await ReferralPacketDraft.updateById(draft.id, {
+      status: 'submitted',
+      created_client_id: client.id,
+      submitted_at: new Date(),
+      upload_note: uploadNote || null,
+      first_name: firstName || null,
+      last_name: lastName || null,
+      initials: initials || null,
+      last_error: null
+    });
+
+    res.json({
+      success: true,
+      message: 'Client created from referral packet.',
+      draftId: draft.id,
+      clientId: client.id,
+      agencyId,
+      organizationId: organization.id
+    });
+  } catch (error) {
+    try {
+      const draftId = parseInt(req.params?.draftId, 10);
+      if (draftId) {
+        await ReferralPacketDraft.updateById(draftId, {
+          status: 'failed',
+          last_error: error?.message || 'Submission failed'
+        });
+      }
+    } catch {
+      // best effort
+    }
+    console.error('Referral submit error:', error);
+    next(error);
+  }
+};
