@@ -3689,14 +3689,27 @@ export const listSchoolPortalNotificationsFeed = async (req, res, next) => {
       ...providerSlots,
       ...docsLinks,
       ...providerDayAdded
-    ].sort((a, b) => {
+    ];
+
+    // Guard against join fanout (e.g., duplicate active org assignments) producing
+    // duplicate feed rows for the same logical notification id.
+    const deduped = [];
+    const seenFeedIds = new Set();
+    for (const item of all) {
+      const key = String(item?.id || '');
+      if (!key || seenFeedIds.has(key)) continue;
+      seenFeedIds.add(key);
+      deduped.push(item);
+    }
+
+    deduped.sort((a, b) => {
       const at = new Date(a.created_at || 0).getTime();
       const bt = new Date(b.created_at || 0).getTime();
       if (at !== bt) return bt - at;
       return String(b.id).localeCompare(String(a.id));
     });
 
-    res.json(all.slice(0, 500));
+    res.json(deduped.slice(0, 500));
   } catch (e) {
     next(e);
   }
