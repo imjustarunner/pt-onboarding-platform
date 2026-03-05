@@ -24,8 +24,31 @@
           <div class="cover-subtitle">
             {{ beginSubtitleText }}
           </div>
+
+          <div v-if="recaptchaSiteKey" class="captcha-block captcha-block-start">
+            <div class="muted">{{ t('protectedByRecaptcha') }}</div>
+            <div v-if="showRecaptchaWidget" class="recaptcha-verify-first">
+              {{ t('verifyHumanFirst') }}
+            </div>
+            <div v-if="captchaError" class="error">{{ captchaError }}</div>
+            <div v-if="showRecaptchaWidget" class="recaptcha-widget">
+              <div ref="recaptchaWidgetElStart" />
+              <div v-if="!captchaToken" class="muted" style="margin-top: 6px;">
+                {{ t('completeCaptchaToContinue') }}
+              </div>
+              <div v-else class="muted" style="margin-top: 6px; font-size: 0.9em;">
+                {{ t('captchaExpiryHint') }}
+              </div>
+            </div>
+          </div>
+
           <div class="actions">
-            <button class="btn btn-primary" type="button" @click="beginIntakeSession">
+            <button
+              class="btn btn-primary"
+              type="button"
+              :disabled="(recaptchaSiteKey && showRecaptchaWidget && !captchaToken) || consentLoading"
+              @click="beginIntakeSession"
+            >
               {{ beginIntakeButtonText }}
             </button>
           </div>
@@ -54,6 +77,19 @@
       <div v-else-if="step === 1" class="step">
         <h3>{{ t('questions') }}</h3>
         <div v-if="stepError" class="error" style="margin-bottom: 10px;">{{ stepError }}</div>
+
+        <div v-if="recaptchaSiteKey && showRecaptchaWidget && (!captchaToken || captchaError)" class="captcha-block captcha-block-top">
+          <div class="muted">{{ t('protectedByRecaptcha') }}</div>
+          <div v-if="captchaError" class="recaptcha-verify-first">{{ t('captchaRetry') }}</div>
+          <div v-if="captchaError" class="error">{{ captchaError }}</div>
+          <div class="recaptcha-widget">
+            <div ref="recaptchaWidgetEl" />
+            <div v-if="!captchaToken" class="muted" style="margin-top: 6px;">
+              {{ t('completeCaptchaToContinue') }}
+            </div>
+          </div>
+        </div>
+
         <div v-if="!isMedicalRecordsRequest && !isJobApplication" class="form-group">
           <label>{{ t('whoIsIntakeFor') }}</label>
           <div class="radio-group">
@@ -350,17 +386,6 @@
           </div>
         </div>
 
-        <div v-if="recaptchaSiteKey" class="captcha-block">
-          <div class="muted">{{ t('protectedByRecaptcha') }}</div>
-          <div v-if="captchaError" class="error">{{ captchaError }}</div>
-          <div v-if="showRecaptchaWidget" class="recaptcha-widget">
-            <div ref="recaptchaWidgetEl" />
-            <div v-if="!captchaToken" class="muted" style="margin-top: 6px;">
-              Please complete the verification above to continue.
-            </div>
-          </div>
-        </div>
-
         <div class="consent-box">
           <strong>ESIGN Act Disclosure</strong>
           <p>
@@ -373,7 +398,12 @@
         </div>
 
         <div class="actions">
-          <button class="btn btn-primary" type="button" :disabled="consentLoading" @click="submitConsent">
+          <button
+            class="btn btn-primary"
+            type="button"
+            :disabled="consentLoading || (recaptchaSiteKey && showRecaptchaWidget && !captchaToken)"
+            @click="submitConsent"
+          >
             {{ consentLoading ? t('saving') : t('iConsentContinue') }}
           </button>
           <button class="btn btn-outline" type="button" @click="cancelIntake" :disabled="consentLoading || submitLoading">
@@ -633,6 +663,10 @@ const INTAKE_TRANSLATIONS = {
     continue: 'Continue',
     submitting: 'Submitting...',
     protectedByRecaptcha: 'Protected by reCAPTCHA',
+    verifyHumanFirst: 'Please verify you\'re human first, then fill out the form below.',
+    completeCaptchaToContinue: 'Complete the verification above to continue.',
+    captchaExpiryHint: 'Verification expires after 2 minutes. If the form takes longer, complete it again before submitting.',
+    captchaRetry: 'Verification expired or failed. Please complete the captcha again.',
     guardianInfo: 'Guardian Information',
     yourInformation: 'Your Information',
     guardianFirst: 'Guardian first name',
@@ -730,6 +764,10 @@ const INTAKE_TRANSLATIONS = {
     continue: 'Continuar',
     submitting: 'Enviando...',
     protectedByRecaptcha: 'Protegido por reCAPTCHA',
+    verifyHumanFirst: 'Por favor verifique que es humano primero, luego complete el formulario a continuación.',
+    completeCaptchaToContinue: 'Complete la verificación arriba para continuar.',
+    captchaExpiryHint: 'La verificación expira después de 2 minutos. Si el formulario tarda más, complétela nuevamente antes de enviar.',
+    captchaRetry: 'La verificación expiró o falló. Por favor complete el captcha nuevamente.',
     guardianInfo: 'Información del tutor',
     yourInformation: 'Su información',
     guardianFirst: 'Nombre del tutor',
@@ -837,6 +875,7 @@ const captchaToken = ref('');
 const captchaError = ref('');
 const showRecaptchaWidget = ref(false);
 const recaptchaWidgetEl = ref(null);
+const recaptchaWidgetElStart = ref(null);
 const recaptchaWidgetId = ref(null);
 const sessionExpiryMinutes = computed(() => 30 + Math.max(0, Number(templates.value.length || 0)) * 5);
 const approvalContext = computed(() => {
@@ -1424,10 +1463,11 @@ const ensureRecaptchaWidget = async () => {
     const grecaptcha = await loadRecaptchaScript();
     const renderFn = grecaptcha?.enterprise?.render || grecaptcha?.render;
     if (!renderFn) return false;
-    if (!recaptchaWidgetEl.value) return false;
+    const el = step.value === -1 ? recaptchaWidgetElStart.value : recaptchaWidgetEl.value;
+    if (!el) return false;
     if (recaptchaWidgetId.value !== null) return true;
     const api = grecaptcha.enterprise || grecaptcha;
-    recaptchaWidgetId.value = api.render(recaptchaWidgetEl.value, {
+    recaptchaWidgetId.value = api.render(el, {
       sitekey: recaptchaSiteKey.value,
       callback: (token) => {
         captchaToken.value = String(token || '').trim();
@@ -1480,8 +1520,9 @@ const updateRecaptchaMode = async () => {
   }
 };
 
-watch(step, async (val) => {
-  if (val !== 1) return;
+watch(step, async (val, prev) => {
+  if (prev !== undefined && prev !== val) recaptchaWidgetId.value = null;
+  if (val !== -1 && val !== 1) return;
   await nextTick();
   await updateRecaptchaMode();
 });
@@ -2409,6 +2450,19 @@ onMounted(async () => {
 }
 .captcha-block {
   margin: 12px 0;
+}
+.captcha-block-top {
+  margin-bottom: 20px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border-color, #e0e0e0);
+}
+.captcha-block-start {
+  margin: 16px 0 20px;
+  padding: 12px 0;
+}
+.recaptcha-verify-first {
+  margin-bottom: 8px;
+  font-weight: 500;
 }
 .bundle-list {
   margin-top: 12px;
