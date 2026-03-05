@@ -2,6 +2,11 @@ import bcrypt from 'bcrypt';
 import Agency from '../models/Agency.model.js';
 import Client from '../models/Client.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
+import PayrollMileageClaim from '../models/PayrollMileageClaim.model.js';
+import PayrollPtoAccount from '../models/PayrollPtoAccount.model.js';
+import PayrollPtoRequest from '../models/PayrollPtoRequest.model.js';
+import PayrollReimbursementClaim from '../models/PayrollReimbursementClaim.model.js';
+import PayrollTimeClaim from '../models/PayrollTimeClaim.model.js';
 import User from '../models/User.model.js';
 import pool from '../config/database.js';
 
@@ -161,6 +166,242 @@ const ensureClientAssignments = async ({ clientId, organizationId, providerId })
       [cid, orgId, provId]
     );
   }
+};
+
+const formatDate = (d) => {
+  const dt = new Date(d);
+  const y = dt.getFullYear();
+  const m = String(dt.getMonth() + 1).padStart(2, '0');
+  const day = String(dt.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+};
+
+const daysAgo = (n) => {
+  const d = new Date();
+  d.setDate(d.getDate() - Number(n || 0));
+  return formatDate(d);
+};
+
+const ensurePayrollAccessForProviders = async ({ agencyId, providerUsers }) => {
+  const [colRows] = await pool.execute(
+    `SELECT COUNT(*) AS cnt
+     FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = 'user_agencies'
+       AND COLUMN_NAME = 'has_payroll_access'`
+  );
+  const hasPayrollAccessColumn = Number(colRows?.[0]?.cnt || 0) > 0;
+  if (!hasPayrollAccessColumn) return;
+  const userIds = (providerUsers || []).map((u) => Number(u?.id)).filter((n) => Number.isInteger(n) && n > 0);
+  if (!userIds.length) return;
+  const placeholders = userIds.map(() => '?').join(',');
+  await pool.execute(
+    `UPDATE user_agencies
+     SET has_payroll_access = 1
+     WHERE agency_id = ?
+       AND user_id IN (${placeholders})`,
+    [agencyId, ...userIds]
+  );
+};
+
+const ensureSeededTimeClaim = async ({ agencyId, userId, submittedByUserId, claimType, claimDate, payload }) => {
+  const [rows] = await pool.execute(
+    `SELECT id
+     FROM payroll_time_claims
+     WHERE agency_id = ?
+       AND user_id = ?
+       AND claim_type = ?
+       AND claim_date = ?
+     LIMIT 1`,
+    [agencyId, userId, claimType, claimDate]
+  );
+  if (Array.isArray(rows) && rows.length > 0) return rows[0];
+  return PayrollTimeClaim.create({
+    agencyId,
+    userId,
+    submittedByUserId,
+    claimType,
+    claimDate,
+    payload
+  });
+};
+
+const ensureSeededMileageClaim = async ({
+  agencyId,
+  userId,
+  submittedByUserId,
+  driveDate,
+  schoolOrganizationId,
+  miles,
+  startLocation,
+  endLocation
+}) => {
+  const [rows] = await pool.execute(
+    `SELECT id
+     FROM payroll_mileage_claims
+     WHERE agency_id = ?
+       AND user_id = ?
+       AND drive_date = ?
+       AND ABS(miles - ?) < 0.01
+     LIMIT 1`,
+    [agencyId, userId, driveDate, Number(miles || 0)]
+  );
+  if (Array.isArray(rows) && rows.length > 0) return rows[0];
+  return PayrollMileageClaim.create({
+    agencyId,
+    userId,
+    submittedByUserId,
+    driveDate,
+    claimType: 'school_travel',
+    schoolOrganizationId,
+    miles,
+    roundTrip: 1,
+    startLocation,
+    endLocation,
+    tripPurpose: 'Demo school travel',
+    notes: 'Synthetic payroll mileage claim for demo tenant',
+    attestation: 1
+  });
+};
+
+const ensureSeededReimbursementClaim = async ({
+  agencyId,
+  userId,
+  submittedByUserId,
+  expenseDate,
+  amount,
+  vendor
+}) => {
+  const [rows] = await pool.execute(
+    `SELECT id
+     FROM payroll_reimbursement_claims
+     WHERE agency_id = ?
+       AND user_id = ?
+       AND expense_date = ?
+       AND ABS(amount - ?) < 0.01
+     LIMIT 1`,
+    [agencyId, userId, expenseDate, Number(amount || 0)]
+  );
+  if (Array.isArray(rows) && rows.length > 0) return rows[0];
+  return PayrollReimbursementClaim.create({
+    agencyId,
+    userId,
+    submittedByUserId,
+    expenseDate,
+    amount,
+    paymentMethod: 'personal_card',
+    vendor,
+    purchasePreapproved: 1,
+    category: 'supplies',
+    reason: 'Demo reimbursement sample',
+    notes: 'Synthetic reimbursement claim for training demos',
+    attestation: 1
+  });
+};
+
+const ensureSeededPtoData = async ({ agencyId, userId, submittedByUserId, idx }) => {
+  await PayrollPtoAccount.upsert({
+    agencyId,
+    userId,
+    employmentType: 'hourly',
+    trainingPtoEligible: true,
+    sickStartHours: 24,
+    sickStartEffectiveDate: daysAgo(120),
+    trainingStartHours: 12,
+    trainingStartEffectiveDate: daysAgo(120),
+    sickBalanceHours: 18 - (idx % 4),
+    trainingBalanceHours: 8 - (idx % 3),
+    lastAccruedPayrollPeriodId: null,
+    lastSickRolloverYear: null,
+    trainingForfeitedAt: null,
+    updatedByUserId: submittedByUserId
+  });
+
+  const requestDate = daysAgo(10 + (idx % 7));
+  const [existing] = await pool.execute(
+    `SELECT id
+     FROM payroll_pto_requests
+     WHERE agency_id = ?
+       AND user_id = ?
+       AND request_type = 'sick'
+       AND DATE(created_at) = ?
+     LIMIT 1`,
+    [agencyId, userId, requestDate]
+  );
+  if (Array.isArray(existing) && existing.length > 0) return existing[0];
+
+  const req = await PayrollPtoRequest.create({
+    agencyId,
+    userId,
+    submittedByUserId,
+    requestType: 'sick',
+    notes: 'Demo PTO request',
+    totalHours: 4
+  });
+  if (req?.id) {
+    await PayrollPtoRequest.addItems({
+      requestId: req.id,
+      agencyId,
+      items: [{ requestDate, hours: 4 }]
+    });
+  }
+  return req;
+};
+
+const seedPayrollForProviders = async ({ agencyId, schoolOrganizationId, providerUsers, adminUserId }) => {
+  if (!await tableExists('payroll_time_claims')) return { seeded: false, reason: 'payroll tables not found' };
+  await ensurePayrollAccessForProviders({ agencyId, providerUsers });
+
+  const claimTypes = ['meeting_training', 'service_correction', 'overtime_evaluation'];
+  for (let i = 0; i < providerUsers.length; i += 1) {
+    const provider = providerUsers[i];
+    const userId = Number(provider?.id || 0);
+    if (!userId) continue;
+    const claimDate = daysAgo(3 + (i % 14));
+    const claimType = claimTypes[i % claimTypes.length];
+    await ensureSeededTimeClaim({
+      agencyId,
+      userId,
+      submittedByUserId: adminUserId,
+      claimType,
+      claimDate,
+      payload: {
+        hours: Number((1.5 + (i % 4) * 0.5).toFixed(2)),
+        note: 'Synthetic demo time claim',
+        category: claimType
+      }
+    });
+
+    await ensureSeededMileageClaim({
+      agencyId,
+      userId,
+      submittedByUserId: adminUserId,
+      driveDate: daysAgo(2 + (i % 10)),
+      schoolOrganizationId,
+      miles: Number((12 + (i % 6) * 3.25).toFixed(2)),
+      startLocation: 'Home',
+      endLocation: `Demo School ${((i % 4) + 1)}`
+    });
+
+    await ensureSeededReimbursementClaim({
+      agencyId,
+      userId,
+      submittedByUserId: adminUserId,
+      expenseDate: daysAgo(5 + (i % 9)),
+      amount: Number((22 + (i % 5) * 7.5).toFixed(2)),
+      vendor: `Demo Vendor ${((i % 5) + 1)}`
+    });
+
+    if (await tableExists('payroll_pto_accounts') && await tableExists('payroll_pto_requests')) {
+      await ensureSeededPtoData({
+        agencyId,
+        userId,
+        submittedByUserId: adminUserId,
+        idx: i
+      });
+    }
+  }
+  return { seeded: true, providerCount: providerUsers.length };
 };
 
 const getAgencyTableColumns = async () => {
@@ -363,11 +604,23 @@ async function main() {
     });
   }
 
+  const payrollResult = await seedPayrollForProviders({
+    agencyId: parent.id,
+    schoolOrganizationId: school.id,
+    providerUsers,
+    adminUserId: Number(createdUsers.admin?.id || 0)
+  });
+
   console.log('Demo tenant ready.');
   console.log(`Parent demo slug: ${parent.slug}`);
   console.log(`Demo org slugs: ${school.slug}, ${program.slug}, ${learning.slug}, ${clinical.slug}`);
   console.log(`Generated provider users: ${providerCount + 1} (includes provider-core)`);
   console.log(`Generated/ensured clients: ${clientCount}`);
+  if (payrollResult?.seeded) {
+    console.log(`Generated/ensured payroll claims for providers: ${payrollResult.providerCount}`);
+  } else {
+    console.log(`Payroll seeding skipped: ${payrollResult?.reason || 'unknown reason'}`);
+  }
   console.log(`Demo login password for generated users: ${password}`);
 }
 
