@@ -1464,8 +1464,9 @@ const ensureRecaptchaWidget = async () => {
     const renderFn = grecaptcha?.enterprise?.render || grecaptcha?.render;
     if (!renderFn) return false;
     let el = step.value === -1 ? recaptchaWidgetElStart.value : recaptchaWidgetEl.value;
-    if (!el) {
+    for (let i = 0; !el && i < 5; i++) {
       await nextTick();
+      await new Promise((r) => setTimeout(r, 50 * (i + 1)));
       el = step.value === -1 ? recaptchaWidgetElStart.value : recaptchaWidgetEl.value;
     }
     if (!el) {
@@ -1477,6 +1478,8 @@ const ensureRecaptchaWidget = async () => {
     const doRender = () => {
       recaptchaWidgetId.value = api.render(el, {
         sitekey: recaptchaSiteKey.value,
+        size: 'normal',
+        theme: 'light',
         callback: (token) => {
           captchaToken.value = String(token || '').trim();
           captchaError.value = '';
@@ -2479,6 +2482,9 @@ onMounted(async () => {
 .recaptcha-verify-first {
   margin-bottom: 8px;
   font-weight: 500;
+}
+.recaptcha-widget > div:first-child {
+  min-height: 78px;
 }
 .bundle-list {
   margin-top: 12px;
