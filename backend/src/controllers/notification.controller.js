@@ -119,6 +119,35 @@ function dedupeNotificationsById(notifications) {
   return out;
 }
 
+function notificationEquivalenceKey(notification) {
+  const n = notification || {};
+  const t = new Date(n.created_at || 0);
+  const sec = Number.isFinite(t.getTime()) ? Math.floor(t.getTime() / 1000) : 0;
+  return [
+    String(n.type || '').trim().toLowerCase(),
+    Number(n.agency_id || 0) || 0,
+    String(n.related_entity_type || '').trim().toLowerCase(),
+    Number(n.related_entity_id || 0) || 0,
+    String(n.title || '').trim(),
+    String(n.message || '').trim(),
+    Number(n.actor_user_id || 0) || 0,
+    String(n.actor_source || '').trim(),
+    sec
+  ].join('|');
+}
+
+function collapseEquivalentNotifications(notifications) {
+  const seen = new Set();
+  const out = [];
+  for (const n of notifications || []) {
+    const key = notificationEquivalenceKey(n);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(n);
+  }
+  return out;
+}
+
 const PERSONAL_ONLY_ROLES = new Set(['provider', 'staff', 'intern', 'facilitator']);
 
 async function appendNotificationContext(notifications) {
@@ -306,6 +335,7 @@ export const getNotifications = async (req, res, next) => {
       // Sort by created_at descending
       dedupedNotifications.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
       let filtered = filterNotificationsForViewer(dedupedNotifications, userId, userRole, filterOpts);
+      filtered = collapseEquivalentNotifications(filtered);
       await appendNotificationContext(filtered);
       const limitNum = limitParam ? parseInt(limitParam, 10) : 0;
       if (Number.isFinite(limitNum) && limitNum > 0) filtered = filtered.slice(0, limitNum);
@@ -347,6 +377,7 @@ export const getNotifications = async (req, res, next) => {
         filtered = filtered.filter((n) => (n._is_read_for_viewer === wantRead));
       }
       filtered = filtered.filter(isUnmuted);
+      filtered = collapseEquivalentNotifications(filtered);
       await appendNotificationContext(filtered);
       const limitNumCpa = limitParam ? parseInt(limitParam, 10) : 0;
       if (Number.isFinite(limitNumCpa) && limitNumCpa > 0) filtered = filtered.slice(0, limitNumCpa);
@@ -413,6 +444,7 @@ export const getNotifications = async (req, res, next) => {
       filtered = filtered.filter((n) => (n._is_read_for_viewer === wantRead));
     }
     filtered = filtered.filter(isUnmuted);
+    filtered = collapseEquivalentNotifications(filtered);
     await appendNotificationContext(filtered);
     const limitNum = limitParam ? parseInt(limitParam, 10) : 0;
     if (Number.isFinite(limitNum) && limitNum > 0) {
@@ -492,7 +524,8 @@ export const getNotificationCounts = async (req, res, next) => {
         });
         await Notification.applyReadStateForViewer(notifications, userId);
         const visible = filterNotificationsForViewer(notifications, userId, userRole, filterOpts).filter(isUnmuted);
-        counts[aid] = visible.filter((n) => !n._is_read_for_viewer && !n.is_resolved).length;
+        const collapsed = collapseEquivalentNotifications(visible);
+        counts[aid] = collapsed.filter((n) => !n._is_read_for_viewer && !n.is_resolved).length;
       }
       return res.json(counts);
     }
@@ -525,10 +558,11 @@ export const getNotificationCounts = async (req, res, next) => {
           isRead: false,
           isResolved: false
         });
-        const filteredNotifications = notifications.filter(n => 
+        const filteredNotifications = notifications.filter(n =>
           n.user_id && allSuperviseeIds.includes(n.user_id)
         );
-        filteredCounts[agencyId] = filterNotificationsForViewer(filteredNotifications, userId, userRole, filterOpts).length;
+        const visible = filterNotificationsForViewer(filteredNotifications, userId, userRole, filterOpts);
+        filteredCounts[agencyId] = collapseEquivalentNotifications(visible).length;
       }
       
       return res.json(filteredCounts);
@@ -544,7 +578,8 @@ export const getNotificationCounts = async (req, res, next) => {
           });
           await Notification.applyReadStateForViewer(notifications, userId);
           const visible = filterNotificationsForViewer(notifications, userId, userRole, filterOpts).filter(isUnmuted);
-          counts[aid] = visible.filter((n) => !n._is_read_for_viewer && !n.is_resolved).length;
+          const collapsed = collapseEquivalentNotifications(visible);
+          counts[aid] = collapsed.filter((n) => !n._is_read_for_viewer && !n.is_resolved).length;
         }
         return res.json(counts);
       }
@@ -583,7 +618,8 @@ export const getNotificationCounts = async (req, res, next) => {
       });
       await Notification.applyReadStateForViewer(notifications, userId);
       const visible = filterNotificationsForViewer(notifications, userId, userRole, filterOpts).filter(isUnmuted);
-      counts[aid] = visible.filter((n) => !n._is_read_for_viewer && !n.is_resolved).length;
+      const collapsed = collapseEquivalentNotifications(visible);
+      counts[aid] = collapsed.filter((n) => !n._is_read_for_viewer && !n.is_resolved).length;
     }
     res.json(counts);
   } catch (error) {
