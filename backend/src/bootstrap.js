@@ -10,8 +10,14 @@ const PORT = parseInt(process.env.PORT || '8080', 10);
 const HOST = '0.0.0.0';
 
 const placeholder = (req, res) => {
-  res.writeHead(503, { 'Content-Type': 'application/json' });
-  res.end(JSON.stringify({ status: 'starting', message: 'Server is loading...' }));
+  const path = (req.url || '/').split('?')[0];
+  if (path === '/health' || path === '/') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ status: 'ok', message: 'Server is loading...' }));
+  } else {
+    res.writeHead(503, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ status: 'starting', message: 'Server is loading...' }));
+  }
 };
 
 const server = http.createServer(placeholder);
