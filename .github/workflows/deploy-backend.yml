@@ -305,8 +305,8 @@ jobs:
             --cpu-boost \
             --timeout=300 \
             --max-instances=10 \
-            --min-instances=0 \
-            --startup-probe=httpGet.path=/health,httpGet.port=8080,initialDelaySeconds=60,failureThreshold=18,periodSeconds=10,timeoutSeconds=5
+            --min-instances=1 \
+            --startup-probe=tcpSocket.port=8080,initialDelaySeconds=90,failureThreshold=20,periodSeconds=10,timeoutSeconds=5
 
           # IMPORTANT: if traffic was pinned to an older revision, explicitly promote the latest revision.
           gcloud run services update-traffic $SERVICE_NAME \
