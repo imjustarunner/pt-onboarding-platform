@@ -151,7 +151,8 @@ const formatClient = (row) => {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1200;
+  /* Sit above floating sticky/help widgets and app-level overlays. */
+  z-index: 20050;
 }
 .modal {
   width: min(980px, 94vw);

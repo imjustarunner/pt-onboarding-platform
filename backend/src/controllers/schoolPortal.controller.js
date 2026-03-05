@@ -3756,7 +3756,8 @@ export const queryComplianceCorner = async (req, res, next) => {
     let userRole = String(filters?.userRole || '').trim().toLowerCase();
     if (!userRole && (providerName || providerEmail || providerId)) userRole = 'provider';
 
-    const clauses = ['coa.organization_id = ?', 'coa.is_active = TRUE'];
+    // Organization scoping is already enforced in the JOIN below.
+    const clauses = ['1=1'];
     const params = [orgId];
 
     if (providerId) {

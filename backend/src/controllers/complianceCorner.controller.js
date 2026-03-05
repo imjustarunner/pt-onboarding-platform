@@ -67,11 +67,23 @@ export const listPendingComplianceClients = async (req, res, next) => {
     }
 
     if (isAdmin) {
-      if (!organizationId) {
-        return res.status(400).json({ error: { message: 'organizationId is required for admin queries' } });
+      if (organizationId) {
+        const ok = await userHasOrgOrAffiliatedAgencyAccess({ userId, role: roleNorm, organizationId });
+        if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+      } else if (providerUserId) {
+        // Admin/provider-only query support for supervisee widgets:
+        // require at least one shared organization/agency membership.
+        const [actorOrgs, providerOrgs] = await Promise.all([
+          User.getAgencies(userId),
+          User.getAgencies(providerUserId)
+        ]);
+        const actorOrgIds = new Set((actorOrgs || []).map((o) => Number(o?.id || 0)).filter((n) => Number.isFinite(n) && n > 0));
+        const providerOrgIds = (providerOrgs || []).map((o) => Number(o?.id || 0)).filter((n) => Number.isFinite(n) && n > 0);
+        const hasSharedOrg = providerOrgIds.some((id) => actorOrgIds.has(id));
+        if (!hasSharedOrg) return res.status(403).json({ error: { message: 'Access denied' } });
+      } else {
+        return res.status(400).json({ error: { message: 'organizationId or providerUserId is required for admin queries' } });
       }
-      const ok = await userHasOrgOrAffiliatedAgencyAccess({ userId, role: roleNorm, organizationId });
-      if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
     } else if (isSupervisorRole) {
       if (!providerUserId) {
         return res.status(400).json({ error: { message: 'providerUserId is required for supervisor queries' } });

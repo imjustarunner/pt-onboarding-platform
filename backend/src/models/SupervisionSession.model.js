@@ -788,11 +788,12 @@ class SupervisionSession {
   static async listSessionsForSuperviseeWithArtifacts({ superviseeUserId, agencyId = null, limit = 50 }) {
     const uid = parseInt(superviseeUserId, 10);
     if (!uid) return [];
-    const whereAgency = Number(agencyId) > 0 ? 'AND ss.agency_id = ?' : '';
-    const args = [uid, uid, uid];
-    if (Number(agencyId) > 0) args.push(Number(agencyId));
-    args.push(limit);
+    const aId = Number(agencyId) > 0 ? Number(agencyId) : null;
+    const lim = Number.isFinite(Number(limit)) && Number(limit) > 0 ? Math.min(200, Math.floor(Number(limit))) : 50;
+    const whereAgency = aId ? `AND ss.agency_id = ${aId}` : '';
 
+    // NOTE: Inline validated integers here to avoid intermittent driver/proxy prepared-statement
+    // argument mismatches observed in production (mysqld_stmt_execute).
     const [rows] = await pool.execute(
       `SELECT
          ss.id,
@@ -826,19 +827,18 @@ class SupervisionSession {
        LEFT JOIN supervision_session_artifacts ssa2 ON ssa2.session_id = ss.id
        LEFT JOIN supervision_session_attendance_rollups ssar
          ON ssar.session_id = ss.id
-        AND ssar.user_id = ?
+        AND ssar.user_id = ${uid}
        WHERE (
-           ss.supervisee_user_id = ?
+          ss.supervisee_user_id = ${uid}
            OR EXISTS (
              SELECT 1 FROM supervision_session_attendees ssa
-             WHERE ssa.session_id = ss.id AND ssa.user_id = ? AND ssa.participant_role = 'supervisee'
+            WHERE ssa.session_id = ss.id AND ssa.user_id = ${uid} AND ssa.participant_role = 'supervisee'
            )
          )
          ${whereAgency}
          AND (ss.status IS NULL OR ss.status <> 'CANCELLED')
        ORDER BY ss.start_at DESC
-       LIMIT ?`,
-      args
+       LIMIT ${lim}`
     );
 
     return (rows || []).map((r) => ({
