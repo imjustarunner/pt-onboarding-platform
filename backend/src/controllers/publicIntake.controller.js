@@ -982,6 +982,20 @@ const toOrgPayload = (org) => {
   };
 };
 
+const requiresCaptchaForLink = (organization, agency) => {
+  const names = process.env.RECAPTCHA_REQUIRED_ORG_NAMES;
+  if (!names || typeof names !== 'string') return false;
+  const list = names.split(',').map((s) => String(s || '').trim().toLowerCase()).filter(Boolean);
+  if (!list.length) return false;
+  const check = (org) => {
+    if (!org) return false;
+    const n = String(org.name || '').trim().toLowerCase();
+    const o = String(org.official_name || '').trim().toLowerCase();
+    return list.some((x) => n === x || o === x || n.includes(x) || o.includes(x));
+  };
+  return check(organization) || check(agency);
+};
+
 const notifyUnassignedDocuments = async ({ link, submission, docCount }) => {
   if (!link || !submission || !docCount || docCount < 1) return;
   try {
@@ -1161,6 +1175,7 @@ export const getPublicIntakeLink = async (req, res, next) => {
 
     const templates = await loadAllowedTemplates(link);
     const { organization, agency } = await resolveIntakeOrgContext(link);
+    const needsCaptcha = requiresCaptchaForLink(organization, agency);
     res.json({
       link: {
         id: link.id,
@@ -1177,11 +1192,13 @@ export const getPublicIntakeLink = async (req, res, next) => {
         intake_steps: link.intake_steps,
         custom_messages: link.custom_messages || null
       },
-      recaptcha: {
-        siteKey: process.env.RECAPTCHA_SITE_KEY_INTAKE || config.recaptcha?.siteKey || null,
-        useEnterprise: !!config.recaptcha?.enterpriseApiKey,
-        forceWidget: !!process.env.RECAPTCHA_SITE_KEY_INTAKE
-      },
+      recaptcha: needsCaptcha
+        ? {
+            siteKey: process.env.RECAPTCHA_SITE_KEY_INTAKE || config.recaptcha?.siteKey || null,
+            useEnterprise: !!config.recaptcha?.enterpriseApiKey,
+            forceWidget: !!process.env.RECAPTCHA_SITE_KEY_INTAKE
+          }
+        : { siteKey: null, useEnterprise: false, forceWidget: false },
       organization: toOrgPayload(organization),
       agency: toOrgPayload(agency),
       templates: templates.map(t => ({
@@ -1249,11 +1266,19 @@ export const createPublicConsent = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Validation failed', errors: errors.array() } });
     }
 
+    const publicKey = String(req.params.publicKey || '').trim();
+    const link = await IntakeLink.findByPublicKey(publicKey);
+    if (!link || !link.is_active) {
+      return res.status(404).json({ error: { message: 'Intake link not found' } });
+    }
+
+    const { organization, agency } = await resolveIntakeOrgContext(link);
+    const needsCaptcha = requiresCaptchaForLink(organization, agency);
     const captchaConfigured = !!config.recaptcha?.secretKey || !!config.recaptcha?.enterpriseApiKey;
-    if (config.nodeEnv === 'production' && !captchaConfigured) {
+    if (needsCaptcha && config.nodeEnv === 'production' && !captchaConfigured) {
       return res.status(500).json({ error: { message: 'Captcha is not configured' } });
     }
-    if (captchaConfigured) {
+    if (needsCaptcha && captchaConfigured) {
       const captchaToken = String(req.body.captchaToken || '').trim();
       if (!captchaToken) {
         if (config.nodeEnv === 'production') {
@@ -1292,12 +1317,6 @@ export const createPublicConsent = async (req, res, next) => {
           }
         }
       }
-    }
-
-    const publicKey = String(req.params.publicKey || '').trim();
-    const link = await IntakeLink.findByPublicKey(publicKey);
-    if (!link || !link.is_active) {
-      return res.status(404).json({ error: { message: 'Intake link not found' } });
     }
 
     const ipAddress = getClientIpAddress(req);
