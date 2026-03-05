@@ -1,6 +1,7 @@
 import Notification from '../models/Notification.model.js';
 import NotificationService from '../services/notification.service.js';
 import User from '../models/User.model.js';
+import UserPreferences from '../models/UserPreferences.model.js';
 import NotificationSmsLog from '../models/NotificationSmsLog.model.js';
 import NotificationTrigger from '../models/NotificationTrigger.model.js';
 import AgencyNotificationTriggerSetting from '../models/AgencyNotificationTriggerSetting.model.js';
@@ -18,6 +19,13 @@ function parseJsonMaybe(v) {
     return null;
   }
 }
+
+const IN_APP_CATEGORY_BY_TYPE = {
+  client_checklist_updated: 'clients_checklist_updates',
+  client_became_current: 'clients_checklist_updates',
+  paperwork_received: 'clients_new_intakes',
+  new_packet_uploaded: 'clients_new_intakes'
+};
 
 function viewerAudienceKey(role) {
   const r = String(role || '').trim().toLowerCase();
@@ -65,8 +73,14 @@ const SELF_ACTIVITY_TYPES = new Set(['user_login', 'user_logout']);
 
 function filterNotificationsForViewer(notifications, viewerUserId, viewerRole, opts = {}) {
   const uid = Number(viewerUserId);
-  const { hasMedicalRecordsReleaseAccess = false } = opts;
+  const { hasMedicalRecordsReleaseAccess = false, notificationCategories = null } = opts;
   return (notifications || [])
+    .filter((n) => {
+      const key = IN_APP_CATEGORY_BY_TYPE[String(n?.type || '').toLowerCase()];
+      if (!key) return true;
+      if (!notificationCategories || typeof notificationCategories !== 'object') return true;
+      return notificationCategories[key] !== false;
+    })
     .filter((n) => audienceAllows(n, viewerRole))
     .filter((n) => {
       const t = String(n?.type || '');
@@ -266,6 +280,12 @@ async function appendNotificationContext(notifications) {
   return list;
 }
 
+async function getViewerNotificationCategories(userId) {
+  const prefs = await UserPreferences.findByUserId(Number(userId));
+  const categories = parseJsonMaybe(prefs?.notification_categories) || prefs?.notification_categories || {};
+  return categories && typeof categories === 'object' ? categories : {};
+}
+
 export const getNotifications = async (req, res, next) => {
   try {
     const { agencyId, type, isRead, isResolved, limit: limitParam } = req.query;
@@ -274,7 +294,8 @@ export const getNotifications = async (req, res, next) => {
 
     const fullUser = await User.findById(userId);
     const hasMedicalRecordsReleaseAccess = !!(fullUser?.has_medical_records_release_access === 1 || fullUser?.has_medical_records_release_access === true);
-    const filterOpts = { hasMedicalRecordsReleaseAccess };
+    const notificationCategories = await getViewerNotificationCategories(userId);
+    const filterOpts = { hasMedicalRecordsReleaseAccess, notificationCategories };
 
     // Determine which agencies the user can access
     let accessibleAgencyIds = [];
@@ -496,7 +517,8 @@ export const getNotificationCounts = async (req, res, next) => {
 
     const fullUser = await User.findById(userId);
     const hasMedicalRecordsReleaseAccess = !!(fullUser?.has_medical_records_release_access === 1 || fullUser?.has_medical_records_release_access === true);
-    const filterOpts = { hasMedicalRecordsReleaseAccess };
+    const notificationCategories = await getViewerNotificationCategories(userId);
+    const filterOpts = { hasMedicalRecordsReleaseAccess, notificationCategories };
 
     let agencyIds = [];
 

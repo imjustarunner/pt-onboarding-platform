@@ -205,6 +205,14 @@
                 <input v-model="prefs.notification_categories.client_assignments" type="checkbox" :disabled="notificationDisabled" />
                 New client assignments
               </label>
+              <label class="field checkbox">
+                <input v-model="prefs.notification_categories.clients_new_intakes" type="checkbox" :disabled="notificationDisabled" />
+                New intake / packet updates
+              </label>
+              <label class="field checkbox">
+                <input v-model="prefs.notification_categories.clients_checklist_updates" type="checkbox" :disabled="notificationDisabled" />
+                Checklist date updates
+              </label>
             </div>
 
             <div class="category-group">
@@ -795,6 +803,8 @@ const defaultCategories = () => ({
   messaging_replies_to_my_messages: false,
   messaging_client_notes: false,
   client_assignments: true,
+  clients_new_intakes: true,
+  clients_checklist_updates: true,
   // School Portal feed toggles (default OFF)
   school_portal_client_updates: false,
   school_portal_client_update_org_swaps: false,

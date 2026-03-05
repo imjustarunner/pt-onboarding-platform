@@ -43,6 +43,8 @@ const ALL_NOTIFICATION_CATEGORY_KEYS = [
   'messaging_replies_to_my_messages',
   'messaging_client_notes',
   'client_assignments',
+  'clients_new_intakes',
+  'clients_checklist_updates',
   'school_portal_client_updates',
   'school_portal_client_update_org_swaps',
   'school_portal_client_comments',
@@ -67,6 +69,10 @@ const buildDefaultCategories = () => {
   }
   // Required categories
   base.system_emergency_broadcasts = true;
+  // Default-on client lifecycle categories for My Notifications.
+  base.client_assignments = true;
+  base.clients_new_intakes = true;
+  base.clients_checklist_updates = true;
   return base;
 };
 
@@ -142,6 +148,9 @@ const buildDefaultPreferences = (userRole) => {
     // Dashboard preferences
     dashboard_notification_org_types: ['agency']
   };
+  base.notification_categories.client_assignments = true;
+  base.notification_categories.clients_new_intakes = true;
+  base.notification_categories.clients_checklist_updates = true;
   if (String(userRole || '').toLowerCase() === 'provider') {
     base.notification_categories.client_assignments = true;
   }
