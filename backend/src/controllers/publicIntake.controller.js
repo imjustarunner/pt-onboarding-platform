@@ -1262,17 +1262,28 @@ export const createPublicConsent = async (req, res, next) => {
         const verification = await verifyRecaptchaV3({
           token: captchaToken,
           remoteip: getClientIpAddress(req),
-          expectedAction: 'public_intake_consent'
+          expectedAction: 'public_intake_consent',
+          userAgent: req.get('user-agent')
         });
         if (!verification.ok) {
+          console.warn('[recaptcha] public intake verification failed', {
+            reason: verification.reason,
+            errorCodes: verification.errorCodes,
+            action: verification.action
+          });
           if (config.nodeEnv === 'production') {
-            return res.status(400).json({ error: { message: 'Captcha verification failed' } });
+            return res.status(400).json({ error: { message: 'Captcha verification failed. Please complete the captcha again and try again.' } });
           }
         } else {
-          const minScore = Number.isFinite(config.recaptcha?.minScore) ? config.recaptcha.minScore : 0.5;
-          if (verification.score !== null && verification.score < minScore) {
+          const minScoreRaw = process.env.RECAPTCHA_MIN_SCORE_INTAKE ?? config.recaptcha?.minScore ?? 0.3;
+          const effectiveMinScore = Number.isFinite(Number(minScoreRaw)) ? Number(minScoreRaw) : 0.3;
+          if (verification.score !== null && verification.score < effectiveMinScore) {
+            console.warn('[recaptcha] public intake score too low', {
+              score: verification.score,
+              minScore: effectiveMinScore
+            });
             if (config.nodeEnv === 'production') {
-              return res.status(400).json({ error: { message: 'Captcha verification failed' } });
+              return res.status(400).json({ error: { message: 'Captcha verification failed. Please try again.' } });
             }
           }
         }

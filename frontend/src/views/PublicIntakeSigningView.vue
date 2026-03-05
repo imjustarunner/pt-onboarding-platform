@@ -658,7 +658,7 @@ const INTAKE_TRANSLATIONS = {
     completionEmailApplicant: 'Your application was submitted successfully. A copy will be emailed to you.',
     completionEmailRequester: 'Your request was submitted successfully. A copy will be emailed to you.',
     completeCaptcha: 'Please complete the captcha verification above.',
-    captchaFailed: 'Captcha verification failed. Please try again.',
+    captchaFailed: 'Captcha verification failed. Please complete the captcha again and try again.',
     noDocumentSelected: 'No document selected.',
     reviewAllPages: 'Please review all pages before continuing.',
     reviewAllPagesSkip: 'Please review all pages before continuing. You can skip to the signature page if needed.',
@@ -745,7 +745,7 @@ const INTAKE_TRANSLATIONS = {
     organizationRequired: 'Se requiere la organización.',
     guardianRequired: 'Se requieren el nombre del tutor y el correo electrónico del tutor.',
     completeCaptcha: 'Por favor complete la verificación de captcha arriba.',
-    captchaFailed: 'La verificación de captcha falló. Por favor intente de nuevo.',
+    captchaFailed: 'La verificación de captcha falló. Por favor complete el captcha nuevamente e intente de nuevo.',
     noDocumentSelected: 'No se seleccionó ningún documento.',
     reviewAllPages: 'Por favor revise todas las páginas antes de continuar.',
     reviewAllPagesSkip: 'Por favor revise todas las páginas antes de continuar. Puede saltar a la página de firma si es necesario.',
@@ -1420,6 +1420,7 @@ const ensureRecaptchaWidget = async () => {
       sitekey: recaptchaSiteKey.value,
       callback: (token) => {
         captchaToken.value = String(token || '').trim();
+        captchaError.value = '';
         console.info('[recaptcha] widget token', { hasToken: !!captchaToken.value, length: captchaToken.value.length });
       },
       'expired-callback': () => {
@@ -1433,6 +1434,19 @@ const ensureRecaptchaWidget = async () => {
   } catch (err) {
     console.warn('[recaptcha] widget init failed', err);
     return false;
+  }
+};
+
+const resetRecaptchaWidget = async () => {
+  captchaToken.value = '';
+  captchaError.value = '';
+  try {
+    const grecaptcha = await loadRecaptchaScript();
+    if (grecaptcha?.enterprise?.reset && recaptchaWidgetId.value !== null) {
+      grecaptcha.enterprise.reset(recaptchaWidgetId.value);
+    }
+  } catch {
+    // ignore
   }
 };
 
@@ -1671,7 +1685,13 @@ const submitConsent = async () => {
     step.value = 2;
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to capture consent';
-    captchaToken.value = '';
+    const isCaptchaError = /captcha/i.test(error.value);
+    if (isCaptchaError) {
+      captchaError.value = t('captchaFailed');
+      await resetRecaptchaWidget();
+    } else {
+      captchaToken.value = '';
+    }
   } finally {
     consentLoading.value = false;
   }

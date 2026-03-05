@@ -115,7 +115,7 @@ const verifyRecaptchaEnterprise = async ({ token, expectedAction } = {}) => {
   }
 };
 
-export const verifyRecaptchaV3 = async ({ token, remoteip, expectedAction } = {}) => {
+export const verifyRecaptchaV3 = async ({ token, remoteip, expectedAction, userAgent } = {}) => {
   if (config.recaptcha?.enterpriseApiKey) {
     const useAdc = String(process.env.RECAPTCHA_ENTERPRISE_USE_ADC || '').toLowerCase() === 'true';
     if (useAdc) {
@@ -123,7 +123,7 @@ export const verifyRecaptchaV3 = async ({ token, remoteip, expectedAction } = {}
         token,
         expectedAction,
         remoteip,
-        userAgent: null
+        userAgent: userAgent || null
       });
     }
     return verifyRecaptchaEnterprise({ token, expectedAction });
