@@ -1570,7 +1570,7 @@
 
       <div class="actions" style="margin-top: 10px;">
         <button class="btn btn-secondary" @click="openRawModal" :disabled="!selectedPeriodId">
-          Raw Import (View)
+          Raw Import Audit (View)
         </button>
         <button class="btn btn-secondary" @click="openCarryoverModal" :disabled="!selectedPeriodId || isPeriodPosted">
           No-note/Draft Unpaid
@@ -4395,6 +4395,30 @@
             </div>
             <div class="field-row" style="grid-template-columns: 1fr 1fr 1fr; margin-top: 10px;">
               <div class="field">
+                <label>Imported Snapshot</label>
+                <select v-model="rawAuditSelectedImportId" :disabled="rawAuditLoading || !(rawAuditImports || []).length">
+                  <option v-for="imp in rawAuditImports" :key="`imp-${imp.id}`" :value="imp.id">{{ rawAuditImportOptionLabel(imp) }}</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>Compare Against Import</label>
+                <select v-model="rawAuditBaselineImportId" :disabled="rawAuditLoading || !(rawAuditImports || []).length">
+                  <option v-for="imp in rawAuditImports" :key="`baseline-imp-${imp.id}`" :value="imp.id">{{ rawAuditImportOptionLabel(imp) }}</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>Run Audit</label>
+                <div class="hint">
+                  <span v-if="rawAuditLoading">Loading run data…</span>
+                  <span v-else>
+                    Showing {{ rawAuditChangeCount }} change{{ rawAuditChangeCount === 1 ? '' : 's' }} from selected baseline import
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div class="field-row" style="grid-template-columns: 1fr 1fr 1fr; margin-top: 10px;">
+              <div class="field">
                 <label>Search</label>
                 <input
                   v-model="rawDraftSearch"
@@ -4425,6 +4449,9 @@
                       {{ rawPostedProcessingUnlocked ? 'Unlocked' : 'Unlock H0031/H0032 editing' }}
                     </button>
                   </span>
+                </div>
+                <div class="hint" v-else-if="isRawAuditHistoricalRun">
+                  Historical run (read-only)
                 </div>
                 <div class="hint" v-else>{{ updatingDraftPayable ? 'Saving…' : 'Editable' }}</div>
               </div>
@@ -4461,6 +4488,7 @@
                     <th class="th-sortable" @click="toggleRawSort('note_status')">
                       Note Status <span class="th-sort-indicator">{{ rawSortIndicator('note_status') }}</span>
                     </th>
+                    <th>Paid?</th>
                     <th v-if="rawMode === 'draft_audit'">Draft Payable?</th>
                     <th v-else>Status</th>
                   </tr>
@@ -4469,7 +4497,10 @@
                   <tr
                     v-for="r in rawModeRowsLimited"
                     :key="r.id"
-                    :class="{ 'row-unpaid-h003': (rawMode === 'process_h0031' || rawMode === 'process_h0032') && !willBePaid(r) }"
+                    :class="{
+                      'row-unpaid-h003': (rawMode === 'process_h0031' || rawMode === 'process_h0032') && !willBePaid(r),
+                      'row-paid-muted': Number(r.is_paid) === 1
+                    }"
                   >
                     <td>{{ r.provider_name }}</td>
                     <td class="muted">{{ rawClientHint(r) || '—' }}</td>
@@ -4483,16 +4514,21 @@
                         step="1"
                         min="1"
                         :value="Number(r.unit_count || 0)"
-                        :disabled="isPeriodPosted && !rawPostedProcessingUnlocked"
+                        :disabled="(isPeriodPosted && !rawPostedProcessingUnlocked) || isRawAuditHistoricalRun"
                         style="width: 90px;"
                         @change="updateRawMinutes(r, $event.target.value)"
                       />
                     </td>
-                    <td>{{ r.note_status || '' }}</td>
+                    <td>
+                      <span class="status-pill" :class="rawStatusPillClass(r)">{{ rawStatusLabel(r) }}</span>
+                    </td>
+                    <td>
+                      <strong>{{ rawPaidStateLabel(r) }}</strong>
+                    </td>
                     <td v-if="rawMode === 'draft_audit'">
                       <select
                         v-if="String(r.note_status || '').toUpperCase() === 'DRAFT'"
-                        :disabled="isPeriodPosted || !rawDraftOnly"
+                        :disabled="isPeriodPosted || !rawDraftOnly || isRawAuditHistoricalRun"
                         :value="Number(r.draft_payable) ? 'payable' : 'not_payable'"
                         @change="toggleDraftPayable(r, $event.target.value === 'payable')"
                       >
@@ -4520,7 +4556,7 @@
                         <button
                           type="button"
                           class="btn btn-secondary btn-sm"
-                          :disabled="(isPeriodPosted && !rawPostedProcessingUnlocked) || !(Number(r.requires_processing) === 1)"
+                          :disabled="(isPeriodPosted && !rawPostedProcessingUnlocked) || isRawAuditHistoricalRun || !(Number(r.requires_processing) === 1)"
                           @click="toggleRawProcessed(r, !r.processed_at)"
                         >
                           {{ r.processed_at ? 'Undo' : 'Mark done' }}
@@ -4529,7 +4565,7 @@
                     </td>
                   </tr>
                   <tr v-if="!rawModeRows.length">
-                    <td colspan="7" class="muted">No rows found.</td>
+                    <td colspan="8" class="muted">No rows found.</td>
                   </tr>
                 </tbody>
               </table>
@@ -4553,6 +4589,48 @@
                   </tr>
                 </tbody>
               </table>
+
+              <div v-if="rawMode !== 'missed_appts_paid_in_full'" class="table-wrap" style="margin-top: 10px;">
+                <table class="table table-sm">
+                  <thead>
+                    <tr>
+                      <th>Change</th>
+                      <th>Provider</th>
+                      <th>Client</th>
+                      <th>DOS</th>
+                      <th>From</th>
+                      <th>To</th>
+                      <th>Units</th>
+                      <th>Paid?</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="(c, idx) in rawAuditChangesLimited" :key="`${c.rowMatchKey || idx}-${idx}`">
+                      <td>{{ rawChangeTypeLabel(c.changeType) }}</td>
+                      <td>{{ c.provider_name || '—' }}</td>
+                      <td class="muted">{{ rawClientHint(c) || '—' }}</td>
+                      <td class="muted">{{ ymd(c.service_date) || '—' }}</td>
+                      <td>
+                        <span class="status-pill" :class="rawStatusPillClass({ normalized_status: c.from_status })">
+                          {{ c.from_status || '—' }}
+                        </span>
+                        <span class="muted"> • {{ c.from_service_code || '—' }}</span>
+                      </td>
+                      <td>
+                        <span class="status-pill" :class="rawStatusPillClass({ normalized_status: c.to_status })">
+                          {{ c.to_status || '—' }}
+                        </span>
+                        <span class="muted"> • {{ c.to_service_code || '—' }}</span>
+                      </td>
+                      <td class="right">{{ fmtNum(c.from_units || 0) }} → {{ fmtNum(c.to_units || 0) }}</td>
+                      <td><strong>{{ c.paid_state || 'UNPAID' }}</strong></td>
+                    </tr>
+                    <tr v-if="!rawAuditChangesLimited.length">
+                      <td colspan="8" class="muted">No run-to-run changes found for this selection.</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
 
               <div
                 v-if="rawMode !== 'missed_appts_paid_in_full'"
@@ -5715,6 +5793,16 @@ const previewTwoPeriodsAgoUnpaid = computed(() => {
 });
 const showCarryoverModal = ref(false);
 const rawImportRows = ref([]);
+const rawAuditRuns = ref([]);
+const rawAuditImports = ref([]);
+const rawAuditSelectedRunId = ref(null);
+const rawAuditBaselineRunId = ref(null);
+const rawAuditLatestRunId = ref(null);
+const rawAuditSelectedImportId = ref(null);
+const rawAuditBaselineImportId = ref(null);
+const rawAuditLatestImportId = ref(null);
+const rawAuditChanges = ref([]);
+const rawAuditLoading = ref(false);
 const missedAppointmentsPaidInFull = ref([]); // display-only flags from billing import
 const rawDraftSearch = ref('');
 const rawDraftOnly = ref(true);
@@ -5908,6 +5996,7 @@ const carryoverRunLabelById = computed(() => {
   rows.forEach((r, idx) => {
     const id = Number(r?.id || 0);
     if (!id) return;
+    const runNumber = Number(r?.run_number || (idx + 1));
     const when = fmtDateTime(r?.ran_at);
     const byNameRaw = `${r?.ran_by_first_name || ''} ${r?.ran_by_last_name || ''}`.trim();
     const by = byNameRaw || 'Unknown user';
@@ -5915,7 +6004,7 @@ const carryoverRunLabelById = computed(() => {
     if (idx === total - 1) tags.push('latest');
     if (idx === total - 2) tags.push('previous');
     const tagSuffix = tags.length ? ` [${tags.join(', ')}]` : '';
-    out[id] = `Run #${id} (${idx + 1}/${total}) - ${when} - ${by}${tagSuffix}`;
+    out[id] = `Run ${runNumber} (${idx + 1}/${total}) - ${when} - ${by}${tagSuffix}`;
   });
   return out;
 });
@@ -9361,12 +9450,6 @@ const rawModeRows = computed(() => {
   if (mode === 'missed_appts_paid_in_full') {
     return [];
   }
-  const willBePaid = (r) => {
-    const st = String(r?.note_status || '').trim().toUpperCase();
-    if (st === 'FINALIZED') return true;
-    if (st === 'DRAFT') return Number(r?.draft_payable) === 1;
-    return false;
-  };
   if (mode === 'draft_audit') {
     rows = rawDraftOnly.value ? rows.filter((r) => String(r.note_status || '').toUpperCase() === 'DRAFT') : rows;
   } else if (mode === 'process_h0031') {
@@ -9424,6 +9507,73 @@ const rawModeRows = computed(() => {
   return rows;
 });
 
+const willBePaid = (r) => {
+  const st = String(r?.note_status || '').trim().toUpperCase();
+  if (st === 'FINALIZED') return true;
+  if (st === 'DRAFT') return Number(r?.draft_payable) === 1;
+  return false;
+};
+
+const rawAuditChangeCount = computed(() => (rawAuditChanges.value || []).length);
+const isRawAuditHistoricalRun = computed(() => {
+  const selImport = Number(rawAuditSelectedImportId.value || 0);
+  const latestImport = Number(rawAuditLatestImportId.value || 0);
+  if (selImport && latestImport) return selImport !== latestImport;
+  const sel = Number(rawAuditSelectedRunId.value || 0);
+  const latest = Number(rawAuditLatestRunId.value || 0);
+  if (!sel || !latest) return false;
+  return sel !== latest;
+});
+
+const rawAuditChangesLimited = computed(() => {
+  const q = String(rawDraftSearch.value || '').trim().toLowerCase();
+  let rows = (rawAuditChanges.value || []).slice();
+  if (q) {
+    rows = rows.filter((r) => {
+      const prov = String(r?.provider_name || '').toLowerCase();
+      const codeFrom = String(r?.from_service_code || '').toLowerCase();
+      const codeTo = String(r?.to_service_code || '').toLowerCase();
+      const dos = String(r?.service_date || '').toLowerCase();
+      return prov.includes(q) || codeFrom.includes(q) || codeTo.includes(q) || dos.includes(q);
+    });
+  }
+  return rows.slice(0, 500);
+});
+
+const rawStatusLabel = (r) => {
+  const direct = String(r?.normalized_status || '').trim().toUpperCase();
+  if (direct) return direct;
+  const st = String(r?.note_status || '').trim().toUpperCase();
+  if (st === 'FINALIZED') return 'FINALIZED';
+  if (st === 'DRAFT') return Number(r?.draft_payable || 0) ? 'DRAFT_PAID' : 'DRAFT_UNPAID';
+  return 'NO_NOTE';
+};
+
+const rawPaidStateLabel = (r) => {
+  const direct = String(r?.paid_state || '').trim().toUpperCase();
+  if (direct) return direct;
+  const status = rawStatusLabel(r);
+  return (status === 'FINALIZED' || status === 'DRAFT_PAID') ? 'PAID' : 'UNPAID';
+};
+
+const rawStatusPillClass = (r) => {
+  const st = rawStatusLabel(r);
+  if (st === 'FINALIZED') return 'status-pill-finalized';
+  if (st === 'DRAFT_PAID') return 'status-pill-draft-paid';
+  if (st === 'DRAFT_UNPAID') return 'status-pill-draft-unpaid';
+  return 'status-pill-no-note';
+};
+
+const rawChangeTypeLabel = (type) => {
+  const t = String(type || '').trim().toLowerCase();
+  if (t === 'status_change') return 'Status changed';
+  if (t === 'code_change') return 'Code changed';
+  if (t === 'unit_change') return 'Units changed';
+  if (t === 'added') return 'Added in selected run';
+  if (t === 'removed') return 'Removed in selected run';
+  return type || 'Changed';
+};
+
 const missedAppointmentsPaidInFullRows = computed(() => {
   const all = (missedAppointmentsPaidInFull.value || []).slice();
   const q = String(rawDraftSearch.value || '').trim().toLowerCase();
@@ -9459,6 +9609,7 @@ const setDraftPayableByRowId = async (rowId, nextVal) => {
   const id = Number(rowId || 0);
   if (!Number.isFinite(id) || id <= 0) return;
   if (isPeriodPosted.value) return;
+  if (isRawAuditHistoricalRun.value) return;
   try {
     updatingDraftPayable.value = true;
     updatingCarryoverDraftRowId.value = id;
@@ -9513,6 +9664,7 @@ const toggleDraftPayable = async (row, nextVal) => {
 const updateRawMinutes = async (row, nextValRaw) => {
   if (!row?.id) return;
   if (isPeriodPosted.value && !rawPostedProcessingUnlocked.value) return;
+  if (isRawAuditHistoricalRun.value) return;
   if (Number(row.requires_processing) !== 1) return;
   try {
     const nextMinutes = Math.round(Number(nextValRaw));
@@ -9550,6 +9702,7 @@ const updateRawMinutes = async (row, nextValRaw) => {
 const toggleRawProcessed = async (row, nextDone) => {
   if (!row?.id) return;
   if (isPeriodPosted.value && !rawPostedProcessingUnlocked.value) return;
+  if (isRawAuditHistoricalRun.value) return;
   if (Number(row.requires_processing) !== 1) return;
   try {
     updatingDraftPayable.value = true;
@@ -9599,6 +9752,21 @@ watch([showRawModal, rawMode, selectedPeriodId], ([open, mode]) => {
   // Default back to locked when reopening/switching.
   if (!open) rawPostedProcessingUnlocked.value = false;
   if (!(mode === 'process_h0031' || mode === 'process_h0032')) rawPostedProcessingUnlocked.value = false;
+});
+
+watch([rawAuditSelectedImportId, rawAuditBaselineImportId, rawAuditSelectedRunId, rawAuditBaselineRunId], async ([importId, baselineImportId, runId, baselineRunId], [prevImportId, prevBaselineImportId, prevRunId, prevBaselineRunId]) => {
+  if (!showRawModal.value) return;
+  if (rawAuditLoading.value) return;
+  const hasImports = Array.isArray(rawAuditImports.value) && rawAuditImports.value.length > 0;
+  if (hasImports) {
+    if (!importId || !baselineImportId) return;
+    if (Number(importId) === Number(prevImportId) && Number(baselineImportId) === Number(prevBaselineImportId)) return;
+    await loadRawAuditData({ importId, baselineImportId });
+    return;
+  }
+  if (!runId || !baselineRunId) return;
+  if (Number(runId) === Number(prevRunId) && Number(baselineRunId) === Number(prevBaselineRunId)) return;
+  await loadRawAuditData({ runId, baselineRunId });
 });
 
 const periodRangeLabel = (p) => {
@@ -9766,6 +9934,46 @@ const selectPeriod = async (id) => {
   await loadPeriodDetails();
 };
 
+const rawAuditImportOptionLabel = (imp) => {
+  const slot = Number(imp?.slot_number || 0);
+  const imported = ymd(imp?.created_at);
+  const name = String(imp?.original_filename || '').trim();
+  const suffix = name ? ` - ${name}` : '';
+  return `Run ${slot || 1} - ${imported}${suffix}`;
+};
+
+const loadRawAuditData = async ({ runId = null, baselineRunId = null, importId = null, baselineImportId = null } = {}) => {
+  if (!selectedPeriodId.value) return;
+  try {
+    rawAuditLoading.value = true;
+    const resp = await api.get(`/payroll/periods/${selectedPeriodId.value}/raw-audit`, {
+      params: {
+        runId: runId || rawAuditSelectedRunId.value || undefined,
+        baselineRunId: baselineRunId || rawAuditBaselineRunId.value || undefined,
+        importId: importId || rawAuditSelectedImportId.value || undefined,
+        baselineImportId: baselineImportId || rawAuditBaselineImportId.value || undefined
+      }
+    });
+    rawAuditRuns.value = resp.data?.runs || [];
+    rawAuditImports.value = resp.data?.imports || [];
+    rawAuditSelectedRunId.value = Number(resp.data?.selectedRunId || 0) || null;
+    rawAuditBaselineRunId.value = Number(resp.data?.baselineRunId || 0) || null;
+    rawAuditLatestRunId.value = Number(resp.data?.latestRunId || 0) || null;
+    rawAuditSelectedImportId.value = Number(resp.data?.selectedImportId || 0) || null;
+    rawAuditBaselineImportId.value = Number(resp.data?.baselineImportId || 0) || null;
+    rawAuditLatestImportId.value = Number(rawAuditImports.value?.[rawAuditImports.value.length - 1]?.id || 0) || null;
+    rawImportRows.value = resp.data?.rows || [];
+    rawAuditChanges.value = resp.data?.changes || [];
+  } catch (e) {
+    rawDraftError.value = e.response?.data?.error?.message || e.message || 'Failed to load raw run audit';
+    rawAuditRuns.value = [];
+    rawAuditImports.value = [];
+    rawAuditChanges.value = [];
+  } finally {
+    rawAuditLoading.value = false;
+  }
+};
+
 const loadPeriodDetails = async () => {
   if (!selectedPeriodId.value) return;
   try {
@@ -9793,6 +10001,9 @@ const loadPeriodDetails = async () => {
     } catch {
       // `loadStaging` already sets `stagingError`/`error`; keep the rest of the page functional.
     }
+    if (showRawModal.value) {
+      await loadRawAuditData();
+    }
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message || 'Failed to load pay period details';
     // Preserve the last-known selectedPeriod (or fall back to the cached period list) so modals can still mount.
@@ -9808,8 +10019,9 @@ const openRawModal = async () => {
   error.value = '';
   // Open immediately so a failed refresh doesn't feel like a dead click.
   showRawModal.value = true;
-  // If the raw rows haven't loaded yet (or were cleared), refresh once in the background.
-  if (!Array.isArray(rawImportRows.value) || rawImportRows.value.length === 0) {
+  await loadRawAuditData();
+  // Keep legacy data paths for display-only sections that still read /periods/:id payload.
+  if (!Array.isArray(missedAppointmentsPaidInFull.value) || missedAppointmentsPaidInFull.value.length === 0) {
     try { await loadPeriodDetails(); } catch { /* surfaced via error.value */ }
   }
   rawProcessChecklistByRowId.value = {};
@@ -12244,6 +12456,29 @@ input[type='number'] {
 }
 .row-unpaid-h003 td:first-child {
   border-left: 3px solid #ff9800;
+}
+.row-paid-muted {
+  opacity: 0.62;
+}
+.status-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  border: 1px solid var(--border);
+}
+.status-pill-no-note {
+  background: rgba(245, 158, 11, 0.16);
+}
+.status-pill-draft-unpaid {
+  background: rgba(59, 130, 246, 0.16);
+}
+.status-pill-draft-paid {
+  background: rgba(16, 185, 129, 0.14);
+}
+.status-pill-finalized {
+  background: rgba(34, 197, 94, 0.2);
 }
 .table-wrap {
   overflow: auto;

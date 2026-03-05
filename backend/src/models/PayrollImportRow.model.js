@@ -1,4 +1,18 @@
 import pool from '../config/database.js';
+import {
+  encryptBillingSecret,
+  decryptBillingSecret,
+  isBillingEncryptionConfigured
+} from '../services/billingEncryption.service.js';
+
+function decryptOptional(ciphertextB64, ivB64, authTagB64) {
+  if (!ciphertextB64 || !ivB64 || !authTagB64) return null;
+  try {
+    return decryptBillingSecret({ ciphertextB64, ivB64, authTagB64 });
+  } catch {
+    return null;
+  }
+}
 
 class PayrollImportRow {
   static async _latestImportIdForPeriod(payrollPeriodId) {
@@ -15,15 +29,30 @@ class PayrollImportRow {
 
   static async bulkInsert(rows) {
     if (!rows || rows.length === 0) return 0;
+    if (!isBillingEncryptionConfigured()) {
+      throw new Error('Billing encryption not configured on server');
+    }
     const values = [];
     for (const r of rows) {
+      const providerName = String(r.providerName || '').trim();
+      const patientFirstName = String(r.patientFirstName || '').trim();
+      const providerEnc = providerName ? encryptBillingSecret(providerName) : null;
+      const patientEnc = patientFirstName ? encryptBillingSecret(patientFirstName) : null;
       values.push([
         r.payrollImportId,
         r.payrollPeriodId,
         r.agencyId,
         r.userId || null,
-        r.providerName,
-        r.patientFirstName || null,
+        providerName,
+        patientFirstName || null,
+        providerEnc?.ciphertextB64 || null,
+        providerEnc?.ivB64 || null,
+        providerEnc?.authTagB64 || null,
+        providerEnc?.keyId || null,
+        patientEnc?.ciphertextB64 || null,
+        patientEnc?.ivB64 || null,
+        patientEnc?.authTagB64 || null,
+        patientEnc?.keyId || null,
         r.serviceCode,
         r.serviceDate || null,
         r.noteStatus || null,
@@ -40,12 +69,15 @@ class PayrollImportRow {
       ]);
     }
 
-    // 19 columns inserted (see column list below) => 19 placeholders per row.
-    const placeholders = values.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(',');
+    // 27 columns inserted (see column list below) => 27 placeholders per row.
+    const placeholders = values.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(',');
     const flat = values.flat();
     const [result] = await pool.execute(
       `INSERT INTO payroll_import_rows
-       (payroll_import_id, payroll_period_id, agency_id, user_id, provider_name, patient_first_name, service_code, service_date, note_status, appt_type, amount_collected, paid_status, draft_payable, unit_count, raw_row, row_fingerprint, requires_processing, processed_at, processed_by_user_id)
+       (payroll_import_id, payroll_period_id, agency_id, user_id, provider_name, patient_first_name,
+        provider_name_ciphertext_b64, provider_name_iv_b64, provider_name_auth_tag_b64, provider_name_key_id,
+        patient_first_name_ciphertext_b64, patient_first_name_iv_b64, patient_first_name_auth_tag_b64, patient_first_name_key_id,
+        service_code, service_date, note_status, appt_type, amount_collected, paid_status, draft_payable, unit_count, raw_row, row_fingerprint, requires_processing, processed_at, processed_by_user_id)
        VALUES ${placeholders}`,
       flat
     );
@@ -55,6 +87,11 @@ class PayrollImportRow {
   static async listForPeriod(payrollPeriodId) {
     const latestImportId = await this._latestImportIdForPeriod(payrollPeriodId);
     if (!latestImportId) return [];
+    return this.listForImportId({ payrollPeriodId, payrollImportId: latestImportId });
+  }
+
+  static async listForImportId({ payrollPeriodId, payrollImportId }) {
+    if (!payrollImportId) return [];
     const [rows] = await pool.execute(
       `SELECT
          pir.id,
@@ -66,6 +103,14 @@ class PayrollImportRow {
          u.last_name,
          pir.provider_name,
          pir.patient_first_name,
+         pir.provider_name_ciphertext_b64,
+         pir.provider_name_iv_b64,
+         pir.provider_name_auth_tag_b64,
+         pir.provider_name_key_id,
+         pir.patient_first_name_ciphertext_b64,
+         pir.patient_first_name_iv_b64,
+         pir.patient_first_name_auth_tag_b64,
+         pir.patient_first_name_key_id,
          pir.service_code,
          pir.service_date,
          pir.note_status,
@@ -81,9 +126,25 @@ class PayrollImportRow {
        WHERE pir.payroll_period_id = ?
          AND pir.payroll_import_id = ?
        ORDER BY pir.created_at DESC`,
-      [payrollPeriodId, latestImportId]
+      [payrollPeriodId, payrollImportId]
     );
-    return rows;
+    return (rows || []).map((r) => {
+      const providerDecrypted = decryptOptional(
+        r.provider_name_ciphertext_b64,
+        r.provider_name_iv_b64,
+        r.provider_name_auth_tag_b64
+      );
+      const patientDecrypted = decryptOptional(
+        r.patient_first_name_ciphertext_b64,
+        r.patient_first_name_iv_b64,
+        r.patient_first_name_auth_tag_b64
+      );
+      return {
+        ...r,
+        provider_name: r.provider_name || providerDecrypted || null,
+        patient_first_name: r.patient_first_name || patientDecrypted || null
+      };
+    });
   }
 
   static async listAggregatedForPeriod(payrollPeriodId) {

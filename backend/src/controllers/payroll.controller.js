@@ -104,7 +104,7 @@ import {
   aggregatePerfectAttendanceBonusByUser,
   aggregateShiftCoverageBonusByUser
 } from '../services/shiftProgramPayroll.service.js';
-import { encryptBillingSecret } from '../services/billingEncryption.service.js';
+import { encryptBillingSecret, isBillingEncryptionConfigured } from '../services/billingEncryption.service.js';
 
 const TIER_WINDOW_PERIODS = 6; // 6 pay periods (~90 days)
 
@@ -128,6 +128,12 @@ function ymdStr(v) {
 
 function parseBool(v) {
   return v === true || v === 1 || v === '1' || String(v || '').toLowerCase() === 'true';
+}
+
+function ensureBillingEncryptionOrRespond(res) {
+  if (isBillingEncryptionConfigured()) return true;
+  res.status(500).json({ error: { message: 'Billing encryption not configured on server' } });
+  return false;
 }
 
 function normalizedRawStatus(row) {
@@ -259,6 +265,16 @@ function computeRawRunDiffRows({ baselineRows, compareRows }) {
     }
   }
   return out;
+}
+
+function importSlotByDate({ periodEnd, importedAt }) {
+  const end = new Date(`${String(periodEnd || '').slice(0, 10)}T00:00:00.000Z`);
+  const imp = new Date(importedAt || Date.now());
+  if (Number.isNaN(end.getTime()) || Number.isNaN(imp.getTime())) return 1;
+  const days = Math.floor((imp.getTime() - end.getTime()) / 86400000);
+  if (days < 14) return 1;
+  if (days < 28) return 2;
+  return 3;
 }
 
 function isEffectivelyPostedOrFinalized(period) {
@@ -1492,7 +1508,7 @@ function ymdOrEmpty(d) {
   }
 }
 
-// Deterministic, human-readable row key (v4). No hashing/secrets.
+// Deterministic row key (v5).
 // Built only from stable report columns:
 // - DOS (MM-DD-YY)
 // - Service Code
@@ -1518,7 +1534,9 @@ function computeRowKeyV4({ agencyId, serviceCode, serviceDate, clinicianName, pa
   const code = normCode(serviceCode);
   const clin = norm(clinicianName);
   const fn = norm(patientFirstName || parseHumanNameToFirstLast(clinicianName).first);
-  return `v4|agency:${agencyId}|dos:${dos}|code:${code}|clin:${clin}|fn:${fn}`;
+  const clinHash = crypto.createHash('sha256').update(clin).digest('hex');
+  const fnHash = crypto.createHash('sha256').update(fn).digest('hex');
+  return `v5|agency:${agencyId}|dos:${dos}|code:${code}|clin_h:${clinHash}|fn_h:${fnHash}`;
 }
 
 // Backward-compatible alias: legacy code still calls this name.
@@ -3242,35 +3260,39 @@ export const downloadPayrollExportCsv = async (req, res, next) => {
       }
     }
 
-    const ptoAccounts = await PayrollPtoAccount.listForAgency({ agencyId: period.agency_id });
-    const ptoAccountByUserId = new Map((ptoAccounts || []).map((r) => [Number(r.user_id), r]));
+    const [ptoRequestedRows] = await pool.execute(
+      `SELECT
+         r.user_id,
+         COALESCE(SUM(i.hours), 0) AS requested_hours
+       FROM payroll_pto_requests r
+       JOIN payroll_pto_request_items i ON i.request_id = r.id
+       WHERE r.agency_id = ?
+         AND r.status IN ('submitted', 'approved')
+         AND i.request_date >= ?
+         AND i.request_date <= ?
+       GROUP BY r.user_id`,
+      [period.agency_id, String(period.period_start || '').slice(0, 10), String(period.period_end || '').slice(0, 10)]
+    );
+    const ptoRequestedHoursByUserId = new Map(
+      (ptoRequestedRows || []).map((r) => [Number(r.user_id), Number(r.requested_hours || 0)])
+    );
 
     // Export format (payroll processor output):
     // - Sorted by provider last name
-    // - Direct/indirect taxable hours, pay, credits, and derived hourly rates
-    // - Total taxable/non-taxable totals and effective hourly rate
-    // - PTO requested + new balance with key adjustment columns
+    // - Direct/indirect hour credits and derived hourly rates
+    // - PTO requested hours + key adjustment columns
     const header = [
       'Employee',
-      'Direct Taxable Hours',
-      'Direct Taxable Pay',
       'Direct Hour Credits',
       'Direct Hourly Rate',
-      'Indirect Taxable Hours',
-      'Indirect Taxable Pay',
       'Indirect Hour Credits',
       'Indirect Hourly Rate',
-      'Total Taxable Hours',
       'Total Taxable Pay',
-      'Effective Hourly Rate',
       'PTO Requested (Hours)',
-      'PTO New Balance (Hours)',
       'Bonus Added (Taxable)',
-      'Salary (Taxable)',
-      'Mileage (Non-taxable)',
-      'Reimbursement (Non-taxable)',
-      'Tuition Reimbursement (Non-taxable)',
-      'Non-taxable Total',
+      'Mileage',
+      'Reimbursement',
+      'Tuition Reimbursement',
       'Total Pay',
       'Pay Period Start',
       'Pay Period End'
@@ -3374,38 +3396,26 @@ export const downloadPayrollExportCsv = async (req, res, next) => {
       const ptoTakenHours = breakdownPtoHours > 0
         ? breakdownPtoHours
         : (fallbackPtoHours > 0 ? fallbackPtoHours : safeNum(adjFallback?.pto_hours ?? 0));
+      const ptoRequestedHours = safeNum(ptoRequestedHoursByUserId.get(userId) ?? ptoTakenHours);
 
       const nonTaxableTotal = safeNum(adjFromBreakdown?.nonTaxableAmount ?? (mileage + reimbursement + tuition));
       // Salary is base taxable pay; taxable total should include salary + hourly taxable pay + taxable adjustments.
       const totalPay = safeNum(s.total_amount || 0);
       const taxableTotal = safeNum(totalPay - nonTaxableTotal);
-      const totalTaxableHours = safeNum(directHours + indirectHours);
-      const effectiveHourlyRate = totalTaxableHours > 0 ? (totalPay / totalTaxableHours) : 0;
-      const ptoAccount = ptoAccountByUserId.get(userId) || null;
-      const ptoNewBalanceHours = safeNum((ptoAccount?.sick_balance_hours || 0) + (ptoAccount?.training_balance_hours || 0));
 
       lines.push(
         [
           csvEscape(employee),
-          fmt2(directHours),
-          fmt2(directTaxablePay),
           fmt2(directCredits),
           fmt2(directRate),
-          fmt2(indirectHours),
-          fmt2(indirectTaxablePay),
           fmt2(indirectCredits),
           fmt2(indirectRate),
-          fmt2(totalTaxableHours),
           fmt2(taxableTotal),
-          fmt2(effectiveHourlyRate),
-          fmt2(ptoTakenHours),
-          fmt2(ptoNewBalanceHours),
+          fmt2(ptoRequestedHours),
           fmt2(bonus),
-          fmt2(salary),
           fmt2(mileage),
           fmt2(reimbursement),
           fmt2(tuition),
-          fmt2(nonTaxableTotal),
           fmt2(totalPay),
           csvEscape(String(period.period_start || '').slice(0, 10)),
           csvEscape(String(period.period_end || '').slice(0, 10))
@@ -5029,6 +5039,7 @@ export const importPayrollCsv = [
   upload.single('file'),
   async (req, res, next) => {
     try {
+      if (!ensureBillingEncryptionOrRespond(res)) return;
       const payrollPeriodId = parseInt(req.params.id);
       const period = await PayrollPeriod.findById(payrollPeriodId);
       if (!period) return res.status(404).json({ error: { message: 'Pay period not found' } });
@@ -5210,6 +5221,7 @@ export const importPayrollAuto = [
   upload.single('file'),
   async (req, res, next) => {
     try {
+      if (!ensureBillingEncryptionOrRespond(res)) return;
       const { agencyId } = req.body || {};
       const agencyIdNum = agencyId ? parseInt(agencyId) : null;
       if (!agencyIdNum) return res.status(400).json({ error: { message: 'agencyId is required' } });
@@ -5458,6 +5470,7 @@ export const batchCatchUp = [
   upload.fields([{ name: 'file1', maxCount: 1 }, { name: 'file2', maxCount: 1 }, { name: 'file3', maxCount: 1 }]),
   async (req, res, next) => {
     try {
+      if (!ensureBillingEncryptionOrRespond(res)) return;
       const agencyId = await requirePayrollAccess(req, res, req.body?.agencyId || req.query?.agencyId);
       if (!agencyId) return;
       const f1 = req.files?.file1?.[0] || null;
@@ -8101,19 +8114,7 @@ async function buildSnapshotRowsFromImportRows({ agencyId, payrollPeriodId, impo
 
   const rows = [];
   for (const agg of byKey.values()) {
-    let payloadCiphertextB64 = null;
-    let payloadIvB64 = null;
-    let payloadAuthTagB64 = null;
-    let payloadKeyId = null;
-    try {
-      const enc = encryptBillingSecret(JSON.stringify(agg.sampleForPayload));
-      payloadCiphertextB64 = enc.ciphertextB64;
-      payloadIvB64 = enc.ivB64;
-      payloadAuthTagB64 = enc.authTagB64;
-      payloadKeyId = enc.keyId;
-    } catch {
-      // Encryption not configured; store null payload
-    }
+    const enc = encryptBillingSecret(JSON.stringify(agg.sampleForPayload));
     rows.push({
       rowMatchKey: agg.rowMatchKey,
       userId: agg.userId,
@@ -8122,10 +8123,10 @@ async function buildSnapshotRowsFromImportRows({ agencyId, payrollPeriodId, impo
       noNoteUnits: Number(agg.noNoteUnits.toFixed(2)),
       draftUnits: Number(agg.draftUnits.toFixed(2)),
       finalizedUnits: Number(agg.finalizedUnits.toFixed(2)),
-      payloadCiphertextB64,
-      payloadIvB64,
-      payloadAuthTagB64,
-      payloadKeyId
+      payloadCiphertextB64: enc.ciphertextB64,
+      payloadIvB64: enc.ivB64,
+      payloadAuthTagB64: enc.authTagB64,
+      payloadKeyId: enc.keyId
     });
   }
   return rows;
@@ -8469,63 +8470,104 @@ export const getPayrollPeriodRawAudit = async (req, res, next) => {
     if (!(await requirePayrollAccess(req, res, period.agency_id))) return;
 
     const runs = await PayrollPeriodRun.listForPeriod(payrollPeriodId);
-    if (!runs.length) {
+    const imports = await PayrollImport.listForPeriod(payrollPeriodId);
+    if (!runs.length && !imports.length) {
       return res.json({
         period,
         runs: [],
+        imports: [],
         selectedRunId: null,
         baselineRunId: null,
+        selectedImportId: null,
+        baselineImportId: null,
         rows: [],
         changes: []
       });
     }
 
+    const importsWithMeta = (imports || []).map((imp, idx) => {
+      const slot = importSlotByDate({ periodEnd: period.period_end, importedAt: imp.created_at });
+      const importedAt = imp.created_at || null;
+      const uploader = `${imp.uploaded_by_first_name || ''} ${imp.uploaded_by_last_name || ''}`.trim();
+      return {
+        ...imp,
+        import_sequence: idx + 1,
+        slot_number: slot,
+        slot_label: `Run ${slot}`,
+        import_label: `Import #${idx + 1} • ${String(importedAt || '').slice(0, 19)}${uploader ? ` • ${uploader}` : ''}`
+      };
+    });
+
+    const requestedImportId = Number(req.query?.importId || 0) || null;
+    const selectedImport = requestedImportId
+      ? (importsWithMeta.find((x) => Number(x.id) === requestedImportId) || importsWithMeta[importsWithMeta.length - 1] || null)
+      : (importsWithMeta[importsWithMeta.length - 1] || null);
+    const selectedImportId = Number(selectedImport?.id || 0) || null;
+    const selectedImportIdx = importsWithMeta.findIndex((x) => Number(x.id) === Number(selectedImportId));
+
+    const requestedBaselineImportId = Number(req.query?.baselineImportId || 0) || null;
+    const baselineImport = requestedBaselineImportId
+      ? (importsWithMeta.find((x) => Number(x.id) === requestedBaselineImportId) || null)
+      : (selectedImportIdx > 0 ? importsWithMeta[selectedImportIdx - 1] : selectedImport || null);
+    const baselineImportId = Number(baselineImport?.id || 0) || selectedImportId;
+
     const requestedRunId = Number(req.query?.runId || 0) || null;
     const selectedRun = requestedRunId
-      ? (runs.find((r) => Number(r.id) === requestedRunId) || runs[runs.length - 1])
-      : runs[runs.length - 1];
-    const selectedRunId = Number(selectedRun?.id || 0);
+      ? (runs.find((r) => Number(r.id) === requestedRunId) || runs[runs.length - 1] || null)
+      : (runs[runs.length - 1] || null);
+    const selectedRunId = Number(selectedRun?.id || 0) || null;
 
     const requestedBaselineId = Number(req.query?.baselineRunId || req.query?.compareRunId || 0) || null;
     const selectedIdx = runs.findIndex((r) => Number(r.id) === selectedRunId);
     const defaultBaseline = selectedIdx > 0 ? Number(runs[selectedIdx - 1]?.id || 0) : selectedRunId;
-    const baselineRunId = requestedBaselineId || defaultBaseline || selectedRunId;
+    const baselineRunId = requestedBaselineId || defaultBaseline || selectedRunId || null;
     const baselineRun = runs.find((r) => Number(r.id) === Number(baselineRunId)) || null;
 
     const latestRunId = Number(runs[runs.length - 1]?.id || 0) || null;
-    const selectedImportId = Number(selectedRun?.payroll_import_id || 0) || null;
-    const baselineImportId = Number(baselineRun?.payroll_import_id || 0) || null;
+    const selectedImportIdFromRun = Number(selectedRun?.payroll_import_id || 0) || null;
+    const baselineImportIdFromRun = Number(baselineRun?.payroll_import_id || 0) || null;
+    const effectiveSelectedImportId = selectedImportId || selectedImportIdFromRun;
+    const effectiveBaselineImportId = baselineImportId || baselineImportIdFromRun || effectiveSelectedImportId;
 
-    const selectedRowsRaw = selectedImportId
-      ? await PayrollImportRow.listForImportId({ payrollPeriodId, payrollImportId: selectedImportId })
+    const selectedRowsRaw = effectiveSelectedImportId
+      ? await PayrollImportRow.listForImportId({ payrollPeriodId, payrollImportId: effectiveSelectedImportId })
       : [];
-    const baselineRowsRaw = baselineImportId
-      ? await PayrollImportRow.listForImportId({ payrollPeriodId, payrollImportId: baselineImportId })
+    const baselineRowsRaw = effectiveBaselineImportId
+      ? await PayrollImportRow.listForImportId({ payrollPeriodId, payrollImportId: effectiveBaselineImportId })
       : [];
 
     const rows = selectedRowsRaw.map((r) => mapRawRowForAudit(r));
     const changes = computeRawRunDiffRows({ baselineRows: baselineRowsRaw, compareRows: selectedRowsRaw });
 
+    const runByImportId = new Map(
+      (runs || [])
+        .filter((r) => Number(r?.payroll_import_id || 0) > 0)
+        .map((r) => [Number(r.payroll_import_id), Number(r.id)])
+    );
+    const persistBaselineRunId = baselineRunId || runByImportId.get(Number(effectiveBaselineImportId || 0)) || null;
+    const persistCompareRunId = selectedRunId || runByImportId.get(Number(effectiveSelectedImportId || 0)) || null;
     try {
-      await PayrollRunDelta.replaceForRunComparison({
-        payrollPeriodId,
-        agencyId: period.agency_id,
-        baselineRunId: Number(baselineRunId),
-        compareRunId: Number(selectedRunId),
-        createdByUserId: Number(req.user?.id || 0) || null,
-        rows: changes.map((d) => ({
-          rowMatchKey: d.rowMatchKey,
-          deltaType: d.changeType,
-          fromStatus: d.from_status,
-          toStatus: d.to_status,
-          fromServiceCode: d.from_service_code,
-          toServiceCode: d.to_service_code,
-          fromUnits: d.from_units,
-          toUnits: d.to_units,
-          paidState: d.paid_state,
-          metadataJson: d.metadata_json
-        }))
-      });
+      if (persistBaselineRunId && persistCompareRunId) {
+        await PayrollRunDelta.replaceForRunComparison({
+          payrollPeriodId,
+          agencyId: period.agency_id,
+          baselineRunId: Number(persistBaselineRunId),
+          compareRunId: Number(persistCompareRunId),
+          createdByUserId: Number(req.user?.id || 0) || null,
+          rows: changes.map((d) => ({
+            rowMatchKey: d.rowMatchKey,
+            deltaType: d.changeType,
+            fromStatus: d.from_status,
+            toStatus: d.to_status,
+            fromServiceCode: d.from_service_code,
+            toServiceCode: d.to_service_code,
+            fromUnits: d.from_units,
+            toUnits: d.to_units,
+            paidState: d.paid_state,
+            metadataJson: d.metadata_json
+          }))
+        });
+      }
     } catch (e) {
       if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
     }
@@ -8539,11 +8581,14 @@ export const getPayrollPeriodRawAudit = async (req, res, next) => {
     res.json({
       period,
       runs: runsWithLabel,
+      imports: importsWithMeta,
       selectedRunId,
-      baselineRunId: Number(baselineRunId),
+      baselineRunId: Number(baselineRunId || 0) || null,
+      selectedImportId: Number(effectiveSelectedImportId || 0) || null,
+      baselineImportId: Number(effectiveBaselineImportId || 0) || null,
       latestRunId,
-      selectedRunNumber: Number(selectedRun?.run_number || (selectedIdx + 1)),
-      baselineRunNumber: Number(baselineRun?.run_number || 1),
+      selectedRunNumber: selectedRun ? Number(selectedRun?.run_number || (selectedIdx + 1)) : null,
+      baselineRunNumber: baselineRun ? Number(baselineRun?.run_number || 1) : null,
       isLatestRun: latestRunId && Number(latestRunId) === Number(selectedRunId),
       rows,
       changes
@@ -8557,6 +8602,7 @@ export const getPayrollPeriodRawAudit = async (req, res, next) => {
 // or payroll_periods status. Used for historical "then → now" comparisons.
 export const snapshotPayrollPeriodRun = async (req, res, next) => {
   try {
+    if (!ensureBillingEncryptionOrRespond(res)) return;
     const payrollPeriodId = parseInt(req.params.id);
     const period = await PayrollPeriod.findById(payrollPeriodId);
     if (!period) return res.status(404).json({ error: { message: 'Pay period not found' } });
@@ -8577,6 +8623,7 @@ export const snapshotPayrollPeriodRunFromFile = [
   upload.single('file'),
   async (req, res, next) => {
     try {
+      if (!ensureBillingEncryptionOrRespond(res)) return;
       const payrollPeriodId = parseInt(req.params.id);
       const period = await PayrollPeriod.findById(payrollPeriodId);
       if (!period) return res.status(404).json({ error: { message: 'Pay period not found' } });
