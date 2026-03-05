@@ -32,6 +32,8 @@ import PayrollAdpExportJob from '../models/PayrollAdpExportJob.model.js';
 import PayrollPeriodRun from '../models/PayrollPeriodRun.model.js';
 import PayrollPeriodRunRow from '../models/PayrollPeriodRunRow.model.js';
 import PayrollPeriodRunSnapshot from '../models/PayrollPeriodRunSnapshot.model.js';
+import PayrollImportRowAudit from '../models/PayrollImportRowAudit.model.js';
+import PayrollRunDelta from '../models/PayrollRunDelta.model.js';
 import PayrollRateTemplate from '../models/PayrollRateTemplate.model.js';
 import PayrollRateTemplateRate from '../models/PayrollRateTemplateRate.model.js';
 import Notification from '../models/Notification.model.js';
@@ -126,6 +128,137 @@ function ymdStr(v) {
 
 function parseBool(v) {
   return v === true || v === 1 || v === '1' || String(v || '').toLowerCase() === 'true';
+}
+
+function normalizedRawStatus(row) {
+  const st = String(row?.note_status || '').trim().toUpperCase();
+  if (st === 'FINALIZED') return 'FINALIZED';
+  if (st === 'DRAFT') return Number(row?.draft_payable || 0) ? 'DRAFT_PAID' : 'DRAFT_UNPAID';
+  return 'NO_NOTE';
+}
+
+function paidStateForStatus(statusKey) {
+  return statusKey === 'FINALIZED' || statusKey === 'DRAFT_PAID' ? 'PAID' : 'UNPAID';
+}
+
+function rowEntityKey(row) {
+  const userId = Number(row?.user_id || 0);
+  const provider = String(row?.provider_name || '').trim().toLowerCase();
+  const client = String(row?.patient_first_name || '').trim().toLowerCase();
+  const serviceDate = String(row?.service_date || '').slice(0, 10);
+  return `${userId}:${provider}:${client}:${serviceDate}`;
+}
+
+function rowStableMatchKey(row) {
+  const fallback = `${rowEntityKey(row)}:${String(row?.service_code || '').trim().toUpperCase()}`;
+  return String(row?.row_fingerprint || '').trim() || fallback;
+}
+
+function mapRawRowForAudit(row) {
+  const statusKey = normalizedRawStatus(row);
+  const paidState = paidStateForStatus(statusKey);
+  return {
+    ...row,
+    normalized_status: statusKey,
+    paid_state: paidState,
+    is_paid: paidState === 'PAID' ? 1 : 0
+  };
+}
+
+function computeRawRunDiffRows({ baselineRows, compareRows }) {
+  const baselinePool = new Map();
+  for (const r of baselineRows || []) {
+    const key = rowEntityKey(r);
+    if (!baselinePool.has(key)) baselinePool.set(key, []);
+    baselinePool.get(key).push(r);
+  }
+  const comparePool = new Map();
+  for (const r of compareRows || []) {
+    const key = rowEntityKey(r);
+    if (!comparePool.has(key)) comparePool.set(key, []);
+    comparePool.get(key).push(r);
+  }
+
+  const out = [];
+  const keys = new Set([...baselinePool.keys(), ...comparePool.keys()]);
+  for (const key of keys) {
+    const baselineList = [...(baselinePool.get(key) || [])];
+    const compareList = [...(comparePool.get(key) || [])];
+    const maxLen = Math.max(baselineList.length, compareList.length);
+    for (let idx = 0; idx < maxLen; idx += 1) {
+      const b = baselineList[idx] || null;
+      const c = compareList[idx] || null;
+      if (b && c) {
+        const fromStatus = normalizedRawStatus(b);
+        const toStatus = normalizedRawStatus(c);
+        const fromCode = String(b.service_code || '').trim().toUpperCase();
+        const toCode = String(c.service_code || '').trim().toUpperCase();
+        const fromUnits = Number(b.unit_count || 0);
+        const toUnits = Number(c.unit_count || 0);
+        const codeChanged = fromCode !== toCode;
+        const statusChanged = fromStatus !== toStatus;
+        const unitsChanged = Math.abs(fromUnits - toUnits) > 1e-9;
+        if (codeChanged || statusChanged || unitsChanged) {
+          let deltaType = 'status_change';
+          if (codeChanged) deltaType = 'code_change';
+          else if (unitsChanged && !statusChanged) deltaType = 'unit_change';
+          out.push({
+            rowMatchKey: rowStableMatchKey(c),
+            changeType: deltaType,
+            provider_name: c.provider_name || b.provider_name || null,
+            patient_first_name: c.patient_first_name || b.patient_first_name || null,
+            service_date: c.service_date || b.service_date || null,
+            from_status: fromStatus,
+            to_status: toStatus,
+            from_service_code: fromCode,
+            to_service_code: toCode,
+            from_units: fromUnits,
+            to_units: toUnits,
+            paid_state: paidStateForStatus(toStatus),
+            metadata_json: {
+              baselineRowId: b.id || null,
+              compareRowId: c.id || null
+            }
+          });
+        }
+      } else if (b && !c) {
+        const fromStatus = normalizedRawStatus(b);
+        out.push({
+          rowMatchKey: rowStableMatchKey(b),
+          changeType: 'removed',
+          provider_name: b.provider_name || null,
+          patient_first_name: b.patient_first_name || null,
+          service_date: b.service_date || null,
+          from_status: fromStatus,
+          to_status: null,
+          from_service_code: String(b.service_code || '').trim().toUpperCase(),
+          to_service_code: null,
+          from_units: Number(b.unit_count || 0),
+          to_units: null,
+          paid_state: paidStateForStatus(fromStatus),
+          metadata_json: { baselineRowId: b.id || null, compareRowId: null }
+        });
+      } else if (!b && c) {
+        const toStatus = normalizedRawStatus(c);
+        out.push({
+          rowMatchKey: rowStableMatchKey(c),
+          changeType: 'added',
+          provider_name: c.provider_name || null,
+          patient_first_name: c.patient_first_name || null,
+          service_date: c.service_date || null,
+          from_status: null,
+          to_status: toStatus,
+          from_service_code: null,
+          to_service_code: String(c.service_code || '').trim().toUpperCase(),
+          from_units: null,
+          to_units: Number(c.unit_count || 0),
+          paid_state: paidStateForStatus(toStatus),
+          metadata_json: { baselineRowId: null, compareRowId: c.id || null }
+        });
+      }
+    }
+  }
+  return out;
 }
 
 function isEffectivelyPostedOrFinalized(period) {
@@ -2338,7 +2471,25 @@ export const patchPayrollImportRow = async (req, res, next) => {
       if (String(row.note_status || '').toUpperCase() !== 'DRAFT') {
         return res.status(409).json({ error: { message: 'Only DRAFT rows can be toggled' } });
       }
+      const nextDraftPayable = !!draftPayable ? 1 : 0;
+      const prevDraftPayable = Number(row?.draft_payable || 0) ? 1 : 0;
       await PayrollImportRow.updateDraftPayable({ rowId, draftPayable: !!draftPayable });
+      if (prevDraftPayable !== nextDraftPayable) {
+        try {
+          await PayrollImportRowAudit.create({
+            payrollImportRowId: row.id,
+            payrollImportId: row.payroll_import_id,
+            payrollPeriodId: row.payroll_period_id,
+            agencyId: row.agency_id,
+            fieldChanged: 'draft_payable',
+            fromValue: String(prevDraftPayable),
+            toValue: String(nextDraftPayable),
+            changedByUserId: req.user.id
+          });
+        } catch (e) {
+          if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+        }
+      }
     }
 
     // Minutes + done processing for required rows
@@ -2356,16 +2507,51 @@ export const patchPayrollImportRow = async (req, res, next) => {
         if (!Number.isFinite(next) || next <= 0) {
           return res.status(400).json({ error: { message: 'unitCount must be a positive number (minutes)' } });
         }
+        const prevUnits = Number(row?.unit_count || 0);
         await PayrollImportRow.updateUnitCount({ rowId, unitCount: next });
+        if (Math.abs(prevUnits - next) > 1e-9) {
+          try {
+            await PayrollImportRowAudit.create({
+              payrollImportRowId: row.id,
+              payrollImportId: row.payroll_import_id,
+              payrollPeriodId: row.payroll_period_id,
+              agencyId: row.agency_id,
+              fieldChanged: 'unit_count',
+              fromValue: String(prevUnits),
+              toValue: String(next),
+              changedByUserId: req.user.id
+            });
+          } catch (e) {
+            if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+          }
+        }
       }
 
       if (wantsProcessed) {
         const wantsDone = !!processed;
+        const prevProcessed = row?.processed_at ? 1 : 0;
+        const nextProcessed = wantsDone ? 1 : 0;
         await PayrollImportRow.updateProcessed({
           rowId,
           processedAt: wantsDone ? new Date() : null,
           processedByUserId: wantsDone ? req.user.id : null
         });
+        if (prevProcessed !== nextProcessed) {
+          try {
+            await PayrollImportRowAudit.create({
+              payrollImportRowId: row.id,
+              payrollImportId: row.payroll_import_id,
+              payrollPeriodId: row.payroll_period_id,
+              agencyId: row.agency_id,
+              fieldChanged: 'processed',
+              fromValue: String(prevProcessed),
+              toValue: String(nextProcessed),
+              changedByUserId: req.user.id
+            });
+          } catch (e) {
+            if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+          }
+        }
       }
     }
 
@@ -3056,28 +3242,34 @@ export const downloadPayrollExportCsv = async (req, res, next) => {
       }
     }
 
+    const ptoAccounts = await PayrollPtoAccount.listForAgency({ agencyId: period.agency_id });
+    const ptoAccountByUserId = new Map((ptoAccounts || []).map((r) => [Number(r.user_id), r]));
+
     // Export format (payroll processor output):
     // - Sorted by provider last name
-    // - Direct/Indirect hours + rates
-    // - Individual adjustment amounts
-    // - Taxable vs non-taxable totals
-    // Export format (processor output):
-    // - Sorted by provider last name
-    // - Direct/Indirect hours + rates
-    // - Only bonus, mileage, and salary shown as explicit add-ons
-    // - Totals included for reconciliation
+    // - Direct/indirect taxable hours, pay, credits, and derived hourly rates
+    // - Total taxable/non-taxable totals and effective hourly rate
+    // - PTO requested + new balance with key adjustment columns
     const header = [
       'Employee',
-      'Direct Hours',
-      'Direct Pay Rate',
-      'Indirect Hours',
-      'Indirect Pay Rate',
-      'PTO Taken (Hours)',
-      'Bonus (Taxable)',
+      'Direct Taxable Hours',
+      'Direct Taxable Pay',
+      'Direct Hour Credits',
+      'Direct Hourly Rate',
+      'Indirect Taxable Hours',
+      'Indirect Taxable Pay',
+      'Indirect Hour Credits',
+      'Indirect Hourly Rate',
+      'Total Taxable Hours',
+      'Total Taxable Pay',
+      'Effective Hourly Rate',
+      'PTO Requested (Hours)',
+      'PTO New Balance (Hours)',
+      'Bonus Added (Taxable)',
+      'Salary (Taxable)',
       'Mileage (Non-taxable)',
+      'Reimbursement (Non-taxable)',
       'Tuition Reimbursement (Non-taxable)',
-      'Salary Override (Taxable)',
-      'Taxable Total',
       'Non-taxable Total',
       'Total Pay',
       'Pay Period Start',
@@ -3109,10 +3301,8 @@ export const downloadPayrollExportCsv = async (req, res, next) => {
 
       let directAmt = 0;
       let indirectAmt = 0;
-      let otherAmt = 0;
       let directCreditsFromRows = 0;
       let indirectCreditsFromRows = 0;
-      let otherCreditsFromRows = 0;
 
       if (breakdown && typeof breakdown === 'object') {
         for (const [code, vRaw] of Object.entries(breakdown)) {
@@ -3132,9 +3322,6 @@ export const downloadPayrollExportCsv = async (req, res, next) => {
           if (bucket === 'indirect') {
             indirectAmt += amt;
             indirectCreditsFromRows += creditsHours;
-          } else if (bucket === 'other' || bucket === 'flat') {
-            otherAmt += amt;
-            otherCreditsFromRows += creditsHours;
           } else {
             directAmt += amt;
             directCreditsFromRows += creditsHours;
@@ -3142,14 +3329,41 @@ export const downloadPayrollExportCsv = async (req, res, next) => {
         }
       }
 
-      const directHours = safeNum(directCreditsFromRows || s.direct_hours || 0);
-      const indirectHours = safeNum(indirectCreditsFromRows || s.indirect_hours || 0);
-      const directRate = directHours > 0 ? (directAmt / directHours) : 0;
-      const indirectRate = indirectHours > 0 ? (indirectAmt / indirectHours) : 0;
-
       // Adjustments: prefer breakdown-derived values (includes auto claims + manual lines + other-slot hours).
       const adjFromBreakdown = breakdown?.__adjustments || null;
       const adjFallback = adjByUserId.get(userId) || {};
+      const adjustmentLines = Array.isArray(adjFromBreakdown?.lines) ? adjFromBreakdown.lines : [];
+      const adjustmentLineHours = (line) => {
+        const meta = line?.meta || {};
+        return safeNum(meta.creditsHours ?? meta.hours ?? 0);
+      };
+      let directAmtFromAdjLines = 0;
+      let indirectAmtFromAdjLines = 0;
+      let directCreditsFromAdjLines = 0;
+      let indirectCreditsFromAdjLines = 0;
+      for (const line of adjustmentLines) {
+        if (!line || line.taxable !== true) continue;
+        const bucket = String(line.bucket || '').trim().toLowerCase();
+        if (!(bucket === 'direct' || bucket === 'indirect')) continue;
+        const lineAmount = safeNum(line.amount || 0);
+        const lineHours = adjustmentLineHours(line);
+        if (bucket === 'direct') {
+          directAmtFromAdjLines += lineAmount;
+          directCreditsFromAdjLines += lineHours;
+        } else {
+          indirectAmtFromAdjLines += lineAmount;
+          indirectCreditsFromAdjLines += lineHours;
+        }
+      }
+
+      const directTaxablePay = directAmt + directAmtFromAdjLines;
+      const indirectTaxablePay = indirectAmt + indirectAmtFromAdjLines;
+      const directCredits = directCreditsFromRows + directCreditsFromAdjLines;
+      const indirectCredits = indirectCreditsFromRows + indirectCreditsFromAdjLines;
+      const directHours = safeNum(directCredits || s.direct_hours || 0);
+      const indirectHours = safeNum(indirectCredits || s.indirect_hours || 0);
+      const directRate = directHours > 0 ? (directTaxablePay / directHours) : 0;
+      const indirectRate = indirectHours > 0 ? (indirectTaxablePay / indirectHours) : 0;
       const mileage = safeNum(adjFromBreakdown?.mileageAmount ?? adjFallback?.mileage_amount ?? 0);
       const reimbursement = safeNum(adjFromBreakdown?.reimbursementAmount ?? adjFallback?.reimbursement_amount ?? 0);
       const tuition = safeNum(adjFromBreakdown?.tuitionReimbursementAmount ?? adjFallback?.tuition_reimbursement_amount ?? 0);
@@ -3162,22 +3376,35 @@ export const downloadPayrollExportCsv = async (req, res, next) => {
         : (fallbackPtoHours > 0 ? fallbackPtoHours : safeNum(adjFallback?.pto_hours ?? 0));
 
       const nonTaxableTotal = safeNum(adjFromBreakdown?.nonTaxableAmount ?? (mileage + reimbursement + tuition));
-      const taxableTotal = safeNum(adjFromBreakdown?.taxableAdjustmentsAmount ?? (safeNum(s.adjustments_amount || 0) - nonTaxableTotal));
+      // Salary is base taxable pay; taxable total should include salary + hourly taxable pay + taxable adjustments.
       const totalPay = safeNum(s.total_amount || 0);
+      const taxableTotal = safeNum(totalPay - nonTaxableTotal);
+      const totalTaxableHours = safeNum(directHours + indirectHours);
+      const effectiveHourlyRate = totalTaxableHours > 0 ? (totalPay / totalTaxableHours) : 0;
+      const ptoAccount = ptoAccountByUserId.get(userId) || null;
+      const ptoNewBalanceHours = safeNum((ptoAccount?.sick_balance_hours || 0) + (ptoAccount?.training_balance_hours || 0));
 
       lines.push(
         [
           csvEscape(employee),
           fmt2(directHours),
+          fmt2(directTaxablePay),
+          fmt2(directCredits),
           fmt2(directRate),
           fmt2(indirectHours),
+          fmt2(indirectTaxablePay),
+          fmt2(indirectCredits),
           fmt2(indirectRate),
-          fmt2(ptoTakenHours),
-          fmt2(bonus),
-          fmt2(mileage),
-          fmt2(tuition),
-          fmt2(salary),
+          fmt2(totalTaxableHours),
           fmt2(taxableTotal),
+          fmt2(effectiveHourlyRate),
+          fmt2(ptoTakenHours),
+          fmt2(ptoNewBalanceHours),
+          fmt2(bonus),
+          fmt2(salary),
+          fmt2(mileage),
+          fmt2(reimbursement),
+          fmt2(tuition),
           fmt2(nonTaxableTotal),
           fmt2(totalPay),
           csvEscape(String(period.period_start || '').slice(0, 10)),
@@ -8229,6 +8456,98 @@ export const listPayrollPeriodRuns = async (req, res, next) => {
     if (!period) return res.status(404).json({ error: { message: 'Pay period not found' } });
     if (!(await requirePayrollAccess(req, res, period.agency_id))) return;
     res.json(await PayrollPeriodRun.listForPeriod(payrollPeriodId));
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const getPayrollPeriodRawAudit = async (req, res, next) => {
+  try {
+    const payrollPeriodId = parseInt(req.params.id, 10);
+    const period = await PayrollPeriod.findById(payrollPeriodId);
+    if (!period) return res.status(404).json({ error: { message: 'Pay period not found' } });
+    if (!(await requirePayrollAccess(req, res, period.agency_id))) return;
+
+    const runs = await PayrollPeriodRun.listForPeriod(payrollPeriodId);
+    if (!runs.length) {
+      return res.json({
+        period,
+        runs: [],
+        selectedRunId: null,
+        baselineRunId: null,
+        rows: [],
+        changes: []
+      });
+    }
+
+    const requestedRunId = Number(req.query?.runId || 0) || null;
+    const selectedRun = requestedRunId
+      ? (runs.find((r) => Number(r.id) === requestedRunId) || runs[runs.length - 1])
+      : runs[runs.length - 1];
+    const selectedRunId = Number(selectedRun?.id || 0);
+
+    const requestedBaselineId = Number(req.query?.baselineRunId || req.query?.compareRunId || 0) || null;
+    const selectedIdx = runs.findIndex((r) => Number(r.id) === selectedRunId);
+    const defaultBaseline = selectedIdx > 0 ? Number(runs[selectedIdx - 1]?.id || 0) : selectedRunId;
+    const baselineRunId = requestedBaselineId || defaultBaseline || selectedRunId;
+    const baselineRun = runs.find((r) => Number(r.id) === Number(baselineRunId)) || null;
+
+    const latestRunId = Number(runs[runs.length - 1]?.id || 0) || null;
+    const selectedImportId = Number(selectedRun?.payroll_import_id || 0) || null;
+    const baselineImportId = Number(baselineRun?.payroll_import_id || 0) || null;
+
+    const selectedRowsRaw = selectedImportId
+      ? await PayrollImportRow.listForImportId({ payrollPeriodId, payrollImportId: selectedImportId })
+      : [];
+    const baselineRowsRaw = baselineImportId
+      ? await PayrollImportRow.listForImportId({ payrollPeriodId, payrollImportId: baselineImportId })
+      : [];
+
+    const rows = selectedRowsRaw.map((r) => mapRawRowForAudit(r));
+    const changes = computeRawRunDiffRows({ baselineRows: baselineRowsRaw, compareRows: selectedRowsRaw });
+
+    try {
+      await PayrollRunDelta.replaceForRunComparison({
+        payrollPeriodId,
+        agencyId: period.agency_id,
+        baselineRunId: Number(baselineRunId),
+        compareRunId: Number(selectedRunId),
+        createdByUserId: Number(req.user?.id || 0) || null,
+        rows: changes.map((d) => ({
+          rowMatchKey: d.rowMatchKey,
+          deltaType: d.changeType,
+          fromStatus: d.from_status,
+          toStatus: d.to_status,
+          fromServiceCode: d.from_service_code,
+          toServiceCode: d.to_service_code,
+          fromUnits: d.from_units,
+          toUnits: d.to_units,
+          paidState: d.paid_state,
+          metadataJson: d.metadata_json
+        }))
+      });
+    } catch (e) {
+      if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+    }
+
+    const runsWithLabel = runs.map((r, idx) => ({
+      ...r,
+      run_number: Number(r?.run_number || (idx + 1)),
+      run_label: `Run ${Number(r?.run_number || (idx + 1))}`
+    }));
+
+    res.json({
+      period,
+      runs: runsWithLabel,
+      selectedRunId,
+      baselineRunId: Number(baselineRunId),
+      latestRunId,
+      selectedRunNumber: Number(selectedRun?.run_number || (selectedIdx + 1)),
+      baselineRunNumber: Number(baselineRun?.run_number || 1),
+      isLatestRun: latestRunId && Number(latestRunId) === Number(selectedRunId),
+      rows,
+      changes
+    });
   } catch (e) {
     next(e);
   }
