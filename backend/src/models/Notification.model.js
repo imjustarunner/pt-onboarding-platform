@@ -90,6 +90,8 @@ class Notification {
     'kudos_received',
     // Office availability request (provider requesting office space)
     'office_availability_request_pending',
+    // Office availability request approved (provider reminder to mark booked)
+    'office_availability_request_approved',
     // Budget Management: expense pending approval (department approvers)
     'budget_expense_pending_approval',
     // School portal: primary sent password reset link (notify agency admin)

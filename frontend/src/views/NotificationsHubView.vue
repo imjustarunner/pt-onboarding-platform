@@ -371,6 +371,10 @@ const openNotification = async (notification) => {
     router.push(`${base}/admin/availability-intake?agencyId=${agencyId}`);
     return;
   }
+  if (notification.type === 'office_availability_request_approved') {
+    router.push(`${base}/buildings/schedule`);
+    return;
+  }
   if (isAdminLikeRole && userIdTarget) {
     router.push(`${base}/admin/users/${userIdTarget}`);
   }
@@ -426,6 +430,7 @@ const typeLabelMap = {
   new_packet_uploaded: 'New packet uploaded',
   support_ticket_created: 'Support ticket',
   office_availability_request_pending: 'Office request',
+  office_availability_request_approved: 'Office request approved',
   client_assigned: 'Client assigned',
   task_overdue: 'Task overdue',
   status_expired: 'Status expired',

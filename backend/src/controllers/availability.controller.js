@@ -102,6 +102,15 @@ function recurrenceStepDays(recurrence) {
   return 7;
 }
 
+function hourLabel(hour24) {
+  const h = Number(hour24);
+  if (!Number.isFinite(h)) return String(hour24 || '');
+  const normalized = ((h % 24) + 24) % 24;
+  const suffix = normalized >= 12 ? 'PM' : 'AM';
+  const hour12 = normalized % 12 || 12;
+  return `${hour12}${suffix}`;
+}
+
 async function resolveAgencyId(req) {
   const raw = req.query.agencyId ?? req.body?.agencyId ?? req.user?.agencyId ?? null;
   const agencyId = parseIntSafe(raw);
@@ -1645,8 +1654,15 @@ export const assignTemporaryOfficeFromRequest = async (req, res, next) => {
     if (!okOffice) return res.status(400).json({ error: { message: 'Office is not available for this agency' } });
 
     // Ensure room belongs to office
-    const [roomRows] = await pool.execute(`SELECT id FROM office_rooms WHERE id = ? AND location_id = ? LIMIT 1`, [roomId, officeId]);
-    if (!roomRows?.[0]) return res.status(400).json({ error: { message: 'Room does not belong to the selected office' } });
+    const [roomRows] = await pool.execute(
+      `SELECT id, name, room_number, label
+       FROM office_rooms
+       WHERE id = ? AND location_id = ?
+       LIMIT 1`,
+      [roomId, officeId]
+    );
+    const roomRow = roomRows?.[0] || null;
+    if (!roomRow) return res.status(400).json({ error: { message: 'Room does not belong to the selected office' } });
 
     const [reqRows] = await pool.execute(
       `SELECT *
@@ -1841,6 +1857,32 @@ export const assignTemporaryOfficeFromRequest = async (req, res, next) => {
       relatedEntityType: 'provider_office_availability_request',
       relatedEntityId: requestId
     });
+
+    try {
+      const [officeRows] = await pool.execute(
+        `SELECT name FROM office_locations WHERE id = ? LIMIT 1`,
+        [officeId]
+      );
+      const officeName = String(officeRows?.[0]?.name || `Office ${officeId}`);
+      const roomLabel = `${roomRow?.room_number ? `#${roomRow.room_number} ` : ''}${roomRow?.label || roomRow?.name || `Room ${roomId}`}`.trim();
+      const dayLabel = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][Number(weekday)] || `Day ${weekday}`;
+      const startLabel = hourLabel(hour);
+      const endLabel = hourLabel(endHour);
+      const freqLabel = String(freq || '').toUpperCase() === 'BIWEEKLY' ? 'biweekly' : 'weekly';
+      await Notification.create({
+        type: 'office_availability_request_approved',
+        severity: 'warning',
+        title: 'Office request approved - action needed',
+        message: `Approved: ${officeName} (${roomLabel}), ${dayLabel} ${startLabel}-${endLabel} (${freqLabel}). When this slot is scheduled with a client, mark it as BOOKED in your schedule.`,
+        userId: providerId,
+        agencyId,
+        relatedEntityType: 'provider_office_availability_request',
+        relatedEntityId: requestId,
+        actorUserId: req.user.id
+      });
+    } catch {
+      // non-blocking notification
+    }
 
     res.json({
       ok: true,

@@ -197,6 +197,16 @@
               Answer
             </button>
             <button
+              class="btn btn-secondary btn-sm"
+              type="button"
+              @click="toggleInlineThread(t)"
+              :disabled="inlineThreadLoadingByTicketId[t.id]"
+              :title="expandedThreadByTicketId[t.id] ? 'Collapse full thread' : 'Expand full thread'"
+            >
+              <template v-if="inlineThreadLoadingByTicketId[t.id]">Loading thread...</template>
+              <template v-else>{{ expandedThreadByTicketId[t.id] ? 'Collapse thread' : 'Expand thread' }}</template>
+            </button>
+            <button
               v-if="Number(t.claimed_by_user_id) && Number(t.claimed_by_user_id) !== Number(myUserId)"
               class="btn btn-secondary btn-sm"
               type="button"
@@ -241,6 +251,21 @@
             </button>
           </div>
         </div>
+
+          <div v-if="expandedThreadByTicketId[t.id]" class="thread-inline">
+            <div v-if="inlineThreadLoadingByTicketId[t.id]" class="muted">Loading thread...</div>
+            <div v-else-if="inlineThreadErrorByTicketId[t.id]" class="error">{{ inlineThreadErrorByTicketId[t.id] }}</div>
+            <div v-else class="thread-list">
+              <div v-if="!(inlineThreadMessagesByTicketId[t.id] || []).length" class="muted">No messages yet.</div>
+              <div v-else class="thread-item" v-for="m in inlineThreadMessagesByTicketId[t.id]" :key="m.id">
+                <div class="thread-meta">
+                  <span class="thread-author">{{ formatThreadAuthor(m) }}</span>
+                  <span class="thread-time">{{ formatDateTime(m.created_at) }}</span>
+                </div>
+                <div class="thread-body">{{ m.body || '(deleted)' }}</div>
+              </div>
+            </div>
+          </div>
 
           <div v-if="openAnswerId === t.id" class="answer-box" data-tour="tickets-answer-box">
           <div v-if="t.claimed_by_user_id && Number(t.claimed_by_user_id) !== Number(myUserId)" class="error">
@@ -474,6 +499,10 @@ const threadLoading = ref(false);
 const threadError = ref('');
 const threadBody = ref('');
 const threadSending = ref(false);
+const expandedThreadByTicketId = ref({});
+const inlineThreadMessagesByTicketId = ref({});
+const inlineThreadLoadingByTicketId = ref({});
+const inlineThreadErrorByTicketId = ref({});
 const adminSelectedClient = ref(null);
 const adminClientLoading = ref(false);
 const clientLabelMode = ref('codes'); // 'codes' | 'initials'
@@ -742,6 +771,10 @@ const toggleAnswer = async (ticketId) => {
   answerText.value = '';
   answerError.value = '';
   const t = (tickets.value || []).find((row) => Number(row?.id) === Number(ticketId));
+  if (t) {
+    expandedThreadByTicketId.value = { ...(expandedThreadByTicketId.value || {}), [t.id]: true };
+    await loadInlineThread(t);
+  }
   if (t && !t.claimed_by_user_id) {
     claimingId.value = t.id;
     try {
@@ -935,14 +968,83 @@ const sendThreadMessage = async () => {
     if (!threadTicket.value?.id) return;
     threadSending.value = true;
     const r = await api.post(`/support-tickets/${threadTicket.value.id}/messages`, { body: threadBody.value });
-    const msg = r.data?.message || null;
-    if (msg) threadMessages.value = [...threadMessages.value, msg];
+    if (Array.isArray(r.data?.messages)) {
+      threadMessages.value = r.data.messages;
+      inlineThreadMessagesByTicketId.value = {
+        ...(inlineThreadMessagesByTicketId.value || {}),
+        [threadTicket.value.id]: buildInlineThreadMessages(threadTicket.value, r.data.messages)
+      };
+    } else {
+      const msg = r.data?.message || null;
+      if (msg) threadMessages.value = [...threadMessages.value, msg];
+    }
     threadBody.value = '';
   } catch (e) {
     threadError.value = e.response?.data?.error?.message || 'Failed to send message';
   } finally {
     threadSending.value = false;
   }
+};
+
+const buildInlineThreadMessages = (ticket, messagesRaw) => {
+  const list = Array.isArray(messagesRaw) ? [...messagesRaw] : [];
+  const question = String(ticket?.question || '').trim();
+  if (!question) return list;
+  const questionNorm = question.replace(/\s+/g, ' ').trim().toLowerCase();
+  const hasQuestionAlready = list.some((m) => {
+    const bodyNorm = String(m?.body || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    return bodyNorm && bodyNorm === questionNorm;
+  });
+  if (!hasQuestionAlready) {
+    list.unshift({
+      id: `question-${ticket?.id || 'ticket'}`,
+      body: question,
+      created_at: ticket?.created_at || null,
+      author_user_id: ticket?.created_by_user_id || null,
+      author_first_name: ticket?.created_by_first_name || '',
+      author_last_name: ticket?.created_by_last_name || '',
+      author_role: 'school_staff'
+    });
+  }
+  return list;
+};
+
+const loadInlineThread = async (ticket, { force = false } = {}) => {
+  const ticketId = Number(ticket?.id || 0);
+  if (!ticketId) return;
+  if (!force && inlineThreadMessagesByTicketId.value?.[ticketId]) return;
+  inlineThreadLoadingByTicketId.value = { ...(inlineThreadLoadingByTicketId.value || {}), [ticketId]: true };
+  inlineThreadErrorByTicketId.value = { ...(inlineThreadErrorByTicketId.value || {}), [ticketId]: '' };
+  try {
+    const r = await api.get(`/support-tickets/${ticketId}/messages`);
+    const nextMessages = buildInlineThreadMessages(ticket, Array.isArray(r.data?.messages) ? r.data.messages : []);
+    inlineThreadMessagesByTicketId.value = {
+      ...(inlineThreadMessagesByTicketId.value || {}),
+      [ticketId]: nextMessages
+    };
+  } catch (e) {
+    inlineThreadErrorByTicketId.value = {
+      ...(inlineThreadErrorByTicketId.value || {}),
+      [ticketId]: e.response?.data?.error?.message || 'Failed to load thread'
+    };
+    inlineThreadMessagesByTicketId.value = {
+      ...(inlineThreadMessagesByTicketId.value || {}),
+      [ticketId]: []
+    };
+  } finally {
+    inlineThreadLoadingByTicketId.value = { ...(inlineThreadLoadingByTicketId.value || {}), [ticketId]: false };
+  }
+};
+
+const toggleInlineThread = async (ticket) => {
+  const ticketId = Number(ticket?.id || 0);
+  if (!ticketId) return;
+  const isExpanded = !!expandedThreadByTicketId.value?.[ticketId];
+  expandedThreadByTicketId.value = {
+    ...(expandedThreadByTicketId.value || {}),
+    [ticketId]: !isExpanded
+  };
+  if (!isExpanded) await loadInlineThread(ticket);
 };
 
 const formatThreadAuthor = (m) => {
@@ -1165,6 +1267,9 @@ onMounted(() => {
 .thread-list {
   display: grid;
   gap: 10px;
+}
+.thread-inline {
+  margin-top: 12px;
 }
 .thread-item {
   border: 1px solid var(--border);

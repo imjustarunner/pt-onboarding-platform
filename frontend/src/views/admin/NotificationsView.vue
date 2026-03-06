@@ -30,6 +30,7 @@
           <option value="password_changed">Password Changed</option>
           <option value="support_ticket_created">Support Tickets</option>
           <option value="office_availability_request_pending">Office Requests</option>
+          <option value="office_availability_request_approved">Office Request Approved</option>
           <option value="budget_expense_pending_approval">Budget Expense Approval</option>
           <option value="client_assigned">Client Assigned</option>
           <option value="unassigned_document_submitted">Unassigned Documents</option>
@@ -350,6 +351,7 @@ const getTypeLabel = (type) => {
     support_ticket_created: 'Support Tickets',
     new_packet_uploaded: 'New Packet Uploaded',
     office_availability_request_pending: 'Office Requests',
+    office_availability_request_approved: 'Office Request Approved',
     budget_expense_pending_approval: 'Budget Expense Approval',
     client_assigned: 'Client Assigned',
     unassigned_document_submitted: 'Unassigned Documents',
@@ -533,6 +535,9 @@ const getNotificationNavigationPath = async (notification) => {
     const agencyId = notification.agency_id;
     const base = route.params.organizationSlug ? `/${route.params.organizationSlug}/admin/availability-intake` : '/admin/availability-intake';
     return `${base}?agencyId=${agencyId}`;
+  } else if (notification.type === 'office_availability_request_approved') {
+    const base = route.params.organizationSlug ? `/${route.params.organizationSlug}/buildings/schedule` : '/buildings/schedule';
+    return base;
   } else if (notification.type === 'budget_expense_pending_approval' && notification.related_entity_type === 'budget_expense' && notification.related_entity_id && notification.agency_id) {
     const slug = route.params.organizationSlug || getAgencySlug(notification.agency_id);
     const base = slug ? `/${slug}/admin/budget-management` : '/admin/budget-management';
@@ -715,6 +720,11 @@ const handleNotificationClick = async (notification) => {
       const base = route.params.organizationSlug ? `/${route.params.organizationSlug}/admin/availability-intake` : '/admin/availability-intake';
       router.push(`${base}?agencyId=${agencyId}`);
     }
+    return;
+  }
+  if (notification.type === 'office_availability_request_approved') {
+    const base = route.params.organizationSlug ? `/${route.params.organizationSlug}/buildings/schedule` : '/buildings/schedule';
+    router.push(base);
     return;
   }
   if (notification.related_entity_type === 'user' && notification.user_id) {

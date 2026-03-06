@@ -64,6 +64,10 @@ export function useTicketingQueue() {
   const threadError = ref('');
   const threadBody = ref('');
   const threadSending = ref(false);
+  const expandedThreadByTicketId = ref({});
+  const inlineThreadMessagesByTicketId = ref({});
+  const inlineThreadLoadingByTicketId = ref({});
+  const inlineThreadErrorByTicketId = ref({});
   const adminSelectedClient = ref(null);
   const adminClientLoading = ref(false);
   const clientLabelMode = ref('codes');
@@ -473,14 +477,85 @@ export function useTicketingQueue() {
       if (!threadTicket.value?.id) return;
       threadSending.value = true;
       const r = await api.post(`/support-tickets/${threadTicket.value.id}/messages`, { body: threadBody.value });
-      const msg = r.data?.message || null;
-      if (msg) threadMessages.value = [...threadMessages.value, msg];
+      if (Array.isArray(r.data?.messages)) {
+        threadMessages.value = r.data.messages;
+        if (threadTicket.value?.id) {
+          inlineThreadMessagesByTicketId.value = {
+            ...(inlineThreadMessagesByTicketId.value || {}),
+            [threadTicket.value.id]: buildInlineThreadMessages(threadTicket.value, r.data.messages)
+          };
+        }
+      } else {
+        const msg = r.data?.message || null;
+        if (msg) threadMessages.value = [...threadMessages.value, msg];
+      }
       threadBody.value = '';
     } catch (e) {
       threadError.value = e.response?.data?.error?.message || 'Failed to send message';
     } finally {
       threadSending.value = false;
     }
+  };
+
+  const buildInlineThreadMessages = (ticket, messagesRaw) => {
+    const list = Array.isArray(messagesRaw) ? [...messagesRaw] : [];
+    const question = String(ticket?.question || '').trim();
+    if (!question) return list;
+    const questionNorm = question.replace(/\s+/g, ' ').trim().toLowerCase();
+    const hasQuestionAlready = list.some((m) => {
+      const bodyNorm = String(m?.body || '').replace(/\s+/g, ' ').trim().toLowerCase();
+      return bodyNorm && bodyNorm === questionNorm;
+    });
+    if (!hasQuestionAlready) {
+      list.unshift({
+        id: `question-${ticket?.id || 'ticket'}`,
+        body: question,
+        created_at: ticket?.created_at || null,
+        author_user_id: ticket?.created_by_user_id || null,
+        author_first_name: ticket?.created_by_first_name || '',
+        author_last_name: ticket?.created_by_last_name || '',
+        author_role: 'school_staff'
+      });
+    }
+    return list;
+  };
+
+  const loadInlineThread = async (ticket, { force = false } = {}) => {
+    const ticketId = Number(ticket?.id || 0);
+    if (!ticketId) return;
+    if (!force && inlineThreadMessagesByTicketId.value?.[ticketId]) return;
+    inlineThreadLoadingByTicketId.value = { ...(inlineThreadLoadingByTicketId.value || {}), [ticketId]: true };
+    inlineThreadErrorByTicketId.value = { ...(inlineThreadErrorByTicketId.value || {}), [ticketId]: '' };
+    try {
+      const r = await api.get(`/support-tickets/${ticketId}/messages`);
+      const nextMessages = buildInlineThreadMessages(ticket, Array.isArray(r.data?.messages) ? r.data.messages : []);
+      inlineThreadMessagesByTicketId.value = {
+        ...(inlineThreadMessagesByTicketId.value || {}),
+        [ticketId]: nextMessages
+      };
+    } catch (e) {
+      inlineThreadErrorByTicketId.value = {
+        ...(inlineThreadErrorByTicketId.value || {}),
+        [ticketId]: e.response?.data?.error?.message || 'Failed to load thread'
+      };
+      inlineThreadMessagesByTicketId.value = {
+        ...(inlineThreadMessagesByTicketId.value || {}),
+        [ticketId]: []
+      };
+    } finally {
+      inlineThreadLoadingByTicketId.value = { ...(inlineThreadLoadingByTicketId.value || {}), [ticketId]: false };
+    }
+  };
+
+  const toggleInlineThread = async (ticket) => {
+    const ticketId = Number(ticket?.id || 0);
+    if (!ticketId) return;
+    const isExpanded = !!expandedThreadByTicketId.value?.[ticketId];
+    expandedThreadByTicketId.value = {
+      ...(expandedThreadByTicketId.value || {}),
+      [ticketId]: !isExpanded
+    };
+    if (!isExpanded) await loadInlineThread(ticket);
   };
 
   const toggleAnswer = async (ticketId) => {
@@ -501,6 +576,10 @@ export function useTicketingQueue() {
     answerText.value = '';
     answerError.value = '';
     const t = (tickets.value || []).find((row) => Number(row?.id) === Number(ticketId));
+    if (t) {
+      expandedThreadByTicketId.value = { ...(expandedThreadByTicketId.value || {}), [t.id]: true };
+      await loadInlineThread(t);
+    }
     if (t && !t.claimed_by_user_id) {
       claimingId.value = t.id;
       try {
@@ -731,6 +810,10 @@ export function useTicketingQueue() {
     confirmOpen,
     confirmInput,
     threadOpen,
+    expandedThreadByTicketId,
+    inlineThreadMessagesByTicketId,
+    inlineThreadLoadingByTicketId,
+    inlineThreadErrorByTicketId,
     threadMessages,
     threadLoading,
     threadError,
@@ -768,6 +851,8 @@ export function useTicketingQueue() {
     closeConfirm,
     submitConfirm,
     openThread,
+    toggleInlineThread,
+    loadInlineThread,
     closeThread,
     sendThreadMessage,
     toggleAnswer,

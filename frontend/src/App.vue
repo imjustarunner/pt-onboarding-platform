@@ -324,7 +324,7 @@
               <WeatherChip />
               <router-link
                 v-if="canShowScheduleIcon"
-                :to="orgTo('/schedule')"
+                :to="myScheduleNavLink"
                 class="nav-icon-btn"
                 title="Schedule"
                 aria-label="Schedule"
@@ -496,7 +496,7 @@
                 <span class="mobile-obnoxious-badge" v-if="communicationsOpenTicketsCount > 0">{{ communicationsOpenTicketsCount }}</span>
               </router-link>
               <router-link
-                :to="orgTo('/schedule')"
+                :to="myScheduleNavLink"
                 v-if="canShowScheduleIcon || canShowScheduleTopNav"
                 @click="closeMobileMenu"
                 class="mobile-nav-link"
@@ -1316,7 +1316,7 @@ const canShowScheduleIcon = computed(() => {
   const u = authStore.user;
   if (!u) return false;
   const role = String(u?.role || '').toLowerCase();
-  return ['admin', 'super_admin', 'superadmin', 'clinical_practice_assistant', 'provider_plus', 'staff'].includes(role);
+  return role !== 'school_staff';
 });
 
 const settingsIconUrl = computed(() => {
@@ -1387,6 +1387,11 @@ const scheduleNavLink = computed(() => {
   }
   return orgTo('/schedule');
 });
+
+const myScheduleNavLink = computed(() => ({
+  path: orgTo('/dashboard'),
+  query: { tab: 'my_schedule' }
+}));
 
 // Dashboard URL pattern by role (org slug e.g. "itsco" when user is in that agency's context):
 // - Superadmin: My Dashboard = /dashboard (platform personal), Admin = /admin (nav "Admin Dashboard").

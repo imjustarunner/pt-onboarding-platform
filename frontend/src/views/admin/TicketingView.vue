@@ -173,6 +173,16 @@
                 Answer
               </button>
               <button
+                class="btn btn-secondary btn-sm"
+                type="button"
+                @click="toggleInlineThread(t)"
+                :disabled="inlineThreadLoadingByTicketId[t.id]"
+                :title="expandedThreadByTicketId[t.id] ? 'Collapse full thread' : 'Expand full thread'"
+              >
+                <template v-if="inlineThreadLoadingByTicketId[t.id]">Loading thread...</template>
+                <template v-else>{{ expandedThreadByTicketId[t.id] ? 'Collapse thread' : 'Expand thread' }}</template>
+              </button>
+              <button
                 v-if="Number(t.claimed_by_user_id) && Number(t.claimed_by_user_id) !== Number(myUserId)"
                 class="btn btn-secondary btn-sm"
                 type="button"
@@ -206,6 +216,21 @@
               >
                 {{ convertingFaqId === t.id ? 'Creating...' : 'To FAQ' }}
               </button>
+            </div>
+          </div>
+
+          <div v-if="expandedThreadByTicketId[t.id]" class="thread-inline">
+            <div v-if="inlineThreadLoadingByTicketId[t.id]" class="muted">Loading thread...</div>
+            <div v-else-if="inlineThreadErrorByTicketId[t.id]" class="error">{{ inlineThreadErrorByTicketId[t.id] }}</div>
+            <div v-else class="thread-list">
+              <div v-if="!(inlineThreadMessagesByTicketId[t.id] || []).length" class="muted">No messages yet.</div>
+              <div v-else class="thread-item" v-for="m in inlineThreadMessagesByTicketId[t.id]" :key="m.id">
+                <div class="thread-meta">
+                  <span class="thread-author">{{ formatThreadAuthor(m) }}</span>
+                  <span class="thread-time">{{ formatDateTime(m.created_at) }}</span>
+                </div>
+                <div class="thread-body">{{ m.body || '(deleted)' }}</div>
+              </div>
             </div>
           </div>
 
@@ -354,6 +379,10 @@ const {
   confirmOpen,
   confirmInput,
   threadOpen,
+  expandedThreadByTicketId,
+  inlineThreadMessagesByTicketId,
+  inlineThreadLoadingByTicketId,
+  inlineThreadErrorByTicketId,
   threadMessages,
   threadLoading,
   threadError,
@@ -390,6 +419,7 @@ const {
   closeConfirm,
   submitConfirm,
   closeThread,
+  toggleInlineThread,
   sendThreadMessage,
   toggleAnswer,
   submitAnswer,
@@ -445,6 +475,7 @@ const {
 .ticket-assigned-me { background: rgba(245, 158, 11, 0.08); border-color: rgba(245, 158, 11, 0.35); }
 .ticket-assigned-other { background: rgba(239, 68, 68, 0.08); border-color: rgba(239, 68, 68, 0.35); }
 .thread-list { display: grid; gap: 10px; }
+.thread-inline { margin-top: 12px; }
 .thread-item { border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; background: var(--bg-alt); }
 .thread-meta { display: flex; justify-content: space-between; font-size: 12px; font-weight: 800; color: var(--text-secondary); margin-bottom: 6px; }
 .thread-body { white-space: pre-wrap; }
