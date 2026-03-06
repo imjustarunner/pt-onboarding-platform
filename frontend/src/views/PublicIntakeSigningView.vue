@@ -801,6 +801,8 @@ const INTAKE_TRANSLATIONS = {
 const route = useRoute();
 const router = useRouter();
 const publicKey = route.params.publicKey;
+const isLocalhostRecaptcha = ['localhost', '127.0.0.1'].includes(window.location.hostname);
+const LOCALHOST_TEST_RECAPTCHA_SITE_KEY = '6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI';
 const authStore = useAuthStore();
 
 const isSuperAdmin = computed(() => String(authStore.user?.role || '').toLowerCase() === 'super_admin');
@@ -877,6 +879,11 @@ const recaptchaWidgetElStart = ref(null);
 const recaptchaWidgetId = ref(null);
 const captchaWidgetFailed = ref(false);
 let recaptchaInitPromise = null;
+const activeRecaptchaSiteKey = computed(() =>
+  isLocalhostRecaptcha && recaptchaSiteKey.value
+    ? LOCALHOST_TEST_RECAPTCHA_SITE_KEY
+    : recaptchaSiteKey.value
+);
 const sessionExpiryMinutes = computed(() => 30 + Math.max(0, Number(templates.value.length || 0)) * 5);
 const approvalContext = computed(() => {
   const mode = String(route.query?.mode || '').trim();
@@ -1429,7 +1436,7 @@ const clearRecaptchaScript = () => {
 };
 
 const loadRecaptchaScript = async (mode = useEnterpriseRecaptcha.value ? 'enterprise' : 'standard', forceReload = false) => {
-  if (!recaptchaSiteKey.value) return Promise.resolve(null);
+  if (!activeRecaptchaSiteKey.value) return Promise.resolve(null);
   if (forceReload) {
     clearRecaptchaScript();
   }
@@ -1503,7 +1510,7 @@ const ensureRecaptchaWidget = async (mode = useEnterpriseRecaptcha.value ? 'ente
     // Pass container ID string per reCAPTCHA docs; more reliable than element ref
     const doRender = () => {
       recaptchaWidgetId.value = api.render(containerId, {
-        sitekey: recaptchaSiteKey.value,
+        sitekey: activeRecaptchaSiteKey.value,
         size: 'normal',
         theme: 'light',
         callback: (token) => {

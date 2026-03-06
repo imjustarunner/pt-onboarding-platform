@@ -998,6 +998,12 @@ const requiresCaptchaForLink = (organization, agency) => {
   return check(organization) || check(agency);
 };
 
+const isLocalRecaptchaBypassRequest = (req) => {
+  const host = String(req.get('host') || '').toLowerCase();
+  const origin = String(req.get('origin') || req.get('referer') || '').toLowerCase();
+  return host.includes('localhost') || host.includes('127.0.0.1') || origin.includes('localhost') || origin.includes('127.0.0.1');
+};
+
 const notifyUnassignedDocuments = async ({ link, submission, docCount }) => {
   if (!link || !submission || !docCount || docCount < 1) return;
   try {
@@ -1251,35 +1257,39 @@ export const createPublicIntakeSession = async (req, res, next) => {
       if (!captchaToken) {
         return res.status(400).json({ error: { message: 'Captcha is required' } });
       }
-      const verification = await verifyRecaptchaV3({
-        token: captchaToken,
-        remoteip: getClientIpAddress(req),
-        expectedAction: 'public_intake_begin',
-        userAgent: req.get('user-agent'),
-        siteKeyOverride: intakeSiteKey || undefined,
-        checkboxKey: true
-      });
-      if (!verification.ok) {
-        console.warn('[recaptcha] public intake begin verification failed', {
-          reason: verification.reason,
-          errorCodes: verification.errorCodes,
-          action: verification.action,
-          invalidReason: verification.invalidReason
+      if (config.nodeEnv !== 'production' && isLocalRecaptchaBypassRequest(req)) {
+        console.info('[recaptcha] bypassing localhost verification for public intake begin');
+      } else {
+        const verification = await verifyRecaptchaV3({
+          token: captchaToken,
+          remoteip: getClientIpAddress(req),
+          expectedAction: 'public_intake_begin',
+          userAgent: req.get('user-agent'),
+          siteKeyOverride: intakeSiteKey || undefined,
+          checkboxKey: true
         });
-        const msg = config.nodeEnv !== 'production'
-          ? `Captcha verification failed: ${verification.reason}${verification.invalidReason ? ` (${verification.invalidReason})` : ''}. Check backend logs.`
-          : 'Captcha verification failed. Please complete the captcha again and try again.';
-        return res.status(400).json({ error: { message: msg } });
-      }
-      const minScoreRaw = process.env.RECAPTCHA_MIN_SCORE_INTAKE ?? config.recaptcha?.minScore ?? 0.3;
-      const effectiveMinScore = Number.isFinite(Number(minScoreRaw)) ? Number(minScoreRaw) : 0.3;
-      if (verification.score !== null && verification.score < effectiveMinScore) {
-        console.warn('[recaptcha] public intake begin score too low', {
-          score: verification.score,
-          minScore: effectiveMinScore
-        });
-        if (config.nodeEnv === 'production') {
-          return res.status(400).json({ error: { message: 'Captcha verification failed. Please try again.' } });
+        if (!verification.ok) {
+          console.warn('[recaptcha] public intake begin verification failed', {
+            reason: verification.reason,
+            errorCodes: verification.errorCodes,
+            action: verification.action,
+            invalidReason: verification.invalidReason
+          });
+          const msg = config.nodeEnv !== 'production'
+            ? `Captcha verification failed: ${verification.reason}${verification.invalidReason ? ` (${verification.invalidReason})` : ''}. Check backend logs.`
+            : 'Captcha verification failed. Please complete the captcha again and try again.';
+          return res.status(400).json({ error: { message: msg } });
+        }
+        const minScoreRaw = process.env.RECAPTCHA_MIN_SCORE_INTAKE ?? config.recaptcha?.minScore ?? 0.3;
+        const effectiveMinScore = Number.isFinite(Number(minScoreRaw)) ? Number(minScoreRaw) : 0.3;
+        if (verification.score !== null && verification.score < effectiveMinScore) {
+          console.warn('[recaptcha] public intake begin score too low', {
+            score: verification.score,
+            minScore: effectiveMinScore
+          });
+          if (config.nodeEnv === 'production') {
+            return res.status(400).json({ error: { message: 'Captcha verification failed. Please try again.' } });
+          }
         }
       }
     }
