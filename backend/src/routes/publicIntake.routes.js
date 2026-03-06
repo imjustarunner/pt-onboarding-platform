@@ -27,7 +27,13 @@ const router = express.Router();
 router.use(publicIntakeLimiter);
 
 router.get('/school/:organizationId', getSchoolIntakeLink);
-router.post('/:publicKey/session', createPublicIntakeSession);
+router.post(
+  '/:publicKey/session',
+  [
+    body('captchaToken').optional().isString()
+  ],
+  createPublicIntakeSession
+);
 router.get('/:publicKey', getPublicIntakeLink);
 router.get('/:publicKey/status/:submissionId', getPublicIntakeStatus);
 router.get('/:publicKey/document/:templateId/preview', previewPublicTemplate);
@@ -40,8 +46,6 @@ router.post(
     body('signerInitials').optional().isString(),
     body('signerEmail').notEmpty().withMessage('signerEmail is required'),
     body('signerPhone').optional().isString(),
-    body('captchaToken').optional().isString(),
-    body('captchaWidgetFailed').optional().isBoolean(),
     body('sessionToken').optional().isString()
   ],
   createPublicConsent

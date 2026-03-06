@@ -31,16 +31,13 @@
               {{ t('verifyHumanFirst') }}
             </div>
             <div v-if="captchaError" class="error">{{ captchaError }}</div>
-            <div v-if="showRecaptchaWidget" class="recaptcha-widget">
+            <div class="recaptcha-widget">
               <div id="recaptcha-widget-start" ref="recaptchaWidgetElStart" />
               <div v-if="captchaWidgetFailed" class="muted" style="margin-top: 6px; color: var(--warning, #b8860b);">
                 Verification widget failed to load. Please refresh the page.
               </div>
               <div v-else-if="!captchaToken" class="muted" style="margin-top: 6px;">
                 {{ t('completeCaptchaToContinue') }}
-              </div>
-              <div v-else class="muted" style="margin-top: 6px; font-size: 0.9em;">
-                {{ t('captchaExpiryHint') }}
               </div>
             </div>
           </div>
@@ -49,7 +46,7 @@
             <button
               class="btn btn-primary"
               type="button"
-              :disabled="(recaptchaSiteKey && showRecaptchaWidget && !captchaToken) || consentLoading"
+              :disabled="(recaptchaSiteKey && (!showRecaptchaWidget || !captchaToken)) || consentLoading"
               @click="beginIntakeSession"
             >
               {{ beginIntakeButtonText }}
@@ -80,15 +77,6 @@
       <div v-else-if="step === 1" class="step">
         <h3>{{ t('questions') }}</h3>
         <div v-if="stepError" class="error" style="margin-bottom: 10px;">{{ stepError }}</div>
-        <div v-if="captchaError" class="error" style="margin-bottom: 10px;">{{ captchaError }}</div>
-
-        <div v-if="captchaError && recaptchaSiteKey && showRecaptchaWidget" class="captcha-block captcha-block-top">
-          <div class="muted">{{ t('protectedByRecaptcha') }}</div>
-          <div class="recaptcha-verify-first">{{ t('captchaRetry') }}</div>
-          <div class="recaptcha-widget">
-            <div id="recaptcha-widget-form" ref="recaptchaWidgetEl" />
-          </div>
-        </div>
 
         <div v-if="!isMedicalRecordsRequest && !isJobApplication" class="form-group">
           <label>{{ t('whoIsIntakeFor') }}</label>
@@ -401,7 +389,7 @@
           <button
             class="btn btn-primary"
             type="button"
-            :disabled="consentLoading || (recaptchaSiteKey && showRecaptchaWidget && !captchaToken)"
+            :disabled="consentLoading"
             @click="submitConsent"
           >
             {{ consentLoading ? t('saving') : t('iConsentContinue') }}
@@ -813,9 +801,6 @@ const INTAKE_TRANSLATIONS = {
 const route = useRoute();
 const router = useRouter();
 const publicKey = route.params.publicKey;
-const captchaStorageKey = `public_intake_captcha_${publicKey}`;
-const captchaTimestampStorageKey = `public_intake_captcha_ts_${publicKey}`;
-const captchaMaxAgeMs = 90 * 1000;
 const authStore = useAuthStore();
 
 const isSuperAdmin = computed(() => String(authStore.user?.role || '').toLowerCase() === 'super_admin');
@@ -885,12 +870,9 @@ const recaptchaSiteKey = ref(import.meta.env.VITE_RECAPTCHA_SITE_KEY || '');
 const useEnterpriseRecaptcha = ref(
   String(import.meta.env.VITE_RECAPTCHA_USE_ENTERPRISE || '').toLowerCase() === 'true'
 );
-const forceRecaptchaWidget = ref(false);
 const captchaToken = ref('');
-const captchaTokenIssuedAt = ref(0);
 const captchaError = ref('');
 const showRecaptchaWidget = ref(false);
-const recaptchaWidgetEl = ref(null);
 const recaptchaWidgetElStart = ref(null);
 const recaptchaWidgetId = ref(null);
 const captchaWidgetFailed = ref(false);
@@ -1418,19 +1400,10 @@ const loadLink = async () => {
     agencyInfo.value = resp.data?.agency || null;
     organizationInfo.value = resp.data?.organization || null;
     const recaptchaConfig = resp.data?.recaptcha || {};
-    if (recaptchaConfig.siteKey) {
-      recaptchaSiteKey.value = recaptchaConfig.siteKey;
-    }
+    recaptchaSiteKey.value = String(recaptchaConfig.siteKey || '').trim();
     if (typeof recaptchaConfig.useEnterprise === 'boolean') {
       useEnterpriseRecaptcha.value = recaptchaConfig.useEnterprise;
     }
-    forceRecaptchaWidget.value = !!recaptchaConfig.forceWidget;
-    console.info('[recaptcha] config', {
-      hasSiteKey: !!recaptchaSiteKey.value,
-      useEnterprise: useEnterpriseRecaptcha.value,
-      forceWidget: forceRecaptchaWidget.value
-    });
-    await updateRecaptchaMode();
     if (!templates.value.length) {
       error.value = 'No documents configured for this intake link.';
     }
@@ -1456,15 +1429,9 @@ const loadRecaptchaScript = () => {
   }
   return new Promise((resolve, reject) => {
     const script = document.createElement('script');
-    if (forceRecaptchaWidget.value) {
-      script.src = useEnterpriseRecaptcha.value
-        ? 'https://www.google.com/recaptcha/enterprise.js?render=explicit'
-        : 'https://www.google.com/recaptcha/api.js?render=explicit';
-    } else {
-      script.src = useEnterpriseRecaptcha.value
-        ? `https://www.google.com/recaptcha/enterprise.js?render=${encodeURIComponent(recaptchaSiteKey.value)}`
-        : `https://www.google.com/recaptcha/api.js?render=${encodeURIComponent(recaptchaSiteKey.value)}`;
-    }
+    script.src = useEnterpriseRecaptcha.value
+      ? 'https://www.google.com/recaptcha/enterprise.js?render=explicit'
+      : 'https://www.google.com/recaptcha/api.js?render=explicit';
     script.async = true;
     script.defer = true;
     script.setAttribute('data-recaptcha', 'true');
@@ -1474,65 +1441,9 @@ const loadRecaptchaScript = () => {
   });
 };
 
-const clearStoredCaptchaToken = () => {
+const clearCaptchaState = () => {
   captchaToken.value = '';
-  captchaTokenIssuedAt.value = 0;
-  try {
-    sessionStorage.removeItem(captchaStorageKey);
-    sessionStorage.removeItem(captchaTimestampStorageKey);
-  } catch {
-    /* ignore */
-  }
-};
-
-const persistCaptchaToken = (token) => {
-  const cleaned = String(token || '').trim();
-  captchaToken.value = cleaned;
-  captchaTokenIssuedAt.value = cleaned ? Date.now() : 0;
-  try {
-    if (cleaned) {
-      sessionStorage.setItem(captchaStorageKey, cleaned);
-      sessionStorage.setItem(captchaTimestampStorageKey, String(captchaTokenIssuedAt.value));
-    } else {
-      sessionStorage.removeItem(captchaStorageKey);
-      sessionStorage.removeItem(captchaTimestampStorageKey);
-    }
-  } catch {
-    /* ignore */
-  }
-};
-
-const readStoredCaptchaState = () => {
-  try {
-    const token = String(sessionStorage.getItem(captchaStorageKey) || '').trim();
-    const issuedAtRaw = Number(sessionStorage.getItem(captchaTimestampStorageKey) || 0);
-    const issuedAt = Number.isFinite(issuedAtRaw) ? issuedAtRaw : 0;
-    return { token, issuedAt };
-  } catch {
-    return { token: '', issuedAt: 0 };
-  }
-};
-
-const isCaptchaTokenFresh = (issuedAt) => {
-  if (!issuedAt) return false;
-  return Date.now() - issuedAt < captchaMaxAgeMs;
-};
-
-const getFreshCaptchaToken = () => {
-  const inMemoryToken = String(captchaToken.value || '').trim();
-  if (inMemoryToken && isCaptchaTokenFresh(captchaTokenIssuedAt.value)) {
-    return inMemoryToken;
-  }
-  const stored = readStoredCaptchaState();
-  if (stored.token && isCaptchaTokenFresh(stored.issuedAt)) {
-    captchaToken.value = stored.token;
-    captchaTokenIssuedAt.value = stored.issuedAt;
-    return stored.token;
-  }
-  if (inMemoryToken || stored.token) {
-    clearStoredCaptchaToken();
-  }
-  return '';
+  captchaError.value = '';
 };
 
 const ensureRecaptchaWidget = async () => {
@@ -1540,16 +1451,16 @@ const ensureRecaptchaWidget = async () => {
     const grecaptcha = await loadRecaptchaScript();
     const renderFn = grecaptcha?.enterprise?.render || grecaptcha?.render;
     if (!renderFn) return false;
-    const containerId = step.value === -1 ? 'recaptcha-widget-start' : 'recaptcha-widget-form';
-    let el = step.value === -1 ? recaptchaWidgetElStart.value : recaptchaWidgetEl.value;
+    const containerId = 'recaptcha-widget-start';
+    let el = recaptchaWidgetElStart.value;
     for (let i = 0; !el && i < 12; i++) {
       await nextTick();
       await new Promise((r) => setTimeout(r, 100 * (i + 1)));
-      el = step.value === -1 ? recaptchaWidgetElStart.value : recaptchaWidgetEl.value;
+      el = recaptchaWidgetElStart.value;
       if (!el) el = document.getElementById(containerId);
     }
     if (!el) {
-      console.warn('[recaptcha] widget container not ready', { step: step.value });
+      console.warn('[recaptcha] widget container not ready');
       return false;
     }
     // reCAPTCHA won't render into zero-size containers; wait for visibility
@@ -1567,22 +1478,17 @@ const ensureRecaptchaWidget = async () => {
         theme: 'light',
         callback: (token) => {
           const t = String(token || '').trim();
-          persistCaptchaToken(t);
+          captchaToken.value = t;
           captchaError.value = '';
           captchaWidgetFailed.value = false;
-          if (captchaWidgetFallbackTimer) {
-            clearTimeout(captchaWidgetFallbackTimer);
-            captchaWidgetFallbackTimer = null;
-          }
-          console.info('[recaptcha] widget token', { hasToken: !!t, length: t.length });
         },
         'expired-callback': () => {
           captchaToken.value = '';
-          // Don't clear sessionStorage here - this can fire when widget is destroyed on navigate,
-          // and the token may still be valid; backend will reject if actually expired
+          captchaError.value = t('completeCaptchaToContinue');
         },
         'error-callback': () => {
-          clearStoredCaptchaToken();
+          captchaToken.value = '';
+          captchaWidgetFailed.value = true;
         }
       });
     };
@@ -1599,8 +1505,8 @@ const ensureRecaptchaWidget = async () => {
 };
 
 const resetRecaptchaWidget = async () => {
-  clearStoredCaptchaToken();
-  captchaError.value = '';
+  clearCaptchaState();
+  captchaWidgetFailed.value = false;
   try {
     const grecaptcha = await loadRecaptchaScript();
     const api = grecaptcha?.enterprise || grecaptcha;
@@ -1612,47 +1518,17 @@ const resetRecaptchaWidget = async () => {
   }
 };
 
-let captchaWidgetFallbackTimer = null;
 const updateRecaptchaMode = async () => {
-  if (!recaptchaSiteKey.value) return;
+  if (!recaptchaSiteKey.value || step.value !== -1) return;
   captchaWidgetFailed.value = false;
-  if (captchaWidgetFallbackTimer) {
-    clearTimeout(captchaWidgetFallbackTimer);
-    captchaWidgetFallbackTimer = null;
-  }
+  showRecaptchaWidget.value = true;
   try {
-    const grecaptcha = await loadRecaptchaScript();
-    if (!grecaptcha) return;
-    const hasExecute = !!(grecaptcha.enterprise?.execute || grecaptcha.execute);
-    const hasRender = !!(grecaptcha.enterprise?.render || grecaptcha.render);
-    // Force widget when RECAPTCHA_SITE_KEY_INTAKE is set (checkbox key); or when key has no execute (checkbox).
-    if (forceRecaptchaWidget.value || (useEnterpriseRecaptcha.value && !hasExecute && hasRender)) {
-      showRecaptchaWidget.value = true;
-      await nextTick();
-      await nextTick();
-      await new Promise((r) => requestAnimationFrame(r));
-      await new Promise((r) => setTimeout(r, 150));
-      await ensureRecaptchaWidget();
-      captchaWidgetFallbackTimer = setTimeout(async () => {
-        if (captchaToken.value) {
-          captchaWidgetFallbackTimer = null;
-          return;
-        }
-        // Widget rendered but user hasn't completed yet - don't show fallback, let them take their time
-        if (recaptchaWidgetId.value !== null) {
-          captchaWidgetFallbackTimer = null;
-          return;
-        }
-        // Widget never rendered; retry once (first load can be slow)
-        await ensureRecaptchaWidget();
-        await new Promise((r) => setTimeout(r, 3000));
-        if (!captchaToken.value && recaptchaWidgetId.value === null) {
-          captchaWidgetFailed.value = true;
-          console.warn('[recaptcha] widget did not render in time, allowing continue');
-        }
-        captchaWidgetFallbackTimer = null;
-      }, 5000);
-    }
+    await nextTick();
+    await nextTick();
+    await new Promise((r) => requestAnimationFrame(r));
+    await new Promise((r) => setTimeout(r, 150));
+    const rendered = await ensureRecaptchaWidget();
+    if (!rendered) captchaWidgetFailed.value = true;
   } catch (err) {
     console.warn('[recaptcha] mode init failed', err);
     captchaWidgetFailed.value = true;
@@ -1660,64 +1536,15 @@ const updateRecaptchaMode = async () => {
 };
 
 watch(step, async (val, prev) => {
-  if (prev !== undefined && prev !== val) recaptchaWidgetId.value = null;
-  if (val === 1 && !captchaToken.value && recaptchaSiteKey.value) {
-    getFreshCaptchaToken();
+  if (prev !== undefined && prev !== val) {
+    recaptchaWidgetId.value = null;
+    clearCaptchaState();
   }
-  if (val !== -1) return;
-  await nextTick();
-  await updateRecaptchaMode();
-});
-
-watch(captchaError, async (val) => {
-  if (val && step.value === 1 && recaptchaSiteKey.value) {
+  if (val === -1 && recaptchaSiteKey.value) {
     await nextTick();
     await updateRecaptchaMode();
   }
 });
-
-const getRecaptchaToken = async () => {
-  if (!recaptchaSiteKey.value) return '';
-  try {
-    const grecaptcha = await loadRecaptchaScript();
-    if (!grecaptcha) return '';
-    console.info('[recaptcha] availability', {
-      hasEnterprise: !!grecaptcha.enterprise,
-      hasEnterpriseExecute: !!grecaptcha.enterprise?.execute,
-      hasEnterpriseRender: !!grecaptcha.enterprise?.render,
-      hasStandardExecute: !!grecaptcha.execute
-    });
-    if (useEnterpriseRecaptcha.value && grecaptcha.enterprise?.execute) {
-      if (grecaptcha.enterprise?.ready) {
-        await new Promise((resolve) => grecaptcha.enterprise.ready(resolve));
-      }
-      try {
-        const token = await grecaptcha.enterprise.execute(recaptchaSiteKey.value, { action: 'public_intake_consent' });
-        if (token) return token;
-        await new Promise((resolve) => setTimeout(resolve, 400));
-        const retryToken = await grecaptcha.enterprise.execute(recaptchaSiteKey.value, { action: 'public_intake_consent' });
-        if (retryToken) return retryToken;
-      } catch (err) {
-        console.warn('[recaptcha] enterprise execute failed', err);
-      }
-    }
-    // Enterprise widget mode (challenge/checkbox keys): no execute() available.
-    if (useEnterpriseRecaptcha.value && grecaptcha.enterprise?.render) {
-      showRecaptchaWidget.value = true;
-      await nextTick();
-      await ensureRecaptchaWidget();
-      return String(captchaToken.value || '').trim();
-    }
-    if (!grecaptcha?.execute) return '';
-    if (grecaptcha?.ready) {
-      await new Promise((resolve) => grecaptcha.ready(resolve));
-    }
-    return await grecaptcha.execute(recaptchaSiteKey.value, { action: 'public_intake_consent' });
-  } catch (err) {
-    console.warn('[recaptcha] token error', err);
-    return '';
-  }
-};
 
 const deriveClientInitials = (firstName, lastName) => {
   const formatTri = (value) => {
@@ -1770,17 +1597,7 @@ const syncClientNamesToResponses = () => {
 };
 
 const ensureSessionToken = async () => {
-  if (sessionToken.value) return sessionToken.value;
-  try {
-    const resp = await api.post(`/public-intake/${publicKey}/session`);
-    const token = String(resp.data?.sessionToken || '').trim();
-    if (!token) return '';
-    sessionToken.value = token;
-    await router.replace({ query: { ...route.query, session: token } });
-    return token;
-  } catch {
-    return '';
-  }
+  return String(sessionToken.value || '').trim();
 };
 
 const submitConsent = async () => {
@@ -1829,31 +1646,6 @@ const submitConsent = async () => {
     }
     return;
   }
-  if (recaptchaSiteKey.value && !captchaWidgetFailed.value) {
-    // If we're in widget-mode, the token only exists after user interaction.
-    if (showRecaptchaWidget.value) {
-      const token = getFreshCaptchaToken();
-      console.info('[recaptcha] token', { hasToken: !!token, length: token.length });
-      if (!token) {
-        await resetRecaptchaWidget();
-        error.value = t('captchaRetry');
-        captchaError.value = error.value;
-        return;
-      }
-    } else {
-      const token = await getRecaptchaToken();
-      persistCaptchaToken(token);
-      console.info('[recaptcha] token', {
-        hasToken: !!token,
-        length: token ? String(token).length : 0
-      });
-      if (!token) {
-        error.value = t('captchaFailed');
-        captchaError.value = error.value;
-        return;
-      }
-    }
-  }
   try {
     consentLoading.value = true;
     error.value = '';
@@ -1879,31 +1671,12 @@ const submitConsent = async () => {
         approval: approvalContext.value || null
       }
     };
-    let tokenToSend = getFreshCaptchaToken();
-    if (recaptchaSiteKey.value || tokenToSend || captchaWidgetFailed.value) {
-      payload.captchaToken = tokenToSend;
-      if (captchaWidgetFailed.value) payload.captchaWidgetFailed = true;
-      console.info('[recaptcha] consent payload', {
-        hasSiteKey: !!recaptchaSiteKey.value,
-        hasToken: !!payload.captchaToken,
-        tokenLength: payload.captchaToken?.length ?? 0,
-        widgetFailed: payload.captchaWidgetFailed
-      });
-    }
     const resp = await api.post(`/public-intake/${publicKey}/consent`, payload);
     submissionId.value = resp.data?.submission?.id || null;
     currentFlowIndex.value = 0;
     step.value = 2;
-    clearStoredCaptchaToken();
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to capture consent';
-    const isCaptchaError = /captcha/i.test(error.value);
-    if (isCaptchaError) {
-      await resetRecaptchaWidget();
-      captchaError.value = t('captchaFailed');
-    } else {
-      clearStoredCaptchaToken();
-    }
   } finally {
     consentLoading.value = false;
   }
@@ -2025,10 +1798,14 @@ const finalizePacket = async () => {
     submitLoading.value = true;
     error.value = '';
     stepError.value = '';
-    await ensureSessionToken();
+    const activeSessionToken = await ensureSessionToken();
+    if (!activeSessionToken) {
+      error.value = t('unableToStartSession');
+      return;
+    }
     const resp = await api.post(`/public-intake/${publicKey}/${submissionId.value}/finalize`, {
       submissionId: submissionId.value,
-      sessionToken: sessionToken.value || null,
+      sessionToken: activeSessionToken || null,
       organizationId: organizationId.value,
       clients: buildClientPayloads(),
       guardian: {
@@ -2079,11 +1856,13 @@ const resetIntakeState = () => {
   submissionId.value = null;
   docStatus && Object.keys(docStatus).forEach((k) => delete docStatus[k]);
   error.value = '';
-  captchaError.value = '';
-  clearStoredCaptchaToken();
+  clearCaptchaState();
+  captchaWidgetFailed.value = false;
+  sessionToken.value = '';
+  router.replace({ query: { ...route.query, session: undefined } }).catch(() => {});
   currentDocIndex.value = 0;
   currentFlowIndex.value = 0;
-  step.value = 1;
+  step.value = -1;
   Object.keys(fieldValuesByTemplate || {}).forEach((k) => delete fieldValuesByTemplate[k]);
 };
 
@@ -2106,7 +1885,6 @@ const endSession = () => {
   if (!ok) return;
   localStorage.removeItem(submissionStorageKey.value);
   resetIntakeState();
-  window.location.reload();
 };
 
 const returnToIntakeInfo = () => {
@@ -2485,11 +2263,28 @@ const beginIntakeSession = async () => {
   consentLoading.value = true;
   try {
     beginError.value = '';
-    const token = await ensureSessionToken();
+    if (recaptchaSiteKey.value) {
+      if (captchaWidgetFailed.value) {
+        beginError.value = t('captchaFailed');
+        return;
+      }
+      const captchaTokenToSend = String(captchaToken.value || '').trim();
+      if (!captchaTokenToSend) {
+        beginError.value = t('completeCaptchaToContinue');
+        return;
+      }
+    }
+    const resp = await api.post(`/public-intake/${publicKey}/session`, {
+      captchaToken: String(captchaToken.value || '').trim() || undefined
+    });
+    const token = String(resp.data?.sessionToken || '').trim();
     if (!token) {
       beginError.value = t('unableToStartSession');
       return;
     }
+    sessionToken.value = token;
+    await router.replace({ query: { ...route.query, session: token } });
+    await resetRecaptchaWidget();
     localStorage.removeItem(submissionStorageKey.value);
     if (introScreens.value.length) {
       step.value = 0;
@@ -2499,6 +2294,8 @@ const beginIntakeSession = async () => {
     }
     initializeFieldValues();
     await loadPdfPreview();
+  } catch (e) {
+    beginError.value = e.response?.data?.error?.message || t('unableToStartSession');
   } finally {
     consentLoading.value = false;
   }
@@ -2518,9 +2315,6 @@ onMounted(async () => {
   }
   initializeFieldValues();
   await loadPdfPreview();
-  if (recaptchaSiteKey.value) {
-    await nextTick();
-  }
 });
 </script>
 

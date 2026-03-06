@@ -983,9 +983,6 @@ const toOrgPayload = (org) => {
 };
 
 const requiresCaptchaForLink = (organization, agency) => {
-  // Emergency default-off switch for public intake captcha.
-  const disableCaptcha = String(process.env.PUBLIC_INTAKE_DISABLE_CAPTCHA || 'true').toLowerCase() === 'true';
-  if (disableCaptcha) return false;
   const forAll = String(process.env.RECAPTCHA_REQUIRED_FOR_ALL || '').toLowerCase() === 'true';
   if (forAll) return true;
   const names = process.env.RECAPTCHA_REQUIRED_ORG_NAMES;
@@ -1199,9 +1196,9 @@ export const getPublicIntakeLink = async (req, res, next) => {
       },
       recaptcha: needsCaptcha
         ? {
-            siteKey: process.env.RECAPTCHA_SITE_KEY_INTAKE || config.recaptcha?.siteKey || null,
+            siteKey: process.env.RECAPTCHA_SITE_KEY_INTAKE || null,
             useEnterprise: !!config.recaptcha?.enterpriseApiKey,
-            forceWidget: !!process.env.RECAPTCHA_SITE_KEY_INTAKE
+            forceWidget: true
           }
         : { siteKey: null, useEnterprise: false, forceWidget: false },
       organization: toOrgPayload(organization),
@@ -1233,10 +1230,58 @@ export const getPublicIntakeLink = async (req, res, next) => {
 
 export const createPublicIntakeSession = async (req, res, next) => {
   try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ error: { message: 'Validation failed', errors: errors.array() } });
+    }
     const publicKey = String(req.params.publicKey || '').trim();
     const link = await IntakeLink.findByPublicKey(publicKey);
     if (!link || !link.is_active) {
       return res.status(404).json({ error: { message: 'Intake link not found' } });
+    }
+    const { organization, agency } = await resolveIntakeOrgContext(link);
+    const needsCaptcha = requiresCaptchaForLink(organization, agency);
+    const intakeSiteKey = String(process.env.RECAPTCHA_SITE_KEY_INTAKE || '').trim();
+    const captchaConfigured = !!intakeSiteKey && (!!config.recaptcha?.secretKey || !!config.recaptcha?.enterpriseApiKey);
+    if (needsCaptcha && config.nodeEnv === 'production' && !captchaConfigured) {
+      return res.status(500).json({ error: { message: 'Captcha is not configured' } });
+    }
+    if (needsCaptcha && captchaConfigured) {
+      const captchaToken = String(req.body?.captchaToken || '').trim();
+      if (!captchaToken) {
+        return res.status(400).json({ error: { message: 'Captcha is required' } });
+      }
+      const verification = await verifyRecaptchaV3({
+        token: captchaToken,
+        remoteip: getClientIpAddress(req),
+        expectedAction: 'public_intake_begin',
+        userAgent: req.get('user-agent'),
+        siteKeyOverride: intakeSiteKey || undefined,
+        checkboxKey: true
+      });
+      if (!verification.ok) {
+        console.warn('[recaptcha] public intake begin verification failed', {
+          reason: verification.reason,
+          errorCodes: verification.errorCodes,
+          action: verification.action,
+          invalidReason: verification.invalidReason
+        });
+        const msg = config.nodeEnv !== 'production'
+          ? `Captcha verification failed: ${verification.reason}${verification.invalidReason ? ` (${verification.invalidReason})` : ''}. Check backend logs.`
+          : 'Captcha verification failed. Please complete the captcha again and try again.';
+        return res.status(400).json({ error: { message: msg } });
+      }
+      const minScoreRaw = process.env.RECAPTCHA_MIN_SCORE_INTAKE ?? config.recaptcha?.minScore ?? 0.3;
+      const effectiveMinScore = Number.isFinite(Number(minScoreRaw)) ? Number(minScoreRaw) : 0.3;
+      if (verification.score !== null && verification.score < effectiveMinScore) {
+        console.warn('[recaptcha] public intake begin score too low', {
+          score: verification.score,
+          minScore: effectiveMinScore
+        });
+        if (config.nodeEnv === 'production') {
+          return res.status(400).json({ error: { message: 'Captcha verification failed. Please try again.' } });
+        }
+      }
     }
     const ipAddress = getClientIpAddress(req);
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
@@ -1271,13 +1316,6 @@ export const createPublicIntakeSession = async (req, res, next) => {
 
 export const createPublicConsent = async (req, res, next) => {
   try {
-    if (config.nodeEnv !== 'production') {
-      console.info('[recaptcha] consent received', {
-        bodyKeys: Object.keys(req.body || {}),
-        hasCaptchaToken: 'captchaToken' in (req.body || {}),
-        captchaTokenLen: req.body?.captchaToken ? String(req.body.captchaToken).length : 0
-      });
-    }
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({ error: { message: 'Validation failed', errors: errors.array() } });
@@ -1287,65 +1325,6 @@ export const createPublicConsent = async (req, res, next) => {
     const link = await IntakeLink.findByPublicKey(publicKey);
     if (!link || !link.is_active) {
       return res.status(404).json({ error: { message: 'Intake link not found' } });
-    }
-
-    const { organization, agency } = await resolveIntakeOrgContext(link);
-    const needsCaptcha = requiresCaptchaForLink(organization, agency);
-    const captchaConfigured = !!config.recaptcha?.secretKey || !!config.recaptcha?.enterpriseApiKey;
-    if (needsCaptcha && config.nodeEnv === 'production' && !captchaConfigured) {
-      return res.status(500).json({ error: { message: 'Captcha is not configured' } });
-    }
-    if (needsCaptcha && captchaConfigured) {
-      if (config.nodeEnv !== 'production') {
-        console.info('[recaptcha] consent body', {
-          hasCaptchaToken: 'captchaToken' in req.body,
-          captchaTokenLength: req.body?.captchaToken ? String(req.body.captchaToken).length : 0,
-          captchaWidgetFailed: !!req.body?.captchaWidgetFailed
-        });
-      }
-      const captchaWidgetFailed = !!req.body.captchaWidgetFailed;
-      const captchaToken = String(req.body.captchaToken || '').trim();
-      if (!captchaToken) {
-        if (captchaWidgetFailed) {
-          console.warn('[recaptcha] widget failed to render, allowing bypass (temporary)');
-        } else if (config.nodeEnv === 'production') {
-          return res.status(400).json({ error: { message: 'Captcha is required' } });
-        }
-      } else {
-        const intakeSiteKey = process.env.RECAPTCHA_SITE_KEY_INTAKE || config.recaptcha?.siteKey;
-        const verification = await verifyRecaptchaV3({
-          token: captchaToken,
-          remoteip: getClientIpAddress(req),
-          expectedAction: 'public_intake_consent',
-          userAgent: req.get('user-agent'),
-          siteKeyOverride: intakeSiteKey || undefined,
-          checkboxKey: !!process.env.RECAPTCHA_SITE_KEY_INTAKE
-        });
-        if (!verification.ok) {
-          console.warn('[recaptcha] public intake verification failed', {
-            reason: verification.reason,
-            errorCodes: verification.errorCodes,
-            action: verification.action,
-            invalidReason: verification.invalidReason
-          });
-          const msg = config.nodeEnv !== 'production'
-            ? `Captcha verification failed: ${verification.reason}${verification.invalidReason ? ` (${verification.invalidReason})` : ''}. Check backend logs.`
-            : 'Captcha verification failed. Please complete the captcha again and try again.';
-          return res.status(400).json({ error: { message: msg } });
-        } else {
-          const minScoreRaw = process.env.RECAPTCHA_MIN_SCORE_INTAKE ?? config.recaptcha?.minScore ?? 0.3;
-          const effectiveMinScore = Number.isFinite(Number(minScoreRaw)) ? Number(minScoreRaw) : 0.3;
-          if (verification.score !== null && verification.score < effectiveMinScore) {
-            console.warn('[recaptcha] public intake score too low', {
-              score: verification.score,
-              minScore: effectiveMinScore
-            });
-            if (config.nodeEnv === 'production') {
-              return res.status(400).json({ error: { message: 'Captcha verification failed. Please try again.' } });
-            }
-          }
-        }
-      }
     }
 
     const ipAddress = getClientIpAddress(req);
