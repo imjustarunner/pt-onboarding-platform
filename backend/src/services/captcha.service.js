@@ -16,6 +16,13 @@ const buildEnterpriseUrl = () => {
   return `https://recaptchaenterprise.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/assessments?key=${encodeURIComponent(apiKey)}`;
 };
 
+const hasEnterpriseAdcSupport = () =>
+  !!(
+    process.env.GOOGLE_APPLICATION_CREDENTIALS
+    || process.env.GOOGLE_CLOUD_PROJECT
+    || process.env.PROJECT_ID
+  );
+
 const verifyRecaptchaEnterpriseAdc = async ({ token, expectedAction, remoteip, userAgent, siteKeyOverride } = {}) => {
   const siteKey = siteKeyOverride || config.recaptcha?.siteKey;
   const projectId = config.recaptcha?.enterpriseProjectId;
@@ -123,23 +130,42 @@ export const verifyRecaptchaV3 = async ({ token, remoteip, expectedAction, userA
   // Checkbox keys with explicit widget render do not support actions (per reCAPTCHA docs)
   const useAction = !checkboxKey && expectedAction;
   if (config.recaptcha?.enterpriseApiKey) {
-    const useAdc = String(process.env.RECAPTCHA_ENTERPRISE_USE_ADC || '').toLowerCase() === 'true';
-    if (useAdc) {
-      return verifyRecaptchaEnterpriseAdc({
-        token,
-        expectedAction: useAction ? expectedAction : undefined,
-        remoteip,
-        userAgent: userAgent || null,
-        siteKeyOverride
-      });
-    }
-    return verifyRecaptchaEnterprise({
+    const preferAdc =
+      String(process.env.RECAPTCHA_ENTERPRISE_USE_ADC || '').toLowerCase() === 'true'
+      || (checkboxKey && hasEnterpriseAdcSupport());
+    const runAdc = () => verifyRecaptchaEnterpriseAdc({
       token,
       expectedAction: useAction ? expectedAction : undefined,
       remoteip,
       userAgent: userAgent || null,
       siteKeyOverride
     });
+    const runApiKey = () => verifyRecaptchaEnterprise({
+      token,
+      expectedAction: useAction ? expectedAction : undefined,
+      remoteip,
+      userAgent: userAgent || null,
+      siteKeyOverride
+    });
+    if (preferAdc) {
+      const adcResult = await runAdc();
+      if (adcResult.ok) return adcResult;
+      if (adcResult.reason !== 'network_error' && adcResult.reason !== 'missing_project') {
+        return adcResult;
+      }
+      return runApiKey();
+    }
+    const apiKeyResult = await runApiKey();
+    if (
+      !apiKeyResult.ok
+      && checkboxKey
+      && hasEnterpriseAdcSupport()
+      && (apiKeyResult.reason === 'network_error' || apiKeyResult.invalidReason === 'INVALID_REASON_UNSPECIFIED')
+    ) {
+      const adcFallback = await runAdc();
+      if (adcFallback.ok) return adcFallback;
+    }
+    return apiKeyResult;
   }
   const secretKey = config.recaptcha?.secretKey || process.env.RECAPTCHA_SECRET_KEY || null;
   if (!secretKey) {
