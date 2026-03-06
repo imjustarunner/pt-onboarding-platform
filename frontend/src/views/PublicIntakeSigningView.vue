@@ -1403,7 +1403,8 @@ const loadLink = async () => {
     const recaptchaConfig = resp.data?.recaptcha || {};
     recaptchaSiteKey.value = String(recaptchaConfig.siteKey || '').trim();
     if (typeof recaptchaConfig.useEnterprise === 'boolean') {
-      useEnterpriseRecaptcha.value = recaptchaConfig.useEnterprise;
+      // Begin-step intake captcha uses the explicit checkbox widget.
+      useEnterpriseRecaptcha.value = false;
     }
     if (!templates.value.length) {
       error.value = 'No documents configured for this intake link.';

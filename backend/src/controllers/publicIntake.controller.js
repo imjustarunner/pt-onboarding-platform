@@ -1197,7 +1197,7 @@ export const getPublicIntakeLink = async (req, res, next) => {
       recaptcha: needsCaptcha
         ? {
             siteKey: process.env.RECAPTCHA_SITE_KEY_INTAKE || null,
-            useEnterprise: !!config.recaptcha?.enterpriseApiKey,
+            useEnterprise: false,
             forceWidget: true
           }
         : { siteKey: null, useEnterprise: false, forceWidget: false },
