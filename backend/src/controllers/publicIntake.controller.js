@@ -983,6 +983,9 @@ const toOrgPayload = (org) => {
 };
 
 const requiresCaptchaForLink = (organization, agency) => {
+  // Emergency default-off switch for public intake captcha.
+  const disableCaptcha = String(process.env.PUBLIC_INTAKE_DISABLE_CAPTCHA || 'true').toLowerCase() === 'true';
+  if (disableCaptcha) return false;
   const forAll = String(process.env.RECAPTCHA_REQUIRED_FOR_ALL || '').toLowerCase() === 'true';
   if (forAll) return true;
   const names = process.env.RECAPTCHA_REQUIRED_ORG_NAMES;
