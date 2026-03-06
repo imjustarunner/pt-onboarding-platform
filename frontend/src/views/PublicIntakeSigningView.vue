@@ -884,6 +884,9 @@ const activeRecaptchaSiteKey = computed(() =>
     ? LOCALHOST_TEST_RECAPTCHA_SITE_KEY
     : recaptchaSiteKey.value
 );
+const activeRecaptchaMode = computed(() =>
+  isLocalhostRecaptcha ? 'standard' : (useEnterpriseRecaptcha.value ? 'enterprise' : 'standard')
+);
 const sessionExpiryMinutes = computed(() => 30 + Math.max(0, Number(templates.value.length || 0)) * 5);
 const approvalContext = computed(() => {
   const mode = String(route.query?.mode || '').trim();
@@ -1410,8 +1413,7 @@ const loadLink = async () => {
     const recaptchaConfig = resp.data?.recaptcha || {};
     recaptchaSiteKey.value = String(recaptchaConfig.siteKey || '').trim();
     if (typeof recaptchaConfig.useEnterprise === 'boolean') {
-      // Begin-step intake captcha uses the explicit checkbox widget.
-      useEnterpriseRecaptcha.value = false;
+      useEnterpriseRecaptcha.value = !!recaptchaConfig.useEnterprise;
     }
     if (!templates.value.length) {
       error.value = 'No documents configured for this intake link.';
@@ -1459,7 +1461,9 @@ const loadRecaptchaScript = async (mode = 'standard', forceReload = false) => {
     clearRecaptchaScript();
   }
   if (window.grecaptcha) {
-    const hasModeApi = !!window.grecaptcha?.render;
+    const hasModeApi = mode === 'enterprise'
+      ? !!window.grecaptcha?.enterprise?.render
+      : !!window.grecaptcha?.render;
     if (hasModeApi) return window.grecaptcha;
   }
   if (document.querySelector('script[data-recaptcha]')) {
@@ -1473,13 +1477,15 @@ const loadRecaptchaScript = async (mode = 'standard', forceReload = false) => {
   }
   return new Promise((resolve, reject) => {
     const script = document.createElement('script');
-    script.src = 'https://www.google.com/recaptcha/api.js?render=explicit';
+    script.src = mode === 'enterprise'
+      ? 'https://www.google.com/recaptcha/enterprise.js?render=explicit'
+      : 'https://www.google.com/recaptcha/api.js?render=explicit';
     script.async = true;
     script.defer = true;
     script.setAttribute('data-recaptcha', 'true');
-    script.setAttribute('data-recaptcha-mode', 'standard');
+    script.setAttribute('data-recaptcha-mode', mode);
     script.onload = () => {
-      waitForRecaptchaApi('standard').then(resolve);
+      waitForRecaptchaApi(mode).then(resolve);
     };
     script.onerror = () => reject(new Error('Failed to load captcha'));
     document.head.appendChild(script);
@@ -1494,7 +1500,7 @@ const clearCaptchaState = () => {
 const ensureRecaptchaWidget = async (mode = 'standard', forceReload = false) => {
   try {
     const grecaptcha = await loadRecaptchaScript(mode, forceReload);
-    const renderFn = grecaptcha?.render;
+    const renderFn = mode === 'enterprise' ? grecaptcha?.enterprise?.render : grecaptcha?.render;
     if (!renderFn) return false;
     let el = recaptchaWidgetElStart.value;
     for (let i = 0; !el && i < 12; i++) {
@@ -1515,8 +1521,8 @@ const ensureRecaptchaWidget = async (mode = 'standard', forceReload = false) => 
     if (recaptchaWidgetId.value !== null) {
       return true;
     }
-    const api = grecaptcha;
-    const readyFn = grecaptcha?.ready;
+    const api = mode === 'enterprise' ? grecaptcha?.enterprise : grecaptcha;
+    const readyFn = mode === 'enterprise' ? grecaptcha?.enterprise?.ready : grecaptcha?.ready;
     if (readyFn) {
       await new Promise((resolve) => readyFn(resolve));
     }
@@ -1557,8 +1563,8 @@ const resetRecaptchaWidget = async () => {
   clearCaptchaState();
   captchaWidgetFailed.value = false;
   try {
-    const grecaptcha = await loadRecaptchaScript('standard');
-    const api = grecaptcha;
+    const grecaptcha = await loadRecaptchaScript(activeRecaptchaMode.value);
+    const api = activeRecaptchaMode.value === 'enterprise' ? grecaptcha?.enterprise : grecaptcha;
     if (api?.reset && recaptchaWidgetId.value !== null) {
       api.reset(recaptchaWidgetId.value);
     }
@@ -1580,7 +1586,7 @@ const updateRecaptchaMode = async () => {
     await nextTick();
     await new Promise((r) => requestAnimationFrame(r));
     await new Promise((r) => setTimeout(r, 150));
-    const rendered = await ensureRecaptchaWidget('standard');
+    const rendered = await ensureRecaptchaWidget(activeRecaptchaMode.value);
     if (!rendered) captchaWidgetFailed.value = true;
   })().catch((err) => {
     console.warn('[recaptcha] mode init failed', err);
