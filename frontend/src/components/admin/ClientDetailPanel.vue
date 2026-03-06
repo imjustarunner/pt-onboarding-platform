@@ -24,7 +24,23 @@
             </template>
           </div>
         </div>
-        <button @click="handleClose" class="btn-close">×</button>
+        <div style="display:flex; align-items:center; gap: 10px; flex-wrap: wrap; justify-content: flex-end;">
+          <div
+            v-if="hasClientNavigation"
+            style="display:flex; align-items:center; gap: 8px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg-alt);"
+          >
+            <button class="btn btn-secondary btn-sm" type="button" :disabled="!canNavigatePrevious" @click="requestNavigate('previous')">
+              Previous
+            </button>
+            <span class="muted" style="font-weight: 800; white-space: nowrap;">
+              {{ currentClientPositionLabel }}
+            </span>
+            <button class="btn btn-secondary btn-sm" type="button" :disabled="!canNavigateNext" @click="requestNavigate('next')">
+              Next
+            </button>
+          </div>
+          <button @click="handleClose" class="btn-close">×</button>
+        </div>
       </div>
 
       <!-- Tab Navigation -->
@@ -1174,6 +1190,14 @@
           </div>
         </div>
 
+        <!-- School ROI Access Tab -->
+        <div v-if="activeTab === 'school-roi'" class="detail-section">
+          <ClientSchoolRoiAccessTab
+            :client="props.client"
+            @updated="refreshClient"
+          />
+        </div>
+
         <!-- Documentation Tab -->
         <div v-if="activeTab === 'phi'" class="detail-section detail-section-docs">
           <div class="form-section-divider" style="margin-top: 0; margin-bottom: 10px;">
@@ -1363,6 +1387,7 @@ import { ref, computed, onMounted, watch } from 'vue';
 import { useAuthStore } from '../../store/auth';
 import api from '../../services/api';
 import PhiDocumentsPanel from './PhiDocumentsPanel.vue';
+import ClientSchoolRoiAccessTab from './ClientSchoolRoiAccessTab.vue';
 import GuardianBillingTab from '../guardian/GuardianBillingTab.vue';
 
 const props = defineProps({
@@ -1377,14 +1402,35 @@ const props = defineProps({
   initialDocumentId: {
     type: Number,
     default: null
+  },
+  currentClientIndex: {
+    type: Number,
+    default: -1
+  },
+  navigationCount: {
+    type: Number,
+    default: 0
   }
 });
 
-const emit = defineEmits(['close', 'updated']);
+const emit = defineEmits(['close', 'updated', 'navigate', 'tab-change']);
 
 const authStore = useAuthStore();
 
 const activeTab = ref('overview');
+const hasClientNavigation = computed(() => Number(props.navigationCount || 0) > 1 && Number(props.currentClientIndex || -1) >= 0);
+const canNavigatePrevious = computed(() => Number(props.currentClientIndex || -1) > 0);
+const canNavigateNext = computed(() => {
+  const idx = Number(props.currentClientIndex || -1);
+  const count = Number(props.navigationCount || 0);
+  return idx >= 0 && idx < count - 1;
+});
+const currentClientPositionLabel = computed(() => {
+  const idx = Number(props.currentClientIndex || -1);
+  const count = Number(props.navigationCount || 0);
+  if (idx < 0 || count <= 0) return '';
+  return `${idx + 1} of ${count}`;
+});
 const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
 const isBackofficeRole = computed(() => ['super_admin', 'admin', 'support', 'staff'].includes(roleNorm.value));
 const canViewAdminNote = computed(() => isBackofficeRole.value || roleNorm.value === 'supervisor');
@@ -1424,6 +1470,8 @@ const tabs = computed(() => {
     base.splice(idx < 0 ? base.length : idx, 0, { id: 'billing', label: 'Billing' });
   }
   if (canEditAccount.value) {
+    const roiIdx = base.findIndex((t) => t.id === 'phi');
+    base.splice(roiIdx < 0 ? base.length : roiIdx, 0, { id: 'school-roi', label: 'School ROI Access' });
     // Insert before PHI tab
     const idx = base.findIndex((t) => t.id === 'phi');
     base.splice(idx < 0 ? base.length : idx, 0, { id: 'assignments', label: 'Assignments' });
@@ -2938,7 +2986,19 @@ const handleClose = () => {
   emit('close');
 };
 
+const requestNavigate = (direction) => {
+  const dir = String(direction || '').toLowerCase();
+  if (dir === 'previous' && !canNavigatePrevious.value) return;
+  if (dir === 'next' && !canNavigateNext.value) return;
+  emit('navigate', {
+    direction: dir,
+    clientId: Number(props.client?.id || 0) || null,
+    tab: String(activeTab.value || 'overview')
+  });
+};
+
 watch(() => activeTab.value, (newTab) => {
+  emit('tab-change', newTab);
   if (newTab === 'history' && history.value.length === 0) {
     fetchHistory();
   } else if (newTab === 'access' && accessLog.value.length === 0) {

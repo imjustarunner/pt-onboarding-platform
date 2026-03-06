@@ -17,7 +17,11 @@
         <div class="client">
           <label class="label-inline" :for="`slot-client-${idx}`">
             <span class="k">Client</span>
-            <select :id="`slot-client-${idx}`" v-model="s.client_id" class="input">
+            <select
+              :id="`slot-client-${idx}`"
+              v-model="s.client_id"
+              :class="['input', { 'input-locked': isLockedClientId(s.client_id) }]"
+            >
               <option :value="null">Open slot</option>
               <option v-for="c in caseloadClients" :key="c.id" :value="Number(c.id)">
                 {{ displayClient(c) }}
@@ -90,7 +94,19 @@ watch(
 
 const slotKey = (s, idx) => String(s?.id || `draft-${idx}`);
 
+const getClientById = (clientId) => {
+  const id = Number(clientId || 0);
+  if (!id) return null;
+  return (Array.isArray(props.caseloadClients) ? props.caseloadClients : []).find((c) => Number(c?.id) === id) || null;
+};
+
+const isLockedClient = (c) => c?.school_portal_force_placeholder === true || c?.school_portal_can_open === false;
+const isLockedClientId = (clientId) => isLockedClient(getClientById(clientId));
+
 const displayClient = (c) => {
+  if (isLockedClient(c)) {
+    return String(c?.school_portal_locked_label || 'NO ROI').trim() || 'NO ROI';
+  }
   const mode = String(props.clientLabelMode || 'codes');
   const src = mode === 'initials' ? (c?.initials || c?.identifier_code) : (c?.identifier_code || c?.initials);
   let raw = String(src || '').replace(/\s+/g, '');
@@ -176,6 +192,11 @@ label {
   border-radius: 10px;
   background: white;
   color: var(--text-primary);
+}
+.input-locked {
+  color: #6b7280;
+  background: #f3f4f6;
+  border-color: #d1d5db;
 }
 .client,
 .time,

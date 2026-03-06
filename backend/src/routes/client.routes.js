@@ -42,6 +42,10 @@ import {
   removeClientProviderAssignment,
   deleteClient
 } from '../controllers/client.controller.js';
+import {
+  listClientSchoolRoiAccess,
+  updateClientSchoolRoiAccess
+} from '../controllers/clientSchoolRoiAccess.controller.js';
 import { listClientGuardians, upsertClientGuardian, updateClientGuardian, removeClientGuardian } from '../controllers/clientGuardian.controller.js';
 import { authenticate, requireBackofficeAdmin, requireGuardianListAccess } from '../middleware/auth.middleware.js';
 
@@ -144,6 +148,8 @@ router.delete('/:id/provider-assignments/:assignmentId', removeClientProviderAss
 
 // Guardians (admin or supervisor with client access can view; only admin can create/update/delete)
 router.get('/:id/guardians', requireGuardianListAccess, listClientGuardians);
+router.get('/:id/school-roi-access', listClientSchoolRoiAccess);
+router.put('/:id/school-roi-access/:schoolStaffUserId', updateClientSchoolRoiAccess);
 router.post(
   '/:id/guardians',
   requireBackofficeAdmin,

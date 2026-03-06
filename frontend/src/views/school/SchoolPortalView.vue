@@ -757,15 +757,30 @@
       v-if="selectedClient && organizationId"
       :client="selectedClient"
       :school-organization-id="organizationId"
+      :can-edit-action="canEditClientActions"
+      :show-checklist-action="isProvider && !!selectedClient?.user_is_assigned_provider"
+      @open-edit="openClientEditorFromModal"
+      @open-checklist="openChecklistFromModal"
       @close="selectedClient = null"
     />
 
     <ClientDetailPanel
       v-if="adminSelectedClient"
       :client="adminSelectedClient"
-      :initial-tab="isProvider ? 'checklist' : ''"
+      :initial-tab="adminClientActiveTab"
+      :current-client-index="adminClientCurrentIndex"
+      :navigation-count="adminClientNavigationIds.length"
+      @navigate="navigateAdminClient"
+      @tab-change="handleAdminClientTabChange"
       @close="closeAdminClientEditor"
       @updated="handleAdminClientUpdated"
+    />
+
+    <QuickChecklistModal
+      v-if="quickChecklistClient"
+      :client="quickChecklistClient"
+      @close="quickChecklistClient = null"
+      @saved="quickChecklistClient = null"
     />
 
     <SchoolHelpDeskModal
@@ -1014,6 +1029,7 @@ import ComplianceCornerModal from '../../components/school/redesign/ComplianceCo
 import FaqPanel from '../../components/school/redesign/FaqPanel.vue';
 import ClientDetailPanel from '../../components/admin/ClientDetailPanel.vue';
 import OrganizationSettingsModal from '../../components/school/OrganizationSettingsModal.vue';
+import QuickChecklistModal from '../../components/school/QuickChecklistModal.vue';
 import { useSchoolPortalRedesignStore } from '../../store/schoolPortalRedesign';
 import { useAuthStore } from '../../store/auth';
 import api from '../../services/api';
@@ -1216,6 +1232,10 @@ const portalMode = ref('home'); // home | providers | days | roster | skills | s
 const rosterStatusFilterKey = ref(''); // client_status_key filter for roster panel (pending/waitlist)
 const adminSelectedClient = ref(null);
 const adminClientLoading = ref(false);
+const adminClientNavigationIds = ref([]);
+const adminClientActiveTab = ref('');
+const quickChecklistClient = ref(null);
+const canEditClientActions = ref(false);
 const cardIconOrg = ref(null); // affiliated agency record (for School Portal card icon overrides)
 
 const requestedPortalMode = computed(() => String(route.query?.sp || '').trim().toLowerCase());
@@ -1446,8 +1466,10 @@ const loadNotificationsPreview = async () => {
     notificationsUnreadCount.value = unread.length;
     const newest = feed?.[0] || null;
     const formatClientLabel = (it) => {
+      if (it?.client_access_locked) return 'NO ROI';
       const code = String(it?.client_identifier_code || '').trim();
       const initials = String(it?.client_initials || '').trim();
+      if (it?.client_force_code_only) return code || initials || '';
       if (clientLabelMode.value === 'initials') return initials || code || '';
       return code || initials || '';
     };
@@ -1673,6 +1695,7 @@ const ensureAffiliation = async () => {
     const r = await api.get(`/school-portal/${organizationId.value}/affiliation`);
     const active = r?.data?.active_agency_id ?? null;
     affiliatedAgencyId.value = active ? Number(active) : null;
+    canEditClientActions.value = !!r?.data?.can_edit_clients;
 
     // Best-effort: load full affiliated agency record for icon overrides (cards + settings icon).
     if (affiliatedAgencyId.value) {
@@ -1685,6 +1708,7 @@ const ensureAffiliation = async () => {
   } catch {
     affiliatedAgencyId.value = null;
     cardIconOrg.value = null;
+    canEditClientActions.value = false;
   }
 };
 
@@ -1879,8 +1903,21 @@ const handleMoveSlot = async ({ providerUserId, slotId, direction }) => {
   await store.moveSoftSlot(store.selectedWeekday, providerUserId, slotId, direction);
 };
 
+const isClientPortalLocked = (client) => String(authStore.user?.role || '').toLowerCase() === 'school_staff' && client?.school_portal_can_open === false;
+
 const openClient = (client) => {
+  if (isClientPortalLocked(client)) return;
   selectedClient.value = client;
+};
+
+const openClientEditorFromModal = async (client) => {
+  selectedClient.value = null;
+  await openAdminClientEditor(client);
+};
+
+const openChecklistFromModal = (client) => {
+  selectedClient.value = null;
+  quickChecklistClient.value = client;
 };
 
 const openClientFromQuery = async () => {
@@ -1891,7 +1928,7 @@ const openClientFromQuery = async () => {
     });
     const list = Array.isArray(r.data) ? r.data : [];
     const found = list.find((c) => Number(c?.id) === Number(requestedClientId.value));
-    if (found) {
+    if (found && !isClientPortalLocked(found)) {
       selectedClient.value = found;
     }
   } catch {
@@ -1916,7 +1953,7 @@ const openTicketFromNotification = async ({ ticketId, clientId, messageId } = {}
   const cid = Number(clientId || 0);
   if (!cid) return;
   const client = await loadNotificationClient(cid);
-  if (!client) return;
+  if (!client || isClientPortalLocked(client)) return;
   ticketModalClient.value = client;
   ticketModalTicketId.value = ticketId ? Number(ticketId) : null;
   ticketModalMessageId.value = messageId ? Number(messageId) : null;
@@ -1927,7 +1964,7 @@ const openClientFromNotification = async ({ clientId } = {}) => {
   const cid = Number(clientId || 0);
   if (!cid) return;
   const client = await loadNotificationClient(cid);
-  if (!client) return;
+  if (!client || isClientPortalLocked(client)) return;
   openClient(client);
 };
 
@@ -1938,12 +1975,30 @@ const closeTicketModal = () => {
   ticketModalMessageId.value = null;
 };
 
-const openAdminClientEditor = async (client) => {
+const adminClientCurrentIndex = computed(() => {
+  const currentId = Number(adminSelectedClient.value?.id || 0);
+  if (!currentId) return -1;
+  return adminClientNavigationIds.value.findIndex((id) => Number(id) === currentId);
+});
+
+const fetchAdminClientById = async (clientId) => {
+  const r = await api.get(`/clients/${clientId}`);
+  return r.data || null;
+};
+
+const openAdminClientEditor = async (payload) => {
+  const client = payload?.client || payload;
   if (!client?.id) return;
+  const navigationIds = Array.isArray(payload?.navigationClientIds)
+    ? payload.navigationClientIds.map((id) => Number(id || 0)).filter(Boolean)
+    : [Number(client.id)];
+  if (!adminSelectedClient.value) {
+    adminClientActiveTab.value = isProvider.value ? 'checklist' : '';
+  }
+  adminClientNavigationIds.value = navigationIds.length > 0 ? navigationIds : [Number(client.id)];
   adminClientLoading.value = true;
   try {
-    const r = await api.get(`/clients/${client.id}`);
-    adminSelectedClient.value = r.data || null;
+    adminSelectedClient.value = await fetchAdminClientById(client.id);
   } catch (e) {
     console.error('Failed to open client editor:', e);
     alert(e.response?.data?.error?.message || e.message || 'Failed to open client editor');
@@ -1955,11 +2010,34 @@ const openAdminClientEditor = async (client) => {
 
 const closeAdminClientEditor = () => {
   adminSelectedClient.value = null;
+  adminClientNavigationIds.value = [];
+  adminClientActiveTab.value = isProvider.value ? 'checklist' : '';
 };
 
 const handleAdminClientUpdated = (payload) => {
   if (payload?.client) {
     adminSelectedClient.value = payload.client;
+  }
+};
+
+const handleAdminClientTabChange = (tab) => {
+  adminClientActiveTab.value = String(tab || '');
+};
+
+const navigateAdminClient = async ({ direction }) => {
+  const idx = adminClientCurrentIndex.value;
+  if (idx < 0) return;
+  const nextIdx = String(direction || '').toLowerCase() === 'previous' ? idx - 1 : idx + 1;
+  const nextId = Number(adminClientNavigationIds.value[nextIdx] || 0);
+  if (!nextId) return;
+  adminClientLoading.value = true;
+  try {
+    adminSelectedClient.value = await fetchAdminClientById(nextId);
+  } catch (e) {
+    console.error('Failed to navigate client editor:', e);
+    alert(e.response?.data?.error?.message || e.message || 'Failed to load next client');
+  } finally {
+    adminClientLoading.value = false;
   }
 };
 

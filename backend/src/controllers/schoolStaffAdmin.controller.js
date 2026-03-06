@@ -1,6 +1,7 @@
 import pool from '../config/database.js';
 import Agency from '../models/Agency.model.js';
 import User from '../models/User.model.js';
+import ClientSchoolStaffRoiAccess from '../models/ClientSchoolStaffRoiAccess.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
 
@@ -374,6 +375,11 @@ export const createSchoolStaffUserFromContact = async (req, res, next) => {
 
     // Ensure membership exists.
     await User.assignToAgency(user.id, orgId);
+    await ClientSchoolStaffRoiAccess.revokeForSchoolStaff({
+      schoolStaffUserId: user.id,
+      schoolOrganizationId: orgId,
+      actorUserId: req.user?.id || null
+    });
 
     // School-specific setup: admin provides temporary password, valid for 7 days.
     const temporaryPasswordResult = await User.setTemporaryPassword(user.id, temporaryPassword, 24 * 7);
@@ -415,7 +421,16 @@ export const revokeSchoolStaffAccess = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'User is not assigned to this school.' } });
     }
 
+    await ClientSchoolStaffRoiAccess.revokeForSchoolStaff({
+      schoolStaffUserId: userId,
+      schoolOrganizationId: orgId,
+      actorUserId: req.user?.id || null
+    });
     await User.removeFromAgency(userId, orgId);
+    const stillHasSchoolAccess = await User.hasAnySchoolAgencyMembership(userId);
+    if (!stillHasSchoolAccess) {
+      await User.disableSchoolStaffLogin(userId, req.user?.id || null);
+    }
     res.json({ ok: true });
   } catch (error) {
     next(error);

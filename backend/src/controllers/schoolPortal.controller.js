@@ -5,6 +5,9 @@
 
 import Client from '../models/Client.model.js';
 import ClientNotes from '../models/ClientNotes.model.js';
+import ClientSchoolStaffRoiAccess, {
+  getEffectiveSchoolStaffRoiState
+} from '../models/ClientSchoolStaffRoiAccess.model.js';
 import User from '../models/User.model.js';
 import { logClientAccess } from '../services/clientAccessLog.service.js';
 import { logAuditEvent } from '../services/auditEvent.service.js';
@@ -403,6 +406,43 @@ async function userHasOrgOrAffiliatedAgencyAccess({ userId, role, user = null, s
   return (userOrgs || []).some((org) => parseInt(org.id, 10) === parseInt(activeAgencyId, 10));
 }
 
+async function listSchoolStaffAccessByClient({ userId, role, schoolOrganizationId, clientIds }) {
+  if (String(role || '').toLowerCase() !== 'school_staff') return new Map();
+  return ClientSchoolStaffRoiAccess.listAccessRecordsForSchoolStaff({
+    schoolStaffUserId: userId,
+    schoolOrganizationId,
+    clientIds
+  });
+}
+
+function getSchoolStaffPortalAccessMeta(client, accessMap) {
+  const clientId = Number(client?.id || 0);
+  const record = clientId ? accessMap.get(clientId) : null;
+  const effectiveState = getEffectiveSchoolStaffRoiState(record, client?.roi_expires_at || null);
+  return {
+    school_staff_access_level: record?.is_active ? String(record.access_level || 'packet').toLowerCase() : 'none',
+    school_staff_effective_access_state: effectiveState,
+    school_portal_can_open: effectiveState === 'roi',
+    school_portal_force_code: effectiveState !== 'roi',
+    school_portal_gray: effectiveState !== 'roi'
+  };
+}
+
+async function ensureSchoolStaffClientRoiAccess({ userId, role, schoolOrganizationId, clientId }) {
+  if (String(role || '').toLowerCase() !== 'school_staff') {
+    return { ok: true };
+  }
+  const allowed = await ClientSchoolStaffRoiAccess.schoolStaffHasActiveRoiAccess({
+    clientId,
+    schoolOrganizationId,
+    schoolStaffUserId: userId
+  });
+  if (!allowed) {
+    return { ok: false, status: 403, message: 'ROI access required for this client' };
+  }
+  return { ok: true };
+}
+
 /**
  * Get clients for school portal (restricted view)
  * GET /api/school-portal/:organizationId/clients
@@ -488,6 +528,7 @@ export const getSchoolClients = async (req, res, next) => {
            GROUP_CONCAT(DISTINCT cpa.service_day ORDER BY FIELD(cpa.service_day,'Monday','Tuesday','Wednesday','Thursday','Friday') SEPARATOR ', ') AS service_day,
            MAX(CASE WHEN ? IS NOT NULL AND cpa.provider_user_id = ? THEN 1 ELSE 0 END) AS user_is_assigned_provider,
            c.submission_date,
+           c.source,
            c.document_status,
            c.paperwork_status_id,
            ps.label AS paperwork_status_label,
@@ -705,8 +746,24 @@ export const getSchoolClients = async (req, res, next) => {
       // ignore
     }
 
+    const schoolStaffAccessByClientId = await listSchoolStaffAccessByClient({
+      userId,
+      role: userRole,
+      schoolOrganizationId: orgId,
+      clientIds: (clients || []).map((c) => Number(c?.id)).filter(Boolean)
+    });
+
     // Format response: Only include non-sensitive fields
     const restrictedClients = clients.map(client => {
+      const schoolStaffAccessMeta = String(userRole || '').toLowerCase() === 'school_staff'
+        ? getSchoolStaffPortalAccessMeta(client, schoolStaffAccessByClientId)
+        : {
+            school_staff_access_level: null,
+            school_staff_effective_access_state: null,
+            school_portal_can_open: true,
+            school_portal_force_code: false,
+            school_portal_gray: false
+          };
       return {
         id: client.id,
         initials: client.initials,
@@ -724,6 +781,7 @@ export const getSchoolClients = async (req, res, next) => {
         service_day: client.service_day || null,
         user_is_assigned_provider: client.user_is_assigned_provider === 1 || client.user_is_assigned_provider === true,
         submission_date: client.submission_date,
+        source: client.source || null,
         // For the portal, "Doc Status" should reflect paperwork status/delivery (new model),
         // while still exposing legacy document_status for backward compatibility.
         document_status: client.document_status,
@@ -743,7 +801,8 @@ export const getSchoolClients = async (req, res, next) => {
         open_ticket_count: openTicketsByClientId.get(Number(client.id)) || 0,
         answered_ticket_count: answeredTicketsByClientId.get(Number(client.id)) || 0,
         has_open_ticket: (openTicketsByClientId.get(Number(client.id)) || 0) > 0,
-        has_answered_ticket: (answeredTicketsByClientId.get(Number(client.id)) || 0) > 0
+        has_answered_ticket: (answeredTicketsByClientId.get(Number(client.id)) || 0) > 0,
+        ...schoolStaffAccessMeta
       };
     });
 
@@ -855,6 +914,7 @@ export const getProviderMyRoster = async (req, res, next) => {
            GROUP_CONCAT(DISTINCT cpa.service_day ORDER BY FIELD(cpa.service_day,'Monday','Tuesday','Wednesday','Thursday','Friday') SEPARATOR ', ') AS service_day,
            1 AS user_is_assigned_provider,
            c.submission_date,
+           c.source,
            c.document_status,
            c.paperwork_status_id,
            ps.label AS paperwork_status_label,
@@ -1092,6 +1152,7 @@ export const getProviderMyRoster = async (req, res, next) => {
         service_day: client.service_day || null,
         user_is_assigned_provider: true,
         submission_date: client.submission_date,
+        source: client.source || null,
         document_status: client.document_status,
         paperwork_status_id: client.paperwork_status_id || null,
         paperwork_status_label: client.paperwork_status_label || null,
@@ -1610,7 +1671,16 @@ export const removeSchoolStaff = async (req, res, next) => {
 
     const targetEmail = (u.email || u.work_email || '').trim().toLowerCase();
 
+    await ClientSchoolStaffRoiAccess.revokeForSchoolStaff({
+      schoolStaffUserId: targetUserId,
+      schoolOrganizationId: orgId,
+      actorUserId: actorId
+    });
     await User.removeFromAgency(targetUserId, orgId);
+    const stillHasSchoolAccess = await User.hasAnySchoolAgencyMembership(targetUserId);
+    if (!stillHasSchoolAccess) {
+      await User.disableSchoolStaffLogin(targetUserId, actorId);
+    }
 
     if (targetEmail) {
       try {
@@ -1958,6 +2028,11 @@ export const addSchoolStaff = async (req, res, next) => {
     }
 
     await User.assignToAgency(user.id, orgId);
+    await ClientSchoolStaffRoiAccess.revokeForSchoolStaff({
+      schoolStaffUserId: user.id,
+      schoolOrganizationId: orgId,
+      actorUserId: actorId
+    });
 
     try {
       await pool.execute(
@@ -2573,6 +2648,14 @@ export const getClientWaitlistNote = async (req, res, next) => {
       if (!ok) return res.status(403).json({ error: { message: 'You do not have access to this school organization' } });
     }
 
+    const roiAccess = await ensureSchoolStaffClientRoiAccess({
+      userId,
+      role: roleNorm,
+      schoolOrganizationId: orgId,
+      clientId
+    });
+    if (!roiAccess.ok) return res.status(roiAccess.status).json({ error: { message: roiAccess.message } });
+
     const providerUserId = roleNorm === 'provider' ? Number(userId) : null;
     const providerClientIds = providerUserId ? await getProviderAssignedClientIds({ providerUserId, schoolOrganizationId: orgId }) : [];
     const providerClientPlaceholders = providerClientIds.map(() => '?').join(',');
@@ -2635,6 +2718,14 @@ export const upsertClientWaitlistNote = async (req, res, next) => {
       if (!ok) return res.status(403).json({ error: { message: 'You do not have access to this school organization' } });
     }
 
+    const roiAccess = await ensureSchoolStaffClientRoiAccess({
+      userId,
+      role: roleNorm,
+      schoolOrganizationId: orgId,
+      clientId
+    });
+    if (!roiAccess.ok) return res.status(roiAccess.status).json({ error: { message: roiAccess.message } });
+
     const isSupervisorOnly = await isSupervisorOnlyActor({ userId, role: roleNorm, user: req.user });
     // Providers can only edit waitlist notes for clients assigned to them in this org.
     if (roleNorm === 'provider') {
@@ -2695,6 +2786,14 @@ export const listClientComments = async (req, res, next) => {
       if (!ok) return res.status(403).json({ error: { message: 'You do not have access to this school organization' } });
     }
 
+    const roiAccess = await ensureSchoolStaffClientRoiAccess({
+      userId,
+      role: roleNorm,
+      schoolOrganizationId: orgId,
+      clientId
+    });
+    if (!roiAccess.ok) return res.status(roiAccess.status).json({ error: { message: roiAccess.message } });
+
     const isSupervisorOnly = await isSupervisorOnlyActor({ userId, role: roleNorm, user: req.user });
     // Providers may only view comments for clients assigned to them in this org.
     if (roleNorm === 'provider') {
@@ -2754,6 +2853,14 @@ export const createClientComment = async (req, res, next) => {
       const ok = await userHasOrgOrAffiliatedAgencyAccess({ userId, role: roleNorm, schoolOrganizationId: orgId });
       if (!ok) return res.status(403).json({ error: { message: 'You do not have access to this school organization' } });
     }
+
+    const roiAccess = await ensureSchoolStaffClientRoiAccess({
+      userId,
+      role: roleNorm,
+      schoolOrganizationId: orgId,
+      clientId
+    });
+    if (!roiAccess.ok) return res.status(roiAccess.status).json({ error: { message: roiAccess.message } });
 
     const isSupervisorOnly = await isSupervisorOnlyActor({ userId, role: roleNorm, user: req.user });
     // Providers may only comment for clients assigned to them in this org.
@@ -3428,12 +3535,16 @@ export const listSchoolPortalNotificationsFeed = async (req, res, next) => {
           const actor = [String(r.first_name || '').trim(), String(r.last_name || '').trim()].filter(Boolean).join(' ').trim();
           const clientLabel = String(r.identifier_code || r.initials || '—');
           const source = sourceLabel(r.source);
-          const msg = actor ? `${clientLabel}: added by ${actor}` : `${clientLabel}: added via ${source}`;
+          const isLinkedPacket = String(r.source || '').toLowerCase().includes('public_intake_link') || String(r.source || '').toLowerCase().includes('intake_link');
+          const title = isLinkedPacket ? 'New packet upload' : 'New client added';
+          const msg = isLinkedPacket
+            ? `${clientLabel}: ROI has not been updated by staff yet`
+            : (actor ? `${clientLabel}: added by ${actor}` : `${clientLabel}: added via ${source}`);
           return {
             id: `client_created:${r.id}`,
             kind: 'client_created',
             created_at: r.created_at,
-            title: 'New client added',
+            title,
             message: msg,
             actor_name: actor || null,
             client_id: Number(r.id),
@@ -3709,7 +3820,50 @@ export const listSchoolPortalNotificationsFeed = async (req, res, next) => {
       return String(b.id).localeCompare(String(a.id));
     });
 
-    res.json(deduped.slice(0, 500));
+    let responseItems = deduped.slice(0, 500);
+    if (roleNorm === 'school_staff') {
+      const clientIds = Array.from(
+        new Set(responseItems.map((item) => Number(item?.client_id || 0)).filter(Boolean))
+      );
+      const accessByClientId = await listSchoolStaffAccessByClient({
+        userId,
+        role: roleNorm,
+        schoolOrganizationId: orgId,
+        clientIds
+      });
+      const roiExpiresByClientId = new Map();
+      if (clientIds.length > 0) {
+        const placeholders = clientIds.map(() => '?').join(',');
+        const [clientRows] = await pool.execute(
+          `SELECT id, roi_expires_at
+           FROM clients
+           WHERE id IN (${placeholders})`,
+          clientIds
+        );
+        for (const row of clientRows || []) {
+          roiExpiresByClientId.set(Number(row.id), row.roi_expires_at || null);
+        }
+      }
+      responseItems = responseItems.flatMap((item) => {
+        const clientId = Number(item?.client_id || 0);
+        if (!clientId) return [item];
+        const accessMeta = getSchoolStaffPortalAccessMeta(
+          { id: clientId, roi_expires_at: roiExpiresByClientId.get(clientId) || null },
+          accessByClientId
+        );
+        if (accessMeta.school_portal_can_open === false) {
+          return [];
+        }
+        return [{
+          ...item,
+          client_access_locked: false,
+          client_force_code_only: false,
+          school_staff_effective_access_state: accessMeta.school_staff_effective_access_state
+        }];
+      });
+    }
+
+    res.json(responseItems);
   } catch (e) {
     next(e);
   }

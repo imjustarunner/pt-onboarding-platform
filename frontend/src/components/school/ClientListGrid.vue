@@ -174,18 +174,27 @@
             :key="client.id"
             class="client-row"
             :class="{
-              'client-row-clickable': isSchoolStaff,
-              'client-row-newly-assigned': isNewlyAssigned(client)
+              'client-row-clickable': isSchoolStaff && canOpenSchoolClient(client),
+              'client-row-newly-assigned': isNewlyAssigned(client),
+              'client-row-locked': isSchoolStaff && isSchoolClientLocked(client)
             }"
-            :role="isSchoolStaff ? 'button' : undefined"
-            :tabindex="isSchoolStaff ? 0 : undefined"
+            :role="isSchoolStaff && canOpenSchoolClient(client) ? 'button' : undefined"
+            :tabindex="isSchoolStaff && canOpenSchoolClient(client) ? 0 : undefined"
             @click="handleRowActivate(client)"
             @keydown.enter.prevent="handleRowActivate(client)"
             @keydown.space.prevent="handleRowActivate(client)"
           >
             <td class="initials-cell">
               <div class="client-label">
-                <span class="initials" :title="rosterLabelTitle(client)">{{ formatRosterLabel(client) }}</span>
+                <button
+                  class="initials initials-btn"
+                  type="button"
+                  :disabled="!canOpenSchoolClient(client)"
+                  :title="canOpenSchoolClient(client) ? rosterLabelTitle(client) : lockedClientTitle(client)"
+                  @click.stop="openClient(client, 'comments')"
+                >
+                  {{ formatRosterLabel(client) }}
+                </button>
                 <span
                   v-if="isNewlyAssigned(client)"
                   class="newly-assigned-badge"
@@ -309,8 +318,13 @@
               </span>
             </td>
             <td>
-              <button class="btn btn-secondary btn-sm comment-btn" @click.stop="openClient(client)">
-                View & Comment
+              <button
+                class="btn btn-secondary btn-sm comment-btn"
+                :disabled="isSchoolStaff && !canOpenSchoolClient(client)"
+                :title="isSchoolStaff && !canOpenSchoolClient(client) ? lockedClientTitle(client) : 'Open client comments and messages'"
+                @click.stop="openClient(client)"
+              >
+                {{ isSchoolStaff && !canOpenSchoolClient(client) ? lockedClientButtonLabel(client) : 'View & Comment' }}
               </button>
             </td>
             <td v-if="showChecklistButton">
@@ -351,6 +365,10 @@
       :client="selectedClient"
       :schoolOrganizationId="selectedClient?.organization_id || organizationId"
       :initial-pane="selectedClientInitialPane"
+      :can-edit-action="canEditClients"
+      :show-checklist-action="showChecklistButton && !!selectedClient?.user_is_assigned_provider"
+      @open-edit="openClientEditorFromModal"
+      @open-checklist="openChecklistFromModal"
       @close="selectedClient = null; selectedClientInitialPane = null"
     />
 
@@ -479,6 +497,8 @@ const terminateModalClient = ref(null);
 const terminateReasonDraft = ref('');
 const terminateSaving = ref(false);
 const isSchoolStaff = computed(() => String(authStore.user?.role || '').toLowerCase() === 'school_staff');
+const isSchoolClientLocked = (client) => isSchoolStaff.value && client?.school_portal_can_open === false;
+const canOpenSchoolClient = (client) => !isSchoolClientLocked(client);
 const showChecklistButton = computed(() => {
   const r = String(authStore.user?.role || '').toLowerCase();
   return r === 'provider';
@@ -855,8 +875,10 @@ const formatDate = (dateString) => {
 };
 
 const formatRosterLabel = (client) => {
+  if (client?.school_portal_can_open === false) return 'NO ROI';
   const initials = String(client?.initials || '').replace(/\s+/g, '').toUpperCase();
   const code = String(client?.identifier_code || '').replace(/\s+/g, '').toUpperCase();
+  if (client?.school_portal_force_code) return code || initials || '—';
   if (props.clientLabelMode === 'initials') return initials || code || '—';
   return code || initials || '—';
 };
@@ -879,9 +901,23 @@ const formatClientStatusLabel = (client) => {
 };
 
 const rosterLabelTitle = (client) => {
+  if (client?.school_portal_can_open === false) return '';
+  if (client?.school_portal_force_code) return '';
   if (props.clientLabelMode !== 'codes') return '';
   const initials = String(client?.initials || '').replace(/\s+/g, '').toUpperCase();
   return initials || '';
+};
+
+const lockedClientTitle = (client) => {
+  const state = String(client?.school_staff_effective_access_state || '').toLowerCase();
+  if (state === 'expired') return 'ROI expired. A new packet and ROI approval are required.';
+  if (state === 'packet') return 'Packet uploaded. Support must grant ROI access before this client can be opened.';
+  return 'ROI access is required before this client can be opened.';
+};
+
+const lockedClientButtonLabel = (client) => {
+  const state = String(client?.school_staff_effective_access_state || '').toLowerCase();
+  return state === 'expired' ? 'ROI Expired' : 'ROI Locked';
 };
 
 const pendingComplianceTitle = (client) => {
@@ -921,6 +957,15 @@ const messageBadgeTitle = (client) => {
 };
 
 const formatDocSummary = (client) => {
+  const source = String(client?.source || '').trim().toLowerCase();
+  const isLinkedPacketUpload = source.includes('public_intake_link') || source.includes('intake_link');
+  const accessState = String(client?.school_staff_effective_access_state || '').toLowerCase();
+  if (accessState === 'expired') {
+    return 'ROI expired · New packet upload and ROI approval are required.';
+  }
+  if (client?.school_portal_can_open === false && isLinkedPacketUpload) {
+    return 'New packet upload · ROI has not been updated by staff yet.';
+  }
   // Prefer paperwork status (new model) so the portal reflects bulk upload fields:
   // paperwork_status / paperwork_delivery / doc_date.
   const status = String(client?.paperwork_status_label || '').trim();
@@ -986,6 +1031,7 @@ const markClientUpdatesRead = async (client) => {
 };
 
 const openClient = (client, initialPane = null) => {
+  if (!canOpenSchoolClient(client)) return;
   selectedClient.value = client;
   selectedClientInitialPane.value = initialPane;
   if (initialPane === 'comments') {
@@ -997,6 +1043,7 @@ const openClient = (client, initialPane = null) => {
 };
 
 const openClientUpdates = async (client) => {
+  if (!canOpenSchoolClient(client)) return;
   openClient(client);
   await markClientUpdatesRead(client);
   updateClientCounts(client?.id, { unread_updates_count: 0 });
@@ -1022,14 +1069,29 @@ const onWaitlistSaved = (note) => {
 const handleRowActivate = (client) => {
   // School staff only have one action on roster rows: view/comment thread.
   // Make the entire row clickable for them to reduce friction.
-  if (!isSchoolStaff.value) return;
+  if (!isSchoolStaff.value || !canOpenSchoolClient(client)) return;
   openClient(client, 'comments');
+};
+
+const openClientEditorFromModal = (client) => {
+  selectedClient.value = null;
+  selectedClientInitialPane.value = null;
+  goEdit(client);
+};
+
+const openChecklistFromModal = (client) => {
+  selectedClient.value = null;
+  selectedClientInitialPane.value = null;
+  openQuickChecklist(client);
 };
 
 const goEdit = (client) => {
   if (!client?.id) return;
   if (props.editMode === 'inline') {
-    emit('edit-client', client);
+    emit('edit-client', {
+      client,
+      navigationClientIds: (sortedClients.value || []).map((row) => Number(row?.id || 0)).filter(Boolean)
+    });
     return;
   }
   const query = { clientId: String(client.id) };
@@ -1472,6 +1534,13 @@ onMounted(() => {
   border: 1px solid var(--border);
   background: var(--bg);
 }
+.initials-btn {
+  border: none;
+  cursor: pointer;
+}
+.initials-btn:disabled {
+  cursor: default;
+}
 
 .clients-table td {
   padding: 6px 10px;
@@ -1533,6 +1602,11 @@ onMounted(() => {
 
 .client-row-clickable:hover {
   background: var(--bg-alt);
+}
+
+.client-row-locked {
+  background: rgba(107, 114, 128, 0.08);
+  opacity: 0.82;
 }
 
 .comment-btn {

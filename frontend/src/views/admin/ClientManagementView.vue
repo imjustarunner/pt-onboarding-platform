@@ -325,8 +325,12 @@
       v-if="selectedClient"
       :key="String(selectedClient?.id || '')"
       :client="selectedClient"
-      :initial-tab="String(route.query?.tab || '')"
+      :initial-tab="clientDetailTab"
       :initial-document-id="Number(route.query?.documentId) || null"
+      :current-client-index="selectedClientIndex"
+      :navigation-count="filteredClients.length"
+      @navigate="navigateClientDetail"
+      @tab-change="handleClientDetailTabChange"
       @close="closeClientDetail"
       @updated="handleClientUpdated"
     />
@@ -846,6 +850,7 @@ const providerFilter = ref('');
 const skillsOnly = ref(false);
 const sortBy = ref('submission_date-desc');
 const selectedClient = ref(null);
+const clientDetailTab = ref(String(route.query?.tab || ''));
 const showCreateModal = ref(false);
 const openCreateClientModal = async () => {
   showCreateModal.value = true;
@@ -1501,6 +1506,12 @@ const pagedClients = computed(() => {
   return filteredClients.value.slice(start, start + pageSize.value);
 });
 
+const selectedClientIndex = computed(() => {
+  const currentId = Number(selectedClient.value?.id || 0);
+  if (!currentId) return -1;
+  return filteredClients.value.findIndex((client) => Number(client?.id || 0) === currentId);
+});
+
 const allPageSelected = computed(() => {
   const page = pagedClients.value || [];
   if (!page.length) return false;
@@ -1872,11 +1883,15 @@ const cancelEdit = () => {
 const openClientDetail = (client) => {
   // Pass a fresh object so the modal remount/update path is stable (helps avoid rare
   // Vue update issues during HMR or when switching clients quickly).
+  if (!selectedClient.value) {
+    clientDetailTab.value = String(route.query?.tab || '');
+  }
   selectedClient.value = client ? { ...client } : null;
 };
 
 const closeClientDetail = () => {
   selectedClient.value = null;
+  clientDetailTab.value = String(route.query?.tab || '');
 };
 
 const handleClientUpdated = (payload) => {
@@ -1887,6 +1902,19 @@ const handleClientUpdated = (payload) => {
     return;
   }
   closeClientDetail();
+};
+
+const handleClientDetailTabChange = (tab) => {
+  clientDetailTab.value = String(tab || '');
+};
+
+const navigateClientDetail = ({ direction }) => {
+  const idx = selectedClientIndex.value;
+  if (idx < 0) return;
+  const nextIdx = String(direction || '').toLowerCase() === 'previous' ? idx - 1 : idx + 1;
+  const nextClient = filteredClients.value[nextIdx] || null;
+  if (!nextClient) return;
+  selectedClient.value = { ...nextClient };
 };
 
 const createClient = async () => {

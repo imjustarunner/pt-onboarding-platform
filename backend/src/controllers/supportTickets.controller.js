@@ -6,6 +6,7 @@ import AgencySchool from '../models/AgencySchool.model.js';
 import Notification from '../models/Notification.model.js';
 import Client from '../models/Client.model.js';
 import ClientNotes from '../models/ClientNotes.model.js';
+import ClientSchoolStaffRoiAccess from '../models/ClientSchoolStaffRoiAccess.model.js';
 import { callGeminiText } from '../services/geminiText.service.js';
 import { sendNotificationEmail } from '../services/unifiedEmail/unifiedEmailSender.service.js';
 import NotificationGatekeeperService from '../services/notificationGatekeeper.service.js';
@@ -263,7 +264,14 @@ async function canSupervisorAccessClientScope({ req, schoolOrganizationId, clien
 
 async function canViewClientTicketScope({ req, schoolOrganizationId, clientId }) {
   const role = String(req.user?.role || '').toLowerCase();
-  if (role === 'super_admin' || role === 'school_staff' || isAgencyAdminUser(req)) return true;
+  if (role === 'super_admin' || isAgencyAdminUser(req)) return true;
+  if (role === 'school_staff') {
+    return await ClientSchoolStaffRoiAccess.schoolStaffHasActiveRoiAccess({
+      clientId,
+      schoolOrganizationId,
+      schoolStaffUserId: req.user?.id
+    });
+  }
   if (role === 'provider') {
     return await providerAssignedToClientInOrg({ providerUserId: req.user?.id, clientId, orgId: schoolOrganizationId });
   }
@@ -657,6 +665,14 @@ export const createSupportTicket = async (req, res, next) => {
       if (role === 'school_staff') {
         const okClient = await ensureClientInOrg({ clientId, schoolOrganizationId });
         if (!okClient.ok) return res.status(okClient.status).json({ error: { message: okClient.message } });
+        const hasRoiAccess = await ClientSchoolStaffRoiAccess.schoolStaffHasActiveRoiAccess({
+          clientId,
+          schoolOrganizationId,
+          schoolStaffUserId: req.user?.id
+        });
+        if (!hasRoiAccess) {
+          return res.status(403).json({ error: { message: 'ROI access required for this client' } });
+        }
       } else if (role === 'provider') {
         const assigned = await providerAssignedToClientInOrg({
           providerUserId: req.user?.id,
@@ -917,7 +933,14 @@ export const listSupportTicketMessages = async (req, res, next) => {
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
 
     const role = String(req.user?.role || '').toLowerCase();
-    let canView = role === 'school_staff' || isAgencyAdminUser(req) || role === 'super_admin';
+    let canView = isAgencyAdminUser(req) || role === 'super_admin';
+    if (!canView && role === 'school_staff' && ticket.client_id) {
+      canView = await ClientSchoolStaffRoiAccess.schoolStaffHasActiveRoiAccess({
+        clientId: ticket.client_id,
+        schoolOrganizationId: ticket.school_organization_id,
+        schoolStaffUserId: req.user?.id
+      });
+    }
     if (!canView && ticket.client_id) {
       canView =
         (await canSupervisorAccessClientScope({
@@ -996,7 +1019,14 @@ export const createSupportTicketMessage = async (req, res, next) => {
 
     // Client-scoped tickets: allow school_staff, agency admin/support/staff, and assigned providers to post.
     if (ticket.client_id) {
-      let canPost = role === 'school_staff' || isAgencyAdminUser(req) || role === 'super_admin';
+      let canPost = isAgencyAdminUser(req) || role === 'super_admin';
+      if (!canPost && role === 'school_staff') {
+        canPost = await ClientSchoolStaffRoiAccess.schoolStaffHasActiveRoiAccess({
+          clientId: ticket.client_id,
+          schoolOrganizationId: ticket.school_organization_id,
+          schoolStaffUserId: req.user?.id
+        });
+      }
       if (!canPost) {
         canPost =
           (await canSupervisorAccessClientScope({

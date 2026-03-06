@@ -1,6 +1,9 @@
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
+import ClientSchoolStaffRoiAccess, {
+  getEffectiveSchoolStaffRoiState
+} from '../models/ClientSchoolStaffRoiAccess.model.js';
 import { getLeaveInfoForUserIds } from '../services/leaveOfAbsence.service.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
@@ -33,6 +36,29 @@ const normalizeDay = (d) => {
   const s = String(d || '').trim();
   return allowedDays.includes(s) ? s : null;
 };
+
+async function listSchoolStaffAccessByClient({ userId, role, schoolOrganizationId, clientIds }) {
+  if (String(role || '').toLowerCase() !== 'school_staff') return new Map();
+  return ClientSchoolStaffRoiAccess.listAccessRecordsForSchoolStaff({
+    schoolStaffUserId: userId,
+    schoolOrganizationId,
+    clientIds
+  });
+}
+
+function getSchoolStaffClientPrivacyMeta(client, accessMap) {
+  const clientId = Number(client?.id || 0);
+  const record = clientId ? accessMap.get(clientId) : null;
+  const effectiveState = getEffectiveSchoolStaffRoiState(record, client?.roi_expires_at || null);
+  const locked = effectiveState !== 'roi';
+  return {
+    school_staff_effective_access_state: effectiveState,
+    school_portal_can_open: !locked,
+    school_portal_gray: locked,
+    school_portal_force_placeholder: locked,
+    school_portal_locked_label: 'NO ROI'
+  };
+}
 
 async function ensureSchoolAccess(req, schoolId) {
   const schoolOrgId = parseInt(schoolId, 10);
@@ -547,7 +573,7 @@ export const getProviderSchoolCaseloadSlots = async (req, res, next) => {
       let hasCpa = true;
       try {
         const [rows] = await pool.execute(
-          `SELECT c.id, c.initials, c.identifier_code, c.status, c.document_status, cpa.service_day
+          `SELECT c.id, c.initials, c.identifier_code, c.status, c.document_status, c.roi_expires_at, cpa.service_day
            FROM client_provider_assignments cpa
            JOIN clients c ON c.id = cpa.client_id
            WHERE cpa.organization_id = ?
@@ -569,7 +595,7 @@ export const getProviderSchoolCaseloadSlots = async (req, res, next) => {
       let legacyRows = [];
       if (hasCpa) {
         const [rows] = await pool.execute(
-          `SELECT c.id, c.initials, c.identifier_code, c.status, c.document_status, c.service_day
+          `SELECT c.id, c.initials, c.identifier_code, c.status, c.document_status, c.roi_expires_at, c.service_day
            FROM clients c
            LEFT JOIN client_provider_assignments cpa
              ON cpa.organization_id = c.organization_id
@@ -587,7 +613,7 @@ export const getProviderSchoolCaseloadSlots = async (req, res, next) => {
         legacyRows = rows || [];
       } else {
         const [rows] = await pool.execute(
-          `SELECT id, initials, identifier_code, status, document_status, service_day
+          `SELECT id, initials, identifier_code, status, document_status, roi_expires_at, service_day
            FROM clients
            WHERE organization_id = ?
              AND provider_id = ?
@@ -623,10 +649,22 @@ export const getProviderSchoolCaseloadSlots = async (req, res, next) => {
         // ignore
       }
 
+      const accessByClientId = await listSchoolStaffAccessByClient({
+        userId: req.user?.id,
+        role: req.user?.role,
+        schoolOrganizationId: orgId,
+        clientIds: (clientRows || []).map((c) => Number(c?.id)).filter(Boolean)
+      });
+
       for (const c of clientRows || []) {
         const d = String(c.service_day || c.service_day || '');
         const list = clientsByDay.get(d) || [];
-        list.push({ ...c, unread_notes_count: unreadCounts.get(Number(c.id)) || 0 });
+        const privacyMeta = getSchoolStaffClientPrivacyMeta(c, accessByClientId);
+        list.push({
+          ...c,
+          unread_notes_count: unreadCounts.get(Number(c.id)) || 0,
+          ...privacyMeta
+        });
         clientsByDay.set(d, list);
       }
     }

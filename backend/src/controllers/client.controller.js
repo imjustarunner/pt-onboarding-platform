@@ -2,6 +2,7 @@ import Client from '../models/Client.model.js';
 import ClientStatusHistory from '../models/ClientStatusHistory.model.js';
 import ClientNotes from '../models/ClientNotes.model.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
+import ClientSchoolStaffRoiAccess from '../models/ClientSchoolStaffRoiAccess.model.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
@@ -50,6 +51,48 @@ function getClientTypeTransitionError({ fromType, toType }) {
     return 'Client type cannot be downgraded.';
   }
   return null;
+}
+
+async function providerHasAssignedClientAccess({ userId, clientId, client = null }) {
+  const uid = parseInt(userId, 10);
+  const cid = parseInt(clientId, 10);
+  if (!uid || !cid) return false;
+
+  try {
+    const [rows] = await pool.execute(
+      `SELECT 1
+       FROM client_provider_assignments
+       WHERE client_id = ?
+         AND provider_user_id = ?
+         AND is_active = TRUE
+       LIMIT 1`,
+      [cid, uid]
+    );
+    if (rows?.[0]) return true;
+  } catch (e) {
+    const msg = String(e?.message || '');
+    const missing = msg.includes("doesn't exist") || msg.includes('ER_NO_SUCH_TABLE');
+    if (!missing) throw e;
+  }
+
+  return parseInt(client?.provider_id || 0, 10) === uid;
+}
+
+async function ensureAssignedProviderClientAccess({ userId, role, clientId, client = null }) {
+  const roleNorm = String(role || '').toLowerCase();
+  if (roleNorm !== 'provider' && roleNorm !== 'provider_plus') {
+    return { ok: true };
+  }
+
+  const allowed = await providerHasAssignedClientAccess({ userId, clientId, client });
+  if (!allowed) {
+    return {
+      ok: false,
+      status: 403,
+      message: 'Assigned provider access is required for this client'
+    };
+  }
+  return { ok: true };
 }
 
 async function getAgencyEnabledClientTypes(agencyId) {
@@ -308,11 +351,34 @@ export const getClientById = async (req, res, next) => {
       });
     }
 
+    const providerAccess = await ensureAssignedProviderClientAccess({
+      userId,
+      role: userRole,
+      clientId: client.id,
+      client
+    });
+    if (!providerAccess.ok) {
+      return res.status(providerAccess.status).json({ error: { message: providerAccess.message } });
+    }
+
     // If user is accessing via a non-agency organization (school/program/learning), return restricted view
     const userOrganization = userAgencies.find(org => org.id === client.organization_id);
     const isNonAgencyOrgStaff = userOrganization && (String(userOrganization.organization_type || 'agency').toLowerCase() !== 'agency');
 
     if (isNonAgencyOrgStaff && !hasAgencyAccess) {
+      if (String(userRole || '').toLowerCase() === 'school_staff') {
+        const canAccessClient = await ClientSchoolStaffRoiAccess.schoolStaffHasActiveRoiAccess({
+          clientId: client.id,
+          schoolOrganizationId: client.organization_id,
+          schoolStaffUserId: userId
+        });
+        if (!canAccessClient) {
+          return res.status(403).json({
+            error: { message: 'ROI access required to view this client' }
+          });
+        }
+      }
+
       // Return restricted view (exclude sensitive fields)
       const restrictedClient = {
         id: client.id,
@@ -895,6 +961,16 @@ export const getClientDocumentStatus = async (req, res, next) => {
       if (!hasAgencyAccess) {
         return res.status(403).json({ error: { message: 'You do not have access to this client' } });
       }
+    }
+
+    const providerAccess = await ensureAssignedProviderClientAccess({
+      userId,
+      role: userRole,
+      clientId,
+      client
+    });
+    if (!providerAccess.ok) {
+      return res.status(providerAccess.status).json({ error: { message: providerAccess.message } });
     }
 
     // Best-effort: table may not exist yet.
@@ -2928,6 +3004,16 @@ export const getClientHistory = async (req, res, next) => {
       }
     }
 
+    const providerAccess = await ensureAssignedProviderClientAccess({
+      userId,
+      role: userRole,
+      clientId: id,
+      client: currentClient
+    });
+    if (!providerAccess.ok) {
+      return res.status(providerAccess.status).json({ error: { message: providerAccess.message } });
+    }
+
     const history = await ClientStatusHistory.findByClientId(id);
     res.json(history);
   } catch (error) {
@@ -2967,6 +3053,16 @@ export const getClientPaperworkHistory = async (req, res, next) => {
       if (!hasAgencyAccess) {
         return res.status(403).json({ error: { message: 'You do not have access to this client' } });
       }
+    }
+
+    const providerAccess = await ensureAssignedProviderClientAccess({
+      userId,
+      role: userRole,
+      clientId,
+      client
+    });
+    if (!providerAccess.ok) {
+      return res.status(providerAccess.status).json({ error: { message: providerAccess.message } });
     }
 
     // Best-effort: table may not exist yet in older environments.
@@ -3132,6 +3228,25 @@ export const createClientPaperworkHistory = async (req, res, next) => {
         values
       );
 
+      if (statusKey === 'roi') {
+        try {
+          await connection.execute(
+            `INSERT INTO client_paperwork_items
+              (client_id, paperwork_status_id, is_needed, received_at, received_by_user_id)
+             VALUES (?, ?, TRUE, NULL, NULL)
+             ON DUPLICATE KEY UPDATE
+               is_needed = VALUES(is_needed),
+               received_at = VALUES(received_at),
+               received_by_user_id = VALUES(received_by_user_id)`,
+            [clientId, paperworkStatusId]
+          );
+        } catch (e) {
+          const msg = String(e?.message || '');
+          const missing = msg.includes("doesn't exist") || msg.includes('ER_NO_SUCH_TABLE');
+          if (!missing) throw e;
+        }
+      }
+
       await connection.commit();
 
       // Return the latest client snapshot + history (best-effort).
@@ -3190,6 +3305,16 @@ export const getClientNotes = async (req, res, next) => {
           error: { message: 'You do not have access to this client' } 
         });
       }
+    }
+
+    const providerAccess = await ensureAssignedProviderClientAccess({
+      userId,
+      role: userRole,
+      clientId: id,
+      client: currentClient
+    });
+    if (!providerAccess.ok) {
+      return res.status(providerAccess.status).json({ error: { message: providerAccess.message } });
     }
 
     // Get notes (filtered by permission)
@@ -3337,6 +3462,16 @@ export const createClientNote = async (req, res, next) => {
           error: { message: 'You do not have access to this client' } 
         });
       }
+    }
+
+    const providerAccess = await ensureAssignedProviderClientAccess({
+      userId,
+      role: userRole,
+      clientId: id,
+      client: currentClient
+    });
+    if (!providerAccess.ok) {
+      return res.status(providerAccess.status).json({ error: { message: providerAccess.message } });
     }
 
     // Validate message
@@ -3563,9 +3698,29 @@ export const markClientNotesRead = async (req, res, next) => {
       const userOrgIds = (userAgencies || []).map(a => a.id);
       const hasAgencyAccess = userOrgIds.includes(currentClient.agency_id);
       const hasSchoolAccess = userOrgIds.includes(currentClient.organization_id);
+      if (String(req.user.role || '').toLowerCase() === 'school_staff') {
+        const canAccessClient = await ClientSchoolStaffRoiAccess.schoolStaffHasActiveRoiAccess({
+          clientId,
+          schoolOrganizationId: currentClient.organization_id,
+          schoolStaffUserId: userId
+        });
+        if (!canAccessClient) {
+          return res.status(403).json({ error: { message: 'ROI access required to mark notes as read' } });
+        }
+      }
       if (!hasAgencyAccess && !hasSchoolAccess) {
         return res.status(403).json({ error: { message: 'You do not have access to this client' } });
       }
+    }
+
+    const providerAccess = await ensureAssignedProviderClientAccess({
+      userId,
+      role: req.user.role,
+      clientId,
+      client: currentClient
+    });
+    if (!providerAccess.ok) {
+      return res.status(providerAccess.status).json({ error: { message: providerAccess.message } });
     }
 
     // Best-effort insert/update; table may not exist yet in older environments.

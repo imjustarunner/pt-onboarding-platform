@@ -1,6 +1,7 @@
 import Client from '../models/Client.model.js';
 import ClientPhiDocument from '../models/ClientPhiDocument.model.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
+import ClientSchoolStaffRoiAccess from '../models/ClientSchoolStaffRoiAccess.model.js';
 import StorageService from '../services/storage.service.js';
 import User from '../models/User.model.js';
 import pool from '../config/database.js';
@@ -19,12 +20,47 @@ const upload = multer({
   }
 });
 
+async function providerHasAssignedClientAccess({ requestingUserId, client }) {
+  const uid = Number(requestingUserId || 0);
+  const cid = Number(client?.id || 0);
+  if (!uid || !cid) return false;
+
+  try {
+    const [rows] = await pool.execute(
+      `SELECT 1
+       FROM client_provider_assignments
+       WHERE client_id = ?
+         AND provider_user_id = ?
+         AND is_active = TRUE
+       LIMIT 1`,
+      [cid, uid]
+    );
+    if (rows?.[0]) return true;
+  } catch (e) {
+    const msg = String(e?.message || '');
+    const missing = msg.includes("doesn't exist") || msg.includes('ER_NO_SUCH_TABLE');
+    if (!missing) throw e;
+  }
+
+  return Number(client?.provider_id || 0) === uid;
+}
+
 async function userCanAccessClient({ requestingUserId, requestingUserRole, client }) {
   const normalizedRole = String(requestingUserRole || '').toLowerCase();
   if (normalizedRole === 'super_admin') return true;
   if (normalizedRole === 'client_guardian') {
     const linkedClients = await ClientGuardian.listClientsForGuardian({ guardianUserId: requestingUserId });
     return (linkedClients || []).some((entry) => Number(entry?.client_id) === Number(client?.id));
+  }
+  if (normalizedRole === 'school_staff') {
+    return ClientSchoolStaffRoiAccess.schoolStaffHasActiveRoiAccess({
+      clientId: client?.id,
+      schoolOrganizationId: client?.organization_id || client?.school_organization_id,
+      schoolStaffUserId: requestingUserId
+    });
+  }
+  if (normalizedRole === 'provider' || normalizedRole === 'provider_plus') {
+    return providerHasAssignedClientAccess({ requestingUserId, client });
   }
   const userAgencies = await User.getAgencies(requestingUserId);
   const userAgencyIds = userAgencies.map(a => a.id);

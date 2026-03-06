@@ -177,8 +177,9 @@
                   <button
                     v-for="c in (a.clients || []).slice(0, 10)"
                     :key="c.id"
-                    class="chip-mini"
+                    :class="['chip-mini', { 'chip-mini-locked': isLockedClient(c) }]"
                     type="button"
+                    :disabled="isLockedClient(c)"
                     @click="$emit('open-client', c)"
                     :title="clientTitle(c)"
                   >
@@ -398,6 +399,9 @@ const toggleClientLabelMode = () => {
   }
 };
 const clientShort = (c) => {
+  if (isLockedClient(c)) {
+    return String(c?.school_portal_locked_label || 'NO ROI').trim() || 'NO ROI';
+  }
   const mode = String(clientLabelMode.value || 'codes');
   const src = mode === 'initials' ? (c?.initials || c?.identifier_code) : (c?.identifier_code || c?.initials);
   let raw = String(src || '').replace(/\s+/g, '');
@@ -408,7 +412,15 @@ const clientShort = (c) => {
   return raw;
 };
 
+const isLockedClient = (c) => c?.school_portal_force_placeholder === true || c?.school_portal_can_open === false;
+
 const clientTitle = (c) => {
+  if (isLockedClient(c)) {
+    const state = String(c?.school_staff_effective_access_state || '').toLowerCase();
+    return state === 'expired'
+      ? 'ROI expired. This client remains on the caseload, but details are locked.'
+      : 'NO ROI. Client details are locked until ROI access is granted.';
+  }
   const mode = String(clientLabelMode.value || 'codes');
   if (mode === 'codes' && c?.initials) return `Initials: ${c.initials}`;
   return 'Open client';
@@ -1243,6 +1255,14 @@ label {
   font-weight: 900;
   letter-spacing: 0.05em;
   font-size: 11px;
+}
+.chip-mini-locked {
+  background: #f3f4f6;
+  color: #6b7280;
+  border-color: #d1d5db;
+}
+.chip-mini-locked:disabled {
+  cursor: default;
 }
 .dot {
   display: inline-block;

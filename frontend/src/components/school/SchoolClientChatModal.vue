@@ -42,6 +42,28 @@
         <strong>Termination reason:</strong> {{ props.client?.termination_reason || fullClient?.termination_reason }}
       </div>
 
+      <div v-if="showActionBar" class="modal-actions-bar">
+        <button class="btn btn-secondary btn-sm action-btn action-btn-active" type="button" @click="activePane = null">
+          View & Comment
+        </button>
+        <button
+          v-if="props.showChecklistAction"
+          class="btn btn-primary btn-sm"
+          type="button"
+          @click="emit('open-checklist', props.client)"
+        >
+          Checklist
+        </button>
+        <button
+          v-if="props.canEditAction"
+          class="btn btn-primary btn-sm"
+          type="button"
+          @click="emit('open-edit', props.client)"
+        >
+          Edit
+        </button>
+      </div>
+
       <div class="phi-warning">
         <strong>Reminder:</strong> Use initials only. Do not include PHI. This is not Therapy Notes.
       </div>
@@ -243,14 +265,17 @@ import { useAuthStore } from '../../store/auth';
 const props = defineProps({
   client: { type: Object, required: true },
   schoolOrganizationId: { type: Number, default: null },
-  initialPane: { type: String, default: null } // null | 'comments' | 'messages'
+  initialPane: { type: String, default: null }, // null | 'comments' | 'messages'
+  canEditAction: { type: Boolean, default: false },
+  showChecklistAction: { type: Boolean, default: false }
 });
-defineEmits(['close']);
+const emit = defineEmits(['close', 'open-edit', 'open-checklist']);
 
 const authStore = useAuthStore();
 const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
 const isSchoolStaff = computed(() => roleNorm.value === 'school_staff');
 const canViewClientDocuments = computed(() => ['provider', 'admin', 'staff', 'support', 'super_admin', 'clinical_practice_assistant', 'provider_plus'].includes(roleNorm.value));
+const showActionBar = computed(() => !isSchoolStaff.value && (props.canEditAction || props.showChecklistAction));
 
 const isWaitlist = computed(() => {
   const key = String(props.client?.client_status_key || '').toLowerCase().trim();
@@ -556,6 +581,18 @@ watch(
   padding: 10px 12px;
   border-radius: 10px;
   font-size: 13px;
+}
+.modal-actions-bar {
+  margin: 12px 16px 0 16px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.action-btn {
+  cursor: default;
+}
+.action-btn-active {
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.08);
 }
 .status-bar {
   margin: 10px 16px 0 16px;

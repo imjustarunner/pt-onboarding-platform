@@ -1749,6 +1749,50 @@ class User {
     );
   }
 
+  static async hasAnySchoolAgencyMembership(userId) {
+    const uid = Number(userId || 0);
+    if (!uid) return false;
+    const [rows] = await pool.execute(
+      `SELECT 1
+       FROM user_agencies ua
+       INNER JOIN agencies a ON a.id = ua.agency_id
+       WHERE ua.user_id = ?
+         AND LOWER(COALESCE(a.organization_type, '')) = 'school'
+       LIMIT 1`,
+      [uid]
+    );
+    return !!rows?.length;
+  }
+
+  static async disableSchoolStaffLogin(userId, actorUserId = null) {
+    const uid = Number(userId || 0);
+    if (!uid) return false;
+
+    const user = await this.findById(uid);
+    if (!user || String(user.role || '').toLowerCase() !== 'school_staff') return false;
+
+    await this.updateStatus(uid, 'ARCHIVED', actorUserId || null);
+    try {
+      await this.update(uid, { isActive: false });
+    } catch {
+      // ignore on older deployments
+    }
+    try {
+      await this.markTokenAsUsed(uid);
+    } catch {
+      // ignore
+    }
+    try {
+      await pool.execute(
+        'UPDATE users SET temporary_password_hash = NULL, temporary_password_expires_at = NULL WHERE id = ?',
+        [uid]
+      );
+    } catch {
+      // ignore on older deployments
+    }
+    return true;
+  }
+
   static async removeFromProgram(userId, programId) {
     await pool.execute(
       'DELETE FROM user_programs WHERE user_id = ? AND program_id = ?',

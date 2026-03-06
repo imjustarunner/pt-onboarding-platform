@@ -6,6 +6,7 @@ import multer from 'multer';
 import StorageService from '../services/storage.service.js';
 import ClientPhiDocument from '../models/ClientPhiDocument.model.js';
 import ReferralPacketDraft from '../models/ReferralPacketDraft.model.js';
+import ClientSchoolStaffRoiAccess from '../models/ClientSchoolStaffRoiAccess.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
 import { notifyNewPacketUploaded } from '../services/clientNotifications.service.js';
@@ -366,6 +367,15 @@ export const submitReferralPacketDraft = async (req, res, next) => {
       organizationId: organization.id
     });
     await seedClientPaperworkItems({ clientId: client.id, agencyId });
+
+    if (uploaderId && String(req.user?.role || '').toLowerCase() === 'school_staff') {
+      await ClientSchoolStaffRoiAccess.resetForNewPacket({
+        clientId: client.id,
+        schoolOrganizationId: organization.id,
+        uploaderUserId: uploaderId,
+        actorUserId: req.user?.id || uploaderId
+      });
+    }
 
     await ClientStatusHistory.create({
       client_id: client.id,

@@ -45,7 +45,10 @@ const organizationName = computed(() => {
   return org?.official_name?.trim() || org?.name || '';
 });
 
+const isClientPortalLocked = (client) => client?.school_portal_can_open === false;
+
 const openClient = (c) => {
+  if (isClientPortalLocked(c)) return;
   selectedClient.value = c;
 };
 

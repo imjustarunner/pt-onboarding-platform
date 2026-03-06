@@ -941,6 +941,7 @@ const toggleSelected = (it, checked) => {
 };
 
 const isClickable = (it) => {
+  if (it?.client_access_locked) return false;
   const kind = String(it?.kind || '').toLowerCase();
   const clientId = Number(it?.client_id || 0);
   if (kind === 'comment' || kind === 'message' || kind === 'ticket') return true;
@@ -958,8 +959,10 @@ const itemCategoryClass = (it) => {
 };
 
 const formatClientLabel = (it) => {
+  if (it?.client_access_locked) return 'NO ROI';
   const code = String(it?.client_identifier_code || '').trim();
   const initials = String(it?.client_initials || '').trim();
+  if (it?.client_force_code_only) return code || initials || '';
   if (props.clientLabelMode === 'initials') return initials || code || '';
   return code || initials || '';
 };
