@@ -429,6 +429,117 @@ async function getSkillBuilderCoordinatorAccess(userId) {
   }
 }
 
+async function canAccessSkillBuilderAdmin(req) {
+  return canManageAvailability(req.user?.role) || (await getSkillBuilderCoordinatorAccess(req.user?.id));
+}
+
+export const listSkillBuildersScopeOptions = async (req, res, next) => {
+  try {
+    const allowed = await canAccessSkillBuilderAdmin(req);
+    if (!allowed) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const selectedAgencyId = parseIntSafe(req.query.agencyId ?? req.body?.agencyId ?? null);
+    const role = String(req.user?.role || '').toLowerCase();
+    let agencies = [];
+
+    if (role === 'super_admin') {
+      const [rows] = await pool.execute(
+        `SELECT id, name, organization_type
+         FROM agencies
+         WHERE (is_archived = FALSE OR is_archived IS NULL)
+           AND (is_active = TRUE OR is_active IS NULL)
+           AND LOWER(COALESCE(organization_type, 'agency')) = 'agency'
+         ORDER BY name ASC, id ASC`
+      );
+      agencies = (rows || []).map((r) => ({
+        id: Number(r.id),
+        name: String(r.name || '').trim() || `Agency ${r.id}`,
+        organizationType: String(r.organization_type || 'agency').toLowerCase()
+      }));
+    } else {
+      const [rows] = await pool.execute(
+        `SELECT DISTINCT a.id, a.name, a.organization_type
+         FROM user_agencies ua
+         JOIN agencies member_org ON member_org.id = ua.agency_id
+         LEFT JOIN organization_affiliations oa
+           ON oa.organization_id = member_org.id
+          AND oa.is_active = TRUE
+         JOIN agencies a
+           ON a.id = CASE
+             WHEN LOWER(COALESCE(member_org.organization_type, 'agency')) = 'agency' THEN member_org.id
+             ELSE oa.agency_id
+           END
+         WHERE ua.user_id = ?
+           AND (a.is_archived = FALSE OR a.is_archived IS NULL)
+           AND (a.is_active = TRUE OR a.is_active IS NULL)
+           AND LOWER(COALESCE(a.organization_type, 'agency')) = 'agency'
+         ORDER BY a.name ASC, a.id ASC`,
+        [req.user.id]
+      );
+      agencies = (rows || []).map((r) => ({
+        id: Number(r.id),
+        name: String(r.name || '').trim() || `Agency ${r.id}`,
+        organizationType: String(r.organization_type || 'agency').toLowerCase()
+      }));
+    }
+
+    let agencyId = selectedAgencyId || null;
+    if (!agencyId && agencies.length > 0) agencyId = Number(agencies[0].id) || null;
+
+    const agencySet = new Set(agencies.map((a) => Number(a.id)).filter((n) => Number.isInteger(n) && n > 0));
+    if (agencyId && !agencySet.has(Number(agencyId))) {
+      if (role !== 'super_admin') return res.status(403).json({ error: { message: 'Access denied' } });
+      // Super admins may pass any agency; include it in scope list if valid.
+      const [rows] = await pool.execute(
+        `SELECT id, name, organization_type
+         FROM agencies
+         WHERE id = ?
+           AND (is_archived = FALSE OR is_archived IS NULL)
+           AND (is_active = TRUE OR is_active IS NULL)
+         LIMIT 1`,
+        [agencyId]
+      );
+      const row = rows?.[0];
+      if (row) {
+        agencies.push({
+          id: Number(row.id),
+          name: String(row.name || '').trim() || `Agency ${row.id}`,
+          organizationType: String(row.organization_type || 'agency').toLowerCase()
+        });
+      }
+    }
+
+    let organizations = [];
+    if (agencyId) {
+      const [rows] = await pool.execute(
+        `SELECT child.id, child.name, child.organization_type
+         FROM organization_affiliations oa
+         JOIN agencies child ON child.id = oa.organization_id
+         WHERE oa.agency_id = ?
+           AND oa.is_active = TRUE
+           AND (child.is_archived = FALSE OR child.is_archived IS NULL)
+           AND (child.is_active = TRUE OR child.is_active IS NULL)
+         ORDER BY child.name ASC, child.id ASC`,
+        [agencyId]
+      );
+      organizations = (rows || []).map((r) => ({
+        id: Number(r.id),
+        name: String(r.name || '').trim() || `Organization ${r.id}`,
+        organizationType: String(r.organization_type || 'school').toLowerCase()
+      }));
+    }
+
+    res.json({
+      ok: true,
+      agencyId: agencyId || null,
+      agencies,
+      organizations
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
 function normalizeDayName(d) {
   const s = String(d || '').trim();
   const canonical = DAY_NAMES.find((x) => x.toLowerCase() === s.toLowerCase());
@@ -1243,28 +1354,72 @@ export const listSkillBuildersAvailability = async (req, res, next) => {
   try {
     const agencyId = await resolveAgencyId(req);
     if (!(await requireAgencyMembership(req, res, agencyId))) return;
-    const allowed =
-      canManageAvailability(req.user?.role) || (await getSkillBuilderCoordinatorAccess(req.user?.id));
+    const allowed = await canAccessSkillBuilderAdmin(req);
     if (!allowed) return res.status(403).json({ error: { message: 'Access denied' } });
+    const organizationIdRaw = req.query.organizationId ?? req.body?.organizationId ?? null;
+    const organizationId = parseIntSafe(organizationIdRaw);
 
     // Week start (Monday) for confirmation lookup; defaults to current week.
     const ws = String(req.query.weekStart || '').trim();
     const weekStart = ws && /^\d{4}-\d{2}-\d{2}$/.test(ws) ? ws : toYmd(startOfWeekMonday(new Date()));
 
-    const [providerRows] = await pool.execute(
-      `SELECT u.id, u.first_name, u.last_name, u.email,
-              c.confirmed_at
-       FROM users u
-       JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
-       LEFT JOIN provider_skill_builder_availability_confirmations c
-         ON c.agency_id = ua.agency_id AND c.provider_id = u.id AND c.week_start_date = ?
-       WHERE u.skill_builder_eligible = TRUE
-         AND (u.is_archived = FALSE OR u.is_archived IS NULL)
-         AND (u.is_active = TRUE OR u.is_active IS NULL)
-         AND (u.status IS NULL OR UPPER(u.status) <> 'ARCHIVED')
-       ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC`,
-      [agencyId, weekStart]
-    );
+    let organizationFilter = null;
+    if (organizationId && organizationId !== agencyId) {
+      const [orgRows] = await pool.execute(
+        `SELECT id, name, organization_type
+         FROM agencies
+         WHERE id = ?
+         LIMIT 1`,
+        [organizationId]
+      );
+      const org = orgRows?.[0] || null;
+      if (!org) {
+        return res.status(400).json({ error: { message: 'Selected organization was not found' } });
+      }
+      const [affRows] = await pool.execute(
+        `SELECT 1
+         FROM organization_affiliations
+         WHERE agency_id = ?
+           AND organization_id = ?
+           AND is_active = TRUE
+         LIMIT 1`,
+        [agencyId, organizationId]
+      );
+      if (!affRows?.[0]) {
+        return res.status(400).json({ error: { message: 'Selected organization is not affiliated with this agency' } });
+      }
+      organizationFilter = {
+        id: Number(org.id),
+        name: String(org.name || '').trim() || `Organization ${org.id}`,
+        organizationType: String(org.organization_type || 'school').toLowerCase()
+      };
+    }
+
+    const providerSql = [
+      `SELECT u.id, u.first_name, u.last_name, u.email,`,
+      `       c.confirmed_at`,
+      `FROM users u`,
+      `JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?`,
+      `LEFT JOIN provider_skill_builder_availability_confirmations c`,
+      `  ON c.agency_id = ua.agency_id AND c.provider_id = u.id AND c.week_start_date = ?`,
+      `WHERE u.skill_builder_eligible = TRUE`,
+      `  AND (u.is_archived = FALSE OR u.is_archived IS NULL)`,
+      `  AND (u.is_active = TRUE OR u.is_active IS NULL)`,
+      `  AND (u.status IS NULL OR UPPER(u.status) <> 'ARCHIVED')`
+    ];
+    const providerParams = [agencyId, weekStart];
+    if (organizationFilter?.id) {
+      providerSql.push(
+        `  AND EXISTS (`,
+        `    SELECT 1 FROM user_agencies ua_org`,
+        `    WHERE ua_org.user_id = u.id`,
+        `      AND ua_org.agency_id = ?`,
+        `  )`
+      );
+      providerParams.push(organizationFilter.id);
+    }
+    providerSql.push(`ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC`);
+    const [providerRows] = await pool.execute(providerSql.join('\n'), providerParams);
     const providers = (providerRows || []).map((r) => ({
       id: Number(r.id),
       firstName: r.first_name || '',
@@ -1304,7 +1459,13 @@ export const listSkillBuildersAvailability = async (req, res, next) => {
       });
     }
 
-    res.json({ ok: true, agencyId, weekStart, providers });
+    res.json({
+      ok: true,
+      agencyId,
+      weekStart,
+      organization: organizationFilter,
+      providers
+    });
   } catch (e) {
     next(e);
   }
@@ -2721,6 +2882,7 @@ export const providerAvailabilityDashboard = async (req, res, next) => {
          u.last_name AS provider_last_name,
          psa.school_organization_id,
          s.name AS school_name,
+         s.organization_type AS school_organization_type,
          psa.day_of_week,
          psa.start_time,
          psa.end_time,
@@ -2734,6 +2896,12 @@ export const providerAvailabilityDashboard = async (req, res, next) => {
        JOIN user_agencies ua ON ua.user_id = psa.provider_user_id AND ua.agency_id = ?
        JOIN organization_affiliations oa ON oa.organization_id = psa.school_organization_id AND oa.is_active = TRUE
        WHERE ${schoolWhere.join(' AND ')}
+         AND EXISTS (
+           SELECT 1
+           FROM user_agencies ua_school
+           WHERE ua_school.user_id = psa.provider_user_id
+             AND ua_school.agency_id = psa.school_organization_id
+         )
          AND (u.is_archived IS NULL OR u.is_archived = FALSE)
          AND (u.is_active IS NULL OR u.is_active = TRUE)
          AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE'))
@@ -2747,6 +2915,7 @@ export const providerAvailabilityDashboard = async (req, res, next) => {
       id: r.id,
       schoolOrganizationId: r.school_organization_id,
       schoolName: r.school_name || '',
+      schoolOrganizationType: String(r.school_organization_type || 'school').toLowerCase(),
       providerId: r.provider_user_id,
       providerName: `${r.provider_first_name || ''} ${r.provider_last_name || ''}`.trim(),
       dayOfWeek: r.day_of_week,

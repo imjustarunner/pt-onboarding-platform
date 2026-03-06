@@ -3,7 +3,7 @@
     <div class="page-header" data-tour="avail-header">
       <div>
         <h1 data-tour="avail-title">Provider Availability</h1>
-        <p class="page-description" data-tour="avail-subtitle">View school slots, office availability, and virtual availability templates.</p>
+        <p class="page-description" data-tour="avail-subtitle">View organization slots, office availability, and virtual availability templates.</p>
       </div>
       <div class="header-actions" data-tour="avail-actions">
         <button class="btn btn-secondary" type="button" @click="reload" :disabled="loading">Refresh</button>
@@ -16,7 +16,7 @@
 
     <div v-else class="panel" data-tour="avail-panel">
       <div class="tabs" data-tour="avail-tabs">
-        <button class="tab" :class="{ active: tab === 'school' }" @click="tab = 'school'" data-tour="avail-tab-school">School slots</button>
+        <button class="tab" :class="{ active: tab === 'school' }" @click="tab = 'school'" data-tour="avail-tab-school">Organization slots</button>
         <button class="tab" :class="{ active: tab === 'office' }" @click="tab = 'office'" data-tour="avail-tab-office">Office availability</button>
         <button class="tab" :class="{ active: tab === 'virtual' }" @click="tab = 'virtual'" data-tour="avail-tab-virtual">Virtual availability</button>
       </div>
@@ -37,11 +37,11 @@
           </div>
 
           <div v-if="tab === 'school'" class="field">
-            <label>School / Organization</label>
+            <label>Organization</label>
             <select v-model="filters.schoolOrganizationId" class="select">
               <option value="">All</option>
               <option v-for="o in orgOptions" :key="`o-${o.id}`" :value="String(o.id)">
-                {{ o.name }}
+                {{ o.name }} ({{ String(o.organization_type || 'org').toLowerCase() }})
               </option>
             </select>
           </div>
@@ -66,7 +66,7 @@
 
           <div class="field">
             <label>Search</label>
-            <input v-model="filters.search" class="input" placeholder="School/office/provider…" />
+            <input v-model="filters.search" class="input" placeholder="Organization/office/provider…" />
           </div>
 
           <div class="field">
@@ -85,14 +85,14 @@
           <button class="btn btn-secondary btn-sm" type="button" @click="collapseAllSchools" :disabled="schoolGroups.length === 0">
             Collapse all
           </button>
-          <div class="muted" style="font-size: 12px;">Schools: {{ schoolGroups.length }} · Rows: {{ schoolRows.length }}</div>
+          <div class="muted" style="font-size: 12px;">Organizations: {{ schoolGroups.length }} · Rows: {{ schoolRows.length }}</div>
         </div>
 
         <div v-if="tab === 'school'" class="table-wrap" data-tour="avail-school-table">
           <table class="table">
             <thead>
               <tr>
-                <th @click="setSort('schoolName')">School</th>
+                <th @click="setSort('schoolName')">Organization</th>
                 <th @click="setSort('providerName')">Provider</th>
                 <th @click="setSort('dayOfWeek')">Day</th>
                 <th @click="setSort('startTime')">Time</th>
@@ -110,7 +110,7 @@
                         <span class="caret" :class="{ open: isSchoolExpanded(g.schoolOrganizationId) }">▸</span>
                       </button>
                       <div class="group-main">
-                        <div class="group-title">{{ g.schoolName }}</div>
+                        <div class="group-title">{{ g.schoolLabel }}</div>
                         <div class="group-sub muted">
                           Rows: {{ g.rows.length }} · Total: {{ g.totals.slotsAvailable }}/{{ g.totals.slotsTotal }}
                         </div>
@@ -143,7 +143,7 @@
               </template>
 
               <tr v-if="schoolGroups.length === 0">
-                <td colspan="7" class="muted">No matching school slot rows.</td>
+                <td colspan="7" class="muted">No matching organization slot rows.</td>
               </tr>
             </tbody>
           </table>
@@ -359,7 +359,13 @@ const schoolGroups = computed(() => {
     const sid = Number(r?.schoolOrganizationId || 0);
     if (!sid) continue;
     if (!bySchool.has(sid)) {
-      bySchool.set(sid, { schoolOrganizationId: sid, schoolName: r.schoolName || `School ${sid}`, rows: [] });
+      const orgType = String(r?.schoolOrganizationType || 'school').toLowerCase();
+      bySchool.set(sid, {
+        schoolOrganizationId: sid,
+        schoolName: r.schoolName || `Organization ${sid}`,
+        schoolOrganizationType: orgType,
+        rows: []
+      });
     }
     bySchool.get(sid).rows.push(r);
   }
@@ -392,6 +398,7 @@ const schoolGroups = computed(() => {
 
     return {
       ...g,
+      schoolLabel: `${g.schoolName} (${g.schoolOrganizationType || 'org'})`,
       totals: sumSchoolRows(g.rows),
       byDay,
       sortedRows

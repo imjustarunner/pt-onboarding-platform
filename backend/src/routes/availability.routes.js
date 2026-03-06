@@ -27,6 +27,7 @@ import {
   providerAvailabilityDashboard,
   searchAvailability,
   getAdminPendingCounts,
+  listSkillBuildersScopeOptions,
   listSkillBuildersAvailability,
   listPublicAppointmentRequests,
   setPublicAppointmentRequestStatus,
@@ -66,6 +67,7 @@ router.get('/admin/providers', listProvidersForAvailability);
 router.get('/admin/intake-cards', listIntakeAvailabilityCards);
 
 router.get('/admin/pending-counts', getAdminPendingCounts);
+router.get('/admin/skill-builders/options', listSkillBuildersScopeOptions);
 router.get('/admin/skill-builders', listSkillBuildersAvailability);
 router.get('/admin/provider-availability-dashboard', providerAvailabilityDashboard);
 router.get('/admin/search', searchAvailability);

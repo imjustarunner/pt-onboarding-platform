@@ -2,9 +2,9 @@
   <div class="sbap-wrap">
     <div v-if="showTitle" class="page-header">
       <div>
-        <h1 style="margin: 0;">Skill Builders availability</h1>
+        <h1 style="margin: 0;">Worker availability</h1>
         <p class="subtitle" style="margin: 6px 0 0;">
-          Week of {{ weekStart }} • Booked blocks are visible but not considered available.
+          Week of {{ weekStart }} • Skill Builder submissions across affiliated organizations.
         </p>
       </div>
       <div class="header-actions">
@@ -25,8 +25,27 @@
       </div>
     </div>
 
+    <div v-if="showScopeFilters" class="toolbar scope-toolbar" style="margin-top: 0;">
+      <div class="scope-group">
+        <label class="scope-label">Agency</label>
+        <select v-model="selectedAgencyId" class="input scope-select" :disabled="scopeLoading || loading || agencies.length === 0">
+          <option value="">Select agency…</option>
+          <option v-for="a in agencies" :key="a.id" :value="String(a.id)">{{ a.name }}</option>
+        </select>
+      </div>
+      <div class="scope-group">
+        <label class="scope-label">Program / Learning / School</label>
+        <select v-model="selectedOrganizationId" class="input scope-select" :disabled="scopeLoading || loading || !selectedAgencyId">
+          <option value="">All affiliated organizations</option>
+          <option v-for="o in organizations" :key="o.id" :value="String(o.id)">
+            {{ o.name }} ({{ o.organizationType || 'org' }})
+          </option>
+        </select>
+      </div>
+    </div>
+
     <div class="toolbar">
-      <div class="day-tabs">
+      <div v-if="viewMode === 'table'" class="day-tabs">
         <button
           v-for="d in days"
           :key="d"
@@ -39,6 +58,14 @@
         </button>
       </div>
       <div class="toolbar-right">
+        <div class="view-toggle">
+          <button type="button" class="btn btn-secondary btn-sm" :class="{ active: viewMode === 'table' }" @click="viewMode = 'table'">
+            Table
+          </button>
+          <button type="button" class="btn btn-secondary btn-sm" :class="{ active: viewMode === 'calendar' }" @click="viewMode = 'calendar'">
+            Calendar
+          </button>
+        </div>
         <input v-model="search" class="input" placeholder="Search provider…" />
         <label class="chk-inline">
           <input type="checkbox" v-model="onlyAvailable" />
@@ -53,15 +80,17 @@
     <div v-else class="results">
       <div class="summary">
         <div class="pill">Providers: <strong>{{ filteredProviders.length }}</strong></div>
-        <div class="pill">Available blocks: <strong>{{ rows.filter((r) => !r.isBooked).length }}</strong></div>
-        <div class="pill">Booked blocks: <strong>{{ rows.filter((r) => r.isBooked).length }}</strong></div>
+        <div class="pill">Available blocks: <strong>{{ allBlocks.filter((r) => !r.isBooked).length }}</strong></div>
+        <div class="pill">Booked blocks: <strong>{{ allBlocks.filter((r) => r.isBooked).length }}</strong></div>
+        <div v-if="selectedAgencyName" class="pill">Agency: <strong>{{ selectedAgencyName }}</strong></div>
+        <div v-if="selectedOrganizationName" class="pill">Organization: <strong>{{ selectedOrganizationName }}</strong></div>
       </div>
 
-      <div v-if="rows.length === 0" class="empty">
+      <div v-if="viewMode === 'table' && rows.length === 0" class="empty">
         No matching Skill Builder blocks for {{ selectedDay }}.
       </div>
 
-      <div v-else class="table">
+      <div v-else-if="viewMode === 'table'" class="table">
         <div class="thead">
           <div>Provider</div>
           <div>Time</div>
@@ -88,6 +117,36 @@
           </div>
         </div>
       </div>
+
+      <div v-else class="calendar-wrap">
+        <div v-if="calendarProviders.length === 0" class="empty">
+          No matching availability blocks for this week.
+        </div>
+        <div v-else class="provider-cards">
+          <div v-for="p in calendarProviders" :key="`cal-${p.id}`" class="provider-card">
+            <div class="provider-card-head">
+              <div class="provider-name">{{ p.providerName }}</div>
+              <div v-if="p.email" class="muted small">{{ p.email }}</div>
+            </div>
+            <div class="week-grid">
+              <div v-for="d in days" :key="`${p.id}-${d}`" class="day-col">
+                <div class="day-col-head">{{ d.slice(0, 3) }}</div>
+                <div v-if="!p.days[d] || p.days[d].length === 0" class="muted small">—</div>
+                <div
+                  v-for="b in p.days[d]"
+                  :key="b.key"
+                  class="block-chip"
+                  :class="b.isBooked ? 'chip-booked' : 'chip-available'"
+                >
+                  <div class="chip-time">{{ b.timeLabel }}</div>
+                  <div class="chip-meta">{{ b.blockTypeLabel }}</div>
+                  <div class="chip-meta">From: {{ b.departFrom }}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -98,6 +157,8 @@ import api from '../../services/api';
 
 const props = defineProps({
   agencyId: { type: [Number, String, null], default: null },
+  organizationId: { type: [Number, String, null], default: null },
+  showScopeFilters: { type: Boolean, default: true },
   showTitle: { type: Boolean, default: true }
 });
 
@@ -129,16 +190,61 @@ const addDaysYmd = (ymd, delta) => {
 };
 
 const loading = ref(false);
+const scopeLoading = ref(false);
 const error = ref('');
 const weekStart = ref(startOfWeekMondayYmd(new Date()));
 const selectedDay = ref('Monday');
+const viewMode = ref('table');
 const search = ref('');
 const onlyAvailable = ref(false);
 const providers = ref([]);
+const agencies = ref([]);
+const organizations = ref([]);
+const selectedAgencyId = ref('');
+const selectedOrganizationId = ref('');
+
+const normalizeId = (v) => {
+  if (v === null || v === undefined || v === '') return '';
+  const n = Number(v);
+  return Number.isInteger(n) && n > 0 ? String(n) : '';
+};
 
 const buildParams = () => {
-  const agencyId = props.agencyId === null || props.agencyId === undefined || props.agencyId === '' ? null : Number(props.agencyId);
-  return agencyId ? { agencyId } : {};
+  const agencyId = normalizeId(selectedAgencyId.value || props.agencyId);
+  const organizationId = normalizeId(selectedOrganizationId.value || props.organizationId);
+  const params = {};
+  if (agencyId) params.agencyId = Number(agencyId);
+  if (organizationId) params.organizationId = Number(organizationId);
+  return params;
+};
+
+const loadScopeOptions = async () => {
+  if (!props.showScopeFilters) return;
+  try {
+    scopeLoading.value = true;
+    const requestAgencyId = normalizeId(selectedAgencyId.value || props.agencyId);
+    const res = await api.get('/availability/admin/skill-builders/options', {
+      params: requestAgencyId ? { agencyId: Number(requestAgencyId) } : {}
+    });
+    const nextAgencies = Array.isArray(res.data?.agencies) ? res.data.agencies : [];
+    const nextOrganizations = Array.isArray(res.data?.organizations) ? res.data.organizations : [];
+    agencies.value = nextAgencies;
+    organizations.value = nextOrganizations;
+
+    const resolvedAgencyId = normalizeId(selectedAgencyId.value || props.agencyId || res.data?.agencyId);
+    const agencyExists = nextAgencies.some((a) => String(a.id) === resolvedAgencyId);
+    if (agencyExists) selectedAgencyId.value = resolvedAgencyId;
+    else selectedAgencyId.value = nextAgencies.length > 0 ? String(nextAgencies[0].id) : '';
+
+    const resolvedOrgId = normalizeId(selectedOrganizationId.value || props.organizationId);
+    const orgExists = nextOrganizations.some((o) => String(o.id) === resolvedOrgId);
+    selectedOrganizationId.value = orgExists ? resolvedOrgId : '';
+  } catch {
+    agencies.value = [];
+    organizations.value = [];
+  } finally {
+    scopeLoading.value = false;
+  }
 };
 
 const load = async () => {
@@ -157,12 +263,43 @@ const load = async () => {
   }
 };
 
-onMounted(() => load());
+onMounted(async () => {
+  selectedAgencyId.value = normalizeId(props.agencyId);
+  selectedOrganizationId.value = normalizeId(props.organizationId);
+  await loadScopeOptions();
+  await load();
+});
 
 watch(
   () => props.agencyId,
-  () => load()
+  async (next) => {
+    selectedAgencyId.value = normalizeId(next);
+    selectedOrganizationId.value = '';
+    await loadScopeOptions();
+    await load();
+  }
 );
+
+watch(
+  () => props.organizationId,
+  async (next) => {
+    selectedOrganizationId.value = normalizeId(next);
+    await load();
+  }
+);
+
+watch(selectedAgencyId, async (next, prev) => {
+  if (!props.showScopeFilters) return;
+  if (String(next || '') === String(prev || '')) return;
+  selectedOrganizationId.value = '';
+  await loadScopeOptions();
+  await load();
+});
+
+watch(selectedOrganizationId, async (next, prev) => {
+  if (String(next || '') === String(prev || '')) return;
+  await load();
+});
 
 const prevWeek = () => {
   weekStart.value = addDaysYmd(weekStart.value, -7);
@@ -184,17 +321,18 @@ const filteredProviders = computed(() => {
   });
 });
 
-const rows = computed(() => {
+const allBlocks = computed(() => {
   const out = [];
   for (const p of filteredProviders.value || []) {
     const name = `${p.firstName || ''} ${p.lastName || ''}`.trim() || `User ${p.id}`;
     for (const b of p.blocks || []) {
-      if (String(b.dayOfWeek) !== String(selectedDay.value)) continue;
       const isBooked = !!b.isBooked;
       if (onlyAvailable.value && isBooked) continue;
       const st = String(b.startTime || '').slice(0, 5);
       const et = String(b.endTime || '').slice(0, 5);
       out.push({
+        providerId: Number(p.id),
+        dayOfWeek: String(b.dayOfWeek || ''),
         key: `${p.id}|${b.dayOfWeek}|${b.blockType}|${st}|${et}|${b.departFrom}|${b.departTime || ''}|${isBooked ? 1 : 0}`,
         providerName: name,
         email: p.email || '',
@@ -207,6 +345,53 @@ const rows = computed(() => {
     }
   }
   return out;
+});
+
+const rows = computed(() => allBlocks.value.filter((r) => String(r.dayOfWeek) === String(selectedDay.value)));
+
+const selectedAgencyName = computed(() => {
+  const id = normalizeId(selectedAgencyId.value);
+  if (!id) return '';
+  const row = (agencies.value || []).find((a) => String(a.id) === id);
+  return row?.name || '';
+});
+
+const selectedOrganizationName = computed(() => {
+  const id = normalizeId(selectedOrganizationId.value);
+  if (!id) return '';
+  const row = (organizations.value || []).find((o) => String(o.id) === id);
+  return row?.name || '';
+});
+
+const calendarProviders = computed(() => {
+  const byProvider = new Map();
+  for (const block of allBlocks.value || []) {
+    const id = Number(block.providerId);
+    if (!byProvider.has(id)) {
+      byProvider.set(id, {
+        id,
+        providerName: block.providerName,
+        email: block.email,
+        days: {
+          Monday: [],
+          Tuesday: [],
+          Wednesday: [],
+          Thursday: [],
+          Friday: [],
+          Saturday: [],
+          Sunday: []
+        }
+      });
+    }
+    const row = byProvider.get(id);
+    if (row.days[block.dayOfWeek]) row.days[block.dayOfWeek].push(block);
+  }
+  for (const row of byProvider.values()) {
+    for (const d of days) {
+      row.days[d].sort((a, b) => String(a.timeLabel).localeCompare(String(b.timeLabel)));
+    }
+  }
+  return Array.from(byProvider.values()).sort((a, b) => String(a.providerName).localeCompare(String(b.providerName)));
 });
 
 </script>
@@ -224,6 +409,25 @@ const rows = computed(() => {
 .subtitle {
   color: var(--text-secondary);
   font-size: 13px;
+}
+.scope-toolbar {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: white;
+}
+.scope-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 260px;
+}
+.scope-label {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 .header-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .toolbar {
@@ -252,6 +456,14 @@ const rows = computed(() => {
   gap: 10px;
   align-items: center;
   flex-wrap: wrap;
+}
+.view-toggle {
+  display: flex;
+  gap: 6px;
+}
+.view-toggle .btn.active {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(198, 154, 43, 0.18);
 }
 .chk-inline { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-secondary); }
 .results { margin-top: 14px; }
@@ -292,5 +504,54 @@ const rows = computed(() => {
 .badge-available { background: rgba(34, 197, 94, 0.14); color: rgba(20, 83, 45, 0.95); }
 .badge-booked { background: rgba(239, 68, 68, 0.12); color: rgba(127, 29, 29, 0.95); }
 .input { flex: 1; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; }
+.scope-select { min-width: 260px; }
+.calendar-wrap {
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px;
+}
+.provider-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.provider-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.provider-card-head {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-alt);
+}
+.week-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+.day-col {
+  min-height: 112px;
+  padding: 8px;
+  border-right: 1px solid var(--border);
+}
+.day-col:last-child { border-right: none; }
+.day-col-head {
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+.block-chip {
+  border-radius: 8px;
+  padding: 6px 8px;
+  margin-bottom: 6px;
+  border: 1px solid rgba(0,0,0,0.12);
+}
+.chip-available { background: rgba(34, 197, 94, 0.1); }
+.chip-booked { background: rgba(239, 68, 68, 0.1); }
+.chip-time { font-weight: 900; font-size: 12px; }
+.chip-meta { font-size: 11px; color: var(--text-secondary); }
 </style>
 
