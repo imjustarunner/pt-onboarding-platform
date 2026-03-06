@@ -937,6 +937,32 @@
               <input type="checkbox" v-model="scheduleEventPrivate" />
               <span>Private (others only see Busy)</span>
             </label>
+
+            <div v-if="requestType === 'agency_meeting' || requestType === 'huddle'" style="margin-top: 10px;">
+              <label class="lbl">Frequency</label>
+              <select v-model="scheduleEventRecurrence" class="input">
+                <option value="ONCE">Once</option>
+                <option value="WEEKLY">Weekly</option>
+                <option value="BIWEEKLY">Biweekly</option>
+                <option value="MONTHLY">Monthly</option>
+              </select>
+              <label
+                v-if="['WEEKLY','BIWEEKLY','MONTHLY'].includes(scheduleEventRecurrence)"
+                class="lbl"
+                style="margin-top: 10px;"
+              >
+                Occurrences
+              </label>
+              <input
+                v-if="['WEEKLY','BIWEEKLY','MONTHLY'].includes(scheduleEventRecurrence)"
+                v-model.number="scheduleEventOccurrenceCount"
+                type="number"
+                min="1"
+                max="104"
+                class="input"
+                style="margin-top: 4px; width: 80px;"
+              />
+            </div>
           </div>
 
           <div v-if="canUseQuarterHourInput && !disableEndTimeInput" class="row" style="gap: 8px; margin-top: 10px; margin-bottom: 10px;">
@@ -1381,6 +1407,15 @@
                   {{ selectedGoogleEvent.location }}
                 </div>
                 <div class="google-event-actions" style="margin-top: 12px;">
+                  <button
+                    v-if="linkedScheduleEventForGoogleModal?.appJoinUrl"
+                    type="button"
+                    class="btn btn-primary btn-sm"
+                    style="margin-right: 8px;"
+                    @click="window.location.href = linkedScheduleEventForGoogleModal.appJoinUrl"
+                  >
+                    Join in PT app
+                  </button>
                   <button
                     v-if="selectedGoogleEvent.meetLink"
                     type="button"
@@ -2131,6 +2166,18 @@ const addDaysYmd = (ymd, daysToAdd) => {
   const d = toLocalDateNoon(String(ymd).slice(0, 10));
   d.setHours(0, 0, 0, 0);
   d.setDate(d.getDate() + Number(daysToAdd || 0));
+  return localYmd(d);
+};
+
+const addMonthsYmd = (ymd, monthsToAdd) => {
+  const d = toLocalDateNoon(String(ymd).slice(0, 10));
+  d.setHours(0, 0, 0, 0);
+  const day = d.getDate();
+  d.setDate(1);
+  d.setMonth(d.getMonth() + Number(monthsToAdd || 0));
+  const month = d.getMonth();
+  d.setDate(day);
+  if (d.getMonth() !== month) d.setDate(0);
   return localYmd(d);
 };
 
@@ -2918,10 +2965,11 @@ const scheduleEventsInCell = (dayName, hour, minute = 0) => {
   const list = Array.isArray(s.scheduleEvents) ? s.scheduleEvents : [];
   const hits = [];
   for (const ev of list) {
-    // Agency schedule events backed by Google should not display as duplicates.
-    // The Google event is the canonical display; skip schedule events that have google_event_id
-    // when Google events are shown, so we show one event (the Google one).
-    if (ev?.googleEventId && showGoogleEvents.value) continue;
+    // For most schedule events, avoid duplicate blocks when Google titles are enabled.
+    // Keep TEAM_MEETING/HUDDLE visible because they carry app/Twilio join behavior.
+    const eventKind = String(ev?.kind || '').trim().toUpperCase();
+    const isInternalMeeting = eventKind === 'TEAM_MEETING' || eventKind === 'HUDDLE';
+    if (ev?.googleEventId && showGoogleEvents.value && !isInternalMeeting) continue;
     if (ev?.allDay) {
       const startDate = String(ev?.startDate || '').slice(0, 10);
       const endDate = String(ev?.endDate || '').slice(0, 10);
@@ -3523,6 +3571,7 @@ const cellBlocks = (dayName, hour, minute = 0) => {
     blocks.push({
       key: `sevt-${String(ev?.id || ev?.googleEventId || ev?.title || 'event')}`,
       kind: 'sevt',
+      eventKind: String(ev?.kind || '').trim().toUpperCase(),
       shortLabel: showLabel ? scheduleEventShortLabel(ev) : '',
       title: scheduleEventBlockTitle(ev, dayName, hour),
       link: String(ev?.htmlLink || '').trim() || null,
@@ -3703,6 +3752,8 @@ const SCHEDULE_HOLD_REASON_OPTIONS = [
 const scheduleEventTitle = ref('');
 const scheduleEventAllDay = ref(false);
 const scheduleEventPrivate = ref(false);
+const scheduleEventRecurrence = ref('ONCE'); // ONCE | WEEKLY | BIWEEKLY | MONTHLY (meeting/huddle only)
+const scheduleEventOccurrenceCount = ref(6); // 1–104 for recurring meeting/huddle
 const scheduleHoldReasonCode = ref('DOCUMENTATION');
 const scheduleHoldCustomReason = ref('');
 const normalizeCodeValue = (value) => String(value || '').trim().toUpperCase();
@@ -4944,6 +4995,8 @@ const openSlotActionModal = ({
   scheduleEventTitle.value = '';
   scheduleEventAllDay.value = false;
   scheduleEventPrivate.value = false;
+  scheduleEventRecurrence.value = 'ONCE';
+  scheduleEventOccurrenceCount.value = 6;
   modalStartMinute.value = 0;
   modalEndMinute.value = 0;
   scheduleHoldReasonCode.value = 'DOCUMENTATION';
@@ -4965,7 +5018,7 @@ const openSlotActionModal = ({
   selectedMeetingParticipantIds.value = [];
   meetingIncludeAllAgencies.value = false;
   meetingBusyByUserId.value = {};
-  createMeetingMeetLink.value = true;
+  createMeetingMeetLink.value = !summary.value?.twilioVideoConfigured;
   createAgendaDraftTitle.value = '';
   createAgendaDraftItems.value = [];
   modalContext.value = buildModalContext({ dayName: modalDay.value, hour: modalHour.value, roomId, slot, dateYmd });
@@ -5492,6 +5545,16 @@ const cellBlockStyle = (b) => {
     style['--blockFill'] = officeKindFillMap[kind].fill;
     style['--blockBorder'] = officeKindFillMap[kind].border;
   }
+  if (kind === 'sevt') {
+    const eventKind = String(b?.eventKind || '').toUpperCase();
+    if (eventKind === 'TEAM_MEETING') {
+      style['--blockFill'] = 'rgba(147, 51, 234, 0.22)';
+      style['--blockBorder'] = 'rgba(126, 34, 206, 0.52)';
+    } else if (eventKind === 'HUDDLE') {
+      style['--blockFill'] = 'rgba(6, 182, 212, 0.22)';
+      style['--blockBorder'] = 'rgba(14, 116, 144, 0.50)';
+    }
+  }
   return style;
 };
 
@@ -5639,6 +5702,8 @@ const closeModal = () => {
   scheduleEventTitle.value = '';
   scheduleEventAllDay.value = false;
   scheduleEventPrivate.value = false;
+  scheduleEventRecurrence.value = 'ONCE';
+  scheduleEventOccurrenceCount.value = 6;
   modalStartMinute.value = 0;
   modalEndMinute.value = 0;
   modalStartHour.value = modalHour.value;
@@ -5815,6 +5880,25 @@ const mergeSelectedSlotsByDay = ({ dayName, startHour, endHour }) => {
   return ranges;
 };
 
+const scheduleEventOccurrenceDates = (baseDateYmd, recurrence, occurrenceCount) => {
+  const base = String(baseDateYmd || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(base)) return [];
+  const normalized = String(recurrence || 'ONCE').trim().toUpperCase();
+  if (!['WEEKLY', 'BIWEEKLY', 'MONTHLY'].includes(normalized)) return [base];
+  const count = Math.min(104, Math.max(1, Number(occurrenceCount || 1)));
+  const dates = [];
+  for (let i = 0; i < count; i += 1) {
+    if (normalized === 'WEEKLY') {
+      dates.push(addDaysYmd(base, i * 7));
+    } else if (normalized === 'BIWEEKLY') {
+      dates.push(addDaysYmd(base, i * 14));
+    } else {
+      dates.push(addMonthsYmd(base, i));
+    }
+  }
+  return dates;
+};
+
 const browserIanaTimeZone = () => {
   const tz = String(Intl.DateTimeFormat().resolvedOptions?.().timeZone || '').trim();
   return tz || null;
@@ -5890,10 +5974,24 @@ const submitRequest = async () => {
       const reasonCode = eventKind === 'SCHEDULE_HOLD' ? effectiveScheduleHoldReason() : null;
       const isPrivate = !!scheduleEventPrivate.value;
       const meetingTimeZone = (normalizedAction === 'agency_meeting' || normalizedAction === 'huddle') ? browserIanaTimeZone() : null;
+      const isMeetingAction = normalizedAction === 'agency_meeting' || normalizedAction === 'huddle';
+      const recurrence = isMeetingAction
+        ? String(scheduleEventRecurrence.value || 'ONCE').trim().toUpperCase()
+        : 'ONCE';
+      const recurringRecurrences = ['WEEKLY', 'BIWEEKLY', 'MONTHLY'];
+      const occurrenceCount = recurringRecurrences.includes(recurrence)
+        ? Math.min(104, Math.max(1, Number(scheduleEventOccurrenceCount.value) || 6))
+        : 1;
+      const createMeetLink = isMeetingAction
+        ? (!summary.value?.twilioVideoConfigured && !!createMeetingMeetLink.value)
+        : false;
       if (scheduleEventAllDay.value || normalizedAction === 'schedule_hold_all_day') {
         const ranges = mergeSelectedSlotsByDay({ dayName: dn, startHour: h, endHour: endH });
-        const dates = Array.from(new Set(ranges.map((x) => String(x.dateYmd || '').slice(0, 10)).filter(Boolean)));
-        for (const dateYmd of dates) {
+        const baseDates = Array.from(new Set(ranges.map((x) => String(x.dateYmd || '').slice(0, 10)).filter(Boolean)));
+        const recurringDates = Array.from(
+          new Set(baseDates.flatMap((dateYmd) => scheduleEventOccurrenceDates(dateYmd, recurrence, occurrenceCount)))
+        );
+        for (const dateYmd of recurringDates) {
           const startDate = String(dateYmd).slice(0, 10);
           const endDate = addDaysYmd(startDate, 1);
           // eslint-disable-next-line no-await-in-loop
@@ -5907,10 +6005,10 @@ const submitRequest = async () => {
             endDate,
             reasonCode,
             isPrivate,
-            ...((normalizedAction === 'agency_meeting' || normalizedAction === 'huddle')
+            ...(isMeetingAction
               ? {
                   attendeeUserIds: meetingAttendeeUserIds,
-                  createMeetLink: !!createMeetingMeetLink.value,
+                  createMeetLink,
                   ...(meetingTimeZone ? { timeZone: meetingTimeZone } : {})
                 }
               : {})
@@ -5921,29 +6019,32 @@ const submitRequest = async () => {
       } else {
         const ranges = mergeSelectedSlotsByDay({ dayName: dn, startHour: h, endHour: endH });
         for (const row of ranges) {
-          const startAt = `${String(row.dateYmd).slice(0, 10)}T${pad2(Number(row.startHour))}:${pad2(startMinute)}:00`;
-          const endAt = `${String(row.dateYmd).slice(0, 10)}T${pad2(Number(row.endHour))}:${pad2(endMinute)}:00`;
-          // eslint-disable-next-line no-await-in-loop
-          const resp = await api.post(`/users/${uid}/schedule-events`, {
-            agencyId: eventAgencyId,
-            kind: eventKind,
-            title,
-            description: requestNotes.value || '',
-            allDay: false,
-            startAt,
-            endAt,
-            reasonCode,
-            isPrivate,
-            ...((normalizedAction === 'agency_meeting' || normalizedAction === 'huddle')
-              ? {
-                  attendeeUserIds: meetingAttendeeUserIds,
-                  createMeetLink: !!createMeetingMeetLink.value,
-                  ...(meetingTimeZone ? { timeZone: meetingTimeZone } : {})
-                }
-              : {})
-          });
-          const created = resp?.data?.event || null;
-          if (created) createdScheduleEvents.push(created);
+          const dates = scheduleEventOccurrenceDates(String(row.dateYmd).slice(0, 10), recurrence, occurrenceCount);
+          for (const dateYmd of dates) {
+            const startAt = `${String(dateYmd).slice(0, 10)}T${pad2(Number(row.startHour))}:${pad2(startMinute)}:00`;
+            const endAt = `${String(dateYmd).slice(0, 10)}T${pad2(Number(row.endHour))}:${pad2(endMinute)}:00`;
+            // eslint-disable-next-line no-await-in-loop
+            const resp = await api.post(`/users/${uid}/schedule-events`, {
+              agencyId: eventAgencyId,
+              kind: eventKind,
+              title,
+              description: requestNotes.value || '',
+              allDay: false,
+              startAt,
+              endAt,
+              reasonCode,
+              isPrivate,
+              ...(isMeetingAction
+                ? {
+                    attendeeUserIds: meetingAttendeeUserIds,
+                    createMeetLink,
+                    ...(meetingTimeZone ? { timeZone: meetingTimeZone } : {})
+                  }
+                : {})
+            });
+            const created = resp?.data?.event || null;
+            if (created) createdScheduleEvents.push(created);
+          }
         }
       }
       if (createdScheduleEvents.length) {
@@ -6355,6 +6456,7 @@ const submitRequest = async () => {
           endDate: ev?.endDate || null,
           reasonCode: ev?.reasonCode || null,
           htmlLink: ev?.htmlLink || null,
+          appJoinUrl: ev?.appJoinUrl || null,
           _agencyId: Number(ev?.agencyId || 0) || null
         }));
         current.scheduleEvents = [...(Array.isArray(current.scheduleEvents) ? current.scheduleEvents : []), ...mapped];
@@ -6382,6 +6484,11 @@ watch(requestType, (t) => {
   if (t === 'supervision') {
     void loadSupervisionProviders();
   } else if (t === 'agency_meeting' || t === 'huddle') {
+    createMeetingMeetLink.value = !summary.value?.twilioVideoConfigured;
+    if (!['ONCE', 'WEEKLY', 'BIWEEKLY', 'MONTHLY'].includes(String(scheduleEventRecurrence.value || '').toUpperCase())) {
+      scheduleEventRecurrence.value = 'ONCE';
+    }
+    scheduleEventOccurrenceCount.value = Math.min(104, Math.max(1, Number(scheduleEventOccurrenceCount.value) || 6));
     void loadMeetingCandidates();
   } else if ((t === 'office' || t === 'individual_session' || t === 'group_session') && showClinicalBookingFields.value) {
     void loadBookingMetadataForProvider();
@@ -6394,6 +6501,10 @@ watch(requestType, (t) => {
     if (t === 'personal_event' || t === 'indirect_services' || t === 'agency_meeting' || t === 'huddle') {
       scheduleEventAllDay.value = false;
     }
+  }
+  if (!['agency_meeting', 'huddle'].includes(String(t || ''))) {
+    scheduleEventRecurrence.value = 'ONCE';
+    scheduleEventOccurrenceCount.value = 6;
   }
   ensureModalEndTimeValid();
 });
@@ -7196,6 +7307,19 @@ const canEditGoogleEvent = computed(() => {
   const uid = Number(authStore.user?.id || 0);
   const targetId = Number(props.userId || 0);
   return uid > 0 && targetId > 0 && uid === targetId;
+});
+
+const linkedScheduleEventForGoogleModal = computed(() => {
+  const eventId = String(selectedGoogleEvent.value?.id || '').trim();
+  if (!eventId) return null;
+  const rows = Array.isArray(summary.value?.scheduleEvents) ? summary.value.scheduleEvents : [];
+  const match = rows.find((row) => String(row?.googleEventId || '').trim() === eventId);
+  if (!match) return null;
+  const kind = String(match?.kind || '').trim().toUpperCase();
+  if (!['TEAM_MEETING', 'HUDDLE'].includes(kind)) return null;
+  const appJoinUrl = String(match?.appJoinUrl || '').trim();
+  if (!appJoinUrl) return null;
+  return { appJoinUrl, kind };
 });
 
 const closeGoogleEventModal = () => {
