@@ -47,7 +47,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, computed, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import SupervisionTwilioVideoRoom from '../../components/supervision/SupervisionTwilioVideoRoom.vue';
@@ -69,6 +69,7 @@ const activityExpanded = ref(false);
 const activityLoading = ref(false);
 const activityError = ref('');
 const activityList = ref([]);
+const joinAttemptedForPath = ref('');
 
 function formatActivityTime(createdAt) {
   if (!createdAt) return '';
@@ -134,12 +135,47 @@ async function fetchTokenAndJoin() {
   try {
     const resp = await api.get(`/team-meetings/${eid}/video-token`);
     const data = resp?.data || {};
-    token.value = data.token || '';
-    roomName.value = data.roomName || `team-meeting-${eid}`;
-    isHost.value = !!data.isHost;
+    const tok = String(data.token || data.data?.token || data.result?.token || '').trim();
+    const rn = data.roomName || data.room_name || data.data?.roomName || `team-meeting-${eid}`;
+    if (!tok) {
+      const errMsg = data?.error?.message || data?.error || '';
+      error.value = errMsg || `Video token was empty. Check Network tab: GET /api/team-meetings/${eid}/video-token.`;
+      return;
+    }
+    token.value = tok;
+    roomName.value = rn;
+    isHost.value = !!(data.isHost ?? data.is_host);
   } catch (e) {
+    if (Number(e?.response?.status || 0) === 401) {
+      const slug = organizationSlug.value;
+      if (slug) {
+        router.replace(`/${slug}/login?redirect=${encodeURIComponent(route.fullPath)}`);
+        return;
+      }
+    }
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to join video room';
   }
+}
+
+async function ensureAuthenticatedSession() {
+  if (authStore.isAuthenticated) return true;
+  try {
+    const resp = await api.get('/users/me', { skipAuthRedirect: true, skipGlobalLoading: true });
+    const u = resp?.data || null;
+    if (u && (u.id || u.email)) {
+      authStore.setAuth(null, u, localStorage.getItem('sessionId') || null);
+      return true;
+    }
+  } catch {
+    // ignore and route to login below
+  }
+  const slug = organizationSlug.value;
+  if (slug) {
+    router.replace(`/${slug}/login?redirect=${encodeURIComponent(route.fullPath)}`);
+  } else {
+    router.replace('/login');
+  }
+  return false;
 }
 
 function onDisconnected() {
@@ -151,17 +187,30 @@ function onDisconnected() {
   }
 }
 
-onMounted(async () => {
+async function runJoinFlowForCurrentRoute() {
+  const pathKey = String(route.fullPath || '');
+  if (joinAttemptedForPath.value === pathKey) return;
+  joinAttemptedForPath.value = pathKey;
+
   if (!organizationSlug.value) {
     await resolveAndRedirect();
     return;
   }
-  if (!authStore.isAuthenticated) {
-    const slug = organizationSlug.value;
-    router.replace(`/${slug}/login?redirect=${encodeURIComponent(route.fullPath)}`);
-    return;
-  }
+  const ok = await ensureAuthenticatedSession();
+  if (!ok) return;
   await fetchTokenAndJoin();
+}
+
+watch(
+  () => [route.fullPath, organizationSlug.value, eventId.value],
+  () => {
+    void runJoinFlowForCurrentRoute();
+  },
+  { immediate: true }
+);
+
+onMounted(async () => {
+  await runJoinFlowForCurrentRoute();
 });
 </script>
 
