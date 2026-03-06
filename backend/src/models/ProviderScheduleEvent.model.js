@@ -26,7 +26,7 @@ class ProviderScheduleEvent {
     const [result] = await pool.execute(
       `INSERT INTO provider_schedule_events
         (agency_id, provider_id, kind, title, description, reason_code, is_private, all_day, start_at, end_at, start_date, end_date, status, recurrence_series_id, recurrence_frequency, recurrence_policy, recurrence_index, google_event_id, google_html_link, google_meet_link, created_by_user_id, updated_by_user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         agencyId == null ? null : Number(agencyId),
         Number(providerId),
