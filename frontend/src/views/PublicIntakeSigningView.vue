@@ -1497,7 +1497,7 @@ const ensureRecaptchaWidget = async (mode = useEnterpriseRecaptcha.value ? 'ente
     // reCAPTCHA won't render into zero-size containers; wait for visibility
     for (let i = 0; i < 25 && (!el.offsetParent || el.offsetWidth < 1); i++) {
       await new Promise((r) => setTimeout(r, 80));
-      el = document.getElementById(containerId) || el;
+      el = recaptchaWidgetElStart.value || document.getElementById('recaptcha-widget-start') || el;
     }
     if (recaptchaWidgetId.value !== null) {
       return true;
