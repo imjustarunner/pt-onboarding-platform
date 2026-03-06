@@ -576,7 +576,7 @@ export const useBrandingStore = defineStore('branding', () => {
         if (url) return addCacheBuster(url);
       }
       // No fallback - return null if no platform logo is set (don't show PlotTwistCo logo)
-      if (import.meta.env.DEV) {
+      if (import.meta.env.DEV && !window.location.pathname.includes('/intake/')) {
         console.warn('[Branding] No platform logo available for displayLogoUrl:', {
           hasOrgLogoUrl: !!platformBranding.value?.organization_logo_url,
           hasOrgLogoPath: !!platformBranding.value?.organization_logo_path,

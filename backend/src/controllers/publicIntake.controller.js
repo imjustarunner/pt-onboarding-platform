@@ -983,6 +983,8 @@ const toOrgPayload = (org) => {
 };
 
 const requiresCaptchaForLink = (organization, agency) => {
+  const forAll = String(process.env.RECAPTCHA_REQUIRED_FOR_ALL || '').toLowerCase() === 'true';
+  if (forAll) return true;
   const names = process.env.RECAPTCHA_REQUIRED_ORG_NAMES;
   if (!names || typeof names !== 'string') return false;
   const list = names.split(',').map((s) => String(s || '').trim().toLowerCase()).filter(Boolean);
@@ -1217,6 +1219,11 @@ export const getPublicIntakeLink = async (req, res, next) => {
       }))
     });
   } catch (error) {
+    console.error('[publicIntake] getPublicIntakeLink error', {
+      publicKey: req.params?.publicKey,
+      message: error?.message,
+      stack: error?.stack
+    });
     next(error);
   }
 };
@@ -1261,6 +1268,13 @@ export const createPublicIntakeSession = async (req, res, next) => {
 
 export const createPublicConsent = async (req, res, next) => {
   try {
+    if (config.nodeEnv !== 'production') {
+      console.info('[recaptcha] consent received', {
+        bodyKeys: Object.keys(req.body || {}),
+        hasCaptchaToken: 'captchaToken' in (req.body || {}),
+        captchaTokenLen: req.body?.captchaToken ? String(req.body.captchaToken).length : 0
+      });
+    }
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({ error: { message: 'Validation failed', errors: errors.array() } });
@@ -1279,6 +1293,13 @@ export const createPublicConsent = async (req, res, next) => {
       return res.status(500).json({ error: { message: 'Captcha is not configured' } });
     }
     if (needsCaptcha && captchaConfigured) {
+      if (config.nodeEnv !== 'production') {
+        console.info('[recaptcha] consent body', {
+          hasCaptchaToken: 'captchaToken' in req.body,
+          captchaTokenLength: req.body?.captchaToken ? String(req.body.captchaToken).length : 0,
+          captchaWidgetFailed: !!req.body?.captchaWidgetFailed
+        });
+      }
       const captchaWidgetFailed = !!req.body.captchaWidgetFailed;
       const captchaToken = String(req.body.captchaToken || '').trim();
       if (!captchaToken) {
@@ -1301,11 +1322,13 @@ export const createPublicConsent = async (req, res, next) => {
           console.warn('[recaptcha] public intake verification failed', {
             reason: verification.reason,
             errorCodes: verification.errorCodes,
-            action: verification.action
+            action: verification.action,
+            invalidReason: verification.invalidReason
           });
-          if (config.nodeEnv === 'production') {
-            return res.status(400).json({ error: { message: 'Captcha verification failed. Please complete the captcha again and try again.' } });
-          }
+          const msg = config.nodeEnv !== 'production'
+            ? `Captcha verification failed: ${verification.reason}${verification.invalidReason ? ` (${verification.invalidReason})` : ''}. Check backend logs.`
+            : 'Captcha verification failed. Please complete the captcha again and try again.';
+          return res.status(400).json({ error: { message: msg } });
         } else {
           const minScoreRaw = process.env.RECAPTCHA_MIN_SCORE_INTAKE ?? config.recaptcha?.minScore ?? 0.3;
           const effectiveMinScore = Number.isFinite(Number(minScoreRaw)) ? Number(minScoreRaw) : 0.3;

@@ -51,7 +51,8 @@ const verifyRecaptchaEnterpriseAdc = async ({ token, expectedAction, remoteip, u
       return {
         ok: false,
         reason: 'verification_failed',
-        errorCodes: tokenProps?.invalidReason ? [tokenProps.invalidReason] : []
+        errorCodes: tokenProps?.invalidReason ? [tokenProps.invalidReason] : [],
+        invalidReason: tokenProps?.invalidReason || null
       };
     }
     if (expectedAction && tokenProps.action && tokenProps.action !== expectedAction) {
@@ -103,7 +104,8 @@ const verifyRecaptchaEnterprise = async ({ token, expectedAction, remoteip, user
       return {
         ok: false,
         reason: 'verification_failed',
-        errorCodes: tokenProps?.invalidReason ? [tokenProps.invalidReason] : []
+        errorCodes: tokenProps?.invalidReason ? [tokenProps.invalidReason] : [],
+        invalidReason: tokenProps?.invalidReason || null
       };
     }
     if (expectedAction && tokenProps.action && tokenProps.action !== expectedAction) {

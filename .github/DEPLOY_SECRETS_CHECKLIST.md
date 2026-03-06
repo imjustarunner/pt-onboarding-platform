@@ -30,6 +30,7 @@ Each secret is only used if it exists (non-empty). Missing optional secrets = fe
 - `RECAPTCHA_MIN_SCORE_INTAKE` – optional; lower threshold for public intake (default 0.3)
 - `RECAPTCHA_SITE_KEY_INTAKE` – **checkbox key** for public intake; when set, parents must complete "I'm not a robot" challenge
 - `RECAPTCHA_REQUIRED_ORG_NAMES` – comma-separated org names that require captcha (e.g. `Fakey School`). When unset, captcha is disabled for all intakes.
+- `RECAPTCHA_REQUIRED_FOR_ALL` – set to `true` to require captcha for **all** public intakes (all schools). Overrides `RECAPTCHA_REQUIRED_ORG_NAMES`.
 - `RECAPTCHA_ENTERPRISE_API_KEY`
 - `RECAPTCHA_ENTERPRISE_PROJECT_ID`
 
