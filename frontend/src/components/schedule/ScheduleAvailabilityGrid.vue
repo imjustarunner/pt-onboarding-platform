@@ -670,6 +670,47 @@
                 </li>
               </ul>
             </div>
+
+            <div style="margin-top: 12px;">
+              <label class="lbl">Frequency</label>
+              <select v-model="supervisionRecurrence" class="input">
+                <option value="ONCE">Once</option>
+                <option value="WEEKLY">Weekly</option>
+                <option value="BIWEEKLY">Biweekly</option>
+                <option value="MONTHLY">Monthly</option>
+              </select>
+              <label
+                v-if="['WEEKLY','BIWEEKLY','MONTHLY'].includes(supervisionRecurrence)"
+                class="lbl"
+                style="margin-top: 10px;"
+              >
+                Recurrence ends
+              </label>
+              <select
+                v-if="['WEEKLY','BIWEEKLY','MONTHLY'].includes(supervisionRecurrence)"
+                v-model="supervisionRecurrenceEndMode"
+                class="input"
+              >
+                <option value="count">After number of occurrences</option>
+                <option value="indefinite">Indefinite (prebuild future sessions)</option>
+              </select>
+              <label
+                v-if="['WEEKLY','BIWEEKLY','MONTHLY'].includes(supervisionRecurrence) && supervisionRecurrenceEndMode === 'count'"
+                class="lbl"
+                style="margin-top: 10px;"
+              >
+                Occurrences
+              </label>
+              <input
+                v-if="['WEEKLY','BIWEEKLY','MONTHLY'].includes(supervisionRecurrence) && supervisionRecurrenceEndMode === 'count'"
+                v-model.number="supervisionOccurrenceCount"
+                type="number"
+                min="1"
+                max="104"
+                class="input"
+                style="margin-top: 4px; width: 80px;"
+              />
+            </div>
           </div>
 
           <div v-if="requestType === 'agency_meeting' || requestType === 'huddle'" style="margin-top: 10px;">
@@ -951,10 +992,25 @@
                 class="lbl"
                 style="margin-top: 10px;"
               >
+                Recurrence ends
+              </label>
+              <select
+                v-if="['WEEKLY','BIWEEKLY','MONTHLY'].includes(scheduleEventRecurrence)"
+                v-model="scheduleEventRecurrenceEndMode"
+                class="input"
+              >
+                <option value="count">After number of occurrences</option>
+                <option value="indefinite">Indefinite (prebuild future meetings)</option>
+              </select>
+              <label
+                v-if="['WEEKLY','BIWEEKLY','MONTHLY'].includes(scheduleEventRecurrence) && scheduleEventRecurrenceEndMode === 'count'"
+                class="lbl"
+                style="margin-top: 10px;"
+              >
                 Occurrences
               </label>
               <input
-                v-if="['WEEKLY','BIWEEKLY','MONTHLY'].includes(scheduleEventRecurrence)"
+                v-if="['WEEKLY','BIWEEKLY','MONTHLY'].includes(scheduleEventRecurrence) && scheduleEventRecurrenceEndMode === 'count'"
                 v-model.number="scheduleEventOccurrenceCount"
                 type="number"
                 min="1"
@@ -962,6 +1018,13 @@
                 class="input"
                 style="margin-top: 4px; width: 80px;"
               />
+              <div
+                v-if="['WEEKLY','BIWEEKLY','MONTHLY'].includes(scheduleEventRecurrence) && scheduleEventRecurrenceEndMode === 'indefinite'"
+                class="muted"
+                style="margin-top: 6px;"
+              >
+                Indefinite creates a long-running future series and supports deleting this occurrence or all future.
+              </div>
             </div>
           </div>
 
@@ -1313,7 +1376,7 @@
               <button
                 class="stack-details-item"
                 type="button"
-                :disabled="!item.link && !item.appJoinUrl && !item.sessionId && !item.googleEvent"
+                :disabled="!item.link && !item.appJoinUrl && !item.sessionId && !item.googleEvent && !item.eventId"
                 @click="openStackDetailsItem(item)"
               >
                 <div class="stack-details-label">{{ item.label }}</div>
@@ -1348,6 +1411,25 @@
                       <span class="activity-time">{{ formatActivityTime(a.createdAt) }}</span>
                     </div>
                   </div>
+                </div>
+                <div class="stack-details-actions" style="margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap;">
+                  <button
+                    type="button"
+                    class="btn btn-danger btn-sm"
+                    :disabled="deletingScheduleEventId === item.eventId"
+                    @click.stop="deleteScheduleMeetingOccurrence(item)"
+                  >
+                    {{ deletingScheduleEventId === item.eventId && deletingScheduleEventScope === 'single' ? 'Deleting…' : 'Delete this occurrence' }}
+                  </button>
+                  <button
+                    v-if="item.recurrenceSeriesId"
+                    type="button"
+                    class="btn btn-secondary btn-sm"
+                    :disabled="deletingScheduleEventId === item.eventId"
+                    @click.stop="deleteScheduleMeetingFuture(item)"
+                  >
+                    {{ deletingScheduleEventId === item.eventId && deletingScheduleEventScope === 'future' ? 'Deleting…' : 'Delete this and all future' }}
+                  </button>
                 </div>
               </div>
             </div>
@@ -3753,7 +3835,11 @@ const scheduleEventTitle = ref('');
 const scheduleEventAllDay = ref(false);
 const scheduleEventPrivate = ref(false);
 const scheduleEventRecurrence = ref('ONCE'); // ONCE | WEEKLY | BIWEEKLY | MONTHLY (meeting/huddle only)
+const scheduleEventRecurrenceEndMode = ref('count'); // count | indefinite
 const scheduleEventOccurrenceCount = ref(6); // 1–104 for recurring meeting/huddle
+const supervisionRecurrence = ref('ONCE');
+const supervisionRecurrenceEndMode = ref('count'); // count | indefinite
+const supervisionOccurrenceCount = ref(6);
 const scheduleHoldReasonCode = ref('DOCUMENTATION');
 const scheduleHoldCustomReason = ref('');
 const normalizeCodeValue = (value) => String(value || '').trim().toUpperCase();
@@ -4996,7 +5082,11 @@ const openSlotActionModal = ({
   scheduleEventAllDay.value = false;
   scheduleEventPrivate.value = false;
   scheduleEventRecurrence.value = 'ONCE';
+  scheduleEventRecurrenceEndMode.value = 'count';
   scheduleEventOccurrenceCount.value = 6;
+  supervisionRecurrence.value = 'ONCE';
+  supervisionRecurrenceEndMode.value = 'count';
+  supervisionOccurrenceCount.value = 6;
   modalStartMinute.value = 0;
   modalEndMinute.value = 0;
   scheduleHoldReasonCode.value = 'DOCUMENTATION';
@@ -5703,7 +5793,11 @@ const closeModal = () => {
   scheduleEventAllDay.value = false;
   scheduleEventPrivate.value = false;
   scheduleEventRecurrence.value = 'ONCE';
+  scheduleEventRecurrenceEndMode.value = 'count';
   scheduleEventOccurrenceCount.value = 6;
+  supervisionRecurrence.value = 'ONCE';
+  supervisionRecurrenceEndMode.value = 'count';
+  supervisionOccurrenceCount.value = 6;
   modalStartMinute.value = 0;
   modalEndMinute.value = 0;
   modalStartHour.value = modalHour.value;
@@ -5885,7 +5979,7 @@ const scheduleEventOccurrenceDates = (baseDateYmd, recurrence, occurrenceCount) 
   if (!/^\d{4}-\d{2}-\d{2}$/.test(base)) return [];
   const normalized = String(recurrence || 'ONCE').trim().toUpperCase();
   if (!['WEEKLY', 'BIWEEKLY', 'MONTHLY'].includes(normalized)) return [base];
-  const count = Math.min(104, Math.max(1, Number(occurrenceCount || 1)));
+  const count = Math.min(520, Math.max(1, Number(occurrenceCount || 1)));
   const dates = [];
   for (let i = 0; i < count; i += 1) {
     if (normalized === 'WEEKLY') {
@@ -5897,6 +5991,22 @@ const scheduleEventOccurrenceDates = (baseDateYmd, recurrence, occurrenceCount) 
     }
   }
   return dates;
+};
+
+const recurringMeetingOccurrenceCount = (recurrence, endMode, occurrenceCount) => {
+  const normalized = String(recurrence || 'ONCE').trim().toUpperCase();
+  if (!['WEEKLY', 'BIWEEKLY', 'MONTHLY'].includes(normalized)) return 1;
+  if (String(endMode || 'count') === 'indefinite') {
+    if (normalized === 'WEEKLY') return 260; // ~5 years
+    if (normalized === 'BIWEEKLY') return 130; // ~5 years
+    return 60; // monthly ~5 years
+  }
+  return Math.min(104, Math.max(1, Number(occurrenceCount || 6) || 6));
+};
+
+const generateRecurrenceSeriesId = () => {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+  return `series-${Date.now()}-${Math.floor(Math.random() * 1000000)}`;
 };
 
 const browserIanaTimeZone = () => {
@@ -5979,9 +6089,17 @@ const submitRequest = async () => {
         ? String(scheduleEventRecurrence.value || 'ONCE').trim().toUpperCase()
         : 'ONCE';
       const recurringRecurrences = ['WEEKLY', 'BIWEEKLY', 'MONTHLY'];
+      const recurrenceEndMode = isMeetingAction ? String(scheduleEventRecurrenceEndMode.value || 'count') : 'count';
       const occurrenceCount = recurringRecurrences.includes(recurrence)
-        ? Math.min(104, Math.max(1, Number(scheduleEventOccurrenceCount.value) || 6))
+        ? recurringMeetingOccurrenceCount(recurrence, recurrenceEndMode, scheduleEventOccurrenceCount.value)
         : 1;
+      const recurrenceSeriesId = (isMeetingAction && recurringRecurrences.includes(recurrence))
+        ? generateRecurrenceSeriesId()
+        : null;
+      const recurrencePolicy = (isMeetingAction && recurringRecurrences.includes(recurrence))
+        ? (recurrenceEndMode === 'indefinite' ? 'INDEFINITE' : 'FINITE')
+        : null;
+      let recurrenceIndex = 0;
       const createMeetLink = isMeetingAction
         ? (!summary.value?.twilioVideoConfigured && !!createMeetingMeetLink.value)
         : false;
@@ -6009,10 +6127,15 @@ const submitRequest = async () => {
               ? {
                   attendeeUserIds: meetingAttendeeUserIds,
                   createMeetLink,
+                  recurrenceSeriesId,
+                  recurrenceFrequency: recurringRecurrences.includes(recurrence) ? recurrence : null,
+                  recurrencePolicy,
+                  recurrenceIndex: recurringRecurrences.includes(recurrence) ? recurrenceIndex : null,
                   ...(meetingTimeZone ? { timeZone: meetingTimeZone } : {})
                 }
               : {})
           });
+          if (isMeetingAction && recurringRecurrences.includes(recurrence)) recurrenceIndex += 1;
           const created = resp?.data?.event || null;
           if (created) createdScheduleEvents.push(created);
         }
@@ -6038,10 +6161,15 @@ const submitRequest = async () => {
                 ? {
                     attendeeUserIds: meetingAttendeeUserIds,
                     createMeetLink,
+                    recurrenceSeriesId,
+                    recurrenceFrequency: recurringRecurrences.includes(recurrence) ? recurrence : null,
+                    recurrencePolicy,
+                    recurrenceIndex: recurringRecurrences.includes(recurrence) ? recurrenceIndex : null,
                     ...(meetingTimeZone ? { timeZone: meetingTimeZone } : {})
                   }
                 : {})
             });
+            if (isMeetingAction && recurringRecurrences.includes(recurrence)) recurrenceIndex += 1;
             const created = resp?.data?.event || null;
             if (created) createdScheduleEvents.push(created);
           }
@@ -6316,23 +6444,37 @@ const submitRequest = async () => {
       const dayIdx = orderedDays.value.indexOf(String(dn)) - (effectiveWeekStartsOn.value === 'sunday' ? 1 : 0);
       if (dayIdx < -1) throw new Error('Invalid day');
       const dateYmd = addDaysYmd(weekStart.value, dayIdx);
-      const startAt = `${dateYmd}T${pad2(h)}:${pad2(startMinute)}:00`;
-      const endAt = `${dateYmd}T${pad2(endH)}:${pad2(endMinute)}:00`;
-      const supvRes = await api.post('/supervision/sessions', {
-        agencyId: effectiveAgencyId.value,
-        supervisorUserId: actorId,
-        superviseeUserId: participantId,
-        sessionType,
-        additionalAttendeeUserIds,
-        startAt,
-        endAt,
-        notes: requestNotes.value || '',
-        createMeetLink: false,
-        modality: 'virtual'
-      });
-      const sessionId = supvRes?.data?.session?.id;
-      if (sessionId && createAgendaDraftItems.value.length) {
-        postAgendaItemsForNewMeeting('supervision_session', sessionId).catch(() => {});
+      const recurrence = String(supervisionRecurrence.value || 'ONCE').trim().toUpperCase();
+      const recurringRecurrences = ['WEEKLY', 'BIWEEKLY', 'MONTHLY'];
+      const occurrenceCount = recurringRecurrences.includes(recurrence)
+        ? recurringMeetingOccurrenceCount(recurrence, supervisionRecurrenceEndMode.value, supervisionOccurrenceCount.value)
+        : 1;
+      const dates = scheduleEventOccurrenceDates(dateYmd, recurrence, occurrenceCount);
+      const createdSessionIds = [];
+      for (const occYmd of dates) {
+        const startAt = `${String(occYmd).slice(0, 10)}T${pad2(h)}:${pad2(startMinute)}:00`;
+        const endAt = `${String(occYmd).slice(0, 10)}T${pad2(endH)}:${pad2(endMinute)}:00`;
+        // eslint-disable-next-line no-await-in-loop
+        const supvRes = await api.post('/supervision/sessions', {
+          agencyId: effectiveAgencyId.value,
+          supervisorUserId: actorId,
+          superviseeUserId: participantId,
+          sessionType,
+          additionalAttendeeUserIds,
+          startAt,
+          endAt,
+          notes: requestNotes.value || '',
+          createMeetLink: false,
+          modality: 'virtual'
+        });
+        const sessionId = Number(supvRes?.data?.session?.id || 0);
+        if (sessionId > 0) createdSessionIds.push(sessionId);
+      }
+      if (createdSessionIds.length && createAgendaDraftItems.value.length) {
+        for (const sessionId of createdSessionIds) {
+          // eslint-disable-next-line no-await-in-loop
+          await postAgendaItemsForNewMeeting('supervision_session', sessionId);
+        }
       }
       forceRefreshSummary = true;
       invalidateScheduleSummaryCacheForUser(props.userId);
@@ -6455,6 +6597,10 @@ const submitRequest = async () => {
           startDate: ev?.startDate || null,
           endDate: ev?.endDate || null,
           reasonCode: ev?.reasonCode || null,
+          recurrenceSeriesId: ev?.recurrenceSeriesId || null,
+          recurrenceFrequency: ev?.recurrenceFrequency || null,
+          recurrencePolicy: ev?.recurrencePolicy || null,
+          recurrenceIndex: ev?.recurrenceIndex ?? null,
           htmlLink: ev?.htmlLink || null,
           appJoinUrl: ev?.appJoinUrl || null,
           _agencyId: Number(ev?.agencyId || 0) || null
@@ -6482,11 +6628,21 @@ watch(requestType, (t) => {
     modalEndMinute.value = 0;
   }
   if (t === 'supervision') {
+    if (!['ONCE', 'WEEKLY', 'BIWEEKLY', 'MONTHLY'].includes(String(supervisionRecurrence.value || '').toUpperCase())) {
+      supervisionRecurrence.value = 'ONCE';
+    }
+    if (!['count', 'indefinite'].includes(String(supervisionRecurrenceEndMode.value || ''))) {
+      supervisionRecurrenceEndMode.value = 'count';
+    }
+    supervisionOccurrenceCount.value = Math.min(104, Math.max(1, Number(supervisionOccurrenceCount.value) || 6));
     void loadSupervisionProviders();
   } else if (t === 'agency_meeting' || t === 'huddle') {
     createMeetingMeetLink.value = !summary.value?.twilioVideoConfigured;
     if (!['ONCE', 'WEEKLY', 'BIWEEKLY', 'MONTHLY'].includes(String(scheduleEventRecurrence.value || '').toUpperCase())) {
       scheduleEventRecurrence.value = 'ONCE';
+    }
+    if (!['count', 'indefinite'].includes(String(scheduleEventRecurrenceEndMode.value || ''))) {
+      scheduleEventRecurrenceEndMode.value = 'count';
     }
     scheduleEventOccurrenceCount.value = Math.min(104, Math.max(1, Number(scheduleEventOccurrenceCount.value) || 6));
     void loadMeetingCandidates();
@@ -6504,7 +6660,13 @@ watch(requestType, (t) => {
   }
   if (!['agency_meeting', 'huddle'].includes(String(t || ''))) {
     scheduleEventRecurrence.value = 'ONCE';
+    scheduleEventRecurrenceEndMode.value = 'count';
     scheduleEventOccurrenceCount.value = 6;
+  }
+  if (String(t || '') !== 'supervision') {
+    supervisionRecurrence.value = 'ONCE';
+    supervisionRecurrenceEndMode.value = 'count';
+    supervisionOccurrenceCount.value = 6;
   }
   ensureModalEndTimeValid();
 });
@@ -7168,6 +7330,28 @@ const onCellBlockClick = (e, block, dayName, hour) => {
     return;
   }
   if (kind === 'sevt') {
+    const eventId = Number(block?.eventId || 0);
+    const events = scheduleEventsInCell(dayName, hour);
+    const targetEvent = eventId > 0
+      ? events.find((ev) => Number(ev?.id || 0) === eventId)
+      : events[0];
+    const targetKind = String(targetEvent?.kind || '').trim().toUpperCase();
+    if (targetEvent && ['TEAM_MEETING', 'HUDDLE'].includes(targetKind)) {
+      openStackDetailsModal({
+        title: `Meeting details — ${dayName} ${hourLabel(hour)}`,
+        items: [{
+          id: `sevt-single-${eventId || Date.now()}`,
+          label: String(targetEvent?.title || '').trim() || 'Meeting',
+          subLabel: targetEvent?.allDay ? 'All day' : formatRangeFromRaw(targetEvent?.startAt, targetEvent?.endAt),
+          link: String(targetEvent?.htmlLink || '').trim() || '',
+          appJoinUrl: String(targetEvent?.appJoinUrl || '').trim() || '',
+          eventId: Number(targetEvent?.id || 0) || null,
+          eventKind: targetKind,
+          recurrenceSeriesId: String(targetEvent?.recurrenceSeriesId || '').trim() || ''
+        }]
+      });
+      return;
+    }
     const appJoinUrl = String(block?.appJoinUrl || '').trim();
     if (appJoinUrl) {
       window.location.href = appJoinUrl;
@@ -7245,6 +7429,8 @@ const clearGevtClickTimer = () => {
 const showStackDetailsModal = ref(false);
 const stackDetailsTitle = ref('');
 const stackDetailsItems = ref([]);
+const deletingScheduleEventId = ref(0);
+const deletingScheduleEventScope = ref('');
 const teamMeetingActivityExpandedById = ref({});
 const teamMeetingActivityById = ref({});
 const teamMeetingActivityLoadingById = ref({});
@@ -7288,6 +7474,39 @@ const openStackDetailsModal = ({ title = '', items = [] } = {}) => {
   stackDetailsItems.value = Array.isArray(items) ? items : [];
   showStackDetailsModal.value = true;
 };
+
+const deleteScheduleMeeting = async (item, scope = 'single') => {
+  const eventId = Number(item?.eventId || 0);
+  if (!eventId) return;
+  const normalizedScope = scope === 'future' ? 'future' : 'single';
+  const title = String(item?.label || 'this meeting').trim();
+  const confirmMsg = normalizedScope === 'future'
+    ? `Delete "${title}" and all future occurrences in this series?`
+    : `Delete "${title}" for this occurrence only?`;
+  if (!window.confirm(confirmMsg)) return;
+  const uid = Number(props.userId || authStore.user?.id || 0);
+  if (!uid) {
+    modalError.value = 'Unable to resolve provider user for delete.';
+    return;
+  }
+  try {
+    deletingScheduleEventId.value = eventId;
+    deletingScheduleEventScope.value = normalizedScope;
+    await api.delete(`/users/${uid}/schedule-events/${eventId}`, {
+      params: { scope: normalizedScope }
+    });
+    invalidateScheduleSummaryCacheForUser(props.userId);
+    await load({ forceRefresh: true });
+    closeStackDetailsModal();
+  } catch (e) {
+    modalError.value = e?.response?.data?.error?.message || e?.message || 'Failed to delete meeting';
+  } finally {
+    deletingScheduleEventId.value = 0;
+    deletingScheduleEventScope.value = '';
+  }
+};
+const deleteScheduleMeetingOccurrence = async (item) => deleteScheduleMeeting(item, 'single');
+const deleteScheduleMeetingFuture = async (item) => deleteScheduleMeeting(item, 'future');
 
 const showGoogleEventModal = ref(false);
 const selectedGoogleEvent = ref(null);
@@ -7500,7 +7719,9 @@ const buildStackDetailsForBlock = (block, dayName, hour) => {
         subLabel: ev?.allDay ? 'All day' : formatRangeFromRaw(ev?.startAt, ev?.endAt),
         link: String(ev?.htmlLink || '').trim() || '',
         appJoinUrl: String(ev?.appJoinUrl || '').trim() || '',
-        eventId: Number(ev?.id || 0) || null
+        eventId: Number(ev?.id || 0) || null,
+        eventKind: String(ev?.kind || '').trim().toUpperCase() || '',
+        recurrenceSeriesId: String(ev?.recurrenceSeriesId || '').trim() || ''
       }))
     };
   }

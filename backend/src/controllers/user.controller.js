@@ -3036,6 +3036,10 @@ export const getUserScheduleSummary = async (req, res, next) => {
           startDate: r.start_date ? String(r.start_date).slice(0, 10) : null,
           endDate: r.end_date ? String(r.end_date).slice(0, 10) : null,
           reasonCode: String(r.reason_code || '').trim().toUpperCase() || null,
+          recurrenceSeriesId: String(r.recurrence_series_id || '').trim() || null,
+          recurrenceFrequency: String(r.recurrence_frequency || '').trim().toUpperCase() || null,
+          recurrencePolicy: String(r.recurrence_policy || '').trim().toUpperCase() || null,
+          recurrenceIndex: r.recurrence_index == null ? null : Number(r.recurrence_index),
           googleEventId: r.google_event_id || null,
           htmlLink: r.google_html_link || null,
           meetLink: r.google_meet_link ? String(r.google_meet_link).trim().slice(0, 1024) : null,
@@ -3327,6 +3331,11 @@ export const createUserScheduleEvent = async (req, res, next) => {
         .map((v) => Number(v || 0))
         .filter((n) => n > 0 && n !== userId))
     );
+    const recurrenceSeriesIdRaw = String(req.body?.recurrenceSeriesId || '').trim();
+    const recurrenceSeriesId = recurrenceSeriesIdRaw ? recurrenceSeriesIdRaw.slice(0, 64) : null;
+    const recurrenceFrequency = String(req.body?.recurrenceFrequency || '').trim().toUpperCase() || null;
+    const recurrencePolicy = String(req.body?.recurrencePolicy || '').trim().toUpperCase() || null;
+    const recurrenceIndex = req.body?.recurrenceIndex == null ? null : Math.max(0, parseInt(req.body.recurrenceIndex, 10) || 0);
     if ((kind === 'TEAM_MEETING' || kind === 'HUDDLE') && !attendeeUserIds.length) {
       return res.status(400).json({ error: { message: `${kind} requires at least one attendeeUserId.` } });
     }
@@ -3414,6 +3423,10 @@ export const createUserScheduleEvent = async (req, res, next) => {
         endAt: storedEndAt,
         startDate: allDay ? startDate : null,
         endDate: allDay ? endDateExclusive : null,
+        recurrenceSeriesId,
+        recurrenceFrequency,
+        recurrencePolicy,
+        recurrenceIndex,
         googleEventId: result.eventId || null,
         googleHtmlLink: result.htmlLink || null,
         googleMeetLink: result.meetLink || null,
@@ -3456,8 +3469,91 @@ export const createUserScheduleEvent = async (req, res, next) => {
         startAt: allDay ? null : (result.startAt ?? storedStartAt ?? startAt),
         endAt: allDay ? null : (result.endAt ?? storedEndAt ?? endAt),
         startDate: allDay ? startDate : null,
-        endDate: allDay ? endDateExclusive : null
+        endDate: allDay ? endDateExclusive : null,
+        recurrenceSeriesId: saved?.recurrence_series_id || recurrenceSeriesId || null,
+        recurrenceFrequency: saved?.recurrence_frequency || recurrenceFrequency || null,
+        recurrencePolicy: saved?.recurrence_policy || recurrencePolicy || null,
+        recurrenceIndex: saved?.recurrence_index == null ? recurrenceIndex : Number(saved.recurrence_index)
       }
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const deleteUserScheduleEvent = async (req, res, next) => {
+  try {
+    const userId = parseInt(req.params.id, 10);
+    const eventId = parseInt(req.params.eventId, 10);
+    if (!userId) return res.status(400).json({ error: { message: 'Invalid user id' } });
+    if (!eventId) return res.status(400).json({ error: { message: 'Invalid event id' } });
+
+    const actorUserId = Number(req.user?.id || 0);
+    const actorRole = String(req.user?.role || '').toLowerCase();
+    const isSelf = actorUserId === userId;
+    if (!isSelf && !canCreateProviderScheduleEvent(actorRole)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+    if (!isSelf) {
+      const sharedOk = await requireSharedAgencyAccessOrSuperAdmin({
+        actorUserId,
+        targetUserId: userId,
+        actorRole
+      });
+      if (!sharedOk) return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const provider = await User.findById(userId);
+    if (!provider) return res.status(404).json({ error: { message: 'User not found' } });
+    const subjectEmail = String(provider?.email || '').trim().toLowerCase();
+
+    const target = await ProviderScheduleEvent.findByIdForProvider({ eventId, providerId: userId });
+    if (!target) return res.status(404).json({ error: { message: 'Schedule event not found' } });
+    if (String(target.status || '').trim().toUpperCase() === 'CANCELLED') {
+      return res.json({ ok: true, deletedCount: 0, alreadyCancelled: true });
+    }
+
+    const scope = String(req.query?.scope || 'single').trim().toLowerCase();
+    if (!['single', 'future'].includes(scope)) {
+      return res.status(400).json({ error: { message: 'scope must be single or future' } });
+    }
+
+    let rowsToCancel = [target];
+    const seriesId = String(target.recurrence_series_id || '').trim();
+    if (scope === 'future') {
+      if (!seriesId) {
+        return res.status(400).json({ error: { message: 'This event is not part of a recurring series.' } });
+      }
+      rowsToCancel = await ProviderScheduleEvent.listActiveSeriesFromPoint({
+        recurrenceSeriesId: seriesId,
+        providerId: userId,
+        fromStartAt: target.start_at || null,
+        fromStartDate: target.start_date || null
+      });
+      if (!rowsToCancel.length) rowsToCancel = [target];
+    }
+
+    const ids = rowsToCancel.map((r) => Number(r.id || 0)).filter((n) => n > 0);
+    await Promise.all(rowsToCancel.map(async (row) => {
+      const gid = String(row?.google_event_id || '').trim();
+      if (!gid || !subjectEmail) return;
+      await GoogleCalendarService.deleteEvent({
+        subjectEmail,
+        calendarId: 'primary',
+        eventId: gid
+      }).catch(() => {});
+    }));
+
+    const deletedCount = await ProviderScheduleEvent.cancelByIds({
+      eventIds: ids,
+      updatedByUserId: actorUserId
+    });
+
+    return res.json({
+      ok: true,
+      scope,
+      deletedCount,
+      seriesId: seriesId || null
     });
   } catch (e) {
     next(e);
