@@ -71,7 +71,7 @@
           </div>
           <div class="actions">
             <button class="btn btn-primary" type="button" @click="advanceIntro">
-              {{ t('next') }}
+              {{ t('acknowledgeAndContinue') }}
             </button>
           </div>
         </div>
@@ -484,12 +484,9 @@
             <p v-if="checkboxMarkers.length && checkboxDisclaimer" class="note">
               {{ checkboxDisclaimer }}
             </p>
-            <div v-if="showSkipToSignature" class="page-notice-actions" style="margin-top: 12px;">
-              <button class="btn btn-primary btn-sm" type="button" @click="skipToSignaturePage">
-                Skip to signature page
-              </button>
-              <button class="btn btn-outline btn-sm" type="button" @click="dismissSkipNotice">
-                Continue reviewing pages
+            <div v-if="reviewTotalPages > 1" class="page-notice-actions" style="margin-top: 12px;">
+              <button class="btn btn-outline btn-sm" type="button" @click="skipToSignaturePage">
+                {{ t('skipToSignaturePage') }}
               </button>
             </div>
           </div>
@@ -541,13 +538,15 @@
 
         <div v-if="currentFlowStep?.type === 'document' && currentDoc?.document_action_type === 'signature'" class="signature-block" ref="signatureBlockRef">
           <SignaturePad compact @signed="onSigned" />
-          <label
-            v-if="allowSignatureReuseActions && lastSignatureData && !signatureData"
-            class="checkbox-row signature-confirm"
-          >
-            <input v-model="reuseSignatureConfirmed" type="checkbox" />
-            <span>I approve to sign, save, and reuse the signature.</span>
-          </label>
+          <div v-if="allowSignatureReuseActions && lastSignatureData && !signatureData" class="signature-reuse-actions" style="margin-top: 12px;">
+            <button
+              type="button"
+              class="btn btn-outline btn-sm"
+              @click="onUseSavedSignatureClick"
+            >
+              {{ t('useSavedSignature') }}
+            </button>
+          </div>
           <div v-if="signatureData" class="muted" style="margin-top: 6px;">Signature ready for this document.</div>
         </div>
 
@@ -621,6 +620,10 @@ const INTAKE_TRANSLATIONS = {
     formTimeLimit: 'This form must be completed within 1 hour. Each new page adds 5 minutes. The session is unique and cannot be saved or resumed.',
     next: 'Next',
     tapNext: 'Tap Next to continue',
+    acknowledgeAndContinue: 'Acknowledge & Continue',
+    introAgencySubtitle: 'Acknowledging this agency as your service provider.',
+    introSchoolSubtitle: 'Acknowledging this school as your partnering organization.',
+    introOrgSubtitle: 'Acknowledging this organization as your intake site.',
     questions: 'Questions',
     whoIsIntakeFor: 'Who is this intake for?',
     myself: 'Myself',
@@ -696,6 +699,9 @@ const INTAKE_TRANSLATIONS = {
     noDocumentSelected: 'No document selected.',
     reviewAllPages: 'Please review all pages before continuing.',
     reviewAllPagesSkip: 'Please review all pages before continuing. You can skip to the signature page if needed.',
+    skipToSignaturePage: 'Go to last page',
+    useSavedSignature: 'Use Saved Signature to Sign this Document',
+    reviewAllPagesBeforeSigning: 'Please click Next on the document to review all pages before signing.',
     confirmSignatureReuse: 'Please confirm signature reuse to continue.',
     signatureRequired: 'Signature is required.',
     completeRequiredFields: 'Please complete all required fields before continuing.',
@@ -722,6 +728,10 @@ const INTAKE_TRANSLATIONS = {
     formTimeLimit: 'Este formulario debe completarse en 1 hora. Cada página nueva agrega 5 minutos. La sesión es única y no se puede guardar ni reanudar.',
     next: 'Siguiente',
     tapNext: 'Toque Siguiente para continuar',
+    acknowledgeAndContinue: 'Aceptar y continuar',
+    introAgencySubtitle: 'Reconociendo a esta agencia como su proveedor de servicios.',
+    introSchoolSubtitle: 'Reconociendo a esta escuela como su organización asociada.',
+    introOrgSubtitle: 'Reconociendo a esta organización como su sitio de admisión.',
     questions: 'Preguntas',
     whoIsIntakeFor: '¿Para quién es esta admisión?',
     myself: 'Para mí',
@@ -787,7 +797,9 @@ const INTAKE_TRANSLATIONS = {
     noDocumentSelected: 'No se seleccionó ningún documento.',
     reviewAllPages: 'Por favor revise todas las páginas antes de continuar.',
     reviewAllPagesSkip: 'Por favor revise todas las páginas antes de continuar. Puede saltar a la página de firma si es necesario.',
-    confirmSignatureReuse: 'Por favor confirme la reutilización de la firma para continuar.',
+    skipToSignaturePage: 'Ir a la última página',
+    useSavedSignature: 'Usar firma guardada para firmar este documento',
+    reviewAllPagesBeforeSigning: 'Por favor haga clic en Siguiente en el documento para revisar todas las páginas antes de firmar.',
     signatureRequired: 'Se requiere firma.',
     completeRequiredFields: 'Por favor complete todos los campos requeridos antes de continuar.',
     cancelDeleteConfirm: '¿Cancelar y eliminar toda la información ingresada? Estos datos no se guardarán debido a la naturaleza sensible de la admisión.',
@@ -917,7 +929,6 @@ const currentDocIndex = ref(0);
 const signatureBlockRef = ref(null);
 const signatureData = ref('');
 const lastSignatureData = ref('');
-const reuseSignatureConfirmed = ref(false);
 const signatureDocFlowIndexes = computed(() =>
   flowSteps.value
     .map((s, idx) => ({ s, idx }))
@@ -938,7 +949,6 @@ const reviewPage = ref(1);
 const reviewTotalPages = ref(0);
 const canProceed = ref(true);
 const pageNotice = ref('');
-const showSkipToSignature = ref(false);
 let pageNoticeTimer = null;
 const docStatus = reactive({});
 const uploadStatus = reactive({});
@@ -1017,6 +1027,7 @@ const getDisplayName = (org) => {
 
 const introScreens = computed(() => {
   const screens = [];
+  const scopeType = String(link.value?.scope_type || '').toLowerCase();
   const agencyName = getDisplayName(agencyInfo.value);
   if (agencyName) {
     screens.push({
@@ -1024,7 +1035,7 @@ const introScreens = computed(() => {
       displayName: agencyName,
       logoUrl: resolveLogoUrl(agencyInfo.value),
       altText: `${agencyName} logo`,
-      subtitle: t('tapNext')
+      subtitle: t('introAgencySubtitle')
     });
   }
 
@@ -1035,7 +1046,7 @@ const introScreens = computed(() => {
       displayName: orgName,
       logoUrl: resolveLogoUrl(organizationInfo.value),
       altText: `${orgName} logo`,
-      subtitle: t('tapNext')
+      subtitle: scopeType === 'school' ? t('introSchoolSubtitle') : t('introOrgSubtitle')
     });
   }
 
@@ -1870,17 +1881,23 @@ const onSigned = (dataUrl) => {
   lastSignatureData.value = dataUrl;
 };
 
-const dismissSkipNotice = () => {
-  showSkipToSignature.value = false;
+const onUseSavedSignatureClick = () => {
+  if (!canProceed.value) {
+    stepError.value = t('reviewAllPagesBeforeSigning');
+    return;
+  }
+  if (lastSignatureData.value) {
+    signatureData.value = lastSignatureData.value;
+    stepError.value = '';
+  }
 };
 
 const skipToSignaturePage = () => {
-  const page = signaturePageNumber.value;
+  const page = signaturePageNumber.value || reviewTotalPages.value;
   if (!page) return;
   if (pdfPreviewRef.value?.goToPage) {
     pdfPreviewRef.value.goToPage(page);
   }
-  showSkipToSignature.value = false;
 };
 
 const completeCurrentDocument = async () => {
@@ -1893,10 +1910,7 @@ const completeCurrentDocument = async () => {
       return;
     }
     if (currentDoc.value.template_type === 'pdf' && !canProceed.value) {
-      pageNotice.value = signaturePageNumber.value
-        ? t('reviewAllPagesSkip')
-        : t('reviewAllPages');
-      showSkipToSignature.value = !!signaturePageNumber.value;
+      pageNotice.value = t('reviewAllPagesSkip');
       if (pageNoticeTimer) clearTimeout(pageNoticeTimer);
       pageNoticeTimer = setTimeout(() => {
         pageNotice.value = '';
@@ -1904,16 +1918,8 @@ const completeCurrentDocument = async () => {
       return;
     }
     if (currentDoc.value.document_action_type === 'signature' && !signatureData.value) {
-      if (allowSignatureReuseActions.value && lastSignatureData.value) {
-        if (!reuseSignatureConfirmed.value) {
-          stepError.value = t('confirmSignatureReuse');
-          return;
-        }
-        signatureData.value = lastSignatureData.value;
-      } else {
-        stepError.value = t('signatureRequired');
-        return;
-      }
+      stepError.value = t('signatureRequired');
+      return;
     }
 
     const missingFields = displayedFieldDefinitions.value.filter((f) => {
@@ -2151,16 +2157,12 @@ const handlePdfLoaded = ({ totalPages }) => {
   reviewTotalPages.value = totalPages || 0;
   reviewPage.value = 1;
   canProceed.value = reviewTotalPages.value <= 1;
-  showSkipToSignature.value = false;
 };
 
 const handlePageChange = ({ currentPage, totalPages }) => {
   reviewPage.value = currentPage || 1;
   reviewTotalPages.value = totalPages || reviewTotalPages.value;
   canProceed.value = reviewTotalPages.value > 0 && reviewPage.value >= reviewTotalPages.value;
-  if (canProceed.value) {
-    showSkipToSignature.value = false;
-  }
 };
 
 const addClient = () => {
@@ -2440,7 +2442,6 @@ watch(currentDoc, async () => {
   reviewTotalPages.value = 0;
   canProceed.value = currentDoc.value?.template_type !== 'pdf';
   signatureData.value = '';
-  reuseSignatureConfirmed.value = false;
   pageNotice.value = '';
   syncClientNamesToResponses();
   initializeFieldValues();
