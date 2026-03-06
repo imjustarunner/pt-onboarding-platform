@@ -93,6 +93,13 @@
                 Payroll
               </router-link>
               <router-link
+                v-if="canSeeSkillBuildersAvailabilityNav"
+                :to="orgTo('/admin/skill-builders-availability')"
+                @click="closeMobileMenu"
+              >
+                Skill Builders Availability
+              </router-link>
+              <router-link
                 v-if="canShowAdminDashboardIcon"
                 :to="orgTo('/admin')"
                 class="nav-icon-btn"
@@ -416,6 +423,12 @@
               @click="closeMobileMenu"
               class="mobile-nav-link"
             >Payroll</router-link>
+            <router-link
+              v-if="canSeeSkillBuildersAvailabilityNav"
+              :to="orgTo('/admin/skill-builders-availability')"
+              @click="closeMobileMenu"
+              class="mobile-nav-link"
+            >Skill Builders Availability</router-link>
             <router-link
               v-if="hasCapability('canJoinProgramEvents') && user?.role !== 'provider'"
               :to="orgTo('/office')"
@@ -1232,6 +1245,21 @@ const canSeeAvailabilityIntake = computed(() => {
   return ['super_admin', 'admin', 'support', 'clinical_practice_assistant', 'provider_plus', 'staff'].includes(r);
 });
 
+const canSeeSkillBuildersAvailabilityNav = computed(() => {
+  const r = String(user.value?.role || '').toLowerCase();
+  const roleAllowed =
+    r === 'super_admin' ||
+    r === 'admin' ||
+    r === 'support' ||
+    r === 'clinical_practice_assistant' ||
+    r === 'provider_plus';
+  const coordinator =
+    user.value?.has_skill_builder_coordinator_access === true ||
+    user.value?.has_skill_builder_coordinator_access === 1 ||
+    user.value?.has_skill_builder_coordinator_access === '1';
+  return roleAllowed || coordinator;
+});
+
 const availabilityIntakeNavLink = computed(() => {
   const base = orgTo('/admin/availability-intake');
   const agencyId = agencyStore.currentAgency?.id;
@@ -1329,7 +1357,8 @@ const settingsIconUrl = computed(() => {
 
 const scheduleIconUrl = computed(() => {
   try {
-    return brandingStore.getAdminQuickActionIconUrl('schedule', agencyStore.currentAgency || null);
+    // Use the same icon source as the "My Schedule" dashboard card (agency override first).
+    return brandingStore.getDashboardCardIconUrl('my_schedule', agencyStore.currentAgency || undefined);
   } catch {
     return null;
   }
@@ -1389,7 +1418,8 @@ const scheduleNavLink = computed(() => {
 });
 
 const myScheduleNavLink = computed(() => ({
-  path: orgTo('/dashboard'),
+  // Always open the user's personal dashboard schedule tab, not an org-scoped portal route.
+  path: '/dashboard',
   query: { tab: 'my_schedule' }
 }));
 

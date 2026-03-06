@@ -1252,6 +1252,7 @@ const scheduleGridRef = ref(null);
 
 /** When clicking "My schedule" tab: switch to self view and snap to Open finder (main page). */
 const onMyScheduleClick = () => {
+  applyScheduleStageThemeIntent();
   scheduleViewMode.value = 'self';
   nextTick(() => scheduleGridRef.value?.resetToOpenFinder?.());
 };
@@ -1626,10 +1627,22 @@ const updateScheduleFullscreenState = () => {
   scheduleFullscreenActive.value = !!(fs && root && (fs === root || root.contains(fs)));
 };
 
+const applyScheduleStageThemeIntent = () => {
+  const root = myScheduleStageRef.value;
+  if (!root) return;
+  const appInDarkMode = document.documentElement.getAttribute('data-theme') === 'dark';
+  if (appInDarkMode) {
+    root.removeAttribute('data-schedule-force-light');
+    return;
+  }
+  root.setAttribute('data-schedule-force-light', '1');
+};
+
 const toggleScheduleFullscreen = async () => {
   try {
     const root = myScheduleStageRef.value;
     if (!root) return;
+    applyScheduleStageThemeIntent();
     if (document.fullscreenElement && (document.fullscreenElement === root || root.contains(document.fullscreenElement))) {
       await document.exitFullscreen();
       return;
@@ -2913,6 +2926,9 @@ onMounted(async () => {
   }, supervisionPromptPollMs);
 });
 watch(activeTab, updateRailCollapsedMode);
+watch(isDarkMode, () => {
+  applyScheduleStageThemeIntent();
+}, { immediate: true });
 
 // If available cards change (role/status), keep activeTab on a valid content card.
 watch(dashboardCards, () => {
@@ -3344,6 +3360,29 @@ h1 {
   border: 1px solid var(--border);
   box-shadow: var(--shadow);
   padding: 14px;
+}
+.my-schedule-stage[data-schedule-force-light="1"] {
+  --bg: #ffffff;
+  --bg-alt: #f3f6fa;
+  --text-primary: #1d2633;
+  --text-secondary: #64748b;
+  --border: #e2e8f0;
+}
+.my-schedule-stage:fullscreen,
+.my-schedule-stage:-webkit-full-screen {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  overflow: auto;
+  background: var(--bg, #ffffff);
+  color: var(--text-primary, #1d2633);
+  border: none;
+  border-radius: 0;
+}
+.my-schedule-stage:fullscreen::backdrop,
+.my-schedule-stage:-webkit-full-screen::backdrop {
+  background: var(--bg-alt, #f3f6fa);
 }
 .schedule-supervisor-toolbar {
   display: flex;

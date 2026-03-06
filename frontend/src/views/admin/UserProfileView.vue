@@ -4544,6 +4544,9 @@ const saveAccount = async () => {
     console.log('Update data being sent:', updateData);
     pendingAccountUpdate.value = updateData;
     const response = await api.put(`/users/${userId.value}`, updateData);
+    const backendWarnings = Array.isArray(response?.data?.warnings)
+      ? response.data.warnings.map((w) => String(w || '').trim()).filter(Boolean)
+      : [];
 
     // Backward-compatible fallback:
     // if backend response does not include users.credential yet, persist via legacy user-info.
@@ -4570,8 +4573,15 @@ const saveAccount = async () => {
       }
     }
     isEditingAccount.value = false;
-    if (credentialSaveWarning) {
-      alert(`Account updated, but credential update did not save: ${credentialSaveWarning}`);
+    if (credentialSaveWarning || backendWarnings.length > 0) {
+      const parts = [];
+      if (credentialSaveWarning) {
+        parts.push(`Credential update did not save: ${credentialSaveWarning}`);
+      }
+      if (backendWarnings.length > 0) {
+        parts.push(`Additional notes:\n- ${backendWarnings.join('\n- ')}`);
+      }
+      alert(`Account updated with warnings:\n\n${parts.join('\n\n')}`);
     }
   } catch (err) {
     const status = err?.response?.status;

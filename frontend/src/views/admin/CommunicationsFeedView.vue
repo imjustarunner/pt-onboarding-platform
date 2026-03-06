@@ -325,10 +325,65 @@
             <select v-model="platformStatus" class="select">
               <option value="pending">Pending</option>
               <option value="failed">Failed</option>
+              <option value="sent">Sent</option>
             </select>
             <button class="btn btn-secondary" @click="loadPlatform" :disabled="platformLoading">
               {{ platformLoading ? 'Loading…' : 'Refresh queue' }}
             </button>
+          </div>
+          <div v-if="isSuperAdmin" class="test-email-panel">
+            <div class="inline">
+              <input
+                v-model.trim="testEmailTo"
+                class="input test-email-input"
+                type="email"
+                placeholder="Recipient email for system test"
+              />
+              <select v-model="testSenderIdentityId" class="select test-identity-select" :disabled="senderIdentityOptionsLoading">
+                <option value="">Auto sender (default)</option>
+                <option v-for="identity in senderIdentityOptions" :key="`sender-${identity.id}`" :value="String(identity.id)">
+                  {{ formatSenderIdentityOption(identity) }}
+                </option>
+              </select>
+              <button class="btn btn-secondary" @click="createTestEmailDraft" :disabled="testEmailSending">
+                {{ testEmailSending ? 'Working…' : 'Create test draft' }}
+              </button>
+              <button class="btn btn-primary" @click="sendTestEmailNow" :disabled="testEmailSending">
+                {{ testEmailSending ? 'Sending…' : 'Send test email now' }}
+              </button>
+              <button class="btn btn-secondary" @click="runEmailPreflight" :disabled="testEmailPreflightLoading">
+                {{ testEmailPreflightLoading ? 'Checking…' : 'Preflight check' }}
+              </button>
+            </div>
+            <div class="test-email-hint">
+              Superadmin only. Draft creates a pending automation item; Send now immediately tests delivery.
+            </div>
+            <div v-if="testEmailPreflightError" class="error-box preflight-box">{{ testEmailPreflightError }}</div>
+            <div v-else-if="testEmailPreflightResult" class="preflight-box">
+              <div class="top">
+                <span class="badge ticket">PREFLIGHT</span>
+                <span class="owner">Recipient: {{ testEmailPreflightResult.recipient || '—' }}</span>
+                <span class="owner">Agency: {{ testEmailPreflightResult.agencyId || '—' }}</span>
+                <span class="owner">Mode: {{ testEmailPreflightResult.sendingMode || '—' }}</span>
+              </div>
+              <div class="preflight-readiness">
+                Send now: <strong>{{ testEmailPreflightResult.readyForSendNow ? 'READY' : 'NOT READY' }}</strong>
+                · Automation: <strong>{{ testEmailPreflightResult.readyForAutomation ? 'READY' : 'NOT READY' }}</strong>
+              </div>
+              <div class="preflight-checks">
+                <div
+                  v-for="check in testEmailPreflightResult.checks || []"
+                  :key="`check-${check.key}`"
+                  class="preflight-check-row"
+                >
+                  <span class="preflight-status" :class="check.ok ? 'ok' : 'bad'">
+                    {{ check.ok ? 'PASS' : 'FAIL' }}
+                  </span>
+                  <span class="preflight-label">{{ check.label }}</span>
+                  <span class="preflight-detail">{{ check.detail }}</span>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
         <div v-else class="toolbar">
@@ -336,6 +391,8 @@
             {{ platformLoading ? 'Loading…' : 'Refresh' }}
           </button>
         </div>
+        <div v-if="testEmailError" class="error-box">{{ testEmailError }}</div>
+        <div v-if="testEmailSuccess" class="success-box">{{ testEmailSuccess }}</div>
         <div v-if="platformError" class="error-box">{{ platformError }}</div>
         <div v-else-if="platformLoading" class="loading">
           {{ isProviderOrSchoolStaff ? 'Loading your messages…' : 'Loading delivery queue…' }}
@@ -473,6 +530,16 @@ const platformError = ref('');
 const platformRows = ref([]);
 const platformChannel = ref('email');
 const platformStatus = ref('pending');
+const testEmailTo = ref('');
+const testSenderIdentityId = ref('');
+const senderIdentityOptionsLoading = ref(false);
+const senderIdentityOptions = ref([]);
+const testEmailSending = ref(false);
+const testEmailSuccess = ref('');
+const testEmailError = ref('');
+const testEmailPreflightLoading = ref(false);
+const testEmailPreflightError = ref('');
+const testEmailPreflightResult = ref(null);
 const schoolLoading = ref(false);
 const schoolError = ref('');
 const schoolRows = ref([]);
@@ -553,6 +620,7 @@ const isProviderOrSchoolStaff = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
   return role === 'provider' || role === 'school_staff';
 });
+const isSuperAdmin = computed(() => String(authStore.user?.role || '').toLowerCase() === 'super_admin');
 const currentAgencyId = computed(() => {
   const direct = agencyStore.currentAgency?.id || agencyStore.currentAgency?.value?.id;
   if (direct) return Number(direct);
@@ -602,6 +670,15 @@ const formatTemplateType = (t) => {
   if (s === 'company_event_vote') return 'Event vote / RSVP';
   if (s === 'reminder_sms') return 'Reminder text';
   return s.replace(/_/g, ' ');
+};
+
+const formatSenderIdentityOption = (identity) => {
+  if (!identity) return 'Unknown sender';
+  const key = String(identity.identity_key || '').trim();
+  const from = String(identity.from_email || '').trim();
+  const name = String(identity.display_name || '').trim();
+  const primary = name ? `${name} <${from || 'no-from'}>` : (from || 'no-from');
+  return key ? `${primary} (${key})` : primary;
 };
 
 const load = async () => {
@@ -883,6 +960,89 @@ const loadPlatform = async () => {
   }
 };
 
+const loadSenderIdentityOptions = async () => {
+  if (!isSuperAdmin.value) return;
+  if (!currentAgencyId.value) {
+    senderIdentityOptions.value = [];
+    testSenderIdentityId.value = '';
+    return;
+  }
+  try {
+    senderIdentityOptionsLoading.value = true;
+    const resp = await api.get('/email-senders', {
+      params: {
+        agencyId: currentAgencyId.value,
+        includePlatformDefaults: true
+      }
+    });
+    const rows = Array.isArray(resp.data) ? resp.data : [];
+    senderIdentityOptions.value = rows.filter((r) => Number(r?.is_active) === 1);
+    if (testSenderIdentityId.value) {
+      const stillExists = senderIdentityOptions.value.some((r) => String(r.id) === String(testSenderIdentityId.value));
+      if (!stillExists) testSenderIdentityId.value = '';
+    }
+  } catch {
+    senderIdentityOptions.value = [];
+    testSenderIdentityId.value = '';
+  } finally {
+    senderIdentityOptionsLoading.value = false;
+  }
+};
+
+const runSystemTestEmail = async (queueOnly) => {
+  testEmailError.value = '';
+  testEmailSuccess.value = '';
+  testEmailPreflightError.value = '';
+  try {
+    testEmailSending.value = true;
+    const payload = {
+      to: String(testEmailTo.value || '').trim() || undefined,
+      agencyId: currentAgencyId.value || undefined,
+      senderIdentityId: testSenderIdentityId.value ? Number(testSenderIdentityId.value) : undefined,
+      queueOnly: Boolean(queueOnly)
+    };
+    const resp = await api.post('/communications/test-email', payload);
+    if (queueOnly) {
+      testEmailSuccess.value = 'Test automation draft created. Approve it from the queue when ready.';
+    } else {
+      testEmailSuccess.value = `Test email sent${resp.data?.communication?.recipient_address ? ` to ${resp.data.communication.recipient_address}` : ''}.`;
+    }
+    await loadPlatform();
+  } catch (e) {
+    testEmailError.value = e.response?.data?.error?.message || 'Failed to run email system test';
+    if (e.response?.data?.communication) await loadPlatform();
+  } finally {
+    testEmailSending.value = false;
+  }
+};
+
+const createTestEmailDraft = async () => {
+  await runSystemTestEmail(true);
+};
+
+const sendTestEmailNow = async () => {
+  await runSystemTestEmail(false);
+};
+
+const runEmailPreflight = async () => {
+  testEmailPreflightError.value = '';
+  testEmailPreflightResult.value = null;
+  try {
+    testEmailPreflightLoading.value = true;
+    const payload = {
+      to: String(testEmailTo.value || '').trim() || undefined,
+      agencyId: currentAgencyId.value || undefined,
+      senderIdentityId: testSenderIdentityId.value ? Number(testSenderIdentityId.value) : undefined
+    };
+    const resp = await api.post('/communications/test-email/preflight', payload);
+    testEmailPreflightResult.value = resp.data || null;
+  } catch (e) {
+    testEmailPreflightError.value = e.response?.data?.error?.message || 'Failed to run preflight checks';
+  } finally {
+    testEmailPreflightLoading.value = false;
+  }
+};
+
 const normalizeProgress = (raw) => {
   if (raw && typeof raw === 'object' && raw.by_org) return raw;
   const legacy = raw && typeof raw === 'object' ? raw : {};
@@ -1097,6 +1257,8 @@ onMounted(async () => {
   await loadCallSettings();
   if (activeTab.value === 'school') await loadSchoolNotifications();
   if (activeTab.value === 'automation') await loadPlatform();
+  testEmailTo.value = String(authStore.user?.email || authStore.user?.work_email || '').trim();
+  await loadSenderIdentityOptions();
 });
 
 watch(activeTab, async (tab) => {
@@ -1113,6 +1275,10 @@ watch(activeTab, async (tab) => {
 
 watch([platformChannel, platformStatus, currentAgencyId], async () => {
   if (activeTab.value === 'automation') await loadPlatform();
+});
+
+watch([currentAgencyId, isSuperAdmin], async () => {
+  await loadSenderIdentityOptions();
 });
 
 onBeforeUnmount(() => {
@@ -1216,6 +1382,58 @@ onBeforeUnmount(() => {
 }
 .toolbar {
   margin-bottom: 10px;
+}
+.test-email-panel {
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg) 75%, white);
+}
+.test-email-input {
+  min-width: 280px;
+}
+.test-identity-select {
+  min-width: 320px;
+}
+.test-email-hint {
+  margin-top: 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.preflight-box {
+  margin-top: 10px;
+}
+.preflight-readiness {
+  margin-top: 8px;
+  font-size: 12px;
+}
+.preflight-checks {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.preflight-check-row {
+  display: grid;
+  grid-template-columns: 48px 220px 1fr;
+  gap: 8px;
+  align-items: start;
+  font-size: 12px;
+}
+.preflight-status.ok {
+  color: #2e7d32;
+  font-weight: 700;
+}
+.preflight-status.bad {
+  color: #c62828;
+  font-weight: 700;
+}
+.preflight-label {
+  color: var(--text-primary);
+}
+.preflight-detail {
+  color: var(--text-secondary);
 }
 .inline {
   display: flex;

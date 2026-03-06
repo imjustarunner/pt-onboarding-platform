@@ -2,6 +2,11 @@ import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import Client from '../models/Client.model.js';
 import TwilioNumberAssignment from '../models/TwilioNumberAssignment.model.js';
+import UserCommunication from '../models/UserCommunication.model.js';
+import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
+import EmailService from '../services/email.service.js';
+import { getEmailSendingMode, isEmailNotificationsEnabled } from '../services/emailSettings.service.js';
+import { sendEmailFromIdentity } from '../services/unifiedEmail/unifiedEmailSender.service.js';
 
 const canViewAgencySms = (role) => {
   const r = String(role || '').toLowerCase();
@@ -568,6 +573,337 @@ export const getCallsAnalytics = async (req, res, next) => {
         byStatus: []
       });
     }
+    next(e);
+  }
+};
+
+/**
+ * Superadmin-only email system test.
+ * POST /api/communications/test-email
+ * body: { to?, agencyId?, queueOnly? }
+ */
+export const sendSystemTestEmail = async (req, res, next) => {
+  try {
+    const role = String(req.user?.role || '').toLowerCase();
+    if (role !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'Only super admins can run email system tests' } });
+    }
+
+    const queueOnly = req.body?.queueOnly === true || String(req.body?.queueOnly || '').toLowerCase() === 'true';
+    const agencyIdRaw = req.body?.agencyId ?? null;
+    const agencyId = agencyIdRaw ? Number.parseInt(String(agencyIdRaw), 10) : null;
+    if (!agencyId || !Number.isFinite(agencyId) || agencyId < 1) {
+      return res.status(400).json({ error: { message: 'agencyId is required for test email logging' } });
+    }
+
+    const requestedTo = String(req.body?.to || '').trim();
+    let to = requestedTo;
+    if (!to) {
+      const [uRows] = await pool.execute(
+        `SELECT email, work_email
+         FROM users
+         WHERE id = ?
+         LIMIT 1`,
+        [req.user.id]
+      );
+      const userRow = uRows?.[0] || null;
+      to = String(userRow?.email || userRow?.work_email || '').trim();
+    }
+    if (!to) {
+      return res.status(400).json({ error: { message: 'Recipient email is required (add your email or pass "to")' } });
+    }
+    if (!to.includes('@')) {
+      return res.status(400).json({ error: { message: 'Recipient email looks invalid' } });
+    }
+
+    const senderIdentityIdRaw = req.body?.senderIdentityId ?? null;
+    const senderIdentityId = senderIdentityIdRaw ? Number.parseInt(String(senderIdentityIdRaw), 10) : null;
+    let selectedSenderIdentity = null;
+    if (senderIdentityId) {
+      selectedSenderIdentity = await EmailSenderIdentity.findById(senderIdentityId);
+      if (!selectedSenderIdentity || selectedSenderIdentity.is_active !== 1) {
+        return res.status(400).json({ error: { message: 'Selected sender identity is not active or not found' } });
+      }
+      const identityAgencyId = selectedSenderIdentity.agency_id ? Number(selectedSenderIdentity.agency_id) : null;
+      if (identityAgencyId !== null && identityAgencyId !== Number(agencyId)) {
+        return res.status(400).json({ error: { message: 'Selected sender identity does not match the selected agency' } });
+      }
+    }
+
+    const generatedAt = new Date();
+    const subject = `[System Test] Communications email pipeline - ${generatedAt.toISOString()}`;
+    const body = [
+      'This is a superadmin-triggered system email test.',
+      '',
+      `Generated at: ${generatedAt.toISOString()}`,
+      `Triggered by user ID: ${req.user.id}`,
+      `Agency ID: ${agencyId}`,
+      '',
+      queueOnly
+        ? 'Mode: QUEUE ONLY (not sent yet). Approve from Communications -> Automation.'
+        : 'Mode: SEND NOW (manual send path).',
+      '',
+      'If you received this email, outbound email configuration is functioning.'
+    ].join('\n');
+
+    const created = await UserCommunication.create({
+      userId: req.user.id,
+      agencyId,
+      templateType: 'system_email_test',
+      templateId: null,
+      subject,
+      body,
+      generatedByUserId: req.user.id,
+      channel: 'email',
+      recipientAddress: to,
+      deliveryStatus: 'pending',
+      metadata: {
+        source: 'communications_automation_test',
+        queueOnly,
+        senderIdentityId: selectedSenderIdentity?.id || senderIdentityId || null
+      }
+    });
+
+    if (queueOnly) {
+      return res.json({
+        ok: true,
+        mode: 'queue_only',
+        communication: created
+      });
+    }
+
+    if (!selectedSenderIdentity && !EmailService.isConfigured()) {
+      const identities = await EmailSenderIdentity.list({
+        agencyId,
+        includePlatformDefaults: true,
+        onlyActive: true
+      });
+      selectedSenderIdentity = (identities || []).find((i) => String(i?.from_email || '').trim()) || null;
+    }
+
+    let sendResult = null;
+    let sentVia = 'email_service_default_from';
+    try {
+      if (selectedSenderIdentity?.id) {
+        sendResult = await sendEmailFromIdentity({
+          senderIdentityId: selectedSenderIdentity.id,
+          to,
+          subject,
+          text: body,
+          source: 'manual'
+        });
+        sentVia = 'sender_identity';
+      } else {
+        sendResult = await EmailService.sendEmail({
+          to,
+          subject,
+          text: body,
+          html: null,
+          source: 'manual',
+          agencyId
+        });
+      }
+    } catch (sendErr) {
+      const message = String(sendErr?.message || 'Email send failed');
+      const updated = await UserCommunication.updateDeliveryStatus(
+        created.id,
+        'failed',
+        null,
+        null,
+        message,
+        { sendException: true }
+      );
+      return res.status(500).json({
+        error: { message },
+        communication: updated
+      });
+    }
+
+    if (sendResult?.skipped) {
+      const updated = await UserCommunication.updateDeliveryStatus(
+        created.id,
+        'failed',
+        null,
+        null,
+        `Email send blocked: ${sendResult.reason}`,
+        { sendBlocked: true, reason: sendResult.reason }
+      );
+      return res.status(409).json({
+        error: { message: `Email send blocked: ${sendResult.reason}` },
+        communication: updated
+      });
+    }
+
+    const updated = await UserCommunication.updateDeliveryStatus(
+      created.id,
+      'sent',
+      sendResult?.id || null,
+      null,
+      null,
+      {
+        sentBy: 'superadmin_test_button',
+        sentVia,
+        senderIdentityId: selectedSenderIdentity?.id || null,
+        senderFromEmail: selectedSenderIdentity?.from_email || null
+      }
+    );
+
+    return res.json({
+      ok: true,
+      mode: 'sent_now',
+      sentVia,
+      senderIdentityId: selectedSenderIdentity?.id || null,
+      senderFromEmail: selectedSenderIdentity?.from_email || null,
+      communication: updated
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Superadmin-only email preflight checks (no send).
+ * POST /api/communications/test-email/preflight
+ * body: { to?, agencyId? }
+ */
+export const getSystemTestEmailPreflight = async (req, res, next) => {
+  try {
+    const role = String(req.user?.role || '').toLowerCase();
+    if (role !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'Only super admins can run email preflight checks' } });
+    }
+
+    const agencyIdRaw = req.body?.agencyId ?? null;
+    const agencyId = agencyIdRaw ? Number.parseInt(String(agencyIdRaw), 10) : null;
+
+    const requestedTo = String(req.body?.to || '').trim();
+    let resolvedTo = requestedTo;
+    if (!resolvedTo) {
+      const [uRows] = await pool.execute(
+        `SELECT email, work_email
+         FROM users
+         WHERE id = ?
+         LIMIT 1`,
+        [req.user.id]
+      );
+      const userRow = uRows?.[0] || null;
+      resolvedTo = String(userRow?.email || userRow?.work_email || '').trim();
+    }
+
+    const hasServiceAccountJson =
+      !!String(process.env.GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON || '').trim() ||
+      !!String(process.env.GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON_BASE64 || '').trim();
+    const hasImpersonateUser = !!String(process.env.GOOGLE_WORKSPACE_IMPERSONATE_USER || '').trim();
+    const hasFromAddress =
+      !!String(process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || '').trim() ||
+      !!String(process.env.GOOGLE_WORKSPACE_DEFAULT_FROM || '').trim();
+
+    const senderIdentities = Number.isFinite(agencyId) && agencyId > 0
+      ? await EmailSenderIdentity.list({
+          agencyId,
+          includePlatformDefaults: true,
+          onlyActive: true
+        })
+      : [];
+    const activeSenderIdentityCount = (senderIdentities || []).length;
+    const hasIdentityFromAddress = (senderIdentities || []).some((i) => String(i?.from_email || '').trim());
+
+    const emailConfigured = EmailService.isConfigured() || hasIdentityFromAddress;
+    const sendingMode = await getEmailSendingMode();
+    const autoNotificationsEnabled = await isEmailNotificationsEnabled({ agencyId, source: 'auto' });
+    const manualNotificationsEnabled = await isEmailNotificationsEnabled({ agencyId, source: 'manual' });
+
+    const checks = [
+      {
+        key: 'agency_selected',
+        label: 'Agency context selected',
+        ok: Number.isFinite(agencyId) && agencyId > 0,
+        detail: agencyId ? `agencyId=${agencyId}` : 'Missing agencyId context'
+      },
+      {
+        key: 'recipient_resolved',
+        label: 'Recipient email resolved',
+        ok: !!resolvedTo && resolvedTo.includes('@'),
+        detail: resolvedTo ? resolvedTo : 'No recipient email provided or found on user profile'
+      },
+      {
+        key: 'service_account_present',
+        label: 'Service account credentials present',
+        ok: hasServiceAccountJson,
+        detail: hasServiceAccountJson
+          ? 'GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON(_BASE64) present'
+          : 'Missing GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON / GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON_BASE64'
+      },
+      {
+        key: 'impersonate_user_present',
+        label: 'Impersonation user set',
+        ok: hasImpersonateUser,
+        detail: hasImpersonateUser
+          ? 'GOOGLE_WORKSPACE_IMPERSONATE_USER present'
+          : 'Missing GOOGLE_WORKSPACE_IMPERSONATE_USER'
+      },
+      {
+        key: 'from_address_present',
+        label: 'From address path available',
+        ok: hasFromAddress || hasIdentityFromAddress,
+        detail: hasFromAddress
+          ? 'Env sender present via GOOGLE_WORKSPACE_FROM_ADDRESS / GOOGLE_WORKSPACE_DEFAULT_FROM'
+          : (hasIdentityFromAddress
+              ? `Using active sender identity mapping (${activeSenderIdentityCount} found)`
+              : 'No env sender and no active sender identity with from_email')
+      },
+      {
+        key: 'email_service_configured',
+        label: 'Email service path configured',
+        ok: emailConfigured,
+        detail: emailConfigured
+          ? (EmailService.isConfigured()
+              ? 'Google Workspace default sender path configured'
+              : `Configured through sender identities (${activeSenderIdentityCount} active)`)
+          : 'Neither default sender env nor sender identity path is configured'
+      },
+      {
+        key: 'sender_identities',
+        label: 'Sender identities available for agency',
+        ok: activeSenderIdentityCount > 0,
+        detail: Number.isFinite(agencyId) && agencyId > 0
+          ? `${activeSenderIdentityCount} active identity(ies) available`
+          : 'Select an agency to evaluate sender identities'
+      },
+      {
+        key: 'sending_mode',
+        label: 'Platform sending mode',
+        ok: sendingMode === 'all' || sendingMode === 'manual_only',
+        detail: `mode=${sendingMode}`
+      },
+      {
+        key: 'auto_notifications_enabled',
+        label: 'Automated notifications enabled',
+        ok: autoNotificationsEnabled === true,
+        detail: autoNotificationsEnabled ? 'enabled' : 'disabled'
+      },
+      {
+        key: 'manual_notifications_path',
+        label: 'Manual send path allowed',
+        ok: manualNotificationsEnabled === true,
+        detail: manualNotificationsEnabled ? 'allowed' : 'blocked'
+      }
+    ];
+
+    const readyForSendNow = checks.every((c) => c.ok || c.key === 'auto_notifications_enabled');
+    const readyForAutomation = checks.every((c) => c.ok);
+
+    return res.json({
+      ok: true,
+      agencyId: agencyId || null,
+      recipient: resolvedTo || null,
+      sendingMode,
+      activeSenderIdentityCount,
+      checks,
+      readyForSendNow,
+      readyForAutomation
+    });
+  } catch (e) {
     next(e);
   }
 };

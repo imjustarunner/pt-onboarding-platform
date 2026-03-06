@@ -1793,6 +1793,8 @@ export const updateUser = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'You can only update your own profile' } });
     }
 
+    const updateWarnings = [];
+
     // Build update object
     const updateData = { firstName, lastName, role };
 
@@ -2211,15 +2213,27 @@ export const updateUser = async (req, res, next) => {
 
         await payrollConn.commit();
       } catch (payrollErr) {
-        if (payrollConn) {
-          try {
-            await payrollConn.rollback();
-          } catch {
-            // ignore
+        const isSchemaGap =
+          payrollErr?.code === 'ER_BAD_FIELD_ERROR' ||
+          payrollErr?.code === 'ER_NO_SUCH_TABLE';
+        if (isSchemaGap) {
+          // Older DBs may not have user_agencies.has_payroll_access yet.
+          // Do not fail the entire user profile save in this case.
+          console.warn('Skipping payroll access update (schema not ready):', payrollErr?.message || payrollErr);
+          updateWarnings.push(
+            'Payroll access update was skipped because payroll access columns are not available in this environment.'
+          );
+        } else {
+          if (payrollConn) {
+            try {
+              await payrollConn.rollback();
+            } catch {
+              // ignore
+            }
           }
+          console.error('Error setting payroll access for all agencies:', payrollErr);
+          return res.status(500).json({ error: { message: 'Failed to update payroll access' } });
         }
-        console.error('Error setting payroll access for all agencies:', payrollErr);
-        return res.status(500).json({ error: { message: 'Failed to update payroll access' } });
       } finally {
         if (payrollConn) payrollConn.release();
       }
@@ -2273,20 +2287,38 @@ export const updateUser = async (req, res, next) => {
 
         await credentialingConn.commit();
       } catch (credentialingErr) {
-        if (credentialingConn) {
-          try {
-            await credentialingConn.rollback();
-          } catch {
-            // ignore
+        const isSchemaGap =
+          credentialingErr?.code === 'ER_BAD_FIELD_ERROR' ||
+          credentialingErr?.code === 'ER_NO_SUCH_TABLE';
+        if (isSchemaGap) {
+          // Older DBs may not have user_agencies.can_manage_credentialing yet.
+          // Do not fail the entire user profile save in this case.
+          console.warn('Skipping credentialing access update (schema not ready):', credentialingErr?.message || credentialingErr);
+          updateWarnings.push(
+            'Credentialing access update was skipped because credentialing columns are not available in this environment.'
+          );
+        } else {
+          if (credentialingConn) {
+            try {
+              await credentialingConn.rollback();
+            } catch {
+              // ignore
+            }
           }
+          console.error('Error setting credentialing access for all agencies:', credentialingErr);
+          return res.status(500).json({ error: { message: 'Failed to update credentialing access' } });
         }
-        console.error('Error setting credentialing access for all agencies:', credentialingErr);
-        return res.status(500).json({ error: { message: 'Failed to update credentialing access' } });
       } finally {
         if (credentialingConn) credentialingConn.release();
       }
     }
 
+    if (updateWarnings.length > 0) {
+      return res.json({
+        ...user,
+        warnings: updateWarnings
+      });
+    }
     res.json(user);
   } catch (error) {
     // Handle MySQL enum errors more gracefully

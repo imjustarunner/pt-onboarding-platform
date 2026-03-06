@@ -608,6 +608,12 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin', 'clinical_practice_assistant', 'schedule_manager', 'provider_plus'], organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/admin/skill-builders-availability',
+    name: 'OrganizationSkillBuildersAvailability',
+    component: () => import('../views/admin/SkillBuildersAvailabilityView.vue'),
+    meta: { requiresAuth: true, requiresRole: 'schedule_manager', allowSubCoordinator: true, organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/admin/documents',
     name: 'OrganizationDocumentsLibrary',
     component: () => import('../views/admin/DocumentsLibraryView.vue'),

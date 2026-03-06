@@ -1,6 +1,12 @@
 import express from 'express';
 import { authenticate } from '../middleware/auth.middleware.js';
-import { getCallsAnalytics, getCallsFeed, getCommunicationsFeed } from '../controllers/communications.controller.js';
+import {
+  getCallsAnalytics,
+  getCallsFeed,
+  getCommunicationsFeed,
+  getSystemTestEmailPreflight,
+  sendSystemTestEmail
+} from '../controllers/communications.controller.js';
 import {
   getCallSettings,
   getTransferTargets,
@@ -19,6 +25,8 @@ const router = express.Router();
 router.use(authenticate);
 
 router.get('/feed', getCommunicationsFeed);
+router.post('/test-email', sendSystemTestEmail);
+router.post('/test-email/preflight', getSystemTestEmailPreflight);
 router.get('/calls', getCallsFeed);
 router.get('/calls/analytics', getCallsAnalytics);
 router.get('/calls/settings', getCallSettings);

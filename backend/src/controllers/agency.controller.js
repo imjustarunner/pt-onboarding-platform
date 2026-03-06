@@ -1002,10 +1002,34 @@ export const getThemeByPortalUrl = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Agency not found' } });
     }
 
-    // If this portal belongs to a school/program/learning org, brand it using the linked parent agency (agency_schools).
+    // If this portal belongs to a school/program/learning org, brand it using the linked
+    // parent agency by default, unless the child org explicitly opts out.
     const orgType = String(agency.organization_type || 'agency').toLowerCase();
+    const parseJsonObject = (v) => {
+      if (!v) return {};
+      if (typeof v === 'object') return v || {};
+      try {
+        const parsed = JSON.parse(v);
+        return parsed && typeof parsed === 'object' ? parsed : {};
+      } catch {
+        return {};
+      }
+    };
+    const normalizeBool = (v, fallback) => {
+      if (v === undefined || v === null || v === '') return fallback;
+      if (v === true || v === 1 || v === '1') return true;
+      const s = String(v).trim().toLowerCase();
+      if (s === 'true' || s === 'yes' || s === 'on') return true;
+      if (s === 'false' || s === 'no' || s === 'off' || s === '0') return false;
+      return fallback;
+    };
+    const orgThemeSettings = parseJsonObject(agency.theme_settings);
+    const useAffiliatedAgencyBranding = normalizeBool(
+      orgThemeSettings.useAffiliatedAgencyBranding,
+      true
+    );
     let brandingOrg = agency;
-    if (['school', 'program', 'learning'].includes(orgType)) {
+    if (['school', 'program', 'learning'].includes(orgType) && useAffiliatedAgencyBranding) {
       const linkedAgencyId =
         (await OrganizationAffiliation.getActiveAgencyIdForOrganization(agency.id)) ||
         (await AgencySchool.getActiveAgencyIdForSchool(agency.id)); // legacy fallback
@@ -1074,11 +1098,35 @@ export const getLoginThemeByPortalUrl = async (req, res, next) => {
     const PlatformBranding = (await import('../models/PlatformBranding.model.js')).default;
     const platformBranding = await PlatformBranding.get();
 
-    // Parse JSON fields if they're strings
-    // If this portal belongs to a school/program/learning org, brand it using the linked parent agency (agency_schools).
+    // Parse JSON fields if they're strings.
+    // If this portal belongs to a school/program/learning org, brand it using the linked
+    // parent agency by default, unless the child org explicitly opts out.
     const orgType = String(agency.organization_type || 'agency').toLowerCase();
+    const parseJsonObject = (v) => {
+      if (!v) return {};
+      if (typeof v === 'object') return v || {};
+      try {
+        const parsed = JSON.parse(v);
+        return parsed && typeof parsed === 'object' ? parsed : {};
+      } catch {
+        return {};
+      }
+    };
+    const normalizeBool = (v, fallback) => {
+      if (v === undefined || v === null || v === '') return fallback;
+      if (v === true || v === 1 || v === '1') return true;
+      const s = String(v).trim().toLowerCase();
+      if (s === 'true' || s === 'yes' || s === 'on') return true;
+      if (s === 'false' || s === 'no' || s === 'off' || s === '0') return false;
+      return fallback;
+    };
+    const orgThemeSettings = parseJsonObject(agency.theme_settings);
+    const useAffiliatedAgencyBranding = normalizeBool(
+      orgThemeSettings.useAffiliatedAgencyBranding,
+      true
+    );
     let brandingOrg = agency;
-    if (['school', 'program', 'learning'].includes(orgType)) {
+    if (['school', 'program', 'learning'].includes(orgType) && useAffiliatedAgencyBranding) {
       const linkedAgencyId =
         (await OrganizationAffiliation.getActiveAgencyIdForOrganization(agency.id)) ||
         (await AgencySchool.getActiveAgencyIdForSchool(agency.id)); // legacy fallback

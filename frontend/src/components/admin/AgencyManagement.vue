@@ -797,6 +797,21 @@
             />
             <small>Lowercase letters, numbers, and hyphens only. This will be used for subdomain access (e.g., itsco.app.plottwistco.com)</small>
           </div>
+
+          <div
+            v-if="['school', 'program', 'learning'].includes(String(agencyForm.organizationType || 'agency').toLowerCase())"
+            class="form-group"
+            style="padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-alt);"
+          >
+            <label style="display: flex; align-items: center; gap: 10px; margin: 0;">
+              <input v-model="agencyForm.themeSettings.useAffiliatedAgencyBranding" type="checkbox" />
+              <span><strong>Use affiliated agency branding in portal</strong></span>
+            </label>
+            <small class="hint" style="display: block; margin-top: 8px;">
+              When enabled, this portal inherits branding from its affiliated agency.
+              Turn off to use this organization's own logo/colors/theme.
+            </small>
+          </div>
           </div>
 
           <div
@@ -5116,7 +5131,8 @@ const defaultAgencyForm = () => ({
   },
   themeSettings: {
     fontFamily: '',
-    loginBackground: ''
+    loginBackground: '',
+    useAffiliatedAgencyBranding: true
   },
   terminologySettings: {
     peopleOpsTerm: '',
@@ -6431,7 +6447,12 @@ const editAgency = async (agency) => {
     tierThresholds,
     themeSettings: {
       fontFamily: themeSettings.fontFamily || '',
-      loginBackground: themeSettings.loginBackground || ''
+      loginBackground: themeSettings.loginBackground || '',
+      useAffiliatedAgencyBranding: ['school', 'program', 'learning'].includes(
+        String(agency.organization_type || agency.organizationType || 'agency').toLowerCase()
+      )
+        ? (themeSettings.useAffiliatedAgencyBranding !== false)
+        : false
     },
     terminologySettings: {
       peopleOpsTerm: terminology.peopleOpsTerm || '',
@@ -7044,6 +7065,9 @@ const saveAgency = async () => {
     }
     if (agencyForm.value.themeSettings?.loginBackground) {
       themeSettings.loginBackground = agencyForm.value.themeSettings.loginBackground;
+    }
+    if (['school', 'program', 'learning'].includes(String(agencyForm.value.organizationType || 'agency').toLowerCase())) {
+      themeSettings.useAffiliatedAgencyBranding = agencyForm.value.themeSettings?.useAffiliatedAgencyBranding !== false;
     }
 
     const retentionPolicyRaw = agencyForm.value.intakeRetentionPolicy || null;
