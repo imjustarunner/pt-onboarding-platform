@@ -1435,7 +1435,20 @@ const clearRecaptchaScript = () => {
   }
 };
 
-const loadRecaptchaScript = async (mode = useEnterpriseRecaptcha.value ? 'enterprise' : 'standard', forceReload = false) => {
+const waitForRecaptchaApi = async (mode = 'standard') => {
+  for (let i = 0; i < 40; i++) {
+    const hasModeApi = mode === 'enterprise'
+      ? !!window.grecaptcha?.enterprise?.render
+      : !!window.grecaptcha?.render;
+    if (hasModeApi) {
+      return window.grecaptcha;
+    }
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+  }
+  return window.grecaptcha;
+};
+
+const loadRecaptchaScript = async (mode = 'standard', forceReload = false) => {
   if (!activeRecaptchaSiteKey.value) return Promise.resolve(null);
   if (forceReload) {
     clearRecaptchaScript();
@@ -1446,28 +1459,28 @@ const loadRecaptchaScript = async (mode = useEnterpriseRecaptcha.value ? 'enterp
     clearRecaptchaScript();
   }
   if (window.grecaptcha) {
-    const hasModeApi = mode === 'enterprise'
-      ? !!window.grecaptcha?.enterprise?.render
-      : !!window.grecaptcha?.render;
+    const hasModeApi = !!window.grecaptcha?.render;
     if (hasModeApi) return window.grecaptcha;
   }
   if (document.querySelector('script[data-recaptcha]')) {
     return new Promise((resolve) => {
       const current = document.querySelector('script[data-recaptcha]');
-      current?.addEventListener?.('load', () => resolve(window.grecaptcha));
-      setTimeout(() => resolve(window.grecaptcha), 2000);
+      current?.addEventListener?.('load', () => {
+        waitForRecaptchaApi(mode).then(resolve);
+      });
+      waitForRecaptchaApi(mode).then(resolve);
     });
   }
   return new Promise((resolve, reject) => {
     const script = document.createElement('script');
-    script.src = mode === 'enterprise'
-      ? 'https://www.google.com/recaptcha/enterprise.js?render=explicit'
-      : 'https://www.google.com/recaptcha/api.js?render=explicit';
+    script.src = 'https://www.google.com/recaptcha/api.js?render=explicit';
     script.async = true;
     script.defer = true;
     script.setAttribute('data-recaptcha', 'true');
-    script.setAttribute('data-recaptcha-mode', mode);
-    script.onload = () => resolve(window.grecaptcha);
+    script.setAttribute('data-recaptcha-mode', 'standard');
+    script.onload = () => {
+      waitForRecaptchaApi('standard').then(resolve);
+    };
     script.onerror = () => reject(new Error('Failed to load captcha'));
     document.head.appendChild(script);
   });
@@ -1478,10 +1491,10 @@ const clearCaptchaState = () => {
   captchaError.value = '';
 };
 
-const ensureRecaptchaWidget = async (mode = useEnterpriseRecaptcha.value ? 'enterprise' : 'standard', forceReload = false) => {
+const ensureRecaptchaWidget = async (mode = 'standard', forceReload = false) => {
   try {
     const grecaptcha = await loadRecaptchaScript(mode, forceReload);
-    const renderFn = mode === 'enterprise' ? grecaptcha?.enterprise?.render : grecaptcha?.render;
+    const renderFn = grecaptcha?.render;
     if (!renderFn) return false;
     let el = recaptchaWidgetElStart.value;
     for (let i = 0; !el && i < 12; i++) {
@@ -1502,8 +1515,8 @@ const ensureRecaptchaWidget = async (mode = useEnterpriseRecaptcha.value ? 'ente
     if (recaptchaWidgetId.value !== null) {
       return true;
     }
-    const api = mode === 'enterprise' ? grecaptcha?.enterprise : grecaptcha;
-    const readyFn = mode === 'enterprise' ? grecaptcha?.enterprise?.ready : grecaptcha?.ready;
+    const api = grecaptcha;
+    const readyFn = grecaptcha?.ready;
     if (readyFn) {
       await new Promise((resolve) => readyFn(resolve));
     }
@@ -1544,9 +1557,8 @@ const resetRecaptchaWidget = async () => {
   clearCaptchaState();
   captchaWidgetFailed.value = false;
   try {
-    const mode = useEnterpriseRecaptcha.value ? 'enterprise' : 'standard';
-    const grecaptcha = await loadRecaptchaScript(mode);
-    const api = mode === 'enterprise' ? grecaptcha?.enterprise : grecaptcha;
+    const grecaptcha = await loadRecaptchaScript('standard');
+    const api = grecaptcha;
     if (api?.reset && recaptchaWidgetId.value !== null) {
       api.reset(recaptchaWidgetId.value);
     }
@@ -1568,11 +1580,7 @@ const updateRecaptchaMode = async () => {
     await nextTick();
     await new Promise((r) => requestAnimationFrame(r));
     await new Promise((r) => setTimeout(r, 150));
-    let rendered = await ensureRecaptchaWidget(useEnterpriseRecaptcha.value ? 'enterprise' : 'standard');
-    if (!rendered && useEnterpriseRecaptcha.value) {
-      rendered = await ensureRecaptchaWidget('standard', true);
-      if (rendered) useEnterpriseRecaptcha.value = false;
-    }
+    const rendered = await ensureRecaptchaWidget('standard');
     if (!rendered) captchaWidgetFailed.value = true;
   })().catch((err) => {
     console.warn('[recaptcha] mode init failed', err);
