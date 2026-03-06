@@ -813,6 +813,9 @@ const INTAKE_TRANSLATIONS = {
 const route = useRoute();
 const router = useRouter();
 const publicKey = route.params.publicKey;
+const captchaStorageKey = `public_intake_captcha_${publicKey}`;
+const captchaTimestampStorageKey = `public_intake_captcha_ts_${publicKey}`;
+const captchaMaxAgeMs = 90 * 1000;
 const authStore = useAuthStore();
 
 const isSuperAdmin = computed(() => String(authStore.user?.role || '').toLowerCase() === 'super_admin');
@@ -884,6 +887,7 @@ const useEnterpriseRecaptcha = ref(
 );
 const forceRecaptchaWidget = ref(false);
 const captchaToken = ref('');
+const captchaTokenIssuedAt = ref(0);
 const captchaError = ref('');
 const showRecaptchaWidget = ref(false);
 const recaptchaWidgetEl = ref(null);
@@ -1470,6 +1474,67 @@ const loadRecaptchaScript = () => {
   });
 };
 
+const clearStoredCaptchaToken = () => {
+  captchaToken.value = '';
+  captchaTokenIssuedAt.value = 0;
+  try {
+    sessionStorage.removeItem(captchaStorageKey);
+    sessionStorage.removeItem(captchaTimestampStorageKey);
+  } catch {
+    /* ignore */
+  }
+};
+
+const persistCaptchaToken = (token) => {
+  const cleaned = String(token || '').trim();
+  captchaToken.value = cleaned;
+  captchaTokenIssuedAt.value = cleaned ? Date.now() : 0;
+  try {
+    if (cleaned) {
+      sessionStorage.setItem(captchaStorageKey, cleaned);
+      sessionStorage.setItem(captchaTimestampStorageKey, String(captchaTokenIssuedAt.value));
+    } else {
+      sessionStorage.removeItem(captchaStorageKey);
+      sessionStorage.removeItem(captchaTimestampStorageKey);
+    }
+  } catch {
+    /* ignore */
+  }
+};
+
+const readStoredCaptchaState = () => {
+  try {
+    const token = String(sessionStorage.getItem(captchaStorageKey) || '').trim();
+    const issuedAtRaw = Number(sessionStorage.getItem(captchaTimestampStorageKey) || 0);
+    const issuedAt = Number.isFinite(issuedAtRaw) ? issuedAtRaw : 0;
+    return { token, issuedAt };
+  } catch {
+    return { token: '', issuedAt: 0 };
+  }
+};
+
+const isCaptchaTokenFresh = (issuedAt) => {
+  if (!issuedAt) return false;
+  return Date.now() - issuedAt < captchaMaxAgeMs;
+};
+
+const getFreshCaptchaToken = () => {
+  const inMemoryToken = String(captchaToken.value || '').trim();
+  if (inMemoryToken && isCaptchaTokenFresh(captchaTokenIssuedAt.value)) {
+    return inMemoryToken;
+  }
+  const stored = readStoredCaptchaState();
+  if (stored.token && isCaptchaTokenFresh(stored.issuedAt)) {
+    captchaToken.value = stored.token;
+    captchaTokenIssuedAt.value = stored.issuedAt;
+    return stored.token;
+  }
+  if (inMemoryToken || stored.token) {
+    clearStoredCaptchaToken();
+  }
+  return '';
+};
+
 const ensureRecaptchaWidget = async () => {
   try {
     const grecaptcha = await loadRecaptchaScript();
@@ -1502,16 +1567,9 @@ const ensureRecaptchaWidget = async () => {
         theme: 'light',
         callback: (token) => {
           const t = String(token || '').trim();
-          captchaToken.value = t;
+          persistCaptchaToken(t);
           captchaError.value = '';
           captchaWidgetFailed.value = false;
-          if (t) {
-            try {
-              sessionStorage.setItem(`public_intake_captcha_${publicKey}`, t);
-            } catch {
-              /* ignore */
-            }
-          }
           if (captchaWidgetFallbackTimer) {
             clearTimeout(captchaWidgetFallbackTimer);
             captchaWidgetFallbackTimer = null;
@@ -1524,12 +1582,7 @@ const ensureRecaptchaWidget = async () => {
           // and the token may still be valid; backend will reject if actually expired
         },
         'error-callback': () => {
-          captchaToken.value = '';
-          try {
-            sessionStorage.removeItem(`public_intake_captcha_${publicKey}`);
-          } catch {
-            /* ignore */
-          }
+          clearStoredCaptchaToken();
         }
       });
     };
@@ -1546,13 +1599,8 @@ const ensureRecaptchaWidget = async () => {
 };
 
 const resetRecaptchaWidget = async () => {
-  captchaToken.value = '';
+  clearStoredCaptchaToken();
   captchaError.value = '';
-  try {
-    sessionStorage.removeItem(`public_intake_captcha_${publicKey}`);
-  } catch {
-    /* ignore */
-  }
   try {
     const grecaptcha = await loadRecaptchaScript();
     const api = grecaptcha?.enterprise || grecaptcha;
@@ -1614,12 +1662,7 @@ const updateRecaptchaMode = async () => {
 watch(step, async (val, prev) => {
   if (prev !== undefined && prev !== val) recaptchaWidgetId.value = null;
   if (val === 1 && !captchaToken.value && recaptchaSiteKey.value) {
-    try {
-      const stored = sessionStorage.getItem(`public_intake_captcha_${publicKey}`);
-      if (stored) captchaToken.value = stored;
-    } catch {
-      /* ignore */
-    }
+    getFreshCaptchaToken();
   }
   if (val !== -1) return;
   await nextTick();
@@ -1789,16 +1832,17 @@ const submitConsent = async () => {
   if (recaptchaSiteKey.value && !captchaWidgetFailed.value) {
     // If we're in widget-mode, the token only exists after user interaction.
     if (showRecaptchaWidget.value) {
-      const token = String(captchaToken.value || '').trim();
+      const token = getFreshCaptchaToken();
       console.info('[recaptcha] token', { hasToken: !!token, length: token.length });
       if (!token) {
-        error.value = t('completeCaptcha');
+        await resetRecaptchaWidget();
+        error.value = t('captchaRetry');
         captchaError.value = error.value;
         return;
       }
     } else {
       const token = await getRecaptchaToken();
-      captchaToken.value = token;
+      persistCaptchaToken(token);
       console.info('[recaptcha] token', {
         hasToken: !!token,
         length: token ? String(token).length : 0
@@ -1835,14 +1879,7 @@ const submitConsent = async () => {
         approval: approvalContext.value || null
       }
     };
-    let tokenToSend = captchaToken.value || '';
-    if (!tokenToSend && recaptchaSiteKey.value) {
-      try {
-        tokenToSend = sessionStorage.getItem(`public_intake_captcha_${publicKey}`) || '';
-      } catch {
-        /* ignore */
-      }
-    }
+    let tokenToSend = getFreshCaptchaToken();
     if (recaptchaSiteKey.value || tokenToSend || captchaWidgetFailed.value) {
       payload.captchaToken = tokenToSend;
       if (captchaWidgetFailed.value) payload.captchaWidgetFailed = true;
@@ -1857,19 +1894,15 @@ const submitConsent = async () => {
     submissionId.value = resp.data?.submission?.id || null;
     currentFlowIndex.value = 0;
     step.value = 2;
-    try {
-      sessionStorage.removeItem(`public_intake_captcha_${publicKey}`);
-    } catch {
-      /* ignore */
-    }
+    clearStoredCaptchaToken();
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to capture consent';
     const isCaptchaError = /captcha/i.test(error.value);
     if (isCaptchaError) {
-      captchaError.value = t('captchaFailed');
       await resetRecaptchaWidget();
+      captchaError.value = t('captchaFailed');
     } else {
-      captchaToken.value = '';
+      clearStoredCaptchaToken();
     }
   } finally {
     consentLoading.value = false;
@@ -2047,7 +2080,7 @@ const resetIntakeState = () => {
   docStatus && Object.keys(docStatus).forEach((k) => delete docStatus[k]);
   error.value = '';
   captchaError.value = '';
-  captchaToken.value = '';
+  clearStoredCaptchaToken();
   currentDocIndex.value = 0;
   currentFlowIndex.value = 0;
   step.value = 1;
