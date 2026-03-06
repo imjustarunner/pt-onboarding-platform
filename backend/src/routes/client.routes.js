@@ -44,7 +44,10 @@ import {
 } from '../controllers/client.controller.js';
 import {
   listClientSchoolRoiAccess,
-  updateClientSchoolRoiAccess
+  updateClientSchoolRoiAccess,
+  updateClientSchoolRoiExpiration,
+  updateClientSchoolRoiSigningConfig,
+  issueClientSchoolRoiSigningLink
 } from '../controllers/clientSchoolRoiAccess.controller.js';
 import { listClientGuardians, upsertClientGuardian, updateClientGuardian, removeClientGuardian } from '../controllers/clientGuardian.controller.js';
 import { authenticate, requireBackofficeAdmin, requireGuardianListAccess } from '../middleware/auth.middleware.js';
@@ -150,6 +153,9 @@ router.delete('/:id/provider-assignments/:assignmentId', removeClientProviderAss
 router.get('/:id/guardians', requireGuardianListAccess, listClientGuardians);
 router.get('/:id/school-roi-access', listClientSchoolRoiAccess);
 router.put('/:id/school-roi-access/:schoolStaffUserId', updateClientSchoolRoiAccess);
+router.put('/:id/school-roi-expiration', updateClientSchoolRoiExpiration);
+router.put('/:id/school-roi-signing-config', updateClientSchoolRoiSigningConfig);
+router.post('/:id/school-roi-signing-link', issueClientSchoolRoiSigningLink);
 router.post(
   '/:id/guardians',
   requireBackofficeAdmin,

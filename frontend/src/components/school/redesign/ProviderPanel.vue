@@ -61,7 +61,7 @@
         <ClientInitialsList
           :clients="caseloadClients"
           :client-label-mode="clientLabelMode"
-          @select="$emit('open-client', $event)"
+          @select="handleOpenClient"
         />
       </div>
 
@@ -129,6 +129,13 @@ const requestAvailability = () => {
     startTime: props.provider?.start_time || null,
     endTime: props.provider?.end_time || null,
     providerName: `${props.provider?.first_name || ''} ${props.provider?.last_name || ''}`.trim()
+  });
+};
+
+const handleOpenClient = (client) => {
+  emit('open-client', {
+    client,
+    navigationClientIds: (props.caseloadClients || []).map((entry) => Number(entry?.id || 0)).filter(Boolean)
   });
 };
 </script>

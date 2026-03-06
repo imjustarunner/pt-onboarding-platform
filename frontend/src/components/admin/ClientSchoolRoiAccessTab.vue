@@ -15,6 +15,20 @@
       <div class="summary-card">
         <div class="summary-k">ROI expires</div>
         <div class="summary-v">{{ roiExpiryLabel }}</div>
+        <div class="roi-date-editor">
+          <input v-model="roiExpiryDraft" type="date" class="inline-date-input" />
+          <button
+            type="button"
+            class="btn btn-secondary btn-sm"
+            :disabled="roiDateSaving || !roiDateDirty || !roiExpiryDraft"
+            @click="saveRoiDate"
+          >
+            {{ roiDateSaving ? 'Saving…' : 'Save date' }}
+          </button>
+        </div>
+        <div class="hint">
+          This date is the source of school ROI access. Anyone already set to `ROI access` becomes active again when this date is current.
+        </div>
       </div>
       <div class="summary-card" :class="{ 'summary-card-alert': roiExpired }">
         <div class="summary-k">Portal status</div>
@@ -23,74 +37,149 @@
     </div>
 
     <div v-if="roiExpired" class="warning-card">
-      ROI is expired or missing. School staff remain code-only and blocked until a new packet is uploaded and ROI access is reapproved.
+      ROI is expired or missing. School staff remain code-only and blocked until the ROI expiration date is updated or a newly signed ROI completes.
     </div>
 
     <div v-if="error" class="error" style="margin-bottom: 12px;">{{ error }}</div>
     <div v-if="loading" class="loading">Loading school ROI access…</div>
-    <div v-else-if="rows.length === 0" class="empty-state">
-      <p>No active school staff found for this school.</p>
-    </div>
-    <div v-else class="table-wrap">
-      <table class="table">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Email</th>
-            <th>Current state</th>
-            <th>Set state</th>
-            <th>Last packet upload</th>
-            <th>Last ROI grant</th>
-            <th class="right"></th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="row in rows" :key="row.school_staff_user_id">
-            <td>
-              <div>{{ displayName(row) }}</div>
-              <div v-if="row.effective_access_state === 'expired'" class="hint">ROI expired</div>
-            </td>
-            <td>{{ row.email || '—' }}</td>
-            <td>
-              <span class="state-pill" :class="stateClass(row.effective_access_state)">
-                {{ stateLabel(row.effective_access_state, row.access_level) }}
-              </span>
-            </td>
-            <td style="min-width: 180px;">
-              <select v-model="draftStates[row.school_staff_user_id]" class="inline-select">
-                <option value="none">No access</option>
-                <option value="packet">Packet</option>
-                <option value="roi">ROI access</option>
-              </select>
-            </td>
-            <td>
-              <div>{{ formatDateTime(row.last_packet_uploaded_at) }}</div>
-              <div v-if="row.last_packet_uploaded_by_name" class="hint">by {{ row.last_packet_uploaded_by_name }}</div>
-            </td>
-            <td>
-              <div>{{ formatDateTime(row.granted_at) }}</div>
-              <div v-if="row.granted_by_name" class="hint">by {{ row.granted_by_name }}</div>
-            </td>
-            <td class="right" style="white-space: nowrap;">
-              <button
-                type="button"
-                class="btn btn-secondary btn-sm"
-                :disabled="savingUserId === row.school_staff_user_id || !isDirty(row)"
-                @click="saveRow(row)"
-              >
-                {{ savingUserId === row.school_staff_user_id ? 'Saving…' : 'Save' }}
-              </button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+    <template v-else>
+      <div class="signing-card">
+        <div class="signing-header">
+          <div>
+            <div class="summary-k">Client ROI signing link</div>
+            <div class="hint">
+              Assign one reusable school ROI form, then issue a client-specific public link. Signing refreshes the ROI document/date/checklist but does not auto-grant school-staff access.
+            </div>
+          </div>
+          <span class="state-pill" :class="issuedLinkStateClass">
+            {{ issuedLinkStateLabel }}
+          </span>
+        </div>
+
+        <div class="signing-grid">
+          <div class="form-group">
+            <label>Assigned school ROI form</label>
+            <select v-model="selectedIntakeLinkId">
+              <option value="">No ROI form assigned</option>
+              <option v-for="link in availableLinks" :key="link.id" :value="String(link.id)">
+                {{ link.title }}
+              </option>
+            </select>
+            <div class="hint" v-if="availableLinks.length">
+              Only active school-scoped public forms that do not create clients can be assigned here.
+            </div>
+            <div class="hint" v-else>
+              No eligible school public forms are available for this school yet.
+            </div>
+          </div>
+
+          <div class="summary-card">
+            <div class="summary-k">Issued link</div>
+            <div class="summary-v">{{ issuedLink?.public_key ? 'Ready' : 'Not issued' }}</div>
+            <div class="hint">{{ issuedLinkSummary }}</div>
+          </div>
+
+          <div class="summary-card">
+            <div class="summary-k">Signed</div>
+            <div class="summary-v">{{ issuedSignedLabel }}</div>
+            <div class="hint">{{ issuedFormLabel }}</div>
+          </div>
+        </div>
+
+        <div class="signing-actions">
+          <button
+            type="button"
+            class="btn btn-secondary btn-sm"
+            :disabled="configSaving || !configDirty"
+            @click="saveSigningConfig"
+          >
+            {{ configSaving ? 'Saving…' : 'Save ROI Form' }}
+          </button>
+          <button
+            type="button"
+            class="btn btn-primary btn-sm"
+            :disabled="issueLoading || !hasSigningConfig"
+            @click="copyIssuedLink(false)"
+          >
+            {{ issueLoading ? 'Preparing…' : (issuedLink?.public_key ? 'Copy ROI Link' : 'Create + Copy ROI Link') }}
+          </button>
+          <button
+            type="button"
+            class="btn btn-secondary btn-sm"
+            :disabled="issueLoading || !hasSigningConfig"
+            @click="copyIssuedLink(true)"
+          >
+            Regenerate Link
+          </button>
+          <span v-if="copyStatus" class="hint strong">{{ copyStatus }}</span>
+        </div>
+      </div>
+
+      <div v-if="rows.length === 0" class="empty-state">
+        <p>No active school staff found for this school.</p>
+      </div>
+      <div v-else class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Email</th>
+              <th>Current state</th>
+              <th>Set state</th>
+              <th>Last packet upload</th>
+              <th>Last ROI grant</th>
+              <th class="right"></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="row in rows" :key="row.school_staff_user_id">
+              <td>
+                <div>{{ displayName(row) }}</div>
+                <div v-if="row.effective_access_state === 'expired'" class="hint">ROI expired</div>
+              </td>
+              <td>{{ row.email || '—' }}</td>
+              <td>
+                <span class="state-pill" :class="stateClass(row.effective_access_state)">
+                  {{ stateLabel(row.effective_access_state, row.access_level) }}
+                </span>
+              </td>
+              <td style="min-width: 180px;">
+                <select v-model="draftStates[row.school_staff_user_id]" class="inline-select">
+                  <option value="none">No access</option>
+                  <option value="packet">Packet</option>
+                  <option value="roi">ROI access</option>
+                </select>
+              </td>
+              <td>
+                <div>{{ formatDateTime(row.last_packet_uploaded_at) }}</div>
+                <div v-if="row.last_packet_uploaded_by_name" class="hint">by {{ row.last_packet_uploaded_by_name }}</div>
+              </td>
+              <td>
+                <div>{{ formatDateTime(row.granted_at) }}</div>
+                <div v-if="row.granted_by_name" class="hint">by {{ row.granted_by_name }}</div>
+              </td>
+              <td class="right" style="white-space: nowrap;">
+                <button
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  :disabled="savingUserId === row.school_staff_user_id || !isDirty(row)"
+                  @click="saveRow(row)"
+                >
+                  {{ savingUserId === row.school_staff_user_id ? 'Saving…' : 'Save' }}
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </template>
   </div>
 </template>
 
 <script setup>
 import { computed, ref, watch } from 'vue';
 import api from '../../services/api';
+import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 
 const props = defineProps({
   client: {
@@ -109,6 +198,15 @@ const savingUserId = ref(null);
 const roiExpiresAt = ref(null);
 const roiExpired = ref(true);
 const schoolName = ref('');
+const availableLinks = ref([]);
+const savedIntakeLinkId = ref('');
+const selectedIntakeLinkId = ref('');
+const issuedLink = ref(null);
+const configSaving = ref(false);
+const issueLoading = ref(false);
+const roiDateSaving = ref(false);
+const copyStatus = ref('');
+const roiExpiryDraft = ref('');
 
 const roiExpiryLabel = computed(() => {
   if (!roiExpiresAt.value) return 'Missing';
@@ -140,6 +238,15 @@ const formatDateTime = (value) => {
   return date.toLocaleString();
 };
 
+const normalizeDateInputValue = (value) => {
+  if (!value) return '';
+  const raw = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toISOString().slice(0, 10);
+};
+
 const stateLabel = (effectiveState, accessLevel) => {
   const effective = normalizeState(effectiveState === 'expired' ? 'expired' : effectiveState);
   if (effectiveState === 'expired') return 'ROI expired';
@@ -158,31 +265,71 @@ const stateClass = (effectiveState) => {
   };
 };
 
+const hasSigningConfig = computed(() => !!String(selectedIntakeLinkId.value || '').trim());
+const configDirty = computed(() => String(selectedIntakeLinkId.value || '') !== String(savedIntakeLinkId.value || ''));
+const roiDateDirty = computed(() => String(roiExpiryDraft.value || '') !== String(normalizeDateInputValue(roiExpiresAt.value) || ''));
+const issuedLinkStateLabel = computed(() => {
+  const state = String(issuedLink.value?.status || '').trim().toLowerCase();
+  if (state === 'completed') return 'Completed';
+  if (state === 'in_progress') return 'In progress';
+  if (issuedLink.value?.public_key) return 'Issued';
+  return 'Not issued';
+});
+const issuedLinkStateClass = computed(() => {
+  const state = String(issuedLink.value?.status || '').trim().toLowerCase();
+  if (state === 'completed') return 'state-roi';
+  if (state === 'in_progress') return 'state-packet';
+  if (issuedLink.value?.public_key) return 'state-packet';
+  return 'state-none';
+});
+const issuedSignedLabel = computed(() => formatDateTime(issuedLink.value?.signed_at));
+const issuedFormLabel = computed(() => issuedLink.value?.intake_link_title || 'No ROI form assigned');
+const issuedLinkSummary = computed(() => {
+  if (!issuedLink.value?.public_key) return 'Create a unique client link from the assigned school ROI form.';
+  return buildPublicIntakeUrl(issuedLink.value.public_key);
+});
+
 const load = async () => {
   const clientId = Number(props.client?.id || 0);
   if (!clientId) {
     rows.value = [];
     draftStates.value = {};
+    availableLinks.value = [];
+    issuedLink.value = null;
+    savedIntakeLinkId.value = '';
+    selectedIntakeLinkId.value = '';
     return;
   }
 
   try {
     loading.value = true;
     error.value = '';
+    copyStatus.value = '';
     const response = await api.get(`/clients/${clientId}/school-roi-access`);
     const payload = response.data || {};
     rows.value = Array.isArray(payload.staff) ? payload.staff : [];
     roiExpiresAt.value = payload.roi_expires_at || null;
+    roiExpiryDraft.value = normalizeDateInputValue(payload.roi_expires_at || null);
     roiExpired.value = payload.roi_expired !== false;
     schoolName.value = payload.school_name || props.client?.organization_name || '—';
     draftStates.value = rows.value.reduce((acc, row) => {
       acc[row.school_staff_user_id] = normalizeState(row.access_level);
       return acc;
     }, {});
+    const signing = payload.school_roi_signing || {};
+    availableLinks.value = Array.isArray(signing.available_links) ? signing.available_links : [];
+    savedIntakeLinkId.value = signing.selected_intake_link_id ? String(signing.selected_intake_link_id) : '';
+    selectedIntakeLinkId.value = savedIntakeLinkId.value;
+    issuedLink.value = signing.issued_link || null;
   } catch (err) {
     error.value = err.response?.data?.error?.message || 'Failed to load school ROI access';
     rows.value = [];
     draftStates.value = {};
+    availableLinks.value = [];
+    issuedLink.value = null;
+    savedIntakeLinkId.value = '';
+    selectedIntakeLinkId.value = '';
+    roiExpiryDraft.value = '';
   } finally {
     loading.value = false;
   }
@@ -209,6 +356,75 @@ const saveRow = async (row) => {
   }
 };
 
+const saveRoiDate = async () => {
+  const clientId = Number(props.client?.id || 0);
+  if (!clientId || !roiExpiryDraft.value) return;
+  try {
+    roiDateSaving.value = true;
+    error.value = '';
+    await api.put(`/clients/${clientId}/school-roi-expiration`, {
+      roi_expires_at: roiExpiryDraft.value
+    });
+    await load();
+    emit('updated', { keepOpen: true });
+  } catch (err) {
+    error.value = err.response?.data?.error?.message || 'Failed to update ROI expiration date';
+  } finally {
+    roiDateSaving.value = false;
+  }
+};
+
+const saveSigningConfig = async () => {
+  const clientId = Number(props.client?.id || 0);
+  if (!clientId) return false;
+  try {
+    configSaving.value = true;
+    error.value = '';
+    copyStatus.value = '';
+    await api.put(`/clients/${clientId}/school-roi-signing-config`, {
+      intakeLinkId: selectedIntakeLinkId.value ? Number(selectedIntakeLinkId.value) : null
+    });
+    savedIntakeLinkId.value = String(selectedIntakeLinkId.value || '');
+    await load();
+    return true;
+  } catch (err) {
+    error.value = err.response?.data?.error?.message || 'Failed to save school ROI form';
+    return false;
+  } finally {
+    configSaving.value = false;
+  }
+};
+
+const copyIssuedLink = async (regenerate = false) => {
+  const clientId = Number(props.client?.id || 0);
+  if (!clientId || !hasSigningConfig.value) return;
+  try {
+    issueLoading.value = true;
+    error.value = '';
+    copyStatus.value = '';
+    if (configDirty.value) {
+      const ok = await saveSigningConfig();
+      if (!ok) return;
+    }
+    const response = await api.post(`/clients/${clientId}/school-roi-signing-link`, { regenerate });
+    issuedLink.value = response.data?.issued_link || null;
+    const url = buildPublicIntakeUrl(issuedLink.value?.public_key || '');
+    if (url) {
+      try {
+        await navigator.clipboard.writeText(url);
+        copyStatus.value = regenerate ? 'New ROI link copied.' : 'ROI link copied.';
+      } catch {
+        copyStatus.value = url;
+      }
+    }
+    await load();
+  } catch (err) {
+    error.value = err.response?.data?.error?.message || 'Failed to create client ROI link';
+  } finally {
+    issueLoading.value = false;
+  }
+};
+
 watch(
   () => props.client?.id,
   () => {
@@ -219,14 +435,16 @@ watch(
 </script>
 
 <style scoped>
-.summary-row {
+.summary-row,
+.signing-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 12px;
   margin-bottom: 12px;
 }
 
-.summary-card {
+.summary-card,
+.signing-card {
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 12px;
@@ -249,6 +467,19 @@ watch(
   font-size: 14px;
   font-weight: 700;
   color: var(--text-primary);
+  word-break: break-word;
+}
+
+.roi-date-editor {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.inline-date-input {
+  min-width: 160px;
 }
 
 .warning-card {
@@ -259,6 +490,24 @@ watch(
   padding: 12px 14px;
   margin-bottom: 12px;
   font-size: 13px;
+  font-weight: 700;
+}
+
+.signing-card {
+  margin-bottom: 14px;
+}
+
+.signing-header,
+.signing-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.strong {
   font-weight: 700;
 }
 

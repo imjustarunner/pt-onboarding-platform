@@ -6,9 +6,11 @@ import IntakeSubmission from '../models/IntakeSubmission.model.js';
 import IntakeSubmissionDocument from '../models/IntakeSubmissionDocument.model.js';
 import IntakeSubmissionClient from '../models/IntakeSubmissionClient.model.js';
 import DocumentTemplate from '../models/DocumentTemplate.model.js';
+import ClientSchoolRoiSigningLink from '../models/ClientSchoolRoiSigningLink.model.js';
 import PublicIntakeSigningService from '../services/publicIntakeSigning.service.js';
 import DocumentSigningService from '../services/documentSigning.service.js';
 import PublicIntakeClientService from '../services/publicIntakeClient.service.js';
+import applyClientRoiCompletion from '../services/clientRoiCompletion.service.js';
 import { getClientIpAddress } from '../utils/ipAddress.util.js';
 import ClientPhiDocument from '../models/ClientPhiDocument.model.js';
 import PhiDocumentAuditLog from '../models/PhiDocumentAuditLog.model.js';
@@ -142,6 +144,36 @@ const resolveIntakeSenderIdentity = async ({ organizationId, scopeType }) => {
     if (match) return match;
   }
   return null;
+};
+
+const resolvePublicIntakeContext = async (publicKey) => {
+  const key = String(publicKey || '').trim();
+  if (!key) return { link: null, issuedRoiLink: null, boundClient: null };
+  const directLink = await IntakeLink.findByPublicKey(key);
+  if (directLink) {
+    return {
+      link: directLink,
+      issuedRoiLink: null,
+      boundClient: null
+    };
+  }
+  const issuedRoiLink = await ClientSchoolRoiSigningLink.findByPublicKey(key);
+  if (!issuedRoiLink) {
+    return { link: null, issuedRoiLink: null, boundClient: null };
+  }
+  const link = await IntakeLink.findById(issuedRoiLink.intake_link_id);
+  if (!link) {
+    return { link: null, issuedRoiLink: null, boundClient: null };
+  }
+  let boundClient = null;
+  if (issuedRoiLink.client_id) {
+    try {
+      boundClient = await Client.findById(issuedRoiLink.client_id, { includeSensitive: true });
+    } catch {
+      boundClient = null;
+    }
+  }
+  return { link, issuedRoiLink, boundClient };
 };
 
 const buildAnswersPdfBuffer = async ({ link, intakeData }) => {
@@ -942,7 +974,7 @@ const createIntakePacketDocument = async ({
 export const approvePublicIntake = async (req, res, next) => {
   try {
     const publicKey = String(req.params.publicKey || '').trim();
-    const link = await IntakeLink.findByPublicKey(publicKey);
+    const { link } = await resolvePublicIntakeContext(publicKey);
     if (!link || !link.is_active) {
       return res.status(404).json({ error: { message: 'Intake link not found' } });
     }
@@ -1176,7 +1208,7 @@ const loadTemplateById = async (link, templateId) => {
 export const getPublicIntakeLink = async (req, res, next) => {
   try {
     const publicKey = String(req.params.publicKey || '').trim();
-    const link = await IntakeLink.findByPublicKey(publicKey);
+    const { link, issuedRoiLink, boundClient } = await resolvePublicIntakeContext(publicKey);
     if (!link || !link.is_active) {
       return res.status(404).json({ error: { message: 'Intake link not found' } });
     }
@@ -1209,6 +1241,18 @@ export const getPublicIntakeLink = async (req, res, next) => {
         : { siteKey: null, useEnterprise: false, forceWidget: false },
       organization: toOrgPayload(organization),
       agency: toOrgPayload(agency),
+      issuedLink: issuedRoiLink ? {
+        id: issuedRoiLink.id,
+        status: issuedRoiLink.status || 'issued',
+        signed_at: issuedRoiLink.signed_at || null,
+        client_id: issuedRoiLink.client_id,
+        intake_link_id: issuedRoiLink.intake_link_id
+      } : null,
+      boundClient: boundClient ? {
+        id: boundClient.id,
+        full_name: boundClient.full_name || null,
+        initials: boundClient.initials || null
+      } : null,
       templates: templates.map(t => ({
         id: t.id,
         name: t.name,
@@ -1241,7 +1285,7 @@ export const createPublicIntakeSession = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Validation failed', errors: errors.array() } });
     }
     const publicKey = String(req.params.publicKey || '').trim();
-    const link = await IntakeLink.findByPublicKey(publicKey);
+    const { link, issuedRoiLink } = await resolvePublicIntakeContext(publicKey);
     if (!link || !link.is_active) {
       return res.status(404).json({ error: { message: 'Intake link not found' } });
     }
@@ -1315,8 +1359,16 @@ export const createPublicIntakeSession = async (req, res, next) => {
       sessionToken,
       ipAddress,
       userAgent: req.get('user-agent'),
-      retentionExpiresAt
+      retentionExpiresAt,
+      clientId: issuedRoiLink?.client_id || null
     });
+
+    if (issuedRoiLink?.id) {
+      await ClientSchoolRoiSigningLink.markStarted({
+        id: issuedRoiLink.id,
+        intakeSubmissionId: submission?.id || null
+      });
+    }
 
     res.json({ sessionToken, submissionId: submission?.id || null });
   } catch (error) {
@@ -1332,7 +1384,7 @@ export const createPublicConsent = async (req, res, next) => {
     }
 
     const publicKey = String(req.params.publicKey || '').trim();
-    const link = await IntakeLink.findByPublicKey(publicKey);
+    const { link, issuedRoiLink } = await resolvePublicIntakeContext(publicKey);
     if (!link || !link.is_active) {
       return res.status(404).json({ error: { message: 'Intake link not found' } });
     }
@@ -1363,7 +1415,8 @@ export const createPublicConsent = async (req, res, next) => {
         ip_address: ipAddress,
         user_agent: userAgent,
         retention_expires_at: retentionExpiresAt,
-        session_token: sessionToken || null
+        session_token: sessionToken || null,
+        client_id: issuedRoiLink?.client_id || submission.client_id || null
       });
     } else {
       submission = await IntakeSubmission.create({
@@ -1379,7 +1432,15 @@ export const createPublicConsent = async (req, res, next) => {
         consentGivenAt: now,
         ipAddress,
         userAgent,
-        retentionExpiresAt
+        retentionExpiresAt,
+        clientId: issuedRoiLink?.client_id || null
+      });
+    }
+
+    if (issuedRoiLink?.id) {
+      await ClientSchoolRoiSigningLink.markStarted({
+        id: issuedRoiLink.id,
+        intakeSubmissionId: submission?.id || null
       });
     }
 
@@ -1396,7 +1457,7 @@ export const getPublicIntakeStatus = async (req, res, next) => {
     if (!submissionId) {
       return res.status(400).json({ error: { message: 'submissionId is required' } });
     }
-    const link = await IntakeLink.findByPublicKey(publicKey);
+    const { link } = await resolvePublicIntakeContext(publicKey);
     if (!link || !link.is_active) {
       return res.status(404).json({ error: { message: 'Intake link not found' } });
     }
@@ -1449,7 +1510,7 @@ export const previewPublicTemplate = async (req, res, next) => {
     if (!templateId) {
       return res.status(400).json({ error: { message: 'templateId is required' } });
     }
-    const link = await IntakeLink.findByPublicKey(publicKey);
+    const { link } = await resolvePublicIntakeContext(publicKey);
     if (!link || !link.is_active) {
       return res.status(404).json({ error: { message: 'Intake link not found' } });
     }
@@ -1490,7 +1551,7 @@ export const signPublicIntakeDocument = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'submissionId and templateId are required' } });
     }
 
-    const link = await IntakeLink.findByPublicKey(publicKey);
+    const { link } = await resolvePublicIntakeContext(publicKey);
     if (!link || !link.is_active) {
       return res.status(404).json({ error: { message: 'Intake link not found' } });
     }
@@ -1661,7 +1722,7 @@ export const finalizePublicIntake = async (req, res, next) => {
     }
 
     const publicKey = String(req.params.publicKey || '').trim();
-    const link = await IntakeLink.findByPublicKey(publicKey);
+    const { link, issuedRoiLink } = await resolvePublicIntakeContext(publicKey);
     if (!link || !link.is_active) {
       return res.status(404).json({ error: { message: 'Intake link not found' } });
     }
@@ -1717,6 +1778,20 @@ export const finalizePublicIntake = async (req, res, next) => {
           }
         }
         const signedDocs = await IntakeSubmissionDocument.listBySubmissionId(submissionId);
+        if (issuedRoiLink?.id) {
+          let phiDocs = [];
+          try {
+            phiDocs = await ClientPhiDocument.listByIntakeSubmissionId(submissionId);
+          } catch {
+            phiDocs = [];
+          }
+          await ClientSchoolRoiSigningLink.markCompleted({
+            id: issuedRoiLink.id,
+            intakeSubmissionId: submissionId,
+            signedAt: submission.submitted_at || submission.updated_at || new Date(),
+            completedClientPhiDocumentId: phiDocs?.[0]?.id || null
+          });
+        }
         return res.json({
           success: true,
           submission,
@@ -1912,6 +1987,21 @@ export const finalizePublicIntake = async (req, res, next) => {
     let rawClients = createdClients.length
       ? createdClients.map((c) => ({ id: c.id, fullName: c.full_name || c.initials || '', initials: c.initials, contactPhone: c.contact_phone }))
       : (Array.isArray(req.body?.clients) ? req.body.clients : (req.body?.client ? [req.body.client] : []));
+    if (!link.create_client && updatedSubmission?.client_id) {
+      try {
+        const boundClient = await Client.findById(updatedSubmission.client_id, { includeSensitive: true });
+        if (boundClient?.id) {
+          rawClients = [{
+            id: boundClient.id,
+            fullName: boundClient.full_name || boundClient.initials || `Client ${boundClient.id}`,
+            initials: boundClient.initials || null,
+            contactPhone: boundClient.contact_phone || null
+          }];
+        }
+      } catch {
+        // fall back to submitted payload below
+      }
+    }
     // Public forms (create_client=false): use signer as virtual entry so documents are created with client_id=null
     if (!link.create_client && !rawClients.length) {
       const signerName = String(updatedSubmission?.signer_name || '').trim() || 'Signer';
@@ -1934,6 +2024,7 @@ export const finalizePublicIntake = async (req, res, next) => {
       docAuditByTemplate.set(doc.document_template_id, trail || {});
     });
 
+    let roiCompletionPhiDocument = null;
     for (let i = 0; i < rawClients.length; i += 1) {
       const clientPayload = rawClients[i];
       const clientId = clientPayload?.id || null;
@@ -2091,6 +2182,9 @@ export const finalizePublicIntake = async (req, res, next) => {
               ipAddress: updatedSubmission.ip_address || null,
               metadata: { submissionId, templateId: template.id }
             });
+            if (!roiCompletionPhiDocument && issuedRoiLink?.id) {
+              roiCompletionPhiDocument = phiDoc;
+            }
           } catch {
             // best-effort; do not block public intake
           }
@@ -2142,6 +2236,29 @@ export const finalizePublicIntake = async (req, res, next) => {
           organizationId: req.body?.organizationId || null
         });
       }
+    }
+
+    if (issuedRoiLink?.id && updatedSubmission?.client_id) {
+      try {
+        await applyClientRoiCompletion({
+          clientId: updatedSubmission.client_id,
+          signedAt: now,
+          actorUserId: null
+        });
+      } catch (error) {
+        console.error('applyClientRoiCompletion failed', {
+          clientId: updatedSubmission.client_id,
+          submissionId,
+          signingLinkId: issuedRoiLink.id,
+          error: error?.message || error
+        });
+      }
+      await ClientSchoolRoiSigningLink.markCompleted({
+        id: issuedRoiLink.id,
+        intakeSubmissionId: submissionId,
+        signedAt: now,
+        completedClientPhiDocumentId: roiCompletionPhiDocument?.id || null
+      });
     }
 
     let downloadUrl = null;
@@ -2285,7 +2402,7 @@ export const submitPublicIntake = async (req, res, next) => {
     }
 
     const publicKey = String(req.params.publicKey || '').trim();
-    const link = await IntakeLink.findByPublicKey(publicKey);
+    const { link } = await resolvePublicIntakeContext(publicKey);
     if (!link || !link.is_active) {
       return res.status(404).json({ error: { message: 'Intake link not found' } });
     }
@@ -2711,7 +2828,7 @@ export const uploadIntakeFiles = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'submissionId and stepId are required' } });
     }
 
-    const link = await IntakeLink.findByPublicKey(publicKey);
+    const { link } = await resolvePublicIntakeContext(publicKey);
     if (!link || !link.is_active) {
       return res.status(404).json({ error: { message: 'Intake link not found' } });
     }

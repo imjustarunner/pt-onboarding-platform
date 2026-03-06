@@ -78,7 +78,7 @@
         <h3>{{ t('questions') }}</h3>
         <div v-if="stepError" class="error" style="margin-bottom: 10px;">{{ stepError }}</div>
 
-        <div v-if="!isMedicalRecordsRequest && !isJobApplication" class="form-group">
+        <div v-if="!isMedicalRecordsRequest && !isJobApplication && !isClientBound" class="form-group">
           <label>{{ t('whoIsIntakeFor') }}</label>
           <div class="radio-group">
             <label class="radio-row">
@@ -234,7 +234,13 @@
           </div>
         </div>
 
-        <div v-if="!isMedicalRecordsRequest && !isJobApplication" class="clients-block">
+        <div v-if="isClientBound && !isMedicalRecordsRequest && !isJobApplication" class="bound-client-card">
+          <div class="bound-client-label">Client</div>
+          <div class="bound-client-name">{{ boundClientDisplayName }}</div>
+          <div class="muted">This signing link is already assigned to this client.</div>
+        </div>
+
+        <div v-if="!isMedicalRecordsRequest && !isJobApplication && !isClientBound" class="clients-block">
           <div class="clients-header">
             <h4>{{ intakeForSelf ? t('client') : t('clients') }}</h4>
           </div>
@@ -958,6 +964,7 @@ const submissionStorageKey = computed(() =>
 );
 
 const signerInitials = ref('');
+const boundClient = ref(null);
 const clients = ref([
   { firstName: '', lastName: '' }
 ]);
@@ -988,6 +995,12 @@ const intakeForSelf = ref(false);
 const guardianDisplayName = computed(() =>
   `${guardianFirstName.value || ''} ${guardianLastName.value || ''}`.trim()
 );
+const isClientBound = computed(() => !!boundClient.value?.id);
+const boundClientDisplayName = computed(() =>
+  String(boundClient.value?.full_name || '').trim()
+  || clientDisplayNames.value[0]
+  || 'Assigned client'
+);
 const clientDisplayNames = computed(() =>
   (clients.value || [])
     .map((c) => `${String(c?.firstName || '').trim()} ${String(c?.lastName || '').trim()}`.trim())
@@ -1008,6 +1021,16 @@ const getDocumentFieldFallbackValue = (field) => {
     return guardianRelationship.value || '';
   }
   return '';
+};
+
+const splitClientName = (fullName) => {
+  const raw = String(fullName || '').trim();
+  if (!raw) return { firstName: '', lastName: '' };
+  const parts = raw.split(/\s+/).filter(Boolean);
+  return {
+    firstName: parts[0] || '',
+    lastName: parts.slice(1).join(' ')
+  };
 };
 
 const resolveLogoUrl = (org) => {
@@ -1407,6 +1430,7 @@ const loadLink = async () => {
     loading.value = true;
     const resp = await api.get(`/public-intake/${publicKey}`);
     link.value = resp.data?.link || null;
+    boundClient.value = resp.data?.boundClient || null;
     templates.value = resp.data?.templates || [];
     agencyInfo.value = resp.data?.agency || null;
     organizationInfo.value = resp.data?.organization || null;
@@ -1420,6 +1444,17 @@ const loadLink = async () => {
     }
     if (String(link.value?.form_type || '').toLowerCase() === 'job_application') {
       intakeForSelf.value = true;
+    }
+    if (boundClient.value?.id) {
+      const nameParts = splitClientName(boundClient.value.full_name);
+      clients.value = [{
+        firstName: nameParts.firstName,
+        lastName: nameParts.lastName
+      }];
+      intakeResponses.clients = [{
+        client_first: nameParts.firstName || '',
+        client_last: nameParts.lastName || ''
+      }];
     }
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to load intake link';
@@ -1668,8 +1703,8 @@ const submitConsent = async () => {
   consentErrors.guardianLastName = isJobApplication.value && !guardianLastName.value.trim() ? t('required') : '';
   const clientFirst = intakeForSelf.value ? guardianFirstName.value : clients.value?.[0]?.firstName;
   const clientLast = intakeForSelf.value ? guardianLastName.value : clients.value?.[0]?.lastName;
-  consentErrors.clientFirstName = isJobApplication.value ? '' : (String(clientFirst || '').trim() ? '' : t('required'));
-  consentErrors.clientLastName = isJobApplication.value ? '' : (String(clientLast || '').trim() ? '' : t('required'));
+  consentErrors.clientFirstName = (isJobApplication.value || isClientBound.value) ? '' : (String(clientFirst || '').trim() ? '' : t('required'));
+  consentErrors.clientLastName = (isJobApplication.value || isClientBound.value) ? '' : (String(clientLast || '').trim() ? '' : t('required'));
   consentErrors.organizationId =
     requiresOrganizationId.value && !String(organizationId.value || '').trim()
       ? t('required')
@@ -2391,6 +2426,24 @@ onMounted(async () => {
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 12px;
   margin-bottom: 12px;
+}
+.bound-client-card {
+  border: 1px solid var(--border);
+  background: var(--bg-alt);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+}
+.bound-client-label {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+.bound-client-name {
+  font-size: 16px;
+  font-weight: 700;
+  margin-bottom: 4px;
 }
 .form-group label {
   display: block;

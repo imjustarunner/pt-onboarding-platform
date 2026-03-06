@@ -1905,14 +1905,55 @@ const handleMoveSlot = async ({ providerUserId, slotId, direction }) => {
 
 const isClientPortalLocked = (client) => String(authStore.user?.role || '').toLowerCase() === 'school_staff' && client?.school_portal_can_open === false;
 
-const openClient = (client) => {
+const resolveSelectedClientNavigationIds = (payload = null) => {
+  const explicit = Array.isArray(payload?.navigationClientIds)
+    ? payload.navigationClientIds.map((id) => Number(id || 0)).filter(Boolean)
+    : [];
+  if (explicit.length) return explicit;
+
+  const fromClient = Array.isArray(payload?.client?.navigationClientIds)
+    ? payload.client.navigationClientIds.map((id) => Number(id || 0)).filter(Boolean)
+    : [];
+  if (fromClient.length) return fromClient;
+
+  const fromSelected = Array.isArray(selectedClient.value?.navigationClientIds)
+    ? selectedClient.value.navigationClientIds.map((id) => Number(id || 0)).filter(Boolean)
+    : [];
+  if (fromSelected.length) return fromSelected;
+
+  if (portalMode.value === 'days' && store.selectedWeekday) {
+    const ids = [];
+    for (const provider of store.dayProviders || []) {
+      const panel = panelFor(provider?.provider_user_id);
+      for (const client of panel?.caseloadClients || []) {
+        const id = Number(client?.id || 0);
+        if (id) ids.push(id);
+      }
+    }
+    const uniqueIds = Array.from(new Set(ids));
+    if (uniqueIds.length) return uniqueIds;
+  }
+
+  return [];
+};
+
+const openClient = (payload) => {
+  const client = payload?.client || payload;
   if (isClientPortalLocked(client)) return;
-  selectedClient.value = client;
+  const navigationClientIds = resolveSelectedClientNavigationIds(payload);
+  selectedClient.value = navigationClientIds.length
+    ? { ...client, navigationClientIds }
+    : client;
 };
 
 const openClientEditorFromModal = async (client) => {
+  const payload = client?.navigationClientIds
+    ? client
+    : (selectedClient.value?.navigationClientIds
+        ? { ...client, navigationClientIds: selectedClient.value.navigationClientIds }
+        : client);
   selectedClient.value = null;
-  await openAdminClientEditor(client);
+  await openAdminClientEditor(payload);
 };
 
 const openChecklistFromModal = (client) => {
@@ -1989,9 +2030,7 @@ const fetchAdminClientById = async (clientId) => {
 const openAdminClientEditor = async (payload) => {
   const client = payload?.client || payload;
   if (!client?.id) return;
-  const navigationIds = Array.isArray(payload?.navigationClientIds)
-    ? payload.navigationClientIds.map((id) => Number(id || 0)).filter(Boolean)
-    : [Number(client.id)];
+  const navigationIds = resolveSelectedClientNavigationIds(payload);
   if (!adminSelectedClient.value) {
     adminClientActiveTab.value = isProvider.value ? 'checklist' : '';
   }
