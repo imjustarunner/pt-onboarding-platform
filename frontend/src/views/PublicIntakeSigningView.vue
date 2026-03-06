@@ -1483,13 +1483,12 @@ const ensureRecaptchaWidget = async (mode = useEnterpriseRecaptcha.value ? 'ente
     const grecaptcha = await loadRecaptchaScript(mode, forceReload);
     const renderFn = mode === 'enterprise' ? grecaptcha?.enterprise?.render : grecaptcha?.render;
     if (!renderFn) return false;
-    const containerId = 'recaptcha-widget-start';
     let el = recaptchaWidgetElStart.value;
     for (let i = 0; !el && i < 12; i++) {
       await nextTick();
       await new Promise((r) => setTimeout(r, 100 * (i + 1)));
       el = recaptchaWidgetElStart.value;
-      if (!el) el = document.getElementById(containerId);
+      if (!el) el = document.getElementById('recaptcha-widget-start');
     }
     if (!el) {
       console.warn('[recaptcha] widget container not ready');
@@ -1503,38 +1502,38 @@ const ensureRecaptchaWidget = async (mode = useEnterpriseRecaptcha.value ? 'ente
     if (recaptchaWidgetId.value !== null) {
       return true;
     }
-    if (el && el.innerHTML.trim()) {
-      el.innerHTML = '';
-    }
     const api = mode === 'enterprise' ? grecaptcha?.enterprise : grecaptcha;
-    // Pass container ID string per reCAPTCHA docs; more reliable than element ref
-    const doRender = () => {
-      recaptchaWidgetId.value = api.render(containerId, {
-        sitekey: activeRecaptchaSiteKey.value,
-        size: 'normal',
-        theme: 'light',
-        callback: (token) => {
-          const t = String(token || '').trim();
-          captchaToken.value = t;
-          captchaError.value = '';
-          captchaWidgetFailed.value = false;
-        },
-        'expired-callback': () => {
-          captchaToken.value = '';
-          captchaError.value = t('completeCaptchaToContinue');
-        },
-        'error-callback': () => {
-          captchaToken.value = '';
-          captchaWidgetFailed.value = true;
-        }
-      });
-    };
     const readyFn = mode === 'enterprise' ? grecaptcha?.enterprise?.ready : grecaptcha?.ready;
     if (readyFn) {
       await new Promise((resolve) => readyFn(resolve));
     }
-    doRender();
-    return true;
+    recaptchaWidgetId.value = api.render(el, {
+      sitekey: activeRecaptchaSiteKey.value,
+      size: 'normal',
+      theme: 'light',
+      callback: (token) => {
+        const t = String(token || '').trim();
+        captchaToken.value = t;
+        captchaError.value = '';
+        captchaWidgetFailed.value = false;
+      },
+      'expired-callback': () => {
+        captchaToken.value = '';
+        captchaError.value = t('completeCaptchaToContinue');
+      },
+      'error-callback': () => {
+        captchaToken.value = '';
+        captchaError.value = t('captchaFailed');
+      }
+    });
+    for (let i = 0; i < 20; i++) {
+      await new Promise((r) => setTimeout(r, 100));
+      if (el.querySelector('iframe, textarea[g-recaptcha-response], .grecaptcha-badge')) {
+        return true;
+      }
+    }
+    recaptchaWidgetId.value = null;
+    return false;
   } catch (err) {
     console.warn('[recaptcha] widget init failed', err);
     return false;
