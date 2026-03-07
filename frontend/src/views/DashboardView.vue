@@ -306,7 +306,8 @@
             :data-tour="`dash-rail-card-${String(card.id)}`"
             :class="{
               active: (card.kind === 'content' && activeTab === card.id),
-              'rail-card-submit': card.id === 'submit'
+              'rail-card-submit': card.id === 'submit',
+              'rail-card-pending-alert': card.id === 'clients' && providerPendingClientsCount > 0
             }"
             :aria-current="(card.kind === 'content' && activeTab === card.id) ? 'page' : undefined"
             :disabled="previewMode"
@@ -332,7 +333,13 @@
               </div>
             </div>
             <div class="rail-card-meta">
-              <span v-if="card.badgeCount > 0" class="rail-card-badge">{{ card.badgeCount }}</span>
+              <span
+                v-if="card.badgeCount > 0"
+                class="rail-card-badge"
+                :class="{ 'rail-card-badge-pulse': card.id === 'clients' && providerPendingClientsCount > 0 }"
+              >
+                {{ card.badgeCount }}
+              </span>
               <span class="rail-card-cta">{{ card.kind === 'link' || card.kind === 'modal' ? 'Open' : (card.kind === 'action' ? 'Open' : 'View') }}</span>
             </div>
           </button>
@@ -534,7 +541,10 @@
           </div>
 
           <div v-if="!previewMode && isOnboardingComplete && !isSchoolStaff && activeTab === 'clients'" class="my-panel">
-            <ProviderClientsTab @update:needsAttentionCount="clientsNeedsAttentionCount = $event" />
+            <ProviderClientsTab
+              @update:needsAttentionCount="clientsNeedsAttentionCount = $event"
+              @update:pendingClientsCount="providerPendingClientsCount = $event"
+            />
           </div>
 
           <!-- Submit (right panel) -->
@@ -1079,6 +1089,7 @@ const tierBadgeText = ref('');
 const tierBadgeKind = ref(''); // 'tier-current' | 'tier-grace' | 'tier-ooc'
 
 const clientsNeedsAttentionCount = ref(0);
+const providerPendingClientsCount = ref(0);
 const showSkillBuilderModal = ref(false);
 const showSkillBuildersAvailabilityModal = ref(false);
 
@@ -2033,7 +2044,7 @@ const dashboardCards = computed(() => {
           id: 'clients',
           label: 'Clients',
           kind: 'content',
-          badgeCount: clientsNeedsAttentionCount.value || 0,
+          badgeCount: providerPendingClientsCount.value || 0,
           iconUrl: brandingStore.getDashboardCardIconUrl('clients', cardIconOrgOverride),
           description: 'Your caseload by school with psychotherapy fiscal-year totals.'
         });
@@ -3723,6 +3734,19 @@ h1 {
   color: var(--bg-card);
   font-size: 12px;
   font-weight: 800;
+}
+.rail-card-badge-pulse {
+  animation: rail-card-badge-pulse 1.05s ease-in-out infinite;
+}
+
+@keyframes rail-card-badge-pulse {
+  0% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.08); opacity: 0.72; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.rail-card-pending-alert {
+  box-shadow: 0 0 0 1px rgba(217, 45, 32, 0.35), 0 0 0 3px rgba(217, 45, 32, 0.10);
 }
 
 .rail-card-cta {

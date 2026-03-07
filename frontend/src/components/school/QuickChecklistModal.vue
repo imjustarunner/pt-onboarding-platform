@@ -21,13 +21,6 @@
             </select>
           </div>
           <div class="form-group">
-            <label>Intake Date</label>
-            <div class="input-with-today">
-              <input v-model="form.intakeAt" type="date" class="input" />
-              <button type="button" class="btn-today" @click="setIntakeToday">Today</button>
-            </div>
-          </div>
-          <div class="form-group">
             <label>First Date of Service</label>
             <div class="input-with-today">
               <input v-model="form.firstServiceAt" type="date" class="input" />
@@ -62,7 +55,6 @@ const emit = defineEmits(['close', 'saved']);
 const form = ref({
   parentsContactedAt: '',
   parentsContactedSuccessful: '',
-  intakeAt: '',
   firstServiceAt: ''
 });
 
@@ -82,7 +74,6 @@ const syncForm = () => {
         : c.parents_contacted_successful
           ? 'true'
           : 'false',
-    intakeAt: c.intake_at ? String(c.intake_at).slice(0, 10) : '',
     firstServiceAt: c.first_service_at ? String(c.first_service_at).slice(0, 10) : ''
   };
 };
@@ -100,10 +91,6 @@ const todayYmd = () => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
-const setIntakeToday = () => {
-  form.value.intakeAt = todayYmd();
-};
-
 const setFirstServiceToday = () => {
   form.value.firstServiceAt = todayYmd();
 };
@@ -117,7 +104,6 @@ const save = async () => {
       parentsContactedAt: form.value.parentsContactedAt || null,
       parentsContactedSuccessful:
         form.value.parentsContactedSuccessful === '' ? null : form.value.parentsContactedSuccessful === 'true',
-      intakeAt: form.value.intakeAt || null,
       firstServiceAt: form.value.firstServiceAt || null
     };
     await api.put(`/clients/${props.client.id}/compliance-checklist`, payload);

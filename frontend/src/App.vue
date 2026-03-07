@@ -161,6 +161,16 @@
                     <router-link :to="orgTo('/admin/find-providers')" v-if="user?.role === 'super_admin' || isAdmin" >Provider Booking Interface</router-link>
                     <router-link :to="orgTo('/admin/skill-builders-availability')" v-if="canSeeSkillBuildersAvailabilityDirectoryNav" >Skill Builders Availability</router-link>
                     <router-link :to="orgTo('/admin/provider-availability')" v-if="user?.role === 'super_admin' || isAdmin || user?.role === 'staff' || user?.role === 'provider_plus'" >Provider Availability</router-link>
+                    <router-link :to="orgTo('/admin/school-clients')" v-if="user?.role === 'super_admin' || isAdmin || user?.role === 'staff'">
+                      <span>School Clients</span>
+                      <span
+                        v-if="schoolClientsPendingCount > 0"
+                        class="nav-badge nav-badge-pulse"
+                        :title="`${schoolClientsPendingCount} pending school client(s)`"
+                      >
+                        {{ schoolClientsPendingCount }}
+                      </span>
+                    </router-link>
                     <router-link :to="orgTo('/admin/users')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" >Users</router-link>
                     <router-link :to="orgTo('/admin/clients')" v-if="isAdmin || user?.role === 'provider'" >Clients</router-link>
                   </div>
@@ -459,6 +469,21 @@
                 @click="closeMobileMenu"
                 class="mobile-nav-link"
               >Provider Availability</router-link>
+              <router-link
+                :to="orgTo('/admin/school-clients')"
+                v-if="user?.role === 'super_admin' || isAdmin || user?.role === 'staff'"
+                @click="closeMobileMenu"
+                class="mobile-nav-link"
+              >
+                <span>School Clients</span>
+                <span
+                  v-if="schoolClientsPendingCount > 0"
+                  class="nav-badge nav-badge-pulse"
+                  style="margin-left: 8px;"
+                >
+                  {{ schoolClientsPendingCount }}
+                </span>
+              </router-link>
               <router-link
                 :to="orgTo('/admin/documents')"
                 v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && hasCapability('canSignDocuments')"
@@ -1231,6 +1256,26 @@ const currentAgencyId = computed(() => {
   return a?.id || null;
 });
 
+const schoolClientsAgencyId = computed(() => {
+  const current = agencyStore.currentAgency?.value || agencyStore.currentAgency;
+  const currentType = String(current?.organization_type || current?.organizationType || 'agency').toLowerCase();
+  if (current?.id && currentType === 'agency') return Number(current.id);
+  if (['school', 'program', 'learning', 'clinical'].includes(currentType)) {
+    const parentFromCurrent = Number(current?.affiliated_agency_id || current?.affiliatedAgencyId || 0);
+    if (parentFromCurrent > 0) return parentFromCurrent;
+    const orgId = Number(current?.id || 0);
+    if (orgId > 0) {
+      const source = user.value?.role === 'super_admin' ? (agencyStore.agencies || []) : (agencyStore.userAgencies || []);
+      const match = source.find((a) => Number(a?.id || 0) === orgId);
+      const parentFromList = Number(match?.affiliated_agency_id || match?.affiliatedAgencyId || 0);
+      if (parentFromList > 0) return parentFromList;
+    }
+  }
+  const source = user.value?.role === 'super_admin' ? (agencyStore.agencies || []) : (agencyStore.userAgencies || []);
+  const firstAgency = source.find((a) => String(a?.organization_type || a?.organizationType || 'agency').toLowerCase() === 'agency');
+  return firstAgency?.id ? Number(firstAgency.id) : null;
+});
+
 const canSeePayrollManagement = computed(() => {
   if (user.value?.role === 'super_admin') return true;
   const caps = user.value?.capabilities || {};
@@ -1245,6 +1290,28 @@ const canSeeAvailabilityIntake = computed(() => {
   const r = String(user.value?.role || '').toLowerCase();
   return ['super_admin', 'admin', 'support', 'clinical_practice_assistant', 'provider_plus', 'staff'].includes(r);
 });
+
+const showSchoolClientsPendingBadge = computed(() => {
+  const r = String(user.value?.role || '').toLowerCase();
+  return r === 'super_admin' || r === 'admin' || r === 'staff';
+});
+const schoolClientsPendingCount = ref(0);
+let schoolClientsPendingInterval = null;
+const fetchSchoolClientsPendingCount = async () => {
+  if (!isAuthenticated.value || !showSchoolClientsPendingBadge.value || !schoolClientsAgencyId.value) {
+    schoolClientsPendingCount.value = 0;
+    return;
+  }
+  try {
+    const resp = await api.get('/compliance-corner/pending-clients', {
+      params: { agencyId: Number(schoolClientsAgencyId.value) },
+      skipGlobalLoading: true
+    });
+    schoolClientsPendingCount.value = Number(resp?.data?.count || 0);
+  } catch {
+    // best-effort nav badge
+  }
+};
 
 const canSeeSkillBuildersAvailabilityNav = computed(() => {
   const r = String(user.value?.role || '').toLowerCase();
@@ -1527,6 +1594,21 @@ watch(isAuthenticated, (authenticated) => {
     buildingsPendingInterval = null;
   }
 }, { immediate: true });
+
+watch(
+  [isAuthenticated, showSchoolClientsPendingBadge, schoolClientsAgencyId],
+  ([authenticated, showBadge, agencyId]) => {
+    if (schoolClientsPendingInterval) clearInterval(schoolClientsPendingInterval);
+    schoolClientsPendingInterval = null;
+    if (authenticated && showBadge && agencyId) {
+      fetchSchoolClientsPendingCount();
+      schoolClientsPendingInterval = setInterval(fetchSchoolClientsPendingCount, 2 * 60 * 1000);
+      return;
+    }
+    schoolClientsPendingCount.value = 0;
+  },
+  { immediate: true }
+);
 
 watch(sessionSettingsKey, () => {
   if (isAuthenticated.value) {
@@ -2007,6 +2089,8 @@ onUnmounted(() => {
   notificationsInterval = null;
   if (joinReminderPollInterval) clearInterval(joinReminderPollInterval);
   joinReminderPollInterval = null;
+  if (schoolClientsPendingInterval) clearInterval(schoolClientsPendingInterval);
+  schoolClientsPendingInterval = null;
 });
 </script>
 

@@ -36,10 +36,6 @@
                 </div>
               </div>
               <div class="check-item">
-                <div class="k">Intake Date</div>
-                <div class="v">{{ formatDateOnly(checklist.intake_at) }}</div>
-              </div>
-              <div class="check-item">
                 <div class="k">First Service</div>
                 <div class="v">{{ formatDateOnly(checklist.first_service_at) }}</div>
               </div>
@@ -264,7 +260,6 @@ const load = async () => {
           c.parents_contacted_successful === null || c.parents_contacted_successful === undefined
             ? null
             : !!c.parents_contacted_successful,
-        intake_at: c.intake_at || null,
         first_service_at: c.first_service_at || null
       };
       const who = c.checklist_updated_by_name || null;

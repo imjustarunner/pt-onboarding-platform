@@ -25,20 +25,20 @@ async function userHasOrgOrAffiliatedAgencyAccess({ userId, role, organizationId
   return orgIds.includes(parseInt(activeAgencyId, 10));
 }
 
-function parsePendingChecklist(client, today) {
+function parsePendingChecklist(client) {
   const missing = [];
   const parentsContactedAt = client?.parents_contacted_at ? new Date(client.parents_contacted_at) : null;
-  const parentsContactedOk = client?.parents_contacted_successful === 1 || client?.parents_contacted_successful === true;
-  if (!parentsContactedAt || !parentsContactedOk) missing.push('Parents contacted');
-
-  const intakeAt = client?.intake_at ? new Date(client.intake_at) : null;
   const firstServiceAt = client?.first_service_at ? new Date(client.first_service_at) : null;
-  const intakePassed = intakeAt && intakeAt.getTime() <= today.getTime();
-  const firstServicePassed = firstServiceAt && firstServiceAt.getTime() <= today.getTime();
-  if (!intakePassed) missing.push('Intake date');
-  if (!firstServicePassed) missing.push('First session');
+  const hasParentContactDate = !!parentsContactedAt;
+  const hasFirstServiceDate = !!firstServiceAt;
 
-  return { missing, intakePassed, firstServicePassed };
+  if (!hasParentContactDate) {
+    missing.push('Parent contact date');
+  } else if (!hasFirstServiceDate) {
+    missing.push('First session date');
+  }
+
+  return { missing };
 }
 
 /**
@@ -54,22 +54,41 @@ export const listPendingComplianceClients = async (req, res, next) => {
 
     const organizationId = req.query?.organizationId ? parseInt(req.query.organizationId, 10) : null;
     const providerUserId = req.query?.providerUserId ? parseInt(req.query.providerUserId, 10) : null;
+    const agencyId = req.query?.agencyId ? parseInt(req.query.agencyId, 10) : null;
 
-    const isAdmin = roleNorm === 'super_admin' || roleNorm === 'admin';
+    const isBackofficeRole = ['super_admin', 'admin', 'support', 'staff'].includes(roleNorm);
+    const isProviderRole = roleNorm === 'provider' || roleNorm === 'provider_plus';
     const actorUser = req.user?.has_supervisor_privileges !== undefined ? req.user : (await User.findById(userId));
     const isSupervisorRole =
       roleNorm === 'supervisor' ||
       roleNorm === 'clinical_practice_assistant' ||
       User.isSupervisor(actorUser);
 
-    if (!organizationId && !providerUserId) {
-      return res.status(400).json({ error: { message: 'organizationId or providerUserId is required' } });
+    if (!organizationId && !providerUserId && !agencyId) {
+      return res.status(400).json({ error: { message: 'organizationId, providerUserId, or agencyId is required' } });
     }
 
-    if (isAdmin) {
+    if (isBackofficeRole) {
       if (organizationId) {
         const ok = await userHasOrgOrAffiliatedAgencyAccess({ userId, role: roleNorm, organizationId });
         if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+      } else if (agencyId) {
+        if (roleNorm !== 'super_admin') {
+          const actorOrgs = await User.getAgencies(userId);
+          const actorOrgIds = (actorOrgs || []).map((o) => Number(o?.id || 0)).filter((n) => Number.isFinite(n) && n > 0);
+          let hasAgencyAccess = actorOrgIds.includes(Number(agencyId));
+          if (!hasAgencyAccess) {
+            for (const orgId of actorOrgIds) {
+              // eslint-disable-next-line no-await-in-loop
+              const affiliatedAgencyId = await resolveActiveAgencyIdForOrg(orgId);
+              if (Number(affiliatedAgencyId || 0) === Number(agencyId)) {
+                hasAgencyAccess = true;
+                break;
+              }
+            }
+          }
+          if (!hasAgencyAccess) return res.status(403).json({ error: { message: 'Access denied' } });
+        }
       } else if (providerUserId) {
         // Admin/provider-only query support for supervisee widgets:
         // require at least one shared organization/agency membership.
@@ -82,7 +101,7 @@ export const listPendingComplianceClients = async (req, res, next) => {
         const hasSharedOrg = providerOrgIds.some((id) => actorOrgIds.has(id));
         if (!hasSharedOrg) return res.status(403).json({ error: { message: 'Access denied' } });
       } else {
-        return res.status(400).json({ error: { message: 'organizationId or providerUserId is required for admin queries' } });
+        return res.status(400).json({ error: { message: 'organizationId, providerUserId, or agencyId is required for backoffice queries' } });
       }
     } else if (isSupervisorRole) {
       if (!providerUserId) {
@@ -93,6 +112,26 @@ export const listPendingComplianceClients = async (req, res, next) => {
         [userId, providerUserId]
       );
       if (!rows?.[0]) return res.status(403).json({ error: { message: 'Access denied' } });
+    } else if (isProviderRole) {
+      if (!providerUserId || Number(providerUserId) !== Number(userId)) {
+        return res.status(403).json({ error: { message: 'Providers can only query their own pending clients.' } });
+      }
+      if (agencyId) {
+        const providerOrgs = await User.getAgencies(userId);
+        const providerOrgIds = (providerOrgs || []).map((o) => Number(o?.id || 0)).filter((n) => Number.isFinite(n) && n > 0);
+        let hasAgencyAccess = providerOrgIds.includes(Number(agencyId));
+        if (!hasAgencyAccess) {
+          for (const orgId of providerOrgIds) {
+            // eslint-disable-next-line no-await-in-loop
+            const affiliatedAgencyId = await resolveActiveAgencyIdForOrg(orgId);
+            if (Number(affiliatedAgencyId || 0) === Number(agencyId)) {
+              hasAgencyAccess = true;
+              break;
+            }
+          }
+        }
+        if (!hasAgencyAccess) return res.status(403).json({ error: { message: 'Access denied' } });
+      }
     } else {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
@@ -102,7 +141,8 @@ export const listPendingComplianceClients = async (req, res, next) => {
       "(c.status IS NULL OR UPPER(c.status) <> 'ARCHIVED')",
       "(cs.status_key IS NULL OR LOWER(cs.status_key) <> 'archived')",
       "(LOWER(cs.status_key) = 'pending' OR UPPER(c.status) = 'PENDING_REVIEW')",
-      `NOT (c.first_service_at IS NOT NULL AND c.first_service_at <= CURDATE())`
+      "(org.organization_type IS NULL OR LOWER(org.organization_type) = 'school')",
+      `(c.parents_contacted_at IS NULL OR c.first_service_at IS NULL)`
     ];
     const params = [];
 
@@ -114,41 +154,76 @@ export const listPendingComplianceClients = async (req, res, next) => {
       clauses.push('cpa.provider_user_id = ?');
       params.push(providerUserId);
     }
+    if (agencyId) {
+      clauses.push('c.agency_id = ?');
+      params.push(agencyId);
+    }
 
     const [rows] = await pool.execute(
       `SELECT
          c.id AS client_id,
          c.initials,
          c.identifier_code,
-         c.intake_at,
+         c.submission_date,
+         c.created_at,
          c.first_service_at,
          c.parents_contacted_at,
-         c.parents_contacted_successful,
          c.status,
          cs.status_key,
+         pending_cs.id AS pending_status_id,
          org.id AS organization_id,
          org.name AS organization_name,
          u.id AS provider_user_id,
          u.first_name AS provider_first_name,
          u.last_name AS provider_last_name,
          u.email AS provider_email,
+         NULLIF(
+           GREATEST(
+             COALESCE(
+               (
+                 SELECT MAX(h_status.changed_at)
+                 FROM client_status_history h_status
+                 WHERE h_status.client_id = c.id
+                   AND h_status.field_changed = 'status'
+                   AND UPPER(h_status.to_value) = 'PENDING_REVIEW'
+               ),
+               '1000-01-01 00:00:00'
+             ),
+             COALESCE(
+               (
+                 SELECT MAX(h_cs.changed_at)
+                 FROM client_status_history h_cs
+                 WHERE h_cs.client_id = c.id
+                   AND h_cs.field_changed = 'client_status_id'
+                   AND CAST(h_cs.to_value AS UNSIGNED) = pending_cs.id
+               ),
+               '1000-01-01 00:00:00'
+             )
+           ),
+           '1000-01-01 00:00:00'
+         ) AS pending_entered_at,
          MIN(cpa.created_at) AS assigned_at,
-         DATEDIFF(CURDATE(), MIN(cpa.created_at)) AS days_since_assigned
+         DATEDIFF(CURDATE(), MIN(cpa.created_at)) AS days_since_assigned,
+         CASE
+           WHEN c.parents_contacted_at IS NULL THEN 'no_parent_contact'
+           ELSE 'no_first_session'
+         END AS pending_stage
        FROM client_provider_assignments cpa
        JOIN clients c ON c.id = cpa.client_id
        JOIN agencies org ON org.id = cpa.organization_id
        LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
+       LEFT JOIN client_statuses pending_cs
+         ON pending_cs.agency_id = c.agency_id
+        AND LOWER(pending_cs.status_key) = 'pending'
        LEFT JOIN users u ON u.id = cpa.provider_user_id
        WHERE ${clauses.join(' AND ')}
-       GROUP BY c.id, org.id, u.id
+       GROUP BY c.id, org.id, u.id, pending_cs.id
        ORDER BY days_since_assigned DESC, c.id DESC`,
       params
     );
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
     const results = (rows || []).map((row) => {
-      const { missing } = parsePendingChecklist(row, today);
+      const { missing } = parsePendingChecklist(row);
       return {
         client_id: row.client_id,
         client_initials: row.initials || null,
@@ -159,8 +234,13 @@ export const listPendingComplianceClients = async (req, res, next) => {
         provider_first_name: row.provider_first_name || null,
         provider_last_name: row.provider_last_name || null,
         provider_email: row.provider_email || null,
+        pending_added_at: row.pending_entered_at || row.created_at || row.submission_date || null,
         assigned_at: row.assigned_at || null,
         days_since_assigned: Number(row.days_since_assigned || 0),
+        pending_stage: row.pending_stage === 'no_parent_contact' ? 'no_parent_contact' : 'no_first_session',
+        tracking_days: Number(row.days_since_assigned || 0),
+        parent_contacted_at: row.parents_contacted_at || null,
+        first_service_at: row.first_service_at || null,
         missing_checklist: missing
       };
     });

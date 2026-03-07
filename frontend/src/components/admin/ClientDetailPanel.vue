@@ -497,12 +497,6 @@
               </div>
             </div>
             <div class="info-item">
-              <label>Intake Date</label>
-              <div class="info-value">
-                <input type="date" v-model="checklist.intakeAt" class="inline-input" />
-              </div>
-            </div>
-            <div class="info-item">
               <label>First Date of Service</label>
               <div class="info-value">
                 <input type="date" v-model="checklist.firstServiceAt" class="inline-input" />
@@ -1922,7 +1916,6 @@ const checklistAuditText = ref('');
 const checklist = ref({
   parentsContactedAt: '',
   parentsContactedSuccessful: '',
-  intakeAt: '',
   firstServiceAt: ''
 });
 
@@ -3052,7 +3045,6 @@ const hydrateChecklist = async () => {
       c.parents_contacted_successful === null || c.parents_contacted_successful === undefined
         ? ''
         : (c.parents_contacted_successful ? 'true' : 'false');
-    checklist.value.intakeAt = c.intake_at ? String(c.intake_at).slice(0, 10) : '';
     checklist.value.firstServiceAt = c.first_service_at ? String(c.first_service_at).slice(0, 10) : '';
     const who = c.checklist_updated_by_name || null;
     const when = c.checklist_updated_at ? new Date(c.checklist_updated_at).toLocaleString() : null;
@@ -3068,7 +3060,6 @@ const saveChecklist = async () => {
     const payload = {
       parentsContactedAt: checklist.value.parentsContactedAt || null,
       parentsContactedSuccessful: checklist.value.parentsContactedSuccessful === '' ? null : (checklist.value.parentsContactedSuccessful === 'true'),
-      intakeAt: checklist.value.intakeAt || null,
       firstServiceAt: checklist.value.firstServiceAt || null
     };
     const r = await api.put(`/clients/${props.client.id}/compliance-checklist`, payload);
