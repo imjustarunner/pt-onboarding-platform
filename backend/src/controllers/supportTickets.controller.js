@@ -207,6 +207,87 @@ const isAgencyAdminUser = (req) => {
   return r === 'admin' || r === 'super_admin' || r === 'support' || r === 'staff' || r === 'clinical_practice_assistant' || r === 'provider_plus';
 };
 
+const isTicketQueueCollaboratorRole = (role) => {
+  const r = String(role || '').toLowerCase().trim();
+  return r === 'school_staff' || r === 'admin' || r === 'super_admin' || r === 'support' || r === 'staff' || r === 'clinical_practice_assistant' || r === 'provider_plus';
+};
+
+const canManageTicketAssignments = (req) => isTicketQueueCollaboratorRole(req.user?.role);
+
+const formatUserDisplayName = (user, fallback = 'Someone') => {
+  const first = String(user?.first_name || '').trim();
+  const last = String(user?.last_name || '').trim();
+  const full = [first, last].filter(Boolean).join(' ').trim();
+  if (full) return full;
+  const email = String(user?.email || user?.work_email || '').trim();
+  if (email) return email;
+  return fallback;
+};
+
+async function userCanAccessTicketOrgScope({ userId, role, schoolOrganizationId, agencyId }) {
+  if (!userId) return false;
+  const roleNorm = String(role || '').toLowerCase().trim();
+  if (roleNorm === 'super_admin') return true;
+
+  const orgs = await User.getAgencies(userId);
+  const orgIds = (orgs || [])
+    .map((o) => parseInt(o?.id, 10))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  if (orgIds.length === 0) return false;
+
+  const schoolOrgIdNum = parseInt(schoolOrganizationId, 10);
+  if (schoolOrgIdNum && orgIds.includes(schoolOrgIdNum)) return true;
+
+  const ticketAgencyId = agencyId ? parseInt(agencyId, 10) : null;
+  if (ticketAgencyId && orgIds.includes(ticketAgencyId)) return true;
+
+  if (schoolOrgIdNum) {
+    const parentAgencyId = await resolveActiveAgencyIdForOrg(schoolOrgIdNum);
+    if (parentAgencyId && orgIds.includes(parseInt(parentAgencyId, 10))) return true;
+  }
+
+  return false;
+}
+
+async function createSupportTicketAssignmentNotification({ ticket, assigneeUser, assignedByUserId, assignedByUser }) {
+  try {
+    const assigneeId = Number(assigneeUser?.id || 0);
+    const actorId = Number(assignedByUserId || 0);
+    if (!assigneeId || !actorId) return;
+    if (assigneeId === actorId) return;
+
+    let actor = assignedByUser || null;
+    if (!actor || !actor.first_name) {
+      try {
+        actor = await User.findById(actorId);
+      } catch {
+        actor = assignedByUser || null;
+      }
+    }
+    const actorName = formatUserDisplayName(actor, `User #${actorId}`);
+    const subject = String(ticket?.subject || '').trim();
+    const subjectPart = subject ? ` (${subject.slice(0, 120)})` : '';
+    const ticketLabel = `#${ticket?.id || '—'}${subjectPart}`;
+    const agencyId = ticket?.agency_id
+      ? parseInt(ticket.agency_id, 10)
+      : await resolveActiveAgencyIdForOrg(ticket?.school_organization_id);
+
+    await Notification.create({
+      type: 'support_ticket_created',
+      severity: 'info',
+      title: 'Ticket assigned to you',
+      message: `You've been assigned ticket ${ticketLabel} by ${actorName}.`,
+      userId: assigneeId,
+      agencyId: agencyId || null,
+      relatedEntityType: 'support_ticket',
+      relatedEntityId: ticket?.id || null,
+      actorUserId: actorId
+    });
+  } catch {
+    // best-effort only; assignment should still complete
+  }
+}
+
 async function providerAssignedToClientInOrg({ providerUserId, clientId, orgId }) {
   const pid = parseInt(String(providerUserId), 10);
   const cid = parseInt(String(clientId), 10);
@@ -1664,28 +1745,88 @@ export const unclaimSupportTicket = async (req, res, next) => {
 
 export const listSupportTicketAssignees = async (req, res, next) => {
   try {
-    const agencyId = req.query?.agencyId ? parseInt(req.query.agencyId, 10) : null;
-    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    const scopeOrgId = req.query?.agencyId ? parseInt(req.query.agencyId, 10) : null;
+    if (!scopeOrgId) return res.status(400).json({ error: { message: 'agencyId is required' } });
 
     const role = String(req.user?.role || '').toLowerCase();
-    const canView = isAgencyAdminUser(req) || role === 'super_admin';
+    const canView = canManageTicketAssignments(req) || role === 'super_admin';
     if (!canView) return res.status(403).json({ error: { message: 'Access denied' } });
 
-    const access = await ensureAgencyAccess(req, agencyId);
-    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+    const org = await Agency.findById(scopeOrgId);
+    if (!org) return res.status(404).json({ error: { message: 'Organization not found' } });
 
-    const [rows] = await pool.execute(
-      `SELECT u.id, u.first_name, u.last_name, u.role
-       FROM users u
-       JOIN user_agencies ua ON ua.user_id = u.id
-       WHERE ua.agency_id = ?
-         AND LOWER(COALESCE(u.role, '')) IN ('admin','support','staff')
+    const orgType = String(org.organization_type || '').toLowerCase().trim();
+    let targetAgencyId = null;
+    if (!orgType || orgType === 'agency' || orgType === 'parent' || orgType === 'organization') {
+      const access = await ensureAgencyAccess(req, scopeOrgId);
+      if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+      targetAgencyId = scopeOrgId;
+    } else {
+      const access = await ensureOrgAccess(req, scopeOrgId);
+      if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+      targetAgencyId = await resolveActiveAgencyIdForOrg(scopeOrgId);
+      if (!targetAgencyId) {
+        return res.status(403).json({ error: { message: 'No active parent agency found for this organization' } });
+      }
+    }
+
+    let rows = [];
+    try {
+      const [queryRows] = await pool.execute(
+        `SELECT DISTINCT u.id, u.first_name, u.last_name, u.role
+         FROM users u
+         JOIN user_agencies ua ON ua.user_id = u.id
+         WHERE (
+           (ua.agency_id = ? AND LOWER(COALESCE(u.role, '')) IN ('admin','support','staff','super_admin','clinical_practice_assistant','provider_plus'))
+           OR
+           (
+             LOWER(COALESCE(u.role, '')) = 'school_staff'
+             AND ua.agency_id IN (
+               SELECT oa.organization_id
+               FROM organization_affiliations oa
+               WHERE oa.agency_id = ? AND oa.is_active = TRUE
+               UNION
+               SELECT s.school_organization_id
+               FROM agency_schools s
+               WHERE s.agency_id = ? AND s.is_active = TRUE
+             )
+           )
+         )
          AND (u.is_archived = FALSE OR u.is_archived IS NULL)
          AND UPPER(COALESCE(u.status, '')) <> 'ARCHIVED'
-       ORDER BY u.last_name ASC, u.first_name ASC`,
-      [agencyId]
-    );
-    res.json({ users: rows || [] });
+         ORDER BY u.last_name ASC, u.first_name ASC`,
+        [targetAgencyId, targetAgencyId, targetAgencyId]
+      );
+      rows = queryRows || [];
+    } catch (e) {
+      const msg = String(e?.message || '');
+      const missing = msg.includes("doesn't exist") || msg.includes('ER_NO_SUCH_TABLE');
+      if (!missing) throw e;
+      const [fallbackRows] = await pool.execute(
+        `SELECT DISTINCT u.id, u.first_name, u.last_name, u.role
+         FROM users u
+         JOIN user_agencies ua ON ua.user_id = u.id
+         WHERE (
+           (ua.agency_id = ? AND LOWER(COALESCE(u.role, '')) IN ('admin','support','staff','super_admin','clinical_practice_assistant','provider_plus'))
+           OR
+           (
+             LOWER(COALESCE(u.role, '')) = 'school_staff'
+             AND ua.agency_id IN (
+               SELECT oa.organization_id
+               FROM organization_affiliations oa
+               WHERE oa.agency_id = ? AND oa.is_active = TRUE
+             )
+           )
+         )
+         AND (u.is_archived = FALSE OR u.is_archived IS NULL)
+         AND UPPER(COALESCE(u.status, '')) <> 'ARCHIVED'
+         ORDER BY u.last_name ASC, u.first_name ASC`,
+        [targetAgencyId, targetAgencyId]
+      );
+      rows = fallbackRows || [];
+    }
+
+    res.json({ users: rows || [], agencyId: Number(targetAgencyId) || null });
   } catch (e) {
     next(e);
   }
@@ -1693,9 +1834,8 @@ export const listSupportTicketAssignees = async (req, res, next) => {
 
 export const assignSupportTicket = async (req, res, next) => {
   try {
-    const role = String(req.user?.role || '').toLowerCase();
-    const canAssign = isAgencyAdminUser(req) || role === 'super_admin';
-    if (!canAssign) return res.status(403).json({ error: { message: 'Only admin/support can assign tickets' } });
+    const canAssign = canManageTicketAssignments(req);
+    if (!canAssign) return res.status(403).json({ error: { message: 'Only ticket collaborators can assign tickets' } });
 
     const ticketId = parseInt(req.params.id, 10);
     const assigneeId = req.body?.assigneeUserId ? parseInt(req.body.assigneeUserId, 10) : null;
@@ -1708,12 +1848,52 @@ export const assignSupportTicket = async (req, res, next) => {
     const access = await ensureOrgAccess(req, ticket.school_organization_id);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
 
+    const [aRows] = await pool.execute(
+      `SELECT id, first_name, last_name, email, work_email, role, is_archived, status
+       FROM users
+       WHERE id = ?
+       LIMIT 1`,
+      [assigneeId]
+    );
+    const assignee = aRows?.[0] || null;
+    if (!assignee) return res.status(404).json({ error: { message: 'Assignee not found' } });
+    if (assignee.is_archived === 1 || String(assignee.status || '').toUpperCase() === 'ARCHIVED') {
+      return res.status(409).json({ error: { message: 'Assignee is archived' } });
+    }
+
+    if (!isTicketQueueCollaboratorRole(assignee.role)) {
+      return res.status(400).json({ error: { message: 'Assignee must be a ticket collaborator (school staff, admin, support, staff, CPA, or provider plus)' } });
+    }
+
+    const assigneeCanAccess = await userCanAccessTicketOrgScope({
+      userId: assignee.id,
+      role: assignee.role,
+      schoolOrganizationId: ticket.school_organization_id,
+      agencyId: ticket.agency_id
+    });
+    if (!assigneeCanAccess) {
+      return res.status(400).json({ error: { message: 'Assignee does not have access to this ticket scope' } });
+    }
+
+    const currentlyAssignedUserId = ticket.claimed_by_user_id ? Number(ticket.claimed_by_user_id) : null;
+    if (currentlyAssignedUserId === Number(assigneeId)) {
+      const [out] = await pool.execute(`SELECT * FROM support_tickets WHERE id = ?`, [ticketId]);
+      return res.json(out?.[0] || null);
+    }
+
     await pool.execute(
       `UPDATE support_tickets
        SET claimed_by_user_id = ?, claimed_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
       [assigneeId, ticketId]
     );
+
+    await createSupportTicketAssignmentNotification({
+      ticket,
+      assigneeUser: assignee,
+      assignedByUserId: req.user?.id,
+      assignedByUser: req.user
+    });
 
     const [out] = await pool.execute(`SELECT * FROM support_tickets WHERE id = ?`, [ticketId]);
     res.json(out?.[0] || null);

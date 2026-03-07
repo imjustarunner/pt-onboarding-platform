@@ -180,7 +180,16 @@
               {{ assigningId === t.id ? 'Taking over…' : 'Take over' }}
             </button>
             <button
-              v-else-if="Number(t.claimed_by_user_id) !== Number(myUserId) && !canAssignOthers"
+              v-if="canAssignOthers"
+              class="btn btn-secondary btn-sm"
+              type="button"
+              @click="toggleAssignPicker(t)"
+              :title="showAssignByTicketId[t.id] ? 'Hide assign controls' : 'Assign to teammate'"
+            >
+              {{ showAssignByTicketId[t.id] ? 'Hide assign' : 'Assign…' }}
+            </button>
+            <button
+              v-if="Number(t.claimed_by_user_id) && Number(t.claimed_by_user_id) !== Number(myUserId) && !canAssignOthers"
               class="btn btn-secondary btn-sm"
               type="button"
               disabled
@@ -453,6 +462,8 @@ const myUserId = authStore.user?.id || null;
 const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
 const isSuperAdmin = computed(() => roleNorm.value === 'super_admin');
 const canAssignOthers = computed(() => (
+  roleNorm.value === 'school_staff' ||
+  roleNorm.value === 'staff' ||
   roleNorm.value === 'admin' ||
   roleNorm.value === 'support' ||
   roleNorm.value === 'super_admin' ||
@@ -615,9 +626,12 @@ const loadAssignees = async () => {
   if (!canAssignOthers.value) return;
   try {
     await agencyStore.fetchUserAgencies();
-    const agencyId = resolveAgencyId();
-    if (!agencyId) return;
-    const resp = await api.get('/support-tickets/assignees', { params: { agencyId } });
+    const scopedSchoolId = Number(schoolIdInput.value);
+    const scopeOrgId = Number.isFinite(scopedSchoolId) && scopedSchoolId > 0
+      ? scopedSchoolId
+      : resolveAgencyId();
+    if (!scopeOrgId) return;
+    const resp = await api.get('/support-tickets/assignees', { params: { agencyId: scopeOrgId } });
     assignees.value = Array.isArray(resp.data?.users) ? resp.data.users : [];
   } catch {
     assignees.value = [];
@@ -696,6 +710,7 @@ const load = async () => {
     loading.value = true;
     error.value = '';
     pushQuery();
+    await loadAssignees();
 
     const params = {};
     const aid = Number(agencyIdInput.value);

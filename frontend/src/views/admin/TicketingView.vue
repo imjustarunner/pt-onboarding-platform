@@ -165,6 +165,15 @@
                 {{ assigningId === t.id ? 'Taking over...' : 'Take over' }}
               </button>
               <button
+                v-if="canAssignOthers"
+                class="btn btn-secondary btn-sm"
+                type="button"
+                @click="toggleAssignPicker(t)"
+                :title="showAssignByTicketId[t.id] ? 'Hide assign controls' : 'Assign to teammate'"
+              >
+                {{ showAssignByTicketId[t.id] ? 'Hide assign' : 'Assign...' }}
+              </button>
+              <button
                 v-if="openAnswerId !== t.id"
                 class="btn btn-secondary btn-sm"
                 type="button"

@@ -315,6 +315,15 @@ const timeLabel = (t) => {
   return `${h12}:${String(mm).padStart(2, '0')} ${suffix}`;
 };
 
+const toTimeInputValue = (t) => {
+  const raw = String(t || '').trim();
+  if (!raw) return '';
+  // DB values often arrive as HH:MM:SS; time input expects HH:MM.
+  if (/^\d{2}:\d{2}:\d{2}$/.test(raw)) return raw.slice(0, 5);
+  if (/^\d{2}:\d{2}$/.test(raw)) return raw;
+  return '';
+};
+
 const meetingSummary = (g) => {
   const ms = g?.meetings || [];
   if (!ms.length) return '';
@@ -399,7 +408,11 @@ const startEdit = async (g) => {
     name: g.name || '',
     start_date: String(g.start_date || '').slice(0, 10),
     end_date: String(g.end_date || '').slice(0, 10),
-    meetings: (g.meetings || []).map((m) => ({ weekday: m.weekday, start_time: timeLabel(m.start_time), end_time: timeLabel(m.end_time) })),
+    meetings: (g.meetings || []).map((m) => ({
+      weekday: m.weekday,
+      start_time: toTimeInputValue(m.start_time),
+      end_time: toTimeInputValue(m.end_time)
+    })),
     providers: (g.providers || []).map((p) => ({ ...p })),
     clients: (g.clients || []).map((c) => ({ ...c }))
   };

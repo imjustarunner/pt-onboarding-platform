@@ -92,7 +92,7 @@ async function ensureSkillsGroupOrgAccess(req, organizationId) {
   if (hasDirect) return { ok: true, org, activeAgencyId: activeAgencyId ? parseInt(activeAgencyId, 10) : null };
 
   // Staff/admin can access via agency affiliation.
-  if (roleNorm === 'admin' || roleNorm === 'staff' || roleNorm === 'support') {
+  if (roleNorm === 'admin' || roleNorm === 'staff' || roleNorm === 'support' || roleNorm === 'clinical_practice_assistant' || roleNorm === 'provider_plus') {
     if (!activeAgencyId || !hasAgency) return { ok: false, status: 403, message: 'You do not have access to this organization' };
     return { ok: true, org, activeAgencyId: parseInt(activeAgencyId, 10) };
   }
@@ -124,7 +124,7 @@ async function ensureSkillsGroupOrgAccess(req, organizationId) {
 
 function canManageSkillsGroups(req) {
   const r = String(req.user?.role || '').toLowerCase();
-  return r === 'super_admin' || r === 'admin' || r === 'staff' || r === 'support';
+  return r === 'super_admin' || r === 'admin' || r === 'staff' || r === 'support' || r === 'clinical_practice_assistant' || r === 'provider_plus';
 }
 
 async function loadGroupsWithDetails({ organizationId, providerUserId = null }) {

@@ -15,6 +15,8 @@ export function useTicketingQueue() {
   const isSuperAdmin = computed(() => roleNorm.value === 'super_admin');
   const canAssignOthers = computed(
     () =>
+      roleNorm.value === 'school_staff' ||
+      roleNorm.value === 'staff' ||
       roleNorm.value === 'admin' ||
       roleNorm.value === 'support' ||
       roleNorm.value === 'super_admin' ||
@@ -191,9 +193,12 @@ export function useTicketingQueue() {
     if (!canAssignOthers.value) return;
     try {
       await agencyStore.fetchUserAgencies();
-      const agencyId = resolveAgencyId();
-      if (!agencyId) return;
-      const resp = await api.get('/support-tickets/assignees', { params: { agencyId } });
+      const scopedSchoolId = Number(schoolIdInput.value);
+      const scopeOrgId = Number.isFinite(scopedSchoolId) && scopedSchoolId > 0
+        ? scopedSchoolId
+        : resolveAgencyId();
+      if (!scopeOrgId) return;
+      const resp = await api.get('/support-tickets/assignees', { params: { agencyId: scopeOrgId } });
       assignees.value = Array.isArray(resp.data?.users) ? resp.data.users : [];
     } catch {
       assignees.value = [];
@@ -230,6 +235,7 @@ export function useTicketingQueue() {
       loading.value = true;
       error.value = '';
       pushQuery();
+      await loadAssignees();
       const params = {};
       const aid = Number(agencyIdInput.value);
       if (Number.isFinite(aid) && aid > 0) params.agencyId = aid;
