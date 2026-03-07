@@ -76,6 +76,8 @@
             {{
               portalMode === 'home'
                 ? 'Choose a section'
+                : portalMode === 'my_documents'
+                  ? 'My documents'
                 : portalMode === 'providers'
                   ? 'Providers'
                   : portalMode === 'roster'
@@ -256,6 +258,20 @@
               <div v-else class="nav-icon-fallback" aria-hidden="true">DO</div>
             </div>
             <div class="nav-label">Docs/Links</div>
+          </button>
+
+          <button
+            v-if="isSchoolStaff"
+            data-tour="school-nav-my-documents"
+            class="nav-item"
+            type="button"
+            @click="portalMode = 'my_documents'"
+            :class="{ active: portalMode === 'my_documents' }"
+          >
+            <div class="nav-icon">
+              <div class="nav-icon-fallback" aria-hidden="true">MD</div>
+            </div>
+            <div class="nav-label">My Documents</div>
           </button>
 
           <button
@@ -506,6 +522,23 @@
             </div>
           </button>
 
+          <button
+            v-if="isSchoolStaff"
+            data-tour="school-home-card-my-documents"
+            class="dash-card"
+            type="button"
+            @click="portalMode = 'my_documents'"
+          >
+            <div class="dash-card-icon">
+              <div class="dash-card-icon-fallback" aria-hidden="true">MD</div>
+            </div>
+            <div class="dash-card-title">My Documents</div>
+            <div class="dash-card-desc">Review and sign required school staff waiver documents.</div>
+            <div class="dash-card-meta">
+              <span class="dash-card-cta">Open</span>
+            </div>
+          </button>
+
           <button data-tour="school-home-card-faq" class="dash-card" type="button" @click="portalMode = 'faq'">
             <div class="dash-card-icon">
               <img
@@ -701,6 +734,11 @@
           <div v-if="!organizationId" class="empty-state">Organization not loaded.</div>
           <PublicDocumentsPanel v-else :school-organization-id="organizationId" />
         </div>
+          </div>
+
+          <div v-else-if="portalMode === 'my_documents'">
+            <div v-if="!organizationId" class="empty-state">Organization not loaded.</div>
+            <SchoolMyDocumentsPanel v-else :organization-id="organizationId" />
           </div>
 
           <div v-else-if="portalMode === 'faq'">
@@ -1123,6 +1161,7 @@ import ProvidersDirectoryPanel from '../../components/school/redesign/ProvidersD
 import SchoolStaffPanel from '../../components/school/redesign/SchoolStaffPanel.vue';
 import SchoolPortalMessagesPanel from '../../components/school/redesign/SchoolPortalMessagesPanel.vue';
 import PublicDocumentsPanel from '../../components/school/redesign/PublicDocumentsPanel.vue';
+import SchoolMyDocumentsPanel from '../../components/school/redesign/SchoolMyDocumentsPanel.vue';
 import SchoolNotificationsPanel from '../../components/school/redesign/SchoolNotificationsPanel.vue';
 import ComplianceCornerModal from '../../components/school/redesign/ComplianceCornerModal.vue';
 import FaqPanel from '../../components/school/redesign/FaqPanel.vue';
@@ -1327,7 +1366,7 @@ const comingSoonTitle = computed(() => {
   return 'Coming soon';
 });
 const selectedClient = ref(null);
-const portalMode = ref('home'); // home | providers | days | roster | skills | school_staff | documents | faq | messages
+const portalMode = ref('home'); // home | my_documents | providers | days | roster | skills | school_staff | documents | faq | messages
 const rosterStatusFilterKey = ref(''); // client_status_key filter for roster panel (pending/waitlist)
 const adminSelectedClient = ref(null);
 const adminClientLoading = ref(false);
@@ -1384,7 +1423,7 @@ const applyRequestedPortalMode = async (mode) => {
     return;
   }
   // fall back to direct set for other known modes
-  if (['roster', 'skills', 'school_staff', 'messages'].includes(m)) {
+  if (['roster', 'skills', 'school_staff', 'messages', 'my_documents'].includes(m)) {
     portalMode.value = m;
   }
 };

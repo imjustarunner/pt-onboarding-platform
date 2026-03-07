@@ -23,7 +23,8 @@ import {
   listSchoolPortalBannerAnnouncements,
   createSchoolPortalAnnouncement,
   createBulkSchoolPortalAnnouncements,
-  queryComplianceCorner
+  queryComplianceCorner,
+  getSchoolStaffWaiverStatus
 } from '../controllers/schoolPortal.controller.js';
 import {
   listSchoolProvidersForScheduling,
@@ -89,6 +90,7 @@ router.post('/:organizationId/announcements', authenticate, createSchoolPortalAn
 router.post('/:organizationId/compliance-corner/query', authenticate, queryComplianceCorner);
 router.get('/:schoolId/affiliation', authenticate, getSchoolPortalAffiliation);
 router.get('/:organizationId/stats', authenticate, getSchoolPortalStats);
+router.get('/:organizationId/school-staff-waiver/status', authenticate, getSchoolStaffWaiverStatus);
 router.get('/:organizationId/school-staff', authenticate, listSchoolStaff);
 router.delete('/:organizationId/school-staff/:userId', authenticate, removeSchoolStaff);
 router.put('/:organizationId/school-staff/:userId', authenticate, updateSchoolStaff);

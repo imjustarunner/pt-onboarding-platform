@@ -8,6 +8,7 @@ import { getLoginUrl } from '../utils/loginRedirect';
 import { isSupervisor } from '../utils/helpers';
 import { hasProviderMobileAccess } from '../utils/providerMobileAccess';
 import { isLikelyMobileViewport, isStandalonePwa } from '../utils/pwa';
+import { getSchoolStaffWaiverStatus } from '../utils/schoolStaffWaiverGate';
 import api from '../services/api';
 
 const SCHEDULE_HUB_ROLES = ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'staff', 'provider_plus'];
@@ -1647,11 +1648,18 @@ router.beforeEach(async (to, from, next) => {
       'OrganizationChangePassword',
       'OrganizationSplash'
     ]);
+    const allowedUnscopedRouteNames = new Set([
+      'DocumentSigning',
+      'DocumentReview'
+    ]);
 
     const allowed =
-      allowedRouteNames.has(String(to.name || '')) &&
-      !!to.meta.organizationSlug &&
-      (!toSlug || allowedSlugs.includes(String(toSlug)));
+      (
+        allowedRouteNames.has(String(to.name || '')) &&
+        !!to.meta.organizationSlug &&
+        (!toSlug || allowedSlugs.includes(String(toSlug)))
+      ) ||
+      allowedUnscopedRouteNames.has(String(to.name || ''));
 
     if (!allowed) {
       if (targetSlug) {
@@ -1660,6 +1668,41 @@ router.beforeEach(async (to, from, next) => {
         next('/login');
       }
       return;
+    }
+  }
+
+  if (authStore.isAuthenticated && String(authStore.user?.role || '').toLowerCase() === 'school_staff') {
+    const exemptRouteNames = new Set(['DocumentSigning', 'DocumentReview']);
+    const currentRouteName = String(to.name || '');
+    const slug = (typeof to.params.organizationSlug === 'string' && to.params.organizationSlug) || getDefaultOrganizationSlug();
+    if (slug) {
+      try {
+        const waiverStatus = await getSchoolStaffWaiverStatus({
+          api,
+          authUser: authStore.user,
+          organizationSlug: slug
+        });
+        const requiresWaiver = Boolean(waiverStatus?.required);
+        const isSigned = Boolean(waiverStatus?.isSigned);
+        const requiredTaskId = Number(waiverStatus?.taskId || 0) || null;
+        if (requiresWaiver && !isSigned) {
+          const queryMode = String(to.query?.sp || '').trim().toLowerCase();
+          const isDashboardMyDocs =
+            currentRouteName === 'OrganizationDashboard' &&
+            String(to.params.organizationSlug || '') === String(slug) &&
+            queryMode === 'my_documents';
+          const isRequiredTaskSigningRoute =
+            exemptRouteNames.has(currentRouteName) &&
+            requiredTaskId &&
+            Number(to.params?.taskId || 0) === requiredTaskId;
+          if (!isDashboardMyDocs && !isRequiredTaskSigningRoute) {
+            next(`/${slug}/dashboard?sp=my_documents`);
+            return;
+          }
+        }
+      } catch {
+        // Best-effort gate: if status lookup fails, do not hard-block navigation.
+      }
     }
   }
   

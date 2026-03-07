@@ -29,6 +29,7 @@ import {
   supervisorHasSuperviseeInSchool,
   supervisorCanAccessClientInOrg
 } from '../utils/supervisorSchoolAccess.js';
+import { resolveSchoolStaffWaiverStatus } from '../services/schoolStaffWaiver.service.js';
 
 async function resolveActiveAgencyIdForOrg(orgId) {
   return (
@@ -1573,6 +1574,30 @@ export const getSchoolPortalStats = async (req, res, next) => {
       slots_used: slotsUsed,
       slots_available: slotsAvailable,
       school_staff_count: schoolStaffCount
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Get or initialize school-staff waiver task status for the current user.
+ * GET /api/school-portal/:organizationId/school-staff-waiver/status
+ */
+export const getSchoolStaffWaiverStatus = async (req, res, next) => {
+  try {
+    const orgId = await resolveOrgIdFromParam(req.params.organizationId);
+    if (!orgId) return res.status(400).json({ error: { message: 'Invalid organizationId' } });
+
+    const { org } = await assertSchoolPortalAccess(req, orgId);
+    const status = await resolveSchoolStaffWaiverStatus({
+      user: req.user,
+      organization: org
+    });
+
+    res.json({
+      organization_id: Number(orgId),
+      ...status
     });
   } catch (e) {
     next(e);
