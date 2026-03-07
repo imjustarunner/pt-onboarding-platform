@@ -820,6 +820,14 @@ const onSigned = (dataUrl) => {
   error.value = '';
 };
 
+const withRequestTimeout = (promise, ms = 30000) =>
+  Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('request_timeout')), ms);
+    })
+  ]);
+
 const submitRoi = async () => {
   if (!validateCurrentStage()) return;
   submitting.value = true;
@@ -832,7 +840,10 @@ const submitRoi = async () => {
       return;
     }
     if (!submissionId.value) {
-      const consentResp = await api.post(`/public-intake/${props.publicKey}/consent`, buildSubmissionPayload());
+      const consentResp = await withRequestTimeout(
+        api.post(`/public-intake/${props.publicKey}/consent`, buildSubmissionPayload()),
+        45000
+      );
       submissionId.value = consentResp.data?.submission?.id || null;
       if (consentResp.data?.alreadyCompleted) {
         downloadUrl.value = consentResp.data?.downloadUrl || '';
@@ -850,11 +861,14 @@ const submitRoi = async () => {
       error.value = 'Unable to start this signing session.';
       return;
     }
-    const finalizeResp = await api.post(`/public-intake/${props.publicKey}/${submissionId.value}/finalize`, {
-      ...buildSubmissionPayload(),
-      submissionId: submissionId.value,
-      signatureData: signatureData.value
-    });
+    const finalizeResp = await withRequestTimeout(
+      api.post(`/public-intake/${props.publicKey}/${submissionId.value}/finalize`, {
+        ...buildSubmissionPayload(),
+        submissionId: submissionId.value,
+        signatureData: signatureData.value
+      }),
+      60000
+    );
     downloadUrl.value = finalizeResp.data?.downloadUrl || '';
     stageIndex.value = stageOrder.value.indexOf('complete');
     emit('completed', {
@@ -864,7 +878,11 @@ const submitRoi = async () => {
       clientBundles: finalizeResp.data?.clientBundles || []
     });
   } catch (err) {
-    error.value = err.response?.data?.error?.message || 'Failed to complete the smart school ROI.';
+    if (String(err?.message || '').includes('request_timeout')) {
+      error.value = 'This is taking too long to submit. Please retry in a few seconds.';
+    } else {
+      error.value = err.response?.data?.error?.message || 'Failed to complete the smart school ROI.';
+    }
   } finally {
     submitting.value = false;
   }

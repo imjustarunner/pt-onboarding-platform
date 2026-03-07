@@ -2507,14 +2507,19 @@ export const finalizePublicIntake = async (req, res, next) => {
             agencyId: boundClient?.agency_id || agency?.id || null
           });
           if (identity?.id) {
-            await sendEmailFromIdentity({
-              senderIdentityId: identity.id,
-              to: updatedSubmission.signer_email,
-              subject,
-              text,
-              html,
-              source: 'auto'
-            });
+            await Promise.race([
+              sendEmailFromIdentity({
+                senderIdentityId: identity.id,
+                to: updatedSubmission.signer_email,
+                subject,
+                text,
+                html,
+                source: 'auto'
+              }),
+              new Promise((_, reject) => {
+                setTimeout(() => reject(new Error('roi_signer_email_timeout')), 15000);
+              })
+            ]);
           } else {
             const fallbackSignatureIdentity = await resolveFallbackSignatureIdentity({
               organizationId: link?.organization_id || null,
@@ -2526,22 +2531,29 @@ export const finalizePublicIntake = async (req, res, next) => {
               text,
               html
             });
-            await EmailService.sendEmail({
-              to: updatedSubmission.signer_email,
-              subject,
-              text: signedContent.text,
-              html: signedContent.html,
-              fromName: process.env.GOOGLE_WORKSPACE_FROM_NAME || 'People Operations',
-              fromAddress: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM || null,
-              replyTo: process.env.GOOGLE_WORKSPACE_REPLY_TO || null,
-              attachments: null,
-              source: 'auto',
-              agencyId: boundClient?.agency_id || agency?.id || null
-            });
+            await Promise.race([
+              EmailService.sendEmail({
+                to: updatedSubmission.signer_email,
+                subject,
+                text: signedContent.text,
+                html: signedContent.html,
+                fromName: process.env.GOOGLE_WORKSPACE_FROM_NAME || 'People Operations',
+                fromAddress: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM || null,
+                replyTo: process.env.GOOGLE_WORKSPACE_REPLY_TO || null,
+                attachments: null,
+                source: 'auto',
+                agencyId: boundClient?.agency_id || agency?.id || null
+              }),
+              new Promise((_, reject) => {
+                setTimeout(() => reject(new Error('roi_signer_email_timeout')), 15000);
+              })
+            ]);
           }
           emailDelivery.sent = true;
-        } catch {
-          emailDelivery.error = 'send_failed';
+        } catch (emailErr) {
+          emailDelivery.error = String(emailErr?.message || '').includes('timeout')
+            ? 'send_timeout'
+            : 'send_failed';
         }
       }
       return res.json({
