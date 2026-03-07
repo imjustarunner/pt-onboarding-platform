@@ -21,7 +21,7 @@
           </select>
         </label>
         <button class="btn btn-secondary btn-sm" type="button" @click="toggleClientLabelMode" :disabled="loading">
-          {{ clientLabelMode === 'codes' ? 'Show initials' : 'Show IDs' }}
+          {{ clientLabelMode === 'codes' ? 'Show initials' : 'Show codes' }}
         </button>
         <button class="btn btn-secondary btn-sm" type="button" @click="load" :disabled="loading">
           {{ loading ? 'Loading…' : 'Refresh' }}
@@ -52,7 +52,7 @@
           </thead>
           <tbody>
             <tr v-for="row in pendingClientsFiltered" :key="`${row.client_id}-${row.organization_id}`">
-              <td>{{ row.client_identifier_code || row.client_initials || `Client #${row.client_id}` }}</td>
+              <td>{{ formatPendingClientLabel(row) }}</td>
               <td>{{ row.organization_name || '—' }}</td>
               <td>{{ row.pending_stage === 'no_parent_contact' ? 'No parent contact date' : 'No first session date' }}</td>
               <td class="mono">{{ Number(row.tracking_days || 0) }}</td>
@@ -117,6 +117,7 @@ const error = ref('');
 const psychotherapyTotalsByClientId = ref(null);
 const pendingClients = ref([]);
 const pendingError = ref('');
+const MIN_PENDING_DATE = '2026-02-01';
 
 const computeFiscalYearStartYmd = (d) => {
   const dt = d instanceof Date ? d : new Date(d);
@@ -179,6 +180,13 @@ const emitPendingCount = () => {
   emit('update:pendingClientsCount', count);
 };
 
+const formatPendingClientLabel = (row) => {
+  const code = String(row?.client_identifier_code || '').trim();
+  const initials = String(row?.client_initials || '').trim();
+  if (clientLabelMode.value === 'initials') return initials || code || `Client #${row?.client_id || '?'}`;
+  return code || initials || `Client #${row?.client_id || '?'}`;
+};
+
 const loadSchools = async () => {
   if (!agencyId.value) return;
   const r = await api.get('/payroll/me/assigned-schools', { params: { agencyId: agencyId.value } });
@@ -234,7 +242,8 @@ const loadPendingClients = async () => {
     const r = await api.get('/compliance-corner/pending-clients', {
       params: {
         agencyId: Number(agencyId.value),
-        providerUserId: Number(currentUserId.value)
+        providerUserId: Number(currentUserId.value),
+        minPendingEnteredAt: MIN_PENDING_DATE
       },
       skipGlobalLoading: true
     });

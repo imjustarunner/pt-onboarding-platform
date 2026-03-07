@@ -25,6 +25,8 @@ async function userHasOrgOrAffiliatedAgencyAccess({ userId, role, organizationId
   return orgIds.includes(parseInt(activeAgencyId, 10));
 }
 
+const DEFAULT_MIN_PENDING_ENTERED_AT = '2026-02-01';
+
 function parsePendingChecklist(client) {
   const missing = [];
   const parentsContactedAt = client?.parents_contacted_at ? new Date(client.parents_contacted_at) : null;
@@ -55,6 +57,15 @@ export const listPendingComplianceClients = async (req, res, next) => {
     const organizationId = req.query?.organizationId ? parseInt(req.query.organizationId, 10) : null;
     const providerUserId = req.query?.providerUserId ? parseInt(req.query.providerUserId, 10) : null;
     const agencyId = req.query?.agencyId ? parseInt(req.query.agencyId, 10) : null;
+    const minPendingEnteredAtRaw = req.query?.minPendingEnteredAt !== undefined
+      ? String(req.query.minPendingEnteredAt).trim()
+      : DEFAULT_MIN_PENDING_ENTERED_AT;
+    const minPendingEnteredAt = minPendingEnteredAtRaw
+      ? (/^\d{4}-\d{2}-\d{2}$/.test(minPendingEnteredAtRaw) ? minPendingEnteredAtRaw : null)
+      : null;
+    if (minPendingEnteredAtRaw && !minPendingEnteredAt) {
+      return res.status(400).json({ error: { message: 'minPendingEnteredAt must be YYYY-MM-DD' } });
+    }
 
     const isBackofficeRole = ['super_admin', 'admin', 'support', 'staff'].includes(roleNorm);
     const isProviderRole = roleNorm === 'provider' || roleNorm === 'provider_plus';
@@ -222,7 +233,7 @@ export const listPendingComplianceClients = async (req, res, next) => {
       params
     );
 
-    const results = (rows || []).map((row) => {
+    let results = (rows || []).map((row) => {
       const { missing } = parsePendingChecklist(row);
       return {
         client_id: row.client_id,
@@ -244,6 +255,16 @@ export const listPendingComplianceClients = async (req, res, next) => {
         missing_checklist: missing
       };
     });
+
+    if (minPendingEnteredAt) {
+      const cutoffTs = new Date(`${minPendingEnteredAt}T00:00:00`).getTime();
+      results = results.filter((row) => {
+        const raw = row?.pending_added_at;
+        if (!raw) return false;
+        const ts = new Date(raw).getTime();
+        return Number.isFinite(ts) && ts >= cutoffTs;
+      });
+    }
 
     res.json({ count: results.length, results });
   } catch (e) {

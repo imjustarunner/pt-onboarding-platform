@@ -39,6 +39,12 @@
             <option value="asc">Least days first</option>
           </select>
         </div>
+        <div class="field">
+          <label>Client label</label>
+          <button class="btn btn-secondary" type="button" @click="toggleClientLabelMode">
+            {{ clientLabelMode === 'codes' ? 'Show initials' : 'Show codes' }}
+          </button>
+        </div>
       </div>
 
       <div class="school-actions">
@@ -122,6 +128,8 @@ const loading = ref(false);
 const error = ref('');
 const rows = ref([]);
 const sortDir = ref('desc');
+const clientLabelMode = ref('codes'); // 'codes' | 'initials'
+const MIN_PENDING_DATE = '2026-02-01';
 
 const filters = ref({
   search: '',
@@ -226,7 +234,17 @@ watch(schoolGroups, (next) => {
 const formatClient = (row) => {
   const code = String(row?.client_identifier_code || '').trim();
   const initials = String(row?.client_initials || '').trim();
+  if (clientLabelMode.value === 'initials') return initials || code || `Client #${row?.client_id || '?'}`;
   return code || initials || `Client #${row?.client_id || '?'}`;
+};
+
+const toggleClientLabelMode = () => {
+  clientLabelMode.value = clientLabelMode.value === 'initials' ? 'codes' : 'initials';
+  try {
+    window.localStorage.setItem('schoolClientsLabelMode', clientLabelMode.value);
+  } catch {
+    // ignore
+  }
 };
 
 const formatProvider = (row) => {
@@ -256,7 +274,7 @@ const reload = async () => {
     loading.value = true;
     error.value = '';
     const resp = await api.get('/compliance-corner/pending-clients', {
-      params: { agencyId: activeAgencyId.value }
+      params: { agencyId: activeAgencyId.value, minPendingEnteredAt: MIN_PENDING_DATE }
     });
     rows.value = Array.isArray(resp.data?.results) ? resp.data.results : [];
   } catch (e) {
@@ -272,6 +290,12 @@ watch(() => activeAgencyId.value, () => {
 });
 
 onMounted(async () => {
+  try {
+    const saved = window.localStorage.getItem('schoolClientsLabelMode');
+    if (saved === 'codes' || saved === 'initials') clientLabelMode.value = saved;
+  } catch {
+    // ignore
+  }
   if (authStore.user?.role === 'super_admin') {
     await agencyStore.fetchAgencies();
   }
@@ -310,7 +334,7 @@ onMounted(async () => {
 }
 .filters {
   display: grid;
-  grid-template-columns: repeat(3, minmax(180px, 1fr));
+  grid-template-columns: repeat(4, minmax(180px, 1fr));
   gap: 12px;
   align-items: end;
   margin-bottom: 14px;

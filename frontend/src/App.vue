@@ -1297,6 +1297,7 @@ const showSchoolClientsPendingBadge = computed(() => {
 });
 const schoolClientsPendingCount = ref(0);
 let schoolClientsPendingInterval = null;
+const MIN_PENDING_DATE = '2026-02-01';
 const fetchSchoolClientsPendingCount = async () => {
   if (!isAuthenticated.value || !showSchoolClientsPendingBadge.value || !schoolClientsAgencyId.value) {
     schoolClientsPendingCount.value = 0;
@@ -1304,7 +1305,7 @@ const fetchSchoolClientsPendingCount = async () => {
   }
   try {
     const resp = await api.get('/compliance-corner/pending-clients', {
-      params: { agencyId: Number(schoolClientsAgencyId.value) },
+      params: { agencyId: Number(schoolClientsAgencyId.value), minPendingEnteredAt: MIN_PENDING_DATE },
       skipGlobalLoading: true
     });
     schoolClientsPendingCount.value = Number(resp?.data?.count || 0);
