@@ -55,6 +55,8 @@
         <option value="compliance">Compliance</option>
         <option value="disclosure">Disclosure</option>
         <option value="consent">Consent</option>
+        <option value="school">School</option>
+        <option value="school_roi">School ROI</option>
         <option value="administrative">Administrative</option>
       </select>
       <select v-model="filterTemplateType" @change="applyFilters" class="filter-select">
@@ -275,6 +277,7 @@
               <option value="disclosure">Disclosure</option>
               <option value="consent">Consent</option>
               <option value="school">School</option>
+              <option value="school_roi">School ROI</option>
               <option value="administrative">Administrative</option>
             </select>
           </div>
@@ -1274,6 +1277,8 @@ const getDocumentTypeRowStyle = (documentType) => {
     compliance: '#ef4444',
     disclosure: '#06b6d4',
     consent: '#10b981',
+    school: '#2563eb',
+    school_roi: '#7c3aed',
     administrative: '#6b7280'
   };
   const key = String(documentType || '').trim().toLowerCase();
@@ -1304,6 +1309,8 @@ const formatDocumentType = (type) => {
     compliance: 'Compliance',
     disclosure: 'Disclosure',
     consent: 'Consent',
+    school: 'School',
+    school_roi: 'School ROI',
     administrative: 'Administrative'
   };
   return types[type] || type;

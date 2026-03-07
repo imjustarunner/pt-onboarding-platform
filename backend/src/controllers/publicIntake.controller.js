@@ -32,6 +32,15 @@ import Notification from '../models/Notification.model.js';
 import { notifyNewPacketUploaded } from '../services/clientNotifications.service.js';
 import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
 import { sendEmailFromIdentity } from '../services/unifiedEmail/unifiedEmailSender.service.js';
+import { logAuditEvent } from '../services/auditEvent.service.js';
+import {
+  applySmartSchoolRoiAccessDecisions,
+  buildSmartSchoolRoiContext,
+  buildSmartSchoolRoiHtml,
+  isSmartSchoolRoiForm,
+  normalizeSmartSchoolRoiResponse,
+  validateSmartSchoolRoiResponse
+} from '../services/smartSchoolRoi.service.js';
 
 const normalizeName = (name) => String(name || '').trim();
 const BASE_CONSENT_TTL_MS = 60 * 60 * 1000; // 1 hour to complete once started
@@ -1216,6 +1225,15 @@ export const getPublicIntakeLink = async (req, res, next) => {
     const templates = await loadAllowedTemplates(link);
     const { organization, agency } = await resolveIntakeOrgContext(link);
     const needsCaptcha = requiresCaptchaForLink(organization, agency);
+    const roiContext = isSmartSchoolRoiForm(link)
+      ? await buildSmartSchoolRoiContext({
+          link,
+          boundClient,
+          organization,
+          agency,
+          templates
+        })
+      : null;
     res.json({
       link: {
         id: link.id,
@@ -1251,11 +1269,16 @@ export const getPublicIntakeLink = async (req, res, next) => {
       boundClient: boundClient ? {
         id: boundClient.id,
         full_name: boundClient.full_name || null,
-        initials: boundClient.initials || null
+        initials: boundClient.initials || null,
+        organization_id: boundClient.organization_id || null,
+        organization_name: boundClient.organization_name || null,
+        date_of_birth: boundClient.date_of_birth || boundClient.dob || null
       } : null,
+      roiContext,
       templates: templates.map(t => ({
         id: t.id,
         name: t.name,
+        document_type: t.document_type,
         document_action_type: t.document_action_type,
         template_type: t.template_type,
         html_content: t.template_type === 'html' ? t.html_content : null,
@@ -1285,7 +1308,7 @@ export const createPublicIntakeSession = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Validation failed', errors: errors.array() } });
     }
     const publicKey = String(req.params.publicKey || '').trim();
-    const { link, issuedRoiLink } = await resolvePublicIntakeContext(publicKey);
+    const { link, issuedRoiLink, boundClient } = await resolvePublicIntakeContext(publicKey);
     if (!link || !link.is_active) {
       return res.status(404).json({ error: { message: 'Intake link not found' } });
     }
@@ -1368,6 +1391,22 @@ export const createPublicIntakeSession = async (req, res, next) => {
         id: issuedRoiLink.id,
         intakeSubmissionId: submission?.id || null
       });
+      if (isSmartSchoolRoiForm(link)) {
+        const { organization, agency } = await resolveIntakeOrgContext(link);
+        const roiContext = await buildSmartSchoolRoiContext({
+          link,
+          boundClient,
+          organization,
+          agency,
+          templates: await loadAllowedTemplates(link)
+        });
+        await ClientSchoolRoiSigningLink.updatePayload({
+          id: issuedRoiLink.id,
+          intakeSubmissionId: submission?.id || null,
+          roiContext,
+          roiResponse: intakeData?.smartSchoolRoi || null
+        });
+      }
     }
 
     res.json({ sessionToken, submissionId: submission?.id || null });
@@ -1947,6 +1986,213 @@ export const finalizePublicIntake = async (req, res, next) => {
         submission: await IntakeSubmission.findById(submissionId),
         jobApplicationSubmitted: true,
         candidateId: user.id
+      });
+    }
+
+    if (isSmartSchoolRoiForm(link)) {
+      const signatureData = String(req.body?.signatureData || '').trim();
+      if (!signatureData) {
+        return res.status(400).json({ error: { message: 'Signature is required to complete this release.' } });
+      }
+      if (!updatedSubmission?.client_id) {
+        return res.status(400).json({ error: { message: 'Smart school ROI links must be bound to a client.' } });
+      }
+
+      const boundClient = await Client.findById(updatedSubmission.client_id, { includeSensitive: true });
+      if (!boundClient?.id) {
+        return res.status(404).json({ error: { message: 'Bound client not found.' } });
+      }
+
+      const { organization, agency } = await resolveIntakeOrgContext(link);
+      const roiContext = await buildSmartSchoolRoiContext({
+        link,
+        boundClient,
+        organization,
+        agency,
+        templates
+      });
+      if (!roiContext?.documentTemplate?.id) {
+        return res.status(400).json({ error: { message: 'Assign a School ROI document template to this form before using it.' } });
+      }
+      const selectedTemplate = templates.find((template) => Number(template.id) === Number(roiContext.documentTemplate.id));
+      if (!selectedTemplate) {
+        return res.status(400).json({ error: { message: 'The configured School ROI document template is no longer available.' } });
+      }
+
+      const roiResponse = normalizeSmartSchoolRoiResponse({
+        roiContext,
+        intakeData,
+        signedAt: now
+      });
+      const roiValidation = validateSmartSchoolRoiResponse(roiResponse);
+      if (!roiValidation.valid) {
+        return res.status(400).json({
+          error: {
+            message: `Missing required smart ROI responses: ${roiValidation.missing.join(', ')}`
+          }
+        });
+      }
+
+      const signer = buildSignerFromSubmission(updatedSubmission);
+      const workflowData = buildWorkflowData({ submission: { ...updatedSubmission, submitted_at: now } });
+      const auditTrail = buildAuditTrail({
+        link,
+        submission: {
+          ...updatedSubmission,
+          submitted_at: now,
+          client_name: roiResponse.clientFullName || boundClient.full_name || null
+        }
+      });
+      const signedResult = await PublicIntakeSigningService.generateSignedDocument({
+        template: {
+          ...selectedTemplate,
+          template_type: 'html',
+          html_content: buildSmartSchoolRoiHtml({
+            roiContext,
+            response: roiResponse,
+            signedAt: now
+          }),
+          document_action_type: 'signature'
+        },
+        signatureData,
+        signer,
+        auditTrail: {
+          ...auditTrail,
+          smartSchoolRoi: true,
+          roiResponse
+        },
+        workflowData,
+        submissionId,
+        fieldDefinitions: [],
+        fieldValues: {}
+      });
+
+      const intakeClientRow = await IntakeSubmissionClient.create({
+        intakeSubmissionId: submissionId,
+        clientId: boundClient.id,
+        fullName: roiResponse.clientFullName || boundClient.full_name || boundClient.initials || `Client ${boundClient.id}`,
+        initials: boundClient.initials || null,
+        contactPhone: boundClient.contact_phone || null
+      });
+      if (intakeClientRow?.id) {
+        await IntakeSubmissionClient.updateById(intakeClientRow.id, {
+          bundle_pdf_path: signedResult.storagePath,
+          bundle_pdf_hash: signedResult.pdfHash
+        });
+      }
+
+      const documentRow = await IntakeSubmissionDocument.create({
+        intakeSubmissionId: submissionId,
+        clientId: boundClient.id,
+        documentTemplateId: selectedTemplate.id,
+        signedPdfPath: signedResult.storagePath,
+        pdfHash: signedResult.pdfHash,
+        signedAt: now,
+        auditTrail: {
+          ...auditTrail,
+          documentReference: signedResult.referenceNumber || null,
+          documentName: selectedTemplate.name || null,
+          smartSchoolRoi: true,
+          roiResponse,
+          signatureData
+        }
+      });
+
+      const schoolOrganizationId =
+        Number(boundClient.organization_id || link.organization_id || organization?.id || 0) || null;
+      const phiDoc = await ClientPhiDocument.create({
+        clientId: boundClient.id,
+        agencyId: boundClient.agency_id || agency?.id || null,
+        schoolOrganizationId: schoolOrganizationId || boundClient.agency_id || agency?.id || null,
+        intakeSubmissionId: submissionId,
+        storagePath: signedResult.storagePath,
+        originalName: `${selectedTemplate.name || 'School ROI'} (Signed)`,
+        mimeType: 'application/pdf',
+        uploadedByUserId: null,
+        scanStatus: 'clean',
+        expiresAt: retentionExpiresAt
+      });
+      await PhiDocumentAuditLog.create({
+        documentId: phiDoc.id,
+        clientId: boundClient.id,
+        action: 'uploaded',
+        actorUserId: null,
+        actorLabel: 'public_intake',
+        ipAddress: updatedSubmission.ip_address || null,
+        metadata: {
+          submissionId,
+          templateId: selectedTemplate.id,
+          smartSchoolRoi: true
+        }
+      });
+
+      const accessUpdates = await applySmartSchoolRoiAccessDecisions({
+        clientId: boundClient.id,
+        schoolOrganizationId: schoolOrganizationId || 0,
+        response: roiResponse,
+        actorUserId: null
+      });
+
+      try {
+        await applyClientRoiCompletion({
+          clientId: boundClient.id,
+          signedAt: now,
+          actorUserId: null
+        });
+      } catch (error) {
+        console.error('applyClientRoiCompletion failed', {
+          clientId: boundClient.id,
+          submissionId,
+          signingLinkId: issuedRoiLink?.id || null,
+          error: error?.message || error
+        });
+      }
+
+      await IntakeSubmission.updateById(submissionId, {
+        combined_pdf_path: signedResult.storagePath,
+        combined_pdf_hash: signedResult.pdfHash
+      });
+
+      if (issuedRoiLink?.id) {
+        await ClientSchoolRoiSigningLink.updatePayload({
+          id: issuedRoiLink.id,
+          intakeSubmissionId: submissionId,
+          roiContext,
+          roiResponse,
+          accessAppliedAt: now
+        });
+        await ClientSchoolRoiSigningLink.markCompleted({
+          id: issuedRoiLink.id,
+          intakeSubmissionId: submissionId,
+          signedAt: now,
+          completedClientPhiDocumentId: phiDoc.id
+        });
+      }
+
+      await logAuditEvent(req, {
+        actionType: 'smart_school_roi_permissions_applied',
+        agencyId: boundClient.agency_id || agency?.id || null,
+        metadata: {
+          clientId: boundClient.id,
+          schoolOrganizationId,
+          issuedRoiLinkId: issuedRoiLink?.id || null,
+          packetReleaseAllowed: roiResponse.packetReleaseAllowed,
+          accessUpdates
+        }
+      });
+
+      const downloadUrl = await StorageService.getSignedUrl(signedResult.storagePath, 60 * 24 * 14);
+      return res.json({
+        success: true,
+        submission: await IntakeSubmission.findById(submissionId),
+        documents: [documentRow],
+        downloadUrl,
+        clientBundles: [{
+          clientId: boundClient.id,
+          clientName: roiResponse.clientFullName || boundClient.full_name || null,
+          filename: `school-roi-${boundClient.id}.pdf`,
+          downloadUrl
+        }]
       });
     }
 

@@ -16,6 +16,7 @@ import {
   upsertClientWaitlistNote,
   listClientComments,
   createClientComment,
+  issueSchoolPortalClientSmartRoiLink,
   listSchoolPortalNotificationsFeed,
   markSchoolPortalNotificationsRead,
   dismissSchoolPortalNotifications,
@@ -79,6 +80,7 @@ router.get('/:organizationId/clients/:clientId/waitlist-note', authenticate, get
 router.put('/:organizationId/clients/:clientId/waitlist-note', authenticate, upsertClientWaitlistNote);
 router.get('/:organizationId/clients/:clientId/comments', authenticate, listClientComments);
 router.post('/:organizationId/clients/:clientId/comments', authenticate, createClientComment);
+router.post('/:organizationId/clients/:clientId/smart-roi-link', authenticate, issueSchoolPortalClientSmartRoiLink);
 router.get('/:organizationId/notifications/feed', authenticate, listSchoolPortalNotificationsFeed);
 router.post('/:organizationId/notifications/read', authenticate, markSchoolPortalNotificationsRead);
 router.post('/:organizationId/notifications/dismiss', authenticate, dismissSchoolPortalNotifications);

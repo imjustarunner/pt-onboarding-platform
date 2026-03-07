@@ -243,6 +243,8 @@
               <option value="compliance">Compliance</option>
               <option value="disclosure">Disclosure</option>
               <option value="consent">Consent</option>
+              <option value="school">School</option>
+              <option value="school_roi">School ROI</option>
               <option value="administrative">Administrative</option>
             </select>
           </div>
@@ -638,6 +640,8 @@ const formatDocumentType = (type) => {
     compliance: 'Compliance',
     disclosure: 'Disclosure',
     consent: 'Consent',
+    school: 'School',
+    school_roi: 'School ROI',
     administrative: 'Administrative'
   };
   return types[type] || type;

@@ -163,6 +163,8 @@ const formatDocumentType = (type) => {
     compliance: 'Compliance',
     disclosure: 'Disclosure',
     consent: 'Consent',
+    school: 'School',
+    school_roi: 'School ROI',
     administrative: 'Administrative'
   };
   return types[type] || type;
@@ -398,6 +400,8 @@ const getDocumentTypeStyle = (documentType) => {
     compliance: '#ef4444',
     disclosure: '#06b6d4',
     consent: '#10b981',
+    school: '#2563eb',
+    school_roi: '#7c3aed',
     administrative: '#6b7280'
   };
   const key = String(documentType || '').trim().toLowerCase();

@@ -55,6 +55,7 @@
         <option value="all">All Types</option>
         <option value="intake">Intake</option>
         <option value="public_form">Public Form</option>
+        <option value="smart_school_roi">Smart School ROI</option>
         <option value="job_application">Job Application</option>
         <option value="medical_records_request">Medical Records</option>
       </select>
@@ -184,11 +185,15 @@
               <select v-model="form.formType">
                 <option value="intake">Intake (person-tied)</option>
                 <option value="public_form">Public Form (standalone)</option>
+                <option value="smart_school_roi">Smart School ROI</option>
                 <option value="job_application">Job Application</option>
                 <option value="medical_records_request">Medical Records Request</option>
               </select>
               <small v-if="form.formType === 'public_form'" class="form-help">
                 Standalone forms (e.g. additional driver, consent) are externally clickable and not tied to a person. Completed documents land in Submitted Documents for staff to assign to a client.
+              </small>
+              <small v-if="form.formType === 'smart_school_roi'" class="form-help">
+                Dedicated school ROI flow. This must stay school-scoped, does not create clients, and is intended for client-bound release-of-information signing links.
               </small>
               <small v-if="form.formType === 'job_application'" class="form-help">
                 Each job gets its own link. Applicants upload resume, cover letter, etc. Documents land in Submitted Documents.
@@ -221,7 +226,7 @@
             </div>
             <div class="form-group" v-if="form.formType !== 'job_application' && form.formType !== 'medical_records_request'">
               <label>Scope</label>
-              <select v-model="form.scopeType">
+              <select v-model="form.scopeType" :disabled="form.formType === 'smart_school_roi'">
                 <option value="agency">Agency</option>
                 <option value="school">School</option>
                 <option value="program">Program</option>
@@ -249,15 +254,15 @@
             </div>
             <div v-if="form.formType !== 'job_application'" class="form-group">
               <label>Create Client</label>
-              <select v-model="form.createClient" :disabled="['public_form', 'medical_records_request'].includes(form.formType)">
+              <select v-model="form.createClient" :disabled="['public_form', 'medical_records_request', 'smart_school_roi'].includes(form.formType)">
                 <option :value="true">Yes</option>
                 <option :value="false">No</option>
               </select>
-              <small v-if="['public_form', 'medical_records_request'].includes(form.formType)" class="form-help">These forms do not create clients; documents go to Submitted Documents.</small>
+              <small v-if="['public_form', 'medical_records_request', 'smart_school_roi'].includes(form.formType)" class="form-help">These forms do not create clients directly.</small>
             </div>
             <div v-if="form.formType !== 'job_application'" class="form-group">
               <label>Create Guardian (default)</label>
-              <select v-model="form.createGuardian">
+              <select v-model="form.createGuardian" :disabled="form.formType === 'smart_school_roi'">
                 <option :value="true">Yes</option>
                 <option :value="false">No</option>
               </select>
@@ -626,11 +631,18 @@ const getStepTypeLabel = (t) => {
   return m[t] || t || 'Step';
 };
 const getFormTypeLabel = (t) => {
-  const m = { intake: 'Intake', public_form: 'Public Form', job_application: 'Job Application', medical_records_request: 'Medical Records' };
+  const m = {
+    intake: 'Intake',
+    public_form: 'Public Form',
+    smart_school_roi: 'Smart School ROI',
+    job_application: 'Job Application',
+    medical_records_request: 'Medical Records'
+  };
   return m[t] || t || 'Intake';
 };
 const getFormTypeBadgeClass = (t) => {
   if (t === 'public_form') return 'badge-info';
+  if (t === 'smart_school_roi') return 'badge-primary';
   if (t === 'job_application') return 'badge-success';
   if (t === 'medical_records_request') return 'badge-warning';
   return 'badge-secondary';
@@ -807,6 +819,12 @@ watch(() => form.formType, (newVal) => {
   if (newVal === 'job_application') {
     form.createClient = false;
     form.createGuardian = false;
+  }
+  if (newVal === 'smart_school_roi') {
+    form.scopeType = 'school';
+    form.createClient = false;
+    form.createGuardian = false;
+    form.requiresAssignment = false;
   }
 });
 
@@ -1000,11 +1018,13 @@ const save = async () => {
       description: form.description,
       languageCode: form.languageCode,
       formType: form.formType,
-      scopeType: ['job_application', 'medical_records_request'].includes(form.formType) ? 'agency' : form.scopeType,
+      scopeType: ['job_application', 'medical_records_request'].includes(form.formType)
+        ? 'agency'
+        : (form.formType === 'smart_school_roi' ? 'school' : form.scopeType),
       isActive: form.isActive,
-      createClient: form.formType === 'job_application' ? false : form.createClient,
-      createGuardian: form.formType === 'job_application' ? false : form.createGuardian,
-      requiresAssignment: form.requiresAssignment,
+      createClient: ['job_application', 'smart_school_roi'].includes(form.formType) ? false : form.createClient,
+      createGuardian: ['job_application', 'smart_school_roi'].includes(form.formType) ? false : form.createGuardian,
+      requiresAssignment: form.formType === 'smart_school_roi' ? false : form.requiresAssignment,
       retentionPolicy: form.retentionPolicy ? { ...form.retentionPolicy } : null,
       customMessages: customMessagesPayload,
       allowedDocumentTemplateIds,
@@ -1081,12 +1101,15 @@ const agencyOnlyTemplates = computed(() => {
   return list.filter((t) => t && t.agency_id !== null && t.agency_id !== undefined);
 });
 
-/** When scope is school, only show templates with document_type='school' */
+/** When scope is school, only show school-scoped template types. */
 const scopeFilteredTemplates = computed(() => {
   const list = agencyOnlyTemplates.value;
+  if (form.formType === 'smart_school_roi') {
+    return list.filter((t) => String(t?.document_type || '') === 'school_roi');
+  }
   const scope = form.scopeType || 'school';
   if (scope === 'school') {
-    return list.filter((t) => String(t?.document_type || '') === 'school');
+    return list.filter((t) => ['school', 'school_roi'].includes(String(t?.document_type || '')));
   }
   return list;
 });

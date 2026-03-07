@@ -4,7 +4,17 @@
       <h3>Documentation (PHI)</h3>
       <p class="hint">Opening documentation requires confirmation and will be audited.</p>
 
-      <div v-if="canUpload" class="upload-row">
+      <div v-if="canUpload" class="attach-panel">
+        <div class="attach-panel-head">
+          <div>
+            <div class="attach-title">Attach to client</div>
+            <div class="attach-subtitle">Admin only. Drop files here to add them directly to this client’s PHI documents.</div>
+          </div>
+          <button class="btn btn-secondary btn-sm" type="button" :disabled="uploading" @click="fileInput?.click()">
+            {{ uploading ? 'Uploading…' : 'Choose files' }}
+          </button>
+        </div>
+
         <div class="upload-fields">
           <label class="upload-label">
             Title
@@ -25,16 +35,31 @@
             </datalist>
           </label>
         </div>
+
         <input
           ref="fileInput"
           type="file"
           accept="application/pdf,image/png,image/jpeg,image/jpg"
+          multiple
           style="display:none;"
           @change="onFileSelected"
         />
-        <button class="btn btn-secondary btn-sm" type="button" :disabled="uploading" @click="fileInput?.click()">
-          {{ uploading ? 'Uploading…' : 'Upload document' }}
-        </button>
+
+        <div
+          class="drop-zone"
+          :class="{ 'drop-zone-active': isDragActive }"
+          @dragenter.prevent="onDragEnter"
+          @dragover.prevent="onDragOver"
+          @dragleave.prevent="onDragLeave"
+          @drop.prevent="onDropFiles"
+        >
+          <div class="drop-zone-title">
+            {{ uploading ? 'Uploading files…' : 'Drop files here to attach them to this client' }}
+          </div>
+          <div class="drop-zone-subtitle">
+            PDF, PNG, and JPG only. You can drop multiple files at once.
+          </div>
+        </div>
       </div>
     </div>
 
@@ -212,6 +237,7 @@ const ocrWiping = ref(false);
 const error = ref('');
 const auditError = ref('');
 const ocrError = ref('');
+const isDragActive = ref(false);
 const docs = ref([]);
 const auditStatements = ref([]);
 const ocrRequests = ref([]);
@@ -347,32 +373,66 @@ const removeDoc = async (doc) => {
   }
 };
 
-const onFileSelected = async (evt) => {
-  const file = evt?.target?.files?.[0] || null;
-  if (!file) return;
+const resetUploadFields = () => {
+  uploadTitle.value = '';
+  uploadType.value = '';
+  try {
+    if (fileInput.value) fileInput.value.value = '';
+  } catch {
+    // ignore
+  }
+};
+
+const uploadFiles = async (fileList) => {
+  const files = Array.from(fileList || []).filter(Boolean);
+  if (!files.length) return;
   try {
     uploading.value = true;
     error.value = '';
-    const form = new FormData();
-    form.append('file', file);
-    if (uploadTitle.value) form.append('documentTitle', uploadTitle.value);
-    if (uploadType.value) form.append('documentType', uploadType.value);
-    await api.post(`/phi-documents/clients/${props.clientId}/upload`, form, {
-      headers: { 'Content-Type': 'multipart/form-data' }
-    });
+    for (const [index, file] of files.entries()) {
+      const form = new FormData();
+      form.append('file', file);
+      if (uploadTitle.value && files.length === 1 && index === 0) form.append('documentTitle', uploadTitle.value);
+      if (uploadType.value) form.append('documentType', uploadType.value);
+      await api.post(`/phi-documents/clients/${props.clientId}/upload`, form, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+    }
     await reload();
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to upload document';
   } finally {
     uploading.value = false;
-    uploadTitle.value = '';
-    uploadType.value = '';
-    try {
-      if (fileInput.value) fileInput.value.value = '';
-    } catch {
-      // ignore
-    }
+    isDragActive.value = false;
+    resetUploadFields();
   }
+};
+
+const onFileSelected = async (evt) => {
+  const files = evt?.target?.files || [];
+  await uploadFiles(files);
+};
+
+const onDragEnter = () => {
+  if (!canUpload.value || uploading.value) return;
+  isDragActive.value = true;
+};
+
+const onDragOver = () => {
+  if (!canUpload.value || uploading.value) return;
+  isDragActive.value = true;
+};
+
+const onDragLeave = (evt) => {
+  if (!evt?.currentTarget || evt.currentTarget.contains(evt.relatedTarget)) return;
+  isDragActive.value = false;
+};
+
+const onDropFiles = async (evt) => {
+  if (!canUpload.value || uploading.value) return;
+  const files = evt?.dataTransfer?.files || [];
+  isDragActive.value = false;
+  await uploadFiles(files);
 };
 
 const formatDateTime = (d) => (d ? new Date(d).toLocaleString() : '-');
@@ -477,14 +537,31 @@ watch(
 .panel {
   padding: 8px 0;
 }
-.upload-row {
+.attach-panel {
   margin-top: 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-alt);
+  padding: 12px;
+}
+.attach-panel-head {
   display: flex;
-  align-items: flex-end;
+  align-items: flex-start;
+  justify-content: space-between;
   gap: 10px;
   flex-wrap: wrap;
 }
+.attach-title {
+  font-size: 14px;
+  font-weight: 700;
+}
+.attach-subtitle {
+  margin-top: 4px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
 .upload-fields {
+  margin-top: 12px;
   display: grid;
   grid-template-columns: repeat(2, minmax(160px, 1fr));
   gap: 10px;
@@ -505,6 +582,28 @@ watch(
   padding: 8px 10px;
   font-size: 13px;
   background: white;
+}
+.drop-zone {
+  margin-top: 12px;
+  border: 2px dashed var(--border);
+  border-radius: 12px;
+  padding: 18px 16px;
+  text-align: center;
+  background: rgba(255, 255, 255, 0.75);
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+.drop-zone-active {
+  border-color: var(--primary, #2563eb);
+  background: rgba(37, 99, 235, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.18);
+}
+.drop-zone-title {
+  font-weight: 700;
+}
+.drop-zone-subtitle {
+  margin-top: 4px;
+  color: var(--text-secondary);
+  font-size: 13px;
 }
 .header h3 {
   margin: 0;

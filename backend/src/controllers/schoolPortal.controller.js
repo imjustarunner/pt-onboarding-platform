@@ -19,6 +19,8 @@ import pool from '../config/database.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
 import { callGeminiText } from '../services/geminiText.service.js';
+import { ensureIssuedRoiSigningLinkForClient } from './clientSchoolRoiAccess.controller.js';
+import { assertSchoolPortalAccess } from './schoolPortalIntakeLinks.controller.js';
 import {
   getSupervisorSuperviseeIds,
   isAdminLikeRole,
@@ -2895,6 +2897,73 @@ export const createClientComment = async (req, res, next) => {
             author_name: saved.author_name || null
           }
         : null
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Create or reuse a client-specific Smart ROI signing link from the school portal.
+ * POST /api/school-portal/:organizationId/clients/:clientId/smart-roi-link
+ */
+export const issueSchoolPortalClientSmartRoiLink = async (req, res, next) => {
+  try {
+    const orgId = await resolveOrgIdFromParam(req.params.organizationId);
+    const clientId = parseInt(req.params.clientId, 10);
+    if (!orgId || !clientId) {
+      return res.status(400).json({ error: { message: 'Invalid organizationId or clientId' } });
+    }
+
+    const userId = req.user?.id;
+    const roleNorm = String(req.user?.role || '').toLowerCase();
+    if (!userId) {
+      return res.status(401).json({ error: { message: 'Not authenticated' } });
+    }
+
+    await assertSchoolPortalAccess(req, orgId);
+
+    const inOrg = await clientBelongsToOrg({ clientId, orgId });
+    if (!inOrg) {
+      return res.status(404).json({ error: { message: 'Client not found in this organization' } });
+    }
+
+    const isSupervisorOnly = await isSupervisorOnlyActor({ userId, role: roleNorm, user: req.user });
+    if (roleNorm === 'provider') {
+      const assigned = await providerAssignedToClientInOrg({ providerUserId: userId, clientId, orgId });
+      if (!assigned) return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+    if (isSupervisorOnly) {
+      const assigned = await supervisorCanAccessClientInOrg({ supervisorUserId: userId, clientId, orgId });
+      if (!assigned) return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const client = await Client.findById(clientId, { includeSensitive: true });
+    if (!client) {
+      return res.status(404).json({ error: { message: 'Client not found' } });
+    }
+
+    const issueResult = await ensureIssuedRoiSigningLinkForClient({
+      client,
+      schoolOrganizationId: orgId,
+      actorUserId: userId,
+      regenerate: false
+    });
+    if (!issueResult.ok) {
+      return res.status(issueResult.status || 400).json({ error: { message: issueResult.message || 'Unable to prepare Smart ROI link' } });
+    }
+
+    res.json({
+      client_id: Number(client.id),
+      school_organization_id: Number(orgId),
+      issued_link: {
+        id: Number(issueResult.issuedLink?.id || 0) || null,
+        public_key: issueResult.issuedLink?.public_key || null,
+        status: String(issueResult.issuedLink?.status || 'issued').trim().toLowerCase(),
+        intake_link_id: Number(issueResult.issuedLink?.intake_link_id || 0) || null,
+        intake_link_title: issueResult.issuedLink?.intake_link_title || null,
+        issued_at: issueResult.issuedLink?.issued_at || null
+      }
     });
   } catch (e) {
     next(e);

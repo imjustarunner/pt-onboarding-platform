@@ -70,6 +70,8 @@ const AUDIT_ACTION_REGISTRY = {
   client_updated: { label: 'Client updated', category: 'Client Access' },
   client_status_changed: { label: 'Client status changed', category: 'Client Access' },
   client_admin_note_updated: { label: 'Client admin note updated', category: 'Client Access' },
+  smart_school_roi_permissions_applied: { label: 'Smart school ROI permissions applied', category: 'Client Access' },
+  client_school_roi_signing_email_sent: { label: 'Client school ROI signing email sent', category: 'Communications' },
   school_portal_roster_viewed: { label: 'School portal roster viewed', category: 'School Portal' },
   school_portal_comments_viewed: { label: 'School portal comments viewed', category: 'School Portal' },
   school_portal_comment_posted: { label: 'School portal comment posted', category: 'School Portal' },

@@ -75,6 +75,16 @@
       </div>
 
       <div v-else-if="step === 1" class="step">
+        <SmartSchoolRoiFlow
+          v-if="isSmartSchoolRoi"
+          :public-key="publicKey"
+          :session-token="sessionToken"
+          :roi-context="roiContext"
+          :link="link"
+          :bound-client="boundClient"
+          @completed="handleSmartRoiCompleted"
+        />
+        <div v-else>
         <h3>{{ t('questions') }}</h3>
         <div v-if="stepError" class="error" style="margin-bottom: 10px;">{{ stepError }}</div>
 
@@ -407,6 +417,7 @@
             Restart
           </button>
         </div>
+        </div>
       </div>
 
         <div v-else-if="step === 2 && currentFlowStep?.type !== 'questions'" class="step">
@@ -554,7 +565,6 @@
             {{ submitLoading ? t('submitting') : (currentFlowStep?.type === 'upload' ? 'Continue' : (currentFlowStep?.type === 'document' ? (currentDoc?.document_action_type === 'signature' ? t('signContinue') : t('markReviewedContinue')) : t('continue'))) }}
           </button>
         </div>
-
       </div>
 
       <div v-else-if="step === 3" class="step">
@@ -592,6 +602,7 @@ import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../services/api';
 import SignaturePad from '../components/SignaturePad.vue';
+import SmartSchoolRoiFlow from '../components/public/SmartSchoolRoiFlow.vue';
 import PDFPreview from '../components/documents/PDFPreview.vue';
 import { toUploadsUrl } from '../utils/uploadsUrl';
 import { useAuthStore } from '../store/auth';
@@ -965,6 +976,7 @@ const submissionStorageKey = computed(() =>
 
 const signerInitials = ref('');
 const boundClient = ref(null);
+const roiContext = ref(null);
 const clients = ref([
   { firstName: '', lastName: '' }
 ]);
@@ -1176,6 +1188,7 @@ const requiresOrganizationId = computed(
     String(link.value?.scope_type || '') === 'agency' &&
     String(link.value?.form_type || '').toLowerCase() !== 'medical_records_request'
 );
+const isSmartSchoolRoi = computed(() => String(link.value?.form_type || '').toLowerCase() === 'smart_school_roi');
 const isJobApplication = computed(() => String(link.value?.form_type || '').toLowerCase() === 'job_application');
 const isMedicalRecordsRequest = computed(() => String(link.value?.form_type || '').toLowerCase() === 'medical_records_request');
 const intakeFields = computed(() => Array.isArray(link.value?.intake_fields) ? link.value.intake_fields : []);
@@ -1431,6 +1444,7 @@ const loadLink = async () => {
     const resp = await api.get(`/public-intake/${publicKey}`);
     link.value = resp.data?.link || null;
     boundClient.value = resp.data?.boundClient || null;
+    roiContext.value = resp.data?.roiContext || null;
     templates.value = resp.data?.templates || [];
     agencyInfo.value = resp.data?.agency || null;
     organizationInfo.value = resp.data?.organization || null;
@@ -2396,6 +2410,14 @@ const beginIntakeSession = async () => {
   } finally {
     consentLoading.value = false;
   }
+};
+
+const handleSmartRoiCompleted = ({ submissionId: nextSubmissionId, downloadUrl: nextDownloadUrl, clientBundles }) => {
+  submissionId.value = nextSubmissionId || null;
+  downloadUrl.value = nextDownloadUrl || '';
+  clientBundleLinks.value = Array.isArray(clientBundles) ? clientBundles : [];
+  step.value = 3;
+  localStorage.removeItem(submissionStorageKey.value);
 };
 
 onMounted(async () => {

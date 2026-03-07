@@ -618,7 +618,7 @@ export const updateTemplate = async (req, res, next) => {
     if (name !== undefined) updateData.name = name !== null && name !== '' ? name : null;
     if (description !== undefined) updateData.description = description !== null && description !== '' ? description : null;
     if (documentType !== undefined) {
-      const validTypes = ['acknowledgment', 'authorization', 'agreement', 'compliance', 'disclosure', 'consent', 'audio_recording_consent', 'hipaa_security', 'school', 'administrative'];
+      const validTypes = ['acknowledgment', 'authorization', 'agreement', 'compliance', 'disclosure', 'consent', 'audio_recording_consent', 'hipaa_security', 'school', 'school_roi', 'administrative'];
       const dt = documentType ? String(documentType).trim().toLowerCase() : null;
       if (dt && !validTypes.includes(dt)) {
         return res.status(400).json({ error: { message: `Invalid document type. Must be one of: ${validTypes.join(', ')}` } });

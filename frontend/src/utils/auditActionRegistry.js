@@ -80,6 +80,7 @@ export const AUDIT_ACTION_REGISTRY = {
   client_updated: { label: 'Client updated', category: 'Client Access' },
   client_status_changed: { label: 'Client status changed', category: 'Client Access' },
   client_admin_note_updated: { label: 'Client admin note updated', category: 'Client Access' },
+  smart_school_roi_permissions_applied: { label: 'Smart school ROI permissions applied', category: 'Client Access' },
 
   // School Portal
   school_portal_roster_viewed: { label: 'School portal roster viewed', category: 'School Portal' },
@@ -96,6 +97,7 @@ export const AUDIT_ACTION_REGISTRY = {
   sms_opt_out: { label: 'SMS opt out', category: 'Communications' },
   sms_thread_deleted: { label: 'SMS thread deleted', category: 'Communications' },
   sms_message_deleted: { label: 'SMS message deleted', category: 'Communications' },
+  client_school_roi_signing_email_sent: { label: 'Client school ROI signing email sent', category: 'Communications' },
   outbound_call_started: { label: 'Outbound call started', category: 'Communications' },
   outbound_call_failed: { label: 'Outbound call failed', category: 'Communications' },
   voicemail_listened: { label: 'Voicemail listened to', category: 'Communications' },

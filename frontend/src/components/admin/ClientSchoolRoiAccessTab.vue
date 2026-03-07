@@ -48,7 +48,7 @@
           <div>
             <div class="summary-k">Client ROI signing link</div>
             <div class="hint">
-              Assign one reusable school ROI form, then issue a client-specific public link. Signing refreshes the ROI document/date/checklist but does not auto-grant school-staff access.
+              Assign one reusable smart school ROI form, then issue a client-specific public link. Signing refreshes the ROI document/date/checklist and auto-applies school-staff access from the signed decisions.
             </div>
           </div>
           <span class="state-pill" :class="issuedLinkStateClass">
@@ -62,14 +62,14 @@
             <select v-model="selectedIntakeLinkId">
               <option value="">No ROI form assigned</option>
               <option v-for="link in availableLinks" :key="link.id" :value="String(link.id)">
-                {{ link.title }}
+                {{ link.title }}{{ link.form_type === 'smart_school_roi' ? ' (Smart ROI)' : '' }}
               </option>
             </select>
             <div class="hint" v-if="availableLinks.length">
-              Only active school-scoped public forms that do not create clients can be assigned here.
+              Only active school-scoped smart ROI forms that do not create clients can be assigned here.
             </div>
             <div class="hint" v-else>
-              No eligible school public forms are available for this school yet.
+              No eligible smart school ROI forms are available for this school yet.
             </div>
           </div>
 
@@ -102,6 +102,14 @@
             @click="copyIssuedLink(false)"
           >
             {{ issueLoading ? 'Preparing…' : (issuedLink?.public_key ? 'Copy ROI Link' : 'Create + Copy ROI Link') }}
+          </button>
+          <button
+            type="button"
+            class="btn btn-primary btn-sm"
+            :disabled="startSigningLoading || !hasSigningConfig"
+            @click="startSigningSession"
+          >
+            {{ startSigningLoading ? 'Opening…' : 'Start Signing Session' }}
           </button>
           <button
             type="button"
@@ -161,6 +169,72 @@
               {{ smsSending ? 'Sending…' : 'Send ROI Text' }}
             </button>
             <span v-if="smsStatus" class="hint strong">{{ smsStatus }}</span>
+          </div>
+        </div>
+
+        <div class="sms-card">
+          <div class="summary-k">Send ROI link by email</div>
+          <div class="hint">
+            This sends the same client-specific smart ROI link directly to a guardian email using the agency sender identity.
+          </div>
+
+          <div class="sms-grid">
+            <div class="form-group">
+              <label>Guardian email</label>
+              <input
+                v-model="emailDraft"
+                type="email"
+                placeholder="guardian@example.com"
+                autocomplete="email"
+                list="roi-guardian-email-options"
+              />
+              <datalist id="roi-guardian-email-options">
+                <option v-for="guardian in guardianEmails" :key="guardian.guardian_user_id || guardian.email" :value="guardian.email">
+                  {{ guardianLabel(guardian) }}
+                </option>
+              </datalist>
+            </div>
+
+            <div class="summary-card">
+              <div class="summary-k">Email link</div>
+              <div class="summary-v">{{ issuedLink?.public_key ? 'Ready' : 'Auto-create on send' }}</div>
+              <div class="hint">{{ issuedLinkSummary }}</div>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>Email subject</label>
+            <input
+              v-model="emailSubjectDraft"
+              type="text"
+              placeholder="ROI email subject"
+              @input="emailMessageTouched = true"
+            />
+          </div>
+
+          <div class="form-group">
+            <label>Email message</label>
+            <textarea
+              v-model="emailMessageDraft"
+              rows="6"
+              placeholder="ROI email message"
+              @input="emailMessageTouched = true"
+            />
+            <div class="hint">
+              Editable before sending. The secure private ROI link is included by default.
+            </div>
+          </div>
+
+          <div class="signing-actions" style="margin-bottom: 0;">
+            <button
+              type="button"
+              class="btn btn-primary btn-sm"
+              :disabled="emailSending || !hasSigningConfig || !emailDraft || !emailSubjectDraft || !emailMessageDraft"
+              @click="sendRoiEmail"
+            >
+              {{ emailSending ? 'Sending…' : 'Send ROI Email' }}
+            </button>
+            <span v-if="emailStatus" class="hint strong">{{ emailStatus }}</span>
           </div>
         </div>
       </div>
@@ -257,12 +331,20 @@ const configSaving = ref(false);
 const issueLoading = ref(false);
 const roiDateSaving = ref(false);
 const smsSending = ref(false);
+const emailSending = ref(false);
+const startSigningLoading = ref(false);
 const copyStatus = ref('');
 const roiExpiryDraft = ref('');
 const smsPhoneDraft = ref('');
 const smsMessageDraft = ref('');
 const smsMessageTouched = ref(false);
 const smsStatus = ref('');
+const guardianEmails = ref([]);
+const emailDraft = ref('');
+const emailSubjectDraft = ref('');
+const emailMessageDraft = ref('');
+const emailMessageTouched = ref(false);
+const emailStatus = ref('');
 
 const roiExpiryLabel = computed(() => {
   if (!roiExpiresAt.value) return 'Missing';
@@ -278,6 +360,12 @@ const displayName = (row) => {
   const first = String(row?.first_name || '').trim();
   const last = String(row?.last_name || '').trim();
   return [first, last].filter(Boolean).join(' ').trim() || row?.email || `User ${row?.school_staff_user_id || ''}`;
+};
+
+const guardianLabel = (guardian) => {
+  const fullName = [guardian?.first_name, guardian?.last_name].filter(Boolean).join(' ').trim();
+  const relationship = String(guardian?.relationship_title || guardian?.relationship_type || '').trim();
+  return [fullName || guardian?.email, relationship].filter(Boolean).join(' · ');
 };
 
 const formatDate = (value) => {
@@ -356,6 +444,32 @@ const buildDefaultSmsMessage = () => {
   return `Hi this is ${agencyName} and your ROI is expired. A new one has been attached to this private link: ${linkUrl} If you are no longer interested in our services write STOP. Respond with MORE if you'd like us to call you.`;
 };
 
+const buildDefaultEmailSubject = () => {
+  const agencyName = String(props.client?.agency_name || 'ITSCO').trim() || 'ITSCO';
+  const school = String(schoolName.value || props.client?.organization_name || 'your school').trim() || 'your school';
+  return `${agencyName}: Smart ROI for ${school}`;
+};
+
+const buildDefaultEmailMessage = () => {
+  const agencyName = String(props.client?.agency_name || 'ITSCO').trim() || 'ITSCO';
+  const school = String(schoolName.value || props.client?.organization_name || 'your school').trim() || 'your school';
+  const clientName = String(props.client?.full_name || props.client?.initials || 'the client').trim() || 'the client';
+  const linkUrl = buildPublicIntakeUrl(issuedLink.value?.public_key || '');
+  return [
+    'Hello,',
+    '',
+    `${agencyName} has prepared a smart school ROI for ${clientName} related to ${school}.`,
+    'Please review and complete it using the secure private link below:',
+    '',
+    linkUrl,
+    '',
+    'This link is client-specific and updates the client profile automatically once it is signed.',
+    '',
+    `Thank you,`,
+    agencyName
+  ].join('\n');
+};
+
 const load = async () => {
   const clientId = Number(props.client?.id || 0);
   if (!clientId) {
@@ -369,6 +483,11 @@ const load = async () => {
     smsPhoneDraft.value = '';
     smsMessageDraft.value = '';
     smsStatus.value = '';
+    guardianEmails.value = [];
+    emailDraft.value = '';
+    emailSubjectDraft.value = '';
+    emailMessageDraft.value = '';
+    emailStatus.value = '';
     return;
   }
 
@@ -393,10 +512,19 @@ const load = async () => {
     savedIntakeLinkId.value = signing.selected_intake_link_id ? String(signing.selected_intake_link_id) : '';
     selectedIntakeLinkId.value = savedIntakeLinkId.value;
     issuedLink.value = signing.issued_link || null;
+    guardianEmails.value = Array.isArray(payload.guardian_emails) ? payload.guardian_emails : [];
     smsPhoneDraft.value = String(props.client?.contact_phone || payload.client_contact_phone || '').trim();
     if (!smsMessageTouched.value || !String(smsMessageDraft.value || '').trim()) {
       smsMessageDraft.value = buildDefaultSmsMessage();
       smsMessageTouched.value = false;
+    }
+    emailDraft.value = String(emailDraft.value || payload.default_guardian_email || guardianEmails.value[0]?.email || '').trim();
+    if (!emailMessageTouched.value || !String(emailSubjectDraft.value || '').trim()) {
+      emailSubjectDraft.value = buildDefaultEmailSubject();
+    }
+    if (!emailMessageTouched.value || !String(emailMessageDraft.value || '').trim()) {
+      emailMessageDraft.value = buildDefaultEmailMessage();
+      emailMessageTouched.value = false;
     }
   } catch (err) {
     error.value = err.response?.data?.error?.message || 'Failed to load school ROI access';
@@ -410,6 +538,11 @@ const load = async () => {
     smsPhoneDraft.value = '';
     smsMessageDraft.value = '';
     smsStatus.value = '';
+    guardianEmails.value = [];
+    emailDraft.value = '';
+    emailSubjectDraft.value = '';
+    emailMessageDraft.value = '';
+    emailStatus.value = '';
   } finally {
     loading.value = false;
   }
@@ -475,20 +608,27 @@ const saveSigningConfig = async () => {
   }
 };
 
-const copyIssuedLink = async (regenerate = false) => {
+const ensureIssuedLink = async (regenerate = false) => {
   const clientId = Number(props.client?.id || 0);
-  if (!clientId || !hasSigningConfig.value) return;
+  if (!clientId || !hasSigningConfig.value) return null;
+  if (configDirty.value) {
+    const ok = await saveSigningConfig();
+    if (!ok) return null;
+  }
+  const response = await api.post(`/clients/${clientId}/school-roi-signing-link`, { regenerate });
+  issuedLink.value = response.data?.issued_link || null;
+  return issuedLink.value;
+};
+
+const copyIssuedLink = async (regenerate = false) => {
+  if (!hasSigningConfig.value) return;
   try {
     issueLoading.value = true;
     error.value = '';
     copyStatus.value = '';
-    if (configDirty.value) {
-      const ok = await saveSigningConfig();
-      if (!ok) return;
-    }
-    const response = await api.post(`/clients/${clientId}/school-roi-signing-link`, { regenerate });
-    issuedLink.value = response.data?.issued_link || null;
-    const url = buildPublicIntakeUrl(issuedLink.value?.public_key || '');
+    const link = await ensureIssuedLink(regenerate);
+    if (!link) return;
+    const url = buildPublicIntakeUrl(link.public_key || '');
     if (url) {
       try {
         await navigator.clipboard.writeText(url);
@@ -502,6 +642,28 @@ const copyIssuedLink = async (regenerate = false) => {
     error.value = err.response?.data?.error?.message || 'Failed to create client ROI link';
   } finally {
     issueLoading.value = false;
+  }
+};
+
+const startSigningSession = async () => {
+  if (!hasSigningConfig.value) return;
+  try {
+    startSigningLoading.value = true;
+    error.value = '';
+    copyStatus.value = '';
+    const link = await ensureIssuedLink(false);
+    const url = buildPublicIntakeUrl(link?.public_key || '');
+    if (!url) {
+      error.value = 'Failed to prepare client ROI link';
+      return;
+    }
+    window.open(url, '_blank', 'noopener');
+    copyStatus.value = 'Signing session opened.';
+    await load();
+  } catch (err) {
+    error.value = err.response?.data?.error?.message || 'Failed to start signing session';
+  } finally {
+    startSigningLoading.value = false;
   }
 };
 
@@ -534,12 +696,50 @@ const sendRoiText = async () => {
   }
 };
 
+const sendRoiEmail = async () => {
+  const clientId = Number(props.client?.id || 0);
+  if (!clientId) return;
+  try {
+    emailSending.value = true;
+    error.value = '';
+    emailStatus.value = '';
+    if (configDirty.value) {
+      const ok = await saveSigningConfig();
+      if (!ok) return;
+    }
+    const response = await api.post(`/clients/${clientId}/school-roi-signing-email`, {
+      email: emailDraft.value,
+      subject: emailSubjectDraft.value,
+      message: emailMessageDraft.value
+    });
+    issuedLink.value = response.data?.issued_link || issuedLink.value;
+    emailDraft.value = response.data?.sent_to || emailDraft.value;
+    emailSubjectDraft.value = response.data?.subject || emailSubjectDraft.value;
+    emailMessageDraft.value = response.data?.message || emailMessageDraft.value;
+    emailMessageTouched.value = true;
+    emailStatus.value = `Email sent to ${response.data?.sent_to || emailDraft.value}.`;
+    emit('updated', { keepOpen: true, client: response.data?.client || undefined });
+    await load();
+  } catch (err) {
+    error.value = err.response?.data?.error?.message || 'Failed to send ROI email';
+  } finally {
+    emailSending.value = false;
+  }
+};
+
 watch(
   () => issuedLink.value?.public_key,
   () => {
     if (!smsMessageTouched.value || !String(smsMessageDraft.value || '').trim()) {
       smsMessageDraft.value = buildDefaultSmsMessage();
       smsMessageTouched.value = false;
+    }
+    if (!emailMessageTouched.value || !String(emailSubjectDraft.value || '').trim()) {
+      emailSubjectDraft.value = buildDefaultEmailSubject();
+    }
+    if (!emailMessageTouched.value || !String(emailMessageDraft.value || '').trim()) {
+      emailMessageDraft.value = buildDefaultEmailMessage();
+      emailMessageTouched.value = false;
     }
   }
 );

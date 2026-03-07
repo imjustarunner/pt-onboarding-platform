@@ -215,6 +215,24 @@
           </section>
         </div>
 
+        <div v-if="canLaunchSmartRoi" class="documents-section">
+          <div class="documents-section-title">Direct sign</div>
+          <div class="muted">
+            Launch the client-specific Smart ROI while the guardian is sitting with you. This opens the live signing flow in a new tab.
+          </div>
+          <div class="documents-actions">
+            <button
+              class="btn btn-primary btn-sm"
+              type="button"
+              :disabled="smartRoiLaunching"
+              @click="launchSmartRoi"
+            >
+              {{ smartRoiLaunching ? 'Preparing…' : 'Launch Smart ROI' }}
+            </button>
+            <div v-if="smartRoiError" class="error">{{ smartRoiError }}</div>
+          </div>
+        </div>
+
         <div v-if="canViewClientDocuments" class="documents-section">
           <div class="documents-section-title">Documents</div>
           <PhiDocumentsPanel :client-id="Number(client.id)" />
@@ -260,6 +278,7 @@ import WaitlistNoteModal from './WaitlistNoteModal.vue';
 import ClientTicketThreadPanel from './ClientTicketThreadPanel.vue';
 import PhiDocumentsPanel from '../admin/PhiDocumentsPanel.vue';
 import { useAuthStore } from '../../store/auth';
+import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 
 const props = defineProps({
   client: { type: Object, required: true },
@@ -279,6 +298,7 @@ const canViewClientDocuments = computed(() => {
   return ['provider', 'admin', 'staff', 'support', 'super_admin', 'clinical_practice_assistant', 'provider_plus'].includes(roleNorm.value);
 });
 const showActionBar = computed(() => !isSchoolStaff.value && (props.canEditAction || props.showChecklistAction));
+const canLaunchSmartRoi = computed(() => Number(props.schoolOrganizationId || 0) > 0 && Number(props.client?.id || 0) > 0);
 
 const isWaitlist = computed(() => {
   const key = String(props.client?.client_status_key || '').toLowerCase().trim();
@@ -372,6 +392,8 @@ const commentError = ref('');
 const auditLoading = ref(false);
 const auditError = ref('');
 const auditStatements = ref([]);
+const smartRoiLaunching = ref(false);
+const smartRoiError = ref('');
 
 const load = async () => {
   try {
@@ -455,6 +477,28 @@ const sendComment = async () => {
   }
 };
 
+const launchSmartRoi = async () => {
+  try {
+    const orgId = Number(props.schoolOrganizationId || 0);
+    const clientId = Number(props.client?.id || 0);
+    if (!orgId || !clientId) return;
+    smartRoiLaunching.value = true;
+    smartRoiError.value = '';
+    const resp = await api.post(`/school-portal/${orgId}/clients/${clientId}/smart-roi-link`);
+    const publicKey = String(resp.data?.issued_link?.public_key || '').trim();
+    const launchUrl = buildPublicIntakeUrl(publicKey);
+    if (!launchUrl) {
+      smartRoiError.value = 'Unable to prepare Smart ROI link.';
+      return;
+    }
+    window.open(launchUrl, '_blank', 'noopener');
+  } catch (e) {
+    smartRoiError.value = e.response?.data?.error?.message || 'Failed to launch Smart ROI';
+  } finally {
+    smartRoiLaunching.value = false;
+  }
+};
+
 const formatDateTime = (d) => (d ? new Date(d).toLocaleString() : '');
 
 const formatDateOnly = (d) => (d ? String(d).slice(0, 10) : '—');
@@ -486,6 +530,7 @@ watch(
     comments.value = [];
     commentDraft.value = '';
     commentError.value = '';
+    smartRoiError.value = '';
   }
 );
 </script>
@@ -619,6 +664,13 @@ watch(
 .documents-section-title {
   font-weight: 700;
   margin-bottom: 10px;
+}
+.documents-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 10px;
 }
 .packet-audit {
   margin: 0;

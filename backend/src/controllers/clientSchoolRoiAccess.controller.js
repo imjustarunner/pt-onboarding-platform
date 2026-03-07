@@ -9,10 +9,13 @@ import ClientSchoolStaffRoiAccess, {
 } from '../models/ClientSchoolStaffRoiAccess.model.js';
 import SchoolRoiIntakeLinkConfig from '../models/SchoolRoiIntakeLinkConfig.model.js';
 import ClientSchoolRoiSigningLink from '../models/ClientSchoolRoiSigningLink.model.js';
+import ClientGuardian from '../models/ClientGuardian.model.js';
 import MessageLog from '../models/MessageLog.model.js';
 import TwilioNumber from '../models/TwilioNumber.model.js';
 import TwilioOptInState from '../models/TwilioOptInState.model.js';
+import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
 import TwilioService from '../services/twilio.service.js';
+import { sendEmailFromIdentity } from '../services/unifiedEmail/unifiedEmailSender.service.js';
 import { logAuditEvent } from '../services/auditEvent.service.js';
 
 function isBackofficeManager(role) {
@@ -45,14 +48,14 @@ async function listAvailableSchoolRoiIntakeLinks(schoolOrganizationId) {
   const links = await IntakeLink.findByScope({ scopeType: 'school', organizationId: sid });
   return (links || [])
     .filter((link) => link && link.is_active)
-    .filter((link) => String(link.form_type || '').trim().toLowerCase() === 'public_form')
+    .filter((link) => String(link.form_type || '').trim().toLowerCase() === 'smart_school_roi')
     .filter((link) => !link.create_client)
     .map((link) => ({
       id: Number(link.id),
       title: link.title || `Form ${link.id}`,
       description: link.description || null,
       public_key: link.public_key || null,
-      form_type: link.form_type || 'public_form',
+      form_type: link.form_type || 'smart_school_roi',
       language_code: link.language_code || 'en',
       documents_count: Array.isArray(link.allowed_document_template_ids) ? link.allowed_document_template_ids.length : 0
     }));
@@ -107,6 +110,61 @@ function buildDefaultRoiSmsMessage({ agencyName, linkUrl }) {
   ].join(' ');
 }
 
+function buildDefaultRoiEmailSubject({ agencyName, schoolName }) {
+  const senderName = String(agencyName || 'ITSCO').trim() || 'ITSCO';
+  const school = String(schoolName || 'your school').trim() || 'your school';
+  return `${senderName}: Smart ROI for ${school}`;
+}
+
+function buildDefaultRoiEmailBody({ agencyName, schoolName, clientName, linkUrl }) {
+  const senderName = String(agencyName || 'ITSCO').trim() || 'ITSCO';
+  const school = String(schoolName || 'your school').trim() || 'your school';
+  const client = String(clientName || 'the client').trim() || 'the client';
+  const url = String(linkUrl || '').trim();
+  return [
+    `Hello,`,
+    ``,
+    `${senderName} has prepared a smart school ROI for ${client} related to ${school}.`,
+    `Please review and complete it using the secure private link below:`,
+    ``,
+    url,
+    ``,
+    `This link is client-specific and will update the client's profile automatically once it is signed.`,
+    ``,
+    `If you have questions, please reply to this email or contact support.`,
+    ``,
+    `${senderName}`
+  ].join('\n');
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function buildRoiEmailHtml({ body }) {
+  return String(body || '')
+    .split(/\n{2,}/)
+    .map((paragraph) => `<p>${escapeHtml(paragraph).replace(/\n/g, '<br />')}</p>`)
+    .join('');
+}
+
+async function resolveAgencyRoiSenderIdentity(agencyId) {
+  const aid = Number(agencyId || 0) || null;
+  if (!aid) return null;
+  const list = await EmailSenderIdentity.list({ agencyId: aid, includePlatformDefaults: true, onlyActive: true });
+  const preferredKeys = ['school_intake', 'intake', 'notifications', 'system'];
+  for (const key of preferredKeys) {
+    const match = (list || []).find((identity) => String(identity?.identity_key || '').trim().toLowerCase() === key);
+    if (match) return match;
+  }
+  return (list || [])[0] || null;
+}
+
 function ensureRoiSmsBodyHasLink(body, linkUrl) {
   const message = String(body || '').trim();
   const url = String(linkUrl || '').trim();
@@ -116,7 +174,7 @@ function ensureRoiSmsBodyHasLink(body, linkUrl) {
   return `${message} ${url}`.trim();
 }
 
-async function ensureIssuedRoiSigningLinkForClient({ client, schoolOrganizationId, actorUserId = null, regenerate = false }) {
+export async function ensureIssuedRoiSigningLinkForClient({ client, schoolOrganizationId, actorUserId = null, regenerate = false }) {
   const config = await SchoolRoiIntakeLinkConfig.findBySchoolOrganizationId(schoolOrganizationId);
   if (!config?.intake_link_id) {
     return { ok: false, status: 400, message: 'Assign a school ROI form before sending a client ROI link.' };
@@ -201,6 +259,18 @@ export const listClientSchoolRoiAccess = async (req, res, next) => {
       schoolOrganizationId,
       roiExpiresAt: client.roi_expires_at || null
     });
+    const guardians = await ClientGuardian.listForClient(clientId);
+    const guardianEmails = (guardians || [])
+      .map((guardian) => ({
+        guardian_user_id: Number(guardian.guardian_user_id || 0) || null,
+        email: String(guardian.email || '').trim() || null,
+        first_name: guardian.first_name || null,
+        last_name: guardian.last_name || null,
+        relationship_title: guardian.relationship_title || null,
+        relationship_type: guardian.relationship_type || null,
+        access_enabled: guardian.access_enabled !== false && guardian.access_enabled !== 0
+      }))
+      .filter((guardian) => guardian.email);
     const availableRoiLinks = await listAvailableSchoolRoiIntakeLinks(schoolOrganizationId);
     const schoolRoiConfig = await SchoolRoiIntakeLinkConfig.findBySchoolOrganizationId(schoolOrganizationId);
     const issuedRoiLink = await ClientSchoolRoiSigningLink.findForClient({ clientId, schoolOrganizationId });
@@ -210,6 +280,8 @@ export const listClientSchoolRoiAccess = async (req, res, next) => {
       school_organization_id: schoolOrganizationId,
       school_name: client.organization_name || null,
       client_contact_phone: client.contact_phone || null,
+      guardian_emails: guardianEmails,
+      default_guardian_email: guardianEmails.find((guardian) => guardian.access_enabled)?.email || guardianEmails[0]?.email || null,
       roi_expires_at: client.roi_expires_at || null,
       roi_expired: isRoiExpired(client.roi_expires_at),
       staff,
@@ -379,7 +451,7 @@ export const updateClientSchoolRoiSigningConfig = async (req, res, next) => {
       const match = availableLinks.find((link) => Number(link.id) === intakeLinkId);
       if (!match) {
         return res.status(400).json({
-          error: { message: 'Selected ROI form must be an active school-scoped public form for this school that does not create clients.' }
+          error: { message: 'Selected ROI form must be an active school-scoped smart ROI form for this school that does not create clients.' }
         });
       }
       config = await SchoolRoiIntakeLinkConfig.upsert({
@@ -584,6 +656,97 @@ export const sendClientSchoolRoiSigningText = async (req, res, next) => {
         error: { message: 'Failed to send ROI text message via Twilio', details: sendErr.message }
       });
     }
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const sendClientSchoolRoiSigningEmail = async (req, res, next) => {
+  try {
+    const clientId = Number(req.params.id || 0);
+    if (!clientId) return res.status(400).json({ error: { message: 'Invalid client id' } });
+    if (!isBackofficeManager(req.user?.role)) {
+      return res.status(403).json({ error: { message: 'Backoffice access required' } });
+    }
+
+    const access = await requireManagedClient(req, clientId);
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    const client = access.client;
+    const schoolOrganizationId = Number(client.organization_id || 0);
+    if (!schoolOrganizationId) {
+      return res.status(400).json({ error: { message: 'Client does not have a school affiliation yet' } });
+    }
+
+    const issuedResult = await ensureIssuedRoiSigningLinkForClient({
+      client,
+      schoolOrganizationId,
+      actorUserId: req.user?.id || null,
+      regenerate: !!req.body?.regenerate
+    });
+    if (!issuedResult.ok) {
+      return res.status(issuedResult.status).json({ error: { message: issuedResult.message } });
+    }
+
+    const senderIdentity = await resolveAgencyRoiSenderIdentity(client.agency_id || null);
+    if (!senderIdentity?.id) {
+      return res.status(503).json({ error: { message: 'Email is not configured for this agency. Add an active sender identity first.' } });
+    }
+
+    const guardians = await ClientGuardian.listForClient(clientId);
+    const defaultEmail = (guardians || [])
+      .map((guardian) => String(guardian.email || '').trim())
+      .find(Boolean);
+    const toEmail = String(req.body?.email || defaultEmail || '').trim().toLowerCase();
+    if (!toEmail || !toEmail.includes('@')) {
+      return res.status(400).json({ error: { message: 'A valid guardian email is required.' } });
+    }
+
+    const schoolName = client.organization_name || 'School';
+    const agency = client.agency_id ? await Agency.findById(client.agency_id) : null;
+    const linkUrl = buildPublicIntakeUrl(issuedResult.issuedLink?.public_key || '');
+    const defaultSubject = buildDefaultRoiEmailSubject({
+      agencyName: client.agency_name || agency?.name || 'ITSCO',
+      schoolName
+    });
+    const defaultBody = buildDefaultRoiEmailBody({
+      agencyName: client.agency_name || agency?.name || 'ITSCO',
+      schoolName,
+      clientName: client.full_name || client.initials || `Client ${client.id}`,
+      linkUrl
+    });
+    const subject = String(req.body?.subject || defaultSubject).trim() || defaultSubject;
+    const body = String(req.body?.message || defaultBody).trim() || defaultBody;
+
+    const result = await sendEmailFromIdentity({
+      senderIdentityId: senderIdentity.id,
+      to: toEmail,
+      subject,
+      text: body,
+      html: buildRoiEmailHtml({ body })
+    });
+
+    await logAuditEvent(req, {
+      actionType: 'client_school_roi_signing_email_sent',
+      agencyId: client.agency_id || null,
+      metadata: {
+        clientId,
+        schoolOrganizationId,
+        signingLinkId: issuedResult.issuedLink?.id || null,
+        toEmail
+      }
+    });
+
+    res.json({
+      ok: true,
+      client,
+      issued_link: serializeIssuedRoiSigningLink(issuedResult.issuedLink, client),
+      sent_to: toEmail,
+      link_url: linkUrl,
+      subject,
+      message: body,
+      email_result: result
+    });
   } catch (error) {
     next(error);
   }

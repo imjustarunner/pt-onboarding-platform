@@ -88,7 +88,7 @@ async function userHasOrgOrAffiliatedAgencyAccess({ userId, role, user = null, s
   return (userOrgs || []).some((org) => parseInt(org.id, 10) === parseInt(activeAgencyId, 10));
 }
 
-async function assertSchoolPortalAccess(req, schoolId) {
+export async function assertSchoolPortalAccess(req, schoolId) {
   const sid = parseInt(String(schoolId || ''), 10);
   if (!sid) {
     const e = new Error('Invalid schoolId');

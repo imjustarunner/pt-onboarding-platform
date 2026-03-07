@@ -22,6 +22,8 @@ const asNumberOrNull = (value) => {
   return Number.isFinite(parsed) ? parsed : null;
 };
 
+const PUBLIC_INTAKE_FORM_TYPES = ['public_form', 'job_application', 'medical_records_request', 'smart_school_roi'];
+
 const canAccessLink = ({ link, userOrgIds, userId }) => {
   const orgId = asNumberOrNull(link?.organization_id);
   if (orgId) return userOrgIds.includes(orgId);
@@ -89,13 +91,21 @@ export const createIntakeLink = async (req, res, next) => {
     }
 
     const formTypeRaw = String(req.body.formType || 'intake').toLowerCase();
-    const formType = ['public_form', 'job_application', 'medical_records_request'].includes(formTypeRaw) ? formTypeRaw : 'intake';
-    const createClientDefault = ['public_form', 'medical_records_request', 'job_application'].includes(formType) ? false : (req.body.createClient !== false);
-    const requiresAssignmentDefault = formType === 'medical_records_request' ? false : true;
+    const formType = PUBLIC_INTAKE_FORM_TYPES.includes(formTypeRaw) ? formTypeRaw : 'intake';
+    const createClientDefault = PUBLIC_INTAKE_FORM_TYPES.includes(formType) ? false : (req.body.createClient !== false);
+    const requiresAssignmentDefault = ['medical_records_request', 'smart_school_roi'].includes(formType) ? false : true;
     let jobDescriptionId = req.body.jobDescriptionId ? asNumberOrNull(req.body.jobDescriptionId) : null;
     let effectiveOrgId = organizationId;
     if (scopeType === 'learning_class') {
       return res.status(400).json({ error: { message: 'learning_class scope is not yet available' } });
+    }
+    if (formType === 'smart_school_roi') {
+      if (scopeType !== 'school') {
+        return res.status(400).json({ error: { message: 'Smart school ROI forms must use school scope' } });
+      }
+      if (!organizationId) {
+        return res.status(400).json({ error: { message: 'School organization is required for smart school ROI forms' } });
+      }
     }
     if (formType === 'job_application') {
       if (!jobDescriptionId) return res.status(400).json({ error: { message: 'jobDescriptionId is required for job application forms' } });
@@ -121,8 +131,10 @@ export const createIntakeLink = async (req, res, next) => {
       learningClassId: scopeType === 'learning_class' ? learningClassId : null,
       jobDescriptionId: formType === 'job_application' ? jobDescriptionId : null,
       isActive: req.body.isActive !== false,
-      createClient: req.body.createClient !== undefined ? req.body.createClient : createClientDefault,
-      createGuardian: createGuardianDefault,
+      createClient: formType === 'smart_school_roi'
+        ? false
+        : (req.body.createClient !== undefined ? req.body.createClient : createClientDefault),
+      createGuardian: formType === 'smart_school_roi' ? false : createGuardianDefault,
       requiresAssignment: req.body.requiresAssignment !== undefined ? req.body.requiresAssignment : requiresAssignmentDefault,
       allowedDocumentTemplateIds: parseJsonField(req.body.allowedDocumentTemplateIds),
       intakeFields: parseJsonField(req.body.intakeFields),
@@ -207,7 +219,7 @@ export const updateIntakeLink = async (req, res, next) => {
     const languageCode =
       req.body.languageCode !== undefined ? String(req.body.languageCode || '').trim().toLowerCase() : undefined;
     const formTypeRaw = req.body.formType !== undefined ? String(req.body.formType || 'intake').toLowerCase() : undefined;
-    const formType = formTypeRaw && ['public_form', 'job_application', 'medical_records_request'].includes(formTypeRaw) ? formTypeRaw : (formTypeRaw === 'intake' ? 'intake' : undefined);
+    const formType = formTypeRaw && PUBLIC_INTAKE_FORM_TYPES.includes(formTypeRaw) ? formTypeRaw : (formTypeRaw === 'intake' ? 'intake' : undefined);
     const jobDescriptionId = req.body.jobDescriptionId !== undefined ? asNumberOrNull(req.body.jobDescriptionId) : undefined;
     if (formType === 'job_application' && jobDescriptionId && existing) {
       const jd = await HiringJobDescription.findById(jobDescriptionId);
@@ -226,6 +238,15 @@ export const updateIntakeLink = async (req, res, next) => {
         : asNumberOrNull(existing.organization_id);
     if (requestedScopeType === 'learning_class') {
       return res.status(400).json({ error: { message: 'learning_class scope is not yet available' } });
+    }
+    const effectiveFormType = formType || String(existing.form_type || 'intake').toLowerCase();
+    if (effectiveFormType === 'smart_school_roi') {
+      if (requestedScopeType !== 'school') {
+        return res.status(400).json({ error: { message: 'Smart school ROI forms must use school scope' } });
+      }
+      if (!resolvedOrganizationId) {
+        return res.status(400).json({ error: { message: 'School organization is required for smart school ROI forms' } });
+      }
     }
 
     const updates = {
@@ -263,6 +284,11 @@ export const updateIntakeLink = async (req, res, next) => {
 
     if (scopeType === 'school') {
       updates.create_guardian = 0;
+    }
+    if (effectiveFormType === 'smart_school_roi') {
+      updates.create_client = 0;
+      updates.create_guardian = 0;
+      updates.requires_assignment = 0;
     }
     if (scopeType && scopeType !== 'learning_class' && req.body.learningClassId === undefined) {
       updates.learning_class_id = null;
