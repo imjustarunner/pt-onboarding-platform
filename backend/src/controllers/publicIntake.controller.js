@@ -1491,7 +1491,8 @@ export const getPublicIntakeLink = async (req, res, next) => {
           boundClient,
           organization,
           agency,
-          templates
+          templates,
+          issuedConfig: issuedRoiLink?.roi_context_json?.issuedConfig || issuedRoiLink?.roi_context_json || null
         })
       : null;
     res.json({
@@ -1528,11 +1529,15 @@ export const getPublicIntakeLink = async (req, res, next) => {
       } : null,
       boundClient: boundClient ? {
         id: boundClient.id,
-        full_name: boundClient.full_name || null,
+        full_name: String(
+          boundClient.full_name
+          || [boundClient.first_name, boundClient.last_name].filter(Boolean).join(' ')
+          || ''
+        ).trim() || null,
         initials: boundClient.initials || null,
         organization_id: boundClient.organization_id || null,
         organization_name: boundClient.organization_name || null,
-        date_of_birth: boundClient.date_of_birth || boundClient.dob || null
+        date_of_birth: boundClient.date_of_birth || boundClient.dob || boundClient.birthdate || boundClient.birth_date || null
       } : null,
       roiContext,
       templates: templates.map(t => ({
@@ -1659,7 +1664,8 @@ export const createPublicIntakeSession = async (req, res, next) => {
           boundClient,
           organization,
           agency,
-          templates: await loadAllowedTemplates(link)
+          templates: await loadAllowedTemplates(link),
+          issuedConfig: issuedRoiLink?.roi_context_json?.issuedConfig || issuedRoiLink?.roi_context_json || null
         });
         await ClientSchoolRoiSigningLink.updatePayload({
           id: issuedRoiLink.id,
@@ -2289,7 +2295,8 @@ export const finalizePublicIntake = async (req, res, next) => {
         boundClient,
         organization,
         agency,
-        templates
+        templates,
+        issuedConfig: issuedRoiLink?.roi_context_json?.issuedConfig || issuedRoiLink?.roi_context_json || null
       });
       const selectedTemplate = await resolveSmartSchoolRoiTemplate({ roiContext, templates });
       if (!selectedTemplate?.id) {
@@ -2605,7 +2612,8 @@ export const finalizePublicIntake = async (req, res, next) => {
             boundClient,
             organization,
             agency,
-            templates
+            templates,
+            issuedConfig: issuedRoiLink?.roi_context_json?.issuedConfig || issuedRoiLink?.roi_context_json || null
           });
           const selectedTemplate = await resolveSmartSchoolRoiTemplate({ roiContext, templates });
           if (selectedTemplate?.id) {
@@ -2713,7 +2721,8 @@ export const finalizePublicIntake = async (req, res, next) => {
             boundClient,
             organization,
             agency,
-            templates
+            templates,
+            issuedConfig: issuedRoiLink?.roi_context_json?.issuedConfig || issuedRoiLink?.roi_context_json || null
           });
           const selectedTemplate = await resolveSmartSchoolRoiTemplate({ roiContext, templates });
           if (selectedTemplate?.id) {

@@ -70,6 +70,39 @@
           </div>
         </div>
 
+        <div class="sms-card">
+          <div class="summary-k">ROI link type</div>
+          <div class="hint">
+            Choose whether this link signs school-staff ROI only, adds one sender-programmed non-school recipient, or lets the parent enter non-school release recipients.
+          </div>
+          <div class="form-group">
+            <label>Flow</label>
+            <select v-model="issueMode" class="inline-select">
+              <option value="school_staff_only">School staff ROI only</option>
+              <option value="sender_programmed">Sender-programmed non-school recipient</option>
+              <option value="parent_defined">Parent enters non-school recipients</option>
+            </select>
+          </div>
+          <div v-if="issueMode === 'sender_programmed'" class="sms-grid">
+            <div class="form-group">
+              <label>Recipient name</label>
+              <input v-model="programmedRecipientName" type="text" placeholder="Person name" />
+            </div>
+            <div class="form-group">
+              <label>Relationship</label>
+              <input v-model="programmedRecipientRelationship" type="text" placeholder="Case manager, mentor, etc." />
+            </div>
+            <div class="form-group">
+              <label>Email (optional)</label>
+              <input v-model="programmedRecipientEmail" type="email" placeholder="recipient@example.com" />
+            </div>
+            <div class="form-group">
+              <label>Phone (optional)</label>
+              <input v-model="programmedRecipientPhone" type="tel" placeholder="(555) 555-5555" />
+            </div>
+          </div>
+        </div>
+
         <div class="signing-actions">
           <button
             type="button"
@@ -343,6 +376,11 @@ const emailSubjectDraft = ref('');
 const emailMessageDraft = ref('');
 const emailMessageTouched = ref(false);
 const emailStatus = ref('');
+const issueMode = ref('school_staff_only');
+const programmedRecipientName = ref('');
+const programmedRecipientRelationship = ref('');
+const programmedRecipientEmail = ref('');
+const programmedRecipientPhone = ref('');
 
 const roiExpiryLabel = computed(() => {
   if (!roiExpiresAt.value) return 'Missing';
@@ -507,6 +545,11 @@ const load = async () => {
     emailSubjectDraft.value = '';
     emailMessageDraft.value = '';
     emailStatus.value = '';
+    issueMode.value = 'school_staff_only';
+    programmedRecipientName.value = '';
+    programmedRecipientRelationship.value = '';
+    programmedRecipientEmail.value = '';
+    programmedRecipientPhone.value = '';
     return;
   }
 
@@ -531,6 +574,11 @@ const load = async () => {
     savedIntakeLinkId.value = signing.selected_intake_link_id ? String(signing.selected_intake_link_id) : '';
     selectedIntakeLinkId.value = savedIntakeLinkId.value;
     issuedLink.value = signing.issued_link || null;
+    issueMode.value = String(signing.issued_link?.issue_mode || 'school_staff_only').trim() || 'school_staff_only';
+    programmedRecipientName.value = String(signing.issued_link?.programmed_external_recipient?.name || '').trim();
+    programmedRecipientRelationship.value = String(signing.issued_link?.programmed_external_recipient?.relationship || '').trim();
+    programmedRecipientEmail.value = String(signing.issued_link?.programmed_external_recipient?.email || '').trim();
+    programmedRecipientPhone.value = String(signing.issued_link?.programmed_external_recipient?.phone || '').trim();
     guardianEmails.value = Array.isArray(payload.guardian_emails) ? payload.guardian_emails : [];
     smsPhoneDraft.value = String(props.client?.contact_phone || payload.client_contact_phone || '').trim();
     if (!smsMessageTouched.value || !String(smsMessageDraft.value || '').trim()) {
@@ -562,6 +610,11 @@ const load = async () => {
     emailSubjectDraft.value = '';
     emailMessageDraft.value = '';
     emailStatus.value = '';
+    issueMode.value = 'school_staff_only';
+    programmedRecipientName.value = '';
+    programmedRecipientRelationship.value = '';
+    programmedRecipientEmail.value = '';
+    programmedRecipientPhone.value = '';
   } finally {
     loading.value = false;
   }
@@ -630,11 +683,28 @@ const saveSigningConfig = async () => {
 const ensureIssuedLink = async (regenerate = false) => {
   const clientId = Number(props.client?.id || 0);
   if (!clientId || !hasSigningConfig.value) return null;
+  if (issueMode.value === 'sender_programmed') {
+    if (!String(programmedRecipientName.value || '').trim() || !String(programmedRecipientRelationship.value || '').trim()) {
+      error.value = 'Recipient name and relationship are required for sender-programmed ROI links.';
+      return null;
+    }
+  }
   if (configDirty.value) {
     const ok = await saveSigningConfig();
     if (!ok) return null;
   }
-  const response = await api.post(`/clients/${clientId}/school-roi-signing-link`, { regenerate });
+  const response = await api.post(`/clients/${clientId}/school-roi-signing-link`, {
+    regenerate,
+    issueMode: issueMode.value,
+    programmedExternalRecipient: issueMode.value === 'sender_programmed'
+      ? {
+          name: programmedRecipientName.value,
+          relationship: programmedRecipientRelationship.value,
+          email: programmedRecipientEmail.value,
+          phone: programmedRecipientPhone.value
+        }
+      : null
+  });
   issuedLink.value = response.data?.issued_link || null;
   return issuedLink.value;
 };

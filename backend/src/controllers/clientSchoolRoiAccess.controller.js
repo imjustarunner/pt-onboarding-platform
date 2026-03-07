@@ -119,6 +119,7 @@ async function resolveSchoolRoiSelection(schoolOrganizationId) {
 
 function serializeIssuedRoiSigningLink(record, client) {
   if (!record) return null;
+  const issuedCfg = record?.roi_context_json?.issuedConfig || record?.roi_context_json || null;
   return {
     id: Number(record.id),
     intake_link_id: Number(record.intake_link_id),
@@ -132,7 +133,9 @@ function serializeIssuedRoiSigningLink(record, client) {
       ? Number(record.completed_client_phi_document_id)
       : null,
     client_id: Number(record.client_id),
-    client_full_name: client?.full_name || null
+    client_full_name: client?.full_name || null,
+    issue_mode: normalizeRoiLinkMode(issuedCfg?.externalReleaseMode),
+    programmed_external_recipient: issuedCfg?.programmedExternalRecipient || null
   };
 }
 
@@ -191,6 +194,22 @@ function buildDefaultRoiEmailBody({ agencyName, schoolName, clientName, linkUrl 
     ``,
     `${senderName}`
   ].join('\n');
+}
+
+function normalizeRoiLinkMode(value) {
+  const mode = String(value || '').trim().toLowerCase();
+  if (mode === 'sender_programmed') return 'sender_programmed';
+  if (mode === 'parent_defined') return 'parent_defined';
+  return 'school_staff_only';
+}
+
+function normalizeProgrammedExternalRecipient(input = {}) {
+  return {
+    name: String(input?.name || '').trim() || null,
+    relationship: String(input?.relationship || '').trim() || null,
+    email: String(input?.email || '').trim() || null,
+    phone: String(input?.phone || '').trim() || null
+  };
 }
 
 function escapeHtml(value) {
@@ -567,6 +586,17 @@ export const issueClientSchoolRoiSigningLink = async (req, res, next) => {
     }
 
     const regenerate = req.body?.regenerate === true;
+    const issueMode = normalizeRoiLinkMode(req.body?.issueMode);
+    const programmedExternalRecipient = issueMode === 'sender_programmed'
+      ? normalizeProgrammedExternalRecipient(req.body?.programmedExternalRecipient || {})
+      : null;
+    if (issueMode === 'sender_programmed') {
+      if (!programmedExternalRecipient?.name || !programmedExternalRecipient?.relationship) {
+        return res.status(400).json({
+          error: { message: 'Programmed recipient name and relationship are required for sender-programmed ROI links.' }
+        });
+      }
+    }
     const issuedResult = await ensureIssuedRoiSigningLinkForClient({
       client,
       schoolOrganizationId,
@@ -577,6 +607,16 @@ export const issueClientSchoolRoiSigningLink = async (req, res, next) => {
       return res.status(issuedResult.status).json({ error: { message: issuedResult.message } });
     }
     const issuedLink = issuedResult.issuedLink;
+    const issuedConfig = {
+      externalReleaseMode: issueMode,
+      programmedExternalRecipient
+    };
+    const issuedWithConfig = await ClientSchoolRoiSigningLink.updatePayload({
+      id: issuedLink?.id,
+      roiContext: {
+        issuedConfig
+      }
+    });
 
     await logAuditEvent(req, {
       actionType: 'client_school_roi_signing_link_issued',
@@ -586,7 +626,9 @@ export const issueClientSchoolRoiSigningLink = async (req, res, next) => {
         schoolOrganizationId,
         intakeLinkId: Number(issuedResult.selectedLink?.id || issuedLink?.intake_link_id || 0) || null,
         signingLinkId: issuedLink?.id || null,
-        regenerate
+        regenerate,
+        issueMode,
+        programmedExternalRecipient
       }
     });
     await createSchoolRoiBackofficeNotification({
@@ -602,7 +644,7 @@ export const issueClientSchoolRoiSigningLink = async (req, res, next) => {
       ok: true,
       client_id: clientId,
       school_organization_id: schoolOrganizationId,
-      issued_link: serializeIssuedRoiSigningLink(issuedLink, client)
+      issued_link: serializeIssuedRoiSigningLink(issuedWithConfig || issuedLink, client)
     });
   } catch (error) {
     next(error);

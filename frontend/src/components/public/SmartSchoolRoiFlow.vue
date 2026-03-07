@@ -226,6 +226,87 @@
       </div>
     </div>
 
+    <div v-else-if="stage === 'external_programmed'" class="smart-roi-card">
+      <div class="progress-label">Step {{ stepNumber }} of {{ totalSteps }}</div>
+      <h3>Non-school recipient approval</h3>
+      <p>Choose whether this ROI may release information to the pre-selected non-school recipient.</p>
+      <div class="staff-card">
+        <div class="staff-name">{{ programmedRecipient?.name || 'Recipient' }}</div>
+        <div class="staff-meta">{{ programmedRecipient?.relationship || 'Relationship not provided' }}</div>
+        <div class="staff-email" v-if="programmedRecipient?.email">{{ programmedRecipient.email }}</div>
+        <div class="staff-email" v-if="programmedRecipient?.phone">{{ programmedRecipient.phone }}</div>
+      </div>
+      <div class="choice-row">
+        <label class="choice-card" @click.prevent="selectProgrammedExternalDecision(true)">
+          <input :checked="form.programmedExternalAllowed === true" :value="true" type="radio" />
+          <span>Approve release</span>
+        </label>
+        <label class="choice-card" @click.prevent="selectProgrammedExternalDecision(false)">
+          <input :checked="form.programmedExternalAllowed === false" :value="false" type="radio" />
+          <span>Deny release</span>
+        </label>
+      </div>
+      <div class="actions">
+        <button type="button" class="btn btn-secondary" @click="goBack">Back</button>
+      </div>
+    </div>
+
+    <div v-else-if="stage === 'external_parent'" class="smart-roi-card">
+      <div class="progress-label">Step {{ stepNumber }} of {{ totalSteps }}</div>
+      <h3>Non-school release recipients</h3>
+      <p>Add each non-school person and select whether release is approved for that person.</p>
+      <div
+        v-for="(recipient, idx) in form.parentExternalRecipients"
+        :key="`recipient-${idx}`"
+        class="staff-card"
+        style="margin-bottom: 12px;"
+      >
+        <div class="summary-grid" style="margin: 0;">
+          <div>
+            <label>Name</label>
+            <input v-model="recipient.name" class="roi-input" type="text" placeholder="Person name" />
+          </div>
+          <div>
+            <label>Relationship</label>
+            <input v-model="recipient.relationship" class="roi-input" type="text" placeholder="Relationship to client" />
+          </div>
+          <div>
+            <label>Email</label>
+            <input v-model="recipient.email" class="roi-input" type="email" placeholder="recipient@example.com" />
+          </div>
+          <div>
+            <label>Phone</label>
+            <input v-model="recipient.phone" class="roi-input" type="tel" placeholder="(555) 555-5555" />
+          </div>
+        </div>
+        <div class="choice-row" style="margin-top: 10px;">
+          <label class="choice-card">
+            <input v-model="recipient.allowed" :value="true" type="radio" />
+            <span>Approve release</span>
+          </label>
+          <label class="choice-card">
+            <input v-model="recipient.allowed" :value="false" type="radio" />
+            <span>Deny release</span>
+          </label>
+        </div>
+        <div class="actions" style="justify-content: flex-end; margin-top: 8px;">
+          <button
+            type="button"
+            class="btn btn-secondary"
+            :disabled="form.parentExternalRecipients.length <= 1"
+            @click="removeExternalRecipient(idx)"
+          >
+            Remove
+          </button>
+        </div>
+      </div>
+      <div class="actions">
+        <button type="button" class="btn btn-secondary" @click="addExternalRecipient">Add recipient</button>
+        <button type="button" class="btn btn-secondary" @click="goBack">Back</button>
+        <button type="button" class="btn btn-primary" @click="goNext">Continue</button>
+      </div>
+    </div>
+
     <div v-else-if="stage === 'guidelines'" class="smart-roi-card">
       <div class="progress-label">Step {{ stepNumber }} of {{ totalSteps }}</div>
       <h3>Guidelines and limitations</h3>
@@ -278,6 +359,18 @@
         <p v-else>No staff were approved.</p>
       </div>
 
+      <div v-if="externalReleaseMode === 'sender_programmed'" class="review-block">
+        <h4>Programmed non-school recipient</h4>
+        <p><strong>Name:</strong> {{ programmedRecipient?.name || '—' }}</p>
+        <p><strong>Relationship:</strong> {{ programmedRecipient?.relationship || '—' }}</p>
+        <p><strong>Decision:</strong> {{ form.programmedExternalAllowed === true ? 'Approved' : 'Denied' }}</p>
+      </div>
+      <div v-else-if="externalReleaseMode === 'parent_defined'" class="review-block">
+        <h4>Parent-entered non-school recipients</h4>
+        <p><strong>Approved:</strong> {{ approvedExternalRecipients.length }}</p>
+        <p><strong>Denied:</strong> {{ deniedExternalRecipientsCount }}</p>
+      </div>
+
       <div class="review-block">
         <h4>School-level vs individual disclosure</h4>
         <p>
@@ -315,7 +408,7 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref } from 'vue';
+import { computed, reactive, ref, watch } from 'vue';
 import api from '../../services/api';
 import SignaturePad from '../SignaturePad.vue';
 
@@ -355,6 +448,13 @@ const emit = defineEmits(['completed', 'captured']);
 const ackItems = computed(() => Array.isArray(props.roiContext?.requiredAcknowledgements) ? props.roiContext.requiredAcknowledgements : []);
 const waiverItems = computed(() => Array.isArray(props.roiContext?.waiverItems) ? props.roiContext.waiverItems : []);
 const staffRoster = computed(() => Array.isArray(props.roiContext?.staffRoster) ? props.roiContext.staffRoster : []);
+const externalReleaseMode = computed(() => {
+  const mode = String(props.roiContext?.externalRelease?.mode || '').trim().toLowerCase();
+  if (mode === 'sender_programmed') return 'sender_programmed';
+  if (mode === 'parent_defined') return 'parent_defined';
+  return 'school_staff_only';
+});
+const programmedRecipient = computed(() => props.roiContext?.externalRelease?.programmedRecipient || null);
 
 const stageOrder = computed(() => {
   const stages = ['intro', 'purpose'];
@@ -362,6 +462,8 @@ const stageOrder = computed(() => {
   waiverItems.value.forEach((item) => stages.push(`waiver:${item.id}`));
   stages.push('packet');
   staffRoster.value.forEach((staff) => stages.push(`staff:${staff.schoolStaffUserId}`));
+  if (externalReleaseMode.value === 'sender_programmed') stages.push('external_programmed');
+  if (externalReleaseMode.value === 'parent_defined') stages.push('external_parent');
   stages.push('guidelines');
   stages.push('term');
   stages.push('review');
@@ -378,6 +480,25 @@ const error = ref('');
 
 const formatClientFullName = (firstName, lastName) =>
   `${String(firstName || '').trim()} ${String(lastName || '').trim()}`.trim();
+const resolveClientFullName = () => {
+  const fromContext = String(props.roiContext?.client?.fullName || '').trim();
+  if (fromContext) return fromContext;
+  const fromBound = String(props.boundClient?.full_name || props.boundClient?.fullName || '').trim();
+  if (fromBound) return fromBound;
+  const combined = [
+    String(props.boundClient?.first_name || '').trim(),
+    String(props.boundClient?.last_name || '').trim()
+  ].filter(Boolean).join(' ').trim();
+  return combined;
+};
+const resolveClientDob = () => (
+  props.roiContext?.client?.dateOfBirth
+  || props.boundClient?.date_of_birth
+  || props.boundClient?.dob
+  || props.boundClient?.birthdate
+  || props.boundClient?.birth_date
+  || ''
+);
 const normalizeDateInput = (value) => {
   const raw = String(value || '').trim();
   if (!raw) return '';
@@ -404,8 +525,8 @@ const prefillSignerPhone = String(prefill.value.signerPhone || '').trim();
 const prefillSignerRelationship = String(prefill.value.signerRelationship || '').trim();
 const prefillClientName = String(prefill.value.clientFullName || '').trim();
 const prefillClientDob = normalizeDateInput(prefill.value.clientDateOfBirth || '');
-const roiClientName = String(props.roiContext?.client?.fullName || props.boundClient?.full_name || '').trim();
-const roiClientDob = normalizeDateInput(props.roiContext?.client?.dateOfBirth || props.boundClient?.date_of_birth || '');
+const roiClientName = String(resolveClientFullName() || '').trim();
+const roiClientDob = normalizeDateInput(resolveClientDob());
 
 const form = reactive({
   intakeForSelf: prefillIntakeForSelf,
@@ -421,8 +542,27 @@ const form = reactive({
   packetReleaseAllowed: null,
   requiredAcknowledgements: Object.fromEntries(ackItems.value.map((item) => [item.id, null])),
   waiverItems: Object.fromEntries(waiverItems.value.map((item) => [item.id, null])),
-  staffDecisions: Object.fromEntries(staffRoster.value.map((staff) => [staff.schoolStaffUserId, null]))
+  staffDecisions: Object.fromEntries(staffRoster.value.map((staff) => [staff.schoolStaffUserId, null])),
+  programmedExternalAllowed: null,
+  parentExternalRecipients: [{
+    name: '',
+    relationship: '',
+    email: '',
+    phone: '',
+    allowed: null
+  }]
 });
+
+const hydrateClientFieldsFromContext = () => {
+  const nextName = String(resolveClientFullName() || '').trim();
+  const nextDob = normalizeDateInput(resolveClientDob());
+  if (!String(form.clientFullName || '').trim() && nextName) {
+    form.clientFullName = nextName;
+  }
+  if (!String(form.clientDateOfBirth || '').trim() && nextDob) {
+    form.clientDateOfBirth = nextDob;
+  }
+};
 
 const stageToken = computed(() => stageOrder.value[stageIndex.value] || 'intro');
 const stage = computed(() => stageToken.value.split(':')[0]);
@@ -451,6 +591,12 @@ const deniedStaffCount = computed(() =>
 const schoolSchedulingSafetyAuthorized = computed(() =>
   form.waiverItems.school_scheduling_safety_logistics === 'accept'
 );
+const approvedExternalRecipients = computed(() =>
+  (form.parentExternalRecipients || []).filter((row) => row.allowed === true)
+);
+const deniedExternalRecipientsCount = computed(() =>
+  (form.parentExternalRecipients || []).filter((row) => row.allowed === false).length
+);
 const isEmbeddedMode = computed(() => String(props.mode || '').toLowerCase() === 'embedded');
 const isSubjectChoiceLocked = computed(() => typeof prefill.value.intakeForSelf === 'boolean');
 const isClientNameLocked = computed(
@@ -475,7 +621,26 @@ const buildRoiPayload = () => ({
   staffDecisions: staffRoster.value.map((staff) => ({
     schoolStaffUserId: staff.schoolStaffUserId,
     allowed: form.staffDecisions[staff.schoolStaffUserId] === true
-  }))
+  })),
+  externalReleaseMode: externalReleaseMode.value,
+  programmedExternalRecipient: externalReleaseMode.value === 'sender_programmed'
+    ? {
+        name: programmedRecipient.value?.name || '',
+        relationship: programmedRecipient.value?.relationship || '',
+        email: programmedRecipient.value?.email || '',
+        phone: programmedRecipient.value?.phone || '',
+        allowed: form.programmedExternalAllowed
+      }
+    : null,
+  externalRecipients: externalReleaseMode.value === 'parent_defined'
+    ? (form.parentExternalRecipients || []).map((row) => ({
+        name: row.name,
+        relationship: row.relationship,
+        email: row.email,
+        phone: row.phone,
+        allowed: row.allowed
+      }))
+    : []
 });
 
 const buildSubmissionPayload = () => ({
@@ -548,6 +713,22 @@ const validateCurrentStage = () => {
     error.value = 'Choose whether to approve or deny release for this staff member.';
     return false;
   }
+  if (stage.value === 'external_programmed' && typeof form.programmedExternalAllowed !== 'boolean') {
+    error.value = 'Choose whether to approve release for the programmed non-school recipient.';
+    return false;
+  }
+  if (stage.value === 'external_parent') {
+    if (!Array.isArray(form.parentExternalRecipients) || form.parentExternalRecipients.length === 0) {
+      error.value = 'Add at least one non-school recipient.';
+      return false;
+    }
+    for (const [idx, row] of form.parentExternalRecipients.entries()) {
+      if (!String(row.name || '').trim() || !String(row.relationship || '').trim() || typeof row.allowed !== 'boolean') {
+        error.value = `Complete recipient ${idx + 1} name, relationship, and decision before continuing.`;
+        return false;
+      }
+    }
+  }
   if (stage.value === 'review' && !signatureData.value) {
     error.value = 'Capture an electronic signature before completing the release.';
     return false;
@@ -593,6 +774,46 @@ const selectStaffDecision = (allowed) => {
   error.value = '';
   goNext();
 };
+
+const selectProgrammedExternalDecision = (allowed) => {
+  form.programmedExternalAllowed = allowed === true;
+  error.value = '';
+  goNext();
+};
+
+const addExternalRecipient = () => {
+  form.parentExternalRecipients.push({
+    name: '',
+    relationship: '',
+    email: '',
+    phone: '',
+    allowed: null
+  });
+};
+
+const removeExternalRecipient = (index) => {
+  if (form.parentExternalRecipients.length <= 1) return;
+  form.parentExternalRecipients.splice(index, 1);
+};
+
+watch(
+  () => [
+    props.roiContext?.client?.fullName,
+    props.roiContext?.client?.dateOfBirth,
+    props.boundClient?.full_name,
+    props.boundClient?.fullName,
+    props.boundClient?.first_name,
+    props.boundClient?.last_name,
+    props.boundClient?.date_of_birth,
+    props.boundClient?.dob,
+    props.boundClient?.birthdate,
+    props.boundClient?.birth_date
+  ],
+  () => {
+    hydrateClientFieldsFromContext();
+  },
+  { immediate: true }
+);
 
 const onSigned = (dataUrl) => {
   signatureData.value = dataUrl;

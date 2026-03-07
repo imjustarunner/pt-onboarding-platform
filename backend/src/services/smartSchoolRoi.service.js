@@ -131,6 +131,26 @@ function formatDateTime(value) {
   return date.toISOString();
 }
 
+function resolveClientFullName(client = {}) {
+  const direct = String(client?.full_name || client?.fullName || '').trim();
+  if (direct) return direct;
+  const combined = [
+    String(client?.first_name || client?.firstName || '').trim(),
+    String(client?.last_name || client?.lastName || '').trim()
+  ].filter(Boolean).join(' ').trim();
+  if (combined) return combined;
+  const initials = String(client?.initials || '').trim();
+  return initials || null;
+}
+
+function resolveClientDob(client = {}) {
+  return client?.date_of_birth
+    || client?.dob
+    || client?.birthdate
+    || client?.birth_date
+    || null;
+}
+
 function buildSchoolAddress(organization = {}) {
   const direct = String(
     organization?.school_profile?.school_address
@@ -221,11 +241,37 @@ function normalizeWaiverItems(definitions = [], values = {}) {
   }));
 }
 
+function normalizeExternalRecipient(entry = {}) {
+  return {
+    name: String(entry?.name || '').trim() || null,
+    relationship: String(entry?.relationship || '').trim() || null,
+    email: String(entry?.email || '').trim() || null,
+    phone: String(entry?.phone || '').trim() || null,
+    allowed: entry?.allowed === null || entry?.allowed === undefined
+      ? null
+      : normalizeBool(entry?.allowed)
+  };
+}
+
+function normalizeExternalReleaseMode(value) {
+  const mode = String(value || '').trim().toLowerCase();
+  if (mode === 'sender_programmed') return 'sender_programmed';
+  if (mode === 'parent_defined') return 'parent_defined';
+  return 'school_staff_only';
+}
+
 export function isSmartSchoolRoiForm(link) {
   return String(link?.form_type || '').trim().toLowerCase() === 'smart_school_roi';
 }
 
-export async function buildSmartSchoolRoiContext({ link, boundClient, organization, agency, templates = [] }) {
+export async function buildSmartSchoolRoiContext({
+  link,
+  boundClient,
+  organization,
+  agency,
+  templates = [],
+  issuedConfig = null
+}) {
   const schoolOrganizationId = Number(boundClient?.organization_id || link?.organization_id || organization?.id || 0) || null;
   let staffRoster = [];
   if (schoolOrganizationId && boundClient?.id) {
@@ -242,13 +288,18 @@ export async function buildSmartSchoolRoiContext({ link, boundClient, organizati
   }
 
   const template = preferredTemplate(templates);
+  const cfg = issuedConfig && typeof issuedConfig === 'object' ? issuedConfig : {};
+  const externalReleaseMode = normalizeExternalReleaseMode(cfg?.externalReleaseMode);
+  const programmedExternalRecipient = externalReleaseMode === 'sender_programmed'
+    ? normalizeExternalRecipient(cfg?.programmedExternalRecipient || {})
+    : null;
 
   return {
     client: {
       id: Number(boundClient?.id || 0) || null,
-      fullName: String(boundClient?.full_name || '').trim() || null,
+      fullName: resolveClientFullName(boundClient),
       initials: String(boundClient?.initials || '').trim() || null,
-      dateOfBirth: boundClient?.date_of_birth || boundClient?.dob || null,
+      dateOfBirth: resolveClientDob(boundClient),
       roiExpiresAt: boundClient?.roi_expires_at || null
     },
     school: {
@@ -280,7 +331,11 @@ export async function buildSmartSchoolRoiContext({ link, boundClient, organizati
       email: staff.email || null,
       phone: staff.phone_number || null,
       role: String(staff.role_key || 'school_staff').replace(/_/g, ' ')
-    }))
+    })),
+    externalRelease: {
+      mode: externalReleaseMode,
+      programmedRecipient: programmedExternalRecipient
+    }
   };
 }
 
@@ -300,6 +355,31 @@ export function normalizeSmartSchoolRoiResponse({ roiContext = {}, intakeData = 
     waiverItems.find((item) => item.id === 'school_scheduling_safety_logistics')?.decision === 'accept';
   const approvedStaffCount = staffDecisions.filter((staff) => staff.allowed).length;
   const deniedStaffCount = staffDecisions.filter((staff) => staff.allowed === false).length;
+  const externalReleaseMode = normalizeExternalReleaseMode(
+    roi?.externalReleaseMode
+    || roiContext?.externalRelease?.mode
+    || 'school_staff_only'
+  );
+  const externalRecipients = (() => {
+    if (externalReleaseMode === 'sender_programmed') {
+      const programmed = normalizeExternalRecipient(
+        roiContext?.externalRelease?.programmedRecipient
+        || roi?.programmedExternalRecipient
+        || {}
+      );
+      return [{
+        ...programmed,
+        allowed: roi?.programmedExternalRecipient?.allowed === null || roi?.programmedExternalRecipient?.allowed === undefined
+          ? programmed.allowed
+          : normalizeBool(roi?.programmedExternalRecipient?.allowed)
+      }];
+    }
+    if (externalReleaseMode === 'parent_defined') {
+      const rows = Array.isArray(roi?.externalRecipients) ? roi.externalRecipients : [];
+      return rows.map((entry) => normalizeExternalRecipient(entry));
+    }
+    return [];
+  })();
   return {
     signedAt: formatDateTime(signedAt),
     clientFullName: String(
@@ -323,7 +403,9 @@ export function normalizeSmartSchoolRoiResponse({ roiContext = {}, intakeData = 
     staffDecisions,
     schoolSchedulingSafetyLogisticsAuthorized,
     approvedStaffCount,
-    deniedStaffCount
+    deniedStaffCount,
+    externalReleaseMode,
+    externalRecipients
   };
 }
 
@@ -359,6 +441,26 @@ export function validateSmartSchoolRoiResponse(response) {
 
   if (typeof response?.packetReleaseAllowed !== 'boolean') {
     missing.push('Packet and document release choice');
+  }
+
+  const externalMode = normalizeExternalReleaseMode(response?.externalReleaseMode);
+  if (externalMode === 'sender_programmed') {
+    const row = Array.isArray(response?.externalRecipients) ? response.externalRecipients[0] : null;
+    if (!row?.name) missing.push('Programmed external recipient name');
+    if (!row?.relationship) missing.push('Programmed external recipient relationship');
+    if (typeof row?.allowed !== 'boolean') missing.push('Programmed external recipient decision');
+  }
+  if (externalMode === 'parent_defined') {
+    const rows = Array.isArray(response?.externalRecipients) ? response.externalRecipients : [];
+    if (!rows.length) {
+      missing.push('At least one external release recipient');
+    }
+    for (const [idx, row] of rows.entries()) {
+      const label = row?.name || `Recipient ${idx + 1}`;
+      if (!row?.name) missing.push(`External recipient name (${label})`);
+      if (!row?.relationship) missing.push(`External recipient relationship (${label})`);
+      if (typeof row?.allowed !== 'boolean') missing.push(`External recipient decision (${label})`);
+    }
   }
 
   return {
@@ -410,6 +512,10 @@ export function buildSmartSchoolRoiHtml({ roiContext = {}, response = {}, signed
   const schoolSchedulingSafetyText = response.schoolSchedulingSafetyLogisticsAuthorized
     ? 'Authorized. Limited school-level scheduling/logistics visibility is permitted for operations and student safety.'
     : 'Not authorized.';
+  const externalMode = normalizeExternalReleaseMode(response.externalReleaseMode);
+  const externalModeText = externalMode === 'sender_programmed'
+    ? 'Sender-programmed single external release recipient.'
+    : (externalMode === 'parent_defined' ? 'Parent-entered external release recipients.' : 'No external non-school recipient flow used.');
 
   return `<!DOCTYPE html>
 <html>
@@ -504,6 +610,33 @@ export function buildSmartSchoolRoiHtml({ roiContext = {}, response = {}, signed
     <h2>School-Level vs Individual Disclosure</h2>
     <p><strong>School-level scheduling/safety logistics:</strong> ${escapeHtml(schoolSchedulingSafetyText)}</p>
     <p><strong>Individual staff disclosure:</strong> Only staff explicitly approved in this ROI may receive individual ROI-based disclosure access. Staff not approved receive no individual ROI or packet access.</p>
+    <p><strong>External non-school release mode:</strong> ${escapeHtml(externalModeText)}</p>
+
+    ${(response.externalRecipients || []).length ? `
+    <h2>External Non-School Recipients</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Relationship</th>
+          <th>Phone</th>
+          <th>Email</th>
+          <th>Decision</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${(response.externalRecipients || []).map((row) => `
+          <tr>
+            <td>${escapeHtml(row?.name || '—')}</td>
+            <td>${escapeHtml(row?.relationship || '—')}</td>
+            <td>${escapeHtml(row?.phone || '—')}</td>
+            <td>${escapeHtml(row?.email || '—')}</td>
+            <td>${row?.allowed === true ? 'Approved' : (row?.allowed === false ? 'Denied' : '—')}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+    ` : ''}
 
     <h2>Term, Revocation, and Required Notices</h2>
     <ul>
