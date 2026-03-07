@@ -1426,10 +1426,11 @@ const currentClientPositionLabel = computed(() => {
   return `${idx + 1} of ${count}`;
 });
 const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
+const isSuperAdmin = computed(() => roleNorm.value === 'super_admin');
 const isBackofficeRole = computed(() => ['super_admin', 'admin', 'support', 'staff'].includes(roleNorm.value));
 const canViewAdminNote = computed(() => isBackofficeRole.value || roleNorm.value === 'supervisor');
 const canManageClientCode = computed(() => isBackofficeRole.value || roleNorm.value === 'supervisor');
-const canEditAccount = computed(() => isBackofficeRole.value && hasAgencyAccess.value);
+const isSchoolClient = computed(() => String(props.client?.organization_type || '').trim().toLowerCase() === 'school');
 // Providers terminate via "Mark as Terminated" in roster only; support staff use this panel
 const canTerminate = computed(() => {
   if (!hasAgencyAccess.value) return false;
@@ -1464,11 +1465,12 @@ const tabs = computed(() => {
     base.splice(idx < 0 ? base.length : idx, 0, { id: 'billing', label: 'Billing' });
   }
   if (canEditAccount.value) {
-    const roiIdx = base.findIndex((t) => t.id === 'phi');
-    base.splice(roiIdx < 0 ? base.length : roiIdx, 0, { id: 'school-roi', label: 'School ROI Access' });
-    // Insert before PHI tab
     const idx = base.findIndex((t) => t.id === 'phi');
     base.splice(idx < 0 ? base.length : idx, 0, { id: 'assignments', label: 'Assignments' });
+  }
+  if (canManageSchoolRoi.value) {
+    const roiIdx = base.findIndex((t) => t.id === 'phi');
+    base.splice(roiIdx < 0 ? base.length : roiIdx, 0, { id: 'school-roi', label: 'School ROI Access' });
   }
   return base;
 });
@@ -1620,7 +1622,6 @@ const closeAdminNoteModal = () => {
   showAdminNoteModal.value = false;
 };
 
-const hasAgencyAccess = ref(false);
 const myAgencies = ref([]);
 
 // Multi-agency (client may be affiliated with multiple agencies)
@@ -1629,6 +1630,14 @@ const selectedAgencyId = ref('');
 const switchingAgency = ref(false);
 
 const switchableAgencies = computed(() => {
+  if (isSuperAdmin.value) {
+    return (clientAgencyAffiliations.value || [])
+      .map((a) => ({
+        id: Number(a?.agency_id),
+        name: String(a?.agency_name || '').trim()
+      }))
+      .filter((a) => a.id && a.name);
+  }
   const mine = new Set((myAgencies.value || []).map((a) => Number(a?.id)).filter(Boolean));
   const fromClient = (clientAgencyAffiliations.value || []).map((a) => ({
     id: Number(a?.agency_id),
@@ -1643,6 +1652,19 @@ const switchableAgencies = computed(() => {
 
   return fromClient.filter((a) => mine.has(a.id));
 });
+
+const hasAgencyAccess = computed(() => {
+  if (isSuperAdmin.value) return true;
+  const mine = new Set((myAgencies.value || []).map((a) => Number(a?.id)).filter(Boolean));
+  const clientAgencyIds = (clientAgencyAffiliations.value || []).map((a) => Number(a?.agency_id)).filter(Boolean);
+  if (clientAgencyIds.length > 0) {
+    return clientAgencyIds.some((id) => mine.has(id));
+  }
+  return mine.has(Number(props.client?.agency_id || 0));
+});
+
+const canEditAccount = computed(() => isBackofficeRole.value && hasAgencyAccess.value);
+const canManageSchoolRoi = computed(() => isBackofficeRole.value && hasAgencyAccess.value && isSchoolClient.value);
 
 const clientAgenciesNote = computed(() => {
   // If user isn't affiliated with the client’s agency (or the client is multi-agency),
@@ -2459,11 +2481,9 @@ const fetchAccess = async () => {
     const response = await api.get('/users/me/agencies');
     const agencies = response.data || [];
     myAgencies.value = Array.isArray(agencies) ? agencies : [];
-    hasAgencyAccess.value = myAgencies.value.some((a) => Number(a.id) === Number(props.client.agency_id));
     // Keep selected agency synced to client's primary agency.
     selectedAgencyId.value = props.client?.agency_id ? String(props.client.agency_id) : '';
   } catch {
-    hasAgencyAccess.value = false;
     myAgencies.value = [];
   }
 };
