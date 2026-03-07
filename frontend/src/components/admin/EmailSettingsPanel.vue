@@ -100,6 +100,7 @@
         </div>
 
         <div v-if="senderError" class="error">{{ senderError }}</div>
+        <div v-if="senderSuccess" class="success">{{ senderSuccess }}</div>
         <div v-if="senderLoading" class="loading">Loading sender identities…</div>
 
         <div v-else>
@@ -413,6 +414,7 @@ const senderAgencyId = ref('');
 const senderIdentities = ref([]);
 const senderLoading = ref(false);
 const senderError = ref('');
+const senderSuccess = ref('');
 const senderSavingId = ref(null);
 const includePlatformDefaults = ref(false);
 const testRecipient = ref('');
@@ -510,9 +512,12 @@ const parseInboundAddresses = (raw) => {
     .filter(Boolean);
 };
 
+const normalizeBool = (value) => value === true || value === 1 || value === '1';
+
 const loadSenderIdentities = async () => {
   senderLoading.value = true;
   senderError.value = '';
+  senderSuccess.value = '';
   try {
     const params = {
       agencyId: senderAgencyId.value !== '' ? senderAgencyId.value : null,
@@ -521,6 +526,7 @@ const loadSenderIdentities = async () => {
     const resp = await api.get('/email-senders', { params });
     senderIdentities.value = (resp.data || []).map((i) => ({
       ...i,
+      is_active: normalizeBool(i.is_active),
       inboundAddressesText: (i.inbound_addresses || []).join(', ')
     }));
   } catch (err) {
@@ -533,6 +539,7 @@ const loadSenderIdentities = async () => {
 const createIdentity = async () => {
   senderSavingId.value = 'new';
   senderError.value = '';
+  senderSuccess.value = '';
   try {
     const payload = {
       agencyId: senderAgencyId.value !== '' ? Number(senderAgencyId.value) : null,
@@ -546,6 +553,7 @@ const createIdentity = async () => {
     await api.post('/email-senders', payload);
     newIdentity.value = { identityKey: '', fromEmail: '', displayName: '', replyTo: '', inboundAddressesText: '' };
     await loadSenderIdentities();
+    senderSuccess.value = 'Sender identity created successfully.';
   } catch (err) {
     senderError.value = err?.response?.data?.error?.message || 'Failed to create sender identity.';
   } finally {
@@ -556,6 +564,7 @@ const createIdentity = async () => {
 const saveIdentity = async (identity) => {
   senderSavingId.value = identity.id;
   senderError.value = '';
+  senderSuccess.value = '';
   try {
     const payload = {
       identityKey: identity.identity_key,
@@ -563,10 +572,11 @@ const saveIdentity = async (identity) => {
       displayName: identity.display_name || null,
       replyTo: identity.reply_to || null,
       inboundAddresses: parseInboundAddresses(identity.inboundAddressesText),
-      isActive: identity.is_active === true || identity.is_active === 1
+      isActive: normalizeBool(identity.is_active)
     };
     await api.put(`/email-senders/${identity.id}`, payload);
     await loadSenderIdentities();
+    senderSuccess.value = 'Sender identity saved successfully.';
   } catch (err) {
     senderError.value = err?.response?.data?.error?.message || 'Failed to save sender identity.';
   } finally {
@@ -577,6 +587,7 @@ const saveIdentity = async (identity) => {
 const sendTest = async (identity) => {
   senderSavingId.value = identity.id;
   senderError.value = '';
+  senderSuccess.value = '';
   try {
     const payload = {
       toEmail: testRecipient.value || authStore.user?.email || null,
@@ -584,6 +595,10 @@ const sendTest = async (identity) => {
       text: 'This is a test email to validate your sender identity configuration.'
     };
     await api.post(`/email-senders/${identity.id}/test`, payload);
+    const recipient = String(payload.toEmail || authStore.user?.email || '').trim();
+    senderSuccess.value = recipient
+      ? `Test email sent to ${recipient}.`
+      : 'Test email sent successfully.';
   } catch (err) {
     senderError.value = err?.response?.data?.error?.message || 'Failed to send test email.';
   } finally {
@@ -952,6 +967,15 @@ watch([senderAgencyId, includePlatformDefaults], () => {
   background: #ffe9e9;
   border: 1px solid #f3bcbc;
   color: #7f1d1d;
+  padding: 10px 12px;
+  border-radius: 6px;
+  margin-bottom: 12px;
+}
+
+.success {
+  background: #e9fff1;
+  border: 1px solid #b7ebc8;
+  color: #14532d;
   padding: 10px 12px;
   border-radius: 6px;
   margin-bottom: 12px;
