@@ -35,6 +35,11 @@ import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
 import { sendEmailFromIdentity } from '../services/unifiedEmail/unifiedEmailSender.service.js';
 import { logAuditEvent } from '../services/auditEvent.service.js';
 import {
+  pickPreferredSenderIdentity,
+  resolvePreferredSenderIdentityForAgency,
+  resolvePreferredSenderIdentityForSchoolThenAgency
+} from '../services/emailSenderIdentityResolver.service.js';
+import {
   applySmartSchoolRoiAccessDecisions,
   buildSmartSchoolRoiContext,
   buildSmartSchoolRoiHtml,
@@ -243,18 +248,22 @@ const resolvePacketCompletionEmailContent = async ({
 };
 
 const resolveIntakeSenderIdentity = async ({ organizationId, scopeType, agencyId: explicitAgencyId = null }) => {
-  const agencyId = Number(explicitAgencyId || organizationId);
-  if (!agencyId) return null;
   const scope = String(scopeType || '').trim().toLowerCase();
-  const keys = scope === 'school'
+  const preferredKeys = scope === 'school'
     ? ['school_intake', 'intake', 'notifications', 'system']
     : ['intake', 'notifications', 'system'];
-  const list = await EmailSenderIdentity.list({ agencyId, includePlatformDefaults: true, onlyActive: true });
-  for (const key of keys) {
-    const match = (list || []).find((i) => String(i?.identity_key || '').trim() === key);
-    if (match) return match;
+
+  if (scope === 'school') {
+    return await resolvePreferredSenderIdentityForSchoolThenAgency({
+      schoolOrganizationId: organizationId,
+      agencyId: explicitAgencyId || null,
+      preferredKeys
+    });
   }
-  return null;
+
+  const agencyId = Number(explicitAgencyId || organizationId);
+  if (!agencyId) return null;
+  return await resolvePreferredSenderIdentityForAgency({ agencyId, preferredKeys });
 };
 
 const resolveAbsoluteAssetUrl = (value) => {
@@ -291,22 +300,35 @@ const applyIdentitySignatureBlock = ({ identity, text = '', html = '' }) => {
 };
 
 const resolveFallbackSignatureIdentity = async ({ organizationId, scopeType, agencyId: explicitAgencyId = null }) => {
-  const agencyId = Number(explicitAgencyId || organizationId);
-  if (!agencyId) return null;
   const scope = String(scopeType || '').trim().toLowerCase();
-  const keys = scope === 'school'
+  const preferredKeys = scope === 'school'
     ? ['school_intake', 'intake', 'notifications', 'system']
     : ['intake', 'notifications', 'system'];
-  const list = await EmailSenderIdentity.list({ agencyId, includePlatformDefaults: true, onlyActive: true });
-  const withSignature = (list || []).filter(
+
+  const withSignatureFilter = (list = []) => (list || []).filter(
     (i) => String(i?.signature_image_url || i?.signature_image_path || '').trim()
   );
-  if (!withSignature.length) return null;
-  for (const key of keys) {
-    const match = withSignature.find((i) => String(i?.identity_key || '').trim() === key);
-    if (match) return match;
+
+  if (scope === 'school') {
+    const schoolId = Number(organizationId || 0) || null;
+    if (schoolId) {
+      const schoolList = await EmailSenderIdentity.list({ agencyId: schoolId, includePlatformDefaults: true, onlyActive: true });
+      const schoolWithSignature = withSignatureFilter(schoolList);
+      const schoolMatch = pickPreferredSenderIdentity(schoolWithSignature, preferredKeys);
+      if (schoolMatch?.id) return schoolMatch;
+    }
+    const agencyId = Number(explicitAgencyId || 0) || null;
+    if (agencyId) {
+      const agencyList = await EmailSenderIdentity.list({ agencyId, includePlatformDefaults: true, onlyActive: true });
+      return pickPreferredSenderIdentity(withSignatureFilter(agencyList), preferredKeys);
+    }
+    return null;
   }
-  return withSignature[0] || null;
+
+  const agencyId = Number(explicitAgencyId || organizationId);
+  if (!agencyId) return null;
+  const list = await EmailSenderIdentity.list({ agencyId, includePlatformDefaults: true, onlyActive: true });
+  return pickPreferredSenderIdentity(withSignatureFilter(list), preferredKeys);
 };
 
 const resolvePublicIntakeContext = async (publicKey) => {

@@ -12,8 +12,8 @@ import { createSignedState as createGoogleState, verifySignedState as verifyGoog
 import EmailService from '../services/email.service.js';
 import EmailTemplateService from '../services/emailTemplate.service.js';
 import CommunicationLoggingService from '../services/communicationLogging.service.js';
-import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
 import { sendEmailFromIdentity } from '../services/unifiedEmail/unifiedEmailSender.service.js';
+import { resolvePreferredSenderIdentityForAgency } from '../services/emailSenderIdentityResolver.service.js';
 import pool from '../config/database.js';
 
 async function buildPayrollCaps(user) {
@@ -2217,18 +2217,10 @@ const getOrgAdminEmail = (agency) => {
 };
 
 const resolveRecoverySenderIdentity = async (agencyId) => {
-  const a = agencyId ? Number(agencyId) : null;
-  const list = await EmailSenderIdentity.list({
-    agencyId: a,
-    includePlatformDefaults: true,
-    onlyActive: true
+  return await resolvePreferredSenderIdentityForAgency({
+    agencyId: agencyId ? Number(agencyId) : null,
+    preferredKeys: ['login_recovery', 'system', 'default', 'notifications']
   });
-  const preferredKeys = ['login_recovery', 'system', 'default', 'notifications'];
-  for (const key of preferredKeys) {
-    const hit = (list || []).find((i) => String(i?.identity_key || '').trim().toLowerCase() === key);
-    if (hit) return hit;
-  }
-  return (list || [])[0] || null;
 };
 
 const sendRecoveryEmail = async ({

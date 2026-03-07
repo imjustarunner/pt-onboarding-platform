@@ -15,6 +15,11 @@ import {
   removeSchoolEmailAiPolicyOverride
 } from '../services/emailSettings.service.js';
 
+function isParentAgencyOrg(org) {
+  const type = String(org?.organization_type || '').trim().toLowerCase();
+  return !['school', 'program', 'learning', 'clinical'].includes(type);
+}
+
 export const getEmailSettings = async (req, res, next) => {
   try {
     const platform = await getPlatformEmailSettings();
@@ -27,6 +32,7 @@ export const getEmailSettings = async (req, res, next) => {
     } else {
       agencies = await User.getAgencies(req.user.id);
     }
+    agencies = (agencies || []).filter(isParentAgencyOrg);
 
     const agencyIds = (agencies || []).map((a) => Number(a.id)).filter(Boolean);
     const agencySettings = await listAgencyEmailSettings(agencyIds);

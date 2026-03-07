@@ -2025,24 +2025,14 @@ export const sendSchoolStaffResetPassword = async (req, res, next) => {
       }
       try {
         const { sendEmailFromIdentity } = await import('../services/unifiedEmail/unifiedEmailSender.service.js');
-        const EmailSenderIdentity = (await import('../models/EmailSenderIdentity.model.js')).default;
+        const { resolvePreferredSenderIdentityForAgency } = await import('../services/emailSenderIdentityResolver.service.js');
         const EmailService = (await import('../services/email.service.js')).default;
         const CommunicationLoggingService = (await import('../services/communicationLogging.service.js')).default;
 
-        const list = await EmailSenderIdentity.list({
+        const identity = await resolvePreferredSenderIdentityForAgency({
           agencyId: agencyId || null,
-          includePlatformDefaults: true,
-          onlyActive: true
+          preferredKeys: ['login_recovery', 'system', 'default', 'notifications']
         });
-        const preferredKeys = ['login_recovery', 'system', 'default', 'notifications'];
-        let identity = null;
-        for (const key of preferredKeys) {
-          const hit = (list || []).find((i) => String(i?.identity_key || '').trim().toLowerCase() === key);
-          if (hit) {
-            identity = hit;
-            break;
-          }
-        }
         const sendResult = identity?.id
           ? await sendEmailFromIdentity({
               senderIdentityId: identity.id,
@@ -2254,22 +2244,12 @@ export const addSchoolStaff = async (req, res, next) => {
           body = rendered.body || body;
         }
         const { sendEmailFromIdentity } = await import('../services/unifiedEmail/unifiedEmailSender.service.js');
-        const EmailSenderIdentity = (await import('../models/EmailSenderIdentity.model.js')).default;
+        const { resolvePreferredSenderIdentityForAgency } = await import('../services/emailSenderIdentityResolver.service.js');
         const EmailService = (await import('../services/email.service.js')).default;
-        const list = await EmailSenderIdentity.list({
+        const identity = await resolvePreferredSenderIdentityForAgency({
           agencyId: agencyId || null,
-          includePlatformDefaults: true,
-          onlyActive: true
+          preferredKeys: ['login_recovery', 'system', 'default', 'notifications']
         });
-        const preferredKeys = ['login_recovery', 'system', 'default', 'notifications'];
-        let identity = null;
-        for (const key of preferredKeys) {
-          const hit = (list || []).find((i) => String(i?.identity_key || '').trim().toLowerCase() === key);
-          if (hit) {
-            identity = hit;
-            break;
-          }
-        }
         if (identity?.id) {
           await sendEmailFromIdentity({
             senderIdentityId: identity.id,

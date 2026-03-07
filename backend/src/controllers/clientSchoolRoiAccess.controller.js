@@ -13,10 +13,10 @@ import ClientGuardian from '../models/ClientGuardian.model.js';
 import MessageLog from '../models/MessageLog.model.js';
 import TwilioNumber from '../models/TwilioNumber.model.js';
 import TwilioOptInState from '../models/TwilioOptInState.model.js';
-import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
 import TwilioService from '../services/twilio.service.js';
 import { sendEmailFromIdentity } from '../services/unifiedEmail/unifiedEmailSender.service.js';
 import { logAuditEvent } from '../services/auditEvent.service.js';
+import { resolvePreferredSenderIdentityForSchoolThenAgency } from '../services/emailSenderIdentityResolver.service.js';
 
 function isBackofficeManager(role) {
   const normalized = String(role || '').trim().toLowerCase();
@@ -198,18 +198,6 @@ function buildRoiEmailHtml({ body }) {
     .split(/\n{2,}/)
     .map((paragraph) => `<p>${escapeHtml(paragraph).replace(/\n/g, '<br />')}</p>`)
     .join('');
-}
-
-async function resolveAgencyRoiSenderIdentity(agencyId) {
-  const aid = Number(agencyId || 0) || null;
-  if (!aid) return null;
-  const list = await EmailSenderIdentity.list({ agencyId: aid, includePlatformDefaults: true, onlyActive: true });
-  const preferredKeys = ['school_intake', 'intake', 'notifications', 'system'];
-  for (const key of preferredKeys) {
-    const match = (list || []).find((identity) => String(identity?.identity_key || '').trim().toLowerCase() === key);
-    if (match) return match;
-  }
-  return (list || [])[0] || null;
 }
 
 function ensureRoiSmsBodyHasLink(body, linkUrl) {
@@ -730,7 +718,11 @@ export const sendClientSchoolRoiSigningEmail = async (req, res, next) => {
       return res.status(issuedResult.status).json({ error: { message: issuedResult.message } });
     }
 
-    const senderIdentity = await resolveAgencyRoiSenderIdentity(client.agency_id || null);
+    const senderIdentity = await resolvePreferredSenderIdentityForSchoolThenAgency({
+      agencyId: client.agency_id || null,
+      schoolOrganizationId,
+      preferredKeys: ['school_intake', 'intake', 'notifications', 'system']
+    });
     if (!senderIdentity?.id) {
       return res.status(503).json({ error: { message: 'Email is not configured for this agency. Add an active sender identity first.' } });
     }
