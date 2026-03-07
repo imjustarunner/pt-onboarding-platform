@@ -6,7 +6,9 @@
 import Client from '../models/Client.model.js';
 import ClientNotes from '../models/ClientNotes.model.js';
 import ClientSchoolStaffRoiAccess, {
-  getEffectiveSchoolStaffRoiState
+  getEffectiveSchoolStaffRoiState,
+  schoolStaffCanOpenClient,
+  schoolStaffCanViewClientDocuments
 } from '../models/ClientSchoolStaffRoiAccess.model.js';
 import User from '../models/User.model.js';
 import { logClientAccess } from '../services/clientAccessLog.service.js';
@@ -419,12 +421,14 @@ function getSchoolStaffPortalAccessMeta(client, accessMap) {
   const clientId = Number(client?.id || 0);
   const record = clientId ? accessMap.get(clientId) : null;
   const effectiveState = getEffectiveSchoolStaffRoiState(record, client?.roi_expires_at || null);
+  const canOpenClient = schoolStaffCanOpenClient(record, client?.roi_expires_at || null);
   return {
     school_staff_access_level: record?.is_active ? String(record.access_level || 'packet').toLowerCase() : 'none',
     school_staff_effective_access_state: effectiveState,
-    school_portal_can_open: effectiveState === 'roi',
-    school_portal_force_code: effectiveState !== 'roi',
-    school_portal_gray: effectiveState !== 'roi'
+    school_staff_can_view_documents: schoolStaffCanViewClientDocuments(record, client?.roi_expires_at || null),
+    school_portal_can_open: canOpenClient,
+    school_portal_force_code: !canOpenClient,
+    school_portal_gray: !canOpenClient
   };
 }
 
@@ -4207,6 +4211,119 @@ export const createSchoolPortalAnnouncement = async (req, res, next) => {
         ends_at: endsAt,
         created_by_user_id: userId
       }
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Create the same time-limited scrolling banner for multiple school portals at once.
+ * POST /api/school-portal/bulk-announcements
+ * body: { organizationIds, title?, message, starts_at, ends_at }
+ */
+export const createBulkSchoolPortalAnnouncements = async (req, res, next) => {
+  try {
+    const userId = req.user?.id;
+    const roleNorm = String(req.user?.role || '').toLowerCase();
+    if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+    if (await isSupervisorOnlyActor({ userId, role: roleNorm, user: req.user })) {
+      return res.status(403).json({ error: { message: 'Supervisors have read-only access in school portal announcements' } });
+    }
+
+    const organizationIds = Array.isArray(req.body?.organizationIds)
+      ? req.body.organizationIds.map((id) => parseInt(id, 10)).filter(Boolean)
+      : [];
+    const uniqueOrgIds = Array.from(new Set(organizationIds));
+    if (uniqueOrgIds.length === 0) {
+      return res.status(400).json({ error: { message: 'organizationIds is required' } });
+    }
+    if (uniqueOrgIds.length > 500) {
+      return res.status(400).json({ error: { message: 'Too many target schools (max 500)' } });
+    }
+
+    const titleRaw = req.body?.title;
+    const title = titleRaw === null || titleRaw === undefined ? null : String(titleRaw || '').trim().slice(0, 255) || null;
+    const message = String(req.body?.message || '').trim();
+    if (!message) return res.status(400).json({ error: { message: 'Message is required' } });
+    if (message.length > 1200) return res.status(400).json({ error: { message: 'Message is too long (max 1200 characters)' } });
+
+    const startsAtRaw = req.body?.starts_at || req.body?.startsAt;
+    const endsAtRaw = req.body?.ends_at || req.body?.endsAt;
+    if (!startsAtRaw || !endsAtRaw) return res.status(400).json({ error: { message: 'starts_at and ends_at are required' } });
+
+    const startsAt = new Date(startsAtRaw);
+    const endsAt = new Date(endsAtRaw);
+    if (!Number.isFinite(startsAt.getTime()) || !Number.isFinite(endsAt.getTime())) {
+      return res.status(400).json({ error: { message: 'Invalid starts_at or ends_at' } });
+    }
+    if (endsAt.getTime() <= startsAt.getTime()) {
+      return res.status(400).json({ error: { message: 'ends_at must be after starts_at' } });
+    }
+
+    const MS_DAY = 24 * 60 * 60 * 1000;
+    const durationDays = (endsAt.getTime() - startsAt.getTime()) / MS_DAY;
+    if (durationDays > 14.0001) {
+      return res.status(400).json({ error: { message: 'Announcements must be time-limited to 2 weeks maximum' } });
+    }
+
+    const maxStart = Date.now() + 364 * MS_DAY;
+    if (startsAt.getTime() > maxStart) {
+      return res.status(400).json({ error: { message: 'Announcements can only be scheduled up to 364 days out' } });
+    }
+
+    const placeholders = uniqueOrgIds.map(() => '?').join(',');
+    const [orgRows] = await pool.execute(
+      `SELECT id, organization_type
+       FROM agencies
+       WHERE id IN (${placeholders})`,
+      uniqueOrgIds
+    );
+    const foundIds = new Set((orgRows || []).map((row) => Number(row.id)));
+    const missingIds = uniqueOrgIds.filter((id) => !foundIds.has(Number(id)));
+    if (missingIds.length > 0) {
+      return res.status(400).json({ error: { message: `Unknown organization ids: ${missingIds.join(', ')}` } });
+    }
+
+    for (const row of orgRows || []) {
+      const orgType = String(row.organization_type || '').toLowerCase();
+      if (!['school', 'program', 'learning'].includes(orgType)) {
+        return res.status(400).json({ error: { message: 'Bulk school announcements can only target school, program, or learning portals.' } });
+      }
+    }
+
+    if (roleNorm !== 'super_admin') {
+      for (const orgId of uniqueOrgIds) {
+        const ok = await userHasOrgOrAffiliatedAgencyAccess({ userId, role: roleNorm, schoolOrganizationId: orgId });
+        if (!ok) {
+          return res.status(403).json({ error: { message: `You do not have access to organization ${orgId}` } });
+        }
+      }
+    }
+
+    const values = uniqueOrgIds.flatMap((orgId) => [orgId, userId, title, message, startsAt, endsAt]);
+    const rowPlaceholders = uniqueOrgIds.map(() => '(?, ?, ?, ?, ?, ?)').join(', ');
+    const [result] = await pool.execute(
+      `INSERT INTO school_portal_announcements
+       (organization_id, created_by_user_id, title, message, starts_at, ends_at)
+       VALUES ${rowPlaceholders}`,
+      values
+    );
+
+    logAuditEvent(req, {
+      actionType: 'school_portal_bulk_announcements_created',
+      metadata: {
+        organizationIds: uniqueOrgIds,
+        count: uniqueOrgIds.length,
+        startsAt: startsAt.toISOString(),
+        endsAt: endsAt.toISOString()
+      }
+    }).catch(() => {});
+
+    res.status(201).json({
+      ok: true,
+      inserted_count: Number(result?.affectedRows || 0),
+      organization_ids: uniqueOrgIds
     });
   } catch (e) {
     next(e);

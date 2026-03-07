@@ -21,6 +21,7 @@ import {
   dismissSchoolPortalNotifications,
   listSchoolPortalBannerAnnouncements,
   createSchoolPortalAnnouncement,
+  createBulkSchoolPortalAnnouncements,
   queryComplianceCorner
 } from '../controllers/schoolPortal.controller.js';
 import {
@@ -71,6 +72,7 @@ const router = express.Router();
 
 // School portal routes (authenticated)
 // GET /api/school-portal/:organizationId/clients
+router.post('/bulk-announcements', authenticate, createBulkSchoolPortalAnnouncements);
 router.get('/:organizationId/clients', authenticate, getSchoolClients);
 router.get('/:organizationId/my-roster', authenticate, getProviderMyRoster);
 router.get('/:organizationId/clients/:clientId/waitlist-note', authenticate, getClientWaitlistNote);

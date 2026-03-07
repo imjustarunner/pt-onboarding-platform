@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import Client from '../models/Client.model.js';
 import User from '../models/User.model.js';
+import Agency from '../models/Agency.model.js';
 import IntakeLink from '../models/IntakeLink.model.js';
 import ClientSchoolStaffRoiAccess, {
   getEffectiveSchoolStaffRoiState,
@@ -8,6 +9,10 @@ import ClientSchoolStaffRoiAccess, {
 } from '../models/ClientSchoolStaffRoiAccess.model.js';
 import SchoolRoiIntakeLinkConfig from '../models/SchoolRoiIntakeLinkConfig.model.js';
 import ClientSchoolRoiSigningLink from '../models/ClientSchoolRoiSigningLink.model.js';
+import MessageLog from '../models/MessageLog.model.js';
+import TwilioNumber from '../models/TwilioNumber.model.js';
+import TwilioOptInState from '../models/TwilioOptInState.model.js';
+import TwilioService from '../services/twilio.service.js';
 import { logAuditEvent } from '../services/auditEvent.service.js';
 
 function isBackofficeManager(role) {
@@ -72,6 +77,97 @@ function serializeIssuedRoiSigningLink(record, client) {
   };
 }
 
+function parseFeatureFlags(raw) {
+  if (!raw) return {};
+  if (typeof raw === 'object') return raw || {};
+  try {
+    return JSON.parse(raw) || {};
+  } catch {
+    return {};
+  }
+}
+
+function getFrontendBaseUrl() {
+  return String(process.env.FRONTEND_URL || process.env.CORS_ORIGIN || 'http://localhost:5173').replace(/\/$/, '');
+}
+
+function buildShortPublicIntakeUrl(publicKey) {
+  const key = String(publicKey || '').trim();
+  if (!key) return '';
+  return `${getFrontendBaseUrl()}/i/${key}`;
+}
+
+function buildDefaultRoiSmsMessage({ agencyName, linkUrl }) {
+  const senderName = String(agencyName || 'our agency').trim() || 'our agency';
+  const url = String(linkUrl || '').trim();
+  return [
+    `Hi this is ${senderName} and your ROI is expired.`,
+    `A new one has been attached to this private link: ${url}`,
+    `If you are no longer interested in our services write STOP. Respond with MORE if you'd like us to call you.`
+  ].join(' ');
+}
+
+function ensureRoiSmsBodyHasLink(body, linkUrl) {
+  const message = String(body || '').trim();
+  const url = String(linkUrl || '').trim();
+  if (!url) return message;
+  if (!message) return url;
+  if (message.includes(url)) return message;
+  return `${message} ${url}`.trim();
+}
+
+async function ensureIssuedRoiSigningLinkForClient({ client, schoolOrganizationId, actorUserId = null, regenerate = false }) {
+  const config = await SchoolRoiIntakeLinkConfig.findBySchoolOrganizationId(schoolOrganizationId);
+  if (!config?.intake_link_id) {
+    return { ok: false, status: 400, message: 'Assign a school ROI form before sending a client ROI link.' };
+  }
+
+  const availableLinks = await listAvailableSchoolRoiIntakeLinks(schoolOrganizationId);
+  const selectedLink = availableLinks.find((link) => Number(link.id) === Number(config.intake_link_id));
+  if (!selectedLink) {
+    return { ok: false, status: 400, message: 'The assigned school ROI form is no longer active for this school.' };
+  }
+
+  const existing = await ClientSchoolRoiSigningLink.findForClient({
+    clientId: client.id,
+    schoolOrganizationId
+  });
+  const canReuseExisting =
+    existing
+    && !regenerate
+    && Number(existing.intake_link_id) === Number(config.intake_link_id)
+    && String(existing.status || '').trim().toLowerCase() !== 'completed'
+    && String(existing.public_key || '').trim();
+
+  const issuedLink = canReuseExisting
+    ? existing
+    : await ClientSchoolRoiSigningLink.issueForClient({
+        clientId: client.id,
+        schoolOrganizationId,
+        intakeLinkId: Number(config.intake_link_id),
+        publicKey: crypto.randomBytes(24).toString('hex'),
+        issuedByUserId: actorUserId
+      });
+
+  return { ok: true, issuedLink, config };
+}
+
+async function resolveAgencySmsSenderNumber(agencyId) {
+  const aid = Number(agencyId || 0);
+  if (!aid) return null;
+  const agency = await Agency.findById(aid);
+  const flags = parseFeatureFlags(agency?.feature_flags);
+  const preferredNumberId = Number(flags.companyEventsSenderNumberId || 0);
+  if (preferredNumberId) {
+    const preferred = await TwilioNumber.findById(preferredNumberId);
+    if (preferred && Number(preferred.agency_id) === aid && preferred.is_active && preferred.status !== 'released') {
+      return preferred;
+    }
+  }
+  const numbers = await TwilioNumber.listByAgency(aid, { includeInactive: false });
+  return numbers?.[0] || null;
+}
+
 export const listClientSchoolRoiAccess = async (req, res, next) => {
   try {
     const clientId = Number(req.params.id || 0);
@@ -113,6 +209,7 @@ export const listClientSchoolRoiAccess = async (req, res, next) => {
       client_id: clientId,
       school_organization_id: schoolOrganizationId,
       school_name: client.organization_name || null,
+      client_contact_phone: client.contact_phone || null,
       roi_expires_at: client.roi_expires_at || null,
       roi_expired: isRoiExpired(client.roi_expires_at),
       staff,
@@ -135,8 +232,8 @@ export const updateClientSchoolRoiAccess = async (req, res, next) => {
     if (!clientId || !schoolStaffUserId) {
       return res.status(400).json({ error: { message: 'Invalid ids' } });
     }
-    if (!['none', 'packet', 'roi'].includes(nextState)) {
-      return res.status(400).json({ error: { message: 'nextState must be none, packet, or roi' } });
+    if (!['none', 'packet', 'roi', 'roi_docs'].includes(nextState)) {
+      return res.status(400).json({ error: { message: 'nextState must be none, packet, roi, or roi_docs' } });
     }
     if (!isBackofficeManager(req.user?.role)) {
       return res.status(403).json({ error: { message: 'Backoffice access required' } });
@@ -330,35 +427,17 @@ export const issueClientSchoolRoiSigningLink = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Client does not have a school affiliation yet' } });
     }
 
-    const config = await SchoolRoiIntakeLinkConfig.findBySchoolOrganizationId(schoolOrganizationId);
-    if (!config?.intake_link_id) {
-      return res.status(400).json({ error: { message: 'Assign a school ROI form before issuing a client ROI link.' } });
-    }
-
-    const availableLinks = await listAvailableSchoolRoiIntakeLinks(schoolOrganizationId);
-    const selectedLink = availableLinks.find((link) => Number(link.id) === Number(config.intake_link_id));
-    if (!selectedLink) {
-      return res.status(400).json({ error: { message: 'The assigned school ROI form is no longer active for this school.' } });
-    }
-
     const regenerate = req.body?.regenerate === true;
-    const existing = await ClientSchoolRoiSigningLink.findForClient({ clientId, schoolOrganizationId });
-    const canReuseExisting =
-      existing
-      && !regenerate
-      && Number(existing.intake_link_id) === Number(config.intake_link_id)
-      && String(existing.status || '').trim().toLowerCase() !== 'completed'
-      && String(existing.public_key || '').trim();
-
-    const issuedLink = canReuseExisting
-      ? existing
-      : await ClientSchoolRoiSigningLink.issueForClient({
-          clientId,
-          schoolOrganizationId,
-          intakeLinkId: Number(config.intake_link_id),
-          publicKey: crypto.randomBytes(24).toString('hex'),
-          issuedByUserId: req.user?.id || null
-        });
+    const issuedResult = await ensureIssuedRoiSigningLinkForClient({
+      client,
+      schoolOrganizationId,
+      actorUserId: req.user?.id || null,
+      regenerate
+    });
+    if (!issuedResult.ok) {
+      return res.status(issuedResult.status).json({ error: { message: issuedResult.message } });
+    }
+    const issuedLink = issuedResult.issuedLink;
 
     await logAuditEvent(req, {
       actionType: 'client_school_roi_signing_link_issued',
@@ -366,7 +445,7 @@ export const issueClientSchoolRoiSigningLink = async (req, res, next) => {
       metadata: {
         clientId,
         schoolOrganizationId,
-        intakeLinkId: Number(config.intake_link_id),
+        intakeLinkId: Number(issuedResult.config.intake_link_id),
         signingLinkId: issuedLink?.id || null,
         regenerate
       }
@@ -378,6 +457,133 @@ export const issueClientSchoolRoiSigningLink = async (req, res, next) => {
       school_organization_id: schoolOrganizationId,
       issued_link: serializeIssuedRoiSigningLink(issuedLink, client)
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const sendClientSchoolRoiSigningText = async (req, res, next) => {
+  try {
+    const clientId = Number(req.params.id || 0);
+    if (!clientId) return res.status(400).json({ error: { message: 'Invalid client id' } });
+    if (!isBackofficeManager(req.user?.role)) {
+      return res.status(403).json({ error: { message: 'Backoffice access required' } });
+    }
+
+    const access = await requireManagedClient(req, clientId);
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    let client = access.client;
+    const schoolOrganizationId = Number(client.organization_id || 0);
+    if (!schoolOrganizationId) {
+      return res.status(400).json({ error: { message: 'Client does not have a school affiliation yet' } });
+    }
+
+    const phoneInput = String(req.body?.phoneNumber || client.contact_phone || '').trim();
+    const normalizedPhone = Client.normalizePhone(phoneInput);
+    if (!normalizedPhone) {
+      return res.status(400).json({ error: { message: 'A valid client phone number is required to send the ROI link by text.' } });
+    }
+
+    if (normalizedPhone !== String(client.contact_phone || '').trim()) {
+      client = await Client.update(clientId, { contact_phone: normalizedPhone }, req.user?.id || null);
+    }
+
+    const issuedResult = await ensureIssuedRoiSigningLinkForClient({
+      client,
+      schoolOrganizationId,
+      actorUserId: req.user?.id || null,
+      regenerate: req.body?.regenerate === true
+    });
+    if (!issuedResult.ok) {
+      return res.status(issuedResult.status).json({ error: { message: issuedResult.message } });
+    }
+
+    const senderNumber = await resolveAgencySmsSenderNumber(client.agency_id || null);
+    if (!senderNumber?.phone_number) {
+      return res.status(503).json({ error: { message: 'SMS is not configured for this agency. Add an active system number first.' } });
+    }
+
+    const numberId = Number(senderNumber.id || 0) || null;
+    const agency = client.agency_id ? await Agency.findById(client.agency_id) : null;
+    const flags = parseFeatureFlags(agency?.feature_flags);
+    const complianceMode = String(flags.smsComplianceMode || 'opt_in_required');
+    if (numberId && client?.id) {
+      const optState = await TwilioOptInState.findByClientNumber({ clientId: client.id, numberId });
+      const optStatus = optState?.status || 'pending';
+      if (optStatus === 'opted_out') {
+        return res.status(403).json({ error: { message: 'Client has opted out of SMS' } });
+      }
+      if (complianceMode === 'opt_in_required' && optStatus !== 'opted_in') {
+        return res.status(403).json({ error: { message: 'Client has not opted in to SMS yet' } });
+      }
+    }
+
+    const linkUrl = buildShortPublicIntakeUrl(issuedResult.issuedLink?.public_key || '');
+    const defaultBody = buildDefaultRoiSmsMessage({
+      agencyName: client.agency_name || agency?.name || 'our agency',
+      linkUrl
+    });
+    const requestedBody = String(req.body?.message || '').trim();
+    const body = ensureRoiSmsBodyHasLink(requestedBody || defaultBody, linkUrl).slice(0, 480);
+    const fromNumber = senderNumber.phone_number;
+
+    const outboundLog = await MessageLog.createOutbound({
+      agencyId: client.agency_id || null,
+      userId: req.user?.id || null,
+      assignedUserId: req.user?.id || null,
+      numberId,
+      ownerType: 'agency',
+      clientId,
+      body,
+      fromNumber,
+      toNumber: normalizedPhone,
+      deliveryStatus: 'pending',
+      metadata: {
+        provider: 'twilio',
+        messageType: 'roi_signing_link',
+        signingLinkId: issuedResult.issuedLink?.id || null
+      }
+    });
+
+    try {
+      const msg = await TwilioService.sendSms({
+        to: normalizedPhone,
+        from: TwilioNumber.normalizePhone(fromNumber) || fromNumber,
+        body
+      });
+      const updatedLog = await MessageLog.markSent(outboundLog.id, msg.sid, {
+        provider: 'twilio',
+        status: msg.status,
+        messageType: 'roi_signing_link',
+        signingLinkId: issuedResult.issuedLink?.id || null
+      });
+      await logAuditEvent(req, {
+        actionType: 'client_school_roi_signing_text_sent',
+        agencyId: client.agency_id || null,
+        metadata: {
+          clientId,
+          schoolOrganizationId,
+          signingLinkId: issuedResult.issuedLink?.id || null,
+          numberId,
+          toNumber: normalizedPhone
+        }
+      });
+      res.json({
+        ok: true,
+        client,
+        issued_link: serializeIssuedRoiSigningLink(issuedResult.issuedLink, client),
+        sent_to: normalizedPhone,
+        link_url: linkUrl,
+        message: body,
+        message_log: updatedLog
+      });
+    } catch (sendErr) {
+      await MessageLog.markFailed(outboundLog.id, sendErr.message);
+      return res.status(502).json({
+        error: { message: 'Failed to send ROI text message via Twilio', details: sendErr.message }
+      });
+    }
   } catch (error) {
     next(error);
   }

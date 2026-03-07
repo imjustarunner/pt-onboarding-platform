@@ -2,7 +2,9 @@ import pool from '../config/database.js';
 
 function normalizeAccessLevel(level) {
   const normalized = String(level || '').trim().toLowerCase();
-  return normalized === 'roi' ? 'roi' : 'packet';
+  if (normalized === 'roi_docs') return 'roi_docs';
+  if (normalized === 'roi') return 'roi';
+  return 'packet';
 }
 
 function toBool(value) {
@@ -27,7 +29,17 @@ export function getEffectiveSchoolStaffRoiState(record, roiExpiresAt) {
   if (!record || !toBool(record.is_active)) return 'none';
   const accessLevel = normalizeAccessLevel(record.access_level);
   if (accessLevel === 'packet') return 'packet';
-  return isRoiExpired(roiExpiresAt) ? 'expired' : 'roi';
+  if (isRoiExpired(roiExpiresAt)) return 'expired';
+  return accessLevel === 'roi_docs' ? 'roi_docs' : 'roi';
+}
+
+export function schoolStaffCanOpenClient(record, roiExpiresAt) {
+  const effectiveState = getEffectiveSchoolStaffRoiState(record, roiExpiresAt);
+  return effectiveState === 'roi' || effectiveState === 'roi_docs';
+}
+
+export function schoolStaffCanViewClientDocuments(record, roiExpiresAt) {
+  return getEffectiveSchoolStaffRoiState(record, roiExpiresAt) === 'roi_docs';
 }
 
 function formatUserName(firstName, lastName, email, fallbackId = null) {
@@ -99,7 +111,8 @@ class ClientSchoolStaffRoiAccess {
         access_level: row.access_record_id && toBool(row.is_active) ? normalizeAccessLevel(row.access_level) : 'none',
         is_active: toBool(row.is_active),
         effective_access_state: effectiveState,
-        can_open_client: effectiveState === 'roi',
+        can_open_client: schoolStaffCanOpenClient(row, roiExpiresAt),
+        can_view_documents: schoolStaffCanViewClientDocuments(row, roiExpiresAt),
         granted_by_user_id: row.granted_by_user_id ? Number(row.granted_by_user_id) : null,
         granted_at: row.granted_at || null,
         granted_by_name: formatUserName(
@@ -164,7 +177,12 @@ class ClientSchoolStaffRoiAccess {
     ]));
   }
 
-  static async schoolStaffHasActiveRoiAccess({ clientId, schoolOrganizationId, schoolStaffUserId }) {
+  static async schoolStaffHasActiveRoiAccess({
+    clientId,
+    schoolOrganizationId,
+    schoolStaffUserId,
+    requireDocumentAccess = false
+  }) {
     const cid = Number(clientId || 0);
     const sid = Number(schoolOrganizationId || 0);
     const uid = Number(schoolStaffUserId || 0);
@@ -178,7 +196,7 @@ class ClientSchoolStaffRoiAccess {
          AND a.school_organization_id = ?
          AND a.school_staff_user_id = ?
          AND a.is_active = TRUE
-         AND LOWER(a.access_level) = 'roi'
+         AND LOWER(a.access_level) ${requireDocumentAccess ? "= 'roi_docs'" : "IN ('roi', 'roi_docs')"}
          AND c.roi_expires_at IS NOT NULL
          AND DATE(c.roi_expires_at) >= CURDATE()
        LIMIT 1`,
@@ -252,7 +270,7 @@ class ClientSchoolStaffRoiAccess {
     const actorId = Number(actorUserId || 0) || null;
     const state = String(nextState || '').trim().toLowerCase();
     if (!cid || !sid || !staffId) return false;
-    if (!['none', 'packet', 'roi'].includes(state)) {
+    if (!['none', 'packet', 'roi', 'roi_docs'].includes(state)) {
       throw new Error('Invalid nextState');
     }
 
@@ -295,16 +313,16 @@ class ClientSchoolStaffRoiAccess {
       `INSERT INTO client_school_staff_roi_access
         (client_id, school_organization_id, school_staff_user_id, access_level, is_active,
          granted_by_user_id, granted_at, revoked_by_user_id, revoked_at)
-       VALUES (?, ?, ?, 'roi', TRUE, ?, CURRENT_TIMESTAMP, NULL, NULL)
+       VALUES (?, ?, ?, ?, TRUE, ?, CURRENT_TIMESTAMP, NULL, NULL)
        ON DUPLICATE KEY UPDATE
-         access_level = 'roi',
+         access_level = VALUES(access_level),
          is_active = TRUE,
          granted_by_user_id = VALUES(granted_by_user_id),
          granted_at = VALUES(granted_at),
          revoked_by_user_id = NULL,
          revoked_at = NULL,
          updated_at = CURRENT_TIMESTAMP`,
-      [cid, sid, staffId, actorId]
+      [cid, sid, staffId, state, actorId]
     );
     return true;
   }

@@ -2,7 +2,9 @@ import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
 import ClientSchoolStaffRoiAccess, {
-  getEffectiveSchoolStaffRoiState
+  getEffectiveSchoolStaffRoiState,
+  schoolStaffCanOpenClient,
+  schoolStaffCanViewClientDocuments
 } from '../models/ClientSchoolStaffRoiAccess.model.js';
 import { getLeaveInfoForUserIds } from '../services/leaveOfAbsence.service.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
@@ -50,10 +52,13 @@ function getSchoolStaffClientPrivacyMeta(client, accessMap) {
   const clientId = Number(client?.id || 0);
   const record = clientId ? accessMap.get(clientId) : null;
   const effectiveState = getEffectiveSchoolStaffRoiState(record, client?.roi_expires_at || null);
-  const locked = effectiveState !== 'roi';
+  const canOpenClient = schoolStaffCanOpenClient(record, client?.roi_expires_at || null);
+  const locked = !canOpenClient;
   return {
+    school_staff_access_level: record?.is_active ? String(record.access_level || 'packet').toLowerCase() : 'none',
     school_staff_effective_access_state: effectiveState,
-    school_portal_can_open: !locked,
+    school_staff_can_view_documents: schoolStaffCanViewClientDocuments(record, client?.roi_expires_at || null),
+    school_portal_can_open: canOpenClient,
     school_portal_gray: locked,
     school_portal_force_placeholder: locked,
     school_portal_locked_label: 'NO ROI'

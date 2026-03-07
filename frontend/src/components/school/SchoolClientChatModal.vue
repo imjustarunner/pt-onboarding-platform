@@ -226,7 +226,10 @@
 
         <div class="packet-audit">
           <div class="packet-audit-title">Packet audit (read-only)</div>
-          <div v-if="auditLoading" class="muted">Loading…</div>
+          <div v-if="!canViewClientDocuments && isSchoolStaff" class="muted">
+            Packet audit is only available when this client is set to `ROI and Doc Access`.
+          </div>
+          <div v-else-if="auditLoading" class="muted">Loading…</div>
           <div v-else-if="auditError" class="error">{{ auditError }}</div>
           <div v-else-if="auditStatements.length === 0" class="muted">No packet history yet.</div>
           <div v-else class="packet-audit-list">
@@ -274,7 +277,11 @@ const emit = defineEmits(['close', 'open-edit', 'open-checklist']);
 const authStore = useAuthStore();
 const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
 const isSchoolStaff = computed(() => roleNorm.value === 'school_staff');
-const canViewClientDocuments = computed(() => ['provider', 'admin', 'staff', 'support', 'super_admin', 'clinical_practice_assistant', 'provider_plus'].includes(roleNorm.value));
+const schoolStaffAccessLevel = computed(() => String(props.client?.school_staff_access_level || '').trim().toLowerCase());
+const canViewClientDocuments = computed(() => {
+  if (isSchoolStaff.value) return schoolStaffAccessLevel.value === 'roi_docs';
+  return ['provider', 'admin', 'staff', 'support', 'super_admin', 'clinical_practice_assistant', 'provider_plus'].includes(roleNorm.value);
+});
 const showActionBar = computed(() => !isSchoolStaff.value && (props.canEditAction || props.showChecklistAction));
 
 const isWaitlist = computed(() => {
@@ -404,16 +411,22 @@ const load = async () => {
       checklistAudit.value = '';
     }
 
-    try {
-      auditLoading.value = true;
-      auditError.value = '';
-      const r = await api.get(`/phi-documents/clients/${props.client.id}/audit`);
-      auditStatements.value = r.data?.documents || [];
-    } catch (e) {
-      auditStatements.value = [];
-      auditError.value = e.response?.data?.error?.message || 'Failed to load packet audit';
-    } finally {
+    if (canViewClientDocuments.value) {
+      try {
+        auditLoading.value = true;
+        auditError.value = '';
+        const r = await api.get(`/phi-documents/clients/${props.client.id}/audit`);
+        auditStatements.value = r.data?.documents || [];
+      } catch (e) {
+        auditStatements.value = [];
+        auditError.value = e.response?.data?.error?.message || 'Failed to load packet audit';
+      } finally {
+        auditLoading.value = false;
+      }
+    } else {
       auditLoading.value = false;
+      auditError.value = '';
+      auditStatements.value = [];
     }
     // Mark as read (best-effort).
     try {

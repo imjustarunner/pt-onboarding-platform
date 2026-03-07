@@ -2,6 +2,11 @@ import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
 import Client from '../models/Client.model.js';
+import ClientSchoolStaffRoiAccess, {
+  getEffectiveSchoolStaffRoiState,
+  schoolStaffCanOpenClient,
+  schoolStaffCanViewClientDocuments
+} from '../models/ClientSchoolStaffRoiAccess.model.js';
 import { adjustProviderSlots } from '../services/providerSlots.service.js';
 import { getLeaveInfoForUserIds } from '../services/leaveOfAbsence.service.js';
 import { notifyClientBecameCurrent } from '../services/clientNotifications.service.js';
@@ -61,6 +66,23 @@ async function ensureSupervisorCanAccessProvider({ req, access, providerId }) {
   const superviseeIds = await getSupervisorSuperviseeIds(req.user?.id, null);
   const allowed = (superviseeIds || []).some((id) => parseInt(id, 10) === parseInt(providerId, 10));
   return !!allowed;
+}
+
+function getSchoolStaffClientPrivacyMeta(client, accessMap) {
+  const clientId = Number(client?.id || 0);
+  const record = clientId ? accessMap.get(clientId) : null;
+  const effectiveState = getEffectiveSchoolStaffRoiState(record, client?.roi_expires_at || null);
+  const canOpenClient = schoolStaffCanOpenClient(record, client?.roi_expires_at || null);
+  const locked = !canOpenClient;
+  return {
+    school_staff_access_level: record?.is_active ? String(record.access_level || 'packet').toLowerCase() : 'none',
+    school_staff_effective_access_state: effectiveState,
+    school_staff_can_view_documents: schoolStaffCanViewClientDocuments(record, client?.roi_expires_at || null),
+    school_portal_can_open: canOpenClient,
+    school_portal_gray: locked,
+    school_portal_force_placeholder: locked,
+    school_portal_locked_label: 'NO ROI'
+  };
 }
 
 function buildOverlapWarnings(entries, startTime, endTime, excludeId = null) {
@@ -397,7 +419,7 @@ export const listAssignedClientsForProviderDay = async (req, res, next) => {
 
     // Return restricted fields only (school portal).
     const [rows] = await pool.execute(
-      `SELECT id, initials, identifier_code, status, document_status, provider_id, service_day
+      `SELECT id, initials, identifier_code, status, document_status, provider_id, service_day, roi_expires_at
        FROM clients
        WHERE organization_id = ?
          AND provider_id = ?
@@ -408,6 +430,17 @@ export const listAssignedClientsForProviderDay = async (req, res, next) => {
 
     // Unread note counts (per user) - best effort if table exists.
     const out = rows || [];
+    const role = String(req.user?.role || '').toLowerCase();
+    if (role === 'school_staff' && out.length > 0) {
+      const accessByClientId = await ClientSchoolStaffRoiAccess.listAccessRecordsForSchoolStaff({
+        schoolStaffUserId: req.user?.id,
+        schoolOrganizationId: parseInt(schoolId, 10),
+        clientIds: out.map((c) => Number(c.id || 0)).filter(Boolean)
+      });
+      for (const client of out) {
+        Object.assign(client, getSchoolStaffClientPrivacyMeta(client, accessByClientId));
+      }
+    }
     try {
       const userId = req.user?.id;
       const clientIds = out.map((c) => parseInt(c.id, 10)).filter(Boolean);

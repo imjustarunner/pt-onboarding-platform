@@ -454,6 +454,7 @@ class Client {
       'provider_id',
       'initials',
       'full_name',
+      'contact_phone',
       'status',
       'submission_date',
       'document_status',
@@ -488,7 +489,11 @@ class Client {
     for (const field of allowedFields) {
       if (clientData[field] !== undefined) {
         updates.push(`${field} = ?`);
-        values.push(clientData[field]);
+        if (field === 'contact_phone') {
+          values.push(clientData[field] ? this.normalizePhone(clientData[field]) : null);
+        } else {
+          values.push(clientData[field]);
+        }
       }
     }
 

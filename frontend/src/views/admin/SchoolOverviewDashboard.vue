@@ -8,6 +8,14 @@
       <div class="header-actions" data-tour="schools-overview-actions">
         <router-link class="btn btn-secondary" to="/admin/clients">Back to Client Management</router-link>
         <router-link class="btn btn-secondary" :to="showAllPortalsTo">Show All School Portals</router-link>
+        <button
+          class="btn btn-primary"
+          type="button"
+          :disabled="loading || schools.length === 0"
+          @click="openBulkAnnouncementModal"
+        >
+          Scrolling announcement
+        </button>
         <button class="btn btn-secondary" type="button" :disabled="loading" @click="refresh">
           {{ loading ? 'Refreshing…' : 'Refresh' }}
         </button>
@@ -60,6 +68,7 @@
       </div>
     </div>
 
+    <div v-if="announcementFlash" class="success-banner">{{ announcementFlash }}</div>
     <div v-if="error" class="error">{{ error }}</div>
     <div v-else-if="loading" class="loading">Loading school overview…</div>
 
@@ -234,6 +243,90 @@
         </div>
       </div>
     </div>
+
+    <div v-if="showBulkAnnouncementModal" class="modal-overlay" @click.self="closeBulkAnnouncementModal">
+      <div class="modal announcement-modal" @click.stop>
+        <div class="modal-header">
+          <div>
+            <strong>Post scrolling announcement</strong>
+            <div class="modal-subtitle">This will create the same moving banner on each selected school portal.</div>
+          </div>
+          <button class="close" type="button" aria-label="Close" @click="closeBulkAnnouncementModal">×</button>
+        </div>
+        <div class="modal-body announcement-modal-body">
+          <div class="form-row">
+            <div class="form-group">
+              <label>Scope</label>
+              <select v-model="announcementScope" class="control-select">
+                <option value="all">{{ allAnnouncementScopeLabel }}</option>
+                <option v-for="d in announcementDistrictScopeOptions" :key="`announce-${d.value}`" :value="d.value">
+                  District: {{ d.label }}
+                </option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Targets</label>
+              <div class="scope-preview">
+                {{ announcementTargetSummary }}
+              </div>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>Title (optional)</label>
+            <input
+              v-model="announcementTitle"
+              class="control-input"
+              type="text"
+              maxlength="255"
+              placeholder="Announcement"
+            />
+          </div>
+
+          <div class="form-group">
+            <label>Message</label>
+            <textarea
+              v-model="announcementMessage"
+              class="announcement-textarea"
+              rows="5"
+              maxlength="1200"
+              placeholder="Type the scrolling message that should appear across the selected school portals."
+            />
+            <div class="hint-row">
+              <span>{{ announcementMessage.length }}/1200</span>
+              <span>Banner is time-limited to 2 weeks max.</span>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>Starts</label>
+              <input v-model="announcementStartsAt" class="control-input" type="datetime-local" />
+            </div>
+            <div class="form-group">
+              <label>Ends</label>
+              <input v-model="announcementEndsAt" class="control-input" type="datetime-local" />
+            </div>
+          </div>
+
+          <div v-if="announcementError" class="error">{{ announcementError }}</div>
+
+          <div class="announcement-actions">
+            <button
+              type="button"
+              class="btn btn-primary"
+              :disabled="announcementSaving || announcementTargetOrganizations.length === 0 || !announcementMessage.trim() || !announcementStartsAt || !announcementEndsAt"
+              @click="submitBulkAnnouncement"
+            >
+              {{ announcementSaving ? 'Posting…' : 'Post announcement' }}
+            </button>
+            <button type="button" class="btn btn-secondary" :disabled="announcementSaving" @click="closeBulkAnnouncementModal">
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -259,6 +352,34 @@ const searchQuery = ref('');
 const sortBy = ref('school_name-asc');
 const selectedDistrict = ref('all');
 const failedCardLogoIds = ref(new Set());
+const showBulkAnnouncementModal = ref(false);
+const announcementSaving = ref(false);
+const announcementFlash = ref('');
+const announcementError = ref('');
+const announcementScope = ref('all');
+const announcementTitle = ref('');
+const announcementMessage = ref('');
+const announcementStartsAt = ref('');
+const announcementEndsAt = ref('');
+
+const toLocalDatetimeInputValue = (value) => {
+  const date = value instanceof Date ? value : new Date(value);
+  if (!Number.isFinite(date.getTime())) return '';
+  const pad = (n) => String(n).padStart(2, '0');
+  return [
+    `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`,
+    `${pad(date.getHours())}:${pad(date.getMinutes())}`
+  ].join('T');
+};
+
+const buildAnnouncementDefaults = () => {
+  const start = new Date();
+  start.setMinutes(start.getMinutes() + 5);
+  start.setSeconds(0, 0);
+  const end = new Date(start.getTime() + 48 * 60 * 60 * 1000);
+  announcementStartsAt.value = toLocalDatetimeInputValue(start);
+  announcementEndsAt.value = toLocalDatetimeInputValue(end);
+};
 
 function schoolLogoUrl(school) {
   const candidates = [
@@ -333,10 +454,29 @@ const districtOptions = computed(() => {
   return [{ label: 'All', value: 'all' }, ...sorted.map((d) => ({ label: d, value: d }))];
 });
 
+const announcementDistrictScopeOptions = computed(() => districtOptions.value.filter((item) => item.value !== 'all'));
+
 const agencyOptions = ref([]);
 const selectedAgencyId = ref('');
 const studentStatusBySchool = ref({});
 const studentStatusOrder = ['current', 'packet', 'screener', 'waitlist'];
+
+const selectedAgencyName = computed(() => {
+  const agencyId = Number(selectedAgencyId.value || 0);
+  const fromPicker = (agencyOptions.value || []).find((item) => Number(item?.id || 0) === agencyId);
+  if (fromPicker?.name) return String(fromPicker.name).trim();
+  const current = agencyStore.currentAgency?.value || agencyStore.currentAgency;
+  return String(current?.name || '').trim() || 'this agency';
+});
+
+const announcementEntityLabelPlural = computed(() => {
+  if (isAllPortalsPage.value) return 'portals';
+  if (orgType.value === 'program') return 'programs';
+  if (orgType.value === 'learning') return 'learning orgs';
+  return 'schools';
+});
+
+const allAnnouncementScopeLabel = computed(() => `All ${announcementEntityLabelPlural.value} in ${selectedAgencyName.value}`);
 
 const studentStatusKeyFor = (school) => {
   const sid = String(school?.school_id || '');
@@ -407,6 +547,22 @@ const refresh = async () => {
   await fetchOverview();
 };
 
+const openBulkAnnouncementModal = () => {
+  announcementFlash.value = '';
+  announcementError.value = '';
+  announcementScope.value = selectedDistrict.value && selectedDistrict.value !== 'all' ? selectedDistrict.value : 'all';
+  announcementTitle.value = '';
+  announcementMessage.value = '';
+  buildAnnouncementDefaults();
+  showBulkAnnouncementModal.value = true;
+};
+
+const closeBulkAnnouncementModal = () => {
+  if (announcementSaving.value) return;
+  showBulkAnnouncementModal.value = false;
+  announcementError.value = '';
+};
+
 const filteredSchools = computed(() => {
   const q = String(searchQuery.value || '').trim().toLowerCase();
   const district = String(selectedDistrict.value || 'all');
@@ -434,6 +590,42 @@ const filteredSchools = computed(() => {
     return Number(a?.school_id || 0) - Number(b?.school_id || 0);
   });
 });
+
+const announcementTargetOrganizations = computed(() => {
+  const scope = String(announcementScope.value || 'all');
+  if (scope === 'all') return schools.value || [];
+  return (schools.value || []).filter((item) => String(item?.district_name || '').trim() === scope);
+});
+
+const announcementTargetSummary = computed(() => {
+  const count = announcementTargetOrganizations.value.length;
+  const label = announcementEntityLabelPlural.value;
+  if (String(announcementScope.value || 'all') === 'all') {
+    return `${count} ${label} in ${selectedAgencyName.value}`;
+  }
+  return `${count} ${label} in district ${announcementScope.value}`;
+});
+
+const submitBulkAnnouncement = async () => {
+  try {
+    announcementSaving.value = true;
+    announcementError.value = '';
+    announcementFlash.value = '';
+    await api.post('/school-portal/bulk-announcements', {
+      organizationIds: announcementTargetOrganizations.value.map((item) => Number(item?.school_id || 0)).filter(Boolean),
+      title: String(announcementTitle.value || '').trim() || null,
+      message: String(announcementMessage.value || '').trim(),
+      starts_at: announcementStartsAt.value,
+      ends_at: announcementEndsAt.value
+    });
+    announcementFlash.value = `Scrolling announcement posted to ${announcementTargetSummary.value}.`;
+    showBulkAnnouncementModal.value = false;
+  } catch (e) {
+    announcementError.value = e?.response?.data?.error?.message || 'Failed to post scrolling announcement';
+  } finally {
+    announcementSaving.value = false;
+  }
+};
 
 const formatOrgType = (t) => {
   const k = String(t || '').toLowerCase();
@@ -501,6 +693,16 @@ watch(
   () => selectedAgencyId.value,
   async () => {
     await fetchOverview();
+  }
+);
+
+watch(
+  () => districtOptions.value.map((item) => item.value).join('|'),
+  () => {
+    const scope = String(announcementScope.value || 'all');
+    if (scope === 'all') return;
+    const stillExists = districtOptions.value.some((item) => item.value === scope);
+    if (!stillExists) announcementScope.value = 'all';
   }
 );
 
@@ -972,6 +1174,101 @@ onMounted(async () => {
   background: white;
   border: 1px dashed var(--border);
   border-radius: 12px;
+}
+
+.success-banner {
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  background: rgba(16, 185, 129, 0.12);
+  color: #065f46;
+  font-weight: 700;
+}
+
+.announcement-modal {
+  width: min(720px, calc(100vw - 32px));
+}
+
+.announcement-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.modal-subtitle {
+  margin-top: 4px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.form-group label {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.scope-preview {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-alt);
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.announcement-textarea {
+  width: 100%;
+  min-height: 120px;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: white;
+  font: inherit;
+}
+
+.hint-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.announcement-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+@media (max-width: 720px) {
+  .form-row {
+    grid-template-columns: 1fr;
+  }
+
+  .hint-row,
+  .announcement-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
 }
 </style>
 

@@ -12,3 +12,9 @@ export const buildPublicIntakeUrl = (publicKey) => {
   if (!key) return '';
   return `${getPublicIntakeBaseUrl()}/intake/${key}`;
 };
+
+export const buildPublicIntakeShortUrl = (publicKey) => {
+  const key = String(publicKey || '').trim();
+  if (!key) return '';
+  return `${getPublicIntakeBaseUrl()}/i/${key}`;
+};

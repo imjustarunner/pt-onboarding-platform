@@ -134,6 +134,14 @@
               {{ codesPrivacyHelp }}
             </div>
           </div>
+          <button
+            v-if="authStore.user?.id"
+            class="btn btn-secondary btn-sm"
+            type="button"
+            @click="openNotificationsPanel({ createAnnouncement: true })"
+          >
+            Create announcement
+          </button>
           <button class="btn btn-secondary btn-sm" type="button" @click="showHelpDesk = true">Contact admin</button>
           <button
             v-if="isSchoolStaff"
@@ -740,6 +748,7 @@
               :school-organization-id="organizationId"
               :client-label-mode="clientLabelMode"
               :initial-filter="notificationsFilter"
+              :initial-create-open="notificationsCreateOpen"
               @close="portalMode = 'home'"
               @updated="onNotificationsUpdated"
               @open-ticket="openTicketFromNotification"
@@ -789,8 +798,37 @@
       @close="showHelpDesk = false"
     />
 
+    <div v-if="showRoiTransitionNotice" class="modal-overlay" @click.self="dismissRoiTransitionNotice">
+      <div class="modal roi-transition-modal" @click.stop>
+        <div class="modal-header">
+          <strong>Important ROI update</strong>
+          <button class="close" type="button" aria-label="Close" @click="dismissRoiTransitionNotice">×</button>
+        </div>
+        <div class="modal-body roi-transition-body">
+          <div class="roi-transition-branding">
+            <div v-if="agencyLogoUrl" class="roi-transition-logo">
+              <img :src="agencyLogoUrl" :alt="agencyDisplayName ? `${agencyDisplayName} logo` : 'Agency logo'" />
+            </div>
+            <div v-if="schoolLogoUrl" class="roi-transition-logo">
+              <img :src="schoolLogoUrl" :alt="organizationDisplayName ? `${organizationDisplayName} logo` : 'School logo'" />
+            </div>
+          </div>
+          <div class="roi-transition-copy">
+            <p>Hello! This weekend we have implemented a new feature that will help your students protect their info based on the exact dates of their ROI and specifically for whom they want their information shared.</p>
+            <p>Now that our system is ready for this change, we will be manually inputting all ROI dates and individuals on the ROI as ROI access for that period of time. Please give us a day or two to update every client! If your school is already updated, please ignore this message!</p>
+            <p>Rest assured, our new system will be able to send a private link via email or text to the parent so that updating that ROI will be quick, easy, secure, and integrated as it will directly update the client's profile.</p>
+            <p>We will have to manually update your access whenever that new ROI comes in so it may take us a few hours after it is uploaded to do so, but the uploader will have access and new digital packets will display but will show NO ROI as the default.</p>
+            <p>Thank you for your patience!</p>
+          </div>
+          <div class="roi-transition-actions">
+            <button type="button" class="btn btn-primary" @click="dismissRoiTransitionNotice">Dismiss</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <ReviewPromptModal
-      v-if="showReviewPrompt && reviewPromptConfig"
+      v-if="showReviewPrompt && reviewPromptConfig && !showRoiTransitionNotice"
       :config="reviewPromptConfig"
       @close="showReviewPrompt = false"
       @completed="onReviewPromptCompleted"
@@ -1240,6 +1278,7 @@ const cardIconOrg = ref(null); // affiliated agency record (for School Portal ca
 
 const requestedPortalMode = computed(() => String(route.query?.sp || '').trim().toLowerCase());
 const notificationsFilter = computed(() => String(route.query?.notif || '').trim().toLowerCase());
+const notificationsCreateOpen = computed(() => ['1', 'true', 'yes'].includes(String(route.query?.announcementCreate || '').trim().toLowerCase()));
 const skillsUnassignedOnly = computed(() => {
   const raw = route.query?.skillsUnassigned ?? route.query?.skills_unassigned ?? '';
   return ['1', 'true', 'yes'].includes(String(raw || '').trim().toLowerCase());
@@ -1515,10 +1554,12 @@ const openMessages = async () => {
   await fetchMessagesUnread();
 };
 
-const openNotificationsPanel = async () => {
+const openNotificationsPanel = async ({ createAnnouncement = false } = {}) => {
   portalMode.value = 'notifications';
   const nextQuery = { ...(route.query || {}), sp: 'notifications' };
   delete nextQuery.notif;
+  if (createAnnouncement) nextQuery.announcementCreate = '1';
+  else delete nextQuery.announcementCreate;
   try {
     await router.replace({ query: nextQuery });
   } catch {
@@ -1721,6 +1762,33 @@ const reviewPromptConfig = computed(() => {
 });
 
 const userReviewPromptState = ref(null);
+const ROI_TRANSITION_NOTICE_END = new Date('2026-03-11T06:00:00');
+const showRoiTransitionNotice = ref(false);
+const roiTransitionNoticeDismissed = ref(false);
+
+const agencyDisplayName = computed(() => {
+  const agency = cardIconOrg.value || null;
+  return String(agency?.official_name || agency?.name || '').trim();
+});
+
+const agencyLogoUrl = computed(() => {
+  const agency = cardIconOrg.value || null;
+  const raw = agency?.logo_path || agency?.logo_url || agency?.icon_file_path || agency?.icon_path || null;
+  return toUploadsUrl(raw);
+});
+
+const shouldShowRoiTransitionNotice = computed(() => {
+  return isSchoolStaff.value && (new Date()).getTime() < ROI_TRANSITION_NOTICE_END.getTime();
+});
+
+const syncRoiTransitionNoticeVisibility = () => {
+  showRoiTransitionNotice.value = shouldShowRoiTransitionNotice.value && !roiTransitionNoticeDismissed.value;
+};
+
+const dismissRoiTransitionNotice = () => {
+  roiTransitionNoticeDismissed.value = true;
+  showRoiTransitionNotice.value = false;
+};
 
 const checkReviewPrompt = async () => {
   if (!isSchoolStaff.value || !reviewPromptConfig.value || !affiliatedAgencyId.value) return;
@@ -2167,6 +2235,7 @@ watch(organizationId, async (id) => {
   await openClientFromQuery();
 
   await ensureAffiliation();
+  syncRoiTransitionNoticeVisibility();
 });
 
 watch(
@@ -2174,6 +2243,13 @@ watch(
   async (mode) => {
     if (!mode) return;
     await applyRequestedPortalMode(mode);
+  }
+);
+
+watch(
+  () => [isSchoolStaff.value, organizationId.value, affiliatedAgencyId.value],
+  () => {
+    syncRoiTransitionNoticeVisibility();
   }
 );
 
@@ -2795,6 +2871,59 @@ watch(() => store.selectedWeekday, async (weekday) => {
 }
 .modal-body {
   padding: 14px 16px;
+}
+
+.roi-transition-modal {
+  width: min(720px, 95vw);
+}
+
+.roi-transition-body {
+  display: grid;
+  gap: 16px;
+}
+
+.roi-transition-branding {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.roi-transition-logo {
+  width: 92px;
+  height: 92px;
+  border-radius: 18px;
+  border: 1px solid var(--border);
+  background: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 10px;
+}
+
+.roi-transition-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.roi-transition-copy {
+  display: grid;
+  gap: 12px;
+  color: var(--text-primary);
+  line-height: 1.55;
+}
+
+.roi-transition-copy p {
+  margin: 0;
+}
+
+.roi-transition-actions {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .intake-link-body {

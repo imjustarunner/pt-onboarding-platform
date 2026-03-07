@@ -45,7 +45,7 @@ async function providerHasAssignedClientAccess({ requestingUserId, client }) {
   return Number(client?.provider_id || 0) === uid;
 }
 
-async function userCanAccessClient({ requestingUserId, requestingUserRole, client }) {
+async function userCanAccessClient({ requestingUserId, requestingUserRole, client, requireDocumentAccess = false }) {
   const normalizedRole = String(requestingUserRole || '').toLowerCase();
   if (normalizedRole === 'super_admin') return true;
   if (normalizedRole === 'client_guardian') {
@@ -56,7 +56,8 @@ async function userCanAccessClient({ requestingUserId, requestingUserRole, clien
     return ClientSchoolStaffRoiAccess.schoolStaffHasActiveRoiAccess({
       clientId: client?.id,
       schoolOrganizationId: client?.organization_id || client?.school_organization_id,
-      schoolStaffUserId: requestingUserId
+      schoolStaffUserId: requestingUserId,
+      requireDocumentAccess
     });
   }
   if (normalizedRole === 'provider' || normalizedRole === 'provider_plus') {
@@ -78,7 +79,12 @@ export const uploadClientPhiDocument = [
       const client = await Client.findById(clientId, { includeSensitive: true });
       if (!client) return res.status(404).json({ error: { message: 'Client not found' } });
 
-      const allowed = await userCanAccessClient({ requestingUserId: req.user.id, requestingUserRole: req.user.role, client });
+      const allowed = await userCanAccessClient({
+        requestingUserId: req.user.id,
+        requestingUserRole: req.user.role,
+        client,
+        requireDocumentAccess: true
+      });
       if (!allowed) return res.status(403).json({ error: { message: 'Access denied' } });
 
       const sanitizedFilename = StorageService.sanitizeFilename(req.file.originalname);
@@ -159,7 +165,12 @@ export const listClientPhiDocuments = async (req, res, next) => {
     const client = await Client.findById(clientId, { includeSensitive: true });
     if (!client) return res.status(404).json({ error: { message: 'Client not found' } });
 
-    const allowed = await userCanAccessClient({ requestingUserId: req.user.id, requestingUserRole: req.user.role, client });
+    const allowed = await userCanAccessClient({
+      requestingUserId: req.user.id,
+      requestingUserRole: req.user.role,
+      client,
+      requireDocumentAccess: true
+    });
     if (!allowed) return res.status(403).json({ error: { message: 'Access denied' } });
 
     let docs = [];
@@ -199,7 +210,12 @@ export const viewPhiDocument = async (req, res, next) => {
     const client = await Client.findById(doc.client_id, { includeSensitive: true });
     if (!client) return res.status(404).json({ error: { message: 'Client not found' } });
 
-    const allowed = await userCanAccessClient({ requestingUserId: req.user.id, requestingUserRole: req.user.role, client });
+    const allowed = await userCanAccessClient({
+      requestingUserId: req.user.id,
+      requestingUserRole: req.user.role,
+      client,
+      requireDocumentAccess: true
+    });
     if (!allowed) return res.status(403).json({ error: { message: 'Access denied' } });
 
     // Log access (best-effort)
@@ -406,7 +422,12 @@ export const listClientPhiDocumentAudit = async (req, res, next) => {
     const client = await Client.findById(clientId, { includeSensitive: true });
     if (!client) return res.status(404).json({ error: { message: 'Client not found' } });
 
-    const allowed = await userCanAccessClient({ requestingUserId: req.user.id, requestingUserRole: req.user.role, client });
+    const allowed = await userCanAccessClient({
+      requestingUserId: req.user.id,
+      requestingUserRole: req.user.role,
+      client,
+      requireDocumentAccess: true
+    });
     if (!allowed) return res.status(403).json({ error: { message: 'Access denied' } });
 
     let docs = [];
@@ -478,7 +499,12 @@ export const markPhiDocumentExported = async (req, res, next) => {
     const client = await Client.findById(doc.client_id, { includeSensitive: true });
     if (!client) return res.status(404).json({ error: { message: 'Client not found' } });
 
-    const allowed = await userCanAccessClient({ requestingUserId: req.user.id, requestingUserRole: req.user.role, client });
+    const allowed = await userCanAccessClient({
+      requestingUserId: req.user.id,
+      requestingUserRole: req.user.role,
+      client,
+      requireDocumentAccess: true
+    });
     if (!allowed) return res.status(403).json({ error: { message: 'Access denied' } });
 
     const exportedAt = new Date();
@@ -541,7 +567,12 @@ export const removePhiDocument = async (req, res, next) => {
     const client = await Client.findById(doc.client_id, { includeSensitive: true });
     if (!client) return res.status(404).json({ error: { message: 'Client not found' } });
 
-    const allowed = await userCanAccessClient({ requestingUserId: req.user.id, requestingUserRole: req.user.role, client });
+    const allowed = await userCanAccessClient({
+      requestingUserId: req.user.id,
+      requestingUserRole: req.user.role,
+      client,
+      requireDocumentAccess: true
+    });
     if (!allowed) return res.status(403).json({ error: { message: 'Access denied' } });
 
     const removedAt = new Date();

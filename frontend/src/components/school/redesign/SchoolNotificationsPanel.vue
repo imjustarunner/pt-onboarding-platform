@@ -450,7 +450,8 @@ import { useAuthStore } from '../../../store/auth';
 const props = defineProps({
   schoolOrganizationId: { type: Number, required: true },
   clientLabelMode: { type: String, default: 'codes' }, // 'codes' | 'initials'
-  initialFilter: { type: String, default: '' }
+  initialFilter: { type: String, default: '' },
+  initialCreateOpen: { type: Boolean, default: false }
 });
 
 const emit = defineEmits(['close', 'updated', 'open-ticket', 'open-client']);
@@ -1175,10 +1176,19 @@ const initCreateDefaults = () => {
   draftEndsAt.value = toLocalInput(ends);
 };
 
-const toggleCreate = () => {
-  createOpen.value = !createOpen.value;
+const openCreateComposer = () => {
+  createOpen.value = true;
   createError.value = '';
-  if (createOpen.value) initCreateDefaults();
+  initCreateDefaults();
+};
+
+const toggleCreate = () => {
+  if (createOpen.value) {
+    createOpen.value = false;
+    createError.value = '';
+    return;
+  }
+  openCreateComposer();
 };
 
 const canSubmitCreate = computed(() => {
@@ -1227,6 +1237,14 @@ watch(
   () => props.initialFilter,
   (next) => {
     activeFilter.value = normalizeFilter(next);
+  },
+  { immediate: true }
+);
+
+watch(
+  () => props.initialCreateOpen,
+  (next) => {
+    if (next) openCreateComposer();
   },
   { immediate: true }
 );

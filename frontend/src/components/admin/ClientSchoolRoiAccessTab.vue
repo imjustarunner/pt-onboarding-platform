@@ -3,7 +3,7 @@
     <div class="form-section-divider" style="margin-top: 0; margin-bottom: 10px;">
       <h3 style="margin:0;">School ROI Access</h3>
       <div class="hint">
-        Active school staff for this client's school are listed below. Only staff with active ROI access can open the client in the school portal.
+        Active school staff for this client's school are listed below. `ROI access` opens the client in the school portal. `ROI and Doc Access` also unlocks historical documents and packet audit.
       </div>
     </div>
 
@@ -27,7 +27,7 @@
           </button>
         </div>
         <div class="hint">
-          This date is the source of school ROI access. Anyone already set to `ROI access` becomes active again when this date is current.
+          This date is the source of school ROI access. Anyone already set to `ROI access` or `ROI and Doc Access` becomes active again when this date is current.
         </div>
       </div>
       <div class="summary-card" :class="{ 'summary-card-alert': roiExpired }">
@@ -113,6 +113,56 @@
           </button>
           <span v-if="copyStatus" class="hint strong">{{ copyStatus }}</span>
         </div>
+
+        <div class="sms-card">
+          <div class="summary-k">Send ROI link by text</div>
+          <div class="hint">
+            This sends from the agency system number and saves the phone to the client profile if you type one here first.
+          </div>
+
+          <div class="sms-grid">
+            <div class="form-group">
+              <label>Client phone</label>
+              <input
+                v-model="smsPhoneDraft"
+                type="tel"
+                placeholder="(555) 555-5555"
+                autocomplete="tel"
+              />
+            </div>
+
+            <div class="summary-card">
+              <div class="summary-k">Text link</div>
+              <div class="summary-v">{{ issuedLink?.public_key ? 'Ready' : 'Auto-create on send' }}</div>
+              <div class="hint">{{ issuedTextLinkSummary }}</div>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>Text message</label>
+            <textarea
+              v-model="smsMessageDraft"
+              rows="4"
+              placeholder="ROI text message"
+              @input="smsMessageTouched = true"
+            />
+            <div class="hint">
+              Editable before sending. The text uses the shorter ROI link route for SMS.
+            </div>
+          </div>
+
+          <div class="signing-actions" style="margin-bottom: 0;">
+            <button
+              type="button"
+              class="btn btn-primary btn-sm"
+              :disabled="smsSending || !hasSigningConfig || !smsPhoneDraft || !smsMessageDraft"
+              @click="sendRoiText"
+            >
+              {{ smsSending ? 'Sending…' : 'Send ROI Text' }}
+            </button>
+            <span v-if="smsStatus" class="hint strong">{{ smsStatus }}</span>
+          </div>
+        </div>
       </div>
 
       <div v-if="rows.length === 0" class="empty-state">
@@ -148,6 +198,7 @@
                   <option value="none">No access</option>
                   <option value="packet">Packet</option>
                   <option value="roi">ROI access</option>
+                  <option value="roi_docs">ROI and Doc Access</option>
                 </select>
               </td>
               <td>
@@ -179,7 +230,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
 import api from '../../services/api';
-import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
+import { buildPublicIntakeShortUrl, buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 
 const props = defineProps({
   client: {
@@ -205,8 +256,13 @@ const issuedLink = ref(null);
 const configSaving = ref(false);
 const issueLoading = ref(false);
 const roiDateSaving = ref(false);
+const smsSending = ref(false);
 const copyStatus = ref('');
 const roiExpiryDraft = ref('');
+const smsPhoneDraft = ref('');
+const smsMessageDraft = ref('');
+const smsMessageTouched = ref(false);
+const smsStatus = ref('');
 
 const roiExpiryLabel = computed(() => {
   if (!roiExpiresAt.value) return 'Missing';
@@ -215,7 +271,7 @@ const roiExpiryLabel = computed(() => {
 
 const normalizeState = (value) => {
   const normalized = String(value || '').trim().toLowerCase();
-  return ['none', 'packet', 'roi'].includes(normalized) ? normalized : 'none';
+  return ['none', 'packet', 'roi', 'roi_docs'].includes(normalized) ? normalized : 'none';
 };
 
 const displayName = (row) => {
@@ -250,6 +306,7 @@ const normalizeDateInputValue = (value) => {
 const stateLabel = (effectiveState, accessLevel) => {
   const effective = normalizeState(effectiveState === 'expired' ? 'expired' : effectiveState);
   if (effectiveState === 'expired') return 'ROI expired';
+  if (effective === 'roi_docs') return 'ROI and Doc Access';
   if (effective === 'roi') return 'ROI access';
   if (effective === 'packet' || accessLevel === 'packet') return 'Packet';
   return 'No access';
@@ -260,7 +317,7 @@ const stateClass = (effectiveState) => {
   return {
     'state-none': !state || state === 'none',
     'state-packet': state === 'packet',
-    'state-roi': state === 'roi',
+    'state-roi': state === 'roi' || state === 'roi_docs',
     'state-expired': state === 'expired'
   };
 };
@@ -288,6 +345,16 @@ const issuedLinkSummary = computed(() => {
   if (!issuedLink.value?.public_key) return 'Create a unique client link from the assigned school ROI form.';
   return buildPublicIntakeUrl(issuedLink.value.public_key);
 });
+const issuedTextLinkSummary = computed(() => {
+  if (!issuedLink.value?.public_key) return 'A shorter /i/ link will be used for texting.';
+  return buildPublicIntakeShortUrl(issuedLink.value.public_key);
+});
+
+const buildDefaultSmsMessage = () => {
+  const agencyName = String(props.client?.agency_name || 'our agency').trim() || 'our agency';
+  const linkUrl = buildPublicIntakeShortUrl(issuedLink.value?.public_key || '');
+  return `Hi this is ${agencyName} and your ROI is expired. A new one has been attached to this private link: ${linkUrl} If you are no longer interested in our services write STOP. Respond with MORE if you'd like us to call you.`;
+};
 
 const load = async () => {
   const clientId = Number(props.client?.id || 0);
@@ -298,6 +365,10 @@ const load = async () => {
     issuedLink.value = null;
     savedIntakeLinkId.value = '';
     selectedIntakeLinkId.value = '';
+    roiExpiryDraft.value = '';
+    smsPhoneDraft.value = '';
+    smsMessageDraft.value = '';
+    smsStatus.value = '';
     return;
   }
 
@@ -305,6 +376,7 @@ const load = async () => {
     loading.value = true;
     error.value = '';
     copyStatus.value = '';
+    smsStatus.value = '';
     const response = await api.get(`/clients/${clientId}/school-roi-access`);
     const payload = response.data || {};
     rows.value = Array.isArray(payload.staff) ? payload.staff : [];
@@ -321,6 +393,11 @@ const load = async () => {
     savedIntakeLinkId.value = signing.selected_intake_link_id ? String(signing.selected_intake_link_id) : '';
     selectedIntakeLinkId.value = savedIntakeLinkId.value;
     issuedLink.value = signing.issued_link || null;
+    smsPhoneDraft.value = String(props.client?.contact_phone || payload.client_contact_phone || '').trim();
+    if (!smsMessageTouched.value || !String(smsMessageDraft.value || '').trim()) {
+      smsMessageDraft.value = buildDefaultSmsMessage();
+      smsMessageTouched.value = false;
+    }
   } catch (err) {
     error.value = err.response?.data?.error?.message || 'Failed to load school ROI access';
     rows.value = [];
@@ -330,6 +407,9 @@ const load = async () => {
     savedIntakeLinkId.value = '';
     selectedIntakeLinkId.value = '';
     roiExpiryDraft.value = '';
+    smsPhoneDraft.value = '';
+    smsMessageDraft.value = '';
+    smsStatus.value = '';
   } finally {
     loading.value = false;
   }
@@ -425,6 +505,45 @@ const copyIssuedLink = async (regenerate = false) => {
   }
 };
 
+const sendRoiText = async () => {
+  const clientId = Number(props.client?.id || 0);
+  if (!clientId) return;
+  try {
+    smsSending.value = true;
+    error.value = '';
+    smsStatus.value = '';
+    if (configDirty.value) {
+      const ok = await saveSigningConfig();
+      if (!ok) return;
+    }
+    const response = await api.post(`/clients/${clientId}/school-roi-signing-text`, {
+      phoneNumber: smsPhoneDraft.value,
+      message: smsMessageDraft.value
+    });
+    issuedLink.value = response.data?.issued_link || issuedLink.value;
+    smsPhoneDraft.value = response.data?.sent_to || smsPhoneDraft.value;
+    smsMessageDraft.value = response.data?.message || smsMessageDraft.value;
+    smsMessageTouched.value = true;
+    smsStatus.value = `Text sent to ${response.data?.sent_to || smsPhoneDraft.value}.`;
+    emit('updated', { keepOpen: true, client: response.data?.client || undefined });
+    await load();
+  } catch (err) {
+    error.value = err.response?.data?.error?.message || 'Failed to send ROI text';
+  } finally {
+    smsSending.value = false;
+  }
+};
+
+watch(
+  () => issuedLink.value?.public_key,
+  () => {
+    if (!smsMessageTouched.value || !String(smsMessageDraft.value || '').trim()) {
+      smsMessageDraft.value = buildDefaultSmsMessage();
+      smsMessageTouched.value = false;
+    }
+  }
+);
+
 watch(
   () => props.client?.id,
   () => {
@@ -495,6 +614,19 @@ watch(
 
 .signing-card {
   margin-bottom: 14px;
+}
+
+.sms-card {
+  border-top: 1px solid var(--border);
+  margin-top: 12px;
+  padding-top: 12px;
+}
+
+.sms-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin: 12px 0;
 }
 
 .signing-header,

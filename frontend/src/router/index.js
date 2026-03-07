@@ -98,6 +98,12 @@ const routes = [
     meta: { requiresGuest: false }
   },
   {
+    path: '/i/:publicKey',
+    name: 'PublicIntakeSigningShort',
+    component: () => import('../views/PublicIntakeSigningView.vue'),
+    meta: { requiresGuest: false }
+  },
+  {
     path: '/find-provider/:agencyId',
     name: 'PublicProviderFinder',
     component: () => import('../views/PublicProviderFinderView.vue'),
