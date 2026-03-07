@@ -93,7 +93,7 @@
                 Payroll
               </router-link>
               <router-link
-                v-if="canSeeSkillBuildersAvailabilityNav"
+                v-if="canSeeSkillBuildersAvailabilityTopNav"
                 :to="orgTo('/admin/skill-builders-availability')"
                 @click="closeMobileMenu"
               >
@@ -159,6 +159,7 @@
                     <router-link :to="orgTo('/admin/schools/overview?orgType=program')" v-if="user?.role === 'super_admin' || isAdmin" >Program Overview</router-link>
                     <router-link :to="orgTo('/admin/school-portals')" v-if="user?.role === 'super_admin' || isAdmin" >Show All School Portals</router-link>
                     <router-link :to="orgTo('/admin/find-providers')" v-if="user?.role === 'super_admin' || isAdmin" >Provider Booking Interface</router-link>
+                    <router-link :to="orgTo('/admin/skill-builders-availability')" v-if="canSeeSkillBuildersAvailabilityDirectoryNav" >Skill Builders Availability</router-link>
                     <router-link :to="orgTo('/admin/provider-availability')" v-if="user?.role === 'super_admin' || isAdmin || user?.role === 'staff' || user?.role === 'provider_plus'" >Provider Availability</router-link>
                     <router-link :to="orgTo('/admin/users')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" >Users</router-link>
                     <router-link :to="orgTo('/admin/clients')" v-if="isAdmin || user?.role === 'provider'" >Clients</router-link>
@@ -1258,6 +1259,16 @@ const canSeeSkillBuildersAvailabilityNav = computed(() => {
     user.value?.has_skill_builder_coordinator_access === 1 ||
     user.value?.has_skill_builder_coordinator_access === '1';
   return roleAllowed || coordinator;
+});
+
+const canSeeSkillBuildersAvailabilityTopNav = computed(() => {
+  const r = String(user.value?.role || '').toLowerCase();
+  return canSeeSkillBuildersAvailabilityNav.value && r !== 'super_admin' && r !== 'admin';
+});
+
+const canSeeSkillBuildersAvailabilityDirectoryNav = computed(() => {
+  const r = String(user.value?.role || '').toLowerCase();
+  return canSeeSkillBuildersAvailabilityNav.value && (r === 'super_admin' || r === 'admin');
 });
 
 const availabilityIntakeNavLink = computed(() => {
