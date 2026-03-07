@@ -805,17 +805,25 @@ const safeFilename = (name) => {
 };
 
 const closeSession = () => {
-  try {
-    window.close();
-  } catch {
-    // ignore
+  const roleNorm = String(authStore.user?.role || '').toLowerCase();
+  const returnTo = String(route.query?.returnTo || '').trim();
+  if (returnTo) {
+    router.push(returnTo);
+    return;
   }
-  window.setTimeout(() => {
-    if (!window.closed) {
-      error.value = 'Signing session complete. You can close this tab/window now.';
-      errorDetails.value = null;
+  if (roleNorm === 'school_staff') {
+    const agencies = Array.isArray(authStore.user?.agencies) ? authStore.user.agencies : [];
+    const firstPortal = agencies.find((org) => {
+      const t = String(org?.organization_type || org?.organizationType || '').toLowerCase();
+      return ['school', 'program', 'learning'].includes(t);
+    });
+    const slug = String(firstPortal?.portal_url || firstPortal?.portalUrl || firstPortal?.slug || '').trim();
+    if (slug) {
+      router.push(`/${slug}/dashboard?sp=documents`);
+      return;
     }
-  }, 50);
+  }
+  router.push(getDashboardRoute());
 };
 
 const finalizeAdminCountersign = async () => {

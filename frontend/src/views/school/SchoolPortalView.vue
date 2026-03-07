@@ -76,8 +76,6 @@
             {{
               portalMode === 'home'
                 ? 'Choose a section'
-                : portalMode === 'my_documents'
-                  ? 'My documents'
                 : portalMode === 'providers'
                   ? 'Providers'
                   : portalMode === 'roster'
@@ -157,8 +155,14 @@
       </div>
 
       <div class="main-layout" :class="{ 'with-rail': portalMode !== 'home' }">
-        <nav v-if="portalMode !== 'home'" class="nav-rail" aria-label="School portal navigation" data-tour="school-nav-rail">
-          <button data-tour="school-nav-home" class="nav-item" type="button" @click="portalMode = 'home'" :class="{ active: portalMode === 'home' }">
+        <nav
+          v-if="portalMode !== 'home'"
+          class="nav-rail"
+          :class="{ locked: waiverGateLocked }"
+          aria-label="School portal navigation"
+          data-tour="school-nav-rail"
+        >
+          <button data-tour="school-nav-home" class="nav-item" type="button" @click="setPortalMode('home')" :class="{ active: portalMode === 'home' }">
             <div class="nav-icon">
               <img v-if="homeIconUrl" :src="homeIconUrl" alt="" class="nav-icon-img" />
               <div v-else class="nav-icon-fallback" aria-hidden="true">⌂</div>
@@ -221,7 +225,7 @@
             <div class="nav-label">{{ isProvider ? 'My roster' : 'Roster' }}</div>
           </button>
 
-          <button data-tour="school-nav-skills" class="nav-item" type="button" @click="portalMode = 'skills'" :class="{ active: portalMode === 'skills' }">
+          <button data-tour="school-nav-skills" class="nav-item" type="button" @click="setPortalMode('skills')" :class="{ active: portalMode === 'skills' }">
             <div class="nav-icon">
               <img
                 v-if="brandingStore.getSchoolPortalCardIconUrl('skills_groups', cardIconOrg)"
@@ -234,7 +238,7 @@
             <div class="nav-label">Skills</div>
           </button>
 
-          <button data-tour="school-nav-staff" class="nav-item" type="button" @click="portalMode = 'school_staff'" :class="{ active: portalMode === 'school_staff' }">
+          <button data-tour="school-nav-staff" class="nav-item" type="button" @click="setPortalMode('school_staff')" :class="{ active: portalMode === 'school_staff' }">
             <div class="nav-icon">
               <img
                 v-if="brandingStore.getSchoolPortalCardIconUrl('school_staff', cardIconOrg)"
@@ -247,7 +251,7 @@
             <div class="nav-label">Staff</div>
           </button>
 
-          <button data-tour="school-nav-docs" class="nav-item" type="button" @click="portalMode = 'documents'" :class="{ active: portalMode === 'documents' }">
+          <button data-tour="school-nav-docs" class="nav-item" type="button" @click="setPortalMode('documents')" :class="{ active: portalMode === 'documents' }">
             <div class="nav-icon">
               <img
                 v-if="brandingStore.getSchoolPortalCardIconUrl('public_documents', cardIconOrg)"
@@ -258,20 +262,6 @@
               <div v-else class="nav-icon-fallback" aria-hidden="true">DO</div>
             </div>
             <div class="nav-label">Docs/Links</div>
-          </button>
-
-          <button
-            v-if="isSchoolStaff"
-            data-tour="school-nav-my-documents"
-            class="nav-item"
-            type="button"
-            @click="portalMode = 'my_documents'"
-            :class="{ active: portalMode === 'my_documents' }"
-          >
-            <div class="nav-icon">
-              <div class="nav-icon-fallback" aria-hidden="true">MD</div>
-            </div>
-            <div class="nav-label">My Documents</div>
           </button>
 
           <button
@@ -312,7 +302,7 @@
             <div class="nav-label">Messages</div>
           </button>
 
-          <button data-tour="school-nav-faq" class="nav-item" type="button" @click="portalMode = 'faq'" :class="{ active: portalMode === 'faq' }">
+          <button data-tour="school-nav-faq" class="nav-item" type="button" @click="setPortalMode('faq')" :class="{ active: portalMode === 'faq' }">
             <div class="nav-icon">
               <img
                 v-if="brandingStore.getSchoolPortalCardIconUrl('faq', cardIconOrg)"
@@ -340,6 +330,10 @@
         </nav>
 
         <div class="main-content">
+          <div v-if="waiverGateLocked" class="waiver-lock-banner">
+            <strong>School Staff Waiver required.</strong>
+            <span>You can only access Docs/Links until it is signed.</span>
+          </div>
           <div v-if="portalMode === 'days'" class="days-daybar-center">
             <div data-tour="school-days-daybar">
               <SchoolDayBar v-model="store.selectedWeekday" :days="store.days" />
@@ -393,7 +387,7 @@
               <div class="home-pill-k">{{ atGlance.waitlist }}</div>
               <div class="home-pill-v">Waitlist clients</div>
             </button>
-            <button class="home-pill home-pill-clickable" type="button" @click="portalMode = 'school_staff'">
+            <button class="home-pill home-pill-clickable" type="button" @click="setPortalMode('school_staff')">
               <div class="home-pill-k">{{ atGlance.staff }}</div>
               <div class="home-pill-v">School staff users</div>
             </button>
@@ -468,7 +462,7 @@
             </div>
           </button>
 
-          <button data-tour="school-home-card-skills" class="dash-card" type="button" @click="portalMode = 'skills'">
+          <button data-tour="school-home-card-skills" class="dash-card" type="button" @click="setPortalMode('skills')">
             <div class="dash-card-icon">
               <img
                 v-if="brandingStore.getSchoolPortalCardIconUrl('skills_groups', cardIconOrg)"
@@ -485,7 +479,7 @@
             </div>
           </button>
 
-          <button data-tour="school-home-card-staff" class="dash-card" type="button" @click="portalMode = 'school_staff'">
+          <button data-tour="school-home-card-staff" class="dash-card" type="button" @click="setPortalMode('school_staff')">
             <div class="dash-card-icon">
               <img
                 v-if="brandingStore.getSchoolPortalCardIconUrl('school_staff', cardIconOrg)"
@@ -505,7 +499,7 @@
             </div>
           </button>
 
-          <button data-tour="school-home-card-docs" class="dash-card" type="button" @click="portalMode = 'documents'">
+          <button data-tour="school-home-card-docs" class="dash-card" type="button" @click="setPortalMode('documents')">
             <div class="dash-card-icon">
               <img
                 v-if="brandingStore.getSchoolPortalCardIconUrl('public_documents', cardIconOrg)"
@@ -522,24 +516,7 @@
             </div>
           </button>
 
-          <button
-            v-if="isSchoolStaff"
-            data-tour="school-home-card-my-documents"
-            class="dash-card"
-            type="button"
-            @click="portalMode = 'my_documents'"
-          >
-            <div class="dash-card-icon">
-              <div class="dash-card-icon-fallback" aria-hidden="true">MD</div>
-            </div>
-            <div class="dash-card-title">My Documents</div>
-            <div class="dash-card-desc">Review and sign required school staff waiver documents.</div>
-            <div class="dash-card-meta">
-              <span class="dash-card-cta">Open</span>
-            </div>
-          </button>
-
-          <button data-tour="school-home-card-faq" class="dash-card" type="button" @click="portalMode = 'faq'">
+          <button data-tour="school-home-card-faq" class="dash-card" type="button" @click="setPortalMode('faq')">
             <div class="dash-card-icon">
               <img
                 v-if="brandingStore.getSchoolPortalCardIconUrl('faq', cardIconOrg)"
@@ -732,13 +709,11 @@
           <div v-else-if="portalMode === 'documents'">
         <div data-tour="school-docs-panel">
           <div v-if="!organizationId" class="empty-state">Organization not loaded.</div>
-          <PublicDocumentsPanel v-else :school-organization-id="organizationId" />
-        </div>
+          <div v-else>
+            <SchoolMyDocumentsPanel v-if="isSchoolStaff" :organization-id="organizationId" />
+            <PublicDocumentsPanel :school-organization-id="organizationId" />
           </div>
-
-          <div v-else-if="portalMode === 'my_documents'">
-            <div v-if="!organizationId" class="empty-state">Organization not loaded.</div>
-            <SchoolMyDocumentsPanel v-else :organization-id="organizationId" />
+        </div>
           </div>
 
           <div v-else-if="portalMode === 'faq'">
@@ -1175,6 +1150,7 @@ import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 import { isSupervisor } from '../../utils/helpers';
 import { setDarkMode, getStoredDarkMode } from '../../utils/darkMode';
+import { getSchoolStaffWaiverStatus as getSchoolStaffWaiverStatusForGate } from '../../utils/schoolStaffWaiverGate';
 import QRCode from 'qrcode';
 
 const route = useRoute();
@@ -1366,7 +1342,7 @@ const comingSoonTitle = computed(() => {
   return 'Coming soon';
 });
 const selectedClient = ref(null);
-const portalMode = ref('home'); // home | my_documents | providers | days | roster | skills | school_staff | documents | faq | messages
+const portalMode = ref('home'); // home | providers | days | roster | skills | school_staff | documents | faq | messages
 const rosterStatusFilterKey = ref(''); // client_status_key filter for roster panel (pending/waitlist)
 const adminSelectedClient = ref(null);
 const adminClientLoading = ref(false);
@@ -1397,9 +1373,53 @@ const requestedClientId = computed(() => {
   return Number.isFinite(n) && n > 0 ? n : null;
 });
 
+const forceWaiverDocumentsMode = async () => {
+  portalMode.value = 'documents';
+  try {
+    await router.replace({ query: { ...route.query, sp: 'documents' } });
+  } catch {
+    // ignore navigation failures
+  }
+};
+
+const refreshWaiverGateStatus = async ({ force = false } = {}) => {
+  if (!isSchoolStaff.value) {
+    waiverGateStatus.value = null;
+    return;
+  }
+  try {
+    const status = await getSchoolStaffWaiverStatusForGate({
+      api,
+      authUser: authStore.user,
+      organizationSlug: organizationSlug.value,
+      forceRefresh: force
+    });
+    waiverGateStatus.value = status || null;
+  } catch {
+    waiverGateStatus.value = null;
+  }
+  if (waiverGateLocked.value && portalMode.value !== 'documents') {
+    await forceWaiverDocumentsMode();
+  }
+};
+
+const setPortalMode = async (mode) => {
+  const next = String(mode || '').trim().toLowerCase();
+  if (!next) return;
+  if (waiverGateLocked.value && next !== 'documents') {
+    await forceWaiverDocumentsMode();
+    return;
+  }
+  portalMode.value = next;
+};
+
 const applyRequestedPortalMode = async (mode) => {
   const m = String(mode || '').trim().toLowerCase();
   if (!m) return;
+  if (waiverGateLocked.value && m !== 'documents') {
+    await forceWaiverDocumentsMode();
+    return;
+  }
   if (m === portalMode.value) return;
 
   if (m === 'providers') {
@@ -1419,16 +1439,20 @@ const applyRequestedPortalMode = async (mode) => {
     return;
   }
   if (m === 'home') {
-    portalMode.value = 'home';
+    await setPortalMode('home');
     return;
   }
   // fall back to direct set for other known modes
-  if (['roster', 'skills', 'school_staff', 'messages', 'my_documents'].includes(m)) {
-    portalMode.value = m;
+  if (['roster', 'skills', 'school_staff', 'messages', 'documents'].includes(m)) {
+    await setPortalMode(m);
   }
 };
 
 const openRosterPanel = (statusKey = '') => {
+  if (waiverGateLocked.value) {
+    forceWaiverDocumentsMode();
+    return;
+  }
   rosterStatusFilterKey.value = String(statusKey || '').trim().toLowerCase();
   portalMode.value = 'roster';
 };
@@ -1461,6 +1485,12 @@ const hasSupervisorCapability = computed(() => isSupervisor(authStore.user));
 const isProvider = computed(() => roleNorm.value === 'provider' && !hasSupervisorCapability.value);
 const isSupervisorProviderContext = computed(() => hasSupervisorCapability.value && roleNorm.value === 'provider');
 const isSchoolStaff = computed(() => roleNorm.value === 'school_staff');
+const waiverGateStatus = ref(null);
+const waiverGateLocked = computed(() => (
+  isSchoolStaff.value
+  && Boolean(waiverGateStatus.value?.required)
+  && !Boolean(waiverGateStatus.value?.isSigned)
+));
 
 // Schools available to school staff (for multi-school selector)
 const schoolStaffSchools = computed(() => {
@@ -1650,6 +1680,10 @@ const fetchMessagesUnread = async () => {
   }
 };
 const openMessages = async () => {
+  if (waiverGateLocked.value) {
+    await forceWaiverDocumentsMode();
+    return;
+  }
   portalMode.value = 'messages';
   try {
     await router.replace({ query: { ...route.query, sp: 'messages' } });
@@ -1663,6 +1697,10 @@ const openMessages = async () => {
 };
 
 const openNotificationsPanel = async ({ createAnnouncement = false } = {}) => {
+  if (waiverGateLocked.value) {
+    await forceWaiverDocumentsMode();
+    return;
+  }
   portalMode.value = 'notifications';
   const nextQuery = { ...(route.query || {}), sp: 'notifications' };
   delete nextQuery.notif;
@@ -2032,6 +2070,10 @@ const openSchoolSettings = async () => {
 };
 
 const openProvidersPanel = async () => {
+  if (waiverGateLocked.value) {
+    await forceWaiverDocumentsMode();
+    return;
+  }
   if (!canAccessSchedulingPanels.value) {
     portalMode.value = 'home';
     return;
@@ -2043,6 +2085,10 @@ const openProvidersPanel = async () => {
 };
 
 const openDaysPanel = async () => {
+  if (waiverGateLocked.value) {
+    await forceWaiverDocumentsMode();
+    return;
+  }
   if (!canAccessSchedulingPanels.value) {
     portalMode.value = 'home';
     return;
@@ -2363,7 +2409,7 @@ onMounted(async () => {
     // Preload announcements preview so the card badge/snippet is populated.
     await loadNotificationsPreview();
     await loadBannerAnnouncements();
-    if (isSchoolStaff.value) await fetchMessagesUnread();
+    await refreshWaiverGateStatus({ force: true });
     if (portalMode.value === 'days' && store.selectedWeekday) await loadForDay(store.selectedWeekday);
     await openClientFromQuery();
   }
@@ -2398,6 +2444,7 @@ watch(organizationId, async (id) => {
   await loadSupervisorScheduleEligibility();
   await loadNotificationsPreview();
   await loadBannerAnnouncements();
+  await refreshWaiverGateStatus({ force: true });
   if (portalMode.value === 'days' && store.selectedWeekday) await loadForDay(store.selectedWeekday);
   await openClientFromQuery();
 
@@ -2410,6 +2457,15 @@ watch(
   async (mode) => {
     if (!mode) return;
     await applyRequestedPortalMode(mode);
+  }
+);
+
+watch(
+  () => portalMode.value,
+  async (mode) => {
+    if (waiverGateLocked.value && mode !== 'documents') {
+      await forceWaiverDocumentsMode();
+    }
   }
 );
 
@@ -2809,6 +2865,28 @@ watch(() => store.selectedWeekday, async (weekday) => {
 }
 .main-content {
   min-width: 0;
+}
+
+.waiver-lock-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(245, 158, 11, 0.45);
+  background: rgba(245, 158, 11, 0.12);
+  color: #7c2d12;
+}
+
+.nav-rail.locked .nav-item {
+  pointer-events: none;
+  opacity: 0.45;
+}
+
+.nav-rail.locked .nav-item[data-tour="school-nav-docs"] {
+  pointer-events: auto;
+  opacity: 1;
 }
 
 .days-daybar-center :deep(.day-bar) {

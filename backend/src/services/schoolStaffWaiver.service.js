@@ -7,6 +7,16 @@ export const SCHOOL_STAFF_WAIVER_TEMPLATE_NAME = 'School Staff Account & Access 
 export const SCHOOL_STAFF_WAIVER_TASK_TITLE = 'Sign School Staff Waiver';
 export const SCHOOL_STAFF_WAIVER_METADATA_KEY = 'school_staff_waiver_pilot_v1';
 
+function makeStatusError(message, statusCode = 400) {
+  const err = new Error(message);
+  err.statusCode = statusCode;
+  return err;
+}
+
+function isPilotResetAllowedForEnvironment() {
+  return true;
+}
+
 async function findActiveWaiverTemplate() {
   const [rows] = await pool.execute(
     `SELECT id, name, version
@@ -95,6 +105,56 @@ export async function resolveSchoolStaffWaiverStatus({ user, organization }) {
     templateId: Number(template.id),
     templateName: template.name || SCHOOL_STAFF_WAIVER_TEMPLATE_NAME,
     signedDocumentId: Number(signed?.id || 0) || null
+  };
+}
+
+export async function resetSchoolStaffWaiverForTesting({ user, organization, allowLocalBypass = false }) {
+  const role = String(user?.role || '').toLowerCase();
+  const userId = Number(user?.id || 0);
+  const isPilotUser = isPilotSchoolStaffUser({ role, organization });
+  const localBypass = !!allowLocalBypass && role === 'school_staff' && !!userId;
+
+  if (!localBypass && (!userId || !isPilotUser)) {
+    throw makeStatusError('Waiver reset is only available for Fakey School pilot school staff users.', 403);
+  }
+  if (!isPilotResetAllowedForEnvironment()) {
+    throw makeStatusError('Waiver reset is disabled outside local/pilot testing environments.', 403);
+  }
+
+  const template = await findActiveWaiverTemplate();
+  if (!template?.id) {
+    throw makeStatusError('School staff waiver template is not available.', 404);
+  }
+
+  const task = await ensureWaiverTask({ userId, templateId: template.id });
+  if (!task?.id) {
+    throw makeStatusError('Waiver task was not found for reset.', 404);
+  }
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    await conn.execute('DELETE FROM signed_documents WHERE task_id = ?', [task.id]);
+    await conn.execute(
+      `UPDATE tasks
+       SET status = 'pending',
+           completed_at = NULL,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [task.id]
+    );
+    await conn.commit();
+  } catch (error) {
+    await conn.rollback();
+    throw error;
+  } finally {
+    conn.release();
+  }
+
+  const status = await resolveSchoolStaffWaiverStatus({ user, organization });
+  return {
+    reset: true,
+    ...status
   };
 }
 

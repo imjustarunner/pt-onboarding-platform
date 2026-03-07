@@ -1,10 +1,21 @@
 <template>
   <section class="my-docs-wrap">
     <header class="my-docs-header">
-      <h2>My Documents</h2>
-      <button type="button" class="btn btn-secondary btn-sm" :disabled="loading" @click="loadStatus">
-        {{ loading ? 'Refreshing...' : 'Refresh' }}
-      </button>
+      <h2>School Staff Documents</h2>
+      <div class="header-actions">
+        <button type="button" class="btn btn-secondary btn-sm" :disabled="loading" @click="loadStatus">
+          {{ loading ? 'Refreshing...' : 'Refresh' }}
+        </button>
+        <button
+          v-if="showPilotResetButton"
+          type="button"
+          class="btn btn-secondary btn-sm"
+          :disabled="loading || resetting"
+          @click="resetForTesting"
+        >
+          {{ resetting ? 'Resetting...' : 'Reset for testing' }}
+        </button>
+      </div>
     </header>
 
     <div v-if="error" class="error-block">
@@ -48,7 +59,7 @@
 
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import api from '../../../services/api';
 
 const props = defineProps({
@@ -59,13 +70,17 @@ const props = defineProps({
 });
 
 const router = useRouter();
+const route = useRoute();
 const loading = ref(false);
+const resetting = ref(false);
 const error = ref('');
 const status = ref(null);
 
 const taskId = computed(() => Number(status.value?.taskId || 0) || null);
 const required = computed(() => Boolean(status.value?.required));
 const isSigned = computed(() => Boolean(status.value?.isSigned));
+const pilotEnabled = computed(() => Boolean(status.value?.pilotEnabled));
+const showPilotResetButton = computed(() => pilotEnabled.value && required.value);
 
 const statusLabel = computed(() => {
   if (!required.value) return 'Not required';
@@ -93,8 +108,42 @@ const loadStatus = async () => {
 };
 
 const openSigning = async () => {
-  if (!taskId.value) return;
-  await router.push(`/tasks/documents/${taskId.value}/sign`);
+  await loadStatus();
+  const latestTaskId = Number(status.value?.taskId || 0) || null;
+  const latestSigned = Boolean(status.value?.isSigned);
+  if (!latestTaskId) return;
+  if (latestSigned) {
+    const viewUrl = `${api.defaults?.baseURL || '/api'}/document-signing/${latestTaskId}/view`;
+    window.open(viewUrl, '_blank', 'noopener');
+    return;
+  }
+  const orgSlug = String(route.params?.organizationSlug || '').trim();
+  const returnTo = orgSlug ? `/${orgSlug}/dashboard?sp=documents` : '/dashboard?sp=documents';
+  await router.push({
+    path: orgSlug
+      ? `/${orgSlug}/tasks/documents/${latestTaskId}/sign`
+      : `/tasks/documents/${latestTaskId}/sign`,
+    query: {
+      returnTo
+    }
+  });
+};
+
+const resetForTesting = async () => {
+  const orgId = Number(props.organizationId || 0);
+  if (!orgId) return;
+  const ok = window.confirm('Reset this waiver to unsigned for local pilot testing?');
+  if (!ok) return;
+  resetting.value = true;
+  error.value = '';
+  try {
+    const response = await api.post(`/school-portal/${orgId}/school-staff-waiver/reset`);
+    status.value = response?.data || null;
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || 'Failed to reset waiver status.';
+  } finally {
+    resetting.value = false;
+  }
 };
 
 watch(
@@ -119,6 +168,12 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
   gap: 8px;
 }
 

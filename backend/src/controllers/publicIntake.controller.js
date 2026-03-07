@@ -1384,6 +1384,37 @@ const hasProgrammedSchoolRoiStep = (link) => {
   return steps.some((step) => String(step?.type || '').trim().toLowerCase() === 'school_roi');
 };
 
+const resolveSmartSchoolRoiTemplate = async ({ roiContext, templates }) => {
+  let selectedTemplate = Array.isArray(templates)
+    ? templates.find((template) => Number(template?.id || 0) === Number(roiContext?.documentTemplate?.id || 0))
+    : null;
+  if (!selectedTemplate) {
+    const schoolOrgId = Number(roiContext?.school?.id || 0) || null;
+    const schoolRoiTemplatesResult = await DocumentTemplate.findAll({
+      documentType: 'school_roi',
+      isActive: true,
+      includeArchived: false,
+      limit: 200,
+      offset: 0
+    });
+    const schoolRoiTemplates = Array.isArray(schoolRoiTemplatesResult?.data) ? schoolRoiTemplatesResult.data : [];
+    selectedTemplate = schoolRoiTemplates.find((template) => Number(template?.organization_id || 0) === schoolOrgId)
+      || schoolRoiTemplates[0]
+      || null;
+  }
+  if (!selectedTemplate) {
+    const anyTemplateResult = await DocumentTemplate.findAll({
+      isActive: true,
+      includeArchived: false,
+      limit: 200,
+      offset: 0
+    });
+    const anyTemplates = Array.isArray(anyTemplateResult?.data) ? anyTemplateResult.data : [];
+    selectedTemplate = anyTemplates[0] || null;
+  }
+  return selectedTemplate || null;
+};
+
 export const getPublicIntakeLink = async (req, res, next) => {
   try {
     const publicKey = String(req.params.publicKey || '').trim();
@@ -2202,31 +2233,7 @@ export const finalizePublicIntake = async (req, res, next) => {
         agency,
         templates
       });
-      let selectedTemplate = templates.find((template) => Number(template.id) === Number(roiContext?.documentTemplate?.id || 0));
-      if (!selectedTemplate) {
-        const schoolOrgId = Number(roiContext?.school?.id || link?.organization_id || 0) || null;
-        const schoolRoiTemplatesResult = await DocumentTemplate.findAll({
-          documentType: 'school_roi',
-          isActive: true,
-          includeArchived: false,
-          limit: 200,
-          offset: 0
-        });
-        const schoolRoiTemplates = Array.isArray(schoolRoiTemplatesResult?.data) ? schoolRoiTemplatesResult.data : [];
-        selectedTemplate = schoolRoiTemplates.find((template) => Number(template?.organization_id || 0) === schoolOrgId)
-          || schoolRoiTemplates[0]
-          || null;
-      }
-      if (!selectedTemplate) {
-        const anyTemplateResult = await DocumentTemplate.findAll({
-          isActive: true,
-          includeArchived: false,
-          limit: 200,
-          offset: 0
-        });
-        const anyTemplates = Array.isArray(anyTemplateResult?.data) ? anyTemplateResult.data : [];
-        selectedTemplate = anyTemplates[0] || null;
-      }
+      const selectedTemplate = await resolveSmartSchoolRoiTemplate({ roiContext, templates });
       if (!selectedTemplate?.id) {
         return res.status(400).json({ error: { message: 'No active document template is available for Smart School ROI finalization.' } });
       }
@@ -2513,6 +2520,223 @@ export const finalizePublicIntake = async (req, res, next) => {
         pdfPaths.push(entry.signed_pdf_path);
       }
     }
+
+    // If the intake sequence includes an embedded school_roi step, generate and append
+    // the Smart School ROI signed artifact into the final packet bundle.
+    if (hasProgrammedSchoolRoiStep(link) && intakeData?.smartSchoolRoi) {
+      try {
+        const embeddedSignatureData = String(intakeData?.smartSchoolRoi?.signatureData || '').trim();
+        if (embeddedSignatureData) {
+          let boundClient = null;
+          if (updatedSubmission?.client_id) {
+            try {
+              boundClient = await Client.findById(updatedSubmission.client_id, { includeSensitive: true });
+            } catch {
+              boundClient = null;
+            }
+          }
+          const { organization, agency } = await resolveIntakeOrgContext(link, { issuedRoiLink, boundClient });
+          const roiContext = await buildSmartSchoolRoiContext({
+            link,
+            boundClient,
+            organization,
+            agency,
+            templates
+          });
+          const selectedTemplate = await resolveSmartSchoolRoiTemplate({ roiContext, templates });
+          if (selectedTemplate?.id) {
+            const effectiveRoiContext = roiContext?.documentTemplate?.id
+              ? roiContext
+              : {
+                  ...roiContext,
+                  documentTemplate: {
+                    id: Number(selectedTemplate.id),
+                    name: selectedTemplate.name || 'School Release of Information',
+                    documentType: selectedTemplate.document_type || 'school_roi'
+                  }
+                };
+            const roiResponse = normalizeSmartSchoolRoiResponse({
+              roiContext: effectiveRoiContext,
+              intakeData,
+              signedAt: now
+            });
+            const roiValidation = validateSmartSchoolRoiResponse(roiResponse);
+            if (roiValidation.valid) {
+              const roiAuditTrail = {
+                ...buildAuditTrail({
+                  link,
+                  submission: {
+                    ...updatedSubmission,
+                    submitted_at: now,
+                    client_name: roiResponse.clientFullName || null
+                  }
+                }),
+                smartSchoolRoi: true,
+                embeddedStep: true,
+                roiResponse,
+                signatureData: embeddedSignatureData
+              };
+              const roiSignedResult = await PublicIntakeSigningService.generateSignedDocument({
+                template: {
+                  ...selectedTemplate,
+                  template_type: 'html',
+                  html_content: buildSmartSchoolRoiHtml({
+                    roiContext: effectiveRoiContext,
+                    response: roiResponse,
+                    signedAt: now
+                  }),
+                  document_action_type: 'signature'
+                },
+                signatureData: embeddedSignatureData,
+                signer,
+                auditTrail: roiAuditTrail,
+                workflowData,
+                submissionId,
+                fieldDefinitions: [],
+                fieldValues: {}
+              });
+              const embeddedClientId = Number(updatedSubmission?.client_id || rawClients?.[0]?.id || 0) || null;
+              const embeddedDoc = await IntakeSubmissionDocument.create({
+                intakeSubmissionId: submissionId,
+                clientId: embeddedClientId,
+                documentTemplateId: selectedTemplate.id,
+                signedPdfPath: roiSignedResult.storagePath,
+                pdfHash: roiSignedResult.pdfHash,
+                signedAt: now,
+                auditTrail: {
+                  ...roiAuditTrail,
+                  documentReference: roiSignedResult.referenceNumber || null,
+                  documentName: selectedTemplate.name || null
+                }
+              });
+              signedDocsOrdered.push(embeddedDoc);
+              if (roiSignedResult.storagePath) {
+                pdfPaths.push(roiSignedResult.storagePath);
+              }
+            } else {
+              console.warn('[publicIntake] embedded school_roi payload failed validation; skipping packet include', {
+                submissionId,
+                missing: roiValidation.missing
+              });
+            }
+          }
+        }
+      } catch (embeddedRoiError) {
+        console.error('[publicIntake] failed generating embedded school_roi document', {
+          submissionId,
+          error: embeddedRoiError?.message || embeddedRoiError
+        });
+      }
+    }
+
+    // Backward-compatible submit path: include embedded school_roi artifact in the
+    // merged intake packet when the step is present and captured.
+    if (hasProgrammedSchoolRoiStep(link) && intakeData?.smartSchoolRoi) {
+      try {
+        const embeddedSignatureData = String(intakeData?.smartSchoolRoi?.signatureData || '').trim();
+        if (embeddedSignatureData) {
+          let boundClient = null;
+          if (updatedSubmission?.client_id) {
+            try {
+              boundClient = await Client.findById(updatedSubmission.client_id, { includeSensitive: true });
+            } catch {
+              boundClient = null;
+            }
+          }
+          const { organization, agency } = await resolveIntakeOrgContext(link, { boundClient });
+          const roiContext = await buildSmartSchoolRoiContext({
+            link,
+            boundClient,
+            organization,
+            agency,
+            templates
+          });
+          const selectedTemplate = await resolveSmartSchoolRoiTemplate({ roiContext, templates });
+          if (selectedTemplate?.id) {
+            const effectiveRoiContext = roiContext?.documentTemplate?.id
+              ? roiContext
+              : {
+                  ...roiContext,
+                  documentTemplate: {
+                    id: Number(selectedTemplate.id),
+                    name: selectedTemplate.name || 'School Release of Information',
+                    documentType: selectedTemplate.document_type || 'school_roi'
+                  }
+                };
+            const roiResponse = normalizeSmartSchoolRoiResponse({
+              roiContext: effectiveRoiContext,
+              intakeData,
+              signedAt: now
+            });
+            const roiValidation = validateSmartSchoolRoiResponse(roiResponse);
+            if (roiValidation.valid) {
+              const roiAuditTrail = {
+                ...buildAuditTrail({
+                  link,
+                  submission: {
+                    ...updatedSubmission,
+                    submitted_at: now,
+                    client_name: roiResponse.clientFullName || null
+                  }
+                }),
+                smartSchoolRoi: true,
+                embeddedStep: true,
+                roiResponse,
+                signatureData: embeddedSignatureData
+              };
+              const roiSignedResult = await PublicIntakeSigningService.generateSignedDocument({
+                template: {
+                  ...selectedTemplate,
+                  template_type: 'html',
+                  html_content: buildSmartSchoolRoiHtml({
+                    roiContext: effectiveRoiContext,
+                    response: roiResponse,
+                    signedAt: now
+                  }),
+                  document_action_type: 'signature'
+                },
+                signatureData: embeddedSignatureData,
+                signer,
+                auditTrail: roiAuditTrail,
+                workflowData,
+                submissionId,
+                fieldDefinitions: [],
+                fieldValues: {}
+              });
+              const embeddedClientId = Number(updatedSubmission?.client_id || rawClients?.[0]?.id || 0) || null;
+              const embeddedDoc = await IntakeSubmissionDocument.create({
+                intakeSubmissionId: submissionId,
+                clientId: embeddedClientId,
+                documentTemplateId: selectedTemplate.id,
+                signedPdfPath: roiSignedResult.storagePath,
+                pdfHash: roiSignedResult.pdfHash,
+                signedAt: now,
+                auditTrail: {
+                  ...roiAuditTrail,
+                  documentReference: roiSignedResult.referenceNumber || null,
+                  documentName: selectedTemplate.name || null
+                }
+              });
+              signedDocs.push(embeddedDoc);
+              if (roiSignedResult.storagePath) {
+                pdfPaths.push(roiSignedResult.storagePath);
+              }
+            } else {
+              console.warn('[publicIntake] embedded school_roi payload failed validation; skipping packet include', {
+                submissionId,
+                missing: roiValidation.missing
+              });
+            }
+          }
+        }
+      } catch (embeddedRoiError) {
+        console.error('[publicIntake] failed generating embedded school_roi document (submit path)', {
+          submissionId,
+          error: embeddedRoiError?.message || embeddedRoiError
+        });
+      }
+    }
+
     const answersPdf = await buildAnswersPdfBuffer({ link, intakeData });
 
     let rawClients = createdClients.length

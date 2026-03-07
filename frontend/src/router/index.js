@@ -1621,12 +1621,14 @@ router.beforeEach(async (to, from, next) => {
     to.path === '/dashboard' ||
     to.path === '/mydashboard' ||
     String(to.name || '') === 'Dashboard';
+  const allowUnscopedDocumentSigning = ['DocumentSigning', 'DocumentReview', 'DocumentPrint'].includes(String(to.name || ''));
   if (
     authStore.isAuthenticated &&
     authStore.user?.role !== 'super_admin' &&
     to.meta.requiresAuth &&
     !to.meta.organizationSlug &&
-    !allowUnscopedDashboard
+    !allowUnscopedDashboard &&
+    !allowUnscopedDocumentSigning
   ) {
     const slug = getDefaultOrganizationSlug();
     if (slug) {
@@ -1646,7 +1648,10 @@ router.beforeEach(async (to, from, next) => {
       'OrganizationDashboard',
       'OrganizationSchoolProviderProfile',
       'OrganizationChangePassword',
-      'OrganizationSplash'
+      'OrganizationSplash',
+      'OrganizationDocumentSigning',
+      'OrganizationDocumentReview',
+      'OrganizationDocumentPrint'
     ]);
     const allowedUnscopedRouteNames = new Set([
       'DocumentSigning',
@@ -1672,7 +1677,12 @@ router.beforeEach(async (to, from, next) => {
   }
 
   if (authStore.isAuthenticated && String(authStore.user?.role || '').toLowerCase() === 'school_staff') {
-    const exemptRouteNames = new Set(['DocumentSigning', 'DocumentReview']);
+    const exemptRouteNames = new Set([
+      'DocumentSigning',
+      'DocumentReview',
+      'OrganizationDocumentSigning',
+      'OrganizationDocumentReview'
+    ]);
     const currentRouteName = String(to.name || '');
     const slug = (typeof to.params.organizationSlug === 'string' && to.params.organizationSlug) || getDefaultOrganizationSlug();
     if (slug) {
@@ -1687,16 +1697,16 @@ router.beforeEach(async (to, from, next) => {
         const requiredTaskId = Number(waiverStatus?.taskId || 0) || null;
         if (requiresWaiver && !isSigned) {
           const queryMode = String(to.query?.sp || '').trim().toLowerCase();
-          const isDashboardMyDocs =
+          const isDashboardDocuments =
             currentRouteName === 'OrganizationDashboard' &&
             String(to.params.organizationSlug || '') === String(slug) &&
-            queryMode === 'my_documents';
+            queryMode === 'documents';
           const isRequiredTaskSigningRoute =
             exemptRouteNames.has(currentRouteName) &&
             requiredTaskId &&
             Number(to.params?.taskId || 0) === requiredTaskId;
-          if (!isDashboardMyDocs && !isRequiredTaskSigningRoute) {
-            next(`/${slug}/dashboard?sp=my_documents`);
+          if (!isDashboardDocuments && !isRequiredTaskSigningRoute) {
+            next(`/${slug}/dashboard?sp=documents`);
             return;
           }
         }

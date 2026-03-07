@@ -34,7 +34,19 @@ export function resolveOrganizationIdFromSlug({ organizationSlug, authUser }) {
 }
 
 export async function getSchoolStaffWaiverStatus({ api, authUser, organizationSlug, forceRefresh = false }) {
-  const orgId = resolveOrganizationIdFromSlug({ organizationSlug, authUser });
+  let orgId = resolveOrganizationIdFromSlug({ organizationSlug, authUser });
+  if (!orgId) {
+    try {
+      const slug = normalizeSlug(organizationSlug);
+      if (slug) {
+        const orgResp = await api.get(`/agencies/slug/${slug}`, { skipGlobalLoading: true });
+        const fetchedId = Number(orgResp?.data?.id || 0);
+        if (fetchedId > 0) orgId = fetchedId;
+      }
+    } catch {
+      // Ignore fallback failures and return no status.
+    }
+  }
   if (!orgId) return null;
   const userId = Number(authUser?.id || 0);
   const cacheKey = `${userId}:${orgId}`;

@@ -63,7 +63,7 @@ class DocumentSigningService {
       } else if (templateType === 'html' && htmlContent) {
         console.log(`DocumentSigningService.generateFinalizedPDF: Converting HTML to PDF...`);
         // Convert HTML to PDF using Puppeteer
-        const htmlPdf = await this.convertHTMLToPDF(htmlContent);
+        const htmlPdf = await this.convertHTMLToPDF(htmlContent, { branding: options?.branding || null });
         console.log(`DocumentSigningService.generateFinalizedPDF: HTML converted to PDF, loading into PDFDocument...`);
         pdfDoc = await PDFDocument.load(htmlPdf);
         console.log(`DocumentSigningService.generateFinalizedPDF: HTML PDF loaded successfully`);
@@ -124,7 +124,7 @@ class DocumentSigningService {
   /**
    * Convert HTML to PDF using Puppeteer with fallback to simple PDF generation
    */
-  static async convertHTMLToPDF(htmlContent) {
+  static async convertHTMLToPDF(htmlContent, options = {}) {
     let browser;
     let retries = 2; // Reduced retries since we have a fallback
     let lastError;
@@ -208,89 +208,335 @@ class DocumentSigningService {
     
     // Fallback: Create a simple PDF from HTML content using pdf-lib
     console.warn(`DocumentSigningService.convertHTMLToPDF: Puppeteer failed, using fallback PDF generation`);
-    return this.convertHTMLToPDFFallback(htmlContent);
+    return this.convertHTMLToPDFFallback(htmlContent, options);
   }
 
   /**
    * Fallback method to create a simple PDF from HTML content when Puppeteer fails
    */
-  static async convertHTMLToPDFFallback(htmlContent) {
-    console.log(`DocumentSigningService.convertHTMLToPDFFallback: Creating PDF from HTML content...`);
-    
-    // Strip HTML tags and extract text content
-    const textContent = htmlContent
-      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '') // Remove scripts
-      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '') // Remove styles
-      .replace(/<[^>]+>/g, ' ') // Remove HTML tags
-      .replace(/\s+/g, ' ') // Normalize whitespace
-      .trim();
+  static async convertHTMLToPDFFallback(htmlContent, options = {}) {
+    console.log('DocumentSigningService.convertHTMLToPDFFallback: Creating styled PDF fallback from HTML...');
+
+    const decodeHtmlEntities = (input) =>
+      String(input || '')
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/&amp;/gi, '&')
+        .replace(/&lt;/gi, '<')
+        .replace(/&gt;/gi, '>')
+        .replace(/&#39;/g, "'")
+        .replace(/&quot;/gi, '"');
+
+    const stripTags = (input) =>
+      decodeHtmlEntities(String(input || '').replace(/<[^>]+>/g, ' '))
+        .replace(/\s+/g, ' ')
+        .trim();
+
+    const raw = String(htmlContent || '')
+      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
+
+    const titleMatch = raw.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
+    const title = stripTags(titleMatch?.[1]) || 'Document';
+
+    const bulletLines = [];
+    for (const match of raw.matchAll(/<li[^>]*>([\s\S]*?)<\/li>/gi)) {
+      const line = stripTags(match[1]);
+      if (line) bulletLines.push(`• ${line}`);
+    }
+
+    const normalizedText = raw
+      .replace(/<li[^>]*>/gi, '\n• ')
+      .replace(/<\/li>/gi, '\n')
+      .replace(/<\/(h1|h2|h3|p|div|ul|ol)>/gi, '\n')
+      .replace(/<br\s*\/?>/gi, '\n');
+    const bodyLines = decodeHtmlEntities(normalizedText.replace(/<[^>]+>/g, ' '))
+      .split('\n')
+      .map((s) => s.replace(/\s+/g, ' ').trim())
+      .filter(Boolean)
+      .filter((line) => line !== title)
+      .filter((line) => !/^school staff signature$/i.test(line))
+      .filter((line) => !/^signature:?$/i.test(line));
+
+    const lines = (bulletLines.length ? bulletLines : bodyLines)
+      .filter((line) => !/^•?\s*school staff signature\s*$/i.test(String(line || '').trim()))
+      .filter((line) => !/^•?\s*signature:?\s*$/i.test(String(line || '').trim()));
 
     const pdfDoc = await PDFDocument.create();
-    const page = pdfDoc.addPage([612, 792]); // Letter size
-    const { width, height } = page.getSize();
-    
     const helvetica = await pdfDoc.embedFont('Helvetica');
     const helveticaBold = await pdfDoc.embedFont('Helvetica-Bold');
-    
-    const margin = 72; // 1 inch
-    const maxWidth = width - (margin * 2);
-    let y = height - margin;
-    
-    // Add title
-    page.drawText('Document', {
-      x: margin,
-      y,
-      size: 18,
-      font: helveticaBold,
-      color: rgb(0, 0, 0)
-    });
-    y -= 30;
-    
-    // Split text into lines that fit the page width
-    const words = textContent.split(' ');
-    let currentLine = '';
-    const lineHeight = 14;
-    const fontSize = 10;
-    
-    for (const word of words) {
-      const testLine = currentLine ? `${currentLine} ${word}` : word;
-      const textWidth = helvetica.widthOfTextAtSize(testLine, fontSize);
-      
-      if (textWidth > maxWidth && currentLine) {
-        // Draw current line and start new line
-        page.drawText(currentLine, {
-          x: margin,
-          y,
-          size: fontSize,
-          font: helvetica,
-          color: rgb(0, 0, 0),
-          maxWidth
-        });
-        y -= lineHeight;
-        currentLine = word;
-        
-        // Add new page if needed
-        if (y < margin) {
-          const newPage = pdfDoc.addPage([612, 792]);
-          y = height - margin;
+    const pageWidth = 612;
+    const pageHeight = 792;
+    const margin = 54;
+    const maxWidth = pageWidth - (margin * 2);
+    const minYForContent = 210;
+    const brandGreen = rgb(0.10, 0.43, 0.31);
+    const softPanel = rgb(0.95, 0.98, 0.97);
+    const branding = options?.branding && typeof options.branding === 'object' ? options.branding : {};
+    const schoolName = String(branding.schoolName || '').trim();
+    const agencyName = String(branding.agencyName || '').trim();
+
+    const normalizeStorageKey = (value) => {
+      let rawValue = String(value || '').trim();
+      if (!rawValue) return '';
+      try {
+        if (/^https?:\/\//i.test(rawValue)) {
+          const parsed = new URL(rawValue);
+          rawValue = parsed.pathname || '';
         }
-      } else {
-        currentLine = testLine;
+      } catch {
+        // ignore URL parse errors
       }
-    }
-    
-    // Draw remaining text
-    if (currentLine) {
-      page.drawText(currentLine, {
+      rawValue = rawValue.replace(/^\/+/, '');
+      if (rawValue.startsWith('uploads/')) return rawValue;
+      if (rawValue.startsWith('logos/')) return `uploads/${rawValue}`;
+      if (!rawValue.includes('/')) return `uploads/logos/${rawValue}`;
+      return rawValue;
+    };
+
+    const readLogoByKey = async (logoValue) => {
+      const rawLogo = String(logoValue || '').trim();
+      if (!rawLogo) return null;
+
+      const embedFromBytes = async (bytes) => {
+        try {
+          return await pdfDoc.embedPng(bytes);
+        } catch {
+          return await pdfDoc.embedJpg(bytes);
+        }
+      };
+
+      // If logo is an absolute URL (common in existing org records), fetch bytes directly.
+      if (/^https?:\/\//i.test(rawLogo)) {
+        try {
+          const axiosMod = await import('axios');
+          const axios = axiosMod.default || axiosMod;
+          const response = await axios.get(rawLogo, {
+            responseType: 'arraybuffer',
+            timeout: 12000,
+            maxRedirects: 5
+          });
+          const bytes = Buffer.from(response.data);
+          return await embedFromBytes(bytes);
+        } catch {
+          // Continue to storage-key fallback normalization below.
+        }
+      }
+
+      const key = normalizeStorageKey(rawLogo);
+      if (!key) return null;
+      try {
+        const StorageService = (await import('./storage.service.js')).default;
+        const buffer = await StorageService.readObject(key);
+        return await embedFromBytes(buffer);
+      } catch (storageErr) {
+        // Development fallback: if object storage is unavailable, try local backend/uploads path.
+        try {
+          if (String(process.env.NODE_ENV || '').toLowerCase() !== 'development') return null;
+          let rel = String(key || '').replace(/^\/+/, '');
+          if (rel.startsWith('uploads/')) rel = rel.substring('uploads/'.length);
+          const localPath = path.resolve(__dirname, '../../uploads', rel);
+          const imageBytes = await fs.readFile(localPath);
+          return await embedFromBytes(imageBytes);
+        } catch {
+          // ignore; this remains best-effort branding only
+        }
+        console.warn('DocumentSigningService.convertHTMLToPDFFallback: logo read failed:', storageErr?.message || storageErr);
+        return null;
+      }
+    };
+
+    const [schoolLogoImage, agencyLogoImage] = await Promise.all([
+      readLogoByKey(branding.schoolLogoKey),
+      readLogoByKey(branding.agencyLogoKey)
+    ]);
+
+    let page = pdfDoc.addPage([pageWidth, pageHeight]);
+    let y = pageHeight - margin;
+
+    const drawHeader = async () => {
+      page.drawRectangle({
+        x: margin,
+        y: y - 58,
+        width: maxWidth,
+        height: 52,
+        color: softPanel
+      });
+      const titleStartX = margin + 12;
+      page.drawText('School Staff Compliance Document', {
+        x: titleStartX,
+        y: y - 28,
+        size: 10,
+        font: helvetica,
+        color: rgb(0.30, 0.30, 0.30)
+      });
+
+      const logoY = y - 44;
+      const logoHeight = 22;
+      const logoMinWidth = 30;
+      const logoMaxWidth = 78;
+      const logoGap = 8;
+      let logoCursorX = margin + maxWidth - 12;
+
+      const drawHeaderLogo = (img) => {
+        if (!img) return;
+        const ratio = img.height ? (img.width / img.height) : 2.5;
+        const logoWidth = Math.max(logoMinWidth, Math.min(logoMaxWidth, logoHeight * ratio));
+        const logoX = logoCursorX - logoWidth;
+
+        page.drawRectangle({
+          x: logoX - 3,
+          y: logoY - 2,
+          width: logoWidth + 6,
+          height: logoHeight + 4,
+          color: rgb(1, 1, 1),
+          borderColor: rgb(0.86, 0.88, 0.90),
+          borderWidth: 0.8
+        });
+
+        page.drawImage(img, {
+          x: logoX,
+          y: logoY,
+          width: logoWidth,
+          height: logoHeight
+        });
+
+        logoCursorX = logoX - logoGap;
+      };
+
+      // Render logos in the top-right corner for cleaner layout.
+      drawHeaderLogo(schoolLogoImage);
+      drawHeaderLogo(agencyLogoImage);
+
+      if (!schoolLogoImage && !agencyLogoImage) {
+        page.drawText('ITSCO', {
+          x: margin + maxWidth - 44,
+          y: y - 28,
+          size: 11,
+          font: helveticaBold,
+          color: brandGreen
+        });
+      }
+      y -= 78;
+      page.drawText(title, {
         x: margin,
         y,
-        size: fontSize,
-        font: helvetica,
-        color: rgb(0, 0, 0),
-        maxWidth
+        size: 21,
+        font: helveticaBold,
+        color: rgb(0.05, 0.10, 0.18)
       });
+      y -= 22;
+      page.drawText(`Prepared on ${new Date().toISOString().slice(0, 10)}`, {
+        x: margin,
+        y,
+        size: 10,
+        font: helvetica,
+        color: rgb(0.37, 0.37, 0.37)
+      });
+      y -= 14;
+      if (schoolName || agencyName) {
+        const contextText = [
+          schoolName ? `School: ${schoolName}` : '',
+          agencyName ? `Agency: ${agencyName}` : ''
+        ].filter(Boolean).join('   |   ');
+        if (contextText) {
+          page.drawText(contextText, {
+            x: margin,
+            y,
+            size: 10,
+            font: helvetica,
+            color: rgb(0.25, 0.25, 0.25)
+          });
+          y -= 16;
+        }
+      } else {
+        y -= 4;
+      }
+      page.drawLine({
+        start: { x: margin, y },
+        end: { x: margin + maxWidth, y },
+        thickness: 1,
+        color: rgb(0.84, 0.87, 0.89)
+      });
+      y -= 16;
+    };
+
+    const wrapLine = (text, font, size, width) => {
+      const words = String(text || '').split(' ').filter(Boolean);
+      const out = [];
+      let current = '';
+      for (const word of words) {
+        const probe = current ? `${current} ${word}` : word;
+        if (font.widthOfTextAtSize(probe, size) <= width) {
+          current = probe;
+        } else {
+          if (current) out.push(current);
+          current = word;
+        }
+      }
+      if (current) out.push(current);
+      return out.length ? out : [''];
+    };
+
+    const addPage = async () => {
+      page = pdfDoc.addPage([pageWidth, pageHeight]);
+      y = pageHeight - margin;
+      await drawHeader();
+    };
+
+    await drawHeader();
+
+    const fontSize = 12;
+    const lineHeight = 17;
+    for (const line of lines) {
+      const isBullet = line.startsWith('• ');
+      const bulletBody = isBullet ? line.slice(2).trim() : line;
+      const lineX = isBullet ? margin + 18 : margin;
+      const wrapWidth = isBullet ? maxWidth - 18 : maxWidth;
+      const wrapped = wrapLine(bulletBody, helvetica, fontSize, wrapWidth);
+
+      if (y - (wrapped.length * lineHeight) < minYForContent) {
+        await addPage();
+      }
+
+      if (isBullet) {
+        page.drawText('•', {
+          x: margin + 4,
+          y,
+          size: fontSize + 1,
+          font: helveticaBold,
+          color: brandGreen
+        });
+      }
+
+      wrapped.forEach((w, idx) => {
+        page.drawText(w, {
+          x: lineX,
+          y: y - (idx * lineHeight),
+          size: fontSize,
+          font: helvetica,
+          color: rgb(0.10, 0.10, 0.10)
+        });
+      });
+      y -= (wrapped.length * lineHeight) + 6;
     }
-    
+
+    const sigWidth = 240;
+    const sigX = (pageWidth - sigWidth) / 2;
+    const sigY = 144;
+    page.drawText('Signature:', {
+      x: sigX - 86,
+      y: sigY + 10,
+      size: 10,
+      font: helvetica,
+      color: rgb(0.25, 0.25, 0.25)
+    });
+    page.drawLine({
+      start: { x: sigX - 2, y: sigY - 2 },
+      end: { x: sigX + sigWidth + 2, y: sigY - 2 },
+      thickness: 1,
+      color: rgb(0.55, 0.55, 0.55)
+    });
+
     const pdfBytes = await pdfDoc.save();
     console.log(`DocumentSigningService.convertHTMLToPDFFallback: PDF created successfully, size: ${pdfBytes.length} bytes`);
     return pdfBytes;
@@ -390,15 +636,7 @@ class DocumentSigningService {
         }
       }
 
-      // Add signature label only if using default position (to avoid overlapping with document content)
-      if (!coords || coords.x === null || coords.y === null) {
-        targetPage.drawText('Signature:', {
-          x: signatureX - 80,
-          y: signatureY + 30,
-          size: 10,
-          color: rgb(0, 0, 0)
-        });
-      }
+      // Do not auto-draw signature labels here; templates/fallback layout own this.
     } catch (error) {
       console.error('Error adding signature to PDF:', error);
       throw error;

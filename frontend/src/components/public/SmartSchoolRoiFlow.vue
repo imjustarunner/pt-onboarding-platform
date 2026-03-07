@@ -465,6 +465,7 @@ const requiredFieldClass = (value) => (hasRequiredValue(value) ? '' : 'required-
 const buildRoiPayload = () => ({
   clientFullName: form.clientFullName,
   clientDateOfBirth: form.clientDateOfBirth,
+  signatureData: signatureData.value || null,
   signer: {
     ...form.signer
   },

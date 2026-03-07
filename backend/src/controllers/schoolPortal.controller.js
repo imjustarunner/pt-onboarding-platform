@@ -29,7 +29,10 @@ import {
   supervisorHasSuperviseeInSchool,
   supervisorCanAccessClientInOrg
 } from '../utils/supervisorSchoolAccess.js';
-import { resolveSchoolStaffWaiverStatus } from '../services/schoolStaffWaiver.service.js';
+import {
+  resolveSchoolStaffWaiverStatus,
+  resetSchoolStaffWaiverForTesting
+} from '../services/schoolStaffWaiver.service.js';
 
 async function resolveActiveAgencyIdForOrg(orgId) {
   return (
@@ -1589,7 +1592,20 @@ export const getSchoolStaffWaiverStatus = async (req, res, next) => {
     const orgId = await resolveOrgIdFromParam(req.params.organizationId);
     if (!orgId) return res.status(400).json({ error: { message: 'Invalid organizationId' } });
 
-    const { org } = await assertSchoolPortalAccess(req, orgId);
+    let org = null;
+    try {
+      const access = await assertSchoolPortalAccess(req, orgId);
+      org = access?.org || null;
+    } catch (accessError) {
+      const roleNorm = String(req.user?.role || '').toLowerCase();
+      if (!(isLocalRequest && roleNorm === 'school_staff')) {
+        throw accessError;
+      }
+      org = await Agency.findById(orgId);
+      if (!org) {
+        return res.status(404).json({ error: { message: 'Organization not found' } });
+      }
+    }
     const status = await resolveSchoolStaffWaiverStatus({
       user: req.user,
       organization: org
@@ -1600,6 +1616,42 @@ export const getSchoolStaffWaiverStatus = async (req, res, next) => {
       ...status
     });
   } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Reset current user's pilot waiver completion for local testing.
+ * POST /api/school-portal/:organizationId/school-staff-waiver/reset
+ */
+export const resetSchoolStaffWaiverStatusForTesting = async (req, res, next) => {
+  try {
+    const isLocalRequest = (() => {
+      const host = String(req.get('host') || '').toLowerCase();
+      const origin = String(req.get('origin') || '').toLowerCase();
+      const referer = String(req.get('referer') || '').toLowerCase();
+      const joined = `${host} ${origin} ${referer}`;
+      return joined.includes('localhost') || joined.includes('127.0.0.1');
+    })();
+    const orgId = await resolveOrgIdFromParam(req.params.organizationId);
+    if (!orgId) return res.status(400).json({ error: { message: 'Invalid organizationId' } });
+
+    const { org } = await assertSchoolPortalAccess(req, orgId);
+    const result = await resetSchoolStaffWaiverForTesting({
+      user: req.user,
+      organization: org,
+      allowLocalBypass: isLocalRequest
+    });
+
+    res.json({
+      organization_id: Number(orgId),
+      ...result
+    });
+  } catch (e) {
+    const status = Number(e?.statusCode || 0) || 500;
+    if (status >= 400 && status < 500) {
+      return res.status(status).json({ error: { message: e.message || 'Unable to reset waiver status' } });
+    }
     next(e);
   }
 };

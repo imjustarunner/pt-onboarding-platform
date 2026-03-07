@@ -603,6 +603,51 @@ export const signDocument = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'User not found' } });
     }
 
+    const resolveBrandingContext = async () => {
+      try {
+        const userAgencies = await User.getAgencies(userId);
+        const list = Array.isArray(userAgencies) ? userAgencies : [];
+        const childOrg = list.find((a) => ['school', 'program', 'learning'].includes(String(a?.organization_type || '').toLowerCase())) || null;
+        const parentOrgFromList = list.find((a) => !['school', 'program', 'learning'].includes(String(a?.organization_type || '').toLowerCase())) || null;
+
+        const branding = {
+          schoolName: String(childOrg?.official_name || childOrg?.name || '').trim() || null,
+          schoolLogoKey: String(childOrg?.logo_path || childOrg?.logo_url || childOrg?.icon_file_path || childOrg?.icon_path || '').trim() || null,
+          agencyName: String(parentOrgFromList?.official_name || parentOrgFromList?.name || '').trim() || null,
+          agencyLogoKey: String(parentOrgFromList?.logo_path || parentOrgFromList?.logo_url || parentOrgFromList?.icon_file_path || parentOrgFromList?.icon_path || '').trim() || null
+        };
+
+        if ((!branding.agencyName || !branding.agencyLogoKey) && childOrg?.id) {
+          const AgencySchool = (await import('../models/AgencySchool.model.js')).default;
+          const OrganizationAffiliation = (await import('../models/OrganizationAffiliation.model.js')).default;
+          const Agency = (await import('../models/Agency.model.js')).default;
+
+          const parentAgencyId =
+            await AgencySchool.getActiveAgencyIdForSchool(childOrg.id) ||
+            await OrganizationAffiliation.getActiveAgencyIdForOrganization(childOrg.id);
+
+          if (parentAgencyId) {
+            const parentOrg = await Agency.findById(parentAgencyId);
+            if (parentOrg) {
+              if (!branding.agencyName) {
+                branding.agencyName = String(parentOrg?.official_name || parentOrg?.name || '').trim() || null;
+              }
+              if (!branding.agencyLogoKey) {
+                branding.agencyLogoKey = String(parentOrg?.logo_path || parentOrg?.logo_url || parentOrg?.icon_file_path || parentOrg?.icon_path || '').trim() || null;
+              }
+            }
+          }
+        }
+
+        return branding;
+      } catch (e) {
+        console.warn('signDocument: failed to resolve branding context:', e?.message || e);
+        return null;
+      }
+    };
+
+    const brandingContext = await resolveBrandingContext();
+
     const documentName =
       template?.name ||
       userSpecificDocument?.name ||
@@ -676,7 +721,8 @@ export const signDocument = async (req, res, next) => {
           documentName,
           signatureOnAuditPage: true,
           fieldDefinitions: normalizedFieldDefs,
-          fieldValues: normalizedFieldValues
+          fieldValues: normalizedFieldValues,
+          branding: brandingContext
         }
       );
       console.log(`signDocument: PDF generated successfully, size: ${pdfBytes.length} bytes`);
