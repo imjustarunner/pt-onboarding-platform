@@ -72,7 +72,14 @@
                 <option value="user_welcome">User Welcome</option>
                 <option value="password_reset">Password Reset</option>
                 <option value="invitation">Invitation</option>
+                <option value="intake_packet_default">Intake Packet Default</option>
+                <option value="school_full_intake_packet_default">School Full Intake Packet Default</option>
               </select>
+              <div v-if="templatePresetByType[templateForm.type]" style="margin-top: 8px;">
+                <button type="button" class="btn btn-secondary btn-sm" @click="applyTemplateDefaultsForType(templateForm.type, { forceName: true, forceCopy: true })">
+                  Use suggested copy for this type
+                </button>
+              </div>
             </div>
             <div class="form-group">
               <label>Subject</label>
@@ -238,6 +245,39 @@ const templateForm = ref({
   subject: '',
   body: ''
 });
+const templatePresetByType = {
+  intake_packet_default: {
+    name: 'Intake Packet Default',
+    subject: '{{CLIENT_NAME}} - Signed Packet Ready',
+    body: [
+      'Hello {{SIGNER_NAME}},',
+      '',
+      'Your signed intake packet is ready.',
+      '{{CLIENT_SUMMARY}}',
+      '',
+      'Download your signed packet:',
+      '{{DOWNLOAD_URL}}',
+      '',
+      'This link expires in {{LINK_EXPIRES_DAYS}} days.'
+    ].join('\n')
+  },
+  school_full_intake_packet_default: {
+    name: 'School Full Intake Packet Default',
+    subject: '{{SCHOOL_NAME}} - Signed Packet Ready',
+    body: [
+      'Hello {{SIGNER_NAME}},',
+      '',
+      'Your school intake packet is complete and ready.',
+      '{{CLIENT_SUMMARY}}',
+      'School: {{SCHOOL_NAME}}',
+      '',
+      'Download your signed packet:',
+      '{{DOWNLOAD_URL}}',
+      '',
+      'This link expires in {{LINK_EXPIRES_DAYS}} days.'
+    ].join('\n')
+  }
+};
 
 const canDelete = (template) => {
   // Only allow deleting agency-specific templates, not platform defaults
@@ -288,6 +328,20 @@ const openCreateModal = () => {
     body: ''
   };
   showModal.value = true;
+};
+
+const applyTemplateDefaultsForType = (type, { forceName = false, forceCopy = false } = {}) => {
+  const preset = templatePresetByType[type];
+  if (!preset) return;
+  if (forceName || !String(templateForm.value.name || '').trim()) {
+    templateForm.value.name = preset.name;
+  }
+  if (forceCopy || !String(templateForm.value.subject || '').trim()) {
+    templateForm.value.subject = preset.subject;
+  }
+  if (forceCopy || !String(templateForm.value.body || '').trim()) {
+    templateForm.value.body = preset.body;
+  }
 };
 
 const editTemplate = (template) => {
@@ -513,6 +567,14 @@ watch(
     if (showSendModal.value && canPickSenderIdentity.value) {
       loadSenderIdentities();
     }
+  }
+);
+
+watch(
+  () => templateForm.value.type,
+  (nextType) => {
+    if (!showModal.value || editingTemplate.value) return;
+    applyTemplateDefaultsForType(nextType);
   }
 );
 </script>

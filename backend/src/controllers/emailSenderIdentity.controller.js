@@ -75,6 +75,15 @@ export const createEmailSenderIdentity = async (req, res, next) => {
     const displayName = req.body?.displayName ?? null;
     const fromEmail = String(req.body?.fromEmail || '').trim();
     const replyTo = req.body?.replyTo ?? null;
+    const signatureImageUrl = req.body?.signatureImageUrl !== undefined
+      ? String(req.body?.signatureImageUrl || '').trim() || null
+      : null;
+    const signatureImagePath = req.body?.signatureImagePath !== undefined
+      ? String(req.body?.signatureImagePath || '').trim() || null
+      : null;
+    const signatureAltText = req.body?.signatureAltText !== undefined
+      ? String(req.body?.signatureAltText || '').trim() || null
+      : null;
     const inboundAddresses = Array.isArray(req.body?.inboundAddresses) ? req.body.inboundAddresses : null;
     const isActive = req.body?.isActive !== false;
 
@@ -84,6 +93,9 @@ export const createEmailSenderIdentity = async (req, res, next) => {
       displayName,
       fromEmail,
       replyTo,
+      signatureImageUrl,
+      signatureImagePath,
+      signatureAltText,
       inboundAddresses,
       isActive
     });
@@ -118,6 +130,15 @@ export const updateEmailSenderIdentity = async (req, res, next) => {
       displayName: req.body?.displayName !== undefined ? req.body.displayName : undefined,
       fromEmail: req.body?.fromEmail !== undefined ? String(req.body.fromEmail || '').trim() : undefined,
       replyTo: req.body?.replyTo !== undefined ? req.body.replyTo : undefined,
+      signatureImageUrl: req.body?.signatureImageUrl !== undefined
+        ? String(req.body.signatureImageUrl || '').trim() || null
+        : undefined,
+      signatureImagePath: req.body?.signatureImagePath !== undefined
+        ? String(req.body.signatureImagePath || '').trim() || null
+        : undefined,
+      signatureAltText: req.body?.signatureAltText !== undefined
+        ? String(req.body.signatureAltText || '').trim() || null
+        : undefined,
       inboundAddresses: req.body?.inboundAddresses !== undefined ? (Array.isArray(req.body.inboundAddresses) ? req.body.inboundAddresses : null) : undefined,
       isActive: req.body?.isActive !== undefined ? !!req.body.isActive : undefined
     };

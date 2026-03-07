@@ -26,6 +26,66 @@ function pickFromHeader({ displayName, fromEmail }) {
   return name ? `${name} <${email}>` : email;
 }
 
+function escapeHtml(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function resolveAbsoluteSignatureImageUrl(identity) {
+  const rawUrl = String(identity?.signature_image_url || '').trim();
+  const rawPath = String(identity?.signature_image_path || '').trim();
+  const backendBase = String(
+    process.env.BACKEND_PUBLIC_URL ||
+    process.env.FRONTEND_URL ||
+    process.env.CORS_ORIGIN ||
+    ''
+  ).replace(/\/$/, '');
+
+  if (rawUrl && /^https?:\/\//i.test(rawUrl)) return rawUrl;
+  if (rawUrl && rawUrl.startsWith('/') && backendBase) return `${backendBase}${rawUrl}`;
+  if (rawUrl && rawUrl.startsWith('uploads/') && backendBase) return `${backendBase}/${rawUrl}`;
+
+  if (rawPath && /^https?:\/\//i.test(rawPath)) return rawPath;
+  if (rawPath && rawPath.startsWith('/') && backendBase) return `${backendBase}${rawPath}`;
+  if (rawPath && rawPath.startsWith('uploads/') && backendBase) return `${backendBase}/${rawPath}`;
+
+  return '';
+}
+
+function applySenderSignatureBlock({ identity, text = null, html = null }) {
+  const imageUrl = resolveAbsoluteSignatureImageUrl(identity);
+  if (!imageUrl) return { text, html };
+
+  const alt = String(identity?.signature_alt_text || identity?.display_name || 'Signature').trim() || 'Signature';
+  const label = String(identity?.display_name || '').trim();
+  const textOut = `${String(text || '').trim()}\n\n${label ? `${label}\n` : ''}[Signature image attached: ${imageUrl}]`.trim();
+
+  const imageBlock = `
+    <div style="margin-top: 14px;">
+      <img
+        src="${escapeHtml(imageUrl)}"
+        alt="${escapeHtml(alt)}"
+        style="max-width: 360px; width: auto; height: auto; display: block; border: 0;"
+      />
+    </div>
+  `.trim();
+
+  const htmlOut = html
+    ? `${String(html)}\n${imageBlock}`
+    : `<div style="font-family: Arial, sans-serif; line-height: 1.5; color: #111;">${
+      String(text || '')
+        .split('\n')
+        .map((line) => `<p>${escapeHtml(line || '').trim() || '&nbsp;'}</p>`)
+        .join('')
+    }${imageBlock}</div>`;
+
+  return { text: textOut, html: htmlOut };
+}
+
 async function resolveSenderIdentityForTrigger({ agencyId, triggerKey }) {
   const a = Number(agencyId);
   const key = String(triggerKey || '').trim();
@@ -87,6 +147,7 @@ export async function sendNotificationEmail({
 
   const from = pickFromHeader({ displayName: identity.display_name, fromEmail: identity.from_email });
   const replyTo = identity.reply_to || null;
+  const signedContent = applySenderSignatureBlock({ identity, text, html });
 
   // Log before sending (best effort)
   let comm = null;
@@ -105,7 +166,15 @@ export async function sendNotificationEmail({
   }
 
   const gmail = await getGmailClient();
-  const mime = buildMimeMessage({ to, subject, text, html, from, replyTo, attachments });
+  const mime = buildMimeMessage({
+    to,
+    subject,
+    text: signedContent.text,
+    html: signedContent.html,
+    from,
+    replyTo,
+    attachments
+  });
   const raw = base64UrlEncode(mime);
 
   const result = await gmail.users.messages.send({
@@ -165,9 +234,20 @@ export async function sendEmailFromIdentity({
 
   const from = pickFromHeader({ displayName: identity.display_name, fromEmail: identity.from_email });
   const replyTo = identity.reply_to || null;
+  const signedContent = applySenderSignatureBlock({ identity, text, html });
 
   const gmail = await getGmailClient();
-  const mime = buildMimeMessage({ to, subject, text, html, from, replyTo, inReplyTo, references, attachments });
+  const mime = buildMimeMessage({
+    to,
+    subject,
+    text: signedContent.text,
+    html: signedContent.html,
+    from,
+    replyTo,
+    inReplyTo,
+    references,
+    attachments
+  });
   const raw = base64UrlEncode(mime);
 
   const requestBody = threadId ? { raw, threadId } : { raw };

@@ -35,19 +35,25 @@ class EmailSenderIdentity {
     displayName = null,
     fromEmail,
     replyTo = null,
+    signatureImageUrl = null,
+    signatureImagePath = null,
+    signatureAltText = null,
     inboundAddresses = null,
     isActive = true
   }) {
     const [result] = await pool.execute(
       `INSERT INTO email_sender_identities
-       (agency_id, identity_key, display_name, from_email, reply_to, inbound_addresses_json, is_active)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+       (agency_id, identity_key, display_name, from_email, reply_to, signature_image_url, signature_image_path, signature_alt_text, inbound_addresses_json, is_active)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         agencyId,
         identityKey,
         displayName,
         fromEmail,
         replyTo,
+        signatureImageUrl,
+        signatureImagePath,
+        signatureAltText,
         inboundAddresses ? JSON.stringify(inboundAddresses) : null,
         isActive ? 1 : 0
       ]
@@ -65,6 +71,9 @@ class EmailSenderIdentity {
       displayName: 'display_name',
       fromEmail: 'from_email',
       replyTo: 'reply_to',
+      signatureImageUrl: 'signature_image_url',
+      signatureImagePath: 'signature_image_path',
+      signatureAltText: 'signature_alt_text',
       isActive: 'is_active'
     };
 

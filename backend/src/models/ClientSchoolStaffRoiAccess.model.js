@@ -51,6 +51,41 @@ function formatUserName(firstName, lastName, email, fallbackId = null) {
 }
 
 class ClientSchoolStaffRoiAccess {
+  static async listSchoolStaffRosterForOrganization({ schoolOrganizationId }) {
+    const sid = Number(schoolOrganizationId || 0);
+    if (!sid) return [];
+
+    const [rows] = await pool.execute(
+      `SELECT
+         u.id AS school_staff_user_id,
+         u.first_name,
+         u.last_name,
+         u.email,
+         u.phone_number,
+         u.role AS role_key,
+         u.status
+       FROM user_agencies ua
+       JOIN users u
+         ON u.id = ua.user_id
+       WHERE ua.agency_id = ?
+         AND LOWER(COALESCE(u.role, '')) = 'school_staff'
+         AND COALESCE(u.is_active, TRUE) = TRUE
+         AND UPPER(COALESCE(u.status, '')) <> 'ARCHIVED'
+       ORDER BY u.last_name ASC, u.first_name ASC, u.email ASC`,
+      [sid]
+    );
+
+    return (rows || []).map((row) => ({
+      school_staff_user_id: Number(row.school_staff_user_id),
+      first_name: row.first_name || null,
+      last_name: row.last_name || null,
+      email: row.email || null,
+      phone_number: row.phone_number || null,
+      role_key: row.role_key || 'school_staff',
+      status: row.status || null
+    }));
+  }
+
   static async listSchoolStaffRosterForClient({ clientId, schoolOrganizationId, roiExpiresAt = null }) {
     const cid = Number(clientId || 0);
     const sid = Number(schoolOrganizationId || 0);

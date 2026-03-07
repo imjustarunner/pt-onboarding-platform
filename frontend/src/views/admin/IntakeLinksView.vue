@@ -303,6 +303,47 @@
                   placeholder="e.g., This form must be completed within 1 hour. Each new page adds 5 minutes. The session is unique and cannot be saved or resumed."
                 />
               </div>
+              <div class="form-group" style="grid-column: 1 / -1;">
+                <label>Completion email template</label>
+                <select
+                  v-model="form.customMessages.completionEmailTemplateId"
+                  @change="onCompletionEmailTemplateChange"
+                >
+                  <option :value="null">Use agency default (School Full Intake Packet)</option>
+                  <option
+                    v-for="tpl in completionEmailTemplateOptions"
+                    :key="tpl.id"
+                    :value="Number(tpl.id)"
+                  >
+                    {{ tpl.name }} ({{ tpl.type || 'template' }})
+                  </option>
+                </select>
+                <small class="form-help">
+                  Default behavior uses the agency template type <code>school_full_intake_packet_default</code>.
+                  Select a specific template to override this form.
+                </small>
+              </div>
+              <div class="form-group" style="grid-column: 1 / -1;">
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+                  <label style="margin:0;">Completion email subject</label>
+                  <button class="btn btn-secondary btn-xs" type="button" @click="applyDefaultCompletionEmailCopy">
+                    Use suggested copy
+                  </button>
+                </div>
+                <input
+                  v-model="form.customMessages.completionEmailSubject"
+                  type="text"
+                  placeholder="e.g., {{CLIENT_NAME}} - Signed Packet Ready"
+                />
+              </div>
+              <div class="form-group" style="grid-column: 1 / -1;">
+                <label>Completion email body</label>
+                <textarea
+                  v-model="form.customMessages.completionEmailBody"
+                  rows="6"
+                  placeholder="Use placeholders like {{SIGNER_NAME}}, {{CLIENT_SUMMARY}}, {{DOWNLOAD_URL}}, and {{LINK_EXPIRES_DAYS}}."
+                />
+              </div>
             </div>
           </div>
 
@@ -365,6 +406,9 @@
                   + Add School ROI
                 </button>
                 <button class="btn btn-secondary btn-sm" type="button" @click="addStep('upload')">+ Add Upload</button>
+                <span v-if="hasProgrammedSchoolRoiStep" class="programmed-step-pill">
+                  Programmed School ROI active
+                </span>
               </div>
 
               <div v-if="form.intakeSteps.length === 0" class="muted">No steps yet.</div>
@@ -457,6 +501,16 @@
                       rows="2"
                       placeholder="e.g., Check each box if you agree with the statement on that line. You may uncheck any you do not agree with."
                     ></textarea>
+                  </div>
+                </div>
+
+                <div v-if="step.type === 'school_roi'" class="form-grid">
+                  <div class="form-group">
+                    <label>School ROI Section</label>
+                    <div class="muted">
+                      This inserts the programmed Smart School ROI step as its own section in the sequence.
+                      No template dropdown is required for this step.
+                    </div>
                   </div>
                 </div>
 
@@ -568,6 +622,7 @@ const loading = ref(false);
 const error = ref('');
 const links = ref([]);
 const templates = ref([]);
+const emailTemplates = ref([]);
 const organizations = ref([]);
 const fieldTemplates = ref([]);
 const showForm = ref(false);
@@ -597,7 +652,11 @@ const form = reactive({
   },
   customMessages: {
     beginSubtitle: '',
-    formTimeLimit: ''
+    formTimeLimit: '',
+    completionEmailTemplateId: null,
+    completionEmailTemplateType: 'school_full_intake_packet_default',
+    completionEmailSubject: '',
+    completionEmailBody: ''
   },
   allowAllDocuments: false,
   allowedDocumentTemplateIds: [],
@@ -641,9 +700,22 @@ const organizationLookup = computed(() => {
   }
   return map;
 });
+const completionEmailTemplateOptions = computed(() =>
+  (Array.isArray(emailTemplates.value) ? emailTemplates.value : [])
+    .filter((t) => t && t.id)
+    .sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || ''), undefined, { sensitivity: 'base' }))
+);
+const selectedCompletionEmailTemplate = computed(() =>
+  completionEmailTemplateOptions.value.find((t) => Number(t.id) === Number(form.customMessages?.completionEmailTemplateId || 0)) || null
+);
 
 const getStepTypeLabel = (t) => {
-  const m = { questions: 'Questions', document: 'Document', upload: 'Upload' };
+  const m = {
+    questions: 'Questions',
+    document: 'Document',
+    school_roi: 'School ROI (Programmed)',
+    upload: 'Upload'
+  };
   return m[t] || t || 'Step';
 };
 const getFormTypeLabel = (t) => {
@@ -697,7 +769,14 @@ const resetForm = () => {
   form.createClient = true;
   form.createGuardian = true;
   form.retentionPolicy = { mode: 'inherit', days: 14 };
-  form.customMessages = { beginSubtitle: '', formTimeLimit: '' };
+  form.customMessages = {
+    beginSubtitle: '',
+    formTimeLimit: '',
+    completionEmailTemplateId: null,
+    completionEmailTemplateType: 'school_full_intake_packet_default',
+    completionEmailSubject: '',
+    completionEmailBody: ''
+  };
   form.allowAllDocuments = false;
   form.allowedDocumentTemplateIds = [];
   form.intakeFieldsText = '';
@@ -726,7 +805,14 @@ const serializeDraft = () => ({
     createClient: form.createClient,
     createGuardian: form.createGuardian,
     retentionPolicy: form.retentionPolicy ? { ...form.retentionPolicy } : null,
-    customMessages: form.customMessages ? { ...form.customMessages } : { beginSubtitle: '', formTimeLimit: '' },
+    customMessages: form.customMessages ? { ...form.customMessages } : {
+      beginSubtitle: '',
+      formTimeLimit: '',
+      completionEmailTemplateId: null,
+      completionEmailTemplateType: 'school_full_intake_packet_default',
+      completionEmailSubject: '',
+      completionEmailBody: ''
+    },
     allowAllDocuments: form.allowAllDocuments,
     allowedDocumentTemplateIds: Array.isArray(form.allowedDocumentTemplateIds)
       ? [...form.allowedDocumentTemplateIds]
@@ -766,8 +852,22 @@ const applyDraft = (draft) => {
     ? { mode: data.retentionPolicy.mode || 'inherit', days: data.retentionPolicy.days ?? 14 }
     : { mode: 'inherit', days: 14 };
   form.customMessages = data.customMessages
-    ? { beginSubtitle: data.customMessages.beginSubtitle ?? '', formTimeLimit: data.customMessages.formTimeLimit ?? '' }
-    : { beginSubtitle: '', formTimeLimit: '' };
+    ? {
+        beginSubtitle: data.customMessages.beginSubtitle ?? '',
+        formTimeLimit: data.customMessages.formTimeLimit ?? '',
+        completionEmailTemplateId: data.customMessages.completionEmailTemplateId ?? null,
+        completionEmailTemplateType: data.customMessages.completionEmailTemplateType ?? 'school_full_intake_packet_default',
+        completionEmailSubject: data.customMessages.completionEmailSubject ?? '',
+        completionEmailBody: data.customMessages.completionEmailBody ?? ''
+      }
+    : {
+        beginSubtitle: '',
+        formTimeLimit: '',
+        completionEmailTemplateId: null,
+        completionEmailTemplateType: 'school_full_intake_packet_default',
+        completionEmailSubject: '',
+        completionEmailBody: ''
+      };
   form.allowAllDocuments = data.allowAllDocuments ?? false;
   form.allowedDocumentTemplateIds = Array.isArray(data.allowedDocumentTemplateIds)
     ? data.allowedDocumentTemplateIds
@@ -799,9 +899,10 @@ const clearDraft = () => {
 const fetchData = async () => {
   try {
     loading.value = true;
-    const [linksResp, templatesResp, orgsResp] = await Promise.all([
+    const [linksResp, templatesResp, emailTemplatesResp, orgsResp] = await Promise.all([
       api.get('/intake-links'),
       api.get('/document-templates', { params: { limit: 1000 } }),
+      api.get('/email-templates'),
       api.get('/agencies')
     ]);
     links.value = linksResp.data || [];
@@ -811,6 +912,7 @@ const fetchData = async () => {
       || templatesResp.data
       || [];
     templates.value = Array.isArray(rawTemplates) ? rawTemplates : [];
+    emailTemplates.value = Array.isArray(emailTemplatesResp.data) ? emailTemplatesResp.data : [];
     organizations.value = Array.isArray(orgsResp.data) ? orgsResp.data : [];
     const primaryAgency = agencyList.value[0]?.id || null;
     selectedAgencyId.value = selectedAgencyId.value || primaryAgency;
@@ -888,6 +990,7 @@ onBeforeUnmount(() => {
 
 const openCreate = () => {
   resetForm();
+  applyDefaultCompletionEmailCopy();
   showForm.value = true;
 };
 
@@ -945,8 +1048,22 @@ const editLink = (link) => {
   form.allowAllDocuments = false;
   form.allowedDocumentTemplateIds = link.allowed_document_template_ids || [];
   form.customMessages = link.custom_messages
-    ? { beginSubtitle: link.custom_messages.beginSubtitle ?? '', formTimeLimit: link.custom_messages.formTimeLimit ?? '' }
-    : { beginSubtitle: '', formTimeLimit: '' };
+    ? {
+        beginSubtitle: link.custom_messages.beginSubtitle ?? '',
+        formTimeLimit: link.custom_messages.formTimeLimit ?? '',
+        completionEmailTemplateId: link.custom_messages.completionEmailTemplateId ?? null,
+        completionEmailTemplateType: link.custom_messages.completionEmailTemplateType ?? 'school_full_intake_packet_default',
+        completionEmailSubject: link.custom_messages.completionEmailSubject ?? '',
+        completionEmailBody: link.custom_messages.completionEmailBody ?? ''
+      }
+    : {
+        beginSubtitle: '',
+        formTimeLimit: '',
+        completionEmailTemplateId: null,
+        completionEmailTemplateType: 'school_full_intake_packet_default',
+        completionEmailSubject: '',
+        completionEmailBody: ''
+      };
   form.intakeFieldsText = link.intake_fields ? JSON.stringify(link.intake_fields, null, 2) : '';
   form.intakeSteps = normalizeIntakeSteps(link);
   showForm.value = true;
@@ -1022,11 +1139,22 @@ const save = async () => {
     const { intakeSteps, intakeFields, allowedDocumentTemplateIds } = buildPayloadFromSteps(selectedTemplateIds);
     const customMessagesPayload = (() => {
       const cm = form.customMessages || {};
-      const hasAny = (cm.beginSubtitle || '').trim() || (cm.formTimeLimit || '').trim();
+      const completionType = String(cm.completionEmailTemplateType || '').trim();
+      const hasCustomCompletionType = completionType && completionType !== 'school_full_intake_packet_default';
+      const hasAny = (cm.beginSubtitle || '').trim()
+        || (cm.formTimeLimit || '').trim()
+        || Number(cm.completionEmailTemplateId || 0)
+        || hasCustomCompletionType
+        || (cm.completionEmailSubject || '').trim()
+        || (cm.completionEmailBody || '').trim();
       if (!hasAny) return null;
       return {
         beginSubtitle: (cm.beginSubtitle || '').trim() || undefined,
-        formTimeLimit: (cm.formTimeLimit || '').trim() || undefined
+        formTimeLimit: (cm.formTimeLimit || '').trim() || undefined,
+        completionEmailTemplateId: Number(cm.completionEmailTemplateId || 0) || undefined,
+        completionEmailTemplateType: hasCustomCompletionType ? completionType : undefined,
+        completionEmailSubject: (cm.completionEmailSubject || '').trim() || undefined,
+        completionEmailBody: (cm.completionEmailBody || '').trim() || undefined
       };
     })();
     const payload = {
@@ -1070,6 +1198,34 @@ const save = async () => {
     formError.value = formatApiError(e, 'Failed to save digital form');
   } finally {
     saving.value = false;
+  }
+};
+
+const applyDefaultCompletionEmailCopy = () => {
+  if (!form.customMessages) return;
+  const formLabel = String(form.title || '').trim() || 'Intake Packet';
+  form.customMessages.completionEmailSubject = `${formLabel} - Signed Packet Ready`;
+  form.customMessages.completionEmailBody = [
+    'Hello {{SIGNER_NAME}},',
+    '',
+    'Your signed intake packet is ready.',
+    '{{CLIENT_SUMMARY}}',
+    '',
+    'Download your signed packet:',
+    '{{DOWNLOAD_URL}}',
+    '',
+    'This link expires in {{LINK_EXPIRES_DAYS}} days.'
+  ].join('\n');
+};
+
+const onCompletionEmailTemplateChange = () => {
+  const template = selectedCompletionEmailTemplate.value;
+  if (!template) return;
+  if (String(template.subject || '').trim()) {
+    form.customMessages.completionEmailSubject = String(template.subject || '').trim();
+  }
+  if (String(template.body || '').trim()) {
+    form.customMessages.completionEmailBody = String(template.body || '').trim();
   }
 };
 
@@ -1246,6 +1402,9 @@ const sanitizeSteps = (steps) => {
       } else if (next.type === 'document') {
         if (next.templateId === undefined) next.templateId = null;
         if (next.checkboxDisclaimer === undefined) next.checkboxDisclaimer = '';
+      } else if (next.type === 'school_roi') {
+        next.templateId = null;
+        next.checkboxDisclaimer = '';
       } else if (next.type === 'upload') {
         next.label = next.label ?? '';
         next.accept = next.accept ?? '.pdf,.doc,.docx';
@@ -1258,6 +1417,9 @@ const sanitizeSteps = (steps) => {
 
 const safeSteps = computed(() => (Array.isArray(form.intakeSteps) ? form.intakeSteps : []));
 const hasDocumentSteps = computed(() => safeSteps.value.some((s) => s?.type === 'document'));
+const hasProgrammedSchoolRoiStep = computed(() =>
+  safeSteps.value.some((s) => String(s?.type || '').trim().toLowerCase() === 'school_roi')
+);
 
 const getStepFields = (step) => {
   if (!step || !Array.isArray(step.fields)) return [];
@@ -1288,6 +1450,9 @@ const addStep = (type, options = {}) => {
     step.accept = '.pdf,.doc,.docx';
     step.maxFiles = 1;
     step.required = true;
+  } else if (type === 'school_roi') {
+    step.templateId = null;
+    step.checkboxDisclaimer = '';
   } else {
     step.templateId = options?.templateId ?? null;
     step.checkboxDisclaimer = '';
@@ -1297,7 +1462,7 @@ const addStep = (type, options = {}) => {
 };
 
 const addSchoolRoiStep = () => {
-  addStep('document', { templateId: defaultSchoolRoiTemplateId.value });
+  addStep('school_roi');
 };
 
 const removeStep = (idx) => {
@@ -1514,8 +1679,23 @@ onMounted(fetchData);
 
 .step-actions {
   display: flex;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 12px;
+}
+
+.programmed-step-pill {
+  display: inline-flex;
+  align-items: center;
+  margin-left: auto;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+  color: #1e40af;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .step-actions-bottom {

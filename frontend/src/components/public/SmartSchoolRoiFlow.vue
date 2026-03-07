@@ -18,22 +18,32 @@
 
       <div class="subject-choice-row">
         <label class="choice-card" :class="{ 'required-highlight': form.intakeForSelf === null }">
-          <input v-model="form.intakeForSelf" :value="true" type="radio" />
+          <input v-model="form.intakeForSelf" :value="true" type="radio" :disabled="isSubjectChoiceLocked" />
           <span>I am the client</span>
         </label>
         <label class="choice-card" :class="{ 'required-highlight': form.intakeForSelf === null }">
-          <input v-model="form.intakeForSelf" :value="false" type="radio" />
+          <input v-model="form.intakeForSelf" :value="false" type="radio" :disabled="isSubjectChoiceLocked" />
           <span>My dependent is the client</span>
         </label>
       </div>
-      <p class="subject-choice-hint">
+      <p v-if="!isSubjectChoiceLocked" class="subject-choice-hint">
         Choose who the client is for this release so the signer and relationship fields are labeled correctly.
+      </p>
+      <p v-else class="subject-choice-hint">
+        Client/guardian role was carried in from earlier intake details.
       </p>
 
       <div class="summary-grid">
         <div>
           <label>Client</label>
-          <div class="summary-value">{{ form.clientFullName || '—' }}</div>
+          <div v-if="isClientNameLocked" class="summary-value">{{ form.clientFullName || '—' }}</div>
+          <input
+            v-else
+            v-model="form.clientFullName"
+            :class="['roi-input', requiredFieldClass(form.clientFullName)]"
+            type="text"
+            placeholder="Client full name"
+          />
         </div>
         <div>
           <label>{{ subjectDobLabel }}</label>
@@ -108,6 +118,9 @@
       <div class="progress-label">Step {{ stepNumber }} of {{ totalSteps }}</div>
       <h3>{{ currentAck?.title }}</h3>
       <p>{{ currentAck?.body }}</p>
+      <p class="required-note">
+        This acknowledgement is required to continue.
+      </p>
       <p class="auto-advance-note">Selecting an option will move you to the next question.</p>
       <div class="choice-row">
         <label class="choice-card" @click.prevent="selectAckDecision(true)">
@@ -117,14 +130,6 @@
             type="radio"
           />
           <span>I acknowledge and accept</span>
-        </label>
-        <label class="choice-card" @click.prevent="selectAckDecision(false)">
-          <input
-            :checked="form.requiredAcknowledgements[currentAck.id] === false"
-            :value="false"
-            type="radio"
-          />
-          <span>I do not accept</span>
         </label>
       </div>
       <div class="actions">
@@ -294,7 +299,7 @@
       <div class="actions">
         <button type="button" class="btn btn-secondary" @click="goBack">Back</button>
         <button type="button" class="btn btn-primary" :disabled="submitting || !signatureData" @click="submitRoi">
-          {{ submitting ? 'Submitting...' : 'Complete release' }}
+          {{ submitting ? 'Submitting...' : (isEmbeddedMode ? 'Continue' : 'Complete release') }}
         </button>
       </div>
     </div>
@@ -325,7 +330,7 @@ const props = defineProps({
   },
   roiContext: {
     type: Object,
-    required: true
+    default: null
   },
   link: {
     type: Object,
@@ -334,10 +339,18 @@ const props = defineProps({
   boundClient: {
     type: Object,
     default: null
+  },
+  mode: {
+    type: String,
+    default: 'standalone'
+  },
+  prefill: {
+    type: Object,
+    default: null
   }
 });
 
-const emit = defineEmits(['completed']);
+const emit = defineEmits(['completed', 'captured']);
 
 const ackItems = computed(() => Array.isArray(props.roiContext?.requiredAcknowledgements) ? props.roiContext.requiredAcknowledgements : []);
 const waiverItems = computed(() => Array.isArray(props.roiContext?.waiverItems) ? props.roiContext.waiverItems : []);
@@ -363,16 +376,47 @@ const downloadUrl = ref('');
 const submitting = ref(false);
 const error = ref('');
 
+const formatClientFullName = (firstName, lastName) =>
+  `${String(firstName || '').trim()} ${String(lastName || '').trim()}`.trim();
+const normalizeDateInput = (value) => {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  const slashDate = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (slashDate) {
+    const mm = String(slashDate[1]).padStart(2, '0');
+    const dd = String(slashDate[2]).padStart(2, '0');
+    return `${slashDate[3]}-${mm}-${dd}`;
+  }
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return raw;
+  const y = parsed.getFullYear();
+  const m = String(parsed.getMonth() + 1).padStart(2, '0');
+  const d = String(parsed.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+};
+const prefill = computed(() => (props.prefill && typeof props.prefill === 'object' ? props.prefill : {}));
+const prefillIntakeForSelf = typeof prefill.value.intakeForSelf === 'boolean' ? prefill.value.intakeForSelf : null;
+const prefillSignerFirst = String(prefill.value.signerFirstName || '').trim();
+const prefillSignerLast = String(prefill.value.signerLastName || '').trim();
+const prefillSignerEmail = String(prefill.value.signerEmail || '').trim();
+const prefillSignerPhone = String(prefill.value.signerPhone || '').trim();
+const prefillSignerRelationship = String(prefill.value.signerRelationship || '').trim();
+const prefillClientName = String(prefill.value.clientFullName || '').trim();
+const prefillClientDob = normalizeDateInput(prefill.value.clientDateOfBirth || '');
+const roiClientName = String(props.roiContext?.client?.fullName || props.boundClient?.full_name || '').trim();
+const roiClientDob = normalizeDateInput(props.roiContext?.client?.dateOfBirth || props.boundClient?.date_of_birth || '');
+
 const form = reactive({
-  intakeForSelf: null,
-  clientFullName: props.roiContext?.client?.fullName || props.boundClient?.full_name || '',
-  clientDateOfBirth: props.roiContext?.client?.dateOfBirth || props.boundClient?.date_of_birth || '',
+  intakeForSelf: prefillIntakeForSelf,
+  clientFullName: prefillClientName || roiClientName || formatClientFullName(prefillSignerFirst, prefillSignerLast),
+  clientDateOfBirth: prefillClientDob || roiClientDob,
   signer: {
-    firstName: '',
-    lastName: '',
-    email: '',
-    phone: '',
-    relationship: ''
+    firstName: prefillSignerFirst,
+    lastName: prefillSignerLast,
+    email: prefillSignerEmail,
+    phone: prefillSignerPhone,
+    relationship: prefillIntakeForSelf === true ? 'Self' : prefillSignerRelationship
   },
   packetReleaseAllowed: null,
   requiredAcknowledgements: Object.fromEntries(ackItems.value.map((item) => [item.id, null])),
@@ -406,6 +450,11 @@ const deniedStaffCount = computed(() =>
 );
 const schoolSchedulingSafetyAuthorized = computed(() =>
   form.waiverItems.school_scheduling_safety_logistics === 'accept'
+);
+const isEmbeddedMode = computed(() => String(props.mode || '').toLowerCase() === 'embedded');
+const isSubjectChoiceLocked = computed(() => typeof prefill.value.intakeForSelf === 'boolean');
+const isClientNameLocked = computed(
+  () => isEmbeddedMode.value && String(prefill.value.clientFullName || '').trim().length > 0
 );
 const subjectDobLabel = computed(() => (form.intakeForSelf === true ? 'Your Date of Birth' : 'Client Date of Birth'));
 const signerFirstNameLabel = computed(() => (form.intakeForSelf === true ? 'Your First Name' : 'Responsible Party First Name'));
@@ -478,8 +527,8 @@ const validateCurrentStage = () => {
       return false;
     }
   }
-  if (stage.value === 'ack' && form.requiredAcknowledgements[currentAck.value.id] === null) {
-    error.value = 'Choose whether you accept this acknowledgement before continuing.';
+  if (stage.value === 'ack' && form.requiredAcknowledgements[currentAck.value.id] !== true) {
+    error.value = 'This acknowledgement must be accepted to continue.';
     return false;
   }
   if (stage.value === 'waiver' && !form.waiverItems[currentWaiver.value.id]) {
@@ -554,6 +603,12 @@ const submitRoi = async () => {
   submitting.value = true;
   error.value = '';
   try {
+    if (isEmbeddedMode.value) {
+      emit('captured', {
+        smartSchoolRoi: buildRoiPayload()
+      });
+      return;
+    }
     if (!submissionId.value) {
       const consentResp = await api.post(`/public-intake/${props.publicKey}/consent`, buildSubmissionPayload());
       submissionId.value = consentResp.data?.submission?.id || null;
@@ -563,6 +618,7 @@ const submitRoi = async () => {
         emit('completed', {
           submissionId: submissionId.value,
           downloadUrl: downloadUrl.value,
+          emailDelivery: consentResp.data?.emailDelivery || null,
           clientBundles: []
         });
         return;
@@ -582,6 +638,7 @@ const submitRoi = async () => {
     emit('completed', {
       submissionId: submissionId.value,
       downloadUrl: downloadUrl.value,
+      emailDelivery: finalizeResp.data?.emailDelivery || null,
       clientBundles: finalizeResp.data?.clientBundles || []
     });
   } catch (err) {

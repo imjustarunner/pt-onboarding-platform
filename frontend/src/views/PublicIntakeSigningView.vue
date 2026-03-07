@@ -14,6 +14,7 @@
       </button>
       <h2>{{ link?.title || defaultTitle }}</h2>
       <p v-if="link?.description" class="muted">{{ link.description }}</p>
+      <div v-if="draftRestoredMessage" class="draft-restored-banner">{{ draftRestoredMessage }}</div>
 
       <div v-if="step === -1" class="step cover-step">
         <div class="cover-card">
@@ -423,8 +424,21 @@
         <div v-else-if="step === 2 && currentFlowStep?.type !== 'questions'" class="step">
         <h3 v-if="currentFlowStep?.type === 'document'">Document</h3>
         <h3 v-else-if="currentFlowStep?.type === 'upload'">{{ currentFlowStep?.label || 'Upload' }}</h3>
+        <h3 v-else-if="currentFlowStep?.type === 'school_roi'">School ROI</h3>
         <h3 v-else-if="currentFlowStep?.type === 'questions'">Questions</h3>
         <div v-if="stepError" class="error" style="margin-bottom: 10px;">{{ stepError }}</div>
+        <div v-if="currentFlowStep?.type === 'school_roi'" class="school-roi-step">
+          <SmartSchoolRoiFlow
+            :public-key="publicKey"
+            :session-token="sessionToken"
+            :roi-context="roiContext"
+            :link="link"
+            :bound-client="boundClient"
+            :prefill="embeddedSmartRoiPrefill"
+            mode="embedded"
+            @captured="handleEmbeddedSchoolRoiCaptured"
+          />
+        </div>
         <div v-if="currentFlowStep?.type === 'upload'" class="upload-step">
           <p class="muted">{{ currentFlowStep?.label || 'Upload' }} ({{ currentFlowStep?.required ? 'required' : 'optional' }})</p>
           <input
@@ -459,7 +473,7 @@
             Next
           </button>
         </div>
-        <div class="actions" style="margin-top: 10px;">
+        <div v-if="currentFlowStep?.type !== 'school_roi'" class="actions" style="margin-top: 10px;">
           <button class="btn btn-outline" type="button" @click="cancelIntake" :disabled="submitLoading">
             Cancel & delete
           </button>
@@ -555,7 +569,7 @@
           <div v-if="signatureData" class="muted" style="margin-top: 6px;">Signature ready for this document.</div>
         </div>
 
-        <div class="actions">
+        <div v-if="currentFlowStep?.type !== 'school_roi'" class="actions">
           <button
             class="btn btn-primary"
             type="button"
@@ -624,7 +638,7 @@ const INTAKE_TRANSLATIONS = {
     digitalIntakeJob: 'Job Application',
     digitalIntakeMedical: 'Medical Records Request',
     welcome: 'Welcome',
-    formTimeLimit: 'This form must be completed within 1 hour. Each new page adds 5 minutes. The session is unique and cannot be saved or resumed.',
+    formTimeLimit: 'This form must be completed within 1 hour. Each new page adds 5 minutes. In-progress answers are saved in this browser session for up to 1 hour in case you accidentally navigate away.',
     next: 'Next',
     tapNext: 'Tap Next to continue',
     acknowledgeAndContinue: 'Acknowledge & Continue',
@@ -701,6 +715,7 @@ const INTAKE_TRANSLATIONS = {
     completionEmailGuardian: 'Your documents were completed successfully. A copy will be emailed to the guardian.',
     completionEmailApplicant: 'Your application was submitted successfully. A copy will be emailed to you.',
     completionEmailRequester: 'Your request was submitted successfully. A copy will be emailed to you.',
+    completionEmailFailed: 'Your documents were completed, but we could not send the confirmation email. Please use the download buttons below.',
     completeCaptcha: 'Please complete the captcha verification above.',
     captchaFailed: 'Captcha verification failed. Please complete the captcha again and try again.',
     noDocumentSelected: 'No document selected.',
@@ -716,7 +731,8 @@ const INTAKE_TRANSLATIONS = {
     restartConfirm: 'Restart this intake and clear all fields?',
     endSessionConfirm: 'End this session and clear this intake from this browser?',
     unableToStartSession: 'Unable to start a new intake session. Please try again.',
-    dailyLimitReached: 'Daily intake start limit reached. Please try again tomorrow.'
+    dailyLimitReached: 'Daily intake start limit reached. Please try again tomorrow.',
+    draftRestored: 'Draft restored from this browser session (saved within the last hour).'
   },
   es: {
     loadingLink: 'Cargando enlace de admisión...',
@@ -734,7 +750,7 @@ const INTAKE_TRANSLATIONS = {
     beginIntakeJob: 'Comenzar solicitud de empleo',
     beginIntakeMedical: 'Comenzar solicitud de registros médicos',
     welcome: 'Bienvenido',
-    formTimeLimit: 'Este formulario debe completarse en 1 hora. Cada página nueva agrega 5 minutos. La sesión es única y no se puede guardar ni reanudar.',
+    formTimeLimit: 'Este formulario debe completarse en 1 hora. Cada página nueva agrega 5 minutos. Las respuestas en progreso se guardan en esta sesión del navegador por hasta 1 hora por si sale accidentalmente.',
     next: 'Siguiente',
     tapNext: 'Toque Siguiente para continuar',
     acknowledgeAndContinue: 'Aceptar y continuar',
@@ -792,6 +808,8 @@ const INTAKE_TRANSLATIONS = {
     guardianFirst: 'Nombre del tutor',
     guardianLast: 'Apellido del tutor',
     guardianPhone: 'Teléfono del tutor',
+    completionEmailFailed: 'Sus documentos se completaron, pero no pudimos enviar el correo de confirmación. Use los botones de descarga a continuación.',
+    draftRestored: 'Borrador restaurado desde esta sesión del navegador (guardado dentro de la última hora).',
     yes: 'Sí',
     no: 'No',
     clinicalIntakeSummary: 'Resumen de admisión clínica',
@@ -871,7 +889,11 @@ const signerLabel = computed(() => {
   if (formTypeKey.value === 'medical_records_request') return t('signerLabelRequester');
   return t('signerLabelGuardian');
 });
+const emailDeliveryStatus = ref(null);
 const completionEmailMessage = computed(() => {
+  if (emailDeliveryStatus.value?.attempted && emailDeliveryStatus.value?.sent === false) {
+    return t('completionEmailFailed');
+  }
   if (formTypeKey.value === 'job_application') return t('completionEmailApplicant');
   if (formTypeKey.value === 'medical_records_request') return t('completionEmailRequester');
   return t('completionEmailGuardian');
@@ -929,12 +951,16 @@ const approvalContext = computed(() => {
 const intakeSteps = computed(() =>
   Array.isArray(link.value?.intake_steps) ? link.value.intake_steps : []
 );
+const hasProgrammedSchoolRoiStep = computed(() =>
+  intakeSteps.value.some((step) => String(step?.type || '').trim().toLowerCase() === 'school_roi')
+);
 const flowSteps = computed(() => {
   if (intakeSteps.value.length) {
     return intakeSteps.value
-      .filter((s) => s?.type === 'document' || s?.type === 'upload')
+      .filter((s) => s?.type === 'document' || s?.type === 'upload' || s?.type === 'school_roi')
       .map((s) => {
         if (s.type === 'upload') return { ...s };
+        if (s.type === 'school_roi') return { ...s };
         const template = templates.value.find((t) => Number(t.id) === Number(s.templateId));
         return { ...s, template };
       });
@@ -976,11 +1002,19 @@ const docStatus = reactive({});
 const uploadStatus = reactive({});
 const uploadStepFiles = ref([]);
 const uploadStepInputRef = ref(null);
+const embeddedSmartSchoolRoi = ref(null);
 const fieldValuesByTemplate = reactive({});
 const sessionToken = ref(String(route.query?.session || '').trim());
 const submissionStorageKey = computed(() =>
   sessionToken.value ? `public_intake_submission_${publicKey}_${sessionToken.value}` : `public_intake_submission_${publicKey}`
 );
+const draftStorageKey = computed(() => `public_intake_draft_${publicKey}`);
+const DRAFT_STORAGE_VERSION = 1;
+const DRAFT_TTL_MS = 60 * 60 * 1000;
+const isRestoringDraft = ref(false);
+const draftRestoredMessage = ref('');
+let draftPersistTimer = null;
+let draftRestoredBannerTimer = null;
 
 const signerInitials = ref('');
 const boundClient = ref(null);
@@ -1012,6 +1046,153 @@ const consentErrors = reactive({
   organizationId: ''
 });
 const intakeForSelf = ref(false);
+const clearPersistedDraft = () => {
+  try {
+    localStorage.removeItem(submissionStorageKey.value);
+    localStorage.removeItem(draftStorageKey.value);
+  } catch {
+    // ignore browser storage errors
+  }
+};
+
+const buildDraftSnapshot = () => ({
+  version: DRAFT_STORAGE_VERSION,
+  savedAt: new Date().toISOString(),
+  sessionToken: String(sessionToken.value || '').trim() || null,
+  submissionId: submissionId.value || null,
+  step: Number(step.value || 0),
+  introIndex: Number(introIndex.value || 0),
+  currentFlowIndex: Number(currentFlowIndex.value || 0),
+  intakeForSelf: intakeForSelf.value,
+  organizationId: organizationId.value || null,
+  guardian: {
+    firstName: guardianFirstName.value || '',
+    lastName: guardianLastName.value || '',
+    email: guardianEmail.value || '',
+    phone: guardianPhone.value || '',
+    relationship: guardianRelationship.value || ''
+  },
+  clients: Array.isArray(clients.value)
+    ? clients.value.map((client) => ({
+        firstName: client?.firstName || '',
+        lastName: client?.lastName || ''
+      }))
+    : [],
+  intakeResponses: {
+    guardian: intakeResponses.guardian || {},
+    submission: intakeResponses.submission || {},
+    clients: intakeResponses.clients || []
+  },
+  embeddedSmartSchoolRoi: embeddedSmartSchoolRoi.value || null
+});
+
+const persistDraftSnapshot = () => {
+  if (isRestoringDraft.value) return;
+  try {
+    const payload = JSON.stringify(buildDraftSnapshot());
+    localStorage.setItem(submissionStorageKey.value, payload);
+    localStorage.setItem(draftStorageKey.value, payload);
+  } catch {
+    // ignore browser storage errors
+  }
+};
+
+const queueDraftPersist = () => {
+  if (isRestoringDraft.value) return;
+  if (draftPersistTimer) clearTimeout(draftPersistTimer);
+  draftPersistTimer = setTimeout(() => {
+    persistDraftSnapshot();
+  }, 150);
+};
+
+const hasMeaningfulDraftSnapshot = (snapshot) => {
+  if (!snapshot || typeof snapshot !== 'object') return false;
+  if (Number(snapshot.step || 0) > 1) return true;
+  if (snapshot.submissionId) return true;
+  const guardian = snapshot.guardian || {};
+  if (
+    String(guardian.firstName || '').trim()
+    || String(guardian.lastName || '').trim()
+    || String(guardian.email || '').trim()
+    || String(guardian.phone || '').trim()
+    || String(guardian.relationship || '').trim()
+  ) return true;
+  if (Array.isArray(snapshot.clients) && snapshot.clients.some((c) =>
+    String(c?.firstName || '').trim() || String(c?.lastName || '').trim()
+  )) return true;
+  if (snapshot.embeddedSmartSchoolRoi && typeof snapshot.embeddedSmartSchoolRoi === 'object') return true;
+  return false;
+};
+
+const showDraftRestoredBanner = () => {
+  draftRestoredMessage.value = t('draftRestored');
+  if (draftRestoredBannerTimer) clearTimeout(draftRestoredBannerTimer);
+  draftRestoredBannerTimer = setTimeout(() => {
+    draftRestoredMessage.value = '';
+  }, 7000);
+};
+
+const restoreDraftSnapshot = () => {
+  const tryRead = (key) => {
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) return null;
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  };
+  let parsed = tryRead(submissionStorageKey.value) || tryRead(draftStorageKey.value);
+  if (!parsed || parsed.version !== DRAFT_STORAGE_VERSION) return false;
+  if (!hasMeaningfulDraftSnapshot(parsed)) {
+    clearPersistedDraft();
+    return false;
+  }
+  const savedAtMs = parsed?.savedAt ? new Date(parsed.savedAt).getTime() : 0;
+  if (!savedAtMs || Number.isNaN(savedAtMs) || (Date.now() - savedAtMs) > DRAFT_TTL_MS) {
+    clearPersistedDraft();
+    return false;
+  }
+  if (!sessionToken.value && String(parsed.sessionToken || '').trim()) {
+    sessionToken.value = String(parsed.sessionToken).trim();
+    router.replace({ query: { ...route.query, session: sessionToken.value } }).catch(() => {});
+  }
+  isRestoringDraft.value = true;
+  try {
+    if (typeof parsed.intakeForSelf === 'boolean') intakeForSelf.value = parsed.intakeForSelf;
+    if (parsed.organizationId !== null && parsed.organizationId !== undefined) {
+      organizationId.value = parsed.organizationId;
+    }
+    guardianFirstName.value = String(parsed.guardian?.firstName || guardianFirstName.value || '');
+    guardianLastName.value = String(parsed.guardian?.lastName || guardianLastName.value || '');
+    guardianEmail.value = String(parsed.guardian?.email || guardianEmail.value || '');
+    guardianPhone.value = String(parsed.guardian?.phone || guardianPhone.value || '');
+    guardianRelationship.value = String(parsed.guardian?.relationship || guardianRelationship.value || '');
+
+    if (Array.isArray(parsed.clients) && parsed.clients.length) {
+      clients.value = parsed.clients.map((client) => ({
+        firstName: String(client?.firstName || ''),
+        lastName: String(client?.lastName || '')
+      }));
+    }
+    if (parsed.intakeResponses && typeof parsed.intakeResponses === 'object') {
+      intakeResponses.guardian = parsed.intakeResponses.guardian || {};
+      intakeResponses.submission = parsed.intakeResponses.submission || {};
+      intakeResponses.clients = Array.isArray(parsed.intakeResponses.clients)
+        ? parsed.intakeResponses.clients
+        : [{}];
+    }
+    embeddedSmartSchoolRoi.value = parsed.embeddedSmartSchoolRoi || null;
+    submissionId.value = parsed.submissionId || submissionId.value || null;
+    if (Number.isFinite(Number(parsed.introIndex))) introIndex.value = Math.max(0, Number(parsed.introIndex));
+    if (Number.isFinite(Number(parsed.currentFlowIndex))) currentFlowIndex.value = Math.max(0, Number(parsed.currentFlowIndex));
+    if (Number.isFinite(Number(parsed.step))) step.value = Number(parsed.step);
+    return true;
+  } finally {
+    isRestoringDraft.value = false;
+  }
+};
+
 const guardianDisplayName = computed(() =>
   `${guardianFirstName.value || ''} ${guardianLastName.value || ''}`.trim()
 );
@@ -1461,9 +1642,15 @@ const loadLink = async () => {
     if (typeof recaptchaConfig.useEnterprise === 'boolean') {
       useEnterpriseRecaptcha.value = !!recaptchaConfig.useEnterprise;
     }
-    if (!templates.value.length && String(link.value?.form_type || '').toLowerCase() !== 'smart_school_roi') {
+    if (
+      !templates.value.length
+      && String(link.value?.form_type || '').toLowerCase() !== 'smart_school_roi'
+      && !hasProgrammedSchoolRoiStep.value
+    ) {
       error.value = 'No documents configured for this intake link.';
     } else if (String(link.value?.form_type || '').toLowerCase() === 'smart_school_roi') {
+      error.value = '';
+    } else if (hasProgrammedSchoolRoiStep.value) {
       error.value = '';
     }
     if (String(link.value?.form_type || '').toLowerCase() === 'job_application') {
@@ -1692,6 +1879,66 @@ const buildClientPayloads = () =>
     };
   });
 
+const isLikelyDobKey = (key) => {
+  const token = String(key || '').trim().toLowerCase();
+  return token.includes('dob') || token.includes('birth');
+};
+
+const normalizeDateForRoiPrefill = (value) => {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  const slashDate = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (slashDate) {
+    const mm = String(slashDate[1]).padStart(2, '0');
+    const dd = String(slashDate[2]).padStart(2, '0');
+    return `${slashDate[3]}-${mm}-${dd}`;
+  }
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return raw;
+  const y = parsed.getFullYear();
+  const m = String(parsed.getMonth() + 1).padStart(2, '0');
+  const d = String(parsed.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+};
+
+const resolveClientDobForSmartRoi = () => {
+  const direct = normalizeDateForRoiPrefill(boundClient.value?.date_of_birth || roiContext.value?.client?.dateOfBirth || '');
+  if (direct) return direct;
+  const sources = [
+    intakeResponses.clients?.[0] || {},
+    intakeResponses.submission || {},
+    intakeResponses.guardian || {}
+  ];
+  for (const source of sources) {
+    const entry = Object.entries(source || {}).find(([key, val]) => isLikelyDobKey(key) && String(val || '').trim());
+    if (entry) return normalizeDateForRoiPrefill(entry[1]);
+  }
+  return '';
+};
+
+const embeddedSmartRoiPrefill = computed(() => {
+  const firstClient = clients.value?.[0] || {};
+  const signerFirst = String(guardianFirstName.value || '').trim();
+  const signerLast = String(guardianLastName.value || '').trim();
+  const clientFirst = intakeForSelf.value ? signerFirst : String(firstClient.firstName || '').trim();
+  const clientLast = intakeForSelf.value ? signerLast : String(firstClient.lastName || '').trim();
+  const fullName = `${clientFirst} ${clientLast}`.trim();
+  const relationship = intakeForSelf.value === true
+    ? 'Self'
+    : String(guardianRelationship.value || '').trim();
+  return {
+    intakeForSelf: typeof intakeForSelf.value === 'boolean' ? intakeForSelf.value : null,
+    clientFullName: fullName,
+    clientDateOfBirth: resolveClientDobForSmartRoi(),
+    signerFirstName: signerFirst,
+    signerLastName: signerLast,
+    signerEmail: String(guardianEmail.value || '').trim(),
+    signerPhone: String(guardianPhone.value || '').trim(),
+    signerRelationship: relationship
+  };
+});
+
 const syncClientNamesToResponses = () => {
   if (!Array.isArray(intakeResponses.clients)) {
     intakeResponses.clients = [];
@@ -1789,7 +2036,8 @@ const submitConsent = async () => {
           phone: guardianPhone.value,
           relationship: guardianRelationship.value
         },
-        approval: approvalContext.value || null
+        approval: approvalContext.value || null,
+        smartSchoolRoi: embeddedSmartSchoolRoi.value || null
       }
     };
     const resp = await api.post(`/public-intake/${publicKey}/consent`, payload);
@@ -1946,14 +2194,16 @@ const finalizePacket = async () => {
           phone: guardianPhone.value,
           relationship: guardianRelationship.value
         },
-        approval: approvalContext.value || null
+        approval: approvalContext.value || null,
+        smartSchoolRoi: embeddedSmartSchoolRoi.value || null
       }
     });
     downloadUrl.value = resp.data?.downloadUrl || '';
+    emailDeliveryStatus.value = resp.data?.emailDelivery || null;
     clientBundleLinks.value = resp.data?.clientBundles || [];
     jobApplicationSubmitted.value = !!resp.data?.jobApplicationSubmitted;
     step.value = 3;
-    localStorage.removeItem(submissionStorageKey.value);
+    clearPersistedDraft();
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to finalize packet';
   } finally {
@@ -1973,6 +2223,10 @@ const resetIntakeState = () => {
   intakeResponses.guardian = {};
   intakeResponses.submission = {};
   intakeResponses.clients = [{}];
+  embeddedSmartSchoolRoi.value = null;
+  downloadUrl.value = '';
+  emailDeliveryStatus.value = null;
+  clientBundleLinks.value = [];
   signatureData.value = '';
   submissionId.value = null;
   docStatus && Object.keys(docStatus).forEach((k) => delete docStatus[k]);
@@ -1990,21 +2244,21 @@ const resetIntakeState = () => {
 const cancelIntake = () => {
   const ok = window.confirm(t('cancelDeleteConfirm'));
   if (!ok) return;
-  localStorage.removeItem(submissionStorageKey.value);
+  clearPersistedDraft();
   resetIntakeState();
 };
 
 const restartIntake = () => {
   const ok = window.confirm(t('restartConfirm'));
   if (!ok) return;
-  localStorage.removeItem(submissionStorageKey.value);
+  clearPersistedDraft();
   resetIntakeState();
 };
 
 const endSession = () => {
   const ok = window.confirm(t('endSessionConfirm'));
   if (!ok) return;
-  localStorage.removeItem(submissionStorageKey.value);
+  clearPersistedDraft();
   resetIntakeState();
 };
 
@@ -2380,6 +2634,30 @@ watch(currentDoc, async () => {
   await loadPdfPreview();
 });
 
+watch(
+  () => ({
+    sessionToken: sessionToken.value,
+    submissionId: submissionId.value,
+    step: step.value,
+    introIndex: introIndex.value,
+    currentFlowIndex: currentFlowIndex.value,
+    intakeForSelf: intakeForSelf.value,
+    organizationId: organizationId.value,
+    guardianFirstName: guardianFirstName.value,
+    guardianLastName: guardianLastName.value,
+    guardianEmail: guardianEmail.value,
+    guardianPhone: guardianPhone.value,
+    guardianRelationship: guardianRelationship.value,
+    clients: clients.value,
+    intakeResponses,
+    embeddedSmartSchoolRoi: embeddedSmartSchoolRoi.value
+  }),
+  () => {
+    queueDraftPersist();
+  },
+  { deep: true }
+);
+
 const beginIntakeSession = async () => {
   consentLoading.value = true;
   try {
@@ -2406,7 +2684,6 @@ const beginIntakeSession = async () => {
     sessionToken.value = token;
     await router.replace({ query: { ...route.query, session: token } });
     await resetRecaptchaWidget();
-    localStorage.removeItem(submissionStorageKey.value);
     if (introScreens.value.length) {
       step.value = 0;
       introIndex.value = 0;
@@ -2422,21 +2699,36 @@ const beginIntakeSession = async () => {
   }
 };
 
-const handleSmartRoiCompleted = ({ submissionId: nextSubmissionId, downloadUrl: nextDownloadUrl, clientBundles }) => {
+const handleSmartRoiCompleted = ({ submissionId: nextSubmissionId, downloadUrl: nextDownloadUrl, emailDelivery, clientBundles }) => {
   submissionId.value = nextSubmissionId || null;
   downloadUrl.value = nextDownloadUrl || '';
+  emailDeliveryStatus.value = emailDelivery || null;
   clientBundleLinks.value = Array.isArray(clientBundles) ? clientBundles : [];
   step.value = 3;
-  localStorage.removeItem(submissionStorageKey.value);
+  clearPersistedDraft();
+};
+
+const handleEmbeddedSchoolRoiCaptured = async ({ smartSchoolRoi } = {}) => {
+  embeddedSmartSchoolRoi.value = smartSchoolRoi || null;
+  intakeResponses.submission = {
+    ...(intakeResponses.submission || {}),
+    smartSchoolRoi: smartSchoolRoi || null
+  };
+  stepError.value = '';
+  await nextFlowStep();
 };
 
 onMounted(async () => {
   await loadLink();
+  const restoredDraft = restoreDraftSnapshot();
+  if (restoredDraft) {
+    showDraftRestoredBanner();
+  }
   if (!sessionToken.value) {
     step.value = -1;
     return;
   }
-  if (introScreens.value.length) {
+  if (!restoredDraft && introScreens.value.length) {
     step.value = 0;
     introIndex.value = 0;
   }
@@ -2452,6 +2744,15 @@ onMounted(async () => {
   padding: 20px;
   box-shadow: var(--shadow);
   border: 1px solid var(--border);
+}
+.draft-restored-banner {
+  margin: 8px 0 12px;
+  padding: 10px 12px;
+  border: 1px solid #86efac;
+  border-radius: 8px;
+  background: #f0fdf4;
+  color: #166534;
+  font-size: 13px;
 }
 .form-grid {
   display: grid;

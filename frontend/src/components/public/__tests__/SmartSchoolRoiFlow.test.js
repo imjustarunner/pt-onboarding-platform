@@ -68,25 +68,28 @@ describe('SmartSchoolRoiFlow', () => {
 
     await wrapper.get('button.btn-primary').trigger('click');
 
-    expect(wrapper.text()).toContain('Complete the client and responsible party details before continuing.');
+    expect(wrapper.text()).toContain('Choose whether this release is for you or your dependent.');
   });
 
-  it('requires required acknowledgements to be accepted', async () => {
+  it('only allows accepting required acknowledgements', async () => {
     const wrapper = mountFlow();
+
+    const intakeChoiceRadios = wrapper.findAll('input[type="radio"]');
+    await intakeChoiceRadios[1].setValue();
 
     await wrapper.get('input[type="date"]').setValue('2016-04-05');
     const textInputs = wrapper.findAll('input[type="text"]');
-    await textInputs[0].setValue('Jamie');
-    await textInputs[1].setValue('Parent');
-    await textInputs[2].setValue('Mother');
+    await textInputs[0].setValue('Test Client');
+    await textInputs[1].setValue('Jamie');
+    await textInputs[2].setValue('Parent');
+    await textInputs[3].setValue('Mother');
     await wrapper.get('input[type="email"]').setValue('jamie@example.com');
     await wrapper.get('input[type="tel"]').setValue('555-123-4567');
     await wrapper.get('button.btn-primary').trigger('click');
-
-    const declineRadio = wrapper.findAll('input[type="radio"]')[1];
-    await declineRadio.setValue();
     await wrapper.get('button.btn-primary').trigger('click');
 
-    expect(wrapper.text()).toContain('This acknowledgement must be accepted to continue.');
+    expect(wrapper.text()).toContain('This acknowledgement is required to continue.');
+    expect(wrapper.text()).not.toContain('I do not accept');
+    expect(wrapper.findAll('input[type="radio"]').length).toBe(1);
   });
 });

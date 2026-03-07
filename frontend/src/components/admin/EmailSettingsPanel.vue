@@ -67,6 +67,19 @@
           Configure per-agency “From” addresses (aliases) for system/AI emails. Use identity keys like
           <strong>login_recovery</strong> or <strong>system</strong> for automated messages.
         </p>
+        <p class="hint">
+          Identity keys are now guided by a system dropdown so workflow routing is predictable.
+        </p>
+        <div v-if="undocumentedIdentityKeys.length" class="warning-block">
+          <strong>Helper coverage needed:</strong>
+          found existing key(s) without helper documentation:
+          <code>{{ undocumentedIdentityKeys.join(', ') }}</code>.
+          Add usage notes so admins are not guessing for future flows.
+        </div>
+        <div class="hint">
+          Key helper coverage currently includes:
+          <code>school_intake</code>, <code>intake</code>, <code>login_recovery</code>, <code>notifications</code>, <code>system</code>, <code>default</code>.
+        </div>
 
         <div class="settings-row">
           <div class="settings-label">Agency</div>
@@ -101,6 +114,7 @@
 
         <div v-if="senderError" class="error">{{ senderError }}</div>
         <div v-if="senderSuccess" class="success">{{ senderSuccess }}</div>
+        <div v-if="senderUploadingId !== null" class="loading">Uploading signature image…</div>
         <div v-if="senderLoading" class="loading">Loading sender identities…</div>
 
         <div v-else>
@@ -110,7 +124,12 @@
               <div class="identity-grid">
                 <div class="form-group">
                   <label>Identity Key</label>
-                  <input v-model="identity.identity_key" type="text" />
+                  <select v-model="identity.identity_key" class="form-select">
+                    <option v-for="opt in senderIdentityKeyOptions" :key="`identity-key-${opt.value}`" :value="opt.value">
+                      {{ opt.label }}
+                    </option>
+                  </select>
+                  <small class="hint">{{ describeIdentityKeyUsage(identity.identity_key) }}</small>
                 </div>
                 <div class="form-group">
                   <label>From Email</label>
@@ -123,6 +142,23 @@
                 <div class="form-group">
                   <label>Reply-To</label>
                   <input v-model="identity.reply_to" type="email" />
+                </div>
+                <div class="form-group">
+                  <label>Signature Image URL</label>
+                  <input v-model="identity.signature_image_url" type="text" placeholder="https://... or /uploads/logos/..." />
+                </div>
+                <div class="form-group">
+                  <label>Signature Image (PNG/JPG)</label>
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/jpg,image/webp,image/gif"
+                    @change="(e) => uploadSignatureForIdentity(identity, e)"
+                  />
+                  <small class="hint">Upload replaces the signature URL automatically.</small>
+                </div>
+                <div class="form-group">
+                  <label>Signature Alt Text</label>
+                  <input v-model="identity.signature_alt_text" type="text" placeholder="e.g., ITSCO Signature" />
                 </div>
                 <div class="form-group">
                   <label>Inbound Addresses (comma or new line)</label>
@@ -152,7 +188,12 @@
             <div class="identity-grid">
               <div class="form-group">
                 <label>Identity Key</label>
-                <input v-model="newIdentity.identityKey" type="text" placeholder="system or login_recovery" />
+                <select v-model="newIdentity.identityKey" class="form-select">
+                  <option v-for="opt in senderIdentityKeyOptions" :key="`new-identity-key-${opt.value}`" :value="opt.value">
+                    {{ opt.label }}
+                  </option>
+                </select>
+                <small class="hint">{{ describeIdentityKeyUsage(newIdentity.identityKey) }}</small>
               </div>
               <div class="form-group">
                 <label>From Email</label>
@@ -165,6 +206,23 @@
               <div class="form-group">
                 <label>Reply-To</label>
                 <input v-model="newIdentity.replyTo" type="email" placeholder="support@yourdomain.com" />
+              </div>
+              <div class="form-group">
+                <label>Signature Image URL</label>
+                <input v-model="newIdentity.signatureImageUrl" type="text" placeholder="https://... or /uploads/logos/..." />
+              </div>
+              <div class="form-group">
+                <label>Signature Image (PNG/JPG)</label>
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/jpg,image/webp,image/gif"
+                  @change="uploadSignatureForNewIdentity"
+                />
+                <small class="hint">Upload first, then click Create.</small>
+              </div>
+              <div class="form-group">
+                <label>Signature Alt Text</label>
+                <input v-model="newIdentity.signatureAltText" type="text" placeholder="e.g., ITSCO Signature" />
               </div>
               <div class="form-group">
                 <label>Inbound Addresses</label>
@@ -416,19 +474,88 @@ const senderLoading = ref(false);
 const senderError = ref('');
 const senderSuccess = ref('');
 const senderSavingId = ref(null);
+const senderUploadingId = ref(null);
 const includePlatformDefaults = ref(false);
 const testRecipient = ref('');
+const SYSTEM_IDENTITY_KEYS = [
+  { value: 'school_intake', label: 'School Intake (school packet + ROI sends)' },
+  { value: 'intake', label: 'Intake (general intake sends)' },
+  { value: 'login_recovery', label: 'Login Recovery (passwordless/reset help)' },
+  { value: 'notifications', label: 'Notifications (general system notifications)' },
+  { value: 'system', label: 'System (fallback sender)' },
+  { value: 'default', label: 'Default (legacy fallback)' }
+];
+const IDENTITY_KEY_USAGE = {
+  school_intake: {
+    usage: 'Primary sender for school intake, school packet completion, and school ROI sharing flows.',
+    refs: 'Used by public intake + client school ROI sender resolution.'
+  },
+  intake: {
+    usage: 'Primary sender for general intake completion and backup for school-intake flows.',
+    refs: 'Used by public intake and ROI sender fallback order.'
+  },
+  login_recovery: {
+    usage: 'Primary sender for reset/passwordless login help emails.',
+    refs: 'Used in auth, user admin, and school portal password reset flows.'
+  },
+  notifications: {
+    usage: 'General fallback sender for automated notices when a more specific key is not found.',
+    refs: 'Referenced in intake, ROI, and login-recovery fallback chains.'
+  },
+  system: {
+    usage: 'Last-resort global fallback sender for automated/system emails.',
+    refs: 'Referenced across recovery/intake fallback chains.'
+  },
+  default: {
+    usage: 'Legacy fallback key for older flows.',
+    refs: 'Referenced in login-recovery fallback chains.'
+  }
+};
 const newIdentity = ref({
-  identityKey: '',
+  identityKey: 'system',
   fromEmail: '',
   displayName: '',
   replyTo: '',
+  signatureImageUrl: '',
+  signatureImagePath: '',
+  signatureAltText: '',
   inboundAddressesText: ''
 });
 const schoolOverridesByAgency = ref({});
 const deletedSchoolOverrides = ref([]);
 const newOverrideByAgency = ref({});
 const KNOWN_INTENT_OPTIONS = ['school_status_request'];
+
+const senderIdentityKeyOptions = computed(() => {
+  const byValue = new Map();
+  SYSTEM_IDENTITY_KEYS.forEach((item) => byValue.set(item.value, item.label));
+  (senderIdentities.value || []).forEach((identity) => {
+    const key = String(identity?.identity_key || '').trim().toLowerCase();
+    if (!key) return;
+    if (!byValue.has(key)) {
+      byValue.set(key, `${key} (existing)`);
+    }
+  });
+  return Array.from(byValue.entries()).map(([value, label]) => ({ value, label }));
+});
+
+const undocumentedIdentityKeys = computed(() => {
+  const keys = Array.from(
+    new Set(
+      (senderIdentities.value || [])
+        .map((identity) => String(identity?.identity_key || '').trim().toLowerCase())
+        .filter(Boolean)
+    )
+  );
+  return keys.filter((key) => !IDENTITY_KEY_USAGE[key]);
+});
+
+const describeIdentityKeyUsage = (keyRaw) => {
+  const key = String(keyRaw || '').trim().toLowerCase();
+  const meta = IDENTITY_KEY_USAGE[key];
+  if (!meta) return 'Custom key (existing): only used if a flow explicitly references this key.';
+  return `${meta.usage} ${meta.refs}`;
+};
 
 const parseCsv = (raw) => String(raw || '')
   .split(',')
@@ -526,7 +653,11 @@ const loadSenderIdentities = async () => {
     const resp = await api.get('/email-senders', { params });
     senderIdentities.value = (resp.data || []).map((i) => ({
       ...i,
+      identity_key: String(i.identity_key || '').trim().toLowerCase(),
       is_active: normalizeBool(i.is_active),
+      signature_image_url: i.signature_image_url || '',
+      signature_image_path: i.signature_image_path || '',
+      signature_alt_text: i.signature_alt_text || '',
       inboundAddressesText: (i.inbound_addresses || []).join(', ')
     }));
   } catch (err) {
@@ -547,11 +678,23 @@ const createIdentity = async () => {
       fromEmail: newIdentity.value.fromEmail,
       displayName: newIdentity.value.displayName || null,
       replyTo: newIdentity.value.replyTo || null,
+      signatureImageUrl: newIdentity.value.signatureImageUrl || null,
+      signatureImagePath: newIdentity.value.signatureImagePath || null,
+      signatureAltText: newIdentity.value.signatureAltText || null,
       inboundAddresses: parseInboundAddresses(newIdentity.value.inboundAddressesText),
       isActive: true
     };
     await api.post('/email-senders', payload);
-    newIdentity.value = { identityKey: '', fromEmail: '', displayName: '', replyTo: '', inboundAddressesText: '' };
+    newIdentity.value = {
+      identityKey: 'system',
+      fromEmail: '',
+      displayName: '',
+      replyTo: '',
+      signatureImageUrl: '',
+      signatureImagePath: '',
+      signatureAltText: '',
+      inboundAddressesText: ''
+    };
     await loadSenderIdentities();
     senderSuccess.value = 'Sender identity created successfully.';
   } catch (err) {
@@ -571,6 +714,9 @@ const saveIdentity = async (identity) => {
       fromEmail: identity.from_email,
       displayName: identity.display_name || null,
       replyTo: identity.reply_to || null,
+      signatureImageUrl: identity.signature_image_url || null,
+      signatureImagePath: identity.signature_image_path || null,
+      signatureAltText: identity.signature_alt_text || null,
       inboundAddresses: parseInboundAddresses(identity.inboundAddressesText),
       isActive: normalizeBool(identity.is_active)
     };
@@ -581,6 +727,58 @@ const saveIdentity = async (identity) => {
     senderError.value = err?.response?.data?.error?.message || 'Failed to save sender identity.';
   } finally {
     senderSavingId.value = null;
+  }
+};
+
+const uploadSignatureForIdentity = async (identity, event) => {
+  const file = event?.target?.files?.[0];
+  if (!file || !identity?.id) return;
+  senderUploadingId.value = identity.id;
+  senderError.value = '';
+  senderSuccess.value = '';
+  try {
+    const formData = new FormData();
+    formData.append('logo', file);
+    const resp = await api.post('/logos/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    });
+    identity.signature_image_url = String(resp?.data?.url || '').trim();
+    identity.signature_image_path = String(resp?.data?.path || '').trim();
+    if (!String(identity.signature_alt_text || '').trim()) {
+      identity.signature_alt_text = identity.display_name || identity.identity_key || 'Signature';
+    }
+    senderSuccess.value = 'Signature image uploaded. Click Save to apply.';
+  } catch (err) {
+    senderError.value = err?.response?.data?.error?.message || 'Failed to upload signature image.';
+  } finally {
+    senderUploadingId.value = null;
+    if (event?.target) event.target.value = '';
+  }
+};
+
+const uploadSignatureForNewIdentity = async (event) => {
+  const file = event?.target?.files?.[0];
+  if (!file) return;
+  senderUploadingId.value = 'new';
+  senderError.value = '';
+  senderSuccess.value = '';
+  try {
+    const formData = new FormData();
+    formData.append('logo', file);
+    const resp = await api.post('/logos/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    });
+    newIdentity.value.signatureImageUrl = String(resp?.data?.url || '').trim();
+    newIdentity.value.signatureImagePath = String(resp?.data?.path || '').trim();
+    if (!String(newIdentity.value.signatureAltText || '').trim()) {
+      newIdentity.value.signatureAltText = newIdentity.value.displayName || newIdentity.value.identityKey || 'Signature';
+    }
+    senderSuccess.value = 'Signature image uploaded for new sender.';
+  } catch (err) {
+    senderError.value = err?.response?.data?.error?.message || 'Failed to upload signature image.';
+  } finally {
+    senderUploadingId.value = null;
+    if (event?.target) event.target.value = '';
   }
 };
 
@@ -970,6 +1168,16 @@ watch([senderAgencyId, includePlatformDefaults], () => {
   padding: 10px 12px;
   border-radius: 6px;
   margin-bottom: 12px;
+}
+
+.warning-block {
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  color: #9a3412;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  font-size: 13px;
 }
 
 .success {

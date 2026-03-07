@@ -22,6 +22,9 @@ router.post(
     body('fromEmail').trim().isEmail().withMessage('fromEmail must be a valid email'),
     body('displayName').optional(),
     body('replyTo').optional().custom((v) => v === null || v === '' || /^\S+@\S+\.\S+$/.test(String(v))).withMessage('replyTo must be a valid email'),
+    body('signatureImageUrl').optional().custom((v) => v === null || v === '' || typeof v === 'string').withMessage('signatureImageUrl must be a string'),
+    body('signatureImagePath').optional().custom((v) => v === null || v === '' || typeof v === 'string').withMessage('signatureImagePath must be a string'),
+    body('signatureAltText').optional().custom((v) => v === null || v === '' || typeof v === 'string').withMessage('signatureAltText must be a string'),
     body('inboundAddresses').optional().isArray().withMessage('inboundAddresses must be an array'),
     body('isActive').optional().isBoolean().withMessage('isActive must be a boolean')
   ],
@@ -37,6 +40,9 @@ router.put(
     body('fromEmail').optional().custom((v) => v === null || v === '' || /^\S+@\S+\.\S+$/.test(String(v))).withMessage('fromEmail must be a valid email'),
     body('displayName').optional(),
     body('replyTo').optional().custom((v) => v === null || v === '' || /^\S+@\S+\.\S+$/.test(String(v))).withMessage('replyTo must be a valid email'),
+    body('signatureImageUrl').optional().custom((v) => v === null || v === '' || typeof v === 'string').withMessage('signatureImageUrl must be a string'),
+    body('signatureImagePath').optional().custom((v) => v === null || v === '' || typeof v === 'string').withMessage('signatureImagePath must be a string'),
+    body('signatureAltText').optional().custom((v) => v === null || v === '' || typeof v === 'string').withMessage('signatureAltText must be a string'),
     body('inboundAddresses').optional().isArray().withMessage('inboundAddresses must be an array'),
     body('isActive').optional().isBoolean().withMessage('isActive must be a boolean')
   ],

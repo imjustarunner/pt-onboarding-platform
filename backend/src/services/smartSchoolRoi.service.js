@@ -10,7 +10,7 @@ const AUTHORIZED_REPRESENTATIVE = {
 };
 
 const PURPOSES = [
-  'Communication to facilitate better understanding of the client’s needs and to support the development of an appropriate care plan in the school setting.',
+  'Release ITSCO and any assigned providers and staff to communicate with the selected school and approved school staff to support school-based care coordination.',
   'Safety concerns and evaluations of harm or ideation performed in sessions.',
   'Coordinating the administration of psychological services on the third party’s property.',
   'Discussing treatment goals and associated treatment plans.'
@@ -32,7 +32,7 @@ const REQUIRED_ACKNOWLEDGEMENTS = [
   {
     id: 'hipaa_privacy',
     title: 'App, privacy, and HIPAA notice',
-    body: 'I understand ITSCO uses this app for scheduling and care-support communication. Only approved school staff will have access to the client’s brief ROI-related file for communication and scheduling purposes. ITSCO limits disclosure to authorized needs, protects information, and maintains auditable access/release logs.'
+    body: 'I understand ITSCO uses this app for scheduling and care-support communication. Only approved school staff will have access to the client’s brief ROI-related file for communication and scheduling purposes. ITSCO limits disclosure to authorized needs, protects information, and maintains auditable access/release logs. I understand in-progress responses may be saved in this browser for up to one hour to prevent accidental data loss, and I should only continue on a secure/private device or browser session when entering protected health information.'
   },
   {
     id: 'redisclosure_risk',
@@ -55,7 +55,7 @@ const WAIVER_ITEMS = [
   {
     id: 'communication_and_care_planning',
     title: 'School communication and care planning',
-    body: 'I authorize limited communication with approved school staff for school-based care coordination and support of the client’s identified needs.'
+    body: 'I authorize ITSCO and any assigned providers and staff to communicate with approved school staff for school-based care coordination and support of the client’s identified needs.'
   },
   {
     id: 'safety_concerns',
@@ -82,12 +82,12 @@ const WAIVER_ITEMS = [
   {
     id: 'session_content_limitation',
     title: 'Session content limitation',
-    body: 'I understand session content will not be shared unless clinically necessary for safety because of imminent risk to the clinician, client, or others.'
+    body: 'I authorize release of session-content details only when clinically necessary for safety because of imminent risk to the clinician, client, or others.'
   },
   {
     id: 'documentation_logging',
     title: 'Documentation and logging',
-    body: 'I understand all correspondence and release activity related to this authorization will be documented in the clinical record and audit logs.'
+    body: 'I authorize documentation of all correspondence and release activity related to this authorization in the clinical record and audit logs.'
   }
 ];
 
@@ -227,13 +227,19 @@ export function isSmartSchoolRoiForm(link) {
 
 export async function buildSmartSchoolRoiContext({ link, boundClient, organization, agency, templates = [] }) {
   const schoolOrganizationId = Number(boundClient?.organization_id || link?.organization_id || organization?.id || 0) || null;
-  const staffRoster = boundClient?.id && schoolOrganizationId
-    ? await ClientSchoolStaffRoiAccess.listSchoolStaffRosterForClient({
-        clientId: boundClient.id,
-        schoolOrganizationId,
-        roiExpiresAt: boundClient.roi_expires_at || null
-      })
-    : [];
+  let staffRoster = [];
+  if (schoolOrganizationId && boundClient?.id) {
+    staffRoster = await ClientSchoolStaffRoiAccess.listSchoolStaffRosterForClient({
+      clientId: boundClient.id,
+      schoolOrganizationId,
+      roiExpiresAt: boundClient.roi_expires_at || null
+    });
+  }
+  if (schoolOrganizationId && (!Array.isArray(staffRoster) || staffRoster.length === 0)) {
+    staffRoster = await ClientSchoolStaffRoiAccess.listSchoolStaffRosterForOrganization({
+      schoolOrganizationId
+    });
+  }
 
   const template = preferredTemplate(templates);
 
@@ -331,7 +337,7 @@ export function validateSmartSchoolRoiResponse(response) {
   if (!response?.clientDateOfBirth) missing.push('Client date of birth');
 
   for (const ack of response?.requiredAcknowledgements || []) {
-    if (ack.accepted !== true && ack.accepted !== false) {
+    if (ack.accepted !== true) {
       missing.push(`Required acknowledgement: ${ack.title}`);
     }
   }

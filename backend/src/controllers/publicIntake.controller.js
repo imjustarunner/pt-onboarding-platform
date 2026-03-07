@@ -18,6 +18,7 @@ import Client from '../models/Client.model.js';
 import StorageService from '../services/storage.service.js';
 import DocumentEncryptionService from '../services/documentEncryption.service.js';
 import EmailService from '../services/email.service.js';
+import EmailTemplate from '../models/EmailTemplate.model.js';
 import Agency from '../models/Agency.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
@@ -140,6 +141,107 @@ const escapeHtml = (value) =>
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
 
+const PACKET_EMAIL_DEFAULT_TEMPLATE_TYPE = 'intake_packet_default';
+const SCHOOL_PACKET_EMAIL_DEFAULT_TEMPLATE_TYPE = 'school_full_intake_packet_default';
+
+const renderTemplateString = (template, params = {}) => {
+  let rendered = String(template || '');
+  Object.entries(params || {}).forEach(([key, value]) => {
+    const safe = String(value ?? '');
+    rendered = rendered.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), safe);
+  });
+  return rendered;
+};
+
+const toSimpleHtmlEmail = (text) => `
+  <div style="font-family: Arial, sans-serif; line-height: 1.5; color: #111;">
+    ${String(text || '')
+      .split('\n')
+      .map((line) => `<p>${escapeHtml(line || '').replace(/^\s+|\s+$/g, '') || '&nbsp;'}</p>`)
+      .join('')}
+  </div>
+`.trim();
+
+const resolvePacketEmailTemplateType = (link, customMessages = {}) => {
+  const explicitType = String(customMessages?.completionEmailTemplateType || '').trim();
+  if (explicitType) return explicitType;
+  const scope = String(link?.scope_type || '').trim().toLowerCase();
+  return scope === 'school' ? SCHOOL_PACKET_EMAIL_DEFAULT_TEMPLATE_TYPE : PACKET_EMAIL_DEFAULT_TEMPLATE_TYPE;
+};
+
+const resolvePacketCompletionEmailContent = async ({
+  link,
+  agencyId = null,
+  signerName,
+  signerEmail,
+  clientCount,
+  primaryClientName,
+  schoolName,
+  downloadUrl,
+  expiresInDays = 14
+}) => {
+  const customMessages = link?.custom_messages && typeof link.custom_messages === 'object'
+    ? link.custom_messages
+    : {};
+  const selectedTemplateId = Number(customMessages?.completionEmailTemplateId || 0) || null;
+  const selectedTemplateType = resolvePacketEmailTemplateType(link, customMessages);
+  let selectedTemplate = null;
+
+  if (selectedTemplateId) {
+    selectedTemplate = await EmailTemplate.findById(selectedTemplateId);
+    if (selectedTemplate && agencyId && selectedTemplate.agency_id && Number(selectedTemplate.agency_id) !== Number(agencyId)) {
+      selectedTemplate = null;
+    }
+  }
+  if (!selectedTemplate && selectedTemplateType && agencyId) {
+    selectedTemplate = await EmailTemplate.findByTypeAndAgency(selectedTemplateType, agencyId);
+  }
+
+  const params = {
+    SIGNER_NAME: String(signerName || '').trim() || 'Signer',
+    SIGNER_EMAIL: String(signerEmail || '').trim() || '',
+    CLIENT_NAME: String(primaryClientName || '').trim() || '',
+    CLIENT_COUNT: Number(clientCount || 0) || 1,
+    CLIENT_SUMMARY: Number(clientCount || 0) > 1
+      ? `Clients: ${Number(clientCount || 0)}`
+      : (String(primaryClientName || '').trim() ? `Client: ${String(primaryClientName || '').trim()}` : ''),
+    SCHOOL_NAME: String(schoolName || '').trim() || 'School',
+    DOWNLOAD_URL: String(downloadUrl || '').trim(),
+    LINK_EXPIRES_DAYS: Number(expiresInDays || 14),
+    LINK_EXPIRY_DAYS: Number(expiresInDays || 14)
+  };
+
+  const fallbackSubject = 'Your signed intake packet';
+  const fallbackText = `${params.CLIENT_SUMMARY ? `${params.CLIENT_SUMMARY}\n\n` : ''}Your intake packet is ready. Download here:\n\n${params.DOWNLOAD_URL}\n\nThis link expires in ${params.LINK_EXPIRES_DAYS} days.`;
+
+  const customSubject = String(customMessages?.completionEmailSubject || '').trim();
+  const customBody = String(customMessages?.completionEmailBody || '').trim();
+
+  const subjectTemplate = customSubject || selectedTemplate?.subject || fallbackSubject;
+  const bodyTemplate = customBody || selectedTemplate?.body || fallbackText;
+
+  const subject = renderTemplateString(subjectTemplate, params).trim() || fallbackSubject;
+  const text = renderTemplateString(bodyTemplate, params).trim() || fallbackText;
+  const html = selectedTemplate?.body || customBody
+    ? toSimpleHtmlEmail(text)
+    : `
+      <div style="font-family: Arial, sans-serif; line-height: 1.5;">
+        ${params.CLIENT_COUNT > 1 ? `<p><strong>Clients:</strong> ${params.CLIENT_COUNT}</p>` : (params.CLIENT_NAME ? `<p><strong>Client:</strong> ${escapeHtml(params.CLIENT_NAME)}</p>` : '')}
+        <p>Your intake packet is ready.</p>
+        <p><a href="${escapeHtml(params.DOWNLOAD_URL)}" style="display:inline-block;padding:10px 14px;background:#2c3e50;color:#fff;text-decoration:none;border-radius:6px;">Download Signed Packet</a></p>
+        <p style="color:#777;">This link expires in ${params.LINK_EXPIRES_DAYS} days.</p>
+      </div>
+    `.trim();
+
+  return {
+    subject,
+    text,
+    html,
+    templateId: selectedTemplate?.id || null,
+    templateType: selectedTemplate?.type || selectedTemplateType || null
+  };
+};
+
 const resolveIntakeSenderIdentity = async ({ organizationId, scopeType, agencyId: explicitAgencyId = null }) => {
   const agencyId = Number(explicitAgencyId || organizationId);
   if (!agencyId) return null;
@@ -153,6 +255,58 @@ const resolveIntakeSenderIdentity = async ({ organizationId, scopeType, agencyId
     if (match) return match;
   }
   return null;
+};
+
+const resolveAbsoluteAssetUrl = (value) => {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  if (/^https?:\/\//i.test(raw)) return raw;
+  const backendBase = String(
+    process.env.BACKEND_PUBLIC_URL ||
+    process.env.FRONTEND_URL ||
+    process.env.CORS_ORIGIN ||
+    ''
+  ).replace(/\/$/, '');
+  if (!backendBase) return '';
+  if (raw.startsWith('/')) return `${backendBase}${raw}`;
+  return `${backendBase}/${raw}`;
+};
+
+const applyIdentitySignatureBlock = ({ identity, text = '', html = '' }) => {
+  if (!identity) return { text, html };
+  const imageUrl = resolveAbsoluteAssetUrl(identity.signature_image_url || identity.signature_image_path);
+  if (!imageUrl) return { text, html };
+  const altText = String(identity.signature_alt_text || identity.display_name || 'Signature').trim() || 'Signature';
+  return {
+    text: `${String(text || '').trim()}\n\n[Signature image: ${imageUrl}]`.trim(),
+    html: `${String(html || '').trim()}
+      <div style="margin-top: 14px;">
+        <img
+          src="${escapeHtml(imageUrl)}"
+          alt="${escapeHtml(altText)}"
+          style="max-width: 360px; width: auto; height: auto; display: block; border: 0;"
+        />
+      </div>`.trim()
+  };
+};
+
+const resolveFallbackSignatureIdentity = async ({ organizationId, scopeType, agencyId: explicitAgencyId = null }) => {
+  const agencyId = Number(explicitAgencyId || organizationId);
+  if (!agencyId) return null;
+  const scope = String(scopeType || '').trim().toLowerCase();
+  const keys = scope === 'school'
+    ? ['school_intake', 'intake', 'notifications', 'system']
+    : ['intake', 'notifications', 'system'];
+  const list = await EmailSenderIdentity.list({ agencyId, includePlatformDefaults: true, onlyActive: true });
+  const withSignature = (list || []).filter(
+    (i) => String(i?.signature_image_url || i?.signature_image_path || '').trim()
+  );
+  if (!withSignature.length) return null;
+  for (const key of keys) {
+    const match = withSignature.find((i) => String(i?.identity_key || '').trim() === key);
+    if (match) return match;
+  }
+  return withSignature[0] || null;
 };
 
 const resolvePublicIntakeContext = async (publicKey) => {
@@ -1225,6 +1379,11 @@ const loadTemplateById = async (link, templateId) => {
   return template;
 };
 
+const hasProgrammedSchoolRoiStep = (link) => {
+  const steps = Array.isArray(link?.intake_steps) ? link.intake_steps : [];
+  return steps.some((step) => String(step?.type || '').trim().toLowerCase() === 'school_roi');
+};
+
 export const getPublicIntakeLink = async (req, res, next) => {
   try {
     const publicKey = String(req.params.publicKey || '').trim();
@@ -1236,7 +1395,8 @@ export const getPublicIntakeLink = async (req, res, next) => {
     const templates = await loadAllowedTemplates(link);
     const { organization, agency } = await resolveIntakeOrgContext(link, { issuedRoiLink, boundClient });
     const needsCaptcha = requiresCaptchaForLink(organization, agency);
-    const roiContext = isSmartSchoolRoiForm(link)
+    const shouldIncludeRoiContext = isSmartSchoolRoiForm(link) || hasProgrammedSchoolRoiStep(link);
+    const roiContext = shouldIncludeRoiContext
       ? await buildSmartSchoolRoiContext({
           link,
           boundClient,
@@ -1781,6 +1941,11 @@ export const signPublicIntakeDocument = async (req, res, next) => {
 
 export const finalizePublicIntake = async (req, res, next) => {
   try {
+    const emailDelivery = {
+      attempted: false,
+      sent: false,
+      error: null
+    };
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({ error: { message: 'Validation failed', errors: errors.array() } });
@@ -2243,6 +2408,7 @@ export const finalizePublicIntake = async (req, res, next) => {
 
       const downloadUrl = await StorageService.getSignedUrl(signedResult.storagePath, 60 * 24 * 14);
       if (updatedSubmission.signer_email && downloadUrl) {
+        emailDelivery.attempted = true;
         const signerName = String(updatedSubmission.signer_name || '').trim() || 'Signer';
         const clientName = String(roiResponse.clientFullName || boundClient.full_name || '').trim() || 'Client';
         const schoolName = String(roiContext?.school?.name || '').trim() || 'School';
@@ -2272,11 +2438,21 @@ export const finalizePublicIntake = async (req, res, next) => {
               source: 'auto'
             });
           } else {
+            const fallbackSignatureIdentity = await resolveFallbackSignatureIdentity({
+              organizationId: link?.organization_id || null,
+              scopeType: link?.scope_type || null,
+              agencyId: boundClient?.agency_id || agency?.id || null
+            });
+            const signedContent = applyIdentitySignatureBlock({
+              identity: fallbackSignatureIdentity,
+              text,
+              html
+            });
             await EmailService.sendEmail({
               to: updatedSubmission.signer_email,
               subject,
-              text,
-              html,
+              text: signedContent.text,
+              html: signedContent.html,
               fromName: process.env.GOOGLE_WORKSPACE_FROM_NAME || 'People Operations',
               fromAddress: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM || null,
               replyTo: process.env.GOOGLE_WORKSPACE_REPLY_TO || null,
@@ -2285,8 +2461,9 @@ export const finalizePublicIntake = async (req, res, next) => {
               agencyId: boundClient?.agency_id || agency?.id || null
             });
           }
+          emailDelivery.sent = true;
         } catch {
-          // best-effort email
+          emailDelivery.error = 'send_failed';
         }
       }
       return res.json({
@@ -2294,6 +2471,7 @@ export const finalizePublicIntake = async (req, res, next) => {
         submission: await IntakeSubmission.findById(submissionId),
         documents: [documentRow],
         downloadUrl,
+        emailDelivery,
         clientBundles: [{
           clientId: boundClient.id,
           clientName: roiResponse.clientFullName || boundClient.full_name || null,
@@ -2681,18 +2859,20 @@ export const finalizePublicIntake = async (req, res, next) => {
       }
 
       if (updatedSubmission.signer_email && EmailService.isConfigured()) {
+        emailDelivery.attempted = true;
         const clientCount = rawClients.length || 1;
-        const subject = 'Your signed intake packet';
-        const summaryLine = clientCount > 1 ? `Clients: ${clientCount}\n\n` : (primaryClientName ? `Client: ${primaryClientName}\n\n` : '');
-        const text = `${summaryLine}Your intake packet is ready. Download here:\n\n${downloadUrl}\n\nThis link expires in 14 days.`;
-        const html = `
-          <div style="font-family: Arial, sans-serif; line-height: 1.5;">
-            ${clientCount > 1 ? `<p><strong>Clients:</strong> ${clientCount}</p>` : (primaryClientName ? `<p><strong>Client:</strong> ${primaryClientName}</p>` : '')}
-            <p>Your intake packet is ready.</p>
-            <p><a href="${downloadUrl}" style="display:inline-block;padding:10px 14px;background:#2c3e50;color:#fff;text-decoration:none;border-radius:6px;">Download Signed Packet</a></p>
-            <p style="color:#777;">This link expires in 14 days.</p>
-          </div>
-        `.trim();
+        const { organization, agency } = await resolveIntakeOrgContext(link, { boundClient: null });
+        const packetEmail = await resolvePacketCompletionEmailContent({
+          link,
+          agencyId: link?.agency_id || agency?.id || null,
+          signerName: updatedSubmission.signer_name || '',
+          signerEmail: updatedSubmission.signer_email || '',
+          clientCount,
+          primaryClientName,
+          schoolName: organization?.name || '',
+          downloadUrl,
+          expiresInDays: 14
+        });
         try {
           const identity = await resolveIntakeSenderIdentity({
             organizationId: link?.organization_id || null,
@@ -2702,17 +2882,26 @@ export const finalizePublicIntake = async (req, res, next) => {
             await sendEmailFromIdentity({
               senderIdentityId: identity.id,
               to: updatedSubmission.signer_email,
-              subject,
-              text,
-              html,
+              subject: packetEmail.subject,
+              text: packetEmail.text,
+              html: packetEmail.html,
               source: 'auto'
             });
           } else {
+            const fallbackSignatureIdentity = await resolveFallbackSignatureIdentity({
+              organizationId: link?.organization_id || null,
+              scopeType: link?.scope_type || null
+            });
+            const signedPacketEmail = applyIdentitySignatureBlock({
+              identity: fallbackSignatureIdentity,
+              text: packetEmail.text,
+              html: packetEmail.html
+            });
             await EmailService.sendEmail({
               to: updatedSubmission.signer_email,
-              subject,
-              text,
-              html,
+              subject: packetEmail.subject,
+              text: signedPacketEmail.text,
+              html: signedPacketEmail.html,
               fromName: process.env.GOOGLE_WORKSPACE_FROM_NAME || 'People Operations',
               fromAddress: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM || null,
               replyTo: process.env.GOOGLE_WORKSPACE_REPLY_TO || null,
@@ -2721,9 +2910,14 @@ export const finalizePublicIntake = async (req, res, next) => {
               agencyId: link?.organization_id || null
             });
           }
+          emailDelivery.sent = true;
         } catch {
-          // best-effort email
+          emailDelivery.error = 'send_failed';
         }
+      } else if (updatedSubmission.signer_email && !EmailService.isConfigured()) {
+        emailDelivery.attempted = true;
+        emailDelivery.sent = false;
+        emailDelivery.error = 'email_not_configured';
       }
     }
 
@@ -2740,6 +2934,7 @@ export const finalizePublicIntake = async (req, res, next) => {
       submission: updatedSubmission,
       documents: signedDocsOrdered,
       downloadUrl,
+      emailDelivery,
       clientBundles
     });
   } catch (error) {
@@ -2749,6 +2944,11 @@ export const finalizePublicIntake = async (req, res, next) => {
 
 export const submitPublicIntake = async (req, res, next) => {
   try {
+    const emailDelivery = {
+      attempted: false,
+      sent: false,
+      error: null
+    };
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({ error: { message: 'Validation failed', errors: errors.array() } });
@@ -3086,18 +3286,20 @@ export const submitPublicIntake = async (req, res, next) => {
       }
 
       if (updatedSubmission.signer_email && EmailService.isConfigured()) {
+        emailDelivery.attempted = true;
         const clientCount = rawClients.length || 1;
-        const subject = 'Your signed intake packet';
-        const summaryLine = clientCount > 1 ? `Clients: ${clientCount}\n\n` : (primaryClientName ? `Client: ${primaryClientName}\n\n` : '');
-        const text = `${summaryLine}Your intake packet is ready. Download here:\n\n${downloadUrl}\n\nThis link expires in 14 days.`;
-        const html = `
-          <div style="font-family: Arial, sans-serif; line-height: 1.5;">
-            ${clientCount > 1 ? `<p><strong>Clients:</strong> ${clientCount}</p>` : (primaryClientName ? `<p><strong>Client:</strong> ${primaryClientName}</p>` : '')}
-            <p>Your intake packet is ready.</p>
-            <p><a href="${downloadUrl}" style="display:inline-block;padding:10px 14px;background:#2c3e50;color:#fff;text-decoration:none;border-radius:6px;">Download Signed Packet</a></p>
-            <p style="color:#777;">This link expires in 14 days.</p>
-          </div>
-        `.trim();
+        const { organization, agency } = await resolveIntakeOrgContext(link, { issuedRoiLink, boundClient: null });
+        const packetEmail = await resolvePacketCompletionEmailContent({
+          link,
+          agencyId: link?.agency_id || agency?.id || null,
+          signerName: updatedSubmission.signer_name || '',
+          signerEmail: updatedSubmission.signer_email || '',
+          clientCount,
+          primaryClientName,
+          schoolName: organization?.name || '',
+          downloadUrl,
+          expiresInDays: 14
+        });
         try {
           const identity = await resolveIntakeSenderIdentity({
             organizationId: link?.organization_id || null,
@@ -3107,17 +3309,26 @@ export const submitPublicIntake = async (req, res, next) => {
             await sendEmailFromIdentity({
               senderIdentityId: identity.id,
               to: updatedSubmission.signer_email,
-              subject,
-              text,
-              html,
+              subject: packetEmail.subject,
+              text: packetEmail.text,
+              html: packetEmail.html,
               source: 'auto'
             });
           } else {
+            const fallbackSignatureIdentity = await resolveFallbackSignatureIdentity({
+              organizationId: link?.organization_id || null,
+              scopeType: link?.scope_type || null
+            });
+            const signedPacketEmail = applyIdentitySignatureBlock({
+              identity: fallbackSignatureIdentity,
+              text: packetEmail.text,
+              html: packetEmail.html
+            });
             await EmailService.sendEmail({
               to: updatedSubmission.signer_email,
-              subject,
-              text,
-              html,
+              subject: packetEmail.subject,
+              text: signedPacketEmail.text,
+              html: signedPacketEmail.html,
               fromName: process.env.GOOGLE_WORKSPACE_FROM_NAME || 'People Operations',
               fromAddress: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM || null,
               replyTo: process.env.GOOGLE_WORKSPACE_REPLY_TO || null,
@@ -3126,9 +3337,14 @@ export const submitPublicIntake = async (req, res, next) => {
               agencyId: link?.organization_id || null
             });
           }
+          emailDelivery.sent = true;
         } catch {
-          // best-effort email
+          emailDelivery.error = 'send_failed';
         }
+      } else if (updatedSubmission.signer_email && !EmailService.isConfigured()) {
+        emailDelivery.attempted = true;
+        emailDelivery.sent = false;
+        emailDelivery.error = 'email_not_configured';
       }
     }
 
@@ -3145,6 +3361,7 @@ export const submitPublicIntake = async (req, res, next) => {
       submission: updatedSubmission,
       documents: signedDocs,
       downloadUrl,
+      emailDelivery,
       clientBundles
     });
   } catch (error) {
