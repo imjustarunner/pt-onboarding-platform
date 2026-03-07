@@ -10,6 +10,7 @@ import AgencyBillingAccount from '../models/AgencyBillingAccount.model.js';
 import AgencyCommunicationBillingService from './agencyCommunicationBilling.service.js';
 import AgencyCommunicationUsageLedger from '../models/AgencyCommunicationUsageLedger.model.js';
 import AgencyBillingPaymentService from './agencyBillingPayment.service.js';
+import BillingMerchantContextService from './billingMerchantContext.service.js';
 
 class BillingInvoiceService {
   static buildInvoiceStorageKey({ agencyId, periodStart }) {
@@ -48,10 +49,14 @@ class BillingInvoiceService {
     });
     const estimate = buildEstimate(usage, pricingBundle.effective);
     const account = await AgencyBillingAccount.getByAgencyId(parsedAgencyId);
+    const merchantContext = await BillingMerchantContextService.getAgencySubscriptionContext(parsedAgencyId);
     const invoiceDeliveryMode = account?.autopay_enabled ? 'autopay' : 'manual';
 
     const invoice = await AgencyBillingInvoice.create({
       agencyId: parsedAgencyId,
+      billingDomain: 'agency_subscription',
+      merchantMode: merchantContext.merchantMode,
+      providerConnectionId: merchantContext.providerConnectionId,
       periodStart: periodStartStr,
       periodEnd: periodEndStr,
       schoolsUsed: estimate.usage.schoolsUsed,
@@ -103,7 +108,7 @@ class BillingInvoiceService {
 
     // Optionally sync to QBO (customer AR invoice)
     if (syncToQuickBooks) {
-      if (account?.is_qbo_connected) {
+      if (merchantContext?.connection?.is_connected) {
         try {
           updated = await QuickBooksBillingSyncService.syncInvoiceToQuickBooks(updated.id);
         } catch (e) {
@@ -121,10 +126,10 @@ class BillingInvoiceService {
         const paymentResult = await AgencyBillingPaymentService.attemptAutoPay(updated.id);
         if (paymentResult?.attempted && paymentResult?.succeeded) {
           updated = paymentResult.invoice;
-          if (account?.is_qbo_connected && updated?.qbo_invoice_id) {
+          if (merchantContext?.connection?.is_connected && updated?.qbo_invoice_id) {
             updated = await QuickBooksBillingSyncService.syncInvoicePaymentToQuickBooks(updated.id);
           }
-        } else if (account?.is_qbo_connected && updated?.qbo_invoice_id && !paymentResult?.processing) {
+        } else if (merchantContext?.connection?.is_connected && updated?.qbo_invoice_id && !paymentResult?.processing) {
           try {
             const deliveryResult = await QuickBooksBillingSyncService.sendInvoiceToQuickBooks(updated.id, {
               sendTo: account?.billing_email || null
@@ -136,7 +141,7 @@ class BillingInvoiceService {
         }
       } catch (e) {
         updated = await AgencyBillingInvoice.markPaymentFailed(updated.id, e?.message || 'Automatic payment failed');
-        if (account?.is_qbo_connected && updated?.qbo_invoice_id) {
+        if (merchantContext?.connection?.is_connected && updated?.qbo_invoice_id) {
           try {
             const deliveryResult = await QuickBooksBillingSyncService.sendInvoiceToQuickBooks(updated.id, {
               sendTo: account?.billing_email || null
@@ -147,7 +152,7 @@ class BillingInvoiceService {
           }
         }
       }
-    } else if (account?.is_qbo_connected && updated?.qbo_invoice_id) {
+    } else if (merchantContext?.connection?.is_connected && updated?.qbo_invoice_id) {
       try {
         const deliveryResult = await QuickBooksBillingSyncService.sendInvoiceToQuickBooks(updated.id, {
           sendTo: account?.billing_email || null

@@ -30,6 +30,45 @@
       </div>
 
       <div v-if="isSuperAdmin" class="card" style="margin-top: 16px; text-align: left;">
+        <h3>Platform Billing Merchant</h3>
+        <p class="muted">Connect the platform QuickBooks account here before assigning agencies to platform-managed subscription billing.</p>
+        <div class="status-grid">
+          <div>
+            <div class="label">Connection</div>
+            <div class="value">
+              <span :class="['pill', platformQboStatus?.isConnected ? 'pill-on' : 'pill-off']">
+                {{ platformQboStatus?.isConnected ? 'Connected' : 'Not connected' }}
+              </span>
+            </div>
+          </div>
+          <div>
+            <div class="label">Payments</div>
+            <div class="value">
+              <span :class="['pill', platformQboStatus?.paymentsEnabled ? 'pill-on' : 'pill-off']">
+                {{ platformQboStatus?.paymentsEnabled ? 'Payments ready' : 'Reconnect required' }}
+              </span>
+            </div>
+          </div>
+          <div>
+            <div class="label">Action</div>
+            <div class="inline">
+              <button
+                v-if="!platformQboStatus?.isConnected || platformQboStatus?.needsReconnectForPayments"
+                class="btn"
+                :disabled="connectingPlatformQbo"
+                @click="connectPlatformQuickBooks"
+              >
+                {{ connectingPlatformQbo ? 'Redirecting…' : (platformQboStatus?.needsReconnectForPayments ? 'Reconnect For Payments' : 'Connect QuickBooks') }}
+              </button>
+              <button v-else class="btn btn-danger" :disabled="disconnectingPlatformQbo" @click="disconnectPlatformQuickBooks">
+                {{ disconnectingPlatformQbo ? 'Disconnecting…' : 'Disconnect' }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="isSuperAdmin" class="card" style="margin-top: 16px; text-align: left;">
         <h3>Platform Default Pricing (Super Admin)</h3>
         <p class="muted">These defaults apply to all agencies unless overridden per agency.</p>
 
@@ -173,6 +212,45 @@
       <div v-if="banner" class="banner" :class="banner.kind">
         <strong>{{ banner.title }}</strong>
         <span>{{ banner.message }}</span>
+      </div>
+
+      <div v-if="isSuperAdmin" class="card">
+        <h3>Platform Billing</h3>
+        <p class="muted">This connection is used when an agency’s subscription is billed through the platform merchant account.</p>
+        <div class="status-grid">
+          <div>
+            <div class="label">Connection</div>
+            <div class="value">
+              <span :class="['pill', platformQboStatus?.isConnected ? 'pill-on' : 'pill-off']">
+                {{ platformQboStatus?.isConnected ? 'Connected' : 'Not connected' }}
+              </span>
+            </div>
+          </div>
+          <div>
+            <div class="label">Payments</div>
+            <div class="value">
+              <span :class="['pill', platformQboStatus?.paymentsEnabled ? 'pill-on' : 'pill-off']">
+                {{ platformQboStatus?.paymentsEnabled ? 'Payments ready' : 'Reconnect required' }}
+              </span>
+            </div>
+          </div>
+          <div>
+            <div class="label">Merchant Controls</div>
+            <div class="inline">
+              <button
+                v-if="!platformQboStatus?.isConnected || platformQboStatus?.needsReconnectForPayments"
+                class="btn"
+                :disabled="connectingPlatformQbo"
+                @click="connectPlatformQuickBooks"
+              >
+                {{ connectingPlatformQbo ? 'Redirecting…' : (platformQboStatus?.needsReconnectForPayments ? 'Reconnect For Payments' : 'Connect QuickBooks') }}
+              </button>
+              <button v-else class="btn btn-danger" :disabled="disconnectingPlatformQbo" @click="disconnectPlatformQuickBooks">
+                {{ disconnectingPlatformQbo ? 'Disconnecting…' : 'Disconnect' }}
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div v-if="isSuperAdmin" class="card">
@@ -342,10 +420,10 @@
             <div class="value">{{ estimate?.billingCycle?.label || '—' }}</div>
           </div>
           <div>
-            <div class="label">QuickBooks</div>
+            <div class="label">Billing Merchant</div>
             <div class="value">
-              <span :class="['pill', qboStatus?.isConnected ? 'pill-on' : 'pill-off']">
-                {{ qboStatus?.isConnected ? 'Connected' : 'Not connected' }}
+              <span :class="['pill', 'pill-on']">
+                {{ merchantModeLabel }}
               </span>
             </div>
           </div>
@@ -356,6 +434,10 @@
                 {{ qboStatus?.paymentsEnabled ? 'Payments ready' : 'Reconnect required' }}
               </span>
             </div>
+          </div>
+          <div>
+            <div class="label">Connection Source</div>
+            <div class="value">{{ agencyBillingConnectionLabel }}</div>
           </div>
         </div>
         <div v-if="estimateError" class="error">{{ estimateError }}</div>
@@ -405,6 +487,19 @@
         <h3>Management</h3>
         <div class="manage-grid">
           <div>
+            <div class="label">Subscription Merchant</div>
+            <div class="inline">
+              <select v-model="subscriptionMerchantMode" class="select">
+                <option value="agency_managed">Agency-owned QuickBooks</option>
+                <option value="platform_managed">Platform-owned QuickBooks</option>
+              </select>
+              <button class="btn" :disabled="savingSettings" @click="saveBillingSettings">
+                {{ savingSettings ? 'Saving…' : 'Save' }}
+              </button>
+            </div>
+          </div>
+
+          <div>
             <div class="label">Billing Email</div>
             <div class="inline">
               <input v-model="billingEmail" class="input" type="email" placeholder="accounting@agency.com" />
@@ -429,7 +524,7 @@
 
           <div>
             <div class="label">QuickBooks Connection</div>
-            <div class="inline">
+            <div v-if="subscriptionMerchantMode === 'agency_managed'" class="inline">
               <button
                 v-if="!qboStatus?.isConnected || qboStatus?.needsReconnectForPayments"
                 class="btn"
@@ -441,6 +536,9 @@
               <button v-else class="btn btn-danger" :disabled="disconnectingQbo" @click="disconnectQuickBooks">
                 {{ disconnectingQbo ? 'Disconnecting…' : 'Disconnect' }}
               </button>
+            </div>
+            <div v-else class="value">
+              This agency uses the platform billing merchant. Cards and invoice collection run through the platform QuickBooks connection.
             </div>
           </div>
 
@@ -456,12 +554,38 @@
 
         <div v-if="manageError" class="error">{{ manageError }}</div>
         <div v-if="qboStatus?.needsReconnectForPayments" class="error" style="margin-top: 10px;">
-          QuickBooks is connected for accounting, but this agency still needs to reconnect with QuickBooks Payments access before cards on file or autopay will work.
+          {{ subscriptionMerchantMode === 'platform_managed'
+            ? 'The platform QuickBooks merchant is connected for accounting, but still needs Payments access before cards on file or autopay will work.'
+            : 'QuickBooks is connected for accounting, but this agency still needs to reconnect with QuickBooks Payments access before cards on file or autopay will work.' }}
+        </div>
+
+        <div class="card" style="margin-top: 16px;">
+          <h4 style="margin: 0 0 10px 0;">Future Client Payments</h4>
+          <p class="muted">This is reserved for the agency charging parents or guardians directly. It is separate from the agency’s subscription billing.</p>
+          <div class="manage-grid">
+            <div>
+              <div class="label">Setup Mode</div>
+              <div class="inline">
+                <select v-model="clientPaymentsMode" class="select">
+                  <option value="not_configured">Not configured yet</option>
+                  <option value="agency_managed">Agency-owned merchant (future)</option>
+                  <option value="platform_managed">Platform-assisted merchant (future)</option>
+                </select>
+                <button class="btn" :disabled="savingSettings" @click="saveBillingSettings">
+                  {{ savingSettings ? 'Saving…' : 'Save' }}
+                </button>
+              </div>
+            </div>
+            <div>
+              <div class="label">Current Status</div>
+              <div class="value">{{ clientPaymentsModeLabel }}</div>
+            </div>
+          </div>
         </div>
 
         <div class="card" style="margin-top: 16px;">
           <h4 style="margin: 0 0 10px 0;">Payment Methods</h4>
-          <p class="muted">Cards are stored in QuickBooks Payments and billed off-session for monthly autopay.</p>
+          <p class="muted">Cards on file are used only for this agency’s subscription billing. They are stored under the currently selected billing merchant.</p>
           <div class="manage-grid">
             <div>
               <div class="label">Cardholder Name</div>
@@ -496,7 +620,7 @@
             </div>
             <div class="inline" style="align-items: end;">
               <button class="btn" :disabled="addingPaymentMethod || !qboStatus?.paymentsEnabled" @click="addPaymentMethod">
-                {{ addingPaymentMethod ? 'Saving…' : 'Add QuickBooks Card' }}
+                {{ addingPaymentMethod ? 'Saving…' : 'Add Billing Card' }}
               </button>
             </div>
           </div>
@@ -702,15 +826,20 @@ const applyAgencyFromQuery = () => {
 const estimate = ref(null);
 const estimateError = ref('');
 const qboStatus = ref(null);
+const platformQboStatus = ref(null);
 const invoices = ref([]);
 const billingEmail = ref('');
 const autopayEnabled = ref(false);
+const subscriptionMerchantMode = ref('agency_managed');
+const clientPaymentsMode = ref('not_configured');
 const paymentMethods = ref([]);
 const manageError = ref('');
 
 const savingSettings = ref(false);
 const connectingQbo = ref(false);
 const disconnectingQbo = ref(false);
+const connectingPlatformQbo = ref(false);
+const disconnectingPlatformQbo = ref(false);
 const generatingInvoice = ref(false);
 const addingPaymentMethod = ref(false);
 const settingDefaultPaymentMethodId = ref(null);
@@ -812,6 +941,17 @@ const money = (cents) => {
   const v = Number(cents || 0) / 100;
   return `$${v.toFixed(2)}`;
 };
+
+const merchantModeLabel = computed(() => subscriptionMerchantMode.value === 'platform_managed' ? 'Platform-managed' : 'Agency-managed');
+const clientPaymentsModeLabel = computed(() => {
+  if (clientPaymentsMode.value === 'agency_managed') return 'Agency-owned setup';
+  if (clientPaymentsMode.value === 'platform_managed') return 'Platform-assisted setup';
+  return 'Not configured';
+});
+const agencyBillingConnectionLabel = computed(() => {
+  if (!qboStatus.value) return 'Not configured';
+  return qboStatus.value.connectionOwnerType === 'platform' ? 'Platform QuickBooks' : 'Agency QuickBooks';
+});
 
 const dollarsToCents = (v) => {
   const n = Number(v || 0);
@@ -1029,6 +1169,16 @@ const loadQboStatus = async () => {
   }
 };
 
+const loadPlatformQboStatus = async () => {
+  if (!isSuperAdmin.value) return;
+  try {
+    const res = await api.get('/billing/platform/quickbooks/status');
+    platformQboStatus.value = res.data;
+  } catch (e) {
+    manageError.value = e?.response?.data?.error?.message || 'Failed to load platform QuickBooks status';
+  }
+};
+
 const loadSettings = async () => {
   manageError.value = '';
   if (!currentAgencyId.value) return;
@@ -1036,6 +1186,11 @@ const loadSettings = async () => {
     const res = await api.get(`/billing/${currentAgencyId.value}/settings`);
     billingEmail.value = res.data?.billingEmail || '';
     autopayEnabled.value = !!res.data?.autopayEnabled;
+    subscriptionMerchantMode.value = res.data?.subscriptionMerchantMode || 'agency_managed';
+    clientPaymentsMode.value = res.data?.clientPaymentsMode || 'not_configured';
+    if (res.data?.quickBooksStatus) {
+      qboStatus.value = res.data.quickBooksStatus;
+    }
   } catch (e) {
     manageError.value = e?.response?.data?.error?.message || 'Failed to load billing settings';
   }
@@ -1048,8 +1203,11 @@ const saveBillingSettings = async () => {
   try {
     await api.put(`/billing/${currentAgencyId.value}/settings`, {
       billingEmail: billingEmail.value || null,
-      autopayEnabled: !!autopayEnabled.value
+      autopayEnabled: !!autopayEnabled.value,
+      subscriptionMerchantMode: subscriptionMerchantMode.value,
+      clientPaymentsMode: clientPaymentsMode.value
     });
+    await Promise.all([loadSettings(), loadQboStatus(), loadPaymentMethods()]);
   } catch (e) {
     manageError.value = e?.response?.data?.error?.message || 'Failed to update billing settings';
   } finally {
@@ -1136,6 +1294,20 @@ const connectQuickBooks = async () => {
   }
 };
 
+const connectPlatformQuickBooks = async () => {
+  manageError.value = '';
+  connectingPlatformQbo.value = true;
+  try {
+    const res = await api.get('/billing/platform/quickbooks/connect');
+    const authUrl = res.data?.authUrl;
+    if (!authUrl) throw new Error('Missing QuickBooks authUrl');
+    window.location.href = authUrl;
+  } catch (e) {
+    manageError.value = e?.response?.data?.error?.message || e?.message || 'Failed to start platform QuickBooks connection';
+    connectingPlatformQbo.value = false;
+  }
+};
+
 const disconnectQuickBooks = async () => {
   manageError.value = '';
   if (!currentAgencyId.value) return;
@@ -1147,6 +1319,19 @@ const disconnectQuickBooks = async () => {
     manageError.value = e?.response?.data?.error?.message || 'Failed to disconnect QuickBooks';
   } finally {
     disconnectingQbo.value = false;
+  }
+};
+
+const disconnectPlatformQuickBooks = async () => {
+  manageError.value = '';
+  disconnectingPlatformQbo.value = true;
+  try {
+    await api.post('/billing/platform/quickbooks/disconnect');
+    await Promise.all([loadPlatformQboStatus(), loadQboStatus()]);
+  } catch (e) {
+    manageError.value = e?.response?.data?.error?.message || 'Failed to disconnect platform QuickBooks';
+  } finally {
+    disconnectingPlatformQbo.value = false;
   }
 };
 
@@ -1270,15 +1455,22 @@ onMounted(async () => {
   }
 
   if (isSuperAdmin.value) {
-    await loadPlatformPricing();
+    await Promise.all([loadPlatformPricing(), loadPlatformQboStatus()]);
   }
 
   // Deep-link support (e.g. from admin billing overage acknowledgement)
   applyAgencyFromQuery();
 
   const qboParam = String(route.query.qbo || '');
+  const qboOwner = String(route.query.qboOwner || 'agency');
   if (qboParam === 'connected') {
-    banner.value = { kind: 'success', title: 'QuickBooks connected.', message: 'Your agency is now connected to QuickBooks Online.' };
+    banner.value = {
+      kind: 'success',
+      title: 'QuickBooks connected.',
+      message: qboOwner === 'platform'
+        ? 'The platform billing merchant is now connected to QuickBooks Online.'
+        : 'Your agency billing merchant is now connected to QuickBooks Online.'
+    };
   } else if (qboParam === 'error') {
     banner.value = { kind: 'error', title: 'QuickBooks connection failed.', message: 'Please try again or contact support.' };
   }
@@ -1291,7 +1483,8 @@ onMounted(async () => {
     loadPaymentMethods(),
     loadInvoices(),
     loadAvailableSchools(),
-    loadLinkedSchools()
+    loadLinkedSchools(),
+    ...(isSuperAdmin.value ? [loadPlatformQboStatus()] : [])
   ]);
 });
 
@@ -1309,7 +1502,8 @@ watch(currentAgencyId, async (newId, oldId) => {
     loadPaymentMethods(),
     loadInvoices(),
     loadAvailableSchools(),
-    loadLinkedSchools()
+    loadLinkedSchools(),
+    ...(isSuperAdmin.value ? [loadPlatformQboStatus()] : [])
   ]);
 });
 </script>

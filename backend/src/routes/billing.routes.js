@@ -1,7 +1,15 @@
 import express from 'express';
 import { authenticate, requireAgencyAccess, requireAgencyAdmin, requireSuperAdmin } from '../middleware/auth.middleware.js';
 import { getAgencyBillingEstimate, getAgencyAddons } from '../controllers/billing.controller.js';
-import { disconnectQuickBooks, getQuickBooksConnectUrl, getQuickBooksStatus, quickBooksOAuthCallback } from '../controllers/quickbooks.controller.js';
+import {
+  disconnectPlatformQuickBooks,
+  disconnectQuickBooks,
+  getPlatformQuickBooksConnectUrl,
+  getPlatformQuickBooksStatus,
+  getQuickBooksConnectUrl,
+  getQuickBooksStatus,
+  quickBooksOAuthCallback
+} from '../controllers/quickbooks.controller.js';
 import { downloadInvoicePdf, generateAgencyInvoice, listAgencyInvoices, retryAgencyInvoicePayment, sendAgencyInvoice } from '../controllers/billingInvoices.controller.js';
 import { billingSettingsValidators, getBillingSettings, updateBillingSettings } from '../controllers/billingSettings.controller.js';
 import { runBillingPaymentReconciliation, runMonthlyBilling } from '../controllers/billingJobs.controller.js';
@@ -42,6 +50,9 @@ router.post('/reconcile-payments', (req, res, next) => {
 // NOTE: must be defined before '/:agencyId/*' routes to avoid route param capture.
 router.get('/pricing/default', authenticate, requireSuperAdmin, getPlatformPricing);
 router.put('/pricing/default', authenticate, requireSuperAdmin, platformPricingValidators, updatePlatformPricing);
+router.get('/platform/quickbooks/connect', authenticate, requireSuperAdmin, getPlatformQuickBooksConnectUrl);
+router.get('/platform/quickbooks/status', authenticate, requireSuperAdmin, getPlatformQuickBooksStatus);
+router.post('/platform/quickbooks/disconnect', authenticate, requireSuperAdmin, disconnectPlatformQuickBooks);
 
 // Billing addon status (for feature gating)
 router.get('/:agencyId/addons', authenticate, requireAgencyAccess, getAgencyAddons);
@@ -67,7 +78,7 @@ router.get('/invoices/:invoiceId/pdf', authenticate, downloadInvoicePdf);
 router.post('/:agencyId/invoices/:invoiceId/retry-payment', authenticate, requireAgencyAdmin, retryAgencyInvoicePayment);
 router.post('/:agencyId/invoices/:invoiceId/send', authenticate, requireAgencyAdmin, sendAgencyInvoice);
 
-// QuickBooks Online (per-agency OAuth)
+// QuickBooks Online (per-agency OAuth when merchant mode is agency-managed)
 router.get('/:agencyId/quickbooks/connect', authenticate, requireAgencyAdmin, getQuickBooksConnectUrl);
 router.get('/:agencyId/quickbooks/status', authenticate, requireAgencyAccess, getQuickBooksStatus);
 router.post('/:agencyId/quickbooks/disconnect', authenticate, requireAgencyAdmin, disconnectQuickBooks);

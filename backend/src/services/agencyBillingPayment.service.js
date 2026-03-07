@@ -4,6 +4,7 @@ import AgencyBillingPayment from '../models/AgencyBillingPayment.model.js';
 import AgencyBillingPaymentAttempt from '../models/AgencyBillingPaymentAttempt.model.js';
 import AgencyBillingPaymentMethod from '../models/AgencyBillingPaymentMethod.model.js';
 import QuickBooksPaymentsService from './quickbooksPayments.service.js';
+import BillingMerchantContextService from './billingMerchantContext.service.js';
 
 function toSqlDateTime(value = new Date()) {
   const d = value instanceof Date ? value : new Date(value);
@@ -18,11 +19,15 @@ class AgencyBillingPaymentService {
     if (!invoice) throw new Error('Invoice not found');
 
     const account = await AgencyBillingAccount.getByAgencyId(invoice.agency_id);
+    const merchantContext = await BillingMerchantContextService.getAgencySubscriptionContext(invoice.agency_id);
     if (!account?.autopay_enabled) {
       return { attempted: false, reason: 'autopay_disabled', invoice };
     }
 
-    const paymentMethod = await AgencyBillingPaymentMethod.getDefaultForAgency(invoice.agency_id);
+    const paymentMethod = await AgencyBillingPaymentMethod.getDefaultForAgency(invoice.agency_id, {
+      billingDomain: 'agency_subscription',
+      merchantMode: merchantContext.merchantMode
+    });
     if (!paymentMethod) {
       return { attempted: false, reason: 'no_default_payment_method', invoice };
     }
@@ -39,12 +44,15 @@ class AgencyBillingPaymentService {
     if (!payment) {
       payment = await AgencyBillingPayment.create({
         agencyId: invoice.agency_id,
+        billingDomain: invoice.billing_domain || 'agency_subscription',
+        merchantMode: merchantContext.merchantMode,
         invoiceId: invoice.id,
         paymentMethodId: paymentMethod.id,
         amountCents: invoice.total_cents,
         currency: 'USD',
         paymentStatus: 'PENDING',
         processor: 'QUICKBOOKS_PAYMENTS',
+        providerConnectionId: merchantContext.providerConnectionId,
         processorCustomerId: paymentMethod.provider_customer_id || account.payment_customer_ref || null,
         processorPaymentMethodId: paymentMethod.provider_payment_method_id || null,
         initiatedAt: toSqlDateTime(),
@@ -76,6 +84,7 @@ class AgencyBillingPaymentService {
       currency: 'USD',
       cardOnFileId: paymentMethod.provider_payment_method_id,
       paymentCustomerRef: paymentMethod.provider_customer_id || account.payment_customer_ref || null,
+      connectionId: merchantContext.providerConnectionId,
       requestId: processorRequestId,
       description: `PlotTwist invoice ${invoice.id}`
     };
@@ -91,6 +100,9 @@ class AgencyBillingPaymentService {
 
       await AgencyBillingPaymentAttempt.create({
         paymentId: payment.id,
+        billingDomain: invoice.billing_domain || 'agency_subscription',
+        merchantMode: merchantContext.merchantMode,
+        providerConnectionId: merchantContext.providerConnectionId,
         requestPayloadJson: chargeRequest,
         responsePayloadJson: result?.raw || charge,
         processorStatus,
@@ -99,6 +111,8 @@ class AgencyBillingPaymentService {
       });
 
       payment = await AgencyBillingPayment.updateById(payment.id, {
+        merchant_mode: merchantContext.merchantMode,
+        provider_connection_id: merchantContext.providerConnectionId,
         payment_status: mappedStatus,
         processor_charge_id: charge?.id || charge?.chargeId || null,
         processor_reference_id: charge?.requestId || processorRequestId,
@@ -151,6 +165,9 @@ class AgencyBillingPaymentService {
     } catch (error) {
       await AgencyBillingPaymentAttempt.create({
         paymentId: payment.id,
+        billingDomain: invoice.billing_domain || 'agency_subscription',
+        merchantMode: merchantContext.merchantMode,
+        providerConnectionId: merchantContext.providerConnectionId,
         requestPayloadJson: chargeRequest,
         responsePayloadJson: error?.response?.data || null,
         processorStatus: 'request_failed',
@@ -158,6 +175,8 @@ class AgencyBillingPaymentService {
         errorMessage: error?.response?.data?.message || error?.message || 'Charge failed'
       });
       payment = await AgencyBillingPayment.updateById(payment.id, {
+        merchant_mode: merchantContext.merchantMode,
+        provider_connection_id: merchantContext.providerConnectionId,
         payment_status: 'FAILED',
         processor_status: 'request_failed',
         failed_at: toSqlDateTime(),
@@ -188,6 +207,7 @@ class AgencyBillingPaymentService {
 
     const charge = await QuickBooksPaymentsService.getCharge({
       agencyId: payment.agency_id,
+      connectionId: payment.provider_connection_id || null,
       chargeId: payment.processor_charge_id
     });
     const processorStatus = String(charge?.status || charge?.statusCode || 'pending');

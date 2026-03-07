@@ -19,6 +19,13 @@
     <div v-else-if="loading" class="hint">Loading participants…</div>
     <div v-else-if="error" class="error">{{ error }}</div>
     <template v-else>
+      <div v-if="merchantSetup" class="hint" style="margin-bottom: 12px;">
+        Client payment setup: {{ merchantSetup.paymentsMode === 'agency_managed'
+          ? 'Agency-owned merchant (future)'
+          : merchantSetup.paymentsMode === 'platform_managed'
+            ? 'Platform-assisted merchant (future)'
+            : 'Not configured yet' }}
+      </div>
       <div class="layout">
         <div class="left">
           <div class="panel-title">Participants</div>
@@ -193,6 +200,7 @@ const creditQuantity = ref(1);
 const creditingTokens = ref(false);
 const subscriptionPlans = ref([]);
 const subscriptions = ref([]);
+const merchantSetup = ref(null);
 const selectedPlanId = ref(0);
 const creatingSubscription = ref(false);
 const updatingSubscriptionId = ref(0);
@@ -225,11 +233,14 @@ const loadParticipants = async () => {
   try {
     loading.value = true;
     error.value = '';
+    const setupRes = await api.get('/learning-billing/merchant-setup', { params: { agencyId: agencyId.value } });
+    merchantSetup.value = setupRes.data?.merchantSetup || null;
     const r = await api.get('/learning-billing/front-desk/participants', { params: { agencyId: agencyId.value } });
     participants.value = Array.isArray(r.data?.participants) ? r.data.participants : [];
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to load participants';
     participants.value = [];
+    merchantSetup.value = null;
   } finally {
     loading.value = false;
   }

@@ -14,6 +14,17 @@
     <div v-else-if="loading" class="hint">Loading billing…</div>
     <div v-else-if="error" class="error">{{ error }}</div>
     <template v-else>
+      <div v-if="merchantSetup" class="card">
+        <div class="payment-title">Payment Setup</div>
+        <div class="hint">
+          {{ merchantSetup.paymentsMode === 'agency_managed'
+            ? 'This learning program is being prepared for agency-owned parent/guardian payments.'
+            : merchantSetup.paymentsMode === 'platform_managed'
+              ? 'This learning program is being prepared for platform-assisted parent/guardian payments.'
+              : 'Parent/guardian payment setup has not been configured yet for this learning program.' }}
+        </div>
+      </div>
+
       <div class="payment-methods card">
         <div class="payment-head">
           <div class="payment-title">Card on file</div>
@@ -188,6 +199,7 @@ const paymentMethods = ref([]);
 const tokenBalance = ref({ individualTokens: 0, groupTokens: 0 });
 const tokenLedgerEntries = ref([]);
 const subscriptions = ref([]);
+const merchantSetup = ref(null);
 const updatingSubscriptionId = ref(0);
 const showAddMethod = ref(false);
 const addingMethod = ref(false);
@@ -372,6 +384,10 @@ const load = async () => {
     await loadTokenBalance();
     await loadTokenLedger();
     await loadSubscriptions();
+    const summary = await api.get('/learning-billing/guardian/summary', {
+      params: { agencyId: aid, clientId: cid }
+    });
+    merchantSetup.value = summary.data?.merchantSetup || null;
     const r = await api.get(`/learning-billing/clients/${cid}/ledger`, {
       params: { agencyId: aid }
     });
@@ -383,6 +399,7 @@ const load = async () => {
     error.value = e.response?.data?.error?.message || 'Failed to load billing';
     ledger.value = [];
     outstandingCents.value = 0;
+    merchantSetup.value = null;
   } finally {
     loading.value = false;
   }

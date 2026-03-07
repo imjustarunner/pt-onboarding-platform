@@ -42,6 +42,21 @@ async function requireManagedClient(req, clientId) {
   return { ok: true, client };
 }
 
+function serializeAvailableRoiLink(link, source = {}) {
+  return {
+    id: Number(link.id),
+    title: link.title || `Form ${link.id}`,
+    description: link.description || null,
+    public_key: link.public_key || null,
+    form_type: link.form_type || 'smart_school_roi',
+    language_code: link.language_code || 'en',
+    documents_count: Array.isArray(link.allowed_document_template_ids) ? link.allowed_document_template_ids.length : 0,
+    source_school_organization_id: Number(source.organizationId || link.organization_id || 0) || null,
+    source_school_name: source.organizationName || null,
+    source_kind: source.kind || 'school'
+  };
+}
+
 async function listAvailableSchoolRoiIntakeLinks(schoolOrganizationId) {
   const sid = Number(schoolOrganizationId || 0);
   if (!sid) return [];
@@ -50,15 +65,47 @@ async function listAvailableSchoolRoiIntakeLinks(schoolOrganizationId) {
     .filter((link) => link && link.is_active)
     .filter((link) => String(link.form_type || '').trim().toLowerCase() === 'smart_school_roi')
     .filter((link) => !link.create_client)
-    .map((link) => ({
-      id: Number(link.id),
-      title: link.title || `Form ${link.id}`,
-      description: link.description || null,
-      public_key: link.public_key || null,
-      form_type: link.form_type || 'smart_school_roi',
-      language_code: link.language_code || 'en',
-      documents_count: Array.isArray(link.allowed_document_template_ids) ? link.allowed_document_template_ids.length : 0
-    }));
+    .map((link) => serializeAvailableRoiLink(link, { organizationId: sid, kind: 'school' }));
+}
+
+async function resolveSchoolRoiSelection(schoolOrganizationId) {
+  let availableLinks = await listAvailableSchoolRoiIntakeLinks(schoolOrganizationId);
+  if (!availableLinks.length) {
+    const sid = Number(schoolOrganizationId || 0);
+    if (sid) {
+      const defaultLink = await IntakeLink.create({
+        publicKey: crypto.randomBytes(24).toString('hex'),
+        title: 'Smart School ROI (Default)',
+        description: 'System default interactive Smart School ROI.',
+        languageCode: 'en',
+        scopeType: 'school',
+        formType: 'smart_school_roi',
+        organizationId: sid,
+        isActive: true,
+        createClient: false,
+        createGuardian: false,
+        requiresAssignment: false,
+        allowedDocumentTemplateIds: [],
+        intakeFields: null,
+        intakeSteps: null,
+        retentionPolicy: null,
+        customMessages: null,
+        createdByUserId: null
+      });
+      if (defaultLink?.id) {
+        availableLinks = [serializeAvailableRoiLink(defaultLink, { organizationId: sid, kind: 'school' })];
+      }
+    }
+  }
+  const explicitConfig = await SchoolRoiIntakeLinkConfig.findBySchoolOrganizationId(schoolOrganizationId);
+  const selectedLink = explicitConfig?.intake_link_id
+    ? (availableLinks.find((link) => Number(link.id) === Number(explicitConfig.intake_link_id)) || availableLinks[0] || null)
+    : (availableLinks[0] || null);
+  return {
+    availableLinks,
+    explicitConfig,
+    selectedLink
+  };
 }
 
 function serializeIssuedRoiSigningLink(record, client) {
@@ -175,15 +222,10 @@ function ensureRoiSmsBodyHasLink(body, linkUrl) {
 }
 
 export async function ensureIssuedRoiSigningLinkForClient({ client, schoolOrganizationId, actorUserId = null, regenerate = false }) {
-  const config = await SchoolRoiIntakeLinkConfig.findBySchoolOrganizationId(schoolOrganizationId);
-  if (!config?.intake_link_id) {
-    return { ok: false, status: 400, message: 'Assign a school ROI form before sending a client ROI link.' };
-  }
-
-  const availableLinks = await listAvailableSchoolRoiIntakeLinks(schoolOrganizationId);
-  const selectedLink = availableLinks.find((link) => Number(link.id) === Number(config.intake_link_id));
-  if (!selectedLink) {
-    return { ok: false, status: 400, message: 'The assigned school ROI form is no longer active for this school.' };
+  const selection = await resolveSchoolRoiSelection(schoolOrganizationId);
+  const selectedLink = selection.selectedLink;
+  if (!selectedLink?.id) {
+    return { ok: false, status: 400, message: 'No Smart ROI form is available for this school yet.' };
   }
 
   const existing = await ClientSchoolRoiSigningLink.findForClient({
@@ -193,7 +235,7 @@ export async function ensureIssuedRoiSigningLinkForClient({ client, schoolOrgani
   const canReuseExisting =
     existing
     && !regenerate
-    && Number(existing.intake_link_id) === Number(config.intake_link_id)
+    && Number(existing.intake_link_id) === Number(selectedLink.id)
     && String(existing.status || '').trim().toLowerCase() !== 'completed'
     && String(existing.public_key || '').trim();
 
@@ -202,12 +244,12 @@ export async function ensureIssuedRoiSigningLinkForClient({ client, schoolOrgani
     : await ClientSchoolRoiSigningLink.issueForClient({
         clientId: client.id,
         schoolOrganizationId,
-        intakeLinkId: Number(config.intake_link_id),
+        intakeLinkId: Number(selectedLink.id),
         publicKey: crypto.randomBytes(24).toString('hex'),
         issuedByUserId: actorUserId
       });
 
-  return { ok: true, issuedLink, config };
+  return { ok: true, issuedLink, config: selection.explicitConfig, selectedLink };
 }
 
 async function resolveAgencySmsSenderNumber(agencyId) {
@@ -271,8 +313,8 @@ export const listClientSchoolRoiAccess = async (req, res, next) => {
         access_enabled: guardian.access_enabled !== false && guardian.access_enabled !== 0
       }))
       .filter((guardian) => guardian.email);
-    const availableRoiLinks = await listAvailableSchoolRoiIntakeLinks(schoolOrganizationId);
-    const schoolRoiConfig = await SchoolRoiIntakeLinkConfig.findBySchoolOrganizationId(schoolOrganizationId);
+    const selection = await resolveSchoolRoiSelection(schoolOrganizationId);
+    const availableRoiLinks = selection.availableLinks;
     const issuedRoiLink = await ClientSchoolRoiSigningLink.findForClient({ clientId, schoolOrganizationId });
 
     res.json({
@@ -287,7 +329,7 @@ export const listClientSchoolRoiAccess = async (req, res, next) => {
       staff,
       school_roi_signing: {
         available_links: availableRoiLinks,
-        selected_intake_link_id: schoolRoiConfig?.intake_link_id ? Number(schoolRoiConfig.intake_link_id) : null,
+        selected_intake_link_id: selection.selectedLink?.id ? Number(selection.selectedLink.id) : null,
         issued_link: serializeIssuedRoiSigningLink(issuedRoiLink, client)
       }
     });
@@ -451,7 +493,7 @@ export const updateClientSchoolRoiSigningConfig = async (req, res, next) => {
       const match = availableLinks.find((link) => Number(link.id) === intakeLinkId);
       if (!match) {
         return res.status(400).json({
-          error: { message: 'Selected ROI form must be an active school-scoped smart ROI form for this school that does not create clients.' }
+          error: { message: 'Selected ROI form must be an active Smart ROI form available to this school, including the agency default.' }
         });
       }
       config = await SchoolRoiIntakeLinkConfig.upsert({
@@ -517,7 +559,7 @@ export const issueClientSchoolRoiSigningLink = async (req, res, next) => {
       metadata: {
         clientId,
         schoolOrganizationId,
-        intakeLinkId: Number(issuedResult.config.intake_link_id),
+        intakeLinkId: Number(issuedResult.selectedLink?.id || issuedLink?.intake_link_id || 0) || null,
         signingLinkId: issuedLink?.id || null,
         regenerate
       }

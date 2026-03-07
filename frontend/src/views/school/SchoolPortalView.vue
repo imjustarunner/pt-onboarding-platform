@@ -878,7 +878,7 @@
             <p>Hello! This weekend we have implemented a new feature that will help your students protect their info based on the exact dates of their ROI and specifically for whom they want their information shared.</p>
             <p>Now that our system is ready for this change, we will be manually inputting all ROI dates and individuals on the ROI as ROI access for that period of time. Please give us a day or two to update every client! If your school is already updated, please ignore this message!</p>
             <p>Rest assured, our new system will be able to send a private link via email or text to the parent so that updating that ROI will be quick, easy, secure, and integrated as it will directly update the client's profile.</p>
-            <p>We will have to manually update your access whenever that new ROI comes in so it may take us a few hours after it is uploaded to do so, but the uploader will have access and new digital packets will display but will show NO ROI as the default.</p>
+            <p>Our new smart ROI flow is designed to send a private link directly to the parent or guardian and apply access from the signed responses, but we may still need a short transition period while earlier records are normalized.</p>
             <p>Thank you for your patience!</p>
           </div>
           <div class="roi-transition-actions">

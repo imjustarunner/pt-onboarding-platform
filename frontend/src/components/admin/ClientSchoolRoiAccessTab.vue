@@ -48,7 +48,7 @@
           <div>
             <div class="summary-k">Client ROI signing link</div>
             <div class="hint">
-              Assign one reusable smart school ROI form, then issue a client-specific public link. Signing refreshes the ROI document/date/checklist and auto-applies school-staff access from the signed decisions.
+              This uses the school’s standard Smart School ROI by default. Issue a client-specific link or launch signing directly. Signing refreshes ROI records and auto-applies school-staff access from signed decisions.
             </div>
           </div>
           <span class="state-pill" :class="issuedLinkStateClass">
@@ -57,26 +57,10 @@
         </div>
 
         <div class="signing-grid">
-          <div class="form-group">
-            <label>Assigned school ROI form</label>
-            <select v-model="selectedIntakeLinkId">
-              <option value="">No ROI form assigned</option>
-              <option v-for="link in availableLinks" :key="link.id" :value="String(link.id)">
-                {{ link.title }}{{ link.form_type === 'smart_school_roi' ? ' (Smart ROI)' : '' }}
-              </option>
-            </select>
-            <div class="hint" v-if="availableLinks.length">
-              Only active school-scoped smart ROI forms that do not create clients can be assigned here.
-            </div>
-            <div class="hint" v-else>
-              No eligible smart school ROI forms are available for this school yet.
-            </div>
-          </div>
-
           <div class="summary-card">
-            <div class="summary-k">Issued link</div>
-            <div class="summary-v">{{ issuedLink?.public_key ? 'Ready' : 'Not issued' }}</div>
-            <div class="hint">{{ issuedLinkSummary }}</div>
+            <div class="summary-k">Standard Smart ROI</div>
+            <div class="summary-v">{{ activeSmartRoiTitle }}</div>
+            <div class="hint">{{ activeSmartRoiSummary }}</div>
           </div>
 
           <div class="summary-card">
@@ -87,14 +71,6 @@
         </div>
 
         <div class="signing-actions">
-          <button
-            type="button"
-            class="btn btn-secondary btn-sm"
-            :disabled="configSaving || !configDirty"
-            @click="saveSigningConfig"
-          >
-            {{ configSaving ? 'Saving…' : 'Save ROI Form' }}
-          </button>
           <button
             type="button"
             class="btn btn-primary btn-sm"
@@ -120,6 +96,27 @@
             Regenerate Link
           </button>
           <span v-if="copyStatus" class="hint strong">{{ copyStatus }}</span>
+        </div>
+
+        <div v-if="!hasSigningConfig" class="warning-card" style="margin-top: 0;">
+          The standard Smart ROI is not available yet for this school or its agency. Once the shared Smart ROI is active, this client can be launched directly from here without any extra setup.
+        </div>
+
+        <div v-if="issuedLink?.public_key" class="link-preview-card">
+          <div class="form-group" style="margin-bottom: 0;">
+            <label>Signing link</label>
+            <input :value="issuedLinkUrl" type="text" readonly @focus="$event.target.select()" />
+            <div class="hint">
+              This is the live client-specific signing URL. You can copy it directly and share it manually.
+            </div>
+          </div>
+          <div class="form-group" style="margin-bottom: 0;">
+            <label>Short text link</label>
+            <input :value="issuedLinkShortUrl" type="text" readonly @focus="$event.target.select()" />
+            <div class="hint">
+              Use the shorter link when you want a cleaner text message.
+            </div>
+          </div>
         </div>
 
         <div class="sms-card">
@@ -413,6 +410,23 @@ const stateClass = (effectiveState) => {
 const hasSigningConfig = computed(() => !!String(selectedIntakeLinkId.value || '').trim());
 const configDirty = computed(() => String(selectedIntakeLinkId.value || '') !== String(savedIntakeLinkId.value || ''));
 const roiDateDirty = computed(() => String(roiExpiryDraft.value || '') !== String(normalizeDateInputValue(roiExpiresAt.value) || ''));
+const activeSmartRoiLink = computed(() => {
+  const selectedId = Number(selectedIntakeLinkId.value || 0);
+  if (selectedId) {
+    return availableLinks.value.find((link) => Number(link.id) === selectedId) || null;
+  }
+  return availableLinks.value[0] || null;
+});
+const activeSmartRoiTitle = computed(() => {
+  if (!activeSmartRoiLink.value) return 'Not available yet';
+  return activeSmartRoiLink.value.title || 'Smart ROI';
+});
+const activeSmartRoiSummary = computed(() => {
+  if (!activeSmartRoiLink.value) {
+    return 'No eligible Smart ROI is active for this school yet.';
+  }
+  return 'This client will use the school-specific Smart ROI automatically.';
+});
 const issuedLinkStateLabel = computed(() => {
   const state = String(issuedLink.value?.status || '').trim().toLowerCase();
   if (state === 'completed') return 'Completed';
@@ -428,14 +442,16 @@ const issuedLinkStateClass = computed(() => {
   return 'state-none';
 });
 const issuedSignedLabel = computed(() => formatDateTime(issuedLink.value?.signed_at));
-const issuedFormLabel = computed(() => issuedLink.value?.intake_link_title || 'No ROI form assigned');
+const issuedFormLabel = computed(() => issuedLink.value?.intake_link_title || activeSmartRoiTitle.value || 'Smart ROI');
+const issuedLinkUrl = computed(() => buildPublicIntakeUrl(issuedLink.value?.public_key || ''));
+const issuedLinkShortUrl = computed(() => buildPublicIntakeShortUrl(issuedLink.value?.public_key || ''));
 const issuedLinkSummary = computed(() => {
   if (!issuedLink.value?.public_key) return 'Create a unique client link from the assigned school ROI form.';
-  return buildPublicIntakeUrl(issuedLink.value.public_key);
+  return issuedLinkUrl.value;
 });
 const issuedTextLinkSummary = computed(() => {
   if (!issuedLink.value?.public_key) return 'A shorter /i/ link will be used for texting.';
-  return buildPublicIntakeShortUrl(issuedLink.value.public_key);
+  return issuedLinkShortUrl.value;
 });
 
 const buildDefaultSmsMessage = () => {
@@ -836,6 +852,13 @@ watch(
   justify-content: space-between;
   gap: 10px;
   flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.link-preview-card {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
   margin-bottom: 12px;
 }
 

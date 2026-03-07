@@ -1,12 +1,22 @@
 import AgencyBillingPaymentMethod from '../models/AgencyBillingPaymentMethod.model.js';
 import QuickBooksPaymentsService from '../services/quickbooksPayments.service.js';
+import BillingMerchantContextService from '../services/billingMerchantContext.service.js';
 
 export const listAgencyBillingPaymentMethods = async (req, res, next) => {
   try {
     const agencyId = Number(req.params.agencyId || 0);
     if (!agencyId) return res.status(400).json({ error: { message: 'Invalid agencyId' } });
-    const methods = await AgencyBillingPaymentMethod.listByAgency(agencyId);
-    res.json({ agencyId, methods });
+    const merchantContext = await BillingMerchantContextService.getAgencySubscriptionContext(agencyId);
+    const methods = await AgencyBillingPaymentMethod.listByAgency(agencyId, {
+      billingDomain: 'agency_subscription',
+      merchantMode: merchantContext.merchantMode
+    });
+    res.json({
+      agencyId,
+      merchantMode: merchantContext.merchantMode,
+      providerConnectionId: merchantContext.providerConnectionId,
+      methods
+    });
   } catch (error) {
     next(error);
   }
@@ -37,15 +47,20 @@ export const createAgencyBillingPaymentMethod = async (req, res, next) => {
     if (!token && !card) {
       return res.status(400).json({ error: { message: 'A QuickBooks payment token or card payload is required.' } });
     }
+    const merchantContext = await BillingMerchantContextService.getAgencySubscriptionContext(agencyId);
 
     const stored = await QuickBooksPaymentsService.createCard({
       agencyId,
+      connectionId: merchantContext.providerConnectionId,
       token,
       card
     });
     const meta = extractStoredCardMeta(stored?.card);
     const method = await AgencyBillingPaymentMethod.createFromProcessor({
       agencyId,
+      billingDomain: 'agency_subscription',
+      merchantMode: merchantContext.merchantMode,
+      providerConnectionId: merchantContext.providerConnectionId,
       createdByUserId: req.user?.id || null,
       provider: 'QUICKBOOKS_PAYMENTS',
       providerCustomerId: stored?.customerId || null,
@@ -59,6 +74,7 @@ export const createAgencyBillingPaymentMethod = async (req, res, next) => {
 
     res.status(201).json({
       agencyId,
+      merchantMode: merchantContext.merchantMode,
       method,
       processorCard: stored?.card || null
     });
@@ -77,7 +93,8 @@ export const setAgencyBillingPaymentMethodDefault = async (req, res, next) => {
     const method = await AgencyBillingPaymentMethod.setDefault({
       agencyId,
       paymentMethodId,
-      updatedByUserId: req.user?.id || null
+      updatedByUserId: req.user?.id || null,
+      billingDomain: 'agency_subscription'
     });
     if (!method) return res.status(404).json({ error: { message: 'Payment method not found' } });
     res.json({ agencyId, method });

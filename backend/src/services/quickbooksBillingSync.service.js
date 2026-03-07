@@ -1,8 +1,10 @@
 import axios from 'axios';
 import AgencyBillingAccount from '../models/AgencyBillingAccount.model.js';
 import AgencyBillingInvoice from '../models/AgencyBillingInvoice.model.js';
+import BillingProviderConnection from '../models/BillingProviderConnection.model.js';
 import QuickBooksTokenManager from './quickbooksTokenManager.service.js';
 import Agency from '../models/Agency.model.js';
+import BillingMerchantContextService from './billingMerchantContext.service.js';
 
 function dollars(cents) {
   return Number((Number(cents || 0) / 100).toFixed(2));
@@ -101,17 +103,22 @@ class QuickBooksBillingSyncService {
     return String(acct.Id);
   }
 
-  static async ensurePlotTwistServiceItem({ agencyId, realmId, accessToken }) {
-    const account = await AgencyBillingAccount.getByAgencyId(agencyId);
-    if (account?.qbo_service_item_id) {
-      return account.qbo_service_item_id;
+  static async ensurePlotTwistServiceItem({ providerConnectionId, realmId, accessToken }) {
+    const connection = await BillingProviderConnection.findById(providerConnectionId);
+    if (connection?.qbo_default_service_item_id) {
+      return connection.qbo_default_service_item_id;
     }
     const itemName = process.env.QBO_SERVICE_ITEM_NAME || 'PlotTwist Platform Billing';
     const query = `SELECT Id, Name, Type FROM Item WHERE Name = '${itemName.replace(/'/g, "\\'")}' MAXRESULTS 1`;
     const data = await qboQuery({ realmId, accessToken, query });
     const existing = data?.QueryResponse?.Item?.[0];
     if (existing?.Id) {
-      await AgencyBillingAccount.setQboServiceItemId(agencyId, String(existing.Id));
+      await BillingProviderConnection.setQuickBooksCapability(providerConnectionId, {
+        qboPaymentsEnabled: !!connection?.qbo_payments_enabled,
+        qboPaymentsMerchantId: connection?.qbo_payments_merchant_id || null,
+        scopeCsv: connection?.qbo_scope_csv || null,
+        defaultServiceItemId: String(existing.Id)
+      });
       return String(existing.Id);
     }
 
@@ -128,18 +135,36 @@ class QuickBooksBillingSyncService {
     });
     const id = created?.Item?.Id ? String(created.Item.Id) : null;
     if (!id) throw new Error('Failed to create PlotTwist service item in QuickBooks');
-    await AgencyBillingAccount.setQboServiceItemId(agencyId, id);
+    await BillingProviderConnection.setQuickBooksCapability(providerConnectionId, {
+      qboPaymentsEnabled: !!connection?.qbo_payments_enabled,
+      qboPaymentsMerchantId: connection?.qbo_payments_merchant_id || null,
+      scopeCsv: connection?.qbo_scope_csv || null,
+      defaultServiceItemId: id,
+      defaultIncomeAccountId: incomeAccountId
+    });
     return id;
   }
 
-  static async getDepositAccountId({ realmId, accessToken }) {
+  static async getDepositAccountId({ providerConnectionId, realmId, accessToken }) {
+    const connection = await BillingProviderConnection.findById(providerConnectionId);
+    if (connection?.qbo_default_deposit_account_id) {
+      return String(connection.qbo_default_deposit_account_id);
+    }
     const preferred = await qboQuery({
       realmId,
       accessToken,
       query: "SELECT Id, Name FROM Account WHERE AccountSubType = 'UndepositedFunds' MAXRESULTS 1"
     });
     const preferredAccount = preferred?.QueryResponse?.Account?.[0];
-    if (preferredAccount?.Id) return String(preferredAccount.Id);
+    if (preferredAccount?.Id) {
+      await BillingProviderConnection.setQuickBooksCapability(providerConnectionId, {
+        qboPaymentsEnabled: !!connection?.qbo_payments_enabled,
+        qboPaymentsMerchantId: connection?.qbo_payments_merchant_id || null,
+        scopeCsv: connection?.qbo_scope_csv || null,
+        defaultDepositAccountId: String(preferredAccount.Id)
+      });
+      return String(preferredAccount.Id);
+    }
 
     const fallback = await qboQuery({
       realmId,
@@ -148,6 +173,12 @@ class QuickBooksBillingSyncService {
     });
     const bankAccount = fallback?.QueryResponse?.Account?.[0];
     if (!bankAccount?.Id) throw new Error('No deposit account found in QuickBooks for customer payment');
+    await BillingProviderConnection.setQuickBooksCapability(providerConnectionId, {
+      qboPaymentsEnabled: !!connection?.qbo_payments_enabled,
+      qboPaymentsMerchantId: connection?.qbo_payments_merchant_id || null,
+      scopeCsv: connection?.qbo_scope_csv || null,
+      defaultDepositAccountId: String(bankAccount.Id)
+    });
     return String(bankAccount.Id);
   }
 
@@ -155,7 +186,10 @@ class QuickBooksBillingSyncService {
     const invoice = await AgencyBillingInvoice.findById(invoiceId);
     if (!invoice) throw new Error('Invoice not found');
 
-    const { accessToken, realmId } = await QuickBooksTokenManager.getValidAccessToken(invoice.agency_id);
+    const merchantContext = await BillingMerchantContextService.getAgencySubscriptionContext(invoice.agency_id);
+    const providerConnectionId = Number(invoice.provider_connection_id || merchantContext.providerConnectionId || 0);
+    if (!providerConnectionId) throw new Error('QuickBooks billing connection is not configured');
+    const { accessToken, realmId } = await QuickBooksTokenManager.getValidAccessTokenForConnection(providerConnectionId);
     if (!realmId) throw new Error('QuickBooks realmId is missing');
 
     const agency = await Agency.findById(invoice.agency_id);
@@ -166,7 +200,7 @@ class QuickBooksBillingSyncService {
       accessToken
     });
     const serviceItemId = await this.ensurePlotTwistServiceItem({
-      agencyId: invoice.agency_id,
+      providerConnectionId,
       realmId,
       accessToken
     });
@@ -232,7 +266,10 @@ class QuickBooksBillingSyncService {
     if (!invoice) throw new Error('Invoice not found');
     if (!invoice.qbo_invoice_id) return invoice;
 
-    const { accessToken, realmId } = await QuickBooksTokenManager.getValidAccessToken(invoice.agency_id);
+    const merchantContext = await BillingMerchantContextService.getAgencySubscriptionContext(invoice.agency_id);
+    const providerConnectionId = Number(invoice.provider_connection_id || merchantContext.providerConnectionId || 0);
+    if (!providerConnectionId) throw new Error('QuickBooks billing connection is not configured');
+    const { accessToken, realmId } = await QuickBooksTokenManager.getValidAccessTokenForConnection(providerConnectionId);
     if (!realmId) throw new Error('QuickBooks realmId is missing');
     const agency = await Agency.findById(invoice.agency_id);
     const customerId = await this.ensureAgencyCustomer({
@@ -241,7 +278,7 @@ class QuickBooksBillingSyncService {
       realmId,
       accessToken
     });
-    const depositAccountId = await this.getDepositAccountId({ realmId, accessToken });
+    const depositAccountId = await this.getDepositAccountId({ providerConnectionId, realmId, accessToken });
     const txnDate = dateOnly(invoice.paid_at || new Date());
 
     const created = await qboPost({
@@ -274,7 +311,10 @@ class QuickBooksBillingSyncService {
     if (!invoice.qbo_invoice_id) throw new Error('QuickBooks invoice has not been created yet');
 
     const account = await AgencyBillingAccount.getByAgencyId(invoice.agency_id);
-    const { accessToken, realmId } = await QuickBooksTokenManager.getValidAccessToken(invoice.agency_id);
+    const merchantContext = await BillingMerchantContextService.getAgencySubscriptionContext(invoice.agency_id);
+    const providerConnectionId = Number(invoice.provider_connection_id || merchantContext.providerConnectionId || 0);
+    if (!providerConnectionId) throw new Error('QuickBooks billing connection is not configured');
+    const { accessToken, realmId } = await QuickBooksTokenManager.getValidAccessTokenForConnection(providerConnectionId);
     if (!realmId) throw new Error('QuickBooks realmId is missing');
 
     const email = String(sendTo || account?.billing_email || '').trim() || null;

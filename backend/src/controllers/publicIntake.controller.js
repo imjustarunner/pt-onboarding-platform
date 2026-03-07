@@ -140,8 +140,8 @@ const escapeHtml = (value) =>
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
 
-const resolveIntakeSenderIdentity = async ({ organizationId, scopeType }) => {
-  const agencyId = Number(organizationId);
+const resolveIntakeSenderIdentity = async ({ organizationId, scopeType, agencyId: explicitAgencyId = null }) => {
+  const agencyId = Number(explicitAgencyId || organizationId);
   if (!agencyId) return null;
   const scope = String(scopeType || '').trim().toLowerCase();
   const keys = scope === 'school'
@@ -1097,11 +1097,22 @@ const notifyUnassignedDocuments = async ({ link, submission, docCount }) => {
   }
 };
 
-const resolveIntakeOrgContext = async (link) => {
+const resolveIntakeOrgContext = async (link, { issuedRoiLink = null, boundClient = null } = {}) => {
   if (!link) return { organization: null, agency: null };
 
   const scope = String(link.scope_type || 'agency');
-  const orgId = link.organization_id ? parseInt(link.organization_id, 10) : null;
+  const isSmartRoi = String(link.form_type || '').trim().toLowerCase() === 'smart_school_roi';
+  const smartSchoolOrgId = isSmartRoi
+    ? (
+        Number(issuedRoiLink?.school_organization_id || 0)
+        || Number(boundClient?.organization_id || 0)
+        || Number(boundClient?.school_organization_id || 0)
+        || Number(link.organization_id || 0)
+      )
+    : 0;
+  const orgId = isSmartRoi
+    ? (smartSchoolOrgId || null)
+    : (link.organization_id ? parseInt(link.organization_id, 10) : null);
   let organization = null;
   let agency = null;
 
@@ -1223,7 +1234,7 @@ export const getPublicIntakeLink = async (req, res, next) => {
     }
 
     const templates = await loadAllowedTemplates(link);
-    const { organization, agency } = await resolveIntakeOrgContext(link);
+    const { organization, agency } = await resolveIntakeOrgContext(link, { issuedRoiLink, boundClient });
     const needsCaptcha = requiresCaptchaForLink(organization, agency);
     const roiContext = isSmartSchoolRoiForm(link)
       ? await buildSmartSchoolRoiContext({
@@ -1312,21 +1323,22 @@ export const createPublicIntakeSession = async (req, res, next) => {
     if (!link || !link.is_active) {
       return res.status(404).json({ error: { message: 'Intake link not found' } });
     }
-    const { organization, agency } = await resolveIntakeOrgContext(link);
+    const { organization, agency } = await resolveIntakeOrgContext(link, { issuedRoiLink, boundClient });
     const needsCaptcha = requiresCaptchaForLink(organization, agency);
     const intakeSiteKey = String(process.env.RECAPTCHA_SITE_KEY_INTAKE || '').trim();
     const captchaConfigured = !!intakeSiteKey && (!!config.recaptcha?.secretKey || !!config.recaptcha?.enterpriseApiKey);
+    const isLocalBypass = isLocalRecaptchaBypassRequest(req);
     if (needsCaptcha && config.nodeEnv === 'production' && !captchaConfigured) {
       return res.status(500).json({ error: { message: 'Captcha is not configured' } });
     }
     if (needsCaptcha && captchaConfigured) {
-      const captchaToken = String(req.body?.captchaToken || '').trim();
-      if (!captchaToken) {
-        return res.status(400).json({ error: { message: 'Captcha is required' } });
-      }
-      if (config.nodeEnv !== 'production' && isLocalRecaptchaBypassRequest(req)) {
+      if (isLocalBypass) {
         console.info('[recaptcha] bypassing localhost verification for public intake begin');
       } else {
+        const captchaToken = String(req.body?.captchaToken || '').trim();
+        if (!captchaToken) {
+          return res.status(400).json({ error: { message: 'Captcha is required' } });
+        }
         const verification = await verifyRecaptchaV3({
           token: captchaToken,
           remoteip: getClientIpAddress(req),
@@ -1392,7 +1404,7 @@ export const createPublicIntakeSession = async (req, res, next) => {
         intakeSubmissionId: submission?.id || null
       });
       if (isSmartSchoolRoiForm(link)) {
-        const { organization, agency } = await resolveIntakeOrgContext(link);
+        const { organization, agency } = await resolveIntakeOrgContext(link, { issuedRoiLink, boundClient });
         const roiContext = await buildSmartSchoolRoiContext({
           link,
           boundClient,
@@ -1404,7 +1416,7 @@ export const createPublicIntakeSession = async (req, res, next) => {
           id: issuedRoiLink.id,
           intakeSubmissionId: submission?.id || null,
           roiContext,
-          roiResponse: intakeData?.smartSchoolRoi || null
+          roiResponse: null
         });
       }
     }
@@ -1440,7 +1452,21 @@ export const createPublicConsent = async (req, res, next) => {
     let submission = sessionToken ? await IntakeSubmission.findBySessionToken(sessionToken) : null;
     if (submission) {
       if (String(submission.status || '').toLowerCase() === 'submitted') {
-        return res.status(409).json({ error: { message: 'This intake session is already completed.' } });
+        let downloadUrl = null;
+        if (submission.combined_pdf_path) {
+          try {
+            downloadUrl = await StorageService.getSignedUrl(submission.combined_pdf_path, 60 * 24 * 14);
+          } catch {
+            downloadUrl = null;
+          }
+        }
+        return res.status(200).json({
+          success: true,
+          alreadyCompleted: true,
+          message: 'This release session is already completed.',
+          submission,
+          downloadUrl
+        });
       }
       submission = await IntakeSubmission.updateById(submission.id, {
         status: 'consented',
@@ -2003,7 +2029,7 @@ export const finalizePublicIntake = async (req, res, next) => {
         return res.status(404).json({ error: { message: 'Bound client not found.' } });
       }
 
-      const { organization, agency } = await resolveIntakeOrgContext(link);
+      const { organization, agency } = await resolveIntakeOrgContext(link, { issuedRoiLink, boundClient });
       const roiContext = await buildSmartSchoolRoiContext({
         link,
         boundClient,
@@ -2011,16 +2037,47 @@ export const finalizePublicIntake = async (req, res, next) => {
         agency,
         templates
       });
-      if (!roiContext?.documentTemplate?.id) {
-        return res.status(400).json({ error: { message: 'Assign a School ROI document template to this form before using it.' } });
-      }
-      const selectedTemplate = templates.find((template) => Number(template.id) === Number(roiContext.documentTemplate.id));
+      let selectedTemplate = templates.find((template) => Number(template.id) === Number(roiContext?.documentTemplate?.id || 0));
       if (!selectedTemplate) {
-        return res.status(400).json({ error: { message: 'The configured School ROI document template is no longer available.' } });
+        const schoolOrgId = Number(roiContext?.school?.id || link?.organization_id || 0) || null;
+        const schoolRoiTemplatesResult = await DocumentTemplate.findAll({
+          documentType: 'school_roi',
+          isActive: true,
+          includeArchived: false,
+          limit: 200,
+          offset: 0
+        });
+        const schoolRoiTemplates = Array.isArray(schoolRoiTemplatesResult?.data) ? schoolRoiTemplatesResult.data : [];
+        selectedTemplate = schoolRoiTemplates.find((template) => Number(template?.organization_id || 0) === schoolOrgId)
+          || schoolRoiTemplates[0]
+          || null;
       }
+      if (!selectedTemplate) {
+        const anyTemplateResult = await DocumentTemplate.findAll({
+          isActive: true,
+          includeArchived: false,
+          limit: 200,
+          offset: 0
+        });
+        const anyTemplates = Array.isArray(anyTemplateResult?.data) ? anyTemplateResult.data : [];
+        selectedTemplate = anyTemplates[0] || null;
+      }
+      if (!selectedTemplate?.id) {
+        return res.status(400).json({ error: { message: 'No active document template is available for Smart School ROI finalization.' } });
+      }
+      const effectiveRoiContext = roiContext?.documentTemplate?.id
+        ? roiContext
+        : {
+            ...roiContext,
+            documentTemplate: {
+              id: Number(selectedTemplate.id),
+              name: selectedTemplate.name || 'School Release of Information',
+              documentType: selectedTemplate.document_type || 'school_roi'
+            }
+          };
 
       const roiResponse = normalizeSmartSchoolRoiResponse({
-        roiContext,
+        roiContext: effectiveRoiContext,
         intakeData,
         signedAt: now
       });
@@ -2048,7 +2105,7 @@ export const finalizePublicIntake = async (req, res, next) => {
           ...selectedTemplate,
           template_type: 'html',
           html_content: buildSmartSchoolRoiHtml({
-            roiContext,
+            roiContext: effectiveRoiContext,
             response: roiResponse,
             signedAt: now
           }),
@@ -2177,11 +2234,61 @@ export const finalizePublicIntake = async (req, res, next) => {
           schoolOrganizationId,
           issuedRoiLinkId: issuedRoiLink?.id || null,
           packetReleaseAllowed: roiResponse.packetReleaseAllowed,
+          schoolSchedulingSafetyLogisticsAuthorized: roiResponse.schoolSchedulingSafetyLogisticsAuthorized === true,
+          approvedStaffCount: roiResponse.approvedStaffCount || 0,
+          deniedStaffCount: roiResponse.deniedStaffCount || 0,
           accessUpdates
         }
       });
 
       const downloadUrl = await StorageService.getSignedUrl(signedResult.storagePath, 60 * 24 * 14);
+      if (updatedSubmission.signer_email && downloadUrl) {
+        const signerName = String(updatedSubmission.signer_name || '').trim() || 'Signer';
+        const clientName = String(roiResponse.clientFullName || boundClient.full_name || '').trim() || 'Client';
+        const schoolName = String(roiContext?.school?.name || '').trim() || 'School';
+        const subject = `${clientName} - School ROI Completed`;
+        const text = `${signerName}, your school release of information is complete.\n\nClient: ${clientName}\nSchool: ${schoolName}\n\nDownload your signed copy:\n${downloadUrl}\n\nThis link expires in 14 days.`;
+        const html = `
+          <div style="font-family:Arial,sans-serif;line-height:1.5;color:#111;">
+            <p>${escapeHtml(signerName)}, your school release of information is complete.</p>
+            <p><strong>Client:</strong> ${escapeHtml(clientName)}<br/><strong>School:</strong> ${escapeHtml(schoolName)}</p>
+            <p><a href="${downloadUrl}" style="display:inline-block;padding:10px 14px;background:#2c3e50;color:#fff;text-decoration:none;border-radius:6px;">Download Signed School ROI</a></p>
+            <p style="color:#777;">This link expires in 14 days.</p>
+          </div>
+        `.trim();
+        try {
+          const identity = await resolveIntakeSenderIdentity({
+            organizationId: link?.organization_id || null,
+            scopeType: link?.scope_type || null,
+            agencyId: boundClient?.agency_id || agency?.id || null
+          });
+          if (identity?.id) {
+            await sendEmailFromIdentity({
+              senderIdentityId: identity.id,
+              to: updatedSubmission.signer_email,
+              subject,
+              text,
+              html,
+              source: 'auto'
+            });
+          } else {
+            await EmailService.sendEmail({
+              to: updatedSubmission.signer_email,
+              subject,
+              text,
+              html,
+              fromName: process.env.GOOGLE_WORKSPACE_FROM_NAME || 'People Operations',
+              fromAddress: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM || null,
+              replyTo: process.env.GOOGLE_WORKSPACE_REPLY_TO || null,
+              attachments: null,
+              source: 'auto',
+              agencyId: boundClient?.agency_id || agency?.id || null
+            });
+          }
+        } catch {
+          // best-effort email
+        }
+      }
       return res.json({
         success: true,
         submission: await IntakeSubmission.findById(submissionId),

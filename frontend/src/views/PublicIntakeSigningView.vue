@@ -25,7 +25,7 @@
             {{ beginSubtitleText }}
           </div>
 
-          <div v-if="recaptchaSiteKey" class="captcha-block captcha-block-start">
+          <div v-if="showCaptchaGate" class="captcha-block captcha-block-start">
             <div class="muted">{{ t('protectedByRecaptcha') }}</div>
             <div v-if="showRecaptchaWidget" class="recaptcha-verify-first">
               {{ t('verifyHumanFirst') }}
@@ -46,7 +46,7 @@
             <button
               class="btn btn-primary"
               type="button"
-              :disabled="(recaptchaSiteKey && (!showRecaptchaWidget || !captchaToken)) || consentLoading"
+              :disabled="(requiresCaptchaAtStart && (!showRecaptchaWidget || !captchaToken)) || consentLoading"
               @click="beginIntakeSession"
             >
               {{ beginIntakeButtonText }}
@@ -610,9 +610,11 @@ import { useAuthStore } from '../store/auth';
 const INTAKE_TRANSLATIONS = {
   en: {
     beginSubtitle: 'Begin to start a secure intake session. This link creates a unique session for each person.',
+    beginSubtitleSmartRoi: 'Begin to start a secure school release session. This link creates a unique signing session for each person.',
     beginSubtitleJob: 'Start your job application. This link creates a unique session for your application.',
     beginSubtitleMedical: 'Request your medical records. This link creates a unique session for your request.',
     beginIntake: 'Begin intake',
+    beginIntakeSmartRoi: 'Begin release',
     beginIntakeJob: 'Start job application',
     beginIntakeMedical: 'Start medical records request',
     loadingLink: 'Loading intake link...',
@@ -724,9 +726,11 @@ const INTAKE_TRANSLATIONS = {
     digitalIntakeJob: 'Solicitud de Empleo',
     digitalIntakeMedical: 'Solicitud de Registros Médicos',
     beginSubtitle: 'Comience para iniciar una sesión de admisión segura. Este enlace crea una sesión única para cada persona.',
+    beginSubtitleSmartRoi: 'Comience para iniciar una sesión segura de autorización escolar. Este enlace crea una sesión única de firma para cada persona.',
     beginSubtitleJob: 'Comience su solicitud de empleo. Este enlace crea una sesión única para su solicitud.',
     beginSubtitleMedical: 'Solicite sus registros médicos. Este enlace crea una sesión única para su solicitud.',
     beginIntake: 'Comenzar admisión',
+    beginIntakeSmartRoi: 'Comenzar autorización',
     beginIntakeJob: 'Comenzar solicitud de empleo',
     beginIntakeMedical: 'Comenzar solicitud de registros médicos',
     welcome: 'Bienvenido',
@@ -837,6 +841,7 @@ const t = (key) => {
 
 const formTypeKey = computed(() => String(link.value?.form_type || '').toLowerCase());
 const beginSubtitleText = computed(() => {
+  if (formTypeKey.value === 'smart_school_roi') return t('beginSubtitleSmartRoi');
   const custom = customMessages.value?.beginSubtitle;
   if (custom && String(custom).trim()) return String(custom).trim();
   if (formTypeKey.value === 'job_application') return t('beginSubtitleJob');
@@ -844,6 +849,7 @@ const beginSubtitleText = computed(() => {
   return t('beginSubtitle');
 });
 const beginIntakeButtonText = computed(() => {
+  if (formTypeKey.value === 'smart_school_roi') return t('beginIntakeSmartRoi');
   const custom = customMessages.value?.beginIntake;
   if (custom && String(custom).trim()) return String(custom).trim();
   if (formTypeKey.value === 'job_application') return t('beginIntakeJob');
@@ -904,6 +910,8 @@ const activeRecaptchaSiteKey = computed(() =>
 const activeRecaptchaMode = computed(() =>
   isLocalhostRecaptcha ? 'standard' : (useEnterpriseRecaptcha.value ? 'enterprise' : 'standard')
 );
+const requiresCaptchaAtStart = computed(() => !!recaptchaSiteKey.value && !isLocalhostRecaptcha);
+const showCaptchaGate = computed(() => requiresCaptchaAtStart.value);
 const sessionExpiryMinutes = computed(() => 30 + Math.max(0, Number(templates.value.length || 0)) * 5);
 const approvalContext = computed(() => {
   const mode = String(route.query?.mode || '').trim();
@@ -1453,8 +1461,10 @@ const loadLink = async () => {
     if (typeof recaptchaConfig.useEnterprise === 'boolean') {
       useEnterpriseRecaptcha.value = !!recaptchaConfig.useEnterprise;
     }
-    if (!templates.value.length) {
+    if (!templates.value.length && String(link.value?.form_type || '').toLowerCase() !== 'smart_school_roi') {
       error.value = 'No documents configured for this intake link.';
+    } else if (String(link.value?.form_type || '').toLowerCase() === 'smart_school_roi') {
+      error.value = '';
     }
     if (String(link.value?.form_type || '').toLowerCase() === 'job_application') {
       intakeForSelf.value = true;
@@ -2374,7 +2384,7 @@ const beginIntakeSession = async () => {
   consentLoading.value = true;
   try {
     beginError.value = '';
-    if (recaptchaSiteKey.value) {
+    if (requiresCaptchaAtStart.value) {
       if (captchaWidgetFailed.value) {
         beginError.value = t('captchaFailed');
         return;

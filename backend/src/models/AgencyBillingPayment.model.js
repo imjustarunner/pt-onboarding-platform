@@ -4,12 +4,15 @@ class AgencyBillingPayment {
   static async create(payment) {
     const {
       agencyId,
+      billingDomain = 'agency_subscription',
+      merchantMode = 'agency_managed',
       invoiceId,
       paymentMethodId = null,
       amountCents,
       currency = 'USD',
       paymentStatus = 'PENDING',
       processor = 'UNSET',
+      providerConnectionId = null,
       processorCustomerId = null,
       processorPaymentMethodId = null,
       processorChargeId = null,
@@ -28,19 +31,22 @@ class AgencyBillingPayment {
 
     const [result] = await pool.execute(
       `INSERT INTO agency_billing_payments
-        (agency_id, invoice_id, payment_method_id, amount_cents, currency, payment_status, processor,
+        (agency_id, billing_domain, merchant_mode, invoice_id, payment_method_id, amount_cents, currency, payment_status, processor, provider_connection_id,
          processor_customer_id, processor_payment_method_id, processor_charge_id, processor_reference_id,
          processor_status, initiated_at, authorized_at, captured_at, failed_at, failure_code,
          failure_message, idempotency_key, metadata_json, created_by_user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         Number(agencyId),
+        String(billingDomain || 'agency_subscription'),
+        String(merchantMode || 'agency_managed'),
         Number(invoiceId),
         paymentMethodId ? Number(paymentMethodId) : null,
         Number(amountCents || 0),
         String(currency || 'USD').trim().slice(0, 3).toUpperCase(),
         String(paymentStatus || 'PENDING').trim().toUpperCase(),
         String(processor || 'UNSET').trim().slice(0, 40).toUpperCase(),
+        providerConnectionId ? Number(providerConnectionId) : null,
         processorCustomerId || null,
         processorPaymentMethodId || null,
         processorChargeId || null,
@@ -122,8 +128,11 @@ class AgencyBillingPayment {
     };
 
     if (patch.payment_status !== undefined) set('payment_status', patch.payment_status ? String(patch.payment_status).trim().toUpperCase() : null);
+    if (patch.billing_domain !== undefined) set('billing_domain', patch.billing_domain || null);
+    if (patch.merchant_mode !== undefined) set('merchant_mode', patch.merchant_mode || null);
     if (patch.payment_method_id !== undefined) set('payment_method_id', patch.payment_method_id ? Number(patch.payment_method_id) : null);
     if (patch.processor !== undefined) set('processor', patch.processor ? String(patch.processor).trim().toUpperCase() : null);
+    if (patch.provider_connection_id !== undefined) set('provider_connection_id', patch.provider_connection_id ? Number(patch.provider_connection_id) : null);
     if (patch.processor_customer_id !== undefined) set('processor_customer_id', patch.processor_customer_id || null);
     if (patch.processor_payment_method_id !== undefined) set('processor_payment_method_id', patch.processor_payment_method_id || null);
     if (patch.processor_charge_id !== undefined) set('processor_charge_id', patch.processor_charge_id || null);

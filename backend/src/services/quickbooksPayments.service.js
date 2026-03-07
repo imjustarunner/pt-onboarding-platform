@@ -1,6 +1,8 @@
 import axios from 'axios';
 import AgencyBillingAccount from '../models/AgencyBillingAccount.model.js';
+import BillingProviderConnection from '../models/BillingProviderConnection.model.js';
 import QuickBooksTokenManager from './quickbooksTokenManager.service.js';
+import BillingMerchantContextService from './billingMerchantContext.service.js';
 
 function paymentsBaseUrl() {
   const env = (process.env.QUICKBOOKS_ENV || process.env.QBO_ENV || 'production').toLowerCase();
@@ -52,28 +54,34 @@ function buildRequestHeaders(accessToken, requestId = null) {
 }
 
 class QuickBooksPaymentsService {
-  static async ensurePaymentsReady(agencyId) {
-    const account = await AgencyBillingAccount.getByAgencyId(agencyId);
-    if (!account?.is_qbo_connected) {
-      throw new Error('QuickBooks is not connected for this agency');
+  static async ensurePaymentsReady({ agencyId = null, connectionId = null } = {}) {
+    let connection = null;
+    if (connectionId) {
+      connection = await BillingProviderConnection.findById(connectionId);
+    } else if (agencyId) {
+      const context = await BillingMerchantContextService.getAgencySubscriptionContext(agencyId);
+      connection = context.connection;
     }
-    if (!account?.qbo_payments_enabled) {
-      throw new Error('QuickBooks Payments scope is not enabled for this agency connection. Reconnect QuickBooks to enable payments.');
+    if (!connection?.is_connected) {
+      throw new Error('QuickBooks is not connected for this billing merchant');
     }
-    return account;
+    if (!connection?.qbo_payments_enabled) {
+      throw new Error('QuickBooks Payments scope is not enabled for this billing merchant. Reconnect QuickBooks to enable payments.');
+    }
+    return connection;
   }
 
-  static async getAuthContext(agencyId) {
-    const account = await this.ensurePaymentsReady(agencyId);
-    const { accessToken } = await QuickBooksTokenManager.getValidAccessToken(agencyId);
+  static async getAuthContext({ agencyId = null, connectionId = null } = {}) {
+    const connection = await this.ensurePaymentsReady({ agencyId, connectionId });
+    const { accessToken } = await QuickBooksTokenManager.getValidAccessTokenForConnection(connection.id);
     return {
-      account,
+      connection,
       accessToken
     };
   }
 
-  static async request({ agencyId, method = 'GET', path, params = undefined, payload = undefined, requestId = null }) {
-    const { accessToken } = await this.getAuthContext(agencyId);
+  static async request({ agencyId = null, connectionId = null, method = 'GET', path, params = undefined, payload = undefined, requestId = null }) {
+    const { accessToken } = await this.getAuthContext({ agencyId, connectionId });
     const url = `${paymentsBaseUrl()}${path}`;
     const res = await axios({
       url,
@@ -90,12 +98,9 @@ class QuickBooksPaymentsService {
     const account = await AgencyBillingAccount.getByAgencyId(agencyId);
     const existing = String(account?.payment_customer_ref || '').trim();
     if (existing) return existing;
-    const paymentCustomerRef = `agency-${Number(agencyId)}`;
-    await AgencyBillingAccount.setPaymentCustomerRef(agencyId, {
-      paymentProcessor: 'QUICKBOOKS_PAYMENTS',
-      paymentCustomerRef
+    return BillingMerchantContextService.ensureSubscriptionPaymentCustomerRef(agencyId, {
+      account
     });
-    return paymentCustomerRef;
   }
 
   static async createTokenFromCard({ agencyId, card }) {
@@ -125,7 +130,7 @@ class QuickBooksPaymentsService {
     return token;
   }
 
-  static async createCard({ agencyId, token = null, card = null }) {
+  static async createCard({ agencyId, connectionId = null, token = null, card = null }) {
     const paymentCustomerRef = await this.ensurePaymentCustomerRef(agencyId);
     const effectiveToken = token || (await this.createTokenFromCard({ agencyId, card }));
     const payload = {
@@ -134,6 +139,7 @@ class QuickBooksPaymentsService {
     };
     const data = await this.request({
       agencyId,
+      connectionId,
       method: 'POST',
       path: '/quickbooks/v4/payments/cards',
       payload
@@ -170,10 +176,11 @@ class QuickBooksPaymentsService {
     };
   }
 
-  static async getCharge({ agencyId, chargeId }) {
+  static async getCharge({ agencyId = null, connectionId = null, chargeId }) {
     if (!chargeId) throw new Error('chargeId is required');
     const data = await this.request({
       agencyId,
+      connectionId,
       method: 'GET',
       path: `/quickbooks/v4/payments/charges/${encodeURIComponent(String(chargeId))}`
     });
@@ -182,6 +189,7 @@ class QuickBooksPaymentsService {
 
   static async createCharge({
     agencyId,
+    connectionId = null,
     amountCents,
     currency = 'USD',
     cardOnFileId,
@@ -203,6 +211,7 @@ class QuickBooksPaymentsService {
 
     const data = await this.request({
       agencyId,
+      connectionId,
       method: 'POST',
       path: '/quickbooks/v4/payments/charges',
       payload,

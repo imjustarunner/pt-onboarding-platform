@@ -2,6 +2,7 @@ import express from 'express';
 import { authenticate } from '../middleware/auth.middleware.js';
 import {
   getGuardianBillingSummary,
+  getLearningBillingMerchantSetup,
   getClientBillingLedger,
   createSessionFromOfficeEvent,
   getBookingEligibility,
@@ -44,6 +45,7 @@ router.post('/internal/run-renewals', requireInternalRenewalSecret, runSubscript
 router.use(authenticate);
 
 router.get('/guardian/summary', getGuardianBillingSummary);
+router.get('/merchant-setup', getLearningBillingMerchantSetup);
 router.get('/clients/:clientId/ledger', getClientBillingLedger);
 router.get('/clients/:clientId/tokens', getClientTokenBalance);
 router.get('/clients/:clientId/token-ledger', listClientTokenLedger);

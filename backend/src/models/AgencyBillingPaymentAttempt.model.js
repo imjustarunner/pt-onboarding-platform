@@ -3,6 +3,9 @@ import pool from '../config/database.js';
 class AgencyBillingPaymentAttempt {
   static async create({
     paymentId,
+    billingDomain = 'agency_subscription',
+    merchantMode = 'agency_managed',
+    providerConnectionId = null,
     requestPayloadJson = null,
     responsePayloadJson = null,
     processorStatus = null,
@@ -22,10 +25,13 @@ class AgencyBillingPaymentAttempt {
 
     const [result] = await pool.execute(
       `INSERT INTO agency_billing_payment_attempts
-        (payment_id, attempt_no, request_payload_json, response_payload_json, processor_status, result_status, error_message)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        (payment_id, billing_domain, merchant_mode, provider_connection_id, attempt_no, request_payload_json, response_payload_json, processor_status, result_status, error_message)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         pid,
+        String(billingDomain || 'agency_subscription'),
+        String(merchantMode || 'agency_managed'),
+        providerConnectionId ? Number(providerConnectionId) : null,
         attemptNo,
         requestPayloadJson ? JSON.stringify(requestPayloadJson) : null,
         responsePayloadJson ? JSON.stringify(responsePayloadJson) : null,

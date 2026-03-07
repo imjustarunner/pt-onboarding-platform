@@ -13,6 +13,7 @@ import LearningBillingOrchestrator from '../services/learningBillingOrchestrator
 import LearningBillingGateService from '../services/learningBillingGate.service.js';
 import LearningQuickbooksQueueService from '../services/learningQuickbooksQueue.service.js';
 import LearningSubscriptionRenewalService from '../services/learningSubscriptionRenewal.service.js';
+import ClientPaymentsSetupService from '../services/clientPaymentsSetup.service.js';
 import { isBookedOfficeEventForLearningLink, wallMySqlToUtcDateTime } from '../utils/learningBillingTime.utils.js';
 import { encryptBillingSecret } from '../services/billingEncryption.service.js';
 
@@ -110,7 +111,30 @@ export const getGuardianBillingSummary = async (req, res, next) => {
       });
     }
 
-    return res.json({ ok: true, agencyId, items });
+    const merchantSetup = await ClientPaymentsSetupService.getSetupForAgency(agencyId);
+    return res.json({ ok: true, agencyId, items, merchantSetup });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const getLearningBillingMerchantSetup = async (req, res, next) => {
+  try {
+    const agencyId = Number(req.query.agencyId || req.params.agencyId || 0);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    const gate = await requireLearningBillingEnabled({ agencyId, res });
+    if (!gate) return;
+    const role = String(req.user?.role || '').toLowerCase();
+    if (role === 'client_guardian') {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+    if (!canManageLearningBilling(role)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+    const access = await userHasAgencyAccess(req.user.id, agencyId, req.user.role);
+    if (!access) return res.status(403).json({ error: { message: 'Access denied' } });
+    const merchantSetup = await ClientPaymentsSetupService.getSetupForAgency(agencyId);
+    return res.json({ ok: true, agencyId, merchantSetup });
   } catch (e) {
     next(e);
   }

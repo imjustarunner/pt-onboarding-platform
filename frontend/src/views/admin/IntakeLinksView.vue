@@ -193,7 +193,7 @@
                 Standalone forms (e.g. additional driver, consent) are externally clickable and not tied to a person. Completed documents land in Submitted Documents for staff to assign to a client.
               </small>
               <small v-if="form.formType === 'smart_school_roi'" class="form-help">
-                Dedicated school ROI flow. This must stay school-scoped, does not create clients, and is intended for client-bound release-of-information signing links.
+                Dedicated Smart ROI flow. This is the standard school ROI and is built independently per school. It stays school-scoped and does not create clients.
               </small>
               <small v-if="form.formType === 'job_application'" class="form-help">
                 Each job gets its own link. Applicants upload resume, cover letter, etc. Documents land in Submitted Documents.

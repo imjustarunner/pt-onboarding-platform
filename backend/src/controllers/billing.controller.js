@@ -1,6 +1,7 @@
 import BillingUsageService from '../services/billingUsage.service.js';
 import { buildEstimate, getEffectiveBillingPricingForAgency } from '../services/billingPricing.service.js';
 import AgencyCommunicationBillingService from '../services/agencyCommunicationBilling.service.js';
+import BillingMerchantContextService from '../services/billingMerchantContext.service.js';
 import { formatPeriodLabel, getCurrentBillingPeriod } from '../utils/billingPeriod.js';
 
 export const getAgencyAddons = async (req, res, next) => {
@@ -45,6 +46,7 @@ export const getAgencyBillingEstimate = async (req, res, next) => {
     });
     const pricingBundle = await getEffectiveBillingPricingForAgency(parsedAgencyId);
     const estimate = buildEstimate(usage, pricingBundle.effective);
+    const merchantContext = await BillingMerchantContextService.getAgencySubscriptionContext(parsedAgencyId);
     const communicationSummary = await AgencyCommunicationBillingService.getAgencyPeriodSummary({
       agencyId: parsedAgencyId,
       periodStart: period.periodStart,
@@ -59,6 +61,8 @@ export const getAgencyBillingEstimate = async (req, res, next) => {
         label: formatPeriodLabel(period)
       },
       pricing: estimate.pricing,
+      merchantMode: merchantContext.merchantMode,
+      providerConnectionId: merchantContext.providerConnectionId,
       communicationSummary,
       ...estimate
     });

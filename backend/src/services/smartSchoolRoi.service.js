@@ -27,12 +27,12 @@ const REQUIRED_ACKNOWLEDGEMENTS = [
   {
     id: 'esign_consent',
     title: 'Electronic consent',
-    body: 'I agree to review, receive, and sign this release electronically through the app.'
+    body: 'I agree to review, receive, and sign this release electronically through ITSCO’s secure online platform used for care coordination and scheduling.'
   },
   {
     id: 'hipaa_privacy',
-    title: 'HIPAA and privacy notice',
-    body: 'I understand ITSCO will reasonably limit disclosure, protect the information in the app, and keep auditable logs of access and release activity.'
+    title: 'App, privacy, and HIPAA notice',
+    body: 'I understand ITSCO uses this app for scheduling and care-support communication. Only approved school staff will have access to the client’s brief ROI-related file for communication and scheduling purposes. ITSCO limits disclosure to authorized needs, protects information, and maintains auditable access/release logs.'
   },
   {
     id: 'redisclosure_risk',
@@ -55,7 +55,7 @@ const WAIVER_ITEMS = [
   {
     id: 'communication_and_care_planning',
     title: 'School communication and care planning',
-    body: 'I authorize communication with approved school staff to help them understand the client’s needs and support care planning in the school setting.'
+    body: 'I authorize limited communication with approved school staff for school-based care coordination and support of the client’s identified needs.'
   },
   {
     id: 'safety_concerns',
@@ -65,12 +65,19 @@ const WAIVER_ITEMS = [
   {
     id: 'services_on_school_property',
     title: 'Services on school property',
-    body: 'I authorize coordination related to psychological services being delivered on school property.'
+    body: 'I authorize coordination related to psychological services being delivered on school property, and understand the school environment does not provide the same privacy protections as a private clinical office.',
+    requiredAccept: true
+  },
+  {
+    id: 'school_scheduling_safety_logistics',
+    title: 'School scheduling and safety logistics',
+    body: 'I authorize limited scheduling/logistics visibility for school operations and student safety when needed (for example, class pull timing, location transitions, and pickup coordination). I understand this limited visibility may involve school staff not listed on this ROI receiving only operational timing details, not broader clinical content.',
+    requiredAccept: true
   },
   {
     id: 'treatment_goals',
     title: 'Treatment goals and plans',
-    body: 'I authorize discussion of treatment goals and associated treatment plans with approved school staff.'
+    body: 'I authorize brief discussion of treatment goals/objectives only as needed for care coordination with approved school staff; no session-content details are released outside this care purpose.'
   },
   {
     id: 'session_content_limitation',
@@ -141,6 +148,31 @@ function buildSchoolAddress(organization = {}) {
   return parts.join(', ') || '';
 }
 
+function buildSchoolContact(organization = {}) {
+  const contactName = String(
+    organization?.school_profile?.primary_contact_name
+    || organization?.primary_contact_name
+    || ''
+  ).trim() || null;
+  const contactEmail = String(
+    organization?.school_profile?.primary_contact_email
+    || organization?.contact_email
+    || organization?.email
+    || ''
+  ).trim() || null;
+  const contactPhone = String(
+    organization?.school_profile?.primary_contact_phone
+    || organization?.contact_phone
+    || organization?.phone_number
+    || ''
+  ).trim() || null;
+  return {
+    name: contactName,
+    email: contactEmail,
+    phone: contactPhone
+  };
+}
+
 function preferredTemplate(templates = []) {
   return templates.find((template) => String(template?.document_type || '').trim().toLowerCase() === 'school_roi')
     || templates[0]
@@ -162,6 +194,8 @@ function normalizeStaffDecisions(staffRoster = [], roi = {}) {
     schoolStaffUserId: Number(staff.school_staff_user_id || staff.schoolStaffUserId || 0),
     fullName: staff.full_name || staff.fullName || staff.display_name || [staff.first_name, staff.last_name].filter(Boolean).join(' ').trim() || staff.email || `User ${staff.school_staff_user_id || staff.schoolStaffUserId || ''}`,
     email: staff.email || null,
+    phone: staff.phone || staff.phone_number || null,
+    role: staff.role || staff.role_key || 'School staff',
     allowed: decisionMap.get(Number(staff.school_staff_user_id || staff.schoolStaffUserId || 0)) === true
   }));
 }
@@ -171,7 +205,9 @@ function normalizeAcknowledgements(definitions = [], values = {}) {
     id: item.id,
     title: item.title,
     body: item.body,
-    accepted: normalizeBool(values?.[item.id])
+    accepted: values?.[item.id] === null || values?.[item.id] === undefined
+      ? null
+      : normalizeBool(values?.[item.id])
   }));
 }
 
@@ -180,6 +216,7 @@ function normalizeWaiverItems(definitions = [], values = {}) {
     id: item.id,
     title: item.title,
     body: item.body,
+    requiredAccept: item.requiredAccept === true,
     decision: normalizeDecision(values?.[item.id])
   }));
 }
@@ -211,7 +248,9 @@ export async function buildSmartSchoolRoiContext({ link, boundClient, organizati
     school: {
       id: schoolOrganizationId,
       name: String(organization?.name || boundClient?.organization_name || '').trim() || null,
-      address: buildSchoolAddress(organization)
+      address: buildSchoolAddress(organization),
+      contact: buildSchoolContact(organization),
+      relationshipToParty: 'student'
     },
     agency: {
       id: Number(agency?.id || 0) || null,
@@ -232,7 +271,9 @@ export async function buildSmartSchoolRoiContext({ link, boundClient, organizati
       firstName: staff.first_name || null,
       lastName: staff.last_name || null,
       fullName: [staff.first_name, staff.last_name].filter(Boolean).join(' ').trim() || staff.email || `User ${staff.school_staff_user_id}`,
-      email: staff.email || null
+      email: staff.email || null,
+      phone: staff.phone_number || null,
+      role: String(staff.role_key || 'school_staff').replace(/_/g, ' ')
     }))
   };
 }
@@ -240,6 +281,19 @@ export async function buildSmartSchoolRoiContext({ link, boundClient, organizati
 export function normalizeSmartSchoolRoiResponse({ roiContext = {}, intakeData = {}, signedAt = new Date() }) {
   const roi = intakeData?.smartSchoolRoi || {};
   const signer = roi?.signer || intakeData?.guardian || {};
+  const requiredAcknowledgements = normalizeAcknowledgements(
+    roiContext?.requiredAcknowledgements || REQUIRED_ACKNOWLEDGEMENTS,
+    roi?.requiredAcknowledgements || {}
+  );
+  const waiverItems = normalizeWaiverItems(
+    roiContext?.waiverItems || WAIVER_ITEMS,
+    roi?.waiverItems || {}
+  );
+  const staffDecisions = normalizeStaffDecisions(roiContext?.staffRoster || [], roi);
+  const schoolSchedulingSafetyLogisticsAuthorized =
+    waiverItems.find((item) => item.id === 'school_scheduling_safety_logistics')?.decision === 'accept';
+  const approvedStaffCount = staffDecisions.filter((staff) => staff.allowed).length;
+  const deniedStaffCount = staffDecisions.filter((staff) => staff.allowed === false).length;
   return {
     signedAt: formatDateTime(signedAt),
     clientFullName: String(
@@ -258,15 +312,12 @@ export function normalizeSmartSchoolRoiResponse({ roiContext = {}, intakeData = 
       phone: String(signer?.phone || '').trim() || null
     },
     packetReleaseAllowed: normalizeBool(roi?.packetReleaseAllowed),
-    requiredAcknowledgements: normalizeAcknowledgements(
-      roiContext?.requiredAcknowledgements || REQUIRED_ACKNOWLEDGEMENTS,
-      roi?.requiredAcknowledgements || {}
-    ),
-    waiverItems: normalizeWaiverItems(
-      roiContext?.waiverItems || WAIVER_ITEMS,
-      roi?.waiverItems || {}
-    ),
-    staffDecisions: normalizeStaffDecisions(roiContext?.staffRoster || [], roi)
+    requiredAcknowledgements,
+    waiverItems,
+    staffDecisions,
+    schoolSchedulingSafetyLogisticsAuthorized,
+    approvedStaffCount,
+    deniedStaffCount
   };
 }
 
@@ -280,7 +331,7 @@ export function validateSmartSchoolRoiResponse(response) {
   if (!response?.clientDateOfBirth) missing.push('Client date of birth');
 
   for (const ack of response?.requiredAcknowledgements || []) {
-    if (!ack.accepted) {
+    if (ack.accepted !== true && ack.accepted !== false) {
       missing.push(`Required acknowledgement: ${ack.title}`);
     }
   }
@@ -288,6 +339,9 @@ export function validateSmartSchoolRoiResponse(response) {
   for (const item of response?.waiverItems || []) {
     if (item.decision === 'undecided') {
       missing.push(`Waiver decision: ${item.title}`);
+    }
+    if (item.requiredAccept && item.decision !== 'accept') {
+      missing.push(`Required authorization: ${item.title}`);
     }
   }
 
@@ -347,6 +401,9 @@ export function buildSmartSchoolRoiHtml({ roiContext = {}, response = {}, signed
   const packetReleaseText = response.packetReleaseAllowed
     ? 'Approved for packet/document visibility for all approved staff.'
     : 'Not approved for packet/document visibility. Approved staff receive ROI access only.';
+  const schoolSchedulingSafetyText = response.schoolSchedulingSafetyLogisticsAuthorized
+    ? 'Authorized. Limited school-level scheduling/logistics visibility is permitted for operations and student safety.'
+    : 'Not authorized.';
 
   return `<!DOCTYPE html>
 <html>
@@ -378,6 +435,12 @@ export function buildSmartSchoolRoiHtml({ roiContext = {}, response = {}, signed
       <p><strong>Relationship:</strong> ${escapeHtml(response.signer?.relationship || '—')}</p>
       <p><strong>School:</strong> ${escapeHtml(roiContext?.school?.name || '—')}</p>
       <p><strong>School Address:</strong> ${escapeHtml(roiContext?.school?.address || '—')}</p>
+      <p><strong>Relationship to party:</strong> ${escapeHtml(roiContext?.school?.relationshipToParty || 'student')}</p>
+      <p><strong>School Contact:</strong>
+        ${escapeHtml(roiContext?.school?.contact?.name || '—')}
+        ${roiContext?.school?.contact?.email ? ` · ${escapeHtml(roiContext.school.contact.email)}` : ''}
+        ${roiContext?.school?.contact?.phone ? ` · ${escapeHtml(roiContext.school.contact.phone)}` : ''}
+      </p>
     </div>
 
     <h2>Authorization</h2>
@@ -432,11 +495,26 @@ export function buildSmartSchoolRoiHtml({ roiContext = {}, response = {}, signed
     <h2>Packet and Document Release</h2>
     <p>${escapeHtml(packetReleaseText)}</p>
 
+    <h2>School-Level vs Individual Disclosure</h2>
+    <p><strong>School-level scheduling/safety logistics:</strong> ${escapeHtml(schoolSchedulingSafetyText)}</p>
+    <p><strong>Individual staff disclosure:</strong> Only staff explicitly approved in this ROI may receive individual ROI-based disclosure access. Staff not approved receive no individual ROI or packet access.</p>
+
+    <h2>Term, Revocation, and Required Notices</h2>
+    <ul>
+      <li>This authorization is valid for 12 months from the signature date unless revoked earlier.</li>
+      <li>Revocation may be requested at any time by contacting support@itsco.health or 833-444-8726 extension 0.</li>
+      <li>Any actions already taken before revocation cannot be undone.</li>
+      <li>Information disclosed may be subject to redistribution by the receiving party and may no longer be protected in the same way.</li>
+      <li>Session content is not shared unless clinically necessary for safety concerns involving imminent risk.</li>
+    </ul>
+
     <h2>Approved School Staff</h2>
     <table>
       <thead>
         <tr>
           <th>Name</th>
+          <th>Role</th>
+          <th>Phone</th>
           <th>Email</th>
           <th>Decision</th>
         </tr>
@@ -445,6 +523,8 @@ export function buildSmartSchoolRoiHtml({ roiContext = {}, response = {}, signed
         ${(response.staffDecisions || []).map((staff) => `
           <tr>
             <td>${escapeHtml(staff.fullName || '—')}</td>
+            <td>${escapeHtml(staff.role || 'School staff')}</td>
+            <td>${escapeHtml(staff.phone || '—')}</td>
             <td>${escapeHtml(staff.email || '—')}</td>
             <td>${staff.allowed ? 'Approved' : 'Denied'}</td>
           </tr>
@@ -467,6 +547,7 @@ export function buildSmartSchoolRoiHtml({ roiContext = {}, response = {}, signed
     <h2>Summary</h2>
     <p><strong>Approved staff count:</strong> ${approvedStaff.length}</p>
     <p><strong>Denied staff count:</strong> ${deniedStaff.length}</p>
+    <p><strong>School-level scheduling/safety logistics authorization:</strong> ${response.schoolSchedulingSafetyLogisticsAuthorized ? 'Authorized' : 'Not authorized'}</p>
   </body>
 </html>`;
 }

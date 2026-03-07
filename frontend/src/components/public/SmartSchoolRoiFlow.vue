@@ -12,6 +12,23 @@
       <p>
         The app will log the release, protect access, and apply permissions based on the responses entered here.
       </p>
+      <p class="required-fields-note">
+        Required fields are highlighted. The highlight turns off as each required field is completed.
+      </p>
+
+      <div class="subject-choice-row">
+        <label class="choice-card" :class="{ 'required-highlight': form.intakeForSelf === null }">
+          <input v-model="form.intakeForSelf" :value="true" type="radio" />
+          <span>I am the client</span>
+        </label>
+        <label class="choice-card" :class="{ 'required-highlight': form.intakeForSelf === null }">
+          <input v-model="form.intakeForSelf" :value="false" type="radio" />
+          <span>My dependent is the client</span>
+        </label>
+      </div>
+      <p class="subject-choice-hint">
+        Choose who the client is for this release so the signer and relationship fields are labeled correctly.
+      </p>
 
       <div class="summary-grid">
         <div>
@@ -19,43 +36,70 @@
           <div class="summary-value">{{ form.clientFullName || '—' }}</div>
         </div>
         <div>
-          <label>Date of Birth</label>
-          <input v-model="form.clientDateOfBirth" type="date" />
+          <label>{{ subjectDobLabel }}</label>
+          <input v-model="form.clientDateOfBirth" :class="['roi-input', requiredFieldClass(form.clientDateOfBirth)]" type="date" />
         </div>
         <div>
-          <label>Responsible Party First Name</label>
-          <input v-model="form.signer.firstName" type="text" />
+          <label>{{ signerFirstNameLabel }}</label>
+          <input v-model="form.signer.firstName" :class="['roi-input', requiredFieldClass(form.signer.firstName)]" type="text" />
         </div>
         <div>
-          <label>Responsible Party Last Name</label>
-          <input v-model="form.signer.lastName" type="text" />
+          <label>{{ signerLastNameLabel }}</label>
+          <input v-model="form.signer.lastName" :class="['roi-input', requiredFieldClass(form.signer.lastName)]" type="text" />
         </div>
         <div>
           <label>Email</label>
-          <input v-model="form.signer.email" type="email" />
+          <input v-model="form.signer.email" :class="['roi-input', requiredFieldClass(form.signer.email)]" type="email" />
         </div>
         <div>
           <label>Phone</label>
-          <input v-model="form.signer.phone" type="tel" />
+          <input v-model="form.signer.phone" class="roi-input" type="tel" />
         </div>
         <div>
           <label>Relationship to Client</label>
-          <input v-model="form.signer.relationship" type="text" placeholder="Parent, guardian, self, etc." />
+          <input
+            v-if="form.intakeForSelf !== true"
+            v-model="form.signer.relationship"
+            :class="['roi-input', requiredFieldClass(form.signer.relationship)]"
+            type="text"
+            placeholder="Parent, guardian, self, etc."
+          />
+          <div v-else class="summary-value">Self</div>
         </div>
         <div>
           <label>School</label>
           <div class="summary-value">{{ schoolName }}</div>
         </div>
+        <div>
+          <label>School address</label>
+          <div class="summary-value">{{ schoolAddress || '—' }}</div>
+        </div>
+        <div>
+          <label>School contact</label>
+          <div class="summary-value">{{ schoolContactLine || '—' }}</div>
+        </div>
+        <div>
+          <label>Relationship to party</label>
+          <div class="summary-value">{{ relationshipToParty }}</div>
+        </div>
       </div>
 
+      <div class="actions">
+        <button type="button" class="btn btn-primary" @click="goNext">Continue</button>
+      </div>
+    </div>
+
+    <div v-else-if="stage === 'purpose'" class="smart-roi-card">
+      <div class="progress-label">Step {{ stepNumber }} of {{ totalSteps }}</div>
+      <h3>Purpose of release</h3>
+      <p>This authorization allows communication for school care coordination within the approved scope.</p>
       <div class="info-panel">
-        <h4>Purpose of this release</h4>
         <ul>
           <li v-for="purpose in roiContext.purposes || []" :key="purpose">{{ purpose }}</li>
         </ul>
       </div>
-
       <div class="actions">
+        <button type="button" class="btn btn-secondary" @click="goBack">Back</button>
         <button type="button" class="btn btn-primary" @click="goNext">Continue</button>
       </div>
     </div>
@@ -64,19 +108,27 @@
       <div class="progress-label">Step {{ stepNumber }} of {{ totalSteps }}</div>
       <h3>{{ currentAck?.title }}</h3>
       <p>{{ currentAck?.body }}</p>
+      <p class="auto-advance-note">Selecting an option will move you to the next question.</p>
       <div class="choice-row">
-        <label class="choice-card">
-          <input v-model="form.requiredAcknowledgements[currentAck.id]" :value="true" type="radio" />
+        <label class="choice-card" @click.prevent="selectAckDecision(true)">
+          <input
+            :checked="form.requiredAcknowledgements[currentAck.id] === true"
+            :value="true"
+            type="radio"
+          />
           <span>I acknowledge and accept</span>
         </label>
-        <label class="choice-card">
-          <input v-model="form.requiredAcknowledgements[currentAck.id]" :value="false" type="radio" />
+        <label class="choice-card" @click.prevent="selectAckDecision(false)">
+          <input
+            :checked="form.requiredAcknowledgements[currentAck.id] === false"
+            :value="false"
+            type="radio"
+          />
           <span>I do not accept</span>
         </label>
       </div>
       <div class="actions">
         <button type="button" class="btn btn-secondary" @click="goBack">Back</button>
-        <button type="button" class="btn btn-primary" @click="goNext">Continue</button>
       </div>
     </div>
 
@@ -84,19 +136,34 @@
       <div class="progress-label">Step {{ stepNumber }} of {{ totalSteps }}</div>
       <h3>{{ currentWaiver?.title }}</h3>
       <p>{{ currentWaiver?.body }}</p>
+      <p class="auto-advance-note">Selecting an option will move you to the next question.</p>
+      <p v-if="currentWaiver?.requiredAccept" class="required-note">
+        This authorization is required to provide services in the school setting.
+      </p>
       <div class="choice-row">
-        <label class="choice-card">
-          <input v-model="form.waiverItems[currentWaiver.id]" value="accept" type="radio" />
-          <span>Authorize</span>
+        <label class="choice-card" @click.prevent="selectWaiverDecision('accept')">
+          <input
+            :checked="form.waiverItems[currentWaiver.id] === 'accept'"
+            value="accept"
+            type="radio"
+          />
+          <span>{{ currentWaiver?.requiredAccept ? 'Authorize (required)' : 'Authorize' }}</span>
         </label>
-        <label class="choice-card">
-          <input v-model="form.waiverItems[currentWaiver.id]" value="decline" type="radio" />
+        <label
+          v-if="!currentWaiver?.requiredAccept"
+          class="choice-card"
+          @click.prevent="selectWaiverDecision('decline')"
+        >
+          <input
+            :checked="form.waiverItems[currentWaiver.id] === 'decline'"
+            value="decline"
+            type="radio"
+          />
           <span>Do not authorize</span>
         </label>
       </div>
       <div class="actions">
         <button type="button" class="btn btn-secondary" @click="goBack">Back</button>
-        <button type="button" class="btn btn-primary" @click="goNext">Continue</button>
       </div>
     </div>
 
@@ -106,19 +173,22 @@
       <p>
         Approved staff will receive basic ROI access. Do you also authorize approved staff to view the packet and related documents?
       </p>
+      <p class="auto-advance-note">Selecting an option will move you to the next question.</p>
+      <p class="separation-note">
+        This choice applies only to approved individual staff on this ROI. School-level scheduling/safety logistics are handled separately.
+      </p>
       <div class="choice-row">
-        <label class="choice-card">
-          <input v-model="form.packetReleaseAllowed" :value="true" type="radio" />
+        <label class="choice-card" @click.prevent="selectPacketDecision(true)">
+          <input :checked="form.packetReleaseAllowed === true" :value="true" type="radio" />
           <span>Yes, approved staff may view the packet</span>
         </label>
-        <label class="choice-card">
-          <input v-model="form.packetReleaseAllowed" :value="false" type="radio" />
+        <label class="choice-card" @click.prevent="selectPacketDecision(false)">
+          <input :checked="form.packetReleaseAllowed === false" :value="false" type="radio" />
           <span>No, approved staff receive ROI access only</span>
         </label>
       </div>
       <div class="actions">
         <button type="button" class="btn btn-secondary" @click="goBack">Back</button>
-        <button type="button" class="btn btn-primary" @click="goNext">Continue</button>
       </div>
     </div>
 
@@ -126,19 +196,56 @@
       <div class="progress-label">Step {{ stepNumber }} of {{ totalSteps }}</div>
       <h3>School staff approval</h3>
       <p>Choose whether information may be released to this staff member.</p>
+      <p class="auto-advance-note">Selecting an option will move you to the next question.</p>
+      <p class="separation-note">
+        If no individual staff are approved, no individual ROI or packet access will be granted.
+      </p>
       <div class="staff-card">
         <div class="staff-name">{{ currentStaff?.fullName }}</div>
+        <div class="staff-meta">{{ currentStaff?.role || 'School staff' }}</div>
         <div class="staff-email" v-if="currentStaff?.email">{{ currentStaff.email }}</div>
+        <div class="staff-email" v-if="currentStaff?.phone">{{ currentStaff.phone }}</div>
       </div>
       <div class="choice-row">
-        <label class="choice-card">
-          <input v-model="form.staffDecisions[currentStaff.schoolStaffUserId]" :value="true" type="radio" />
+        <label class="choice-card" @click.prevent="selectStaffDecision(true)">
+          <input :checked="form.staffDecisions[currentStaff.schoolStaffUserId] === true" :value="true" type="radio" />
           <span>Approve release</span>
         </label>
-        <label class="choice-card">
-          <input v-model="form.staffDecisions[currentStaff.schoolStaffUserId]" :value="false" type="radio" />
+        <label class="choice-card" @click.prevent="selectStaffDecision(false)">
+          <input :checked="form.staffDecisions[currentStaff.schoolStaffUserId] === false" :value="false" type="radio" />
           <span>Deny release</span>
         </label>
+      </div>
+      <div class="actions">
+        <button type="button" class="btn btn-secondary" @click="goBack">Back</button>
+      </div>
+    </div>
+
+    <div v-else-if="stage === 'guidelines'" class="smart-roi-card">
+      <div class="progress-label">Step {{ stepNumber }} of {{ totalSteps }}</div>
+      <h3>Guidelines and limitations</h3>
+      <p>These disclosures are limited and documented according to the terms below.</p>
+      <div class="info-panel">
+        <ul>
+          <li v-for="item in roiContext.guidelines || []" :key="item">{{ item }}</li>
+        </ul>
+      </div>
+      <div class="actions">
+        <button type="button" class="btn btn-secondary" @click="goBack">Back</button>
+        <button type="button" class="btn btn-primary" @click="goNext">Continue</button>
+      </div>
+    </div>
+
+    <div v-else-if="stage === 'term'" class="smart-roi-card">
+      <div class="progress-label">Step {{ stepNumber }} of {{ totalSteps }}</div>
+      <h3>Term and revocation</h3>
+      <div class="info-panel">
+        <ul>
+          <li>This authorization is valid for 12 months from the date signed unless revoked earlier.</li>
+          <li>Consent may be revoked at any time through support@itsco.health or 833-444-8726 extension 0.</li>
+          <li>Actions already taken before revocation cannot be undone.</li>
+          <li>Information disclosed may be redistributed by the receiving party and may no longer be protected in the same way.</li>
+        </ul>
       </div>
       <div class="actions">
         <button type="button" class="btn btn-secondary" @click="goBack">Back</button>
@@ -164,6 +271,19 @@
           <li v-for="staff in approvedStaff" :key="staff.schoolStaffUserId">{{ staff.fullName }}</li>
         </ul>
         <p v-else>No staff were approved.</p>
+      </div>
+
+      <div class="review-block">
+        <h4>School-level vs individual disclosure</h4>
+        <p>
+          <strong>School-level scheduling/safety logistics:</strong>
+          {{ schoolSchedulingSafetyAuthorized ? 'Authorized' : 'Not authorized' }}
+        </p>
+        <p>
+          <strong>Individual staff release:</strong>
+          {{ approvedStaff.length }} approved, {{ deniedStaffCount }} denied.
+          If no individuals are approved, no individual ROI or packet access is granted.
+        </p>
       </div>
 
       <div class="review-block">
@@ -224,11 +344,13 @@ const waiverItems = computed(() => Array.isArray(props.roiContext?.waiverItems) 
 const staffRoster = computed(() => Array.isArray(props.roiContext?.staffRoster) ? props.roiContext.staffRoster : []);
 
 const stageOrder = computed(() => {
-  const stages = ['intro'];
+  const stages = ['intro', 'purpose'];
   ackItems.value.forEach((item) => stages.push(`ack:${item.id}`));
   waiverItems.value.forEach((item) => stages.push(`waiver:${item.id}`));
   stages.push('packet');
   staffRoster.value.forEach((staff) => stages.push(`staff:${staff.schoolStaffUserId}`));
+  stages.push('guidelines');
+  stages.push('term');
   stages.push('review');
   stages.push('complete');
   return stages;
@@ -242,6 +364,7 @@ const submitting = ref(false);
 const error = ref('');
 
 const form = reactive({
+  intakeForSelf: null,
   clientFullName: props.roiContext?.client?.fullName || props.boundClient?.full_name || '',
   clientDateOfBirth: props.roiContext?.client?.dateOfBirth || props.boundClient?.date_of_birth || '',
   signer: {
@@ -268,10 +391,27 @@ const currentStaff = computed(() => staffRoster.value.find((item) => Number(item
 const totalSteps = computed(() => Math.max(stageOrder.value.length - 1, 1));
 const stepNumber = computed(() => Math.min(stageIndex.value + 1, totalSteps.value));
 const schoolName = computed(() => props.roiContext?.school?.name || 'School');
+const schoolAddress = computed(() => String(props.roiContext?.school?.address || '').trim());
+const relationshipToParty = computed(() => String(props.roiContext?.school?.relationshipToParty || 'student'));
+const schoolContactLine = computed(() => {
+  const contact = props.roiContext?.school?.contact || {};
+  return [contact.name, contact.email, contact.phone].filter((value) => String(value || '').trim()).join(' · ');
+});
 const signerFullName = computed(() => `${form.signer.firstName || ''} ${form.signer.lastName || ''}`.trim());
 const approvedStaff = computed(() =>
   staffRoster.value.filter((staff) => form.staffDecisions[staff.schoolStaffUserId] === true)
 );
+const deniedStaffCount = computed(() =>
+  staffRoster.value.filter((staff) => form.staffDecisions[staff.schoolStaffUserId] === false).length
+);
+const schoolSchedulingSafetyAuthorized = computed(() =>
+  form.waiverItems.school_scheduling_safety_logistics === 'accept'
+);
+const subjectDobLabel = computed(() => (form.intakeForSelf === true ? 'Your Date of Birth' : 'Client Date of Birth'));
+const signerFirstNameLabel = computed(() => (form.intakeForSelf === true ? 'Your First Name' : 'Responsible Party First Name'));
+const signerLastNameLabel = computed(() => (form.intakeForSelf === true ? 'Your Last Name' : 'Responsible Party Last Name'));
+const hasRequiredValue = (value) => String(value || '').trim().length > 0;
+const requiredFieldClass = (value) => (hasRequiredValue(value) ? '' : 'required-highlight');
 
 const buildRoiPayload = () => ({
   clientFullName: form.clientFullName,
@@ -326,6 +466,13 @@ const buildSubmissionPayload = () => ({
 const validateCurrentStage = () => {
   error.value = '';
   if (stage.value === 'intro') {
+    if (form.intakeForSelf === null) {
+      error.value = 'Choose whether this release is for you or your dependent.';
+      return false;
+    }
+    if (form.intakeForSelf === true && !form.signer.relationship.trim()) {
+      form.signer.relationship = 'Self';
+    }
     if (!form.clientFullName.trim() || !form.clientDateOfBirth || !form.signer.firstName.trim() || !form.signer.lastName.trim() || !form.signer.email.trim() || !form.signer.relationship.trim()) {
       error.value = 'Complete the client and responsible party details before continuing.';
       return false;
@@ -335,12 +482,12 @@ const validateCurrentStage = () => {
     error.value = 'Choose whether you accept this acknowledgement before continuing.';
     return false;
   }
-  if (stage.value === 'ack' && form.requiredAcknowledgements[currentAck.value.id] !== true) {
-    error.value = 'This acknowledgement must be accepted to continue.';
-    return false;
-  }
   if (stage.value === 'waiver' && !form.waiverItems[currentWaiver.value.id]) {
     error.value = 'Choose whether to authorize this item before continuing.';
+    return false;
+  }
+  if (stage.value === 'waiver' && currentWaiver.value?.requiredAccept && form.waiverItems[currentWaiver.value.id] !== 'accept') {
+    error.value = 'This authorization is required to continue.';
     return false;
   }
   if (stage.value === 'packet' && typeof form.packetReleaseAllowed !== 'boolean') {
@@ -370,6 +517,33 @@ const goBack = () => {
   if (stageIndex.value > 0) stageIndex.value -= 1;
 };
 
+const selectAckDecision = (accepted) => {
+  if (!currentAck.value?.id) return;
+  form.requiredAcknowledgements[currentAck.value.id] = accepted === true;
+  error.value = '';
+  goNext();
+};
+
+const selectWaiverDecision = (decision) => {
+  if (!currentWaiver.value?.id) return;
+  form.waiverItems[currentWaiver.value.id] = decision;
+  error.value = '';
+  goNext();
+};
+
+const selectPacketDecision = (allowed) => {
+  form.packetReleaseAllowed = allowed === true;
+  error.value = '';
+  goNext();
+};
+
+const selectStaffDecision = (allowed) => {
+  if (!currentStaff.value?.schoolStaffUserId) return;
+  form.staffDecisions[currentStaff.value.schoolStaffUserId] = allowed === true;
+  error.value = '';
+  goNext();
+};
+
 const onSigned = (dataUrl) => {
   signatureData.value = dataUrl;
   error.value = '';
@@ -383,6 +557,16 @@ const submitRoi = async () => {
     if (!submissionId.value) {
       const consentResp = await api.post(`/public-intake/${props.publicKey}/consent`, buildSubmissionPayload());
       submissionId.value = consentResp.data?.submission?.id || null;
+      if (consentResp.data?.alreadyCompleted) {
+        downloadUrl.value = consentResp.data?.downloadUrl || '';
+        stageIndex.value = stageOrder.value.indexOf('complete');
+        emit('completed', {
+          submissionId: submissionId.value,
+          downloadUrl: downloadUrl.value,
+          clientBundles: []
+        });
+        return;
+      }
     }
     if (!submissionId.value) {
       error.value = 'Unable to start this signing session.';
@@ -454,6 +638,36 @@ const submitRoi = async () => {
   background: var(--bg-secondary);
 }
 
+.required-fields-note {
+  margin-top: 10px;
+  margin-bottom: 0;
+  color: #9a6700;
+  font-size: 13px;
+}
+
+.subject-choice-row {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.subject-choice-hint {
+  margin-top: 8px;
+  margin-bottom: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.roi-input {
+  width: 100%;
+}
+
+.required-highlight {
+  border: 2px solid #f59e0b;
+  background: #fffbeb;
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.15);
+}
+
 .info-panel,
 .review-block,
 .staff-card {
@@ -480,9 +694,35 @@ const submitRoi = async () => {
   background: white;
 }
 
+.required-note {
+  margin-top: 10px;
+  margin-bottom: 0;
+  color: #9a6700;
+  font-weight: 600;
+}
+
+.auto-advance-note {
+  margin-top: 10px;
+  margin-bottom: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.separation-note {
+  margin-top: 6px;
+  margin-bottom: 0;
+  color: #9a6700;
+  font-size: 13px;
+}
+
 .staff-name {
   font-size: 18px;
   font-weight: 600;
+}
+
+.staff-meta {
+  color: var(--text-secondary);
+  margin-top: 4px;
 }
 
 .staff-email {

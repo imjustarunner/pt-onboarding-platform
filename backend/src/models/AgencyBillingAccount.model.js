@@ -131,6 +131,52 @@ class AgencyBillingAccount {
     return this.getByAgencyId(aId);
   }
 
+  static async setSubscriptionMerchantMode(agencyId, {
+    subscriptionMerchantMode,
+    subscriptionProviderConnectionId = undefined,
+    resetSubscriptionProcessorState = false
+  } = {}) {
+    const aId = parseInt(agencyId, 10);
+    if (!aId) throw new Error('Invalid agencyId');
+    await pool.execute(
+      `INSERT INTO agency_billing_accounts (agency_id, subscription_merchant_mode, subscription_provider_connection_id)
+       VALUES (?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         subscription_merchant_mode = VALUES(subscription_merchant_mode),
+         subscription_provider_connection_id = VALUES(subscription_provider_connection_id),
+         ${resetSubscriptionProcessorState ? 'payment_customer_ref = NULL, qbo_customer_id = NULL,' : ''}
+         updated_at = CURRENT_TIMESTAMP`,
+      [
+        aId,
+        subscriptionMerchantMode || 'agency_managed',
+        subscriptionProviderConnectionId === undefined ? null : (subscriptionProviderConnectionId ? Number(subscriptionProviderConnectionId) : null)
+      ]
+    );
+    return this.getByAgencyId(aId);
+  }
+
+  static async setClientPaymentsMode(agencyId, {
+    clientPaymentsMode,
+    clientPaymentsProviderConnectionId = undefined
+  } = {}) {
+    const aId = parseInt(agencyId, 10);
+    if (!aId) throw new Error('Invalid agencyId');
+    await pool.execute(
+      `INSERT INTO agency_billing_accounts (agency_id, client_payments_mode, client_payments_provider_connection_id)
+       VALUES (?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         client_payments_mode = VALUES(client_payments_mode),
+         client_payments_provider_connection_id = VALUES(client_payments_provider_connection_id),
+         updated_at = CURRENT_TIMESTAMP`,
+      [
+        aId,
+        clientPaymentsMode || 'not_configured',
+        clientPaymentsProviderConnectionId === undefined ? null : (clientPaymentsProviderConnectionId ? Number(clientPaymentsProviderConnectionId) : null)
+      ]
+    );
+    return this.getByAgencyId(aId);
+  }
+
   static async setPaymentCustomerRef(agencyId, { paymentProcessor = null, paymentCustomerRef = null } = {}) {
     const aId = parseInt(agencyId, 10);
     await pool.execute(
@@ -178,6 +224,19 @@ class AgencyBillingAccount {
          qbo_scope_csv = COALESCE(VALUES(qbo_scope_csv), qbo_scope_csv),
          updated_at = CURRENT_TIMESTAMP`,
       [aId, qboPaymentsEnabled ? 1 : 0, qboPaymentsMerchantId || null, scopeCsv === undefined ? null : (scopeCsv || null)]
+    );
+    return this.getByAgencyId(aId);
+  }
+
+  static async clearSubscriptionProcessorState(agencyId) {
+    const aId = parseInt(agencyId, 10);
+    await pool.execute(
+      `UPDATE agency_billing_accounts
+       SET payment_customer_ref = NULL,
+           qbo_customer_id = NULL,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE agency_id = ?`,
+      [aId]
     );
     return this.getByAgencyId(aId);
   }

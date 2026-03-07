@@ -4,6 +4,9 @@ class AgencyBillingInvoice {
   static async create(invoice) {
     const {
       agencyId,
+      billingDomain = 'agency_subscription',
+      merchantMode = 'agency_managed',
+      providerConnectionId = null,
       periodStart,
       periodEnd,
       schoolsUsed,
@@ -29,14 +32,17 @@ class AgencyBillingInvoice {
 
     const [result] = await pool.execute(
       `INSERT INTO agency_billing_invoices
-        (agency_id, period_start, period_end,
+        (agency_id, billing_domain, merchant_mode, provider_connection_id, period_start, period_end,
          schools_used, programs_used, admins_used, active_onboardees_used,
          base_fee_cents, extra_schools_cents, extra_programs_cents, extra_admins_cents, extra_onboardees_cents,
          communication_actual_cost_cents, communication_markup_cents, communication_subtotal_cents,
          total_cents, line_items_json, status, payment_status, payment_method_id, invoice_delivery_mode, pdf_storage_path)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         agencyId,
+        billingDomain,
+        merchantMode,
+        providerConnectionId ? Number(providerConnectionId) : null,
         periodStart,
         periodEnd,
         schoolsUsed,
@@ -72,23 +78,24 @@ class AgencyBillingInvoice {
     return rows[0] || null;
   }
 
-  static async findByAgencyAndPeriod(agencyId, { periodStart, periodEnd }) {
+  static async findByAgencyAndPeriod(agencyId, { periodStart, periodEnd, billingDomain = 'agency_subscription' }) {
     const [rows] = await pool.execute(
       `SELECT * FROM agency_billing_invoices
-       WHERE agency_id = ? AND period_start = ? AND period_end = ?
+       WHERE agency_id = ? AND billing_domain = ? AND period_start = ? AND period_end = ?
        ORDER BY id DESC LIMIT 1`,
-      [parseInt(agencyId, 10), periodStart, periodEnd]
+      [parseInt(agencyId, 10), String(billingDomain || 'agency_subscription'), periodStart, periodEnd]
     );
     return rows[0] || null;
   }
 
-  static async listByAgency(agencyId, { limit = 50 } = {}) {
+  static async listByAgency(agencyId, { limit = 50, billingDomain = 'agency_subscription' } = {}) {
     const [rows] = await pool.execute(
       `SELECT * FROM agency_billing_invoices
        WHERE agency_id = ?
+         AND billing_domain = ?
        ORDER BY period_start DESC, id DESC
        LIMIT ?`,
-      [parseInt(agencyId, 10), parseInt(limit, 10)]
+      [parseInt(agencyId, 10), String(billingDomain || 'agency_subscription'), parseInt(limit, 10)]
     );
     return rows;
   }
