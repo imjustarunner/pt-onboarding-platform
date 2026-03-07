@@ -356,6 +356,14 @@
               <div class="step-actions">
                 <button class="btn btn-secondary btn-sm" type="button" @click="addStep('questions')">+ Add Questions</button>
                 <button class="btn btn-secondary btn-sm" type="button" @click="addStep('document')">+ Add Document</button>
+                <button
+                  v-if="canAddSchoolRoiStep"
+                  class="btn btn-secondary btn-sm"
+                  type="button"
+                  @click="addSchoolRoiStep"
+                >
+                  + Add School ROI
+                </button>
                 <button class="btn btn-secondary btn-sm" type="button" @click="addStep('upload')">+ Add Upload</button>
               </div>
 
@@ -525,6 +533,14 @@
               <div v-if="safeSteps.length" class="step-actions step-actions-bottom">
                 <button class="btn btn-secondary btn-sm" type="button" @click="addStep('questions')">+ Add Questions</button>
                 <button class="btn btn-secondary btn-sm" type="button" @click="addStep('document')">+ Add Document</button>
+                <button
+                  v-if="canAddSchoolRoiStep"
+                  class="btn btn-secondary btn-sm"
+                  type="button"
+                  @click="addSchoolRoiStep"
+                >
+                  + Add School ROI
+                </button>
                 <button class="btn btn-secondary btn-sm" type="button" @click="addStep('upload')">+ Add Upload</button>
               </div>
             </div>
@@ -1156,6 +1172,11 @@ const filteredDocumentStepTemplates = computed(() => {
   if (!q) return list;
   return list.filter((t) => String(t?.name || '').toLowerCase().includes(q));
 });
+const schoolRoiStepTemplates = computed(() =>
+  documentStepTemplates.value.filter((t) => String(t?.document_type || '').trim().toLowerCase() === 'school_roi')
+);
+const defaultSchoolRoiTemplateId = computed(() => schoolRoiStepTemplates.value[0]?.id || null);
+const canAddSchoolRoiStep = computed(() => form.formType === 'smart_school_roi' || form.scopeType === 'school');
 
 const getSelectedTemplateLabel = (templateId) => {
   if (templateId == null) return '';
@@ -1258,7 +1279,7 @@ const normalizeIntakeSteps = (link) => {
   return steps;
 };
 
-const addStep = (type) => {
+const addStep = (type, options = {}) => {
   const step = { id: createId('step'), type };
   if (type === 'questions') {
     step.fields = [];
@@ -1268,10 +1289,15 @@ const addStep = (type) => {
     step.maxFiles = 1;
     step.required = true;
   } else {
-    step.templateId = null;
+    step.templateId = options?.templateId ?? null;
     step.checkboxDisclaimer = '';
   }
   form.intakeSteps.push(step);
+  return step;
+};
+
+const addSchoolRoiStep = () => {
+  addStep('document', { templateId: defaultSchoolRoiTemplateId.value });
 };
 
 const removeStep = (idx) => {
