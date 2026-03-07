@@ -359,6 +359,15 @@ async function canViewClientTicketScope({ req, schoolOrganizationId, clientId })
   return await canSupervisorAccessClientScope({ req, schoolOrganizationId, clientId });
 }
 
+async function getSchoolStaffTicketAccessState({ req, schoolOrganizationId, clientId }) {
+  if (String(req.user?.role || '').toLowerCase() !== 'school_staff') return 'none';
+  return ClientSchoolStaffRoiAccess.resolveSchoolStaffClientAccessState({
+    clientId,
+    schoolOrganizationId,
+    schoolStaffUserId: req.user?.id
+  });
+}
+
 const isSuperAdmin = (req) => String(req.user?.role || '').toLowerCase() === 'super_admin';
 
 function parseBool(v) {
@@ -637,6 +646,7 @@ export const listSupportTicketsQueue = async (req, res, next) => {
              cb.first_name AS created_by_first_name,
              cb.last_name AS created_by_last_name,
              cb.email AS created_by_email,
+             cb.role AS created_by_role,
              ab.first_name AS answered_by_first_name,
              ab.last_name AS answered_by_last_name,
              ap.first_name AS approved_by_first_name,
@@ -663,7 +673,38 @@ export const listSupportTicketsQueue = async (req, res, next) => {
     `;
 
     const [rows] = await pool.execute(sql, params);
-    res.json(rows || []);
+    const tickets = Array.isArray(rows) ? rows : [];
+    const createdByScope = new Map();
+    await Promise.all(
+      tickets.map(async (ticket) => {
+        const clientId = Number(ticket?.client_id || 0);
+        const schoolOrgId = Number(ticket?.school_organization_id || 0);
+        const creatorId = Number(ticket?.created_by_user_id || 0);
+        const creatorRole = String(ticket?.created_by_role || '').toLowerCase();
+        if (!clientId || !schoolOrgId || !creatorId || creatorRole !== 'school_staff') {
+          createdByScope.set(Number(ticket?.id || 0), 'n/a');
+          return;
+        }
+        const key = `${clientId}:${schoolOrgId}:${creatorId}`;
+        if (!createdByScope.has(key)) {
+          const state = await ClientSchoolStaffRoiAccess.resolveSchoolStaffClientAccessState({
+            clientId,
+            schoolOrganizationId: schoolOrgId,
+            schoolStaffUserId: creatorId
+          });
+          createdByScope.set(key, state);
+        }
+        createdByScope.set(Number(ticket?.id || 0), createdByScope.get(key));
+      })
+    );
+    res.json(tickets.map((ticket) => {
+      const senderRoiAccessState = createdByScope.get(Number(ticket?.id || 0)) || 'n/a';
+      return {
+        ...ticket,
+        sender_roi_access_state: senderRoiAccessState,
+        sender_is_limited: senderRoiAccessState === 'limited'
+      };
+    }));
   } catch (e) {
     next(e);
   }
@@ -872,19 +913,28 @@ export const getClientSupportTicketThread = async (req, res, next) => {
     const okClient = await ensureClientInOrg({ clientId, schoolOrganizationId });
     if (!okClient.ok) return res.status(okClient.status).json({ error: { message: okClient.message } });
 
+    const accessState = await getSchoolStaffTicketAccessState({ req, schoolOrganizationId, clientId });
+    const limitToOwnTickets = accessState === 'limited';
+    const ticketParams = [schoolOrganizationId, clientId];
+    const ownTicketClause = limitToOwnTickets ? ' AND created_by_user_id = ?' : '';
+    if (limitToOwnTickets) ticketParams.push(req.user.id);
     const [rows] = await pool.execute(
       `SELECT *
        FROM support_tickets
        WHERE school_organization_id = ?
          AND client_id = ?
+         ${ownTicketClause}
        ORDER BY created_at DESC, id DESC
        LIMIT 1`,
-      [schoolOrganizationId, clientId]
+      ticketParams
     );
     const ticket = rows?.[0] || null;
 
     let messages = [];
     if (ticket?.id && (await hasSupportTicketMessagesTable())) {
+      const messageParams = [ticket.id];
+      const ownMessageClause = limitToOwnTickets ? ' AND m.author_user_id = ?' : '';
+      if (limitToOwnTickets) messageParams.push(req.user.id);
       const [mRows] = await pool.execute(
         `SELECT m.*,
                 u.first_name AS author_first_name,
@@ -892,8 +942,9 @@ export const getClientSupportTicketThread = async (req, res, next) => {
          FROM support_ticket_messages m
          LEFT JOIN users u ON u.id = m.author_user_id
          WHERE m.ticket_id = ?
+           ${ownMessageClause}
          ORDER BY m.created_at ASC, m.id ASC`,
-        [ticket.id]
+        messageParams
       );
       messages = Array.isArray(mRows) ? mRows : [];
     }
@@ -982,17 +1033,23 @@ export const listClientSupportTickets = async (req, res, next) => {
     const okClient = await ensureClientInOrg({ clientId, schoolOrganizationId });
     if (!okClient.ok) return res.status(okClient.status).json({ error: { message: okClient.message } });
 
+    const accessState = await getSchoolStaffTicketAccessState({ req, schoolOrganizationId, clientId });
+    const limitToOwnTickets = accessState === 'limited';
     const limitRaw = req.query?.limit ? parseInt(req.query.limit, 10) : 50;
     const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(limitRaw, 200)) : 50;
+    const queryParams = [schoolOrganizationId, clientId];
+    const ownTicketClause = limitToOwnTickets ? ' AND created_by_user_id = ?' : '';
+    if (limitToOwnTickets) queryParams.push(req.user.id);
 
     const [rows] = await pool.execute(
       `SELECT *
        FROM support_tickets
        WHERE school_organization_id = ?
          AND client_id = ?
+         ${ownTicketClause}
        ORDER BY created_at DESC, id DESC
        LIMIT ${limit}`,
-      [schoolOrganizationId, clientId]
+      queryParams
     );
 
     res.json({ tickets: rows || [] });
@@ -1014,6 +1071,19 @@ export const listSupportTicketMessages = async (req, res, next) => {
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
 
     const role = String(req.user?.role || '').toLowerCase();
+    const limitedStaffOwnTicketOnly =
+      role === 'school_staff' &&
+      Number(ticket?.client_id || 0) > 0 &&
+      (
+        await getSchoolStaffTicketAccessState({
+          req,
+          schoolOrganizationId: ticket.school_organization_id,
+          clientId: ticket.client_id
+        })
+      ) === 'limited';
+    if (limitedStaffOwnTicketOnly && Number(ticket?.created_by_user_id || 0) !== Number(req.user?.id || 0)) {
+      return res.status(403).json({ error: { message: 'Limited ticket access only allows your own tickets' } });
+    }
     let canView = isAgencyAdminUser(req) || role === 'super_admin';
     if (!canView && role === 'school_staff' && ticket.client_id) {
       canView = await ClientSchoolStaffRoiAccess.schoolStaffHasActiveRoiAccess({
@@ -1043,6 +1113,9 @@ export const listSupportTicketMessages = async (req, res, next) => {
     }
 
     const hasSoftDelete = await hasSupportTicketMessagesSoftDeleteColumns();
+    const messageParams = [ticketId];
+    const ownMessageClause = limitedStaffOwnTicketOnly ? ' AND m.author_user_id = ?' : '';
+    if (limitedStaffOwnTicketOnly) messageParams.push(req.user.id);
     const [mRows] = await pool.execute(
       `SELECT m.*,
               u.first_name AS author_first_name,
@@ -1050,8 +1123,9 @@ export const listSupportTicketMessages = async (req, res, next) => {
        FROM support_ticket_messages m
        LEFT JOIN users u ON u.id = m.author_user_id
        WHERE m.ticket_id = ?
+         ${ownMessageClause}
        ORDER BY m.created_at ASC, m.id ASC`,
-      [ticketId]
+      messageParams
     );
     const list = Array.isArray(mRows) ? mRows : [];
     // Normalize deleted messages when the column exists
@@ -1100,6 +1174,18 @@ export const createSupportTicketMessage = async (req, res, next) => {
 
     // Client-scoped tickets: allow school_staff, agency admin/support/staff, and assigned providers to post.
     if (ticket.client_id) {
+      const limitedStaffOwnTicketOnly =
+        role === 'school_staff' &&
+        (
+          await getSchoolStaffTicketAccessState({
+            req,
+            schoolOrganizationId: ticket.school_organization_id,
+            clientId: ticket.client_id
+          })
+        ) === 'limited';
+      if (limitedStaffOwnTicketOnly && Number(ticket?.created_by_user_id || 0) !== Number(req.user?.id || 0)) {
+        return res.status(403).json({ error: { message: 'Limited ticket access only allows replying to your own tickets' } });
+      }
       let canPost = isAgencyAdminUser(req) || role === 'super_admin';
       if (!canPost && role === 'school_staff') {
         canPost = await ClientSchoolStaffRoiAccess.schoolStaffHasActiveRoiAccess({

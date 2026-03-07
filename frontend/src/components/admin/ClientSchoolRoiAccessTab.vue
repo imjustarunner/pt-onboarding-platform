@@ -268,6 +268,7 @@
                 <select v-model="draftStates[row.school_staff_user_id]" class="inline-select">
                   <option value="none">No access</option>
                   <option value="packet">Packet</option>
+                  <option value="limited">Limited</option>
                   <option value="roi">ROI access</option>
                   <option value="roi_docs">ROI and Doc Access</option>
                 </select>
@@ -350,7 +351,7 @@ const roiExpiryLabel = computed(() => {
 
 const normalizeState = (value) => {
   const normalized = String(value || '').trim().toLowerCase();
-  return ['none', 'packet', 'roi', 'roi_docs'].includes(normalized) ? normalized : 'none';
+  return ['none', 'packet', 'limited', 'roi', 'roi_docs'].includes(normalized) ? normalized : 'none';
 };
 
 const displayName = (row) => {
@@ -389,10 +390,11 @@ const normalizeDateInputValue = (value) => {
 };
 
 const stateLabel = (effectiveState, accessLevel) => {
-  const effective = normalizeState(effectiveState === 'expired' ? 'expired' : effectiveState);
+  const effective = normalizeState(effectiveState);
   if (effectiveState === 'expired') return 'ROI expired';
   if (effective === 'roi_docs') return 'ROI and Doc Access';
   if (effective === 'roi') return 'ROI access';
+  if (effective === 'limited') return 'Limited';
   if (effective === 'packet' || accessLevel === 'packet') return 'Packet';
   return 'No access';
 };
@@ -402,6 +404,7 @@ const stateClass = (effectiveState) => {
   return {
     'state-none': !state || state === 'none',
     'state-packet': state === 'packet',
+    'state-limited': state === 'limited',
     'state-roi': state === 'roi' || state === 'roi_docs',
     'state-expired': state === 'expired'
   };
@@ -887,6 +890,12 @@ watch(
   background: rgba(59, 130, 246, 0.08);
   border-color: rgba(59, 130, 246, 0.25);
   color: #1d4ed8;
+}
+
+.state-limited {
+  background: rgba(99, 102, 241, 0.1);
+  border-color: rgba(99, 102, 241, 0.3);
+  color: #3730a3;
 }
 
 .state-roi {

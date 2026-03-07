@@ -419,15 +419,24 @@ async function listSchoolStaffAccessByClient({ userId, role, schoolOrganizationI
   });
 }
 
-function getSchoolStaffPortalAccessMeta(client, accessMap) {
+function getSchoolStaffPortalAccessMeta(client, accessMap, resolvedStateMap = new Map()) {
   const clientId = Number(client?.id || 0);
   const record = clientId ? accessMap.get(clientId) : null;
-  const effectiveState = getEffectiveSchoolStaffRoiState(record, client?.roi_expires_at || null);
-  const canOpenClient = schoolStaffCanOpenClient(record, client?.roi_expires_at || null);
+  const resolvedState = clientId ? String(resolvedStateMap.get(clientId) || '').trim().toLowerCase() : '';
+  const effectiveState = resolvedState || getEffectiveSchoolStaffRoiState(record, client?.roi_expires_at || null);
+  const canOpenClient = resolvedState
+    ? ['limited', 'roi', 'roi_docs'].includes(effectiveState)
+    : schoolStaffCanOpenClient(record, client?.roi_expires_at || null);
+  const canViewDocuments = resolvedState
+    ? effectiveState === 'roi_docs'
+    : schoolStaffCanViewClientDocuments(record, client?.roi_expires_at || null);
+  const accessLevel = resolvedState
+    ? (effectiveState === 'expired' ? 'none' : effectiveState)
+    : (record?.is_active ? String(record.access_level || 'packet').toLowerCase() : 'none');
   return {
-    school_staff_access_level: record?.is_active ? String(record.access_level || 'packet').toLowerCase() : 'none',
+    school_staff_access_level: accessLevel,
     school_staff_effective_access_state: effectiveState,
-    school_staff_can_view_documents: schoolStaffCanViewClientDocuments(record, client?.roi_expires_at || null),
+    school_staff_can_view_documents: canViewDocuments,
     school_portal_can_open: canOpenClient,
     school_portal_force_code: !canOpenClient,
     school_portal_gray: !canOpenClient
@@ -758,11 +767,77 @@ export const getSchoolClients = async (req, res, next) => {
       schoolOrganizationId: orgId,
       clientIds: (clients || []).map((c) => Number(c?.id)).filter(Boolean)
     });
+    const schoolStaffResolvedStateByClientId = new Map();
+    if (String(userRole || '').toLowerCase() === 'school_staff') {
+      await Promise.all(
+        (clients || []).map(async (client) => {
+          const cid = Number(client?.id || 0);
+          if (!cid) return;
+          const state = await ClientSchoolStaffRoiAccess.resolveSchoolStaffClientAccessState({
+            clientId: cid,
+            schoolOrganizationId: orgId,
+            schoolStaffUserId: userId
+          });
+          schoolStaffResolvedStateByClientId.set(cid, state);
+        })
+      );
+    }
+    const limitedOwnOpenTicketsByClientId = new Map();
+    const limitedOwnAnsweredTicketsByClientId = new Map();
+    const limitedOwnTicketMessagesByClientId = new Map();
+    if (String(userRole || '').toLowerCase() === 'school_staff') {
+      const limitedClientIds = (clients || [])
+        .map((c) => Number(c?.id || 0))
+        .filter((cid) => cid > 0 && String(schoolStaffResolvedStateByClientId.get(cid) || '').toLowerCase() === 'limited');
+      if (limitedClientIds.length > 0) {
+        const placeholders = limitedClientIds.map(() => '?').join(',');
+        try {
+          const [rows] = await pool.execute(
+            `SELECT t.client_id,
+                    SUM(CASE WHEN LOWER(COALESCE(t.status, '')) IN ('answered', 'closed') THEN 0 ELSE 1 END) AS open_count,
+                    SUM(CASE WHEN LOWER(t.status) = 'answered' THEN 1 ELSE 0 END) AS answered_count
+             FROM support_tickets t
+             WHERE t.school_organization_id = ?
+               AND t.created_by_user_id = ?
+               AND t.client_id IN (${placeholders})
+             GROUP BY t.client_id`,
+            [orgId, userId, ...limitedClientIds]
+          );
+          for (const row of rows || []) {
+            limitedOwnOpenTicketsByClientId.set(Number(row.client_id), Number(row.open_count || 0));
+            limitedOwnAnsweredTicketsByClientId.set(Number(row.client_id), Number(row.answered_count || 0));
+          }
+        } catch {
+          // ignore
+        }
+        try {
+          if (await hasSupportTicketMessagesTable()) {
+            const [rows] = await pool.execute(
+              `SELECT t.client_id, COUNT(*) AS total_count
+               FROM support_tickets t
+               JOIN support_ticket_messages m ON m.ticket_id = t.id
+               WHERE t.school_organization_id = ?
+                 AND t.created_by_user_id = ?
+                 AND m.author_user_id = ?
+                 AND t.client_id IN (${placeholders})
+               GROUP BY t.client_id`,
+              [orgId, userId, userId, ...limitedClientIds]
+            );
+            for (const row of rows || []) {
+              limitedOwnTicketMessagesByClientId.set(Number(row.client_id), Number(row.total_count || 0));
+            }
+          }
+        } catch {
+          // ignore
+        }
+      }
+    }
 
     // Format response: Only include non-sensitive fields
     const restrictedClients = clients.map(client => {
+      const clientId = Number(client.id);
       const schoolStaffAccessMeta = String(userRole || '').toLowerCase() === 'school_staff'
-        ? getSchoolStaffPortalAccessMeta(client, schoolStaffAccessByClientId)
+        ? getSchoolStaffPortalAccessMeta(client, schoolStaffAccessByClientId, schoolStaffResolvedStateByClientId)
         : {
             school_staff_access_level: null,
             school_staff_effective_access_state: null,
@@ -770,6 +845,19 @@ export const getSchoolClients = async (req, res, next) => {
             school_portal_force_code: false,
             school_portal_gray: false
           };
+      const isLimitedSchoolStaff = String(schoolStaffAccessMeta.school_staff_effective_access_state || '').toLowerCase() === 'limited';
+      const openTicketCount = isLimitedSchoolStaff
+        ? (limitedOwnOpenTicketsByClientId.get(clientId) || 0)
+        : (openTicketsByClientId.get(clientId) || 0);
+      const answeredTicketCount = isLimitedSchoolStaff
+        ? (limitedOwnAnsweredTicketsByClientId.get(clientId) || 0)
+        : (answeredTicketsByClientId.get(clientId) || 0);
+      const unreadTicketMessagesCount = isLimitedSchoolStaff
+        ? 0
+        : (unreadTicketMsgsByClientId.get(clientId) || 0);
+      const ticketMessagesCount = isLimitedSchoolStaff
+        ? (limitedOwnTicketMessagesByClientId.get(clientId) || 0)
+        : (totalTicketMsgsByClientId.get(clientId) || 0);
       return {
         id: client.id,
         initials: client.initials,
@@ -799,15 +887,15 @@ export const getSchoolClients = async (req, res, next) => {
         doc_date: client.doc_date || null,
         roi_expires_at: client.roi_expires_at || null,
         skills: client.skills === 1 || client.skills === true,
-        unread_notes_count: unreadCountsByClientId.get(Number(client.id)) || 0,
-        notes_count: totalNotesByClientId.get(Number(client.id)) || 0,
-        unread_ticket_messages_count: unreadTicketMsgsByClientId.get(Number(client.id)) || 0,
-        ticket_messages_count: totalTicketMsgsByClientId.get(Number(client.id)) || 0,
-        unread_updates_count: unreadUpdatesByClientId.get(Number(client.id)) || 0,
-        open_ticket_count: openTicketsByClientId.get(Number(client.id)) || 0,
-        answered_ticket_count: answeredTicketsByClientId.get(Number(client.id)) || 0,
-        has_open_ticket: (openTicketsByClientId.get(Number(client.id)) || 0) > 0,
-        has_answered_ticket: (answeredTicketsByClientId.get(Number(client.id)) || 0) > 0,
+        unread_notes_count: unreadCountsByClientId.get(clientId) || 0,
+        notes_count: totalNotesByClientId.get(clientId) || 0,
+        unread_ticket_messages_count: unreadTicketMessagesCount,
+        ticket_messages_count: ticketMessagesCount,
+        unread_updates_count: unreadUpdatesByClientId.get(clientId) || 0,
+        open_ticket_count: openTicketCount,
+        answered_ticket_count: answeredTicketCount,
+        has_open_ticket: openTicketCount > 0,
+        has_answered_ticket: answeredTicketCount > 0,
         ...schoolStaffAccessMeta
       };
     });
@@ -3905,6 +3993,7 @@ export const listSchoolPortalNotificationsFeed = async (req, res, next) => {
         clientIds
       });
       const roiExpiresByClientId = new Map();
+      const resolvedStateByClientId = new Map();
       if (clientIds.length > 0) {
         const placeholders = clientIds.map(() => '?').join(',');
         const [clientRows] = await pool.execute(
@@ -3916,13 +4005,24 @@ export const listSchoolPortalNotificationsFeed = async (req, res, next) => {
         for (const row of clientRows || []) {
           roiExpiresByClientId.set(Number(row.id), row.roi_expires_at || null);
         }
+        await Promise.all(
+          clientIds.map(async (clientId) => {
+            const state = await ClientSchoolStaffRoiAccess.resolveSchoolStaffClientAccessState({
+              clientId,
+              schoolOrganizationId: orgId,
+              schoolStaffUserId: userId
+            });
+            resolvedStateByClientId.set(clientId, state);
+          })
+        );
       }
       responseItems = responseItems.flatMap((item) => {
         const clientId = Number(item?.client_id || 0);
         if (!clientId) return [item];
         const accessMeta = getSchoolStaffPortalAccessMeta(
           { id: clientId, roi_expires_at: roiExpiresByClientId.get(clientId) || null },
-          accessByClientId
+          accessByClientId,
+          resolvedStateByClientId
         );
         if (accessMeta.school_portal_can_open === false) {
           return [];

@@ -68,6 +68,21 @@ async function userCanAccessClient({ requestingUserId, requestingUserRole, clien
   return userAgencyIds.includes(client.agency_id) || userAgencyIds.includes(client.organization_id);
 }
 
+async function resolveSchoolStaffAccessStateForClient({ requestingUserId, requestingUserRole, client }) {
+  const normalizedRole = String(requestingUserRole || '').toLowerCase();
+  if (normalizedRole !== 'school_staff') return 'none';
+  return ClientSchoolStaffRoiAccess.resolveSchoolStaffClientAccessState({
+    clientId: client?.id,
+    schoolOrganizationId: client?.organization_id || client?.school_organization_id,
+    schoolStaffUserId: requestingUserId
+  });
+}
+
+function isSchoolStaffLimitedDocumentScope({ requestingUserRole, schoolStaffAccessState }) {
+  return String(requestingUserRole || '').toLowerCase() === 'school_staff'
+    && String(schoolStaffAccessState || '').toLowerCase() === 'limited';
+}
+
 export const uploadClientPhiDocument = [
   upload.single('file'),
   async (req, res, next) => {
@@ -79,12 +94,20 @@ export const uploadClientPhiDocument = [
       const client = await Client.findById(clientId, { includeSensitive: true });
       if (!client) return res.status(404).json({ error: { message: 'Client not found' } });
 
-      const allowed = await userCanAccessClient({
+      const schoolStaffAccessState = await resolveSchoolStaffAccessStateForClient({
         requestingUserId: req.user.id,
         requestingUserRole: req.user.role,
-        client,
-        requireDocumentAccess: true
+        client
       });
+      const isSchoolStaff = String(req.user?.role || '').toLowerCase() === 'school_staff';
+      const allowed = isSchoolStaff
+        ? ['limited', 'roi_docs'].includes(String(schoolStaffAccessState || '').toLowerCase())
+        : await userCanAccessClient({
+            requestingUserId: req.user.id,
+            requestingUserRole: req.user.role,
+            client,
+            requireDocumentAccess: true
+          });
       if (!allowed) return res.status(403).json({ error: { message: 'Access denied' } });
 
       const sanitizedFilename = StorageService.sanitizeFilename(req.file.originalname);
@@ -165,12 +188,24 @@ export const listClientPhiDocuments = async (req, res, next) => {
     const client = await Client.findById(clientId, { includeSensitive: true });
     if (!client) return res.status(404).json({ error: { message: 'Client not found' } });
 
-    const allowed = await userCanAccessClient({
+    const schoolStaffAccessState = await resolveSchoolStaffAccessStateForClient({
       requestingUserId: req.user.id,
       requestingUserRole: req.user.role,
-      client,
-      requireDocumentAccess: true
+      client
     });
+    const limitedScope = isSchoolStaffLimitedDocumentScope({
+      requestingUserRole: req.user.role,
+      schoolStaffAccessState
+    });
+    const isSchoolStaff = String(req.user?.role || '').toLowerCase() === 'school_staff';
+    const allowed = isSchoolStaff
+      ? ['limited', 'roi_docs'].includes(String(schoolStaffAccessState || '').toLowerCase())
+      : await userCanAccessClient({
+          requestingUserId: req.user.id,
+          requestingUserRole: req.user.role,
+          client,
+          requireDocumentAccess: true
+        });
     if (!allowed) return res.status(403).json({ error: { message: 'Access denied' } });
 
     let docs = [];
@@ -181,6 +216,9 @@ export const listClientPhiDocuments = async (req, res, next) => {
         return res.json([]);
       }
       throw e;
+    }
+    if (limitedScope) {
+      docs = (docs || []).filter((doc) => Number(doc?.uploaded_by_user_id || 0) === Number(req.user?.id || 0));
     }
     res.json(docs);
   } catch (e) {
@@ -210,13 +248,28 @@ export const viewPhiDocument = async (req, res, next) => {
     const client = await Client.findById(doc.client_id, { includeSensitive: true });
     if (!client) return res.status(404).json({ error: { message: 'Client not found' } });
 
-    const allowed = await userCanAccessClient({
+    const schoolStaffAccessState = await resolveSchoolStaffAccessStateForClient({
       requestingUserId: req.user.id,
       requestingUserRole: req.user.role,
-      client,
-      requireDocumentAccess: true
+      client
     });
+    const limitedScope = isSchoolStaffLimitedDocumentScope({
+      requestingUserRole: req.user.role,
+      schoolStaffAccessState
+    });
+    const isSchoolStaff = String(req.user?.role || '').toLowerCase() === 'school_staff';
+    const allowed = isSchoolStaff
+      ? ['limited', 'roi_docs'].includes(String(schoolStaffAccessState || '').toLowerCase())
+      : await userCanAccessClient({
+          requestingUserId: req.user.id,
+          requestingUserRole: req.user.role,
+          client,
+          requireDocumentAccess: true
+        });
     if (!allowed) return res.status(403).json({ error: { message: 'Access denied' } });
+    if (limitedScope && Number(doc?.uploaded_by_user_id || 0) !== Number(req.user?.id || 0)) {
+      return res.status(403).json({ error: { message: 'Limited access only allows documents you uploaded' } });
+    }
 
     // Log access (best-effort)
     try {
@@ -422,12 +475,24 @@ export const listClientPhiDocumentAudit = async (req, res, next) => {
     const client = await Client.findById(clientId, { includeSensitive: true });
     if (!client) return res.status(404).json({ error: { message: 'Client not found' } });
 
-    const allowed = await userCanAccessClient({
+    const schoolStaffAccessState = await resolveSchoolStaffAccessStateForClient({
       requestingUserId: req.user.id,
       requestingUserRole: req.user.role,
-      client,
-      requireDocumentAccess: true
+      client
     });
+    const limitedScope = isSchoolStaffLimitedDocumentScope({
+      requestingUserRole: req.user.role,
+      schoolStaffAccessState
+    });
+    const isSchoolStaff = String(req.user?.role || '').toLowerCase() === 'school_staff';
+    const allowed = isSchoolStaff
+      ? ['limited', 'roi_docs'].includes(String(schoolStaffAccessState || '').toLowerCase())
+      : await userCanAccessClient({
+          requestingUserId: req.user.id,
+          requestingUserRole: req.user.role,
+          client,
+          requireDocumentAccess: true
+        });
     if (!allowed) return res.status(403).json({ error: { message: 'Access denied' } });
 
     let docs = [];
@@ -456,7 +521,10 @@ export const listClientPhiDocumentAudit = async (req, res, next) => {
       logsByDoc.get(log.document_id).push(log);
     }
 
-    const statements = docs.map(doc => {
+    const statements = (limitedScope
+      ? (docs || []).filter((doc) => Number(doc?.uploaded_by_user_id || 0) === Number(req.user?.id || 0))
+      : (docs || [])
+    ).map(doc => {
       const docLogs = logsByDoc.get(doc.id) || [];
       const uploaded = docLogs.find(l => l.action === 'uploaded') || null;
       const downloaded = docLogs.find(l => l.action === 'downloaded') || null;

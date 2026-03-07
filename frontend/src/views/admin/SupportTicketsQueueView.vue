@@ -104,6 +104,14 @@
                 Submitted by {{ formatCreatedBy(t) }}
                 <span v-if="t.created_by_email">({{ t.created_by_email }})</span>
               </span>
+              <span
+                v-if="t.sender_roi_access_state && t.sender_roi_access_state !== 'n/a'"
+                class="pill status-pill"
+                :class="{ 'limited-pill': t.sender_is_limited }"
+                :title="`Sender ROI access at view time: ${formatSenderRoiStateLabel(t.sender_roi_access_state)}`"
+              >
+                Sender ROI: {{ formatSenderRoiStateLabel(t.sender_roi_access_state) }}
+              </span>
               <span class="inline-sep">•</span>
               <span class="inline-meta">
                 <template v-if="t.agency_name || t.school_name || t.school_organization_id">
@@ -677,6 +685,17 @@ const formatCreatedBy = (t) => {
   const name = [fn, ln].filter(Boolean).join(' ').trim();
   if (name) return name;
   return t?.created_by_email || `User #${t?.created_by_user_id || '—'}`;
+};
+
+const formatSenderRoiStateLabel = (state) => {
+  const normalized = String(state || '').trim().toLowerCase();
+  if (normalized === 'roi_docs') return 'ROI + Docs';
+  if (normalized === 'roi') return 'ROI';
+  if (normalized === 'limited') return 'Limited';
+  if (normalized === 'packet') return 'Packet';
+  if (normalized === 'expired') return 'Expired';
+  if (normalized === 'none') return 'None';
+  return normalized ? normalized.replace(/_/g, ' ') : 'Unknown';
 };
 
 const pushQuery = () => {
@@ -1423,6 +1442,11 @@ onMounted(() => {
   border-radius: 999px;
   padding: 2px 8px;
   background: var(--bg-alt);
+}
+.limited-pill {
+  border-color: rgba(59, 130, 246, 0.4);
+  background: rgba(59, 130, 246, 0.08);
+  color: #1e3a8a;
 }
 .pill.claimed {
   border: 1px solid var(--border);

@@ -98,10 +98,22 @@
             </td>
             <td class="actions">
               <button class="btn btn-primary btn-sm" :disabled="!!d.removed_at" @click="confirmOpen(d)">View</button>
-              <button class="btn btn-secondary btn-sm" type="button" :disabled="!!d.removed_at" @click="markExported(d)">
+              <button
+                v-if="canManageLifecycle"
+                class="btn btn-secondary btn-sm"
+                type="button"
+                :disabled="!!d.removed_at"
+                @click="markExported(d)"
+              >
                 Export
               </button>
-              <button class="btn btn-secondary btn-sm" type="button" :disabled="!!d.removed_at" @click="removeDoc(d)">
+              <button
+                v-if="canManageLifecycle"
+                class="btn btn-secondary btn-sm"
+                type="button"
+                :disabled="!!d.removed_at"
+                @click="removeDoc(d)"
+              >
                 Remove
               </button>
               <button
@@ -225,7 +237,8 @@ const props = defineProps({
 
 const authStore = useAuthStore();
 const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
-const canUpload = computed(() => ['super_admin', 'admin', 'support', 'staff'].includes(roleNorm.value));
+const canUpload = computed(() => ['super_admin', 'admin', 'support', 'staff', 'school_staff'].includes(roleNorm.value));
+const canManageLifecycle = computed(() => ['super_admin', 'admin', 'support', 'staff'].includes(roleNorm.value));
 
 const loading = ref(false);
 const auditLoading = ref(false);

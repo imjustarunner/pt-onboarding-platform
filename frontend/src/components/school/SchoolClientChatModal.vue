@@ -235,12 +235,15 @@
 
         <div v-if="canViewClientDocuments" class="documents-section">
           <div class="documents-section-title">Documents</div>
+          <div v-if="schoolStaffIsLimited" class="muted" style="margin-bottom: 8px;">
+            Limited access: you can upload and open documents you uploaded.
+          </div>
           <PhiDocumentsPanel :client-id="Number(client.id)" />
         </div>
 
         <div class="packet-audit">
           <div class="packet-audit-title">Packet audit (read-only)</div>
-          <div v-if="!canViewClientDocuments && isSchoolStaff" class="muted">
+          <div v-if="!canViewPacketAudit && isSchoolStaff" class="muted">
             Packet audit is only available when this client is set to `ROI and Doc Access`.
           </div>
           <div v-else-if="auditLoading" class="muted">Loading…</div>
@@ -293,9 +296,14 @@ const authStore = useAuthStore();
 const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
 const isSchoolStaff = computed(() => roleNorm.value === 'school_staff');
 const schoolStaffAccessLevel = computed(() => String(props.client?.school_staff_access_level || '').trim().toLowerCase());
+const schoolStaffIsLimited = computed(() => isSchoolStaff.value && schoolStaffAccessLevel.value === 'limited');
 const canViewClientDocuments = computed(() => {
-  if (isSchoolStaff.value) return schoolStaffAccessLevel.value === 'roi_docs';
+  if (isSchoolStaff.value) return schoolStaffAccessLevel.value === 'roi_docs' || schoolStaffAccessLevel.value === 'limited';
   return ['provider', 'admin', 'staff', 'support', 'super_admin', 'clinical_practice_assistant', 'provider_plus'].includes(roleNorm.value);
+});
+const canViewPacketAudit = computed(() => {
+  if (isSchoolStaff.value) return schoolStaffAccessLevel.value === 'roi_docs';
+  return canViewClientDocuments.value;
 });
 const showActionBar = computed(() => !isSchoolStaff.value && (props.canEditAction || props.showChecklistAction));
 const canLaunchSmartRoi = computed(() => Number(props.schoolOrganizationId || 0) > 0 && Number(props.client?.id || 0) > 0);
@@ -428,7 +436,7 @@ const load = async () => {
       checklistAudit.value = '';
     }
 
-    if (canViewClientDocuments.value) {
+    if (canViewPacketAudit.value) {
       try {
         auditLoading.value = true;
         auditError.value = '';

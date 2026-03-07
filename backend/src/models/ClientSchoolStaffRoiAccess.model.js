@@ -3,6 +3,7 @@ import pool from '../config/database.js';
 function normalizeAccessLevel(level) {
   const normalized = String(level || '').trim().toLowerCase();
   if (normalized === 'roi_docs') return 'roi_docs';
+  if (normalized === 'limited') return 'limited';
   if (normalized === 'roi') return 'roi';
   return 'packet';
 }
@@ -30,12 +31,13 @@ export function getEffectiveSchoolStaffRoiState(record, roiExpiresAt) {
   const accessLevel = normalizeAccessLevel(record.access_level);
   if (accessLevel === 'packet') return 'packet';
   if (isRoiExpired(roiExpiresAt)) return 'expired';
+  if (accessLevel === 'limited') return 'limited';
   return accessLevel === 'roi_docs' ? 'roi_docs' : 'roi';
 }
 
 export function schoolStaffCanOpenClient(record, roiExpiresAt) {
   const effectiveState = getEffectiveSchoolStaffRoiState(record, roiExpiresAt);
-  return effectiveState === 'roi' || effectiveState === 'roi_docs';
+  return effectiveState === 'limited' || effectiveState === 'roi' || effectiveState === 'roi_docs';
 }
 
 export function schoolStaffCanViewClientDocuments(record, roiExpiresAt) {
@@ -51,6 +53,26 @@ function formatUserName(firstName, lastName, email, fallbackId = null) {
 }
 
 class ClientSchoolStaffRoiAccess {
+  static async schoolStaffBelongsToOrganization({ schoolStaffUserId, schoolOrganizationId }) {
+    const uid = Number(schoolStaffUserId || 0);
+    const sid = Number(schoolOrganizationId || 0);
+    if (!uid || !sid) return false;
+
+    const [rows] = await pool.execute(
+      `SELECT 1
+       FROM user_agencies ua
+       JOIN users u ON u.id = ua.user_id
+       WHERE ua.user_id = ?
+         AND ua.agency_id = ?
+         AND LOWER(COALESCE(u.role, '')) = 'school_staff'
+         AND COALESCE(u.is_active, TRUE) = TRUE
+         AND UPPER(COALESCE(u.status, '')) <> 'ARCHIVED'
+       LIMIT 1`,
+      [uid, sid]
+    );
+    return (rows || []).length > 0;
+  }
+
   static async listSchoolStaffRosterForOrganization({ schoolOrganizationId }) {
     const sid = Number(schoolOrganizationId || 0);
     if (!sid) return [];
@@ -137,7 +159,10 @@ class ClientSchoolStaffRoiAccess {
     );
 
     return (rows || []).map((row) => {
-      const effectiveState = getEffectiveSchoolStaffRoiState(row, roiExpiresAt);
+      let effectiveState = getEffectiveSchoolStaffRoiState(row, roiExpiresAt);
+      if (!row.access_record_id && effectiveState === 'none' && !isRoiExpired(roiExpiresAt)) {
+        effectiveState = 'limited';
+      }
       return {
         school_staff_user_id: Number(row.school_staff_user_id),
         first_name: row.first_name || null,
@@ -147,11 +172,13 @@ class ClientSchoolStaffRoiAccess {
         role_key: row.role_key || 'school_staff',
         status: row.status || null,
         access_record_id: row.access_record_id ? Number(row.access_record_id) : null,
-        access_level: row.access_record_id && toBool(row.is_active) ? normalizeAccessLevel(row.access_level) : 'none',
+        access_level: row.access_record_id && toBool(row.is_active)
+          ? normalizeAccessLevel(row.access_level)
+          : (effectiveState === 'limited' ? 'limited' : 'none'),
         is_active: toBool(row.is_active),
         effective_access_state: effectiveState,
-        can_open_client: schoolStaffCanOpenClient(row, roiExpiresAt),
-        can_view_documents: schoolStaffCanViewClientDocuments(row, roiExpiresAt),
+        can_open_client: effectiveState === 'limited' ? true : schoolStaffCanOpenClient(row, roiExpiresAt),
+        can_view_documents: effectiveState === 'limited' ? false : schoolStaffCanViewClientDocuments(row, roiExpiresAt),
         granted_by_user_id: row.granted_by_user_id ? Number(row.granted_by_user_id) : null,
         granted_at: row.granted_at || null,
         granted_by_name: formatUserName(
@@ -220,29 +247,64 @@ class ClientSchoolStaffRoiAccess {
     clientId,
     schoolOrganizationId,
     schoolStaffUserId,
-    requireDocumentAccess = false
+    requireDocumentAccess = false,
+    includeLimited = true
+  }) {
+    const state = await this.resolveSchoolStaffClientAccessState({
+      clientId,
+      schoolOrganizationId,
+      schoolStaffUserId
+    });
+    if (requireDocumentAccess) return state === 'roi_docs';
+    if (includeLimited) return state === 'limited' || state === 'roi' || state === 'roi_docs';
+    return state === 'roi' || state === 'roi_docs';
+  }
+
+  static async resolveSchoolStaffClientAccessState({
+    clientId,
+    schoolOrganizationId,
+    schoolStaffUserId
   }) {
     const cid = Number(clientId || 0);
     const sid = Number(schoolOrganizationId || 0);
     const uid = Number(schoolStaffUserId || 0);
-    if (!cid || !sid || !uid) return false;
+    if (!cid || !sid || !uid) return 'none';
 
     const [rows] = await pool.execute(
-      `SELECT 1
+      `SELECT
+         a.access_level,
+         a.is_active,
+         c.roi_expires_at
        FROM client_school_staff_roi_access a
        JOIN clients c ON c.id = a.client_id
        WHERE a.client_id = ?
          AND a.school_organization_id = ?
          AND a.school_staff_user_id = ?
-         AND a.is_active = TRUE
-         AND LOWER(a.access_level) ${requireDocumentAccess ? "= 'roi_docs'" : "IN ('roi', 'roi_docs')"}
-         AND c.roi_expires_at IS NOT NULL
-         AND DATE(c.roi_expires_at) >= CURDATE()
        LIMIT 1`,
       [cid, sid, uid]
     );
+    const row = rows?.[0] || null;
+    if (row) {
+      return getEffectiveSchoolStaffRoiState(row, row.roi_expires_at || null);
+    }
 
-    return (rows || []).length > 0;
+    // No explicit row: while ROI is active, school staff in the same school org gets LIMITED access.
+    const [clientRows] = await pool.execute(
+      `SELECT roi_expires_at
+       FROM clients
+       WHERE id = ?
+         AND organization_id = ?
+       LIMIT 1`,
+      [cid, sid]
+    );
+    const client = clientRows?.[0] || null;
+    if (!client || isRoiExpired(client.roi_expires_at || null)) return 'none';
+
+    const inSchool = await this.schoolStaffBelongsToOrganization({
+      schoolStaffUserId: uid,
+      schoolOrganizationId: sid
+    });
+    return inSchool ? 'limited' : 'none';
   }
 
   static async resetForNewPacket({ clientId, schoolOrganizationId, uploaderUserId, actorUserId = null }) {
@@ -309,7 +371,7 @@ class ClientSchoolStaffRoiAccess {
     const actorId = Number(actorUserId || 0) || null;
     const state = String(nextState || '').trim().toLowerCase();
     if (!cid || !sid || !staffId) return false;
-    if (!['none', 'packet', 'roi', 'roi_docs'].includes(state)) {
+    if (!['none', 'packet', 'limited', 'roi', 'roi_docs'].includes(state)) {
       throw new Error('Invalid nextState');
     }
 
