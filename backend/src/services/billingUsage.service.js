@@ -120,7 +120,10 @@ class BillingUsageService {
 
     // Voice call minutes (call_logs) within billing period
     const [callMinutesRows] = await pool.execute(
-      `SELECT COALESCE(SUM(cl.duration_seconds), 0) AS total_seconds
+      `SELECT
+         COALESCE(SUM(cl.duration_seconds), 0) AS total_seconds,
+         COALESCE(SUM(CASE WHEN UPPER(COALESCE(cl.direction, '')) = 'OUTBOUND' THEN cl.duration_seconds ELSE 0 END), 0) AS outbound_total_seconds,
+         COALESCE(SUM(CASE WHEN UPPER(COALESCE(cl.direction, '')) = 'INBOUND' THEN cl.duration_seconds ELSE 0 END), 0) AS inbound_total_seconds
        FROM call_logs cl
        WHERE cl.agency_id = ?
          AND cl.duration_seconds IS NOT NULL
@@ -142,7 +145,38 @@ class BillingUsageService {
     );
 
     const callTotalSeconds = Number(callMinutesRows?.[0]?.total_seconds || 0);
+    const outboundCallTotalSeconds = Number(callMinutesRows?.[0]?.outbound_total_seconds || 0);
+    const inboundCallTotalSeconds = Number(callMinutesRows?.[0]?.inbound_total_seconds || 0);
     const callMinutesUsed = Math.ceil(callTotalSeconds / 60);
+    const outboundCallMinutesUsed = Math.ceil(outboundCallTotalSeconds / 60);
+    const inboundCallMinutesUsed = Math.ceil(inboundCallTotalSeconds / 60);
+
+    const [supervisionVideoRows] = await pool.execute(
+      `SELECT COALESCE(SUM(ssar.total_seconds), 0) AS total_seconds
+       FROM supervision_session_attendance_rollups ssar
+       INNER JOIN supervision_sessions ss ON ss.id = ssar.session_id
+       WHERE ss.agency_id = ?
+         AND COALESCE(ssar.total_seconds, 0) > 0
+         AND UPPER(COALESCE(ss.status, 'SCHEDULED')) <> 'CANCELLED'
+         AND (? = FALSE OR (ss.start_at >= ? AND ss.start_at < DATE_ADD(?, INTERVAL 1 DAY)))`,
+      [parsedAgencyId, hasWindow ? 1 : 0, startStr || '1970-01-01', endStr || '1970-01-01']
+    );
+
+    const [meetingVideoRows] = await pool.execute(
+      `SELECT COALESCE(SUM(r.total_seconds), 0) AS total_seconds
+       FROM agency_meeting_attendance_rollups r
+       INNER JOIN provider_schedule_events pse ON pse.id = r.event_id
+       WHERE pse.agency_id = ?
+         AND UPPER(COALESCE(pse.kind, '')) IN ('TEAM_MEETING', 'HUDDLE')
+         AND UPPER(COALESCE(pse.status, 'ACTIVE')) <> 'CANCELLED'
+         AND COALESCE(r.total_seconds, 0) > 0
+         AND (? = FALSE OR (pse.start_at >= ? AND pse.start_at < DATE_ADD(?, INTERVAL 1 DAY)))`,
+      [parsedAgencyId, hasWindow ? 1 : 0, startStr || '1970-01-01', endStr || '1970-01-01']
+    );
+
+    const supervisionVideoMinutesUsed = Math.ceil(Number(supervisionVideoRows?.[0]?.total_seconds || 0) / 60);
+    const meetingVideoMinutesUsed = Math.ceil(Number(meetingVideoRows?.[0]?.total_seconds || 0) / 60);
+    const videoParticipantMinutesUsed = supervisionVideoMinutesUsed + meetingVideoMinutesUsed;
 
     return {
       schoolsUsed: Number(schoolsRows?.[0]?.cnt || 0),
@@ -154,6 +188,9 @@ class BillingUsageService {
       notificationSmsUsed: Number(notificationSmsRows?.[0]?.cnt || 0),
       phoneNumbersUsed: Number(phoneRows?.[0]?.cnt || 0),
       callMinutesUsed,
+      outboundCallMinutesUsed,
+      inboundCallMinutesUsed,
+      videoParticipantMinutesUsed,
       momentumListUsersUsed: Number(momentumListRows?.[0]?.cnt || 0)
     };
   }

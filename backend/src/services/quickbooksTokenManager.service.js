@@ -58,7 +58,9 @@ class QuickBooksTokenManager {
       realmId: account.qbo_realm_id,
       accessTokenEnc: newAccessEnc,
       refreshTokenEnc: newRefreshEnc,
-      tokenExpiresAt: newExpiresAt
+      tokenExpiresAt: newExpiresAt,
+      scopeCsv: account.qbo_scope_csv || null,
+      qboPaymentsEnabled: !!account.qbo_payments_enabled
     });
 
     return {

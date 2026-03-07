@@ -55,15 +55,32 @@ export function verifySignedState(state, { maxAgeMs = 10 * 60 * 1000 } = {}) {
   }
 }
 
-export function getQuickBooksAuthorizeUrl({ state, scope = 'com.intuit.quickbooks.accounting' }) {
+export function normalizeQuickBooksScopes(scope = null) {
+  const raw = Array.isArray(scope)
+    ? scope
+    : String(scope || 'com.intuit.quickbooks.accounting com.intuit.quickbooks.payment').split(/[,\s]+/g);
+  const unique = [...new Set(raw.map((s) => String(s || '').trim()).filter(Boolean))];
+  return unique;
+}
+
+export function scopeListToCsv(scope = null) {
+  return normalizeQuickBooksScopes(scope).join(' ');
+}
+
+export function hasQuickBooksPaymentScope(scope = null) {
+  return normalizeQuickBooksScopes(scope).includes('com.intuit.quickbooks.payment');
+}
+
+export function getQuickBooksAuthorizeUrl({ state, scope = null }) {
   const clientId = getClientId();
   const redirectUri = getRedirectUri();
   if (!clientId || !redirectUri) {
     throw new Error('QuickBooks OAuth is not configured (clientId/redirectUri)');
   }
+  const scopeCsv = scopeListToCsv(scope);
   const params = new URLSearchParams({
     client_id: clientId,
-    scope,
+    scope: scopeCsv,
     redirect_uri: redirectUri,
     response_type: 'code',
     state

@@ -2,10 +2,15 @@ import express from 'express';
 import { authenticate, requireAgencyAccess, requireAgencyAdmin, requireSuperAdmin } from '../middleware/auth.middleware.js';
 import { getAgencyBillingEstimate, getAgencyAddons } from '../controllers/billing.controller.js';
 import { disconnectQuickBooks, getQuickBooksConnectUrl, getQuickBooksStatus, quickBooksOAuthCallback } from '../controllers/quickbooks.controller.js';
-import { downloadInvoicePdf, generateAgencyInvoice, listAgencyInvoices } from '../controllers/billingInvoices.controller.js';
+import { downloadInvoicePdf, generateAgencyInvoice, listAgencyInvoices, retryAgencyInvoicePayment, sendAgencyInvoice } from '../controllers/billingInvoices.controller.js';
 import { billingSettingsValidators, getBillingSettings, updateBillingSettings } from '../controllers/billingSettings.controller.js';
-import { runMonthlyBilling } from '../controllers/billingJobs.controller.js';
+import { runBillingPaymentReconciliation, runMonthlyBilling } from '../controllers/billingJobs.controller.js';
 import { agencyPricingOverrideValidators, getAgencyPricing, getPlatformPricing, platformPricingValidators, updateAgencyPricingOverride, updatePlatformPricing } from '../controllers/billingPricing.controller.js';
+import {
+  createAgencyBillingPaymentMethod,
+  listAgencyBillingPaymentMethods,
+  setAgencyBillingPaymentMethodDefault
+} from '../controllers/agencyBillingPaymentMethods.controller.js';
 
 const router = express.Router();
 
@@ -21,6 +26,17 @@ router.post('/run-monthly', (req, res, next) => {
   }
   next();
 }, runMonthlyBilling);
+router.post('/reconcile-payments', (req, res, next) => {
+  const configured = process.env.BILLING_JOB_SECRET;
+  const provided = req.get('x-billing-job-secret');
+  if (!configured) {
+    return res.status(500).json({ error: { message: 'BILLING_JOB_SECRET not configured' } });
+  }
+  if (!provided || provided !== configured) {
+    return res.status(401).json({ error: { message: 'Unauthorized' } });
+  }
+  next();
+}, runBillingPaymentReconciliation);
 
 // Platform pricing (superadmin)
 // NOTE: must be defined before '/:agencyId/*' routes to avoid route param capture.
@@ -36,6 +52,9 @@ router.get('/:agencyId/estimate', authenticate, requireAgencyAccess, getAgencyBi
 // Billing settings
 router.get('/:agencyId/settings', authenticate, requireAgencyAccess, getBillingSettings);
 router.put('/:agencyId/settings', authenticate, requireAgencyAdmin, billingSettingsValidators, updateBillingSettings);
+router.get('/:agencyId/payment-methods', authenticate, requireAgencyAccess, listAgencyBillingPaymentMethods);
+router.post('/:agencyId/payment-methods', authenticate, requireAgencyAdmin, createAgencyBillingPaymentMethod);
+router.post('/:agencyId/payment-methods/:paymentMethodId/default', authenticate, requireAgencyAdmin, setAgencyBillingPaymentMethodDefault);
 
 // Per-agency pricing (readable by agency access; writable by superadmin)
 router.get('/:agencyId/pricing', authenticate, requireAgencyAccess, getAgencyPricing);
@@ -45,6 +64,8 @@ router.put('/:agencyId/pricing', authenticate, requireSuperAdmin, agencyPricingO
 router.get('/:agencyId/invoices', authenticate, requireAgencyAccess, listAgencyInvoices);
 router.post('/:agencyId/invoices/generate', authenticate, requireAgencyAdmin, generateAgencyInvoice);
 router.get('/invoices/:invoiceId/pdf', authenticate, downloadInvoicePdf);
+router.post('/:agencyId/invoices/:invoiceId/retry-payment', authenticate, requireAgencyAdmin, retryAgencyInvoicePayment);
+router.post('/:agencyId/invoices/:invoiceId/send', authenticate, requireAgencyAdmin, sendAgencyInvoice);
 
 // QuickBooks Online (per-agency OAuth)
 router.get('/:agencyId/quickbooks/connect', authenticate, requireAgencyAdmin, getQuickBooksConnectUrl);

@@ -7,6 +7,9 @@ import AgencyBillingInvoice from '../models/AgencyBillingInvoice.model.js';
 import BillingInvoicePdfService from './billingInvoicePdf.service.js';
 import QuickBooksBillingSyncService from './quickbooksBillingSync.service.js';
 import AgencyBillingAccount from '../models/AgencyBillingAccount.model.js';
+import AgencyCommunicationBillingService from './agencyCommunicationBilling.service.js';
+import AgencyCommunicationUsageLedger from '../models/AgencyCommunicationUsageLedger.model.js';
+import AgencyBillingPaymentService from './agencyBillingPayment.service.js';
 
 class BillingInvoiceService {
   static buildInvoiceStorageKey({ agencyId, periodStart }) {
@@ -32,12 +35,20 @@ class BillingInvoiceService {
     });
     if (existing) return existing;
 
+    const pricingBundle = await getEffectiveBillingPricingForAgency(parsedAgencyId);
+    await AgencyCommunicationBillingService.reconcileAgencyPeriod({
+      agencyId: parsedAgencyId,
+      periodStart,
+      periodEnd,
+      pricingConfig: pricingBundle.effective
+    });
     const usage = await BillingUsageService.getUsage(parsedAgencyId, {
       periodStart,
       periodEnd
     });
-    const pricingBundle = await getEffectiveBillingPricingForAgency(parsedAgencyId);
     const estimate = buildEstimate(usage, pricingBundle.effective);
+    const account = await AgencyBillingAccount.getByAgencyId(parsedAgencyId);
+    const invoiceDeliveryMode = account?.autopay_enabled ? 'autopay' : 'manual';
 
     const invoice = await AgencyBillingInvoice.create({
       agencyId: parsedAgencyId,
@@ -52,9 +63,19 @@ class BillingInvoiceService {
       extraProgramsCents: estimate.totals.extraProgramsCents,
       extraAdminsCents: estimate.totals.extraAdminsCents,
       extraOnboardeesCents: estimate.totals.extraOnboardeesCents,
+      communicationActualCostCents: estimate.totals.communicationActualCostCents,
+      communicationMarkupCents: estimate.totals.communicationMarkupCents,
+      communicationSubtotalCents: estimate.totals.communicationSubtotalCents,
       totalCents: estimate.totals.totalCents,
       lineItemsJson: estimate,
-      status: 'draft'
+      status: 'draft',
+      paymentStatus: 'unpaid',
+      invoiceDeliveryMode
+    });
+    await AgencyCommunicationUsageLedger.attachInvoiceToPeriod(parsedAgencyId, {
+      periodStart: periodStartStr,
+      periodEnd: periodEndStr,
+      invoiceId: invoice.id
     });
 
     // Generate PDF
@@ -80,19 +101,60 @@ class BillingInvoiceService {
 
     let updated = await AgencyBillingInvoice.setPdfPath(invoice.id, key);
 
-    // Optionally sync to QBO (create a Bill in the agency QBO)
+    // Optionally sync to QBO (customer AR invoice)
     if (syncToQuickBooks) {
-      const acct = await AgencyBillingAccount.getByAgencyId(parsedAgencyId);
-      if (acct?.is_qbo_connected) {
+      if (account?.is_qbo_connected) {
         try {
           updated = await QuickBooksBillingSyncService.syncInvoiceToQuickBooks(updated.id);
         } catch (e) {
           updated = await AgencyBillingInvoice.markQboSynced(updated.id, {
-            qboBillId: null,
+            qboInvoiceId: null,
             status: 'failed',
             errorMessage: e?.message || 'QuickBooks sync failed'
           });
         }
+      }
+    }
+
+    if (account?.autopay_enabled) {
+      try {
+        const paymentResult = await AgencyBillingPaymentService.attemptAutoPay(updated.id);
+        if (paymentResult?.attempted && paymentResult?.succeeded) {
+          updated = paymentResult.invoice;
+          if (account?.is_qbo_connected && updated?.qbo_invoice_id) {
+            updated = await QuickBooksBillingSyncService.syncInvoicePaymentToQuickBooks(updated.id);
+          }
+        } else if (account?.is_qbo_connected && updated?.qbo_invoice_id && !paymentResult?.processing) {
+          try {
+            const deliveryResult = await QuickBooksBillingSyncService.sendInvoiceToQuickBooks(updated.id, {
+              sendTo: account?.billing_email || null
+            });
+            updated = deliveryResult.invoice;
+          } catch (deliveryError) {
+            updated = await AgencyBillingInvoice.markDeliveryFailed(updated.id, deliveryError?.message || 'QuickBooks invoice email failed');
+          }
+        }
+      } catch (e) {
+        updated = await AgencyBillingInvoice.markPaymentFailed(updated.id, e?.message || 'Automatic payment failed');
+        if (account?.is_qbo_connected && updated?.qbo_invoice_id) {
+          try {
+            const deliveryResult = await QuickBooksBillingSyncService.sendInvoiceToQuickBooks(updated.id, {
+              sendTo: account?.billing_email || null
+            });
+            updated = deliveryResult.invoice;
+          } catch (deliveryError) {
+            updated = await AgencyBillingInvoice.markDeliveryFailed(updated.id, deliveryError?.message || 'QuickBooks invoice email failed');
+          }
+        }
+      }
+    } else if (account?.is_qbo_connected && updated?.qbo_invoice_id) {
+      try {
+        const deliveryResult = await QuickBooksBillingSyncService.sendInvoiceToQuickBooks(updated.id, {
+          sendTo: account?.billing_email || null
+        });
+        updated = deliveryResult.invoice;
+      } catch (deliveryError) {
+        updated = await AgencyBillingInvoice.markDeliveryFailed(updated.id, deliveryError?.message || 'QuickBooks invoice email failed');
       }
     }
 

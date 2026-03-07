@@ -27,20 +27,24 @@ class AgencyBillingAccount {
     realmId,
     accessTokenEnc,
     refreshTokenEnc,
-    tokenExpiresAt
+    tokenExpiresAt,
+    scopeCsv = null,
+    qboPaymentsEnabled = false
   }) {
     const aId = parseInt(agencyId, 10);
     await pool.execute(
       `INSERT INTO agency_billing_accounts
-        (agency_id, billing_email, qbo_realm_id, qbo_access_token_enc, qbo_refresh_token_enc, qbo_token_expires_at, is_qbo_connected)
-       VALUES (?, ?, ?, ?, ?, ?, TRUE)
+        (agency_id, billing_email, qbo_realm_id, qbo_access_token_enc, qbo_refresh_token_enc, qbo_token_expires_at, qbo_scope_csv, is_qbo_connected, qbo_payments_enabled)
+       VALUES (?, ?, ?, ?, ?, ?, ?, TRUE, ?)
        ON DUPLICATE KEY UPDATE
          billing_email = COALESCE(VALUES(billing_email), billing_email),
          qbo_realm_id = VALUES(qbo_realm_id),
          qbo_access_token_enc = VALUES(qbo_access_token_enc),
          qbo_refresh_token_enc = VALUES(qbo_refresh_token_enc),
          qbo_token_expires_at = VALUES(qbo_token_expires_at),
+         qbo_scope_csv = VALUES(qbo_scope_csv),
          is_qbo_connected = TRUE,
+         qbo_payments_enabled = VALUES(qbo_payments_enabled),
          updated_at = CURRENT_TIMESTAMP`,
       [
         aId,
@@ -48,7 +52,9 @@ class AgencyBillingAccount {
         realmId,
         accessTokenEnc ? JSON.stringify(accessTokenEnc) : null,
         refreshTokenEnc ? JSON.stringify(refreshTokenEnc) : null,
-        tokenExpiresAt || null
+        tokenExpiresAt || null,
+        scopeCsv || null,
+        qboPaymentsEnabled ? 1 : 0
       ]
     );
     return this.getByAgencyId(aId);
@@ -63,7 +69,12 @@ class AgencyBillingAccount {
            qbo_access_token_enc = NULL,
            qbo_refresh_token_enc = NULL,
            qbo_token_expires_at = NULL,
+           qbo_scope_csv = NULL,
            qbo_vendor_id = NULL,
+           qbo_customer_id = NULL,
+           qbo_service_item_id = NULL,
+           qbo_payments_enabled = FALSE,
+           qbo_payments_merchant_id = NULL,
            updated_at = CURRENT_TIMESTAMP
        WHERE agency_id = ?`,
       [aId]
@@ -89,6 +100,84 @@ class AgencyBillingAccount {
        VALUES (?, ?)
        ON DUPLICATE KEY UPDATE billing_email = VALUES(billing_email), updated_at = CURRENT_TIMESTAMP`,
       [aId, billingEmail]
+    );
+    return this.getByAgencyId(aId);
+  }
+
+  static async updateSettings(agencyId, { billingEmail = undefined, autopayEnabled = undefined } = {}) {
+    const aId = parseInt(agencyId, 10);
+    if (!aId) throw new Error('Invalid agencyId');
+    const fields = [];
+    const values = [];
+    if (billingEmail !== undefined) {
+      fields.push('billing_email = ?');
+      values.push(billingEmail || null);
+    }
+    if (autopayEnabled !== undefined) {
+      fields.push('autopay_enabled = ?');
+      values.push(autopayEnabled ? 1 : 0);
+    }
+    if (!fields.length) return this.getByAgencyId(aId);
+    await pool.execute(
+      `INSERT INTO agency_billing_accounts (agency_id, billing_email, autopay_enabled)
+       VALUES (?, ?, ?)
+       ON DUPLICATE KEY UPDATE ${fields.join(', ')}, updated_at = CURRENT_TIMESTAMP`,
+      [
+        aId,
+        billingEmail !== undefined ? (billingEmail || null) : null,
+        autopayEnabled ? 1 : 0
+      ]
+    );
+    return this.getByAgencyId(aId);
+  }
+
+  static async setPaymentCustomerRef(agencyId, { paymentProcessor = null, paymentCustomerRef = null } = {}) {
+    const aId = parseInt(agencyId, 10);
+    await pool.execute(
+      `INSERT INTO agency_billing_accounts (agency_id, payment_processor, payment_customer_ref)
+       VALUES (?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         payment_processor = VALUES(payment_processor),
+         payment_customer_ref = VALUES(payment_customer_ref),
+         updated_at = CURRENT_TIMESTAMP`,
+      [aId, paymentProcessor || null, paymentCustomerRef || null]
+    );
+    return this.getByAgencyId(aId);
+  }
+
+  static async setQboCustomerId(agencyId, customerId) {
+    const aId = parseInt(agencyId, 10);
+    await pool.execute(
+      `INSERT INTO agency_billing_accounts (agency_id, qbo_customer_id)
+       VALUES (?, ?)
+       ON DUPLICATE KEY UPDATE qbo_customer_id = VALUES(qbo_customer_id), updated_at = CURRENT_TIMESTAMP`,
+      [aId, customerId || null]
+    );
+    return this.getByAgencyId(aId);
+  }
+
+  static async setQboServiceItemId(agencyId, serviceItemId) {
+    const aId = parseInt(agencyId, 10);
+    await pool.execute(
+      `INSERT INTO agency_billing_accounts (agency_id, qbo_service_item_id)
+       VALUES (?, ?)
+       ON DUPLICATE KEY UPDATE qbo_service_item_id = VALUES(qbo_service_item_id), updated_at = CURRENT_TIMESTAMP`,
+      [aId, serviceItemId || null]
+    );
+    return this.getByAgencyId(aId);
+  }
+
+  static async setQboPaymentsCapability(agencyId, { qboPaymentsEnabled = false, qboPaymentsMerchantId = null, scopeCsv = undefined } = {}) {
+    const aId = parseInt(agencyId, 10);
+    await pool.execute(
+      `INSERT INTO agency_billing_accounts (agency_id, qbo_payments_enabled, qbo_payments_merchant_id, qbo_scope_csv)
+       VALUES (?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         qbo_payments_enabled = VALUES(qbo_payments_enabled),
+         qbo_payments_merchant_id = VALUES(qbo_payments_merchant_id),
+         qbo_scope_csv = COALESCE(VALUES(qbo_scope_csv), qbo_scope_csv),
+         updated_at = CURRENT_TIMESTAMP`,
+      [aId, qboPaymentsEnabled ? 1 : 0, qboPaymentsMerchantId || null, scopeCsv === undefined ? null : (scopeCsv || null)]
     );
     return this.getByAgencyId(aId);
   }

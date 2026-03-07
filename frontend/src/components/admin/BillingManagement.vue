@@ -91,6 +91,62 @@
             <div class="label">SMS Cost: Notification SMS ($/msg)</div>
             <input v-model.number="platformDraft.smsNotificationDollars" class="input" type="number" step="0.01" min="0" :disabled="pricingLoading || pricingSaving" />
           </div>
+          <div class="form-group">
+            <div class="label">Twilio Cost: SMS Outbound ($/msg)</div>
+            <input v-model.number="platformDraft.smsOutboundClientActualDollars" class="input" type="number" step="0.0001" min="0" :disabled="pricingLoading || pricingSaving" />
+          </div>
+          <div class="form-group">
+            <div class="label">Markup: SMS Outbound ($/msg)</div>
+            <input v-model.number="platformDraft.smsOutboundClientMarkupDollars" class="input" type="number" step="0.0001" min="0" :disabled="pricingLoading || pricingSaving" />
+          </div>
+          <div class="form-group">
+            <div class="label">Twilio Cost: SMS Inbound ($/msg)</div>
+            <input v-model.number="platformDraft.smsInboundClientActualDollars" class="input" type="number" step="0.0001" min="0" :disabled="pricingLoading || pricingSaving" />
+          </div>
+          <div class="form-group">
+            <div class="label">Markup: SMS Inbound ($/msg)</div>
+            <input v-model.number="platformDraft.smsInboundClientMarkupDollars" class="input" type="number" step="0.0001" min="0" :disabled="pricingLoading || pricingSaving" />
+          </div>
+          <div class="form-group">
+            <div class="label">Twilio Cost: Notification SMS ($/msg)</div>
+            <input v-model.number="platformDraft.smsNotificationActualDollars" class="input" type="number" step="0.0001" min="0" :disabled="pricingLoading || pricingSaving" />
+          </div>
+          <div class="form-group">
+            <div class="label">Markup: Notification SMS ($/msg)</div>
+            <input v-model.number="platformDraft.smsNotificationMarkupDollars" class="input" type="number" step="0.0001" min="0" :disabled="pricingLoading || pricingSaving" />
+          </div>
+          <div class="form-group">
+            <div class="label">Twilio Cost: Phone Number ($/month)</div>
+            <input v-model.number="platformDraft.phoneNumberActualDollars" class="input" type="number" step="0.01" min="0" :disabled="pricingLoading || pricingSaving" />
+          </div>
+          <div class="form-group">
+            <div class="label">Markup: Phone Number ($/month)</div>
+            <input v-model.number="platformDraft.phoneNumberMarkupDollars" class="input" type="number" step="0.01" min="0" :disabled="pricingLoading || pricingSaving" />
+          </div>
+          <div class="form-group">
+            <div class="label">Twilio Cost: Voice Outbound ($/minute)</div>
+            <input v-model.number="platformDraft.voiceOutboundMinuteActualDollars" class="input" type="number" step="0.0001" min="0" :disabled="pricingLoading || pricingSaving" />
+          </div>
+          <div class="form-group">
+            <div class="label">Markup: Voice Outbound ($/minute)</div>
+            <input v-model.number="platformDraft.voiceOutboundMinuteMarkupDollars" class="input" type="number" step="0.0001" min="0" :disabled="pricingLoading || pricingSaving" />
+          </div>
+          <div class="form-group">
+            <div class="label">Twilio Cost: Voice Inbound ($/minute)</div>
+            <input v-model.number="platformDraft.voiceInboundMinuteActualDollars" class="input" type="number" step="0.0001" min="0" :disabled="pricingLoading || pricingSaving" />
+          </div>
+          <div class="form-group">
+            <div class="label">Markup: Voice Inbound ($/minute)</div>
+            <input v-model.number="platformDraft.voiceInboundMinuteMarkupDollars" class="input" type="number" step="0.0001" min="0" :disabled="pricingLoading || pricingSaving" />
+          </div>
+          <div class="form-group">
+            <div class="label">Twilio Cost: Video ($/participant minute)</div>
+            <input v-model.number="platformDraft.videoParticipantMinuteActualDollars" class="input" type="number" step="0.0001" min="0" :disabled="pricingLoading || pricingSaving" />
+          </div>
+          <div class="form-group">
+            <div class="label">Markup: Video ($/participant minute)</div>
+            <input v-model.number="platformDraft.videoParticipantMinuteMarkupDollars" class="input" type="number" step="0.0001" min="0" :disabled="pricingLoading || pricingSaving" />
+          </div>
 
           <div class="form-group">
             <div class="label">Add-on: Public Availability ($/month)</div>
@@ -194,6 +250,62 @@
             <div class="label">SMS Cost: Notification SMS ($/msg)</div>
             <input v-model.number="agencyDraft.smsNotificationDollars" class="input" type="number" step="0.01" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
           </div>
+          <div class="form-group">
+            <div class="label">Twilio Cost: SMS Outbound ($/msg)</div>
+            <input v-model.number="agencyDraft.smsOutboundClientActualDollars" class="input" type="number" step="0.0001" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
+          </div>
+          <div class="form-group">
+            <div class="label">Markup: SMS Outbound ($/msg)</div>
+            <input v-model.number="agencyDraft.smsOutboundClientMarkupDollars" class="input" type="number" step="0.0001" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
+          </div>
+          <div class="form-group">
+            <div class="label">Twilio Cost: SMS Inbound ($/msg)</div>
+            <input v-model.number="agencyDraft.smsInboundClientActualDollars" class="input" type="number" step="0.0001" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
+          </div>
+          <div class="form-group">
+            <div class="label">Markup: SMS Inbound ($/msg)</div>
+            <input v-model.number="agencyDraft.smsInboundClientMarkupDollars" class="input" type="number" step="0.0001" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
+          </div>
+          <div class="form-group">
+            <div class="label">Twilio Cost: Notification SMS ($/msg)</div>
+            <input v-model.number="agencyDraft.smsNotificationActualDollars" class="input" type="number" step="0.0001" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
+          </div>
+          <div class="form-group">
+            <div class="label">Markup: Notification SMS ($/msg)</div>
+            <input v-model.number="agencyDraft.smsNotificationMarkupDollars" class="input" type="number" step="0.0001" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
+          </div>
+          <div class="form-group">
+            <div class="label">Twilio Cost: Phone Number ($/month)</div>
+            <input v-model.number="agencyDraft.phoneNumberActualDollars" class="input" type="number" step="0.01" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
+          </div>
+          <div class="form-group">
+            <div class="label">Markup: Phone Number ($/month)</div>
+            <input v-model.number="agencyDraft.phoneNumberMarkupDollars" class="input" type="number" step="0.01" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
+          </div>
+          <div class="form-group">
+            <div class="label">Twilio Cost: Voice Outbound ($/minute)</div>
+            <input v-model.number="agencyDraft.voiceOutboundMinuteActualDollars" class="input" type="number" step="0.0001" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
+          </div>
+          <div class="form-group">
+            <div class="label">Markup: Voice Outbound ($/minute)</div>
+            <input v-model.number="agencyDraft.voiceOutboundMinuteMarkupDollars" class="input" type="number" step="0.0001" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
+          </div>
+          <div class="form-group">
+            <div class="label">Twilio Cost: Voice Inbound ($/minute)</div>
+            <input v-model.number="agencyDraft.voiceInboundMinuteActualDollars" class="input" type="number" step="0.0001" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
+          </div>
+          <div class="form-group">
+            <div class="label">Markup: Voice Inbound ($/minute)</div>
+            <input v-model.number="agencyDraft.voiceInboundMinuteMarkupDollars" class="input" type="number" step="0.0001" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
+          </div>
+          <div class="form-group">
+            <div class="label">Twilio Cost: Video ($/participant minute)</div>
+            <input v-model.number="agencyDraft.videoParticipantMinuteActualDollars" class="input" type="number" step="0.0001" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
+          </div>
+          <div class="form-group">
+            <div class="label">Markup: Video ($/participant minute)</div>
+            <input v-model.number="agencyDraft.videoParticipantMinuteMarkupDollars" class="input" type="number" step="0.0001" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
+          </div>
 
           <div class="form-group">
             <div class="label">Add-on: Public Availability</div>
@@ -234,6 +346,14 @@
             <div class="value">
               <span :class="['pill', qboStatus?.isConnected ? 'pill-on' : 'pill-off']">
                 {{ qboStatus?.isConnected ? 'Connected' : 'Not connected' }}
+              </span>
+            </div>
+          </div>
+          <div>
+            <div class="label">Payments</div>
+            <div class="value">
+              <span :class="['pill', qboStatus?.paymentsEnabled ? 'pill-on' : 'pill-off']">
+                {{ qboStatus?.paymentsEnabled ? 'Payments ready' : 'Reconnect required' }}
               </span>
             </div>
           </div>
@@ -288,8 +408,21 @@
             <div class="label">Billing Email</div>
             <div class="inline">
               <input v-model="billingEmail" class="input" type="email" placeholder="accounting@agency.com" />
-              <button class="btn" :disabled="savingEmail" @click="saveBillingEmail">
-                {{ savingEmail ? 'Saving…' : 'Update' }}
+              <button class="btn" :disabled="savingSettings" @click="saveBillingSettings">
+                {{ savingSettings ? 'Saving…' : 'Update' }}
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <div class="label">Collection Flow</div>
+            <div class="inline">
+              <select v-model="autopayEnabled" class="select">
+                <option :value="true">Autopay when card on file</option>
+                <option :value="false">Invoice manually</option>
+              </select>
+              <button class="btn" :disabled="savingSettings" @click="saveBillingSettings">
+                {{ savingSettings ? 'Saving…' : 'Save' }}
               </button>
             </div>
           </div>
@@ -297,8 +430,13 @@
           <div>
             <div class="label">QuickBooks Connection</div>
             <div class="inline">
-              <button v-if="!qboStatus?.isConnected" class="btn" :disabled="connectingQbo" @click="connectQuickBooks">
-                {{ connectingQbo ? 'Redirecting…' : 'Connect QuickBooks' }}
+              <button
+                v-if="!qboStatus?.isConnected || qboStatus?.needsReconnectForPayments"
+                class="btn"
+                :disabled="connectingQbo"
+                @click="connectQuickBooks"
+              >
+                {{ connectingQbo ? 'Redirecting…' : (qboStatus?.needsReconnectForPayments ? 'Reconnect For Payments' : 'Connect QuickBooks') }}
               </button>
               <button v-else class="btn btn-danger" :disabled="disconnectingQbo" @click="disconnectQuickBooks">
                 {{ disconnectingQbo ? 'Disconnecting…' : 'Disconnect' }}
@@ -317,6 +455,84 @@
         </div>
 
         <div v-if="manageError" class="error">{{ manageError }}</div>
+        <div v-if="qboStatus?.needsReconnectForPayments" class="error" style="margin-top: 10px;">
+          QuickBooks is connected for accounting, but this agency still needs to reconnect with QuickBooks Payments access before cards on file or autopay will work.
+        </div>
+
+        <div class="card" style="margin-top: 16px;">
+          <h4 style="margin: 0 0 10px 0;">Payment Methods</h4>
+          <p class="muted">Cards are stored in QuickBooks Payments and billed off-session for monthly autopay.</p>
+          <div class="manage-grid">
+            <div>
+              <div class="label">Cardholder Name</div>
+              <input v-model="paymentMethodDraft.name" class="input" type="text" placeholder="Billing contact name" />
+            </div>
+            <div>
+              <div class="label">Card Number</div>
+              <input v-model="paymentMethodDraft.number" class="input" type="text" inputmode="numeric" autocomplete="cc-number" placeholder="4111111111111111" />
+            </div>
+            <div>
+              <div class="label">Exp Month</div>
+              <input v-model="paymentMethodDraft.expMonth" class="input" type="number" min="1" max="12" autocomplete="cc-exp-month" placeholder="12" />
+            </div>
+            <div>
+              <div class="label">Exp Year</div>
+              <input v-model="paymentMethodDraft.expYear" class="input" type="number" min="2024" max="2100" autocomplete="cc-exp-year" placeholder="2028" />
+            </div>
+            <div>
+              <div class="label">CVC</div>
+              <input v-model="paymentMethodDraft.cvc" class="input" type="password" inputmode="numeric" autocomplete="cc-csc" placeholder="123" />
+            </div>
+            <div>
+              <div class="label">Postal Code</div>
+              <input v-model="paymentMethodDraft.postalCode" class="input" type="text" autocomplete="postal-code" placeholder="12345" />
+            </div>
+            <div>
+              <div class="label">Default</div>
+              <select v-model="paymentMethodDraft.isDefault" class="select">
+                <option :value="true">Yes</option>
+                <option :value="false">No</option>
+              </select>
+            </div>
+            <div class="inline" style="align-items: end;">
+              <button class="btn" :disabled="addingPaymentMethod || !qboStatus?.paymentsEnabled" @click="addPaymentMethod">
+                {{ addingPaymentMethod ? 'Saving…' : 'Add QuickBooks Card' }}
+              </button>
+            </div>
+          </div>
+
+          <div v-if="paymentMethods.length === 0" class="empty" style="margin-top: 10px;">No payment methods saved yet.</div>
+          <table v-else class="table" style="margin-top: 10px;">
+            <thead>
+              <tr>
+                <th>Card</th>
+                <th>Expires</th>
+                <th>Default</th>
+                <th style="width: 160px;"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="method in paymentMethods" :key="method.id">
+                <td>{{ method.card_brand || 'Card' }} ending in {{ method.last4 || '----' }}</td>
+                <td>{{ method.exp_month || '—' }}/{{ method.exp_year || '—' }}</td>
+                <td>
+                  <span :class="['pill', method.is_default ? 'pill-on' : 'pill-off']">
+                    {{ method.is_default ? 'Default' : 'Saved' }}
+                  </span>
+                </td>
+                <td class="actions">
+                  <button
+                    class="btn btn-secondary"
+                    :disabled="method.is_default || settingDefaultPaymentMethodId === method.id"
+                    @click="setDefaultPaymentMethod(method.id)"
+                  >
+                    {{ settingDefaultPaymentMethodId === method.id ? 'Updating…' : 'Make Default' }}
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
 
         <div v-if="invoices.length === 0" class="empty">No invoices yet.</div>
         <table v-else class="table">
@@ -325,8 +541,10 @@
               <th>Period</th>
               <th>Total</th>
               <th>Status</th>
-              <th>QuickBooks Bill</th>
-              <th style="width: 160px;"></th>
+              <th>Payment</th>
+              <th>Delivery</th>
+              <th>QuickBooks Invoice</th>
+              <th style="width: 260px;"></th>
             </tr>
           </thead>
           <tbody>
@@ -334,12 +552,30 @@
               <td class="mono">{{ inv.period_start }} - {{ inv.period_end }}</td>
               <td>{{ money(inv.total_cents) }}</td>
               <td>
-                <span :class="['pill', inv.status === 'sent' ? 'pill-on' : inv.status === 'failed' ? 'pill-bad' : 'pill-off']">
+                <span :class="['pill', inv.status === 'sent' || inv.status === 'paid' ? 'pill-on' : ['failed', 'payment_failed'].includes(inv.status) ? 'pill-bad' : 'pill-off']">
                   {{ inv.status }}
                 </span>
               </td>
-              <td class="mono">{{ inv.qbo_bill_id || '—' }}</td>
+              <td class="mono">{{ inv.payment_status || 'unpaid' }}</td>
+              <td class="mono">{{ inv.invoice_delivery_status || 'not_sent' }}</td>
+              <td class="mono">{{ inv.qbo_invoice_id || '—' }}</td>
               <td class="actions">
+                <button
+                  v-if="inv.payment_status !== 'paid' && autopayEnabled"
+                  class="btn btn-secondary"
+                  :disabled="retryingInvoiceId === inv.id || !qboStatus?.paymentsEnabled"
+                  @click="retryInvoicePayment(inv.id)"
+                >
+                  {{ retryingInvoiceId === inv.id ? 'Retrying…' : 'Retry Autopay' }}
+                </button>
+                <button
+                  v-if="inv.payment_status !== 'paid'"
+                  class="btn btn-secondary"
+                  :disabled="sendingInvoiceId === inv.id || !inv.qbo_invoice_id"
+                  @click="sendInvoice(inv.id)"
+                >
+                  {{ sendingInvoiceId === inv.id ? 'Sending…' : 'Send Invoice' }}
+                </button>
                 <button class="btn" @click="downloadPdf(inv.id)" :disabled="!inv.pdf_storage_path">
                   Download PDF
                 </button>
@@ -468,12 +704,18 @@ const estimateError = ref('');
 const qboStatus = ref(null);
 const invoices = ref([]);
 const billingEmail = ref('');
+const autopayEnabled = ref(false);
+const paymentMethods = ref([]);
 const manageError = ref('');
 
-const savingEmail = ref(false);
+const savingSettings = ref(false);
 const connectingQbo = ref(false);
 const disconnectingQbo = ref(false);
 const generatingInvoice = ref(false);
+const addingPaymentMethod = ref(false);
+const settingDefaultPaymentMethodId = ref(null);
+const retryingInvoiceId = ref(null);
+const sendingInvoiceId = ref(null);
 
 const banner = ref(null);
 
@@ -495,6 +737,20 @@ const platformDraft = ref({
   smsOutboundClientDollars: 0,
   smsInboundClientDollars: 0,
   smsNotificationDollars: 0,
+  smsOutboundClientActualDollars: 0,
+  smsOutboundClientMarkupDollars: 0,
+  smsInboundClientActualDollars: 0,
+  smsInboundClientMarkupDollars: 0,
+  smsNotificationActualDollars: 0,
+  smsNotificationMarkupDollars: 0,
+  phoneNumberActualDollars: 0,
+  phoneNumberMarkupDollars: 0,
+  voiceOutboundMinuteActualDollars: 0,
+  voiceOutboundMinuteMarkupDollars: 0,
+  voiceInboundMinuteActualDollars: 0,
+  voiceInboundMinuteMarkupDollars: 0,
+  videoParticipantMinuteActualDollars: 0,
+  videoParticipantMinuteMarkupDollars: 0,
   publicAvailabilityAddonMonthlyDollars: 0,
   momentumListAddonUnitDollars: 5,
   momentumListAddonEnabled: false
@@ -515,8 +771,32 @@ const agencyDraft = ref({
   smsOutboundClientDollars: 0,
   smsInboundClientDollars: 0,
   smsNotificationDollars: 0,
+  smsOutboundClientActualDollars: 0,
+  smsOutboundClientMarkupDollars: 0,
+  smsInboundClientActualDollars: 0,
+  smsInboundClientMarkupDollars: 0,
+  smsNotificationActualDollars: 0,
+  smsNotificationMarkupDollars: 0,
+  phoneNumberActualDollars: 0,
+  phoneNumberMarkupDollars: 0,
+  voiceOutboundMinuteActualDollars: 0,
+  voiceOutboundMinuteMarkupDollars: 0,
+  voiceInboundMinuteActualDollars: 0,
+  voiceInboundMinuteMarkupDollars: 0,
+  videoParticipantMinuteActualDollars: 0,
+  videoParticipantMinuteMarkupDollars: 0,
   publicAvailabilityAddonEnabled: false,
   momentumListAddonEnabled: false
+});
+
+const paymentMethodDraft = ref({
+  name: '',
+  number: '',
+  expMonth: '',
+  expYear: '',
+  cvc: '',
+  postalCode: '',
+  isDefault: true
 });
 
 const linkedSchools = ref([]);
@@ -541,6 +821,7 @@ const dollarsToCents = (v) => {
 
 const setDraftFromPricing = (draftRef, pricing) => {
   const p = pricing || {};
+  const comm = p.communicationRateCents || {};
   draftRef.value = {
     baseFeeDollars: Number(p.baseFeeCents || 0) / 100,
     includedSchools: Number(p.included?.schools || 0),
@@ -555,6 +836,20 @@ const setDraftFromPricing = (draftRef, pricing) => {
     smsOutboundClientDollars: Number(p.smsUnitCents?.outboundClient || 0) / 100,
     smsInboundClientDollars: Number(p.smsUnitCents?.inboundClient || 0) / 100,
     smsNotificationDollars: Number(p.smsUnitCents?.notification || 0) / 100,
+    smsOutboundClientActualDollars: Number(comm.smsOutboundClient?.actualCostCents || 0) / 100,
+    smsOutboundClientMarkupDollars: Number(comm.smsOutboundClient?.markupCents || 0) / 100,
+    smsInboundClientActualDollars: Number(comm.smsInboundClient?.actualCostCents || 0) / 100,
+    smsInboundClientMarkupDollars: Number(comm.smsInboundClient?.markupCents || 0) / 100,
+    smsNotificationActualDollars: Number(comm.smsNotification?.actualCostCents || 0) / 100,
+    smsNotificationMarkupDollars: Number(comm.smsNotification?.markupCents || 0) / 100,
+    phoneNumberActualDollars: Number(comm.phoneNumberMonthly?.actualCostCents || 0) / 100,
+    phoneNumberMarkupDollars: Number(comm.phoneNumberMonthly?.markupCents || 0) / 100,
+    voiceOutboundMinuteActualDollars: Number(comm.voiceOutboundMinute?.actualCostCents || 0) / 100,
+    voiceOutboundMinuteMarkupDollars: Number(comm.voiceOutboundMinute?.markupCents || 0) / 100,
+    voiceInboundMinuteActualDollars: Number(comm.voiceInboundMinute?.actualCostCents || 0) / 100,
+    voiceInboundMinuteMarkupDollars: Number(comm.voiceInboundMinute?.markupCents || 0) / 100,
+    videoParticipantMinuteActualDollars: Number(comm.videoParticipantMinute?.actualCostCents || 0) / 100,
+    videoParticipantMinuteMarkupDollars: Number(comm.videoParticipantMinute?.markupCents || 0) / 100,
     publicAvailabilityAddonMonthlyDollars: Number(p.addonsUnitCents?.publicAvailability || 0) / 100,
     publicAvailabilityAddonEnabled: Boolean(p.addonsEnabled?.publicAvailability),
     momentumListAddonUnitDollars: Number(p.addonsUnitCents?.momentumList || 0) / 100,
@@ -564,6 +859,10 @@ const setDraftFromPricing = (draftRef, pricing) => {
 
 const buildPricingPayloadFromDraft = (draft) => {
   const d = draft || {};
+  const smsOutboundBillable = dollarsToCents(d.smsOutboundClientActualDollars) + dollarsToCents(d.smsOutboundClientMarkupDollars);
+  const smsInboundBillable = dollarsToCents(d.smsInboundClientActualDollars) + dollarsToCents(d.smsInboundClientMarkupDollars);
+  const smsNotificationBillable = dollarsToCents(d.smsNotificationActualDollars) + dollarsToCents(d.smsNotificationMarkupDollars);
+  const phoneNumberBillable = dollarsToCents(d.phoneNumberActualDollars) + dollarsToCents(d.phoneNumberMarkupDollars);
   return {
     baseFeeCents: dollarsToCents(d.baseFeeDollars),
     included: {
@@ -577,12 +876,42 @@ const buildPricingPayloadFromDraft = (draft) => {
       program: dollarsToCents(d.unitProgramDollars),
       admin: dollarsToCents(d.unitAdminDollars),
       onboardee: dollarsToCents(d.unitOnboardeeDollars),
-      phoneNumber: dollarsToCents(d.unitPhoneNumberDollars)
+      phoneNumber: phoneNumberBillable || dollarsToCents(d.unitPhoneNumberDollars)
     },
     smsUnitCents: {
-      inboundClient: dollarsToCents(d.smsInboundClientDollars),
-      outboundClient: dollarsToCents(d.smsOutboundClientDollars),
-      notification: dollarsToCents(d.smsNotificationDollars)
+      inboundClient: smsInboundBillable || dollarsToCents(d.smsInboundClientDollars),
+      outboundClient: smsOutboundBillable || dollarsToCents(d.smsOutboundClientDollars),
+      notification: smsNotificationBillable || dollarsToCents(d.smsNotificationDollars)
+    },
+    communicationRateCents: {
+      smsOutboundClient: {
+        actualCostCents: dollarsToCents(d.smsOutboundClientActualDollars),
+        markupCents: dollarsToCents(d.smsOutboundClientMarkupDollars)
+      },
+      smsInboundClient: {
+        actualCostCents: dollarsToCents(d.smsInboundClientActualDollars),
+        markupCents: dollarsToCents(d.smsInboundClientMarkupDollars)
+      },
+      smsNotification: {
+        actualCostCents: dollarsToCents(d.smsNotificationActualDollars),
+        markupCents: dollarsToCents(d.smsNotificationMarkupDollars)
+      },
+      phoneNumberMonthly: {
+        actualCostCents: dollarsToCents(d.phoneNumberActualDollars),
+        markupCents: dollarsToCents(d.phoneNumberMarkupDollars)
+      },
+      voiceOutboundMinute: {
+        actualCostCents: dollarsToCents(d.voiceOutboundMinuteActualDollars),
+        markupCents: dollarsToCents(d.voiceOutboundMinuteMarkupDollars)
+      },
+      voiceInboundMinute: {
+        actualCostCents: dollarsToCents(d.voiceInboundMinuteActualDollars),
+        markupCents: dollarsToCents(d.voiceInboundMinuteMarkupDollars)
+      },
+      videoParticipantMinute: {
+        actualCostCents: dollarsToCents(d.videoParticipantMinuteActualDollars),
+        markupCents: dollarsToCents(d.videoParticipantMinuteMarkupDollars)
+      }
     },
     addonsUnitCents: {
       publicAvailability: dollarsToCents(d.publicAvailabilityAddonMonthlyDollars),
@@ -706,21 +1035,89 @@ const loadSettings = async () => {
   try {
     const res = await api.get(`/billing/${currentAgencyId.value}/settings`);
     billingEmail.value = res.data?.billingEmail || '';
+    autopayEnabled.value = !!res.data?.autopayEnabled;
   } catch (e) {
     manageError.value = e?.response?.data?.error?.message || 'Failed to load billing settings';
   }
 };
 
-const saveBillingEmail = async () => {
+const saveBillingSettings = async () => {
   manageError.value = '';
   if (!currentAgencyId.value) return;
-  savingEmail.value = true;
+  savingSettings.value = true;
   try {
-    await api.put(`/billing/${currentAgencyId.value}/settings`, { billingEmail: billingEmail.value || null });
+    await api.put(`/billing/${currentAgencyId.value}/settings`, {
+      billingEmail: billingEmail.value || null,
+      autopayEnabled: !!autopayEnabled.value
+    });
   } catch (e) {
-    manageError.value = e?.response?.data?.error?.message || 'Failed to update billing email';
+    manageError.value = e?.response?.data?.error?.message || 'Failed to update billing settings';
   } finally {
-    savingEmail.value = false;
+    savingSettings.value = false;
+  }
+};
+
+const loadPaymentMethods = async () => {
+  manageError.value = '';
+  if (!currentAgencyId.value) return;
+  try {
+    const res = await api.get(`/billing/${currentAgencyId.value}/payment-methods`);
+    paymentMethods.value = res.data?.methods || [];
+  } catch (e) {
+    manageError.value = e?.response?.data?.error?.message || 'Failed to load payment methods';
+  }
+};
+
+const resetPaymentMethodDraft = () => {
+  paymentMethodDraft.value = {
+    name: '',
+    number: '',
+    expMonth: '',
+    expYear: '',
+    cvc: '',
+    postalCode: '',
+    isDefault: true
+  };
+};
+
+const addPaymentMethod = async () => {
+  manageError.value = '';
+  if (!currentAgencyId.value) return;
+  addingPaymentMethod.value = true;
+  try {
+    await api.post(`/billing/${currentAgencyId.value}/payment-methods`, {
+      card: {
+        name: paymentMethodDraft.value.name || null,
+        number: paymentMethodDraft.value.number || null,
+        expMonth: paymentMethodDraft.value.expMonth ? String(paymentMethodDraft.value.expMonth) : null,
+        expYear: paymentMethodDraft.value.expYear ? String(paymentMethodDraft.value.expYear) : null,
+        cvc: paymentMethodDraft.value.cvc || null,
+        address: {
+          postalCode: paymentMethodDraft.value.postalCode || null
+        }
+      },
+      isDefault: !!paymentMethodDraft.value.isDefault
+    });
+    resetPaymentMethodDraft();
+    await Promise.all([loadPaymentMethods(), loadQboStatus()]);
+  } catch (e) {
+    manageError.value = e?.response?.data?.error?.message || 'Failed to add payment method';
+  } finally {
+    addingPaymentMethod.value = false;
+  }
+};
+
+const setDefaultPaymentMethod = async (paymentMethodId) => {
+  manageError.value = '';
+  if (!currentAgencyId.value || !paymentMethodId) return;
+  settingDefaultPaymentMethodId.value = paymentMethodId;
+  try {
+    await api.post(`/billing/${currentAgencyId.value}/payment-methods/${paymentMethodId}/default`);
+    await loadPaymentMethods();
+  } catch (e) {
+    manageError.value = e?.response?.data?.error?.message || 'Failed to update default payment method';
+  } finally {
+    settingDefaultPaymentMethodId.value = null;
   }
 };
 
@@ -775,6 +1172,39 @@ const generateInvoice = async () => {
     manageError.value = e?.response?.data?.error?.message || 'Failed to generate invoice';
   } finally {
     generatingInvoice.value = false;
+  }
+};
+
+const retryInvoicePayment = async (invoiceId) => {
+  manageError.value = '';
+  if (!currentAgencyId.value || !invoiceId) return;
+  retryingInvoiceId.value = invoiceId;
+  try {
+    await api.post(`/billing/${currentAgencyId.value}/invoices/${invoiceId}/retry-payment`, {
+      agencyId: currentAgencyId.value
+    });
+    await Promise.all([loadInvoices(), loadQboStatus()]);
+  } catch (e) {
+    manageError.value = e?.response?.data?.error?.message || 'Failed to retry automatic payment';
+  } finally {
+    retryingInvoiceId.value = null;
+  }
+};
+
+const sendInvoice = async (invoiceId) => {
+  manageError.value = '';
+  if (!currentAgencyId.value || !invoiceId) return;
+  sendingInvoiceId.value = invoiceId;
+  try {
+    await api.post(`/billing/${currentAgencyId.value}/invoices/${invoiceId}/send`, {
+      agencyId: currentAgencyId.value,
+      sendTo: billingEmail.value || null
+    });
+    await loadInvoices();
+  } catch (e) {
+    manageError.value = e?.response?.data?.error?.message || 'Failed to send invoice from QuickBooks';
+  } finally {
+    sendingInvoiceId.value = null;
   }
 };
 
@@ -858,6 +1288,7 @@ onMounted(async () => {
     loadAgencyPricing(),
     loadQboStatus(),
     loadSettings(),
+    loadPaymentMethods(),
     loadInvoices(),
     loadAvailableSchools(),
     loadLinkedSchools()
@@ -875,6 +1306,7 @@ watch(currentAgencyId, async (newId, oldId) => {
     loadAgencyPricing(),
     loadQboStatus(),
     loadSettings(),
+    loadPaymentMethods(),
     loadInvoices(),
     loadAvailableSchools(),
     loadLinkedSchools()

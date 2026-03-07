@@ -1,7 +1,5 @@
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
-import AgencySchool from '../models/AgencySchool.model.js';
-import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import { syncSchoolPortalDayProvider } from '../services/schoolPortalDaySync.service.js';
 
 const allowedDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
@@ -66,8 +64,16 @@ async function resolveTargetProviderId(req) {
 }
 
 async function getProviderAffiliationContext(providerUserId) {
-  const directOrgs = await User.getAgencies(providerUserId);
-  const directList = Array.isArray(directOrgs) ? directOrgs : [];
+  // Only use organizations directly tied to this provider's memberships.
+  // Do not expand via agency -> all affiliated schools/programs.
+  const [directRows] = await pool.execute(
+    `SELECT a.id, a.name, a.slug, a.organization_type
+     FROM agencies a
+     JOIN user_agencies ua ON ua.agency_id = a.id
+     WHERE ua.user_id = ?`,
+    [providerUserId]
+  );
+  const directList = Array.isArray(directRows) ? directRows : [];
   const directAgencyIds = Array.from(
     new Set(
       directList
@@ -77,65 +83,31 @@ async function getProviderAffiliationContext(providerUserId) {
     )
   );
 
-  const affiliatedOrgs = [];
-  for (const agencyId of directAgencyIds) {
-    try {
-      const orgAff = await OrganizationAffiliation.listActiveOrganizationsForAgency(agencyId);
-      if (Array.isArray(orgAff) && orgAff.length) affiliatedOrgs.push(...orgAff);
-    } catch {
-      // Backward-compatible: table may not exist yet in older environments.
-    }
-
-    // Legacy fallback for schools in environments still using agency_schools.
-    try {
-      const legacySchools = await AgencySchool.listByAgency(agencyId, { includeInactive: false });
-      for (const row of legacySchools || []) {
-        const sid = parseInt(row?.school_organization_id, 10);
-        if (!sid) continue;
-        affiliatedOrgs.push({
-          id: sid,
-          name: row?.school_name || `School #${sid}`,
-          slug: row?.school_slug || null,
-          organization_type: row?.school_organization_type || 'school',
-          is_active: row?.is_active
-        });
-      }
-    } catch {
-      // ignore legacy fallback errors
-    }
+  // Backward-compatible: include orgs where this provider already has assignment rows,
+  // even if a legacy data issue missed user_agencies membership.
+  let assignedList = [];
+  try {
+    const [assignedRows] = await pool.execute(
+      `SELECT DISTINCT a.id, a.name, a.slug, a.organization_type
+       FROM provider_school_assignments psa
+       JOIN agencies a ON a.id = psa.school_organization_id
+       WHERE psa.provider_user_id = ?`,
+      [providerUserId]
+    );
+    assignedList = Array.isArray(assignedRows) ? assignedRows : [];
+  } catch {
+    assignedList = [];
   }
 
-  const affiliatedProgramIds = new Set(
-    (affiliatedOrgs || [])
-      .filter((o) => String(o?.organization_type || '').toLowerCase() === 'program')
-      .map((o) => parseInt(o?.id, 10))
-      .filter((n) => Number.isFinite(n) && n > 0)
-  );
-  const affiliatedLearningIds = new Set(
-    (affiliatedOrgs || [])
-      .filter((o) => String(o?.organization_type || '').toLowerCase() === 'learning')
-      .map((o) => parseInt(o?.id, 10))
-      .filter((n) => Number.isFinite(n) && n > 0)
-  );
-
   const byId = new Map();
-  for (const o of [...directList, ...affiliatedOrgs]) {
+  for (const o of [...directList, ...assignedList]) {
     const id = parseInt(o?.id, 10);
     if (!id) continue;
     if (!byId.has(id)) byId.set(id, o);
   }
   const all = Array.from(byId.values());
 
-  const visibleAffiliations = all
-    .filter((o) => String(o?.organization_type || 'agency').toLowerCase() !== 'agency')
-    .filter((o) => {
-      const type = String(o?.organization_type || '').toLowerCase();
-      // Product rule: only show Program affiliations when they are attached to one
-      // of the provider's agency memberships.
-      if (type === 'program') return affiliatedProgramIds.has(parseInt(o?.id, 10));
-      if (type === 'learning') return affiliatedLearningIds.has(parseInt(o?.id, 10));
-      return true;
-    });
+  const visibleAffiliations = all.filter((o) => String(o?.organization_type || 'agency').toLowerCase() !== 'agency');
 
   return {
     directAgencyIds,

@@ -29,7 +29,29 @@ export const pricingValidators = [
   body('pricing.smsUnitCents').optional().isObject().withMessage('smsUnitCents must be an object'),
   body('pricing.smsUnitCents.inboundClient').optional().isInt({ min: 0 }),
   body('pricing.smsUnitCents.outboundClient').optional().isInt({ min: 0 }),
-  body('pricing.smsUnitCents.notification').optional().isInt({ min: 0 })
+  body('pricing.smsUnitCents.notification').optional().isInt({ min: 0 }),
+  body('pricing.communicationRateCents').optional().isObject().withMessage('communicationRateCents must be an object'),
+  body('pricing.communicationRateCents.smsOutboundClient').optional().isObject(),
+  body('pricing.communicationRateCents.smsInboundClient').optional().isObject(),
+  body('pricing.communicationRateCents.smsNotification').optional().isObject(),
+  body('pricing.communicationRateCents.phoneNumberMonthly').optional().isObject(),
+  body('pricing.communicationRateCents.voiceOutboundMinute').optional().isObject(),
+  body('pricing.communicationRateCents.voiceInboundMinute').optional().isObject(),
+  body('pricing.communicationRateCents.videoParticipantMinute').optional().isObject(),
+  body('pricing.communicationRateCents.smsOutboundClient.actualCostCents').optional().isInt({ min: 0 }),
+  body('pricing.communicationRateCents.smsOutboundClient.markupCents').optional().isInt({ min: 0 }),
+  body('pricing.communicationRateCents.smsInboundClient.actualCostCents').optional().isInt({ min: 0 }),
+  body('pricing.communicationRateCents.smsInboundClient.markupCents').optional().isInt({ min: 0 }),
+  body('pricing.communicationRateCents.smsNotification.actualCostCents').optional().isInt({ min: 0 }),
+  body('pricing.communicationRateCents.smsNotification.markupCents').optional().isInt({ min: 0 }),
+  body('pricing.communicationRateCents.phoneNumberMonthly.actualCostCents').optional().isInt({ min: 0 }),
+  body('pricing.communicationRateCents.phoneNumberMonthly.markupCents').optional().isInt({ min: 0 }),
+  body('pricing.communicationRateCents.voiceOutboundMinute.actualCostCents').optional().isInt({ min: 0 }),
+  body('pricing.communicationRateCents.voiceOutboundMinute.markupCents').optional().isInt({ min: 0 }),
+  body('pricing.communicationRateCents.voiceInboundMinute.actualCostCents').optional().isInt({ min: 0 }),
+  body('pricing.communicationRateCents.voiceInboundMinute.markupCents').optional().isInt({ min: 0 }),
+  body('pricing.communicationRateCents.videoParticipantMinute.actualCostCents').optional().isInt({ min: 0 }),
+  body('pricing.communicationRateCents.videoParticipantMinute.markupCents').optional().isInt({ min: 0 })
 ];
 
 export const platformPricingValidators = [
@@ -72,7 +94,26 @@ export const agencyPricingOverrideValidators = [
     .withMessage('smsUnitCents must be an object'),
   body('pricing.smsUnitCents.inboundClient').if((v, { req }) => req.body?.pricing != null).optional().isInt({ min: 0 }),
   body('pricing.smsUnitCents.outboundClient').if((v, { req }) => req.body?.pricing != null).optional().isInt({ min: 0 }),
-  body('pricing.smsUnitCents.notification').if((v, { req }) => req.body?.pricing != null).optional().isInt({ min: 0 })
+  body('pricing.smsUnitCents.notification').if((v, { req }) => req.body?.pricing != null).optional().isInt({ min: 0 }),
+  body('pricing.communicationRateCents')
+    .if((value, { req }) => req.body?.pricing != null)
+    .optional()
+    .isObject()
+    .withMessage('communicationRateCents must be an object'),
+  body('pricing.communicationRateCents.smsOutboundClient.actualCostCents').if((v, { req }) => req.body?.pricing != null).optional().isInt({ min: 0 }),
+  body('pricing.communicationRateCents.smsOutboundClient.markupCents').if((v, { req }) => req.body?.pricing != null).optional().isInt({ min: 0 }),
+  body('pricing.communicationRateCents.smsInboundClient.actualCostCents').if((v, { req }) => req.body?.pricing != null).optional().isInt({ min: 0 }),
+  body('pricing.communicationRateCents.smsInboundClient.markupCents').if((v, { req }) => req.body?.pricing != null).optional().isInt({ min: 0 }),
+  body('pricing.communicationRateCents.smsNotification.actualCostCents').if((v, { req }) => req.body?.pricing != null).optional().isInt({ min: 0 }),
+  body('pricing.communicationRateCents.smsNotification.markupCents').if((v, { req }) => req.body?.pricing != null).optional().isInt({ min: 0 }),
+  body('pricing.communicationRateCents.phoneNumberMonthly.actualCostCents').if((v, { req }) => req.body?.pricing != null).optional().isInt({ min: 0 }),
+  body('pricing.communicationRateCents.phoneNumberMonthly.markupCents').if((v, { req }) => req.body?.pricing != null).optional().isInt({ min: 0 }),
+  body('pricing.communicationRateCents.voiceOutboundMinute.actualCostCents').if((v, { req }) => req.body?.pricing != null).optional().isInt({ min: 0 }),
+  body('pricing.communicationRateCents.voiceOutboundMinute.markupCents').if((v, { req }) => req.body?.pricing != null).optional().isInt({ min: 0 }),
+  body('pricing.communicationRateCents.voiceInboundMinute.actualCostCents').if((v, { req }) => req.body?.pricing != null).optional().isInt({ min: 0 }),
+  body('pricing.communicationRateCents.voiceInboundMinute.markupCents').if((v, { req }) => req.body?.pricing != null).optional().isInt({ min: 0 }),
+  body('pricing.communicationRateCents.videoParticipantMinute.actualCostCents').if((v, { req }) => req.body?.pricing != null).optional().isInt({ min: 0 }),
+  body('pricing.communicationRateCents.videoParticipantMinute.markupCents').if((v, { req }) => req.body?.pricing != null).optional().isInt({ min: 0 })
 ];
 
 export const getPlatformPricing = async (req, res, next) => {

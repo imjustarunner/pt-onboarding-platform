@@ -138,7 +138,7 @@
             v-if="authStore.user?.id"
             class="btn btn-secondary btn-sm"
             type="button"
-            @click="openNotificationsPanel({ createAnnouncement: true })"
+            @click="openAnnouncementModal"
           >
             Create announcement
           </button>
@@ -798,6 +798,67 @@
       @close="showHelpDesk = false"
     />
 
+    <div v-if="showAnnouncementModal" class="modal-overlay" @click.self="closeAnnouncementModal">
+      <div class="modal school-announcement-modal" @click.stop>
+        <div class="modal-header">
+          <strong>Create announcement</strong>
+          <button class="btn btn-secondary btn-sm" type="button" @click="closeAnnouncementModal" :disabled="announcementCreating">
+            Close
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="muted" style="margin-bottom: 12px;">
+            Post a scrolling school-wide banner without leaving this page.
+          </div>
+          <div class="announcement-form-grid">
+            <label class="announcement-field">
+              <span class="announcement-field-label">Title (optional)</span>
+              <input
+                v-model="announcementDraftTitle"
+                class="school-selector"
+                type="text"
+                maxlength="255"
+                placeholder="e.g., School closed Monday"
+              />
+            </label>
+            <label class="announcement-field">
+              <span class="announcement-field-label">Starts</span>
+              <input v-model="announcementDraftStartsAt" class="school-selector" type="datetime-local" />
+            </label>
+            <label class="announcement-field">
+              <span class="announcement-field-label">Ends (max 2 weeks)</span>
+              <input v-model="announcementDraftEndsAt" class="school-selector" type="datetime-local" />
+            </label>
+            <label class="announcement-field announcement-field-wide">
+              <span class="announcement-field-label">Message</span>
+              <textarea
+                v-model="announcementDraftMessage"
+                class="announcement-textarea"
+                rows="4"
+                maxlength="1200"
+                placeholder="Type announcement..."
+              />
+            </label>
+          </div>
+          <div v-if="announcementCreateError" class="error" style="margin-top: 12px;">{{ announcementCreateError }}</div>
+          <div v-if="announcementCreateSuccess" class="muted" style="margin-top: 12px; color: #065f46;">{{ announcementCreateSuccess }}</div>
+          <div class="actions" style="margin-top: 16px;">
+            <button
+              class="btn btn-primary btn-sm"
+              type="button"
+              :disabled="announcementCreating || !canSubmitAnnouncement"
+              @click="submitAnnouncementModal"
+            >
+              {{ announcementCreating ? 'Posting…' : 'Post announcement' }}
+            </button>
+            <button class="btn btn-secondary btn-sm" type="button" @click="closeAnnouncementModal" :disabled="announcementCreating">
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div v-if="showRoiTransitionNotice" class="modal-overlay" @click.self="dismissRoiTransitionNotice">
       <div class="modal roi-transition-modal" @click.stop>
         <div class="modal-header">
@@ -1275,6 +1336,14 @@ const adminClientActiveTab = ref('');
 const quickChecklistClient = ref(null);
 const canEditClientActions = ref(false);
 const cardIconOrg = ref(null); // affiliated agency record (for School Portal card icon overrides)
+const showAnnouncementModal = ref(false);
+const announcementDraftTitle = ref('');
+const announcementDraftMessage = ref('');
+const announcementDraftStartsAt = ref('');
+const announcementDraftEndsAt = ref('');
+const announcementCreating = ref(false);
+const announcementCreateError = ref('');
+const announcementCreateSuccess = ref('');
 
 const requestedPortalMode = computed(() => String(route.query?.sp || '').trim().toLowerCase());
 const notificationsFilter = computed(() => String(route.query?.notif || '').trim().toLowerCase());
@@ -1592,6 +1661,65 @@ const loadBannerAnnouncements = async () => {
     bannerItems.value = Array.isArray(r.data) ? r.data : [];
   } catch {
     bannerItems.value = [];
+  }
+};
+
+const toAnnouncementLocalInput = (date) => {
+  const d = date instanceof Date ? date : new Date(date);
+  if (!Number.isFinite(d.getTime())) return '';
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+
+const initAnnouncementDefaults = () => {
+  const now = new Date();
+  const ends = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
+  announcementDraftStartsAt.value = toAnnouncementLocalInput(now);
+  announcementDraftEndsAt.value = toAnnouncementLocalInput(ends);
+};
+
+const canSubmitAnnouncement = computed(() => {
+  if (!authStore.user?.id) return false;
+  if (!organizationId.value) return false;
+  if (!announcementDraftMessage.value.trim()) return false;
+  if (!announcementDraftStartsAt.value || !announcementDraftEndsAt.value) return false;
+  return true;
+});
+
+const openAnnouncementModal = () => {
+  announcementCreateError.value = '';
+  announcementCreateSuccess.value = '';
+  announcementDraftTitle.value = '';
+  announcementDraftMessage.value = '';
+  initAnnouncementDefaults();
+  showAnnouncementModal.value = true;
+};
+
+const closeAnnouncementModal = () => {
+  if (announcementCreating.value) return;
+  showAnnouncementModal.value = false;
+  announcementCreateError.value = '';
+};
+
+const submitAnnouncementModal = async () => {
+  if (!canSubmitAnnouncement.value) return;
+  announcementCreating.value = true;
+  announcementCreateError.value = '';
+  announcementCreateSuccess.value = '';
+  try {
+    await api.post(`/school-portal/${organizationId.value}/announcements`, {
+      title: announcementDraftTitle.value.trim() || null,
+      message: announcementDraftMessage.value.trim(),
+      starts_at: new Date(announcementDraftStartsAt.value),
+      ends_at: new Date(announcementDraftEndsAt.value)
+    });
+    announcementCreateSuccess.value = 'Announcement posted.';
+    showAnnouncementModal.value = false;
+    await Promise.all([loadNotificationsPreview(), loadBannerAnnouncements()]);
+  } catch (e) {
+    announcementCreateError.value = e?.response?.data?.error?.message || 'Failed to post announcement';
+  } finally {
+    announcementCreating.value = false;
   }
 };
 
@@ -2871,6 +2999,56 @@ watch(() => store.selectedWeekday, async (weekday) => {
 }
 .modal-body {
   padding: 14px 16px;
+}
+
+.school-announcement-modal {
+  width: min(720px, 95vw);
+}
+
+.announcement-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.announcement-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.announcement-field-wide {
+  grid-column: 1 / -1;
+}
+
+.announcement-field-label {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.announcement-textarea {
+  width: 100%;
+  min-height: 112px;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: white;
+  color: var(--text-primary);
+  font: inherit;
+}
+
+@media (max-width: 720px) {
+  .announcement-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .announcement-field-wide {
+    grid-column: auto;
+  }
 }
 
 .roi-transition-modal {

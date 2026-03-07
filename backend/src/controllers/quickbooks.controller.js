@@ -1,7 +1,14 @@
 import config from '../config/config.js';
 import AgencyBillingAccount from '../models/AgencyBillingAccount.model.js';
 import { encryptBillingSecret, isBillingEncryptionConfigured } from '../services/billingEncryption.service.js';
-import { createSignedState, exchangeCodeForTokens, getQuickBooksAuthorizeUrl, verifySignedState } from '../services/quickbooksOAuth.service.js';
+import {
+  createSignedState,
+  exchangeCodeForTokens,
+  getQuickBooksAuthorizeUrl,
+  hasQuickBooksPaymentScope,
+  scopeListToCsv,
+  verifySignedState
+} from '../services/quickbooksOAuth.service.js';
 
 export const getQuickBooksConnectUrl = async (req, res, next) => {
   try {
@@ -19,7 +26,10 @@ export const getQuickBooksConnectUrl = async (req, res, next) => {
       actorUserId: req.user?.id || null
     });
 
-    const authUrl = getQuickBooksAuthorizeUrl({ state });
+    const authUrl = getQuickBooksAuthorizeUrl({
+      state,
+      scope: ['com.intuit.quickbooks.accounting', 'com.intuit.quickbooks.payment']
+    });
     res.json({ authUrl });
   } catch (error) {
     next(error);
@@ -55,6 +65,8 @@ export const quickBooksOAuthCallback = async (req, res, next) => {
     const tokenData = await exchangeCodeForTokens({ code: String(code) });
     const expiresInSec = Number(tokenData.expires_in || 0);
     const expiresAt = expiresInSec ? new Date(Date.now() + expiresInSec * 1000) : null;
+    const grantedScopeCsv = scopeListToCsv(tokenData.scope);
+    const qboPaymentsEnabled = hasQuickBooksPaymentScope(grantedScopeCsv);
 
     const accessTokenEnc = encryptBillingSecret(tokenData.access_token);
     const refreshTokenEnc = encryptBillingSecret(tokenData.refresh_token);
@@ -64,7 +76,9 @@ export const quickBooksOAuthCallback = async (req, res, next) => {
       realmId: String(realmId),
       accessTokenEnc,
       refreshTokenEnc,
-      tokenExpiresAt: expiresAt
+      tokenExpiresAt: expiresAt,
+      scopeCsv: grantedScopeCsv,
+      qboPaymentsEnabled
     });
 
     const url = new URL(config.frontendUrl);
@@ -86,8 +100,11 @@ export const getQuickBooksStatus = async (req, res, next) => {
     res.json({
       agencyId: parseInt(agencyId, 10),
       isConnected: !!account?.is_qbo_connected,
+      paymentsEnabled: !!account?.qbo_payments_enabled,
+      scopeCsv: account?.qbo_scope_csv || '',
       realmId: account?.qbo_realm_id || null,
-      tokenExpiresAt: account?.qbo_token_expires_at || null
+      tokenExpiresAt: account?.qbo_token_expires_at || null,
+      needsReconnectForPayments: !!account?.is_qbo_connected && !account?.qbo_payments_enabled
     });
   } catch (error) {
     next(error);
