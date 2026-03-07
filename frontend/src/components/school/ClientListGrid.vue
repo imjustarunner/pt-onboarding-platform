@@ -956,6 +956,26 @@ const messageBadgeTitle = (client) => {
   return `${total} message(s) — click to open`;
 };
 
+const startOfLocalDay = (value = new Date()) => {
+  const date = value instanceof Date ? new Date(value.getTime()) : new Date(value);
+  if (!Number.isFinite(date.getTime())) return null;
+  date.setHours(0, 0, 0, 0);
+  return date;
+};
+
+const getRoiExpirationCountdownLabel = (client) => {
+  const roiExpiresRaw = String(client?.roi_expires_at || '').trim();
+  if (!roiExpiresRaw) return '';
+  const expiresAt = startOfLocalDay(roiExpiresRaw);
+  const today = startOfLocalDay();
+  if (!expiresAt || !today) return '';
+  const diffDays = Math.round((expiresAt.getTime() - today.getTime()) / (24 * 60 * 60 * 1000));
+  if (diffDays < 0 || diffDays > 30) return '';
+  if (diffDays === 0) return 'ROI expires today';
+  if (diffDays === 1) return 'ROI expires in 1 day';
+  return `ROI expires in ${diffDays} days`;
+};
+
 const formatDocSummary = (client) => {
   const source = String(client?.source || '').trim().toLowerCase();
   const isLinkedPacketUpload = source.includes('public_intake_link') || source.includes('intake_link');
@@ -972,11 +992,13 @@ const formatDocSummary = (client) => {
   const delivery = String(client?.paperwork_delivery_method_label || '').trim();
   const date = client?.doc_date ? new Date(client.doc_date).toLocaleDateString() : '';
   const statusKey = String(client?.paperwork_status_key || '').toLowerCase();
+  const roiCountdown = getRoiExpirationCountdownLabel(client);
   const roiExpiresAt = client?.roi_expires_at ? new Date(String(client.roi_expires_at)) : null;
   const roiExpired =
     statusKey === 'roi' && roiExpiresAt ? (roiExpiresAt.getTime() < new Date().setHours(0, 0, 0, 0)) : false;
 
   const parts = [];
+  if (roiCountdown) parts.push(roiCountdown);
   const normalizedStatus =
     statusKey === 'new_docs' ? 'Docs Needed' :
     statusKey === 'all_needed' ? 'All Needed' :
