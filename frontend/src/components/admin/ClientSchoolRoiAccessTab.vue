@@ -640,6 +640,8 @@ const ensureIssuedLink = async (regenerate = false) => {
 };
 
 const copyIssuedLink = async (regenerate = false) => {
+  const clientId = Number(props.client?.id || 0);
+  if (!clientId) return;
   if (!hasSigningConfig.value) return;
   try {
     issueLoading.value = true;
@@ -651,6 +653,14 @@ const copyIssuedLink = async (regenerate = false) => {
     if (url) {
       try {
         await navigator.clipboard.writeText(url);
+        try {
+          await api.post(`/clients/${clientId}/school-roi-signing-link/copied`, {
+            signingLinkId: Number(link.id || 0),
+            regenerate: !!regenerate
+          });
+        } catch {
+          // best-effort tracking only
+        }
         copyStatus.value = regenerate ? 'New ROI link copied.' : 'ROI link copied.';
       } catch {
         copyStatus.value = url;

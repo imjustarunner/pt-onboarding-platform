@@ -11,12 +11,21 @@ import SchoolRoiIntakeLinkConfig from '../models/SchoolRoiIntakeLinkConfig.model
 import ClientSchoolRoiSigningLink from '../models/ClientSchoolRoiSigningLink.model.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
 import MessageLog from '../models/MessageLog.model.js';
+import Notification from '../models/Notification.model.js';
 import TwilioNumber from '../models/TwilioNumber.model.js';
 import TwilioOptInState from '../models/TwilioOptInState.model.js';
 import TwilioService from '../services/twilio.service.js';
 import { sendEmailFromIdentity } from '../services/unifiedEmail/unifiedEmailSender.service.js';
 import { logAuditEvent } from '../services/auditEvent.service.js';
 import { resolvePreferredSenderIdentityForSchoolThenAgency } from '../services/emailSenderIdentityResolver.service.js';
+
+const BACKOFFICE_NOTIFICATION_AUDIENCE = Object.freeze({
+  admin: true,
+  schoolStaff: false,
+  provider: false,
+  supervisor: false,
+  clinicalPracticeAssistant: false
+});
 
 function isBackofficeManager(role) {
   const normalized = String(role || '').trim().toLowerCase();
@@ -207,6 +216,34 @@ function ensureRoiSmsBodyHasLink(body, linkUrl) {
   if (!message) return url;
   if (message.includes(url)) return message;
   return `${message} ${url}`.trim();
+}
+
+async function createSchoolRoiBackofficeNotification({
+  type,
+  title,
+  message,
+  clientId,
+  agencyId,
+  actorUserId = null
+}) {
+  if (!type || !title || !message || !clientId || !agencyId) return;
+  try {
+    await Notification.create({
+      type,
+      severity: 'info',
+      title,
+      message,
+      audienceJson: BACKOFFICE_NOTIFICATION_AUDIENCE,
+      userId: null,
+      agencyId,
+      relatedEntityType: 'client',
+      relatedEntityId: clientId,
+      actorUserId,
+      actorSource: 'School ROI'
+    });
+  } catch {
+    // best-effort
+  }
 }
 
 export async function ensureIssuedRoiSigningLinkForClient({ client, schoolOrganizationId, actorUserId = null, regenerate = false }) {
@@ -552,6 +589,14 @@ export const issueClientSchoolRoiSigningLink = async (req, res, next) => {
         regenerate
       }
     });
+    await createSchoolRoiBackofficeNotification({
+      type: 'client_school_roi_link_generated',
+      title: regenerate ? 'School ROI link regenerated' : 'School ROI link generated',
+      message: `${client.full_name || client.initials || `Client ${clientId}`} (${client.identifier_code || 'NO ROI'}) now has an active school ROI signing link${regenerate ? ' (regenerated)' : ''}.`,
+      clientId,
+      agencyId: client.agency_id || null,
+      actorUserId: req.user?.id || null
+    });
 
     res.json({
       ok: true,
@@ -559,6 +604,46 @@ export const issueClientSchoolRoiSigningLink = async (req, res, next) => {
       school_organization_id: schoolOrganizationId,
       issued_link: serializeIssuedRoiSigningLink(issuedLink, client)
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const trackClientSchoolRoiSigningLinkCopied = async (req, res, next) => {
+  try {
+    const clientId = Number(req.params.id || 0);
+    const signingLinkId = Number(req.body?.signingLinkId || 0);
+    if (!clientId || !signingLinkId) {
+      return res.status(400).json({ error: { message: 'Invalid clientId/signingLinkId' } });
+    }
+    if (!isBackofficeManager(req.user?.role)) {
+      return res.status(403).json({ error: { message: 'Backoffice access required' } });
+    }
+    const access = await requireManagedClient(req, clientId);
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+    const client = access.client;
+    const schoolOrganizationId = Number(client.organization_id || 0) || null;
+
+    await logAuditEvent(req, {
+      actionType: 'client_school_roi_signing_link_issued',
+      agencyId: client.agency_id || null,
+      metadata: {
+        clientId,
+        schoolOrganizationId,
+        signingLinkId,
+        copied: true
+      }
+    });
+    await createSchoolRoiBackofficeNotification({
+      type: 'client_school_roi_link_copied',
+      title: 'School ROI link copied',
+      message: `${client.full_name || client.initials || `Client ${clientId}`} (${client.identifier_code || 'NO ROI'}) school ROI link was copied by ${req.user?.first_name || 'staff'}.`,
+      clientId,
+      agencyId: client.agency_id || null,
+      actorUserId: req.user?.id || null
+    });
+
+    return res.json({ ok: true });
   } catch (error) {
     next(error);
   }
@@ -671,6 +756,14 @@ export const sendClientSchoolRoiSigningText = async (req, res, next) => {
           toNumber: normalizedPhone
         }
       });
+      await createSchoolRoiBackofficeNotification({
+        type: 'client_school_roi_link_sent',
+        title: 'School ROI link sent by text',
+        message: `${client.full_name || client.initials || `Client ${clientId}`} (${client.identifier_code || 'NO ROI'}) school ROI link was sent by text to ${normalizedPhone}.`,
+        clientId,
+        agencyId: client.agency_id || null,
+        actorUserId: req.user?.id || null
+      });
       res.json({
         ok: true,
         client,
@@ -769,6 +862,14 @@ export const sendClientSchoolRoiSigningEmail = async (req, res, next) => {
         signingLinkId: issuedResult.issuedLink?.id || null,
         toEmail
       }
+    });
+    await createSchoolRoiBackofficeNotification({
+      type: 'client_school_roi_link_sent',
+      title: 'School ROI link sent by email',
+      message: `${client.full_name || client.initials || `Client ${clientId}`} (${client.identifier_code || 'NO ROI'}) school ROI link was sent by email to ${toEmail}.`,
+      clientId,
+      agencyId: client.agency_id || null,
+      actorUserId: req.user?.id || null
     });
 
     res.json({

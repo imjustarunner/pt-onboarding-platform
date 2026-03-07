@@ -48,6 +48,7 @@ import {
   updateClientSchoolRoiExpiration,
   updateClientSchoolRoiSigningConfig,
   issueClientSchoolRoiSigningLink,
+  trackClientSchoolRoiSigningLinkCopied,
   sendClientSchoolRoiSigningText,
   sendClientSchoolRoiSigningEmail
 } from '../controllers/clientSchoolRoiAccess.controller.js';
@@ -158,6 +159,7 @@ router.put('/:id/school-roi-access/:schoolStaffUserId', updateClientSchoolRoiAcc
 router.put('/:id/school-roi-expiration', updateClientSchoolRoiExpiration);
 router.put('/:id/school-roi-signing-config', updateClientSchoolRoiSigningConfig);
 router.post('/:id/school-roi-signing-link', issueClientSchoolRoiSigningLink);
+router.post('/:id/school-roi-signing-link/copied', trackClientSchoolRoiSigningLinkCopied);
 router.post('/:id/school-roi-signing-text', sendClientSchoolRoiSigningText);
 router.post('/:id/school-roi-signing-email', sendClientSchoolRoiSigningEmail);
 router.post(

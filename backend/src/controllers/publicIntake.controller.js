@@ -361,6 +361,42 @@ const resolvePublicIntakeContext = async (publicKey) => {
   return { link, issuedRoiLink, boundClient };
 };
 
+const BACKOFFICE_NOTIFICATION_AUDIENCE = Object.freeze({
+  admin: true,
+  schoolStaff: false,
+  provider: false,
+  supervisor: false,
+  clinicalPracticeAssistant: false
+});
+
+const notifySchoolRoiCompletedForBackoffice = async ({
+  agencyId,
+  clientId,
+  clientLabel,
+  schoolLabel
+}) => {
+  const aid = Number(agencyId || 0) || null;
+  const cid = Number(clientId || 0) || null;
+  if (!aid || !cid) return;
+  try {
+    await Notification.create({
+      type: 'client_school_roi_completed',
+      severity: 'info',
+      title: 'School ROI completed by client',
+      message: `${clientLabel || `Client ${cid}`} completed Smart School ROI${schoolLabel ? ` for ${schoolLabel}` : ''}.`,
+      audienceJson: BACKOFFICE_NOTIFICATION_AUDIENCE,
+      userId: null,
+      agencyId: aid,
+      relatedEntityType: 'client',
+      relatedEntityId: cid,
+      actorUserId: null,
+      actorSource: 'Public Intake'
+    });
+  } catch {
+    // best-effort
+  }
+};
+
 const buildAnswersPdfBuffer = async ({ link, intakeData }) => {
   if (!intakeData) return null;
   const clients = Array.isArray(intakeData?.clients) ? intakeData.clients : [];
@@ -2434,6 +2470,12 @@ export const finalizePublicIntake = async (req, res, next) => {
           accessUpdates
         }
       });
+      await notifySchoolRoiCompletedForBackoffice({
+        agencyId: boundClient.agency_id || agency?.id || null,
+        clientId: boundClient.id,
+        clientLabel: boundClient.full_name || boundClient.initials || boundClient.identifier_code || `Client ${boundClient.id}`,
+        schoolLabel: roiContext?.school?.name || boundClient.organization_name || organization?.name || 'school'
+      });
 
       const downloadUrl = await StorageService.getSignedUrl(signedResult.storagePath, 60 * 24 * 14);
       if (updatedSubmission.signer_email && downloadUrl) {
@@ -3016,12 +3058,14 @@ export const finalizePublicIntake = async (req, res, next) => {
     }
 
     if (issuedRoiLink?.id && updatedSubmission?.client_id) {
+      let completedClientRow = null;
       try {
         await applyClientRoiCompletion({
           clientId: updatedSubmission.client_id,
           signedAt: now,
           actorUserId: null
         });
+        completedClientRow = await Client.findById(updatedSubmission.client_id, { includeSensitive: true });
       } catch (error) {
         console.error('applyClientRoiCompletion failed', {
           clientId: updatedSubmission.client_id,
@@ -3035,6 +3079,12 @@ export const finalizePublicIntake = async (req, res, next) => {
         intakeSubmissionId: submissionId,
         signedAt: now,
         completedClientPhiDocumentId: roiCompletionPhiDocument?.id || null
+      });
+      await notifySchoolRoiCompletedForBackoffice({
+        agencyId: completedClientRow?.agency_id || updatedSubmission?.agency_id || null,
+        clientId: updatedSubmission.client_id,
+        clientLabel: completedClientRow?.full_name || completedClientRow?.initials || completedClientRow?.identifier_code || `Client ${updatedSubmission.client_id}`,
+        schoolLabel: completedClientRow?.organization_name || (String(link?.scope_type || '').toLowerCase() === 'school' ? 'school' : null)
       });
     }
 

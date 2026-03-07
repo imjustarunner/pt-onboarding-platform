@@ -24,7 +24,11 @@ const IN_APP_CATEGORY_BY_TYPE = {
   client_checklist_updated: 'clients_checklist_updates',
   client_became_current: 'clients_checklist_updates',
   paperwork_received: 'clients_new_intakes',
-  new_packet_uploaded: 'clients_new_intakes'
+  new_packet_uploaded: 'clients_new_intakes',
+  client_school_roi_link_generated: 'clients_new_intakes',
+  client_school_roi_link_copied: 'clients_new_intakes',
+  client_school_roi_link_sent: 'clients_new_intakes',
+  client_school_roi_completed: 'clients_new_intakes'
 };
 
 function viewerAudienceKey(role) {

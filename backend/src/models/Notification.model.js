@@ -101,7 +101,12 @@ class Notification {
     // Public form submission (no client) - document landed in Unassigned Documents
     'unassigned_document_submitted',
     // Medical records release (ROI) - only visible to users with has_medical_records_release_access
-    'medical_records_release_submitted'
+    'medical_records_release_submitted',
+    // School ROI lifecycle (admin/staff visibility)
+    'client_school_roi_link_generated',
+    'client_school_roi_link_copied',
+    'client_school_roi_link_sent',
+    'client_school_roi_completed'
   ];
 
   static async create(notificationData) {
