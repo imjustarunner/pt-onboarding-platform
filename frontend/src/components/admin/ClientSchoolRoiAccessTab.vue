@@ -48,7 +48,7 @@
           <div>
             <div class="summary-k">Client ROI signing link</div>
             <div class="hint">
-              This uses the school’s standard Smart School ROI by default. Issue a client-specific link or launch signing directly. Signing refreshes ROI records and auto-applies school-staff access from signed decisions.
+              This uses the school’s standard release of information (ROI) by default. Issue a client-specific link or launch signing directly. Signing refreshes ROI records and auto-applies school-staff access from signed decisions.
             </div>
           </div>
           <span class="state-pill" :class="issuedLinkStateClass">
@@ -58,7 +58,7 @@
 
         <div class="signing-grid">
           <div class="summary-card">
-            <div class="summary-k">Standard Smart ROI</div>
+            <div class="summary-k">School ROI Form</div>
             <div class="summary-v">{{ activeSmartRoiTitle }}</div>
             <div class="hint">{{ activeSmartRoiSummary }}</div>
           </div>
@@ -132,7 +132,7 @@
         </div>
 
         <div v-if="!hasSigningConfig" class="warning-card" style="margin-top: 0;">
-          The standard Smart ROI is not available yet for this school or its agency. Once the shared Smart ROI is active, this client can be launched directly from here without any extra setup.
+          The school ROI form is not available yet for this school or its agency. Once the shared ROI form is active, this client can be launched directly from here without any extra setup.
         </div>
 
         <div v-if="issuedLink?.public_key" class="link-preview-card">
@@ -205,7 +205,7 @@
         <div class="sms-card">
           <div class="summary-k">Send ROI link by email</div>
           <div class="hint">
-            This sends the same client-specific smart ROI link directly to a guardian email using the agency sender identity.
+            This sends the same client-specific ROI link directly to a guardian email using the agency sender identity.
           </div>
 
           <div class="sms-grid">
@@ -460,13 +460,13 @@ const activeSmartRoiLink = computed(() => {
 });
 const activeSmartRoiTitle = computed(() => {
   if (!activeSmartRoiLink.value) return 'Not available yet';
-  return activeSmartRoiLink.value.title || 'Smart ROI';
+  return activeSmartRoiLink.value.title || 'School ROI';
 });
 const activeSmartRoiSummary = computed(() => {
   if (!activeSmartRoiLink.value) {
-    return 'No eligible Smart ROI is active for this school yet.';
+    return 'No eligible ROI form is active for this school yet.';
   }
-  return 'This client will use the school-specific Smart ROI automatically.';
+  return 'This client will use the school-specific ROI form automatically.';
 });
 const issuedLinkStateLabel = computed(() => {
   const state = String(issuedLink.value?.status || '').trim().toLowerCase();
@@ -483,7 +483,7 @@ const issuedLinkStateClass = computed(() => {
   return 'state-none';
 });
 const issuedSignedLabel = computed(() => formatDateTime(issuedLink.value?.signed_at));
-const issuedFormLabel = computed(() => issuedLink.value?.intake_link_title || activeSmartRoiTitle.value || 'Smart ROI');
+const issuedFormLabel = computed(() => issuedLink.value?.intake_link_title || activeSmartRoiTitle.value || 'School ROI');
 const issuedLinkUrl = computed(() => buildPublicIntakeUrl(issuedLink.value?.public_key || ''));
 const issuedLinkShortUrl = computed(() => buildPublicIntakeShortUrl(issuedLink.value?.public_key || ''));
 const issuedLinkSummary = computed(() => {
@@ -504,7 +504,7 @@ const buildDefaultSmsMessage = () => {
 const buildDefaultEmailSubject = () => {
   const agencyName = String(props.client?.agency_name || 'ITSCO').trim() || 'ITSCO';
   const school = String(schoolName.value || props.client?.organization_name || 'your school').trim() || 'your school';
-  return `${agencyName}: Smart ROI for ${school}`;
+  return `${agencyName}: Release of Information for ${school}`;
 };
 
 const buildDefaultEmailMessage = () => {
@@ -515,7 +515,7 @@ const buildDefaultEmailMessage = () => {
   return [
     'Hello,',
     '',
-    `${agencyName} has prepared a smart school ROI for ${clientName} related to ${school}.`,
+    `${agencyName} has prepared a release of information (ROI) for ${clientName} related to ${school}.`,
     'Please review and complete it using the secure private link below:',
     '',
     linkUrl,

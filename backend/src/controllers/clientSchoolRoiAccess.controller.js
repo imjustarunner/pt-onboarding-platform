@@ -97,8 +97,8 @@ async function resolveSchoolRoiSelection(schoolOrganizationId) {
     if (sid) {
       const defaultLink = await IntakeLink.create({
         publicKey: crypto.randomBytes(24).toString('hex'),
-        title: 'Smart School ROI (Default)',
-        description: 'System default interactive Smart School ROI.',
+        title: 'School Release of Information (Default)',
+        description: 'System default interactive school release of information.',
         languageCode: 'en',
         scopeType: 'school',
         formType: 'smart_school_roi',
@@ -185,7 +185,7 @@ function buildDefaultRoiSmsMessage({ agencyName, linkUrl }) {
 function buildDefaultRoiEmailSubject({ agencyName, schoolName }) {
   const senderName = String(agencyName || 'ITSCO').trim() || 'ITSCO';
   const school = String(schoolName || 'your school').trim() || 'your school';
-  return `${senderName}: Smart ROI for ${school}`;
+  return `${senderName}: Release of Information for ${school}`;
 }
 
 function buildDefaultRoiEmailBody({ agencyName, schoolName, clientName, linkUrl }) {
@@ -196,7 +196,7 @@ function buildDefaultRoiEmailBody({ agencyName, schoolName, clientName, linkUrl 
   return [
     `Hello,`,
     ``,
-    `${senderName} has prepared a smart school ROI for ${client} related to ${school}.`,
+    `${senderName} has prepared a release of information (ROI) for ${client} related to ${school}.`,
     `Please review and complete it using the secure private link below:`,
     ``,
     url,
@@ -282,7 +282,7 @@ export async function ensureIssuedRoiSigningLinkForClient({ client, schoolOrgani
   const selection = await resolveSchoolRoiSelection(schoolOrganizationId);
   const selectedLink = selection.selectedLink;
   if (!selectedLink?.id) {
-    return { ok: false, status: 400, message: 'No Smart ROI form is available for this school yet.' };
+    return { ok: false, status: 400, message: 'No ROI form is available for this school yet.' };
   }
 
   const existing = await ClientSchoolRoiSigningLink.findForClient({
@@ -556,7 +556,7 @@ export const updateClientSchoolRoiSigningConfig = async (req, res, next) => {
       const match = availableLinks.find((link) => Number(link.id) === intakeLinkId);
       if (!match) {
         return res.status(400).json({
-          error: { message: 'Selected ROI form must be an active Smart ROI form available to this school, including the agency default.' }
+          error: { message: 'Selected ROI form must be an active release of information form available to this school, including the agency default.' }
         });
       }
       config = await SchoolRoiIntakeLinkConfig.upsert({
