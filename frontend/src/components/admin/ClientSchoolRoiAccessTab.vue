@@ -558,6 +558,12 @@ const load = async () => {
     error.value = '';
     copyStatus.value = '';
     smsStatus.value = '';
+    emailStatus.value = '';
+    emailDraft.value = '';
+    emailSubjectDraft.value = '';
+    emailMessageDraft.value = '';
+    emailMessageTouched.value = false;
+    smsMessageTouched.value = false;
     const response = await api.get(`/clients/${clientId}/school-roi-access`);
     const payload = response.data || {};
     rows.value = Array.isArray(payload.staff) ? payload.staff : [];
