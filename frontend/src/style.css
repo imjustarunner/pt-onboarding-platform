@@ -451,6 +451,42 @@
   border-color: var(--border);
 }
 
+/* School Staff Documents: waiver card */
+[data-theme="dark"] .school-portal .waiver-card {
+  background-color: var(--bg) !important;
+  border-color: var(--border);
+}
+[data-theme="dark"] .school-portal .waiver-title {
+  color: var(--text-primary);
+}
+[data-theme="dark"] .school-portal .waiver-sub,
+[data-theme="dark"] .school-portal .waiver-note {
+  color: var(--text-secondary);
+}
+[data-theme="dark"] .school-portal .status-idle {
+  background: rgba(148, 163, 184, 0.2);
+  border-color: var(--border);
+  color: var(--text-secondary);
+}
+[data-theme="dark"] .school-portal .status-pending {
+  background: rgba(245, 158, 11, 0.25);
+  border-color: rgba(245, 158, 11, 0.5);
+  color: #fcd34d;
+}
+[data-theme="dark"] .school-portal .status-signed {
+  background: rgba(34, 197, 94, 0.2);
+  border-color: rgba(34, 197, 94, 0.5);
+  color: #86efac;
+}
+[data-theme="dark"] .school-portal .my-docs-wrap .btn.btn-secondary {
+  background-color: var(--bg-alt) !important;
+  border-color: var(--border);
+  color: var(--text-primary) !important;
+}
+[data-theme="dark"] .school-portal .my-docs-wrap .btn.btn-secondary:hover:not(:disabled) {
+  background-color: var(--bg) !important;
+}
+
 /* Public docs panel */
 [data-theme="dark"] .school-portal .public-docs .card {
   background-color: var(--bg) !important;
@@ -462,7 +498,10 @@
 }
 [data-theme="dark"] .school-portal .public-docs input,
 [data-theme="dark"] .school-portal .public-docs select,
+[data-theme="dark"] .school-portal .public-docs textarea,
 [data-theme="dark"] .school-portal .public-docs .form-help {
+  background-color: var(--bg) !important;
+  border-color: var(--border);
   color: var(--text-primary);
 }
 [data-theme="dark"] .school-portal .public-docs .form-help {
@@ -472,6 +511,114 @@
 [data-theme="dark"] .school-portal .public-docs .table td {
   border-color: var(--border);
   color: var(--text-primary);
+}
+[data-theme="dark"] .school-portal .public-docs .btn.btn-secondary {
+  background-color: var(--bg-alt) !important;
+  border-color: var(--border);
+  color: var(--text-primary) !important;
+}
+[data-theme="dark"] .school-portal .public-docs .btn.btn-secondary:hover:not(:disabled) {
+  background-color: var(--bg) !important;
+  border-color: var(--border);
+}
+[data-theme="dark"] .school-portal .public-docs .modal {
+  background-color: var(--bg) !important;
+  border-color: var(--border);
+}
+[data-theme="dark"] .school-portal .public-docs .modal-header,
+[data-theme="dark"] .school-portal .public-docs .modal-body {
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+[data-theme="dark"] .school-portal .public-docs .intake-link-input {
+  background-color: var(--bg-alt) !important;
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+[data-theme="dark"] .school-portal .public-docs .intake-qr {
+  background-color: var(--bg-alt) !important;
+  border-color: var(--border);
+}
+
+/* Messages panel (Threads + message viewer) */
+[data-theme="dark"] .school-portal .threads-card,
+[data-theme="dark"] .school-portal .messages-card {
+  background-color: var(--bg) !important;
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+[data-theme="dark"] .school-portal .threads-card .card-title,
+[data-theme="dark"] .school-portal .messages-card .card-title {
+  color: var(--text-primary);
+}
+[data-theme="dark"] .school-portal .threads-card .muted,
+[data-theme="dark"] .school-portal .messages-card .muted,
+[data-theme="dark"] .school-portal .messages-panel .empty-select {
+  color: var(--text-secondary);
+}
+[data-theme="dark"] .school-portal .thread:hover {
+  background-color: var(--bg-alt);
+}
+[data-theme="dark"] .school-portal .thread.active {
+  background-color: rgba(59, 130, 246, 0.2);
+}
+[data-theme="dark"] .school-portal .thread-name,
+[data-theme="dark"] .school-portal .bubble .text {
+  color: var(--text-primary);
+}
+[data-theme="dark"] .school-portal .bubble {
+  background-color: var(--bg-alt);
+  border-color: var(--border);
+}
+[data-theme="dark"] .school-portal .bubble-row.mine .bubble {
+  background-color: rgba(59, 130, 246, 0.25);
+  border-color: rgba(59, 130, 246, 0.4);
+}
+[data-theme="dark"] .school-portal .composer textarea {
+  background-color: var(--bg) !important;
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+[data-theme="dark"] .school-portal .messages-panel .modal {
+  background-color: var(--bg) !important;
+  border-color: var(--border);
+}
+[data-theme="dark"] .school-portal .messages-panel .modal-header,
+[data-theme="dark"] .school-portal .messages-panel .modal-body {
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+[data-theme="dark"] .school-portal .messages-panel .type-btn {
+  background-color: var(--bg-alt);
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+[data-theme="dark"] .school-portal .messages-panel .type-btn.active {
+  background-color: var(--primary);
+  border-color: var(--primary);
+  color: white;
+}
+[data-theme="dark"] .school-portal .messages-panel .picker-item {
+  background-color: var(--bg-alt);
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+[data-theme="dark"] .school-portal .messages-panel .picker-item:hover {
+  background-color: var(--bg);
+}
+[data-theme="dark"] .school-portal .messages-panel .new-ticket-form input,
+[data-theme="dark"] .school-portal .messages-panel .new-ticket-form textarea {
+  background-color: var(--bg) !important;
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+[data-theme="dark"] .school-portal .messages-panel .header-actions .btn.btn-secondary {
+  background-color: var(--bg-alt) !important;
+  border-color: var(--border);
+  color: var(--text-primary) !important;
+}
+[data-theme="dark"] .school-portal .messages-panel .header-actions .btn.btn-secondary:hover:not(:disabled) {
+  background-color: var(--bg) !important;
 }
 
 /* Skills groups panel */
@@ -547,13 +694,38 @@
 }
 
 /* Soft schedule editor (within DayPanel) */
-[data-theme="dark"] .school-portal .editor .row .input,
-[data-theme="dark"] .school-portal .editor select.input {
+[data-theme="dark"] .school-portal .editor,
+[data-theme="dark"] .provider-school-profile .editor {
   background-color: var(--bg) !important;
+  border-color: var(--border);
+}
+[data-theme="dark"] .school-portal .editor .title,
+[data-theme="dark"] .provider-school-profile .editor .title {
+  color: var(--text-primary);
+}
+[data-theme="dark"] .school-portal .editor .subtitle,
+[data-theme="dark"] .provider-school-profile .editor .subtitle {
+  color: var(--text-secondary);
+}
+[data-theme="dark"] .school-portal .editor .row {
+  border-bottom-color: var(--border);
+}
+[data-theme="dark"] .school-portal .editor .row .input,
+[data-theme="dark"] .school-portal .editor select.input,
+[data-theme="dark"] .provider-school-profile .editor .row .input,
+[data-theme="dark"] .provider-school-profile .editor select.input {
+  background-color: var(--bg-alt) !important;
   border-color: var(--border);
   color: var(--text-primary);
 }
-[data-theme="dark"] .school-portal .editor .k {
+[data-theme="dark"] .school-portal .editor .input-locked,
+[data-theme="dark"] .provider-school-profile .editor .input-locked {
+  background-color: var(--bg) !important;
+  border-color: var(--border);
+  color: var(--text-secondary);
+}
+[data-theme="dark"] .school-portal .editor .k,
+[data-theme="dark"] .provider-school-profile .editor .k {
   color: var(--text-secondary);
 }
 
@@ -635,6 +807,55 @@
 [data-theme="dark"] .school-portal .client-list-grid .unread-legend-text,
 [data-theme="dark"] .school-portal .client-list-grid .unread-legend-hint {
   color: var(--text-secondary);
+}
+/* Client initials/codes link button (AIYREY etc) */
+[data-theme="dark"] .school-portal .client-list-grid .initials,
+[data-theme="dark"] .school-portal .client-list-grid .initials-btn,
+[data-theme="dark"] .provider-school-profile .client-list-grid .initials,
+[data-theme="dark"] .provider-school-profile .client-list-grid .initials-btn {
+  background-color: var(--bg-alt) !important;
+  border-color: var(--border);
+  color: var(--text-primary) !important;
+}
+[data-theme="dark"] .school-portal .client-list-grid .initials-btn:hover:not(:disabled),
+[data-theme="dark"] .provider-school-profile .client-list-grid .initials-btn:hover:not(:disabled) {
+  background-color: var(--bg) !important;
+}
+/* Unread/ticket badges in roster - ensure readable in dark mode */
+[data-theme="dark"] .school-portal .client-list-grid .unread-badge-comments {
+  background: rgba(45, 156, 219, 0.25);
+  border-color: rgba(45, 156, 219, 0.5);
+  color: #7dd3fc;
+}
+[data-theme="dark"] .school-portal .client-list-grid .unread-badge-messages {
+  background: rgba(155, 81, 224, 0.25);
+  border-color: rgba(155, 81, 224, 0.5);
+  color: #c4b5fd;
+}
+[data-theme="dark"] .school-portal .client-list-grid .unread-badge-updates {
+  background: rgba(16, 185, 129, 0.25);
+  border-color: rgba(16, 185, 129, 0.5);
+  color: #6ee7b7;
+}
+[data-theme="dark"] .school-portal .client-list-grid .ticket-status-open {
+  background: rgba(239, 68, 68, 0.25);
+  border-color: rgba(239, 68, 68, 0.5);
+  color: #fca5a5;
+}
+[data-theme="dark"] .school-portal .client-list-grid .ticket-status-answered {
+  background: rgba(37, 99, 235, 0.25);
+  border-color: rgba(37, 99, 235, 0.5);
+  color: #93c5fd;
+}
+[data-theme="dark"] .school-portal .client-list-grid .newly-assigned-badge {
+  background: rgba(16, 185, 129, 0.25);
+  border-color: rgba(16, 185, 129, 0.5);
+  color: #6ee7b7;
+}
+[data-theme="dark"] .school-portal .client-list-grid .pending-compliance-badge {
+  background: rgba(239, 68, 68, 0.25);
+  border-color: rgba(239, 68, 68, 0.5);
+  color: #fca5a5;
 }
 
 /* School day bar (MON TUE WED etc) */
