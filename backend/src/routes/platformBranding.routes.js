@@ -34,6 +34,7 @@ router.put(
     body('peopleOpsTerm').optional().isLength({ max: 100 }).withMessage('People Operations Term must be 100 characters or less'),
     body('privacyPolicyUrl').optional({ checkFalsy: true }).isURL().withMessage('Privacy policy URL must be a valid URL'),
     body('termsUrl').optional({ checkFalsy: true }).isURL().withMessage('Terms URL must be a valid URL'),
+    body('platformHipaaUrl').optional({ checkFalsy: true }).isURL().withMessage('Platform HIPAA URL must be a valid URL'),
     body('maxInactivityTimeoutMinutes').optional().isInt({ min: 1, max: 240 }).withMessage('Max inactivity timeout must be between 1 and 240 minutes'),
     body('betaFeedbackEnabled').optional().isBoolean().withMessage('Beta feedback enabled must be a boolean'),
     body('availableAgencyFeatures').optional().isObject().withMessage('Available agency features must be an object')

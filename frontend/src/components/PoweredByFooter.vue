@@ -11,10 +11,12 @@
       />
       <span v-if="platformOrgName" class="powered-by-name">{{ platformOrgName }}</span>
     </div>
-    <div v-if="privacyPolicyUrl || termsUrl" class="legal-links">
+    <div v-if="privacyPolicyUrl || termsUrl || platformHipaaUrl" class="legal-links">
       <a v-if="privacyPolicyUrl" :href="privacyPolicyUrl" target="_blank" rel="noopener noreferrer" class="legal-link">Privacy Policy</a>
-      <span v-if="privacyPolicyUrl && termsUrl" class="legal-sep">|</span>
+      <span v-if="privacyPolicyUrl && (termsUrl || platformHipaaUrl)" class="legal-sep">|</span>
       <a v-if="termsUrl" :href="termsUrl" target="_blank" rel="noopener noreferrer" class="legal-link">Terms</a>
+      <span v-if="termsUrl && platformHipaaUrl" class="legal-sep">|</span>
+      <a v-if="platformHipaaUrl" :href="platformHipaaUrl" target="_blank" rel="noopener noreferrer" class="legal-link">Platform HIPAA</a>
     </div>
   </div>
 </template>
@@ -30,7 +32,13 @@ const showPoweredBy = computed(() => brandingStore.showPoweredBy);
 // Show footer when we have powered-by content OR legal links (e.g. on login page)
 const privacyPolicyUrl = computed(() => brandingStore.platformBranding?.privacy_policy_url?.trim() || null);
 const termsUrl = computed(() => brandingStore.platformBranding?.terms_url?.trim() || null);
-const showFooter = computed(() => (showPoweredBy.value && (platformOrgName.value || platformLogoUrl.value)) || privacyPolicyUrl.value || termsUrl.value);
+const platformHipaaUrl = computed(() => brandingStore.platformBranding?.platform_hipaa_url?.trim() || null);
+const showFooter = computed(() =>
+  (showPoweredBy.value && (platformOrgName.value || platformLogoUrl.value))
+  || privacyPolicyUrl.value
+  || termsUrl.value
+  || platformHipaaUrl.value
+);
 
 // Get platform organization name and logo from branding store
 const platformOrgName = computed(() => {

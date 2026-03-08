@@ -219,6 +219,11 @@
           <input v-model="platformForm.termsUrl" type="url" placeholder="https://example.com/terms" />
           <small>Link shown on the login page footer. Used for A2P/SMS compliance and general legal disclosure.</small>
         </div>
+        <div class="form-group">
+          <label>Platform HIPAA URL</label>
+          <input v-model="platformForm.platformHipaaUrl" type="url" placeholder="https://docs.google.com/document/d/..." />
+          <small>Additional always-visible footer link ("Platform HIPAA"), commonly used for HIPAA policy docs.</small>
+        </div>
         <div class="form-section-divider">
           <h4>Fonts</h4>
           <p class="section-description">Configure default fonts for the platform.</p>
@@ -2166,6 +2171,7 @@ const platformForm = ref({
       organizationLogoPath: null,
       privacyPolicyUrl: null,
       termsUrl: null,
+      platformHipaaUrl: null,
 
   // Settings sidebar navigation icon defaults (replaces emojis)
   companyProfileIconId: null,
@@ -3488,6 +3494,7 @@ const savePlatformBranding = async () => {
       organizationLogoPath: platformLogoInputMethod.value === 'upload' ? (platformForm.value.organizationLogoPath || null) : null,
       privacyPolicyUrl: platformForm.value.privacyPolicyUrl?.trim() || null,
       termsUrl: platformForm.value.termsUrl?.trim() || null,
+      platformHipaaUrl: platformForm.value.platformHipaaUrl?.trim() || null,
 
       // Settings sidebar navigation icon defaults
       companyProfileIconId: platformForm.value.companyProfileIconId ?? null,
@@ -3667,6 +3674,7 @@ const savePlatformBranding = async () => {
       platformForm.value.organizationLogoPath = response.data.organization_logo_path ?? platformForm.value.organizationLogoPath ?? null;
       platformForm.value.privacyPolicyUrl = response.data.privacy_policy_url ?? platformForm.value.privacyPolicyUrl ?? null;
       platformForm.value.termsUrl = response.data.terms_url ?? platformForm.value.termsUrl ?? null;
+      platformForm.value.platformHipaaUrl = response.data.platform_hipaa_url ?? platformForm.value.platformHipaaUrl ?? null;
 
       // Update other fields
       platformForm.value.tagline = response.data.tagline ?? platformForm.value.tagline;
@@ -3717,6 +3725,7 @@ const savePlatformBranding = async () => {
       platformForm.value.organizationLogoPath = brandingStore.platformBranding.organization_logo_path ?? null;
       platformForm.value.privacyPolicyUrl = brandingStore.platformBranding.privacy_policy_url ?? null;
       platformForm.value.termsUrl = brandingStore.platformBranding.terms_url ?? null;
+      platformForm.value.platformHipaaUrl = brandingStore.platformBranding.platform_hipaa_url ?? null;
     }
 
     console.log('Platform branding saved. Updated form icon IDs:', {
@@ -3804,6 +3813,7 @@ onMounted(async () => {
         organizationLogoPath: brandingStore.platformBranding.organization_logo_path ?? null,
         privacyPolicyUrl: brandingStore.platformBranding.privacy_policy_url ?? null,
         termsUrl: brandingStore.platformBranding.terms_url ?? null,
+        platformHipaaUrl: brandingStore.platformBranding.platform_hipaa_url ?? null,
 
         companyProfileIconId: brandingStore.platformBranding.company_profile_icon_id ?? null,
         teamRolesIconId: brandingStore.platformBranding.team_roles_icon_id ?? null,
@@ -3844,6 +3854,7 @@ onActivated(async () => {
       platformForm.value.organizationLogoPath = brandingStore.platformBranding.organization_logo_path ?? null;
       platformForm.value.privacyPolicyUrl = brandingStore.platformBranding.privacy_policy_url ?? null;
       platformForm.value.termsUrl = brandingStore.platformBranding.terms_url ?? null;
+      platformForm.value.platformHipaaUrl = brandingStore.platformBranding.platform_hipaa_url ?? null;
 
       // Set logo input method based on what's available
       if (platformForm.value.organizationLogoPath) {

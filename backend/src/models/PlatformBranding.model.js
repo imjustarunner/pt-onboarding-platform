@@ -684,6 +684,7 @@ class PlatformBranding {
       organizationLogoPath,
       privacyPolicyUrl,
       termsUrl,
+      platformHipaaUrl,
       companyProfileIconId,
       teamRolesIconId,
       billingIconId,
@@ -1466,24 +1467,31 @@ class PlatformBranding {
         throw err;
       }
 
-      // Privacy policy and terms URLs (migration 532) - login page footer links
-      if (privacyPolicyUrl !== undefined || termsUrl !== undefined) {
+      // Legal footer URLs (privacy, terms, platform HIPAA)
+      if (privacyPolicyUrl !== undefined || termsUrl !== undefined || platformHipaaUrl !== undefined) {
         try {
           const [cols] = await pool.execute(
-            "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'platform_branding' AND COLUMN_NAME = 'privacy_policy_url'"
+            `SELECT COLUMN_NAME
+             FROM information_schema.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE()
+               AND TABLE_NAME = 'platform_branding'
+               AND COLUMN_NAME IN ('privacy_policy_url', 'terms_url', 'platform_hipaa_url')`
           );
-          if (cols.length > 0) {
-            if (privacyPolicyUrl !== undefined) {
-              updates.push('privacy_policy_url = ?');
-              values.push(privacyPolicyUrl?.trim() || null);
-            }
-            if (termsUrl !== undefined) {
-              updates.push('terms_url = ?');
-              values.push(termsUrl?.trim() || null);
-            }
+          const present = new Set((cols || []).map((c) => String(c?.COLUMN_NAME || '')));
+          if (privacyPolicyUrl !== undefined && present.has('privacy_policy_url')) {
+            updates.push('privacy_policy_url = ?');
+            values.push(privacyPolicyUrl?.trim() || null);
+          }
+          if (termsUrl !== undefined && present.has('terms_url')) {
+            updates.push('terms_url = ?');
+            values.push(termsUrl?.trim() || null);
+          }
+          if (platformHipaaUrl !== undefined && present.has('platform_hipaa_url')) {
+            updates.push('platform_hipaa_url = ?');
+            values.push(platformHipaaUrl?.trim() || null);
           }
         } catch (e) {
-          console.warn('PlatformBranding.update: Error checking for privacy_policy_url column:', e.message);
+          console.warn('PlatformBranding.update: Error checking legal footer URL columns:', e.message);
         }
       }
 
