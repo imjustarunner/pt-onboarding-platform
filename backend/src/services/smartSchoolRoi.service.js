@@ -79,11 +79,6 @@ const WAIVER_ITEMS = [
     id: 'treatment_goals',
     title: 'Treatment goals and plans',
     body: 'I authorize brief discussion of treatment goals/objectives only as needed for care coordination with approved school staff; no session-content details are released outside this care purpose.'
-  },
-  {
-    id: 'documentation_logging',
-    title: 'Documentation and logging',
-    body: 'I authorize documentation of all correspondence and release activity related to this authorization in the clinical record and audit logs.'
   }
 ];
 

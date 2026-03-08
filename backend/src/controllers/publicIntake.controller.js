@@ -1735,16 +1735,26 @@ const resolveSmartSchoolRoiTemplate = async ({ roiContext, templates }) => {
   if (!selectedTemplate) {
     const schoolOrgId = Number(roiContext?.school?.id || 0) || null;
     const schoolRoiTemplatesResult = await DocumentTemplate.findAll({
-      documentType: 'school_roi',
+      // Support legacy and new template types so finalize does not fail when
+      // a tenant still uses `school` or `smart_school_roi`.
+      documentType: ['smart_school_roi', 'school_roi', 'school'],
       isActive: true,
       includeArchived: false,
       limit: 200,
       offset: 0
     });
     const schoolRoiTemplates = Array.isArray(schoolRoiTemplatesResult?.data) ? schoolRoiTemplatesResult.data : [];
-    selectedTemplate = schoolRoiTemplates.find((template) => Number(template?.organization_id || 0) === schoolOrgId)
-      || schoolRoiTemplates[0]
-      || null;
+    const priorityByType = { smart_school_roi: 0, school_roi: 1, school: 2 };
+    const scored = schoolRoiTemplates
+      .map((template) => {
+        const type = String(template?.document_type || '').trim().toLowerCase();
+        const orgId = Number(template?.organization_id || 0) || null;
+        const scopeScore = orgId && schoolOrgId && orgId === schoolOrgId ? 0 : (orgId ? 2 : 1);
+        const typeScore = Number.isFinite(priorityByType[type]) ? priorityByType[type] : 99;
+        return { template, score: scopeScore * 100 + typeScore };
+      })
+      .sort((a, b) => a.score - b.score);
+    selectedTemplate = scored[0]?.template || null;
   }
   return selectedTemplate || null;
 };
