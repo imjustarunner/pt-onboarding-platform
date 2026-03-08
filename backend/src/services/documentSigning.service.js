@@ -8,6 +8,11 @@ import puppeteer from 'puppeteer';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Circuit-breaker: skip Puppeteer entirely after consecutive failures
+let _puppeteerCircuitOpen = false;
+let _puppeteerLastFailure = 0;
+const CIRCUIT_RESET_MS = 5 * 60 * 1000; // re-try Puppeteer every 5 minutes
+
 class DocumentSigningService {
   /**
    * Generate finalized PDF with signature and audit certificate
@@ -125,89 +130,81 @@ class DocumentSigningService {
    * Convert HTML to PDF using Puppeteer with fallback to simple PDF generation
    */
   static async convertHTMLToPDF(htmlContent, options = {}) {
+    // Circuit-breaker: if Puppeteer failed recently, skip directly to fallback
+    if (_puppeteerCircuitOpen) {
+      if (Date.now() - _puppeteerLastFailure < CIRCUIT_RESET_MS) {
+        console.log('DocumentSigningService.convertHTMLToPDF: circuit open — skipping Puppeteer, using fallback');
+        return this.convertHTMLToPDFFallback(htmlContent, options);
+      }
+      _puppeteerCircuitOpen = false;
+      console.log('DocumentSigningService.convertHTMLToPDF: circuit reset — retrying Puppeteer');
+    }
+
     let browser;
-    let retries = 2; // Reduced retries since we have a fallback
-    let lastError;
-    
-    while (retries > 0) {
-      try {
-        console.log(`DocumentSigningService.convertHTMLToPDF: Attempting to launch browser (${3 - retries}/2)...`);
-        // Use system Chromium if available (set via PUPPETEER_EXECUTABLE_PATH env var)
-        // Fallback to common Alpine paths if env var not set
-        let executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
-        if (!executablePath) {
-          // Try common Alpine Chromium paths (chromium-browser is most common)
-          const chromiumPaths = ['/usr/bin/chromium-browser', '/usr/bin/chromium'];
-          for (const chromiumPath of chromiumPaths) {
-            try {
-              await fs.stat(chromiumPath);
-              executablePath = chromiumPath;
-              console.log(`DocumentSigningService.convertHTMLToPDF: Found Chromium at ${chromiumPath}`);
-              break;
-            } catch (e) {
-              // Path doesn't exist, try next
-            }
-          }
-        }
-        browser = await puppeteer.launch({
-          executablePath, // Use system Chromium in production (Alpine Linux)
-          headless: 'new', // Use new headless mode
-          args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage',
-            '--disable-accelerated-2d-canvas',
-            '--no-first-run',
-            '--no-zygote',
-            '--single-process'
-          ],
-          timeout: 30000
-        });
-        
-        console.log(`DocumentSigningService.convertHTMLToPDF: Browser launched successfully`);
-        const page = await browser.newPage();
-        
-        console.log(`DocumentSigningService.convertHTMLToPDF: Setting page content...`);
-        // Use a simpler waitUntil to avoid network issues
-        await page.setContent(htmlContent, { 
-          waitUntil: 'domcontentloaded',
-          timeout: 30000
-        });
-        
-        // Wait a bit for any async content to load
-        await page.waitForTimeout(1000);
-        
-        console.log(`DocumentSigningService.convertHTMLToPDF: Generating PDF...`);
-        const pdf = await page.pdf({
-          format: 'Letter',
-          printBackground: true,
-          margin: { top: '1in', right: '1in', bottom: '1in', left: '1in' },
-          timeout: 60000 // Increased timeout for PDF generation
-        });
-        
-        console.log(`DocumentSigningService.convertHTMLToPDF: PDF generated successfully, size: ${pdf.length} bytes`);
-        await browser.close();
-        return pdf;
-      } catch (error) {
-        lastError = error;
-        console.error(`DocumentSigningService.convertHTMLToPDF: Error (attempt ${3 - retries}/2):`, error.message);
-        if (browser) {
+
+    try {
+      let executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
+      if (!executablePath) {
+        const chromiumPaths = ['/usr/bin/chromium-browser', '/usr/bin/chromium'];
+        for (const chromiumPath of chromiumPaths) {
           try {
-            await browser.close();
-          } catch (closeError) {
-            console.error('DocumentSigningService.convertHTMLToPDF: Error closing browser:', closeError);
+            await fs.stat(chromiumPath);
+            executablePath = chromiumPath;
+            break;
+          } catch {
+            // path doesn't exist
           }
-        }
-        retries--;
-        if (retries > 0) {
-          console.log(`DocumentSigningService.convertHTMLToPDF: Retrying in 1 second...`);
-          await new Promise(resolve => setTimeout(resolve, 1000));
         }
       }
+      if (!executablePath) {
+        console.warn('DocumentSigningService.convertHTMLToPDF: no Chromium found — using fallback');
+        _puppeteerCircuitOpen = true;
+        _puppeteerLastFailure = Date.now();
+        return this.convertHTMLToPDFFallback(htmlContent, options);
+      }
+
+      browser = await puppeteer.launch({
+        executablePath,
+        headless: 'new',
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-accelerated-2d-canvas',
+          '--no-first-run',
+          '--no-zygote',
+          '--single-process'
+        ],
+        timeout: 12000
+      });
+
+      const page = await browser.newPage();
+      await page.setContent(htmlContent, {
+        waitUntil: 'domcontentloaded',
+        timeout: 10000
+      });
+      await page.waitForTimeout(500);
+
+      const pdf = await page.pdf({
+        format: 'Letter',
+        printBackground: true,
+        margin: { top: '1in', right: '1in', bottom: '1in', left: '1in' },
+        timeout: 20000
+      });
+
+      console.log(`DocumentSigningService.convertHTMLToPDF: PDF generated, size: ${pdf.length} bytes`);
+      await browser.close();
+      return pdf;
+    } catch (error) {
+      console.error('DocumentSigningService.convertHTMLToPDF: Puppeteer failed:', error.message);
+      _puppeteerCircuitOpen = true;
+      _puppeteerLastFailure = Date.now();
+      if (browser) {
+        try { await browser.close(); } catch { /* ignore */ }
+      }
     }
-    
-    // Fallback: Create a simple PDF from HTML content using pdf-lib
-    console.warn(`DocumentSigningService.convertHTMLToPDF: Puppeteer failed, using fallback PDF generation`);
+
+    console.warn('DocumentSigningService.convertHTMLToPDF: using fallback PDF generation');
     return this.convertHTMLToPDFFallback(htmlContent, options);
   }
 
