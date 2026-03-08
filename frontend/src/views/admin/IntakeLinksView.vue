@@ -56,6 +56,7 @@
         <option value="intake">Intake</option>
         <option value="public_form">Public Form</option>
         <option value="smart_school_roi">Smart School ROI</option>
+        <option value="smart_registration">Smart Registration</option>
         <option value="job_application">Job Application</option>
         <option value="medical_records_request">Medical Records</option>
       </select>
@@ -186,6 +187,7 @@
                 <option value="intake">Intake (person-tied)</option>
                 <option value="public_form">Public Form (standalone)</option>
                 <option value="smart_school_roi">Smart School ROI</option>
+                <option value="smart_registration">Smart Registration</option>
                 <option value="job_application">Job Application</option>
                 <option value="medical_records_request">Medical Records Request</option>
               </select>
@@ -194,6 +196,9 @@
               </small>
               <small v-if="form.formType === 'smart_school_roi'" class="form-help">
                 Dedicated Smart ROI flow. This is the standard school ROI and is built independently per school. It stays school-scoped and does not create clients.
+              </small>
+              <small v-if="form.formType === 'smart_registration'" class="form-help">
+                Registration-first flow for events, programs, and classes. This can create participant records for new people while also supporting existing participants. Use Questions/Registration/Document steps to standardize entry and acceptance.
               </small>
               <small v-if="form.formType === 'job_application'" class="form-help">
                 Each job gets its own link. Applicants upload resume, cover letter, etc. Documents land in Submitted Documents.
@@ -396,6 +401,7 @@
             <div class="step-builder">
               <div class="step-actions">
                 <button class="btn btn-secondary btn-sm" type="button" @click="addStep('questions')">+ Add Questions</button>
+                <button class="btn btn-secondary btn-sm" type="button" @click="addStep('registration')">+ Add Registration</button>
                 <button class="btn btn-secondary btn-sm" type="button" @click="addStep('document')">+ Add Document</button>
                 <button
                   v-if="canAddSchoolRoiStep"
@@ -514,6 +520,240 @@
                   </div>
                 </div>
 
+                <div v-else-if="step.type === 'registration'" class="form-grid">
+                  <div class="form-group">
+                    <label>Step title</label>
+                    <input v-model="step.label" type="text" placeholder="e.g., Registration Selection" />
+                  </div>
+                  <div class="form-group">
+                    <label>Description (optional)</label>
+                    <input v-model="step.description" type="text" placeholder="e.g., Choose one or more options below" />
+                  </div>
+                  <div class="form-group">
+                    <label>Source type</label>
+                    <select v-model="step.sourceType" @change="onRegistrationSourceTypeChange(step)">
+                      <option value="manual">Manual options</option>
+                      <option value="program">Programs</option>
+                      <option value="program_event">Program events</option>
+                      <option value="class">Classes</option>
+                      <option value="event">Events (framed)</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label>Registration mode</label>
+                    <select v-model="step.participantMode">
+                      <option value="any">New or existing participant</option>
+                      <option value="existing_only">Existing participant only</option>
+                      <option value="new_only">New participant only</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label>Existing lookup key</label>
+                    <select v-model="step.existingLookupField">
+                      <option value="email">Email</option>
+                      <option value="phone">Phone</option>
+                      <option value="client_id">Client ID</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label class="checkbox">
+                      <input v-model="step.selectionRules.allowMultiple" type="checkbox" @change="onRegistrationRuleChange(step)" />
+                      Allow multiple selections
+                    </label>
+                  </div>
+                  <div class="form-group">
+                    <label>Minimum selections</label>
+                    <input
+                      v-model.number="step.selectionRules.minSelections"
+                      type="number"
+                      min="0"
+                      :max="step.selectionRules.allowMultiple ? 99 : 1"
+                      @change="onRegistrationRuleChange(step)"
+                    />
+                  </div>
+                  <div class="form-group">
+                    <label>Default video link (optional)</label>
+                    <input v-model="step.defaultVideoUrl" type="url" placeholder="https://..." />
+                  </div>
+                  <div class="form-group">
+                    <label>Provider User IDs (comma-separated)</label>
+                    <input v-model="step.providerUserIdsCsv" type="text" placeholder="e.g., 102, 214" />
+                  </div>
+                  <div class="form-group">
+                    <label class="checkbox">
+                      <input v-model="step.selfPay.enabled" type="checkbox" />
+                      Enable self-pay
+                    </label>
+                  </div>
+                  <div class="form-group" v-if="step.selfPay.enabled">
+                    <label>Cost (USD)</label>
+                    <input v-model.number="step.selfPay.costDollars" type="number" min="0" step="0.01" />
+                  </div>
+                  <div class="form-group" v-if="step.selfPay.enabled">
+                    <label>QuickBooks payment link (optional)</label>
+                    <input v-model="step.selfPay.paymentLinkUrl" type="url" placeholder="https://..." />
+                  </div>
+                  <div class="form-group" style="grid-column: 1 / -1;">
+                    <label>Schedule blocks (multi-day / sequence)</label>
+                    <div class="option-list">
+                      <div v-for="(sb, sbIdx) in step.scheduleBlocks" :key="sb.id || sbIdx" class="option-row">
+                        <input v-model="sb.label" placeholder="Label (e.g., Weeknight Group A)" />
+                        <input v-model="sb.startDate" type="date" />
+                        <input v-model="sb.endDate" type="date" />
+                        <input v-model="sb.startTime" type="time" />
+                        <input v-model="sb.endTime" type="time" />
+                        <input v-model.number="sb.sequenceDays" type="number" min="1" max="365" placeholder="Days in sequence" />
+                        <button class="btn btn-xs btn-secondary" type="button" @click="removeRegistrationScheduleBlock(step, sbIdx)">×</button>
+                      </div>
+                      <button class="btn btn-xs btn-secondary" type="button" @click="addRegistrationScheduleBlock(step)">+ Schedule block</button>
+                    </div>
+                  </div>
+                  <div class="form-group" v-if="step.selectionRules.allowMultiple">
+                    <label>Maximum selections (optional)</label>
+                    <input
+                      v-model.number="step.selectionRules.maxSelections"
+                      type="number"
+                      min="1"
+                      max="99"
+                      @change="onRegistrationRuleChange(step)"
+                    />
+                  </div>
+                  <div class="form-group" v-if="step.sourceType === 'program'" style="grid-column: 1 / -1;">
+                    <label>Programs</label>
+                    <div class="template-list" v-if="programOrganizations.length">
+                      <label v-for="org in programOrganizations" :key="`reg_prog_${org.id}`" class="template-item">
+                        <input
+                          type="checkbox"
+                          :value="Number(org.id)"
+                          v-model="step.sourceConfig.selectedProgramOrganizationIds"
+                          @change="refreshRegistrationStepOptions(step)"
+                        />
+                        {{ org.name }}
+                      </label>
+                    </div>
+                    <div v-else class="muted">No program organizations found.</div>
+                  </div>
+                  <div class="form-group" v-if="step.sourceType === 'program_event'" style="grid-column: 1 / -1;">
+                    <label>Agency</label>
+                    <select
+                      v-model.number="step.sourceConfig.programEventAgencyId"
+                      @change="onRegistrationProgramEventAgencyChange(step)"
+                    >
+                      <option :value="null">Select agency</option>
+                      <option v-for="agency in agencyList" :key="`reg_prog_event_agency_${agency.id}`" :value="Number(agency.id)">
+                        {{ agency.name }}
+                      </option>
+                    </select>
+                    <div class="form-group" style="margin-top:8px;">
+                      <label>Program</label>
+                      <select
+                        v-model.number="step.sourceConfig.programEventProgramId"
+                        :disabled="!step.sourceConfig.programEventAgencyId"
+                        @change="onRegistrationProgramEventProgramChange(step)"
+                      >
+                        <option :value="null">Select program</option>
+                        <option
+                          v-for="prog in getShiftProgramsForAgency(step.sourceConfig.programEventAgencyId)"
+                          :key="`reg_prog_event_program_${prog.id}`"
+                          :value="Number(prog.id)"
+                        >
+                          {{ prog.name }}
+                        </option>
+                      </select>
+                    </div>
+                    <div class="form-group" style="margin-top:8px;">
+                      <label>Site</label>
+                      <select
+                        v-model.number="step.sourceConfig.programEventSiteId"
+                        :disabled="!step.sourceConfig.programEventProgramId"
+                        @change="onRegistrationProgramEventSiteChange(step)"
+                      >
+                        <option :value="null">Select site</option>
+                        <option
+                          v-for="site in getShiftProgramSites(step.sourceConfig.programEventProgramId)"
+                          :key="`reg_prog_event_site_${site.id}`"
+                          :value="Number(site.id)"
+                        >
+                          {{ site.name }}
+                        </option>
+                      </select>
+                    </div>
+                    <div class="template-list" style="margin-top:8px;" v-if="step.sourceConfig.programEventSiteId && getShiftProgramSiteSlots(step.sourceConfig.programEventSiteId).length">
+                      <label
+                        v-for="slot in getShiftProgramSiteSlots(step.sourceConfig.programEventSiteId)"
+                        :key="`reg_prog_event_slot_${slot.id}`"
+                        class="template-item"
+                      >
+                        <input
+                          type="checkbox"
+                          :value="Number(slot.id)"
+                          v-model="step.sourceConfig.selectedProgramEventSlotIds"
+                          @change="refreshRegistrationStepOptions(step)"
+                        />
+                        {{ formatProgramEventSlotLabel(slot) }}
+                      </label>
+                    </div>
+                    <div
+                      v-else-if="step.sourceConfig.programEventSiteId && loadingShiftSlotsBySite[step.sourceConfig.programEventSiteId]"
+                      class="muted"
+                      style="margin-top:8px;"
+                    >
+                      Loading event slots...
+                    </div>
+                    <div v-else-if="step.sourceConfig.programEventSiteId" class="muted" style="margin-top:8px;">
+                      No event slots found for this site.
+                    </div>
+                  </div>
+                  <div class="form-group" v-if="step.sourceType === 'class'" style="grid-column: 1 / -1;">
+                    <label>Learning organization</label>
+                    <select v-model.number="step.sourceConfig.learningOrganizationId" @change="onRegistrationLearningOrganizationChange(step)">
+                      <option :value="null">Select learning organization</option>
+                      <option v-for="org in learningOrganizations" :key="`reg_learning_org_${org.id}`" :value="Number(org.id)">
+                        {{ org.name }}
+                      </option>
+                    </select>
+                    <div class="template-list" v-if="step.sourceConfig.learningOrganizationId && getLearningClassesForOrganization(step.sourceConfig.learningOrganizationId).length">
+                      <label
+                        v-for="klass in getLearningClassesForOrganization(step.sourceConfig.learningOrganizationId)"
+                        :key="`reg_class_${klass.id}`"
+                        class="template-item"
+                      >
+                        <input
+                          type="checkbox"
+                          :value="Number(klass.id)"
+                          v-model="step.sourceConfig.selectedClassIds"
+                          @change="onRegistrationClassSelectionChange(step)"
+                        />
+                        {{ klass.class_name || klass.title || klass.class_code || `Class ${klass.id}` }}
+                      </label>
+                    </div>
+                    <div v-else-if="step.sourceConfig.learningOrganizationId && loadingLearningClassesForOrganization[step.sourceConfig.learningOrganizationId]" class="muted">
+                      Loading classes...
+                    </div>
+                    <div v-else-if="step.sourceConfig.learningOrganizationId" class="muted">
+                      No classes found for this learning organization.
+                    </div>
+                  </div>
+                  <div class="form-group" v-if="step.sourceType === 'manual' || step.sourceType === 'event'" style="grid-column: 1 / -1;">
+                    <label>Options</label>
+                    <div v-if="step.sourceType === 'event'" class="muted" style="margin-bottom: 8px;">
+                      Event entities are framed but may not be fully active yet; use manual event options for now.
+                    </div>
+                    <div class="option-list">
+                      <div v-for="(opt, oIdx) in step.options" :key="opt.id || oIdx" class="option-row">
+                        <input v-model="opt.label" placeholder="Option label" @input="refreshRegistrationStepOptions(step)" />
+                        <input v-model="opt.description" placeholder="Optional description" @input="refreshRegistrationStepOptions(step)" />
+                        <input v-model="opt.videoJoinUrl" type="url" placeholder="Video link (optional)" @input="refreshRegistrationStepOptions(step)" />
+                        <input v-model.number="opt.costDollars" type="number" min="0" step="0.01" placeholder="Cost USD" @input="refreshRegistrationStepOptions(step)" />
+                        <input v-model="opt.paymentLinkUrl" type="url" placeholder="QuickBooks payment link" @input="refreshRegistrationStepOptions(step)" />
+                        <input v-model="opt.providerUserIdsCsv" type="text" placeholder="Provider IDs (e.g., 4,9)" @input="refreshRegistrationStepOptions(step)" />
+                        <button class="btn btn-xs btn-secondary" type="button" @click="removeRegistrationOption(step, oIdx)">×</button>
+                      </div>
+                      <button class="btn btn-xs btn-secondary" type="button" @click="addRegistrationOption(step)">+ Option</button>
+                    </div>
+                  </div>
+                </div>
+
                 <div v-else-if="step.type === 'questions'" class="question-builder">
                   <div class="question-list">
                     <div v-for="(field, fIdx) in getStepFields(step)" :key="field.id || fIdx" class="question-block">
@@ -569,6 +809,30 @@
                             placeholder="Equals value (e.g., yes)"
                           />
                         </div>
+                        <div v-if="form.formType === 'smart_registration'" class="condition-row">
+                          <button
+                            class="btn btn-xs btn-secondary"
+                            type="button"
+                            @click="applyRegistrationAccountShowIf(field, 'new')"
+                          >
+                            Show for new accounts only
+                          </button>
+                          <button
+                            class="btn btn-xs btn-secondary"
+                            type="button"
+                            @click="applyRegistrationAccountShowIf(field, 'existing')"
+                          >
+                            Show for existing accounts only
+                          </button>
+                          <button
+                            v-if="isRegistrationAccountShowIf(field)"
+                            class="btn btn-xs btn-secondary"
+                            type="button"
+                            @click="clearFieldShowIf(field)"
+                          >
+                            Clear
+                          </button>
+                        </div>
                       </div>
                       <div v-if="field?.type === 'select' || field?.type === 'radio'" class="option-list">
                         <div v-for="(opt, oIdx) in field.options" :key="opt.id" class="option-row">
@@ -586,6 +850,7 @@
 
               <div v-if="safeSteps.length" class="step-actions step-actions-bottom">
                 <button class="btn btn-secondary btn-sm" type="button" @click="addStep('questions')">+ Add Questions</button>
+                <button class="btn btn-secondary btn-sm" type="button" @click="addStep('registration')">+ Add Registration</button>
                 <button class="btn btn-secondary btn-sm" type="button" @click="addStep('document')">+ Add Document</button>
                 <button
                   v-if="canAddSchoolRoiStep"
@@ -678,6 +943,15 @@ const documentStepFilter = ref('');
 const documentStepSelectRef = ref(null);
 const documentStepFilterInputRef = ref(null);
 const jobDescriptionsForForm = ref([]);
+const learningClassesByOrganization = ref({});
+const loadingLearningClassesForOrganization = reactive({});
+const classDetailsById = ref({});
+const shiftProgramsByAgencyId = ref({});
+const loadingShiftProgramsByAgency = reactive({});
+const shiftProgramDetailsById = ref({});
+const loadingShiftProgramDetailsById = reactive({});
+const shiftSlotsBySiteId = ref({});
+const loadingShiftSlotsBySite = reactive({});
 
 const organizationsForScope = computed(() => {
   const type = form.scopeType;
@@ -708,10 +982,21 @@ const completionEmailTemplateOptions = computed(() =>
 const selectedCompletionEmailTemplate = computed(() =>
   completionEmailTemplateOptions.value.find((t) => Number(t.id) === Number(form.customMessages?.completionEmailTemplateId || 0)) || null
 );
+const programOrganizations = computed(() =>
+  organizations.value
+    .filter((o) => String(o?.organization_type || '').toLowerCase() === 'program')
+    .sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || ''), undefined, { sensitivity: 'base' }))
+);
+const learningOrganizations = computed(() =>
+  organizations.value
+    .filter((o) => String(o?.organization_type || '').toLowerCase() === 'learning')
+    .sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || ''), undefined, { sensitivity: 'base' }))
+);
 
 const getStepTypeLabel = (t) => {
   const m = {
     questions: 'Questions',
+    registration: 'Registration',
     document: 'Document',
     school_roi: 'School ROI (Programmed)',
     upload: 'Upload'
@@ -723,6 +1008,7 @@ const getFormTypeLabel = (t) => {
     intake: 'Intake',
     public_form: 'Public Form',
     smart_school_roi: 'Smart School ROI',
+    smart_registration: 'Smart Registration',
     job_application: 'Job Application',
     medical_records_request: 'Medical Records'
   };
@@ -731,6 +1017,7 @@ const getFormTypeLabel = (t) => {
 const getFormTypeBadgeClass = (t) => {
   if (t === 'public_form') return 'badge-info';
   if (t === 'smart_school_roi') return 'badge-primary';
+  if (t === 'smart_registration') return 'badge-info';
   if (t === 'job_application') return 'badge-success';
   if (t === 'medical_records_request') return 'badge-warning';
   return 'badge-secondary';
@@ -874,6 +1161,35 @@ const applyDraft = (draft) => {
     : [];
   form.intakeFieldsText = data.intakeFieldsText || '';
   form.intakeSteps = sanitizeSteps(Array.isArray(data.intakeSteps) ? data.intakeSteps : []);
+  form.intakeSteps.forEach((step) => {
+    if (step?.type !== 'registration') return;
+    if (step.sourceType === 'class') {
+      const orgId = Number(step?.sourceConfig?.learningOrganizationId || 0) || null;
+      if (orgId) {
+        loadLearningClassesForOrganization(orgId).then(() => {
+          refreshRegistrationStepOptions(step);
+          hydrateSelectedClassDetails(step);
+        });
+      }
+    } else if (step.sourceType === 'program_event') {
+      const agencyId = Number(step?.sourceConfig?.programEventAgencyId || 0) || null;
+      const programId = Number(step?.sourceConfig?.programEventProgramId || 0) || null;
+      const siteId = Number(step?.sourceConfig?.programEventSiteId || 0) || null;
+      if (agencyId) {
+        loadShiftProgramsForAgency(agencyId).then(async () => {
+          if (programId) {
+            await loadShiftProgramDetail(programId);
+            if (siteId) {
+              await loadShiftSlotsForSite(programId, siteId);
+            }
+          }
+          refreshRegistrationStepOptions(step);
+        });
+      }
+    } else {
+      refreshRegistrationStepOptions(step);
+    }
+  });
 };
 
 const loadDraft = () => {
@@ -937,6 +1253,11 @@ watch(() => form.formType, (newVal) => {
   if (newVal === 'job_application') {
     form.createClient = false;
     form.createGuardian = false;
+  }
+  if (newVal === 'smart_registration') {
+    form.createClient = true;
+    form.createGuardian = true;
+    form.requiresAssignment = false;
   }
   if (newVal === 'smart_school_roi') {
     form.scopeType = 'school';
@@ -1066,6 +1387,34 @@ const editLink = (link) => {
       };
   form.intakeFieldsText = link.intake_fields ? JSON.stringify(link.intake_fields, null, 2) : '';
   form.intakeSteps = normalizeIntakeSteps(link);
+  form.intakeSteps.forEach((step) => {
+    if (step?.type === 'registration' && step?.sourceType === 'class') {
+      const orgId = Number(step?.sourceConfig?.learningOrganizationId || 0) || null;
+      if (orgId) {
+        loadLearningClassesForOrganization(orgId).then(() => {
+          refreshRegistrationStepOptions(step);
+          hydrateSelectedClassDetails(step);
+        });
+      }
+    } else if (step?.type === 'registration' && step?.sourceType === 'program_event') {
+      const agencyId = Number(step?.sourceConfig?.programEventAgencyId || 0) || null;
+      const programId = Number(step?.sourceConfig?.programEventProgramId || 0) || null;
+      const siteId = Number(step?.sourceConfig?.programEventSiteId || 0) || null;
+      if (agencyId) {
+        loadShiftProgramsForAgency(agencyId).then(async () => {
+          if (programId) {
+            await loadShiftProgramDetail(programId);
+            if (siteId) {
+              await loadShiftSlotsForSite(programId, siteId);
+            }
+          }
+          refreshRegistrationStepOptions(step);
+        });
+      }
+    } else if (step?.type === 'registration') {
+      refreshRegistrationStepOptions(step);
+    }
+  });
   showForm.value = true;
   if (form.formType === 'job_application' && form.organizationId) {
     fetchJobDescriptions();
@@ -1402,6 +1751,107 @@ const sanitizeSteps = (steps) => {
       } else if (next.type === 'document') {
         if (next.templateId === undefined) next.templateId = null;
         if (next.checkboxDisclaimer === undefined) next.checkboxDisclaimer = '';
+      } else if (next.type === 'registration') {
+        next.label = String(next.label || '').trim() || 'Registration';
+        next.description = String(next.description || '').trim();
+        next.participantMode = ['any', 'existing_only', 'new_only'].includes(String(next.participantMode || ''))
+          ? String(next.participantMode)
+          : 'any';
+        next.existingLookupField = ['email', 'phone', 'client_id'].includes(String(next.existingLookupField || ''))
+          ? String(next.existingLookupField)
+          : 'email';
+        next.defaultVideoUrl = String(next.defaultVideoUrl || '').trim();
+        next.providerUserIdsCsv = String(next.providerUserIdsCsv || '').trim();
+        next.sourceType = ['manual', 'program', 'program_event', 'class', 'event'].includes(String(next.sourceType || ''))
+          ? String(next.sourceType)
+          : 'manual';
+        const sourceConfig = next.sourceConfig && typeof next.sourceConfig === 'object'
+          ? { ...next.sourceConfig }
+          : {};
+        sourceConfig.selectedProgramOrganizationIds = Array.isArray(sourceConfig.selectedProgramOrganizationIds)
+          ? sourceConfig.selectedProgramOrganizationIds.map((id) => Number(id)).filter(Number.isFinite)
+          : [];
+        sourceConfig.learningOrganizationId = Number(sourceConfig.learningOrganizationId || 0) || null;
+        sourceConfig.selectedClassIds = Array.isArray(sourceConfig.selectedClassIds)
+          ? sourceConfig.selectedClassIds.map((id) => Number(id)).filter(Number.isFinite)
+          : [];
+        sourceConfig.programEventAgencyId = Number(sourceConfig.programEventAgencyId || 0) || null;
+        sourceConfig.programEventProgramId = Number(sourceConfig.programEventProgramId || 0) || null;
+        sourceConfig.programEventSiteId = Number(sourceConfig.programEventSiteId || 0) || null;
+        sourceConfig.selectedProgramEventSlotIds = Array.isArray(sourceConfig.selectedProgramEventSlotIds)
+          ? sourceConfig.selectedProgramEventSlotIds.map((id) => Number(id)).filter(Number.isFinite)
+          : [];
+        if (next.sourceType === 'program' && sourceConfig.selectedProgramOrganizationIds.length === 0 && Array.isArray(next.options)) {
+          sourceConfig.selectedProgramOrganizationIds = next.options
+            .map((opt) => Number(opt?.entityId || 0))
+            .filter((id) => id > 0);
+        }
+        if (next.sourceType === 'class' && sourceConfig.selectedClassIds.length === 0 && Array.isArray(next.options)) {
+          sourceConfig.selectedClassIds = next.options
+            .map((opt) => Number(opt?.entityId || 0))
+            .filter((id) => id > 0);
+        }
+        next.sourceConfig = sourceConfig;
+        const selfPay = next.selfPay && typeof next.selfPay === 'object' ? { ...next.selfPay } : {};
+        selfPay.enabled = !!selfPay.enabled;
+        selfPay.costDollars = Math.max(0, Number(selfPay.costDollars || 0) || 0);
+        selfPay.paymentLinkUrl = String(selfPay.paymentLinkUrl || '').trim();
+        selfPay.paymentProvider = 'quickbooks';
+        next.selfPay = selfPay;
+        next.scheduleBlocks = Array.isArray(next.scheduleBlocks)
+          ? next.scheduleBlocks
+            .filter((sb) => sb && typeof sb === 'object')
+            .map((sb) => ({
+              id: sb.id || createId('reg_sched'),
+              label: String(sb.label || '').trim(),
+              startDate: String(sb.startDate || '').trim(),
+              endDate: String(sb.endDate || '').trim(),
+              startTime: String(sb.startTime || '').trim(),
+              endTime: String(sb.endTime || '').trim(),
+              sequenceDays: Math.max(1, Math.trunc(Number(sb.sequenceDays || 1) || 1))
+            }))
+          : [];
+        const allowMultiple = !!next.selectionRules?.allowMultiple;
+        const minSelectionsRaw = Number(next.selectionRules?.minSelections ?? 1);
+        const maxSelectionsRaw = Number(next.selectionRules?.maxSelections ?? (allowMultiple ? 0 : 1));
+        next.selectionRules = {
+          allowMultiple,
+          minSelections: Math.max(0, Number.isFinite(minSelectionsRaw) ? Math.trunc(minSelectionsRaw) : 1),
+          maxSelections: allowMultiple
+            ? (Number.isFinite(maxSelectionsRaw) && maxSelectionsRaw > 0 ? Math.trunc(maxSelectionsRaw) : null)
+            : 1
+        };
+        next.options = Array.isArray(next.options)
+          ? next.options
+            .filter((opt) => opt && typeof opt === 'object')
+            .map((opt) => ({
+              id: opt.id || createId('reg_opt'),
+              label: String(opt.label || '').trim(),
+              description: String(opt.description || '').trim(),
+              entityType: String(opt.entityType || next.sourceType || 'manual').trim().toLowerCase(),
+              entityId: Number(opt.entityId || 0) || null,
+              videoJoinUrl: String(opt.videoJoinUrl || '').trim(),
+              costDollars: Math.max(0, Number(opt.costDollars || 0) || 0),
+              paymentLinkUrl: String(opt.paymentLinkUrl || '').trim(),
+              providerUserIdsCsv: String(opt.providerUserIdsCsv || '').trim(),
+              scheduleBlocks: Array.isArray(opt.scheduleBlocks)
+                ? opt.scheduleBlocks
+                  .filter((sb) => sb && typeof sb === 'object')
+                  .map((sb) => ({
+                    id: sb.id || createId('reg_sched'),
+                    label: String(sb.label || '').trim(),
+                    startDate: String(sb.startDate || '').trim(),
+                    endDate: String(sb.endDate || '').trim(),
+                    startTime: String(sb.startTime || '').trim(),
+                    endTime: String(sb.endTime || '').trim(),
+                    sequenceDays: Math.max(1, Math.trunc(Number(sb.sequenceDays || 1) || 1))
+                  }))
+                : [],
+              frequencyLabel: String(opt.frequencyLabel || '').trim(),
+              termsSummary: String(opt.termsSummary || '').trim()
+            }))
+            .filter((opt) => !!opt.label)
+          : [];
       } else if (next.type === 'school_roi') {
         next.templateId = null;
         next.checkboxDisclaimer = '';
@@ -1445,6 +1895,48 @@ const addStep = (type, options = {}) => {
   const step = { id: createId('step'), type };
   if (type === 'questions') {
     step.fields = [];
+  } else if (type === 'registration') {
+    step.label = 'Registration';
+    step.description = '';
+    step.participantMode = 'any';
+    step.existingLookupField = 'email';
+    step.defaultVideoUrl = '';
+    step.providerUserIdsCsv = '';
+    step.sourceType = 'manual';
+    step.selfPay = {
+      enabled: false,
+      costDollars: 0,
+      paymentLinkUrl: '',
+      paymentProvider: 'quickbooks'
+    };
+    step.scheduleBlocks = [];
+    step.sourceConfig = {
+      selectedProgramOrganizationIds: [],
+      learningOrganizationId: null,
+      selectedClassIds: [],
+      programEventAgencyId: null,
+      programEventProgramId: null,
+      programEventSiteId: null,
+      selectedProgramEventSlotIds: []
+    };
+    step.selectionRules = {
+      allowMultiple: false,
+      minSelections: 1,
+      maxSelections: 1
+    };
+    step.options = [
+      {
+        id: createId('reg_opt'),
+        label: '',
+        description: '',
+        entityType: 'manual',
+        entityId: null,
+        videoJoinUrl: '',
+        costDollars: 0,
+        paymentLinkUrl: '',
+        providerUserIdsCsv: ''
+      }
+    ];
   } else if (type === 'upload') {
     step.label = '';
     step.accept = '.pdf,.doc,.docx';
@@ -1516,9 +2008,40 @@ const removeField = (step, idx) => {
 
 const getConditionalTargets = (step, idx) => {
   if (!step || !Array.isArray(step.fields)) return [];
-  return step.fields
+  const base = step.fields
     .filter((f, fIdx) => f && typeof f === 'object' && fIdx !== idx && f.key)
     .map((f) => ({ key: f.key, label: f.label }));
+  const registrationContextTargets = [
+    { key: 'registration_account_state', label: 'Registration account state (new/existing)' },
+    { key: 'registration_has_account', label: 'Registration has account (true/false)' }
+  ];
+  const seen = new Set();
+  const merged = [...base, ...registrationContextTargets]
+    .filter((t) => {
+      const k = String(t?.key || '').trim();
+      if (!k || seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+  return merged;
+};
+
+const applyRegistrationAccountShowIf = (field, accountState) => {
+  if (!field || typeof field !== 'object') return;
+  if (!field.showIf || typeof field.showIf !== 'object') {
+    field.showIf = { fieldKey: '', equals: '' };
+  }
+  field.showIf.fieldKey = 'registration_account_state';
+  field.showIf.equals = String(accountState || '').trim().toLowerCase() === 'existing' ? 'existing' : 'new';
+};
+
+const isRegistrationAccountShowIf = (field) =>
+  String(field?.showIf?.fieldKey || '').trim() === 'registration_account_state'
+  && ['new', 'existing'].includes(String(field?.showIf?.equals || '').trim().toLowerCase());
+
+const clearFieldShowIf = (field) => {
+  if (!field || typeof field !== 'object') return;
+  field.showIf = { fieldKey: '', equals: '' };
 };
 
 const moveField = (step, idx, dir) => {
@@ -1536,12 +2059,513 @@ const addOption = (field) => {
   field.options.push({ id: createId('opt'), label: '', value: '' });
 };
 
+const addRegistrationOption = (step) => {
+  if (!step || !Array.isArray(step.options)) step.options = [];
+  step.options.push({
+    id: createId('reg_opt'),
+    label: '',
+    description: '',
+    entityType: step.sourceType || 'manual',
+    entityId: null,
+    videoJoinUrl: '',
+    costDollars: 0,
+    paymentLinkUrl: '',
+    providerUserIdsCsv: ''
+  });
+};
+
+const addRegistrationScheduleBlock = (step) => {
+  if (!step || !Array.isArray(step.scheduleBlocks)) step.scheduleBlocks = [];
+  step.scheduleBlocks.push({
+    id: createId('reg_sched'),
+    label: '',
+    startDate: '',
+    endDate: '',
+    startTime: '',
+    endTime: '',
+    sequenceDays: 1
+  });
+};
+
+const removeRegistrationScheduleBlock = (step, idx) => {
+  if (!step || !Array.isArray(step.scheduleBlocks)) return;
+  step.scheduleBlocks.splice(idx, 1);
+};
+
+const removeRegistrationOption = (step, idx) => {
+  if (!step || !Array.isArray(step.options)) return;
+  step.options.splice(idx, 1);
+};
+
+const getLearningClassesForOrganization = (organizationId) => {
+  const orgId = Number(organizationId || 0) || null;
+  if (!orgId) return [];
+  const classes = learningClassesByOrganization.value?.[orgId];
+  return Array.isArray(classes) ? classes : [];
+};
+
+const loadLearningClassesForOrganization = async (organizationId) => {
+  const orgId = Number(organizationId || 0) || null;
+  if (!orgId) return [];
+  if (Array.isArray(learningClassesByOrganization.value?.[orgId])) {
+    return learningClassesByOrganization.value[orgId];
+  }
+  loadingLearningClassesForOrganization[orgId] = true;
+  try {
+    const r = await api.get('/learning-program-classes', { params: { organizationId: orgId } });
+    const classes = Array.isArray(r.data?.classes) ? r.data.classes : [];
+    learningClassesByOrganization.value = {
+      ...learningClassesByOrganization.value,
+      [orgId]: classes
+    };
+    return classes;
+  } catch {
+    learningClassesByOrganization.value = {
+      ...learningClassesByOrganization.value,
+      [orgId]: []
+    };
+    return [];
+  } finally {
+    loadingLearningClassesForOrganization[orgId] = false;
+  }
+};
+
+const parseProviderIds = (value) => {
+  if (Array.isArray(value)) {
+    return value
+      .map((v) => Number(v))
+      .filter((n) => Number.isFinite(n) && n > 0);
+  }
+  if (typeof value === 'string') {
+    return value
+      .split(',')
+      .map((v) => Number(String(v || '').trim()))
+      .filter((n) => Number.isFinite(n) && n > 0);
+  }
+  return [];
+};
+
+const loadClassDetail = async (classId) => {
+  const id = Number(classId || 0) || null;
+  if (!id) return null;
+  if (classDetailsById.value[id]) return classDetailsById.value[id];
+  try {
+    const r = await api.get(`/learning-program-classes/${id}`);
+    const detail = {
+      class: r.data?.class || null,
+      providerMembers: Array.isArray(r.data?.providerMembers) ? r.data.providerMembers : []
+    };
+    classDetailsById.value = { ...classDetailsById.value, [id]: detail };
+    return detail;
+  } catch {
+    const fallback = { class: null, providerMembers: [] };
+    classDetailsById.value = { ...classDetailsById.value, [id]: fallback };
+    return fallback;
+  }
+};
+
+const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const formatProgramEventSlotLabel = (slot) => {
+  const dayIdx = Number(slot?.weekday ?? -1);
+  const day = Number.isFinite(dayIdx) && dayIdx >= 0 && dayIdx <= 6 ? WEEKDAY_LABELS[dayIdx] : 'Day';
+  const start = String(slot?.start_time || slot?.startTime || '').slice(0, 5);
+  const end = String(slot?.end_time || slot?.endTime || '').slice(0, 5);
+  const type = String(slot?.slot_type || slot?.slotType || 'scheduled');
+  return `${day} ${start || '--:--'}-${end || '--:--'} (${type})`;
+};
+
+const getShiftProgramsForAgency = (agencyId) => {
+  const id = Number(agencyId || 0) || null;
+  if (!id) return [];
+  const list = shiftProgramsByAgencyId.value?.[id];
+  return Array.isArray(list) ? list : [];
+};
+
+const getShiftProgramSites = (programId) => {
+  const id = Number(programId || 0) || null;
+  if (!id) return [];
+  const detail = shiftProgramDetailsById.value?.[id];
+  return Array.isArray(detail?.sites) ? detail.sites : [];
+};
+
+const getShiftProgramSiteSlots = (siteId) => {
+  const id = Number(siteId || 0) || null;
+  if (!id) return [];
+  const list = shiftSlotsBySiteId.value?.[id];
+  return Array.isArray(list) ? list : [];
+};
+
+const loadShiftProgramsForAgency = async (agencyId) => {
+  const id = Number(agencyId || 0) || null;
+  if (!id) return [];
+  if (Array.isArray(shiftProgramsByAgencyId.value?.[id])) return shiftProgramsByAgencyId.value[id];
+  loadingShiftProgramsByAgency[id] = true;
+  try {
+    const r = await api.get(`/shift-programs/agencies/${id}/programs`);
+    const rows = Array.isArray(r.data) ? r.data : [];
+    shiftProgramsByAgencyId.value = { ...shiftProgramsByAgencyId.value, [id]: rows };
+    return rows;
+  } catch {
+    shiftProgramsByAgencyId.value = { ...shiftProgramsByAgencyId.value, [id]: [] };
+    return [];
+  } finally {
+    loadingShiftProgramsByAgency[id] = false;
+  }
+};
+
+const loadShiftProgramDetail = async (programId) => {
+  const id = Number(programId || 0) || null;
+  if (!id) return null;
+  if (shiftProgramDetailsById.value?.[id]) return shiftProgramDetailsById.value[id];
+  loadingShiftProgramDetailsById[id] = true;
+  try {
+    const r = await api.get(`/shift-programs/${id}`);
+    const detail = {
+      ...r.data,
+      sites: Array.isArray(r.data?.sites) ? r.data.sites : [],
+      staff: Array.isArray(r.data?.staff) ? r.data.staff : [],
+      settings: r.data?.settings || {}
+    };
+    shiftProgramDetailsById.value = { ...shiftProgramDetailsById.value, [id]: detail };
+    return detail;
+  } catch {
+    const fallback = { sites: [], staff: [], settings: {} };
+    shiftProgramDetailsById.value = { ...shiftProgramDetailsById.value, [id]: fallback };
+    return fallback;
+  } finally {
+    loadingShiftProgramDetailsById[id] = false;
+  }
+};
+
+const loadShiftSlotsForSite = async (programId, siteId) => {
+  const p = Number(programId || 0) || null;
+  const s = Number(siteId || 0) || null;
+  if (!p || !s) return [];
+  if (Array.isArray(shiftSlotsBySiteId.value?.[s])) return shiftSlotsBySiteId.value[s];
+  loadingShiftSlotsBySite[s] = true;
+  try {
+    const r = await api.get(`/shift-programs/${p}/sites/${s}/slots`);
+    const rows = Array.isArray(r.data) ? r.data : [];
+    shiftSlotsBySiteId.value = { ...shiftSlotsBySiteId.value, [s]: rows };
+    return rows;
+  } catch {
+    shiftSlotsBySiteId.value = { ...shiftSlotsBySiteId.value, [s]: [] };
+    return [];
+  } finally {
+    loadingShiftSlotsBySite[s] = false;
+  }
+};
+
+const deriveRegistrationDefaultsFromClass = (klass = null, detail = null) => {
+  const meta = klass?.metadata_json && typeof klass.metadata_json === 'object' ? klass.metadata_json : {};
+  const reg = meta?.registration && typeof meta.registration === 'object' ? meta.registration : {};
+  const providerIdsFromClass = parseProviderIds(reg.providerUserIds || reg.provider_user_ids || meta.providerUserIds || meta.provider_user_ids);
+  const providerIdsFromMembers = Array.isArray(detail?.providerMembers)
+    ? detail.providerMembers
+      .map((p) => Number(p?.provider_user_id || p?.providerUserId || 0))
+      .filter((n) => Number.isFinite(n) && n > 0)
+    : [];
+  const providerIds = Array.from(new Set([...providerIdsFromMembers, ...providerIdsFromClass]));
+  const startDate = String(klass?.starts_at || '').slice(0, 10);
+  const endDate = String(klass?.ends_at || '').slice(0, 10);
+  const scheduleBlocks = Array.isArray(reg.scheduleBlocks)
+    ? reg.scheduleBlocks
+    : (startDate || endDate
+      ? [{
+          id: createId('reg_sched'),
+          label: String(klass?.class_name || klass?.title || 'Class Schedule'),
+          startDate: startDate || '',
+          endDate: endDate || '',
+          startTime: '',
+          endTime: '',
+          sequenceDays: 1
+        }]
+      : []);
+  return {
+    scheduleBlocks,
+    videoJoinUrl: String(reg.videoJoinUrl || reg.video_url || meta.videoJoinUrl || meta.video_url || '').trim(),
+    costDollars: Math.max(0, Number(reg.costDollars || reg.cost_dollars || meta.costDollars || meta.cost_dollars || 0) || 0),
+    paymentLinkUrl: String(reg.paymentLinkUrl || reg.payment_link_url || meta.paymentLinkUrl || meta.payment_link_url || '').trim(),
+    providerUserIdsCsv: providerIds.join(','),
+    frequencyLabel: String(reg.frequencyLabel || reg.frequency || meta.frequencyLabel || meta.frequency || '').trim(),
+    termsSummary: String(reg.termsSummary || reg.terms || meta.termsSummary || meta.terms || '').trim()
+  };
+};
+
+const hydrateSelectedClassDetails = async (step) => {
+  if (!step || step.type !== 'registration' || String(step.sourceType || '') !== 'class') return;
+  const selected = Array.isArray(step?.sourceConfig?.selectedClassIds)
+    ? step.sourceConfig.selectedClassIds.map((id) => Number(id)).filter(Number.isFinite)
+    : [];
+  if (!selected.length) return;
+  await Promise.all(selected.map((id) => loadClassDetail(id)));
+  refreshRegistrationStepOptions(step);
+};
+
+const refreshRegistrationStepOptions = (step) => {
+  if (!step || step.type !== 'registration') return;
+  const sourceType = String(step.sourceType || 'manual');
+  if (!step.sourceConfig || typeof step.sourceConfig !== 'object') step.sourceConfig = {};
+  if (!step.selectionRules || typeof step.selectionRules !== 'object') {
+    step.selectionRules = { allowMultiple: false, minSelections: 1, maxSelections: 1 };
+  }
+  if (sourceType === 'program') {
+    const ids = Array.isArray(step.sourceConfig.selectedProgramOrganizationIds)
+      ? step.sourceConfig.selectedProgramOrganizationIds.map((id) => Number(id)).filter(Number.isFinite)
+      : [];
+    step.sourceConfig.selectedProgramOrganizationIds = ids;
+    const existingByEntityId = new Map(
+      (Array.isArray(step.options) ? step.options : [])
+        .filter((opt) => Number(opt?.entityId || 0))
+        .map((opt) => [Number(opt.entityId), opt])
+    );
+    const options = ids
+      .map((id) => programOrganizations.value.find((o) => Number(o.id) === Number(id)))
+      .filter(Boolean)
+      .map((org) => {
+        const existing = existingByEntityId.get(Number(org.id)) || {};
+        return {
+          id: `reg_program_${org.id}`,
+          label: String(org.name || `Program ${org.id}`),
+          description: String(existing.description || ''),
+          entityType: 'program',
+          entityId: Number(org.id),
+          videoJoinUrl: String(existing.videoJoinUrl || '').trim(),
+          costDollars: Math.max(0, Number(existing.costDollars || 0) || 0),
+          paymentLinkUrl: String(existing.paymentLinkUrl || '').trim(),
+          providerUserIdsCsv: String(existing.providerUserIdsCsv || '').trim()
+        };
+      });
+    step.options = options;
+  } else if (sourceType === 'program_event') {
+    const agencyId = Number(step.sourceConfig.programEventAgencyId || 0) || null;
+    const programId = Number(step.sourceConfig.programEventProgramId || 0) || null;
+    const siteId = Number(step.sourceConfig.programEventSiteId || 0) || null;
+    const selectedSlotIds = Array.isArray(step.sourceConfig.selectedProgramEventSlotIds)
+      ? step.sourceConfig.selectedProgramEventSlotIds.map((id) => Number(id)).filter(Number.isFinite)
+      : [];
+    step.sourceConfig.programEventAgencyId = agencyId;
+    step.sourceConfig.programEventProgramId = programId;
+    step.sourceConfig.programEventSiteId = siteId;
+    step.sourceConfig.selectedProgramEventSlotIds = selectedSlotIds;
+    const detail = shiftProgramDetailsById.value?.[programId] || null;
+    const site = (Array.isArray(detail?.sites) ? detail.sites : [])
+      .find((row) => Number(row?.id) === Number(siteId)) || null;
+    const slots = getShiftProgramSiteSlots(siteId);
+    const existingByEntityId = new Map(
+      (Array.isArray(step.options) ? step.options : [])
+        .filter((opt) => Number(opt?.entityId || 0))
+        .map((opt) => [Number(opt.entityId), opt])
+    );
+    const providerIdsFromStaff = Array.isArray(detail?.staff)
+      ? detail.staff
+        .filter((s) => s && (s.is_active === true || s.is_active === 1))
+        .map((s) => Number(s.user_id || s.userId || 0))
+        .filter((n) => Number.isFinite(n) && n > 0)
+      : [];
+    const providerUserIdsCsv = Array.from(new Set(providerIdsFromStaff)).join(',');
+    const options = selectedSlotIds
+      .map((slotId) => {
+        const slot = slots.find((row) => Number(row?.id) === Number(slotId));
+        const existing = existingByEntityId.get(Number(slotId)) || {};
+        if (!slot) return null;
+        return {
+          id: `reg_program_event_${slot.id}`,
+          label: `${String(detail?.name || 'Program Event')} - ${formatProgramEventSlotLabel(slot)}`,
+          description: String(existing.description || String(site?.name || '').trim()),
+          entityType: 'program_event',
+          entityId: Number(slot.id),
+          sourceProgramId: programId,
+          sourceSiteId: siteId,
+          videoJoinUrl: String(existing.videoJoinUrl || '').trim(),
+          costDollars: Math.max(0, Number(existing.costDollars || 0) || 0),
+          paymentLinkUrl: String(existing.paymentLinkUrl || '').trim(),
+          providerUserIdsCsv: String(existing.providerUserIdsCsv || step.providerUserIdsCsv || providerUserIdsCsv || '').trim(),
+          scheduleBlocks: Array.isArray(existing.scheduleBlocks) && existing.scheduleBlocks.length
+            ? existing.scheduleBlocks
+            : [{
+                id: `sched_program_event_${slot.id}`,
+                label: String(site?.name || detail?.name || 'Program Event'),
+                startDate: '',
+                endDate: '',
+                startTime: String(slot?.start_time || '').slice(0, 5),
+                endTime: String(slot?.end_time || '').slice(0, 5),
+                sequenceDays: 1
+              }],
+          frequencyLabel: String(existing.frequencyLabel || formatProgramEventSlotLabel(slot)).trim(),
+          termsSummary: String(existing.termsSummary || '').trim()
+        };
+      })
+      .filter(Boolean);
+    step.options = options;
+  } else if (sourceType === 'class') {
+    const orgId = Number(step.sourceConfig.learningOrganizationId || 0) || null;
+    step.sourceConfig.learningOrganizationId = orgId;
+    const selected = Array.isArray(step.sourceConfig.selectedClassIds)
+      ? step.sourceConfig.selectedClassIds.map((id) => Number(id)).filter(Number.isFinite)
+      : [];
+    step.sourceConfig.selectedClassIds = selected;
+    const classes = getLearningClassesForOrganization(orgId);
+    const existingByEntityId = new Map(
+      (Array.isArray(step.options) ? step.options : [])
+        .filter((opt) => Number(opt?.entityId || 0))
+        .map((opt) => [Number(opt.entityId), opt])
+    );
+    const options = selected
+      .map((id) => {
+        const klass = classes.find((row) => Number(row.id) === Number(id));
+        const detail = classDetailsById.value?.[Number(id)] || null;
+        const defaults = deriveRegistrationDefaultsFromClass(klass, detail);
+        if (klass) {
+          const existing = existingByEntityId.get(Number(klass.id)) || {};
+          return {
+            id: `reg_class_${klass.id}`,
+            label: String(klass.class_name || klass.title || klass.class_code || `Class ${klass.id}`),
+            description: String(existing.description || ''),
+            entityType: 'class',
+            entityId: Number(klass.id),
+            videoJoinUrl: String(existing.videoJoinUrl || defaults.videoJoinUrl || '').trim(),
+            costDollars: Math.max(0, Number(existing.costDollars || defaults.costDollars || 0) || 0),
+            paymentLinkUrl: String(existing.paymentLinkUrl || defaults.paymentLinkUrl || '').trim(),
+            providerUserIdsCsv: String(existing.providerUserIdsCsv || defaults.providerUserIdsCsv || '').trim(),
+            scheduleBlocks: Array.isArray(existing.scheduleBlocks) && existing.scheduleBlocks.length
+              ? existing.scheduleBlocks
+              : (Array.isArray(defaults.scheduleBlocks) ? defaults.scheduleBlocks : []),
+            frequencyLabel: String(existing.frequencyLabel || defaults.frequencyLabel || '').trim(),
+            termsSummary: String(existing.termsSummary || defaults.termsSummary || '').trim()
+          };
+        }
+        const existing = existingByEntityId.get(Number(id));
+        if (!existing) return null;
+        return {
+          id: existing.id || `reg_class_${id}`,
+          label: String(existing.label || `Class ${id}`),
+          description: String(existing.description || ''),
+          entityType: 'class',
+          entityId: Number(id),
+          videoJoinUrl: String(existing.videoJoinUrl || '').trim(),
+          costDollars: Math.max(0, Number(existing.costDollars || 0) || 0),
+          paymentLinkUrl: String(existing.paymentLinkUrl || '').trim(),
+          providerUserIdsCsv: String(existing.providerUserIdsCsv || '').trim(),
+          scheduleBlocks: Array.isArray(existing.scheduleBlocks) ? existing.scheduleBlocks : [],
+          frequencyLabel: String(existing.frequencyLabel || '').trim(),
+          termsSummary: String(existing.termsSummary || '').trim()
+        };
+      })
+      .filter(Boolean);
+    step.options = options;
+  } else {
+    const entityType = sourceType === 'event' ? 'event' : 'manual';
+    step.options = (Array.isArray(step.options) ? step.options : [])
+      .map((opt) => ({
+        id: opt.id || createId('reg_opt'),
+        label: String(opt.label || '').trim(),
+        description: String(opt.description || '').trim(),
+        entityType,
+        entityId: sourceType === 'event' ? (Number(opt.entityId || 0) || null) : null,
+        videoJoinUrl: String(opt.videoJoinUrl || '').trim(),
+        costDollars: Math.max(0, Number(opt.costDollars || 0) || 0),
+        paymentLinkUrl: String(opt.paymentLinkUrl || '').trim(),
+        providerUserIdsCsv: String(opt.providerUserIdsCsv || '').trim(),
+        scheduleBlocks: Array.isArray(opt.scheduleBlocks) ? opt.scheduleBlocks : [],
+        frequencyLabel: String(opt.frequencyLabel || '').trim(),
+        termsSummary: String(opt.termsSummary || '').trim()
+      }));
+  }
+};
+
+const onRegistrationSourceTypeChange = (step) => {
+  if (!step || step.type !== 'registration') return;
+  step.sourceConfig = {
+    selectedProgramOrganizationIds: [],
+    learningOrganizationId: null,
+    selectedClassIds: [],
+    programEventAgencyId: null,
+    programEventProgramId: null,
+    programEventSiteId: null,
+    selectedProgramEventSlotIds: []
+  };
+  step.options = [];
+  if (step.sourceType === 'manual' || step.sourceType === 'event') {
+    addRegistrationOption(step);
+  }
+  refreshRegistrationStepOptions(step);
+};
+
+const onRegistrationRuleChange = (step) => {
+  if (!step || step.type !== 'registration') return;
+  if (!step.selectionRules || typeof step.selectionRules !== 'object') {
+    step.selectionRules = { allowMultiple: false, minSelections: 1, maxSelections: 1 };
+  }
+  step.selectionRules.allowMultiple = !!step.selectionRules.allowMultiple;
+  const min = Number(step.selectionRules.minSelections || 0);
+  step.selectionRules.minSelections = Number.isFinite(min) ? Math.max(0, Math.trunc(min)) : 0;
+  if (!step.selectionRules.allowMultiple) {
+    step.selectionRules.maxSelections = 1;
+    if (step.selectionRules.minSelections > 1) step.selectionRules.minSelections = 1;
+  } else {
+    const max = Number(step.selectionRules.maxSelections || 0);
+    step.selectionRules.maxSelections = Number.isFinite(max) && max > 0 ? Math.trunc(max) : null;
+    if (step.selectionRules.maxSelections && step.selectionRules.minSelections > step.selectionRules.maxSelections) {
+      step.selectionRules.minSelections = step.selectionRules.maxSelections;
+    }
+  }
+};
+
+const onRegistrationLearningOrganizationChange = async (step) => {
+  if (!step || step.type !== 'registration') return;
+  const orgId = Number(step.sourceConfig?.learningOrganizationId || 0) || null;
+  step.sourceConfig.selectedClassIds = [];
+  if (orgId) await loadLearningClassesForOrganization(orgId);
+  refreshRegistrationStepOptions(step);
+};
+
+const onRegistrationClassSelectionChange = async (step) => {
+  if (!step || step.type !== 'registration') return;
+  refreshRegistrationStepOptions(step);
+  await hydrateSelectedClassDetails(step);
+};
+
+const onRegistrationProgramEventAgencyChange = async (step) => {
+  if (!step || step.type !== 'registration') return;
+  step.sourceConfig.programEventProgramId = null;
+  step.sourceConfig.programEventSiteId = null;
+  step.sourceConfig.selectedProgramEventSlotIds = [];
+  const agencyId = Number(step.sourceConfig.programEventAgencyId || 0) || null;
+  if (agencyId) await loadShiftProgramsForAgency(agencyId);
+  refreshRegistrationStepOptions(step);
+};
+
+const onRegistrationProgramEventProgramChange = async (step) => {
+  if (!step || step.type !== 'registration') return;
+  step.sourceConfig.programEventSiteId = null;
+  step.sourceConfig.selectedProgramEventSlotIds = [];
+  const programId = Number(step.sourceConfig.programEventProgramId || 0) || null;
+  if (programId) await loadShiftProgramDetail(programId);
+  refreshRegistrationStepOptions(step);
+};
+
+const onRegistrationProgramEventSiteChange = async (step) => {
+  if (!step || step.type !== 'registration') return;
+  step.sourceConfig.selectedProgramEventSlotIds = [];
+  const programId = Number(step.sourceConfig.programEventProgramId || 0) || null;
+  const siteId = Number(step.sourceConfig.programEventSiteId || 0) || null;
+  if (programId && siteId) await loadShiftSlotsForSite(programId, siteId);
+  refreshRegistrationStepOptions(step);
+};
+
 const removeOption = (field, idx) => {
   field.options.splice(idx, 1);
 };
 
 const buildPayloadFromSteps = (selectedTemplateIds = []) => {
   const intakeSteps = sanitizeSteps(form.intakeSteps).map((step) => ({ ...step }));
+  intakeSteps.forEach((step) => {
+    if (step?.type === 'registration') {
+      refreshRegistrationStepOptions(step);
+      onRegistrationRuleChange(step);
+    }
+  });
   const intakeFields = [];
   const allowedDocumentTemplateIds = [];
   intakeSteps.forEach((step) => {

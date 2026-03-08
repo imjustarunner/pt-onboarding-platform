@@ -8,6 +8,7 @@ import {
   createPublicConsent,
   finalizePublicIntake,
   getPublicIntakeLink,
+  lookupPublicRegistrationAccount,
   getPublicIntakeStatus,
   getSchoolIntakeLink,
   previewPublicTemplate,
@@ -34,6 +35,7 @@ router.post(
   ],
   createPublicIntakeSession
 );
+router.get('/:publicKey/account-lookup', lookupPublicRegistrationAccount);
 router.get('/:publicKey', getPublicIntakeLink);
 router.get('/:publicKey/status/:submissionId', getPublicIntakeStatus);
 router.get('/:publicKey/document/:templateId/preview', previewPublicTemplate);

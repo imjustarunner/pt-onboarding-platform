@@ -22,7 +22,13 @@ const asNumberOrNull = (value) => {
   return Number.isFinite(parsed) ? parsed : null;
 };
 
-const PUBLIC_INTAKE_FORM_TYPES = ['public_form', 'job_application', 'medical_records_request', 'smart_school_roi'];
+const PUBLIC_INTAKE_FORM_TYPES = [
+  'public_form',
+  'job_application',
+  'medical_records_request',
+  'smart_school_roi',
+  'smart_registration'
+];
 
 const canAccessLink = ({ link, userOrgIds, userId }) => {
   const orgId = asNumberOrNull(link?.organization_id);
@@ -82,7 +88,6 @@ export const createIntakeLink = async (req, res, next) => {
     const publicKey = crypto.randomBytes(24).toString('hex');
     const scopeType = req.body.scopeType || 'agency';
     const languageCode = String(req.body.languageCode || 'en').trim().toLowerCase();
-    const createGuardianDefault = scopeType === 'school' ? false : req.body.createGuardian !== false;
     let organizationId = req.body.organizationId ? asNumberOrNull(req.body.organizationId) : null;
     const learningClassId = req.body.learningClassId ? asNumberOrNull(req.body.learningClassId) : null;
     const userOrgIds = isSuperAdmin(req.user?.role) ? [] : await getUserOrganizationIds(req.user?.id);
@@ -92,8 +97,15 @@ export const createIntakeLink = async (req, res, next) => {
 
     const formTypeRaw = String(req.body.formType || 'intake').toLowerCase();
     const formType = PUBLIC_INTAKE_FORM_TYPES.includes(formTypeRaw) ? formTypeRaw : 'intake';
-    const createClientDefault = PUBLIC_INTAKE_FORM_TYPES.includes(formType) ? false : (req.body.createClient !== false);
-    const requiresAssignmentDefault = ['medical_records_request', 'smart_school_roi'].includes(formType) ? false : true;
+    const createClientDefault = formType === 'smart_registration'
+      ? (req.body.createClient !== false)
+      : (PUBLIC_INTAKE_FORM_TYPES.includes(formType) ? false : (req.body.createClient !== false));
+    const createGuardianDefault = formType === 'smart_school_roi'
+      ? false
+      : (formType === 'smart_registration'
+        ? (req.body.createGuardian !== false)
+        : (scopeType === 'school' ? false : req.body.createGuardian !== false));
+    const requiresAssignmentDefault = ['medical_records_request', 'smart_school_roi', 'smart_registration'].includes(formType) ? false : true;
     let jobDescriptionId = req.body.jobDescriptionId ? asNumberOrNull(req.body.jobDescriptionId) : null;
     let effectiveOrgId = organizationId;
     if (scopeType === 'learning_class') {

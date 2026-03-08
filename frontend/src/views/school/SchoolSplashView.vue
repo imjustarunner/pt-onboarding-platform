@@ -103,12 +103,14 @@ const formTypeKey = computed(() => String(intakeLink.value?.form_type || '').toL
 const digitalLinkTitle = computed(() => {
   if (formTypeKey.value === 'job_application') return 'Job Application';
   if (formTypeKey.value === 'medical_records_request') return 'Medical Records Request';
+  if (formTypeKey.value === 'smart_registration') return 'Smart Registration';
   return 'Parent Intake Link';
 });
 
 const digitalLinkSubtitle = computed(() => {
   if (formTypeKey.value === 'job_application') return 'Start your job application';
   if (formTypeKey.value === 'medical_records_request') return 'Request your medical records';
+  if (formTypeKey.value === 'smart_registration') return 'Register for a program, class, or event';
   return 'Same link as the QR code for this school';
 });
 

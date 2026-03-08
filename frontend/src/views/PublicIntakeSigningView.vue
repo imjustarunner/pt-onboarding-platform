@@ -132,6 +132,12 @@
               :class="{ 'input-error': !!consentErrors.guardianEmail }"
             />
             <div v-if="consentErrors.guardianEmail" class="error-text">{{ consentErrors.guardianEmail }}</div>
+            <div v-if="isSmartRegistration && registrationAccountLookupChecked && registrationAccountExists" class="muted" style="margin-top:4px;">
+              Existing account found. Registration will use a simplified returning-user path.
+            </div>
+            <div v-else-if="isSmartRegistration && registrationAccountLookupChecked && !registrationAccountExists" class="muted" style="margin-top:4px;">
+              No existing account found. Registration will include new-account questions.
+            </div>
           </div>
           <div class="form-group">
             <label>{{ (intakeForSelf || isMedicalRecordsRequest || isJobApplication) ? t('yourPhoneOptional') : t('guardianPhoneOptional') }}</label>
@@ -425,6 +431,7 @@
         <h3 v-if="currentFlowStep?.type === 'document'">Document</h3>
         <h3 v-else-if="currentFlowStep?.type === 'upload'">{{ currentFlowStep?.label || 'Upload' }}</h3>
         <h3 v-else-if="currentFlowStep?.type === 'school_roi'">School ROI</h3>
+        <h3 v-else-if="currentFlowStep?.type === 'registration'">{{ currentFlowStep?.label || 'Registration' }}</h3>
         <h3 v-else-if="currentFlowStep?.type === 'questions'">Questions</h3>
         <div v-if="stepError" class="error" style="margin-bottom: 10px;">{{ stepError }}</div>
         <div v-if="currentFlowStep?.type === 'school_roi'" class="school-roi-step">
@@ -453,6 +460,72 @@
               <span>{{ f.name }}</span>
               <button type="button" class="btn btn-secondary btn-xs" @click="removeUploadStepFile(i)">Remove</button>
             </div>
+          </div>
+        </div>
+        <div v-if="currentFlowStep?.type === 'registration'" class="registration-step">
+          <p v-if="currentFlowStep?.description" class="muted">{{ currentFlowStep.description }}</p>
+          <div v-if="currentRegistrationScheduleBlocks.length" class="registration-schedule-blocks">
+            <div v-for="sb in currentRegistrationScheduleBlocks" :key="sb.id" class="registration-schedule-item">
+              <strong>{{ sb.label || 'Scheduled Session' }}</strong>
+              <small class="muted">
+                {{ formatScheduleBlock(sb) }}
+              </small>
+            </div>
+          </div>
+          <div class="form-group" style="margin-bottom: 8px;">
+            <label class="checkbox">
+              <input
+                type="checkbox"
+                :checked="isCurrentRegistrationExistingParticipant"
+                @change="setCurrentRegistrationExistingParticipant($event?.target?.checked)"
+              />
+              I am already in your system
+            </label>
+            <input
+              v-if="isCurrentRegistrationExistingParticipant"
+              v-model="currentRegistrationLookupValue"
+              :placeholder="currentRegistrationLookupPlaceholder"
+              type="text"
+            />
+          </div>
+          <div v-if="currentRegistrationOptions.length" class="registration-options">
+            <label v-for="opt in currentRegistrationOptions" :key="opt.id" class="registration-option">
+              <input
+                v-if="isCurrentRegistrationMulti"
+                type="checkbox"
+                :checked="isRegistrationOptionSelected(currentFlowStep?.id, opt.id)"
+                @change="toggleRegistrationOption(currentFlowStep?.id, opt.id)"
+              />
+              <input
+                v-else
+                type="radio"
+                :name="`registration_${currentFlowStep?.id}`"
+                :checked="isRegistrationOptionSelected(currentFlowStep?.id, opt.id)"
+                @change="selectSingleRegistrationOption(currentFlowStep?.id, opt.id)"
+              />
+              <span>
+                <strong>{{ opt.label }}</strong>
+                <small v-if="opt.description" class="muted">{{ opt.description }}</small>
+                <small v-if="opt.videoJoinUrl" class="muted">
+                  Video: <a :href="opt.videoJoinUrl" target="_blank" rel="noopener">Join link</a>
+                </small>
+                <small v-if="opt.displayCost" class="muted">
+                  Cost: {{ opt.displayCost }}
+                </small>
+                <small v-if="opt.frequencyLabel" class="muted">
+                  Frequency: {{ opt.frequencyLabel }}
+                </small>
+                <small v-if="opt.termsSummary" class="muted">
+                  Terms: {{ opt.termsSummary }}
+                </small>
+                <small v-if="opt.paymentLinkUrl" class="muted">
+                  Payment: <a :href="opt.paymentLinkUrl" target="_blank" rel="noopener">Pay now</a>
+                </small>
+              </span>
+            </label>
+          </div>
+          <div v-else class="muted">
+            No registration options are configured for this step.
           </div>
         </div>
 
@@ -574,9 +647,9 @@
             class="btn btn-primary"
             type="button"
             :disabled="submitLoading || (currentFlowStep?.type === 'upload' && currentFlowStep?.required && uploadStepFiles.length === 0)"
-            @click="currentFlowStep?.type === 'document' ? completeCurrentDocument() : (currentFlowStep?.type === 'upload' ? completeUploadStep() : completeQuestionStep())"
+            @click="handleCurrentFlowContinue"
           >
-            {{ submitLoading ? t('submitting') : (currentFlowStep?.type === 'upload' ? 'Continue' : (currentFlowStep?.type === 'document' ? (currentDoc?.document_action_type === 'signature' ? t('signContinue') : t('markReviewedContinue')) : t('continue'))) }}
+            {{ submitLoading ? t('submitting') : currentFlowContinueLabel }}
           </button>
         </div>
       </div>
@@ -612,7 +685,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../services/api';
 import SignaturePad from '../components/SignaturePad.vue';
@@ -629,14 +702,17 @@ const INTAKE_TRANSLATIONS = {
     beginSubtitleMedical: 'Request your medical records. This link creates a unique session for your request.',
     beginIntake: 'Begin intake',
     beginIntakeSmartRoi: 'Begin release',
+    beginIntakeRegistration: 'Begin registration',
     beginIntakeJob: 'Start job application',
     beginIntakeMedical: 'Start medical records request',
     loadingLink: 'Loading intake link...',
     loadingLinkJob: 'Loading job application...',
     loadingLinkMedical: 'Loading medical records request...',
+    loadingLinkRegistration: 'Loading registration...',
     digitalIntake: 'Digital Intake',
     digitalIntakeJob: 'Job Application',
     digitalIntakeMedical: 'Medical Records Request',
+    digitalIntakeRegistration: 'Smart Registration',
     welcome: 'Welcome',
     formTimeLimit: 'This form must be completed within 1 hour. Each new page adds 5 minutes. In-progress answers are saved in this browser session for up to 1 hour in case you accidentally navigate away.',
     next: 'Next',
@@ -707,14 +783,18 @@ const INTAKE_TRANSLATIONS = {
     guardianRequired: 'Guardian name and guardian email are required.',
     applicantRequired: 'Name and email are required.',
     requesterRequired: 'Name and email are required.',
+    registrantRequired: 'Name and email are required.',
     signerLabelGuardian: 'Guardian',
     signerLabelApplicant: 'Applicant',
     signerLabelRequester: 'Requester',
+    signerLabelRegistrant: 'Registrant',
     applicantInformation: 'Applicant Information',
     requesterInformation: 'Requester Information',
+    registrantInformation: 'Registrant Information',
     completionEmailGuardian: 'Your documents were completed successfully. A copy will be emailed to the guardian.',
     completionEmailApplicant: 'Your application was submitted successfully. A copy will be emailed to you.',
     completionEmailRequester: 'Your request was submitted successfully. A copy will be emailed to you.',
+    completionEmailRegistrant: 'Your registration was submitted successfully. A copy will be emailed to you.',
     completionEmailFailed: 'Your documents were completed, but we could not send the confirmation email. Please use the download buttons below.',
     completeCaptcha: 'Please complete the captcha verification above.',
     captchaFailed: 'Captcha verification failed. Please complete the captcha again and try again.',
@@ -732,21 +812,26 @@ const INTAKE_TRANSLATIONS = {
     endSessionConfirm: 'End this session and clear this intake from this browser?',
     unableToStartSession: 'Unable to start a new intake session. Please try again.',
     dailyLimitReached: 'Daily intake start limit reached. Please try again tomorrow.',
-    draftRestored: 'Draft restored from this browser session (saved within the last hour).'
+    draftRestored: 'Draft restored from this browser session (saved within the last hour).',
+    beginSubtitleRegistration: 'Register for one program, class, or event from this secure link. Some links let you choose from multiple options.'
   },
   es: {
     loadingLink: 'Cargando enlace de admisión...',
     loadingLinkJob: 'Cargando solicitud de empleo...',
     loadingLinkMedical: 'Cargando solicitud de registros médicos...',
+    loadingLinkRegistration: 'Cargando registro...',
     digitalIntake: 'Admisión Digital',
     digitalIntakeJob: 'Solicitud de Empleo',
     digitalIntakeMedical: 'Solicitud de Registros Médicos',
+    digitalIntakeRegistration: 'Registro Inteligente',
     beginSubtitle: 'Comience para iniciar una sesión de admisión segura. Este enlace crea una sesión única para cada persona.',
     beginSubtitleSmartRoi: 'Comience para iniciar una sesión segura de autorización escolar. Este enlace crea una sesión única de firma para cada persona.',
     beginSubtitleJob: 'Comience su solicitud de empleo. Este enlace crea una sesión única para su solicitud.',
     beginSubtitleMedical: 'Solicite sus registros médicos. Este enlace crea una sesión única para su solicitud.',
+    beginSubtitleRegistration: 'Regístrese para un programa, clase o evento desde este enlace seguro. Algunos enlaces permiten elegir entre varias opciones.',
     beginIntake: 'Comenzar admisión',
     beginIntakeSmartRoi: 'Comenzar autorización',
+    beginIntakeRegistration: 'Comenzar registro',
     beginIntakeJob: 'Comenzar solicitud de empleo',
     beginIntakeMedical: 'Comenzar solicitud de registros médicos',
     welcome: 'Bienvenido',
@@ -862,6 +947,7 @@ const beginSubtitleText = computed(() => {
   if (formTypeKey.value === 'smart_school_roi') return t('beginSubtitleSmartRoi');
   const custom = customMessages.value?.beginSubtitle;
   if (custom && String(custom).trim()) return String(custom).trim();
+  if (formTypeKey.value === 'smart_registration') return t('beginSubtitleRegistration');
   if (formTypeKey.value === 'job_application') return t('beginSubtitleJob');
   if (formTypeKey.value === 'medical_records_request') return t('beginSubtitleMedical');
   return t('beginSubtitle');
@@ -870,6 +956,7 @@ const beginIntakeButtonText = computed(() => {
   if (formTypeKey.value === 'smart_school_roi') return t('beginIntakeSmartRoi');
   const custom = customMessages.value?.beginIntake;
   if (custom && String(custom).trim()) return String(custom).trim();
+  if (formTypeKey.value === 'smart_registration') return t('beginIntakeRegistration');
   if (formTypeKey.value === 'job_application') return t('beginIntakeJob');
   if (formTypeKey.value === 'medical_records_request') return t('beginIntakeMedical');
   return t('beginIntake');
@@ -877,16 +964,19 @@ const beginIntakeButtonText = computed(() => {
 const loadingText = computed(() => {
   if (formTypeKey.value === 'job_application') return t('loadingLinkJob');
   if (formTypeKey.value === 'medical_records_request') return t('loadingLinkMedical');
+  if (formTypeKey.value === 'smart_registration') return t('loadingLinkRegistration');
   return t('loadingLink');
 });
 const defaultTitle = computed(() => {
   if (formTypeKey.value === 'job_application') return t('digitalIntakeJob');
   if (formTypeKey.value === 'medical_records_request') return t('digitalIntakeMedical');
+  if (formTypeKey.value === 'smart_registration') return t('digitalIntakeRegistration');
   return t('digitalIntake');
 });
 const signerLabel = computed(() => {
   if (formTypeKey.value === 'job_application') return t('signerLabelApplicant');
   if (formTypeKey.value === 'medical_records_request') return t('signerLabelRequester');
+  if (formTypeKey.value === 'smart_registration') return t('signerLabelRegistrant');
   return t('signerLabelGuardian');
 });
 const emailDeliveryStatus = ref(null);
@@ -896,11 +986,13 @@ const completionEmailMessage = computed(() => {
   }
   if (formTypeKey.value === 'job_application') return t('completionEmailApplicant');
   if (formTypeKey.value === 'medical_records_request') return t('completionEmailRequester');
+  if (formTypeKey.value === 'smart_registration') return t('completionEmailRegistrant');
   return t('completionEmailGuardian');
 });
 const guardianSectionTitle = computed(() => {
   if (formTypeKey.value === 'job_application') return t('applicantInformation');
   if (formTypeKey.value === 'medical_records_request') return t('requesterInformation');
+  if (formTypeKey.value === 'smart_registration') return t('registrantInformation');
   return t('guardianQuestions');
 });
 
@@ -954,13 +1046,17 @@ const intakeSteps = computed(() =>
 const hasProgrammedSchoolRoiStep = computed(() =>
   intakeSteps.value.some((step) => String(step?.type || '').trim().toLowerCase() === 'school_roi')
 );
+const hasRegistrationStep = computed(() =>
+  intakeSteps.value.some((step) => String(step?.type || '').trim().toLowerCase() === 'registration')
+);
 const flowSteps = computed(() => {
   if (intakeSteps.value.length) {
     return intakeSteps.value
-      .filter((s) => s?.type === 'document' || s?.type === 'upload' || s?.type === 'school_roi')
+      .filter((s) => s?.type === 'document' || s?.type === 'upload' || s?.type === 'school_roi' || s?.type === 'registration')
       .map((s) => {
         if (s.type === 'upload') return { ...s };
         if (s.type === 'school_roi') return { ...s };
+        if (s.type === 'registration') return { ...s };
         const template = templates.value.find((t) => Number(t.id) === Number(s.templateId));
         return { ...s, template };
       });
@@ -969,6 +1065,76 @@ const flowSteps = computed(() => {
 });
 const currentFlowIndex = ref(0);
 const currentFlowStep = computed(() => flowSteps.value[currentFlowIndex.value] || null);
+const getCurrentRegistrationRules = () => {
+  const step = currentFlowStep.value;
+  if (!step || step.type !== 'registration') return { allowMultiple: false, minSelections: 1, maxSelections: 1 };
+  const allowMultiple = !!step?.selectionRules?.allowMultiple;
+  const minRaw = Number(step?.selectionRules?.minSelections ?? 1);
+  const maxRaw = Number(step?.selectionRules?.maxSelections ?? (allowMultiple ? 0 : 1));
+  return {
+    allowMultiple,
+    minSelections: Math.max(0, Number.isFinite(minRaw) ? Math.trunc(minRaw) : 1),
+    maxSelections: allowMultiple
+      ? (Number.isFinite(maxRaw) && maxRaw > 0 ? Math.trunc(maxRaw) : null)
+      : 1
+  };
+};
+const currentRegistrationOptions = computed(() => {
+  const step = currentFlowStep.value;
+  if (!step || step.type !== 'registration') return [];
+  const raw = Array.isArray(step.options)
+    ? step.options
+    : (Array.isArray(step.sourceConfig?.options) ? step.sourceConfig.options : []);
+  return raw
+    .filter((opt) => opt && typeof opt === 'object')
+    .map((opt) => ({
+      id: String(opt.id || opt.value || opt.label || '').trim(),
+      label: String(opt.label || opt.value || '').trim(),
+      description: String(opt.description || '').trim(),
+      entityType: String(opt.entityType || step.sourceType || 'manual').trim().toLowerCase(),
+      entityId: Number(opt.entityId || 0) || null,
+      videoJoinUrl: String(opt.videoJoinUrl || step.defaultVideoUrl || '').trim(),
+      paymentLinkUrl: String(opt.paymentLinkUrl || step?.selfPay?.paymentLinkUrl || '').trim(),
+      costDollars: Math.max(0, Number(opt.costDollars || step?.selfPay?.costDollars || 0) || 0),
+      providerUserIdsCsv: String(opt.providerUserIdsCsv || step.providerUserIdsCsv || '').trim(),
+      scheduleBlocks: Array.isArray(opt.scheduleBlocks)
+        ? opt.scheduleBlocks
+          .filter((sb) => sb && typeof sb === 'object')
+          .map((sb) => ({
+            id: String(sb.id || ''),
+            label: String(sb.label || '').trim(),
+            startDate: String(sb.startDate || '').trim(),
+            endDate: String(sb.endDate || '').trim(),
+            startTime: String(sb.startTime || '').trim(),
+            endTime: String(sb.endTime || '').trim(),
+            sequenceDays: Math.max(1, Number(sb.sequenceDays || 1) || 1)
+          }))
+        : [],
+      frequencyLabel: String(opt.frequencyLabel || '').trim(),
+      termsSummary: String(opt.termsSummary || '').trim(),
+      displayCost: (() => {
+        const dollars = Math.max(0, Number(opt.costDollars || step?.selfPay?.costDollars || 0) || 0);
+        return dollars > 0 ? `$${dollars.toFixed(2)}` : '';
+      })()
+    }))
+    .filter((opt) => opt.id && opt.label);
+});
+const isCurrentRegistrationMulti = computed(() => getCurrentRegistrationRules().allowMultiple);
+const currentRegistrationScheduleBlocks = computed(() => {
+  const step = currentFlowStep.value;
+  if (!step || step.type !== 'registration') return [];
+  return (Array.isArray(step.scheduleBlocks) ? step.scheduleBlocks : [])
+    .filter((sb) => sb && typeof sb === 'object')
+    .map((sb) => ({
+      id: String(sb.id || ''),
+      label: String(sb.label || '').trim(),
+      startDate: String(sb.startDate || '').trim(),
+      endDate: String(sb.endDate || '').trim(),
+      startTime: String(sb.startTime || '').trim(),
+      endTime: String(sb.endTime || '').trim(),
+      sequenceDays: Math.max(1, Number(sb.sequenceDays || 1) || 1)
+    }));
+});
 const step = ref(1);
 const submissionId = ref(null);
 const consentLoading = ref(false);
@@ -1046,6 +1212,123 @@ const consentErrors = reactive({
   organizationId: ''
 });
 const intakeForSelf = ref(false);
+const registrationAccountLookupChecked = ref(false);
+const registrationAccountLookupLoading = ref(false);
+const registrationAccountExists = ref(false);
+let registrationLookupTimer = null;
+const ensureRegistrationMaps = () => {
+  if (!intakeResponses.submission || typeof intakeResponses.submission !== 'object') {
+    intakeResponses.submission = {};
+  }
+  if (!intakeResponses.submission.registrationSelectionIdsByStep || typeof intakeResponses.submission.registrationSelectionIdsByStep !== 'object') {
+    intakeResponses.submission.registrationSelectionIdsByStep = {};
+  }
+  if (!intakeResponses.submission.registrationSelectionsByStep || typeof intakeResponses.submission.registrationSelectionsByStep !== 'object') {
+    intakeResponses.submission.registrationSelectionsByStep = {};
+  }
+  if (!intakeResponses.submission.registrationParticipantByStep || typeof intakeResponses.submission.registrationParticipantByStep !== 'object') {
+    intakeResponses.submission.registrationParticipantByStep = {};
+  }
+};
+const getRegistrationSelectionIds = (stepId) => {
+  ensureRegistrationMaps();
+  const key = String(stepId || '').trim();
+  if (!key) return [];
+  const list = intakeResponses.submission.registrationSelectionIdsByStep[key];
+  return Array.isArray(list) ? list.map((id) => String(id)).filter(Boolean) : [];
+};
+const setRegistrationSelectionIds = (stepId, ids = []) => {
+  ensureRegistrationMaps();
+  const key = String(stepId || '').trim();
+  if (!key) return;
+  intakeResponses.submission.registrationSelectionIdsByStep[key] =
+    Array.from(new Set((Array.isArray(ids) ? ids : []).map((id) => String(id)).filter(Boolean)));
+};
+const isRegistrationOptionSelected = (stepId, optionId) => {
+  const id = String(optionId || '').trim();
+  if (!id) return false;
+  return getRegistrationSelectionIds(stepId).includes(id);
+};
+const getRegistrationParticipant = (stepId) => {
+  ensureRegistrationMaps();
+  const key = String(stepId || '').trim();
+  if (!key) return { alreadyInSystem: false, lookupField: 'email', lookupValue: '' };
+  const p = intakeResponses.submission.registrationParticipantByStep[key];
+  if (!p || typeof p !== 'object') return { alreadyInSystem: false, lookupField: 'email', lookupValue: '' };
+  return {
+    alreadyInSystem: !!p.alreadyInSystem,
+    lookupField: ['email', 'phone', 'client_id'].includes(String(p.lookupField || '')) ? String(p.lookupField) : 'email',
+    lookupValue: String(p.lookupValue || '').trim()
+  };
+};
+const setRegistrationParticipant = (stepId, patch = {}) => {
+  ensureRegistrationMaps();
+  const key = String(stepId || '').trim();
+  if (!key) return;
+  const curr = getRegistrationParticipant(key);
+  intakeResponses.submission.registrationParticipantByStep[key] = {
+    ...curr,
+    ...patch
+  };
+};
+const isCurrentRegistrationExistingParticipant = computed(() => {
+  const stepId = String(currentFlowStep.value?.id || '').trim();
+  if (!stepId || currentFlowStep.value?.type !== 'registration') return false;
+  return !!getRegistrationParticipant(stepId).alreadyInSystem;
+});
+const setCurrentRegistrationExistingParticipant = (checked) => {
+  const stepId = String(currentFlowStep.value?.id || '').trim();
+  if (!stepId || currentFlowStep.value?.type !== 'registration') return;
+  setRegistrationParticipant(stepId, { alreadyInSystem: !!checked });
+};
+const currentRegistrationLookupValue = computed({
+  get: () => {
+    const stepId = String(currentFlowStep.value?.id || '').trim();
+    if (!stepId || currentFlowStep.value?.type !== 'registration') return '';
+    return getRegistrationParticipant(stepId).lookupValue;
+  },
+  set: (value) => {
+    const stepId = String(currentFlowStep.value?.id || '').trim();
+    if (!stepId || currentFlowStep.value?.type !== 'registration') return;
+    setRegistrationParticipant(stepId, { lookupValue: String(value || '').trim() });
+  }
+});
+const currentRegistrationLookupPlaceholder = computed(() => {
+  const step = currentFlowStep.value;
+  if (!step || step.type !== 'registration') return 'Lookup value';
+  const lookupField = ['email', 'phone', 'client_id'].includes(String(step.existingLookupField || ''))
+    ? String(step.existingLookupField)
+    : 'email';
+  if (lookupField === 'phone') return 'Enter your phone';
+  if (lookupField === 'client_id') return 'Enter your client ID';
+  return 'Enter your email';
+});
+const formatScheduleBlock = (sb) => {
+  const parts = [];
+  if (sb.startDate && sb.endDate) parts.push(`${sb.startDate} to ${sb.endDate}`);
+  else if (sb.startDate) parts.push(sb.startDate);
+  if (sb.startTime || sb.endTime) parts.push(`${sb.startTime || '--:--'} - ${sb.endTime || '--:--'}`);
+  if (sb.sequenceDays && Number(sb.sequenceDays) > 1) parts.push(`${Number(sb.sequenceDays)} day sequence`);
+  return parts.join(' | ') || 'Schedule details pending';
+};
+const selectSingleRegistrationOption = (stepId, optionId) => {
+  const id = String(optionId || '').trim();
+  if (!id) return;
+  setRegistrationSelectionIds(stepId, [id]);
+};
+const toggleRegistrationOption = (stepId, optionId) => {
+  const id = String(optionId || '').trim();
+  if (!id) return;
+  const existing = getRegistrationSelectionIds(stepId);
+  if (existing.includes(id)) {
+    setRegistrationSelectionIds(stepId, existing.filter((x) => x !== id));
+  } else {
+    const rules = getCurrentRegistrationRules();
+    const next = [...existing, id];
+    if (rules.maxSelections && next.length > rules.maxSelections) return;
+    setRegistrationSelectionIds(stepId, next);
+  }
+};
 const clearPersistedDraft = () => {
   try {
     localStorage.removeItem(submissionStorageKey.value);
@@ -1378,6 +1661,7 @@ const requiresOrganizationId = computed(
     String(link.value?.form_type || '').toLowerCase() !== 'medical_records_request'
 );
 const isSmartSchoolRoi = computed(() => String(link.value?.form_type || '').toLowerCase() === 'smart_school_roi');
+const isSmartRegistration = computed(() => String(link.value?.form_type || '').toLowerCase() === 'smart_registration');
 const isJobApplication = computed(() => String(link.value?.form_type || '').toLowerCase() === 'job_application');
 const isMedicalRecordsRequest = computed(() => String(link.value?.form_type || '').toLowerCase() === 'medical_records_request');
 const intakeFields = computed(() => Array.isArray(link.value?.intake_fields) ? link.value.intake_fields : []);
@@ -1645,7 +1929,9 @@ const loadLink = async () => {
     if (
       !templates.value.length
       && String(link.value?.form_type || '').toLowerCase() !== 'smart_school_roi'
+      && String(link.value?.form_type || '').toLowerCase() !== 'smart_registration'
       && !hasProgrammedSchoolRoiStep.value
+      && !hasRegistrationStep.value
     ) {
       error.value = 'No documents configured for this intake link.';
     } else if (String(link.value?.form_type || '').toLowerCase() === 'smart_school_roi') {
@@ -1991,7 +2277,15 @@ const submitConsent = async () => {
   ) {
     error.value = consentErrors.organizationId
       ? t('organizationRequired')
-      : (formTypeKey.value === 'job_application' ? t('applicantRequired') : formTypeKey.value === 'medical_records_request' ? t('requesterRequired') : t('guardianRequired'));
+      : (
+        formTypeKey.value === 'job_application'
+          ? t('applicantRequired')
+          : formTypeKey.value === 'medical_records_request'
+            ? t('requesterRequired')
+            : formTypeKey.value === 'smart_registration'
+              ? t('registrantRequired')
+              : t('guardianRequired')
+      );
     stepError.value = '';
     await nextTick();
     const firstMissingId = consentErrors.guardianFirstName
@@ -2161,6 +2455,93 @@ const completeQuestionStep = async () => {
   stepError.value = '';
   await nextFlowStep();
 };
+
+const completeRegistrationStep = async () => {
+  const stepMeta = currentFlowStep.value;
+  if (!stepMeta || stepMeta.type !== 'registration') return;
+  const rules = getCurrentRegistrationRules();
+  const selectedIds = getRegistrationSelectionIds(stepMeta.id);
+  const participant = getRegistrationParticipant(stepMeta.id);
+  if (participant.alreadyInSystem && !participant.lookupValue) {
+    stepError.value = `Please enter your ${String(stepMeta.existingLookupField || 'email').replace('_', ' ')}.`;
+    return;
+  }
+  if (selectedIds.length < rules.minSelections) {
+    stepError.value = rules.minSelections > 1
+      ? `Please select at least ${rules.minSelections} options.`
+      : 'Please select at least one option.';
+    return;
+  }
+  if (rules.maxSelections && selectedIds.length > rules.maxSelections) {
+    stepError.value = `Please select no more than ${rules.maxSelections} options.`;
+    return;
+  }
+  ensureRegistrationMaps();
+  const byId = new Map(currentRegistrationOptions.value.map((opt) => [String(opt.id), opt]));
+  const selected = selectedIds
+    .map((id) => byId.get(String(id)))
+    .filter(Boolean)
+    .map((opt) => ({
+      stepId: String(stepMeta.id || ''),
+      optionId: String(opt.id),
+      label: opt.label,
+      description: opt.description || '',
+      entityType: opt.entityType || 'manual',
+      entityId: opt.entityId || null,
+      videoJoinUrl: opt.videoJoinUrl || String(stepMeta.defaultVideoUrl || '').trim() || null,
+      providerUserIds: String(opt.providerUserIdsCsv || stepMeta.providerUserIdsCsv || '')
+        .split(',')
+        .map((v) => Number(String(v || '').trim()))
+        .filter((n) => Number.isFinite(n) && n > 0),
+      selfPay: {
+        enabled: !!stepMeta?.selfPay?.enabled,
+        paymentProvider: 'quickbooks',
+        costDollars: Number(opt.costDollars || stepMeta?.selfPay?.costDollars || 0) || 0,
+        paymentLinkUrl: String(opt.paymentLinkUrl || stepMeta?.selfPay?.paymentLinkUrl || '').trim() || null
+      },
+      scheduleBlocks: (Array.isArray(opt.scheduleBlocks) && opt.scheduleBlocks.length
+        ? opt.scheduleBlocks
+        : (Array.isArray(stepMeta.scheduleBlocks) ? stepMeta.scheduleBlocks : []))
+        .map((sb) => ({
+          id: String(sb?.id || ''),
+          label: String(sb?.label || ''),
+          startDate: String(sb?.startDate || ''),
+          endDate: String(sb?.endDate || ''),
+          startTime: String(sb?.startTime || ''),
+          endTime: String(sb?.endTime || ''),
+          sequenceDays: Math.max(1, Number(sb?.sequenceDays || 1) || 1)
+        })),
+      frequencyLabel: String(opt.frequencyLabel || '').trim() || null,
+      termsSummary: String(opt.termsSummary || '').trim() || null,
+      participant: {
+        mode: String(stepMeta.participantMode || 'any'),
+        alreadyInSystem: !!participant.alreadyInSystem,
+        lookupField: String(stepMeta.existingLookupField || 'email'),
+        lookupValue: participant.alreadyInSystem ? String(participant.lookupValue || '') : ''
+      },
+      selectedAt: new Date().toISOString()
+    }));
+  intakeResponses.submission.registrationSelectionsByStep[String(stepMeta.id || '')] = selected;
+  intakeResponses.submission.registrationSelections = Object.values(
+    intakeResponses.submission.registrationSelectionsByStep
+  ).flat();
+  stepError.value = '';
+  await nextFlowStep();
+};
+
+const handleCurrentFlowContinue = () => {
+  if (currentFlowStep.value?.type === 'document') return completeCurrentDocument();
+  if (currentFlowStep.value?.type === 'upload') return completeUploadStep();
+  if (currentFlowStep.value?.type === 'registration') return completeRegistrationStep();
+  return completeQuestionStep();
+};
+const currentFlowContinueLabel = computed(() => {
+  if (currentFlowStep.value?.type === 'upload') return 'Continue';
+  if (currentFlowStep.value?.type === 'document') {
+    return currentDoc.value?.document_action_type === 'signature' ? t('signContinue') : t('markReviewedContinue');
+  }
+  return t('continue');
+});
 
 const finalizePacket = async () => {
   try {
@@ -2441,11 +2822,63 @@ const visibleQuestionFields = computed(() =>
   stepQuestionFields.value.filter((f) => isQuestionVisible(f, questionValues.value))
 );
 
+const applyRegistrationAccountState = (exists) => {
+  ensureRegistrationMaps();
+  intakeResponses.submission.registration_account_state = exists ? 'existing' : 'new';
+  intakeResponses.submission.registration_has_account = !!exists;
+};
+
+const lookupRegistrationAccount = async (emailRaw) => {
+  const email = String(emailRaw || '').trim().toLowerCase();
+  if (!isSmartRegistration.value || !email || !email.includes('@')) {
+    registrationAccountLookupChecked.value = false;
+    registrationAccountExists.value = false;
+    return;
+  }
+  registrationAccountLookupLoading.value = true;
+  try {
+    const resp = await api.get(`/public-intake/${publicKey}/account-lookup`, {
+      params: { email }
+    });
+    const exists = !!resp.data?.exists;
+    registrationAccountExists.value = exists;
+    registrationAccountLookupChecked.value = true;
+    applyRegistrationAccountState(exists);
+    if (exists) {
+      const first = String(resp.data?.profile?.firstName || '').trim();
+      const last = String(resp.data?.profile?.lastName || '').trim();
+      if (first && !String(guardianFirstName.value || '').trim()) guardianFirstName.value = first;
+      if (last && !String(guardianLastName.value || '').trim()) guardianLastName.value = last;
+    }
+  } catch {
+    registrationAccountLookupChecked.value = false;
+  } finally {
+    registrationAccountLookupLoading.value = false;
+  }
+};
+
 watch(guardianFirstName, (val) => {
   if (String(val || '').trim()) consentErrors.guardianFirstName = '';
 });
 watch(guardianEmail, (val) => {
   if (String(val || '').trim()) consentErrors.guardianEmail = '';
+  if (!isSmartRegistration.value) return;
+  if (registrationLookupTimer) clearTimeout(registrationLookupTimer);
+  const email = String(val || '').trim();
+  if (!email || !email.includes('@')) {
+    registrationAccountLookupChecked.value = false;
+    registrationAccountExists.value = false;
+    return;
+  }
+  registrationLookupTimer = setTimeout(() => {
+    lookupRegistrationAccount(email);
+  }, 350);
+});
+watch(isSmartRegistration, (val) => {
+  if (!val) return;
+  applyRegistrationAccountState(false);
+  const email = String(guardianEmail.value || '').trim();
+  if (email && email.includes('@')) lookupRegistrationAccount(email);
 });
 watch(
   () => clients.value?.[0]?.firstName,
@@ -2621,6 +3054,26 @@ watch(currentFlowStep, (step) => {
   if (step?.type === 'upload') {
     uploadStepFiles.value = [];
   }
+  if (step?.type === 'registration') {
+    ensureRegistrationMaps();
+    const stepId = String(step?.id || '').trim();
+    if (!stepId) return;
+    const lookupField = ['email', 'phone', 'client_id'].includes(String(step?.existingLookupField || ''))
+      ? String(step.existingLookupField)
+      : 'email';
+    const participant = getRegistrationParticipant(stepId);
+    setRegistrationParticipant(stepId, { lookupField: participant.lookupField || lookupField });
+    const hasIds = Array.isArray(intakeResponses.submission.registrationSelectionIdsByStep?.[stepId]);
+    if (!hasIds) {
+      const existingSelections = Array.isArray(intakeResponses.submission.registrationSelectionsByStep?.[stepId])
+        ? intakeResponses.submission.registrationSelectionsByStep[stepId]
+        : [];
+      const ids = existingSelections.map((s) => String(s?.optionId || '')).filter(Boolean);
+      if (ids.length) {
+        intakeResponses.submission.registrationSelectionIdsByStep[stepId] = ids;
+      }
+    }
+  }
 });
 
 watch(currentDoc, async () => {
@@ -2734,6 +3187,13 @@ onMounted(async () => {
   }
   initializeFieldValues();
   await loadPdfPreview();
+});
+
+onBeforeUnmount(() => {
+  if (registrationLookupTimer) {
+    clearTimeout(registrationLookupTimer);
+    registrationLookupTimer = null;
+  }
 });
 </script>
 
@@ -3028,6 +3488,37 @@ onMounted(async () => {
 }
 .upload-step {
   margin: 16px 0;
+}
+.registration-step {
+  margin: 16px 0;
+}
+.registration-options {
+  display: grid;
+  gap: 8px;
+}
+.registration-schedule-blocks {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.registration-schedule-item {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+}
+.registration-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-alt);
+}
+.registration-option small {
+  display: block;
+  margin-top: 2px;
 }
 .upload-step input[type="file"] {
   margin: 10px 0;

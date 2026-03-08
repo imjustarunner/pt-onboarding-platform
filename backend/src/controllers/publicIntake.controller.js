@@ -27,6 +27,9 @@ import ClientGuardian from '../models/ClientGuardian.model.js';
 import ClientGuardianIntakeProfile from '../models/ClientGuardianIntakeProfile.model.js';
 import HiringJobDescription from '../models/HiringJobDescription.model.js';
 import HiringProfile from '../models/HiringProfile.model.js';
+import LearningProgramClass from '../models/LearningProgramClass.model.js';
+import ProgramStaffAssignment from '../models/ProgramStaffAssignment.model.js';
+import ProgramShiftSignup from '../models/ProgramShiftSignup.model.js';
 import config from '../config/config.js';
 import pool from '../config/database.js';
 import { verifyRecaptchaV3 } from '../services/captcha.service.js';
@@ -72,6 +75,162 @@ const findDateLikeValue = (obj = {}) => {
     }
   }
   return null;
+};
+const normalizeRegistrationSelections = (intakeData = null) => {
+  const fromSubmission = intakeData?.responses?.submission?.registrationSelections;
+  const raw = Array.isArray(fromSubmission) ? fromSubmission : [];
+  return raw
+    .filter((row) => row && typeof row === 'object')
+    .map((row) => ({
+      entityType: String(row.entityType || '').trim().toLowerCase(),
+      entityId: Number(row.entityId || 0) || null,
+      sourceProgramId: Number(row.sourceProgramId || 0) || null,
+      sourceSiteId: Number(row.sourceSiteId || 0) || null,
+      scheduleBlocks: Array.isArray(row.scheduleBlocks) ? row.scheduleBlocks : []
+    }))
+    .filter((row) => !!row.entityType);
+};
+const deriveRegistrationSlotDate = ({ selection = {}, intakeData = null, payload = null } = {}) => {
+  const blocks = Array.isArray(selection?.scheduleBlocks) ? selection.scheduleBlocks : [];
+  for (const block of blocks) {
+    const startDate = normalizeDateOnly(block?.startDate);
+    if (startDate) return startDate;
+  }
+  const fromSubmission = findDateLikeValue(intakeData?.responses?.submission || {});
+  if (fromSubmission) return fromSubmission;
+  const fromPayload = normalizeDateOnly(payload?.slotDate || payload?.eventDate || payload?.date);
+  if (fromPayload) return fromPayload;
+  return new Date().toISOString().slice(0, 10);
+};
+const enrollSmartRegistrationSelections = async ({
+  link,
+  intakeData = null,
+  payload = {},
+  submissionId = null,
+  clientIds = [],
+  guardianUserId = null
+} = {}) => {
+  const selections = normalizeRegistrationSelections(intakeData);
+  const result = {
+    attempted: false,
+    selectionCount: selections.length,
+    classEnrollments: 0,
+    programAssignments: 0,
+    programEventSignups: 0,
+    errors: []
+  };
+  if (!selections.length) return result;
+  result.attempted = true;
+  const uniqueClientIds = Array.from(new Set((Array.isArray(clientIds) ? clientIds : [])
+    .map((id) => Number(id || 0))
+    .filter((id) => Number.isFinite(id) && id > 0)));
+  let participantUserId = Number(guardianUserId || 0) || null;
+  if (!participantUserId) {
+    const email = String(payload?.guardian?.email || '').trim().toLowerCase();
+    if (email) {
+      try {
+        const existingUser = await User.findByEmail(email);
+        participantUserId = Number(existingUser?.id || 0) || null;
+      } catch {
+        participantUserId = null;
+      }
+    }
+  }
+  for (const selection of selections) {
+    if (selection.entityType === 'class') {
+      const classId = Number(selection.entityId || 0) || null;
+      if (!classId || !uniqueClientIds.length) continue;
+      for (const clientId of uniqueClientIds) {
+        try {
+          await LearningProgramClass.addClientMember({
+            classId,
+            clientId,
+            membershipStatus: 'active',
+            roleLabel: 'registered',
+            notes: `Auto-enrolled via smart registration link${submissionId ? ` (submission ${submissionId})` : ''}`,
+            actorUserId: null
+          });
+          result.classEnrollments += 1;
+        } catch (error) {
+          result.errors.push({
+            type: 'class_enrollment_failed',
+            classId,
+            clientId,
+            message: error?.message || 'Unknown class enrollment error'
+          });
+        }
+      }
+      continue;
+    }
+    if (selection.entityType === 'program_event') {
+      const programId = Number(selection.sourceProgramId || 0) || null;
+      const siteId = Number(selection.sourceSiteId || 0) || null;
+      const slotId = Number(selection.entityId || 0) || null;
+      if (!programId || !participantUserId) continue;
+      try {
+        await ProgramStaffAssignment.create({
+          programId,
+          userId: participantUserId,
+          role: 'participant',
+          minScheduledHoursPerWeek: null,
+          minOnCallHoursPerWeek: null,
+          createdByUserId: null
+        });
+        result.programAssignments += 1;
+      } catch (error) {
+        result.errors.push({
+          type: 'program_assignment_failed',
+          programId,
+          userId: participantUserId,
+          message: error?.message || 'Unknown program assignment error'
+        });
+      }
+      if (!siteId || !slotId) continue;
+      const slotDate = deriveRegistrationSlotDate({ selection, intakeData, payload });
+      try {
+        const [existingRows] = await pool.execute(
+          `SELECT id
+           FROM program_shift_signups
+           WHERE program_site_id = ?
+             AND program_site_shift_slot_id = ?
+             AND user_id = ?
+             AND slot_date = ?
+             AND status IN ('confirmed', 'pending')
+           LIMIT 1`,
+          [siteId, slotId, participantUserId, slotDate]
+        );
+        if (existingRows?.length) continue;
+        const [slotRows] = await pool.execute(
+          `SELECT start_time, end_time
+           FROM program_site_shift_slots
+           WHERE id = ?
+           LIMIT 1`,
+          [slotId]
+        );
+        const slot = slotRows?.[0] || {};
+        await ProgramShiftSignup.create({
+          programSiteId: siteId,
+          programSiteShiftSlotId: slotId,
+          userId: participantUserId,
+          slotDate,
+          startTime: slot?.start_time || null,
+          endTime: slot?.end_time || null,
+          signupType: 'scheduled'
+        });
+        result.programEventSignups += 1;
+      } catch (error) {
+        result.errors.push({
+          type: 'program_event_signup_failed',
+          programId,
+          siteId,
+          slotId,
+          userId: participantUserId,
+          message: error?.message || 'Unknown program event signup error'
+        });
+      }
+    }
+  }
+  return result;
 };
 const extractGuardianProfileFromPayload = ({ payload = {}, intakeData = {} } = {}) => {
   const guardianBody = payload?.guardian && typeof payload.guardian === 'object' ? payload.guardian : {};
@@ -1940,6 +2099,56 @@ export const getPublicIntakeStatus = async (req, res, next) => {
   }
 };
 
+export const lookupPublicRegistrationAccount = async (req, res, next) => {
+  try {
+    const publicKey = String(req.params.publicKey || '').trim();
+    if (!publicKey) return res.status(400).json({ error: { message: 'publicKey is required' } });
+    const { link } = await resolvePublicIntakeContext(publicKey);
+    if (!link || !link.is_active) {
+      return res.status(404).json({ error: { message: 'Intake link not found' } });
+    }
+    if (String(link.form_type || '').toLowerCase() !== 'smart_registration') {
+      return res.json({
+        exists: false,
+        accountState: 'new',
+        message: 'Account lookup is only enabled for smart registration links.'
+      });
+    }
+    const email = String(req.query?.email || '').trim().toLowerCase();
+    if (!email || !email.includes('@')) {
+      return res.status(400).json({ error: { message: 'Valid email is required' } });
+    }
+    const user = await User.findByEmail(email);
+    if (!user?.id) {
+      return res.json({
+        exists: false,
+        accountState: 'new',
+        profile: null
+      });
+    }
+    const [guardianRows] = await pool.execute(
+      `SELECT COUNT(*) AS total
+       FROM client_guardians
+       WHERE guardian_user_id = ?`,
+      [Number(user.id)]
+    );
+    const guardianLinks = Number(guardianRows?.[0]?.total || 0) || 0;
+    return res.json({
+      exists: true,
+      accountState: 'existing',
+      profile: {
+        firstName: String(user.first_name || '').trim() || null,
+        lastName: String(user.last_name || '').trim() || null,
+        email: String(user.email || '').trim().toLowerCase(),
+        role: String(user.role || '').trim().toLowerCase() || null,
+        hasGuardianLinks: guardianLinks > 0
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const previewPublicTemplate = async (req, res, next) => {
   try {
     const publicKey = String(req.params.publicKey || '').trim();
@@ -3052,6 +3261,14 @@ export const finalizePublicIntake = async (req, res, next) => {
       rawClients = [{ id: null, fullName: signerName, initials: updatedSubmission?.signer_initials || null, contactPhone: null }];
     }
     const primaryClientName = String(rawClients?.[0]?.fullName || '').trim() || null;
+    const registrationEnrollment = await enrollSmartRegistrationSelections({
+      link,
+      intakeData,
+      payload: req.body || {},
+      submissionId,
+      clientIds: rawClients.map((c) => Number(c?.id || 0)).filter((id) => Number.isFinite(id) && id > 0),
+      guardianUserId: updatedSubmission?.guardian_user_id || null
+    });
 
     const intakeClientRows = [];
     const isMultiClient = rawClients.length > 1;
@@ -3489,7 +3706,8 @@ export const finalizePublicIntake = async (req, res, next) => {
       documents: signedDocsOrdered,
       downloadUrl,
       emailDelivery,
-      clientBundles
+      clientBundles,
+      registrationEnrollment
     });
   } catch (error) {
     next(error);
