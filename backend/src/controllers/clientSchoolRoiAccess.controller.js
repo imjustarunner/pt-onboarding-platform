@@ -845,6 +845,9 @@ export const sendClientSchoolRoiSigningText = async (req, res, next) => {
   }
 };
 
+const _roiEmailCooldowns = new Map();
+const ROI_EMAIL_COOLDOWN_MS = 3 * 60 * 1000;
+
 export const sendClientSchoolRoiSigningEmail = async (req, res, next) => {
   try {
     const clientId = Number(req.params.id || 0);
@@ -855,6 +858,19 @@ export const sendClientSchoolRoiSigningEmail = async (req, res, next) => {
 
     const access = await requireManagedClient(req, clientId);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    const toEmailRaw = String(req.body?.email || '').trim().toLowerCase();
+    if (toEmailRaw && toEmailRaw.includes('@')) {
+      const cooldownKey = `${clientId}:${toEmailRaw}`;
+      const lastSent = _roiEmailCooldowns.get(cooldownKey) || 0;
+      const elapsed = Date.now() - lastSent;
+      if (elapsed < ROI_EMAIL_COOLDOWN_MS) {
+        const waitSec = Math.ceil((ROI_EMAIL_COOLDOWN_MS - elapsed) / 1000);
+        return res.status(429).json({
+          error: { message: `An ROI email was already sent to this address recently. Please wait ${waitSec} seconds before sending again.` }
+        });
+      }
+    }
 
     const client = access.client;
     const schoolOrganizationId = Number(client.organization_id || 0);
@@ -914,6 +930,8 @@ export const sendClientSchoolRoiSigningEmail = async (req, res, next) => {
       html: buildRoiEmailHtml({ body })
     });
 
+    _roiEmailCooldowns.set(`${clientId}:${toEmail}`, Date.now());
+
     await logAuditEvent(req, {
       actionType: 'client_school_roi_signing_email_sent',
       agencyId: client.agency_id || null,
@@ -938,10 +956,12 @@ export const sendClientSchoolRoiSigningEmail = async (req, res, next) => {
       client,
       issued_link: serializeIssuedRoiSigningLink(issuedResult.issuedLink, client),
       sent_to: toEmail,
+      sent_at: new Date().toISOString(),
       link_url: linkUrl,
       subject,
       message: body,
-      email_result: result
+      email_result: result,
+      cooldown_seconds: Math.ceil(ROI_EMAIL_COOLDOWN_MS / 1000)
     });
   } catch (error) {
     next(error);

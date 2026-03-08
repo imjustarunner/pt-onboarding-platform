@@ -259,12 +259,22 @@
             <button
               type="button"
               class="btn btn-primary btn-sm"
-              :disabled="emailSending || !hasSigningConfig || !emailDraft || !emailSubjectDraft || !emailMessageDraft"
+              :disabled="emailSending || emailCooldownSec > 0 || !hasSigningConfig || !emailDraft || !emailSubjectDraft || !emailMessageDraft"
               @click="sendRoiEmail"
             >
-              {{ emailSending ? 'Sending…' : 'Send ROI Email' }}
+              <template v-if="emailSending">Sending…</template>
+              <template v-else-if="emailCooldownSec > 0">Resend available in {{ emailCooldownSec }}s</template>
+              <template v-else>Send ROI Email</template>
             </button>
             <span v-if="emailStatus" class="hint strong">{{ emailStatus }}</span>
+          </div>
+          <div v-if="emailSendLog.length" class="email-send-log" style="margin-top: 6px;">
+            <small class="hint" style="display: block; margin-bottom: 2px; font-weight: 600;">Send history (this session)</small>
+            <ul style="list-style: none; padding: 0; margin: 0;">
+              <li v-for="(entry, idx) in emailSendLog" :key="idx" style="font-size: 0.82rem; color: #666; padding: 1px 0;">
+                {{ entry.email }} — {{ new Date(entry.sentAt).toLocaleString() }}
+              </li>
+            </ul>
           </div>
         </div>
       </div>
@@ -333,7 +343,7 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import api from '../../services/api';
 import { buildPublicIntakeShortUrl, buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 
@@ -376,6 +386,9 @@ const emailSubjectDraft = ref('');
 const emailMessageDraft = ref('');
 const emailMessageTouched = ref(false);
 const emailStatus = ref('');
+const emailCooldownSec = ref(0);
+const emailSendLog = ref([]);
+let _emailCooldownTimer = null;
 const issueMode = ref('school_staff_only');
 const programmedRecipientName = ref('');
 const programmedRecipientRelationship = ref('');
@@ -564,6 +577,9 @@ const load = async () => {
     emailMessageDraft.value = '';
     emailMessageTouched.value = false;
     smsMessageTouched.value = false;
+    emailCooldownSec.value = 0;
+    emailSendLog.value = [];
+    if (_emailCooldownTimer) { clearInterval(_emailCooldownTimer); _emailCooldownTimer = null; }
     const response = await api.get(`/clients/${clientId}/school-roi-access`);
     const payload = response.data || {};
     rows.value = Array.isArray(payload.staff) ? payload.staff : [];
@@ -801,6 +817,18 @@ const sendRoiText = async () => {
   }
 };
 
+const startEmailCooldown = (seconds) => {
+  if (_emailCooldownTimer) clearInterval(_emailCooldownTimer);
+  emailCooldownSec.value = seconds;
+  _emailCooldownTimer = setInterval(() => {
+    emailCooldownSec.value = Math.max(0, emailCooldownSec.value - 1);
+    if (emailCooldownSec.value <= 0 && _emailCooldownTimer) {
+      clearInterval(_emailCooldownTimer);
+      _emailCooldownTimer = null;
+    }
+  }, 1000);
+};
+
 const sendRoiEmail = async () => {
   const clientId = Number(props.client?.id || 0);
   if (!clientId) return;
@@ -822,11 +850,27 @@ const sendRoiEmail = async () => {
     emailSubjectDraft.value = response.data?.subject || emailSubjectDraft.value;
     emailMessageDraft.value = response.data?.message || emailMessageDraft.value;
     emailMessageTouched.value = true;
-    emailStatus.value = `Email sent to ${response.data?.sent_to || emailDraft.value}.`;
+
+    const sentTo = response.data?.sent_to || emailDraft.value;
+    const sentAt = response.data?.sent_at || new Date().toISOString();
+    emailStatus.value = `Email sent to ${sentTo}.`;
+    emailSendLog.value = [
+      { email: sentTo, sentAt },
+      ...emailSendLog.value
+    ].slice(0, 20);
+
+    const cooldownSec = response.data?.cooldown_seconds || 180;
+    startEmailCooldown(cooldownSec);
+
     emit('updated', { keepOpen: true, client: response.data?.client || undefined });
     await load();
   } catch (err) {
-    error.value = err.response?.data?.error?.message || 'Failed to send ROI email';
+    const errMsg = err.response?.data?.error?.message || 'Failed to send ROI email';
+    error.value = errMsg;
+    if (err.response?.status === 429) {
+      const match = errMsg.match(/wait (\d+) seconds/);
+      if (match) startEmailCooldown(Number(match[1]));
+    }
   } finally {
     emailSending.value = false;
   }
@@ -856,6 +900,10 @@ watch(
   },
   { immediate: true }
 );
+
+onBeforeUnmount(() => {
+  if (_emailCooldownTimer) { clearInterval(_emailCooldownTimer); _emailCooldownTimer = null; }
+});
 </script>
 
 <style scoped>
