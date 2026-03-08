@@ -409,6 +409,36 @@
               </div>
             </div>
             <div class="info-item">
+              <label>Guardian contact (latest intake)</label>
+              <div class="info-value">
+                {{ guardianIntakeName || '-' }}
+              </div>
+            </div>
+            <div class="info-item">
+              <label>Guardian email (latest intake)</label>
+              <div class="info-value">
+                {{ guardianIntakeEmail || '-' }}
+              </div>
+            </div>
+            <div class="info-item">
+              <label>Guardian phone (latest intake)</label>
+              <div class="info-value">
+                {{ guardianIntakePhone || '-' }}
+              </div>
+            </div>
+            <div class="info-item">
+              <label>Guardian relationship (latest intake)</label>
+              <div class="info-value">
+                {{ guardianIntakeRelationship || '-' }}
+              </div>
+            </div>
+            <div class="info-item">
+              <label>Guardian DOB (latest intake)</label>
+              <div class="info-value">
+                {{ guardianIntakeDob ? formatDate(guardianIntakeDob) : '-' }}
+              </div>
+            </div>
+            <div class="info-item">
               <label>Upload status (legacy)</label>
               <div class="info-value">
                 <span class="muted">{{ formatDocumentStatus(client.document_status) }}</span>
@@ -1428,6 +1458,19 @@ const currentClientPositionLabel = computed(() => {
 const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
 const isSuperAdmin = computed(() => roleNorm.value === 'super_admin');
 const isBackofficeRole = computed(() => ['super_admin', 'admin', 'support', 'staff'].includes(roleNorm.value));
+const guardianIntakeProfile = computed(() => {
+  if (roleNorm.value === 'school_staff') return null;
+  return props.client?.guardian_intake_profile || null;
+});
+const guardianIntakeName = computed(() => String(
+  guardianIntakeProfile.value?.fullName
+  || `${guardianIntakeProfile.value?.firstName || ''} ${guardianIntakeProfile.value?.lastName || ''}`
+  || ''
+).trim() || null);
+const guardianIntakeEmail = computed(() => String(guardianIntakeProfile.value?.email || '').trim() || null);
+const guardianIntakePhone = computed(() => String(guardianIntakeProfile.value?.phone || '').trim() || null);
+const guardianIntakeRelationship = computed(() => String(guardianIntakeProfile.value?.relationship || '').trim() || null);
+const guardianIntakeDob = computed(() => String(guardianIntakeProfile.value?.dateOfBirth || '').trim() || null);
 const canViewAdminNote = computed(() => isBackofficeRole.value || roleNorm.value === 'supervisor');
 const canManageClientCode = computed(() => isBackofficeRole.value || roleNorm.value === 'supervisor');
 const isSchoolClient = computed(() => String(props.client?.organization_type || '').trim().toLowerCase() === 'school');

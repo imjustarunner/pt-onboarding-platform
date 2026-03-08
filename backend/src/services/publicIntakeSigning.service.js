@@ -10,6 +10,7 @@ class PublicIntakeSigningService {
     auditTrail,
     workflowData,
     submissionId,
+    branding = null,
     fieldDefinitions = [],
     fieldValues = {}
   }) {
@@ -45,6 +46,7 @@ class PublicIntakeSigningService {
         referenceNumber,
         documentName,
         signatureOnAuditPage: false,
+        branding,
         fieldDefinitions,
         fieldValues
       }

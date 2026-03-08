@@ -6,10 +6,10 @@ const formatYmd = (value) => {
   return date.toISOString().slice(0, 10);
 };
 
-const addDays = (value, days) => {
+const addYears = (value, years) => {
   const date = value instanceof Date ? new Date(value) : new Date(String(value || ''));
   if (Number.isNaN(date.getTime())) return null;
-  date.setUTCDate(date.getUTCDate() + Number(days || 0));
+  date.setUTCFullYear(date.getUTCFullYear() + Number(years || 0));
   return date;
 };
 
@@ -26,7 +26,7 @@ export async function applyClientRoiCompletion({
   if (Number.isNaN(signedDate.getTime())) {
     throw new Error('signedAt is invalid');
   }
-  const roiExpiresAt = addDays(signedDate, 365);
+  const roiExpiresAt = addYears(signedDate, 3);
   const effectiveDate = formatYmd(signedDate);
   const connection = await pool.getConnection();
   try {

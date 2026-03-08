@@ -4,10 +4,13 @@
       <div>
         <h1>School Clients</h1>
         <p class="page-description">
-          Pending school clients grouped by school. Tracks days open before parent contact, then before first session.
+          Track pending client onboarding and expiring school ROI access in one place.
         </p>
       </div>
       <div class="header-actions">
+        <button class="btn btn-secondary" type="button" @click="toggleGroupBySchool">
+          {{ groupBySchool ? 'Show all rows' : 'Group by school' }}
+        </button>
         <button class="btn btn-secondary" type="button" @click="reload" :disabled="loading || !activeAgencyId">
           {{ loading ? 'Loading…' : 'Refresh' }}
         </button>
@@ -19,12 +22,31 @@
     </div>
 
     <div v-else class="panel">
+      <div class="mode-switch">
+        <button
+          class="mode-btn"
+          :class="{ active: viewMode === 'pending' }"
+          type="button"
+          @click="setViewMode('pending')"
+        >
+          Pending
+        </button>
+        <button
+          class="mode-btn"
+          :class="{ active: viewMode === 'roi' }"
+          type="button"
+          @click="setViewMode('roi')"
+        >
+          ROI Expiring/Expired
+        </button>
+      </div>
+
       <div class="filters">
         <div class="field">
           <label>Search</label>
           <input v-model="filters.search" class="input" placeholder="Client initials, school, provider…" />
         </div>
-        <div class="field">
+        <div v-if="viewMode === 'pending'" class="field">
           <label>Stage</label>
           <select v-model="filters.stage" class="select">
             <option value="">All</option>
@@ -32,11 +54,37 @@
             <option value="no_first_session">No first session date</option>
           </select>
         </div>
-        <div class="field">
+        <div v-if="viewMode === 'pending'" class="field">
           <label>Sort days</label>
           <select v-model="sortDir" class="select">
             <option value="desc">Most days first</option>
             <option value="asc">Least days first</option>
+          </select>
+        </div>
+        <div v-if="viewMode === 'roi'" class="field">
+          <label>Window</label>
+          <select v-model.number="roiDaysWindow" class="select" @change="reloadRoi">
+            <option :value="14">14 days</option>
+            <option :value="30">30 days</option>
+            <option :value="45">45 days</option>
+            <option :value="60">60 days</option>
+            <option :value="90">90 days</option>
+          </select>
+        </div>
+        <div v-if="viewMode === 'roi'" class="field">
+          <label>ROI status</label>
+          <select v-model="filters.roiStatus" class="select">
+            <option value="needs_attention">Expired + expiring soon</option>
+            <option value="expired">Expired only</option>
+            <option value="expiring_soon">Expiring soon only</option>
+            <option value="all">All</option>
+          </select>
+        </div>
+        <div v-if="viewMode === 'roi'" class="field">
+          <label>Sort</label>
+          <select v-model="roiSort" class="select">
+            <option value="soonest">Soonest first</option>
+            <option value="latest">Latest first</option>
           </select>
         </div>
         <div class="field">
@@ -54,6 +102,24 @@
         <button class="btn btn-secondary btn-sm" type="button" @click="collapseAllSchools" :disabled="schoolGroups.length === 0">
           Collapse all
         </button>
+        <button
+          v-if="viewMode === 'roi'"
+          class="btn btn-primary btn-sm"
+          type="button"
+          :disabled="roiBulkBusy || filteredRows.length === 0"
+          @click="sendBulkRoiRenewals"
+        >
+          {{ roiBulkBusy ? 'Queueing emails…' : `Renew ROI Email (${filteredRows.length})` }}
+        </button>
+        <button
+          v-if="viewMode === 'roi'"
+          class="btn btn-secondary btn-sm"
+          type="button"
+          :disabled="providerNotifyBusy || filteredRows.length === 0"
+          @click="sendProviderRoiReminder"
+        >
+          {{ providerNotifyBusy ? 'Sending reminders…' : `Notify providers (${filteredRows.length})` }}
+        </button>
         <div class="muted" style="font-size: 12px;">Schools: {{ schoolGroups.length }} · Clients: {{ filteredRows.length }}</div>
       </div>
 
@@ -66,15 +132,18 @@
               <th>School</th>
               <th>Client</th>
               <th>Provider</th>
-              <th>Date Added Pending</th>
-              <th>Date Assigned</th>
-              <th>Tracking</th>
-              <th>Days Open</th>
+              <th v-if="viewMode === 'pending'">Date Added Pending</th>
+              <th v-if="viewMode === 'pending'">Date Assigned</th>
+              <th v-if="viewMode === 'pending'">Tracking</th>
+              <th v-if="viewMode === 'pending'">Days Open</th>
+              <th v-if="viewMode === 'roi'">ROI Expiration</th>
+              <th v-if="viewMode === 'roi'">Days Left</th>
+              <th v-if="viewMode === 'roi'">Guardian Email</th>
             </tr>
           </thead>
           <tbody>
             <template v-for="g in schoolGroups" :key="`g-${g.organizationId}`">
-              <tr class="group-row" @click="toggleSchool(g.organizationId)">
+              <tr v-if="groupBySchool" class="group-row" @click="toggleSchool(g.organizationId)">
                 <td colspan="7">
                   <div class="group-row-inner">
                     <button class="group-toggle" type="button" @click.stop="toggleSchool(g.organizationId)">
@@ -92,21 +161,28 @@
 
               <tr
                 v-for="r in g.rows"
-                v-show="isSchoolExpanded(g.organizationId)"
+                v-show="groupBySchool ? isSchoolExpanded(g.organizationId) : true"
                 :key="`${r.client_id}-${r.provider_user_id}-${r.organization_id}`"
               >
                 <td>{{ r.organization_name || '—' }}</td>
                 <td>{{ formatClient(r) }}</td>
                 <td>{{ formatProvider(r) }}</td>
-                <td>{{ formatDate(r.pending_added_at) }}</td>
-                <td>{{ formatDate(r.assigned_at) }}</td>
-                <td>{{ formatStage(r.pending_stage) }}</td>
-                <td class="mono">{{ Number(r.tracking_days || 0) }}</td>
+                <td v-if="viewMode === 'pending'">{{ formatDate(r.pending_added_at) }}</td>
+                <td v-if="viewMode === 'pending'">{{ formatDate(r.assigned_at) }}</td>
+                <td v-if="viewMode === 'pending'">{{ formatStage(r.pending_stage) }}</td>
+                <td v-if="viewMode === 'pending'" class="mono">{{ Number(r.tracking_days || 0) }}</td>
+                <td v-if="viewMode === 'roi'">{{ formatDate(r.roi_expires_at_ymd || r.roi_expires_at) }}</td>
+                <td v-if="viewMode === 'roi'" class="mono" :class="roiDaysClass(r.days_until_expiration)">
+                  {{ formatRoiDays(r.days_until_expiration, r.roi_state) }}
+                </td>
+                <td v-if="viewMode === 'roi'">{{ r.guardian_email || '—' }}</td>
               </tr>
             </template>
 
             <tr v-if="schoolGroups.length === 0">
-              <td colspan="7" class="muted">No pending school clients match your filters.</td>
+              <td colspan="7" class="muted">
+                {{ viewMode === 'pending' ? 'No pending school clients match your filters.' : 'No ROI renewals match your filters.' }}
+              </td>
             </tr>
           </tbody>
         </table>
@@ -126,14 +202,22 @@ const authStore = useAuthStore();
 
 const loading = ref(false);
 const error = ref('');
-const rows = ref([]);
+const pendingRows = ref([]);
+const roiRows = ref([]);
 const sortDir = ref('desc');
+const roiSort = ref('soonest');
+const viewMode = ref('pending'); // pending | roi
+const groupBySchool = ref(true);
+const roiDaysWindow = ref(30);
+const roiBulkBusy = ref(false);
+const providerNotifyBusy = ref(false);
 const clientLabelMode = ref('codes'); // 'codes' | 'initials'
 const MIN_PENDING_DATE = '2026-02-01';
 
 const filters = ref({
   search: '',
-  stage: ''
+  stage: '',
+  roiStatus: 'needs_attention'
 });
 
 const normalize = (v) => String(v || '').toLowerCase();
@@ -162,11 +246,18 @@ const activeAgencyId = computed(() => {
 
 const filteredRows = computed(() => {
   const q = normalize(filters.value.search);
-  return (rows.value || []).filter((r) => {
-    if (filters.value.stage && String(r?.pending_stage || '') !== String(filters.value.stage)) return false;
+  const source = viewMode.value === 'pending' ? pendingRows.value : roiRows.value;
+  return (source || []).filter((r) => {
+    if (viewMode.value === 'pending' && filters.value.stage && String(r?.pending_stage || '') !== String(filters.value.stage)) return false;
+    if (viewMode.value === 'roi') {
+      const roiState = String(r?.roi_state || '');
+      if (filters.value.roiStatus === 'expired' && roiState !== 'expired') return false;
+      if (filters.value.roiStatus === 'expiring_soon' && roiState !== 'expiring_soon') return false;
+      if (filters.value.roiStatus === 'needs_attention' && !['expired', 'expiring_soon'].includes(roiState)) return false;
+    }
     if (!q) return true;
     const hay = normalize(
-      `${r?.client_initials || ''} ${r?.client_identifier_code || ''} ${r?.organization_name || ''} ${r?.provider_first_name || ''} ${r?.provider_last_name || ''} ${r?.provider_email || ''}`
+      `${r?.client_initials || ''} ${r?.client_identifier_code || ''} ${r?.organization_name || ''} ${r?.provider_first_name || ''} ${r?.provider_last_name || ''} ${r?.provider_email || ''} ${r?.guardian_email || ''}`
     );
     return hay.includes(q);
   });
@@ -175,15 +266,32 @@ const filteredRows = computed(() => {
 const sortedRows = computed(() => {
   const out = (filteredRows.value || []).slice();
   out.sort((a, b) => {
-    const da = Number(a?.tracking_days || 0);
-    const db = Number(b?.tracking_days || 0);
-    if (da !== db) return sortDir.value === 'asc' ? da - db : db - da;
+    if (viewMode.value === 'pending') {
+      const da = Number(a?.tracking_days || 0);
+      const db = Number(b?.tracking_days || 0);
+      if (da !== db) return sortDir.value === 'asc' ? da - db : db - da;
+    } else {
+      const da = a?.days_until_expiration === null ? -99999 : Number(a?.days_until_expiration || 0);
+      const db = b?.days_until_expiration === null ? -99999 : Number(b?.days_until_expiration || 0);
+      if (da !== db) return roiSort.value === 'latest' ? db - da : da - db;
+    }
     return String(a?.client_initials || '').localeCompare(String(b?.client_initials || ''));
   });
   return out;
 });
 
 const schoolGroups = computed(() => {
+  if (!groupBySchool.value) {
+    const flatRows = sortedRows.value || [];
+    return [{
+      organizationId: 0,
+      organizationName: 'All schools',
+      rows: flatRows,
+      avgDays: flatRows.length
+        ? Math.round((flatRows.reduce((sum, r) => sum + Number(r?.tracking_days || 0), 0) / flatRows.length) * 10) / 10
+        : 0
+    }];
+  }
   const bySchool = new Map();
   for (const r of sortedRows.value || []) {
     const schoolId = Number(r?.organization_id || 0);
@@ -247,6 +355,10 @@ const toggleClientLabelMode = () => {
   }
 };
 
+const toggleGroupBySchool = () => {
+  groupBySchool.value = !groupBySchool.value;
+};
+
 const formatProvider = (row) => {
   const first = String(row?.provider_first_name || '').trim();
   const last = String(row?.provider_last_name || '').trim();
@@ -268,20 +380,98 @@ const formatDate = (v) => {
   }
 };
 
+const formatRoiDays = (days, state) => {
+  if (days === null || days === undefined) return state === 'expired' ? 'Expired' : 'No ROI';
+  const n = Number(days || 0);
+  if (n < 0) return `Expired ${Math.abs(n)}d`;
+  return `${n}d`;
+};
+
+const roiDaysClass = (days) => {
+  if (days === null || days === undefined) return 'roi-expired';
+  const n = Number(days || 0);
+  if (n < 0) return 'roi-expired';
+  if (n <= 30) return 'roi-soon';
+  return '';
+};
+
+const reloadPending = async () => {
+  if (!activeAgencyId.value) return;
+  const resp = await api.get('/compliance-corner/pending-clients', {
+    params: { agencyId: activeAgencyId.value, minPendingEnteredAt: MIN_PENDING_DATE }
+  });
+  pendingRows.value = Array.isArray(resp.data?.results) ? resp.data.results : [];
+};
+
+const reloadRoi = async () => {
+  if (!activeAgencyId.value) return;
+  const resp = await api.get('/compliance-corner/roi-renewals', {
+    params: {
+      agencyId: activeAgencyId.value,
+      daysSoon: roiDaysWindow.value,
+      includeActive: filters.value.roiStatus === 'all'
+    }
+  });
+  roiRows.value = Array.isArray(resp.data?.results) ? resp.data.results : [];
+};
+
 const reload = async () => {
   if (!activeAgencyId.value) return;
   try {
     loading.value = true;
     error.value = '';
-    const resp = await api.get('/compliance-corner/pending-clients', {
-      params: { agencyId: activeAgencyId.value, minPendingEnteredAt: MIN_PENDING_DATE }
-    });
-    rows.value = Array.isArray(resp.data?.results) ? resp.data.results : [];
+    if (viewMode.value === 'pending') {
+      await reloadPending();
+    } else {
+      await reloadRoi();
+    }
   } catch (e) {
-    rows.value = [];
-    error.value = e.response?.data?.error?.message || e.message || 'Failed to load pending school clients';
+    if (viewMode.value === 'pending') pendingRows.value = [];
+    if (viewMode.value === 'roi') roiRows.value = [];
+    error.value = e.response?.data?.error?.message || e.message || 'Failed to load school client data';
   } finally {
     loading.value = false;
+  }
+};
+
+const setViewMode = (nextMode) => {
+  viewMode.value = nextMode === 'roi' ? 'roi' : 'pending';
+  reload();
+};
+
+const sendBulkRoiRenewals = async () => {
+  if (!activeAgencyId.value || filteredRows.value.length === 0) return;
+  const proceed = window.confirm(`Queue ROI renewal emails for ${filteredRows.value.length} clients?`);
+  if (!proceed) return;
+  try {
+    roiBulkBusy.value = true;
+    error.value = '';
+    await api.post('/compliance-corner/roi-renewals/bulk-email', {
+      agencyId: activeAgencyId.value,
+      clientIds: filteredRows.value.map((r) => Number(r.client_id)).filter((id) => id > 0)
+    });
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || e.message || 'Failed to queue ROI renewal emails';
+  } finally {
+    roiBulkBusy.value = false;
+  }
+};
+
+const sendProviderRoiReminder = async () => {
+  if (!activeAgencyId.value || filteredRows.value.length === 0) return;
+  const proceed = window.confirm(`Notify providers for ${filteredRows.value.length} clients?`);
+  if (!proceed) return;
+  try {
+    providerNotifyBusy.value = true;
+    error.value = '';
+    await api.post('/compliance-corner/roi-provider-reminders', {
+      agencyId: activeAgencyId.value,
+      clientIds: filteredRows.value.map((r) => Number(r.client_id)).filter((id) => id > 0)
+    });
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || e.message || 'Failed to notify providers';
+  } finally {
+    providerNotifyBusy.value = false;
   }
 };
 
@@ -332,9 +522,27 @@ onMounted(async () => {
   border-radius: 12px;
   padding: 16px;
 }
+.mode-switch {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+.mode-btn {
+  border: 0;
+  background: var(--bg);
+  padding: 8px 14px;
+  cursor: pointer;
+  font-weight: 700;
+}
+.mode-btn.active {
+  background: var(--primary-light, #eef4ff);
+  color: var(--primary, #1d4ed8);
+}
 .filters {
   display: grid;
-  grid-template-columns: repeat(4, minmax(180px, 1fr));
+  grid-template-columns: repeat(5, minmax(160px, 1fr));
   gap: 12px;
   align-items: end;
   margin-bottom: 14px;
@@ -431,6 +639,12 @@ onMounted(async () => {
 .mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   font-weight: 800;
+}
+.roi-expired {
+  color: #991b1b;
+}
+.roi-soon {
+  color: #92400e;
 }
 .muted {
   color: var(--text-secondary);

@@ -23,9 +23,12 @@ import Agency from '../models/Agency.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import User from '../models/User.model.js';
+import ClientGuardian from '../models/ClientGuardian.model.js';
+import ClientGuardianIntakeProfile from '../models/ClientGuardianIntakeProfile.model.js';
 import HiringJobDescription from '../models/HiringJobDescription.model.js';
 import HiringProfile from '../models/HiringProfile.model.js';
 import config from '../config/config.js';
+import pool from '../config/database.js';
 import { verifyRecaptchaV3 } from '../services/captcha.service.js';
 import ActivityLogService from '../services/activityLog.service.js';
 import PlatformRetentionSettings from '../models/PlatformRetentionSettings.model.js';
@@ -49,6 +52,130 @@ import {
 } from '../services/smartSchoolRoi.service.js';
 
 const normalizeName = (name) => String(name || '').trim();
+const normalizeDateOnly = (value) => {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  const dt = new Date(raw);
+  if (!Number.isFinite(dt.getTime())) return null;
+  return dt.toISOString().slice(0, 10);
+};
+const findDateLikeValue = (obj = {}) => {
+  if (!obj || typeof obj !== 'object') return null;
+  const entries = Object.entries(obj);
+  for (const [key, value] of entries) {
+    if (!value) continue;
+    const k = String(key || '').toLowerCase();
+    if (/(date_?of_?birth|birth_?date|birthdate|^dob$)/.test(k)) {
+      const norm = normalizeDateOnly(value);
+      if (norm) return norm;
+    }
+  }
+  return null;
+};
+const extractGuardianProfileFromPayload = ({ payload = {}, intakeData = {} } = {}) => {
+  const guardianBody = payload?.guardian && typeof payload.guardian === 'object' ? payload.guardian : {};
+  const guardianIntake = intakeData?.guardian && typeof intakeData.guardian === 'object' ? intakeData.guardian : {};
+  const responses = intakeData?.responses && typeof intakeData.responses === 'object' ? intakeData.responses : {};
+  const guardianResponses = responses?.guardian && typeof responses.guardian === 'object' ? responses.guardian : {};
+  const submissionResponses = responses?.submission && typeof responses.submission === 'object' ? responses.submission : {};
+  const firstName = normalizeName(
+    guardianBody?.firstName || guardianIntake?.firstName || guardianResponses?.firstName || submissionResponses?.firstName
+  ) || null;
+  const lastName = normalizeName(
+    guardianBody?.lastName || guardianIntake?.lastName || guardianResponses?.lastName || submissionResponses?.lastName
+  ) || null;
+  const fullName = normalizeName(`${firstName || ''} ${lastName || ''}`) || null;
+  const email = normalizeName(
+    guardianBody?.email || guardianIntake?.email || guardianResponses?.email || submissionResponses?.email
+  ).toLowerCase() || null;
+  const phone = normalizeName(
+    guardianBody?.phone || guardianBody?.phoneNumber || guardianIntake?.phone || guardianResponses?.phone || submissionResponses?.phone
+  ) || null;
+  const relationship = normalizeName(
+    guardianBody?.relationship || guardianIntake?.relationship || guardianResponses?.relationship || submissionResponses?.relationship
+  ) || null;
+  const dateOfBirth = normalizeDateOnly(
+    guardianBody?.dateOfBirth
+    || guardianIntake?.dateOfBirth
+    || guardianBody?.dob
+    || guardianIntake?.dob
+    || findDateLikeValue(guardianResponses)
+    || findDateLikeValue(submissionResponses)
+  );
+  const profile = { firstName, lastName, fullName, email, phone, relationship, dateOfBirth };
+  const hasAny = Object.values(profile).some((v) => String(v || '').trim());
+  return hasAny ? profile : null;
+};
+const persistGuardianProfileForClient = async ({ clientId, payload = {}, intakeData = {}, source = 'public_intake' } = {}) => {
+  const cid = Number(clientId || 0);
+  if (!cid) return;
+  const profile = extractGuardianProfileFromPayload({ payload, intakeData });
+  if (!profile) return;
+  await ClientGuardianIntakeProfile.upsertForClient({
+    clientId: cid,
+    profile,
+    source
+  });
+};
+let hasClientDateOfBirthColumnCache = null;
+const hasClientDateOfBirthColumn = async () => {
+  if (hasClientDateOfBirthColumnCache !== null) return hasClientDateOfBirthColumnCache;
+  try {
+    const [rows] = await pool.execute(
+      "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'clients' AND COLUMN_NAME = 'date_of_birth' LIMIT 1"
+    );
+    hasClientDateOfBirthColumnCache = (rows || []).length > 0;
+  } catch {
+    hasClientDateOfBirthColumnCache = false;
+  }
+  return hasClientDateOfBirthColumnCache;
+};
+const persistClientDateOfBirthIfMissing = async ({ clientId, dateOfBirth }) => {
+  const cid = Number(clientId || 0);
+  const dob = normalizeDateOnly(dateOfBirth);
+  if (!cid || !dob) return;
+  if (!await hasClientDateOfBirthColumn()) return;
+  await pool.execute(
+    `UPDATE clients
+     SET date_of_birth = ?
+     WHERE id = ?
+       AND (date_of_birth IS NULL OR date_of_birth = '')`,
+    [dob, cid]
+  );
+};
+const ensureGuardianAccountLinkedForClient = async ({ clientId, profile = {} }) => {
+  const cid = Number(clientId || 0);
+  if (!cid) return null;
+  const email = String(profile?.email || '').trim().toLowerCase();
+  if (!email || !email.includes('@')) return null;
+  let guardianUser = await User.findByEmail(email);
+  if (guardianUser && String(guardianUser.role || '').toLowerCase() !== 'client_guardian') {
+    return null;
+  }
+  if (!guardianUser) {
+    guardianUser = await User.create({
+      email,
+      passwordHash: null,
+      firstName: String(profile?.firstName || 'Guardian').trim() || 'Guardian',
+      lastName: String(profile?.lastName || '').trim(),
+      phoneNumber: String(profile?.phone || '').trim() || null,
+      personalEmail: email,
+      role: 'client_guardian',
+      status: 'PENDING_SETUP'
+    });
+  }
+  await ClientGuardian.upsertLink({
+    clientId: cid,
+    guardianUserId: Number(guardianUser.id),
+    relationshipType: 'guardian',
+    relationshipTitle: String(profile?.relationship || 'Guardian').trim() || 'Guardian',
+    accessEnabled: false,
+    permissionsJson: { intakeLinkGuardianProfile: true },
+    createdByUserId: null
+  });
+  return guardianUser;
+};
 const BASE_CONSENT_TTL_MS = 60 * 60 * 1000; // 1 hour to complete once started
 const PER_PAGE_TTL_MS = 5 * 60 * 1000;
 
@@ -1460,16 +1587,6 @@ const resolveSmartSchoolRoiTemplate = async ({ roiContext, templates }) => {
       || schoolRoiTemplates[0]
       || null;
   }
-  if (!selectedTemplate) {
-    const anyTemplateResult = await DocumentTemplate.findAll({
-      isActive: true,
-      includeArchived: false,
-      limit: 200,
-      offset: 0
-    });
-    const anyTemplates = Array.isArray(anyTemplateResult?.data) ? anyTemplateResult.data : [];
-    selectedTemplate = anyTemplates[0] || null;
-  }
   return selectedTemplate || null;
 };
 
@@ -2326,6 +2443,17 @@ export const finalizePublicIntake = async (req, res, next) => {
           }
         });
       }
+      try {
+        await persistClientDateOfBirthIfMissing({
+          clientId: boundClient.id,
+          dateOfBirth: roiResponse.clientDateOfBirth
+        });
+      } catch (dobErr) {
+        console.error('[publicIntake] client DOB persist failed (smart roi)', {
+          clientId: boundClient.id,
+          message: dobErr?.message
+        });
+      }
 
       const signer = buildSignerFromSubmission(updatedSubmission);
       const workflowData = buildWorkflowData({ submission: { ...updatedSubmission, submitted_at: now } });
@@ -2346,10 +2474,21 @@ export const finalizePublicIntake = async (req, res, next) => {
             response: roiResponse,
             signedAt: now
           }),
-          document_action_type: 'signature'
+          document_action_type: 'signature',
+          signature_x: null,
+          signature_y: null,
+          signature_width: null,
+          signature_height: null,
+          signature_page: null
         },
         signatureData,
         signer,
+        branding: {
+          schoolName: effectiveRoiContext?.school?.name || '',
+          agencyName: effectiveRoiContext?.agency?.name || '',
+          schoolLogoKey: effectiveRoiContext?.school?.logoUrl || '',
+          agencyLogoKey: effectiveRoiContext?.agency?.logoUrl || ''
+        },
         auditTrail: {
           ...auditTrail,
           smartSchoolRoi: true,
@@ -2483,6 +2622,29 @@ export const finalizePublicIntake = async (req, res, next) => {
         clientLabel: boundClient.full_name || boundClient.initials || boundClient.identifier_code || `Client ${boundClient.id}`,
         schoolLabel: roiContext?.school?.name || boundClient.organization_name || organization?.name || 'school'
       });
+      try {
+        await persistGuardianProfileForClient({
+          clientId: boundClient.id,
+          payload: req.body || {},
+          intakeData,
+          source: 'smart_school_roi'
+        });
+        const guardianProfile = extractGuardianProfileFromPayload({
+          payload: req.body || {},
+          intakeData
+        });
+        if (guardianProfile?.email) {
+          await ensureGuardianAccountLinkedForClient({
+            clientId: boundClient.id,
+            profile: guardianProfile
+          });
+        }
+      } catch (persistErr) {
+        console.error('[publicIntake] guardian profile persist failed (smart roi)', {
+          clientId: boundClient.id,
+          message: persistErr?.message
+        });
+      }
 
       const downloadUrl = await StorageService.getSignedUrl(signedResult.storagePath, 60 * 24 * 14);
       if (updatedSubmission.signer_email && downloadUrl) {
@@ -2646,6 +2808,16 @@ export const finalizePublicIntake = async (req, res, next) => {
             });
             const roiValidation = validateSmartSchoolRoiResponse(roiResponse);
             if (roiValidation.valid) {
+              if (boundClient?.id) {
+                try {
+                  await persistClientDateOfBirthIfMissing({
+                    clientId: boundClient.id,
+                    dateOfBirth: roiResponse.clientDateOfBirth
+                  });
+                } catch {
+                  // best-effort
+                }
+              }
               const roiAuditTrail = {
                 ...buildAuditTrail({
                   link,
@@ -2669,10 +2841,21 @@ export const finalizePublicIntake = async (req, res, next) => {
                     response: roiResponse,
                     signedAt: now
                   }),
-                  document_action_type: 'signature'
+                  document_action_type: 'signature',
+                  signature_x: null,
+                  signature_y: null,
+                  signature_width: null,
+                  signature_height: null,
+                  signature_page: null
                 },
                 signatureData: embeddedSignatureData,
                 signer,
+                branding: {
+                  schoolName: effectiveRoiContext?.school?.name || '',
+                  agencyName: effectiveRoiContext?.agency?.name || '',
+                  schoolLogoKey: effectiveRoiContext?.school?.logoUrl || '',
+                  agencyLogoKey: effectiveRoiContext?.agency?.logoUrl || ''
+                },
                 auditTrail: roiAuditTrail,
                 workflowData,
                 submissionId,
@@ -2755,6 +2938,16 @@ export const finalizePublicIntake = async (req, res, next) => {
             });
             const roiValidation = validateSmartSchoolRoiResponse(roiResponse);
             if (roiValidation.valid) {
+              if (boundClient?.id) {
+                try {
+                  await persistClientDateOfBirthIfMissing({
+                    clientId: boundClient.id,
+                    dateOfBirth: roiResponse.clientDateOfBirth
+                  });
+                } catch {
+                  // best-effort
+                }
+              }
               const roiAuditTrail = {
                 ...buildAuditTrail({
                   link,
@@ -2778,10 +2971,21 @@ export const finalizePublicIntake = async (req, res, next) => {
                     response: roiResponse,
                     signedAt: now
                   }),
-                  document_action_type: 'signature'
+                  document_action_type: 'signature',
+                  signature_x: null,
+                  signature_y: null,
+                  signature_width: null,
+                  signature_height: null,
+                  signature_page: null
                 },
                 signatureData: embeddedSignatureData,
                 signer,
+                branding: {
+                  schoolName: effectiveRoiContext?.school?.name || '',
+                  agencyName: effectiveRoiContext?.agency?.name || '',
+                  schoolLogoKey: effectiveRoiContext?.school?.logoUrl || '',
+                  agencyLogoKey: effectiveRoiContext?.agency?.logoUrl || ''
+                },
                 auditTrail: roiAuditTrail,
                 workflowData,
                 submissionId,
@@ -3235,6 +3439,39 @@ export const finalizePublicIntake = async (req, res, next) => {
         emailDelivery.attempted = true;
         emailDelivery.sent = false;
         emailDelivery.error = 'email_not_configured';
+      }
+    }
+
+    // Persist latest guardian contact details from public intake for ROI resend defaults.
+    const persistClientIds = new Set();
+    if (Number(updatedSubmission?.client_id || 0)) persistClientIds.add(Number(updatedSubmission.client_id));
+    for (const c of createdClients || []) {
+      const cid = Number(c?.id || 0);
+      if (cid) persistClientIds.add(cid);
+    }
+    for (const clientId of persistClientIds) {
+      try {
+        const guardianProfile = extractGuardianProfileFromPayload({
+          payload: req.body || {},
+          intakeData
+        });
+        await persistGuardianProfileForClient({
+          clientId,
+          payload: req.body || {},
+          intakeData,
+          source: 'public_intake'
+        });
+        if (guardianProfile?.email) {
+          await ensureGuardianAccountLinkedForClient({
+            clientId,
+            profile: guardianProfile
+          });
+        }
+      } catch (persistErr) {
+        console.error('[publicIntake] guardian profile persist failed', {
+          clientId,
+          message: persistErr?.message
+        });
       }
     }
 

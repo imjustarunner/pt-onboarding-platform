@@ -58,9 +58,10 @@ const WAIVER_ITEMS = [
     body: 'I authorize ITSCO and any assigned providers and staff to communicate with approved school staff for school-based care coordination and support of the client’s identified needs.'
   },
   {
-    id: 'safety_concerns',
-    title: 'Safety concerns',
-    body: 'I authorize disclosure of safety concerns, harm evaluations, or ideation information when the therapist determines it is clinically necessary for safety.'
+    id: 'hipaa_serious_imminent_threat_disclosure',
+    title: 'Required HIPAA safety-threat disclosure standard',
+    body: 'I understand and acknowledge this is not optional: when ITSCO has a good-faith belief that disclosure is necessary to prevent or lessen a serious and imminent threat to the health or safety of the client or others, ITSCO may disclose relevant PHI (including psychotherapy notes when permitted) to persons reasonably able to prevent or lessen the threat, such as school administrators, school safety personnel, law enforcement, a parent/legal guardian, family members, or another potential target. This is made consistent with applicable law and ethical standards, including 45 CFR 164.512(j)(1)(i) and 45 CFR 164.512(j)(4).',
+    requiredAccept: true
   },
   {
     id: 'services_on_school_property',
@@ -78,11 +79,6 @@ const WAIVER_ITEMS = [
     id: 'treatment_goals',
     title: 'Treatment goals and plans',
     body: 'I authorize brief discussion of treatment goals/objectives only as needed for care coordination with approved school staff; no session-content details are released outside this care purpose.'
-  },
-  {
-    id: 'session_content_limitation',
-    title: 'Session content limitation',
-    body: 'I authorize release of session-content details only when clinically necessary for safety because of imminent risk to the clinician, client, or others.'
   },
   {
     id: 'documentation_logging',
@@ -129,6 +125,22 @@ function formatDateTime(value) {
   const date = value instanceof Date ? value : new Date(String(value));
   if (Number.isNaN(date.getTime())) return '—';
   return date.toISOString();
+}
+
+function resolveAbsoluteAssetUrl(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  if (/^https?:\/\//i.test(raw)) return raw;
+  const base = String(
+    process.env.BACKEND_PUBLIC_URL
+    || process.env.FRONTEND_URL
+    || process.env.CORS_ORIGIN
+    || ''
+  ).replace(/\/$/, '');
+  if (!base) return '';
+  if (raw.startsWith('/')) return `${base}${raw}`;
+  if (raw.startsWith('uploads/')) return `${base}/${raw}`;
+  return `${base}/uploads/${raw}`;
 }
 
 function resolveClientFullName(client = {}) {
@@ -305,13 +317,20 @@ export async function buildSmartSchoolRoiContext({
     school: {
       id: schoolOrganizationId,
       name: String(organization?.name || boundClient?.organization_name || '').trim() || null,
+      logoUrl: resolveAbsoluteAssetUrl(
+        organization?.school_profile?.logo_path
+        || organization?.logo_path
+        || organization?.logo_url
+        || ''
+      ) || null,
       address: buildSchoolAddress(organization),
       contact: buildSchoolContact(organization),
       relationshipToParty: 'student'
     },
     agency: {
       id: Number(agency?.id || 0) || null,
-      name: String(agency?.name || '').trim() || null
+      name: String(agency?.name || '').trim() || null,
+      logoUrl: resolveAbsoluteAssetUrl(agency?.logo_path || agency?.logo_url || '') || null
     },
     authorizedRepresentative: { ...AUTHORIZED_REPRESENTATIVE },
     purposes: PURPOSES,
@@ -353,6 +372,10 @@ export function normalizeSmartSchoolRoiResponse({ roiContext = {}, intakeData = 
   const staffDecisions = normalizeStaffDecisions(roiContext?.staffRoster || [], roi);
   const schoolSchedulingSafetyLogisticsAuthorized =
     waiverItems.find((item) => item.id === 'school_scheduling_safety_logistics')?.decision === 'accept';
+  const hipaaSafetyThreatDisclosureAcknowledged =
+    waiverItems.find((item) => item.id === 'hipaa_serious_imminent_threat_disclosure')?.decision === 'accept'
+    || waiverItems.find((item) => item.id === 'safety_concerns')?.decision === 'accept'
+    || waiverItems.find((item) => item.id === 'session_content_limitation')?.decision === 'accept';
   const approvedStaffCount = staffDecisions.filter((staff) => staff.allowed).length;
   const deniedStaffCount = staffDecisions.filter((staff) => staff.allowed === false).length;
   const externalReleaseMode = normalizeExternalReleaseMode(
@@ -402,6 +425,7 @@ export function normalizeSmartSchoolRoiResponse({ roiContext = {}, intakeData = 
     waiverItems,
     staffDecisions,
     schoolSchedulingSafetyLogisticsAuthorized,
+    hipaaSafetyThreatDisclosureAcknowledged,
     approvedStaffCount,
     deniedStaffCount,
     externalReleaseMode,
@@ -504,18 +528,21 @@ export async function applySmartSchoolRoiAccessDecisions({
 }
 
 export function buildSmartSchoolRoiHtml({ roiContext = {}, response = {}, signedAt = new Date() }) {
+  const safetyThreatDisclosureText = response.hipaaSafetyThreatDisclosureAcknowledged
+    ? 'Acknowledged (required)'
+    : 'Not acknowledged';
   const approvedStaff = (response.staffDecisions || []).filter((staff) => staff.allowed);
   const deniedStaff = (response.staffDecisions || []).filter((staff) => !staff.allowed);
-  const packetReleaseText = response.packetReleaseAllowed
-    ? 'Approved for packet/document visibility for all approved staff.'
-    : 'Not approved for packet/document visibility. Approved staff receive ROI access only.';
-  const schoolSchedulingSafetyText = response.schoolSchedulingSafetyLogisticsAuthorized
-    ? 'Authorized. Limited school-level scheduling/logistics visibility is permitted for operations and student safety.'
-    : 'Not authorized.';
-  const externalMode = normalizeExternalReleaseMode(response.externalReleaseMode);
-  const externalModeText = externalMode === 'sender_programmed'
-    ? 'Sender-programmed single external release recipient.'
-    : (externalMode === 'parent_defined' ? 'Parent-entered external release recipients.' : 'No external non-school recipient flow used.');
+  const approvedStaffNames = approvedStaff.map((s) => s.fullName).filter(Boolean);
+  const approvedPreview = approvedStaffNames.slice(0, 12);
+  const approvedOverflow = Math.max(0, approvedStaffNames.length - approvedPreview.length);
+  const approvedStaffText = approvedPreview.length
+    ? `${approvedPreview.join(', ')}${approvedOverflow > 0 ? ` (+${approvedOverflow} more)` : ''}`
+    : 'No individual staff approved';
+  const externalApproved = (response.externalRecipients || []).filter((r) => r?.allowed === true);
+  const externalApprovedText = externalApproved.length
+    ? externalApproved.map((r) => `${r.name || 'Recipient'} (${r.relationship || 'relationship not set'})`).slice(0, 6).join(', ')
+    : 'None';
 
   return `<!DOCTYPE html>
 <html>
@@ -523,170 +550,77 @@ export function buildSmartSchoolRoiHtml({ roiContext = {}, response = {}, signed
     <meta charset="utf-8" />
     <title>${escapeHtml(roiContext?.documentTemplate?.name || 'School Release of Information')}</title>
     <style>
-      body { font-family: Arial, sans-serif; color: #111827; margin: 40px; line-height: 1.5; }
-      h1, h2, h3 { color: #0f172a; margin-bottom: 8px; }
-      h1 { font-size: 24px; }
-      h2 { font-size: 18px; margin-top: 28px; border-bottom: 1px solid #d1d5db; padding-bottom: 4px; }
-      p { margin: 8px 0; }
-      ul { margin: 10px 0 10px 20px; }
-      li { margin: 6px 0; }
-      table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-      th, td { border: 1px solid #d1d5db; padding: 8px; text-align: left; vertical-align: top; }
-      .muted { color: #4b5563; }
-      .section-note { background: #f8fafc; border: 1px solid #e5e7eb; padding: 12px; border-radius: 6px; }
+      @page { size: Letter; margin: 0.45in; }
+      body { font-family: Arial, sans-serif; color: #111827; margin: 0; line-height: 1.25; font-size: 10.5px; }
+      .wrap { border: 1px solid #d1d5db; border-radius: 10px; padding: 12px; page-break-inside: avoid; }
+      .header { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 8px; }
+      .logo { max-height: 44px; max-width: 140px; object-fit: contain; }
+      h1 { margin: 0; font-size: 15px; color: #0f172a; }
+      .muted { color: #4b5563; font-size: 9.5px; }
+      .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; margin-top: 8px; }
+      .k { font-weight: 700; color: #1f2937; }
+      .section { margin-top: 8px; padding-top: 6px; border-top: 1px solid #e5e7eb; }
+      .section h2 { margin: 0 0 4px; font-size: 11px; color: #0f172a; }
+      p { margin: 2px 0; }
+      ul { margin: 3px 0 0 14px; padding: 0; }
+      li { margin: 1px 0; }
+      .sig { margin-top: 10px; display: grid; grid-template-columns: 1fr 150px; gap: 12px; align-items: end; }
+      .line { border-top: 1px solid #111827; height: 1px; margin-top: 15px; }
+      .nowrap { white-space: nowrap; }
     </style>
   </head>
   <body>
-    <h1>${escapeHtml(roiContext?.documentTemplate?.name || 'School Release of Information')}</h1>
-    <p class="muted">Generated ${escapeHtml(formatDate(signedAt))}</p>
+    <div class="wrap">
+      <div class="header">
+        <div>
+          <h1>${escapeHtml(roiContext?.documentTemplate?.name || 'School Release of Information')}</h1>
+          <div class="muted">Signed ${escapeHtml(formatDate(signedAt))} · 36-month authorization window</div>
+        </div>
+        <div style="display:flex; gap:8px; align-items:center;">
+          ${roiContext?.school?.logoUrl ? `<img class="logo" src="${escapeHtml(roiContext.school.logoUrl)}" alt="School logo" />` : ''}
+          ${roiContext?.agency?.logoUrl ? `<img class="logo" src="${escapeHtml(roiContext.agency.logoUrl)}" alt="Agency logo" />` : ''}
+        </div>
+      </div>
 
-    <div class="section-note">
-      <p><strong>Client:</strong> ${escapeHtml(response.clientFullName || '—')}</p>
-      <p><strong>Date of Birth:</strong> ${escapeHtml(response.clientDateOfBirth || '—')}</p>
-      <p><strong>Responsible Party:</strong> ${escapeHtml(response.signer?.fullName || '—')}</p>
-      <p><strong>Relationship:</strong> ${escapeHtml(response.signer?.relationship || '—')}</p>
-      <p><strong>School:</strong> ${escapeHtml(roiContext?.school?.name || '—')}</p>
-      <p><strong>School Address:</strong> ${escapeHtml(roiContext?.school?.address || '—')}</p>
-      <p><strong>Relationship to party:</strong> ${escapeHtml(roiContext?.school?.relationshipToParty || 'student')}</p>
-      <p><strong>School Contact:</strong>
-        ${escapeHtml(roiContext?.school?.contact?.name || '—')}
-        ${roiContext?.school?.contact?.email ? ` · ${escapeHtml(roiContext.school.contact.email)}` : ''}
-        ${roiContext?.school?.contact?.phone ? ` · ${escapeHtml(roiContext.school.contact.phone)}` : ''}
-      </p>
+      <div class="grid">
+        <p><span class="k">Client:</span> ${escapeHtml(response.clientFullName || '—')}</p>
+        <p><span class="k">Date of Birth:</span> ${escapeHtml(response.clientDateOfBirth || '—')}</p>
+        <p><span class="k">Responsible Party:</span> ${escapeHtml(response.signer?.fullName || '—')}</p>
+        <p><span class="k">Relationship:</span> ${escapeHtml(response.signer?.relationship || '—')}</p>
+        <p><span class="k">School:</span> ${escapeHtml(roiContext?.school?.name || '—')}</p>
+        <p><span class="k">School Contact:</span> ${escapeHtml([roiContext?.school?.contact?.name, roiContext?.school?.contact?.email, roiContext?.school?.contact?.phone].filter(Boolean).join(' · ') || '—')}</p>
+      </div>
+
+      <div class="section">
+        <h2>Release Scope</h2>
+        <p><span class="k">Approved school staff:</span> ${escapeHtml(approvedStaffText)}</p>
+        <p><span class="k">Denied school staff:</span> ${escapeHtml(String(deniedStaff.length))}</p>
+        <p><span class="k">Packet/document visibility:</span> ${response.packetReleaseAllowed ? 'Approved' : 'ROI only'}</p>
+        <p><span class="k">HIPAA serious/imminent threat disclosure:</span> ${escapeHtml(safetyThreatDisclosureText)}</p>
+        <p><span class="k">External recipients approved:</span> ${escapeHtml(externalApprovedText)}</p>
+      </div>
+
+      <div class="section">
+        <h2>Required Notices</h2>
+        <ul>
+          <li>Authorization may be revoked at any time through ${escapeHtml(AUTHORIZED_REPRESENTATIVE.supportEmail)} or ${escapeHtml(AUTHORIZED_REPRESENTATIVE.supportPhone)}.</li>
+          <li>Actions already taken before revocation cannot be reversed.</li>
+          <li>Information disclosed may be subject to redisclosure by the recipient.</li>
+          <li>Session content is shared only when clinically necessary for safety/imminent risk.</li>
+        </ul>
+      </div>
+
+      <div class="section sig">
+        <div>
+          <div class="line"></div>
+          <div class="muted">Signature</div>
+        </div>
+        <div>
+          <div class="line"></div>
+          <div class="muted nowrap">Date</div>
+        </div>
+      </div>
     </div>
-
-    <h2>Authorization</h2>
-    <p>I authorize ${escapeHtml(AUTHORIZED_REPRESENTATIVE.organizationName)} to speak with the approved third-party school staff listed in this release.</p>
-
-    <h2>Purpose of Release</h2>
-    <ul>
-      ${(roiContext?.purposes || PURPOSES).map((item) => `<li>${escapeHtml(item)}</li>`).join('')}
-    </ul>
-
-    <h2>Guidelines</h2>
-    <ul>
-      ${(roiContext?.guidelines || GUIDELINES).map((item) => `<li>${escapeHtml(item)}</li>`).join('')}
-    </ul>
-
-    <h2>Required Acknowledgements</h2>
-    <table>
-      <thead>
-        <tr>
-          <th>Acknowledgement</th>
-          <th>Accepted</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${(response.requiredAcknowledgements || []).map((item) => `
-          <tr>
-            <td><strong>${escapeHtml(item.title)}</strong><br />${escapeHtml(item.body)}</td>
-            <td>${item.accepted ? 'Accepted' : 'Declined'}</td>
-          </tr>
-        `).join('')}
-      </tbody>
-    </table>
-
-    <h2>Waiver Decisions</h2>
-    <table>
-      <thead>
-        <tr>
-          <th>Topic</th>
-          <th>Decision</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${(response.waiverItems || []).map((item) => `
-          <tr>
-            <td><strong>${escapeHtml(item.title)}</strong><br />${escapeHtml(item.body)}</td>
-            <td>${escapeHtml(item.decision)}</td>
-          </tr>
-        `).join('')}
-      </tbody>
-    </table>
-
-    <h2>Packet and Document Release</h2>
-    <p>${escapeHtml(packetReleaseText)}</p>
-
-    <h2>School-Level vs Individual Disclosure</h2>
-    <p><strong>School-level scheduling/safety logistics:</strong> ${escapeHtml(schoolSchedulingSafetyText)}</p>
-    <p><strong>Individual staff disclosure:</strong> Only staff explicitly approved in this ROI may receive individual ROI-based disclosure access. Staff not approved receive no individual ROI or packet access.</p>
-    <p><strong>External non-school release mode:</strong> ${escapeHtml(externalModeText)}</p>
-
-    ${(response.externalRecipients || []).length ? `
-    <h2>External Non-School Recipients</h2>
-    <table>
-      <thead>
-        <tr>
-          <th>Name</th>
-          <th>Relationship</th>
-          <th>Phone</th>
-          <th>Email</th>
-          <th>Decision</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${(response.externalRecipients || []).map((row) => `
-          <tr>
-            <td>${escapeHtml(row?.name || '—')}</td>
-            <td>${escapeHtml(row?.relationship || '—')}</td>
-            <td>${escapeHtml(row?.phone || '—')}</td>
-            <td>${escapeHtml(row?.email || '—')}</td>
-            <td>${row?.allowed === true ? 'Approved' : (row?.allowed === false ? 'Denied' : '—')}</td>
-          </tr>
-        `).join('')}
-      </tbody>
-    </table>
-    ` : ''}
-
-    <h2>Term, Revocation, and Required Notices</h2>
-    <ul>
-      <li>This authorization is valid for 12 months from the signature date unless revoked earlier.</li>
-      <li>Revocation may be requested at any time by contacting support@itsco.health or 833-444-8726 extension 0.</li>
-      <li>Any actions already taken before revocation cannot be undone.</li>
-      <li>Information disclosed may be subject to redistribution by the receiving party and may no longer be protected in the same way.</li>
-      <li>Session content is not shared unless clinically necessary for safety concerns involving imminent risk.</li>
-    </ul>
-
-    <h2>Approved School Staff</h2>
-    <table>
-      <thead>
-        <tr>
-          <th>Name</th>
-          <th>Role</th>
-          <th>Phone</th>
-          <th>Email</th>
-          <th>Decision</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${(response.staffDecisions || []).map((staff) => `
-          <tr>
-            <td>${escapeHtml(staff.fullName || '—')}</td>
-            <td>${escapeHtml(staff.role || 'School staff')}</td>
-            <td>${escapeHtml(staff.phone || '—')}</td>
-            <td>${escapeHtml(staff.email || '—')}</td>
-            <td>${staff.allowed ? 'Approved' : 'Denied'}</td>
-          </tr>
-        `).join('')}
-      </tbody>
-    </table>
-
-    <h2>Termination of Consent</h2>
-    <p>This authorization is valid for 12 months from the date it is signed unless revoked earlier.</p>
-
-    <h2>Additional Notice</h2>
-    <p>Information shared by ${escapeHtml(AUTHORIZED_REPRESENTATIVE.organizationName)} may be subject to redistribution by the person or entity receiving it and may no longer be protected. The receiving parties listed in this document are expected to protect confidentiality under applicable law.</p>
-    <p>To revoke this authorization, contact ${escapeHtml(AUTHORIZED_REPRESENTATIVE.supportEmail)} or ${escapeHtml(AUTHORIZED_REPRESENTATIVE.supportPhone)}.</p>
-
-    <h2>Authorized Representative</h2>
-    <p>This document was generated by ${escapeHtml(AUTHORIZED_REPRESENTATIVE.name)} on behalf of ${escapeHtml(AUTHORIZED_REPRESENTATIVE.organizationName)}.</p>
-    <p>Email: ${escapeHtml(AUTHORIZED_REPRESENTATIVE.email)}</p>
-    <p>Address: ${escapeHtml(AUTHORIZED_REPRESENTATIVE.mailingAddress)}</p>
-
-    <h2>Summary</h2>
-    <p><strong>Approved staff count:</strong> ${approvedStaff.length}</p>
-    <p><strong>Denied staff count:</strong> ${deniedStaff.length}</p>
-    <p><strong>School-level scheduling/safety logistics authorization:</strong> ${response.schoolSchedulingSafetyLogisticsAuthorized ? 'Authorized' : 'Not authorized'}</p>
   </body>
 </html>`;
 }

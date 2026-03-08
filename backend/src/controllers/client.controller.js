@@ -2,6 +2,7 @@ import Client from '../models/Client.model.js';
 import ClientStatusHistory from '../models/ClientStatusHistory.model.js';
 import ClientNotes from '../models/ClientNotes.model.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
+import ClientGuardianIntakeProfile from '../models/ClientGuardianIntakeProfile.model.js';
 import ClientSchoolStaffRoiAccess from '../models/ClientSchoolStaffRoiAccess.model.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
@@ -331,7 +332,14 @@ export const getClientById = async (req, res, next) => {
 
     // Permission check: Verify user has access to this client
     // Super admin: Full access
+    const roleNorm = String(userRole || '').toLowerCase();
     if (userRole === 'super_admin') {
+      try {
+        const guardianIntake = await ClientGuardianIntakeProfile.findByClientId(client.id);
+        if (guardianIntake) client.guardian_intake_profile = guardianIntake;
+      } catch {
+        // best-effort
+      }
       logClientAccess(req, client.id, 'view_client').catch(() => {});
       return res.json(client);
     }
@@ -418,6 +426,14 @@ export const getClientById = async (req, res, next) => {
       // ignore
     }
 
+    if (roleNorm !== 'school_staff') {
+      try {
+        const guardianIntake = await ClientGuardianIntakeProfile.findByClientId(client.id);
+        if (guardianIntake) client.guardian_intake_profile = guardianIntake;
+      } catch {
+        // best-effort
+      }
+    }
     logClientAccess(req, client.id, 'view_client').catch(() => {});
     res.json(client);
   } catch (error) {
@@ -1614,7 +1630,8 @@ export const terminateClient = async (req, res, next) => {
       client_status_id: terminatedStatusId,
       termination_reason: terminationReason,
       terminated_at: new Date(),
-      terminated_by_user_id: userId
+      terminated_by_user_id: userId,
+      roi_expires_at: null
     }, userId);
 
     await ClientStatusHistory.create({
@@ -2132,7 +2149,12 @@ export const updateClient = async (req, res, next) => {
                 );
               }
               await conn.execute(
-                `UPDATE clients SET provider_id = NULL, service_day = NULL, updated_by_user_id = ? WHERE id = ?`,
+                `UPDATE clients
+                 SET provider_id = NULL,
+                     service_day = NULL,
+                     roi_expires_at = NULL,
+                     updated_by_user_id = ?
+                 WHERE id = ?`,
                 [userId, parseInt(id, 10)]
               );
               await conn.commit();

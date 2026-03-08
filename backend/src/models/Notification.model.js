@@ -106,7 +106,8 @@ class Notification {
     'client_school_roi_link_generated',
     'client_school_roi_link_copied',
     'client_school_roi_link_sent',
-    'client_school_roi_completed'
+    'client_school_roi_completed',
+    'client_school_roi_provider_reminder'
   ];
 
   static async create(notificationData) {

@@ -470,36 +470,42 @@ export const updateClientSchoolRoiExpiration = async (req, res, next) => {
     const access = await requireManagedClient(req, clientId);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
 
-    const roiExpiresAtRaw = String(req.body?.roi_expires_at || '').trim();
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(roiExpiresAtRaw)) {
-      return res.status(400).json({ error: { message: 'roi_expires_at must be YYYY-MM-DD' } });
-    }
-    const parsed = new Date(`${roiExpiresAtRaw}T00:00:00`);
-    if (Number.isNaN(parsed.getTime())) {
-      return res.status(400).json({ error: { message: 'Invalid ROI expiration date' } });
+    const roiExpiresAtRaw = req.body?.roi_expires_at === null
+      ? ''
+      : String(req.body?.roi_expires_at || '').trim();
+    let roiExpiresAtValue = null;
+    if (roiExpiresAtRaw) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(roiExpiresAtRaw)) {
+        return res.status(400).json({ error: { message: 'roi_expires_at must be YYYY-MM-DD (or null to revoke/clear)' } });
+      }
+      const parsed = new Date(`${roiExpiresAtRaw}T00:00:00`);
+      if (Number.isNaN(parsed.getTime())) {
+        return res.status(400).json({ error: { message: 'Invalid ROI expiration date' } });
+      }
+      roiExpiresAtValue = roiExpiresAtRaw;
     }
 
     const updatedClient = await Client.update(
       clientId,
-      { roi_expires_at: roiExpiresAtRaw },
+      { roi_expires_at: roiExpiresAtValue },
       req.user?.id || null
     );
 
     await logAuditEvent(req, {
-      actionType: 'client_school_roi_expiration_updated',
+      actionType: roiExpiresAtValue ? 'client_school_roi_expiration_updated' : 'client_school_roi_revoked',
       agencyId: access.client?.agency_id || null,
       metadata: {
         clientId,
         schoolOrganizationId: access.client?.organization_id || null,
-        roiExpiresAt: roiExpiresAtRaw
+        roiExpiresAt: roiExpiresAtValue
       }
     });
 
     res.json({
       ok: true,
       client: updatedClient,
-      roi_expires_at: updatedClient?.roi_expires_at || roiExpiresAtRaw,
-      roi_expired: isRoiExpired(updatedClient?.roi_expires_at || roiExpiresAtRaw)
+      roi_expires_at: updatedClient?.roi_expires_at || roiExpiresAtValue || null,
+      roi_expired: isRoiExpired(updatedClient?.roi_expires_at || roiExpiresAtValue || null)
     });
   } catch (error) {
     next(error);

@@ -327,7 +327,7 @@
       <h3>Term and revocation</h3>
       <div class="info-panel">
         <ul>
-          <li>This authorization is valid for 12 months from the date signed unless revoked earlier.</li>
+          <li>This authorization is valid for 36 months from the date signed unless revoked earlier.</li>
           <li>Consent may be revoked at any time through support@itsco.health or 833-444-8726 extension 0.</li>
           <li>Actions already taken before revocation cannot be undone.</li>
           <li>Information disclosed may be redistributed by the receiving party and may no longer be protected in the same way.</li>
@@ -374,8 +374,8 @@
       <div class="review-block">
         <h4>School-level vs individual disclosure</h4>
         <p>
-          <strong>School-level scheduling/safety logistics:</strong>
-          {{ schoolSchedulingSafetyAuthorized ? 'Authorized' : 'Not authorized' }}
+          <strong>HIPAA serious/imminent threat disclosure:</strong>
+          {{ hipaaSafetyDisclosureAcknowledged ? 'Acknowledged (required)' : 'Not acknowledged' }}
         </p>
         <p>
           <strong>Individual staff release:</strong>
@@ -477,6 +477,9 @@ const signatureData = ref('');
 const downloadUrl = ref('');
 const submitting = ref(false);
 const error = ref('');
+const roiDraftStorageVersion = 1;
+const roiDraftTtlMs = 2 * 60 * 60 * 1000;
+let draftPersistTimer = null;
 
 const formatClientFullName = (firstName, lastName) =>
   `${String(firstName || '').trim()} ${String(lastName || '').trim()}`.trim();
@@ -588,8 +591,9 @@ const approvedStaff = computed(() =>
 const deniedStaffCount = computed(() =>
   staffRoster.value.filter((staff) => form.staffDecisions[staff.schoolStaffUserId] === false).length
 );
-const schoolSchedulingSafetyAuthorized = computed(() =>
-  form.waiverItems.school_scheduling_safety_logistics === 'accept'
+const hipaaSafetyDisclosureAcknowledged = computed(() =>
+  form.waiverItems.hipaa_serious_imminent_threat_disclosure === 'accept'
+  || form.waiverItems.school_scheduling_safety_logistics === 'accept'
 );
 const approvedExternalRecipients = computed(() =>
   (form.parentExternalRecipients || []).filter((row) => row.allowed === true)
@@ -598,6 +602,10 @@ const deniedExternalRecipientsCount = computed(() =>
   (form.parentExternalRecipients || []).filter((row) => row.allowed === false).length
 );
 const isEmbeddedMode = computed(() => String(props.mode || '').toLowerCase() === 'embedded');
+const draftStorageKey = computed(() => {
+  const session = String(props.sessionToken || '').trim() || 'no_session';
+  return `smart_school_roi_draft_${String(props.publicKey || '').trim()}_${session}`;
+});
 const isSubjectChoiceLocked = computed(() => typeof prefill.value.intakeForSelf === 'boolean');
 const isClientNameLocked = computed(
   () => isEmbeddedMode.value && String(prefill.value.clientFullName || '').trim().length > 0
@@ -677,6 +685,107 @@ const buildSubmissionPayload = () => ({
     smartSchoolRoi: buildRoiPayload()
   }
 });
+
+const clearDraft = () => {
+  if (isEmbeddedMode.value) return;
+  try {
+    localStorage.removeItem(draftStorageKey.value);
+  } catch {
+    // ignore storage errors
+  }
+};
+
+const buildDraftSnapshot = () => ({
+  version: roiDraftStorageVersion,
+  savedAt: new Date().toISOString(),
+  stageIndex: Number(stageIndex.value || 0),
+  form: {
+    intakeForSelf: form.intakeForSelf,
+    clientFullName: form.clientFullName || '',
+    clientDateOfBirth: form.clientDateOfBirth || '',
+    signer: {
+      firstName: form.signer.firstName || '',
+      lastName: form.signer.lastName || '',
+      email: form.signer.email || '',
+      phone: form.signer.phone || '',
+      relationship: form.signer.relationship || ''
+    },
+    packetReleaseAllowed: form.packetReleaseAllowed,
+    requiredAcknowledgements: { ...(form.requiredAcknowledgements || {}) },
+    waiverItems: { ...(form.waiverItems || {}) },
+    staffDecisions: { ...(form.staffDecisions || {}) },
+    programmedExternalAllowed: form.programmedExternalAllowed,
+    parentExternalRecipients: Array.isArray(form.parentExternalRecipients)
+      ? form.parentExternalRecipients.map((row) => ({
+          name: row?.name || '',
+          relationship: row?.relationship || '',
+          email: row?.email || '',
+          phone: row?.phone || '',
+          allowed: row?.allowed === true ? true : (row?.allowed === false ? false : null)
+        }))
+      : []
+  }
+});
+
+const restoreDraftSnapshot = () => {
+  if (isEmbeddedMode.value) return;
+  let parsed = null;
+  try {
+    const raw = localStorage.getItem(draftStorageKey.value);
+    if (!raw) return;
+    parsed = JSON.parse(raw);
+  } catch {
+    return;
+  }
+  if (!parsed || parsed.version !== roiDraftStorageVersion) return;
+  const savedAtMs = parsed?.savedAt ? new Date(parsed.savedAt).getTime() : 0;
+  if (!savedAtMs || Number.isNaN(savedAtMs) || (Date.now() - savedAtMs) > roiDraftTtlMs) {
+    clearDraft();
+    return;
+  }
+  const draftForm = parsed.form || {};
+  form.intakeForSelf = typeof draftForm.intakeForSelf === 'boolean' ? draftForm.intakeForSelf : form.intakeForSelf;
+  form.clientFullName = String(draftForm.clientFullName || form.clientFullName || '');
+  form.clientDateOfBirth = String(draftForm.clientDateOfBirth || form.clientDateOfBirth || '');
+  form.signer.firstName = String(draftForm?.signer?.firstName || form.signer.firstName || '');
+  form.signer.lastName = String(draftForm?.signer?.lastName || form.signer.lastName || '');
+  form.signer.email = String(draftForm?.signer?.email || form.signer.email || '');
+  form.signer.phone = String(draftForm?.signer?.phone || form.signer.phone || '');
+  form.signer.relationship = String(draftForm?.signer?.relationship || form.signer.relationship || '');
+  form.packetReleaseAllowed = typeof draftForm.packetReleaseAllowed === 'boolean'
+    ? draftForm.packetReleaseAllowed
+    : form.packetReleaseAllowed;
+  form.requiredAcknowledgements = { ...(form.requiredAcknowledgements || {}), ...(draftForm.requiredAcknowledgements || {}) };
+  form.waiverItems = { ...(form.waiverItems || {}), ...(draftForm.waiverItems || {}) };
+  form.staffDecisions = { ...(form.staffDecisions || {}), ...(draftForm.staffDecisions || {}) };
+  form.programmedExternalAllowed = typeof draftForm.programmedExternalAllowed === 'boolean'
+    ? draftForm.programmedExternalAllowed
+    : form.programmedExternalAllowed;
+  if (Array.isArray(draftForm.parentExternalRecipients) && draftForm.parentExternalRecipients.length) {
+    form.parentExternalRecipients = draftForm.parentExternalRecipients.map((row) => ({
+      name: String(row?.name || ''),
+      relationship: String(row?.relationship || ''),
+      email: String(row?.email || ''),
+      phone: String(row?.phone || ''),
+      allowed: row?.allowed === true ? true : (row?.allowed === false ? false : null)
+    }));
+  }
+  const maxIdx = Math.max(stageOrder.value.length - 1, 0);
+  const nextIdx = Number.isFinite(Number(parsed.stageIndex)) ? Number(parsed.stageIndex) : 0;
+  stageIndex.value = Math.max(0, Math.min(nextIdx, maxIdx));
+};
+
+const queueDraftPersist = () => {
+  if (isEmbeddedMode.value) return;
+  if (draftPersistTimer) clearTimeout(draftPersistTimer);
+  draftPersistTimer = setTimeout(() => {
+    try {
+      localStorage.setItem(draftStorageKey.value, JSON.stringify(buildDraftSnapshot()));
+    } catch {
+      // ignore storage errors
+    }
+  }, 120);
+};
 
 const validateCurrentStage = () => {
   error.value = '';
@@ -815,6 +924,30 @@ watch(
   { immediate: true }
 );
 
+watch(
+  () => ({
+    stageIndex: stageIndex.value,
+    form: {
+      intakeForSelf: form.intakeForSelf,
+      clientFullName: form.clientFullName,
+      clientDateOfBirth: form.clientDateOfBirth,
+      signer: { ...form.signer },
+      packetReleaseAllowed: form.packetReleaseAllowed,
+      requiredAcknowledgements: { ...(form.requiredAcknowledgements || {}) },
+      waiverItems: { ...(form.waiverItems || {}) },
+      staffDecisions: { ...(form.staffDecisions || {}) },
+      programmedExternalAllowed: form.programmedExternalAllowed,
+      parentExternalRecipients: Array.isArray(form.parentExternalRecipients)
+        ? form.parentExternalRecipients.map((row) => ({ ...row }))
+        : []
+    }
+  }),
+  () => queueDraftPersist(),
+  { deep: true }
+);
+
+restoreDraftSnapshot();
+
 const onSigned = (dataUrl) => {
   signatureData.value = dataUrl;
   error.value = '';
@@ -846,6 +979,7 @@ const submitRoi = async () => {
       );
       submissionId.value = consentResp.data?.submission?.id || null;
       if (consentResp.data?.alreadyCompleted) {
+        clearDraft();
         downloadUrl.value = consentResp.data?.downloadUrl || '';
         stageIndex.value = stageOrder.value.indexOf('complete');
         emit('completed', {
@@ -870,6 +1004,7 @@ const submitRoi = async () => {
       60000
     );
     downloadUrl.value = finalizeResp.data?.downloadUrl || '';
+    clearDraft();
     stageIndex.value = stageOrder.value.indexOf('complete');
     emit('completed', {
       submissionId: submissionId.value,

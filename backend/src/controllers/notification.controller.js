@@ -28,7 +28,8 @@ const IN_APP_CATEGORY_BY_TYPE = {
   client_school_roi_link_generated: 'clients_new_intakes',
   client_school_roi_link_copied: 'clients_new_intakes',
   client_school_roi_link_sent: 'clients_new_intakes',
-  client_school_roi_completed: 'clients_new_intakes'
+  client_school_roi_completed: 'clients_new_intakes',
+  client_school_roi_provider_reminder: 'clients_new_intakes'
 };
 
 function viewerAudienceKey(role) {

@@ -111,7 +111,7 @@
               <span class="sort-indicator" v-if="sortKey === 'document_status'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
             </th>
             <th
-              v-if="rosterScope === 'school'"
+              v-if="rosterScope === 'school' && !isProviderUser"
               class="sortable"
               @click="toggleSort('provider_name')"
               role="button"
@@ -120,15 +120,8 @@
               Provider
               <span class="sort-indicator" v-if="sortKey === 'provider_name'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
             </th>
-            <th
-              v-else
-              class="sortable"
-              @click="toggleSort('organization_name')"
-              role="button"
-              tabindex="0"
-            >
-              School / Program
-              <span class="sort-indicator" v-if="sortKey === 'organization_name'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
+            <th v-else>
+              ROI Status
             </th>
             <th class="sortable" @click="toggleSort('skills')" role="button" tabindex="0">
               Skills
@@ -304,8 +297,18 @@
               </div>
             </td>
             <td>{{ formatDocSummary(client) }}</td>
-            <td v-if="rosterScope === 'school'">{{ client.provider_name || '—' }}</td>
-            <td v-else>{{ organizationName || client.organization_name || '—' }}</td>
+            <td v-if="rosterScope === 'school' && !isProviderUser">{{ client.provider_name || '—' }}</td>
+            <td v-else>
+              <button
+                class="btn-link roi-status-link"
+                type="button"
+                title="View ROI status details"
+                @click.stop="openRoiStatus(client)"
+              >
+                {{ roiStatusLabel(client) }}
+              </button>
+              <div class="roi-status-hint">{{ roiStatusDateHint(client) }}</div>
+            </td>
             <td>{{ client.skills ? 'Yes' : 'No' }}</td>
             <td>{{ client.service_day || '—' }}</td>
             <td v-if="showPsychotherapyColumn" class="psy-cell">
@@ -387,6 +390,62 @@
       @close="quickChecklistClient = null"
       @saved="onQuickChecklistSaved"
     />
+
+    <div v-if="roiStatusModalClient" class="modal-overlay" style="z-index: 10000;" @click.self="closeRoiStatusModal">
+      <div class="modal-content" style="max-width: 920px;" @click.stop>
+        <div class="modal-header">
+          <h3 style="margin: 0;">ROI Status</h3>
+          <button type="button" class="btn-close" @click="closeRoiStatusModal">×</button>
+        </div>
+        <div class="hint" style="margin-top: 0; margin-bottom: 10px;">
+          {{ roiStatusModalClient?.initials || roiStatusModalClient?.identifier_code || `Client #${roiStatusModalClient?.id || ''}` }}
+          · {{ roiStatusData.schoolName || roiStatusModalClient?.organization_name || 'School' }}
+        </div>
+
+        <div v-if="roiStatusLoading" class="loading-state" style="padding: 20px 0;">
+          <p>Loading ROI status…</p>
+        </div>
+        <div v-else-if="roiStatusError" class="error-state" style="padding: 20px 0;">
+          <p>{{ roiStatusError }}</p>
+        </div>
+        <div v-else>
+          <div class="roi-summary-grid">
+            <div class="roi-summary-card">
+              <div class="roi-summary-label">ROI expiration date</div>
+              <div class="roi-summary-value">{{ formatDate(roiStatusData.roiExpiresAt) }}</div>
+            </div>
+            <div class="roi-summary-card">
+              <div class="roi-summary-label">Portal state</div>
+              <div class="roi-summary-value">{{ roiStatusData.roiExpired ? 'Expired / blocked' : 'Date active' }}</div>
+            </div>
+          </div>
+
+          <div v-if="!(roiStatusData.staff || []).length" class="muted" style="margin-top: 10px;">
+            No active school staff found for this school.
+          </div>
+          <div v-else class="clients-table-scroll" style="margin-top: 10px;">
+            <table class="clients-table">
+              <thead>
+                <tr>
+                  <th>School Staff</th>
+                  <th>Status with Client</th>
+                  <th>Last Packet Upload</th>
+                  <th>Last ROI Grant</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="row in roiStatusData.staff" :key="row.school_staff_user_id">
+                  <td>{{ roiStaffName(row) }}</td>
+                  <td>{{ roiStaffStateLabel(row) }}</td>
+                  <td>{{ formatDateTime(row.last_packet_uploaded_at) }}</td>
+                  <td>{{ formatDateTime(row.granted_at) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <div v-if="terminateModalClient" class="modal-overlay" style="z-index: 10000;" @click.self="terminateModalClient = null">
       <div class="modal-content" style="max-width: 480px;" @click.stop>
@@ -486,6 +545,15 @@ const loading = ref(false);
 const error = ref('');
 const selectedClient = ref(null);
 const selectedClientInitialPane = ref(null); // null | 'comments' | 'messages'
+const roiStatusModalClient = ref(null);
+const roiStatusLoading = ref(false);
+const roiStatusError = ref('');
+const roiStatusData = ref({
+  roiExpiresAt: null,
+  roiExpired: true,
+  schoolName: '',
+  staff: []
+});
 const waitlistClient = ref(null);
 const searchQuery = ref('');
 const router = useRouter();
@@ -497,6 +565,10 @@ const terminateModalClient = ref(null);
 const terminateReasonDraft = ref('');
 const terminateSaving = ref(false);
 const isSchoolStaff = computed(() => String(authStore.user?.role || '').toLowerCase() === 'school_staff');
+const isProviderUser = computed(() => {
+  const r = String(authStore.user?.role || '').toLowerCase();
+  return r === 'provider' || r === 'provider_plus' || r === 'clinical_practice_assistant';
+});
 const isSchoolClientLocked = (client) => isSchoolStaff.value && client?.school_portal_can_open === false;
 const canOpenSchoolClient = (client) => !isSchoolClientLocked(client);
 const showChecklistButton = computed(() => {
@@ -705,6 +777,83 @@ const openQuickChecklist = (client) => {
   quickChecklistClient.value = client;
 };
 
+const roiStaffName = (row) => {
+  const first = String(row?.first_name || '').trim();
+  const last = String(row?.last_name || '').trim();
+  return [first, last].filter(Boolean).join(' ') || row?.email || `User ${row?.school_staff_user_id || ''}`;
+};
+
+const roiStaffStateLabel = (row) => {
+  const effective = String(row?.effective_access_state || '').trim().toLowerCase();
+  const access = String(row?.access_level || '').trim().toLowerCase();
+  if (effective === 'expired') return 'ROI expired';
+  if (effective === 'roi_docs' || access === 'roi_docs') return 'ROI and Doc Access';
+  if (effective === 'roi' || access === 'roi') return 'ROI access';
+  if (effective === 'packet' || access === 'packet') return 'Packet only';
+  if (effective === 'limited' || access === 'limited') return 'Limited';
+  return 'No access';
+};
+
+const startOfDay = (value) => {
+  const d = new Date(value);
+  if (!Number.isFinite(d.getTime())) return null;
+  d.setHours(0, 0, 0, 0);
+  return d;
+};
+
+const roiStatusLabel = (client) => {
+  const raw = String(client?.roi_expires_at || '').trim();
+  if (!raw) return 'NO ROI';
+  const exp = startOfDay(raw);
+  const today = startOfDay(new Date());
+  if (!exp || !today) return 'ROI Unknown';
+  if (exp.getTime() < today.getTime()) return 'ROI Expired';
+  return 'ROI Active';
+};
+
+const roiStatusDateHint = (client) => {
+  const raw = String(client?.roi_expires_at || '').trim();
+  if (!raw) return 'No expiration date set';
+  return `Expires ${formatDate(raw)}`;
+};
+
+const loadRoiStatus = async (clientId) => {
+  if (!clientId) return;
+  roiStatusLoading.value = true;
+  roiStatusError.value = '';
+  try {
+    const response = await api.get(`/clients/${clientId}/school-roi-access`, { skipGlobalLoading: true });
+    const payload = response.data || {};
+    roiStatusData.value = {
+      roiExpiresAt: payload.roi_expires_at || null,
+      roiExpired: payload.roi_expired !== false,
+      schoolName: payload.school_name || '',
+      staff: Array.isArray(payload.staff) ? payload.staff : []
+    };
+  } catch (e) {
+    roiStatusError.value = e?.response?.data?.error?.message || 'Failed to load ROI status';
+    roiStatusData.value = {
+      roiExpiresAt: null,
+      roiExpired: true,
+      schoolName: '',
+      staff: []
+    };
+  } finally {
+    roiStatusLoading.value = false;
+  }
+};
+
+const openRoiStatus = async (client) => {
+  if (!client?.id) return;
+  roiStatusModalClient.value = client;
+  await loadRoiStatus(Number(client.id));
+};
+
+const closeRoiStatusModal = () => {
+  roiStatusModalClient.value = null;
+  roiStatusError.value = '';
+};
+
 const openTerminateModal = (client) => {
   terminateModalClient.value = client;
   terminateReasonDraft.value = '';
@@ -872,6 +1021,13 @@ const formatDate = (dateString) => {
   if (!dateString) return '-';
   const date = new Date(dateString);
   return date.toLocaleDateString();
+};
+
+const formatDateTime = (value) => {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return '—';
+  return date.toLocaleString();
 };
 
 const formatRosterLabel = (client) => {
@@ -1506,6 +1662,37 @@ onMounted(() => {
   color: var(--primary);
   cursor: pointer;
   font-size: 0.75rem;
+}
+.roi-status-link {
+  font-weight: 800;
+  text-decoration: underline;
+}
+.roi-status-hint {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.roi-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+.roi-summary-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-alt);
+  padding: 10px 12px;
+}
+.roi-summary-label {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text-secondary);
+}
+.roi-summary-value {
+  margin-top: 4px;
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--text-primary);
 }
 .table-search {
   width: 100%;

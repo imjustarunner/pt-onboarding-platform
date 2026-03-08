@@ -975,6 +975,33 @@
       </div>
     </div>
 
+    <div
+      v-if="!currentSplashAnnouncement && currentRoiReminderSplash && !mandatorySupervisionPrompt"
+      class="blocking-splash"
+      role="dialog"
+      aria-modal="true"
+      aria-label="ROI reminder splash"
+    >
+      <div class="blocking-splash-card">
+        <div class="blocking-splash-head">
+          <BrandingLogo size="medium" class="blocking-splash-logo" />
+          <div class="blocking-splash-brand">{{ brandingStore.displayName || currentAgency?.name || 'Organization' }}</div>
+        </div>
+        <h3 class="blocking-splash-title">ROI update reminder</h3>
+        <p class="blocking-splash-message">
+          {{ currentRoiReminderSplash.message || 'One or more clients need ROI updates.' }}
+        </p>
+        <div class="blocking-splash-actions">
+          <button type="button" class="btn btn-secondary" @click="dismissRoiReminderSplash(currentRoiReminderSplash)">
+            Dismiss
+          </button>
+          <button type="button" class="btn btn-primary" @click="openRoiNotifications(currentRoiReminderSplash)">
+            Open notifications
+          </button>
+        </div>
+      </div>
+    </div>
+
     <div v-if="mandatorySupervisionPrompt" class="supervision-splash" role="dialog" aria-modal="true" aria-label="Join group supervision">
       <div class="supervision-splash-card">
         <button
@@ -1360,6 +1387,9 @@ const dashboardBannerTexts = computed(() => {
 
 const SPLASH_DISMISS_STORAGE_PREFIX = 'dashboardSplashDismissed.v1';
 const splashDismissVersion = ref(0);
+const ROI_REMINDER_SPLASH_DISMISS_PREFIX = 'dashboardRoiReminderDismissed.v1';
+const roiReminderDismissVersion = ref(0);
+const roiReminderNotifications = ref([]);
 
 const splashAnnouncements = computed(() => {
   const scheduled = Array.isArray(scheduledBannerItems.value) ? scheduledBannerItems.value : [];
@@ -1429,6 +1459,89 @@ const dismissCurrentSplash = () => {
     // ignore persistence errors; user can still continue in-memory
   }
   splashDismissVersion.value += 1;
+};
+
+const isProviderRole = computed(() => {
+  const role = String(authStore.user?.role || '').toLowerCase();
+  return role === 'provider' || role === 'provider_plus';
+});
+
+const roiReminderSplashDismissKey = (notification) => {
+  const userId = Number(authStore.user?.id || 0);
+  const notificationId = Number(notification?.id || 0);
+  if (!userId || !notificationId) return null;
+  return `${ROI_REMINDER_SPLASH_DISMISS_PREFIX}:${userId}:${notificationId}`;
+};
+
+const isRoiReminderSplashDismissed = (notification) => {
+  const key = roiReminderSplashDismissKey(notification);
+  if (!key) return false;
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return false;
+    const untilTs = Number.parseInt(String(raw), 10);
+    if (!Number.isFinite(untilTs) || untilTs <= Date.now()) {
+      localStorage.removeItem(key);
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const currentRoiReminderSplash = computed(() => {
+  void roiReminderDismissVersion.value;
+  if (!isProviderRole.value) return null;
+  const rows = Array.isArray(roiReminderNotifications.value) ? roiReminderNotifications.value : [];
+  return rows.find((n) => !isRoiReminderSplashDismissed(n)) || null;
+});
+
+const loadProviderRoiReminderNotifications = async () => {
+  if (props.previewMode || !isProviderRole.value || !authStore.isAuthenticated) {
+    roiReminderNotifications.value = [];
+    return;
+  }
+  try {
+    const resp = await api.get('/notifications', {
+      params: {
+        type: 'client_school_roi_provider_reminder',
+        isResolved: false,
+        limit: 20
+      },
+      skipGlobalLoading: true
+    });
+    const rows = Array.isArray(resp.data) ? resp.data : [];
+    roiReminderNotifications.value = rows.filter((n) => !n.is_read && !n.is_resolved);
+  } catch {
+    roiReminderNotifications.value = [];
+  }
+};
+
+const dismissRoiReminderSplash = async (notification) => {
+  const key = roiReminderSplashDismissKey(notification);
+  if (!key) return;
+  try {
+    localStorage.setItem(key, String(Date.now() + (24 * 60 * 60 * 1000)));
+  } catch {
+    // ignore
+  }
+  const notificationId = Number(notification?.id || 0);
+  if (notificationId > 0) {
+    try {
+      await api.put(`/notifications/${notificationId}/read`, null, { skipGlobalLoading: true });
+    } catch {
+      // keep local dismissal even if API call fails
+    }
+  }
+  roiReminderDismissVersion.value += 1;
+  await loadProviderRoiReminderNotifications();
+};
+
+const openRoiNotifications = async (notification) => {
+  if (notification) await dismissRoiReminderSplash(notification);
+  activeTab.value = 'notifications';
+  router.replace({ query: { ...route.query, tab: 'notifications' } }).catch(() => {});
 };
 
 const formatCompanyEventWhen = (event) => {
@@ -2916,7 +3029,8 @@ onMounted(async () => {
     loadMyCompanyEvents(),
     loadSupervisionPrompts(),
     loadPresenterAssignments(),
-    loadDashboardSocialFeeds()
+    loadDashboardSocialFeeds(),
+    loadProviderRoiReminderNotifications()
   ]);
 
   updateRailCollapsedMode();
@@ -2959,7 +3073,8 @@ watch([currentAgencyId, isOnboardingComplete], async () => {
     loadMyCompanyEvents(),
     loadSupervisionPrompts(),
     loadPresenterAssignments(),
-    loadDashboardSocialFeeds()
+    loadDashboardSocialFeeds(),
+    loadProviderRoiReminderNotifications()
   ]);
 });
 
