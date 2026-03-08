@@ -19,6 +19,19 @@ import { sendEmailFromIdentity } from '../services/unifiedEmail/unifiedEmailSend
 import { logAuditEvent } from '../services/auditEvent.service.js';
 import { resolvePreferredSenderIdentityForSchoolThenAgency } from '../services/emailSenderIdentityResolver.service.js';
 
+function buildPublicIntakeUrl(publicKey) {
+  const key = String(publicKey || '').trim();
+  if (!key) return null;
+  const base = String(
+    process.env.PUBLIC_INTAKE_BASE_URL
+      || process.env.PUBLIC_APP_URL
+      || process.env.FRONTEND_URL
+      || ''
+  ).trim().replace(/\/+$/, '');
+  if (!base) return `/intake/${encodeURIComponent(key)}`;
+  return `${base}/intake/${encodeURIComponent(key)}`;
+}
+
 const BACKOFFICE_NOTIFICATION_AUDIENCE = Object.freeze({
   admin: true,
   schoolStaff: false,
