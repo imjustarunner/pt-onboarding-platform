@@ -8,6 +8,18 @@ import puppeteer from 'puppeteer';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Normalize text for pdf-lib WinAnsi encoding: compose combining marks,
+// strip remaining combiners, and map smart punctuation to ASCII equivalents.
+const sanitizeForPdf = (text) =>
+  String(text || '')
+    .normalize('NFC')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[\u2018\u2019\u201A\uFFFD]/g, "'")
+    .replace(/[\u201C\u201D\u201E]/g, '"')
+    .replace(/[\u2013\u2014]/g, '-')
+    .replace(/[\u2026]/g, '...')
+    .replace(/[^\x20-\x7E\xA0-\xFF]/g, '');
+
 // Circuit-breaker: skip Puppeteer entirely after consecutive failures
 let _puppeteerCircuitOpen = false;
 let _puppeteerLastFailure = 0;
@@ -215,13 +227,15 @@ class DocumentSigningService {
     console.log('DocumentSigningService.convertHTMLToPDFFallback: Creating styled PDF fallback from HTML...');
 
     const decodeHtmlEntities = (input) =>
-      String(input || '')
-        .replace(/&nbsp;/gi, ' ')
-        .replace(/&amp;/gi, '&')
-        .replace(/&lt;/gi, '<')
-        .replace(/&gt;/gi, '>')
-        .replace(/&#39;/g, "'")
-        .replace(/&quot;/gi, '"');
+      sanitizeForPdf(
+        String(input || '')
+          .replace(/&nbsp;/gi, ' ')
+          .replace(/&amp;/gi, '&')
+          .replace(/&lt;/gi, '<')
+          .replace(/&gt;/gi, '>')
+          .replace(/&#39;/g, "'")
+          .replace(/&quot;/gi, '"')
+      );
 
     const stripTags = (input) =>
       decodeHtmlEntities(String(input || '').replace(/<[^>]+>/g, ' '))
@@ -269,8 +283,8 @@ class DocumentSigningService {
     const brandGreen = rgb(0.10, 0.43, 0.31);
     const softPanel = rgb(0.95, 0.98, 0.97);
     const branding = options?.branding && typeof options.branding === 'object' ? options.branding : {};
-    const schoolName = String(branding.schoolName || '').trim();
-    const agencyName = String(branding.agencyName || '').trim();
+    const schoolName = sanitizeForPdf(branding.schoolName);
+    const agencyName = sanitizeForPdf(branding.agencyName);
 
     const normalizeStorageKey = (value) => {
       let rawValue = String(value || '').trim();
@@ -761,7 +775,7 @@ class DocumentSigningService {
       const textY = Number(def.y) + Math.max(2, (boxHeight - fontSize) / 2);
       const textX = Number(def.x) + 2;
 
-      page.drawText(text, {
+      page.drawText(sanitizeForPdf(text), {
         x: textX,
         y: textY,
         size: fontSize,
@@ -826,7 +840,7 @@ class DocumentSigningService {
     y -= 30;
 
     if (documentName) {
-      page.drawText(`Document Name: ${documentName}`, {
+      page.drawText(`Document Name: ${sanitizeForPdf(documentName)}`, {
         x: 72,
         y,
         size: 10,
@@ -858,15 +872,15 @@ class DocumentSigningService {
     y -= 30;
 
     const signerInfo = [
-      `Name: ${userData.firstName} ${userData.lastName}`,
-      `Email: ${userData.email}`,
+      `Name: ${sanitizeForPdf(`${userData.firstName} ${userData.lastName}`)}`,
+      `Email: ${sanitizeForPdf(userData.email)}`,
       `User ID: ${userData.userId}`
     ];
     if (auditTrail?.signerRole) {
-      signerInfo.push(`Signer Role: ${auditTrail.signerRole}`);
+      signerInfo.push(`Signer Role: ${sanitizeForPdf(auditTrail.signerRole)}`);
     }
     if (auditTrail?.clientName) {
-      signerInfo.push(`Associated Client: ${auditTrail.clientName}`);
+      signerInfo.push(`Associated Client: ${sanitizeForPdf(auditTrail.clientName)}`);
     }
 
     signerInfo.forEach(line => {
@@ -992,7 +1006,7 @@ class DocumentSigningService {
           });
           break;
         }
-        page.drawText(line, {
+        page.drawText(sanitizeForPdf(line), {
           x: 72,
           y,
           size: 8,
@@ -1068,7 +1082,7 @@ class DocumentSigningService {
       color: rgb(0, 0, 0)
     });
     if (adminData?.name) {
-      page.drawText(adminData.name, {
+      page.drawText(sanitizeForPdf(adminData.name), {
         x: sigX,
         y: sigY + sigHeight + 2,
         size: 9,
