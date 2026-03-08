@@ -3319,7 +3319,8 @@ onBeforeUnmount(() => {
 }
 .captcha-block-start .recaptcha-widget {
   display: flex;
-  justify-content: center;
+  flex-direction: column;
+  align-items: center;
 }
 .recaptcha-verify-first {
   margin-bottom: 8px;
