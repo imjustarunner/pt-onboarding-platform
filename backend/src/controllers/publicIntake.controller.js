@@ -1728,6 +1728,48 @@ const hasProgrammedSchoolRoiStep = (link) => {
   return steps.some((step) => String(step?.type || '').trim().toLowerCase() === 'school_roi');
 };
 
+const applySmartRoiPayloadFallback = (body) => {
+  if (!body || typeof body !== 'object') return;
+  const smartRoi = body?.intakeData?.smartSchoolRoi;
+  if (!smartRoi || typeof smartRoi !== 'object') return;
+
+  const signer = smartRoi?.signer && typeof smartRoi.signer === 'object' ? smartRoi.signer : {};
+  const guardian = body.guardian && typeof body.guardian === 'object' ? body.guardian : {};
+
+  const fallbackFirst = String(signer.firstName || '').trim();
+  const fallbackLast = String(signer.lastName || '').trim();
+  const fallbackEmail = String(signer.email || '').trim();
+  const fallbackPhone = String(signer.phone || '').trim();
+  const fallbackRelationship = String(signer.relationship || '').trim();
+
+  body.guardian = {
+    ...guardian,
+    firstName: String(guardian.firstName || '').trim() || fallbackFirst || '',
+    lastName: String(guardian.lastName || '').trim() || fallbackLast || '',
+    email: String(guardian.email || '').trim() || fallbackEmail || '',
+    phone: String(guardian.phone || '').trim() || fallbackPhone || '',
+    relationship: String(guardian.relationship || '').trim() || fallbackRelationship || ''
+  };
+
+  const fallbackClientFullName = String(smartRoi.clientFullName || '').trim();
+  if (!fallbackClientFullName) return;
+
+  if (Array.isArray(body.clients) && body.clients.length > 0) {
+    const first = body.clients[0] && typeof body.clients[0] === 'object' ? body.clients[0] : {};
+    const existingFullName = String(first.fullName || '').trim();
+    if (!existingFullName) body.clients[0] = { ...first, fullName: fallbackClientFullName };
+    return;
+  }
+
+  if (body.client && typeof body.client === 'object') {
+    const existingFullName = String(body.client.fullName || '').trim();
+    if (!existingFullName) body.client = { ...body.client, fullName: fallbackClientFullName };
+    return;
+  }
+
+  body.clients = [{ fullName: fallbackClientFullName }];
+};
+
 const resolveSmartSchoolRoiTemplate = async ({ roiContext, templates }) => {
   let selectedTemplate = Array.isArray(templates)
     ? templates.find((template) => Number(template?.id || 0) === Number(roiContext?.documentTemplate?.id || 0))
@@ -2393,11 +2435,17 @@ export const finalizePublicIntake = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'submissionId is required' } });
     }
 
+    applySmartRoiPayloadFallback(req.body);
+
     const submission = await IntakeSubmission.findById(submissionId);
     if (!submission || submission.intake_link_id !== link.id) {
       return res.status(404).json({ error: { message: 'Submission not found' } });
     }
     const templates = await loadAllowedTemplates(link);
+    const isEmbeddedSmartRoiFinalize = Boolean(
+      hasProgrammedSchoolRoiStep(link)
+      && req.body?.intakeData?.smartSchoolRoi
+    );
     if (isSubmissionExpired(submission, { templatesCount: templates.length })) {
       await deleteSubmissionData(submissionId);
       return res.status(410).json({ error: { message: 'This intake session has expired. Please restart the intake.' } });
@@ -2463,7 +2511,7 @@ export const finalizePublicIntake = async (req, res, next) => {
       }
     }
 
-    if (link.create_client) {
+    if (link.create_client && !isEmbeddedSmartRoiFinalize) {
       const rawClients = Array.isArray(req.body?.clients) && req.body.clients.length
         ? req.body.clients
         : (req.body?.client ? [req.body.client] : []);
@@ -2471,7 +2519,7 @@ export const finalizePublicIntake = async (req, res, next) => {
         return res.status(400).json({ error: { message: 'Client full name is required.' } });
       }
     }
-    {
+    if (!isEmbeddedSmartRoiFinalize) {
       const gEmail = String(req.body?.guardian?.email || '').trim();
       const gFirst = String(req.body?.guardian?.firstName || '').trim();
       const gLast = String(req.body?.guardian?.lastName || '').trim();
@@ -3747,6 +3795,8 @@ export const submitPublicIntake = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'submissionId is required' } });
     }
 
+    applySmartRoiPayloadFallback(req.body);
+
     const submission = await IntakeSubmission.findById(submissionId);
     if (!submission || submission.intake_link_id !== link.id) {
       return res.status(404).json({ error: { message: 'Submission not found' } });
@@ -3785,7 +3835,12 @@ export const submitPublicIntake = async (req, res, next) => {
       });
     }
 
-    if (link.create_client) {
+    const isEmbeddedSmartRoiFinalize = Boolean(
+      hasProgrammedSchoolRoiStep(link)
+      && req.body?.intakeData?.smartSchoolRoi
+    );
+
+    if (link.create_client && !isEmbeddedSmartRoiFinalize) {
       const rawClients = Array.isArray(req.body?.clients) && req.body.clients.length
         ? req.body.clients
         : (req.body?.client ? [req.body.client] : []);
@@ -3793,7 +3848,7 @@ export const submitPublicIntake = async (req, res, next) => {
         return res.status(400).json({ error: { message: 'Client full name is required.' } });
       }
     }
-    {
+    if (!isEmbeddedSmartRoiFinalize) {
       const gEmail = String(req.body?.guardian?.email || '').trim();
       const gFirst = String(req.body?.guardian?.firstName || '').trim();
       if (!gEmail || !gFirst) {
