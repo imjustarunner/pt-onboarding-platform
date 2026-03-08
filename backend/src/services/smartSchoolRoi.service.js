@@ -543,7 +543,7 @@ export function buildSmartSchoolRoiHtml({ roiContext = {}, response = {}, signed
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>${escapeHtml(roiContext?.documentTemplate?.name || 'School Release of Information')}</title>
+    <title>${escapeHtml(roiContext?.school?.name ? `${roiContext.school.name} — Release of Information` : (roiContext?.documentTemplate?.name || 'School Release of Information'))}</title>
     <style>
       @page { size: Letter; margin: 0.45in; }
       body { font-family: Arial, sans-serif; color: #111827; margin: 0; line-height: 1.25; font-size: 10.5px; }
@@ -568,7 +568,7 @@ export function buildSmartSchoolRoiHtml({ roiContext = {}, response = {}, signed
     <div class="wrap">
       <div class="header">
         <div>
-          <h1>${escapeHtml(roiContext?.documentTemplate?.name || 'School Release of Information')}</h1>
+          <h1>${escapeHtml(roiContext?.school?.name ? `${roiContext.school.name} — Release of Information` : (roiContext?.documentTemplate?.name || 'School Release of Information'))}</h1>
           <div class="muted">Signed ${escapeHtml(formatDate(signedAt))} · 36-month authorization window</div>
         </div>
         <div style="display:flex; gap:8px; align-items:center;">

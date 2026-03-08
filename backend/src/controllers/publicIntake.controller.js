@@ -1771,14 +1771,27 @@ const applySmartRoiPayloadFallback = (body) => {
 };
 
 const resolveSmartSchoolRoiTemplate = async ({ roiContext, templates }) => {
+  // 1. Direct match against allowed templates
   let selectedTemplate = Array.isArray(templates)
     ? templates.find((template) => Number(template?.id || 0) === Number(roiContext?.documentTemplate?.id || 0))
     : null;
+
+  // 2. If roiContext references a specific template not in the allowed set, load it directly
+  if (!selectedTemplate && roiContext?.documentTemplate?.id) {
+    try {
+      const directTemplate = await DocumentTemplate.findById(Number(roiContext.documentTemplate.id));
+      if (directTemplate?.is_active) {
+        selectedTemplate = directTemplate;
+      }
+    } catch {
+      // fall through to global search
+    }
+  }
+
+  // 3. Global fallback: search all ROI-type templates, preferring same-school scope
   if (!selectedTemplate) {
     const schoolOrgId = Number(roiContext?.school?.id || 0) || null;
     const schoolRoiTemplatesResult = await DocumentTemplate.findAll({
-      // Support legacy and new template types so finalize does not fail when
-      // a tenant still uses `school` or `smart_school_roi`.
       documentType: ['smart_school_roi', 'school_roi', 'school'],
       isActive: true,
       includeArchived: false,
@@ -2840,12 +2853,23 @@ export const finalizePublicIntake = async (req, res, next) => {
           actorUserId: null
         });
       } catch (error) {
-        console.error('applyClientRoiCompletion failed', {
+        console.error('applyClientRoiCompletion failed — applying direct roi_expires_at fallback', {
           clientId: boundClient.id,
           submissionId,
           signingLinkId: issuedRoiLink?.id || null,
-          error: error?.message || error
+          error: error?.message || error,
+          stack: error?.stack
         });
+        try {
+          const roiFallbackExpiry = new Date(now);
+          roiFallbackExpiry.setUTCFullYear(roiFallbackExpiry.getUTCFullYear() + 3);
+          await Client.updateById(boundClient.id, { roi_expires_at: roiFallbackExpiry });
+        } catch (fallbackErr) {
+          console.error('roi_expires_at direct fallback also failed', {
+            clientId: boundClient.id,
+            error: fallbackErr?.message
+          });
+        }
       }
 
       await IntakeSubmission.updateById(submissionId, {

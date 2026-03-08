@@ -662,11 +662,11 @@
         <p v-else>{{ completionEmailMessage }}</p>
         <p v-if="!jobApplicationSubmitted" class="muted">Download links expire in 14 days. After that, the files are deleted once uploaded to Therapy Notes.</p>
         <div v-if="downloadUrl && !jobApplicationSubmitted" class="actions">
-          <a class="btn btn-primary" :href="downloadUrl" target="_blank" rel="noopener">View Packet PDF</a>
-          <a class="btn btn-secondary" :href="downloadUrl" download>Download Packet PDF</a>
+          <a class="btn btn-primary" :href="downloadUrl" target="_blank" rel="noopener">{{ formTypeKey === 'smart_school_roi' ? 'View Signed ROI' : 'View Packet PDF' }}</a>
+          <a class="btn btn-secondary" :href="downloadUrl" download>{{ formTypeKey === 'smart_school_roi' ? 'Download Signed ROI' : 'Download Packet PDF' }}</a>
         </div>
         <div v-if="clientBundleLinks.length && !jobApplicationSubmitted" class="bundle-list">
-          <div class="bundle-title">Download per-child packets</div>
+          <div class="bundle-title">{{ formTypeKey === 'smart_school_roi' ? 'Download per-client releases' : 'Download per-child packets' }}</div>
           <div v-for="bundle in clientBundleLinks" :key="bundle.clientId || bundle.filename" class="bundle-item">
             <div class="bundle-name">{{ bundle.clientName || `Client ${bundle.clientId}` }}</div>
             <a class="btn btn-secondary btn-sm" :href="bundle.downloadUrl" target="_blank" rel="noopener">View</a>
@@ -792,6 +792,7 @@ const INTAKE_TRANSLATIONS = {
     requesterInformation: 'Requester Information',
     registrantInformation: 'Registrant Information',
     completionEmailGuardian: 'Your documents were completed successfully. A copy will be emailed to the guardian.',
+    completionEmailSmartRoi: 'Your release of information has been signed successfully. A copy will be emailed to you.',
     completionEmailApplicant: 'Your application was submitted successfully. A copy will be emailed to you.',
     completionEmailRequester: 'Your request was submitted successfully. A copy will be emailed to you.',
     completionEmailRegistrant: 'Your registration was submitted successfully. A copy will be emailed to you.',
@@ -987,6 +988,7 @@ const completionEmailMessage = computed(() => {
   if (formTypeKey.value === 'job_application') return t('completionEmailApplicant');
   if (formTypeKey.value === 'medical_records_request') return t('completionEmailRequester');
   if (formTypeKey.value === 'smart_registration') return t('completionEmailRegistrant');
+  if (formTypeKey.value === 'smart_school_roi') return t('completionEmailSmartRoi');
   return t('completionEmailGuardian');
 });
 const guardianSectionTitle = computed(() => {
