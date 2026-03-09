@@ -155,6 +155,7 @@
                   </button>
                   <div v-if="directoryMenuOpen" class="nav-dropdown-menu">
                     <router-link :to="orgTo('/operations-dashboard')" v-if="user?.role === 'super_admin' || isAdmin || user?.role === 'provider_plus' || user?.role === 'clinical_practice_assistant'" >Operations Dashboard</router-link>
+                    <router-link :to="orgTo('/schedule')" >Schedule Hub</router-link>
                     <router-link :to="orgTo('/admin/schools/overview?orgType=school')" v-if="user?.role === 'super_admin' || isAdmin" >School Overview</router-link>
                     <router-link :to="orgTo('/admin/schools/overview?orgType=program')" v-if="user?.role === 'super_admin' || isAdmin" >Program Overview</router-link>
                     <router-link :to="orgTo('/admin/school-portals')" v-if="user?.role === 'super_admin' || isAdmin" >Show All School Portals</router-link>
