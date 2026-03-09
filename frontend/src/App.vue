@@ -590,7 +590,7 @@
       <BetaFeedbackWidget v-if="isAuthenticated" />
       <SuperAdminBuilderPanel v-if="isAuthenticated && brandingStore.isSuperAdmin" />
       <TourManager v-if="isAuthenticated" />
-      <PlatformChatDrawer />
+      <PlatformChatDrawer v-if="isAuthenticated && !hideGlobalNavForSchoolStaff" />
       <SessionLockScreen
         v-if="isAuthenticated"
         :is-locked="sessionLockStore.isLocked"
