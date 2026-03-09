@@ -235,7 +235,7 @@
         </div>
 
         <div class="muted modal-count">
-          Staff shown: {{ filteredWaiverRows.length }} / {{ waiverRows.length }}
+          Staff shown: {{ sortedWaiverRows.length }} / {{ waiverRows.length }}
         </div>
 
         <div v-if="waiverBusy" class="loading">Loading waiver status…</div>
@@ -243,18 +243,50 @@
           <table class="table">
             <thead>
               <tr>
-                <th>Staff</th>
-                <th>School</th>
-                <th>Waiver</th>
-                <th>Flag</th>
-                <th>Signed At</th>
-                <th>Last Login</th>
-                <th>Last Logout</th>
-                <th>Task Status</th>
+                <th>
+                  <button type="button" class="th-sort-btn" @click="setWaiverSort('staff')">
+                    Staff {{ waiverSortKey === 'staff' ? (waiverSortDir === 'asc' ? '↑' : '↓') : '' }}
+                  </button>
+                </th>
+                <th>
+                  <button type="button" class="th-sort-btn" @click="setWaiverSort('school')">
+                    School {{ waiverSortKey === 'school' ? (waiverSortDir === 'asc' ? '↑' : '↓') : '' }}
+                  </button>
+                </th>
+                <th>
+                  <button type="button" class="th-sort-btn" @click="setWaiverSort('waiver')">
+                    Waiver {{ waiverSortKey === 'waiver' ? (waiverSortDir === 'asc' ? '↑' : '↓') : '' }}
+                  </button>
+                </th>
+                <th>
+                  <button type="button" class="th-sort-btn" @click="setWaiverSort('flag')">
+                    Flag {{ waiverSortKey === 'flag' ? (waiverSortDir === 'asc' ? '↑' : '↓') : '' }}
+                  </button>
+                </th>
+                <th>
+                  <button type="button" class="th-sort-btn" @click="setWaiverSort('signed_at')">
+                    Signed At {{ waiverSortKey === 'signed_at' ? (waiverSortDir === 'asc' ? '↑' : '↓') : '' }}
+                  </button>
+                </th>
+                <th>
+                  <button type="button" class="th-sort-btn" @click="setWaiverSort('last_login')">
+                    Last Login {{ waiverSortKey === 'last_login' ? (waiverSortDir === 'asc' ? '↑' : '↓') : '' }}
+                  </button>
+                </th>
+                <th>
+                  <button type="button" class="th-sort-btn" @click="setWaiverSort('last_logout')">
+                    Last Logout {{ waiverSortKey === 'last_logout' ? (waiverSortDir === 'asc' ? '↑' : '↓') : '' }}
+                  </button>
+                </th>
+                <th>
+                  <button type="button" class="th-sort-btn" @click="setWaiverSort('task_status')">
+                    Task Status {{ waiverSortKey === 'task_status' ? (waiverSortDir === 'asc' ? '↑' : '↓') : '' }}
+                  </button>
+                </th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="row in filteredWaiverRows" :key="`waiver-${row.user_id}-${row.organization_id}`">
+              <tr v-for="row in sortedWaiverRows" :key="`waiver-${row.user_id}-${row.organization_id}`">
                 <td>
                   <div class="staff-name">{{ formatStaffName(row) }}</div>
                   <div class="muted" style="font-size:12px;">{{ row.email || '—' }}</div>
@@ -274,7 +306,7 @@
                 <td>{{ formatDateTime(row.last_logout) }}</td>
                 <td>{{ formatTaskStatus(row.waiver_task_status) }}</td>
               </tr>
-              <tr v-if="filteredWaiverRows.length === 0">
+              <tr v-if="sortedWaiverRows.length === 0">
                 <td colspan="8" class="muted">No school staff match this filter.</td>
               </tr>
             </tbody>
@@ -312,6 +344,8 @@ const waiverRows = ref([]);
 const waiverSearch = ref('');
 const waiverSignedFilter = ref('all');
 const waiverRedFlagOnly = ref(false);
+const waiverSortKey = ref('flag');
+const waiverSortDir = ref('desc');
 const MIN_PENDING_DATE = '2026-02-01';
 
 const filters = ref({
@@ -414,14 +448,82 @@ const schoolGroups = computed(() => {
 
 const filteredWaiverRows = computed(() => {
   const q = normalize(waiverSearch.value);
-  return (waiverRows.value || []).filter((row) => {
-    if (waiverRedFlagOnly.value && !showRedFlag(row)) return false;
-    if (!q) return true;
+  const rowsWithScore = [];
+  for (const row of waiverRows.value || []) {
+    if (waiverRedFlagOnly.value && !showRedFlag(row)) continue;
     const hay = normalize(
       `${row?.first_name || ''} ${row?.last_name || ''} ${row?.email || ''} ${row?.organization_name || ''}`
     );
-    return hay.includes(q);
+    const fuzzy = computeFuzzyScore(q, hay);
+    if (fuzzy === null) continue;
+    rowsWithScore.push({
+      ...row,
+      _searchScore: fuzzy
+    });
+  }
+  return rowsWithScore;
+});
+
+const sortedWaiverRows = computed(() => {
+  const rows = (filteredWaiverRows.value || []).slice();
+  const dir = waiverSortDir.value === 'asc' ? 1 : -1;
+  rows.sort((a, b) => {
+    const searchScoreDelta = Number(a?._searchScore || 0) - Number(b?._searchScore || 0);
+    if (searchScoreDelta !== 0) return searchScoreDelta;
+
+    const staffA = normalize(`${a?.first_name || ''} ${a?.last_name || ''}`.trim() || a?.email || '');
+    const staffB = normalize(`${b?.first_name || ''} ${b?.last_name || ''}`.trim() || b?.email || '');
+    const schoolA = normalize(a?.organization_name || '');
+    const schoolB = normalize(b?.organization_name || '');
+    const taskA = normalize(a?.waiver_task_status || '');
+    const taskB = normalize(b?.waiver_task_status || '');
+    const signedA = a?.waiver_signed ? 1 : 0;
+    const signedB = b?.waiver_signed ? 1 : 0;
+    const flagA = showRedFlag(a) ? 1 : 0;
+    const flagB = showRedFlag(b) ? 1 : 0;
+    const dateA = (value) => {
+      const ts = value ? new Date(value).getTime() : NaN;
+      return Number.isFinite(ts) ? ts : 0;
+    };
+
+    let delta = 0;
+    switch (waiverSortKey.value) {
+      case 'staff':
+        delta = staffA.localeCompare(staffB);
+        break;
+      case 'school':
+        delta = schoolA.localeCompare(schoolB);
+        break;
+      case 'waiver':
+        delta = signedA - signedB;
+        break;
+      case 'flag':
+        delta = flagA - flagB;
+        break;
+      case 'signed_at':
+        delta = dateA(a?.waiver_signed_at) - dateA(b?.waiver_signed_at);
+        break;
+      case 'last_login':
+        delta = dateA(a?.last_login) - dateA(b?.last_login);
+        break;
+      case 'last_logout':
+        delta = dateA(a?.last_logout) - dateA(b?.last_logout);
+        break;
+      case 'task_status':
+        delta = taskA.localeCompare(taskB);
+        break;
+      default:
+        delta = 0;
+    }
+
+    if (delta !== 0) return delta * dir;
+
+    // Stable fallback
+    const schoolDelta = schoolA.localeCompare(schoolB);
+    if (schoolDelta !== 0) return schoolDelta;
+    return staffA.localeCompare(staffB);
   });
+  return rows;
 });
 
 const expandedSchools = ref({});
@@ -515,6 +617,42 @@ const formatTaskStatus = (status) => {
   if (s === 'pending') return 'Pending';
   if (s === 'completed') return 'Completed';
   return s.replace(/_/g, ' ');
+};
+
+const setWaiverSort = (nextKey) => {
+  if (waiverSortKey.value === nextKey) {
+    waiverSortDir.value = waiverSortDir.value === 'asc' ? 'desc' : 'asc';
+    return;
+  }
+  waiverSortKey.value = nextKey;
+  waiverSortDir.value = nextKey === 'staff' || nextKey === 'school' || nextKey === 'task_status' ? 'asc' : 'desc';
+};
+
+const computeFuzzyScore = (query, text) => {
+  const q = normalize(query);
+  const t = normalize(text);
+  if (!q) return 0;
+  let ti = 0;
+  let score = 0;
+  let firstIdx = -1;
+  for (let qi = 0; qi < q.length; qi += 1) {
+    const ch = q[qi];
+    let found = false;
+    while (ti < t.length) {
+      if (t[ti] === ch) {
+        if (firstIdx < 0) firstIdx = ti;
+        // Smaller gap between matches yields better rank.
+        score += ti;
+        ti += 1;
+        found = true;
+        break;
+      }
+      ti += 1;
+    }
+    if (!found) return null;
+  }
+  // Strongly favor earlier first match and tighter sequences.
+  return score + (firstIdx < 0 ? 0 : firstIdx * 2) + (t.length - q.length);
 };
 
 const showRedFlag = (row) => {
@@ -772,6 +910,18 @@ onMounted(async () => {
   top: 0;
   background: white;
   white-space: nowrap;
+}
+.th-sort-btn {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  font-weight: 700;
+  color: inherit;
+  cursor: pointer;
+}
+.th-sort-btn:hover {
+  text-decoration: underline;
 }
 .group-row {
   background: var(--bg-alt);
