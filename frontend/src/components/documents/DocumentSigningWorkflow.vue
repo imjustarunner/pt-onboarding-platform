@@ -2,7 +2,7 @@
   <div class="document-signing-workflow">
     <div v-if="error" class="error-message" style="background: #fee; border: 1px solid #fcc; padding: 12px; border-radius: 4px; margin-bottom: 16px;">
       <strong>Error:</strong> {{ error }}
-      <div v-if="errorDetails" style="margin-top: 8px; font-size: 12px; color: #666;">
+      <div v-if="showDebugErrorDetails && errorDetails" style="margin-top: 8px; font-size: 12px; color: #666;">
         <div v-if="errorDetails.sqlMessage">SQL Error: {{ errorDetails.sqlMessage }}</div>
         <div v-if="errorDetails.code">Error Code: {{ errorDetails.code }}</div>
       </div>
@@ -234,6 +234,7 @@ const route = useRoute();
 const router = useRouter();
 const documentsStore = useDocumentsStore();
 const authStore = useAuthStore();
+const showDebugErrorDetails = !!import.meta.env.DEV;
 
 const taskId = route.params.taskId;
 const currentStep = ref(1);
@@ -506,6 +507,20 @@ const isAdminUser = computed(() => {
   return role === 'super_admin' || role === 'admin' || role === 'support';
 });
 
+const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
+const returnToPath = computed(() => String(route.query?.returnTo || '').trim());
+const isWaiverTask = computed(() => {
+  const title = String(task.value?.title || '').toLowerCase();
+  const metadata = task.value?.metadata && typeof task.value.metadata === 'object'
+    ? task.value.metadata
+    : {};
+  const waiverKey = String(metadata?.waiverKey || metadata?.waiver_key || '').toLowerCase();
+  return title.includes('waiver') || waiverKey.includes('waiver');
+});
+const shouldAutoExitOnFinalize = computed(() => (
+  roleNorm.value === 'school_staff' || isWaiverTask.value || Boolean(returnToPath.value)
+));
+
 const adminCountersigned = computed(() => {
   const trail = signedDocument.value?.audit_trail || {};
   return !!trail.adminCountersign?.signedAt;
@@ -746,7 +761,53 @@ const handleAdminSignature = (sigData) => {
 };
 
 const wait = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
-const POST_FINALIZE_RELOAD_TIMEOUT_MS = 12000;
+const isFinalizeTimeoutError = (err, errorData) => {
+  const status = Number(err?.response?.status || 0);
+  const msg = String(errorData?.message || err?.message || '').toLowerCase();
+  return status === 504 || msg.includes('timed out');
+};
+
+const appendRefreshNonce = (url) => {
+  const raw = String(url || '').trim();
+  if (!raw) return '';
+  const sep = raw.includes('?') ? '&' : '?';
+  return `${raw}${sep}signedAt=${Date.now()}`;
+};
+
+const completeAndExitAfterFinalize = async () => {
+  clearSigningDraft();
+  if (!shouldAutoExitOnFinalize.value) {
+    currentStep.value = 4;
+    return;
+  }
+
+  const target = returnToPath.value ? appendRefreshNonce(returnToPath.value) : '';
+
+  // If signing was opened in a separate tab/window, refresh opener and close this tab.
+  if (window.opener && !window.opener.closed) {
+    try {
+      if (target) {
+        window.opener.location.assign(target);
+      } else {
+        window.opener.location.reload();
+      }
+    } catch {
+      // ignore cross-window access issues
+    }
+    try {
+      window.close();
+      return;
+    } catch {
+      // Browser may block close for non-script-opened tabs.
+    }
+  }
+
+  if (target) {
+    window.location.assign(target);
+    return;
+  }
+  closeSession();
+};
 
 const finalizeSignature = async () => {
   if (!hasSignature.value || !signatureData.value) {
@@ -796,19 +857,30 @@ const finalizeSignature = async () => {
     error.value = '';
     errorDetails.value = null;
     await documentsStore.signDocument(taskId, signatureData.value, fieldValues.value);
-    currentStep.value = 4;
-    clearSigningDraft();
-    // Best-effort refresh: do not keep user blocked if post-finalize reload stalls.
-    await Promise.race([
-      loadDocumentTask(),
-      wait(POST_FINALIZE_RELOAD_TIMEOUT_MS)
-    ]);
-    // Auto-download should never block completion UX.
-    void downloadDocument({ auto: true });
+    await completeAndExitAfterFinalize();
   } catch (err) {
     const errorData = err.response?.data?.error || {};
+    if (isFinalizeTimeoutError(err, errorData)) {
+      // Recovery path: backend may have completed shortly after timeout.
+      try {
+        await wait(1200);
+        await loadDocumentTask();
+        const finalized = Boolean(signedDocument.value?.signed_pdf_path);
+        if (finalized) {
+          await completeAndExitAfterFinalize();
+          error.value = '';
+          errorDetails.value = null;
+          return;
+        }
+      } catch {
+        // Ignore recovery failures and show friendly guidance below.
+      }
+      error.value = 'Signature submission is taking longer than expected. Please wait a few seconds and refresh once to confirm completion before signing again.';
+      errorDetails.value = null;
+      return;
+    }
     error.value = errorData.message || 'Failed to finalize signature';
-    errorDetails.value = errorData;
+    errorDetails.value = showDebugErrorDetails ? errorData : null;
     if (errorData.sqlMessage) {
       console.error('SQL Error:', errorData.sqlMessage);
       console.error('Error Code:', errorData.code);
