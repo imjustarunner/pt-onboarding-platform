@@ -77,7 +77,78 @@
                 <input v-model="prefs.notification_sound_enabled" type="checkbox" :disabled="notificationDisabled" />
                 Play sound when new notification arrives
               </label>
-              <div class="field-help">Plays a short sound in the browser when a new in-app notification appears.</div>
+              <div class="field-help">Plays a short sound in the browser when a new in-app notification appears (for notifications without per-type sound settings below).</div>
+            </div>
+          </div>
+
+          <div class="card">
+            <h3 class="card-title">Toast Notifications</h3>
+            <div class="field-help" style="margin-bottom: 14px;">
+              Control pop-up toast alerts for specific notification types. Each type can have its own toast, duration, and sound settings.
+            </div>
+
+            <div class="toast-type-group">
+              <div class="toast-type-header">Login / Logout Activity</div>
+              <div class="field-help">Toast shown when other users log in or out of the account.</div>
+              <div class="toast-type-controls">
+                <label class="field checkbox">
+                  <input v-model="toastPrefs.login_logout.toast_enabled" type="checkbox" :disabled="notificationDisabled" />
+                  Show toast
+                </label>
+                <div class="field" v-if="toastPrefs.login_logout.toast_enabled">
+                  <label>Duration</label>
+                  <select v-model="toastPrefs.login_logout.duration_mode" :disabled="notificationDisabled">
+                    <option value="dismissable">Dismissable (stays until dismissed)</option>
+                    <option value="timed">Auto-dismiss after timeout</option>
+                  </select>
+                </div>
+                <div class="field" v-if="toastPrefs.login_logout.toast_enabled && toastPrefs.login_logout.duration_mode === 'timed'">
+                  <label>Timeout (seconds)</label>
+                  <input
+                    v-model.number="toastPrefs.login_logout.duration_seconds"
+                    type="number"
+                    min="3"
+                    max="120"
+                    :disabled="notificationDisabled"
+                  />
+                </div>
+                <label class="field checkbox" v-if="toastPrefs.login_logout.toast_enabled">
+                  <input v-model="toastPrefs.login_logout.sound_enabled" type="checkbox" :disabled="notificationDisabled" />
+                  Play sound
+                </label>
+              </div>
+            </div>
+
+            <div class="toast-type-group">
+              <div class="toast-type-header">New Packets & Intake Submissions</div>
+              <div class="field-help">Toast shown when a new packet is uploaded or an intake link submission is received.</div>
+              <div class="toast-type-controls">
+                <label class="field checkbox">
+                  <input v-model="toastPrefs.new_packet.toast_enabled" type="checkbox" :disabled="notificationDisabled" />
+                  Show toast
+                </label>
+                <div class="field" v-if="toastPrefs.new_packet.toast_enabled">
+                  <label>Duration</label>
+                  <select v-model="toastPrefs.new_packet.duration_mode" :disabled="notificationDisabled">
+                    <option value="dismissable">Dismissable (stays until dismissed)</option>
+                    <option value="timed">Auto-dismiss after timeout</option>
+                  </select>
+                </div>
+                <div class="field" v-if="toastPrefs.new_packet.toast_enabled && toastPrefs.new_packet.duration_mode === 'timed'">
+                  <label>Timeout (seconds)</label>
+                  <input
+                    v-model.number="toastPrefs.new_packet.duration_seconds"
+                    type="number"
+                    min="3"
+                    max="120"
+                    :disabled="notificationDisabled"
+                  />
+                </div>
+                <label class="field checkbox" v-if="toastPrefs.new_packet.toast_enabled">
+                  <input v-model="toastPrefs.new_packet.sound_enabled" type="checkbox" :disabled="notificationDisabled" />
+                  Play sound
+                </label>
+              </div>
             </div>
           </div>
 
@@ -875,6 +946,12 @@ const prefs = ref({
   kiosk_pin_set: false
 });
 
+const defaultToastPreferences = () => ({
+  login_logout: { toast_enabled: true, duration_mode: 'timed', duration_seconds: 6, sound_enabled: true },
+  new_packet: { toast_enabled: false, duration_mode: 'dismissable', duration_seconds: 10, sound_enabled: false }
+});
+const toastPrefs = ref(defaultToastPreferences());
+
 const defaultScheduleColors = () => ({
   request: '#F2C94C',
   school: '#2D9CDB',
@@ -1149,6 +1226,20 @@ const load = async () => {
     quietStart.value = normalizeTimeForInput(prefs.value.quiet_hours_start_time);
     quietEnd.value = normalizeTimeForInput(prefs.value.quiet_hours_end_time);
 
+    const rawToast = parseJsonMaybe(data.toast_preferences);
+    if (rawToast && typeof rawToast === 'object') {
+      const defaults = defaultToastPreferences();
+      const ll = { ...defaults.login_logout, ...(rawToast.login_logout || {}) };
+      const np = { ...defaults.new_packet, ...(rawToast.new_packet || {}) };
+      ll.duration_mode = ll.duration_seconds === null ? 'dismissable' : 'timed';
+      np.duration_mode = np.duration_seconds === null ? 'dismissable' : 'timed';
+      if (ll.duration_mode === 'timed' && !ll.duration_seconds) ll.duration_seconds = 6;
+      if (np.duration_mode === 'timed' && !np.duration_seconds) np.duration_seconds = 10;
+      toastPrefs.value = { login_logout: ll, new_packet: np };
+    } else {
+      toastPrefs.value = defaultToastPreferences();
+    }
+
     await loadScheduleLocations();
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message || 'Failed to load preferences';
@@ -1219,7 +1310,21 @@ const save = async () => {
       session_lock_enabled: !!prefs.value.session_lock_enabled,
       inactivity_timeout_minutes: prefs.value.session_lock_enabled && prefs.value.inactivity_timeout_minutes != null
         ? prefs.value.inactivity_timeout_minutes
-        : null
+        : null,
+
+      // Toast preferences (per-type)
+      toast_preferences: {
+        login_logout: {
+          toast_enabled: !!toastPrefs.value.login_logout.toast_enabled,
+          duration_seconds: toastPrefs.value.login_logout.duration_mode === 'dismissable' ? null : (Number(toastPrefs.value.login_logout.duration_seconds) || 6),
+          sound_enabled: !!toastPrefs.value.login_logout.sound_enabled
+        },
+        new_packet: {
+          toast_enabled: !!toastPrefs.value.new_packet.toast_enabled,
+          duration_seconds: toastPrefs.value.new_packet.duration_mode === 'dismissable' ? null : (Number(toastPrefs.value.new_packet.duration_seconds) || 10),
+          sound_enabled: !!toastPrefs.value.new_packet.sound_enabled
+        }
+      }
     };
 
     if (sessionLockPinNew.value && sessionLockPinConfirm.value && sessionLockPinNew.value === sessionLockPinConfirm.value && sessionLockPinNew.value.length === 4) {
@@ -1456,6 +1561,26 @@ input, select {
 
 .multi {
   min-height: 110px;
+}
+
+.toast-type-group {
+  padding: 12px 0;
+  border-top: 1px solid var(--border);
+}
+
+.toast-type-group:first-child {
+  padding-top: 0;
+  border-top: none;
+}
+
+.toast-type-header {
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+.toast-type-controls {
+  padding-left: 4px;
 }
 
 .category-group {

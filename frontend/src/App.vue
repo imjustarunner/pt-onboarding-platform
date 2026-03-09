@@ -664,17 +664,39 @@
         <span class="new-notification-toast-icon" aria-hidden="true">🔔</span>
         <span>New notification{{ notificationsUnreadCount > 1 ? 's' : '' }}</span>
       </button>
-      <button
+      <div
         v-if="loginActivityToast.visible"
-        type="button"
         class="login-activity-toast"
-        @click="goToNotifications"
       >
-        <span class="login-activity-toast-icon" aria-hidden="true">
-          {{ loginActivityToast.type === 'user_logout' ? '👋' : '✓' }}
-        </span>
-        <span class="login-activity-toast-message">{{ loginActivityToast.message }}</span>
-      </button>
+        <button type="button" class="login-activity-toast-body" @click="goToNotifications">
+          <span class="login-activity-toast-icon" aria-hidden="true">
+            {{ loginActivityToast.type === 'user_logout' ? '👋' : '✓' }}
+          </span>
+          <span class="login-activity-toast-message">{{ loginActivityToast.message }}</span>
+        </button>
+        <button
+          type="button"
+          class="toast-dismiss-btn"
+          aria-label="Dismiss"
+          @click.stop="loginActivityToast.visible = false"
+        >×</button>
+      </div>
+      <div
+        v-if="newPacketToast.visible"
+        class="new-packet-toast"
+        role="alert"
+      >
+        <button type="button" class="new-packet-toast-body" @click="goToNotifications">
+          <span class="new-packet-toast-icon" aria-hidden="true">📄</span>
+          <span class="new-packet-toast-message">{{ newPacketToast.message }}</span>
+        </button>
+        <button
+          type="button"
+          class="toast-dismiss-btn"
+          aria-label="Dismiss"
+          @click.stop="newPacketToast = { visible: false, message: '', notificationId: null }"
+        >×</button>
+      </div>
       <button
         v-if="kudosToast.visible"
         type="button"
@@ -1704,18 +1726,23 @@ const kudosToast = ref({ visible: false, message: '', reason: '' });
 const kudosToastTimer = ref(null);
 const joinReminderToast = ref({ visible: false, message: '', prompt: null });
 let joinReminderPollInterval = null;
+const newPacketToast = ref({ visible: false, message: '', notificationId: null });
+const newPacketToastTimer = ref(null);
+
+const getToastPref = (type) => {
+  const tp = userPreferencesStore.toastPreferences;
+  if (!tp || typeof tp !== 'object') return { toast_enabled: type === 'login_logout', duration_seconds: 6, sound_enabled: type === 'login_logout' };
+  return tp[type] || { toast_enabled: false, duration_seconds: 6, sound_enabled: false };
+};
+
 const showNewNotificationToast = async () => {
-  // Fetch latest to check for login/logout, kudos, etc.
   try {
     const latest = await notificationStore.fetchLatestNotifications(10);
+    // Kudos (always shown, not configurable)
     const kudosReceived = (latest || []).filter((n) => n.type === 'kudos_received');
     const firstKudos = kudosReceived[0];
     if (firstKudos?.message) {
-      kudosToast.value = {
-        visible: true,
-        message: firstKudos.message,
-        reason: firstKudos.message
-      };
+      kudosToast.value = { visible: true, message: firstKudos.message, reason: firstKudos.message };
       if (kudosToastTimer.value) clearTimeout(kudosToastTimer.value);
       kudosToastTimer.value = setTimeout(() => {
         kudosToast.value = { visible: false, message: '', reason: '' };
@@ -1723,22 +1750,45 @@ const showNewNotificationToast = async () => {
       }, 6000);
       return;
     }
-    // School staff never see login/logout activity
+
     const isSchoolStaff = String(user.value?.role || '').toLowerCase() === 'school_staff';
-    const loginLogout = isSchoolStaff ? [] : (latest || []).filter((n) => n.type === 'user_login' || n.type === 'user_logout');
-    const first = loginLogout[0];
-    if (first?.message) {
-      loginActivityToast.value = {
-        visible: true,
-        message: first.message,
-        type: first.type
-      };
-      if (loginActivityToastTimer.value) clearTimeout(loginActivityToastTimer.value);
-      loginActivityToastTimer.value = setTimeout(() => {
-        loginActivityToast.value = { visible: false, message: '', type: null };
-        loginActivityToastTimer.value = null;
-      }, 6000);
-      return;
+
+    // New packet / intake submission toast
+    const packetPref = getToastPref('new_packet');
+    if (packetPref.toast_enabled && !isSchoolStaff) {
+      const packetTypes = ['new_packet_uploaded', 'client_school_roi_link_sent', 'client_school_roi_link_generated', 'client_school_roi_link_copied'];
+      const packetNotif = (latest || []).find((n) => packetTypes.includes(n.type));
+      if (packetNotif?.message) {
+        newPacketToast.value = { visible: true, message: packetNotif.message, notificationId: packetNotif.id };
+        if (newPacketToastTimer.value) clearTimeout(newPacketToastTimer.value);
+        if (packetPref.duration_seconds !== null && packetPref.duration_seconds > 0) {
+          newPacketToastTimer.value = setTimeout(() => {
+            newPacketToast.value = { visible: false, message: '', notificationId: null };
+            newPacketToastTimer.value = null;
+          }, packetPref.duration_seconds * 1000);
+        }
+        if (packetPref.sound_enabled) playNotificationSound();
+        return;
+      }
+    }
+
+    // Login/logout activity toast
+    const llPref = getToastPref('login_logout');
+    if (llPref.toast_enabled && !isSchoolStaff) {
+      const loginLogout = (latest || []).filter((n) => n.type === 'user_login' || n.type === 'user_logout');
+      const first = loginLogout[0];
+      if (first?.message) {
+        loginActivityToast.value = { visible: true, message: first.message, type: first.type };
+        if (loginActivityToastTimer.value) clearTimeout(loginActivityToastTimer.value);
+        if (llPref.duration_seconds !== null && llPref.duration_seconds > 0) {
+          loginActivityToastTimer.value = setTimeout(() => {
+            loginActivityToast.value = { visible: false, message: '', type: null };
+            loginActivityToastTimer.value = null;
+          }, llPref.duration_seconds * 1000);
+        }
+        if (llPref.sound_enabled) playNotificationSound();
+        return;
+      }
     }
   } catch {
     // fall through to generic toast
@@ -1927,6 +1977,7 @@ watch(isOnNotificationsRoute, (onNotifications) => {
     notificationsNudgeVisible.value = false;
     newNotificationToastVisible.value = false;
     loginActivityToast.value = { visible: false, message: '', type: null };
+    newPacketToast.value = { visible: false, message: '', notificationId: null };
     if (newNotificationToastTimer.value) {
       clearTimeout(newNotificationToastTimer.value);
       newNotificationToastTimer.value = null;
@@ -1934,6 +1985,10 @@ watch(isOnNotificationsRoute, (onNotifications) => {
     if (loginActivityToastTimer.value) {
       clearTimeout(loginActivityToastTimer.value);
       loginActivityToastTimer.value = null;
+    }
+    if (newPacketToastTimer.value) {
+      clearTimeout(newPacketToastTimer.value);
+      newPacketToastTimer.value = null;
     }
   }
 });
@@ -1951,11 +2006,17 @@ watch(notificationsUnreadCount, (next, prev) => {
       triggerNotificationsNudgeFlash();
     }
   }
-  // For ALL authenticated users: sound + live toast when NEW notification arrives
+  // For ALL authenticated users: live toast when NEW notification arrives
   if (!isAuthenticated.value || isOnNotificationsRoute.value) return;
   if (prev === undefined || next <= prev) return;
-  if (userPreferencesStore.notificationSoundEnabled) playNotificationSound();
-  showNewNotificationToast();
+  // Sound is now played per-type inside showNewNotificationToast;
+  // fall back to global sound only if no per-type handler fired
+  showNewNotificationToast().then(() => {
+    // If neither login/logout nor new_packet toast was shown, play global sound for generic toast
+    if (newNotificationToastVisible.value && userPreferencesStore.notificationSoundEnabled) {
+      playNotificationSound();
+    }
+  });
 });
 
 // Watch for route changes to load organization context
@@ -2785,29 +2846,104 @@ onUnmounted(() => {
   z-index: 1550;
   display: inline-flex;
   align-items: center;
-  gap: 10px;
-  padding: 12px 18px;
+  gap: 0;
   border-radius: 12px;
   border: 1px solid var(--border);
   background: white;
   color: var(--text-primary);
   box-shadow: 0 12px 28px rgba(15, 23, 42, 0.22);
-  cursor: pointer;
   font-weight: 700;
   font-size: 14px;
-  max-width: 320px;
+  max-width: 360px;
   animation: loginActivityToastIn 0.35s ease-out;
   text-align: left;
 }
-.login-activity-toast:hover {
+.login-activity-toast-body {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 18px;
+  background: transparent;
+  border: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.login-activity-toast-body:hover {
   background: var(--bg-secondary);
-  transform: translateY(-50%) translateX(4px);
+  border-radius: 12px 0 0 12px;
 }
 .login-activity-toast-icon {
   font-size: 18px;
   flex-shrink: 0;
 }
 .login-activity-toast-message {
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+.toast-dismiss-btn {
+  background: transparent;
+  border: none;
+  border-left: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 18px;
+  padding: 8px 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  align-self: stretch;
+  border-radius: 0 12px 12px 0;
+  flex-shrink: 0;
+}
+.toast-dismiss-btn:hover {
+  background: #fee;
+  color: #b91c1c;
+}
+
+.new-packet-toast {
+  position: fixed;
+  left: 56px;
+  top: calc(50% + 60px);
+  transform: translateY(-50%);
+  z-index: 1550;
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  border-radius: 12px;
+  border: 1px solid #93c5fd;
+  background: #eff6ff;
+  color: var(--text-primary);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.22);
+  font-weight: 700;
+  font-size: 14px;
+  max-width: 360px;
+  animation: loginActivityToastIn 0.35s ease-out;
+  text-align: left;
+}
+.new-packet-toast-body {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 18px;
+  background: transparent;
+  border: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.new-packet-toast-body:hover {
+  background: #dbeafe;
+  border-radius: 12px 0 0 12px;
+}
+.new-packet-toast-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+.new-packet-toast-message {
   overflow-wrap: break-word;
   word-break: break-word;
 }

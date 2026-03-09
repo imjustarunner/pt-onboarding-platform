@@ -55,7 +55,8 @@ class UserPreferences {
           'kiosk_pin_hash',
           'tutorial_progress',
           'school_portal_notifications_progress',
-          'review_prompt_state'
+          'review_prompt_state',
+          'toast_preferences'
         ];
 
         for (const field of allowedFields) {
@@ -70,7 +71,8 @@ class UserPreferences {
               field === 'dashboard_notification_org_types' ||
               field === 'tutorial_progress' ||
               field === 'school_portal_notifications_progress' ||
-              field === 'review_prompt_state'
+              field === 'review_prompt_state' ||
+              field === 'toast_preferences'
             ) {
               values.push(JSON.stringify(preferences[field]));
             } else {
@@ -116,7 +118,8 @@ class UserPreferences {
           'kiosk_pin_hash',
           'tutorial_progress',
           'school_portal_notifications_progress',
-          'review_prompt_state'
+          'review_prompt_state',
+          'toast_preferences'
         ];
 
         for (const field of allowedFields) {
@@ -132,7 +135,8 @@ class UserPreferences {
               field === 'dashboard_notification_org_types' ||
               field === 'tutorial_progress' ||
               field === 'school_portal_notifications_progress' ||
-              field === 'review_prompt_state'
+              field === 'review_prompt_state' ||
+              field === 'toast_preferences'
             ) {
               values.push(JSON.stringify(preferences[field]));
             } else {

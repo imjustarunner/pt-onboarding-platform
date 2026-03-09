@@ -31,6 +31,9 @@
             <router-link v-if="isAdminLike" class="btn btn-secondary btn-sm" :to="ticketsLink">
               Tickets
             </router-link>
+            <router-link class="btn btn-secondary btn-sm" :to="notificationSettingsLink" title="Notification settings">
+              ⚙ Settings
+            </router-link>
           </div>
         </div>
         <p class="hint">{{ showUnreadForAdmin ? 'Notifications you haven\'t read yet (matches the count in the header).' : 'These are notifications where you are the target user (including SMS-eligible events).' }}</p>
@@ -236,6 +239,10 @@ const ticketsLink = computed(() => {
 const communicationsAutomationLink = computed(() => {
   const base = orgSlug.value ? `/${orgSlug.value}` : '';
   return { path: `${base}/admin/communications`, query: { tab: 'automation' } };
+});
+const notificationSettingsLink = computed(() => {
+  const base = orgSlug.value ? `/${orgSlug.value}` : '';
+  return { path: `${base}/dashboard`, query: { tab: 'my', my: 'preferences' } };
 });
 const communicationsPendingCount = computed(() => Number(communicationsCountsStore.pendingDeliveryCount || 0));
 

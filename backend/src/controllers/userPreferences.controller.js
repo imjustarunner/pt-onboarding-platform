@@ -145,6 +145,11 @@ const buildDefaultPreferences = (userRole) => {
     tutorial_progress: null,
     school_portal_notifications_progress: null,
 
+    toast_preferences: {
+      login_logout: { toast_enabled: true, duration_seconds: 6, sound_enabled: true },
+      new_packet: { toast_enabled: false, duration_seconds: null, sound_enabled: false }
+    },
+
     // Dashboard preferences
     dashboard_notification_org_types: ['agency']
   };
