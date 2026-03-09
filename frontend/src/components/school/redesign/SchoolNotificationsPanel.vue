@@ -14,8 +14,23 @@
     </div>
 
     <div v-if="createOpen" class="create-card">
-      <div class="create-title">Create announcement (banner)</div>
+      <div class="create-title">Create announcement</div>
       <div class="create-grid">
+        <label class="field">
+          <div class="k">Type</div>
+          <select v-model="draftDisplayType">
+            <option value="announcement">Scrolling banner</option>
+            <option value="splash">Splash page</option>
+          </select>
+        </label>
+        <label class="field">
+          <div class="k">Audience</div>
+          <select v-model="draftAudience">
+            <option value="everyone">Everyone</option>
+            <option value="school_staff_only">School staff only</option>
+            <option value="providers_only">Providers only</option>
+          </select>
+        </label>
         <label class="field">
           <div class="k">Title (optional)</div>
           <input v-model="draftTitle" type="text" maxlength="255" placeholder="e.g., School closed Monday" />
@@ -30,7 +45,7 @@
         </label>
         <label class="field field-wide">
           <div class="k">Message</div>
-          <textarea v-model="draftMessage" rows="3" maxlength="1200" placeholder="Type announcement…" />
+          <textarea v-model="draftMessage" rows="3" maxlength="1200" :placeholder="draftDisplayType === 'splash' ? 'Type splash page message…' : 'Type announcement…'" />
         </label>
       </div>
       <div class="create-actions">
@@ -251,6 +266,8 @@
           <div class="item-info">
             <span v-if="formatClientLabel(it)" class="item-chip">Client {{ formatClientLabel(it) }}</span>
             <span class="item-chip">{{ formatKindLabel(it) }}</span>
+            <span v-if="isAnnouncementItem(it) && it.display_type === 'splash'" class="item-chip chip-splash">Splash</span>
+            <span v-if="isAnnouncementItem(it) && it.audience && it.audience !== 'everyone'" class="item-chip chip-audience">{{ feedAudienceLabel(it.audience) }}</span>
             <span class="item-chip" :class="{ 'chip-unread': isUnread(it) }">{{ isUnread(it) ? 'Unread' : 'Read' }}</span>
           </div>
           <div v-if="!isTicket(it)" class="item-msg">{{ formatMessage(it) }}</div>
@@ -466,6 +483,21 @@
       <div class="modal-body">
         <div class="create-grid">
           <label class="field">
+            <div class="k">Type</div>
+            <select v-model="editAnnDisplayType">
+              <option value="announcement">Scrolling banner</option>
+              <option value="splash">Splash page</option>
+            </select>
+          </label>
+          <label class="field">
+            <div class="k">Audience</div>
+            <select v-model="editAnnAudience">
+              <option value="everyone">Everyone</option>
+              <option value="school_staff_only">School staff only</option>
+              <option value="providers_only">Providers only</option>
+            </select>
+          </label>
+          <label class="field">
             <div class="k">Title (optional)</div>
             <input v-model="editAnnTitle" type="text" maxlength="255" placeholder="Announcement" />
           </label>
@@ -479,7 +511,7 @@
           </label>
           <label class="field field-wide">
             <div class="k">Message</div>
-            <textarea v-model="editAnnMessage" rows="3" maxlength="1200" placeholder="Type announcement…" />
+            <textarea v-model="editAnnMessage" rows="3" maxlength="1200" :placeholder="editAnnDisplayType === 'splash' ? 'Type splash page message…' : 'Type announcement…'" />
           </label>
         </div>
         <div v-if="editAnnError" class="error" style="margin-top:8px;">{{ editAnnError }}</div>
@@ -1229,6 +1261,8 @@ const handleItemClick = async (it) => {
 const createOpen = ref(false);
 const draftTitle = ref('');
 const draftMessage = ref('');
+const draftDisplayType = ref('announcement');
+const draftAudience = ref('everyone');
 const draftStartsAt = ref('');
 const draftEndsAt = ref('');
 const creating = ref(false);
@@ -1246,6 +1280,8 @@ const initCreateDefaults = () => {
   const ends = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
   draftStartsAt.value = toLocalInput(now);
   draftEndsAt.value = toLocalInput(ends);
+  draftDisplayType.value = 'announcement';
+  draftAudience.value = 'everyone';
 };
 
 const openCreateComposer = () => {
@@ -1278,6 +1314,8 @@ const create = async () => {
     await api.post(`/school-portal/${props.schoolOrganizationId}/announcements`, {
       title: draftTitle.value.trim() || null,
       message: draftMessage.value.trim(),
+      display_type: draftDisplayType.value || 'announcement',
+      audience: draftAudience.value || 'everyone',
       starts_at: new Date(draftStartsAt.value),
       ends_at: new Date(draftEndsAt.value)
     });
@@ -1294,6 +1332,11 @@ const create = async () => {
 
 const isAnnouncementItem = (it) => String(it?.kind || '').toLowerCase() === 'announcement';
 
+const feedAudienceLabel = (aud) => {
+  const map = { school_staff_only: 'School staff only', providers_only: 'Providers only' };
+  return map[aud] || aud;
+};
+
 const announcementDbId = (it) => {
   const raw = String(it?.id || '');
   if (raw.startsWith('announcement:')) return parseInt(raw.slice('announcement:'.length), 10) || null;
@@ -1305,6 +1348,8 @@ const editAnnouncementOpen = ref(false);
 const editAnnItem = ref(null);
 const editAnnTitle = ref('');
 const editAnnMessage = ref('');
+const editAnnDisplayType = ref('announcement');
+const editAnnAudience = ref('everyone');
 const editAnnStartsAt = ref('');
 const editAnnEndsAt = ref('');
 const editAnnSaving = ref(false);
@@ -1314,6 +1359,8 @@ const openEditAnnouncement = (it) => {
   editAnnItem.value = it;
   editAnnTitle.value = it.title || '';
   editAnnMessage.value = it.message || '';
+  editAnnDisplayType.value = it.display_type || 'announcement';
+  editAnnAudience.value = it.audience || 'everyone';
   editAnnStartsAt.value = toLocalInput(it.starts_at);
   editAnnEndsAt.value = toLocalInput(it.ends_at);
   editAnnError.value = '';
@@ -1337,6 +1384,8 @@ const submitEditAnnouncement = async () => {
     await api.put(`/school-portal/${props.schoolOrganizationId}/announcements/${dbId}`, {
       title: editAnnTitle.value.trim() || null,
       message: editAnnMessage.value.trim(),
+      display_type: editAnnDisplayType.value || 'announcement',
+      audience: editAnnAudience.value || 'everyone',
       starts_at: new Date(editAnnStartsAt.value),
       ends_at: new Date(editAnnEndsAt.value)
     });
@@ -1769,6 +1818,14 @@ watch(
 .item-chip.chip-unread {
   background: rgba(var(--item-tint), 0.28);
   color: var(--text-primary);
+}
+.item-chip.chip-splash {
+  background: rgba(168, 85, 247, 0.15);
+  color: #6b21a8;
+}
+.item-chip.chip-audience {
+  background: rgba(245, 158, 11, 0.15);
+  color: #92400e;
 }
 .item-msg {
   margin-top: 6px;

@@ -35,6 +35,23 @@ import {
   resetSchoolStaffWaiverForTesting
 } from '../services/schoolStaffWaiver.service.js';
 
+const SCHOOL_PORTAL_VALID_AUDIENCES = ['everyone', 'school_staff_only', 'providers_only'];
+const parseSchoolPortalAudience = (raw) => {
+  const value = String(raw || 'everyone').trim().toLowerCase();
+  return SCHOOL_PORTAL_VALID_AUDIENCES.includes(value) ? value : 'everyone';
+};
+const parseSchoolPortalDisplayType = (raw) => {
+  const value = String(raw || 'announcement').trim().toLowerCase();
+  return value === 'splash' ? 'splash' : 'announcement';
+};
+const schoolPortalAudienceMatchesRole = (audience, role) => {
+  const r = String(role || '').toLowerCase();
+  if (audience === 'everyone') return true;
+  if (audience === 'school_staff_only') return r === 'school_staff';
+  if (audience === 'providers_only') return r === 'provider';
+  return true;
+};
+
 async function resolveActiveAgencyIdForOrg(orgId) {
   return (
     (await OrganizationAffiliation.getActiveAgencyIdForOrganization(orgId)) ||
@@ -3195,6 +3212,8 @@ export const listSchoolPortalNotificationsFeed = async (req, res, next) => {
              a.organization_id,
              a.title,
              a.message,
+             a.display_type,
+             a.audience,
              a.starts_at,
              a.ends_at,
              a.created_at,
@@ -3213,6 +3232,8 @@ export const listSchoolPortalNotificationsFeed = async (req, res, next) => {
           created_at: r.created_at,
           starts_at: r.starts_at,
           ends_at: r.ends_at,
+          display_type: r.display_type || 'announcement',
+          audience: r.audience || 'everyone',
           title: r.title || 'Announcement',
           message: r.message || '',
           actor_name: [String(r.first_name || '').trim(), String(r.last_name || '').trim()].filter(Boolean).join(' ').trim() || null
@@ -4345,7 +4366,7 @@ export const listSchoolPortalBannerAnnouncements = async (req, res, next) => {
     }
 
     const [rows] = await pool.execute(
-      `SELECT id, title, message, starts_at, ends_at, created_at
+      `SELECT id, title, message, display_type, audience, starts_at, ends_at, created_at
        FROM school_portal_announcements
        WHERE organization_id = ?
          AND NOW() >= starts_at
@@ -4354,14 +4375,18 @@ export const listSchoolPortalBannerAnnouncements = async (req, res, next) => {
        LIMIT 20`,
       [orgId]
     );
-    const out = (rows || []).map((r) => ({
-      id: r.id,
-      title: r.title || 'Announcement',
-      message: r.message || '',
-      starts_at: r.starts_at,
-      ends_at: r.ends_at,
-      created_at: r.created_at
-    }));
+    const out = (rows || [])
+      .filter((r) => schoolPortalAudienceMatchesRole(r.audience || 'everyone', roleNorm))
+      .map((r) => ({
+        id: r.id,
+        title: r.title || 'Announcement',
+        message: r.message || '',
+        display_type: r.display_type || 'announcement',
+        audience: r.audience || 'everyone',
+        starts_at: r.starts_at,
+        ends_at: r.ends_at,
+        created_at: r.created_at
+      }));
     res.json(out);
   } catch (e) {
     next(e);
@@ -4420,11 +4445,14 @@ export const createSchoolPortalAnnouncement = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Announcements can only be scheduled up to 364 days out' } });
     }
 
+    const displayType = parseSchoolPortalDisplayType(req.body?.display_type || req.body?.displayType);
+    const audience = parseSchoolPortalAudience(req.body?.audience);
+
     const [result] = await pool.execute(
       `INSERT INTO school_portal_announcements
-       (organization_id, created_by_user_id, title, message, starts_at, ends_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [orgId, userId, title, message, startsAt, endsAt]
+       (organization_id, created_by_user_id, title, message, display_type, audience, starts_at, ends_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [orgId, userId, title, message, displayType, audience, startsAt, endsAt]
     );
 
     const id = result?.insertId ? Number(result.insertId) : null;
@@ -4434,6 +4462,8 @@ export const createSchoolPortalAnnouncement = async (req, res, next) => {
         organization_id: orgId,
         title,
         message,
+        display_type: displayType,
+        audience,
         starts_at: startsAt,
         ends_at: endsAt,
         created_by_user_id: userId
@@ -4493,18 +4523,21 @@ export const updateSchoolPortalAnnouncement = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Announcements must be time-limited to 2 weeks maximum' } });
     }
 
+    const displayType = parseSchoolPortalDisplayType(req.body?.display_type || req.body?.displayType);
+    const audience = parseSchoolPortalAudience(req.body?.audience);
+
     const [result] = await pool.execute(
       `UPDATE school_portal_announcements
-       SET title = ?, message = ?, starts_at = ?, ends_at = ?
+       SET title = ?, message = ?, display_type = ?, audience = ?, starts_at = ?, ends_at = ?
        WHERE id = ? AND organization_id = ?`,
-      [title, message, startsAt, endsAt, announcementId, orgId]
+      [title, message, displayType, audience, startsAt, endsAt, announcementId, orgId]
     );
     if (!result?.affectedRows) {
       return res.status(404).json({ error: { message: 'Announcement not found' } });
     }
 
     res.json({
-      announcement: { id: announcementId, organization_id: orgId, title, message, starts_at: startsAt, ends_at: endsAt }
+      announcement: { id: announcementId, organization_id: orgId, title, message, display_type: displayType, audience, starts_at: startsAt, ends_at: endsAt }
     });
   } catch (e) {
     next(e);
@@ -4633,13 +4666,15 @@ export const createBulkSchoolPortalAnnouncements = async (req, res, next) => {
       }
     }
 
+    const displayType = parseSchoolPortalDisplayType(req.body?.display_type || req.body?.displayType);
+    const audience = parseSchoolPortalAudience(req.body?.audience);
     const bulkGroupId = crypto.randomUUID();
 
-    const values = uniqueOrgIds.flatMap((orgId) => [orgId, userId, bulkGroupId, title, message, startsAt, endsAt]);
-    const rowPlaceholders = uniqueOrgIds.map(() => '(?, ?, ?, ?, ?, ?, ?)').join(', ');
+    const values = uniqueOrgIds.flatMap((orgId) => [orgId, userId, bulkGroupId, title, message, displayType, audience, startsAt, endsAt]);
+    const rowPlaceholders = uniqueOrgIds.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
     const [result] = await pool.execute(
       `INSERT INTO school_portal_announcements
-       (organization_id, created_by_user_id, bulk_group_id, title, message, starts_at, ends_at)
+       (organization_id, created_by_user_id, bulk_group_id, title, message, display_type, audience, starts_at, ends_at)
        VALUES ${rowPlaceholders}`,
       values
     );
@@ -4684,6 +4719,8 @@ export const listBulkSchoolPortalAnnouncements = async (req, res, next) => {
          a.bulk_group_id,
          a.title,
          a.message,
+         a.display_type,
+         a.audience,
          a.starts_at,
          a.ends_at,
          a.created_by_user_id,
@@ -4694,7 +4731,7 @@ export const listBulkSchoolPortalAnnouncements = async (req, res, next) => {
        INNER JOIN agency_schools asc2 ON asc2.school_id = a.organization_id AND asc2.agency_id = ?
        LEFT JOIN users u ON u.id = a.created_by_user_id
        WHERE a.bulk_group_id IS NOT NULL
-       GROUP BY a.bulk_group_id, a.title, a.message, a.starts_at, a.ends_at,
+       GROUP BY a.bulk_group_id, a.title, a.message, a.display_type, a.audience, a.starts_at, a.ends_at,
                 a.created_by_user_id, a.created_at, u.first_name, u.last_name
        ORDER BY a.created_at DESC
        LIMIT 50`,
@@ -4705,6 +4742,8 @@ export const listBulkSchoolPortalAnnouncements = async (req, res, next) => {
       bulk_group_id: r.bulk_group_id,
       title: r.title || null,
       message: r.message || '',
+      display_type: r.display_type || 'announcement',
+      audience: r.audience || 'everyone',
       starts_at: r.starts_at,
       ends_at: r.ends_at,
       created_at: r.created_at,
@@ -4768,11 +4807,14 @@ export const updateBulkSchoolPortalAnnouncements = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Announcements must be time-limited to 2 weeks maximum' } });
     }
 
+    const displayType = parseSchoolPortalDisplayType(req.body?.display_type || req.body?.displayType);
+    const audience = parseSchoolPortalAudience(req.body?.audience);
+
     const [result] = await pool.execute(
       `UPDATE school_portal_announcements
-       SET title = ?, message = ?, starts_at = ?, ends_at = ?
+       SET title = ?, message = ?, display_type = ?, audience = ?, starts_at = ?, ends_at = ?
        WHERE bulk_group_id = ?`,
-      [title, message, startsAt, endsAt, groupId]
+      [title, message, displayType, audience, startsAt, endsAt, groupId]
     );
 
     logAuditEvent(req, {

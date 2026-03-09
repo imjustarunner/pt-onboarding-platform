@@ -14,7 +14,7 @@
           :disabled="loading || schools.length === 0"
           @click="openBulkAnnouncementModal"
         >
-          Scrolling announcement
+          Post announcement
         </button>
         <button class="btn btn-secondary" type="button" :disabled="loading" @click="refresh">
           {{ loading ? 'Refreshing…' : 'Refresh' }}
@@ -72,7 +72,7 @@
 
     <div v-if="bulkAnnouncements.length > 0" class="bulk-announcements-section">
       <div class="bulk-announcements-header">
-        <strong>Posted scrolling announcements</strong>
+        <strong>Posted school portal announcements</strong>
         <span class="bulk-count">{{ bulkAnnouncements.length }}</span>
       </div>
       <div class="bulk-announcements-list">
@@ -87,6 +87,8 @@
               <span v-if="a.is_active" class="ba-badge ba-badge-active">Active</span>
               <span v-else-if="new Date(a.starts_at) > new Date()" class="ba-badge ba-badge-scheduled">Scheduled</span>
               <span v-else class="ba-badge ba-badge-expired">Expired</span>
+              <span class="ba-badge" :class="a.display_type === 'splash' ? 'ba-badge-splash' : 'ba-badge-banner'">{{ a.display_type === 'splash' ? 'Splash' : 'Banner' }}</span>
+              <span v-if="a.audience && a.audience !== 'everyone'" class="ba-badge ba-badge-audience">{{ bulkAudienceLabel(a.audience) }}</span>
               <span class="ba-portals">{{ a.portal_count }} {{ a.portal_count === 1 ? 'portal' : 'portals' }}</span>
             </div>
             <div v-if="a.title" class="ba-title">{{ a.title }}</div>
@@ -283,8 +285,8 @@
       <div class="modal announcement-modal" @click.stop>
         <div class="modal-header">
           <div>
-            <strong>Post scrolling announcement</strong>
-            <div class="modal-subtitle">This will create the same moving banner on each selected school portal.</div>
+            <strong>Post announcement to school portals</strong>
+            <div class="modal-subtitle">This will post to each selected school portal.</div>
           </div>
           <button class="close" type="button" aria-label="Close" @click="closeBulkAnnouncementModal">×</button>
         </div>
@@ -307,6 +309,24 @@
             </div>
           </div>
 
+          <div class="form-row">
+            <div class="form-group">
+              <label>Type</label>
+              <select v-model="announcementDisplayType" class="control-select">
+                <option value="announcement">Scrolling banner</option>
+                <option value="splash">Splash page</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Audience</label>
+              <select v-model="announcementAudience" class="control-select">
+                <option value="everyone">Everyone</option>
+                <option value="school_staff_only">School staff only</option>
+                <option value="providers_only">Providers only</option>
+              </select>
+            </div>
+          </div>
+
           <div class="form-group">
             <label>Title (optional)</label>
             <input
@@ -325,11 +345,11 @@
               class="announcement-textarea"
               rows="5"
               maxlength="1200"
-              placeholder="Type the scrolling message that should appear across the selected school portals."
+              :placeholder="announcementDisplayType === 'splash' ? 'Type the splash page message.' : 'Type the scrolling message that should appear across the selected school portals.'"
             />
             <div class="hint-row">
               <span>{{ announcementMessage.length }}/1200</span>
-              <span>Banner is time-limited to 2 weeks max.</span>
+              <span>Announcements are time-limited to 2 weeks max.</span>
             </div>
           </div>
 
@@ -367,7 +387,7 @@
       <div class="modal announcement-modal" @click.stop>
         <div class="modal-header">
           <div>
-            <strong>Edit scrolling announcement</strong>
+            <strong>Edit announcement</strong>
             <div class="modal-subtitle">
               Changes apply to all {{ editAnnouncement.portal_count }} {{ editAnnouncement.portal_count === 1 ? 'portal' : 'portals' }} in this group.
             </div>
@@ -375,6 +395,24 @@
           <button class="close" type="button" aria-label="Close" @click="closeEditAnnouncementModal">×</button>
         </div>
         <div class="modal-body announcement-modal-body">
+          <div class="form-row">
+            <div class="form-group">
+              <label>Type</label>
+              <select v-model="editDisplayType" class="control-select">
+                <option value="announcement">Scrolling banner</option>
+                <option value="splash">Splash page</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Audience</label>
+              <select v-model="editAudience" class="control-select">
+                <option value="everyone">Everyone</option>
+                <option value="school_staff_only">School staff only</option>
+                <option value="providers_only">Providers only</option>
+              </select>
+            </div>
+          </div>
+
           <div class="form-group">
             <label>Title (optional)</label>
             <input
@@ -393,11 +431,11 @@
               class="announcement-textarea"
               rows="5"
               maxlength="1200"
-              placeholder="Type the scrolling message."
+              :placeholder="editDisplayType === 'splash' ? 'Type the splash page message.' : 'Type the scrolling message.'"
             />
             <div class="hint-row">
               <span>{{ editMessage.length }}/1200</span>
-              <span>Banner is time-limited to 2 weeks max.</span>
+              <span>Announcements are time-limited to 2 weeks max.</span>
             </div>
           </div>
 
@@ -498,6 +536,8 @@ const announcementError = ref('');
 const announcementScope = ref('all');
 const announcementTitle = ref('');
 const announcementMessage = ref('');
+const announcementDisplayType = ref('announcement');
+const announcementAudience = ref('everyone');
 const announcementStartsAt = ref('');
 const announcementEndsAt = ref('');
 
@@ -506,6 +546,8 @@ const showEditAnnouncementModal = ref(false);
 const editAnnouncement = ref(null);
 const editTitle = ref('');
 const editMessage = ref('');
+const editDisplayType = ref('announcement');
+const editAudience = ref('everyone');
 const editStartsAt = ref('');
 const editEndsAt = ref('');
 const editSaving = ref(false);
@@ -707,6 +749,8 @@ const openBulkAnnouncementModal = () => {
   announcementScope.value = selectedDistrict.value && selectedDistrict.value !== 'all' ? selectedDistrict.value : 'all';
   announcementTitle.value = '';
   announcementMessage.value = '';
+  announcementDisplayType.value = 'announcement';
+  announcementAudience.value = 'everyone';
   buildAnnouncementDefaults();
   showBulkAnnouncementModal.value = true;
 };
@@ -769,10 +813,13 @@ const submitBulkAnnouncement = async () => {
       organizationIds: announcementTargetOrganizations.value.map((item) => Number(item?.school_id || 0)).filter(Boolean),
       title: String(announcementTitle.value || '').trim() || null,
       message: String(announcementMessage.value || '').trim(),
+      display_type: announcementDisplayType.value || 'announcement',
+      audience: announcementAudience.value || 'everyone',
       starts_at: announcementStartsAt.value,
       ends_at: announcementEndsAt.value
     });
-    announcementFlash.value = `Scrolling announcement posted to ${announcementTargetSummary.value}.`;
+    const typeLabel = announcementDisplayType.value === 'splash' ? 'Splash page' : 'Scrolling announcement';
+    announcementFlash.value = `${typeLabel} posted to ${announcementTargetSummary.value}.`;
     showBulkAnnouncementModal.value = false;
     await fetchBulkAnnouncements();
   } catch (e) {
@@ -796,6 +843,11 @@ const fetchBulkAnnouncements = async () => {
   }
 };
 
+const bulkAudienceLabel = (aud) => {
+  const map = { everyone: 'Everyone', school_staff_only: 'School staff only', providers_only: 'Providers only' };
+  return map[aud] || 'Everyone';
+};
+
 const formatAnnouncementDate = (val) => {
   if (!val) return '';
   const d = new Date(val);
@@ -813,6 +865,8 @@ const openEditBulkAnnouncement = (a) => {
   editAnnouncement.value = a;
   editTitle.value = a.title || '';
   editMessage.value = a.message || '';
+  editDisplayType.value = a.display_type || 'announcement';
+  editAudience.value = a.audience || 'everyone';
   editStartsAt.value = toLocalDatetimeInputValue(a.starts_at);
   editEndsAt.value = toLocalDatetimeInputValue(a.ends_at);
   editError.value = '';
@@ -836,10 +890,12 @@ const submitEditAnnouncement = async () => {
     await api.put(`/school-portal/bulk-announcements/${groupId}`, {
       title: String(editTitle.value || '').trim() || null,
       message: String(editMessage.value || '').trim(),
+      display_type: editDisplayType.value || 'announcement',
+      audience: editAudience.value || 'everyone',
       starts_at: editStartsAt.value,
       ends_at: editEndsAt.value
     });
-    announcementFlash.value = 'Scrolling announcement updated successfully.';
+    announcementFlash.value = 'Announcement updated successfully.';
     showEditAnnouncementModal.value = false;
     editAnnouncement.value = null;
     await fetchBulkAnnouncements();
@@ -1520,6 +1576,21 @@ onMounted(async () => {
   background: rgba(0, 0, 0, 0.06);
   color: var(--text-secondary);
   border: 1px solid var(--border);
+}
+.ba-badge-splash {
+  background: rgba(168, 85, 247, 0.12);
+  color: #6b21a8;
+  border: 1px solid rgba(168, 85, 247, 0.3);
+}
+.ba-badge-banner {
+  background: rgba(59, 130, 246, 0.12);
+  color: #1e40af;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+.ba-badge-audience {
+  background: rgba(245, 158, 11, 0.12);
+  color: #92400e;
+  border: 1px solid rgba(245, 158, 11, 0.3);
 }
 .ba-portals {
   font-size: 12px;

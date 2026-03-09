@@ -1474,15 +1474,35 @@
                     <label class="filters-label">Message</label>
                     <textarea v-model="scheduledDraft.message" class="filters-input" rows="2" maxlength="1200" placeholder="Type announcement…"></textarea>
                   </div>
-                  <div class="filters-group" style="min-width: 320px;">
-                    <label class="filters-label">Recipients (optional)</label>
-                    <select v-model="scheduledDraft.recipientUserIds" class="filters-input" multiple style="min-height: 86px;">
-                      <option v-for="opt in agencyAnnouncementRecipientOptions" :key="`ann-rec-${opt.id}`" :value="opt.id">
-                        {{ opt.label }}
-                      </option>
+                  <div class="filters-group" style="min-width: 240px;">
+                    <label class="filters-label">Audience</label>
+                    <select v-model="scheduledDraft.audience" class="filters-input" @change="onAudienceChange" @focus="loadAudienceGroups">
+                      <template v-for="(groupOpts, groupName) in audienceOptionsByGroup" :key="groupName">
+                        <option v-if="!groupName" v-for="o in groupOpts" :key="o.value" :value="o.value">{{ o.label }}</option>
+                        <optgroup v-else :label="groupName">
+                          <option v-for="o in groupOpts" :key="o.value" :value="o.value">{{ o.label }}</option>
+                        </optgroup>
+                      </template>
                     </select>
-                    <small class="hint">Leave blank to show for everyone in this agency.</small>
                   </div>
+                  <template v-if="scheduledDraft.audience !== 'everyone'">
+                    <div v-if="scheduledDraft.audience !== 'specific_users'" class="filters-group" style="min-width: 200px;">
+                      <label class="filters-label" style="display: flex; align-items: center; gap: 6px;">
+                        <input type="checkbox" v-model="sendToAllInGroup" />
+                        Send to all {{ audienceGroupLabel }}
+                      </label>
+                      <small class="hint">{{ audienceGroupMembers.length }} {{ audienceGroupMembers.length === 1 ? 'member' : 'members' }} in group</small>
+                    </div>
+                    <div v-if="!sendToAllInGroup || scheduledDraft.audience === 'specific_users'" class="filters-group" style="min-width: 320px;">
+                      <label class="filters-label">{{ scheduledDraft.audience === 'specific_users' ? 'Select users' : 'Select from group' }}</label>
+                      <select v-model="scheduledDraft.recipientUserIds" class="filters-input" multiple style="min-height: 86px;">
+                        <option v-for="opt in audienceGroupMembers" :key="`ann-rec-${opt.id}`" :value="opt.id">
+                          {{ opt.label }}
+                        </option>
+                      </select>
+                      <small class="hint">{{ scheduledDraft.recipientUserIds.length }} selected</small>
+                    </div>
+                  </template>
                 </div>
                 <div class="filters-row" style="align-items: center; margin-top: 10px;">
                   <div class="filters-group">
@@ -1512,7 +1532,7 @@
                     <tr>
                       <th>Title</th>
                       <th>Type</th>
-                      <th>Recipients</th>
+                      <th>Audience</th>
                       <th>Message</th>
                       <th>Starts</th>
                       <th>Ends</th>
@@ -1523,9 +1543,9 @@
                   <tbody>
                     <tr v-for="a in scheduledAnnouncements" :key="`ann-${a.id}`">
                       <td>{{ a.title || 'Announcement' }}</td>
-                      <td>{{ String(a.display_type || 'announcement').toLowerCase() === 'splash' ? 'Splash' : 'Announcement' }}</td>
+                      <td>{{ String(a.display_type || 'announcement').toLowerCase() === 'splash' ? 'Splash' : 'Banner' }}</td>
                       <td>
-                        {{ scheduledRecipientsLabel(a) }}
+                        {{ scheduledAudienceLabel(a) }}
                       </td>
                       <td>{{ a.message }}</td>
                       <td>{{ formatAnnouncementDate(a.starts_at) }}</td>
@@ -3667,6 +3687,7 @@ const scheduledDraft = ref({
   id: null,
   title: '',
   displayType: 'announcement',
+  audience: 'everyone',
   recipientUserIds: [],
   message: '',
   startsAt: '',
@@ -3692,11 +3713,13 @@ const resetScheduledDraft = () => {
     id: null,
     title: '',
     displayType: 'announcement',
+    audience: 'everyone',
     recipientUserIds: [],
     message: '',
     startsAt: toLocalInput(now),
     endsAt: toLocalInput(ends)
   };
+  sendToAllInGroup.value = true;
   scheduledFormError.value = '';
 };
 
@@ -3731,11 +3754,144 @@ const agencyAnnouncementRecipientOptions = computed(() => {
       const first = String(user?.first_name || user?.firstName || '').trim();
       const last = String(user?.last_name || user?.lastName || '').trim();
       const fullName = `${first} ${last}`.trim() || String(user?.email || '').trim() || `User ${id}`;
-      return { id, label: fullName };
+      const role = String(user?.role || '').toLowerCase();
+      const title = String(user?.title || '').trim();
+      const credential = String(user?.credential || '').trim();
+      const serviceFocus = String(user?.service_focus || user?.serviceFocus || '').trim();
+      return { id, label: fullName, role, title, credential, serviceFocus };
     })
     .filter((opt) => opt.id > 0)
     .sort((a, b) => a.label.localeCompare(b.label));
 });
+
+const audienceGroupData = ref({
+  supervisors: [],
+  supervisees: [],
+  titles: {},
+  credentials: {},
+  service_focuses: {},
+  departments: []
+});
+const audienceGroupsLoaded = ref(null);
+
+const loadAudienceGroups = async () => {
+  const agencyId = Number(editingAgency.value?.id || 0);
+  if (!agencyId || audienceGroupsLoaded.value === agencyId) return;
+  try {
+    const res = await api.get(`/agencies/${agencyId}/announcements/audience-groups`);
+    audienceGroupData.value = {
+      supervisors: Array.isArray(res.data?.supervisors) ? res.data.supervisors : [],
+      supervisees: Array.isArray(res.data?.supervisees) ? res.data.supervisees : [],
+      titles: res.data?.titles || {},
+      credentials: res.data?.credentials || {},
+      service_focuses: res.data?.service_focuses || {},
+      departments: Array.isArray(res.data?.departments) ? res.data.departments : []
+    };
+    audienceGroupsLoaded.value = agencyId;
+  } catch {
+    audienceGroupData.value = { supervisors: [], supervisees: [], titles: {}, credentials: {}, service_focuses: {}, departments: [] };
+  }
+};
+
+const audienceOptions = computed(() => {
+  const opts = [
+    { value: 'everyone', label: 'Everyone' },
+    { value: 'providers', label: 'Providers', group: 'By role' },
+    { value: 'admin_staff', label: 'Admin / staff', group: 'By role' },
+    { value: 'supervisors', label: 'Supervisors', group: 'By relationship' },
+    { value: 'supervisees', label: 'Supervisees', group: 'By relationship' }
+  ];
+  const d = audienceGroupData.value;
+  for (const t of Object.keys(d.titles || {}).sort()) {
+    opts.push({ value: `title:${t}`, label: t, group: 'By title' });
+  }
+  for (const c of Object.keys(d.credentials || {}).sort()) {
+    opts.push({ value: `credential:${c}`, label: c, group: 'By classification' });
+  }
+  for (const sf of Object.keys(d.service_focuses || {}).sort()) {
+    opts.push({ value: `service_focus:${sf}`, label: sf, group: 'By service focus' });
+  }
+  for (const dept of (d.departments || [])) {
+    opts.push({ value: `department:${dept.id}`, label: dept.name, group: 'By department' });
+  }
+  opts.push({ value: 'specific_users', label: 'Specific users' });
+  return opts;
+});
+
+const audienceOptionsByGroup = computed(() => {
+  const groups = {};
+  for (const o of audienceOptions.value) {
+    const g = o.group || '';
+    (groups[g] ??= []).push(o);
+  }
+  return groups;
+});
+
+const audienceGroupMembers = computed(() => {
+  const aud = scheduledDraft.value.audience;
+  const all = agencyAnnouncementRecipientOptions.value;
+  if (aud === 'everyone' || aud === 'specific_users') return all;
+  if (aud === 'providers') return all.filter((u) => u.role === 'provider' || u.role === 'provider_plus');
+  if (aud === 'admin_staff') return all.filter((u) => ['admin', 'staff', 'support', 'super_admin', 'assistant_admin'].includes(u.role));
+  if (aud === 'supervisors') {
+    const ids = new Set(audienceGroupData.value.supervisors);
+    return all.filter((u) => ids.has(u.id));
+  }
+  if (aud === 'supervisees') {
+    const ids = new Set(audienceGroupData.value.supervisees);
+    return all.filter((u) => ids.has(u.id));
+  }
+  if (aud.startsWith('title:')) {
+    const t = aud.slice(6);
+    const ids = new Set(audienceGroupData.value.titles?.[t] || []);
+    return all.filter((u) => ids.has(u.id));
+  }
+  if (aud.startsWith('credential:')) {
+    const c = aud.slice(11);
+    const ids = new Set(audienceGroupData.value.credentials?.[c] || []);
+    return all.filter((u) => ids.has(u.id));
+  }
+  if (aud.startsWith('service_focus:')) {
+    const sf = aud.slice(14);
+    const ids = new Set(audienceGroupData.value.service_focuses?.[sf] || []);
+    return all.filter((u) => ids.has(u.id));
+  }
+  if (aud.startsWith('department:')) {
+    const deptId = parseInt(aud.slice(11), 10);
+    const dept = (audienceGroupData.value.departments || []).find((d) => d.id === deptId);
+    const ids = new Set(dept?.user_ids || []);
+    return all.filter((u) => ids.has(u.id));
+  }
+  return all;
+});
+
+const sendToAllInGroup = ref(true);
+
+const audienceGroupLabel = computed(() => {
+  const aud = scheduledDraft.value.audience;
+  const staticMap = {
+    providers: 'providers',
+    admin_staff: 'admin / staff',
+    supervisors: 'supervisors',
+    supervisees: 'supervisees'
+  };
+  if (staticMap[aud]) return staticMap[aud];
+  if (aud.startsWith('title:')) return `with title "${aud.slice(6)}"`;
+  if (aud.startsWith('credential:')) return `with classification "${aud.slice(11)}"`;
+  if (aud.startsWith('service_focus:')) return `with focus "${aud.slice(14)}"`;
+  if (aud.startsWith('department:')) {
+    const deptId = parseInt(aud.slice(11), 10);
+    const dept = (audienceGroupData.value.departments || []).find((d) => d.id === deptId);
+    return `in ${dept?.name || 'department'}`;
+  }
+  return 'in group';
+});
+
+const onAudienceChange = () => {
+  scheduledDraft.value.recipientUserIds = [];
+  sendToAllInGroup.value = true;
+  loadAudienceGroups();
+};
 
 const loadAgencyAnnouncements = async () => {
   if (!editingAgency.value?.id) return;
@@ -3815,12 +3971,30 @@ const saveScheduledAnnouncement = async () => {
   try {
     scheduledSubmitting.value = true;
     scheduledFormError.value = '';
+    const audience = String(scheduledDraft.value.audience || 'everyone');
+    const isRoleBased = audience === 'providers' || audience === 'admin_staff';
+    const needsIdResolution = audience === 'supervisors' || audience === 'supervisees'
+      || audience.startsWith('title:') || audience.startsWith('credential:')
+      || audience.startsWith('service_focus:') || audience.startsWith('department:');
+    let recipientIds = [];
+    if (audience === 'everyone') {
+      recipientIds = [];
+    } else if (sendToAllInGroup.value && audience !== 'specific_users') {
+      if (needsIdResolution) {
+        recipientIds = audienceGroupMembers.value.map((u) => u.id);
+      } else {
+        recipientIds = [];
+      }
+    } else {
+      recipientIds = Array.isArray(scheduledDraft.value.recipientUserIds)
+        ? scheduledDraft.value.recipientUserIds.map((v) => parseInt(String(v), 10)).filter((v) => Number.isFinite(v) && v > 0)
+        : [];
+    }
     const payload = {
       title: scheduledDraft.value.title?.trim() || null,
       display_type: String(scheduledDraft.value.displayType || 'announcement').toLowerCase() === 'splash' ? 'splash' : 'announcement',
-      recipient_user_ids: Array.isArray(scheduledDraft.value.recipientUserIds)
-        ? scheduledDraft.value.recipientUserIds.map((value) => parseInt(String(value), 10)).filter((value) => Number.isFinite(value) && value > 0)
-        : [],
+      audience,
+      recipient_user_ids: recipientIds,
       message: scheduledDraft.value.message.trim(),
       starts_at: new Date(scheduledDraft.value.startsAt),
       ends_at: new Date(scheduledDraft.value.endsAt)
@@ -3840,18 +4014,38 @@ const saveScheduledAnnouncement = async () => {
 };
 
 const editScheduledAnnouncement = (item) => {
+  const aud = String(item?.audience || 'everyone');
+  const recipientIds = Array.isArray(item?.recipient_user_ids)
+    ? item.recipient_user_ids.map((v) => parseInt(String(v), 10)).filter((v) => Number.isFinite(v) && v > 0)
+    : [];
+  const hasRecipients = recipientIds.length > 0;
+
+  let audience = aud;
+  if (aud === 'everyone' && hasRecipients) audience = 'specific_users';
+
+  // For group audiences with IDs, determine if "all in group" was selected.
+  // Role-based groups (providers, admin_staff) with no IDs = all in group.
+  // Other groups with IDs could be all or partial -- default to "all" since
+  // we populated all member IDs at save time for non-role-based groups.
+  const isRoleBased = audience === 'providers' || audience === 'admin_staff';
+  let allInGroup = !hasRecipients || (isRoleBased && !hasRecipients);
+  if (hasRecipients && !isRoleBased && audience !== 'everyone' && audience !== 'specific_users') {
+    allInGroup = true;
+  }
+
   scheduledDraft.value = {
     id: item?.id || null,
     title: String(item?.title || ''),
     displayType: String(item?.display_type || 'announcement').toLowerCase() === 'splash' ? 'splash' : 'announcement',
-    recipientUserIds: Array.isArray(item?.recipient_user_ids)
-      ? item.recipient_user_ids.map((value) => parseInt(String(value), 10)).filter((value) => Number.isFinite(value) && value > 0)
-      : [],
+    audience,
+    recipientUserIds: recipientIds,
     message: String(item?.message || ''),
     startsAt: toLocalInput(item?.starts_at),
     endsAt: toLocalInput(item?.ends_at)
   };
+  sendToAllInGroup.value = allInGroup;
   scheduledFormError.value = '';
+  loadAudienceGroups();
 };
 
 const deleteScheduledAnnouncement = async (item) => {
@@ -3890,14 +4084,41 @@ const scheduledStatusLabel = (item) => {
   return 'Active';
 };
 
-const scheduledRecipientsLabel = (item) => {
+const AUDIENCE_LABELS = {
+  everyone: 'Everyone',
+  providers: 'All providers',
+  admin_staff: 'All admin / staff',
+  supervisors: 'All supervisors',
+  supervisees: 'All supervisees',
+  specific_users: 'Specific users'
+};
+
+const friendlyAudienceGroupName = (aud) => {
+  if (AUDIENCE_LABELS[aud]) return AUDIENCE_LABELS[aud];
+  if (aud.startsWith('title:')) return `Title: ${aud.slice(6)}`;
+  if (aud.startsWith('credential:')) return `Classification: ${aud.slice(11)}`;
+  if (aud.startsWith('service_focus:')) return `Focus: ${aud.slice(14)}`;
+  if (aud.startsWith('department:')) {
+    const deptId = parseInt(aud.slice(11), 10);
+    const dept = (audienceGroupData.value.departments || []).find((d) => d.id === deptId);
+    return `Dept: ${dept?.name || deptId}`;
+  }
+  return 'Everyone';
+};
+
+const scheduledAudienceLabel = (item) => {
+  const aud = String(item?.audience || 'everyone');
   const ids = Array.isArray(item?.recipient_user_ids)
-    ? item.recipient_user_ids.map((value) => parseInt(String(value), 10)).filter((value) => Number.isFinite(value) && value > 0)
+    ? item.recipient_user_ids.map((v) => parseInt(String(v), 10)).filter((v) => Number.isFinite(v) && v > 0)
     : [];
-  if (!ids.length) return 'Everyone';
-  const names = ids
-    .map((id) => agencyAnnouncementRecipientOptions.value.find((opt) => Number(opt.id) === Number(id))?.label || `User ${id}`);
-  return names.join(', ');
+  const groupLabel = friendlyAudienceGroupName(aud);
+  if (!ids.length) return groupLabel;
+  if (aud === 'specific_users' || aud === 'everyone') {
+    const names = ids
+      .map((id) => agencyAnnouncementRecipientOptions.value.find((opt) => Number(opt.id) === Number(id))?.label || `User ${id}`);
+    return names.length <= 3 ? names.join(', ') : `${names.length} users`;
+  }
+  return `${ids.length} from ${groupLabel}`;
 };
 
 // Office locations (sites) editor (agency-only)

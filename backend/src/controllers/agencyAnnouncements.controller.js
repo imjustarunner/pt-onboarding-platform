@@ -76,6 +76,25 @@ const parseAnnouncementDisplayType = (raw) => {
   return value === 'splash' ? 'splash' : 'announcement';
 };
 
+const VALID_AUDIENCE_BASES = ['everyone', 'providers', 'admin_staff', 'supervisors', 'supervisees', 'specific_users'];
+const VALID_AUDIENCE_PREFIXES = ['title:', 'credential:', 'service_focus:', 'department:'];
+const parseAudience = (raw) => {
+  const value = String(raw || 'everyone').trim();
+  if (VALID_AUDIENCE_BASES.includes(value.toLowerCase())) return value.toLowerCase();
+  if (VALID_AUDIENCE_PREFIXES.some((p) => value.startsWith(p))) return value;
+  return 'everyone';
+};
+
+const audienceMatchesRole = (audience, role) => {
+  const r = String(role || '').toLowerCase();
+  if (audience === 'everyone') return true;
+  if (audience === 'providers') return r === 'provider' || r === 'provider_plus';
+  if (audience === 'admin_staff') return ['admin', 'staff', 'support', 'super_admin', 'assistant_admin'].includes(r);
+  // Supervisor/supervisee and attribute-based audiences are resolved via recipient_user_ids;
+  // the role check passes everyone through and the ID filter handles narrowing.
+  return true;
+};
+
 const parseRecipientUserIds = (raw) => {
   if (Array.isArray(raw)) return normalizePositiveIntIds(raw);
   if (raw && typeof raw === 'object') return normalizePositiveIntIds(raw);
@@ -361,31 +380,37 @@ export const listAgencyBannerAnnouncements = async (req, res, next) => {
     const userId = parseAgencyId(req.user?.id);
     if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
 
+    const userRole = String(req.user?.role || '').toLowerCase();
+
     const [rows] = await pool.execute(
-      `SELECT id, title, message, starts_at, ends_at, created_at, display_type, recipient_user_ids
+      `SELECT id, title, message, starts_at, ends_at, created_at, display_type, recipient_user_ids, audience
        FROM agency_scheduled_announcements
        WHERE agency_id = ?
          AND NOW() >= starts_at
          AND NOW() <= ends_at
-         AND (
-           recipient_user_ids IS NULL
-           OR JSON_LENGTH(recipient_user_ids) = 0
-           OR JSON_CONTAINS(recipient_user_ids, CAST(? AS JSON), '$')
-         )
        ORDER BY starts_at ASC, id DESC
-       LIMIT 20`,
-      [agencyId, String(userId)]
+       LIMIT 50`,
+      [agencyId]
     );
-    const out = (rows || []).map((r) => ({
-      id: r.id,
-      title: r.title || 'Announcement',
-      message: r.message || '',
-      display_type: parseAnnouncementDisplayType(r.display_type),
-      recipient_user_ids: parseRecipientUserIds(r.recipient_user_ids),
-      starts_at: r.starts_at,
-      ends_at: r.ends_at,
-      created_at: r.created_at
-    }));
+    const out = (rows || [])
+      .filter((r) => {
+        const aud = r.audience || 'everyone';
+        if (!audienceMatchesRole(aud, userRole)) return false;
+        const ids = parseRecipientUserIds(r.recipient_user_ids);
+        if (ids.length > 0 && !ids.includes(userId)) return false;
+        return true;
+      })
+      .map((r) => ({
+        id: r.id,
+        title: r.title || 'Announcement',
+        message: r.message || '',
+        display_type: parseAnnouncementDisplayType(r.display_type),
+        recipient_user_ids: parseRecipientUserIds(r.recipient_user_ids),
+        audience: r.audience || 'everyone',
+        starts_at: r.starts_at,
+        ends_at: r.ends_at,
+        created_at: r.created_at
+      }));
     res.json(out);
   } catch (e) {
     next(e);
@@ -412,6 +437,7 @@ export const listAgencyScheduledAnnouncements = async (req, res, next) => {
         asa.message,
         asa.display_type,
         asa.recipient_user_ids,
+        asa.audience,
         asa.starts_at,
         asa.ends_at,
         asa.created_at,
@@ -430,6 +456,7 @@ export const listAgencyScheduledAnnouncements = async (req, res, next) => {
       message: r.message || '',
       display_type: parseAnnouncementDisplayType(r.display_type),
       recipient_user_ids: parseRecipientUserIds(r.recipient_user_ids),
+      audience: r.audience || 'everyone',
       starts_at: r.starts_at,
       ends_at: r.ends_at,
       created_at: r.created_at,
@@ -463,6 +490,7 @@ export const createAgencyScheduledAnnouncement = async (req, res, next) => {
     const message = String(req.body?.message || '').trim();
     const displayType = parseAnnouncementDisplayType(req.body?.displayType || req.body?.display_type);
     const recipientUserIds = parseRecipientUserIds(req.body?.recipientUserIds || req.body?.recipient_user_ids);
+    const audience = parseAudience(req.body?.audience);
     if (!message) return res.status(400).json({ error: { message: 'Message is required' } });
     if (message.length > 1200) return res.status(400).json({ error: { message: 'Message is too long (max 1200 characters)' } });
 
@@ -491,9 +519,9 @@ export const createAgencyScheduledAnnouncement = async (req, res, next) => {
 
     const [result] = await pool.execute(
       `INSERT INTO agency_scheduled_announcements
-       (agency_id, created_by_user_id, title, message, display_type, recipient_user_ids, starts_at, ends_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [agencyId, userId, title, message, displayType, JSON.stringify(recipientUserIds), startsAt, endsAt]
+       (agency_id, created_by_user_id, title, message, display_type, recipient_user_ids, audience, starts_at, ends_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [agencyId, userId, title, message, displayType, JSON.stringify(recipientUserIds), audience, startsAt, endsAt]
     );
 
     const id = result?.insertId ? Number(result.insertId) : null;
@@ -505,6 +533,7 @@ export const createAgencyScheduledAnnouncement = async (req, res, next) => {
         message,
         display_type: displayType,
         recipient_user_ids: recipientUserIds,
+        audience,
         starts_at: startsAt,
         ends_at: endsAt,
         created_by_user_id: userId
@@ -535,6 +564,7 @@ export const updateAgencyScheduledAnnouncement = async (req, res, next) => {
     const message = String(req.body?.message || '').trim();
     const displayType = parseAnnouncementDisplayType(req.body?.displayType || req.body?.display_type);
     const recipientUserIds = parseRecipientUserIds(req.body?.recipientUserIds || req.body?.recipient_user_ids);
+    const audience = parseAudience(req.body?.audience);
     if (!message) return res.status(400).json({ error: { message: 'Message is required' } });
     if (message.length > 1200) return res.status(400).json({ error: { message: 'Message is too long (max 1200 characters)' } });
 
@@ -568,6 +598,7 @@ export const updateAgencyScheduledAnnouncement = async (req, res, next) => {
          message = ?,
          display_type = ?,
          recipient_user_ids = ?,
+         audience = ?,
          starts_at = ?,
          ends_at = ?
        WHERE id = ? AND agency_id = ?`,
@@ -576,6 +607,7 @@ export const updateAgencyScheduledAnnouncement = async (req, res, next) => {
         message,
         displayType,
         JSON.stringify(recipientUserIds),
+        audience,
         startsAt,
         endsAt,
         announcementId,
@@ -594,6 +626,7 @@ export const updateAgencyScheduledAnnouncement = async (req, res, next) => {
         message,
         display_type: displayType,
         recipient_user_ids: recipientUserIds,
+        audience,
         starts_at: startsAt,
         ends_at: endsAt
       }
@@ -627,6 +660,84 @@ export const deleteAgencyScheduledAnnouncement = async (req, res, next) => {
     }
 
     res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * List audience group member IDs for an agency (supervisors, supervisees).
+ * GET /api/agencies/:id/announcements/audience-groups
+ */
+export const listAnnouncementAudienceGroups = async (req, res, next) => {
+  try {
+    const agencyId = parseAgencyId(req.params.id);
+    if (!agencyId) return res.status(400).json({ error: { message: 'Invalid agency id' } });
+
+    if (!(await userHasAgencyAccess(req, agencyId))) {
+      return res.status(403).json({ error: { message: 'Not authorized for this agency' } });
+    }
+
+    const [supervisorRows] = await pool.execute(
+      `SELECT DISTINCT supervisor_id AS user_id FROM supervisor_assignments WHERE agency_id = ?`,
+      [agencyId]
+    );
+    const [superviseeRows] = await pool.execute(
+      `SELECT DISTINCT supervisee_id AS user_id FROM supervisor_assignments WHERE agency_id = ?`,
+      [agencyId]
+    );
+
+    // Distinct titles, credentials, service_focus for agency users
+    const [attrRows] = await pool.execute(
+      `SELECT u.id AS user_id, u.title, u.credential, u.service_focus
+       FROM users u
+       INNER JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
+       WHERE (u.is_archived = FALSE OR u.is_archived IS NULL)`,
+      [agencyId]
+    );
+
+    const titleMap = {};
+    const credentialMap = {};
+    const serviceFocusMap = {};
+    for (const r of attrRows || []) {
+      const uid = Number(r.user_id);
+      const t = String(r.title || '').trim();
+      const c = String(r.credential || '').trim();
+      const sf = String(r.service_focus || '').trim();
+      if (t) { (titleMap[t] ??= []).push(uid); }
+      if (c) { (credentialMap[c] ??= []).push(uid); }
+      if (sf) { (serviceFocusMap[sf] ??= []).push(uid); }
+    }
+
+    // Departments
+    let departments = [];
+    try {
+      const [deptRows] = await pool.execute(
+        `SELECT d.id, d.name, GROUP_CONCAT(uda.user_id) AS user_ids
+         FROM agency_departments d
+         INNER JOIN user_department_assignments uda ON uda.department_id = d.id AND uda.agency_id = d.agency_id
+         WHERE d.agency_id = ? AND d.is_active = 1
+         GROUP BY d.id, d.name
+         ORDER BY d.display_order, d.name`,
+        [agencyId]
+      );
+      departments = (deptRows || []).map((r) => ({
+        id: r.id,
+        name: r.name,
+        user_ids: String(r.user_ids || '').split(',').map(Number).filter((n) => n > 0)
+      }));
+    } catch {
+      // tables may not exist
+    }
+
+    res.json({
+      supervisors: (supervisorRows || []).map((r) => Number(r.user_id)),
+      supervisees: (superviseeRows || []).map((r) => Number(r.user_id)),
+      titles: titleMap,
+      credentials: credentialMap,
+      service_focuses: serviceFocusMap,
+      departments
+    });
   } catch (e) {
     next(e);
   }

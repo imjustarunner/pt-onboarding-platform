@@ -9,7 +9,8 @@ import {
   listAgencyScheduledAnnouncements,
   createAgencyScheduledAnnouncement,
   updateAgencyScheduledAnnouncement,
-  deleteAgencyScheduledAnnouncement
+  deleteAgencyScheduledAnnouncement,
+  listAnnouncementAudienceGroups
 } from '../controllers/agencyAnnouncements.controller.js';
 import {
   getManagementTeam,
@@ -445,6 +446,7 @@ router.get('/:id/announcements', authenticate, requireBackofficeAdmin, getAgency
 router.put('/:id/announcements', authenticate, requireBackofficeAdmin, updateAgencyAnnouncements);
 router.get('/:id/announcements/banner', authenticate, listAgencyBannerAnnouncements);
 router.get('/:id/announcements/list', authenticate, requireBackofficeAdmin, listAgencyScheduledAnnouncements);
+router.get('/:id/announcements/audience-groups', authenticate, requireBackofficeAdmin, listAnnouncementAudienceGroups);
 router.post('/:id/announcements', authenticate, requireBackofficeAdmin, createAgencyScheduledAnnouncement);
 router.put('/:id/announcements/:announcementId', authenticate, requireBackofficeAdmin, updateAgencyScheduledAnnouncement);
 router.delete('/:id/announcements/:announcementId', authenticate, requireBackofficeAdmin, deleteAgencyScheduledAnnouncement);

@@ -44,7 +44,7 @@
         </div>
       </div>
       <div
-        v-if="bannerItems.length > 0"
+        v-if="scrollingBannerItems.length > 0"
         class="portal-banner"
         role="button"
         tabindex="0"
@@ -872,8 +872,37 @@
       </div>
     </div>
 
+    <div
+      v-if="currentSplashAnnouncement"
+      class="blocking-splash"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Announcement splash"
+    >
+      <div class="blocking-splash-card">
+        <div class="blocking-splash-head">
+          <img v-if="schoolLogoUrl" :src="schoolLogoUrl" alt="" class="blocking-splash-logo-img" />
+          <div class="blocking-splash-brand">{{ schoolName || 'School Portal' }}</div>
+        </div>
+        <h3 class="blocking-splash-title">
+          {{ splashTitleText }}
+        </h3>
+        <p class="blocking-splash-message">
+          {{ currentSplashAnnouncement.message || '' }}
+        </p>
+        <div class="blocking-splash-meta" v-if="currentSplashAnnouncement.ends_at">
+          Visible until {{ formatSplashEndsAt(currentSplashAnnouncement.ends_at) }}
+        </div>
+        <div class="blocking-splash-actions">
+          <button type="button" class="btn btn-primary" @click="dismissCurrentSplash">
+            Dismiss
+          </button>
+        </div>
+      </div>
+    </div>
+
     <ReviewPromptModal
-      v-if="showReviewPrompt && reviewPromptConfig"
+      v-if="showReviewPrompt && reviewPromptConfig && !currentSplashAnnouncement"
       :config="reviewPromptConfig"
       @close="showReviewPrompt = false"
       @completed="onReviewPromptCompleted"
@@ -1521,8 +1550,78 @@ const settingsIconUrl = computed(() => {
 const notificationsUnreadCount = ref(0);
 const notificationsNewestSnippet = ref('');
 const bannerItems = ref([]);
-const bannerTexts = computed(() => {
+const scrollingBannerItems = computed(() => {
   const list = Array.isArray(bannerItems.value) ? bannerItems.value : [];
+  return list.filter((a) => String(a?.display_type || 'announcement').toLowerCase() !== 'splash');
+});
+
+const splashAnnouncementItems = computed(() => {
+  const list = Array.isArray(bannerItems.value) ? bannerItems.value : [];
+  return list
+    .filter((a) => String(a?.display_type || 'announcement').toLowerCase() === 'splash')
+    .sort((a, b) => new Date(a?.starts_at || 0).getTime() - new Date(b?.starts_at || 0).getTime());
+});
+
+const SCHOOL_SPLASH_PREFIX = 'schoolPortalSplash';
+const splashDismissVersion = ref(0);
+
+const splashDismissKey = (item) => {
+  const userId = Number(authStore.user?.id || 0);
+  const orgId = Number(organizationId.value || 0);
+  const splashId = Number(item?.id || 0);
+  if (!userId || !orgId || !splashId) return null;
+  return `${SCHOOL_SPLASH_PREFIX}:${userId}:${orgId}:${splashId}`;
+};
+
+const isSplashDismissed = (item) => {
+  const key = splashDismissKey(item);
+  if (!key) return false;
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return false;
+    const untilTs = Number.parseInt(String(raw), 10);
+    if (!Number.isFinite(untilTs) || untilTs <= Date.now()) {
+      localStorage.removeItem(key);
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const openSplashAnnouncements = computed(() => {
+  void splashDismissVersion.value;
+  return splashAnnouncementItems.value.filter((item) => !isSplashDismissed(item));
+});
+
+const currentSplashAnnouncement = computed(() => openSplashAnnouncements.value[0] || null);
+
+const splashTitleText = computed(() => {
+  const title = String(currentSplashAnnouncement.value?.title || '').trim();
+  if (title && title.toLowerCase() !== 'announcement') return title;
+  return 'Important announcement';
+});
+
+const formatSplashEndsAt = (dateLike) => {
+  const dt = new Date(dateLike || 0);
+  if (!Number.isFinite(dt.getTime())) return '';
+  return dt.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+};
+
+const dismissCurrentSplash = () => {
+  const item = currentSplashAnnouncement.value;
+  if (!item) return;
+  const key = splashDismissKey(item);
+  if (!key) return;
+  const endsAt = new Date(item.ends_at || 0).getTime();
+  const expiry = Number.isFinite(endsAt) && endsAt > Date.now() ? endsAt : Date.now() + 14 * 24 * 60 * 60 * 1000;
+  try { localStorage.setItem(key, String(expiry)); } catch {}
+  splashDismissVersion.value++;
+};
+
+const bannerTexts = computed(() => {
+  const list = scrollingBannerItems.value;
   return list
     .map((a) => {
       const title = String(a?.title || '').trim();
@@ -3217,5 +3316,68 @@ watch(() => store.selectedWeekday, async (weekday) => {
   .nav-label {
     display: none;
   }
+}
+
+.blocking-splash {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.blocking-splash-card {
+  width: min(700px, 96vw);
+  border-radius: 16px;
+  background: var(--card-bg, #fff);
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.35);
+  padding: 40px 36px 32px;
+}
+
+.blocking-splash-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.blocking-splash-logo-img {
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+  border-radius: 6px;
+}
+
+.blocking-splash-brand {
+  font-weight: 800;
+  color: var(--text-secondary);
+}
+
+.blocking-splash-title {
+  margin: 0 0 8px 0;
+  color: var(--primary, #4338ca);
+  font-size: 1.4rem;
+}
+
+.blocking-splash-message {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 1.08rem;
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+
+.blocking-splash-meta {
+  margin-top: 10px;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+.blocking-splash-actions {
+  margin-top: 16px;
+  display: flex;
+  gap: 12px;
 }
 </style>
