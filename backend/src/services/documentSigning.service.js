@@ -226,28 +226,27 @@ class DocumentSigningService {
   static async convertHTMLToPDFFallback(htmlContent, options = {}) {
     console.log('DocumentSigningService.convertHTMLToPDFFallback: Creating styled PDF fallback from HTML...');
 
-    const decodeHtmlEntities = (input) =>
-      sanitizeForPdf(
-        String(input || '')
-          .replace(/&nbsp;/gi, ' ')
-          .replace(/&amp;/gi, '&')
-          .replace(/&lt;/gi, '<')
-          .replace(/&gt;/gi, '>')
-          .replace(/&#39;/g, "'")
-          .replace(/&quot;/gi, '"')
-      );
+    const decodeEntities = (input) =>
+      String(input || '')
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/&amp;/gi, '&')
+        .replace(/&lt;/gi, '<')
+        .replace(/&gt;/gi, '>')
+        .replace(/&#39;/g, "'")
+        .replace(/&quot;/gi, '"');
 
     const stripTags = (input) =>
-      decodeHtmlEntities(String(input || '').replace(/<[^>]+>/g, ' '))
+      decodeEntities(String(input || '').replace(/<[^>]+>/g, ' '))
         .replace(/\s+/g, ' ')
         .trim();
 
     const raw = String(htmlContent || '')
+      .replace(/<head[^>]*>[\s\S]*?<\/head>/gi, '')
       .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
       .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
 
     const titleMatch = raw.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
-    const title = stripTags(titleMatch?.[1]) || 'Document';
+    const title = sanitizeForPdf(stripTags(titleMatch?.[1])) || 'Document';
 
     const HEADING_SENTINEL = 'HDNG__:';
     const normalizedText = raw
@@ -257,14 +256,23 @@ class DocumentSigningService {
       .replace(/<\/li>/gi, '\n')
       .replace(/<\/(h1|p|div|ul|ol)>/gi, '\n')
       .replace(/<br\s*\/?>/gi, '\n');
-    const lines = decodeHtmlEntities(normalizedText.replace(/<[^>]+>/g, ' '))
+    const tagStripped = normalizedText.replace(/<[^>]+>/g, ' ');
+    const lines = tagStripped
       .split('\n')
-      .map((s) => s.replace(/\s+/g, ' ').trim())
+      .map((s) => {
+        const decoded = decodeEntities(s).replace(/\s+/g, ' ').trim();
+        if (decoded.startsWith(HEADING_SENTINEL)) {
+          return HEADING_SENTINEL + sanitizeForPdf(decoded.slice(HEADING_SENTINEL.length).trim());
+        }
+        return sanitizeForPdf(decoded);
+      })
       .filter(Boolean)
-      .filter((line) => line !== title && line !== `${HEADING_SENTINEL}${title}`)
+      .filter((line) => line !== title)
+      .filter((line) => line !== `${HEADING_SENTINEL}${title}`)
       .filter((line) => !/^school staff signature$/i.test(line))
       .filter((line) => !/^signature:?$/i.test(line))
-      .filter((line) => !/^-?\s*signature:?\s*$/i.test(String(line || '').trim()));
+      .filter((line) => !/^date$/i.test(line))
+      .filter((line) => !/^-?\s*signature:?\s*$/i.test(line));
 
     const pdfDoc = await PDFDocument.create();
     const helvetica = await pdfDoc.embedFont('Helvetica');
