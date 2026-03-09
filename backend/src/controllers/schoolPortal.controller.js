@@ -60,6 +60,18 @@ async function resolveActiveAgencyIdForOrg(orgId) {
   );
 }
 
+async function canSchoolStaffUseWaiverFallbackAccess({ userId, orgId }) {
+  const uid = Number(userId || 0);
+  const sid = Number(orgId || 0);
+  if (!uid || !sid) return false;
+  const userOrgs = await User.getAgencies(uid);
+  const hasDirect = (userOrgs || []).some((org) => Number(org?.id || 0) === sid);
+  if (hasDirect) return true;
+  const activeAgencyId = await resolveActiveAgencyIdForOrg(sid);
+  if (!activeAgencyId) return false;
+  return (userOrgs || []).some((org) => Number(org?.id || 0) === Number(activeAgencyId));
+}
+
 async function hasSupportTicketMessagesTable() {
   try {
     const [rows] = await pool.execute(
@@ -1607,6 +1619,13 @@ export const getSchoolPortalStats = async (req, res, next) => {
  */
 export const getSchoolStaffWaiverStatus = async (req, res, next) => {
   try {
+    const isLocalRequest = (() => {
+      const host = String(req.get('host') || '').toLowerCase();
+      const origin = String(req.get('origin') || '').toLowerCase();
+      const referer = String(req.get('referer') || '').toLowerCase();
+      const joined = `${host} ${origin} ${referer}`;
+      return joined.includes('localhost') || joined.includes('127.0.0.1');
+    })();
     const orgId = await resolveOrgIdFromParam(req.params.organizationId);
     if (!orgId) return res.status(400).json({ error: { message: 'Invalid organizationId' } });
 
@@ -1616,7 +1635,13 @@ export const getSchoolStaffWaiverStatus = async (req, res, next) => {
       org = access?.org || null;
     } catch (accessError) {
       const roleNorm = String(req.user?.role || '').toLowerCase();
-      if (!(isLocalRequest && roleNorm === 'school_staff')) {
+      const waiverFallbackAccess =
+        roleNorm === 'school_staff' &&
+        await canSchoolStaffUseWaiverFallbackAccess({
+          userId: req.user?.id,
+          orgId
+        });
+      if (!(waiverFallbackAccess || (isLocalRequest && roleNorm === 'school_staff'))) {
         throw accessError;
       }
       org = await Agency.findById(orgId);
