@@ -286,61 +286,87 @@
       <div v-if="rows.length === 0" class="empty-state">
         <p>No active school staff found for this school.</p>
       </div>
-      <div v-else class="table-wrap">
-        <table class="table">
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Email</th>
-              <th>Current state</th>
-              <th>Set state</th>
-              <th>Last packet upload</th>
-              <th>Last ROI grant</th>
-              <th class="right"></th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="row in rows" :key="row.school_staff_user_id">
-              <td>
-                <div>{{ displayName(row) }}</div>
-                <div v-if="row.effective_access_state === 'expired'" class="hint">ROI expired</div>
-              </td>
-              <td>{{ row.email || '—' }}</td>
-              <td>
-                <span class="state-pill" :class="stateClass(row.effective_access_state)">
-                  {{ stateLabel(row.effective_access_state, row.access_level) }}
-                </span>
-              </td>
-              <td style="min-width: 180px;">
-                <select v-model="draftStates[row.school_staff_user_id]" class="inline-select">
-                  <option value="none">No access</option>
-                  <option value="packet">Packet</option>
-                  <option value="limited">Limited</option>
-                  <option value="roi">ROI access</option>
-                  <option value="roi_docs">ROI and Doc Access</option>
-                </select>
-              </td>
-              <td>
-                <div>{{ formatDateTime(row.last_packet_uploaded_at) }}</div>
-                <div v-if="row.last_packet_uploaded_by_name" class="hint">by {{ row.last_packet_uploaded_by_name }}</div>
-              </td>
-              <td>
-                <div>{{ formatDateTime(row.granted_at) }}</div>
-                <div v-if="row.granted_by_name" class="hint">by {{ row.granted_by_name }}</div>
-              </td>
-              <td class="right" style="white-space: nowrap;">
-                <button
-                  type="button"
-                  class="btn btn-secondary btn-sm"
-                  :disabled="savingUserId === row.school_staff_user_id || !isDirty(row)"
-                  @click="saveRow(row)"
-                >
-                  {{ savingUserId === row.school_staff_user_id ? 'Saving…' : 'Save' }}
-                </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+      <div v-else>
+        <div class="bulk-bar">
+          <div class="bulk-bar-left">
+            <label class="bulk-label">Set all to:</label>
+            <select v-model="bulkAccessLevel" class="inline-select bulk-select" :disabled="bulkSaving">
+              <option value="">— choose —</option>
+              <option value="none">No access</option>
+              <option value="packet">Packet</option>
+              <option value="limited">Limited</option>
+              <option value="roi">ROI access</option>
+              <option value="roi_docs">ROI and Doc Access</option>
+            </select>
+            <button
+              type="button"
+              class="btn btn-primary btn-sm"
+              :disabled="!bulkAccessLevel || bulkSaving"
+              @click="applyBulkAndSave"
+            >
+              {{ bulkSaving ? `Saving ${bulkProgress}/${rows.length}…` : 'Apply + Save All' }}
+            </button>
+          </div>
+          <div class="bulk-bar-right">
+            <span v-if="dirtyCount > 0" class="dirty-count">{{ dirtyCount }} unsaved change{{ dirtyCount === 1 ? '' : 's' }}</span>
+            <button
+              type="button"
+              class="btn btn-primary btn-sm"
+              :disabled="dirtyCount === 0 || bulkSaving"
+              @click="saveAllDirty"
+            >
+              {{ bulkSaving ? `Saving ${bulkProgress}…` : `Save All Changes (${dirtyCount})` }}
+            </button>
+          </div>
+        </div>
+
+        <div v-if="bulkError" class="error" style="margin-bottom: 8px;">{{ bulkError }}</div>
+
+        <div class="table-wrap">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Current state</th>
+                <th>Set state</th>
+                <th>Last packet upload</th>
+                <th>Last ROI grant</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="row in rows" :key="row.school_staff_user_id" :class="{ 'row-dirty': isDirty(row) }">
+                <td>
+                  <div>{{ displayName(row) }}</div>
+                  <div v-if="row.effective_access_state === 'expired'" class="hint">ROI expired</div>
+                </td>
+                <td>{{ row.email || '—' }}</td>
+                <td>
+                  <span class="state-pill" :class="stateClass(row.effective_access_state)">
+                    {{ stateLabel(row.effective_access_state, row.access_level) }}
+                  </span>
+                </td>
+                <td style="min-width: 180px;">
+                  <select v-model="draftStates[row.school_staff_user_id]" class="inline-select" :disabled="bulkSaving">
+                    <option value="none">No access</option>
+                    <option value="packet">Packet</option>
+                    <option value="limited">Limited</option>
+                    <option value="roi">ROI access</option>
+                    <option value="roi_docs">ROI and Doc Access</option>
+                  </select>
+                </td>
+                <td>
+                  <div>{{ formatDateTime(row.last_packet_uploaded_at) }}</div>
+                  <div v-if="row.last_packet_uploaded_by_name" class="hint">by {{ row.last_packet_uploaded_by_name }}</div>
+                </td>
+                <td>
+                  <div>{{ formatDateTime(row.granted_at) }}</div>
+                  <div v-if="row.granted_by_name" class="hint">by {{ row.granted_by_name }}</div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     </template>
   </div>
@@ -649,7 +675,14 @@ const load = async () => {
   }
 };
 
+const bulkAccessLevel = ref('');
+const bulkSaving = ref(false);
+const bulkProgress = ref('');
+const bulkError = ref('');
+
 const isDirty = (row) => normalizeState(draftStates.value[row.school_staff_user_id]) !== normalizeState(row.access_level);
+
+const dirtyCount = computed(() => (rows.value || []).filter((r) => isDirty(r)).length);
 
 const saveRow = async (row) => {
   const clientId = Number(props.client?.id || 0);
@@ -661,13 +694,55 @@ const saveRow = async (row) => {
     error.value = '';
     const nextState = normalizeState(draftStates.value[schoolStaffUserId]);
     await api.put(`/clients/${clientId}/school-roi-access/${schoolStaffUserId}`, { nextState });
-    await load();
     emit('updated', { keepOpen: true });
   } catch (err) {
     error.value = err.response?.data?.error?.message || 'Failed to update school ROI access';
   } finally {
     savingUserId.value = null;
   }
+};
+
+const saveAllDirty = async () => {
+  const clientId = Number(props.client?.id || 0);
+  if (!clientId) return;
+  const dirtyRows = (rows.value || []).filter((r) => isDirty(r));
+  if (dirtyRows.length === 0) return;
+
+  bulkSaving.value = true;
+  bulkError.value = '';
+  let saved = 0;
+  const errors = [];
+
+  for (const row of dirtyRows) {
+    const uid = Number(row.school_staff_user_id || 0);
+    if (!uid) continue;
+    saved += 1;
+    bulkProgress.value = `${saved}/${dirtyRows.length}`;
+    try {
+      const nextState = normalizeState(draftStates.value[uid]);
+      await api.put(`/clients/${clientId}/school-roi-access/${uid}`, { nextState });
+    } catch (err) {
+      errors.push(`${displayName(row)}: ${err.response?.data?.error?.message || err.message}`);
+    }
+  }
+
+  bulkSaving.value = false;
+  bulkProgress.value = '';
+  if (errors.length) {
+    bulkError.value = `Saved ${saved - errors.length}/${dirtyRows.length}. Errors: ${errors.join('; ')}`;
+  }
+  await load();
+  emit('updated', { keepOpen: true });
+};
+
+const applyBulkAndSave = async () => {
+  const level = normalizeState(bulkAccessLevel.value);
+  if (!level && level !== 'none') return;
+  for (const row of rows.value || []) {
+    draftStates.value[row.school_staff_user_id] = level;
+  }
+  bulkAccessLevel.value = '';
+  await saveAllDirty();
 };
 
 const saveRoiDate = async () => {
@@ -1049,5 +1124,51 @@ onBeforeUnmount(() => {
   background: rgba(239, 68, 68, 0.08);
   border-color: rgba(239, 68, 68, 0.28);
   color: #b91c1c;
+}
+
+.bulk-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-alt);
+}
+
+.bulk-bar-left,
+.bulk-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.bulk-label {
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.bulk-select {
+  min-width: 170px;
+}
+
+.dirty-count {
+  font-size: 12px;
+  font-weight: 800;
+  color: #b45309;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: 999px;
+  padding: 3px 10px;
+  white-space: nowrap;
+}
+
+.row-dirty {
+  background: rgba(245, 158, 11, 0.06);
 }
 </style>
