@@ -15,10 +15,10 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const SIGN_OP_TIMEOUT_MS = {
-  pdfGenerate: 60000,
-  pdfStore: 60000,
-  workflowFinalize: 20000,
-  taskComplete: 20000
+  pdfGenerate: 15000,
+  pdfStore: 10000,
+  workflowFinalize: 8000,
+  taskComplete: 8000
 };
 
 async function withTimeout(promise, ms, label) {
@@ -714,7 +714,8 @@ export const signDocument = async (req, res, next) => {
       }
     };
 
-    const brandingContext = await resolveBrandingContext();
+    const waiverFastPath = isWaiverStyleTask(task, signedDoc);
+    const brandingContext = waiverFastPath ? null : await resolveBrandingContext();
 
     const documentName =
       template?.name ||
@@ -781,69 +782,64 @@ export const signDocument = async (req, res, next) => {
     console.log(`signDocument: Generating finalized PDF...`);
     // Generate finalized PDF
     let pdfBytes;
-    try {
+    if (waiverFastPath) {
+      // Fast path: waiver completion should be "done and done" without heavy template rendering.
+      const fallbackHtml = buildWaiverFallbackHtml({
+        documentName,
+        user: signerInfo,
+        signedAtIso: new Date().toISOString()
+      });
       pdfBytes = await withTimeout(
         DocumentSigningService.generateFinalizedPDF(
-          templatePath,
-          templateType,
-          htmlContent,
+          null,
+          'html',
+          fallbackHtml,
           signatureData,
           workflow,
           signerInfo,
           mergedAuditTrail,
-          signatureCoords,
+          null,
           {
             referenceNumber,
             documentName,
             signatureOnAuditPage: true,
-            fieldDefinitions: normalizedFieldDefs,
-            fieldValues: normalizedFieldValues,
-            branding: brandingContext
+            fieldDefinitions: [],
+            fieldValues: {},
+            branding: null
           }
         ),
-        SIGN_OP_TIMEOUT_MS.pdfGenerate,
-        'pdf generation'
+        8000,
+        'waiver fast-path pdf generation'
       );
-      console.log(`signDocument: PDF generated successfully, size: ${pdfBytes.length} bytes`);
-    } catch (pdfError) {
-      console.error('signDocument: Error generating PDF:', pdfError);
-      console.error('signDocument: PDF error stack:', pdfError.stack);
-      // Waiver-first fallback: produce a minimal signed PDF so school-staff access can unlock
-      // even when rich template rendering times out in production.
-      if (isWaiverStyleTask(task, signedDoc)) {
-        try {
-          const fallbackHtml = buildWaiverFallbackHtml({
-            documentName,
-            user: signerInfo,
-            signedAtIso: new Date().toISOString()
-          });
-          pdfBytes = await withTimeout(
-            DocumentSigningService.generateFinalizedPDF(
-              null,
-              'html',
-              fallbackHtml,
-              signatureData,
-              workflow,
-              signerInfo,
-              mergedAuditTrail,
-              null,
-              {
-                referenceNumber,
-                documentName,
-                signatureOnAuditPage: true,
-                fieldDefinitions: [],
-                fieldValues: {},
-                branding: null
-              }
-            ),
-            15000,
-            'waiver fallback pdf generation'
-          );
-          console.log(`signDocument: Waiver fallback PDF generated successfully, size: ${pdfBytes.length} bytes`);
-        } catch (fallbackErr) {
-          throw new Error(`Failed to generate PDF: ${fallbackErr.message || pdfError.message}`);
-        }
-      } else {
+      console.log(`signDocument: Waiver fast-path PDF generated successfully, size: ${pdfBytes.length} bytes`);
+    } else {
+      try {
+        pdfBytes = await withTimeout(
+          DocumentSigningService.generateFinalizedPDF(
+            templatePath,
+            templateType,
+            htmlContent,
+            signatureData,
+            workflow,
+            signerInfo,
+            mergedAuditTrail,
+            signatureCoords,
+            {
+              referenceNumber,
+              documentName,
+              signatureOnAuditPage: true,
+              fieldDefinitions: normalizedFieldDefs,
+              fieldValues: normalizedFieldValues,
+              branding: brandingContext
+            }
+          ),
+          SIGN_OP_TIMEOUT_MS.pdfGenerate,
+          'pdf generation'
+        );
+        console.log(`signDocument: PDF generated successfully, size: ${pdfBytes.length} bytes`);
+      } catch (pdfError) {
+        console.error('signDocument: Error generating PDF:', pdfError);
+        console.error('signDocument: PDF error stack:', pdfError.stack);
         throw new Error(`Failed to generate PDF: ${pdfError.message}`);
       }
     }
