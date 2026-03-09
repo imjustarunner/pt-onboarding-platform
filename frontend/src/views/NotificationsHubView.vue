@@ -31,9 +31,9 @@
             <router-link v-if="isAdminLike" class="btn btn-secondary btn-sm" :to="ticketsLink">
               Tickets
             </router-link>
-            <router-link class="btn btn-secondary btn-sm" :to="notificationSettingsLink" title="Notification settings">
+            <button class="btn btn-secondary btn-sm" type="button" @click="toastSettingsOpen = true" title="Toast notification settings">
               ⚙ Settings
-            </router-link>
+            </button>
           </div>
         </div>
         <p class="hint">{{ showUnreadForAdmin ? 'Notifications you haven\'t read yet (matches the count in the header).' : 'These are notifications where you are the target user (including SMS-eligible events).' }}</p>
@@ -165,6 +165,79 @@
     @close="closeAdminClientEditor"
     @updated="handleAdminClientUpdated"
   />
+
+  <!-- Toast Notification Settings Modal -->
+  <Teleport to="body">
+    <div v-if="toastSettingsOpen" class="toast-modal-backdrop" @click.self="toastSettingsOpen = false">
+      <div class="toast-modal">
+        <div class="toast-modal-header">
+          <h2>Toast Notification Settings</h2>
+          <button type="button" class="toast-modal-close" @click="toastSettingsOpen = false" aria-label="Close">&times;</button>
+        </div>
+
+        <div v-if="toastSettingsLoading" class="toast-modal-body"><p class="loading">Loading...</p></div>
+        <div v-else class="toast-modal-body">
+          <p class="hint">Control pop-up toast alerts for specific notification types.</p>
+
+          <div class="ts-group">
+            <div class="ts-group-title">Login / Logout Activity</div>
+            <p class="ts-group-help">Toast when other users log in or out.</p>
+            <div class="ts-controls">
+              <label class="ts-field"><input v-model="toastForm.login_logout.toast_enabled" type="checkbox" /> Show toast</label>
+              <div class="ts-field" v-if="toastForm.login_logout.toast_enabled">
+                <label>Duration</label>
+                <select v-model="toastForm.login_logout.duration_mode">
+                  <option value="dismissable">Dismissable (stays until dismissed)</option>
+                  <option value="timed">Auto-dismiss after timeout</option>
+                </select>
+              </div>
+              <div class="ts-field" v-if="toastForm.login_logout.toast_enabled && toastForm.login_logout.duration_mode === 'timed'">
+                <label>Timeout (seconds)</label>
+                <input v-model.number="toastForm.login_logout.duration_seconds" type="number" min="3" max="120" />
+              </div>
+              <label class="ts-field" v-if="toastForm.login_logout.toast_enabled"><input v-model="toastForm.login_logout.sound_enabled" type="checkbox" /> Play sound</label>
+            </div>
+          </div>
+
+          <div class="ts-group">
+            <div class="ts-group-title">New Packets & Intake Submissions</div>
+            <p class="ts-group-help">Toast when a new packet is uploaded or an intake link submission is received.</p>
+            <div class="ts-controls">
+              <label class="ts-field"><input v-model="toastForm.new_packet.toast_enabled" type="checkbox" /> Show toast</label>
+              <div class="ts-field" v-if="toastForm.new_packet.toast_enabled">
+                <label>Duration</label>
+                <select v-model="toastForm.new_packet.duration_mode">
+                  <option value="dismissable">Dismissable (stays until dismissed)</option>
+                  <option value="timed">Auto-dismiss after timeout</option>
+                </select>
+              </div>
+              <div class="ts-field" v-if="toastForm.new_packet.toast_enabled && toastForm.new_packet.duration_mode === 'timed'">
+                <label>Timeout (seconds)</label>
+                <input v-model.number="toastForm.new_packet.duration_seconds" type="number" min="3" max="120" />
+              </div>
+              <label class="ts-field" v-if="toastForm.new_packet.toast_enabled"><input v-model="toastForm.new_packet.sound_enabled" type="checkbox" /> Play sound</label>
+            </div>
+          </div>
+
+          <div class="ts-group">
+            <div class="ts-group-title">General</div>
+            <label class="ts-field"><input v-model="toastForm.notification_sound_enabled" type="checkbox" /> Play sound for all other notifications</label>
+            <p class="ts-group-help">Fallback sound for notifications not covered by the types above.</p>
+          </div>
+        </div>
+
+        <div class="toast-modal-footer">
+          <button class="btn btn-secondary btn-sm" type="button" @click="toastSettingsOpen = false">Cancel</button>
+          <button class="btn btn-primary btn-sm" type="button" @click="saveToastSettings" :disabled="toastSettingsSaving">
+            {{ toastSettingsSaving ? 'Saving...' : 'Save' }}
+          </button>
+          <span v-if="toastSettingsSaved" class="ts-saved">Saved</span>
+          <span v-if="toastSettingsError" class="ts-error">{{ toastSettingsError }}</span>
+          <router-link class="btn btn-secondary btn-sm ts-all-prefs" :to="notificationSettingsLink">All preferences</router-link>
+        </div>
+      </div>
+    </div>
+  </Teleport>
 </template>
 
 <script setup>
@@ -174,6 +247,7 @@ import { useAuthStore } from '../store/auth';
 import { useAgencyStore } from '../store/agency';
 import { useNotificationStore } from '../store/notifications';
 import { useCommunicationsCountsStore } from '../store/communicationsCounts';
+import { useUserPreferencesStore } from '../store/userPreferences';
 import api from '../services/api';
 import ClientDetailPanel from '../components/admin/ClientDetailPanel.vue';
 import OfficeRequestAssignModal from '../components/admin/OfficeRequestAssignModal.vue';
@@ -182,6 +256,7 @@ const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
 const notificationStore = useNotificationStore();
 const communicationsCountsStore = useCommunicationsCountsStore();
+const userPreferencesStore = useUserPreferencesStore();
 const route = useRoute();
 const router = useRouter();
 
@@ -530,6 +605,90 @@ const formatNotificationLine = (n) => {
   return parts.join(' • ');
 };
 
+// --- Toast Settings Modal ---
+const toastSettingsOpen = ref(false);
+const toastSettingsLoading = ref(false);
+const toastSettingsSaving = ref(false);
+const toastSettingsSaved = ref(false);
+const toastSettingsError = ref('');
+const defaultToastForm = () => ({
+  login_logout: { toast_enabled: true, duration_mode: 'timed', duration_seconds: 6, sound_enabled: true },
+  new_packet: { toast_enabled: false, duration_mode: 'dismissable', duration_seconds: 10, sound_enabled: false },
+  notification_sound_enabled: true
+});
+const toastForm = ref(defaultToastForm());
+
+const parseJsonField = (v) => {
+  if (!v) return null;
+  if (typeof v === 'object') return v;
+  if (typeof v !== 'string') return null;
+  try { return JSON.parse(v); } catch { return null; }
+};
+
+watch(toastSettingsOpen, async (open) => {
+  if (!open) return;
+  toastSettingsLoading.value = true;
+  toastSettingsError.value = '';
+  toastSettingsSaved.value = false;
+  try {
+    const uid = userId.value;
+    if (!uid) return;
+    const resp = await api.get(`/users/${uid}/preferences`, { skipGlobalLoading: true });
+    const data = resp.data || {};
+    const raw = parseJsonField(data.toast_preferences);
+    const defaults = defaultToastForm();
+    if (raw && typeof raw === 'object') {
+      const ll = { ...defaults.login_logout, ...(raw.login_logout || {}) };
+      const np = { ...defaults.new_packet, ...(raw.new_packet || {}) };
+      ll.duration_mode = ll.duration_seconds === null ? 'dismissable' : 'timed';
+      np.duration_mode = np.duration_seconds === null ? 'dismissable' : 'timed';
+      if (ll.duration_mode === 'timed' && !ll.duration_seconds) ll.duration_seconds = 6;
+      if (np.duration_mode === 'timed' && !np.duration_seconds) np.duration_seconds = 10;
+      toastForm.value = { login_logout: ll, new_packet: np, notification_sound_enabled: data.notification_sound_enabled !== false };
+    } else {
+      toastForm.value = { ...defaults, notification_sound_enabled: data.notification_sound_enabled !== false };
+    }
+  } catch {
+    toastSettingsError.value = 'Failed to load settings';
+  } finally {
+    toastSettingsLoading.value = false;
+  }
+});
+
+const saveToastSettings = async () => {
+  const uid = userId.value;
+  if (!uid) return;
+  toastSettingsSaving.value = true;
+  toastSettingsError.value = '';
+  toastSettingsSaved.value = false;
+  try {
+    const f = toastForm.value;
+    const payload = {
+      notification_sound_enabled: !!f.notification_sound_enabled,
+      toast_preferences: {
+        login_logout: {
+          toast_enabled: !!f.login_logout.toast_enabled,
+          duration_seconds: f.login_logout.duration_mode === 'dismissable' ? null : (Number(f.login_logout.duration_seconds) || 6),
+          sound_enabled: !!f.login_logout.sound_enabled
+        },
+        new_packet: {
+          toast_enabled: !!f.new_packet.toast_enabled,
+          duration_seconds: f.new_packet.duration_mode === 'dismissable' ? null : (Number(f.new_packet.duration_seconds) || 10),
+          sound_enabled: !!f.new_packet.sound_enabled
+        }
+      }
+    };
+    await api.put(`/users/${uid}/preferences`, payload);
+    userPreferencesStore.setFromApi({ ...payload });
+    toastSettingsSaved.value = true;
+    setTimeout(() => { toastSettingsSaved.value = false; }, 2000);
+  } catch (e) {
+    toastSettingsError.value = e.response?.data?.error?.message || 'Failed to save';
+  } finally {
+    toastSettingsSaving.value = false;
+  }
+};
+
 onMounted(async () => {
   try {
     const saved = window.localStorage.getItem('notificationsClientLabelMode');
@@ -843,6 +1002,106 @@ watch(
     justify-content: flex-start;
     flex-wrap: wrap;
   }
+}
+
+/* Toast Settings Modal */
+.toast-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.toast-modal {
+  background: white;
+  border-radius: 16px;
+  box-shadow: 0 20px 48px rgba(15, 23, 42, 0.25);
+  width: 520px;
+  max-width: 95vw;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.toast-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 22px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.toast-modal-header h2 {
+  margin: 0;
+  font-size: 18px;
+}
+.toast-modal-close {
+  background: none;
+  border: none;
+  font-size: 24px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+.toast-modal-close:hover { color: var(--text-primary); }
+.toast-modal-body {
+  padding: 18px 22px;
+  overflow-y: auto;
+  flex: 1;
+}
+.toast-modal-footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 22px;
+  border-top: 1px solid var(--border);
+}
+.ts-all-prefs {
+  margin-left: auto;
+  font-size: 12px;
+}
+.ts-saved { color: #16a34a; font-size: 13px; font-weight: 600; }
+.ts-error { color: #dc2626; font-size: 13px; }
+.ts-group {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border);
+}
+.ts-group:last-child { border-bottom: none; }
+.ts-group-title {
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+  font-size: 14px;
+}
+.ts-group-help {
+  color: var(--text-secondary);
+  font-size: 12px;
+  margin: 0 0 8px 0;
+}
+.ts-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-left: 2px;
+}
+.ts-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+.ts-field select,
+.ts-field input[type="number"] {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 13px;
+}
+.ts-field input[type="number"] {
+  width: 80px;
 }
 </style>
 
