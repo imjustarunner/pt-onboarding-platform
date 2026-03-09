@@ -1827,7 +1827,8 @@ export const getPublicIntakeLink = async (req, res, next) => {
 
     const templates = await loadAllowedTemplates(link);
     const { organization, agency } = await resolveIntakeOrgContext(link, { issuedRoiLink, boundClient });
-    const needsCaptcha = requiresCaptchaForLink(organization, agency);
+    const isClientBoundRoiLink = !!issuedRoiLink?.client_id;
+    const needsCaptcha = !isClientBoundRoiLink && requiresCaptchaForLink(organization, agency);
     const shouldIncludeRoiContext = isSmartSchoolRoiForm(link) || hasProgrammedSchoolRoiStep(link);
     const roiContext = shouldIncludeRoiContext
       ? await buildSmartSchoolRoiContext({
@@ -1925,7 +1926,8 @@ export const createPublicIntakeSession = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'This link is no longer active. Please contact the school for a new link.' } });
     }
     const { organization, agency } = await resolveIntakeOrgContext(link, { issuedRoiLink, boundClient });
-    const needsCaptcha = requiresCaptchaForLink(organization, agency);
+    const isClientBoundRoiLink = !!issuedRoiLink?.client_id;
+    const needsCaptcha = !isClientBoundRoiLink && requiresCaptchaForLink(organization, agency);
     const intakeSiteKey = String(process.env.RECAPTCHA_SITE_KEY_INTAKE || '').trim();
     const captchaConfigured = !!intakeSiteKey && (!!config.recaptcha?.secretKey || !!config.recaptcha?.enterpriseApiKey);
     const isLocalBypass = isLocalRecaptchaBypassRequest(req);
@@ -2691,11 +2693,15 @@ export const finalizePublicIntake = async (req, res, next) => {
       if (!signatureData) {
         return res.status(400).json({ error: { message: 'Signature is required to complete this release.' } });
       }
-      if (!updatedSubmission?.client_id) {
+      const effectiveClientId = updatedSubmission?.client_id || issuedRoiLink?.client_id || null;
+      if (effectiveClientId && !updatedSubmission?.client_id) {
+        updatedSubmission = await IntakeSubmission.updateById(submissionId, { client_id: effectiveClientId });
+      }
+      if (!effectiveClientId) {
         return res.status(400).json({ error: { message: 'Smart school ROI links must be bound to a client.' } });
       }
 
-      const boundClient = await Client.findById(updatedSubmission.client_id, { includeSensitive: true });
+      const boundClient = await Client.findById(effectiveClientId, { includeSensitive: true });
       if (!boundClient?.id) {
         return res.status(404).json({ error: { message: 'Bound client not found.' } });
       }
@@ -3078,9 +3084,13 @@ export const finalizePublicIntake = async (req, res, next) => {
         const embeddedSignatureData = String(intakeData?.smartSchoolRoi?.signatureData || '').trim();
         if (embeddedSignatureData) {
           let boundClient = null;
-          if (updatedSubmission?.client_id) {
+          const embeddedEffectiveClientId = updatedSubmission?.client_id || issuedRoiLink?.client_id || null;
+          if (embeddedEffectiveClientId) {
+            if (!updatedSubmission?.client_id) {
+              updatedSubmission = await IntakeSubmission.updateById(submissionId, { client_id: embeddedEffectiveClientId });
+            }
             try {
-              boundClient = await Client.findById(updatedSubmission.client_id, { includeSensitive: true });
+              boundClient = await Client.findById(embeddedEffectiveClientId, { includeSensitive: true });
             } catch {
               boundClient = null;
             }
