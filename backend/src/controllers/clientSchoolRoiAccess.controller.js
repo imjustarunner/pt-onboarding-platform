@@ -148,7 +148,10 @@ function serializeIssuedRoiSigningLink(record, client) {
     client_id: Number(record.client_id),
     client_full_name: client?.full_name || null,
     issue_mode: normalizeRoiLinkMode(issuedCfg?.externalReleaseMode),
-    programmed_external_recipient: issuedCfg?.programmedExternalRecipient || null
+    programmed_external_recipient: issuedCfg?.programmedExternalRecipient || null,
+    email_send_count: Number(record.email_send_count || 0),
+    last_email_sent_at: record.last_email_sent_at || null,
+    last_email_sent_to: record.last_email_sent_to || null
   };
 }
 
@@ -289,14 +292,13 @@ export async function ensureIssuedRoiSigningLinkForClient({ client, schoolOrgani
     clientId: client.id,
     schoolOrganizationId
   });
-  const canReuseExisting =
+  const hasUsableKey =
     existing
     && !regenerate
-    && Number(existing.intake_link_id) === Number(selectedLink.id)
     && String(existing.status || '').trim().toLowerCase() !== 'completed'
     && String(existing.public_key || '').trim();
 
-  const issuedLink = canReuseExisting
+  const issuedLink = hasUsableKey
     ? existing
     : await ClientSchoolRoiSigningLink.issueForClient({
         clientId: client.id,
@@ -932,6 +934,10 @@ export const sendClientSchoolRoiSigningEmail = async (req, res, next) => {
 
     _roiEmailCooldowns.set(`${clientId}:${toEmail}`, Date.now());
 
+    const updatedLink = issuedResult.issuedLink?.id
+      ? await ClientSchoolRoiSigningLink.recordEmailSent({ id: issuedResult.issuedLink.id, toEmail })
+      : issuedResult.issuedLink;
+
     await logAuditEvent(req, {
       actionType: 'client_school_roi_signing_email_sent',
       agencyId: client.agency_id || null,
@@ -939,7 +945,8 @@ export const sendClientSchoolRoiSigningEmail = async (req, res, next) => {
         clientId,
         schoolOrganizationId,
         signingLinkId: issuedResult.issuedLink?.id || null,
-        toEmail
+        toEmail,
+        emailSendCount: updatedLink?.email_send_count || 1
       }
     });
     await createSchoolRoiBackofficeNotification({
@@ -954,7 +961,7 @@ export const sendClientSchoolRoiSigningEmail = async (req, res, next) => {
     res.json({
       ok: true,
       client,
-      issued_link: serializeIssuedRoiSigningLink(issuedResult.issuedLink, client),
+      issued_link: serializeIssuedRoiSigningLink(updatedLink || issuedResult.issuedLink, client),
       sent_to: toEmail,
       sent_at: new Date().toISOString(),
       link_url: linkUrl,

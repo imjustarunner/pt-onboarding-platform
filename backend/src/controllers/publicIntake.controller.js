@@ -1818,8 +1818,11 @@ export const getPublicIntakeLink = async (req, res, next) => {
   try {
     const publicKey = String(req.params.publicKey || '').trim();
     const { link, issuedRoiLink, boundClient } = await resolvePublicIntakeContext(publicKey);
-    if (!link || !link.is_active) {
+    if (!link) {
       return res.status(404).json({ error: { message: 'Intake link not found' } });
+    }
+    if (!link.is_active && !issuedRoiLink) {
+      return res.status(404).json({ error: { message: 'This link is no longer active. Please contact the school for a new link.' } });
     }
 
     const templates = await loadAllowedTemplates(link);
@@ -1915,8 +1918,11 @@ export const createPublicIntakeSession = async (req, res, next) => {
     }
     const publicKey = String(req.params.publicKey || '').trim();
     const { link, issuedRoiLink, boundClient } = await resolvePublicIntakeContext(publicKey);
-    if (!link || !link.is_active) {
+    if (!link) {
       return res.status(404).json({ error: { message: 'Intake link not found' } });
+    }
+    if (!link.is_active && !issuedRoiLink) {
+      return res.status(404).json({ error: { message: 'This link is no longer active. Please contact the school for a new link.' } });
     }
     const { organization, agency } = await resolveIntakeOrgContext(link, { issuedRoiLink, boundClient });
     const needsCaptcha = requiresCaptchaForLink(organization, agency);
@@ -1968,14 +1974,16 @@ export const createPublicIntakeSession = async (req, res, next) => {
       }
     }
     const ipAddress = getClientIpAddress(req);
-    const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    const starts = await IntakeSubmission.countStartsByLinkAndIp({
-      intakeLinkId: link.id,
-      ipAddress,
-      since
-    });
-    if (starts >= 5) {
-      return res.status(429).json({ error: { message: 'Daily intake start limit reached. Please try again tomorrow.' } });
+    if (!issuedRoiLink) {
+      const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const starts = await IntakeSubmission.countStartsByLinkAndIp({
+        intakeLinkId: link.id,
+        ipAddress,
+        since
+      });
+      if (starts >= 5) {
+        return res.status(429).json({ error: { message: 'Daily intake start limit reached. Please try again tomorrow.' } });
+      }
     }
 
     const templates = await loadAllowedTemplates(link);
@@ -2032,8 +2040,11 @@ export const createPublicConsent = async (req, res, next) => {
 
     const publicKey = String(req.params.publicKey || '').trim();
     const { link, issuedRoiLink } = await resolvePublicIntakeContext(publicKey);
-    if (!link || !link.is_active) {
+    if (!link) {
       return res.status(404).json({ error: { message: 'Intake link not found' } });
+    }
+    if (!link.is_active && !issuedRoiLink) {
+      return res.status(404).json({ error: { message: 'This link is no longer active. Please contact the school for a new link.' } });
     }
 
     const ipAddress = getClientIpAddress(req);
@@ -2439,8 +2450,11 @@ export const finalizePublicIntake = async (req, res, next) => {
 
     const publicKey = String(req.params.publicKey || '').trim();
     const { link, issuedRoiLink } = await resolvePublicIntakeContext(publicKey);
-    if (!link || !link.is_active) {
+    if (!link) {
       return res.status(404).json({ error: { message: 'Intake link not found' } });
+    }
+    if (!link.is_active && !issuedRoiLink) {
+      return res.status(404).json({ error: { message: 'This link is no longer active. Please contact the school for a new link.' } });
     }
 
     const submissionId = parseInt(req.params.submissionId || req.body.submissionId, 10);

@@ -268,11 +268,15 @@
             </button>
             <span v-if="emailStatus" class="hint strong">{{ emailStatus }}</span>
           </div>
-          <div v-if="emailSendLog.length" class="email-send-log" style="margin-top: 6px;">
-            <small class="hint" style="display: block; margin-bottom: 2px; font-weight: 600;">Send history (this session)</small>
-            <ul style="list-style: none; padding: 0; margin: 0;">
+          <div v-if="persistentSendCount > 0 || emailSendLog.length" class="email-send-log" style="margin-top: 6px;">
+            <small class="hint" style="display: block; margin-bottom: 2px; font-weight: 600;">
+              Email sent {{ persistentSendCount }} time{{ persistentSendCount === 1 ? '' : 's' }} total
+              <template v-if="persistentLastSentAt"> · Last: {{ new Date(persistentLastSentAt).toLocaleString() }}</template>
+              <template v-if="persistentLastSentTo"> to {{ persistentLastSentTo }}</template>
+            </small>
+            <ul v-if="emailSendLog.length" style="list-style: none; padding: 0; margin: 4px 0 0;">
               <li v-for="(entry, idx) in emailSendLog" :key="idx" style="font-size: 0.82rem; color: #666; padding: 1px 0;">
-                {{ entry.email }} — {{ new Date(entry.sentAt).toLocaleString() }}
+                {{ entry.email }} — {{ new Date(entry.sentAt).toLocaleString() }} (this session)
               </li>
             </ul>
           </div>
@@ -503,6 +507,9 @@ const issuedLinkSummary = computed(() => {
   if (!issuedLink.value?.public_key) return 'Create a unique client link from the assigned school ROI form.';
   return issuedLinkUrl.value;
 });
+const persistentSendCount = computed(() => Number(issuedLink.value?.email_send_count || 0));
+const persistentLastSentAt = computed(() => issuedLink.value?.last_email_sent_at || null);
+const persistentLastSentTo = computed(() => issuedLink.value?.last_email_sent_to || null);
 const issuedTextLinkSummary = computed(() => {
   if (!issuedLink.value?.public_key) return 'A shorter /i/ link will be used for texting.';
   return issuedLinkShortUrl.value;

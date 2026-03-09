@@ -162,6 +162,22 @@ class ClientSchoolRoiSigningLink {
     return this.findById(rid);
   }
 
+  static async recordEmailSent({ id, toEmail }) {
+    const rid = Number(id || 0);
+    if (!rid) return null;
+    const email = String(toEmail || '').trim().toLowerCase() || null;
+    await pool.execute(
+      `UPDATE client_school_roi_signing_links
+       SET email_send_count = email_send_count + 1,
+           last_email_sent_at = CURRENT_TIMESTAMP,
+           last_email_sent_to = ?,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [email, rid]
+    );
+    return this.findById(rid);
+  }
+
   static async markCompleted({
     id,
     intakeSubmissionId = null,
