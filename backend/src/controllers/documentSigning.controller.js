@@ -14,6 +14,31 @@ import { PDFDocument } from 'pdf-lib';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const SIGN_OP_TIMEOUT_MS = {
+  pdfGenerate: 45000,
+  pdfStore: 20000,
+  workflowFinalize: 10000,
+  taskComplete: 10000
+};
+
+async function withTimeout(promise, ms, label) {
+  let timeoutId = null;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timeoutId = setTimeout(() => {
+          const err = new Error(`${label} timed out after ${ms}ms`);
+          err.statusCode = 504;
+          reject(err);
+        }, ms);
+      })
+    ]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
 const isFieldVisible = (def, values = {}) => {
   const showIf = def?.showIf;
   if (!showIf || !showIf.fieldId) return true;
@@ -496,6 +521,27 @@ export const signDocument = async (req, res, next) => {
       console.error(`signDocument: Signed document not found for task ${taskId}`);
       return res.status(400).json({ error: { message: 'Consent and intent must be recorded first' } });
     }
+    const existingSignedPath = String(signedDoc.signed_pdf_path || '').trim();
+    if (existingSignedPath) {
+      console.log(`signDocument: Task ${taskId} already finalized with signed PDF, returning existing result`);
+      try {
+        if (String(task.status || '').toLowerCase() !== 'completed') {
+          await withTimeout(
+            Task.markComplete(taskId, userId),
+            SIGN_OP_TIMEOUT_MS.taskComplete,
+            'task completion'
+          );
+        }
+      } catch (e) {
+        console.warn('signDocument: best-effort task completion failed on idempotent return:', e?.message || e);
+      }
+      return res.json({
+        success: true,
+        signedDocument: signedDoc,
+        downloadUrl: `/api/document-signing/${taskId}/download`,
+        alreadyFinalized: true
+      });
+    }
 
     const workflow = await DocumentSignatureWorkflow.findBySignedDocument(signedDoc.id);
     if (!workflow) {
@@ -707,23 +753,27 @@ export const signDocument = async (req, res, next) => {
     // Generate finalized PDF
     let pdfBytes;
     try {
-      pdfBytes = await DocumentSigningService.generateFinalizedPDF(
-        templatePath,
-        templateType,
-        htmlContent,
-        signatureData,
-        workflow,
-        { firstName: user.first_name, lastName: user.last_name, email: user.email, userId: user.id },
-        mergedAuditTrail,
-        signatureCoords,
-        {
-          referenceNumber,
-          documentName,
-          signatureOnAuditPage: true,
-          fieldDefinitions: normalizedFieldDefs,
-          fieldValues: normalizedFieldValues,
-          branding: brandingContext
-        }
+      pdfBytes = await withTimeout(
+        DocumentSigningService.generateFinalizedPDF(
+          templatePath,
+          templateType,
+          htmlContent,
+          signatureData,
+          workflow,
+          { firstName: user.first_name, lastName: user.last_name, email: user.email, userId: user.id },
+          mergedAuditTrail,
+          signatureCoords,
+          {
+            referenceNumber,
+            documentName,
+            signatureOnAuditPage: true,
+            fieldDefinitions: normalizedFieldDefs,
+            fieldValues: normalizedFieldValues,
+            branding: brandingContext
+          }
+        ),
+        SIGN_OP_TIMEOUT_MS.pdfGenerate,
+        'pdf generation'
       );
       console.log(`signDocument: PDF generated successfully, size: ${pdfBytes.length} bytes`);
     } catch (pdfError) {
@@ -740,11 +790,15 @@ export const signDocument = async (req, res, next) => {
     // Save PDF using storage service (user-specific, secure structure)
     const StorageService = (await import('../services/storage.service.js')).default;
     const filename = `signed-${signedDoc.id}-${Date.now()}.pdf`;
-    const storageResult = await StorageService.saveSignedDocument(
-      userId,
-      signedDoc.id,
-      pdfBytes,
-      filename
+    const storageResult = await withTimeout(
+      StorageService.saveSignedDocument(
+        userId,
+        signedDoc.id,
+        pdfBytes,
+        filename
+      ),
+      SIGN_OP_TIMEOUT_MS.pdfStore,
+      'pdf storage'
     );
     console.log(`signDocument: PDF saved to ${storageResult.path}`);
 
@@ -760,11 +814,19 @@ export const signDocument = async (req, res, next) => {
 
     console.log(`signDocument: Finalizing workflow...`);
     // Finalize workflow
-    await DocumentSignatureWorkflow.finalize(signedDoc.id);
+    await withTimeout(
+      DocumentSignatureWorkflow.finalize(signedDoc.id),
+      SIGN_OP_TIMEOUT_MS.workflowFinalize,
+      'workflow finalization'
+    );
 
     console.log(`signDocument: Marking task as complete...`);
     // Mark task as complete
-    await Task.markComplete(taskId, userId);
+    await withTimeout(
+      Task.markComplete(taskId, userId),
+      SIGN_OP_TIMEOUT_MS.taskComplete,
+      'task completion'
+    );
 
     console.log(`signDocument: Successfully finalized document for task ${taskId}`);
     res.json({
@@ -782,7 +844,8 @@ export const signDocument = async (req, res, next) => {
       sqlState: error.sqlState
     });
     
-    return res.status(500).json({
+    const status = Number(error?.statusCode || 0) || 500;
+    return res.status(status).json({
       error: {
         message: error.message || 'Internal server error',
         code: error.code,
