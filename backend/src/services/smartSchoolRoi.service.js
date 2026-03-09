@@ -82,6 +82,79 @@ const WAIVER_ITEMS = [
   }
 ];
 
+const PURPOSES_ES = [
+  'Autorizar a ITSCO y a los proveedores/personal asignado para comunicarse con la escuela seleccionada y el personal escolar aprobado para apoyar al cliente en el entorno escolar.',
+  'Preocupaciones de seguridad y evaluaciones de riesgo o ideacion realizadas durante las sesiones.',
+  'Coordinar la administracion de servicios psicologicos en la propiedad de terceros.',
+  'Hablar sobre objetivos de tratamiento y planes de tratamiento asociados.'
+];
+
+const GUIDELINES_ES = [
+  'La informacion sobre el contenido de las sesiones no se compartira con el personal listado, a menos que el terapeuta lo considere clinicamente necesario por razones de seguridad como riesgo inminente para el clinico, el cliente u otras personas, incluida lesion fisica.',
+  'La confidencialidad se mantendra excepto por lo antes mencionado.',
+  'Toda correspondencia relacionada con mi dependiente sera documentada en el expediente clinico.',
+  'ITSCO cumplira con todas las leyes y regulaciones aplicables relacionadas con el manejo de informacion confidencial.'
+];
+
+const REQUIRED_ACKNOWLEDGEMENTS_ES = [
+  {
+    id: 'esign_consent',
+    title: 'Consentimiento electronico',
+    body: 'Acepto revisar, recibir y firmar esta autorizacion electronicamente a traves de la plataforma en linea segura de ITSCO utilizada para coordinacion de atencion y programacion.'
+  },
+  {
+    id: 'hipaa_privacy',
+    title: 'Aviso de aplicacion, privacidad e HIPAA',
+    body: 'Entiendo que ITSCO usa esta aplicacion para programacion y comunicacion de apoyo a la atencion. Solo el personal escolar aprobado tendra acceso al expediente breve del cliente relacionado con ROI para fines de comunicacion y programacion. ITSCO limita las divulgaciones a necesidades autorizadas, protege la informacion y mantiene registros auditables de acceso/divulgacion. Entiendo que las respuestas en progreso pueden guardarse en este navegador hasta por una hora para evitar perdida accidental de datos, y debo continuar solo en un dispositivo o sesion de navegador segura/privada al ingresar informacion de salud protegida.'
+  },
+  {
+    id: 'redisclosure_risk',
+    title: 'Riesgo de redistribucion',
+    body: 'Entiendo que la informacion compartida por ITSCO puede estar sujeta a redistribucion por la parte receptora y puede dejar de estar protegida de la misma manera una vez divulgada.'
+  },
+  {
+    id: 'revocation_right',
+    title: 'Derecho de revocacion',
+    body: 'Entiendo que puedo revocar esta autorizacion en cualquier momento, pero las acciones ya realizadas con base en esta autorizacion no pueden revertirse.'
+  },
+  {
+    id: 'voluntary_authorization',
+    title: 'Autorizacion voluntaria',
+    body: 'Entiendo las posibles consecuencias de esta divulgacion y la estoy autorizando voluntariamente.'
+  }
+];
+
+const WAIVER_ITEMS_ES = [
+  {
+    id: 'communication_and_care_planning',
+    title: 'Comunicacion escolar y planificacion de atencion',
+    body: 'Autorizo a ITSCO y a los proveedores/personal asignado a comunicarse con el personal escolar aprobado para la coordinacion de atencion en la escuela y apoyo de las necesidades identificadas del cliente.'
+  },
+  {
+    id: 'hipaa_serious_imminent_threat_disclosure',
+    title: 'Estandar requerido de divulgacion por amenaza grave e inminente (HIPAA)',
+    body: 'Entiendo y reconozco que esto no es opcional: cuando ITSCO tenga una creencia de buena fe de que la divulgacion es necesaria para prevenir o reducir una amenaza grave e inminente a la salud o seguridad del cliente u otros, ITSCO puede divulgar PHI relevante (incluidas notas de psicoterapia cuando sea permitido) a personas razonablemente capaces de prevenir o reducir la amenaza, como administradores escolares, personal de seguridad escolar, autoridades, padre/madre/tutor legal, familiares u otro posible objetivo. Esto se realiza conforme a la ley aplicable y estandares eticos, incluyendo 45 CFR 164.512(j)(1)(i) y 45 CFR 164.512(j)(4).',
+    requiredAccept: true
+  },
+  {
+    id: 'services_on_school_property',
+    title: 'Servicios en propiedad escolar',
+    body: 'Autorizo la coordinacion relacionada con servicios psicologicos brindados en propiedad escolar, y entiendo que el entorno escolar no ofrece las mismas protecciones de privacidad que un consultorio clinico privado.',
+    requiredAccept: true
+  },
+  {
+    id: 'school_scheduling_safety_logistics',
+    title: 'Programacion escolar y logistica de seguridad',
+    body: 'Autorizo visibilidad limitada de programacion/logistica para operaciones escolares y seguridad estudiantil cuando sea necesario (por ejemplo, horario de salida de clase, transiciones de ubicacion y coordinacion de recogida). Entiendo que esta visibilidad limitada puede implicar que personal escolar no listado en este ROI reciba solo detalles operativos de tiempo, no contenido clinico amplio.',
+    requiredAccept: true
+  },
+  {
+    id: 'treatment_goals',
+    title: 'Objetivos y planes de tratamiento',
+    body: 'Autorizo una discusion breve de objetivos/metas de tratamiento solo cuando sea necesario para coordinacion de atencion con personal escolar aprobado; no se divulgan detalles del contenido de sesiones fuera de este proposito de atencion.'
+  }
+];
+
 function normalizeBool(value) {
   if (typeof value === 'boolean') return value;
   const normalized = String(value || '').trim().toLowerCase();
@@ -267,6 +340,31 @@ function normalizeExternalReleaseMode(value) {
   return 'school_staff_only';
 }
 
+function normalizeLanguageCode(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  return normalized.startsWith('es') ? 'es' : 'en';
+}
+
+function getLocalizedSmartRoiBundle(languageCode) {
+  const locale = normalizeLanguageCode(languageCode);
+  if (locale === 'es') {
+    return {
+      locale,
+      purposes: PURPOSES_ES,
+      guidelines: GUIDELINES_ES,
+      requiredAcknowledgements: REQUIRED_ACKNOWLEDGEMENTS_ES,
+      waiverItems: WAIVER_ITEMS_ES
+    };
+  }
+  return {
+    locale: 'en',
+    purposes: PURPOSES,
+    guidelines: GUIDELINES,
+    requiredAcknowledgements: REQUIRED_ACKNOWLEDGEMENTS,
+    waiverItems: WAIVER_ITEMS
+  };
+}
+
 export function isSmartSchoolRoiForm(link) {
   return String(link?.form_type || '').trim().toLowerCase() === 'smart_school_roi';
 }
@@ -296,12 +394,17 @@ export async function buildSmartSchoolRoiContext({
 
   const template = preferredTemplate(templates);
   const cfg = issuedConfig && typeof issuedConfig === 'object' ? issuedConfig : {};
+  const preferredLanguageCode = normalizeLanguageCode(
+    cfg?.preferredLanguageCode || template?.language_code || link?.language_code || 'en'
+  );
+  const localizedBundle = getLocalizedSmartRoiBundle(preferredLanguageCode);
   const externalReleaseMode = normalizeExternalReleaseMode(cfg?.externalReleaseMode);
   const programmedExternalRecipient = externalReleaseMode === 'sender_programmed'
     ? normalizeExternalRecipient(cfg?.programmedExternalRecipient || {})
     : null;
 
   return {
+    locale: localizedBundle.locale,
     client: {
       id: Number(boundClient?.id || 0) || null,
       fullName: resolveClientFullName(boundClient),
@@ -328,14 +431,15 @@ export async function buildSmartSchoolRoiContext({
       logoUrl: resolveAbsoluteAssetUrl(agency?.logo_path || agency?.logo_url || '') || null
     },
     authorizedRepresentative: { ...AUTHORIZED_REPRESENTATIVE },
-    purposes: PURPOSES,
-    guidelines: GUIDELINES,
-    requiredAcknowledgements: REQUIRED_ACKNOWLEDGEMENTS,
-    waiverItems: WAIVER_ITEMS,
+    guidelines: localizedBundle.guidelines,
+    requiredAcknowledgements: localizedBundle.requiredAcknowledgements,
+    waiverItems: localizedBundle.waiverItems,
+    purposes: localizedBundle.purposes,
     documentTemplate: template ? {
       id: Number(template.id),
       name: template.name || 'School ROI',
-      documentType: template.document_type || null
+      documentType: template.document_type || null,
+      languageCode: preferredLanguageCode
     } : null,
     staffRoster: (staffRoster || []).map((staff) => ({
       schoolStaffUserId: Number(staff.school_staff_user_id),
@@ -399,6 +503,7 @@ export function normalizeSmartSchoolRoiResponse({ roiContext = {}, intakeData = 
     return [];
   })();
   return {
+    locale: normalizeLanguageCode(roiContext?.locale || roiContext?.documentTemplate?.languageCode || 'en'),
     signedAt: formatDateTime(signedAt),
     clientFullName: String(
       roi?.clientFullName
@@ -523,9 +628,97 @@ export async function applySmartSchoolRoiAccessDecisions({
 }
 
 export function buildSmartSchoolRoiHtml({ roiContext = {}, response = {}, signedAt = new Date() }) {
+  const locale = normalizeLanguageCode(
+    roiContext?.locale
+    || roiContext?.documentTemplate?.languageCode
+    || response?.locale
+    || 'en'
+  );
+  const isSpanish = locale === 'es';
+  const labels = isSpanish
+    ? {
+        approved: 'Aprobado',
+        denied: 'Denegado',
+        notAcknowledged: 'No reconocido',
+        acknowledgedRequired: 'Reconocido (requerido)',
+        roiOnly: 'Solo ROI',
+        packetApproved: 'Aprobado',
+        noStaffApproved: 'Ningun miembro del personal individual aprobado',
+        none: 'Ninguno',
+        titleFallback: 'Autorizacion Escolar de Divulgacion de Informacion',
+        signedWindow: 'Firmado',
+        signedWindowSuffix: '- periodo de autorizacion de 36 meses',
+        sectionClientInfo: 'Informacion del Cliente',
+        sectionReleaseScope: 'Alcance de la Divulgacion',
+        sectionQuestionResponses: 'Respuestas por Pregunta',
+        sectionRequiredNotices: 'Avisos Requeridos',
+        sectionExternalRecipients: 'Destinatarios Externos',
+        sectionStaffDecisions: 'Decisiones de Personal Escolar',
+        qAcknowledgement: 'Reconocimiento requerido',
+        qWaiver: 'Autorizacion',
+        client: 'Cliente',
+        dateOfBirth: 'Fecha de nacimiento',
+        responsibleParty: 'Parte responsable',
+        relationship: 'Relacion',
+        school: 'Escuela',
+        schoolContact: 'Contacto escolar',
+        approvedStaff: 'Personal escolar aprobado',
+        deniedStaff: 'Personal escolar denegado',
+        packetVisibility: 'Visibilidad de paquete/documentos',
+        hipaaThreat: 'Divulgacion HIPAA por amenaza grave/inminente',
+        externalRecipientsApproved: 'Destinatarios externos aprobados',
+        authorizationMayBeRevoked: 'La autorizacion puede revocarse en cualquier momento a traves de',
+        actionsAlreadyTaken: 'Las acciones ya tomadas antes de la revocacion no se pueden revertir.',
+        redisclosureMayOccur: 'La informacion divulgada puede estar sujeta a redistribucion por el destinatario.',
+        sessionContentShared: 'El contenido de sesiones se comparte solo cuando es clinicamente necesario por seguridad/riesgo inminente.',
+        signature: 'Firma',
+        date: 'Fecha',
+        recipient: 'Destinatario',
+        decision: 'Decision'
+      }
+    : {
+        approved: 'Approved',
+        denied: 'Denied',
+        notAcknowledged: 'Not acknowledged',
+        acknowledgedRequired: 'Acknowledged (required)',
+        roiOnly: 'ROI only',
+        packetApproved: 'Approved',
+        noStaffApproved: 'No individual staff approved',
+        none: 'None',
+        titleFallback: 'School Release of Information',
+        signedWindow: 'Signed',
+        signedWindowSuffix: '- 36-month authorization window',
+        sectionClientInfo: 'Client Information',
+        sectionReleaseScope: 'Release Scope',
+        sectionQuestionResponses: 'Question-by-Question Responses',
+        sectionRequiredNotices: 'Required Notices',
+        sectionExternalRecipients: 'External Recipients',
+        sectionStaffDecisions: 'School Staff Decisions',
+        qAcknowledgement: 'Required acknowledgement',
+        qWaiver: 'Authorization',
+        client: 'Client',
+        dateOfBirth: 'Date of Birth',
+        responsibleParty: 'Responsible Party',
+        relationship: 'Relationship',
+        school: 'School',
+        schoolContact: 'School Contact',
+        approvedStaff: 'Approved school staff',
+        deniedStaff: 'Denied school staff',
+        packetVisibility: 'Packet/document visibility',
+        hipaaThreat: 'HIPAA serious/imminent threat disclosure',
+        externalRecipientsApproved: 'External recipients approved',
+        authorizationMayBeRevoked: 'Authorization may be revoked at any time through',
+        actionsAlreadyTaken: 'Actions already taken before revocation cannot be reversed.',
+        redisclosureMayOccur: 'Information disclosed may be subject to redisclosure by the recipient.',
+        sessionContentShared: 'Session content is shared only when clinically necessary for safety/imminent risk.',
+        signature: 'Signature',
+        date: 'Date',
+        recipient: 'Recipient',
+        decision: 'Decision'
+      };
   const safetyThreatDisclosureText = response.hipaaSafetyThreatDisclosureAcknowledged
-    ? 'Acknowledged (required)'
-    : 'Not acknowledged';
+    ? labels.acknowledgedRequired
+    : labels.notAcknowledged;
   const approvedStaff = (response.staffDecisions || []).filter((staff) => staff.allowed);
   const deniedStaff = (response.staffDecisions || []).filter((staff) => !staff.allowed);
   const approvedStaffNames = approvedStaff.map((s) => s.fullName).filter(Boolean);
@@ -534,17 +727,32 @@ export function buildSmartSchoolRoiHtml({ roiContext = {}, response = {}, signed
   const approvedOverflow = Math.max(0, approvedStaffNames.length - approvedPreview.length);
   const approvedStaffText = approvedPreview.length
     ? `${approvedPreview.join(', ')}${approvedOverflow > 0 ? ` (+${approvedOverflow} more)` : ''}`
-    : 'No individual staff approved';
+    : labels.noStaffApproved;
   const deniedStaffText = deniedStaffNames.length
     ? deniedStaffNames.slice(0, 12).join(', ')
-    : 'None';
+    : labels.none;
   const externalApproved = (response.externalRecipients || []).filter((r) => r?.allowed === true);
   const externalApprovedText = externalApproved.length
     ? externalApproved.map((r) => `${r.name || 'Recipient'} (${r.relationship || 'relationship not set'})`).slice(0, 6).join(', ')
-    : 'None';
+    : labels.none;
   const docTitle = roiContext?.school?.name
-    ? `${roiContext.school.name} - Release of Information`
-    : (roiContext?.documentTemplate?.name || 'School Release of Information');
+    ? `${roiContext.school.name} - ${labels.titleFallback}`
+    : (roiContext?.documentTemplate?.name || labels.titleFallback);
+  const acknowledgementsHtml = (response.requiredAcknowledgements || [])
+    .map((item) => `<li><span class="k">${escapeHtml(labels.qAcknowledgement)}:</span> ${escapeHtml(item.title || item.id || '')} - ${item.accepted ? labels.approved : labels.denied}</li>`)
+    .join('');
+  const waiversHtml = (response.waiverItems || [])
+    .map((item) => `<li><span class="k">${escapeHtml(labels.qWaiver)}:</span> ${escapeHtml(item.title || item.id || '')} - ${item.decision === 'accept' ? labels.approved : labels.denied}</li>`)
+    .join('');
+  const staffDecisionsHtml = (response.staffDecisions || [])
+    .map((item) => `<li>${escapeHtml(item.fullName || `User ${item.schoolStaffUserId || ''}`)} - ${item.allowed ? labels.approved : labels.denied}</li>`)
+    .join('');
+  const externalRowsHtml = (response.externalRecipients || [])
+    .map((item) => {
+      const rowLabel = item?.name || labels.recipient;
+      return `<li>${escapeHtml(rowLabel)}${item?.relationship ? ` (${escapeHtml(item.relationship)})` : ''} - ${item?.allowed ? labels.approved : labels.denied}</li>`;
+    })
+    .join('');
 
   return `<!DOCTYPE html>
 <html>
@@ -576,7 +784,7 @@ export function buildSmartSchoolRoiHtml({ roiContext = {}, response = {}, signed
       <div class="header">
         <div>
           <h1>${escapeHtml(docTitle)}</h1>
-          <div class="muted">Signed ${escapeHtml(formatDate(signedAt))} - 36-month authorization window</div>
+          <div class="muted">${escapeHtml(labels.signedWindow)} ${escapeHtml(formatDate(signedAt))} ${escapeHtml(labels.signedWindowSuffix)}</div>
         </div>
         <div style="display:flex; gap:8px; align-items:center;">
           ${roiContext?.school?.logoUrl ? `<img class="logo" src="${escapeHtml(roiContext.school.logoUrl)}" alt="School logo" />` : ''}
@@ -585,42 +793,64 @@ export function buildSmartSchoolRoiHtml({ roiContext = {}, response = {}, signed
       </div>
 
       <div class="section">
-        <h2>Client Information</h2>
-        <p><span class="k">Client:</span> ${escapeHtml(response.clientFullName || '---')}</p>
-        <p><span class="k">Date of Birth:</span> ${escapeHtml(response.clientDateOfBirth || '---')}</p>
-        <p><span class="k">Responsible Party:</span> ${escapeHtml(response.signer?.fullName || '---')}</p>
-        <p><span class="k">Relationship:</span> ${escapeHtml(response.signer?.relationship || '---')}</p>
-        <p><span class="k">School:</span> ${escapeHtml(roiContext?.school?.name || '---')}</p>
-        <p><span class="k">School Contact:</span> ${escapeHtml([roiContext?.school?.contact?.name, roiContext?.school?.contact?.email, roiContext?.school?.contact?.phone].filter(Boolean).join(' - ') || '---')}</p>
+        <h2>${escapeHtml(labels.sectionClientInfo)}</h2>
+        <p><span class="k">${escapeHtml(labels.client)}:</span> ${escapeHtml(response.clientFullName || '---')}</p>
+        <p><span class="k">${escapeHtml(labels.dateOfBirth)}:</span> ${escapeHtml(response.clientDateOfBirth || '---')}</p>
+        <p><span class="k">${escapeHtml(labels.responsibleParty)}:</span> ${escapeHtml(response.signer?.fullName || '---')}</p>
+        <p><span class="k">${escapeHtml(labels.relationship)}:</span> ${escapeHtml(response.signer?.relationship || '---')}</p>
+        <p><span class="k">${escapeHtml(labels.school)}:</span> ${escapeHtml(roiContext?.school?.name || '---')}</p>
+        <p><span class="k">${escapeHtml(labels.schoolContact)}:</span> ${escapeHtml([roiContext?.school?.contact?.name, roiContext?.school?.contact?.email, roiContext?.school?.contact?.phone].filter(Boolean).join(' - ') || '---')}</p>
       </div>
 
       <div class="section">
-        <h2>Release Scope</h2>
-        <p><span class="k">Approved school staff:</span> ${escapeHtml(approvedStaffText)}</p>
-        <p><span class="k">Denied school staff:</span> ${escapeHtml(deniedStaffText)} (${escapeHtml(String(deniedStaff.length))})</p>
-        <p><span class="k">Packet/document visibility:</span> ${response.packetReleaseAllowed ? 'Approved' : 'ROI only'}</p>
-        <p><span class="k">HIPAA serious/imminent threat disclosure:</span> ${escapeHtml(safetyThreatDisclosureText)}</p>
-        <p><span class="k">External recipients approved:</span> ${escapeHtml(externalApprovedText)}</p>
+        <h2>${escapeHtml(labels.sectionReleaseScope)}</h2>
+        <p><span class="k">${escapeHtml(labels.approvedStaff)}:</span> ${escapeHtml(approvedStaffText)}</p>
+        <p><span class="k">${escapeHtml(labels.deniedStaff)}:</span> ${escapeHtml(deniedStaffText)} (${escapeHtml(String(deniedStaff.length))})</p>
+        <p><span class="k">${escapeHtml(labels.packetVisibility)}:</span> ${response.packetReleaseAllowed ? labels.packetApproved : labels.roiOnly}</p>
+        <p><span class="k">${escapeHtml(labels.hipaaThreat)}:</span> ${escapeHtml(safetyThreatDisclosureText)}</p>
+        <p><span class="k">${escapeHtml(labels.externalRecipientsApproved)}:</span> ${escapeHtml(externalApprovedText)}</p>
       </div>
 
       <div class="section">
-        <h2>Required Notices</h2>
+        <h2>${escapeHtml(labels.sectionQuestionResponses)}</h2>
         <ul>
-          <li>Authorization may be revoked at any time through ${escapeHtml(AUTHORIZED_REPRESENTATIVE.supportEmail)} or ${escapeHtml(AUTHORIZED_REPRESENTATIVE.supportPhone)}.</li>
-          <li>Actions already taken before revocation cannot be reversed.</li>
-          <li>Information disclosed may be subject to redisclosure by the recipient.</li>
-          <li>Session content is shared only when clinically necessary for safety/imminent risk.</li>
+          ${acknowledgementsHtml || `<li>${escapeHtml(labels.none)}</li>`}
+          ${waiversHtml || ''}
+        </ul>
+      </div>
+
+      <div class="section">
+        <h2>${escapeHtml(labels.sectionStaffDecisions)}</h2>
+        <ul>
+          ${staffDecisionsHtml || `<li>${escapeHtml(labels.none)}</li>`}
+        </ul>
+      </div>
+
+      <div class="section">
+        <h2>${escapeHtml(labels.sectionExternalRecipients)}</h2>
+        <ul>
+          ${externalRowsHtml || `<li>${escapeHtml(labels.none)}</li>`}
+        </ul>
+      </div>
+
+      <div class="section">
+        <h2>${escapeHtml(labels.sectionRequiredNotices)}</h2>
+        <ul>
+          <li>${escapeHtml(labels.authorizationMayBeRevoked)} ${escapeHtml(AUTHORIZED_REPRESENTATIVE.supportEmail)} ${isSpanish ? 'o' : 'or'} ${escapeHtml(AUTHORIZED_REPRESENTATIVE.supportPhone)}.</li>
+          <li>${escapeHtml(labels.actionsAlreadyTaken)}</li>
+          <li>${escapeHtml(labels.redisclosureMayOccur)}</li>
+          <li>${escapeHtml(labels.sessionContentShared)}</li>
         </ul>
       </div>
 
       <div class="section sig">
         <div>
           <div class="line"></div>
-          <div class="muted">Signature</div>
+          <div class="muted">${escapeHtml(labels.signature)}</div>
         </div>
         <div>
           <div class="line"></div>
-          <div class="muted nowrap">Date</div>
+          <div class="muted nowrap">${escapeHtml(labels.date)}</div>
         </div>
       </div>
     </div>

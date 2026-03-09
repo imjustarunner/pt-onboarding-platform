@@ -210,6 +210,13 @@
 
           <div class="sms-grid">
             <div class="form-group">
+              <label>ROI language</label>
+              <select v-model="emailLanguageDraft" class="inline-select">
+                <option value="en">English</option>
+                <option value="es">Spanish</option>
+              </select>
+            </div>
+            <div class="form-group">
               <label>Guardian email</label>
               <input
                 v-model="emailDraft"
@@ -416,6 +423,7 @@ const emailSubjectDraft = ref('');
 const emailMessageDraft = ref('');
 const emailMessageTouched = ref(false);
 const emailStatus = ref('');
+const emailLanguageDraft = ref('en');
 const emailCooldownSec = ref(0);
 const emailSendLog = ref([]);
 let _emailCooldownTimer = null;
@@ -548,16 +556,36 @@ const buildDefaultSmsMessage = () => {
 };
 
 const buildDefaultEmailSubject = () => {
+  const isSpanish = String(emailLanguageDraft.value || '').toLowerCase() === 'es';
   const agencyName = String(props.client?.agency_name || 'ITSCO').trim() || 'ITSCO';
   const school = String(schoolName.value || props.client?.organization_name || 'your school').trim() || 'your school';
+  if (isSpanish) {
+    return `${agencyName}: Autorizacion de Divulgacion de Informacion para ${school}`;
+  }
   return `${agencyName}: Release of Information for ${school}`;
 };
 
 const buildDefaultEmailMessage = () => {
+  const isSpanish = String(emailLanguageDraft.value || '').toLowerCase() === 'es';
   const agencyName = String(props.client?.agency_name || 'ITSCO').trim() || 'ITSCO';
   const school = String(schoolName.value || props.client?.organization_name || 'your school').trim() || 'your school';
   const clientName = String(props.client?.full_name || props.client?.initials || 'the client').trim() || 'the client';
   const linkUrl = buildPublicIntakeUrl(issuedLink.value?.public_key || '');
+  if (isSpanish) {
+    return [
+      'Hola,',
+      '',
+      `${agencyName} preparo una autorizacion de divulgacion de informacion (ROI) para ${clientName} relacionada con ${school}.`,
+      'Por favor revise y complete la autorizacion con el enlace privado y seguro a continuacion:',
+      '',
+      linkUrl,
+      '',
+      'Este enlace es especifico para el cliente y actualiza el perfil automaticamente una vez firmado.',
+      '',
+      'Gracias,',
+      agencyName
+    ].join('\n');
+  }
   return [
     'Hello,',
     '',
@@ -629,6 +657,9 @@ const load = async () => {
     savedIntakeLinkId.value = signing.selected_intake_link_id ? String(signing.selected_intake_link_id) : '';
     selectedIntakeLinkId.value = savedIntakeLinkId.value;
     issuedLink.value = signing.issued_link || null;
+    emailLanguageDraft.value = String(signing.issued_link?.language_code || activeSmartRoiLink.value?.language_code || 'en').toLowerCase().startsWith('es')
+      ? 'es'
+      : 'en';
     issueMode.value = String(signing.issued_link?.issue_mode || 'school_staff_only').trim() || 'school_staff_only';
     programmedRecipientName.value = String(signing.issued_link?.programmed_external_recipient?.name || '').trim();
     programmedRecipientRelationship.value = String(signing.issued_link?.programmed_external_recipient?.relationship || '').trim();
@@ -670,6 +701,7 @@ const load = async () => {
     programmedRecipientRelationship.value = '';
     programmedRecipientEmail.value = '';
     programmedRecipientPhone.value = '';
+    emailLanguageDraft.value = 'en';
   } finally {
     loading.value = false;
   }
@@ -799,6 +831,7 @@ const ensureIssuedLink = async (regenerate = false) => {
   }
   const response = await api.post(`/clients/${clientId}/school-roi-signing-link`, {
     regenerate,
+    languageCode: emailLanguageDraft.value,
     issueMode: issueMode.value,
     programmedExternalRecipient: issueMode.value === 'sender_programmed'
       ? {
@@ -883,7 +916,8 @@ const sendRoiText = async () => {
     }
     const response = await api.post(`/clients/${clientId}/school-roi-signing-text`, {
       phoneNumber: smsPhoneDraft.value,
-      message: smsMessageDraft.value
+      message: smsMessageDraft.value,
+      languageCode: emailLanguageDraft.value
     });
     issuedLink.value = response.data?.issued_link || issuedLink.value;
     smsPhoneDraft.value = response.data?.sent_to || smsPhoneDraft.value;
@@ -925,7 +959,8 @@ const sendRoiEmail = async () => {
     const response = await api.post(`/clients/${clientId}/school-roi-signing-email`, {
       email: emailDraft.value,
       subject: emailSubjectDraft.value,
-      message: emailMessageDraft.value
+      message: emailMessageDraft.value,
+      languageCode: emailLanguageDraft.value
     });
     issuedLink.value = response.data?.issued_link || issuedLink.value;
     emailDraft.value = response.data?.sent_to || emailDraft.value;
@@ -965,6 +1000,19 @@ watch(
       smsMessageDraft.value = buildDefaultSmsMessage();
       smsMessageTouched.value = false;
     }
+    if (!emailMessageTouched.value || !String(emailSubjectDraft.value || '').trim()) {
+      emailSubjectDraft.value = buildDefaultEmailSubject();
+    }
+    if (!emailMessageTouched.value || !String(emailMessageDraft.value || '').trim()) {
+      emailMessageDraft.value = buildDefaultEmailMessage();
+      emailMessageTouched.value = false;
+    }
+  }
+);
+
+watch(
+  () => emailLanguageDraft.value,
+  () => {
     if (!emailMessageTouched.value || !String(emailSubjectDraft.value || '').trim()) {
       emailSubjectDraft.value = buildDefaultEmailSubject();
     }

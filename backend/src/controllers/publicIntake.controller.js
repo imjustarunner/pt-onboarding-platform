@@ -1828,7 +1828,7 @@ export const getPublicIntakeLink = async (req, res, next) => {
     const templates = await loadAllowedTemplates(link);
     const { organization, agency } = await resolveIntakeOrgContext(link, { issuedRoiLink, boundClient });
     const isClientBoundRoiLink = !!issuedRoiLink?.client_id;
-    const needsCaptcha = !isClientBoundRoiLink && requiresCaptchaForLink(organization, agency);
+    const needsCaptcha = !isSmartSchoolRoiForm(link) && !isClientBoundRoiLink && requiresCaptchaForLink(organization, agency);
     const shouldIncludeRoiContext = isSmartSchoolRoiForm(link) || hasProgrammedSchoolRoiStep(link);
     const roiContext = shouldIncludeRoiContext
       ? await buildSmartSchoolRoiContext({
@@ -1927,7 +1927,7 @@ export const createPublicIntakeSession = async (req, res, next) => {
     }
     const { organization, agency } = await resolveIntakeOrgContext(link, { issuedRoiLink, boundClient });
     const isClientBoundRoiLink = !!issuedRoiLink?.client_id;
-    const needsCaptcha = !isClientBoundRoiLink && requiresCaptchaForLink(organization, agency);
+    const needsCaptcha = !isSmartSchoolRoiForm(link) && !isClientBoundRoiLink && requiresCaptchaForLink(organization, agency);
     const intakeSiteKey = String(process.env.RECAPTCHA_SITE_KEY_INTAKE || '').trim();
     const captchaConfigured = !!intakeSiteKey && (!!config.recaptcha?.secretKey || !!config.recaptcha?.enterpriseApiKey);
     const isLocalBypass = isLocalRecaptchaBypassRequest(req);

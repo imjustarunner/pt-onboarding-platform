@@ -4,7 +4,7 @@
 
     <div v-if="stage === 'intro'" class="smart-roi-card">
       <div class="progress-label">Step 1 of {{ totalSteps }}</div>
-      <h3>Smart School Release of Information</h3>
+      <h3>{{ tr('Smart School Release of Information', 'Autorizacion Escolar Inteligente de Divulgacion de Informacion') }}</h3>
       <p>
         This release is specific to <strong>{{ schoolName }}</strong> and the currently active school staff who may need
         information to support the client in the school setting.
@@ -12,37 +12,31 @@
       <p>
         The app will log the release, protect access, and apply permissions based on the responses entered here.
       </p>
-      <p class="required-fields-note">
-        Required fields are highlighted. The highlight turns off as each required field is completed.
-      </p>
+      <p class="required-fields-note">{{ tr('Required fields are highlighted. The highlight turns off as each required field is completed.', 'Los campos requeridos estan resaltados. El resaltado se quita cuando cada campo requerido se completa.') }}</p>
 
       <div class="subject-choice-row">
         <label class="choice-card" :class="{ 'required-highlight': form.intakeForSelf === null }">
           <input v-model="form.intakeForSelf" :value="true" type="radio" :disabled="isSubjectChoiceLocked" />
-          <span>I am the client</span>
+          <span>{{ tr('I am the client', 'Yo soy el cliente') }}</span>
         </label>
         <label class="choice-card" :class="{ 'required-highlight': form.intakeForSelf === null }">
           <input v-model="form.intakeForSelf" :value="false" type="radio" :disabled="isSubjectChoiceLocked" />
-          <span>My dependent is the client</span>
+          <span>{{ tr('My dependent is the client', 'Mi dependiente es el cliente') }}</span>
         </label>
       </div>
-      <p v-if="!isSubjectChoiceLocked" class="subject-choice-hint">
-        Choose who the client is for this release so the signer and relationship fields are labeled correctly.
-      </p>
-      <p v-else class="subject-choice-hint">
-        Client/guardian role was carried in from earlier intake details.
-      </p>
+      <p v-if="!isSubjectChoiceLocked" class="subject-choice-hint">{{ tr('Choose who the client is for this release so the signer and relationship fields are labeled correctly.', 'Elija quien es el cliente para esta autorizacion para que los campos de firma y parentesco se etiqueten correctamente.') }}</p>
+      <p v-else class="subject-choice-hint">{{ tr('Client/guardian role was carried in from earlier intake details.', 'El rol de cliente/tutor se arrastro desde los datos previos de admision.') }}</p>
 
       <div class="summary-grid">
         <div>
-          <label>Client</label>
+          <label>{{ tr('Client', 'Cliente') }}</label>
           <div v-if="isClientNameLocked" class="summary-value">{{ form.clientFullName || '—' }}</div>
           <input
             v-else
             v-model="form.clientFullName"
             :class="['roi-input', requiredFieldClass(form.clientFullName)]"
             type="text"
-            placeholder="Client full name"
+            :placeholder="tr('Client full name', 'Nombre completo del cliente')"
           />
         </div>
         <div>
@@ -58,59 +52,59 @@
           <input v-model="form.signer.lastName" :class="['roi-input', requiredFieldClass(form.signer.lastName)]" type="text" />
         </div>
         <div>
-          <label>Email</label>
+          <label>{{ tr('Email', 'Correo electronico') }}</label>
           <input v-model="form.signer.email" :class="['roi-input', requiredFieldClass(form.signer.email)]" type="email" />
         </div>
         <div>
-          <label>Phone</label>
+          <label>{{ tr('Phone', 'Telefono') }}</label>
           <input v-model="form.signer.phone" class="roi-input" type="tel" />
         </div>
         <div>
-          <label>Relationship to Client</label>
+          <label>{{ tr('Relationship to Client', 'Relacion con el cliente') }}</label>
           <input
             v-if="form.intakeForSelf !== true"
             v-model="form.signer.relationship"
             :class="['roi-input', requiredFieldClass(form.signer.relationship)]"
             type="text"
-            placeholder="Parent, guardian, self, etc."
+            :placeholder="tr('Parent, guardian, self, etc.', 'Padre, tutor, yo mismo, etc.')"
           />
           <div v-else class="summary-value">Self</div>
         </div>
         <div>
-          <label>School</label>
+          <label>{{ tr('School', 'Escuela') }}</label>
           <div class="summary-value">{{ schoolName }}</div>
         </div>
         <div>
-          <label>School address</label>
+          <label>{{ tr('School address', 'Direccion de la escuela') }}</label>
           <div class="summary-value">{{ schoolAddress || '—' }}</div>
         </div>
         <div>
-          <label>School contact</label>
+          <label>{{ tr('School contact', 'Contacto escolar') }}</label>
           <div class="summary-value">{{ schoolContactLine || '—' }}</div>
         </div>
         <div>
-          <label>Relationship to party</label>
+          <label>{{ tr('Relationship to party', 'Relacion con la parte') }}</label>
           <div class="summary-value">{{ relationshipToParty }}</div>
         </div>
       </div>
 
       <div class="actions">
-        <button type="button" class="btn btn-primary" @click="goNext">Continue</button>
+        <button type="button" class="btn btn-primary" @click="goNext">{{ tr('Continue', 'Continuar') }}</button>
       </div>
     </div>
 
     <div v-else-if="stage === 'purpose'" class="smart-roi-card">
       <div class="progress-label">Step {{ stepNumber }} of {{ totalSteps }}</div>
-      <h3>Purpose of release</h3>
-      <p>This authorization allows communication for school care coordination within the approved scope.</p>
+      <h3>{{ tr('Purpose of release', 'Proposito de la autorizacion') }}</h3>
+      <p>{{ tr('This authorization allows communication for school care coordination within the approved scope.', 'Esta autorizacion permite la comunicacion para la coordinacion de atencion escolar dentro del alcance aprobado.') }}</p>
       <div class="info-panel">
         <ul>
           <li v-for="purpose in roiContext.purposes || []" :key="purpose">{{ purpose }}</li>
         </ul>
       </div>
       <div class="actions">
-        <button type="button" class="btn btn-secondary" @click="goBack">Back</button>
-        <button type="button" class="btn btn-primary" @click="goNext">Continue</button>
+        <button type="button" class="btn btn-secondary" @click="goBack">{{ tr('Back', 'Atras') }}</button>
+        <button type="button" class="btn btn-primary" @click="goNext">{{ tr('Continue', 'Continuar') }}</button>
       </div>
     </div>
 
@@ -119,9 +113,9 @@
       <h3>{{ currentAck?.title }}</h3>
       <p>{{ currentAck?.body }}</p>
       <p class="required-note">
-        This acknowledgement is required to continue.
+        {{ tr('This acknowledgement is required to continue.', 'Este reconocimiento es requerido para continuar.') }}
       </p>
-      <p class="auto-advance-note">Selecting an option will move you to the next question.</p>
+      <p class="auto-advance-note">{{ tr('Selecting an option will move you to the next question.', 'Seleccionar una opcion lo llevara a la siguiente pregunta.') }}</p>
       <div class="choice-row">
         <label class="choice-card" @click.prevent="selectAckDecision(true)">
           <input
@@ -129,11 +123,11 @@
             :value="true"
             type="radio"
           />
-          <span>I acknowledge and accept</span>
+          <span>{{ tr('I acknowledge and accept', 'Reconozco y acepto') }}</span>
         </label>
       </div>
       <div class="actions">
-        <button type="button" class="btn btn-secondary" @click="goBack">Back</button>
+        <button type="button" class="btn btn-secondary" @click="goBack">{{ tr('Back', 'Atras') }}</button>
       </div>
     </div>
 
@@ -141,9 +135,9 @@
       <div class="progress-label">Step {{ stepNumber }} of {{ totalSteps }}</div>
       <h3>{{ currentWaiver?.title }}</h3>
       <p>{{ currentWaiver?.body }}</p>
-      <p class="auto-advance-note">Selecting an option will move you to the next question.</p>
+      <p class="auto-advance-note">{{ tr('Selecting an option will move you to the next question.', 'Seleccionar una opcion lo llevara a la siguiente pregunta.') }}</p>
       <p v-if="currentWaiver?.requiredAccept" class="required-note">
-        This authorization is required to provide services in the school setting.
+        {{ tr('This authorization is required to provide services in the school setting.', 'Esta autorizacion es requerida para brindar servicios en el entorno escolar.') }}
       </p>
       <div class="choice-row">
         <label class="choice-card" @click.prevent="selectWaiverDecision('accept')">
@@ -152,7 +146,7 @@
             value="accept"
             type="radio"
           />
-          <span>{{ currentWaiver?.requiredAccept ? 'Authorize (required)' : 'Authorize' }}</span>
+          <span>{{ currentWaiver?.requiredAccept ? tr('Authorize (required)', 'Autorizar (requerido)') : tr('Authorize', 'Autorizar') }}</span>
         </label>
         <label
           v-if="!currentWaiver?.requiredAccept"
@@ -164,44 +158,44 @@
             value="decline"
             type="radio"
           />
-          <span>Do not authorize</span>
+          <span>{{ tr('Do not authorize', 'No autorizar') }}</span>
         </label>
       </div>
       <div class="actions">
-        <button type="button" class="btn btn-secondary" @click="goBack">Back</button>
+        <button type="button" class="btn btn-secondary" @click="goBack">{{ tr('Back', 'Atras') }}</button>
       </div>
     </div>
 
     <div v-else-if="stage === 'packet'" class="smart-roi-card">
       <div class="progress-label">Step {{ stepNumber }} of {{ totalSteps }}</div>
-      <h3>Packet and document visibility</h3>
+      <h3>{{ tr('Packet and document visibility', 'Visibilidad de paquete y documentos') }}</h3>
       <p>
-        Approved staff will receive basic ROI access. Do you also authorize approved staff to view the packet and related documents?
+        {{ tr('Approved staff will receive basic ROI access. Do you also authorize approved staff to view the packet and related documents?', 'El personal aprobado recibira acceso basico de ROI. Tambien autoriza al personal aprobado a ver el paquete y los documentos relacionados?') }}
       </p>
-      <p class="auto-advance-note">Selecting an option will move you to the next question.</p>
+      <p class="auto-advance-note">{{ tr('Selecting an option will move you to the next question.', 'Seleccionar una opcion lo llevara a la siguiente pregunta.') }}</p>
       <p class="separation-note">
-        This choice applies only to approved individual staff on this ROI. School-level scheduling/safety logistics are handled separately.
+        {{ tr('This choice applies only to approved individual staff on this ROI. School-level scheduling/safety logistics are handled separately.', 'Esta opcion aplica solo al personal individual aprobado en este ROI. La programacion/logistica de seguridad a nivel escolar se maneja por separado.') }}
       </p>
       <div class="choice-row">
         <label class="choice-card" @click.prevent="selectPacketDecision(true)">
           <input :checked="form.packetReleaseAllowed === true" :value="true" type="radio" />
-          <span>Yes, approved staff may view the packet</span>
+          <span>{{ tr('Yes, approved staff may view the packet', 'Si, el personal aprobado puede ver el paquete') }}</span>
         </label>
         <label class="choice-card" @click.prevent="selectPacketDecision(false)">
           <input :checked="form.packetReleaseAllowed === false" :value="false" type="radio" />
-          <span>No, approved staff receive ROI access only</span>
+          <span>{{ tr('No, approved staff receive ROI access only', 'No, el personal aprobado recibe solo acceso ROI') }}</span>
         </label>
       </div>
       <div class="actions">
-        <button type="button" class="btn btn-secondary" @click="goBack">Back</button>
+        <button type="button" class="btn btn-secondary" @click="goBack">{{ tr('Back', 'Atras') }}</button>
       </div>
     </div>
 
     <div v-else-if="stage === 'staff'" class="smart-roi-card">
       <div class="progress-label">Step {{ stepNumber }} of {{ totalSteps }}</div>
-      <h3>School staff approval</h3>
-      <p>Choose whether information may be released to this staff member.</p>
-      <p class="auto-advance-note">Selecting an option will move you to the next question.</p>
+      <h3>{{ tr('School staff approval', 'Aprobacion de personal escolar') }}</h3>
+      <p>{{ tr('Choose whether information may be released to this staff member.', 'Elija si la informacion puede divulgarse a este miembro del personal.') }}</p>
+      <p class="auto-advance-note">{{ tr('Selecting an option will move you to the next question.', 'Seleccionar una opcion lo llevara a la siguiente pregunta.') }}</p>
       <p class="separation-note">
         If no individual staff are approved, no individual ROI or packet access will be granted.
       </p>
@@ -214,22 +208,22 @@
       <div class="choice-row">
         <label class="choice-card" @click.prevent="selectStaffDecision(true)">
           <input :checked="form.staffDecisions[currentStaff.schoolStaffUserId] === true" :value="true" type="radio" />
-          <span>Approve release</span>
+          <span>{{ tr('Approve release', 'Aprobar divulgacion') }}</span>
         </label>
         <label class="choice-card" @click.prevent="selectStaffDecision(false)">
           <input :checked="form.staffDecisions[currentStaff.schoolStaffUserId] === false" :value="false" type="radio" />
-          <span>Deny release</span>
+          <span>{{ tr('Deny release', 'Denegar divulgacion') }}</span>
         </label>
       </div>
       <div class="actions">
-        <button type="button" class="btn btn-secondary" @click="goBack">Back</button>
+        <button type="button" class="btn btn-secondary" @click="goBack">{{ tr('Back', 'Atras') }}</button>
       </div>
     </div>
 
     <div v-else-if="stage === 'external_programmed'" class="smart-roi-card">
       <div class="progress-label">Step {{ stepNumber }} of {{ totalSteps }}</div>
-      <h3>Non-school recipient approval</h3>
-      <p>Choose whether this ROI may release information to the pre-selected non-school recipient.</p>
+      <h3>{{ tr('Non-school recipient approval', 'Aprobacion de destinatario no escolar') }}</h3>
+      <p>{{ tr('Choose whether this ROI may release information to the pre-selected non-school recipient.', 'Elija si este ROI puede divulgar informacion al destinatario no escolar preseleccionado.') }}</p>
       <div class="staff-card">
         <div class="staff-name">{{ programmedRecipient?.name || 'Recipient' }}</div>
         <div class="staff-meta">{{ programmedRecipient?.relationship || 'Relationship not provided' }}</div>
@@ -239,22 +233,22 @@
       <div class="choice-row">
         <label class="choice-card" @click.prevent="selectProgrammedExternalDecision(true)">
           <input :checked="form.programmedExternalAllowed === true" :value="true" type="radio" />
-          <span>Approve release</span>
+          <span>{{ tr('Approve release', 'Aprobar divulgacion') }}</span>
         </label>
         <label class="choice-card" @click.prevent="selectProgrammedExternalDecision(false)">
           <input :checked="form.programmedExternalAllowed === false" :value="false" type="radio" />
-          <span>Deny release</span>
+          <span>{{ tr('Deny release', 'Denegar divulgacion') }}</span>
         </label>
       </div>
       <div class="actions">
-        <button type="button" class="btn btn-secondary" @click="goBack">Back</button>
+        <button type="button" class="btn btn-secondary" @click="goBack">{{ tr('Back', 'Atras') }}</button>
       </div>
     </div>
 
     <div v-else-if="stage === 'external_parent'" class="smart-roi-card">
       <div class="progress-label">Step {{ stepNumber }} of {{ totalSteps }}</div>
-      <h3>Non-school release recipients</h3>
-      <p>Add each non-school person and select whether release is approved for that person.</p>
+      <h3>{{ tr('Non-school release recipients', 'Destinatarios de divulgacion no escolar') }}</h3>
+      <p>{{ tr('Add each non-school person and select whether release is approved for that person.', 'Agregue cada persona no escolar y seleccione si la divulgacion esta aprobada para esa persona.') }}</p>
       <div
         v-for="(recipient, idx) in form.parentExternalRecipients"
         :key="`recipient-${idx}`"
@@ -263,30 +257,30 @@
       >
         <div class="summary-grid" style="margin: 0;">
           <div>
-            <label>Name</label>
+            <label>{{ tr('Name', 'Nombre') }}</label>
             <input v-model="recipient.name" class="roi-input" type="text" placeholder="Person name" />
           </div>
           <div>
-            <label>Relationship</label>
+            <label>{{ tr('Relationship', 'Relacion') }}</label>
             <input v-model="recipient.relationship" class="roi-input" type="text" placeholder="Relationship to client" />
           </div>
           <div>
-            <label>Email</label>
+            <label>{{ tr('Email', 'Correo electronico') }}</label>
             <input v-model="recipient.email" class="roi-input" type="email" placeholder="recipient@example.com" />
           </div>
           <div>
-            <label>Phone</label>
+            <label>{{ tr('Phone', 'Telefono') }}</label>
             <input v-model="recipient.phone" class="roi-input" type="tel" placeholder="(555) 555-5555" />
           </div>
         </div>
         <div class="choice-row" style="margin-top: 10px;">
           <label class="choice-card">
             <input v-model="recipient.allowed" :value="true" type="radio" />
-            <span>Approve release</span>
+            <span>{{ tr('Approve release', 'Aprobar divulgacion') }}</span>
           </label>
           <label class="choice-card">
             <input v-model="recipient.allowed" :value="false" type="radio" />
-            <span>Deny release</span>
+            <span>{{ tr('Deny release', 'Denegar divulgacion') }}</span>
           </label>
         </div>
         <div class="actions" style="justify-content: flex-end; margin-top: 8px;">
@@ -296,52 +290,52 @@
             :disabled="form.parentExternalRecipients.length <= 1"
             @click="removeExternalRecipient(idx)"
           >
-            Remove
+            {{ tr('Remove', 'Eliminar') }}
           </button>
         </div>
       </div>
       <div class="actions">
-        <button type="button" class="btn btn-secondary" @click="addExternalRecipient">Add recipient</button>
-        <button type="button" class="btn btn-secondary" @click="goBack">Back</button>
-        <button type="button" class="btn btn-primary" @click="goNext">Continue</button>
+        <button type="button" class="btn btn-secondary" @click="addExternalRecipient">{{ tr('Add recipient', 'Agregar destinatario') }}</button>
+        <button type="button" class="btn btn-secondary" @click="goBack">{{ tr('Back', 'Atras') }}</button>
+        <button type="button" class="btn btn-primary" @click="goNext">{{ tr('Continue', 'Continuar') }}</button>
       </div>
     </div>
 
     <div v-else-if="stage === 'guidelines'" class="smart-roi-card">
       <div class="progress-label">Step {{ stepNumber }} of {{ totalSteps }}</div>
-      <h3>Guidelines and limitations</h3>
-      <p>These disclosures are limited and documented according to the terms below.</p>
+      <h3>{{ tr('Guidelines and limitations', 'Lineamientos y limitaciones') }}</h3>
+      <p>{{ tr('These disclosures are limited and documented according to the terms below.', 'Estas divulgaciones son limitadas y documentadas segun los terminos a continuacion.') }}</p>
       <div class="info-panel">
         <ul>
           <li v-for="item in roiContext.guidelines || []" :key="item">{{ item }}</li>
         </ul>
       </div>
       <div class="actions">
-        <button type="button" class="btn btn-secondary" @click="goBack">Back</button>
-        <button type="button" class="btn btn-primary" @click="goNext">Continue</button>
+        <button type="button" class="btn btn-secondary" @click="goBack">{{ tr('Back', 'Atras') }}</button>
+        <button type="button" class="btn btn-primary" @click="goNext">{{ tr('Continue', 'Continuar') }}</button>
       </div>
     </div>
 
     <div v-else-if="stage === 'term'" class="smart-roi-card">
       <div class="progress-label">Step {{ stepNumber }} of {{ totalSteps }}</div>
-      <h3>Term and revocation</h3>
+      <h3>{{ tr('Term and revocation', 'Vigencia y revocacion') }}</h3>
       <div class="info-panel">
         <ul>
-          <li>This authorization is valid for 36 months from the date signed unless revoked earlier.</li>
-          <li>Consent may be revoked at any time through support@itsco.health or 833-444-8726 extension 0.</li>
-          <li>Actions already taken before revocation cannot be undone.</li>
-          <li>Information disclosed may be redistributed by the receiving party and may no longer be protected in the same way.</li>
+          <li>{{ tr('This authorization is valid for 36 months from the date signed unless revoked earlier.', 'Esta autorizacion es valida por 36 meses desde la fecha de firma, salvo revocacion previa.') }}</li>
+          <li>{{ tr('Consent may be revoked at any time through support@itsco.health or 833-444-8726 extension 0.', 'El consentimiento puede revocarse en cualquier momento a traves de support@itsco.health o 833-444-8726 extension 0.') }}</li>
+          <li>{{ tr('Actions already taken before revocation cannot be undone.', 'Las acciones tomadas antes de la revocacion no se pueden deshacer.') }}</li>
+          <li>{{ tr('Information disclosed may be redistributed by the receiving party and may no longer be protected in the same way.', 'La informacion divulgada puede redistribuirse por la parte receptora y puede dejar de estar protegida de la misma manera.') }}</li>
         </ul>
       </div>
       <div class="actions">
-        <button type="button" class="btn btn-secondary" @click="goBack">Back</button>
-        <button type="button" class="btn btn-primary" @click="goNext">Continue</button>
+        <button type="button" class="btn btn-secondary" @click="goBack">{{ tr('Back', 'Atras') }}</button>
+        <button type="button" class="btn btn-primary" @click="goNext">{{ tr('Continue', 'Continuar') }}</button>
       </div>
     </div>
 
     <div v-else-if="stage === 'review'" class="smart-roi-card">
       <div class="progress-label">Final Step</div>
-      <h3>Review and sign</h3>
+      <h3>{{ tr('Review and sign', 'Revisar y firmar') }}</h3>
       <div class="review-block">
         <p><strong>Client:</strong> {{ form.clientFullName }}</p>
         <p><strong>Date of Birth:</strong> {{ form.clientDateOfBirth }}</p>
@@ -352,11 +346,23 @@
       </div>
 
       <div class="review-block">
-        <h4>Approved staff</h4>
+        <h4>{{ tr('Question responses', 'Respuestas por pregunta') }}</h4>
+        <ul>
+          <li v-for="ack in normalizedAcknowledgementsForReview" :key="`ack-${ack.id}`">
+            {{ ack.title }} - {{ ack.accepted ? tr('Approved', 'Aprobado') : tr('Denied', 'Denegado') }}
+          </li>
+          <li v-for="item in normalizedWaiversForReview" :key="`waiver-${item.id}`">
+            {{ item.title }} - {{ item.decision === 'accept' ? tr('Approved', 'Aprobado') : tr('Denied', 'Denegado') }}
+          </li>
+        </ul>
+      </div>
+
+      <div class="review-block">
+        <h4>{{ tr('Approved staff', 'Personal aprobado') }}</h4>
         <ul v-if="approvedStaff.length">
           <li v-for="staff in approvedStaff" :key="staff.schoolStaffUserId">{{ staff.fullName }}</li>
         </ul>
-        <p v-else>No staff were approved.</p>
+        <p v-else>{{ tr('No staff were approved.', 'No se aprobo personal.') }}</p>
       </div>
 
       <div v-if="externalReleaseMode === 'sender_programmed'" class="review-block">
@@ -390,18 +396,18 @@
       </div>
 
       <div class="actions">
-        <button type="button" class="btn btn-secondary" @click="goBack">Back</button>
+        <button type="button" class="btn btn-secondary" @click="goBack">{{ tr('Back', 'Atras') }}</button>
         <button type="button" class="btn btn-primary" :disabled="submitting || !signatureData" @click="submitRoi">
-          {{ submitting ? 'Submitting...' : (isEmbeddedMode ? 'Continue' : 'Complete release') }}
+          {{ submitting ? tr('Submitting...', 'Enviando...') : (isEmbeddedMode ? tr('Continue', 'Continuar') : tr('Complete release', 'Completar autorizacion')) }}
         </button>
       </div>
     </div>
 
     <div v-else-if="stage === 'complete'" class="smart-roi-card">
-      <h3>Release completed</h3>
-      <p>The smart school ROI was signed successfully and permissions were applied.</p>
+      <h3>{{ tr('Release completed', 'Autorizacion completada') }}</h3>
+      <p>{{ tr('The smart school ROI was signed successfully and permissions were applied.', 'La autorizacion escolar inteligente se firmo correctamente y se aplicaron los permisos.') }}</p>
       <div class="actions">
-        <a v-if="downloadUrl" class="btn btn-primary" :href="downloadUrl" target="_blank" rel="noopener">Download signed ROI</a>
+        <a v-if="downloadUrl" class="btn btn-primary" :href="downloadUrl" target="_blank" rel="noopener">{{ tr('Download signed ROI', 'Descargar ROI firmado') }}</a>
       </div>
     </div>
   </div>
@@ -448,6 +454,13 @@ const emit = defineEmits(['completed', 'captured']);
 const ackItems = computed(() => Array.isArray(props.roiContext?.requiredAcknowledgements) ? props.roiContext.requiredAcknowledgements : []);
 const waiverItems = computed(() => Array.isArray(props.roiContext?.waiverItems) ? props.roiContext.waiverItems : []);
 const staffRoster = computed(() => Array.isArray(props.roiContext?.staffRoster) ? props.roiContext.staffRoster : []);
+const roiLocale = computed(() => {
+  const code = String(props.link?.language_code || props.roiContext?.locale || props.roiContext?.documentTemplate?.languageCode || 'en')
+    .trim()
+    .toLowerCase();
+  return code.startsWith('es') ? 'es' : 'en';
+});
+const tr = (english, spanish) => (roiLocale.value === 'es' ? spanish : english);
 const externalReleaseMode = computed(() => {
   const mode = String(props.roiContext?.externalRelease?.mode || '').trim().toLowerCase();
   if (mode === 'sender_programmed') return 'sender_programmed';
@@ -588,6 +601,20 @@ const signerFullName = computed(() => `${form.signer.firstName || ''} ${form.sig
 const approvedStaff = computed(() =>
   staffRoster.value.filter((staff) => form.staffDecisions[staff.schoolStaffUserId] === true)
 );
+const normalizedAcknowledgementsForReview = computed(() =>
+  ackItems.value.map((ack) => ({
+    id: ack.id,
+    title: ack.title,
+    accepted: form.requiredAcknowledgements[ack.id] === true
+  }))
+);
+const normalizedWaiversForReview = computed(() =>
+  waiverItems.value.map((item) => ({
+    id: item.id,
+    title: item.title,
+    decision: form.waiverItems[item.id]
+  }))
+);
 const deniedStaffCount = computed(() =>
   staffRoster.value.filter((staff) => form.staffDecisions[staff.schoolStaffUserId] === false).length
 );
@@ -610,9 +637,21 @@ const isSubjectChoiceLocked = computed(() => typeof prefill.value.intakeForSelf 
 const isClientNameLocked = computed(
   () => isEmbeddedMode.value && String(prefill.value.clientFullName || '').trim().length > 0
 );
-const subjectDobLabel = computed(() => (form.intakeForSelf === true ? 'Your Date of Birth' : 'Client Date of Birth'));
-const signerFirstNameLabel = computed(() => (form.intakeForSelf === true ? 'Your First Name' : 'Responsible Party First Name'));
-const signerLastNameLabel = computed(() => (form.intakeForSelf === true ? 'Your Last Name' : 'Responsible Party Last Name'));
+const subjectDobLabel = computed(() => (
+  form.intakeForSelf === true
+    ? tr('Your Date of Birth', 'Su fecha de nacimiento')
+    : tr('Client Date of Birth', 'Fecha de nacimiento del cliente')
+));
+const signerFirstNameLabel = computed(() => (
+  form.intakeForSelf === true
+    ? tr('Your First Name', 'Su nombre')
+    : tr('Responsible Party First Name', 'Nombre de la parte responsable')
+));
+const signerLastNameLabel = computed(() => (
+  form.intakeForSelf === true
+    ? tr('Your Last Name', 'Su apellido')
+    : tr('Responsible Party Last Name', 'Apellido de la parte responsable')
+));
 const hasRequiredValue = (value) => String(value || '').trim().length > 0;
 const requiredFieldClass = (value) => (hasRequiredValue(value) ? '' : 'required-highlight');
 

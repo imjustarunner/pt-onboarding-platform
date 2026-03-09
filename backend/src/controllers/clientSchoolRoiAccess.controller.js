@@ -147,6 +147,11 @@ function serializeIssuedRoiSigningLink(record, client) {
       : null,
     client_id: Number(record.client_id),
     client_full_name: client?.full_name || null,
+    language_code: normalizeLanguageCode(
+      record.intake_link_language_code
+      || record?.roi_context_json?.issuedConfig?.preferredLanguageCode
+      || 'en'
+    ),
     issue_mode: normalizeRoiLinkMode(issuedCfg?.externalReleaseMode),
     programmed_external_recipient: issuedCfg?.programmedExternalRecipient || null,
     email_send_count: Number(record.email_send_count || 0),
@@ -185,17 +190,38 @@ function buildDefaultRoiSmsMessage({ agencyName, linkUrl }) {
   ].join(' ');
 }
 
-function buildDefaultRoiEmailSubject({ agencyName, schoolName }) {
+function buildDefaultRoiEmailSubject({ agencyName, schoolName, languageCode = 'en' }) {
+  const locale = normalizeLanguageCode(languageCode);
   const senderName = String(agencyName || 'ITSCO').trim() || 'ITSCO';
   const school = String(schoolName || 'your school').trim() || 'your school';
+  if (locale === 'es') {
+    return `${senderName}: Autorizacion de Divulgacion de Informacion para ${school}`;
+  }
   return `${senderName}: Release of Information for ${school}`;
 }
 
-function buildDefaultRoiEmailBody({ agencyName, schoolName, clientName, linkUrl }) {
+function buildDefaultRoiEmailBody({ agencyName, schoolName, clientName, linkUrl, languageCode = 'en' }) {
+  const locale = normalizeLanguageCode(languageCode);
   const senderName = String(agencyName || 'ITSCO').trim() || 'ITSCO';
   const school = String(schoolName || 'your school').trim() || 'your school';
   const client = String(clientName || 'the client').trim() || 'the client';
   const url = String(linkUrl || '').trim();
+  if (locale === 'es') {
+    return [
+      'Hola,',
+      '',
+      `${senderName} preparo una autorizacion de divulgacion de informacion (ROI) para ${client} relacionada con ${school}.`,
+      'Por favor revise y complete la autorizacion con el enlace privado y seguro a continuacion:',
+      '',
+      url,
+      '',
+      'Este enlace es especifico para el cliente y actualizara su perfil automaticamente una vez firmado.',
+      '',
+      'Si tiene preguntas, responda este correo o contacte al soporte.',
+      '',
+      `${senderName}`
+    ].join('\n');
+  }
   return [
     `Hello,`,
     ``,
@@ -217,6 +243,11 @@ function normalizeRoiLinkMode(value) {
   if (mode === 'sender_programmed') return 'sender_programmed';
   if (mode === 'parent_defined') return 'parent_defined';
   return 'school_staff_only';
+}
+
+function normalizeLanguageCode(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  return normalized.startsWith('es') ? 'es' : 'en';
 }
 
 function normalizeProgrammedExternalRecipient(input = {}) {
@@ -281,9 +312,19 @@ async function createSchoolRoiBackofficeNotification({
   }
 }
 
-export async function ensureIssuedRoiSigningLinkForClient({ client, schoolOrganizationId, actorUserId = null, regenerate = false }) {
+export async function ensureIssuedRoiSigningLinkForClient({
+  client,
+  schoolOrganizationId,
+  actorUserId = null,
+  regenerate = false,
+  preferredLanguageCode = 'en'
+}) {
   const selection = await resolveSchoolRoiSelection(schoolOrganizationId);
-  const selectedLink = selection.selectedLink;
+  const preferredLocale = normalizeLanguageCode(preferredLanguageCode);
+  const languageMatched = (selection.availableLinks || []).find(
+    (link) => normalizeLanguageCode(link?.language_code || 'en') === preferredLocale
+  ) || null;
+  const selectedLink = languageMatched || selection.selectedLink;
   if (!selectedLink?.id) {
     return { ok: false, status: 400, message: 'No ROI form is available for this school yet.' };
   }
@@ -296,6 +337,7 @@ export async function ensureIssuedRoiSigningLinkForClient({ client, schoolOrgani
     existing
     && !regenerate
     && String(existing.status || '').trim().toLowerCase() !== 'completed'
+    && Number(existing.intake_link_id || 0) === Number(selectedLink.id || 0)
     && String(existing.public_key || '').trim();
 
   const issuedLink = hasUsableKey
@@ -308,7 +350,7 @@ export async function ensureIssuedRoiSigningLinkForClient({ client, schoolOrgani
         issuedByUserId: actorUserId
       });
 
-  return { ok: true, issuedLink, config: selection.explicitConfig, selectedLink };
+  return { ok: true, issuedLink, config: selection.explicitConfig, selectedLink, preferredLanguageCode: preferredLocale };
 }
 
 async function resolveAgencySmsSenderNumber(agencyId) {
@@ -607,6 +649,7 @@ export const issueClientSchoolRoiSigningLink = async (req, res, next) => {
     }
 
     const regenerate = req.body?.regenerate === true;
+    const preferredLanguageCode = normalizeLanguageCode(req.body?.languageCode);
     const issueMode = normalizeRoiLinkMode(req.body?.issueMode);
     const programmedExternalRecipient = issueMode === 'sender_programmed'
       ? normalizeProgrammedExternalRecipient(req.body?.programmedExternalRecipient || {})
@@ -622,7 +665,8 @@ export const issueClientSchoolRoiSigningLink = async (req, res, next) => {
       client,
       schoolOrganizationId,
       actorUserId: req.user?.id || null,
-      regenerate
+      regenerate,
+      preferredLanguageCode
     });
     if (!issuedResult.ok) {
       return res.status(issuedResult.status).json({ error: { message: issuedResult.message } });
@@ -630,7 +674,8 @@ export const issueClientSchoolRoiSigningLink = async (req, res, next) => {
     const issuedLink = issuedResult.issuedLink;
     const issuedConfig = {
       externalReleaseMode: issueMode,
-      programmedExternalRecipient
+      programmedExternalRecipient,
+      preferredLanguageCode
     };
     const issuedWithConfig = await ClientSchoolRoiSigningLink.updatePayload({
       id: issuedLink?.id,
@@ -648,6 +693,7 @@ export const issueClientSchoolRoiSigningLink = async (req, res, next) => {
         intakeLinkId: Number(issuedResult.selectedLink?.id || issuedLink?.intake_link_id || 0) || null,
         signingLinkId: issuedLink?.id || null,
         regenerate,
+        preferredLanguageCode,
         issueMode,
         programmedExternalRecipient
       }
@@ -739,11 +785,13 @@ export const sendClientSchoolRoiSigningText = async (req, res, next) => {
       client = await Client.update(clientId, { contact_phone: normalizedPhone }, req.user?.id || null);
     }
 
+    const preferredLanguageCode = normalizeLanguageCode(req.body?.languageCode);
     const issuedResult = await ensureIssuedRoiSigningLinkForClient({
       client,
       schoolOrganizationId,
       actorUserId: req.user?.id || null,
-      regenerate: req.body?.regenerate === true
+      regenerate: req.body?.regenerate === true,
+      preferredLanguageCode
     });
     if (!issuedResult.ok) {
       return res.status(issuedResult.status).json({ error: { message: issuedResult.message } });
@@ -880,11 +928,13 @@ export const sendClientSchoolRoiSigningEmail = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Client does not have a school affiliation yet' } });
     }
 
+    const preferredLanguageCode = normalizeLanguageCode(req.body?.languageCode);
     const issuedResult = await ensureIssuedRoiSigningLinkForClient({
       client,
       schoolOrganizationId,
       actorUserId: req.user?.id || null,
-      regenerate: !!req.body?.regenerate
+      regenerate: !!req.body?.regenerate,
+      preferredLanguageCode
     });
     if (!issuedResult.ok) {
       return res.status(issuedResult.status).json({ error: { message: issuedResult.message } });
@@ -913,13 +963,15 @@ export const sendClientSchoolRoiSigningEmail = async (req, res, next) => {
     const linkUrl = buildPublicIntakeUrl(issuedResult.issuedLink?.public_key || '');
     const defaultSubject = buildDefaultRoiEmailSubject({
       agencyName: client.agency_name || agency?.name || 'ITSCO',
-      schoolName
+      schoolName,
+      languageCode: preferredLanguageCode
     });
     const defaultBody = buildDefaultRoiEmailBody({
       agencyName: client.agency_name || agency?.name || 'ITSCO',
       schoolName,
       clientName: client.full_name || client.initials || `Client ${client.id}`,
-      linkUrl
+      linkUrl,
+      languageCode: preferredLanguageCode
     });
     const subject = String(req.body?.subject || defaultSubject).trim() || defaultSubject;
     const body = String(req.body?.message || defaultBody).trim() || defaultBody;

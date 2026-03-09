@@ -1018,6 +1018,7 @@ const recaptchaSiteKey = ref(import.meta.env.VITE_RECAPTCHA_SITE_KEY || '');
 const useEnterpriseRecaptcha = ref(
   String(import.meta.env.VITE_RECAPTCHA_USE_ENTERPRISE || '').toLowerCase() === 'true'
 );
+const recaptchaForceWidget = ref(false);
 const captchaToken = ref('');
 const pollingForDownload = ref(false);
 const captchaError = ref('');
@@ -1034,7 +1035,12 @@ const activeRecaptchaSiteKey = computed(() =>
 const activeRecaptchaMode = computed(() =>
   isLocalhostRecaptcha ? 'standard' : (useEnterpriseRecaptcha.value ? 'enterprise' : 'standard')
 );
-const requiresCaptchaAtStart = computed(() => !!recaptchaSiteKey.value && !isLocalhostRecaptcha);
+const requiresCaptchaAtStart = computed(() =>
+  !!recaptchaSiteKey.value
+  && recaptchaForceWidget.value === true
+  && !isLocalhostRecaptcha
+);
+const recaptchaLanguageCode = computed(() => (intakeLocale.value === 'es' ? 'es' : 'en'));
 const showCaptchaGate = computed(() => requiresCaptchaAtStart.value);
 const sessionExpiryMinutes = computed(() => 30 + Math.max(0, Number(templates.value.length || 0)) * 5);
 const approvalContext = computed(() => {
@@ -1933,6 +1939,7 @@ const loadLink = async () => {
     organizationInfo.value = resp.data?.organization || null;
     const recaptchaConfig = resp.data?.recaptcha || {};
     recaptchaSiteKey.value = String(recaptchaConfig.siteKey || '').trim();
+    recaptchaForceWidget.value = recaptchaConfig.forceWidget === true;
     if (typeof recaptchaConfig.useEnterprise === 'boolean') {
       useEnterpriseRecaptcha.value = !!recaptchaConfig.useEnterprise;
     }
@@ -2019,9 +2026,10 @@ const loadRecaptchaScript = async (mode = 'standard', forceReload = false) => {
   }
   return new Promise((resolve, reject) => {
     const script = document.createElement('script');
+    const languageParam = `&hl=${encodeURIComponent(recaptchaLanguageCode.value)}`;
     script.src = mode === 'enterprise'
-      ? 'https://www.google.com/recaptcha/enterprise.js?render=explicit'
-      : 'https://www.google.com/recaptcha/api.js?render=explicit';
+      ? `https://www.google.com/recaptcha/enterprise.js?render=explicit${languageParam}`
+      : `https://www.google.com/recaptcha/api.js?render=explicit${languageParam}`;
     script.async = true;
     script.defer = true;
     script.setAttribute('data-recaptcha', 'true');

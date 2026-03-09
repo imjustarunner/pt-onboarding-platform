@@ -32,7 +32,7 @@ class ClientSchoolRoiSigningLink {
     const rid = Number(id || 0);
     if (!rid) return null;
     const [rows] = await pool.execute(
-      `SELECT csrsl.*, il.title AS intake_link_title
+      `SELECT csrsl.*, il.title AS intake_link_title, il.language_code AS intake_link_language_code
        FROM client_school_roi_signing_links csrsl
        LEFT JOIN intake_links il ON il.id = csrsl.intake_link_id
        WHERE csrsl.id = ?
@@ -46,7 +46,7 @@ class ClientSchoolRoiSigningLink {
     const key = String(publicKey || '').trim();
     if (!key) return null;
     const [rows] = await pool.execute(
-      `SELECT csrsl.*, il.title AS intake_link_title
+      `SELECT csrsl.*, il.title AS intake_link_title, il.language_code AS intake_link_language_code
        FROM client_school_roi_signing_links csrsl
        LEFT JOIN intake_links il ON il.id = csrsl.intake_link_id
        WHERE csrsl.public_key = ?
@@ -61,7 +61,7 @@ class ClientSchoolRoiSigningLink {
     const sid = Number(schoolOrganizationId || 0);
     if (!cid || !sid) return null;
     const [rows] = await pool.execute(
-      `SELECT csrsl.*, il.title AS intake_link_title
+      `SELECT csrsl.*, il.title AS intake_link_title, il.language_code AS intake_link_language_code
        FROM client_school_roi_signing_links csrsl
        LEFT JOIN intake_links il ON il.id = csrsl.intake_link_id
        WHERE csrsl.client_id = ?
