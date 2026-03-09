@@ -7,6 +7,14 @@ function normalizeSlug(value) {
   return String(value || '').trim().toLowerCase();
 }
 
+function roleNorm(user) {
+  return String(user?.role || '').trim().toLowerCase();
+}
+
+function isSchoolStaffUser(user) {
+  return roleNorm(user) === 'school_staff';
+}
+
 function readStoredUserAgencies() {
   if (typeof window === 'undefined') return [];
   try {
@@ -37,7 +45,7 @@ export function resolveOrganizationIdFromSlug({ organizationSlug, authUser }) {
 
 export async function getSchoolStaffWaiverStatus({ api, authUser, organizationSlug, forceRefresh = false }) {
   let orgId = resolveOrganizationIdFromSlug({ organizationSlug, authUser });
-  if (!orgId) {
+  if (!orgId && !isSchoolStaffUser(authUser)) {
     try {
       const slug = normalizeSlug(organizationSlug);
       if (slug) {

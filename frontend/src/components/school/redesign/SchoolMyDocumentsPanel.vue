@@ -137,14 +137,20 @@ const openSigning = async () => {
   await loadStatus();
   const latestTaskId = Number(status.value?.taskId || 0) || null;
   const latestSigned = Boolean(status.value?.isSigned);
-  if (!latestTaskId) return;
-  if (latestSigned) {
-    const viewUrl = `${api.defaults?.baseURL || '/api'}/document-signing/${latestTaskId}/view`;
-    window.open(viewUrl, '_blank', 'noopener');
-    return;
-  }
   const orgSlug = String(route.params?.organizationSlug || '').trim();
   const returnTo = orgSlug ? `/${orgSlug}/dashboard?sp=documents` : '/dashboard?sp=documents';
+  if (!latestTaskId) return;
+  if (latestSigned) {
+    await router.push({
+      path: orgSlug
+        ? `/${orgSlug}/tasks/documents/${latestTaskId}/review`
+        : `/tasks/documents/${latestTaskId}/review`,
+      query: {
+        returnTo
+      }
+    });
+    return;
+  }
   await router.push({
     path: orgSlug
       ? `/${orgSlug}/tasks/documents/${latestTaskId}/sign`

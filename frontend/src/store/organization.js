@@ -2,6 +2,29 @@ import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import api from '../services/api';
 
+const normalizeSlug = (slug) => String(slug || '').trim().toLowerCase();
+
+const readStoredUserAgencies = () => {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = JSON.parse(window.localStorage.getItem('userAgencies') || '[]');
+    return Array.isArray(raw) ? raw : [];
+  } catch {
+    return [];
+  }
+};
+
+const findStoredOrgBySlug = (slug) => {
+  const target = normalizeSlug(slug);
+  if (!target) return null;
+  const agencies = readStoredUserAgencies();
+  return agencies.find((org) => {
+    const orgSlug = normalizeSlug(org?.slug);
+    const portalUrl = normalizeSlug(org?.portal_url || org?.portalUrl);
+    return orgSlug === target || portalUrl === target;
+  }) || null;
+};
+
 /**
  * Organization Store
  * Manages organization context (Agency, School, Program, Learning)
@@ -19,7 +42,8 @@ export const useOrganizationStore = defineStore('organization', () => {
    * @returns {Promise<Object|null>} Organization object or null
    */
   const fetchBySlug = async (slug) => {
-    if (!slug) {
+    const normalized = normalizeSlug(slug);
+    if (!normalized) {
       error.value = 'Organization slug is required';
       return null;
     }
@@ -29,7 +53,10 @@ export const useOrganizationStore = defineStore('organization', () => {
 
     try {
       // Try to fetch by slug (backend will handle organization_type)
-      const response = await api.get(`/agencies/slug/${slug}`);
+      const response = await api.get(`/agencies/slug/${encodeURIComponent(normalized)}`, {
+        skipGlobalLoading: true,
+        timeout: 10000
+      });
       const org = response.data;
       
       if (!org || !org.is_active) {
@@ -54,7 +81,25 @@ export const useOrganizationStore = defineStore('organization', () => {
       
       return null;
     } catch (err) {
-      console.error('Failed to fetch organization by slug:', err);
+      const status = Number(err?.response?.status || 0);
+      const fallbackOrg = findStoredOrgBySlug(normalized);
+      if ((status === 401 || status === 403) && fallbackOrg) {
+        currentOrganization.value = fallbackOrg;
+        organizationContext.value = {
+          id: fallbackOrg.id,
+          name: fallbackOrg.name,
+          slug: fallbackOrg.slug,
+          organizationType: fallbackOrg.organization_type || 'agency',
+          logoUrl: fallbackOrg.logo_url,
+          colorPalette: fallbackOrg.color_palette,
+          themeSettings: fallbackOrg.theme_settings,
+          portalUrl: fallbackOrg.portal_url
+        };
+        return fallbackOrg;
+      }
+      if (import.meta.env.DEV) {
+        console.error('Failed to fetch organization by slug:', err);
+      }
       error.value = err.response?.data?.error?.message || 'Failed to load organization';
       return null;
     } finally {

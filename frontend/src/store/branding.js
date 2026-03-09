@@ -214,7 +214,10 @@ export const useBrandingStore = defineStore('branding', () => {
       // Apply theme to CSS variables
       applyTheme(response.data);
     } catch (err) {
-      console.error('Failed to fetch agency theme:', err);
+      const status = Number(err?.response?.status || 0);
+      if (import.meta.env.DEV && status !== 401 && status !== 403) {
+        console.error('Failed to fetch agency theme:', err);
+      }
       portalAgency.value = null;
       portalTheme.value = null;
     }

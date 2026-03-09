@@ -124,6 +124,10 @@ async function sendPresenceHeartbeat() {
   const authStore = useAuthStore();
   const agencyStore = useAgencyStore();
   if (!authStore.isAuthenticated) return;
+  const roleNorm = String(authStore.user?.role || '').toLowerCase();
+  if (!roleNorm) return;
+  // School staff do not participate in presence/chat heartbeat.
+  if (roleNorm === 'school_staff') return;
 
   const agencyId = agencyStore.currentAgency?.id || null;
   try {
