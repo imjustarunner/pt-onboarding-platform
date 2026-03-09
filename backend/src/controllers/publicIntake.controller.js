@@ -3225,20 +3225,20 @@ export const finalizePublicIntake = async (req, res, next) => {
               }
 
               // Apply embedded ROI completion (same as standalone smart school ROI path)
-              const embeddedClientId = Number(updatedSubmission?.client_id || 0) || null;
-              if (embeddedClientId && roiResponse) {
+              const roiClientId = Number(updatedSubmission?.client_id || embeddedClientId || 0) || null;
+              if (roiClientId && roiResponse) {
                 const schoolOrganizationId = Number(
                   boundClient?.organization_id || link.organization_id || 0
                 ) || null;
 
                 try {
-                  const clientRow = boundClient || await Client.findById(embeddedClientId, { includeSensitive: true });
+                  const clientRow = boundClient || await Client.findById(roiClientId, { includeSensitive: true });
                   const agencyId = clientRow?.agency_id || null;
                   const roiDocTitle = effectiveRoiContext?.school?.name
                     ? `${effectiveRoiContext.school.name} - Release of Information (Signed)`
                     : `${selectedTemplate.name || 'School ROI'} (Signed)`;
                   const embeddedPhiDoc = await ClientPhiDocument.create({
-                    clientId: embeddedClientId,
+                    clientId: roiClientId,
                     agencyId,
                     schoolOrganizationId: schoolOrganizationId || agencyId,
                     intakeSubmissionId: submissionId,
@@ -3251,7 +3251,7 @@ export const finalizePublicIntake = async (req, res, next) => {
                   });
                   await PhiDocumentAuditLog.create({
                     documentId: embeddedPhiDoc.id,
-                    clientId: embeddedClientId,
+                    clientId: roiClientId,
                     action: 'uploaded',
                     actorUserId: null,
                     actorLabel: 'public_intake',
@@ -3259,12 +3259,12 @@ export const finalizePublicIntake = async (req, res, next) => {
                     metadata: { submissionId, templateId: selectedTemplate.id, smartSchoolRoi: true, embeddedStep: true }
                   });
                 } catch (phiErr) {
-                  console.error('[publicIntake] embedded ROI PHI doc creation failed', { clientId: embeddedClientId, error: phiErr?.message });
+                  console.error('[publicIntake] embedded ROI PHI doc creation failed', { clientId: roiClientId, error: phiErr?.message });
                 }
 
                 try {
                   const accessUpdates = await applySmartSchoolRoiAccessDecisions({
-                    clientId: embeddedClientId,
+                    clientId: roiClientId,
                     schoolOrganizationId: schoolOrganizationId || 0,
                     response: roiResponse,
                     actorUserId: null
@@ -3273,7 +3273,7 @@ export const finalizePublicIntake = async (req, res, next) => {
                     actionType: 'smart_school_roi_permissions_applied',
                     agencyId: boundClient?.agency_id || null,
                     metadata: {
-                      clientId: embeddedClientId,
+                      clientId: roiClientId,
                       schoolOrganizationId,
                       embeddedStep: true,
                       packetReleaseAllowed: roiResponse.packetReleaseAllowed,
@@ -3284,31 +3284,31 @@ export const finalizePublicIntake = async (req, res, next) => {
                     }
                   });
                 } catch (accessErr) {
-                  console.error('[publicIntake] embedded ROI access decisions failed', { clientId: embeddedClientId, error: accessErr?.message });
+                  console.error('[publicIntake] embedded ROI access decisions failed', { clientId: roiClientId, error: accessErr?.message });
                 }
 
                 try {
                   await applyClientRoiCompletion({
-                    clientId: embeddedClientId,
+                    clientId: roiClientId,
                     signedAt: now,
                     actorUserId: null
                   });
                 } catch (roiErr) {
-                  console.error('[publicIntake] embedded ROI completion failed, applying fallback', { clientId: embeddedClientId, error: roiErr?.message });
+                  console.error('[publicIntake] embedded ROI completion failed, applying fallback', { clientId: roiClientId, error: roiErr?.message });
                   try {
                     const roiFallbackExpiry = new Date(now);
                     roiFallbackExpiry.setUTCFullYear(roiFallbackExpiry.getUTCFullYear() + 3);
-                    await Client.update(embeddedClientId, { roi_expires_at: roiFallbackExpiry });
+                    await Client.update(roiClientId, { roi_expires_at: roiFallbackExpiry });
                   } catch (fallbackErr) {
-                    console.error('[publicIntake] roi_expires_at fallback also failed', { clientId: embeddedClientId, error: fallbackErr?.message });
+                    console.error('[publicIntake] roi_expires_at fallback also failed', { clientId: roiClientId, error: fallbackErr?.message });
                   }
                 }
 
                 try {
                   await notifySchoolRoiCompletedForBackoffice({
                     agencyId: boundClient?.agency_id || null,
-                    clientId: embeddedClientId,
-                    clientLabel: boundClient?.full_name || boundClient?.initials || `Client ${embeddedClientId}`,
+                    clientId: roiClientId,
+                    clientLabel: boundClient?.full_name || boundClient?.initials || `Client ${roiClientId}`,
                     schoolLabel: effectiveRoiContext?.school?.name || 'school'
                   });
                 } catch {
