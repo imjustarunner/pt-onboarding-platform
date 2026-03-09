@@ -1,6 +1,7 @@
 import pool from '../config/database.js';
 import TaskAssignmentService from './taskAssignment.service.js';
 import SignedDocument from '../models/SignedDocument.model.js';
+import DocumentSignatureWorkflow from '../models/DocumentSignatureWorkflow.model.js';
 import { isPilotSchoolStaffUser } from '../utils/pilotOrgs.js';
 
 export const SCHOOL_STAFF_WAIVER_TEMPLATE_NAME = 'School Staff Account & Access Waiver (Pilot)';
@@ -94,7 +95,8 @@ export async function resolveSchoolStaffWaiverStatus({ user, organization }) {
   const task = await ensureWaiverTask({ userId, templateId: template.id });
   const signed = task?.id ? await SignedDocument.findByTask(task.id) : null;
   const signedPdfPath = String(signed?.signed_pdf_path || '').trim();
-  const isSigned = Boolean(signed?.id) && Boolean(signedPdfPath);
+  const workflow = signed?.id ? await DocumentSignatureWorkflow.findBySignedDocument(signed.id) : null;
+  const isSigned = Boolean(signed?.id) && (Boolean(signedPdfPath) || Boolean(workflow?.finalized_at));
 
   return {
     pilotEnabled: true,

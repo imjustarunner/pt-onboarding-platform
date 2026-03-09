@@ -75,6 +75,62 @@ function buildWaiverFallbackHtml({ documentName, user, signedAtIso }) {
   `;
 }
 
+async function generateWaiverPdfInBackground({
+  signedDocId,
+  userId,
+  signatureData,
+  workflow,
+  signerInfo,
+  documentName,
+  referenceNumber,
+  auditTrail
+}) {
+  try {
+    const latest = await SignedDocument.findById(signedDocId);
+    const existingPath = String(latest?.signed_pdf_path || '').trim();
+    if (existingPath) return;
+
+    const fallbackHtml = buildWaiverFallbackHtml({
+      documentName,
+      user: signerInfo,
+      signedAtIso: new Date().toISOString()
+    });
+    const pdfBytes = await DocumentSigningService.generateFinalizedPDF(
+      null,
+      'html',
+      fallbackHtml,
+      signatureData,
+      workflow,
+      signerInfo,
+      auditTrail,
+      null,
+      {
+        referenceNumber,
+        documentName,
+        signatureOnAuditPage: true,
+        fieldDefinitions: [],
+        fieldValues: {},
+        branding: null
+      }
+    );
+    const pdfHash = DocumentSigningService.calculatePDFHash(pdfBytes);
+    const StorageService = (await import('../services/storage.service.js')).default;
+    const filename = `signed-${signedDocId}-${Date.now()}.pdf`;
+    const storageResult = await StorageService.saveSignedDocument(
+      userId,
+      signedDocId,
+      pdfBytes,
+      filename
+    );
+    await pool.execute(
+      'UPDATE signed_documents SET signed_pdf_path = ?, pdf_hash = ?, audit_trail = ? WHERE id = ?',
+      [storageResult.relativePath, pdfHash, JSON.stringify(auditTrail), signedDocId]
+    );
+  } catch (err) {
+    console.warn('generateWaiverPdfInBackground failed:', err?.message || err);
+  }
+}
+
 export const getDocumentTask = async (req, res, next) => {
   try {
     const { taskId } = req.params;
@@ -779,69 +835,87 @@ export const signDocument = async (req, res, next) => {
       userId: user.id
     };
 
+    if (waiverFastPath) {
+      const fastAuditTrail = {
+        ...(mergedAuditTrail || {}),
+        waiverFastPath: true,
+        signatureData,
+        fieldValues: normalizedFieldValues,
+        signedAt: new Date().toISOString()
+      };
+      await pool.execute(
+        'UPDATE signed_documents SET audit_trail = ? WHERE id = ?',
+        [JSON.stringify(fastAuditTrail), signedDoc.id]
+      );
+      try {
+        await withTimeout(
+          DocumentSignatureWorkflow.finalize(signedDoc.id),
+          SIGN_OP_TIMEOUT_MS.workflowFinalize,
+          'workflow finalization'
+        );
+      } catch (finalizeErr) {
+        console.warn('signDocument: waiver fast-path workflow finalize failed (continuing):', finalizeErr?.message || finalizeErr);
+      }
+      try {
+        await withTimeout(
+          Task.markComplete(taskId, userId),
+          SIGN_OP_TIMEOUT_MS.taskComplete,
+          'task completion'
+        );
+      } catch (taskErr) {
+        console.warn('signDocument: waiver fast-path task completion failed (continuing):', taskErr?.message || taskErr);
+      }
+      setTimeout(() => {
+        void generateWaiverPdfInBackground({
+          signedDocId: Number(signedDoc.id),
+          userId: Number(userId),
+          signatureData,
+          workflow: { ...workflow, finalized_at: new Date().toISOString() },
+          signerInfo,
+          documentName,
+          referenceNumber,
+          auditTrail: fastAuditTrail
+        });
+      }, 0);
+      return res.json({
+        success: true,
+        signedDocument: await SignedDocument.findById(signedDoc.id),
+        downloadUrl: `/api/document-signing/${taskId}/download`,
+        pendingDocumentGeneration: true
+      });
+    }
+
     console.log(`signDocument: Generating finalized PDF...`);
     // Generate finalized PDF
     let pdfBytes;
-    if (waiverFastPath) {
-      // Fast path: waiver completion should be "done and done" without heavy template rendering.
-      const fallbackHtml = buildWaiverFallbackHtml({
-        documentName,
-        user: signerInfo,
-        signedAtIso: new Date().toISOString()
-      });
+    try {
       pdfBytes = await withTimeout(
         DocumentSigningService.generateFinalizedPDF(
-          null,
-          'html',
-          fallbackHtml,
+          templatePath,
+          templateType,
+          htmlContent,
           signatureData,
           workflow,
           signerInfo,
           mergedAuditTrail,
-          null,
+          signatureCoords,
           {
             referenceNumber,
             documentName,
             signatureOnAuditPage: true,
-            fieldDefinitions: [],
-            fieldValues: {},
-            branding: null
+            fieldDefinitions: normalizedFieldDefs,
+            fieldValues: normalizedFieldValues,
+            branding: brandingContext
           }
         ),
-        8000,
-        'waiver fast-path pdf generation'
+        SIGN_OP_TIMEOUT_MS.pdfGenerate,
+        'pdf generation'
       );
-      console.log(`signDocument: Waiver fast-path PDF generated successfully, size: ${pdfBytes.length} bytes`);
-    } else {
-      try {
-        pdfBytes = await withTimeout(
-          DocumentSigningService.generateFinalizedPDF(
-            templatePath,
-            templateType,
-            htmlContent,
-            signatureData,
-            workflow,
-            signerInfo,
-            mergedAuditTrail,
-            signatureCoords,
-            {
-              referenceNumber,
-              documentName,
-              signatureOnAuditPage: true,
-              fieldDefinitions: normalizedFieldDefs,
-              fieldValues: normalizedFieldValues,
-              branding: brandingContext
-            }
-          ),
-          SIGN_OP_TIMEOUT_MS.pdfGenerate,
-          'pdf generation'
-        );
-        console.log(`signDocument: PDF generated successfully, size: ${pdfBytes.length} bytes`);
-      } catch (pdfError) {
-        console.error('signDocument: Error generating PDF:', pdfError);
-        console.error('signDocument: PDF error stack:', pdfError.stack);
-        throw new Error(`Failed to generate PDF: ${pdfError.message}`);
-      }
+      console.log(`signDocument: PDF generated successfully, size: ${pdfBytes.length} bytes`);
+    } catch (pdfError) {
+      console.error('signDocument: Error generating PDF:', pdfError);
+      console.error('signDocument: PDF error stack:', pdfError.stack);
+      throw new Error(`Failed to generate PDF: ${pdfError.message}`);
     }
 
     console.log(`signDocument: Calculating PDF hash...`);
