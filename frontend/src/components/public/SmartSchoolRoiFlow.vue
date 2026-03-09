@@ -16,11 +16,11 @@
 
       <div class="subject-choice-row">
         <label class="choice-card" :class="{ 'required-highlight': form.intakeForSelf === null }">
-          <input v-model="form.intakeForSelf" :value="true" type="radio" :disabled="isSubjectChoiceLocked" />
+          <input id="roi-intake-self-yes" name="intakeForSelf" v-model="form.intakeForSelf" :value="true" type="radio" :disabled="isSubjectChoiceLocked" />
           <span>{{ tr('I am the client', 'Yo soy el cliente') }}</span>
         </label>
         <label class="choice-card" :class="{ 'required-highlight': form.intakeForSelf === null }">
-          <input v-model="form.intakeForSelf" :value="false" type="radio" :disabled="isSubjectChoiceLocked" />
+          <input id="roi-intake-self-no" name="intakeForSelf" v-model="form.intakeForSelf" :value="false" type="radio" :disabled="isSubjectChoiceLocked" />
           <span>{{ tr('My dependent is the client', 'Mi dependiente es el cliente') }}</span>
         </label>
       </div>
@@ -29,10 +29,12 @@
 
       <div class="summary-grid">
         <div>
-          <label>{{ tr('Client', 'Cliente') }}</label>
+          <label for="roi-client-full-name">{{ tr('Client', 'Cliente') }}</label>
           <div v-if="isClientNameLocked" class="summary-value">{{ form.clientFullName || '—' }}</div>
           <input
             v-else
+            id="roi-client-full-name"
+            name="clientFullName"
             v-model="form.clientFullName"
             :class="['roi-input', requiredFieldClass(form.clientFullName)]"
             type="text"
@@ -40,29 +42,31 @@
           />
         </div>
         <div>
-          <label>{{ subjectDobLabel }}</label>
-          <input v-model="form.clientDateOfBirth" :class="['roi-input', requiredFieldClass(form.clientDateOfBirth)]" type="date" />
+          <label for="roi-client-dob">{{ subjectDobLabel }}</label>
+          <input id="roi-client-dob" name="clientDateOfBirth" v-model="form.clientDateOfBirth" :class="['roi-input', requiredFieldClass(form.clientDateOfBirth)]" type="date" />
         </div>
         <div>
-          <label>{{ signerFirstNameLabel }}</label>
-          <input v-model="form.signer.firstName" :class="['roi-input', requiredFieldClass(form.signer.firstName)]" type="text" />
+          <label for="roi-signer-first-name">{{ signerFirstNameLabel }}</label>
+          <input id="roi-signer-first-name" name="signerFirstName" v-model="form.signer.firstName" :class="['roi-input', requiredFieldClass(form.signer.firstName)]" type="text" />
         </div>
         <div>
-          <label>{{ signerLastNameLabel }}</label>
-          <input v-model="form.signer.lastName" :class="['roi-input', requiredFieldClass(form.signer.lastName)]" type="text" />
+          <label for="roi-signer-last-name">{{ signerLastNameLabel }}</label>
+          <input id="roi-signer-last-name" name="signerLastName" v-model="form.signer.lastName" :class="['roi-input', requiredFieldClass(form.signer.lastName)]" type="text" />
         </div>
         <div>
-          <label>{{ tr('Email', 'Correo electronico') }}</label>
-          <input v-model="form.signer.email" :class="['roi-input', requiredFieldClass(form.signer.email)]" type="email" />
+          <label for="roi-signer-email">{{ tr('Email', 'Correo electronico') }}</label>
+          <input id="roi-signer-email" name="signerEmail" v-model="form.signer.email" :class="['roi-input', requiredFieldClass(form.signer.email)]" type="email" />
         </div>
         <div>
-          <label>{{ tr('Phone', 'Telefono') }}</label>
-          <input v-model="form.signer.phone" class="roi-input" type="tel" />
+          <label for="roi-signer-phone">{{ tr('Phone', 'Telefono') }}</label>
+          <input id="roi-signer-phone" name="signerPhone" v-model="form.signer.phone" class="roi-input" type="tel" />
         </div>
         <div>
-          <label>{{ tr('Relationship to Client', 'Relacion con el cliente') }}</label>
+          <label for="roi-signer-relationship">{{ tr('Relationship to Client', 'Relacion con el cliente') }}</label>
           <input
             v-if="form.intakeForSelf !== true"
+            id="roi-signer-relationship"
+            name="signerRelationship"
             v-model="form.signer.relationship"
             :class="['roi-input', requiredFieldClass(form.signer.relationship)]"
             type="text"
@@ -119,6 +123,7 @@
       <div class="choice-row">
         <label class="choice-card" @click.prevent="selectAckDecision(true)">
           <input
+            name="requiredAcknowledgement"
             :checked="form.requiredAcknowledgements[currentAck.id] === true"
             :value="true"
             type="radio"
@@ -142,6 +147,7 @@
       <div class="choice-row">
         <label class="choice-card" @click.prevent="selectWaiverDecision('accept')">
           <input
+            :name="`waiverDecision_${currentWaiver?.id || 'current'}`"
             :checked="form.waiverItems[currentWaiver.id] === 'accept'"
             value="accept"
             type="radio"
@@ -154,6 +160,7 @@
           @click.prevent="selectWaiverDecision('decline')"
         >
           <input
+            :name="`waiverDecision_${currentWaiver?.id || 'current'}`"
             :checked="form.waiverItems[currentWaiver.id] === 'decline'"
             value="decline"
             type="radio"
@@ -178,11 +185,11 @@
       </p>
       <div class="choice-row">
         <label class="choice-card" @click.prevent="selectPacketDecision(true)">
-          <input :checked="form.packetReleaseAllowed === true" :value="true" type="radio" />
+          <input name="packetReleaseAllowed" :checked="form.packetReleaseAllowed === true" :value="true" type="radio" />
           <span>{{ tr('Yes, approved staff may view the packet', 'Si, el personal aprobado puede ver el paquete') }}</span>
         </label>
         <label class="choice-card" @click.prevent="selectPacketDecision(false)">
-          <input :checked="form.packetReleaseAllowed === false" :value="false" type="radio" />
+          <input name="packetReleaseAllowed" :checked="form.packetReleaseAllowed === false" :value="false" type="radio" />
           <span>{{ tr('No, approved staff receive ROI access only', 'No, el personal aprobado recibe solo acceso ROI') }}</span>
         </label>
       </div>
@@ -207,11 +214,11 @@
       </div>
       <div class="choice-row">
         <label class="choice-card" @click.prevent="selectStaffDecision(true)">
-          <input :checked="form.staffDecisions[currentStaff.schoolStaffUserId] === true" :value="true" type="radio" />
+          <input :name="`staffDecision_${currentStaff?.schoolStaffUserId || 'current'}`" :checked="form.staffDecisions[currentStaff.schoolStaffUserId] === true" :value="true" type="radio" />
           <span>{{ tr('Approve release', 'Aprobar divulgacion') }}</span>
         </label>
         <label class="choice-card" @click.prevent="selectStaffDecision(false)">
-          <input :checked="form.staffDecisions[currentStaff.schoolStaffUserId] === false" :value="false" type="radio" />
+          <input :name="`staffDecision_${currentStaff?.schoolStaffUserId || 'current'}`" :checked="form.staffDecisions[currentStaff.schoolStaffUserId] === false" :value="false" type="radio" />
           <span>{{ tr('Deny release', 'Denegar divulgacion') }}</span>
         </label>
       </div>
@@ -232,11 +239,11 @@
       </div>
       <div class="choice-row">
         <label class="choice-card" @click.prevent="selectProgrammedExternalDecision(true)">
-          <input :checked="form.programmedExternalAllowed === true" :value="true" type="radio" />
+          <input name="programmedExternalAllowed" :checked="form.programmedExternalAllowed === true" :value="true" type="radio" />
           <span>{{ tr('Approve release', 'Aprobar divulgacion') }}</span>
         </label>
         <label class="choice-card" @click.prevent="selectProgrammedExternalDecision(false)">
-          <input :checked="form.programmedExternalAllowed === false" :value="false" type="radio" />
+          <input name="programmedExternalAllowed" :checked="form.programmedExternalAllowed === false" :value="false" type="radio" />
           <span>{{ tr('Deny release', 'Denegar divulgacion') }}</span>
         </label>
       </div>
@@ -257,29 +264,29 @@
       >
         <div class="summary-grid" style="margin: 0;">
           <div>
-            <label>{{ tr('Name', 'Nombre') }}</label>
-            <input v-model="recipient.name" class="roi-input" type="text" placeholder="Person name" />
+            <label :for="`roi-external-name-${idx}`">{{ tr('Name', 'Nombre') }}</label>
+            <input :id="`roi-external-name-${idx}`" :name="`externalRecipientName_${idx}`" v-model="recipient.name" class="roi-input" type="text" placeholder="Person name" />
           </div>
           <div>
-            <label>{{ tr('Relationship', 'Relacion') }}</label>
-            <input v-model="recipient.relationship" class="roi-input" type="text" placeholder="Relationship to client" />
+            <label :for="`roi-external-relationship-${idx}`">{{ tr('Relationship', 'Relacion') }}</label>
+            <input :id="`roi-external-relationship-${idx}`" :name="`externalRecipientRelationship_${idx}`" v-model="recipient.relationship" class="roi-input" type="text" placeholder="Relationship to client" />
           </div>
           <div>
-            <label>{{ tr('Email', 'Correo electronico') }}</label>
-            <input v-model="recipient.email" class="roi-input" type="email" placeholder="recipient@example.com" />
+            <label :for="`roi-external-email-${idx}`">{{ tr('Email', 'Correo electronico') }}</label>
+            <input :id="`roi-external-email-${idx}`" :name="`externalRecipientEmail_${idx}`" v-model="recipient.email" class="roi-input" type="email" placeholder="recipient@example.com" />
           </div>
           <div>
-            <label>{{ tr('Phone', 'Telefono') }}</label>
-            <input v-model="recipient.phone" class="roi-input" type="tel" placeholder="(555) 555-5555" />
+            <label :for="`roi-external-phone-${idx}`">{{ tr('Phone', 'Telefono') }}</label>
+            <input :id="`roi-external-phone-${idx}`" :name="`externalRecipientPhone_${idx}`" v-model="recipient.phone" class="roi-input" type="tel" placeholder="(555) 555-5555" />
           </div>
         </div>
         <div class="choice-row" style="margin-top: 10px;">
           <label class="choice-card">
-            <input v-model="recipient.allowed" :value="true" type="radio" />
+            <input :name="`externalRecipientAllowed_${idx}`" v-model="recipient.allowed" :value="true" type="radio" />
             <span>{{ tr('Approve release', 'Aprobar divulgacion') }}</span>
           </label>
           <label class="choice-card">
-            <input v-model="recipient.allowed" :value="false" type="radio" />
+            <input :name="`externalRecipientAllowed_${idx}`" v-model="recipient.allowed" :value="false" type="radio" />
             <span>{{ tr('Deny release', 'Denegar divulgacion') }}</span>
           </label>
         </div>
