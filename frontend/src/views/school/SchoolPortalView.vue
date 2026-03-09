@@ -1029,9 +1029,9 @@
         <div class="modal-body">
           <div v-if="intakeLinkLoading" class="muted">Loading form…</div>
           <div v-else-if="intakeLinkError" class="error">{{ intakeLinkError }}</div>
-          <div v-else-if="!intakeLinkUrl" class="muted">No digital form configured for this school yet.</div>
+          <div v-else-if="!intakePacketLinks.length" class="muted">No intake packet forms configured for this school yet.</div>
           <div v-else class="intake-link-body">
-            <div v-for="link in intakeLinks" :key="link.id" class="intake-link-block">
+            <div v-for="link in intakePacketLinks" :key="link.id" class="intake-link-block">
               <div class="intake-link-meta">
                 <span class="badge badge-outline">{{ getIntakeLanguageLabel(link.language_code) }}</span>
               </div>
@@ -1048,6 +1048,11 @@
                 Share the link above or open it with the parent to complete the intake packet.
               </div>
             </div>
+          </div>
+          <div class="intake-modal-footer">
+            <button class="btn btn-secondary btn-sm" type="button" @click="goToDocsPanel">
+              View all docs &amp; links
+            </button>
           </div>
         </div>
       </div>
@@ -1215,6 +1220,13 @@ const intakeLinkUrl = computed(() => {
   return buildPublicIntakeUrl(key);
 });
 
+const intakePacketLinks = computed(() =>
+  (intakeLinks.value || []).filter((l) => {
+    const ft = String(l?.form_type || '').trim().toLowerCase();
+    return ft !== 'smart_school_roi';
+  })
+);
+
 const getIntakeLinkUrl = (link) => {
   const key = link?.public_key || '';
   if (!key) return '';
@@ -1277,6 +1289,11 @@ const openIntakeModal = async (mode) => {
 
 const closeIntakeModal = () => {
   showIntakeModal.value = false;
+};
+
+const goToDocsPanel = () => {
+  showIntakeModal.value = false;
+  setPortalMode('documents');
 };
 
 const openIntakeApproval = (link) => {
@@ -3206,6 +3223,13 @@ watch(() => store.selectedWeekday, async (weekday) => {
 .intake-link-body {
   display: grid;
   gap: 12px;
+}
+
+.intake-modal-footer {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border, #e5e7eb);
+  text-align: center;
 }
 
 .intake-link-row {
