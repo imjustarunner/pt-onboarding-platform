@@ -45,13 +45,29 @@
 
       <div class="actions">
         <button
-          v-if="required && taskId"
+          v-if="required && taskId && !isSigned"
           type="button"
           class="btn btn-primary waiver-cta"
           :class="{ 'waiver-cta-pulse': shouldPulseCta }"
           @click="openSigning"
         >
-          {{ isSigned ? 'View signed waiver' : 'Review and sign waiver' }}
+          Review and sign waiver
+        </button>
+        <button
+          v-if="required && taskId && isSigned"
+          type="button"
+          class="btn btn-primary waiver-cta"
+          @click="viewSignedWaiver"
+        >
+          View signed waiver
+        </button>
+        <button
+          v-if="required && taskId && isSigned"
+          type="button"
+          class="btn btn-secondary"
+          @click="downloadSignedWaiver"
+        >
+          Download PDF
         </button>
       </div>
 
@@ -159,6 +175,30 @@ const openSigning = async () => {
       returnTo
     }
   });
+};
+
+const signedWaiverApiPath = (latestTaskId, mode = 'view') => {
+  const id = Number(latestTaskId || 0);
+  if (!id) return '';
+  return `${api.defaults?.baseURL || '/api'}/document-signing/${id}/${mode === 'download' ? 'download' : 'view'}`;
+};
+
+const viewSignedWaiver = async () => {
+  await loadStatus();
+  const latestTaskId = Number(status.value?.taskId || 0) || null;
+  if (!latestTaskId) return;
+  const url = signedWaiverApiPath(latestTaskId, 'view');
+  if (!url) return;
+  window.open(url, '_blank', 'noopener,noreferrer');
+};
+
+const downloadSignedWaiver = async () => {
+  await loadStatus();
+  const latestTaskId = Number(status.value?.taskId || 0) || null;
+  if (!latestTaskId) return;
+  const url = signedWaiverApiPath(latestTaskId, 'download');
+  if (!url) return;
+  window.open(url, '_blank', 'noopener,noreferrer');
 };
 
 const resetForTesting = async () => {

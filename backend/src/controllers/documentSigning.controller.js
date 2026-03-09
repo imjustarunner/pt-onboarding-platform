@@ -62,10 +62,20 @@ function isWaiverStyleTask(task, signedDoc) {
   return taskTitle.includes('waiver') || waiverKey.includes('waiver');
 }
 
-function buildWaiverFallbackHtml({ documentName, user, signedAtIso }) {
+function buildWaiverFallbackHtml({ documentName, user, signedAtIso, sourceHtml = '' }) {
   const safeName = String(documentName || 'Signed Document').replace(/[<>]/g, '');
   const signer = String(`${user?.firstName || ''} ${user?.lastName || ''}`.trim() || user?.email || 'Signer').replace(/[<>]/g, '');
   const signedAt = String(signedAtIso || new Date().toISOString()).replace(/[<>]/g, '');
+  const source = String(sourceHtml || '').trim();
+  if (source) {
+    return `
+      <h1>${safeName}</h1>
+      <p>Signer: ${signer} (${String(user?.email || '').replace(/[<>]/g, '')})</p>
+      <p>Signed at: ${signedAt}</p>
+      <hr />
+      ${source}
+    `;
+  }
   return `
     <h1>${safeName}</h1>
     <p>This waiver was electronically signed and finalized.</p>
@@ -83,7 +93,8 @@ async function generateWaiverPdfInBackground({
   signerInfo,
   documentName,
   referenceNumber,
-  auditTrail
+  auditTrail,
+  sourceHtml = ''
 }) {
   try {
     const latest = await SignedDocument.findById(signedDocId);
@@ -93,7 +104,8 @@ async function generateWaiverPdfInBackground({
     const fallbackHtml = buildWaiverFallbackHtml({
       documentName,
       user: signerInfo,
-      signedAtIso: new Date().toISOString()
+      signedAtIso: new Date().toISOString(),
+      sourceHtml
     });
     const pdfBytes = await DocumentSigningService.generateFinalizedPDF(
       null,
@@ -129,6 +141,96 @@ async function generateWaiverPdfInBackground({
   } catch (err) {
     console.warn('generateWaiverPdfInBackground failed:', err?.message || err);
   }
+}
+
+async function materializeWaiverPdfFromStoredSignature({ task, signedDoc }) {
+  const auditTrail = signedDoc?.audit_trail && typeof signedDoc.audit_trail === 'object'
+    ? signedDoc.audit_trail
+    : {};
+  const signatureData = String(auditTrail?.signatureData || '').trim();
+  if (!signatureData) return null;
+
+  const User = (await import('../models/User.model.js')).default;
+  const user = await User.findById(Number(signedDoc.user_id || 0));
+  if (!user) return null;
+
+  const UserDocument = (await import('../models/UserDocument.model.js')).default;
+  const UserSpecificDocument = (await import('../models/UserSpecificDocument.model.js')).default;
+  const userDocument = await UserDocument.findByTask(task.id);
+  const userSpecificDocument = await UserSpecificDocument.findByTask(task.id);
+  const template =
+    userDocument
+      ? await DocumentTemplate.findById(userDocument.document_template_id)
+      : await DocumentTemplate.findById(signedDoc.document_template_id || task.reference_id);
+
+  const sourceHtml =
+    userDocument?.personalized_content ||
+    userSpecificDocument?.html_content ||
+    template?.html_content ||
+    '';
+
+  const documentName = template?.name || userSpecificDocument?.name || task?.title || 'Document';
+  const signerInfo = {
+    firstName: user.first_name,
+    lastName: user.last_name,
+    email: user.email,
+    userId: user.id
+  };
+  const workflow =
+    await DocumentSignatureWorkflow.findBySignedDocument(signedDoc.id) ||
+    { finalized_at: auditTrail?.signedAt || new Date().toISOString() };
+  const referenceNumber = String(auditTrail?.documentReference || `DOC-${signedDoc.id}-${Date.now().toString(36).toUpperCase()}`);
+  const mergedAuditTrail = {
+    ...auditTrail,
+    documentReference: referenceNumber,
+    documentName
+  };
+  const fallbackHtml = buildWaiverFallbackHtml({
+    documentName,
+    user: signerInfo,
+    signedAtIso: String(auditTrail?.signedAt || new Date().toISOString()),
+    sourceHtml
+  });
+  const pdfBytes = await withTimeout(
+    DocumentSigningService.generateFinalizedPDF(
+      null,
+      'html',
+      fallbackHtml,
+      signatureData,
+      workflow,
+      signerInfo,
+      mergedAuditTrail,
+      null,
+      {
+        referenceNumber,
+        documentName,
+        signatureOnAuditPage: true,
+        fieldDefinitions: [],
+        fieldValues: auditTrail?.fieldValues && typeof auditTrail.fieldValues === 'object' ? auditTrail.fieldValues : {},
+        branding: null
+      }
+    ),
+    SIGN_OP_TIMEOUT_MS.pdfGenerate,
+    'waiver materialize pdf'
+  );
+  const pdfHash = DocumentSigningService.calculatePDFHash(pdfBytes);
+  const StorageService = (await import('../services/storage.service.js')).default;
+  const filename = `signed-${signedDoc.id}-${Date.now()}.pdf`;
+  const storageResult = await withTimeout(
+    StorageService.saveSignedDocument(
+      Number(signedDoc.user_id),
+      Number(signedDoc.id),
+      pdfBytes,
+      filename
+    ),
+    SIGN_OP_TIMEOUT_MS.pdfStore,
+    'waiver materialize storage'
+  );
+  await pool.execute(
+    'UPDATE signed_documents SET signed_pdf_path = ?, pdf_hash = ?, audit_trail = ? WHERE id = ?',
+    [storageResult.relativePath, pdfHash, JSON.stringify(mergedAuditTrail), signedDoc.id]
+  );
+  return SignedDocument.findById(signedDoc.id);
 }
 
 export const getDocumentTask = async (req, res, next) => {
@@ -874,7 +976,8 @@ export const signDocument = async (req, res, next) => {
           signerInfo,
           documentName,
           referenceNumber,
-          auditTrail: fastAuditTrail
+          auditTrail: fastAuditTrail,
+          sourceHtml: htmlContent
         });
       }, 0);
       return res.json({
@@ -1097,13 +1200,25 @@ export const viewSignedDocument = async (req, res, next) => {
 
     // Check if document is finalized (has a signed PDF)
     if (!signedDoc.signed_pdf_path || (typeof signedDoc.signed_pdf_path === 'string' && signedDoc.signed_pdf_path.trim() === '')) {
-      console.error(`viewSignedDocument: Document for task ${taskId} is not finalized yet`);
-      return res.status(400).json({ 
-        error: { 
-          message: 'Document has not been finalized yet. Please complete the signature process first.',
-          status: 'not_finalized'
-        } 
-      });
+      if (isWaiverStyleTask(task, signedDoc)) {
+        try {
+          const regenerated = await materializeWaiverPdfFromStoredSignature({ task, signedDoc });
+          if (regenerated?.signed_pdf_path) {
+            signedDoc = regenerated;
+          }
+        } catch (regenErr) {
+          console.warn('viewSignedDocument: waiver materialization failed:', regenErr?.message || regenErr);
+        }
+      }
+      if (!signedDoc.signed_pdf_path || (typeof signedDoc.signed_pdf_path === 'string' && signedDoc.signed_pdf_path.trim() === '')) {
+        console.error(`viewSignedDocument: Document for task ${taskId} is not finalized yet`);
+        return res.status(400).json({ 
+          error: { 
+            message: 'Document has not been finalized yet. Please complete the signature process first.',
+            status: 'not_finalized'
+          } 
+        });
+      }
     }
 
     // Verify access - admins/super_admins/support can access any document
@@ -1232,7 +1347,7 @@ export const downloadSignedDocument = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Task not found' } });
     }
 
-    const signedDoc = await SignedDocument.findByTask(taskId);
+    let signedDoc = await SignedDocument.findByTask(taskId);
     if (!signedDoc) {
       console.error(`downloadSignedDocument: Signed document not found for task ${taskId}`);
       return res.status(404).json({ error: { message: 'Signed document not found. Please complete the signature process first.' } });
@@ -1240,13 +1355,25 @@ export const downloadSignedDocument = async (req, res, next) => {
 
     // Check if document is finalized (has a signed PDF)
     if (!signedDoc.signed_pdf_path || (typeof signedDoc.signed_pdf_path === 'string' && signedDoc.signed_pdf_path.trim() === '')) {
-      console.error(`downloadSignedDocument: Document for task ${taskId} is not finalized yet`);
-      return res.status(400).json({ 
-        error: { 
-          message: 'Document has not been finalized yet. Please complete the signature process first.',
-          status: 'not_finalized'
-        } 
-      });
+      if (isWaiverStyleTask(task, signedDoc)) {
+        try {
+          const regenerated = await materializeWaiverPdfFromStoredSignature({ task, signedDoc });
+          if (regenerated?.signed_pdf_path) {
+            signedDoc = regenerated;
+          }
+        } catch (regenErr) {
+          console.warn('downloadSignedDocument: waiver materialization failed:', regenErr?.message || regenErr);
+        }
+      }
+      if (!signedDoc.signed_pdf_path || (typeof signedDoc.signed_pdf_path === 'string' && signedDoc.signed_pdf_path.trim() === '')) {
+        console.error(`downloadSignedDocument: Document for task ${taskId} is not finalized yet`);
+        return res.status(400).json({ 
+          error: { 
+            message: 'Document has not been finalized yet. Please complete the signature process first.',
+            status: 'not_finalized'
+          } 
+        });
+      }
     }
 
     // Verify access - admins/super_admins/support can access any document
