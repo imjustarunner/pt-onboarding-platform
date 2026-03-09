@@ -2718,7 +2718,35 @@ export const finalizePublicIntake = async (req, res, next) => {
       if (!signatureData) {
         return res.status(400).json({ error: { message: 'Signature is required to complete this release.' } });
       }
-      const effectiveClientId = updatedSubmission?.client_id || issuedRoiLink?.client_id || null;
+      let effectiveClientId = Number(updatedSubmission?.client_id || issuedRoiLink?.client_id || 0) || null;
+      if (!effectiveClientId) {
+        try {
+          const submissionClientRows = await IntakeSubmissionClient.listBySubmissionId(submissionId);
+          effectiveClientId = Number(submissionClientRows?.find((row) => Number(row?.client_id || 0) > 0)?.client_id || 0) || null;
+        } catch {
+          effectiveClientId = null;
+        }
+      }
+      if (!effectiveClientId && link.create_client) {
+        const rawClients = Array.isArray(req.body?.clients) && req.body.clients.length
+          ? req.body.clients
+          : (req.body?.client ? [req.body.client] : []);
+        const firstClientName = String(rawClients?.[0]?.fullName || '').trim();
+        if (firstClientName) {
+          const { clients, guardianUser } = await PublicIntakeClientService.createClientAndGuardian({
+            link,
+            payload: req.body
+          });
+          const createdClientId = Number(clients?.[0]?.id || 0) || null;
+          if (createdClientId) {
+            effectiveClientId = createdClientId;
+            updatedSubmission = await IntakeSubmission.updateById(submissionId, {
+              client_id: createdClientId,
+              guardian_user_id: guardianUser?.id || updatedSubmission?.guardian_user_id || null
+            });
+          }
+        }
+      }
       if (effectiveClientId && !updatedSubmission?.client_id) {
         updatedSubmission = await IntakeSubmission.updateById(submissionId, { client_id: effectiveClientId });
       }
