@@ -249,12 +249,11 @@ class DocumentSigningService {
     const titleMatch = raw.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
     const title = stripTags(titleMatch?.[1]) || 'Document';
 
-    // Mark h2/h3 headings with a sentinel so we can render them in bold
-    const HEADING_SENTINEL = '\x02H:';
+    const HEADING_SENTINEL = 'HDNG__:';
     const normalizedText = raw
       .replace(/<h2[^>]*>([\s\S]*?)<\/h2>/gi, (_, inner) => `\n${HEADING_SENTINEL}${stripTags(inner)}\n`)
       .replace(/<h3[^>]*>([\s\S]*?)<\/h3>/gi, (_, inner) => `\n${HEADING_SENTINEL}${stripTags(inner)}\n`)
-      .replace(/<li[^>]*>/gi, '\n• ')
+      .replace(/<li[^>]*>/gi, '\n- ')
       .replace(/<\/li>/gi, '\n')
       .replace(/<\/(h1|p|div|ul|ol)>/gi, '\n')
       .replace(/<br\s*\/?>/gi, '\n');
@@ -265,7 +264,7 @@ class DocumentSigningService {
       .filter((line) => line !== title && line !== `${HEADING_SENTINEL}${title}`)
       .filter((line) => !/^school staff signature$/i.test(line))
       .filter((line) => !/^signature:?$/i.test(line))
-      .filter((line) => !/^•?\s*signature:?\s*$/i.test(String(line || '').trim()));
+      .filter((line) => !/^-?\s*signature:?\s*$/i.test(String(line || '').trim()));
 
     const pdfDoc = await PDFDocument.create();
     const helvetica = await pdfDoc.embedFont('Helvetica');
@@ -498,7 +497,7 @@ class DocumentSigningService {
     const lineHeight = 15;
     for (const line of lines) {
       const isHeading = line.startsWith(HEADING_SENTINEL);
-      const isBullet = line.startsWith('• ');
+      const isBullet = line.startsWith('- ');
       const displayText = isHeading ? line.slice(HEADING_SENTINEL.length).trim() : (isBullet ? line.slice(2).trim() : line);
       const lineFont = isHeading ? helveticaBold : helvetica;
       const lineSize = isHeading ? fontSize + 1 : fontSize;
@@ -506,17 +505,28 @@ class DocumentSigningService {
       const wrapWidth = isBullet ? maxWidth - 18 : maxWidth;
       const wrapped = wrapLine(displayText, lineFont, lineSize, wrapWidth);
 
-      if (isHeading) y -= 6;
+      if (isHeading) {
+        y -= 10;
+        if (y - (wrapped.length * lineHeight) - 4 < minYForContent) {
+          await addPage();
+        }
+        page.drawLine({
+          start: { x: margin, y: y + 6 },
+          end: { x: margin + maxWidth, y: y + 6 },
+          thickness: 0.5,
+          color: rgb(0.84, 0.87, 0.89)
+        });
+      }
 
       if (y - (wrapped.length * lineHeight) < minYForContent) {
         await addPage();
       }
 
       if (isBullet) {
-        page.drawText('•', {
-          x: margin + 4,
+        page.drawText('-', {
+          x: margin + 6,
           y,
-          size: fontSize + 1,
+          size: fontSize,
           font: helveticaBold,
           color: brandGreen
         });
@@ -531,7 +541,7 @@ class DocumentSigningService {
           color: isHeading ? rgb(0.05, 0.10, 0.18) : rgb(0.10, 0.10, 0.10)
         });
       });
-      y -= (wrapped.length * lineHeight) + (isHeading ? 4 : 5);
+      y -= (wrapped.length * lineHeight) + (isHeading ? 6 : 5);
     }
 
     const sigWidth = 240;

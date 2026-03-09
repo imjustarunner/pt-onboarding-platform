@@ -2833,13 +2833,16 @@ export const finalizePublicIntake = async (req, res, next) => {
 
       const schoolOrganizationId =
         Number(boundClient.organization_id || link.organization_id || organization?.id || 0) || null;
+      const roiDocTitle = effectiveRoiContext?.school?.name
+        ? `${effectiveRoiContext.school.name} - Release of Information (Signed)`
+        : `${selectedTemplate.name || 'School ROI'} (Signed)`;
       const phiDoc = await ClientPhiDocument.create({
         clientId: boundClient.id,
         agencyId: boundClient.agency_id || agency?.id || null,
         schoolOrganizationId: schoolOrganizationId || boundClient.agency_id || agency?.id || null,
         intakeSubmissionId: submissionId,
         storagePath: signedResult.storagePath,
-        originalName: `${selectedTemplate.name || 'School ROI'} (Signed)`,
+        originalName: roiDocTitle,
         mimeType: 'application/pdf',
         uploadedByUserId: null,
         scanStatus: 'clean',
@@ -2883,7 +2886,7 @@ export const finalizePublicIntake = async (req, res, next) => {
         try {
           const roiFallbackExpiry = new Date(now);
           roiFallbackExpiry.setUTCFullYear(roiFallbackExpiry.getUTCFullYear() + 3);
-          await Client.updateById(boundClient.id, { roi_expires_at: roiFallbackExpiry });
+          await Client.update(boundClient.id, { roi_expires_at: roiFallbackExpiry });
         } catch (fallbackErr) {
           console.error('roi_expires_at direct fallback also failed', {
             clientId: boundClient.id,

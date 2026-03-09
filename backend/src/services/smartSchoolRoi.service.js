@@ -529,21 +529,28 @@ export function buildSmartSchoolRoiHtml({ roiContext = {}, response = {}, signed
   const approvedStaff = (response.staffDecisions || []).filter((staff) => staff.allowed);
   const deniedStaff = (response.staffDecisions || []).filter((staff) => !staff.allowed);
   const approvedStaffNames = approvedStaff.map((s) => s.fullName).filter(Boolean);
+  const deniedStaffNames = deniedStaff.map((s) => s.fullName).filter(Boolean);
   const approvedPreview = approvedStaffNames.slice(0, 12);
   const approvedOverflow = Math.max(0, approvedStaffNames.length - approvedPreview.length);
   const approvedStaffText = approvedPreview.length
     ? `${approvedPreview.join(', ')}${approvedOverflow > 0 ? ` (+${approvedOverflow} more)` : ''}`
     : 'No individual staff approved';
+  const deniedStaffText = deniedStaffNames.length
+    ? deniedStaffNames.slice(0, 12).join(', ')
+    : 'None';
   const externalApproved = (response.externalRecipients || []).filter((r) => r?.allowed === true);
   const externalApprovedText = externalApproved.length
     ? externalApproved.map((r) => `${r.name || 'Recipient'} (${r.relationship || 'relationship not set'})`).slice(0, 6).join(', ')
     : 'None';
+  const docTitle = roiContext?.school?.name
+    ? `${roiContext.school.name} - Release of Information`
+    : (roiContext?.documentTemplate?.name || 'School Release of Information');
 
   return `<!DOCTYPE html>
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>${escapeHtml(roiContext?.school?.name ? `${roiContext.school.name} — Release of Information` : (roiContext?.documentTemplate?.name || 'School Release of Information'))}</title>
+    <title>${escapeHtml(docTitle)}</title>
     <style>
       @page { size: Letter; margin: 0.45in; }
       body { font-family: Arial, sans-serif; color: #111827; margin: 0; line-height: 1.25; font-size: 10.5px; }
@@ -568,8 +575,8 @@ export function buildSmartSchoolRoiHtml({ roiContext = {}, response = {}, signed
     <div class="wrap">
       <div class="header">
         <div>
-          <h1>${escapeHtml(roiContext?.school?.name ? `${roiContext.school.name} — Release of Information` : (roiContext?.documentTemplate?.name || 'School Release of Information'))}</h1>
-          <div class="muted">Signed ${escapeHtml(formatDate(signedAt))} · 36-month authorization window</div>
+          <h1>${escapeHtml(docTitle)}</h1>
+          <div class="muted">Signed ${escapeHtml(formatDate(signedAt))} - 36-month authorization window</div>
         </div>
         <div style="display:flex; gap:8px; align-items:center;">
           ${roiContext?.school?.logoUrl ? `<img class="logo" src="${escapeHtml(roiContext.school.logoUrl)}" alt="School logo" />` : ''}
@@ -577,19 +584,20 @@ export function buildSmartSchoolRoiHtml({ roiContext = {}, response = {}, signed
         </div>
       </div>
 
-      <div class="grid">
-        <p><span class="k">Client:</span> ${escapeHtml(response.clientFullName || '—')}</p>
-        <p><span class="k">Date of Birth:</span> ${escapeHtml(response.clientDateOfBirth || '—')}</p>
-        <p><span class="k">Responsible Party:</span> ${escapeHtml(response.signer?.fullName || '—')}</p>
-        <p><span class="k">Relationship:</span> ${escapeHtml(response.signer?.relationship || '—')}</p>
-        <p><span class="k">School:</span> ${escapeHtml(roiContext?.school?.name || '—')}</p>
-        <p><span class="k">School Contact:</span> ${escapeHtml([roiContext?.school?.contact?.name, roiContext?.school?.contact?.email, roiContext?.school?.contact?.phone].filter(Boolean).join(' · ') || '—')}</p>
+      <div class="section">
+        <h2>Client Information</h2>
+        <p><span class="k">Client:</span> ${escapeHtml(response.clientFullName || '---')}</p>
+        <p><span class="k">Date of Birth:</span> ${escapeHtml(response.clientDateOfBirth || '---')}</p>
+        <p><span class="k">Responsible Party:</span> ${escapeHtml(response.signer?.fullName || '---')}</p>
+        <p><span class="k">Relationship:</span> ${escapeHtml(response.signer?.relationship || '---')}</p>
+        <p><span class="k">School:</span> ${escapeHtml(roiContext?.school?.name || '---')}</p>
+        <p><span class="k">School Contact:</span> ${escapeHtml([roiContext?.school?.contact?.name, roiContext?.school?.contact?.email, roiContext?.school?.contact?.phone].filter(Boolean).join(' - ') || '---')}</p>
       </div>
 
       <div class="section">
         <h2>Release Scope</h2>
         <p><span class="k">Approved school staff:</span> ${escapeHtml(approvedStaffText)}</p>
-        <p><span class="k">Denied school staff:</span> ${escapeHtml(String(deniedStaff.length))}</p>
+        <p><span class="k">Denied school staff:</span> ${escapeHtml(deniedStaffText)} (${escapeHtml(String(deniedStaff.length))})</p>
         <p><span class="k">Packet/document visibility:</span> ${response.packetReleaseAllowed ? 'Approved' : 'ROI only'}</p>
         <p><span class="k">HIPAA serious/imminent threat disclosure:</span> ${escapeHtml(safetyThreatDisclosureText)}</p>
         <p><span class="k">External recipients approved:</span> ${escapeHtml(externalApprovedText)}</p>
