@@ -238,21 +238,89 @@ const extractGuardianProfileFromPayload = ({ payload = {}, intakeData = {} } = {
   const responses = intakeData?.responses && typeof intakeData.responses === 'object' ? intakeData.responses : {};
   const guardianResponses = responses?.guardian && typeof responses.guardian === 'object' ? responses.guardian : {};
   const submissionResponses = responses?.submission && typeof responses.submission === 'object' ? responses.submission : {};
+  const pick = (...values) => values.find((v) => String(v || '').trim()) || '';
   const firstName = normalizeName(
-    guardianBody?.firstName || guardianIntake?.firstName || guardianResponses?.firstName || submissionResponses?.firstName
+    pick(
+      guardianBody?.firstName,
+      guardianBody?.first_name,
+      guardianIntake?.firstName,
+      guardianIntake?.first_name,
+      guardianResponses?.firstName,
+      guardianResponses?.first_name,
+      guardianResponses?.guardianFirstName,
+      guardianResponses?.guardian_first_name,
+      guardianResponses?.guardian_first,
+      submissionResponses?.firstName,
+      submissionResponses?.first_name,
+      submissionResponses?.guardianFirstName,
+      submissionResponses?.guardian_first_name,
+      submissionResponses?.guardian_first
+    )
   ) || null;
   const lastName = normalizeName(
-    guardianBody?.lastName || guardianIntake?.lastName || guardianResponses?.lastName || submissionResponses?.lastName
+    pick(
+      guardianBody?.lastName,
+      guardianBody?.last_name,
+      guardianIntake?.lastName,
+      guardianIntake?.last_name,
+      guardianResponses?.lastName,
+      guardianResponses?.last_name,
+      guardianResponses?.guardianLastName,
+      guardianResponses?.guardian_last_name,
+      guardianResponses?.guardian_last,
+      submissionResponses?.lastName,
+      submissionResponses?.last_name,
+      submissionResponses?.guardianLastName,
+      submissionResponses?.guardian_last_name,
+      submissionResponses?.guardian_last
+    )
   ) || null;
   const fullName = normalizeName(`${firstName || ''} ${lastName || ''}`) || null;
   const email = normalizeName(
-    guardianBody?.email || guardianIntake?.email || guardianResponses?.email || submissionResponses?.email
+    pick(
+      guardianBody?.email,
+      guardianIntake?.email,
+      guardianResponses?.email,
+      guardianResponses?.guardianEmail,
+      guardianResponses?.guardian_email,
+      guardianResponses?.email_address,
+      submissionResponses?.email,
+      submissionResponses?.guardianEmail,
+      submissionResponses?.guardian_email,
+      submissionResponses?.email_address
+    )
   ).toLowerCase() || null;
   const phone = normalizeName(
-    guardianBody?.phone || guardianBody?.phoneNumber || guardianIntake?.phone || guardianResponses?.phone || submissionResponses?.phone
+    pick(
+      guardianBody?.phone,
+      guardianBody?.phoneNumber,
+      guardianBody?.phone_number,
+      guardianIntake?.phone,
+      guardianIntake?.phoneNumber,
+      guardianIntake?.phone_number,
+      guardianResponses?.phone,
+      guardianResponses?.guardianPhone,
+      guardianResponses?.guardian_phone,
+      guardianResponses?.phoneNumber,
+      guardianResponses?.phone_number,
+      submissionResponses?.phone,
+      submissionResponses?.guardianPhone,
+      submissionResponses?.guardian_phone,
+      submissionResponses?.phoneNumber,
+      submissionResponses?.phone_number
+    )
   ) || null;
   const relationship = normalizeName(
-    guardianBody?.relationship || guardianIntake?.relationship || guardianResponses?.relationship || submissionResponses?.relationship
+    pick(
+      guardianBody?.relationship,
+      guardianIntake?.relationship,
+      guardianResponses?.relationship,
+      guardianResponses?.guardianRelationship,
+      guardianResponses?.guardian_relationship,
+      submissionResponses?.relationship,
+      submissionResponses?.guardianRelationship,
+      submissionResponses?.guardian_relationship
+    )
   ) || null;
   const dateOfBirth = normalizeDateOnly(
     guardianBody?.dateOfBirth
@@ -3134,9 +3202,11 @@ export const finalizePublicIntake = async (req, res, next) => {
     }
 
     // If the intake sequence includes an embedded school_roi step, generate and append
-    // the Smart School ROI signed artifact into the final packet bundle.
+    // the Smart School ROI artifact in parallel so finalize can return immediately.
+    let embeddedRoiPromise = Promise.resolve();
     if (hasProgrammedSchoolRoiStep(link) && intakeData?.smartSchoolRoi) {
-      try {
+      embeddedRoiPromise = (async () => {
+        try {
         const embeddedSignatureData = String(intakeData?.smartSchoolRoi?.signatureData || '').trim();
         if (embeddedSignatureData) {
           let boundClient = null;
@@ -3233,7 +3303,7 @@ export const finalizePublicIntake = async (req, res, next) => {
                 fieldDefinitions: [],
                 fieldValues: {}
               });
-              const embeddedClientId = Number(updatedSubmission?.client_id || rawClients?.[0]?.id || 0) || null;
+              const embeddedClientId = Number(updatedSubmission?.client_id || createdClients?.[0]?.id || 0) || null;
               const embeddedDoc = await IntakeSubmissionDocument.create({
                 intakeSubmissionId: submissionId,
                 clientId: embeddedClientId,
@@ -3351,12 +3421,13 @@ export const finalizePublicIntake = async (req, res, next) => {
             }
           }
         }
-      } catch (embeddedRoiError) {
-        console.error('[publicIntake] failed generating embedded school_roi document', {
-          submissionId,
-          error: embeddedRoiError?.message || embeddedRoiError
-        });
-      }
+        } catch (embeddedRoiError) {
+          console.error('[publicIntake] failed generating embedded school_roi document', {
+            submissionId,
+            error: embeddedRoiError?.message || embeddedRoiError
+          });
+        }
+      })();
     }
 
     res.json({
@@ -3370,6 +3441,7 @@ export const finalizePublicIntake = async (req, res, next) => {
     setImmediate(() => {
       void (async () => {
         try {
+    await embeddedRoiPromise;
 
     let answersPdf = null;
     try {
@@ -3758,20 +3830,20 @@ export const finalizePublicIntake = async (req, res, next) => {
 
       if (updatedSubmission.signer_email) {
         emailDelivery.attempted = true;
-        const clientCount = rawClients.length || 1;
-        const { organization, agency } = await resolveIntakeOrgContext(link, { boundClient: null });
-        const packetEmail = await resolvePacketCompletionEmailContent({
-          link,
-          agencyId: link?.agency_id || agency?.id || null,
-          signerName: updatedSubmission.signer_name || '',
-          signerEmail: updatedSubmission.signer_email || '',
-          clientCount,
-          primaryClientName,
-          schoolName: organization?.name || '',
-          downloadUrl,
-          expiresInDays: 7
-        });
         try {
+          const clientCount = rawClients.length || 1;
+          const { organization, agency } = await resolveIntakeOrgContext(link, { boundClient: null });
+          const packetEmail = await resolvePacketCompletionEmailContent({
+            link,
+            agencyId: link?.agency_id || agency?.id || null,
+            signerName: updatedSubmission.signer_name || '',
+            signerEmail: updatedSubmission.signer_email || '',
+            clientCount,
+            primaryClientName,
+            schoolName: organization?.name || '',
+            downloadUrl,
+            expiresInDays: 7
+          });
           const identity = await resolveIntakeSenderIdentity({
             organizationId: link?.organization_id || null,
             scopeType: link?.scope_type || null
