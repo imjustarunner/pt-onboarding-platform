@@ -1,4 +1,6 @@
 const CACHE_TTL_MS = 15000;
+const ORG_LOOKUP_TIMEOUT_MS = 5000;
+const WAIVER_STATUS_TIMEOUT_MS = 8000;
 const statusCache = new Map();
 
 function normalizeSlug(value) {
@@ -39,7 +41,10 @@ export async function getSchoolStaffWaiverStatus({ api, authUser, organizationSl
     try {
       const slug = normalizeSlug(organizationSlug);
       if (slug) {
-        const orgResp = await api.get(`/agencies/slug/${slug}`, { skipGlobalLoading: true });
+        const orgResp = await api.get(`/agencies/slug/${slug}`, {
+          skipGlobalLoading: true,
+          timeout: ORG_LOOKUP_TIMEOUT_MS
+        });
         const fetchedId = Number(orgResp?.data?.id || 0);
         if (fetchedId > 0) orgId = fetchedId;
       }
@@ -55,11 +60,17 @@ export async function getSchoolStaffWaiverStatus({ api, authUser, organizationSl
   if (!forceRefresh && cached && (now - cached.ts) < CACHE_TTL_MS) {
     return cached.data;
   }
-  const response = await api.get(`/school-portal/${orgId}/school-staff-waiver/status`, {
-    skipGlobalLoading: true
-  });
-  const data = response?.data || null;
-  statusCache.set(cacheKey, { ts: now, data });
-  return data;
+  try {
+    const response = await api.get(`/school-portal/${orgId}/school-staff-waiver/status`, {
+      skipGlobalLoading: true,
+      timeout: WAIVER_STATUS_TIMEOUT_MS
+    });
+    const data = response?.data || null;
+    statusCache.set(cacheKey, { ts: now, data });
+    return data;
+  } catch {
+    // Fail open: never block navigation/doc signing if status lookup is slow/unavailable.
+    return null;
+  }
 }
 
