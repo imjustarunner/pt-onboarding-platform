@@ -546,8 +546,7 @@ export const listSchoolStaffWaiverStatuses = async (req, res, next) => {
          AND UPPER(COALESCE(u.status,'')) <> 'ARCHIVED'
          AND LOWER(COALESCE(org.organization_type,'')) IN ('school', 'program', 'learning')
          AND (
-           org.affiliated_agency_id = ?
-           OR EXISTS (
+           EXISTS (
              SELECT 1
              FROM agency_schools asx
              WHERE asx.agency_id = ?
@@ -563,7 +562,7 @@ export const listSchoolStaffWaiverStatuses = async (req, res, next) => {
            )
          )
        ORDER BY org.name ASC, u.last_name ASC, u.first_name ASC, u.email ASC`,
-      [SCHOOL_STAFF_WAIVER_TEMPLATE_NAME, SCHOOL_STAFF_WAIVER_TASK_TITLE, agencyId, agencyId, agencyId]
+      [SCHOOL_STAFF_WAIVER_TEMPLATE_NAME, SCHOOL_STAFF_WAIVER_TASK_TITLE, agencyId, agencyId]
     );
 
     let results = (rows || []).map((row) => {
