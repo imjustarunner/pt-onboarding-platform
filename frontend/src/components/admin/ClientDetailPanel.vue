@@ -790,11 +790,52 @@
               <button type="button" class="btn btn-primary" @click="openAddGuardian">Add Guardian</button>
             </div>
 
+            <!-- Intake guardian placeholder (not yet a full account) -->
+            <div
+              v-if="guardianIntakeProfile && !intakeGuardianAlreadyLinked && !guardiansLoading"
+              class="intake-guardian-placeholder"
+            >
+              <div class="intake-guardian-placeholder-header">
+                <span class="intake-guardian-badge">From intake form</span>
+              </div>
+              <div class="intake-guardian-placeholder-body">
+                <div class="intake-guardian-details">
+                  <div class="intake-guardian-field">
+                    <span class="intake-guardian-label">Name</span>
+                    <span>{{ guardianIntakeName || '-' }}</span>
+                  </div>
+                  <div class="intake-guardian-field">
+                    <span class="intake-guardian-label">Email</span>
+                    <span>{{ guardianIntakeEmail || '-' }}</span>
+                  </div>
+                  <div class="intake-guardian-field">
+                    <span class="intake-guardian-label">Phone</span>
+                    <span>{{ guardianIntakePhone || '-' }}</span>
+                  </div>
+                  <div class="intake-guardian-field">
+                    <span class="intake-guardian-label">Relationship</span>
+                    <span>{{ guardianIntakeRelationship || '-' }}</span>
+                  </div>
+                </div>
+                <div class="intake-guardian-actions">
+                  <button
+                    type="button"
+                    class="btn btn-primary"
+                    :disabled="creatingIntakeGuardian || !guardianIntakeEmail"
+                    @click="createGuardianFromIntake"
+                  >
+                    {{ creatingIntakeGuardian ? 'Creating…' : 'Create Account' }}
+                  </button>
+                  <div class="hint" style="margin-top: 6px; text-align: center;">Creates login &amp; generates invite link</div>
+                </div>
+              </div>
+            </div>
+
             <div v-if="guardiansLoading" class="loading">Loading guardians…</div>
-            <div v-else-if="(guardians || []).length === 0" class="empty-state">
+            <div v-else-if="(guardians || []).length === 0 && (!guardianIntakeProfile || intakeGuardianAlreadyLinked)" class="empty-state">
               <p>No guardians yet.</p>
             </div>
-            <div v-else class="table-wrap">
+            <div v-else-if="(guardians || []).length > 0" class="table-wrap">
               <table class="table">
                 <thead>
                   <tr>
@@ -1471,6 +1512,13 @@ const guardianIntakeEmail = computed(() => String(guardianIntakeProfile.value?.e
 const guardianIntakePhone = computed(() => String(guardianIntakeProfile.value?.phone || '').trim() || null);
 const guardianIntakeRelationship = computed(() => String(guardianIntakeProfile.value?.relationship || '').trim() || null);
 const guardianIntakeDob = computed(() => String(guardianIntakeProfile.value?.dateOfBirth || '').trim() || null);
+const intakeGuardianAlreadyLinked = computed(() => {
+  const intakeEmail = guardianIntakeEmail.value;
+  if (!intakeEmail) return true;
+  return (guardians.value || []).some(
+    (g) => String(g.email || '').trim().toLowerCase() === intakeEmail.toLowerCase()
+  );
+});
 const canViewAdminNote = computed(() => isBackofficeRole.value || roleNorm.value === 'supervisor');
 const canManageClientCode = computed(() => isBackofficeRole.value || roleNorm.value === 'supervisor');
 const isSchoolClient = computed(() => String(props.client?.organization_type || '').trim().toLowerCase() === 'school');
@@ -1990,6 +2038,7 @@ const guardiansError = ref('');
 const guardians = ref([]);
 const showAddGuardianModal = ref(false);
 const addingGuardian = ref(false);
+const creatingIntakeGuardian = ref(false);
 const addGuardianForm = ref({
   email: '',
   firstName: '',
@@ -2421,11 +2470,12 @@ const fetchGuardians = async () => {
 
 const openAddGuardian = () => {
   lastInviteLink.value = '';
+  const gip = guardianIntakeProfile.value;
   addGuardianForm.value = {
-    email: '',
-    firstName: '',
-    lastName: '',
-    relationshipTitle: 'Guardian',
+    email: gip?.email || '',
+    firstName: gip?.firstName || '',
+    lastName: gip?.lastName || '',
+    relationshipTitle: gip?.relationship || 'Guardian',
     accessEnabled: true,
     permissions: {
       canViewDocs: true,
@@ -2482,6 +2532,37 @@ const addGuardian = async () => {
     guardiansError.value = err.response?.data?.error?.message || 'Failed to add guardian';
   } finally {
     addingGuardian.value = false;
+  }
+};
+
+const createGuardianFromIntake = async () => {
+  if (!canManageGuardians.value) return;
+  const gip = guardianIntakeProfile.value;
+  if (!gip?.email || !gip?.firstName) return;
+  try {
+    creatingIntakeGuardian.value = true;
+    guardiansError.value = '';
+    const resp = await api.post(`/clients/${props.client.id}/guardians`, {
+      email: gip.email,
+      firstName: gip.firstName,
+      lastName: gip.lastName || '',
+      relationshipTitle: gip.relationship || 'Guardian',
+      accessEnabled: true,
+      permissionsJson: {
+        canViewDocs: true,
+        canSignDocs: true,
+        canViewLinks: true,
+        canViewProgramMaterials: true,
+        canViewProgress: true,
+        canMessage: false
+      }
+    });
+    lastInviteLink.value = resp.data?.passwordlessTokenLink || '';
+    await fetchGuardians();
+  } catch (err) {
+    guardiansError.value = err.response?.data?.error?.message || 'Failed to create guardian from intake';
+  } finally {
+    creatingIntakeGuardian.value = false;
   }
 };
 
@@ -3859,6 +3940,54 @@ watch(
   cursor: pointer;
 }
 
+.intake-guardian-placeholder {
+  border: 1px dashed var(--border-color, #c4cdd5);
+  border-radius: 8px;
+  margin-bottom: 14px;
+  background: #fefef6;
+}
+.intake-guardian-placeholder-header {
+  padding: 8px 14px;
+  border-bottom: 1px dashed var(--border-color, #c4cdd5);
+}
+.intake-guardian-badge {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .4px;
+  color: #8b6914;
+  background: #fdf4d9;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+.intake-guardian-placeholder-body {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px;
+  gap: 18px;
+}
+.intake-guardian-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+}
+.intake-guardian-field {
+  display: flex;
+  flex-direction: column;
+  min-width: 140px;
+}
+.intake-guardian-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .3px;
+  color: var(--text-secondary, #6b7785);
+  margin-bottom: 2px;
+}
+.intake-guardian-actions {
+  flex-shrink: 0;
+}
 .empty-state {
   text-align: center;
   padding: 60px 20px;

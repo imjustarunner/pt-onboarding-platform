@@ -4093,6 +4093,39 @@ export const submitPublicIntake = async (req, res, next) => {
       }
     }
 
+    // Persist latest guardian contact details from public intake (mirrors finalizePublicIntake).
+    const persistClientIds = new Set();
+    if (Number(updatedSubmission?.client_id || 0)) persistClientIds.add(Number(updatedSubmission.client_id));
+    for (const c of createdClients || []) {
+      const cid = Number(c?.id || 0);
+      if (cid) persistClientIds.add(cid);
+    }
+    for (const clientId of persistClientIds) {
+      try {
+        const guardianProfile = extractGuardianProfileFromPayload({
+          payload: req.body || {},
+          intakeData
+        });
+        await persistGuardianProfileForClient({
+          clientId,
+          payload: req.body || {},
+          intakeData,
+          source: 'public_intake'
+        });
+        if (guardianProfile?.email) {
+          await ensureGuardianAccountLinkedForClient({
+            clientId,
+            profile: guardianProfile
+          });
+        }
+      } catch (persistErr) {
+        console.error('[publicIntake] guardian profile persist failed (submit)', {
+          clientId,
+          message: persistErr?.message
+        });
+      }
+    }
+
     if (!link.create_client && signedDocs.length > 0) {
       await notifyUnassignedDocuments({
         link,
