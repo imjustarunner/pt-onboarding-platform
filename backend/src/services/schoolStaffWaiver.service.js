@@ -59,7 +59,7 @@ async function ensureWaiverTask({ userId, templateId }) {
   if (existing) return existing;
   return TaskAssignmentService.assignDocumentTask({
     title: SCHOOL_STAFF_WAIVER_TASK_TITLE,
-    description: 'Required once for pilot school staff access.',
+    description: 'Required once for school staff portal access.',
     documentTemplateId: Number(templateId),
     assignedByUserId: Number(userId),
     assignedToUserId: Number(userId),
@@ -115,7 +115,7 @@ export async function resetSchoolStaffWaiverForTesting({ user, organization, all
   const localBypass = !!allowLocalBypass && role === 'school_staff' && !!userId;
 
   if (!localBypass && (!userId || !isPilotUser)) {
-    throw makeStatusError('Waiver reset is only available for Fakey School pilot school staff users.', 403);
+    throw makeStatusError('Waiver reset is only available for school staff users with school portal access.', 403);
   }
   if (!isPilotResetAllowedForEnvironment()) {
     throw makeStatusError('Waiver reset is disabled outside local/pilot testing environments.', 403);

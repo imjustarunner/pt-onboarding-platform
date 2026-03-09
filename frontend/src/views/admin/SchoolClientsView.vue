@@ -103,6 +103,14 @@
           Collapse all
         </button>
         <button
+          class="btn btn-secondary btn-sm"
+          type="button"
+          :disabled="!activeAgencyId"
+          @click="openWaiverStatusModal"
+        >
+          School Staff Waiver
+        </button>
+        <button
           v-if="viewMode === 'roi'"
           class="btn btn-primary btn-sm"
           type="button"
@@ -188,6 +196,92 @@
         </table>
       </div>
     </div>
+
+    <div v-if="waiverModalOpen" class="modal-backdrop" @click.self="closeWaiverStatusModal">
+      <div class="modal-card">
+        <div class="modal-header">
+          <div>
+            <h3>School Staff Waiver Status</h3>
+            <div class="muted modal-sub">Signed and unsigned school staff across linked schools/programs.</div>
+          </div>
+          <button class="btn btn-secondary btn-sm" type="button" @click="closeWaiverStatusModal">Close</button>
+        </div>
+
+        <div class="modal-filters">
+          <div class="field">
+            <label>Search staff</label>
+            <input v-model="waiverSearch" class="input" placeholder="Name, email, school…" />
+          </div>
+          <div class="field">
+            <label>Waiver status</label>
+            <select v-model="waiverSignedFilter" class="select" @change="loadWaiverStatuses">
+              <option value="all">All</option>
+              <option value="unsigned">Not signed yet</option>
+              <option value="signed">Signed</option>
+            </select>
+          </div>
+          <div class="field modal-actions">
+            <label>&nbsp;</label>
+            <button class="btn btn-secondary" type="button" :disabled="waiverBusy || !activeAgencyId" @click="loadWaiverStatuses">
+              {{ waiverBusy ? 'Loading…' : 'Refresh list' }}
+            </button>
+          </div>
+          <div class="field">
+            <label>Flags</label>
+            <button class="btn btn-secondary" type="button" @click="toggleWaiverRedFlagOnly">
+              {{ waiverRedFlagOnly ? 'Showing red flags only' : 'Show all rows' }}
+            </button>
+          </div>
+        </div>
+
+        <div class="muted modal-count">
+          Staff shown: {{ filteredWaiverRows.length }} / {{ waiverRows.length }}
+        </div>
+
+        <div v-if="waiverBusy" class="loading">Loading waiver status…</div>
+        <div v-else class="table-wrap waiver-table-wrap">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Staff</th>
+                <th>School</th>
+                <th>Waiver</th>
+                <th>Flag</th>
+                <th>Signed At</th>
+                <th>Last Login</th>
+                <th>Last Logout</th>
+                <th>Task Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="row in filteredWaiverRows" :key="`waiver-${row.user_id}-${row.organization_id}`">
+                <td>
+                  <div class="staff-name">{{ formatStaffName(row) }}</div>
+                  <div class="muted" style="font-size:12px;">{{ row.email || '—' }}</div>
+                </td>
+                <td>{{ row.organization_name || '—' }}</td>
+                <td :class="row.waiver_signed ? 'waiver-signed' : 'waiver-unsigned'">
+                  {{ row.waiver_signed ? 'Signed' : 'Not signed' }}
+                </td>
+                <td>
+                  <span v-if="showRedFlag(row)" class="red-flag-pill" title="Logged in and logged out without signing waiver">
+                    🚩 Needs follow-up
+                  </span>
+                  <span v-else class="muted">—</span>
+                </td>
+                <td>{{ formatDateTime(row.waiver_signed_at) }}</td>
+                <td>{{ formatDateTime(row.last_login) }}</td>
+                <td>{{ formatDateTime(row.last_logout) }}</td>
+                <td>{{ formatTaskStatus(row.waiver_task_status) }}</td>
+              </tr>
+              <tr v-if="filteredWaiverRows.length === 0">
+                <td colspan="8" class="muted">No school staff match this filter.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -212,6 +306,12 @@ const roiDaysWindow = ref(30);
 const roiBulkBusy = ref(false);
 const providerNotifyBusy = ref(false);
 const clientLabelMode = ref('codes'); // 'codes' | 'initials'
+const waiverModalOpen = ref(false);
+const waiverBusy = ref(false);
+const waiverRows = ref([]);
+const waiverSearch = ref('');
+const waiverSignedFilter = ref('all');
+const waiverRedFlagOnly = ref(false);
 const MIN_PENDING_DATE = '2026-02-01';
 
 const filters = ref({
@@ -312,6 +412,18 @@ const schoolGroups = computed(() => {
   });
 });
 
+const filteredWaiverRows = computed(() => {
+  const q = normalize(waiverSearch.value);
+  return (waiverRows.value || []).filter((row) => {
+    if (waiverRedFlagOnly.value && !showRedFlag(row)) return false;
+    if (!q) return true;
+    const hay = normalize(
+      `${row?.first_name || ''} ${row?.last_name || ''} ${row?.email || ''} ${row?.organization_name || ''}`
+    );
+    return hay.includes(q);
+  });
+});
+
 const expandedSchools = ref({});
 const isSchoolExpanded = (schoolId) => !!expandedSchools.value?.[String(schoolId)];
 const toggleSchool = (schoolId) => {
@@ -378,6 +490,39 @@ const formatDate = (v) => {
   } catch {
     return String(v);
   }
+};
+
+const formatDateTime = (v) => {
+  if (!v) return '—';
+  try {
+    return new Date(v).toLocaleString();
+  } catch {
+    return String(v);
+  }
+};
+
+const formatStaffName = (row) => {
+  const first = String(row?.first_name || '').trim();
+  const last = String(row?.last_name || '').trim();
+  const full = [first, last].filter(Boolean).join(' ').trim();
+  return full || `User #${row?.user_id || '?'}`;
+};
+
+const formatTaskStatus = (status) => {
+  const s = String(status || '').trim().toLowerCase();
+  if (!s) return 'Not assigned yet';
+  if (s === 'in_progress') return 'In progress';
+  if (s === 'pending') return 'Pending';
+  if (s === 'completed') return 'Completed';
+  return s.replace(/_/g, ' ');
+};
+
+const showRedFlag = (row) => {
+  if (!row || row.waiver_signed) return false;
+  if (row.needs_waiver_red_flag === true) return true;
+  const loginTs = row.last_login ? new Date(row.last_login).getTime() : NaN;
+  const logoutTs = row.last_logout ? new Date(row.last_logout).getTime() : NaN;
+  return Number.isFinite(loginTs) && Number.isFinite(logoutTs) && logoutTs >= loginTs;
 };
 
 const formatRoiDays = (days, state) => {
@@ -473,6 +618,39 @@ const sendProviderRoiReminder = async () => {
   } finally {
     providerNotifyBusy.value = false;
   }
+};
+
+const loadWaiverStatuses = async () => {
+  if (!activeAgencyId.value) return;
+  try {
+    waiverBusy.value = true;
+    error.value = '';
+    const resp = await api.get('/compliance-corner/school-staff-waivers', {
+      params: {
+        agencyId: activeAgencyId.value,
+        signed: waiverSignedFilter.value
+      }
+    });
+    waiverRows.value = Array.isArray(resp.data?.results) ? resp.data.results : [];
+  } catch (e) {
+    waiverRows.value = [];
+    error.value = e.response?.data?.error?.message || e.message || 'Failed to load school staff waiver statuses';
+  } finally {
+    waiverBusy.value = false;
+  }
+};
+
+const openWaiverStatusModal = async () => {
+  waiverModalOpen.value = true;
+  await loadWaiverStatuses();
+};
+
+const closeWaiverStatusModal = () => {
+  waiverModalOpen.value = false;
+};
+
+const toggleWaiverRedFlagOnly = () => {
+  waiverRedFlagOnly.value = !waiverRedFlagOnly.value;
 };
 
 watch(() => activeAgencyId.value, () => {
@@ -657,12 +835,86 @@ onMounted(async () => {
   color: var(--danger);
   padding: 10px 0;
 }
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 40;
+  padding: 16px;
+}
+.modal-card {
+  width: min(1150px, 96vw);
+  max-height: 88vh;
+  overflow: auto;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px;
+}
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.modal-sub {
+  font-size: 12px;
+  margin-top: 3px;
+}
+.modal-filters {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(170px, 1fr));
+  gap: 10px;
+  align-items: end;
+  margin-bottom: 8px;
+}
+.modal-actions {
+  display: flex;
+  align-items: flex-end;
+}
+.modal-count {
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+.waiver-table-wrap {
+  max-height: 60vh;
+}
+.waiver-signed {
+  color: #166534;
+  font-weight: 700;
+}
+.waiver-unsigned {
+  color: #991b1b;
+  font-weight: 700;
+}
+.staff-name {
+  font-weight: 700;
+}
+.red-flag-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #fee2e2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 12px;
+  font-weight: 800;
+}
 .empty-state {
   padding: 16px;
   color: var(--text-secondary);
 }
 @media (max-width: 1100px) {
   .filters {
+    grid-template-columns: 1fr;
+  }
+  .modal-filters {
     grid-template-columns: 1fr;
   }
 }

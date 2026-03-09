@@ -10,6 +10,10 @@ import { ensureIssuedRoiSigningLinkForClient } from './clientSchoolRoiAccess.con
 import { resolvePreferredSenderIdentityForSchoolThenAgency } from '../services/emailSenderIdentityResolver.service.js';
 import { sendEmailFromIdentity } from '../services/unifiedEmail/unifiedEmailSender.service.js';
 import { sendPushToUser } from '../services/pushNotification.service.js';
+import {
+  SCHOOL_STAFF_WAIVER_TASK_TITLE,
+  SCHOOL_STAFF_WAIVER_TEMPLATE_NAME
+} from '../services/schoolStaffWaiver.service.js';
 
 async function resolveActiveAgencyIdForOrg(orgId) {
   return (
@@ -458,6 +462,152 @@ export const listRoiRenewalCandidates = async (req, res, next) => {
     res.json({
       count: results.length,
       daysSoon,
+      generatedAt: toIsoNoMs(),
+      results
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Compliance Corner: list school staff waiver completion status.
+ * GET /api/compliance-corner/school-staff-waivers
+ * query: agencyId (required), signed (optional: all|signed|unsigned)
+ */
+export const listSchoolStaffWaiverStatuses = async (req, res, next) => {
+  try {
+    const roleNorm = String(req.user?.role || '').toLowerCase();
+    const userId = Number(req.user?.id || 0);
+    const agencyId = Number(req.query?.agencyId || 0);
+    const signedFilter = String(req.query?.signed || 'all').trim().toLowerCase();
+
+    if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!isBackofficeRole(roleNorm)) return res.status(403).json({ error: { message: 'Backoffice access required' } });
+    if (!['all', 'signed', 'unsigned'].includes(signedFilter)) {
+      return res.status(400).json({ error: { message: 'signed must be one of: all, signed, unsigned' } });
+    }
+    const hasAgencyAccess = await ensureAgencyAccessForUser({ userId, roleNorm, agencyId });
+    if (!hasAgencyAccess) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const [rows] = await pool.execute(
+      `SELECT
+         u.id AS user_id,
+         u.first_name,
+         u.last_name,
+         u.email,
+         u.status AS user_status,
+         ua.agency_id AS organization_id,
+         org.name AS organization_name,
+         t.id AS waiver_task_id,
+         t.status AS waiver_task_status,
+         t.completed_at AS waiver_task_completed_at,
+         sd.id AS signed_document_id,
+         sd.signed_at AS waiver_signed_at,
+         sd.signed_pdf_path AS waiver_signed_pdf_path,
+         ll.last_login,
+         ll.last_logout
+       FROM user_agencies ua
+       JOIN users u ON u.id = ua.user_id
+       JOIN agencies org ON org.id = ua.agency_id
+       LEFT JOIN document_templates dt
+         ON dt.name = ?
+        AND dt.is_active = TRUE
+        AND dt.agency_id IS NULL
+       LEFT JOIN tasks t
+         ON t.id = (
+           SELECT tx.id
+           FROM tasks tx
+           WHERE tx.task_type = 'document'
+             AND tx.assigned_to_user_id = u.id
+             AND tx.reference_id = dt.id
+             AND tx.title = ?
+           ORDER BY tx.id DESC
+           LIMIT 1
+         )
+       LEFT JOIN signed_documents sd
+         ON sd.id = (
+           SELECT sdx.id
+           FROM signed_documents sdx
+           WHERE sdx.task_id = t.id
+           ORDER BY sdx.signed_at DESC, sdx.id DESC
+           LIMIT 1
+         )
+       LEFT JOIN (
+         SELECT
+           user_id,
+           MAX(CASE WHEN action_type = 'login' THEN created_at END) AS last_login,
+           MAX(CASE WHEN action_type = 'logout' THEN created_at END) AS last_logout
+         FROM user_activity_log
+         GROUP BY user_id
+       ) ll ON ll.user_id = u.id
+       WHERE LOWER(COALESCE(u.role,'')) = 'school_staff'
+         AND UPPER(COALESCE(u.status,'')) <> 'ARCHIVED'
+         AND LOWER(COALESCE(org.organization_type,'')) IN ('school', 'program', 'learning')
+         AND (
+           org.affiliated_agency_id = ?
+           OR EXISTS (
+             SELECT 1
+             FROM agency_schools asx
+             WHERE asx.agency_id = ?
+               AND asx.school_organization_id = org.id
+               AND asx.is_active = TRUE
+           )
+           OR EXISTS (
+             SELECT 1
+             FROM organization_affiliations oa
+             WHERE oa.agency_id = ?
+               AND oa.organization_id = org.id
+               AND oa.is_active = TRUE
+           )
+         )
+       ORDER BY org.name ASC, u.last_name ASC, u.first_name ASC, u.email ASC`,
+      [SCHOOL_STAFF_WAIVER_TEMPLATE_NAME, SCHOOL_STAFF_WAIVER_TASK_TITLE, agencyId, agencyId, agencyId]
+    );
+
+    let results = (rows || []).map((row) => {
+      const hasSignedPdf = !!String(row?.waiver_signed_pdf_path || '').trim();
+      const isSigned = Boolean(row?.signed_document_id) && hasSignedPdf;
+      const lastLogin = row?.last_login || null;
+      const lastLogout = row?.last_logout || null;
+      const lastLoginTs = lastLogin ? new Date(lastLogin).getTime() : NaN;
+      const lastLogoutTs = lastLogout ? new Date(lastLogout).getTime() : NaN;
+      const loggedOutAfterLoginUnsigned =
+        !isSigned
+        && Number.isFinite(lastLoginTs)
+        && Number.isFinite(lastLogoutTs)
+        && lastLogoutTs >= lastLoginTs;
+      return {
+        user_id: Number(row?.user_id || 0) || null,
+        first_name: row?.first_name || null,
+        last_name: row?.last_name || null,
+        email: row?.email || null,
+        user_status: row?.user_status || null,
+        organization_id: Number(row?.organization_id || 0) || null,
+        organization_name: row?.organization_name || null,
+        waiver_required: true,
+        waiver_task_id: Number(row?.waiver_task_id || 0) || null,
+        waiver_task_status: row?.waiver_task_status || null,
+        waiver_task_completed_at: row?.waiver_task_completed_at || null,
+        waiver_signed: isSigned,
+        waiver_signed_at: row?.waiver_signed_at || null,
+        signed_document_id: Number(row?.signed_document_id || 0) || null,
+        last_login: lastLogin,
+        last_logout: lastLogout,
+        access_locked_until_signed: !isSigned,
+        needs_waiver_red_flag: loggedOutAfterLoginUnsigned
+      };
+    });
+
+    if (signedFilter !== 'all') {
+      const shouldBeSigned = signedFilter === 'signed';
+      results = results.filter((r) => Boolean(r.waiver_signed) === shouldBeSigned);
+    }
+
+    res.json({
+      count: results.length,
+      signed: signedFilter,
       generatedAt: toIsoNoMs(),
       results
     });

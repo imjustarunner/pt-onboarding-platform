@@ -30,6 +30,9 @@ export function isFakeySchoolPilotOrg(organization) {
 export function isPilotSchoolStaffUser({ role, organization }) {
   const roleNorm = String(role || '').trim().toLowerCase();
   if (roleNorm !== 'school_staff') return false;
+  const orgType = String(organization?.organization_type || organization?.organizationType || '').trim().toLowerCase();
+  if (orgType === 'school' || orgType === 'program' || orgType === 'learning') return true;
+  // Backward compatibility for environments where org type may be absent on pilot org records.
   return isFakeySchoolPilotOrg(organization);
 }
 
