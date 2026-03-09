@@ -654,9 +654,9 @@ const buildRoiPayload = () => ({
 const buildSubmissionPayload = () => ({
   sessionToken: props.sessionToken,
   signerName: signerFullName.value,
-  signerInitials: props.roiContext?.client?.initials || props.boundClient?.initials || null,
-  signerEmail: form.signer.email,
-  signerPhone: form.signer.phone,
+  signerInitials: props.roiContext?.client?.initials || props.boundClient?.initials || '',
+  signerEmail: form.signer.email || '',
+  signerPhone: form.signer.phone || '',
   guardian: {
     firstName: form.signer.firstName,
     lastName: form.signer.lastName,
