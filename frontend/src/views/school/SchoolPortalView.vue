@@ -872,37 +872,8 @@
       </div>
     </div>
 
-    <div v-if="showRoiTransitionNotice" class="modal-overlay" @click.self="dismissRoiTransitionNotice">
-      <div class="modal roi-transition-modal" @click.stop>
-        <div class="modal-header">
-          <strong>Important ROI update</strong>
-          <button class="close" type="button" aria-label="Close" @click="dismissRoiTransitionNotice">×</button>
-        </div>
-        <div class="modal-body roi-transition-body">
-          <div class="roi-transition-branding">
-            <div v-if="agencyLogoUrl" class="roi-transition-logo">
-              <img :src="agencyLogoUrl" :alt="agencyDisplayName ? `${agencyDisplayName} logo` : 'Agency logo'" />
-            </div>
-            <div v-if="schoolLogoUrl" class="roi-transition-logo">
-              <img :src="schoolLogoUrl" :alt="organizationDisplayName ? `${organizationDisplayName} logo` : 'School logo'" />
-            </div>
-          </div>
-          <div class="roi-transition-copy">
-            <p>Hello! This weekend we have implemented a new feature that will help your students protect their info based on the exact dates of their ROI and specifically for whom they want their information shared.</p>
-            <p>Now that our system is ready for this change, we will be manually inputting all ROI dates and individuals on the ROI as ROI access for that period of time. Please give us a day or two to update every client! If your school is already updated, please ignore this message!</p>
-            <p>Rest assured, our new system will be able to send a private link via email or text to the parent so that updating that ROI will be quick, easy, secure, and integrated as it will directly update the client's profile.</p>
-            <p>Our new smart ROI flow is designed to send a private link directly to the parent or guardian and apply access from the signed responses, but we may still need a short transition period while earlier records are normalized.</p>
-            <p>Thank you for your patience!</p>
-          </div>
-          <div class="roi-transition-actions">
-            <button type="button" class="btn btn-primary" @click="dismissRoiTransitionNotice">Dismiss</button>
-          </div>
-        </div>
-      </div>
-    </div>
-
     <ReviewPromptModal
-      v-if="showReviewPrompt && reviewPromptConfig && !showRoiTransitionNotice"
+      v-if="showReviewPrompt && reviewPromptConfig"
       :config="reviewPromptConfig"
       @close="showReviewPrompt = false"
       @completed="onReviewPromptCompleted"
@@ -1967,33 +1938,6 @@ const reviewPromptConfig = computed(() => {
 });
 
 const userReviewPromptState = ref(null);
-const ROI_TRANSITION_NOTICE_END = new Date('2026-03-11T06:00:00');
-const showRoiTransitionNotice = ref(false);
-const roiTransitionNoticeDismissed = ref(false);
-
-const agencyDisplayName = computed(() => {
-  const agency = cardIconOrg.value || null;
-  return String(agency?.official_name || agency?.name || '').trim();
-});
-
-const agencyLogoUrl = computed(() => {
-  const agency = cardIconOrg.value || null;
-  const raw = agency?.logo_path || agency?.logo_url || agency?.icon_file_path || agency?.icon_path || null;
-  return toUploadsUrl(raw);
-});
-
-const shouldShowRoiTransitionNotice = computed(() => {
-  return isSchoolStaff.value && (new Date()).getTime() < ROI_TRANSITION_NOTICE_END.getTime();
-});
-
-const syncRoiTransitionNoticeVisibility = () => {
-  showRoiTransitionNotice.value = shouldShowRoiTransitionNotice.value && !roiTransitionNoticeDismissed.value;
-};
-
-const dismissRoiTransitionNotice = () => {
-  roiTransitionNoticeDismissed.value = true;
-  showRoiTransitionNotice.value = false;
-};
 
 const checkReviewPrompt = async () => {
   if (!isSchoolStaff.value || !reviewPromptConfig.value || !affiliatedAgencyId.value) return;
@@ -2449,7 +2393,6 @@ watch(organizationId, async (id) => {
   await openClientFromQuery();
 
   await ensureAffiliation();
-  syncRoiTransitionNoticeVisibility();
 });
 
 watch(
@@ -2466,13 +2409,6 @@ watch(
     if (waiverGateLocked.value && mode !== 'documents') {
       await forceWaiverDocumentsMode();
     }
-  }
-);
-
-watch(
-  () => [isSchoolStaff.value, organizationId.value, affiliatedAgencyId.value],
-  () => {
-    syncRoiTransitionNoticeVisibility();
   }
 );
 
@@ -3166,59 +3102,6 @@ watch(() => store.selectedWeekday, async (weekday) => {
   .announcement-field-wide {
     grid-column: auto;
   }
-}
-
-.roi-transition-modal {
-  width: min(720px, 95vw);
-}
-
-.roi-transition-body {
-  display: grid;
-  gap: 16px;
-}
-
-.roi-transition-branding {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 16px;
-  flex-wrap: wrap;
-}
-
-.roi-transition-logo {
-  width: 92px;
-  height: 92px;
-  border-radius: 18px;
-  border: 1px solid var(--border);
-  background: white;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  padding: 10px;
-}
-
-.roi-transition-logo img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  display: block;
-}
-
-.roi-transition-copy {
-  display: grid;
-  gap: 12px;
-  color: var(--text-primary);
-  line-height: 1.55;
-}
-
-.roi-transition-copy p {
-  margin: 0;
-}
-
-.roi-transition-actions {
-  display: flex;
-  justify-content: flex-end;
 }
 
 .intake-link-body {
