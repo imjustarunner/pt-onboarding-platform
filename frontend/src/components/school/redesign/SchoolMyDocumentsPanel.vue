@@ -27,7 +27,7 @@
         <div>
           <div class="waiver-title">School Staff Waiver</div>
           <div class="waiver-sub">
-            Required for pilot school staff access.
+            Required for school staff portal access.
           </div>
         </div>
         <span class="status-pill" :class="statusClass">{{ statusLabel }}</span>
@@ -47,18 +47,35 @@
         <button
           v-if="required && taskId"
           type="button"
-          class="btn btn-primary"
+          class="btn btn-primary waiver-cta"
+          :class="{ 'waiver-cta-pulse': shouldPulseCta }"
           @click="openSigning"
         >
           {{ isSigned ? 'View signed waiver' : 'Review and sign waiver' }}
         </button>
+      </div>
+
+      <div
+        v-if="showWaiverHintToast"
+        class="waiver-hint-toast"
+        role="status"
+        aria-live="polite"
+      >
+        <div class="waiver-hint-title">Action needed</div>
+        <div class="waiver-hint-body">
+          Click <strong>Review and sign waiver</strong> to unlock full school portal access.
+        </div>
+        <div class="waiver-hint-actions">
+          <button type="button" class="btn btn-primary btn-sm" @click="openSigning">Go sign now</button>
+          <button type="button" class="btn btn-secondary btn-sm" @click="dismissWaiverHint">Dismiss</button>
+        </div>
       </div>
     </div>
   </section>
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../../services/api';
 
@@ -75,12 +92,17 @@ const loading = ref(false);
 const resetting = ref(false);
 const error = ref('');
 const status = ref(null);
+const hasClickedWaiverCta = ref(false);
+const showWaiverHintToast = ref(false);
+const waiverHintDismissed = ref(false);
+let waiverHintTimer = null;
 
 const taskId = computed(() => Number(status.value?.taskId || 0) || null);
 const required = computed(() => Boolean(status.value?.required));
 const isSigned = computed(() => Boolean(status.value?.isSigned));
 const pilotEnabled = computed(() => Boolean(status.value?.pilotEnabled));
 const showPilotResetButton = computed(() => pilotEnabled.value && required.value);
+const shouldPulseCta = computed(() => required.value && !isSigned.value);
 
 const statusLabel = computed(() => {
   if (!required.value) return 'Not required';
@@ -104,10 +126,14 @@ const loadStatus = async () => {
     error.value = e?.response?.data?.error?.message || 'Failed to load document status.';
   } finally {
     loading.value = false;
+    scheduleWaiverHintIfNeeded();
   }
 };
 
 const openSigning = async () => {
+  hasClickedWaiverCta.value = true;
+  showWaiverHintToast.value = false;
+  clearWaiverHintTimer();
   await loadStatus();
   const latestTaskId = Number(status.value?.taskId || 0) || null;
   const latestSigned = Boolean(status.value?.isSigned);
@@ -146,15 +172,56 @@ const resetForTesting = async () => {
   }
 };
 
+const clearWaiverHintTimer = () => {
+  if (waiverHintTimer) {
+    window.clearTimeout(waiverHintTimer);
+    waiverHintTimer = null;
+  }
+};
+
+const scheduleWaiverHintIfNeeded = () => {
+  clearWaiverHintTimer();
+  if (!required.value || isSigned.value || hasClickedWaiverCta.value || waiverHintDismissed.value) {
+    showWaiverHintToast.value = false;
+    return;
+  }
+  waiverHintTimer = window.setTimeout(() => {
+    if (!required.value || isSigned.value || hasClickedWaiverCta.value || waiverHintDismissed.value) return;
+    showWaiverHintToast.value = true;
+  }, 30000);
+};
+
+const dismissWaiverHint = () => {
+  waiverHintDismissed.value = true;
+  showWaiverHintToast.value = false;
+  clearWaiverHintTimer();
+};
+
 watch(
   () => props.organizationId,
   () => {
+    hasClickedWaiverCta.value = false;
+    waiverHintDismissed.value = false;
+    showWaiverHintToast.value = false;
     loadStatus();
   }
 );
 
+watch([required, isSigned], () => {
+  if (isSigned.value) {
+    showWaiverHintToast.value = false;
+    clearWaiverHintTimer();
+    return;
+  }
+  scheduleWaiverHintIfNeeded();
+});
+
 onMounted(() => {
   loadStatus();
+});
+
+onBeforeUnmount(() => {
+  clearWaiverHintTimer();
 });
 </script>
 
@@ -212,6 +279,66 @@ onMounted(() => {
 
 .actions {
   margin-top: 12px;
+  position: relative;
+}
+
+.waiver-cta {
+  position: relative;
+}
+
+.waiver-cta-pulse {
+  animation: waiverPulse 1.8s ease-in-out infinite;
+}
+
+@keyframes waiverPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.45);
+  }
+  70% {
+    box-shadow: 0 0 0 12px rgba(59, 130, 246, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
+  }
+}
+
+.waiver-hint-toast {
+  margin-top: 10px;
+  max-width: 460px;
+  border-radius: 10px;
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  background: rgba(239, 246, 255, 0.96);
+  color: #1e3a8a;
+  padding: 10px 12px;
+  position: relative;
+}
+
+.waiver-hint-toast::before {
+  content: '';
+  position: absolute;
+  top: -8px;
+  left: 22px;
+  width: 14px;
+  height: 14px;
+  transform: rotate(45deg);
+  border-left: 1px solid rgba(59, 130, 246, 0.35);
+  border-top: 1px solid rgba(59, 130, 246, 0.35);
+  background: rgba(239, 246, 255, 0.96);
+}
+
+.waiver-hint-title {
+  font-weight: 800;
+}
+
+.waiver-hint-body {
+  margin-top: 4px;
+  font-size: 13px;
+}
+
+.waiver-hint-actions {
+  margin-top: 8px;
+  display: flex;
+  gap: 8px;
 }
 
 .status-pill {
