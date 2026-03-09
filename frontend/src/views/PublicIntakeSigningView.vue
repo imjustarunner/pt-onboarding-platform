@@ -655,12 +655,19 @@
       </div>
 
       <div v-else-if="step === 3" class="step">
-        <h3>{{ jobApplicationSubmitted ? 'Application Submitted' : 'All Set' }}</h3>
+        <h3>{{ jobApplicationSubmitted ? 'Application Submitted' : 'Successfully Submitted' }}</h3>
         <p v-if="jobApplicationSubmitted">
           Thank you for your application. We have received your materials and will review them shortly.
         </p>
-        <p v-else>{{ completionEmailMessage }}</p>
-        <p v-if="!jobApplicationSubmitted" class="muted">Download links expire in 14 days. After that, the files are deleted once uploaded to Therapy Notes.</p>
+        <template v-else>
+          <p v-if="!downloadUrl && pollingForDownload" class="preparing-message">
+            <span class="preparing-spinner"></span>
+            Your download link is being prepared. A copy will be emailed to the address you provided once it is ready.
+          </p>
+          <p v-else-if="downloadUrl">{{ completionEmailMessage }}</p>
+          <p v-else>{{ completionEmailMessage }}</p>
+        </template>
+        <p v-if="downloadUrl && !jobApplicationSubmitted" class="muted">Download links expire in 7 days.</p>
         <div v-if="downloadUrl && !jobApplicationSubmitted" class="actions">
           <a class="btn btn-primary" :href="downloadUrl" target="_blank" rel="noopener">{{ formTypeKey === 'smart_school_roi' ? 'View Signed ROI' : 'View Packet PDF' }}</a>
           <a class="btn btn-secondary" :href="downloadUrl" download>{{ formTypeKey === 'smart_school_roi' ? 'Download Signed ROI' : 'Download Packet PDF' }}</a>
@@ -1012,6 +1019,7 @@ const useEnterpriseRecaptcha = ref(
   String(import.meta.env.VITE_RECAPTCHA_USE_ENTERPRISE || '').toLowerCase() === 'true'
 );
 const captchaToken = ref('');
+const pollingForDownload = ref(false);
 const captchaError = ref('');
 const showRecaptchaWidget = ref(false);
 const recaptchaWidgetElStart = ref(null);
@@ -2587,11 +2595,40 @@ const finalizePacket = async () => {
     jobApplicationSubmitted.value = !!resp.data?.jobApplicationSubmitted;
     step.value = 3;
     clearPersistedDraft();
+    if (!downloadUrl.value && !jobApplicationSubmitted.value) {
+      pollForDownloadUrl();
+    }
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to finalize packet';
   } finally {
     submitLoading.value = false;
   }
+};
+
+const pollForDownloadUrl = async () => {
+  if (downloadUrl.value || jobApplicationSubmitted.value) return;
+  pollingForDownload.value = true;
+  const maxAttempts = 60;
+  for (let i = 0; i < maxAttempts; i++) {
+    await new Promise((r) => setTimeout(r, 5000));
+    if (downloadUrl.value || step.value !== 3) break;
+    try {
+      const resp = await api.get(`/public-intake/${publicKey}/status/${submissionId.value}`);
+      if (resp.data?.downloadUrl) {
+        downloadUrl.value = resp.data.downloadUrl;
+        if (Array.isArray(resp.data?.clientBundles)) {
+          clientBundleLinks.value = resp.data.clientBundles;
+        }
+        if (resp.data?.emailDelivery) {
+          emailDeliveryStatus.value = resp.data.emailDelivery;
+        }
+        break;
+      }
+    } catch {
+      // continue polling
+    }
+  }
+  pollingForDownload.value = false;
 };
 
 const resetIntakeState = () => {
@@ -3161,6 +3198,9 @@ const handleSmartRoiCompleted = ({ submissionId: nextSubmissionId, downloadUrl: 
   clientBundleLinks.value = Array.isArray(clientBundles) ? clientBundles : [];
   step.value = 3;
   clearPersistedDraft();
+  if (!downloadUrl.value && !jobApplicationSubmitted.value) {
+    pollForDownloadUrl();
+  }
 };
 
 const handleEmbeddedSchoolRoiCaptured = async ({ smartSchoolRoi } = {}) => {
@@ -3200,6 +3240,24 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.preparing-message {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-secondary);
+}
+.preparing-spinner {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--border);
+  border-top-color: var(--primary, #2c3e50);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
 .intake-card {
   background: white;
   border-radius: 12px;

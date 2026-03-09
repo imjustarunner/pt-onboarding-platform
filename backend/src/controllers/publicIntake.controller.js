@@ -469,7 +469,7 @@ const resolvePacketCompletionEmailContent = async ({
   primaryClientName,
   schoolName,
   downloadUrl,
-  expiresInDays = 14
+  expiresInDays = 7
 }) => {
   const customMessages = link?.custom_messages && typeof link.custom_messages === 'object'
     ? link.custom_messages
@@ -498,8 +498,8 @@ const resolvePacketCompletionEmailContent = async ({
       : (String(primaryClientName || '').trim() ? `Client: ${String(primaryClientName || '').trim()}` : ''),
     SCHOOL_NAME: String(schoolName || '').trim() || 'School',
     DOWNLOAD_URL: String(downloadUrl || '').trim(),
-    LINK_EXPIRES_DAYS: Number(expiresInDays || 14),
-    LINK_EXPIRY_DAYS: Number(expiresInDays || 14)
+    LINK_EXPIRES_DAYS: Number(expiresInDays || 7),
+    LINK_EXPIRY_DAYS: Number(expiresInDays || 7)
   };
 
   const fallbackSubject = 'Your signed intake packet';
@@ -2064,7 +2064,7 @@ export const createPublicConsent = async (req, res, next) => {
         let downloadUrl = null;
         if (submission.combined_pdf_path) {
           try {
-            downloadUrl = await StorageService.getSignedUrl(submission.combined_pdf_path, 60 * 24 * 14);
+            downloadUrl = await StorageService.getSignedUrl(submission.combined_pdf_path, 60 * 24 * 7);
           } catch {
             downloadUrl = null;
           }
@@ -2149,7 +2149,31 @@ export const getPublicIntakeStatus = async (req, res, next) => {
 
     let downloadUrl = null;
     if (submission.combined_pdf_path) {
-      downloadUrl = await StorageService.getSignedUrl(submission.combined_pdf_path, 60 * 24 * 14);
+      downloadUrl = await StorageService.getSignedUrl(submission.combined_pdf_path, 60 * 24 * 7);
+    }
+
+    const clientBundles = [];
+    if (downloadUrl) {
+      try {
+        const clientRows = await IntakeSubmissionClient.listBySubmissionId(submissionId);
+        for (const c of clientRows || []) {
+          if (c?.bundle_pdf_path) {
+            try {
+              const url = await StorageService.getSignedUrl(c.bundle_pdf_path, 60 * 24 * 7);
+              clientBundles.push({
+                clientId: c.client_id,
+                clientName: c.full_name || null,
+                filename: `intake-client-${c.client_id || 'unknown'}.pdf`,
+                downloadUrl: url
+              });
+            } catch {
+              // best-effort
+            }
+          }
+        }
+      } catch {
+        // best-effort
+      }
     }
 
     let intakeData = null;
@@ -2170,6 +2194,7 @@ export const getPublicIntakeStatus = async (req, res, next) => {
       signedTemplateIds: Array.from(signedTemplateIds),
       signedDocuments: signedDocs,
       downloadUrl,
+      clientBundles,
       intakeData
     });
   } catch (error) {
@@ -2494,7 +2519,7 @@ export const finalizePublicIntake = async (req, res, next) => {
       if (submission.combined_pdf_path) {
         let downloadUrl = null;
         try {
-          downloadUrl = await StorageService.getSignedUrl(submission.combined_pdf_path, 60 * 24 * 14);
+          downloadUrl = await StorageService.getSignedUrl(submission.combined_pdf_path, 60 * 24 * 7);
         } catch {
           // best-effort
         }
@@ -2503,7 +2528,7 @@ export const finalizePublicIntake = async (req, res, next) => {
         for (const c of clientRows || []) {
           if (c?.bundle_pdf_path) {
             try {
-              const url = await StorageService.getSignedUrl(c.bundle_pdf_path, 60 * 24 * 14);
+              const url = await StorageService.getSignedUrl(c.bundle_pdf_path, 60 * 24 * 7);
               clientBundles.push({
                 clientId: c.client_id,
                 clientName: c.full_name || null,
@@ -2960,20 +2985,20 @@ export const finalizePublicIntake = async (req, res, next) => {
         });
       }
 
-      const downloadUrl = await StorageService.getSignedUrl(signedResult.storagePath, 60 * 24 * 14);
+      const downloadUrl = await StorageService.getSignedUrl(signedResult.storagePath, 60 * 24 * 7);
       if (updatedSubmission.signer_email && downloadUrl) {
         emailDelivery.attempted = true;
         const signerName = String(updatedSubmission.signer_name || '').trim() || 'Signer';
         const clientName = String(roiResponse.clientFullName || boundClient.full_name || '').trim() || 'Client';
         const schoolName = String(roiContext?.school?.name || '').trim() || 'School';
         const subject = `${clientName} - School ROI Completed`;
-        const text = `${signerName}, your school release of information is complete.\n\nClient: ${clientName}\nSchool: ${schoolName}\n\nDownload your signed copy:\n${downloadUrl}\n\nThis link expires in 14 days.`;
+        const text = `${signerName}, your school release of information is complete.\n\nClient: ${clientName}\nSchool: ${schoolName}\n\nDownload your signed copy:\n${downloadUrl}\n\nThis link expires in 7 days.`;
         const html = `
           <div style="font-family:Arial,sans-serif;line-height:1.5;color:#111;">
             <p>${escapeHtml(signerName)}, your school release of information is complete.</p>
             <p><strong>Client:</strong> ${escapeHtml(clientName)}<br/><strong>School:</strong> ${escapeHtml(schoolName)}</p>
             <p><a href="${downloadUrl}" style="display:inline-block;padding:10px 14px;background:#2c3e50;color:#fff;text-decoration:none;border-radius:6px;">Download Signed School ROI</a></p>
-            <p style="color:#777;">This link expires in 14 days.</p>
+            <p style="color:#777;">This link expires in 7 days.</p>
           </div>
         `.trim();
         try {
@@ -3198,6 +3223,98 @@ export const finalizePublicIntake = async (req, res, next) => {
               if (roiSignedResult.storagePath) {
                 pdfPaths.push(roiSignedResult.storagePath);
               }
+
+              // Apply embedded ROI completion (same as standalone smart school ROI path)
+              const embeddedClientId = Number(updatedSubmission?.client_id || 0) || null;
+              if (embeddedClientId && roiResponse) {
+                const schoolOrganizationId = Number(
+                  boundClient?.organization_id || link.organization_id || 0
+                ) || null;
+
+                try {
+                  const clientRow = boundClient || await Client.findById(embeddedClientId, { includeSensitive: true });
+                  const agencyId = clientRow?.agency_id || null;
+                  const roiDocTitle = effectiveRoiContext?.school?.name
+                    ? `${effectiveRoiContext.school.name} - Release of Information (Signed)`
+                    : `${selectedTemplate.name || 'School ROI'} (Signed)`;
+                  const embeddedPhiDoc = await ClientPhiDocument.create({
+                    clientId: embeddedClientId,
+                    agencyId,
+                    schoolOrganizationId: schoolOrganizationId || agencyId,
+                    intakeSubmissionId: submissionId,
+                    storagePath: roiSignedResult.storagePath,
+                    originalName: roiDocTitle,
+                    mimeType: 'application/pdf',
+                    uploadedByUserId: null,
+                    scanStatus: 'clean',
+                    expiresAt: retentionExpiresAt
+                  });
+                  await PhiDocumentAuditLog.create({
+                    documentId: embeddedPhiDoc.id,
+                    clientId: embeddedClientId,
+                    action: 'uploaded',
+                    actorUserId: null,
+                    actorLabel: 'public_intake',
+                    ipAddress: updatedSubmission.ip_address || null,
+                    metadata: { submissionId, templateId: selectedTemplate.id, smartSchoolRoi: true, embeddedStep: true }
+                  });
+                } catch (phiErr) {
+                  console.error('[publicIntake] embedded ROI PHI doc creation failed', { clientId: embeddedClientId, error: phiErr?.message });
+                }
+
+                try {
+                  const accessUpdates = await applySmartSchoolRoiAccessDecisions({
+                    clientId: embeddedClientId,
+                    schoolOrganizationId: schoolOrganizationId || 0,
+                    response: roiResponse,
+                    actorUserId: null
+                  });
+                  await logAuditEvent(req, {
+                    actionType: 'smart_school_roi_permissions_applied',
+                    agencyId: boundClient?.agency_id || null,
+                    metadata: {
+                      clientId: embeddedClientId,
+                      schoolOrganizationId,
+                      embeddedStep: true,
+                      packetReleaseAllowed: roiResponse.packetReleaseAllowed,
+                      schoolSchedulingSafetyLogisticsAuthorized: roiResponse.schoolSchedulingSafetyLogisticsAuthorized === true,
+                      approvedStaffCount: roiResponse.approvedStaffCount || 0,
+                      deniedStaffCount: roiResponse.deniedStaffCount || 0,
+                      accessUpdates
+                    }
+                  });
+                } catch (accessErr) {
+                  console.error('[publicIntake] embedded ROI access decisions failed', { clientId: embeddedClientId, error: accessErr?.message });
+                }
+
+                try {
+                  await applyClientRoiCompletion({
+                    clientId: embeddedClientId,
+                    signedAt: now,
+                    actorUserId: null
+                  });
+                } catch (roiErr) {
+                  console.error('[publicIntake] embedded ROI completion failed, applying fallback', { clientId: embeddedClientId, error: roiErr?.message });
+                  try {
+                    const roiFallbackExpiry = new Date(now);
+                    roiFallbackExpiry.setUTCFullYear(roiFallbackExpiry.getUTCFullYear() + 3);
+                    await Client.update(embeddedClientId, { roi_expires_at: roiFallbackExpiry });
+                  } catch (fallbackErr) {
+                    console.error('[publicIntake] roi_expires_at fallback also failed', { clientId: embeddedClientId, error: fallbackErr?.message });
+                  }
+                }
+
+                try {
+                  await notifySchoolRoiCompletedForBackoffice({
+                    agencyId: boundClient?.agency_id || null,
+                    clientId: embeddedClientId,
+                    clientLabel: boundClient?.full_name || boundClient?.initials || `Client ${embeddedClientId}`,
+                    schoolLabel: effectiveRoiContext?.school?.name || 'school'
+                  });
+                } catch {
+                  // best-effort
+                }
+              }
             } else {
               console.warn('[publicIntake] embedded school_roi payload failed validation; skipping packet include', {
                 submissionId,
@@ -3213,6 +3330,18 @@ export const finalizePublicIntake = async (req, res, next) => {
         });
       }
     }
+
+    res.json({
+      success: true,
+      submission: updatedSubmission,
+      status: 'processing',
+      submissionId
+    });
+
+    // Heavy processing: PDF merge, bundle, email, notifications, guardian persistence
+    setImmediate(() => {
+      void (async () => {
+        try {
 
     const answersPdf = await buildAnswersPdfBuffer({ link, intakeData });
 
@@ -3453,7 +3582,7 @@ export const finalizePublicIntake = async (req, res, next) => {
           clientId: clientPayload?.id || null,
           clientName: clientPayload?.fullName || null,
           filename: `intake-client-${clientPayload?.id || 'unknown'}.pdf`,
-          downloadUrl: await StorageService.getSignedUrl(clientBundleResult.relativePath, 60 * 24 * 14)
+          downloadUrl: await StorageService.getSignedUrl(clientBundleResult.relativePath, 60 * 24 * 7)
         });
       }
 
@@ -3525,7 +3654,7 @@ export const finalizePublicIntake = async (req, res, next) => {
         combined_pdf_path: bundleResult.relativePath,
         combined_pdf_hash: bundleHash
       });
-      downloadUrl = await StorageService.getSignedUrl(bundleResult.relativePath, 60 * 24 * 14);
+      downloadUrl = await StorageService.getSignedUrl(bundleResult.relativePath, 60 * 24 * 7);
 
       for (const clientPayload of rawClients) {
         const clientId = clientPayload?.id || null;
@@ -3588,7 +3717,7 @@ export const finalizePublicIntake = async (req, res, next) => {
           primaryClientName,
           schoolName: organization?.name || '',
           downloadUrl,
-          expiresInDays: 14
+          expiresInDays: 7
         });
         try {
           const identity = await resolveIntakeSenderIdentity({
@@ -3645,6 +3774,10 @@ export const finalizePublicIntake = async (req, res, next) => {
       const cid = Number(c?.id || 0);
       if (cid) persistClientIds.add(cid);
     }
+    for (const row of intakeClientRows || []) {
+      const cid = Number(row?.client_id || 0);
+      if (cid) persistClientIds.add(cid);
+    }
     for (const clientId of persistClientIds) {
       try {
         const guardianProfile = extractGuardianProfileFromPayload({
@@ -3679,14 +3812,14 @@ export const finalizePublicIntake = async (req, res, next) => {
       });
     }
 
-    res.json({
-      success: true,
-      submission: updatedSubmission,
-      documents: signedDocsOrdered,
-      downloadUrl,
-      emailDelivery,
-      clientBundles,
-      registrationEnrollment
+        } catch (bgErr) {
+          console.error('[publicIntake] background processing failed', {
+            submissionId,
+            error: bgErr?.message || bgErr,
+            stack: bgErr?.stack
+          });
+        }
+      })();
     });
   } catch (error) {
     next(error);
@@ -3727,7 +3860,7 @@ export const submitPublicIntake = async (req, res, next) => {
     if (String(submission.status || '').toLowerCase() === 'submitted' && submission.combined_pdf_path) {
       let downloadUrl = null;
       try {
-        downloadUrl = await StorageService.getSignedUrl(submission.combined_pdf_path, 60 * 24 * 14);
+        downloadUrl = await StorageService.getSignedUrl(submission.combined_pdf_path, 60 * 24 * 7);
       } catch {
         // best-effort
       }
@@ -3736,7 +3869,7 @@ export const submitPublicIntake = async (req, res, next) => {
       for (const c of clientRows || []) {
         if (c?.bundle_pdf_path) {
           try {
-            const url = await StorageService.getSignedUrl(c.bundle_pdf_path, 60 * 24 * 14);
+            const url = await StorageService.getSignedUrl(c.bundle_pdf_path, 60 * 24 * 7);
             clientBundles.push({
               clientId: c.client_id,
               clientName: c.full_name || null,
@@ -3950,7 +4083,7 @@ export const submitPublicIntake = async (req, res, next) => {
           clientId,
           clientName,
           filename: `intake-client-${clientId || 'unknown'}.pdf`,
-          downloadUrl: await StorageService.getSignedUrl(clientBundleResult.relativePath, 60 * 24 * 14)
+          downloadUrl: await StorageService.getSignedUrl(clientBundleResult.relativePath, 60 * 24 * 7)
         });
       }
 
@@ -3993,7 +4126,7 @@ export const submitPublicIntake = async (req, res, next) => {
         combined_pdf_path: bundleResult.relativePath,
         combined_pdf_hash: bundleHash
       });
-      downloadUrl = await StorageService.getSignedUrl(bundleResult.relativePath, 60 * 24 * 14);
+      downloadUrl = await StorageService.getSignedUrl(bundleResult.relativePath, 60 * 24 * 7);
 
       for (const clientPayload of rawClients) {
         const clientId = clientPayload?.id || null;
@@ -4056,7 +4189,7 @@ export const submitPublicIntake = async (req, res, next) => {
           primaryClientName,
           schoolName: organization?.name || '',
           downloadUrl,
-          expiresInDays: 14
+          expiresInDays: 7
         });
         try {
           const identity = await resolveIntakeSenderIdentity({
