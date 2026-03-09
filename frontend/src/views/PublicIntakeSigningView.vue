@@ -2562,13 +2562,18 @@ const currentFlowContinueLabel = computed(() => {
 });
 
 const finalizePacket = async () => {
+  const previousStep = step.value;
   try {
     submitLoading.value = true;
     error.value = '';
     stepError.value = '';
+    step.value = 3;
+    pollingForDownload.value = true;
     const activeSessionToken = await ensureSessionToken();
     if (!activeSessionToken) {
       error.value = t('unableToStartSession');
+      pollingForDownload.value = false;
+      step.value = previousStep;
       return;
     }
     const resp = await api.post(`/public-intake/${publicKey}/${submissionId.value}/finalize`, {
@@ -2601,12 +2606,17 @@ const finalizePacket = async () => {
     emailDeliveryStatus.value = resp.data?.emailDelivery || null;
     clientBundleLinks.value = resp.data?.clientBundles || [];
     jobApplicationSubmitted.value = !!resp.data?.jobApplicationSubmitted;
+    if (downloadUrl.value || jobApplicationSubmitted.value) {
+      pollingForDownload.value = false;
+    }
     step.value = 3;
     clearPersistedDraft();
     if (!downloadUrl.value && !jobApplicationSubmitted.value) {
       pollForDownloadUrl();
     }
   } catch (e) {
+    pollingForDownload.value = false;
+    step.value = previousStep;
     error.value = e.response?.data?.error?.message || 'Failed to finalize packet';
   } finally {
     submitLoading.value = false;

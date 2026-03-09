@@ -266,6 +266,8 @@ const fieldErrors = ref({});
 const activeFieldId = ref(null);
 const activeMarkerId = ref(null);
 const activeFieldIndex = ref(0);
+const SIGNING_DRAFT_TTL_MS = 60 * 60 * 1000;
+const draftStorageKey = computed(() => `document-signing-draft:${taskId}`);
 
 const isFieldVisible = (def, values) => {
   const showIf = def?.showIf;
@@ -407,6 +409,59 @@ const scrollToField = (fieldId) => {
   });
 };
 
+const focusCurrentFieldInput = () => {
+  nextTick(() => {
+    const field = currentField.value;
+    if (!field?.id) return;
+    const wrapper = document.querySelector(`[data-field-input-id="${field.id}"]`);
+    const input = wrapper?.querySelector?.('input, select, textarea') || wrapper;
+    if (typeof input?.focus === 'function') input.focus();
+  });
+};
+
+const persistSigningDraft = () => {
+  try {
+    const payload = {
+      at: Date.now(),
+      fieldValues: fieldValues.value || {}
+    };
+    window.sessionStorage.setItem(draftStorageKey.value, JSON.stringify(payload));
+  } catch {
+    // best-effort
+  }
+};
+
+const clearSigningDraft = () => {
+  try {
+    window.sessionStorage.removeItem(draftStorageKey.value);
+  } catch {
+    // best-effort
+  }
+};
+
+const restoreSigningDraft = () => {
+  try {
+    const raw = window.sessionStorage.getItem(draftStorageKey.value);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    const savedAt = Number(parsed?.at || 0);
+    if (!savedAt || (Date.now() - savedAt) > SIGNING_DRAFT_TTL_MS) {
+      clearSigningDraft();
+      return;
+    }
+    const draftValues = parsed?.fieldValues && typeof parsed.fieldValues === 'object'
+      ? parsed.fieldValues
+      : null;
+    if (!draftValues) return;
+    fieldValues.value = {
+      ...fieldValues.value,
+      ...draftValues
+    };
+  } catch {
+    clearSigningDraft();
+  }
+};
+
 const handleMarkerClick = (marker) => {
   if (!marker) return;
   activeMarkerId.value = marker.id;
@@ -503,6 +558,7 @@ const loadDocumentTask = async () => {
       }
     });
     fieldValues.value = nextValues;
+    restoreSigningDraft();
 
     // Determine what content to display
     if (userDocument.value) {
@@ -573,6 +629,7 @@ const loadDocumentTask = async () => {
     if (response.data.signedDocument && response.data.signedDocument.signed_pdf_path) {
       // Document is finalized and has a PDF
       currentStep.value = 4;
+      clearSigningDraft();
     } else if (workflow.value) {
       // Check workflow state to determine step
       if (workflow.value.finalized_at) {
@@ -689,6 +746,7 @@ const handleAdminSignature = (sigData) => {
 };
 
 const wait = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
+const POST_FINALIZE_RELOAD_TIMEOUT_MS = 12000;
 
 const finalizeSignature = async () => {
   if (!hasSignature.value || !signatureData.value) {
@@ -724,6 +782,12 @@ const finalizeSignature = async () => {
   if (Object.keys(errors).length > 0) {
     error.value = 'Please complete all required fields before signing.';
     errorDetails.value = null;
+    const firstMissingId = Object.keys(errors)[0];
+    const missingIdx = orderedFields.value.findIndex((f) => f.id === firstMissingId);
+    if (missingIdx >= 0) {
+      selectFieldByIndex(missingIdx);
+      focusCurrentFieldInput();
+    }
     return;
   }
 
@@ -733,8 +797,14 @@ const finalizeSignature = async () => {
     errorDetails.value = null;
     await documentsStore.signDocument(taskId, signatureData.value, fieldValues.value);
     currentStep.value = 4;
-    await loadDocumentTask();
-    await downloadDocument({ auto: true });
+    clearSigningDraft();
+    // Best-effort refresh: do not keep user blocked if post-finalize reload stalls.
+    await Promise.race([
+      loadDocumentTask(),
+      wait(POST_FINALIZE_RELOAD_TIMEOUT_MS)
+    ]);
+    // Auto-download should never block completion UX.
+    void downloadDocument({ auto: true });
   } catch (err) {
     const errorData = err.response?.data?.error || {};
     error.value = errorData.message || 'Failed to finalize signature';
@@ -750,7 +820,7 @@ const finalizeSignature = async () => {
 
 const downloadDocument = async ({ auto = false, retry = 0 } = {}) => {
   try {
-    loading.value = true;
+    if (!auto) loading.value = true;
     if (!auto) {
       error.value = '';
       errorDetails.value = null;
@@ -785,7 +855,7 @@ const downloadDocument = async ({ auto = false, retry = 0 } = {}) => {
       error.value = 'Document has not been finalized yet. Please complete the signature process (Intent → Sign → Finalize) before downloading.';
     }
   } finally {
-    loading.value = false;
+    if (!auto) loading.value = false;
   }
 };
 
@@ -850,6 +920,11 @@ const finalizeAdminCountersign = async () => {
 onMounted(() => {
   loadDocumentTask();
 });
+
+watch(fieldValues, () => {
+  if (currentStep.value < 3 || currentStep.value > 4) return;
+  persistSigningDraft();
+}, { deep: true });
 </script>
 
 <style scoped>

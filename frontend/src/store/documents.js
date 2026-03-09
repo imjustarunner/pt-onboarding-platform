@@ -102,13 +102,15 @@ export const useDocumentsStore = defineStore('documents', () => {
     }
   };
 
-  const signDocument = async (taskId, signatureData, fieldValues = null) => {
+  const signDocument = async (taskId, signatureData, fieldValues = null, options = {}) => {
     try {
       loading.value = true;
       error.value = '';
       const response = await api.post(`/document-signing/${taskId}/sign`, {
         signatureData,
         fieldValues
+      }, {
+        timeout: Number(options?.timeoutMs || 60000)
       });
       return response.data;
     } catch (err) {
@@ -135,10 +137,11 @@ export const useDocumentsStore = defineStore('documents', () => {
     }
   };
 
-  const downloadSignedDocument = async (taskId, filename = null) => {
+  const downloadSignedDocument = async (taskId, filename = null, options = {}) => {
     try {
       const response = await api.get(`/document-signing/${taskId}/download`, {
-        responseType: 'blob'
+        responseType: 'blob',
+        timeout: Number(options?.timeoutMs || 30000)
       });
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
