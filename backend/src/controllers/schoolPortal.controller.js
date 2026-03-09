@@ -3,6 +3,7 @@
  * Handles restricted school portal views and client list access
  */
 
+import crypto from 'crypto';
 import Client from '../models/Client.model.js';
 import ClientNotes from '../models/ClientNotes.model.js';
 import ClientSchoolStaffRoiAccess, {
@@ -4444,6 +4445,111 @@ export const createSchoolPortalAnnouncement = async (req, res, next) => {
 };
 
 /**
+ * Update an individual school portal announcement.
+ * PUT /api/school-portal/:organizationId/announcements/:announcementId
+ */
+export const updateSchoolPortalAnnouncement = async (req, res, next) => {
+  try {
+    const orgId = await resolveOrgIdFromParam(req.params.organizationId);
+    if (!orgId) return res.status(400).json({ error: { message: 'Invalid organizationId' } });
+
+    const announcementId = parseInt(req.params.announcementId, 10);
+    if (!announcementId) return res.status(400).json({ error: { message: 'Invalid announcement id' } });
+
+    const userId = req.user?.id;
+    const roleNorm = String(req.user?.role || '').toLowerCase();
+    if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+    if (await isSupervisorOnlyActor({ userId, role: roleNorm, user: req.user })) {
+      return res.status(403).json({ error: { message: 'Supervisors have read-only access in school portal announcements' } });
+    }
+
+    if (roleNorm !== 'super_admin') {
+      const ok = await userHasOrgOrAffiliatedAgencyAccess({ userId, role: roleNorm, schoolOrganizationId: orgId });
+      if (!ok) return res.status(403).json({ error: { message: 'You do not have access to this school organization' } });
+    }
+
+    const titleRaw = req.body?.title;
+    const title = titleRaw === null || titleRaw === undefined ? null : String(titleRaw || '').trim().slice(0, 255) || null;
+    const message = String(req.body?.message || '').trim();
+    if (!message) return res.status(400).json({ error: { message: 'Message is required' } });
+    if (message.length > 1200) return res.status(400).json({ error: { message: 'Message is too long (max 1200 characters)' } });
+
+    const startsAtRaw = req.body?.starts_at || req.body?.startsAt;
+    const endsAtRaw = req.body?.ends_at || req.body?.endsAt;
+    if (!startsAtRaw || !endsAtRaw) return res.status(400).json({ error: { message: 'starts_at and ends_at are required' } });
+
+    const startsAt = new Date(startsAtRaw);
+    const endsAt = new Date(endsAtRaw);
+    if (!Number.isFinite(startsAt.getTime()) || !Number.isFinite(endsAt.getTime())) {
+      return res.status(400).json({ error: { message: 'Invalid starts_at or ends_at' } });
+    }
+    if (endsAt.getTime() <= startsAt.getTime()) {
+      return res.status(400).json({ error: { message: 'ends_at must be after starts_at' } });
+    }
+
+    const MS_DAY = 24 * 60 * 60 * 1000;
+    const durationDays = (endsAt.getTime() - startsAt.getTime()) / MS_DAY;
+    if (durationDays > 14.0001) {
+      return res.status(400).json({ error: { message: 'Announcements must be time-limited to 2 weeks maximum' } });
+    }
+
+    const [result] = await pool.execute(
+      `UPDATE school_portal_announcements
+       SET title = ?, message = ?, starts_at = ?, ends_at = ?
+       WHERE id = ? AND organization_id = ?`,
+      [title, message, startsAt, endsAt, announcementId, orgId]
+    );
+    if (!result?.affectedRows) {
+      return res.status(404).json({ error: { message: 'Announcement not found' } });
+    }
+
+    res.json({
+      announcement: { id: announcementId, organization_id: orgId, title, message, starts_at: startsAt, ends_at: endsAt }
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Delete an individual school portal announcement.
+ * DELETE /api/school-portal/:organizationId/announcements/:announcementId
+ */
+export const deleteSchoolPortalAnnouncement = async (req, res, next) => {
+  try {
+    const orgId = await resolveOrgIdFromParam(req.params.organizationId);
+    if (!orgId) return res.status(400).json({ error: { message: 'Invalid organizationId' } });
+
+    const announcementId = parseInt(req.params.announcementId, 10);
+    if (!announcementId) return res.status(400).json({ error: { message: 'Invalid announcement id' } });
+
+    const userId = req.user?.id;
+    const roleNorm = String(req.user?.role || '').toLowerCase();
+    if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+    if (await isSupervisorOnlyActor({ userId, role: roleNorm, user: req.user })) {
+      return res.status(403).json({ error: { message: 'Supervisors have read-only access in school portal announcements' } });
+    }
+
+    if (roleNorm !== 'super_admin') {
+      const ok = await userHasOrgOrAffiliatedAgencyAccess({ userId, role: roleNorm, schoolOrganizationId: orgId });
+      if (!ok) return res.status(403).json({ error: { message: 'You do not have access to this school organization' } });
+    }
+
+    const [result] = await pool.execute(
+      `DELETE FROM school_portal_announcements WHERE id = ? AND organization_id = ?`,
+      [announcementId, orgId]
+    );
+    if (!result?.affectedRows) {
+      return res.status(404).json({ error: { message: 'Announcement not found' } });
+    }
+
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
  * Create the same time-limited scrolling banner for multiple school portals at once.
  * POST /api/school-portal/bulk-announcements
  * body: { organizationIds, title?, message, starts_at, ends_at }
@@ -4527,11 +4633,13 @@ export const createBulkSchoolPortalAnnouncements = async (req, res, next) => {
       }
     }
 
-    const values = uniqueOrgIds.flatMap((orgId) => [orgId, userId, title, message, startsAt, endsAt]);
-    const rowPlaceholders = uniqueOrgIds.map(() => '(?, ?, ?, ?, ?, ?)').join(', ');
+    const bulkGroupId = crypto.randomUUID();
+
+    const values = uniqueOrgIds.flatMap((orgId) => [orgId, userId, bulkGroupId, title, message, startsAt, endsAt]);
+    const rowPlaceholders = uniqueOrgIds.map(() => '(?, ?, ?, ?, ?, ?, ?)').join(', ');
     const [result] = await pool.execute(
       `INSERT INTO school_portal_announcements
-       (organization_id, created_by_user_id, title, message, starts_at, ends_at)
+       (organization_id, created_by_user_id, bulk_group_id, title, message, starts_at, ends_at)
        VALUES ${rowPlaceholders}`,
       values
     );
@@ -4539,6 +4647,7 @@ export const createBulkSchoolPortalAnnouncements = async (req, res, next) => {
     logAuditEvent(req, {
       actionType: 'school_portal_bulk_announcements_created',
       metadata: {
+        bulkGroupId,
         organizationIds: uniqueOrgIds,
         count: uniqueOrgIds.length,
         startsAt: startsAt.toISOString(),
@@ -4548,9 +4657,166 @@ export const createBulkSchoolPortalAnnouncements = async (req, res, next) => {
 
     res.status(201).json({
       ok: true,
+      bulk_group_id: bulkGroupId,
       inserted_count: Number(result?.affectedRows || 0),
       organization_ids: uniqueOrgIds
     });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * List recent bulk announcement groups for an agency's school portals.
+ * GET /api/school-portal/bulk-announcements?agencyId=X
+ */
+export const listBulkSchoolPortalAnnouncements = async (req, res, next) => {
+  try {
+    const userId = req.user?.id;
+    const roleNorm = String(req.user?.role || '').toLowerCase();
+    if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+
+    const agencyId = parseInt(req.query?.agencyId, 10);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId query parameter is required' } });
+
+    const [rows] = await pool.execute(
+      `SELECT
+         a.bulk_group_id,
+         a.title,
+         a.message,
+         a.starts_at,
+         a.ends_at,
+         a.created_by_user_id,
+         a.created_at,
+         COUNT(*) AS portal_count,
+         CONCAT(TRIM(u.first_name), ' ', TRIM(u.last_name)) AS created_by_name
+       FROM school_portal_announcements a
+       INNER JOIN agency_schools asc2 ON asc2.school_id = a.organization_id AND asc2.agency_id = ?
+       LEFT JOIN users u ON u.id = a.created_by_user_id
+       WHERE a.bulk_group_id IS NOT NULL
+       GROUP BY a.bulk_group_id, a.title, a.message, a.starts_at, a.ends_at,
+                a.created_by_user_id, a.created_at, u.first_name, u.last_name
+       ORDER BY a.created_at DESC
+       LIMIT 50`,
+      [agencyId]
+    );
+
+    const out = (rows || []).map((r) => ({
+      bulk_group_id: r.bulk_group_id,
+      title: r.title || null,
+      message: r.message || '',
+      starts_at: r.starts_at,
+      ends_at: r.ends_at,
+      created_at: r.created_at,
+      created_by_user_id: r.created_by_user_id || null,
+      created_by_name: r.created_by_name?.trim() || null,
+      portal_count: Number(r.portal_count || 0),
+      is_active: new Date(r.starts_at) <= new Date() && new Date(r.ends_at) >= new Date()
+    }));
+    res.json(out);
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Update all announcements in a bulk group (same message, dates across portals).
+ * PUT /api/school-portal/bulk-announcements/:groupId
+ */
+export const updateBulkSchoolPortalAnnouncements = async (req, res, next) => {
+  try {
+    const userId = req.user?.id;
+    const roleNorm = String(req.user?.role || '').toLowerCase();
+    if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+    if (await isSupervisorOnlyActor({ userId, role: roleNorm, user: req.user })) {
+      return res.status(403).json({ error: { message: 'Supervisors have read-only access in school portal announcements' } });
+    }
+
+    const groupId = String(req.params.groupId || '').trim();
+    if (!groupId) return res.status(400).json({ error: { message: 'Invalid group id' } });
+
+    const [existing] = await pool.execute(
+      `SELECT id FROM school_portal_announcements WHERE bulk_group_id = ? LIMIT 1`,
+      [groupId]
+    );
+    if (!existing || existing.length === 0) {
+      return res.status(404).json({ error: { message: 'Announcement group not found' } });
+    }
+
+    const titleRaw = req.body?.title;
+    const title = titleRaw === null || titleRaw === undefined ? null : String(titleRaw || '').trim().slice(0, 255) || null;
+    const message = String(req.body?.message || '').trim();
+    if (!message) return res.status(400).json({ error: { message: 'Message is required' } });
+    if (message.length > 1200) return res.status(400).json({ error: { message: 'Message is too long (max 1200 characters)' } });
+
+    const startsAtRaw = req.body?.starts_at || req.body?.startsAt;
+    const endsAtRaw = req.body?.ends_at || req.body?.endsAt;
+    if (!startsAtRaw || !endsAtRaw) return res.status(400).json({ error: { message: 'starts_at and ends_at are required' } });
+
+    const startsAt = new Date(startsAtRaw);
+    const endsAt = new Date(endsAtRaw);
+    if (!Number.isFinite(startsAt.getTime()) || !Number.isFinite(endsAt.getTime())) {
+      return res.status(400).json({ error: { message: 'Invalid starts_at or ends_at' } });
+    }
+    if (endsAt.getTime() <= startsAt.getTime()) {
+      return res.status(400).json({ error: { message: 'ends_at must be after starts_at' } });
+    }
+
+    const MS_DAY = 24 * 60 * 60 * 1000;
+    const durationDays = (endsAt.getTime() - startsAt.getTime()) / MS_DAY;
+    if (durationDays > 14.0001) {
+      return res.status(400).json({ error: { message: 'Announcements must be time-limited to 2 weeks maximum' } });
+    }
+
+    const [result] = await pool.execute(
+      `UPDATE school_portal_announcements
+       SET title = ?, message = ?, starts_at = ?, ends_at = ?
+       WHERE bulk_group_id = ?`,
+      [title, message, startsAt, endsAt, groupId]
+    );
+
+    logAuditEvent(req, {
+      actionType: 'school_portal_bulk_announcements_updated',
+      metadata: { bulkGroupId: groupId, affectedRows: result?.affectedRows || 0 }
+    }).catch(() => {});
+
+    res.json({ ok: true, updated_count: Number(result?.affectedRows || 0) });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Delete all announcements in a bulk group.
+ * DELETE /api/school-portal/bulk-announcements/:groupId
+ */
+export const deleteBulkSchoolPortalAnnouncements = async (req, res, next) => {
+  try {
+    const userId = req.user?.id;
+    const roleNorm = String(req.user?.role || '').toLowerCase();
+    if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+    if (await isSupervisorOnlyActor({ userId, role: roleNorm, user: req.user })) {
+      return res.status(403).json({ error: { message: 'Supervisors have read-only access in school portal announcements' } });
+    }
+
+    const groupId = String(req.params.groupId || '').trim();
+    if (!groupId) return res.status(400).json({ error: { message: 'Invalid group id' } });
+
+    const [result] = await pool.execute(
+      `DELETE FROM school_portal_announcements WHERE bulk_group_id = ?`,
+      [groupId]
+    );
+
+    if (!result?.affectedRows) {
+      return res.status(404).json({ error: { message: 'Announcement group not found' } });
+    }
+
+    logAuditEvent(req, {
+      actionType: 'school_portal_bulk_announcements_deleted',
+      metadata: { bulkGroupId: groupId, deletedRows: result.affectedRows }
+    }).catch(() => {});
+
+    res.json({ ok: true, deleted_count: Number(result.affectedRows) });
   } catch (e) {
     next(e);
   }

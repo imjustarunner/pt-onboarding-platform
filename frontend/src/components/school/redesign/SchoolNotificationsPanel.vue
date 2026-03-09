@@ -265,6 +265,22 @@
             Mark read
           </button>
           <button
+            v-if="isAnnouncementItem(it) && canCreateAnnouncements"
+            class="btn btn-secondary btn-sm item-action-btn"
+            type="button"
+            @click.stop="openEditAnnouncement(it)"
+          >
+            Edit
+          </button>
+          <button
+            v-if="isAnnouncementItem(it) && canCreateAnnouncements"
+            class="btn btn-danger btn-sm item-action-btn"
+            type="button"
+            @click.stop="openDeleteAnnouncement(it)"
+          >
+            Delete
+          </button>
+          <button
             class="btn btn-secondary btn-sm item-action-btn"
             type="button"
             @click.stop="dismiss([String(it?.id ?? '')])"
@@ -436,6 +452,65 @@
           </button>
           <div v-if="settingsSaved" class="muted-small">Saved</div>
           <div v-if="settingsError" class="error">{{ settingsError }}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div v-if="editAnnouncementOpen" class="modal-overlay" @click.self="closeEditAnnouncement">
+    <div class="modal-content" @click.stop>
+      <div class="modal-header">
+        <h3 style="margin:0;">Edit announcement</h3>
+        <button class="btn-close" type="button" title="Close" @click="closeEditAnnouncement">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="create-grid">
+          <label class="field">
+            <div class="k">Title (optional)</div>
+            <input v-model="editAnnTitle" type="text" maxlength="255" placeholder="Announcement" />
+          </label>
+          <label class="field">
+            <div class="k">Starts</div>
+            <input v-model="editAnnStartsAt" type="datetime-local" />
+          </label>
+          <label class="field">
+            <div class="k">Ends (max 2 weeks)</div>
+            <input v-model="editAnnEndsAt" type="datetime-local" />
+          </label>
+          <label class="field field-wide">
+            <div class="k">Message</div>
+            <textarea v-model="editAnnMessage" rows="3" maxlength="1200" placeholder="Type announcement…" />
+          </label>
+        </div>
+        <div v-if="editAnnError" class="error" style="margin-top:8px;">{{ editAnnError }}</div>
+        <div style="display:flex; gap:10px; margin-top:14px;">
+          <button class="btn btn-primary" type="button" @click="submitEditAnnouncement" :disabled="editAnnSaving || !editAnnMessage.trim() || !editAnnStartsAt || !editAnnEndsAt">
+            {{ editAnnSaving ? 'Saving…' : 'Save changes' }}
+          </button>
+          <button class="btn btn-secondary" type="button" @click="closeEditAnnouncement" :disabled="editAnnSaving">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div v-if="deleteAnnouncementOpen" class="modal-overlay" @click.self="closeDeleteAnnouncement">
+    <div class="modal-content" @click.stop>
+      <div class="modal-header">
+        <h3 style="margin:0;">Delete announcement</h3>
+        <button class="btn-close" type="button" title="Close" @click="closeDeleteAnnouncement">×</button>
+      </div>
+      <div class="modal-body">
+        <p>This will permanently remove this scrolling banner announcement. This action cannot be undone.</p>
+        <div v-if="deleteAnnTarget" class="delete-ann-preview">
+          <div v-if="deleteAnnTarget.title" style="font-weight:800; margin-bottom:4px;">{{ deleteAnnTarget.title }}</div>
+          {{ deleteAnnTarget.message }}
+        </div>
+        <div v-if="deleteAnnError" class="error" style="margin-top:8px;">{{ deleteAnnError }}</div>
+        <div style="display:flex; gap:10px; margin-top:14px;">
+          <button class="btn btn-danger" type="button" @click="submitDeleteAnnouncement" :disabled="deleteAnnSaving">
+            {{ deleteAnnSaving ? 'Deleting…' : 'Delete announcement' }}
+          </button>
+          <button class="btn btn-secondary" type="button" @click="closeDeleteAnnouncement" :disabled="deleteAnnSaving">Cancel</button>
         </div>
       </div>
     </div>
@@ -1159,19 +1234,16 @@ const draftEndsAt = ref('');
 const creating = ref(false);
 const createError = ref('');
 
+const toLocalInput = (d) => {
+  const date = d instanceof Date ? d : new Date(d);
+  if (!Number.isFinite(date.getTime())) return '';
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+};
+
 const initCreateDefaults = () => {
   const now = new Date();
   const ends = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
-  const toLocalInput = (d) => {
-    // yyyy-MM-ddTHH:mm
-    const pad = (n) => String(n).padStart(2, '0');
-    const yyyy = d.getFullYear();
-    const mm = pad(d.getMonth() + 1);
-    const dd = pad(d.getDate());
-    const hh = pad(d.getHours());
-    const mi = pad(d.getMinutes());
-    return `${yyyy}-${mm}-${dd}T${hh}:${mi}`;
-  };
   draftStartsAt.value = toLocalInput(now);
   draftEndsAt.value = toLocalInput(ends);
 };
@@ -1217,6 +1289,101 @@ const create = async () => {
     createError.value = e.response?.data?.error?.message || 'Failed to post announcement';
   } finally {
     creating.value = false;
+  }
+};
+
+const isAnnouncementItem = (it) => String(it?.kind || '').toLowerCase() === 'announcement';
+
+const announcementDbId = (it) => {
+  const raw = String(it?.id || '');
+  if (raw.startsWith('announcement:')) return parseInt(raw.slice('announcement:'.length), 10) || null;
+  return null;
+};
+
+// Edit announcement
+const editAnnouncementOpen = ref(false);
+const editAnnItem = ref(null);
+const editAnnTitle = ref('');
+const editAnnMessage = ref('');
+const editAnnStartsAt = ref('');
+const editAnnEndsAt = ref('');
+const editAnnSaving = ref(false);
+const editAnnError = ref('');
+
+const openEditAnnouncement = (it) => {
+  editAnnItem.value = it;
+  editAnnTitle.value = it.title || '';
+  editAnnMessage.value = it.message || '';
+  editAnnStartsAt.value = toLocalInput(it.starts_at);
+  editAnnEndsAt.value = toLocalInput(it.ends_at);
+  editAnnError.value = '';
+  editAnnSaving.value = false;
+  editAnnouncementOpen.value = true;
+};
+
+const closeEditAnnouncement = () => {
+  if (editAnnSaving.value) return;
+  editAnnouncementOpen.value = false;
+  editAnnItem.value = null;
+  editAnnError.value = '';
+};
+
+const submitEditAnnouncement = async () => {
+  const dbId = announcementDbId(editAnnItem.value);
+  if (!dbId) return;
+  try {
+    editAnnSaving.value = true;
+    editAnnError.value = '';
+    await api.put(`/school-portal/${props.schoolOrganizationId}/announcements/${dbId}`, {
+      title: editAnnTitle.value.trim() || null,
+      message: editAnnMessage.value.trim(),
+      starts_at: new Date(editAnnStartsAt.value),
+      ends_at: new Date(editAnnEndsAt.value)
+    });
+    editAnnouncementOpen.value = false;
+    editAnnItem.value = null;
+    await refresh();
+  } catch (e) {
+    editAnnError.value = e?.response?.data?.error?.message || 'Failed to update announcement';
+  } finally {
+    editAnnSaving.value = false;
+  }
+};
+
+// Delete announcement
+const deleteAnnouncementOpen = ref(false);
+const deleteAnnTarget = ref(null);
+const deleteAnnSaving = ref(false);
+const deleteAnnError = ref('');
+
+const openDeleteAnnouncement = (it) => {
+  deleteAnnTarget.value = it;
+  deleteAnnError.value = '';
+  deleteAnnSaving.value = false;
+  deleteAnnouncementOpen.value = true;
+};
+
+const closeDeleteAnnouncement = () => {
+  if (deleteAnnSaving.value) return;
+  deleteAnnouncementOpen.value = false;
+  deleteAnnTarget.value = null;
+  deleteAnnError.value = '';
+};
+
+const submitDeleteAnnouncement = async () => {
+  const dbId = announcementDbId(deleteAnnTarget.value);
+  if (!dbId) return;
+  try {
+    deleteAnnSaving.value = true;
+    deleteAnnError.value = '';
+    await api.delete(`/school-portal/${props.schoolOrganizationId}/announcements/${dbId}`);
+    deleteAnnouncementOpen.value = false;
+    deleteAnnTarget.value = null;
+    await refresh();
+  } catch (e) {
+    deleteAnnError.value = e?.response?.data?.error?.message || 'Failed to delete announcement';
+  } finally {
+    deleteAnnSaving.value = false;
   }
 };
 
@@ -1663,6 +1830,28 @@ input, textarea {
   .create-grid {
     grid-template-columns: 1fr;
   }
+}
+.btn-danger {
+  background: #dc2626;
+  border-color: #dc2626;
+  color: white;
+}
+.btn-danger:hover {
+  background: #b91c1c;
+  border-color: #b91c1c;
+}
+.delete-ann-preview {
+  margin: 10px 0;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-alt);
+  font-size: 13px;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 100px;
+  overflow: auto;
 }
 </style>
 

@@ -69,6 +69,41 @@
     </div>
 
     <div v-if="announcementFlash" class="success-banner">{{ announcementFlash }}</div>
+
+    <div v-if="bulkAnnouncements.length > 0" class="bulk-announcements-section">
+      <div class="bulk-announcements-header">
+        <strong>Posted scrolling announcements</strong>
+        <span class="bulk-count">{{ bulkAnnouncements.length }}</span>
+      </div>
+      <div class="bulk-announcements-list">
+        <div
+          v-for="a in bulkAnnouncements"
+          :key="a.bulk_group_id"
+          class="bulk-announcement-card"
+          :class="{ active: a.is_active, expired: !a.is_active && new Date(a.ends_at) < new Date() }"
+        >
+          <div class="ba-main">
+            <div class="ba-status">
+              <span v-if="a.is_active" class="ba-badge ba-badge-active">Active</span>
+              <span v-else-if="new Date(a.starts_at) > new Date()" class="ba-badge ba-badge-scheduled">Scheduled</span>
+              <span v-else class="ba-badge ba-badge-expired">Expired</span>
+              <span class="ba-portals">{{ a.portal_count }} {{ a.portal_count === 1 ? 'portal' : 'portals' }}</span>
+            </div>
+            <div v-if="a.title" class="ba-title">{{ a.title }}</div>
+            <div class="ba-message">{{ a.message }}</div>
+            <div class="ba-meta">
+              <span>{{ formatAnnouncementDate(a.starts_at) }} — {{ formatAnnouncementDate(a.ends_at) }}</span>
+              <span v-if="a.created_by_name" class="ba-creator">by {{ a.created_by_name }}</span>
+            </div>
+          </div>
+          <div class="ba-actions">
+            <button type="button" class="btn btn-secondary btn-xs" @click="openEditBulkAnnouncement(a)">Edit</button>
+            <button type="button" class="btn btn-danger btn-xs" @click="confirmDeleteBulkAnnouncement(a)">Delete</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div v-if="error" class="error">{{ error }}</div>
     <div v-else-if="loading" class="loading">Loading school overview…</div>
 
@@ -327,6 +362,110 @@
         </div>
       </div>
     </div>
+
+    <div v-if="showEditAnnouncementModal" class="modal-overlay" @click.self="closeEditAnnouncementModal">
+      <div class="modal announcement-modal" @click.stop>
+        <div class="modal-header">
+          <div>
+            <strong>Edit scrolling announcement</strong>
+            <div class="modal-subtitle">
+              Changes apply to all {{ editAnnouncement.portal_count }} {{ editAnnouncement.portal_count === 1 ? 'portal' : 'portals' }} in this group.
+            </div>
+          </div>
+          <button class="close" type="button" aria-label="Close" @click="closeEditAnnouncementModal">×</button>
+        </div>
+        <div class="modal-body announcement-modal-body">
+          <div class="form-group">
+            <label>Title (optional)</label>
+            <input
+              v-model="editTitle"
+              class="control-input"
+              type="text"
+              maxlength="255"
+              placeholder="Announcement"
+            />
+          </div>
+
+          <div class="form-group">
+            <label>Message</label>
+            <textarea
+              v-model="editMessage"
+              class="announcement-textarea"
+              rows="5"
+              maxlength="1200"
+              placeholder="Type the scrolling message."
+            />
+            <div class="hint-row">
+              <span>{{ editMessage.length }}/1200</span>
+              <span>Banner is time-limited to 2 weeks max.</span>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>Starts</label>
+              <input v-model="editStartsAt" class="control-input" type="datetime-local" />
+            </div>
+            <div class="form-group">
+              <label>Ends</label>
+              <input v-model="editEndsAt" class="control-input" type="datetime-local" />
+            </div>
+          </div>
+
+          <div v-if="editError" class="error">{{ editError }}</div>
+
+          <div class="announcement-actions">
+            <button
+              type="button"
+              class="btn btn-primary"
+              :disabled="editSaving || !editMessage.trim() || !editStartsAt || !editEndsAt"
+              @click="submitEditAnnouncement"
+            >
+              {{ editSaving ? 'Saving…' : 'Save changes' }}
+            </button>
+            <button type="button" class="btn btn-secondary" :disabled="editSaving" @click="closeEditAnnouncementModal">
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="showDeleteConfirmModal" class="modal-overlay" @click.self="closeDeleteConfirmModal">
+      <div class="modal delete-confirm-modal" @click.stop>
+        <div class="modal-header">
+          <div>
+            <strong>Delete scrolling announcement</strong>
+          </div>
+          <button class="close" type="button" aria-label="Close" @click="closeDeleteConfirmModal">×</button>
+        </div>
+        <div class="modal-body">
+          <p>
+            This will remove the scrolling banner from
+            <strong>{{ deleteTarget?.portal_count || 0 }} {{ (deleteTarget?.portal_count || 0) === 1 ? 'portal' : 'portals' }}</strong>.
+            This action cannot be undone.
+          </p>
+          <div v-if="deleteTarget?.message" class="delete-preview">
+            <div v-if="deleteTarget.title" class="delete-preview-title">{{ deleteTarget.title }}</div>
+            {{ deleteTarget.message }}
+          </div>
+          <div v-if="deleteError" class="error">{{ deleteError }}</div>
+          <div class="announcement-actions">
+            <button
+              type="button"
+              class="btn btn-danger"
+              :disabled="deleteSaving"
+              @click="submitDeleteAnnouncement"
+            >
+              {{ deleteSaving ? 'Deleting…' : 'Delete announcement' }}
+            </button>
+            <button type="button" class="btn btn-secondary" :disabled="deleteSaving" @click="closeDeleteConfirmModal">
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -361,6 +500,21 @@ const announcementTitle = ref('');
 const announcementMessage = ref('');
 const announcementStartsAt = ref('');
 const announcementEndsAt = ref('');
+
+const bulkAnnouncements = ref([]);
+const showEditAnnouncementModal = ref(false);
+const editAnnouncement = ref(null);
+const editTitle = ref('');
+const editMessage = ref('');
+const editStartsAt = ref('');
+const editEndsAt = ref('');
+const editSaving = ref(false);
+const editError = ref('');
+
+const showDeleteConfirmModal = ref(false);
+const deleteTarget = ref(null);
+const deleteSaving = ref(false);
+const deleteError = ref('');
 
 const toLocalDatetimeInputValue = (value) => {
   const date = value instanceof Date ? value : new Date(value);
@@ -544,7 +698,7 @@ const fetchOverview = async () => {
 };
 
 const refresh = async () => {
-  await fetchOverview();
+  await Promise.all([fetchOverview(), fetchBulkAnnouncements()]);
 };
 
 const openBulkAnnouncementModal = () => {
@@ -620,10 +774,111 @@ const submitBulkAnnouncement = async () => {
     });
     announcementFlash.value = `Scrolling announcement posted to ${announcementTargetSummary.value}.`;
     showBulkAnnouncementModal.value = false;
+    await fetchBulkAnnouncements();
   } catch (e) {
     announcementError.value = e?.response?.data?.error?.message || 'Failed to post scrolling announcement';
   } finally {
     announcementSaving.value = false;
+  }
+};
+
+const fetchBulkAnnouncements = async () => {
+  const agencyId = selectedAgencyId.value ? parseInt(String(selectedAgencyId.value), 10) : null;
+  if (!agencyId) {
+    bulkAnnouncements.value = [];
+    return;
+  }
+  try {
+    const res = await api.get('/school-portal/bulk-announcements', { params: { agencyId } });
+    bulkAnnouncements.value = Array.isArray(res.data) ? res.data : [];
+  } catch {
+    bulkAnnouncements.value = [];
+  }
+};
+
+const formatAnnouncementDate = (val) => {
+  if (!val) return '';
+  const d = new Date(val);
+  if (!Number.isFinite(d.getTime())) return '';
+  return d.toLocaleString(undefined, {
+    month: '2-digit',
+    day: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+};
+
+const openEditBulkAnnouncement = (a) => {
+  editAnnouncement.value = a;
+  editTitle.value = a.title || '';
+  editMessage.value = a.message || '';
+  editStartsAt.value = toLocalDatetimeInputValue(a.starts_at);
+  editEndsAt.value = toLocalDatetimeInputValue(a.ends_at);
+  editError.value = '';
+  editSaving.value = false;
+  showEditAnnouncementModal.value = true;
+};
+
+const closeEditAnnouncementModal = () => {
+  if (editSaving.value) return;
+  showEditAnnouncementModal.value = false;
+  editAnnouncement.value = null;
+  editError.value = '';
+};
+
+const submitEditAnnouncement = async () => {
+  const groupId = editAnnouncement.value?.bulk_group_id;
+  if (!groupId) return;
+  try {
+    editSaving.value = true;
+    editError.value = '';
+    await api.put(`/school-portal/bulk-announcements/${groupId}`, {
+      title: String(editTitle.value || '').trim() || null,
+      message: String(editMessage.value || '').trim(),
+      starts_at: editStartsAt.value,
+      ends_at: editEndsAt.value
+    });
+    announcementFlash.value = 'Scrolling announcement updated successfully.';
+    showEditAnnouncementModal.value = false;
+    editAnnouncement.value = null;
+    await fetchBulkAnnouncements();
+  } catch (e) {
+    editError.value = e?.response?.data?.error?.message || 'Failed to update announcement';
+  } finally {
+    editSaving.value = false;
+  }
+};
+
+const confirmDeleteBulkAnnouncement = (a) => {
+  deleteTarget.value = a;
+  deleteError.value = '';
+  deleteSaving.value = false;
+  showDeleteConfirmModal.value = true;
+};
+
+const closeDeleteConfirmModal = () => {
+  if (deleteSaving.value) return;
+  showDeleteConfirmModal.value = false;
+  deleteTarget.value = null;
+  deleteError.value = '';
+};
+
+const submitDeleteAnnouncement = async () => {
+  const groupId = deleteTarget.value?.bulk_group_id;
+  if (!groupId) return;
+  try {
+    deleteSaving.value = true;
+    deleteError.value = '';
+    await api.delete(`/school-portal/bulk-announcements/${groupId}`);
+    announcementFlash.value = 'Scrolling announcement deleted.';
+    showDeleteConfirmModal.value = false;
+    deleteTarget.value = null;
+    await fetchBulkAnnouncements();
+  } catch (e) {
+    deleteError.value = e?.response?.data?.error?.message || 'Failed to delete announcement';
+  } finally {
+    deleteSaving.value = false;
   }
 };
 
@@ -692,7 +947,7 @@ const openSkillsUnassigned = (school) => {
 watch(
   () => selectedAgencyId.value,
   async () => {
-    await fetchOverview();
+    await Promise.all([fetchOverview(), fetchBulkAnnouncements()]);
   }
 );
 
@@ -710,7 +965,7 @@ onMounted(async () => {
   await agencyStore.fetchUserAgencies();
   await fetchAgenciesForPicker();
   selectedAgencyId.value = resolveDefaultAgencyId();
-  await fetchOverview();
+  await Promise.all([fetchOverview(), fetchBulkAnnouncements()]);
 });
 </script>
 
@@ -1184,6 +1439,145 @@ onMounted(async () => {
   background: rgba(16, 185, 129, 0.12);
   color: #065f46;
   font-weight: 700;
+}
+
+.bulk-announcements-section {
+  margin-bottom: 16px;
+}
+.bulk-announcements-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.bulk-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgba(16, 185, 129, 0.18);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  font-size: 12px;
+  font-weight: 900;
+  color: #065f46;
+}
+.bulk-announcements-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.bulk-announcement-card {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: #fff;
+  transition: border-color 0.18s ease;
+}
+.bulk-announcement-card.active {
+  border-color: rgba(16, 185, 129, 0.5);
+  background: rgba(16, 185, 129, 0.04);
+}
+.bulk-announcement-card.expired {
+  opacity: 0.6;
+}
+.ba-main {
+  flex: 1;
+  min-width: 0;
+}
+.ba-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.ba-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.ba-badge-active {
+  background: rgba(16, 185, 129, 0.18);
+  color: #065f46;
+  border: 1px solid rgba(16, 185, 129, 0.35);
+}
+.ba-badge-scheduled {
+  background: rgba(14, 165, 233, 0.12);
+  color: #0c4a6e;
+  border: 1px solid rgba(14, 165, 233, 0.3);
+}
+.ba-badge-expired {
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+.ba-portals {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+.ba-title {
+  font-weight: 800;
+  font-size: 14px;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+}
+.ba-message {
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 60px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ba-meta {
+  margin-top: 6px;
+  display: flex;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.ba-creator {
+  font-style: italic;
+}
+.ba-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.delete-confirm-modal {
+  width: min(480px, calc(100vw - 32px));
+}
+.delete-preview {
+  margin: 12px 0;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-alt);
+  font-size: 13px;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 100px;
+  overflow: auto;
+}
+.delete-preview-title {
+  font-weight: 800;
+  margin-bottom: 4px;
 }
 
 .announcement-modal {

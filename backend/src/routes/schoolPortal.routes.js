@@ -22,7 +22,12 @@ import {
   dismissSchoolPortalNotifications,
   listSchoolPortalBannerAnnouncements,
   createSchoolPortalAnnouncement,
+  updateSchoolPortalAnnouncement,
+  deleteSchoolPortalAnnouncement,
   createBulkSchoolPortalAnnouncements,
+  listBulkSchoolPortalAnnouncements,
+  updateBulkSchoolPortalAnnouncements,
+  deleteBulkSchoolPortalAnnouncements,
   queryComplianceCorner,
   getSchoolStaffWaiverStatus,
   resetSchoolStaffWaiverStatusForTesting
@@ -75,7 +80,10 @@ const router = express.Router();
 
 // School portal routes (authenticated)
 // GET /api/school-portal/:organizationId/clients
+router.get('/bulk-announcements', authenticate, listBulkSchoolPortalAnnouncements);
 router.post('/bulk-announcements', authenticate, createBulkSchoolPortalAnnouncements);
+router.put('/bulk-announcements/:groupId', authenticate, updateBulkSchoolPortalAnnouncements);
+router.delete('/bulk-announcements/:groupId', authenticate, deleteBulkSchoolPortalAnnouncements);
 router.get('/:organizationId/clients', authenticate, getSchoolClients);
 router.get('/:organizationId/my-roster', authenticate, getProviderMyRoster);
 router.get('/:organizationId/clients/:clientId/waitlist-note', authenticate, getClientWaitlistNote);
@@ -88,6 +96,8 @@ router.post('/:organizationId/notifications/read', authenticate, markSchoolPorta
 router.post('/:organizationId/notifications/dismiss', authenticate, dismissSchoolPortalNotifications);
 router.get('/:organizationId/announcements/banner', authenticate, listSchoolPortalBannerAnnouncements);
 router.post('/:organizationId/announcements', authenticate, createSchoolPortalAnnouncement);
+router.put('/:organizationId/announcements/:announcementId', authenticate, updateSchoolPortalAnnouncement);
+router.delete('/:organizationId/announcements/:announcementId', authenticate, deleteSchoolPortalAnnouncement);
 router.post('/:organizationId/compliance-corner/query', authenticate, queryComplianceCorner);
 router.get('/:schoolId/affiliation', authenticate, getSchoolPortalAffiliation);
 router.get('/:organizationId/stats', authenticate, getSchoolPortalStats);
