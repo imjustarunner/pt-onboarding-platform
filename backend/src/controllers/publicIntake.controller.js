@@ -3371,7 +3371,16 @@ export const finalizePublicIntake = async (req, res, next) => {
       void (async () => {
         try {
 
-    const answersPdf = await buildAnswersPdfBuffer({ link, intakeData });
+    let answersPdf = null;
+    try {
+      answersPdf = await buildAnswersPdfBuffer({ link, intakeData });
+    } catch (answersErr) {
+      console.error('[publicIntake] answers PDF generation failed (continuing without answers PDF)', {
+        submissionId,
+        error: answersErr?.message || answersErr
+      });
+      answersPdf = null;
+    }
 
     let rawClients = createdClients.length
       ? createdClients.map((c) => ({ id: c.id, fullName: c.full_name || c.initials || '', initials: c.initials, contactPhone: c.contact_phone }))
@@ -3397,14 +3406,29 @@ export const finalizePublicIntake = async (req, res, next) => {
       rawClients = [{ id: null, fullName: signerName, initials: updatedSubmission?.signer_initials || null, contactPhone: null }];
     }
     const primaryClientName = String(rawClients?.[0]?.fullName || '').trim() || null;
-    const registrationEnrollment = await enrollSmartRegistrationSelections({
-      link,
-      intakeData,
-      payload: req.body || {},
-      submissionId,
-      clientIds: rawClients.map((c) => Number(c?.id || 0)).filter((id) => Number.isFinite(id) && id > 0),
-      guardianUserId: updatedSubmission?.guardian_user_id || null
-    });
+    let registrationEnrollment = {
+      attempted: false,
+      selectionCount: 0,
+      classEnrollments: 0,
+      programAssignments: 0,
+      programEventSignups: 0,
+      errors: []
+    };
+    try {
+      registrationEnrollment = await enrollSmartRegistrationSelections({
+        link,
+        intakeData,
+        payload: req.body || {},
+        submissionId,
+        clientIds: rawClients.map((c) => Number(c?.id || 0)).filter((id) => Number.isFinite(id) && id > 0),
+        guardianUserId: updatedSubmission?.guardian_user_id || null
+      });
+    } catch (registrationErr) {
+      console.error('[publicIntake] smart registration enrollment failed (continuing finalize)', {
+        submissionId,
+        error: registrationErr?.message || registrationErr
+      });
+    }
 
     const intakeClientRows = [];
     const isMultiClient = rawClients.length > 1;
@@ -3732,7 +3756,7 @@ export const finalizePublicIntake = async (req, res, next) => {
         }).catch(() => {});
       }
 
-      if (updatedSubmission.signer_email && EmailService.isConfigured()) {
+      if (updatedSubmission.signer_email) {
         emailDelivery.attempted = true;
         const clientCount = rawClients.length || 1;
         const { organization, agency } = await resolveIntakeOrgContext(link, { boundClient: null });
@@ -3762,6 +3786,9 @@ export const finalizePublicIntake = async (req, res, next) => {
               source: 'auto'
             });
           } else {
+            if (!EmailService.isConfigured()) {
+              throw new Error('email_not_configured');
+            }
             const fallbackSignatureIdentity = await resolveFallbackSignatureIdentity({
               organizationId: link?.organization_id || null,
               scopeType: link?.scope_type || null
@@ -3785,13 +3812,15 @@ export const finalizePublicIntake = async (req, res, next) => {
             });
           }
           emailDelivery.sent = true;
-        } catch {
-          emailDelivery.error = 'send_failed';
+        } catch (emailErr) {
+          emailDelivery.error = String(emailErr?.message || '').includes('email_not_configured')
+            ? 'email_not_configured'
+            : 'send_failed';
+          console.error('[publicIntake] packet completion email failed', {
+            submissionId,
+            message: emailErr?.message || emailErr
+          });
         }
-      } else if (updatedSubmission.signer_email && !EmailService.isConfigured()) {
-        emailDelivery.attempted = true;
-        emailDelivery.sent = false;
-        emailDelivery.error = 'email_not_configured';
       }
     }
 
