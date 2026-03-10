@@ -57,17 +57,19 @@
           v-if="required && taskId && isSigned"
           type="button"
           class="btn btn-primary waiver-cta"
+          :disabled="waitingForPdf"
           @click="viewSignedWaiver"
         >
-          View signed waiver
+          {{ waitingForPdf ? 'Preparing signed PDF...' : 'View signed waiver' }}
         </button>
         <button
           v-if="required && taskId && isSigned"
           type="button"
           class="btn btn-secondary"
+          :disabled="waitingForPdf"
           @click="downloadSignedWaiver"
         >
-          Download PDF
+          {{ waitingForPdf ? 'Preparing signed PDF...' : 'Download PDF' }}
         </button>
       </div>
 
@@ -108,6 +110,7 @@ const loading = ref(false);
 const resetting = ref(false);
 const error = ref('');
 const status = ref(null);
+const waitingForPdf = ref(false);
 const hasClickedWaiverCta = ref(false);
 const showWaiverHintToast = ref(false);
 const waiverHintDismissed = ref(false);
@@ -119,6 +122,7 @@ const isSigned = computed(() => Boolean(status.value?.isSigned));
 const pilotEnabled = computed(() => Boolean(status.value?.pilotEnabled));
 const showPilotResetButton = computed(() => pilotEnabled.value && required.value);
 const shouldPulseCta = computed(() => required.value && !isSigned.value);
+const signedPdfReady = computed(() => Boolean(status.value?.signedPdfReady));
 
 const statusLabel = computed(() => {
   if (!required.value) return 'Not required';
@@ -177,6 +181,24 @@ const openSigning = async () => {
   });
 };
 
+const sleep = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
+
+const waitForSignedPdfReady = async ({ attempts = 6, delayMs = 1200 } = {}) => {
+  if (!isSigned.value) return false;
+  if (signedPdfReady.value) return true;
+  waitingForPdf.value = true;
+  try {
+    for (let i = 0; i < attempts; i += 1) {
+      await sleep(delayMs);
+      await loadStatus();
+      if (signedPdfReady.value) return true;
+    }
+    return false;
+  } finally {
+    waitingForPdf.value = false;
+  }
+};
+
 const signedWaiverApiPath = (latestTaskId, mode = 'view') => {
   const id = Number(latestTaskId || 0);
   if (!id) return '';
@@ -187,6 +209,11 @@ const viewSignedWaiver = async () => {
   await loadStatus();
   const latestTaskId = Number(status.value?.taskId || 0) || null;
   if (!latestTaskId) return;
+  const ready = await waitForSignedPdfReady();
+  if (!ready) {
+    error.value = 'Signed PDF is still being prepared. Please try again in a few seconds.';
+    return;
+  }
   const url = signedWaiverApiPath(latestTaskId, 'view');
   if (!url) return;
   window.open(url, '_blank', 'noopener,noreferrer');
@@ -196,6 +223,11 @@ const downloadSignedWaiver = async () => {
   await loadStatus();
   const latestTaskId = Number(status.value?.taskId || 0) || null;
   if (!latestTaskId) return;
+  const ready = await waitForSignedPdfReady();
+  if (!ready) {
+    error.value = 'Signed PDF is still being prepared. Please try again in a few seconds.';
+    return;
+  }
   const url = signedWaiverApiPath(latestTaskId, 'download');
   if (!url) return;
   window.open(url, '_blank', 'noopener,noreferrer');

@@ -102,6 +102,7 @@ export async function resolveSchoolStaffWaiverStatus({ user, organization }) {
     pilotEnabled: true,
     required: true,
     isSigned,
+    signedPdfReady: Boolean(signedPdfPath),
     taskId: Number(task?.id || 0) || null,
     taskStatus: String(task?.status || '').trim().toLowerCase() || null,
     templateId: Number(template.id),
