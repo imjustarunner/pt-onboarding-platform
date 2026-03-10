@@ -1093,7 +1093,7 @@ const buildAnswerLinesForScope = ({ fields, responses }) => {
   return lines;
 };
 
-const buildIntakeAnswersText = ({ link, intakeData, clientIndex = 0 }) => {
+export const buildIntakeAnswersText = ({ link, intakeData, clientIndex = 0 }) => {
   if (!intakeData) return '';
   const { fields } = buildIntakeFieldIndex(link);
   const guardianPayload = intakeData?.guardian || {};
@@ -1195,7 +1195,7 @@ const parsePscScore = (value) => {
 const summaryExcludePattern = /insurance|member id|policy|subscriber|payer|medicaid|medicare|coverage|group|plan|billing|ssn|social security|address|street|city|state|zip|postal|phone|email|contact|relationship|guardian first|guardian last|client first|client last|full name|middle name|date of birth|birthdate|dob|grade|school|legal right|custodian|sms|text message|communication preference|apartment|apt/i;
 const summaryExcludeKeyPattern = /legal|custodian|sms|text|communication|apartment|address|phone|email|relationship|client_first|client_last|guardian_first|guardian_last|dob|birth|grade|school/i;
 
-const buildClinicalSummaryText = ({ link, intakeData, clientIndex = 0 }) => {
+export const buildClinicalSummaryText = ({ link, intakeData, clientIndex = 0 }) => {
   if (!intakeData) return '';
   const { fields, byKey } = buildIntakeFieldIndex(link);
   const responses = intakeData?.responses || {};

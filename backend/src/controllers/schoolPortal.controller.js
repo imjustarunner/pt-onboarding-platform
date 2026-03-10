@@ -16,12 +16,17 @@ import { logClientAccess } from '../services/clientAccessLog.service.js';
 import { logAuditEvent } from '../services/auditEvent.service.js';
 import Agency from '../models/Agency.model.js';
 import UserPreferences from '../models/UserPreferences.model.js';
+import IntakeSubmissionClient from '../models/IntakeSubmissionClient.model.js';
+import ClientPhiDocument from '../models/ClientPhiDocument.model.js';
+import PhiDocumentAuditLog from '../models/PhiDocumentAuditLog.model.js';
 import pool from '../config/database.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
+import StorageService from '../services/storage.service.js';
 import { callGeminiText } from '../services/geminiText.service.js';
 import { ensureIssuedRoiSigningLinkForClient } from './clientSchoolRoiAccess.controller.js';
 import { assertSchoolPortalAccess } from './schoolPortalIntakeLinks.controller.js';
+import { buildIntakeAnswersText, buildClinicalSummaryText } from './publicIntake.controller.js';
 import {
   getSupervisorSuperviseeIds,
   isAdminLikeRole,
@@ -1695,6 +1700,270 @@ export const resetSchoolStaffWaiverStatusForTesting = async (req, res, next) => 
     if (status >= 400 && status < 500) {
       return res.status(status).json({ error: { message: e.message || 'Unable to reset waiver status' } });
     }
+    next(e);
+  }
+};
+
+/**
+ * Super admin maintenance tool:
+ * Rebuild missing intake response + clinical summary text docs
+ * from stored intake submission payloads for one school portal org.
+ *
+ * POST /api/school-portal/:organizationId/admin-tools/restore-intake-artifacts
+ */
+export const restoreSchoolPortalIntakeArtifacts = async (req, res, next) => {
+  try {
+    const orgId = await resolveOrgIdFromParam(req.params.organizationId);
+    if (!orgId) return res.status(400).json({ error: { message: 'Invalid organizationId' } });
+    if (String(req.user?.role || '').toLowerCase() !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'Super admin access required.' } });
+    }
+
+    const org = await Agency.findById(orgId);
+    if (!org) return res.status(404).json({ error: { message: 'Organization not found' } });
+    const orgType = String(org.organization_type || '').toLowerCase();
+    if (!['school', 'program', 'learning'].includes(orgType)) {
+      return res.status(400).json({ error: { message: 'Admin tools restore only supports school/program/learning organizations.' } });
+    }
+
+    const [submissionRows] = await pool.execute(
+      `SELECT
+         s.id,
+         s.intake_link_id,
+         s.client_id,
+         s.ip_address,
+         s.intake_data,
+         s.retention_expires_at,
+         l.organization_id,
+         l.scope_type,
+         l.title,
+         l.form_type,
+         l.intake_fields
+       FROM intake_submissions s
+       JOIN intake_links l ON l.id = s.intake_link_id
+       WHERE l.organization_id = ?
+         AND s.intake_data IS NOT NULL
+       ORDER BY s.id DESC
+       LIMIT 500`,
+      [orgId]
+    );
+
+    const fallbackAgencyId = await resolveActiveAgencyIdForOrg(orgId);
+    const counters = {
+      scannedSubmissions: 0,
+      skippedNoPayload: 0,
+      skippedNoClient: 0,
+      createdIntakeResponses: 0,
+      createdClinicalSummaries: 0
+    };
+
+    const parseJsonField = (raw) => {
+      if (!raw) return null;
+      if (typeof raw === 'object') return raw;
+      try {
+        return JSON.parse(raw);
+      } catch {
+        return null;
+      }
+    };
+
+    const isIntakeResponsesDoc = (doc = {}) => {
+      const title = String(doc.document_title || '').toLowerCase();
+      const type = String(doc.document_type || '').toLowerCase();
+      return title.includes('intake response') || type.includes('intake response');
+    };
+    const isClinicalSummaryDoc = (doc = {}) => {
+      const title = String(doc.document_title || '').toLowerCase();
+      const type = String(doc.document_type || '').toLowerCase();
+      return title.includes('clinical') || type.includes('clinical');
+    };
+
+    const createTextDoc = async ({
+      text,
+      submissionId,
+      clientId,
+      agencyId,
+      schoolOrganizationId,
+      filename,
+      documentTitle,
+      documentType,
+      ipAddress,
+      expiresAt,
+      auditKind
+    }) => {
+      if (!text) return null;
+      const storageResult = await StorageService.saveIntakeTextDocument({
+        submissionId,
+        clientId,
+        fileBuffer: Buffer.from(text, 'utf8'),
+        filename
+      });
+      const phiDoc = await ClientPhiDocument.create({
+        clientId,
+        agencyId,
+        schoolOrganizationId: schoolOrganizationId || agencyId,
+        intakeSubmissionId: submissionId,
+        storagePath: storageResult.relativePath,
+        originalName: filename,
+        documentTitle,
+        documentType,
+        mimeType: 'text/plain',
+        uploadedByUserId: null,
+        scanStatus: 'clean',
+        expiresAt: expiresAt || null
+      });
+      await PhiDocumentAuditLog.create({
+        documentId: phiDoc.id,
+        clientId,
+        action: 'uploaded',
+        actorUserId: req.user?.id || null,
+        actorLabel: 'admin_tools_restore',
+        ipAddress: ipAddress || null,
+        metadata: { submissionId, kind: auditKind }
+      });
+      return phiDoc;
+    };
+
+    for (const submission of submissionRows || []) {
+      counters.scannedSubmissions += 1;
+      const submissionId = Number(submission?.id || 0);
+      if (!submissionId) continue;
+
+      const intakeData = parseJsonField(submission.intake_data);
+      if (!intakeData || typeof intakeData !== 'object') {
+        counters.skippedNoPayload += 1;
+        continue;
+      }
+
+      const link = {
+        intake_fields: parseJsonField(submission.intake_fields) || [],
+        scope_type: submission.scope_type || null,
+        organization_id: submission.organization_id || null,
+        title: submission.title || null,
+        form_type: submission.form_type || null
+      };
+
+      let submissionClients = [];
+      try {
+        submissionClients = await IntakeSubmissionClient.listBySubmissionId(submissionId);
+      } catch (e) {
+        if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+        submissionClients = [];
+      }
+
+      let clientTargets = (submissionClients || [])
+        .map((row, idx) => ({
+          clientId: Number(row?.client_id || 0) || null,
+          clientIndex: idx
+        }))
+        .filter((row) => Number.isFinite(row.clientId) && row.clientId > 0);
+
+      if (!clientTargets.length) {
+        const fallbackClientId = Number(submission?.client_id || 0) || null;
+        if (fallbackClientId) {
+          clientTargets = [{ clientId: fallbackClientId, clientIndex: 0 }];
+        }
+      }
+      if (!clientTargets.length) {
+        counters.skippedNoClient += 1;
+        continue;
+      }
+
+      const clientIds = Array.from(new Set(clientTargets.map((row) => row.clientId))).filter(Boolean);
+      const placeholders = clientIds.map(() => '?').join(', ');
+      let existingDocs = [];
+      if (placeholders) {
+        const [rows] = await pool.execute(
+          `SELECT id, client_id, document_title, document_type, mime_type
+           FROM client_phi_documents
+           WHERE intake_submission_id = ?
+             AND client_id IN (${placeholders})
+             AND removed_at IS NULL
+             AND LOWER(COALESCE(mime_type, '')) LIKE 'text/plain%'`,
+          [submissionId, ...clientIds]
+        );
+        existingDocs = rows || [];
+      }
+
+      const existingByClient = new Map();
+      for (const doc of existingDocs) {
+        const cid = Number(doc?.client_id || 0);
+        if (!cid) continue;
+        if (!existingByClient.has(cid)) {
+          existingByClient.set(cid, { hasResponses: false, hasClinical: false });
+        }
+        const state = existingByClient.get(cid);
+        if (isIntakeResponsesDoc(doc)) state.hasResponses = true;
+        if (isClinicalSummaryDoc(doc)) state.hasClinical = true;
+      }
+
+      for (const target of clientTargets) {
+        const cid = Number(target.clientId || 0);
+        if (!cid) continue;
+        const existing = existingByClient.get(cid) || { hasResponses: false, hasClinical: false };
+        if (existing.hasResponses && existing.hasClinical) continue;
+
+        const clientRow = await Client.findById(cid, { includeSensitive: true });
+        if (!clientRow?.id) continue;
+        const agencyId = clientRow.agency_id || fallbackAgencyId || null;
+        const schoolOrganizationId =
+          clientRow.organization_id ||
+          clientRow.school_organization_id ||
+          orgId ||
+          agencyId;
+
+        if (!existing.hasResponses) {
+          const answersText = buildIntakeAnswersText({
+            link,
+            intakeData,
+            clientIndex: Number(target.clientIndex || 0)
+          });
+          await createTextDoc({
+            text: answersText,
+            submissionId,
+            clientId: cid,
+            agencyId,
+            schoolOrganizationId,
+            filename: `intake-answers-client-${cid}.txt`,
+            documentTitle: 'Intake Responses',
+            documentType: 'Intake Responses',
+            ipAddress: submission?.ip_address || null,
+            expiresAt: submission?.retention_expires_at || null,
+            auditKind: 'intake_answers_restore'
+          });
+          counters.createdIntakeResponses += 1;
+        }
+
+        if (!existing.hasClinical) {
+          const clinicalSummaryText = buildClinicalSummaryText({
+            link,
+            intakeData,
+            clientIndex: Number(target.clientIndex || 0)
+          });
+          await createTextDoc({
+            text: clinicalSummaryText,
+            submissionId,
+            clientId: cid,
+            agencyId,
+            schoolOrganizationId,
+            filename: `intake-clinical-summary-client-${cid}.txt`,
+            documentTitle: 'Clinical Intake Summary',
+            documentType: 'Clinical Summary',
+            ipAddress: submission?.ip_address || null,
+            expiresAt: submission?.retention_expires_at || null,
+            auditKind: 'clinical_summary_restore'
+          });
+          counters.createdClinicalSummaries += 1;
+        }
+      }
+    }
+
+    res.json({
+      success: true,
+      organizationId: Number(orgId),
+      counters
+    });
+  } catch (e) {
     next(e);
   }
 };

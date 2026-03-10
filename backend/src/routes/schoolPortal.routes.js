@@ -30,7 +30,8 @@ import {
   deleteBulkSchoolPortalAnnouncements,
   queryComplianceCorner,
   getSchoolStaffWaiverStatus,
-  resetSchoolStaffWaiverStatusForTesting
+  resetSchoolStaffWaiverStatusForTesting,
+  restoreSchoolPortalIntakeArtifacts
 } from '../controllers/schoolPortal.controller.js';
 import {
   listSchoolProvidersForScheduling,
@@ -103,6 +104,7 @@ router.get('/:schoolId/affiliation', authenticate, getSchoolPortalAffiliation);
 router.get('/:organizationId/stats', authenticate, getSchoolPortalStats);
 router.get('/:organizationId/school-staff-waiver/status', authenticate, getSchoolStaffWaiverStatus);
 router.post('/:organizationId/school-staff-waiver/reset', authenticate, resetSchoolStaffWaiverStatusForTesting);
+router.post('/:organizationId/admin-tools/restore-intake-artifacts', authenticate, restoreSchoolPortalIntakeArtifacts);
 router.get('/:organizationId/school-staff', authenticate, listSchoolStaff);
 router.delete('/:organizationId/school-staff/:userId', authenticate, removeSchoolStaff);
 router.put('/:organizationId/school-staff/:userId', authenticate, updateSchoolStaff);

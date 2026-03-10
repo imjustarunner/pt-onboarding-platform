@@ -142,6 +142,14 @@
           >
             Create announcement
           </button>
+          <button
+            v-if="isSuperAdmin && organizationId"
+            class="btn btn-secondary btn-sm"
+            type="button"
+            @click="openAdminToolsModal"
+          >
+            Admin Tools
+          </button>
           <button class="btn btn-secondary btn-sm" type="button" @click="showHelpDesk = true">Contact admin</button>
           <button
             v-if="isSchoolStaff"
@@ -1117,6 +1125,41 @@
       </div>
     </div>
 
+    <div v-if="showAdminToolsModal" class="modal-overlay" @click.self="closeAdminToolsModal">
+      <div class="modal" @click.stop>
+        <div class="modal-header">
+          <strong>Admin Tools</strong>
+          <button class="btn btn-secondary btn-sm" type="button" @click="closeAdminToolsModal">Close</button>
+        </div>
+        <div class="modal-body">
+          <p class="muted">
+            Restore missing intake artifacts for this school portal. This rebuilds missing
+            <strong>Intake Responses</strong> and <strong>Clinical Summary</strong> text documents
+            from saved submission data.
+          </p>
+          <div v-if="adminToolsError" class="error">{{ adminToolsError }}</div>
+          <div v-if="adminToolsResult" class="muted" style="margin-bottom: 10px;">
+            Scanned {{ adminToolsResult.counters?.scannedSubmissions || 0 }} submissions ·
+            Created {{ adminToolsResult.counters?.createdIntakeResponses || 0 }} intake response docs ·
+            Created {{ adminToolsResult.counters?.createdClinicalSummaries || 0 }} clinical summaries
+          </div>
+          <div class="actions">
+            <button class="btn btn-secondary btn-sm" type="button" @click="closeAdminToolsModal">
+              Cancel
+            </button>
+            <button
+              class="btn btn-primary btn-sm"
+              type="button"
+              :disabled="adminToolsRunning || !organizationId"
+              @click="runRestoreIntakeArtifacts"
+            >
+              {{ adminToolsRunning ? 'Restoring…' : 'Restore Intake Artifacts' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Providers are now shown in-page via ProvidersDirectoryPanel -->
   </div>
 </template>
@@ -1193,6 +1236,10 @@ const intakeApprovalSubmitting = ref(false);
 const intakeApprovalError = ref('');
 const intakeApprovalStaffLastName = ref('');
 const intakeApprovalClientFirstName = ref('');
+const showAdminToolsModal = ref(false);
+const adminToolsRunning = ref(false);
+const adminToolsError = ref('');
+const adminToolsResult = ref(null);
 const supervisorSuperviseeIds = ref([]);
 const schedulingEligibilityResolved = ref(false);
 
@@ -1498,6 +1545,7 @@ function onDarkModeToggle(e) {
 }
 
 const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
+const isSuperAdmin = computed(() => roleNorm.value === 'super_admin');
 const hasSupervisorCapability = computed(() => isSupervisor(authStore.user));
 const isProvider = computed(() => roleNorm.value === 'provider' && !hasSupervisorCapability.value);
 const isSupervisorProviderContext = computed(() => hasSupervisorCapability.value && roleNorm.value === 'provider');
@@ -1863,6 +1911,32 @@ const closeAnnouncementModal = () => {
   if (announcementCreating.value) return;
   showAnnouncementModal.value = false;
   announcementCreateError.value = '';
+};
+
+const openAdminToolsModal = () => {
+  adminToolsError.value = '';
+  adminToolsResult.value = null;
+  showAdminToolsModal.value = true;
+};
+
+const closeAdminToolsModal = () => {
+  if (adminToolsRunning.value) return;
+  showAdminToolsModal.value = false;
+};
+
+const runRestoreIntakeArtifacts = async () => {
+  if (!isSuperAdmin.value || !organizationId.value) return;
+  adminToolsRunning.value = true;
+  adminToolsError.value = '';
+  adminToolsResult.value = null;
+  try {
+    const resp = await api.post(`/school-portal/${organizationId.value}/admin-tools/restore-intake-artifacts`);
+    adminToolsResult.value = resp.data || null;
+  } catch (e) {
+    adminToolsError.value = e?.response?.data?.error?.message || 'Failed to restore intake artifacts';
+  } finally {
+    adminToolsRunning.value = false;
+  }
 };
 
 const submitAnnouncementModal = async () => {

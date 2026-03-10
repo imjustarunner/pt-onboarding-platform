@@ -11,7 +11,17 @@ COPY frontend/package*.json ./
 
 # Install dependencies without running postinstall scripts yet.
 # frontend/package.json postinstall triggers a build, which needs index.html copied first.
-RUN npm ci --ignore-scripts
+# Use retry/backoff to tolerate transient npm registry/network resets in CI.
+RUN npm config set fetch-retries 5 && \
+    npm config set fetch-retry-mintimeout 20000 && \
+    npm config set fetch-retry-maxtimeout 120000 && \
+    npm config set network-timeout 120000 && \
+    for attempt in 1 2 3; do \
+      npm ci --ignore-scripts && break; \
+      echo "npm ci (frontend) failed on attempt ${attempt}; retrying..." >&2; \
+      if [ "${attempt}" -eq 3 ]; then exit 1; fi; \
+      sleep $((attempt * 15)); \
+    done
 
 # Copy all frontend files (including index.html)
 # Copy index.html first explicitly to ensure it's present
@@ -80,8 +90,17 @@ ENV CORS_ORIGIN=https://onboarding-frontend-378990906760.us-west3.run.app
 # Copy backend package files
 COPY backend/package*.json ./
 
-# Install backend dependencies (production only)
-RUN npm ci --only=production
+# Install backend dependencies (production only) with the same retry strategy.
+RUN npm config set fetch-retries 5 && \
+    npm config set fetch-retry-mintimeout 20000 && \
+    npm config set fetch-retry-maxtimeout 120000 && \
+    npm config set network-timeout 120000 && \
+    for attempt in 1 2 3; do \
+      npm ci --only=production && break; \
+      echo "npm ci (backend) failed on attempt ${attempt}; retrying..." >&2; \
+      if [ "${attempt}" -eq 3 ]; then exit 1; fi; \
+      sleep $((attempt * 15)); \
+    done
 
 # Copy backend source code
 COPY backend/src ./src
