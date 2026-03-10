@@ -15,7 +15,6 @@ COPY frontend/package*.json ./
 RUN npm config set fetch-retries 5 && \
     npm config set fetch-retry-mintimeout 20000 && \
     npm config set fetch-retry-maxtimeout 120000 && \
-    npm config set network-timeout 120000 && \
     for attempt in 1 2 3; do \
       npm ci --ignore-scripts && break; \
       echo "npm ci (frontend) failed on attempt ${attempt}; retrying..." >&2; \
@@ -94,7 +93,6 @@ COPY backend/package*.json ./
 RUN npm config set fetch-retries 5 && \
     npm config set fetch-retry-mintimeout 20000 && \
     npm config set fetch-retry-maxtimeout 120000 && \
-    npm config set network-timeout 120000 && \
     for attempt in 1 2 3; do \
       npm ci --only=production && break; \
       echo "npm ci (backend) failed on attempt ${attempt}; retrying..." >&2; \
