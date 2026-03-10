@@ -51,6 +51,11 @@
         <option value="school">School</option>
         <option value="program">Program</option>
       </select>
+      <select v-model="filterStatus">
+        <option value="active">Active only</option>
+        <option value="inactive">Inactive only</option>
+        <option value="all">All statuses</option>
+      </select>
       <select v-model="filterFormType">
         <option value="all">All Types</option>
         <option value="intake">Intake</option>
@@ -116,7 +121,7 @@
                 :title="link.is_active ? 'Deactivate form and remove from use' : 'Already deactivated'"
                 @click="deleteLink(link)"
               >
-                Delete
+                {{ link.is_active ? 'Deactivate' : 'Deactivated' }}
               </button>
             </td>
           </tr>
@@ -2595,10 +2600,16 @@ const buildPayloadFromSteps = (selectedTemplateIds = []) => {
 };
 
 const filterScope = ref('all');
+const filterStatus = ref('active');
 const filterFormType = ref('all');
 const filterOrgId = ref('all');
 const filteredLinks = computed(() => {
   let list = links.value;
+  if (filterStatus.value === 'active') {
+    list = list.filter((l) => !!l.is_active);
+  } else if (filterStatus.value === 'inactive') {
+    list = list.filter((l) => !l.is_active);
+  }
   if (filterScope.value !== 'all') {
     list = list.filter((l) => l.scope_type === filterScope.value);
   }

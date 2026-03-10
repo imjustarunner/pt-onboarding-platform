@@ -131,6 +131,68 @@
       </table>
     </div>
 
+    <div class="intake-panel">
+      <div class="intake-header">
+        <h4>Intake Responses</h4>
+        <div v-if="intakeLoading" class="muted">Loading…</div>
+      </div>
+      <div v-if="intakeError" class="error">{{ intakeError }}</div>
+      <div v-else-if="intakeSubmissions.length === 0" class="empty">No intake responses found for this client yet.</div>
+      <div v-else class="intake-list">
+        <details v-for="entry in intakeSubmissions" :key="entry.submissionId" class="intake-item">
+          <summary>
+            <span><strong>{{ formatDateTime(entry.submittedAt || entry.createdAt) }}</strong></span>
+            <span class="muted">Submission #{{ entry.submissionId }}</span>
+            <span class="muted">{{ formatStatusLabel(entry.status) }}</span>
+          </summary>
+          <div class="intake-meta">
+            <div><strong>Form:</strong> {{ entry.intakeLink?.title || 'Untitled intake form' }}</div>
+            <div><strong>Type:</strong> {{ entry.intakeLink?.formType || '-' }}</div>
+            <div><strong>Signer:</strong> {{ entry.signerName || '-' }} <span v-if="entry.signerEmail">({{ entry.signerEmail }})</span></div>
+          </div>
+          <div v-if="entry.derivedDocuments?.intakeResponsesText" class="intake-json-wrap">
+            <div class="intake-json-header">
+              <div class="intake-json-label">Intake Responses Document</div>
+              <button
+                class="btn btn-secondary btn-xs"
+                type="button"
+                @click="copyOcrText(entry.derivedDocuments.intakeResponsesText)"
+              >
+                Copy all
+              </button>
+            </div>
+            <pre class="intake-json">{{ entry.derivedDocuments.intakeResponsesText }}</pre>
+          </div>
+          <div v-if="entry.derivedDocuments?.clinicalSummaryText" class="intake-json-wrap">
+            <div class="intake-json-header">
+              <div class="intake-json-label">Clinical Summary</div>
+              <button
+                class="btn btn-secondary btn-xs"
+                type="button"
+                @click="copyOcrText(entry.derivedDocuments.clinicalSummaryText)"
+              >
+                Copy all
+              </button>
+            </div>
+            <pre class="intake-json">{{ entry.derivedDocuments.clinicalSummaryText }}</pre>
+          </div>
+          <div class="intake-json-wrap">
+            <div class="intake-json-header">
+              <div class="intake-json-label">Question Responses</div>
+              <button
+                class="btn btn-secondary btn-xs"
+                type="button"
+                @click="copyOcrText(formatIntakePayload(entry))"
+              >
+                Copy all
+              </button>
+            </div>
+            <pre class="intake-json">{{ formatIntakePayload(entry) }}</pre>
+          </div>
+        </details>
+      </div>
+    </div>
+
     <div v-if="auditError" class="error">{{ auditError }}</div>
     <div v-else-if="auditStatements.length" class="audit-panel">
       <div class="audit-title">Document audit statements</div>
@@ -243,6 +305,7 @@ const canManageLifecycle = computed(() => ['super_admin', 'admin', 'support', 's
 const loading = ref(false);
 const auditLoading = ref(false);
 const ocrLoading = ref(false);
+const intakeLoading = ref(false);
 const opening = ref(false);
 const uploading = ref(false);
 const ocrSubmitting = ref(false);
@@ -250,10 +313,12 @@ const ocrWiping = ref(false);
 const error = ref('');
 const auditError = ref('');
 const ocrError = ref('');
+const intakeError = ref('');
 const isDragActive = ref(false);
 const docs = ref([]);
 const auditStatements = ref([]);
 const ocrRequests = ref([]);
+const intakeSubmissions = ref([]);
 const confirmingDoc = ref(null);
 const fileInput = ref(null);
 const uploadTitle = ref('');
@@ -320,8 +385,21 @@ const reloadOcr = async () => {
   }
 };
 
+const reloadIntakeResponses = async () => {
+  try {
+    intakeLoading.value = true;
+    intakeError.value = '';
+    const resp = await api.get(`/phi-documents/clients/${props.clientId}/intake-responses`);
+    intakeSubmissions.value = resp.data?.submissions || [];
+  } catch (e) {
+    intakeError.value = e.response?.data?.error?.message || 'Failed to load intake responses';
+  } finally {
+    intakeLoading.value = false;
+  }
+};
+
 const reload = async () => {
-  await Promise.all([reloadDocs(), reloadOcr(), reloadAudit()]);
+  await Promise.all([reloadDocs(), reloadOcr(), reloadAudit(), reloadIntakeResponses()]);
 };
 
 const confirmOpen = (doc) => {
@@ -449,6 +527,20 @@ const onDropFiles = async (evt) => {
 };
 
 const formatDateTime = (d) => (d ? new Date(d).toLocaleString() : '-');
+const formatStatusLabel = (status) => {
+  const value = String(status || '').trim();
+  if (!value) return 'Unknown status';
+  return value.replace(/_/g, ' ');
+};
+const formatIntakePayload = (entry) => {
+  const payload = entry?.intakeData?.responses || entry?.intakeData || null;
+  if (!payload) return 'No intake payload stored.';
+  try {
+    return JSON.stringify(payload, null, 2);
+  } catch {
+    return 'Unable to render intake payload.';
+  }
+};
 
 const canRequestOcr = (doc) => {
   if (!doc) return false;
@@ -740,6 +832,69 @@ tr.doc-highlight {
   margin-top: 18px;
   border-top: 1px solid var(--border);
   padding-top: 14px;
+}
+
+.intake-panel {
+  margin-top: 18px;
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+}
+.intake-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.intake-header h4 {
+  margin: 0;
+}
+.intake-list {
+  margin-top: 10px;
+  display: grid;
+  gap: 10px;
+}
+.intake-item {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: var(--bg-alt);
+}
+.intake-item summary {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+  cursor: pointer;
+}
+.intake-meta {
+  margin-top: 8px;
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+}
+.intake-json-wrap {
+  margin-top: 8px;
+}
+.intake-json-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+.intake-json-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.intake-json {
+  margin: 0;
+  white-space: pre-wrap;
+  font-size: 12px;
+  max-height: 260px;
+  overflow: auto;
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
 }
 
 .ocr-header {

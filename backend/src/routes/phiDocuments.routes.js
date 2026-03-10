@@ -2,6 +2,7 @@ import express from 'express';
 import { authenticate } from '../middleware/auth.middleware.js';
 import {
   listClientPhiDocuments,
+  listClientIntakeResponses,
   listClientPhiDocumentAudit,
   markPhiDocumentExported,
   removePhiDocument,
@@ -14,6 +15,7 @@ const router = express.Router();
 // List PHI docs for a client
 router.get('/clients/:clientId', authenticate, listClientPhiDocuments);
 router.get('/clients/:clientId/audit', authenticate, listClientPhiDocumentAudit);
+router.get('/clients/:clientId/intake-responses', authenticate, listClientIntakeResponses);
 
 // Upload a PHI doc for a client (authenticated)
 router.post('/clients/:clientId/upload', authenticate, uploadClientPhiDocument);

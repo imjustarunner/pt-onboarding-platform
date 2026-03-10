@@ -226,6 +226,188 @@ export const listClientPhiDocuments = async (req, res, next) => {
   }
 };
 
+export const listClientIntakeResponses = async (req, res, next) => {
+  try {
+    const clientId = parseInt(req.params.clientId, 10);
+    if (!clientId) return res.status(400).json({ error: { message: 'clientId is required' } });
+
+    const client = await Client.findById(clientId, { includeSensitive: true });
+    if (!client) return res.status(404).json({ error: { message: 'Client not found' } });
+
+    const schoolStaffAccessState = await resolveSchoolStaffAccessStateForClient({
+      requestingUserId: req.user.id,
+      requestingUserRole: req.user.role,
+      client
+    });
+    const isSchoolStaff = String(req.user?.role || '').toLowerCase() === 'school_staff';
+    const allowed = isSchoolStaff
+      ? ['limited', 'roi_docs'].includes(String(schoolStaffAccessState || '').toLowerCase())
+      : await userCanAccessClient({
+          requestingUserId: req.user.id,
+          requestingUserRole: req.user.role,
+          client,
+          requireDocumentAccess: true
+        });
+    if (!allowed) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    let rows = [];
+    try {
+      const [result] = await pool.execute(
+        `SELECT
+           s.id,
+           s.intake_link_id,
+           s.status,
+           s.signer_name,
+           s.signer_email,
+           s.submitted_at,
+           s.created_at,
+           s.updated_at,
+           s.intake_data,
+           l.title AS intake_link_title,
+           l.form_type,
+           l.scope_type
+         FROM intake_submissions s
+         LEFT JOIN intake_links l ON l.id = s.intake_link_id
+         LEFT JOIN intake_submission_clients isc ON isc.intake_submission_id = s.id
+         WHERE (s.client_id = ? OR isc.client_id = ?)
+           AND s.intake_data IS NOT NULL
+         GROUP BY
+           s.id, s.intake_link_id, s.status, s.signer_name, s.signer_email,
+           s.submitted_at, s.created_at, s.updated_at, s.intake_data,
+           l.title, l.form_type, l.scope_type
+         ORDER BY COALESCE(s.submitted_at, s.updated_at, s.created_at) DESC
+         LIMIT 20`,
+        [clientId, clientId]
+      );
+      rows = result || [];
+    } catch (e) {
+      if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+      const [fallbackRows] = await pool.execute(
+        `SELECT
+           s.id,
+           s.intake_link_id,
+           s.status,
+           s.signer_name,
+           s.signer_email,
+           s.submitted_at,
+           s.created_at,
+           s.updated_at,
+           s.intake_data,
+           l.title AS intake_link_title,
+           l.form_type,
+           l.scope_type
+         FROM intake_submissions s
+         LEFT JOIN intake_links l ON l.id = s.intake_link_id
+         WHERE s.client_id = ?
+           AND s.intake_data IS NOT NULL
+         ORDER BY COALESCE(s.submitted_at, s.updated_at, s.created_at) DESC
+         LIMIT 20`,
+        [clientId]
+      );
+      rows = fallbackRows || [];
+    }
+
+    const submissionIds = Array.from(
+      new Set((rows || []).map((row) => Number(row?.id || 0)).filter((id) => Number.isFinite(id) && id > 0))
+    );
+    const textDocsBySubmissionId = new Map();
+    if (submissionIds.length) {
+      const placeholders = submissionIds.map(() => '?').join(', ');
+      try {
+        const [docRows] = await pool.execute(
+          `SELECT
+             id,
+             intake_submission_id,
+             document_title,
+             document_type,
+             storage_path,
+             mime_type,
+             removed_at
+           FROM client_phi_documents
+           WHERE client_id = ?
+             AND intake_submission_id IN (${placeholders})
+             AND LOWER(COALESCE(mime_type, '')) LIKE 'text/plain%'
+           ORDER BY id DESC`,
+          [clientId, ...submissionIds]
+        );
+        for (const doc of docRows || []) {
+          const sid = Number(doc?.intake_submission_id || 0);
+          if (!sid) continue;
+          if (!textDocsBySubmissionId.has(sid)) textDocsBySubmissionId.set(sid, []);
+          textDocsBySubmissionId.get(sid).push(doc);
+        }
+      } catch (e) {
+        if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+      }
+    }
+
+    const readDocText = async (doc) => {
+      if (!doc?.storage_path) return null;
+      if (doc?.removed_at) return null;
+      try {
+        const buffer = await StorageService.readObject(doc.storage_path);
+        return buffer?.toString('utf8') || null;
+      } catch {
+        return null;
+      }
+    };
+
+    const submissions = await Promise.all((rows || []).map(async (row) => {
+      let intakeData = null;
+      try {
+        intakeData = row?.intake_data
+          ? (typeof row.intake_data === 'string' ? JSON.parse(row.intake_data) : row.intake_data)
+          : null;
+      } catch {
+        intakeData = null;
+      }
+
+      const submissionId = Number(row?.id || 0) || null;
+      const docs = submissionId ? (textDocsBySubmissionId.get(submissionId) || []) : [];
+      const intakeResponsesDoc = docs.find((doc) => {
+        const title = String(doc?.document_title || '').toLowerCase();
+        const type = String(doc?.document_type || '').toLowerCase();
+        return title.includes('intake response') || type.includes('intake response');
+      }) || null;
+      const clinicalSummaryDoc = docs.find((doc) => {
+        const title = String(doc?.document_title || '').toLowerCase();
+        const type = String(doc?.document_type || '').toLowerCase();
+        return title.includes('clinical') || type.includes('clinical');
+      }) || null;
+
+      const intakeResponsesText = intakeResponsesDoc ? await readDocText(intakeResponsesDoc) : null;
+      const clinicalSummaryText = clinicalSummaryDoc ? await readDocText(clinicalSummaryDoc) : null;
+
+      return {
+        submissionId,
+        intakeLinkId: row.intake_link_id,
+        status: row.status || null,
+        signerName: row.signer_name || null,
+        signerEmail: row.signer_email || null,
+        submittedAt: row.submitted_at || null,
+        createdAt: row.created_at || null,
+        updatedAt: row.updated_at || null,
+        intakeLink: {
+          title: row.intake_link_title || null,
+          formType: row.form_type || null,
+          scopeType: row.scope_type || null
+        },
+        intakeData,
+        derivedDocuments: {
+          intakeResponsesText,
+          clinicalSummaryText,
+          intakeResponsesDocumentId: intakeResponsesDoc?.id || null,
+          clinicalSummaryDocumentId: clinicalSummaryDoc?.id || null
+        }
+      };
+    }));
+
+    res.json({ submissions });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const viewPhiDocument = async (req, res, next) => {
   try {
     const docId = parseInt(req.params.docId, 10);
