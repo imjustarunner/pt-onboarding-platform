@@ -5504,6 +5504,7 @@ export const batchCatchUp = [
       const f2 = req.files?.file2?.[0] || null;
       const f3 = req.files?.file3?.[0] || null;
       const useDbBaseline = String(req.body?.useDbBaseline ?? req.query?.useDbBaseline ?? 'false').toLowerCase() === 'true';
+      const persistOnly = String(req.body?.persistOnly ?? req.query?.persistOnly ?? 'false').toLowerCase() === 'true';
       const priorPeriodIdRaw = req.body?.priorPeriodId ?? req.query?.priorPeriodId;
       const priorPeriodId = priorPeriodIdRaw ? parseInt(priorPeriodIdRaw, 10) : null;
 
@@ -5593,6 +5594,82 @@ export const batchCatchUp = [
           return { parsedForSnapshots, byKey };
         };
         const file2Info = createSnapshotRunFromParsed(parsed2);
+        const existingImportsForPersist = await PayrollImport.listForPeriod(period.id);
+        const hasSlot2ForPersist = (existingImportsForPersist || []).some((imp) => Number(imp.slot_number) === 2);
+        const hasSlot3ForPersist = (existingImportsForPersist || []).some((imp) => Number(imp.slot_number) === 3);
+        const slotToAddForPersist = hasSlot2ForPersist ? 3 : 2;
+        const shouldPersistForPersist = (slotToAddForPersist === 2 && !hasSlot2ForPersist) || (slotToAddForPersist === 3 && !hasSlot3ForPersist);
+        if (persistOnly) {
+          if (shouldPersistForPersist && parsed2.length > 0) {
+            const h0032ManualPersist = new Map();
+            try {
+              const [uaRows] = await pool.execute(
+                `SELECT user_id, h0032_requires_manual_minutes FROM user_agencies WHERE agency_id = ?`,
+                [period.agency_id]
+              );
+              for (const ua of uaRows || []) h0032ManualPersist.set(Number(ua.user_id), Number(ua.h0032_requires_manual_minutes) ? 1 : 0);
+            } catch { /* column may not exist */ }
+            const impPersist = await PayrollImport.create({
+              agencyId: period.agency_id,
+              payrollPeriodId: period.id,
+              slotNumber: slotToAddForPersist,
+              source: 'csv',
+              originalFilename: f2.originalname || (slotToAddForPersist === 3 ? 'file3.csv' : 'file2.csv'),
+              uploadedByUserId: req.user.id
+            });
+            const rowsToInsertPersist = parsed2.map((r) => {
+              const userId = resolveUserIdForProviderName(nameToIds, r.providerName);
+              const codeKey = String(r.serviceCode || '').trim().toUpperCase();
+              const isH0031 = codeKey === 'H0031';
+              const isH0032 = codeKey === 'H0032';
+              const isH2014 = codeKey === 'H2014';
+              const isH2032 = codeKey === 'H2032';
+              const h0032NeedsManual = isH0032 ? !!h0032ManualPersist.get(userId) : false;
+              let unitCount = Number(r.unitCount) || 0;
+              if (isH0031 && Math.abs(unitCount - 1) < 1e-9) unitCount = 60;
+              else if (isH0032 && Math.abs(unitCount - 1) < 1e-9) unitCount = 30;
+              else if ((isH2014 || isH2032) && Math.abs(unitCount - 1) < 1e-9) unitCount = 15;
+              const requiresProcessing = isH0031 || (isH0032 && h0032NeedsManual) || isH2014 || isH2032;
+              return {
+                payrollImportId: impPersist.id,
+                payrollPeriodId: period.id,
+                agencyId: period.agency_id,
+                userId,
+                providerName: r.providerName,
+                patientFirstName: r.patientFirstName,
+                serviceCode: r.serviceCode,
+                serviceDate: r.serviceDate ? formatYmd(r.serviceDate) : null,
+                noteStatus: r.noteStatus,
+                draftPayable: r.noteStatus === 'DRAFT' ? 1 : 0,
+                unitCount,
+                rowFingerprint: computeRowFingerprint({ agencyId: period.agency_id, clinicianName: r.providerName, patientFirstName: r.patientFirstName, serviceCode: r.serviceCode, serviceDate: r.serviceDate }),
+                requiresProcessing,
+                processedAt: null,
+                processedByUserId: null
+              };
+            });
+            await PayrollImportRow.bulkInsert(rowsToInsertPersist);
+            if (!isEffectivelyPostedOrFinalized(period)) {
+              await pool.execute('DELETE FROM payroll_summaries WHERE payroll_period_id = ?', [period.id]);
+              await pool.execute(
+                `UPDATE payroll_periods SET status = 'raw_imported', ran_at = NULL, ran_by_user_id = NULL WHERE id = ?`,
+                [period.id]
+              );
+            }
+            return res.json({
+              ok: true,
+              persisted: true,
+              slotNumber: slotToAddForPersist,
+              inserted: rowsToInsertPersist.length,
+              message: `Run ${slotToAddForPersist} saved. View it in Manage Imports.`
+            });
+          }
+          return res.json({
+            ok: true,
+            persisted: false,
+            message: `Run ${slotToAddForPersist} already exists for this period.`
+          });
+        }
         const rows = Array.from(file2Info.byKey.values()).map((x) => ({
           userId: x.userId,
           serviceCode: x.serviceCode,
@@ -5619,10 +5696,13 @@ export const batchCatchUp = [
         }
         run2 = { run: r2, snapshotRows: snapshotRows2 };
 
-        // Persist Run 2 as payroll_import so it shows in Manage Imports (fixes "Run 2 not sticking").
+        // Persist Run 2 or Run 3 as payroll_import so it shows in Manage Imports (fixes "Run 2/3 not sticking").
         const existingImports = await PayrollImport.listForPeriod(period.id);
         const hasSlot2 = (existingImports || []).some((imp) => Number(imp.slot_number) === 2);
-        if (!hasSlot2 && parsed2.length > 0) {
+        const hasSlot3 = (existingImports || []).some((imp) => Number(imp.slot_number) === 3);
+        const slotToAdd = hasSlot2 ? 3 : 2;
+        const shouldPersist = (slotToAdd === 2 && !hasSlot2) || (slotToAdd === 3 && !hasSlot3);
+        if (shouldPersist && parsed2.length > 0) {
           const h0032Manual = new Map();
           try {
             const [uaRows] = await pool.execute(
@@ -5634,9 +5714,9 @@ export const batchCatchUp = [
           const imp2 = await PayrollImport.create({
             agencyId: period.agency_id,
             payrollPeriodId: period.id,
-            slotNumber: 2,
+            slotNumber: slotToAdd,
             source: 'csv',
-            originalFilename: f2.originalname || 'file2.csv',
+            originalFilename: f2.originalname || (slotToAdd === 3 ? 'file3.csv' : 'file2.csv'),
             uploadedByUserId: req.user.id
           });
           const rowsToInsert2 = parsed2.map((r) => {

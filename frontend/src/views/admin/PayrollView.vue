@@ -1223,6 +1223,12 @@
             <div v-if="batchCatchUpPriorPeriodId && (batchCatchUpPriorPeriodImports || [])[1]" class="hint" style="margin-top: 4px;">
               <button type="button" class="btn btn-secondary btn-sm" @click="openRawModalForPeriodAndImport(batchCatchUpPriorPeriodId, (batchCatchUpPriorPeriodImports || [])[1].id)">View import</button>
             </div>
+            <div v-else-if="batchCatchUpPriorPeriodId && (batchCatchUpPriorPeriodImports || []).length >= 1 && batchFiles[2]" class="hint" style="margin-top: 4px;">
+              <button type="button" class="btn btn-secondary btn-sm" @click="uploadRun2Only" :disabled="batchCatchUpLoading">
+                {{ batchCatchUpLoading ? 'Uploading…' : 'Upload Run 2 only' }}
+              </button>
+              <span class="muted" style="font-size: 0.85em;"> Save to DB so it persists.</span>
+            </div>
           </div>
           <div class="field">
             <label>Latest (optional for 2-run)</label>
@@ -1233,6 +1239,12 @@
             <div class="hint muted" style="font-size: 0.85em;">Leave empty for 2-run: Run 1 vs Run 2 only.</div>
             <div v-if="batchCatchUpPriorPeriodId && (batchCatchUpPriorPeriodImports || [])[2]" class="hint" style="margin-top: 4px;">
               <button type="button" class="btn btn-secondary btn-sm" @click="openRawModalForPeriodAndImport(batchCatchUpPriorPeriodId, (batchCatchUpPriorPeriodImports || [])[2].id)">View import</button>
+            </div>
+            <div v-else-if="batchCatchUpPriorPeriodId && (batchCatchUpPriorPeriodImports || []).length >= 2 && batchFiles[3]" class="hint" style="margin-top: 4px;">
+              <button type="button" class="btn btn-secondary btn-sm" @click="uploadRun3Only" :disabled="batchCatchUpLoading">
+                {{ batchCatchUpLoading ? 'Uploading…' : 'Upload Run 3 only' }}
+              </button>
+              <span class="muted" style="font-size: 0.85em;"> Save to DB so it persists after refresh.</span>
             </div>
           </div>
         </div>
@@ -12342,6 +12354,52 @@ const onReplaceImportFilePick = async (e) => {
     manageImportsReplacing.value = null;
     manageImportsReplaceImp.value = null;
     e.target.value = '';
+  }
+};
+
+const uploadRun2Only = async () => {
+  const imports = batchCatchUpPriorPeriodImports.value || [];
+  if (imports.length < 1 || !batchFiles.value[2] || !batchCatchUpPriorPeriodId.value || !agencyId.value) return;
+  try {
+    batchCatchUpLoading.value = true;
+    batchCatchUpError.value = '';
+    const fd = new FormData();
+    fd.append('file2', batchFiles.value[2]);
+    fd.append('agencyId', String(agencyId.value));
+    fd.append('priorPeriodId', String(batchCatchUpPriorPeriodId.value));
+    fd.append('useDbBaseline', 'true');
+    fd.append('persistOnly', 'true');
+    await api.post('/payroll/periods/batch-catch-up', fd);
+    batchCatchUpError.value = '';
+    await loadBatchCatchUpPriorImports();
+    await loadPeriods();
+  } catch (e) {
+    batchCatchUpError.value = e.response?.data?.error?.message || e.message || 'Upload failed';
+  } finally {
+    batchCatchUpLoading.value = false;
+  }
+};
+
+const uploadRun3Only = async () => {
+  const imports = batchCatchUpPriorPeriodImports.value || [];
+  if (imports.length < 2 || !batchFiles.value[3] || !batchCatchUpPriorPeriodId.value || !agencyId.value) return;
+  try {
+    batchCatchUpLoading.value = true;
+    batchCatchUpError.value = '';
+    const fd = new FormData();
+    fd.append('file2', batchFiles.value[3]);
+    fd.append('agencyId', String(agencyId.value));
+    fd.append('priorPeriodId', String(batchCatchUpPriorPeriodId.value));
+    fd.append('useDbBaseline', 'true');
+    fd.append('persistOnly', 'true');
+    const resp = await api.post('/payroll/periods/batch-catch-up', fd);
+    batchCatchUpError.value = '';
+    await loadBatchCatchUpPriorImports();
+    await loadPeriods();
+  } catch (e) {
+    batchCatchUpError.value = e.response?.data?.error?.message || e.message || 'Upload failed';
+  } finally {
+    batchCatchUpLoading.value = false;
   }
 };
 
