@@ -8,11 +8,14 @@ export const authenticate = (req, res, next) => {
   try {
     // Public endpoints (no auth) - never block these with session auth.
     // Note: Some environments may inadvertently wrap `/api/public/*` with `authenticate`.
-    const requestPath = String(req.originalUrl || req.path || '');
+    const requestPath = String(req.originalUrl || req.path || '').split('?')[0];
     if (requestPath.startsWith('/api/public/')) {
       return next();
     }
     if (requestPath.startsWith('/api/public-intake') && !requestPath.includes('/approve')) {
+      return next();
+    }
+    if (requestPath.includes('/verify-club-manager-email')) {
       return next();
     }
     // Fonts are used on public login/portal pages.

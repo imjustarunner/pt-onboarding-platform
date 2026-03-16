@@ -4,6 +4,7 @@ import User from '../models/User.model.js';
 import IntakeLink from '../models/IntakeLink.model.js';
 import LearningProgramClass from '../models/LearningProgramClass.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
+import ChallengeParticipantProfile from '../models/ChallengeParticipantProfile.model.js';
 
 const asInt = (v) => {
   const n = Number.parseInt(v, 10);
@@ -17,6 +18,7 @@ const asBool = (v, fallback = false) => {
   return s === 'true' || s === 'yes' || s === 'on';
 };
 
+// Roles that can manage challenges/classes. provider_plus = Team Manager / Team Lead (Summit Stats Challenge).
 const canManageRole = (role) => {
   const r = String(role || '').toLowerCase();
   return r === 'super_admin' || r === 'admin' || r === 'support' || r === 'staff' || r === 'clinical_practice_assistant' || r === 'provider_plus';
@@ -40,6 +42,7 @@ const getUserAgencyContext = async (userId) => {
   return { allOrgIds, agencyIds };
 };
 
+// Summit Stats Challenge: Challenges can live under 'learning' or 'affiliation' orgs (program divisions).
 const ensureLearningOrganization = async (organizationId) => {
   const orgId = asInt(organizationId);
   if (!orgId) return { ok: false, status: 400, message: 'organizationId is required' };
@@ -51,9 +54,10 @@ const ensureLearningOrganization = async (organizationId) => {
     [orgId]
   );
   const org = rows?.[0] || null;
-  if (!org) return { ok: false, status: 404, message: 'Learning program not found' };
-  if (String(org.organization_type || '').toLowerCase() !== 'learning') {
-    return { ok: false, status: 400, message: 'organizationId must be a learning program organization' };
+  if (!org) return { ok: false, status: 404, message: 'Organization not found' };
+  const orgType = String(org.organization_type || '').toLowerCase();
+  if (orgType !== 'learning' && orgType !== 'affiliation') {
+    return { ok: false, status: 400, message: 'organizationId must be a learning or affiliation organization' };
   }
   return { ok: true, organization: org };
 };
@@ -64,6 +68,19 @@ const canAccessOrganization = async ({ user, organizationId }) => {
   if (ctx.allOrgIds.includes(Number(organizationId))) return true;
   const affAgencyId = await OrganizationAffiliation.getActiveAgencyIdForOrganization(organizationId);
   return !!affAgencyId && ctx.agencyIds.includes(Number(affAgencyId));
+};
+
+// Summit Stats: Agency-level management is super_admin only. Admins manage affiliations only.
+const canManageAtOrganization = async ({ user, organizationId }) => {
+  const orgId = asInt(organizationId);
+  if (!orgId) return false;
+  const [rows] = await pool.execute(
+    `SELECT organization_type FROM agencies WHERE id = ? LIMIT 1`,
+    [orgId]
+  );
+  const orgType = String(rows?.[0]?.organization_type || '').toLowerCase();
+  if (orgType === 'agency') return String(user?.role || '').toLowerCase() === 'super_admin';
+  return canManageRole(user?.role) || isSubCoordinator(user);
 };
 
 const ensureClassLifecycleStatus = async (klass) => {
@@ -131,8 +148,8 @@ export const createLearningProgramClass = async (req, res, next) => {
     }
     const orgCheck = await ensureLearningOrganization(organizationId);
     if (!orgCheck.ok) return res.status(orgCheck.status).json({ error: { message: orgCheck.message } });
-    const manageAllowed = canManageRole(req.user?.role) || isSubCoordinator(req.user);
-    if (!manageAllowed) return res.status(403).json({ error: { message: 'Manage access required' } });
+    const manageAllowed = await canManageAtOrganization({ user: req.user, organizationId });
+    if (!manageAllowed) return res.status(403).json({ error: { message: 'Manage access required. Agency-level changes are restricted to super admin.' } });
     const orgAllowed = await canAccessOrganization({ user: req.user, organizationId });
     if (!orgAllowed) return res.status(403).json({ error: { message: 'Access denied for this learning program' } });
     const klass = await LearningProgramClass.create({
@@ -150,6 +167,20 @@ export const createLearningProgramClass = async (req, res, next) => {
       allowLateJoin: asBool(req.body.allowLateJoin, false),
       maxClients: asInt(req.body.maxClients),
       metadataJson: req.body.metadataJson && typeof req.body.metadataJson === 'object' ? req.body.metadataJson : null,
+      activityTypesJson: req.body.activityTypesJson && typeof req.body.activityTypesJson === 'object' ? req.body.activityTypesJson : (Array.isArray(req.body.activityTypesJson) ? req.body.activityTypesJson : null),
+      scoringRulesJson: req.body.scoringRulesJson && typeof req.body.scoringRulesJson === 'object' ? req.body.scoringRulesJson : null,
+      weeklyGoalMinimum: req.body.weeklyGoalMinimum != null ? asInt(req.body.weeklyGoalMinimum) : null,
+      teamMinPointsPerWeek: req.body.teamMinPointsPerWeek != null ? asInt(req.body.teamMinPointsPerWeek) : null,
+      individualMinPointsPerWeek: req.body.individualMinPointsPerWeek != null ? asInt(req.body.individualMinPointsPerWeek) : null,
+      weekStartTime: req.body.weekStartTime || null,
+      mastersAgeThreshold: req.body.mastersAgeThreshold != null ? asInt(req.body.mastersAgeThreshold) : 53,
+      recognitionCategoriesJson: (() => {
+        const v = req.body.recognitionCategoriesJson;
+        if (Array.isArray(v)) return v;
+        if (typeof v === 'string' && v.trim()) { try { return JSON.parse(v); } catch { return null; } }
+        return null;
+      })(),
+      recognitionMetric: req.body.recognitionMetric || 'points',
       createdByUserId: req.user.id
     });
     return res.status(201).json({ class: klass });
@@ -164,8 +195,8 @@ export const updateLearningProgramClass = async (req, res, next) => {
     if (!classId) return res.status(400).json({ error: { message: 'Invalid classId' } });
     const current = await LearningProgramClass.findById(classId);
     if (!current) return res.status(404).json({ error: { message: 'Class not found' } });
-    const manageAllowed = canManageRole(req.user?.role) || isSubCoordinator(req.user);
-    if (!manageAllowed) return res.status(403).json({ error: { message: 'Manage access required' } });
+    const manageAllowed = await canManageAtOrganization({ user: req.user, organizationId: current.organization_id });
+    if (!manageAllowed) return res.status(403).json({ error: { message: 'Manage access required. Agency-level changes are restricted to super admin.' } });
     const orgAllowed = await canAccessOrganization({ user: req.user, organizationId: current.organization_id });
     if (!orgAllowed) return res.status(403).json({ error: { message: 'Access denied for this class' } });
 
@@ -184,7 +215,22 @@ export const updateLearningProgramClass = async (req, res, next) => {
       maxClients: req.body.maxClients !== undefined ? asInt(req.body.maxClients) : undefined,
       metadataJson: req.body.metadataJson !== undefined
         ? (req.body.metadataJson && typeof req.body.metadataJson === 'object' ? req.body.metadataJson : null)
-        : undefined
+        : undefined,
+      activityTypesJson: req.body.activityTypesJson !== undefined
+        ? (req.body.activityTypesJson && typeof req.body.activityTypesJson === 'object' ? req.body.activityTypesJson : (Array.isArray(req.body.activityTypesJson) ? req.body.activityTypesJson : null))
+        : undefined,
+      scoringRulesJson: req.body.scoringRulesJson !== undefined
+        ? (req.body.scoringRulesJson && typeof req.body.scoringRulesJson === 'object' ? req.body.scoringRulesJson : null)
+        : undefined,
+      weeklyGoalMinimum: req.body.weeklyGoalMinimum !== undefined ? (req.body.weeklyGoalMinimum != null ? asInt(req.body.weeklyGoalMinimum) : null) : undefined,
+      teamMinPointsPerWeek: req.body.teamMinPointsPerWeek !== undefined ? (req.body.teamMinPointsPerWeek != null ? asInt(req.body.teamMinPointsPerWeek) : null) : undefined,
+      individualMinPointsPerWeek: req.body.individualMinPointsPerWeek !== undefined ? (req.body.individualMinPointsPerWeek != null ? asInt(req.body.individualMinPointsPerWeek) : null) : undefined,
+      weekStartTime: req.body.weekStartTime !== undefined ? (req.body.weekStartTime || null) : undefined,
+      mastersAgeThreshold: req.body.mastersAgeThreshold !== undefined ? (req.body.mastersAgeThreshold != null ? asInt(req.body.mastersAgeThreshold) : null) : undefined,
+      recognitionCategoriesJson: req.body.recognitionCategoriesJson !== undefined
+        ? (Array.isArray(req.body.recognitionCategoriesJson) ? req.body.recognitionCategoriesJson : (req.body.recognitionCategoriesJson ? JSON.parse(String(req.body.recognitionCategoriesJson)) : null))
+        : undefined,
+      recognitionMetric: req.body.recognitionMetric !== undefined ? (req.body.recognitionMetric || null) : undefined
     };
     const nextClass = await LearningProgramClass.update(classId, patch);
     return res.json({ class: nextClass });
@@ -199,8 +245,8 @@ export const duplicateLearningProgramClass = async (req, res, next) => {
     if (!classId) return res.status(400).json({ error: { message: 'Invalid classId' } });
     const source = await LearningProgramClass.findById(classId);
     if (!source) return res.status(404).json({ error: { message: 'Class not found' } });
-    const manageAllowed = canManageRole(req.user?.role) || isSubCoordinator(req.user);
-    if (!manageAllowed) return res.status(403).json({ error: { message: 'Manage access required' } });
+    const manageAllowed = await canManageAtOrganization({ user: req.user, organizationId: source.organization_id });
+    if (!manageAllowed) return res.status(403).json({ error: { message: 'Manage access required. Agency-level changes are restricted to super admin.' } });
     const orgAllowed = await canAccessOrganization({ user: req.user, organizationId: source.organization_id });
     if (!orgAllowed) return res.status(403).json({ error: { message: 'Access denied for this class' } });
 
@@ -221,6 +267,15 @@ export const duplicateLearningProgramClass = async (req, res, next) => {
       allowLateJoin: asBool(source.allow_late_join, false),
       maxClients: source.max_clients || null,
       metadataJson: source.metadata_json || null,
+      activityTypesJson: source.activity_types_json || null,
+      scoringRulesJson: source.scoring_rules_json || null,
+      weeklyGoalMinimum: source.weekly_goal_minimum ?? null,
+      teamMinPointsPerWeek: source.team_min_points_per_week ?? null,
+      individualMinPointsPerWeek: source.individual_min_points_per_week ?? null,
+      weekStartTime: source.week_start_time || null,
+      mastersAgeThreshold: source.masters_age_threshold ?? 53,
+      recognitionCategoriesJson: source.recognition_categories_json || null,
+      recognitionMetric: source.recognition_metric || 'points',
       createdByUserId: req.user.id
     });
 
@@ -314,8 +369,8 @@ export const upsertClassClientMembers = async (req, res, next) => {
     if (!classId) return res.status(400).json({ error: { message: 'Invalid classId' } });
     const klass = await LearningProgramClass.findById(classId);
     if (!klass) return res.status(404).json({ error: { message: 'Class not found' } });
-    const manageAllowed = canManageRole(req.user?.role) || isSubCoordinator(req.user);
-    if (!manageAllowed) return res.status(403).json({ error: { message: 'Manage access required' } });
+    const manageAllowed = await canManageAtOrganization({ user: req.user, organizationId: klass.organization_id });
+    if (!manageAllowed) return res.status(403).json({ error: { message: 'Manage access required. Agency-level changes are restricted to super admin.' } });
     const orgAllowed = await canAccessOrganization({ user: req.user, organizationId: klass.organization_id });
     if (!orgAllowed) return res.status(403).json({ error: { message: 'Access denied for this class' } });
     const members = Array.isArray(req.body?.members) ? req.body.members : [];
@@ -344,8 +399,8 @@ export const upsertClassProviderMembers = async (req, res, next) => {
     if (!classId) return res.status(400).json({ error: { message: 'Invalid classId' } });
     const klass = await LearningProgramClass.findById(classId);
     if (!klass) return res.status(404).json({ error: { message: 'Class not found' } });
-    const manageAllowed = canManageRole(req.user?.role) || isSubCoordinator(req.user);
-    if (!manageAllowed) return res.status(403).json({ error: { message: 'Manage access required' } });
+    const manageAllowed = await canManageAtOrganization({ user: req.user, organizationId: klass.organization_id });
+    if (!manageAllowed) return res.status(403).json({ error: { message: 'Manage access required. Agency-level changes are restricted to super admin.' } });
     const orgAllowed = await canAccessOrganization({ user: req.user, organizationId: klass.organization_id });
     if (!orgAllowed) return res.status(403).json({ error: { message: 'Access denied for this class' } });
     const members = Array.isArray(req.body?.members) ? req.body.members : [];
@@ -389,8 +444,8 @@ export const createClassResource = async (req, res, next) => {
     if (!classId) return res.status(400).json({ error: { message: 'Invalid classId' } });
     const klass = await LearningProgramClass.findById(classId);
     if (!klass) return res.status(404).json({ error: { message: 'Class not found' } });
-    const manageAllowed = canManageRole(req.user?.role) || isSubCoordinator(req.user);
-    if (!manageAllowed) return res.status(403).json({ error: { message: 'Manage access required' } });
+    const manageAllowed = await canManageAtOrganization({ user: req.user, organizationId: klass.organization_id });
+    if (!manageAllowed) return res.status(403).json({ error: { message: 'Manage access required. Agency-level changes are restricted to super admin.' } });
     const orgAllowed = await canAccessOrganization({ user: req.user, organizationId: klass.organization_id });
     if (!orgAllowed) return res.status(403).json({ error: { message: 'Access denied for this class' } });
     const title = String(req.body?.title || '').trim();
@@ -422,8 +477,8 @@ export const updateClassResource = async (req, res, next) => {
     if (!classId || !resourceId) return res.status(400).json({ error: { message: 'Invalid classId/resourceId' } });
     const klass = await LearningProgramClass.findById(classId);
     if (!klass) return res.status(404).json({ error: { message: 'Class not found' } });
-    const manageAllowed = canManageRole(req.user?.role) || isSubCoordinator(req.user);
-    if (!manageAllowed) return res.status(403).json({ error: { message: 'Manage access required' } });
+    const manageAllowed = await canManageAtOrganization({ user: req.user, organizationId: klass.organization_id });
+    if (!manageAllowed) return res.status(403).json({ error: { message: 'Manage access required. Agency-level changes are restricted to super admin.' } });
     const orgAllowed = await canAccessOrganization({ user: req.user, organizationId: klass.organization_id });
     if (!orgAllowed) return res.status(403).json({ error: { message: 'Access denied for this class' } });
     const patch = {
@@ -454,8 +509,8 @@ export const deleteClassResource = async (req, res, next) => {
     if (!classId || !resourceId) return res.status(400).json({ error: { message: 'Invalid classId/resourceId' } });
     const klass = await LearningProgramClass.findById(classId);
     if (!klass) return res.status(404).json({ error: { message: 'Class not found' } });
-    const manageAllowed = canManageRole(req.user?.role) || isSubCoordinator(req.user);
-    if (!manageAllowed) return res.status(403).json({ error: { message: 'Manage access required' } });
+    const manageAllowed = await canManageAtOrganization({ user: req.user, organizationId: klass.organization_id });
+    if (!manageAllowed) return res.status(403).json({ error: { message: 'Manage access required. Agency-level changes are restricted to super admin.' } });
     const orgAllowed = await canAccessOrganization({ user: req.user, organizationId: klass.organization_id });
     if (!orgAllowed) return res.status(403).json({ error: { message: 'Access denied for this class' } });
     const ok = await LearningProgramClass.deleteResource(resourceId);
@@ -466,36 +521,107 @@ export const deleteClassResource = async (req, res, next) => {
   }
 };
 
+export const launchLearningProgramClass = async (req, res, next) => {
+  try {
+    const classId = asInt(req.params.classId);
+    if (!classId) return res.status(400).json({ error: { message: 'Invalid classId' } });
+    const klass = await LearningProgramClass.findById(classId);
+    if (!klass) return res.status(404).json({ error: { message: 'Class not found' } });
+    const manageAllowed = await canManageAtOrganization({ user: req.user, organizationId: klass.organization_id });
+    if (!manageAllowed) return res.status(403).json({ error: { message: 'Manage access required' } });
+    const status = String(klass.status || '').toLowerCase();
+    if (status !== 'draft') return res.status(400).json({ error: { message: 'Only draft seasons can be launched' } });
+    const [teams] = await pool.execute(`SELECT id FROM challenge_teams WHERE learning_class_id = ?`, [classId]);
+    if (!teams?.length) return res.status(400).json({ error: { message: 'Add at least one team before launching' } });
+    const [members] = await pool.execute(
+      `SELECT 1 FROM learning_class_provider_memberships WHERE learning_class_id = ? AND membership_status IN ('active','completed') LIMIT 1`,
+      [classId]
+    );
+    if (!members?.length) return res.status(400).json({ error: { message: 'Add at least one participant before launching' } });
+    await LearningProgramClass.update(classId, { status: 'active' });
+    const updated = await LearningProgramClass.findById(classId);
+    return res.json({ class: updated, launched: true });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const listParticipantProfiles = async (req, res, next) => {
+  try {
+    const classId = asInt(req.params.classId);
+    if (!classId) return res.status(400).json({ error: { message: 'Invalid classId' } });
+    const klass = await LearningProgramClass.findById(classId);
+    if (!klass) return res.status(404).json({ error: { message: 'Class not found' } });
+    const manageAllowed = await canManageAtOrganization({ user: req.user, organizationId: klass.organization_id });
+    if (!manageAllowed) return res.status(403).json({ error: { message: 'Manage access required' } });
+    const profiles = await ChallengeParticipantProfile.listByClass(classId);
+    return res.json({ profiles });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const upsertParticipantProfile = async (req, res, next) => {
+  try {
+    const classId = asInt(req.params.classId);
+    const providerUserId = asInt(req.params.providerUserId ?? req.body.providerUserId ?? req.body.provider_user_id);
+    if (!classId || !providerUserId) return res.status(400).json({ error: { message: 'classId and providerUserId required' } });
+    const klass = await LearningProgramClass.findById(classId);
+    if (!klass) return res.status(404).json({ error: { message: 'Class not found' } });
+    const manageAllowed = await canManageAtOrganization({ user: req.user, organizationId: klass.organization_id });
+    if (!manageAllowed) return res.status(403).json({ error: { message: 'Manage access required' } });
+    const [member] = await pool.execute(
+      `SELECT 1 FROM learning_class_provider_memberships WHERE learning_class_id = ? AND provider_user_id = ? AND membership_status IN ('active','completed') LIMIT 1`,
+      [classId, providerUserId]
+    );
+    if (!member?.length) return res.status(400).json({ error: { message: 'User is not a participant in this season' } });
+    const profile = await ChallengeParticipantProfile.upsert({
+      learningClassId: classId,
+      providerUserId,
+      gender: req.body.gender || null,
+      dateOfBirth: req.body.dateOfBirth ?? req.body.date_of_birth ?? null
+    });
+    return res.json(profile);
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const listMyLearningClasses = async (req, res, next) => {
   try {
     const role = String(req.user?.role || '').toLowerCase();
     const userId = Number(req.user?.id || 0);
+    const organizationId = asInt(req.query.organizationId);
     if (!userId) return res.status(401).json({ error: { message: 'Unauthorized' } });
     let rows = [];
+    const orgFilter = organizationId ? ' AND c.organization_id = ?' : '';
+    const params = organizationId ? [userId, organizationId] : [userId];
     if (role === 'client_guardian') {
       const [qRows] = await pool.execute(
-        `SELECT DISTINCT c.*
+        `SELECT DISTINCT c.*, a.name AS organization_name, a.slug AS organization_slug, a.organization_type
          FROM learning_program_classes c
+         INNER JOIN agencies a ON a.id = c.organization_id
          INNER JOIN learning_class_client_memberships m ON m.learning_class_id = c.id
          INNER JOIN client_guardians cg ON cg.client_id = m.client_id
          WHERE cg.guardian_user_id = ?
            AND (cg.access_enabled IS NULL OR cg.access_enabled = TRUE)
            AND m.membership_status IN ('active','completed')
-           AND c.status <> 'archived'
+           AND c.status <> 'archived'${orgFilter}
          ORDER BY COALESCE(c.starts_at, c.created_at) DESC`,
-        [userId]
+        params
       );
       rows = qRows || [];
     } else {
       const [qRows] = await pool.execute(
-        `SELECT DISTINCT c.*
+        `SELECT DISTINCT c.*, a.name AS organization_name, a.slug AS organization_slug, a.organization_type
          FROM learning_program_classes c
+         INNER JOIN agencies a ON a.id = c.organization_id
          INNER JOIN learning_class_provider_memberships m ON m.learning_class_id = c.id
          WHERE m.provider_user_id = ?
            AND m.membership_status IN ('active','completed')
-           AND c.status <> 'archived'
+           AND c.status <> 'archived'${orgFilter}
          ORDER BY COALESCE(c.starts_at, c.created_at) DESC`,
-        [userId]
+        params
       );
       rows = qRows || [];
     }

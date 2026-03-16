@@ -14,6 +14,7 @@ import EmailTemplateService from '../services/emailTemplate.service.js';
 import CommunicationLoggingService from '../services/communicationLogging.service.js';
 import { sendEmailFromIdentity } from '../services/unifiedEmail/unifiedEmailSender.service.js';
 import { resolvePreferredSenderIdentityForAgency } from '../services/emailSenderIdentityResolver.service.js';
+import { getPlatformAgencyId } from './summitStats.controller.js';
 import pool from '../config/database.js';
 
 async function buildPayrollCaps(user) {
@@ -2223,6 +2224,46 @@ const resolveRecoverySenderIdentity = async (agencyId) => {
   });
 };
 
+/** Platform-level email (Summit Stats). Uses same sender identity as ROI intake when platform agency is configured. */
+const sendPlatformEmail = async ({ to, subject, text, html = null, source = 'auto' }) => {
+  const platformAgencyId = await getPlatformAgencyId();
+  const preferredKeys = ['intake', 'school_intake', 'notifications', 'system'];
+  let identity = platformAgencyId
+    ? await resolvePreferredSenderIdentityForAgency({ agencyId: platformAgencyId, preferredKeys })
+    : null;
+  if (!identity?.id) {
+    identity = await resolvePreferredSenderIdentityForAgency({
+      agencyId: null,
+      preferredKeys: ['summit_stats', 'platform', 'default', 'system', 'notifications']
+    });
+  }
+  if (identity?.id) {
+    try {
+      return await sendEmailFromIdentity({
+        senderIdentityId: identity.id,
+        to,
+        subject,
+        text,
+        html,
+        source
+      });
+    } catch (e) {
+      console.error('Platform sender identity email failed, falling back to EmailService:', e?.message || e);
+    }
+  }
+  return await EmailService.sendEmail({
+    to,
+    subject,
+    text,
+    html,
+    fromName: process.env.GOOGLE_WORKSPACE_FROM_NAME || null,
+    fromAddress: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM || null,
+    replyTo: process.env.GOOGLE_WORKSPACE_REPLY_TO || null,
+    source,
+    agencyId: null
+  });
+};
+
 const sendRecoveryEmail = async ({
   agencyId,
   to,
@@ -3262,6 +3303,285 @@ export const register = async (req, res, next) => {
       stack: error.stack,
       body: req.body
     });
+    next(error);
+  }
+};
+
+// --- Club Manager Signup (Summit Stats) ---
+
+/**
+ * Public: Register a Club Manager account. Creates user with role=admin, no agencies.
+ * Email verification required before club creation.
+ */
+export const registerClubManager = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ error: { message: 'Validation failed', errors: errors.array() } });
+    }
+
+    const { email, password, firstName, lastName, portalSlug } = req.body;
+    const resolvedEmail = String(email || '').trim().toLowerCase();
+    if (!resolvedEmail) {
+      return res.status(400).json({ error: { message: 'Email is required' } });
+    }
+    if (!password || String(password).length < 6) {
+      return res.status(400).json({ error: { message: 'Password must be at least 6 characters' } });
+    }
+    if (!lastName || !String(lastName).trim()) {
+      return res.status(400).json({ error: { message: 'Last name is required' } });
+    }
+
+    const existingUser = await User.findByEmail(resolvedEmail);
+    if (existingUser) {
+      return res.status(400).json({ error: { message: 'An account with this email already exists' } });
+    }
+
+    const bcrypt = (await import('bcrypt')).default;
+    const passwordHash = await bcrypt.hash(password, 10);
+
+    const user = await User.create({
+      email: resolvedEmail,
+      personalEmail: resolvedEmail,
+      passwordHash,
+      firstName: (firstName || '').trim() || null,
+      lastName: String(lastName).trim(),
+      role: 'admin',
+      status: 'PENDING_SETUP'
+    });
+
+    const token = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+    const dbName = process.env.DB_NAME || 'onboarding_stage';
+    const [cols] = await pool.execute(
+      "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('email_verification_token','email_verification_token_expires_at')",
+      [dbName]
+    );
+    const hasCols = cols?.length >= 2;
+    if (hasCols) {
+      await pool.execute(
+        'UPDATE users SET email_verification_token = ?, email_verification_token_expires_at = ? WHERE id = ?',
+        [token, expiresAt, user.id]
+      );
+    }
+
+    const frontendUrl = (config.frontendUrl || '').replace(/\/\s*$/, '');
+    const slug = (portalSlug || '').toString().trim().replace(/[^a-z0-9-]/gi, '');
+    const backendBase = (process.env.BACKEND_PUBLIC_URL || config.frontendUrl || '').replace(/\/\s*$/, '');
+    const verifyUrl = `${backendBase}/api/auth/verify-club-manager-email?token=${token}&portalSlug=${slug}&redirect=1`;
+
+    if (EmailService.isConfigured()) {
+      try {
+        await sendPlatformEmail({
+          to: resolvedEmail,
+          subject: 'Verify your email - Summit Stats Club Manager',
+          html: `
+            <p>Hi${firstName ? ` ${String(firstName).trim()}` : ''},</p>
+            <p>Thanks for signing up as a Club Manager. Please verify your email to create your club.</p>
+            <p><a href="${verifyUrl}">Verify my email</a></p>
+            <p>This link expires in 24 hours.</p>
+            <p>If you didn't sign up, you can ignore this email.</p>
+          `,
+          text: `Verify your email: ${verifyUrl}\n\nThis link expires in 24 hours.`
+        });
+      } catch (e) {
+        console.error('Club manager verification email failed:', e);
+      }
+    }
+
+    res.status(201).json({
+      message: 'Account created. Please check your email to verify before creating your club.',
+      userId: user.id,
+      email: resolvedEmail,
+      verificationSent: EmailService.isConfigured(),
+      verifyUrl: EmailService.isConfigured() ? null : verifyUrl
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Public: Register a Participant account. Creates user with role=provider, no agencies.
+ * User can then search clubs and apply to join.
+ */
+export const registerParticipant = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ error: { message: 'Validation failed', errors: errors.array() } });
+    }
+
+    const { email, password, firstName, lastName, portalSlug } = req.body;
+    const resolvedEmail = String(email || '').trim().toLowerCase();
+    if (!resolvedEmail) {
+      return res.status(400).json({ error: { message: 'Email is required' } });
+    }
+    if (!password || String(password).length < 6) {
+      return res.status(400).json({ error: { message: 'Password must be at least 6 characters' } });
+    }
+    if (!lastName || !String(lastName).trim()) {
+      return res.status(400).json({ error: { message: 'Last name is required' } });
+    }
+
+    const existingUser = await User.findByEmail(resolvedEmail);
+    if (existingUser) {
+      return res.status(400).json({ error: { message: 'An account with this email already exists' } });
+    }
+
+    const bcrypt = (await import('bcrypt')).default;
+    const passwordHash = await bcrypt.hash(password, 10);
+
+    const user = await User.create({
+      email: resolvedEmail,
+      personalEmail: resolvedEmail,
+      passwordHash,
+      firstName: (firstName || '').trim() || null,
+      lastName: String(lastName).trim(),
+      role: 'provider',
+      status: 'ACTIVE_EMPLOYEE'
+    });
+
+    res.status(201).json({
+      message: 'Account created. You can now log in and join a club.',
+      userId: user.id,
+      email: resolvedEmail,
+      redirectUrl: (() => {
+        const frontendUrl = (config.frontendUrl || '').replace(/\/\s*$/, '');
+        const slug = (portalSlug || '').toString().trim().replace(/[^a-z0-9-]/gi, '');
+        return slug ? `${frontendUrl}/${slug}/clubs` : `${frontendUrl}/login`;
+      })()
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Resend club manager verification link. For when email isn't configured or wasn't received.
+ * Requires auth. Returns verifyUrl when email isn't configured so user can click directly.
+ */
+export const resendClubManagerVerification = async (req, res, next) => {
+  try {
+    const user = req.user;
+    if (!user?.id) {
+      return res.status(401).json({ error: { message: 'Sign in required' } });
+    }
+    if (user.role !== 'admin') {
+      return res.status(403).json({ error: { message: 'Only club managers can use this' } });
+    }
+
+    const dbName = process.env.DB_NAME || 'onboarding_stage';
+    const [cols] = await pool.execute(
+      "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('email_verified_at','email_verification_token','email_verification_token_expires_at')",
+      [dbName]
+    );
+    const hasCols = cols?.length >= 3;
+    if (!hasCols) {
+      return res.status(500).json({ error: { message: 'Email verification not configured' } });
+    }
+
+    const [uRows] = await pool.execute(
+      'SELECT id, email, first_name, email_verified_at FROM users WHERE id = ? LIMIT 1',
+      [user.id]
+    );
+    if (!uRows?.length) {
+      return res.status(404).json({ error: { message: 'User not found' } });
+    }
+    const u = uRows[0];
+    if (u.email_verified_at) {
+      return res.json({ message: 'Email already verified. You can create your club.', alreadyVerified: true });
+    }
+
+    const token = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    await pool.execute(
+      'UPDATE users SET email_verification_token = ?, email_verification_token_expires_at = ? WHERE id = ?',
+      [token, expiresAt, user.id]
+    );
+
+    const frontendUrl = (config.frontendUrl || '').replace(/\/\s*$/, '');
+    const portalSlug = (req.body?.portalSlug || req.query?.portalSlug || '').toString().trim().replace(/[^a-z0-9-]/gi, '');
+    const backendBase = (process.env.BACKEND_PUBLIC_URL || config.frontendUrl || '').replace(/\/\s*$/, '');
+    const verifyUrl = `${backendBase}/api/auth/verify-club-manager-email?token=${token}&portalSlug=${portalSlug}&redirect=1`;
+
+    if (EmailService.isConfigured()) {
+      try {
+        await sendPlatformEmail({
+          to: u.email,
+          subject: 'Verify your email - Summit Stats Club Manager',
+          html: `
+            <p>Hi${u.first_name ? ` ${String(u.first_name).trim()}` : ''},</p>
+            <p>Here's a new verification link. Please verify your email to create your club.</p>
+            <p><a href="${verifyUrl}">Verify my email</a></p>
+            <p>This link expires in 24 hours.</p>
+          `,
+          text: `Verify your email: ${verifyUrl}\n\nThis link expires in 24 hours.`
+        });
+      } catch (e) {
+        console.error('Club manager verification email failed:', e);
+      }
+    }
+
+    res.json({
+      message: EmailService.isConfigured()
+        ? 'Verification email sent. Check your inbox.'
+        : 'Email is not configured. Use the link below to verify.',
+      verifyUrl: EmailService.isConfigured() ? null : verifyUrl
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Public: Verify club manager email via token. Enables club creation.
+ */
+export const verifyClubManagerEmail = async (req, res, next) => {
+  try {
+    const token = req.params?.token || req.query?.token || '';
+    const portalSlug = (req.query?.portalSlug || req.body?.portalSlug || '').toString().trim().replace(/[^a-z0-9-]/gi, '');
+    if (!token) {
+      return res.status(400).json({ error: { message: 'Verification token is required' } });
+    }
+
+    const dbName = process.env.DB_NAME || 'onboarding_stage';
+    const [cols] = await pool.execute(
+      "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME = 'email_verified_at'",
+      [dbName]
+    );
+    if (!cols?.length) {
+      return res.status(500).json({ error: { message: 'Email verification not configured' } });
+    }
+
+    const [rows] = await pool.execute(
+      `SELECT id, email, first_name, last_name FROM users
+       WHERE email_verification_token = ? AND email_verification_token_expires_at > NOW()`,
+      [token]
+    );
+
+    if (!rows?.length) {
+      return res.status(400).json({ error: { message: 'Invalid or expired verification link' } });
+    }
+
+    const u = rows[0];
+    await pool.execute(
+      `UPDATE users SET email_verified_at = NOW(), email_verification_token = NULL, email_verification_token_expires_at = NULL WHERE id = ?`,
+      [u.id]
+    );
+
+    const frontendUrl = (config.frontendUrl || '').replace(/\/\s*$/, '');
+    const loginPath = portalSlug ? `${frontendUrl}/${portalSlug}/login` : `${frontendUrl}/login`;
+
+    if (req.query?.redirect === '1') {
+      return res.redirect(302, `${loginPath}?verified=1`);
+    }
+    res.json({
+      message: 'Email verified. You can now log in and create your club.',
+      redirectUrl: loginPath
+    });
+  } catch (error) {
     next(error);
   }
 };

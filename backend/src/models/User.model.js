@@ -1418,11 +1418,12 @@ class User {
     // Best-effort: include membership fields from user_agencies.
     try {
       const [uaCols] = await pool.execute(
-        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'user_agencies' AND COLUMN_NAME IN ('has_payroll_access','h0032_requires_manual_minutes','supervision_is_prelicensed','supervision_is_compensable','supervision_start_date','supervision_start_individual_hours','supervision_start_group_hours')"
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'user_agencies' AND COLUMN_NAME IN ('has_payroll_access','h0032_requires_manual_minutes','is_active','supervision_is_prelicensed','supervision_is_compensable','supervision_start_date','supervision_start_individual_hours','supervision_start_group_hours')"
       );
       const names = (uaCols || []).map((c) => c.COLUMN_NAME);
       hasPayrollAccess = names.includes('has_payroll_access');
       hasH0032ManualMinutes = names.includes('h0032_requires_manual_minutes');
+      var hasIsActive = names.includes('is_active'); // eslint-disable-line no-var
       // Prelicensed supervision settings
       var hasSupervisionPrelicensed = names.includes('supervision_is_prelicensed'); // eslint-disable-line no-var
       var hasSupervisionCompensable = names.includes('supervision_is_compensable'); // eslint-disable-line no-var
@@ -1432,6 +1433,7 @@ class User {
     } catch {
       hasPayrollAccess = false;
       hasH0032ManualMinutes = false;
+      var hasIsActive = false; // eslint-disable-line no-var
       // Prelicensed supervision settings
       var hasSupervisionPrelicensed = false; // eslint-disable-line no-var
       var hasSupervisionCompensable = false; // eslint-disable-line no-var
@@ -1487,11 +1489,12 @@ class User {
       // ignore
     }
 
+    const activeFilter = hasIsActive ? ' AND ua.is_active = 1' : '';
     const query = `SELECT a.*${selectExtra ? ', ' + selectExtra : ''}
        FROM agencies a
        JOIN user_agencies ua ON a.id = ua.agency_id
        ${joins ? joins : ''}
-       WHERE ua.user_id = ?${archiveFilter}`;
+       WHERE ua.user_id = ?${archiveFilter}${activeFilter}`;
 
     const [rows] = await pool.execute(query, [userId]);
 
@@ -1613,6 +1616,23 @@ class User {
     );
     const membership = await this.getAgencyMembership(userId, agencyId);
     return membership;
+  }
+
+  /** Set club-scoped membership active/inactive (boot = inactive for that club only). */
+  static async setAgencyMembershipActive(userId, agencyId, active) {
+    try {
+      const [cols] = await pool.execute(
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'user_agencies' AND COLUMN_NAME = 'is_active'"
+      );
+      if (!cols?.length) return null;
+      await pool.execute(
+        'UPDATE user_agencies SET is_active = ? WHERE user_id = ? AND agency_id = ?',
+        [active ? 1 : 0, userId, agencyId]
+      );
+      return this.getAgencyMembership(userId, agencyId);
+    } catch {
+      return null;
+    }
   }
 
   /** Set has_payroll_access for all agencies this user belongs to (global toggle from profile). */

@@ -7,6 +7,7 @@ import config from './config/config.js';
 import requestLoggingMiddleware from './middleware/requestLogging.middleware.js';
 import { accessDebugMiddleware } from './middleware/accessDebug.middleware.js';
 import authRoutes from './routes/auth.routes.js';
+import { verifyClubManagerEmail } from './controllers/auth.controller.js';
 import userRoutes from './routes/user.routes.js';
 import moduleRoutes from './routes/module.routes.js';
 import progressRoutes from './routes/progress.routes.js';
@@ -128,6 +129,10 @@ import agentsRoutes from './routes/agents.routes.js';
 import clinicalNoteGeneratorRoutes from './routes/clinicalNoteGenerator.routes.js';
 import complianceCornerRoutes from './routes/complianceCorner.routes.js';
 import learningBillingRoutes from './routes/learningBilling.routes.js';
+import learningProgramClassesRoutes from './routes/learningProgramClasses.routes.js';
+import clubStoreRoutes from './routes/clubStore.routes.js';
+import summitStatsRoutes from './routes/summitStats.routes.js';
+import stravaRoutes from './routes/strava.routes.js';
 import clinicalDataRoutes from './routes/clinicalData.routes.js';
 import betaFeedbackRoutes from './routes/betaFeedback.routes.js';
 import meRoutes from './routes/me.routes.js';
@@ -513,6 +518,10 @@ app.use('/api/health-check', healthCheckRoutes);
 app.use('/api/public/provider-availability', publicProviderAvailabilityRoutes);
 app.use('/api/public/schools', publicSchoolsRoutes);
 
+// Club manager email verification (public, no auth) - mount before auth to avoid any auth middleware
+app.get('/api/auth/verify-club-manager-email', verifyClubManagerEmail);
+app.get('/api/auth/verify-club-manager-email/:token', verifyClubManagerEmail);
+
 // API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
@@ -594,6 +603,10 @@ app.use('/api/guardian-portal', guardianPortalRoutes); // Guardian portal routes
 app.use('/api/bulk-import', bulkImportRoutes); // Bulk import routes (legacy migration tool)
 app.use('/api/office-schedule', officeScheduleRoutes);
 app.use('/api/learning-billing', learningBillingRoutes);
+app.use('/api/learning-program-classes', learningProgramClassesRoutes);
+app.use('/api/club-store', clubStoreRoutes);
+app.use('/api/summit-stats', summitStatsRoutes);
+app.use('/api/strava', stravaRoutes);
 app.use('/api/billing-policy', billingPolicyRoutes);
 app.use('/api/clinical-data', clinicalDataRoutes);
 app.use('/api/offices', officeSettingsRoutes);

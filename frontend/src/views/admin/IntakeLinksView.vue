@@ -98,7 +98,7 @@
               </span>
             </td>
             <td>
-              {{ link.scope_type }}
+              {{ getScopeTypeLabel(link.scope_type) }}
               <span v-if="link.organization_id">
                 {{
                   organizationLookup.get(Number(link.organization_id))?.name
@@ -240,6 +240,7 @@
                 <option value="agency">Agency</option>
                 <option value="school">School</option>
                 <option value="program">Program</option>
+                <option value="learning_class">Challenge</option>
               </select>
             </div>
             <div v-if="form.scopeType !== 'agency' && form.formType !== 'job_application'" class="form-group">
@@ -962,6 +963,7 @@ const organizationsForScope = computed(() => {
   const type = form.scopeType;
   if (type === 'school') return organizations.value.filter((o) => o.organization_type === 'school');
   if (type === 'program') return organizations.value.filter((o) => o.organization_type === 'program');
+  if (type === 'learning_class') return organizations.value.filter((o) => ['learning', 'affiliation'].includes(String(o?.organization_type || '').toLowerCase()));
   return organizations.value;
 });
 
@@ -1018,6 +1020,10 @@ const getFormTypeLabel = (t) => {
     medical_records_request: 'Medical Records'
   };
   return m[t] || t || 'Intake';
+};
+const getScopeTypeLabel = (t) => {
+  const m = { agency: 'Agency', school: 'School', program: 'Program', learning_class: 'Challenge' };
+  return m[t] || t || '—';
 };
 const getFormTypeBadgeClass = (t) => {
   if (t === 'public_form') return 'badge-info';

@@ -9,8 +9,8 @@
           :logo-url="previewMode ? (currentAgency?.logo_url || null) : undefined"
         />
         <div>
-          <h1>Agency Dashboard</h1>
-          <span class="badge badge-info">Agency Admin</span>
+          <h1>{{ dashboardTitle }}</h1>
+          <span class="badge badge-info">{{ dashboardBadge }}</span>
         </div>
       </div>
       <div v-if="currentAgency" class="agency-badge">
@@ -18,7 +18,42 @@
       </div>
     </div>
     
-    <div v-if="loading" class="loading">Loading agency statistics...</div>
+    <!-- Summit Stats club managers: create/manage club as main interface -->
+    <div v-if="clubContextLoading && route.params?.organizationSlug" class="loading">Loading…</div>
+    <div v-else-if="clubContext?.summitStatsScopedAdmin" class="create-club-section">
+      <div v-if="!clubContext?.emailVerified" class="create-club-card create-club-verify">
+        <h3>Verify your email</h3>
+        <p>Please verify your email before creating your club. Check your inbox for the verification link.</p>
+        <p class="hint">Didn't receive the email? Click "Resend" below to resend the verification email or get a direct link (when email isn't configured).</p>
+        <div v-if="verificationError" class="create-club-error">{{ verificationError }}</div>
+        <p v-if="verificationLink" class="verification-link-box">
+          <strong>Verification link</strong> (if email not configured):<br />
+          <a :href="verificationLink" target="_blank" rel="noopener noreferrer">{{ verificationLink }}</a>
+        </p>
+        <button
+          type="button"
+          class="btn create-club-btn"
+          :disabled="resendVerificationLoading"
+          @click="requestVerificationLink"
+        >
+          {{ resendVerificationLoading ? 'Sending…' : 'Resend' }}
+        </button>
+      </div>
+      <div v-else class="create-club-card">
+        <h3>Create your club</h3>
+        <p>Create and manage your club or organization here. This is your main admin interface.</p>
+        <div v-if="createClubError" class="create-club-error">{{ createClubError }}</div>
+        <form v-if="!createClubSuccess" @submit.prevent="submitCreateClub" class="create-club-form">
+          <input v-model="createClubName" type="text" placeholder="Club name" required class="create-club-input" />
+          <button type="submit" :disabled="createClubSubmitting" class="create-club-btn">
+            {{ createClubSubmitting ? 'Creating…' : 'Create Club' }}
+          </button>
+        </form>
+        <p v-else class="create-club-success">Club created. Refreshing…</p>
+      </div>
+    </div>
+
+    <div v-else-if="loading" class="loading">Loading agency statistics...</div>
     <div v-else-if="error" class="error">{{ error }}</div>
     
     <div v-else class="dashboard-content">
@@ -121,7 +156,7 @@
 
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import { getCached, setCached } from '../../utils/adminApiCache';
 import { useAgencyStore } from '../../store/agency';
@@ -147,6 +182,7 @@ const props = defineProps({
 const myOpenTickets = ref('—');
 
 const route = useRoute();
+const router = useRouter();
 const agencyStore = useAgencyStore();
 const brandingStore = useBrandingStore();
 const authStore = useAuthStore();
@@ -157,6 +193,15 @@ const ticketsLink = computed(() => {
   return `${base}?mine=1&status=open`;
 });
 const currentAgency = computed(() => agencyStore.currentAgency);
+
+// Summit Stats club context: use "Club" terminology instead of "Agency"
+const isSummitStatsContext = computed(() => {
+  if (clubContext.value?.summitStatsScopedAdmin) return true;
+  const orgType = String(currentAgency.value?.organization_type || currentAgency.value?.organizationType || '').toLowerCase();
+  return orgType === 'affiliation';
+});
+const dashboardTitle = computed(() => (isSummitStatsContext.value ? 'Club Dashboard' : 'Agency Dashboard'));
+const dashboardBadge = computed(() => (isSummitStatsContext.value ? 'Club Manager' : 'Agency Admin'));
 
 const showSupervisionModal = ref(false);
 const loading = ref(true);
@@ -169,6 +214,79 @@ const stats = ref({
 });
 const myAgencies = ref([]);
 const branding = computed(() => brandingStore.platformBranding);
+
+// Summit Stats club manager: create club flow
+const clubContext = ref(null);
+const clubContextLoading = ref(false);
+const createClubName = ref('');
+const createClubSubmitting = ref(false);
+const createClubSuccess = ref(false);
+const createClubError = ref('');
+const verificationLink = ref('');
+const verificationError = ref('');
+const resendVerificationLoading = ref(false);
+
+const requestVerificationLink = async () => {
+  resendVerificationLoading.value = true;
+  verificationLink.value = '';
+  verificationError.value = '';
+  try {
+    const r = await api.post('/auth/resend-club-manager-verification', {
+      portalSlug: route.params?.organizationSlug || undefined
+    });
+    if (r.data?.verifyUrl) {
+      verificationLink.value = r.data.verifyUrl;
+    }
+    if (r.data?.alreadyVerified) {
+      await loadClubManagerContext();
+    }
+  } catch (e) {
+    verificationError.value = e?.response?.data?.error?.message || 'Failed to get verification link';
+  } finally {
+    resendVerificationLoading.value = false;
+  }
+};
+
+const loadClubManagerContext = async () => {
+  if (!route.params?.organizationSlug) return;
+  clubContextLoading.value = true;
+  try {
+    const r = await api.get('/summit-stats/club-manager-context', { skipGlobalLoading: true });
+    clubContext.value = r.data || null;
+  } catch {
+    clubContext.value = null;
+  } finally {
+    clubContextLoading.value = false;
+  }
+};
+
+const submitCreateClub = async () => {
+  const name = String(createClubName.value || '').trim();
+  if (!name) return;
+  createClubSubmitting.value = true;
+  try {
+    const r = await api.post('/summit-stats/clubs', { name });
+    createClubSuccess.value = true;
+    createClubError.value = '';
+    const club = r.data;
+    if (club) agencyStore.setCurrentAgency(club);
+    await loadClubManagerContext();
+    await agencyStore.fetchUserAgencies();
+    const clubSlug = club?.slug || club?.portal_url || null;
+    const orgSlug = route.params?.organizationSlug;
+    if (clubSlug && orgSlug) {
+      await router.replace(`/${clubSlug}/admin`);
+    }
+    setTimeout(() => {
+      createClubSuccess.value = false;
+      createClubName.value = '';
+    }, 1500);
+  } catch (e) {
+    createClubError.value = e?.response?.data?.error?.message || 'Failed to create club';
+  } finally {
+    createClubSubmitting.value = false;
+  }
+};
 const agencyData = ref(null);
 const orgOverviewSummary = ref({ counts: { school: 0, program: 0, learning: 0, other: 0 } });
 
@@ -683,6 +801,10 @@ onMounted(async () => {
   }
   // Ensure currentAgency is set/hydrated for non-super-admins; Quick Action icon overrides depend on it.
   await agencyStore.fetchUserAgencies();
+  // Summit Stats club managers: load context for create-club flow
+  if (route.params?.organizationSlug) {
+    await loadClubManagerContext();
+  }
   await fetchStats();
   await fetchOrgOverviewSummary();
 });
@@ -787,6 +909,86 @@ onMounted(loadMyOpenTickets);
 .stat-card:hover {
   transform: translateY(-2px);
   box-shadow: var(--shadow-lg);
+}
+
+.create-club-section {
+  margin-bottom: 24px;
+}
+.create-club-card {
+  padding: 24px;
+  background: var(--bg, #fff);
+  border: 1px solid var(--border-color, #ddd);
+  border-radius: 8px;
+}
+.create-club-card h3 {
+  margin: 0 0 8px 0;
+  font-size: 1.2em;
+}
+.create-club-card p {
+  margin: 0 0 16px 0;
+  color: var(--text-muted, #666);
+}
+.create-club-verify {
+  background: #fff8e1;
+  border-color: #ffc107;
+}
+.create-club-verify .hint {
+  margin: 0 0 12px 0;
+  font-size: 0.9em;
+  color: #795548;
+}
+.create-club-verify .verification-link-box {
+  margin: 12px 0;
+  padding: 12px;
+  background: #f5f5f5;
+  border-radius: 6px;
+  font-size: 0.85em;
+  word-break: break-all;
+}
+.create-club-verify .verification-link-box a {
+  color: var(--primary, #0066cc);
+}
+.create-club-form {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.create-club-input {
+  flex: 1;
+  min-width: 180px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color, #ddd);
+  border-radius: 6px;
+  font-size: 1em;
+}
+.create-club-btn {
+  padding: 10px 20px;
+  background: var(--primary, #0066cc);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.create-club-btn:hover:not(:disabled) {
+  opacity: 0.9;
+}
+.create-club-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+.create-club-success {
+  color: #2e7d32 !important;
+  font-weight: 500;
+}
+.create-club-error {
+  margin-bottom: 12px;
+  padding: 10px;
+  background: #ffebee;
+  color: #c62828;
+  border-radius: 6px;
+  font-size: 0.9em;
 }
 
 .stat-card h3 {

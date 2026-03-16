@@ -4,6 +4,10 @@ import {
   login,
   identifyLogin,
   register,
+  registerClubManager,
+  registerParticipant,
+  resendClubManagerVerification,
+  verifyClubManagerEmail,
   approvedEmployeeLogin,
   logout,
   logActivity,
@@ -25,7 +29,7 @@ import {
 } from '../controllers/auth.controller.js';
 import { authenticate, requireAdmin } from '../middleware/auth.middleware.js';
 import { requireAdminOrFirstUser } from '../middleware/conditionalAdmin.middleware.js';
-import { authLimiter, identifyLimiter, recoveryLimiter } from '../middleware/rateLimiter.middleware.js';
+import { authLimiter, identifyLimiter, recoveryLimiter, signupLimiter } from '../middleware/rateLimiter.middleware.js';
 
 const router = express.Router();
 
@@ -166,6 +170,31 @@ router.post('/verify-session-pin', authenticate, [
   body('pin').isString().trim().matches(/^\d{4}$/).withMessage('PIN must be exactly 4 digits')
 ], verifySessionPin);
 router.post('/register', requireAdminOrFirstUser, validateRegister, register);
+
+// Club Manager signup (public, Summit Stats)
+router.post('/register-club-manager', signupLimiter, [
+  body('email').isEmail().normalizeEmail(),
+  body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
+  body('firstName').optional().trim().isString(),
+  body('lastName').trim().notEmpty().withMessage('Last name is required'),
+  body('portalSlug').optional().trim().isString()
+], registerClubManager);
+
+// Participant signup (public, Summit Stats - join clubs)
+router.post('/register-participant', signupLimiter, [
+  body('email').isEmail().normalizeEmail(),
+  body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
+  body('firstName').optional().trim().isString(),
+  body('lastName').trim().notEmpty().withMessage('Last name is required'),
+  body('portalSlug').optional().trim().isString()
+], registerParticipant);
+
+router.post('/resend-club-manager-verification', authLimiter, authenticate, [
+  body('portalSlug').optional().trim().isString()
+], resendClubManagerVerification);
+
+router.get('/verify-club-manager-email/:token', verifyClubManagerEmail);
+router.get('/verify-club-manager-email', verifyClubManagerEmail);
 
 // Public recovery endpoints (do not require authentication)
 router.get('/recovery-status', recoveryLimiter, getRecoveryStatus);

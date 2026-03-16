@@ -17,7 +17,7 @@ const TOOLS_AIDS_ROUTE_SEGMENTS = ['/admin/tools-aids', '/admin/note-aid', '/adm
 
 const isNonAgencyOrgType = (value) => {
   const t = String(value || '').toLowerCase();
-  return t === 'school' || t === 'program' || t === 'learning';
+  return t === 'school' || t === 'program' || t === 'learning' || t === 'affiliation';
 };
 
 const isToolsAidsRoute = (to) => {
@@ -136,6 +136,30 @@ const routes = [
     path: '/:organizationSlug/login',
     name: 'OrganizationLogin',
     component: () => import('../views/LoginView.vue'),
+    meta: { requiresGuest: true, organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/signup',
+    name: 'OrganizationParticipantSignup',
+    component: () => import('../views/ParticipantSignupView.vue'),
+    meta: { requiresGuest: false, organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/signup/club-manager',
+    name: 'OrganizationClubManagerSignup',
+    component: () => import('../views/ClubManagerSignupView.vue'),
+    meta: { requiresGuest: true, organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/clubs',
+    name: 'OrganizationClubSearch',
+    component: () => import('../views/ClubSearchView.vue'),
+    meta: { requiresGuest: false, organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/verify-club-manager-email',
+    name: 'OrganizationVerifyClubManagerEmail',
+    component: () => import('../views/VerifyClubManagerEmailView.vue'),
     meta: { requiresGuest: true, organizationSlug: true }
   },
   {
@@ -275,6 +299,18 @@ const routes = [
     path: '/:organizationSlug/mydashboard',
     name: 'OrganizationMyDashboardLegacy',
     redirect: (to) => `/${to.params.organizationSlug}/dashboard`,
+    meta: { requiresAuth: true, organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/challenges/:id',
+    name: 'OrganizationChallengeDashboard',
+    component: () => import('../views/ChallengeDashboardView.vue'),
+    meta: { requiresAuth: true, organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/challenges',
+    name: 'OrganizationChallengesOverview',
+    component: () => import('../views/SummitStatsDashboardView.vue'),
     meta: { requiresAuth: true, organizationSlug: true }
   },
   {
@@ -802,6 +838,18 @@ const routes = [
     meta: { requiresGuest: true }
   },
   {
+    path: '/signup/club-manager',
+    name: 'ClubManagerSignup',
+    component: () => import('../views/ClubManagerSignupView.vue'),
+    meta: { requiresGuest: true }
+  },
+  {
+    path: '/verify-club-manager-email',
+    name: 'VerifyClubManagerEmail',
+    component: () => import('../views/VerifyClubManagerEmailView.vue'),
+    meta: { requiresGuest: true }
+  },
+  {
     path: '/initial-setup/:token',
     name: 'InitialSetup',
     component: () => import('../views/InitialSetupView.vue'),
@@ -835,6 +883,24 @@ const routes = [
     path: '/mydashboard',
     name: 'MyDashboardLegacy',
     redirect: '/dashboard',
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/challenges',
+    name: 'ChallengesOverview',
+    component: () => import('../views/SummitStatsDashboardView.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/challenges/:id',
+    name: 'ChallengeDashboard',
+    component: () => import('../views/ChallengeDashboardView.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/club-store/:orgId',
+    name: 'ClubStore',
+    component: () => import('../views/ClubStoreView.vue'),
     meta: { requiresAuth: true }
   },
   {

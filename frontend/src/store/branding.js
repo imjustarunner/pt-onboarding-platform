@@ -452,6 +452,83 @@ export const useBrandingStore = defineStore('branding', () => {
     return platformBranding.value?.accent_color || '#3A4C6B';
   });
 
+  // Helper: get parsed palette from agency or portal (agency/portal overrides platform)
+  const getPalette = () => {
+    const p = portalAgency.value?.colorPalette;
+    if (p && Object.keys(p).length > 0) return p;
+    const agency = agencyStore.currentAgency;
+    if (agency?.color_palette) {
+      return typeof agency.color_palette === 'string'
+        ? (() => { try { return JSON.parse(agency.color_palette); } catch { return {}; } })()
+        : (agency.color_palette || {});
+    }
+    return null;
+  };
+
+  // Extended palette (optional overrides; fallbacks preserve existing display)
+  const primaryHover = computed(() => {
+    const p = getPalette();
+    const v = p?.primaryHover || p?.primary_hover;
+    if (v) return v;
+    return primaryColor.value; // fallback: same as primary (no change)
+  });
+
+  const backgroundColor = computed(() => {
+    const p = getPalette();
+    const v = p?.backgroundColor || p?.background || p?.background_color;
+    if (v) return v;
+    return platformBranding.value?.background_color || '#F3F6FA';
+  });
+
+  const secondaryBackground = computed(() => {
+    const p = getPalette();
+    const v = p?.secondaryBackground || p?.secondary_background;
+    if (v) return v;
+    return '#FFFFFF';
+  });
+
+  const dividerColor = computed(() => {
+    const p = getPalette();
+    const v = p?.dividerColor || p?.divider || p?.divider_color;
+    if (v) return v;
+    return '#E3E8EF';
+  });
+
+  const successColor = computed(() => {
+    const p = getPalette();
+    const v = p?.successColor || p?.success || p?.success_color;
+    if (v) return v;
+    return platformBranding.value?.success_color || '#2F8F83';
+  });
+
+  const dataNumbersColor = computed(() => {
+    const p = getPalette();
+    const v = p?.dataNumbersColor || p?.dataNumbers || p?.data_numbers_color;
+    if (v) return v;
+    return '#2C7BE5';
+  });
+
+  const textPrimaryColor = computed(() => {
+    const p = getPalette();
+    const v = p?.textPrimary || p?.text_primary;
+    if (v) return v;
+    return secondaryColor.value; // current behavior: text-primary uses secondary
+  });
+
+  const textSecondaryColor = computed(() => {
+    const p = getPalette();
+    const v = p?.textSecondary || p?.text_secondary;
+    if (v) return v;
+    return accentColor.value; // current behavior: text-secondary uses accent
+  });
+
+  const textMutedColor = computed(() => {
+    const p = getPalette();
+    const v = p?.textMuted || p?.text_muted;
+    if (v) return v;
+    return '#8A97A6';
+  });
+
   // Tagline
   const betaFeedbackEnabled = computed(() => !!platformBranding.value?.beta_feedback_enabled);
 
@@ -771,7 +848,8 @@ export const useBrandingStore = defineStore('branding', () => {
       supervision: 'my_dashboard_supervision_icon_path',
       clinical_note_generator: 'my_dashboard_clinical_note_generator_icon_path',
       tools_aids: 'my_dashboard_clinical_note_generator_icon_path',
-      momentum_stickies: 'my_dashboard_momentum_stickies_icon_path'
+      momentum_stickies: 'my_dashboard_momentum_stickies_icon_path',
+      challenges: 'my_dashboard_training_icon_path'
     };
 
     const field = iconFieldMap[cardId];
@@ -898,6 +976,15 @@ export const useBrandingStore = defineStore('branding', () => {
     primaryColor,
     secondaryColor,
     accentColor,
+    primaryHover,
+    backgroundColor,
+    secondaryBackground,
+    dividerColor,
+    successColor,
+    dataNumbersColor,
+    textPrimaryColor,
+    textSecondaryColor,
+    textMutedColor,
     logoUrl,
     displayLogoUrl,
     plotTwistCoLogoUrl,

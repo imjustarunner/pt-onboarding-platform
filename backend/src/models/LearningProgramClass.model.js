@@ -19,7 +19,11 @@ const normalizeClass = (row) => {
   if (!row) return null;
   return {
     ...row,
-    metadata_json: parseJsonMaybe(row.metadata_json)
+    metadata_json: parseJsonMaybe(row.metadata_json),
+    // Summit Stats Challenge config (Phase 1 extension)
+    activity_types_json: parseJsonMaybe(row.activity_types_json),
+    scoring_rules_json: parseJsonMaybe(row.scoring_rules_json),
+    recognition_categories_json: parseJsonMaybe(row.recognition_categories_json)
   };
 };
 
@@ -76,13 +80,25 @@ class LearningProgramClass {
     allowLateJoin = false,
     maxClients = null,
     metadataJson = null,
-    createdByUserId = null
+      activityTypesJson = null,
+      scoringRulesJson = null,
+      weeklyGoalMinimum = null,
+      teamMinPointsPerWeek = null,
+      individualMinPointsPerWeek = null,
+      weekStartTime = null,
+      mastersAgeThreshold = null,
+      recognitionCategoriesJson = null,
+      recognitionMetric = null,
+      createdByUserId = null
   }) {
     const [result] = await pool.execute(
       `INSERT INTO learning_program_classes
        (organization_id, class_name, class_code, description, timezone, starts_at, ends_at,
-        enrollment_opens_at, enrollment_closes_at, status, is_active, allow_late_join, max_clients, metadata_json, created_by_user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        enrollment_opens_at, enrollment_closes_at, status, is_active, allow_late_join, max_clients,
+        metadata_json, activity_types_json, scoring_rules_json, weekly_goal_minimum,
+        team_min_points_per_week, individual_min_points_per_week, week_start_time,
+        masters_age_threshold, recognition_categories_json, recognition_metric, created_by_user_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         organizationId,
         className,
@@ -98,6 +114,15 @@ class LearningProgramClass {
         allowLateJoin ? 1 : 0,
         maxClients,
         metadataJson ? JSON.stringify(metadataJson) : null,
+        activityTypesJson ? JSON.stringify(activityTypesJson) : null,
+        scoringRulesJson ? JSON.stringify(scoringRulesJson) : null,
+        weeklyGoalMinimum != null ? toInt(weeklyGoalMinimum) : null,
+        teamMinPointsPerWeek != null ? toInt(teamMinPointsPerWeek) : null,
+        individualMinPointsPerWeek != null ? toInt(individualMinPointsPerWeek) : null,
+        weekStartTime || null,
+        mastersAgeThreshold != null ? toInt(mastersAgeThreshold) : 53,
+        recognitionCategoriesJson ? JSON.stringify(recognitionCategoriesJson) : null,
+        recognitionMetric || 'points',
         createdByUserId
       ]
     );
@@ -120,7 +145,16 @@ class LearningProgramClass {
       isActive: 'is_active',
       allowLateJoin: 'allow_late_join',
       maxClients: 'max_clients',
-      metadataJson: 'metadata_json'
+      metadataJson: 'metadata_json',
+      activityTypesJson: 'activity_types_json',
+      scoringRulesJson: 'scoring_rules_json',
+      weeklyGoalMinimum: 'weekly_goal_minimum',
+      teamMinPointsPerWeek: 'team_min_points_per_week',
+      individualMinPointsPerWeek: 'individual_min_points_per_week',
+      weekStartTime: 'week_start_time',
+      mastersAgeThreshold: 'masters_age_threshold',
+      recognitionCategoriesJson: 'recognition_categories_json',
+      recognitionMetric: 'recognition_metric'
     };
     const setParts = [];
     const values = [];
@@ -131,7 +165,27 @@ class LearningProgramClass {
         values.push(patch[k] ? 1 : 0);
         continue;
       }
-      if (k === 'metadataJson') {
+      if (k === 'metadataJson' || k === 'activityTypesJson' || k === 'scoringRulesJson') {
+        setParts.push(`${col} = ?`);
+        values.push(patch[k] ? JSON.stringify(patch[k]) : null);
+        continue;
+      }
+      if (k === 'weeklyGoalMinimum' || k === 'teamMinPointsPerWeek' || k === 'individualMinPointsPerWeek') {
+        setParts.push(`${col} = ?`);
+        values.push(patch[k] != null ? toInt(patch[k]) : null);
+        continue;
+      }
+      if (k === 'weekStartTime' || k === 'recognitionMetric') {
+        setParts.push(`${col} = ?`);
+        values.push(patch[k] || null);
+        continue;
+      }
+      if (k === 'mastersAgeThreshold') {
+        setParts.push(`${col} = ?`);
+        values.push(patch[k] != null ? toInt(patch[k]) : null);
+        continue;
+      }
+      if (k === 'recognitionCategoriesJson') {
         setParts.push(`${col} = ?`);
         values.push(patch[k] ? JSON.stringify(patch[k]) : null);
         continue;

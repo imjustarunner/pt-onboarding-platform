@@ -1177,6 +1177,14 @@ const isTrueAdmin = computed(() => {
   return role === 'admin' || role === 'super_admin';
 });
 
+// Summit Stats club managers (admin with no agencies) use Challenges, not Admin
+const isSummitStatsClubManager = computed(() => {
+  const role = String(user.value?.role || '').toLowerCase();
+  if (role !== 'admin') return false;
+  const agencies = agencyStore.userAgencies?.value ?? agencyStore.userAgencies ?? [];
+  return !Array.isArray(agencies) || agencies.length === 0;
+});
+
 const canSeeFullPortalNav = computed(() => {
   // Keep the “full” admin dropdown navigation for backoffice roles.
   // Limited-access users (payroll/hiring/supervisors) should not see it.
@@ -1469,7 +1477,7 @@ const scheduleIconUrl = computed(() => {
 const canShowAdminDashboardIcon = computed(() => {
   const u = authStore.user;
   if (!u) return false;
-  // Only true admins should see the admin dashboard icon.
+  // Club managers are admins; they see the icon (route guard redirects /admin → /challenges)
   return isTrueAdmin.value;
 });
 
@@ -1539,6 +1547,8 @@ const myDashboardTo = computed(() => {
   // "My Dashboard" should always land on the user's personal dashboard, not admin.
   if (role === 'super_admin' || role === 'superadmin') return '/dashboard';
   if (isProviderPlusExperienceRole) return orgTo('/dashboard');
+  // Summit Stats club managers (admin with no agencies) go to Admin - their main interface
+  if (isSummitStatsClubManager.value) return orgTo('/admin');
   if (role === 'admin' || role === 'support' || role === 'staff' || role === 'provider' || isSupervisor(u)) {
     return orgTo('/dashboard');
   }

@@ -758,6 +758,10 @@
             <OnDemandTrainingLibraryView />
           </div>
 
+          <div v-if="!previewMode && isOnboardingComplete && activeTab === 'challenges'" class="my-panel">
+            <ChallengesTab />
+          </div>
+
           <!-- Social feeds (right panel) – super_admin only until full release -->
           <div v-if="!previewMode && isOnboardingComplete && authStore.user?.role === 'super_admin' && activeTab === 'social_feeds'" class="my-panel">
             <SocialFeedsPanel
@@ -1056,6 +1060,7 @@ import MyKudosTab from '../components/dashboard/MyKudosTab.vue';
 import ProgramShiftsTab from '../components/dashboard/ProgramShiftsTab.vue';
 import MyCompensationTab from '../components/dashboard/MyCompensationTab.vue';
 import OnDemandTrainingLibraryView from './OnDemandTrainingLibraryView.vue';
+import ChallengesTab from '../components/dashboard/ChallengesTab.vue';
 import ProviderClientsTab from '../components/dashboard/ProviderClientsTab.vue';
 import SupervisionModal from '../components/supervision/SupervisionModal.vue';
 import ProvidersPanel from '../components/supervision/ProvidersPanel.vue';
@@ -1595,6 +1600,7 @@ const announcementAgencyId = computed(() => {
 });
 
 const supervisionPromptRows = ref([]);
+const myChallenges = ref([]);
 const dismissedOptionalSupervisionPromptIds = ref(new Set());
 const dismissedMandatorySupervisionPromptIds = ref(new Set());
 const presenterAssignmentRows = ref([]);
@@ -2236,6 +2242,17 @@ const dashboardCards = computed(() => {
       iconUrl: brandingStore.getDashboardCardIconUrl('on_demand_training', cardIconOrgOverride),
       description: 'Always available after onboarding is complete.'
     });
+    // Summit Stats Challenge: Challenges card when user has challenge memberships
+    if (myChallenges.value?.length > 0) {
+      cards.push({
+        id: 'challenges',
+        label: 'Challenges',
+        kind: 'content',
+        badgeCount: myChallenges.value.length,
+        iconUrl: brandingStore.getDashboardCardIconUrl('challenges', cardIconOrgOverride),
+        description: 'Your assigned fitness challenges. View leaderboards and log workouts.'
+      });
+    }
     // Social feeds – super_admin only until full release
     if (role === 'super_admin') {
       cards.push({
@@ -2383,6 +2400,7 @@ const railCards = computed(() => {
         submit: 10,
         payroll: 11,
         on_demand_training: 12,
+        challenges: 12.5,
         social_feeds: 13,
         communications: 14,
         chats: 15,
@@ -2408,6 +2426,7 @@ const railCards = computed(() => {
       my: 10,
       on_demand_training: 11,
       social_feeds: 12,
+      challenges: 12.5,
       communications: 13,
       chats: 14,
       notifications: 15,
@@ -2952,6 +2971,19 @@ const loadAgencyDashboardBanner = async () => {
   }
 };
 
+const loadMyChallenges = async () => {
+  if (props.previewMode || !authStore.user?.id) {
+    myChallenges.value = [];
+    return;
+  }
+  try {
+    const resp = await api.get('/learning-program-classes/my', { skipGlobalLoading: true });
+    myChallenges.value = Array.isArray(resp.data?.classes) ? resp.data.classes : [];
+  } catch {
+    myChallenges.value = [];
+  }
+};
+
 const loadMyCompanyEvents = async () => {
   if (props.previewMode || !isOnboardingComplete.value) {
     companyEvents.value = [];
@@ -3026,6 +3058,7 @@ onMounted(async () => {
   await Promise.all([
     loadCurrentTier(),
     loadAgencyDashboardBanner(),
+    loadMyChallenges(),
     loadMyCompanyEvents(),
     loadSupervisionPrompts(),
     loadPresenterAssignments(),
@@ -3070,6 +3103,7 @@ watch([currentAgencyId, isOnboardingComplete], async () => {
     loadCurrentTier(),
     loadMyAssignedSchools(),
     loadAgencyDashboardBanner(),
+    loadMyChallenges(),
     loadMyCompanyEvents(),
     loadSupervisionPrompts(),
     loadPresenterAssignments(),

@@ -49,7 +49,7 @@
           <div v-if="selectedComponent" class="component-wrapper">
             <div v-if="selectedItemRequiresAgency" class="agency-context-bar">
               <div class="agency-context-left">
-                <label class="agency-context-label">Agency</label>
+                <label class="agency-context-label">{{ agencyContextLabel }}</label>
 
                 <div v-if="lockAgencyContext" class="agency-context-single">
                   {{ lockedAgencyLabel }}
@@ -65,27 +65,30 @@
                   class="agency-context-select"
                   @change="handleAgencySelection"
                 >
-                  <option v-if="isSuperAdmin" value="">Select an agency…</option>
+                  <option v-if="isSuperAdmin" value="">{{ agencyContextPlaceholder }}</option>
                   <option v-for="a in selectableAgencies" :key="a.id" :value="String(a.id)">
                     {{ a.name }}
                   </option>
                 </select>
 
                 <small v-if="isSuperAdmin && !lockAgencyContext" class="agency-context-help">
-                  Super Admin accounts must select which agency to manage for agency-scoped settings.
+                  Super Admin accounts must select which tenant to manage for tenant-scoped settings.
+                </small>
+                <small v-else-if="isChallengeManagement && selectableAgencies.length === 0" class="agency-context-help">
+                  No Learning or Affiliation organizations found. Create one in Company Profile first.
                 </small>
               </div>
             </div>
 
             <div v-if="selectedItemRequiresAgency && !agencyStore.currentAgency" class="empty-state" style="margin-top: 12px;">
-              <p>Select an agency to continue.</p>
+              <p>{{ agencyContextEmptyMessage }}</p>
             </div>
 
             <div v-else-if="selectedItemAgencyOnly && !selectedAgencyIsAgencyOrg" class="empty-state" style="margin-top: 12px;">
               <p>Payroll settings are only available for agency organizations (not schools/programs).</p>
             </div>
 
-            <component v-else :is="selectedComponent" v-bind="componentProps" />
+            <component v-else :is="selectedComponent" v-bind="componentProps" :key="`${selectedCategory}-${selectedItem}`" />
           </div>
           <div v-else class="empty-state">
             <p>Select a setting category to get started</p>
@@ -97,7 +100,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, computed, onMounted, watch, nextTick } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import { useBrandingStore } from '../../store/branding';
@@ -135,6 +138,7 @@ import AgencyDepartmentsManagement from './AgencyDepartmentsManagement.vue';
 import NoteAidKnowledgeBaseSettings from './NoteAidKnowledgeBaseSettings.vue';
 import SmsNumbersManagement from './SmsNumbersManagement.vue';
 import IntakeLinksView from '../../views/admin/IntakeLinksView.vue';
+import ChallengeManagement from './ChallengeManagement.vue';
 import ShiftProgramManagement from './ShiftProgramManagement.vue';
 import AuditCenterSettingsLink from './AuditCenterSettingsLink.vue';
 
@@ -216,7 +220,7 @@ const allCategories = [
       },
       {
         id: 'agency-platform',
-        label: 'Agency (Platform)',
+        label: 'Tenant (Platform)',
         icon: '🏛️',
         component: 'AgencyPlatformManagement',
         roles: ['super_admin'],
@@ -363,6 +367,17 @@ const allCategories = [
         icon: '🔗',
         component: 'IntakeLinksView',
         roles: ['super_admin', 'admin', 'support', 'staff'],
+        excludeRoles: ['clinical_practice_assistant'],
+        excludeSupervisor: true
+      },
+      {
+        id: 'challenge-management',
+        label: 'Challenge Management',
+        icon: '🏆',
+        component: 'ChallengeManagement',
+        requiresAgency: true,
+        requiresLearningOrAffiliation: true,
+        roles: ['super_admin', 'admin', 'support', 'staff', 'provider_plus'],
         excludeRoles: ['clinical_practice_assistant'],
         excludeSupervisor: true
       },
@@ -637,6 +652,7 @@ const componentMap = {
   BillingManagement,
   IntegrationsManagement,
   IntakeLinksView,
+  ChallengeManagement,
   AuditCenterSettingsLink
 };
 
@@ -666,8 +682,11 @@ const selectableAgencies = computed(() => {
   const activeIsManagementTeam = activeItem === 'management-team-config';
   const activeIsAvailabilityIntake = activeCategory === 'workflow' && activeItem === 'availability-intake';
   const activeIsDepartments = activeCategory === 'workflow' && activeItem === 'departments';
+  const activeIsChallengeManagement = activeCategory === 'workflow' && activeItem === 'challenge-management';
   const needsAgencyOnly = activeIsPayroll || activeIsManagementTeam || activeIsAvailabilityIntake || activeIsDepartments;
-  const filtered = needsAgencyOnly ? (list || []).filter(isAgencyOrg) : (list || []);
+  const isLearningOrAffiliation = (o) => ['learning', 'affiliation'].includes(String(o?.organization_type || '').toLowerCase());
+  let filtered = needsAgencyOnly ? (list || []).filter(isAgencyOrg) : (list || []);
+  if (activeIsChallengeManagement) filtered = (list || []).filter(isLearningOrAffiliation);
   return [...filtered].sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')));
 });
 
@@ -710,6 +729,23 @@ const selectedItemAgencyOnly = computed(() => {
   return !!item?.agencyOnly;
 });
 
+const isChallengeManagement = computed(() => selectedCategory.value === 'workflow' && selectedItem.value === 'challenge-management');
+
+const agencyContextLabel = computed(() => {
+  if (isChallengeManagement.value) return 'Organization';
+  return isSuperAdmin.value ? 'Tenant' : 'Agency';
+});
+
+const agencyContextPlaceholder = computed(() => {
+  if (isChallengeManagement.value) return 'Select a Learning or Affiliation organization…';
+  return isSuperAdmin.value ? 'Select a tenant…' : 'Select an agency…';
+});
+
+const agencyContextEmptyMessage = computed(() => {
+  if (isChallengeManagement.value) return 'Select a Learning or Affiliation organization to manage challenges.';
+  return isSuperAdmin.value ? 'Select a tenant to continue.' : 'Select an agency to continue.';
+});
+
 const selectedAgencyIsAgencyOrg = computed(() => {
   const cur = agencyStore.currentAgency;
   return isAgencyOrg(cur);
@@ -727,22 +763,29 @@ const handleAgencySelection = () => {
 };
 
 const selectItem = (categoryId, itemId) => {
-  selectedCategory.value = categoryId;
-  selectedItem.value = itemId;
+  // Two-phase update: clear first, then set new selection on next tick.
+  // Avoids Vue patch race (emitsOptions / __vnode errors when switching dynamic components).
+  const prevCategory = selectedCategory.value;
+  const prevItem = selectedItem.value;
+  if (prevCategory === categoryId && prevItem === itemId) return;
 
-  // Auto-collapse to only the active category (still user-toggleable via header click).
-  expandedCategoryIds.value = new Set([String(categoryId)]);
-  
-  // Update URL for deep linking (skip for embedded/locked contexts).
-  if (!props.disableRouteSync && !props.embedded) {
-    router.replace({
-      query: {
-        ...route.query,
-        category: categoryId,
-        item: itemId
-      }
-    });
-  }
+  selectedCategory.value = null;
+  selectedItem.value = null;
+
+  nextTick(() => {
+    selectedCategory.value = categoryId;
+    selectedItem.value = itemId;
+    expandedCategoryIds.value = new Set([String(categoryId)]);
+    if (!props.disableRouteSync && !props.embedded) {
+      router.replace({
+        query: {
+          ...route.query,
+          category: categoryId,
+          item: itemId
+        }
+      });
+    }
+  });
 };
 
 const closeModal = () => {

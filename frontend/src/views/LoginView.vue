@@ -9,6 +9,7 @@
         <p class="subtitle">Sign in to continue</p>
         
         <div v-if="error" class="error" v-html="formatError(error)"></div>
+        <div v-if="verifiedSuccess" class="success">{{ verifiedSuccess }}</div>
 
         <button
           v-if="showRememberedGoogleButton"
@@ -97,6 +98,12 @@
           <a href="#" @click.prevent="showForgotPassword" class="help-link">Forgot Password?</a>
           <span class="help-separator">|</span>
           <a href="#" @click.prevent="showForgotUsername" class="help-link">Forgot Username?</a>
+          <span class="help-separator">|</span>
+          <router-link v-if="loginSlug" :to="participantSignupPath" class="help-link">Sign up</router-link>
+          <template v-if="loginSlug"><span class="help-separator">|</span></template>
+          <router-link v-if="loginSlug" :to="clubsPath" class="help-link">Browse Clubs</router-link>
+          <template v-if="loginSlug"><span class="help-separator">|</span></template>
+          <router-link :to="clubManagerSignupPath" class="help-link">Create Club Manager Account</router-link>
         </div>
         
         <!-- Forgot Password Modal -->
@@ -215,6 +222,16 @@ const loginSlug = computed(() => {
 });
 const isOrgLogin = computed(() => !!loginSlug.value);
 
+const clubManagerSignupPath = computed(() =>
+  loginSlug.value ? `/${loginSlug.value}/signup/club-manager` : '/signup/club-manager'
+);
+const participantSignupPath = computed(() =>
+  loginSlug.value ? `/${loginSlug.value}/signup` : '/signup'
+);
+const clubsPath = computed(() =>
+  loginSlug.value ? `/${loginSlug.value}/clubs` : '/clubs'
+);
+
 // Agency login theme data
 const loginTheme = ref(null);
 const loadingTheme = ref(false);
@@ -281,6 +298,11 @@ onMounted(async () => {
   // If we were redirected back from Google callback with an error, show it.
   if (route.query?.error) {
     error.value = String(route.query.error);
+  }
+  if (route.query?.verified === '1') {
+    verifiedSuccess.value = 'Email verified. You can now log in and create your club.';
+    const { verified, ...rest } = route.query || {};
+    router.replace({ path: route.path, query: rest });
   }
 
   if (isOrgLogin.value && loginSlug.value) {
@@ -359,6 +381,7 @@ watch(loginSlug, async (newSlug, oldSlug) => {
 const username = ref('');
 const password = ref('');
 const error = ref('');
+const verifiedSuccess = ref('');
 const loading = ref(false);
 const verifying = ref(false);
 const showPassword = ref(false);
@@ -583,9 +606,21 @@ const handleLogin = async () => {
     const redirectPath = route.query?.redirect;
     if (redirectPath && typeof redirectPath === 'string' && redirectPath.startsWith('/')) {
       router.push(redirectPath);
-    } else {
-      router.push(getDashboardRoute());
+      loading.value = false;
+      return;
     }
+
+    // Club managers (admin with no agencies) go to Admin - their main interface for creating/managing club
+    const agencies = agencyStore.userAgencies?.value ?? agencyStore.userAgencies ?? [];
+    const hasNoAgencies = !Array.isArray(agencies) || agencies.length === 0;
+    const isAdmin = String(authStore.user?.role || '').toLowerCase() === 'admin';
+    if (isAdmin && hasNoAgencies && loginSlug.value) {
+      router.push(`/${loginSlug.value}/admin`);
+      loading.value = false;
+      return;
+    }
+
+    router.push(getDashboardRoute());
   } else {
     error.value = result.error;
     lastErrorCode.value = result.code || null;

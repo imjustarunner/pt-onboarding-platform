@@ -1076,6 +1076,102 @@
           </div>
 
           <div class="section-divider"></div>
+          <h4>Extended Colors (optional)</h4>
+          <p class="section-description">Override specific UI areas. Leave blank to keep current platform/agency defaults.</p>
+          <div class="colors-grid">
+            <div class="color-input-item">
+              <label>Primary Hover</label>
+              <div class="color-input-group">
+                <label class="color-swatch-label" :for="'agencyPrimaryHoverInput'">
+                  <div class="color-swatch" :style="{ backgroundColor: agencyBrandingForm.primaryHover || '#e5e7eb' }"></div>
+                </label>
+                <input :id="'agencyPrimaryHoverInput'" v-model="agencyBrandingForm.primaryHover" type="color" class="color-picker" />
+                <input v-model="agencyBrandingForm.primaryHover" type="text" class="color-hex" placeholder="e.g. #175C99" />
+              </div>
+            </div>
+            <div class="color-input-item">
+              <label>Background (primary)</label>
+              <div class="color-input-group">
+                <label class="color-swatch-label" :for="'agencyBgPrimaryInput'">
+                  <div class="color-swatch" :style="{ backgroundColor: agencyBrandingForm.backgroundColor || '#f4f7fa' }"></div>
+                </label>
+                <input :id="'agencyBgPrimaryInput'" v-model="agencyBrandingForm.backgroundColor" type="color" class="color-picker" />
+                <input v-model="agencyBrandingForm.backgroundColor" type="text" class="color-hex" placeholder="e.g. #F4F7FA" />
+              </div>
+            </div>
+            <div class="color-input-item">
+              <label>Background (panels)</label>
+              <div class="color-input-group">
+                <label class="color-swatch-label" :for="'agencyBgSecondaryInput'">
+                  <div class="color-swatch" :style="{ backgroundColor: agencyBrandingForm.secondaryBackground || '#ffffff' }"></div>
+                </label>
+                <input :id="'agencyBgSecondaryInput'" v-model="agencyBrandingForm.secondaryBackground" type="color" class="color-picker" />
+                <input v-model="agencyBrandingForm.secondaryBackground" type="text" class="color-hex" placeholder="e.g. #FFFFFF" />
+              </div>
+            </div>
+            <div class="color-input-item">
+              <label>Divider lines</label>
+              <div class="color-input-group">
+                <label class="color-swatch-label" :for="'agencyDividerInput'">
+                  <div class="color-swatch" :style="{ backgroundColor: agencyBrandingForm.dividerColor || '#e3e8ef' }"></div>
+                </label>
+                <input :id="'agencyDividerInput'" v-model="agencyBrandingForm.dividerColor" type="color" class="color-picker" />
+                <input v-model="agencyBrandingForm.dividerColor" type="text" class="color-hex" placeholder="e.g. #E3E8EF" />
+              </div>
+            </div>
+            <div class="color-input-item">
+              <label>Success / Highlight</label>
+              <div class="color-input-group">
+                <label class="color-swatch-label" :for="'agencySuccessInput'">
+                  <div class="color-swatch" :style="{ backgroundColor: agencyBrandingForm.successColor || '#7ed321' }"></div>
+                </label>
+                <input :id="'agencySuccessInput'" v-model="agencyBrandingForm.successColor" type="color" class="color-picker" />
+                <input v-model="agencyBrandingForm.successColor" type="text" class="color-hex" placeholder="e.g. #7ED321" />
+              </div>
+            </div>
+            <div class="color-input-item">
+              <label>Data / Stats numbers</label>
+              <div class="color-input-group">
+                <label class="color-swatch-label" :for="'agencyDataNumbersInput'">
+                  <div class="color-swatch" :style="{ backgroundColor: agencyBrandingForm.dataNumbersColor || '#2c7be5' }"></div>
+                </label>
+                <input :id="'agencyDataNumbersInput'" v-model="agencyBrandingForm.dataNumbersColor" type="color" class="color-picker" />
+                <input v-model="agencyBrandingForm.dataNumbersColor" type="text" class="color-hex" placeholder="e.g. #2C7BE5" />
+              </div>
+            </div>
+            <div class="color-input-item">
+              <label>Text (primary)</label>
+              <div class="color-input-group">
+                <label class="color-swatch-label" :for="'agencyTextPrimaryInput'">
+                  <div class="color-swatch" :style="{ backgroundColor: agencyBrandingForm.textPrimary || '#1a1f36' }"></div>
+                </label>
+                <input :id="'agencyTextPrimaryInput'" v-model="agencyBrandingForm.textPrimary" type="color" class="color-picker" />
+                <input v-model="agencyBrandingForm.textPrimary" type="text" class="color-hex" placeholder="e.g. #1A1F36" />
+              </div>
+            </div>
+            <div class="color-input-item">
+              <label>Text (secondary)</label>
+              <div class="color-input-group">
+                <label class="color-swatch-label" :for="'agencyTextSecondaryInput'">
+                  <div class="color-swatch" :style="{ backgroundColor: agencyBrandingForm.textSecondary || '#5a6b7b' }"></div>
+                </label>
+                <input :id="'agencyTextSecondaryInput'" v-model="agencyBrandingForm.textSecondary" type="color" class="color-picker" />
+                <input v-model="agencyBrandingForm.textSecondary" type="text" class="color-hex" placeholder="e.g. #5A6B7B" />
+              </div>
+            </div>
+            <div class="color-input-item">
+              <label>Text (muted)</label>
+              <div class="color-input-group">
+                <label class="color-swatch-label" :for="'agencyTextMutedInput'">
+                  <div class="color-swatch" :style="{ backgroundColor: agencyBrandingForm.textMuted || '#8a97a6' }"></div>
+                </label>
+                <input :id="'agencyTextMutedInput'" v-model="agencyBrandingForm.textMuted" type="color" class="color-picker" />
+                <input v-model="agencyBrandingForm.textMuted" type="text" class="color-hex" placeholder="e.g. #8A97A6" />
+              </div>
+            </div>
+          </div>
+
+          <div class="section-divider"></div>
           <h4>Certificate Template</h4>
           <p class="section-description">Configure a Google Docs template to be used as the background for certificates generated for this agency.</p>
           
@@ -2192,6 +2288,16 @@ const agencyBrandingForm = ref({
   primaryColor: '#0f172a',
   secondaryColor: '#1e40af',
   accentColor: '#f97316',
+  // Extended palette (optional; only saved when set; preserves existing display)
+  primaryHover: '',
+  backgroundColor: '',
+  secondaryBackground: '',
+  dividerColor: '',
+  successColor: '',
+  dataNumbersColor: '',
+  textPrimary: '',
+  textSecondary: '',
+  textMuted: '',
   certificateTemplateUrl: '',
   masterIconId: null,
   programOverviewIconId: null,
@@ -2440,6 +2546,15 @@ const onBrandingScopeChange = async () => {
         primaryColor: palette.primary || '#0f172a',
         secondaryColor: palette.secondary || '#1e40af',
         accentColor: palette.accent || '#f97316',
+        primaryHover: palette.primaryHover || palette.primary_hover || '',
+        backgroundColor: palette.backgroundColor || palette.background || palette.background_color || '',
+        secondaryBackground: palette.secondaryBackground || palette.secondary_background || '',
+        dividerColor: palette.dividerColor || palette.divider || palette.divider_color || '',
+        successColor: palette.successColor || palette.success || palette.success_color || '',
+        dataNumbersColor: palette.dataNumbersColor || palette.dataNumbers || palette.data_numbers_color || '',
+        textPrimary: palette.textPrimary || palette.text_primary || '',
+        textSecondary: palette.textSecondary || palette.text_secondary || '',
+        textMuted: palette.textMuted || palette.text_muted || '',
         certificateTemplateUrl: freshAgency.certificate_template_url || '',
         trainingFocusDefaultIconId: freshAgency.training_focus_default_icon_id ?? null,
         moduleDefaultIconId: freshAgency.module_default_icon_id ?? null,
@@ -2508,13 +2623,23 @@ const saveAgencyBrandingForSuperAdmin = async () => {
   
   try {
     savingAgency.value = true;
-    const requestData = {
-      logoUrl: agencyBrandingForm.value.logoUrl?.trim() || null,
-      colorPalette: {
-        primary: agencyBrandingForm.value.primaryColor,
-        secondary: agencyBrandingForm.value.secondaryColor,
-        accent: agencyBrandingForm.value.accentColor
-      },
+    const f = agencyBrandingForm.value;
+      const colorPalette = {
+        primary: f.primaryColor,
+        secondary: f.secondaryColor,
+        accent: f.accentColor
+      };
+      const optionalKeys = [
+        'primaryHover', 'backgroundColor', 'secondaryBackground', 'dividerColor',
+        'successColor', 'dataNumbersColor', 'textPrimary', 'textSecondary', 'textMuted'
+      ];
+      for (const k of optionalKeys) {
+        const v = (f[k] || '').trim();
+        if (v) colorPalette[k] = v;
+      }
+      const requestData = {
+      logoUrl: f.logoUrl?.trim() || null,
+      colorPalette,
       certificateTemplateUrl: agencyBrandingForm.value.certificateTemplateUrl?.trim() || null,
       iconId: agencyBrandingForm.value.masterIconId ?? null,
       trainingFocusDefaultIconId: agencyBrandingForm.value.trainingFocusDefaultIconId ?? null,
@@ -2580,6 +2705,15 @@ const saveAgencyBrandingForSuperAdmin = async () => {
           primaryColor: palette.primary || '#0f172a',
           secondaryColor: palette.secondary || '#1e40af',
           accentColor: palette.accent || '#f97316',
+          primaryHover: palette.primaryHover || palette.primary_hover || '',
+          backgroundColor: palette.backgroundColor || palette.background || palette.background_color || '',
+          secondaryBackground: palette.secondaryBackground || palette.secondary_background || '',
+          dividerColor: palette.dividerColor || palette.divider || palette.divider_color || '',
+          successColor: palette.successColor || palette.success || palette.success_color || '',
+          dataNumbersColor: palette.dataNumbersColor || palette.dataNumbers || palette.data_numbers_color || '',
+          textPrimary: palette.textPrimary || palette.text_primary || '',
+          textSecondary: palette.textSecondary || palette.text_secondary || '',
+          textMuted: palette.textMuted || palette.text_muted || '',
           certificateTemplateUrl: freshAgency.certificate_template_url || '',
           masterIconId: freshAgency.icon_id ?? null,
           trainingFocusDefaultIconId: freshAgency.training_focus_default_icon_id ?? null,

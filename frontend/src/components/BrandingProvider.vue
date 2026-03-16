@@ -111,11 +111,13 @@ const brandingStyles = computed(() => {
     '--accent-color': brandingStore.accentColor,
     '--primary': brandingStore.primaryColor,
     '--primary-light': primaryLight,
+    '--primary-hover': brandingStore.primaryHover,
     '--secondary': brandingStore.secondaryColor,
     '--accent': brandingStore.accentColor,
-    '--success': platform?.success_color || '#2F8F83',
+    '--success': brandingStore.successColor,
     '--error': platform?.error_color || '#CC3D3D',
     '--warning': platform?.warning_color || '#E6A700',
+    '--data-numbers': brandingStore.dataNumbersColor,
     // Contrast-safe defaults for dark headers across agencies.
     '--header-text-color': '#ffffff',
     '--header-text-muted': 'rgba(255,255,255,0.85)',
@@ -125,9 +127,13 @@ const brandingStyles = computed(() => {
   };
   // When dark mode is on, do NOT override bg/text/border — let [data-theme="dark"] CSS rule apply
   if (!dark) {
-    styles['--bg-alt'] = platform?.background_color || '#F3F6FA';
-    styles['--text-primary'] = brandingStore.secondaryColor;
-    styles['--text-secondary'] = brandingStore.accentColor;
+    styles['--bg-primary'] = brandingStore.backgroundColor;
+    styles['--bg-alt'] = brandingStore.backgroundColor;
+    styles['--bg-secondary'] = brandingStore.secondaryBackground;
+    styles['--divider'] = brandingStore.dividerColor;
+    styles['--text-primary'] = brandingStore.textPrimaryColor;
+    styles['--text-secondary'] = brandingStore.textSecondaryColor;
+    styles['--text-muted'] = brandingStore.textMutedColor;
     styles['--border'] = brandingStore.accentColor;
   }
   return styles;

@@ -114,29 +114,44 @@ function buildMimeMessage({ to, subject, text, html, from, replyTo, attachments 
   return [...headers, '', (text || ''), ''].join('\r\n');
 }
 
+function getImpersonatedUser() {
+  return (
+    process.env.GOOGLE_WORKSPACE_IMPERSONATE_USER ||
+    process.env.GMAIL_IMPERSONATE_USER ||
+    null
+  );
+}
+
 class GoogleWorkspaceEmailService {
   static isConfigured() {
     const sa = parseServiceAccountJson();
+    const impersonate = getImpersonatedUser();
     return !!(
       sa?.client_email &&
       sa?.private_key &&
-      process.env.GOOGLE_WORKSPACE_IMPERSONATE_USER &&
-      (process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM)
+      impersonate &&
+      (process.env.GOOGLE_WORKSPACE_FROM_ADDRESS ||
+        process.env.GOOGLE_WORKSPACE_DEFAULT_FROM ||
+        impersonate.includes('@'))
     );
   }
 
   static async sendEmail({ to, subject, text = null, html = null, fromName = null, fromAddress = null, replyTo = null, attachments = null }) {
-    const impersonate = process.env.GOOGLE_WORKSPACE_IMPERSONATE_USER;
+    const impersonate = getImpersonatedUser();
     if (!impersonate) {
-      throw new Error('Missing GOOGLE_WORKSPACE_IMPERSONATE_USER');
+      throw new Error('Missing GOOGLE_WORKSPACE_IMPERSONATE_USER or GMAIL_IMPERSONATE_USER');
     }
 
-    const fromEmail = fromAddress || process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM;
-    if (!fromEmail) {
-      throw new Error('Missing GOOGLE_WORKSPACE_FROM_ADDRESS (or GOOGLE_WORKSPACE_DEFAULT_FROM)');
-    }
-
-    const fromHeader = fromName ? `${fromName} <${fromEmail}>` : fromEmail;
+    const fromEmail =
+      fromAddress ||
+      process.env.GOOGLE_WORKSPACE_FROM_ADDRESS ||
+      process.env.GOOGLE_WORKSPACE_DEFAULT_FROM ||
+      impersonate;
+    const fromDisplayName =
+      fromName ||
+      process.env.GOOGLE_WORKSPACE_FROM_NAME ||
+      (fromEmail === impersonate ? 'Summit Stats' : null);
+    const fromHeader = fromDisplayName ? `${fromDisplayName} <${fromEmail}>` : fromEmail;
 
     // Domain-wide delegation impersonation via JWT
     // Uses GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON_BASE64 and the full scope list (calendar + gmail).

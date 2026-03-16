@@ -67,7 +67,7 @@ const validateCreateAgency = [
   body('name').trim().notEmpty().withMessage('Name is required'),
   body('officialName').optional().isLength({ max: 255 }).withMessage('officialName must be 255 characters or less'),
   body('slug').trim().notEmpty().withMessage('Slug is required').matches(/^[a-z0-9-]+$/).withMessage('Slug must be lowercase alphanumeric with hyphens only'),
-  body('organizationType').optional().isIn(['agency', 'school', 'program', 'learning', 'clinical']).withMessage('organizationType must be one of: agency, school, program, learning, clinical'),
+  body('organizationType').optional().isIn(['agency', 'school', 'program', 'learning', 'clinical', 'affiliation']).withMessage('organizationType must be one of: agency, school, program, learning, clinical, affiliation'),
   body('affiliatedAgencyId').optional({ nullable: true, checkFalsy: true }).isInt({ min: 1 }).withMessage('affiliatedAgencyId must be a positive integer'),
   body('customDomain').optional({ nullable: true, checkFalsy: true }).custom((value) => {
     if (value === null || value === undefined || value === '') return true;
@@ -240,7 +240,7 @@ const validateUpdateAgency = [
   body('name').optional().trim().notEmpty().withMessage('Name cannot be empty'),
   body('officialName').optional().isLength({ max: 255 }).withMessage('officialName must be 255 characters or less'),
   body('slug').optional().trim().notEmpty().withMessage('Slug cannot be empty').matches(/^[a-z0-9-]+$/).withMessage('Slug must be lowercase alphanumeric with hyphens only'),
-  body('organizationType').optional().isIn(['agency', 'school', 'program', 'learning', 'clinical']).withMessage('organizationType must be one of: agency, school, program, learning, clinical'),
+  body('organizationType').optional().isIn(['agency', 'school', 'program', 'learning', 'clinical', 'affiliation']).withMessage('organizationType must be one of: agency, school, program, learning, clinical, affiliation'),
   body('affiliatedAgencyId').optional({ nullable: true, checkFalsy: true }).isInt({ min: 1 }).withMessage('affiliatedAgencyId must be a positive integer'),
   body('customDomain').optional({ nullable: true, checkFalsy: true }).custom((value) => {
     if (value === null || value === undefined || value === '') return true;

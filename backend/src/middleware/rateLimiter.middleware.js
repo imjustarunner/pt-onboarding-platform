@@ -75,6 +75,16 @@ export const publicIntakeLimiter = rateLimit({
   },
 });
 
+// Club manager signup (public, anti-abuse).
+export const signupLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: isDevelopment ? 30 : 5,
+  message: { error: { message: 'Too many signup attempts, please try again later' } },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => `signup:${getClientIpAddress(req) || req.ip}`,
+});
+
 // Password/username recovery endpoints (public-facing, anti-abuse).
 export const recoveryLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes

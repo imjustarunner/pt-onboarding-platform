@@ -34,9 +34,9 @@
             </div>
 
             <div class="filters-group">
-              <label class="filters-label">Agency</label>
+              <label class="filters-label">{{ userRole === 'super_admin' ? 'Tenant' : 'Agency' }}</label>
               <select v-model="selectedAgencyFilterId" class="filters-select" @change="handleAgencyFilterChange">
-                <option value="">All agencies</option>
+                <option value="">{{ userRole === 'super_admin' ? 'All tenants' : 'All agencies' }}</option>
                 <option v-for="a in parentAgencies" :key="a.id" :value="String(a.id)">
                   {{ a.name }}
                 </option>
@@ -46,14 +46,14 @@
             <div class="filters-group">
               <label class="filters-label">View</label>
               <select v-model="typeFilter" class="filters-select">
-                <option value="agencies">Agencies</option>
+                <option value="agencies">{{ userRole === 'super_admin' ? 'Tenants' : 'Agencies' }}</option>
                 <option value="buildings">Buildings</option>
                 <option value="schools">Schools</option>
                 <option value="programs">Programs</option>
                 <option value="learning">Learning</option>
                 <option value="clinical">Clinical</option>
                 <option value="other">Other</option>
-                <option value="organizations">All non-agency orgs</option>
+                <option value="organizations">{{ userRole === 'super_admin' ? 'All non-tenant orgs' : 'All non-agency orgs' }}</option>
               </select>
             </div>
 
@@ -71,8 +71,8 @@
           </div>
 
           <div v-if="selectedAgencyFilterId" class="filters-hint">
-            <strong>Agency selected:</strong> {{ selectedAgencyForList?.name || '—' }}
-            <span v-if="String(typeFilter || '') === 'agencies'">• Showing agency + affiliated organizations.</span>
+            <strong>{{ userRole === 'super_admin' ? 'Tenant' : 'Agency' }} selected:</strong> {{ selectedAgencyForList?.name || '—' }}
+            <span v-if="String(typeFilter || '') === 'agencies'">• Showing {{ userRole === 'super_admin' ? 'tenant' : 'agency' }} + affiliated organizations.</span>
             <span v-else>• Showing affiliated organizations (filtered by view).</span>
             <button class="btn-link" type="button" @click="clearAgencyFilter">Clear</button>
           </div>
@@ -124,7 +124,7 @@
           </div>
               <div v-if="!navCollapsed && !isChildOrgRow(org)" class="org-right">
                 <div class="org-badges">
-                  <span class="badge badge-type">{{ String(org.organization_type || 'agency').toLowerCase() }}</span>
+                  <span class="badge badge-type">{{ orgTypeDisplay(org.organization_type) }}</span>
                   <span :class="['badge', org.is_active ? 'badge-success' : 'badge-secondary']">
                     {{ org.is_active ? 'Active' : 'Inactive' }}
           </span>
@@ -184,7 +184,7 @@
                 <div class="detail-summary-meta">
                   <span class="detail-summary-slug">{{ editingAgency.slug }}</span>
                   <span class="detail-summary-sep">•</span>
-                  <span class="detail-summary-type">{{ String(editingAgency.organization_type || 'agency').toLowerCase() }}</span>
+                  <span class="detail-summary-type">{{ orgTypeDisplay(editingAgency.organization_type) }}</span>
           </div>
               </div>
             </div>
@@ -368,22 +368,23 @@
                 v-if="userRole === 'super_admin' || (editingAgency && (editingAgency.organization_type || 'agency') === 'agency')"
                 value="agency"
               >
-                Agency
+                {{ agencyOptionLabel }}
               </option>
               <option value="school">School</option>
               <option value="program">Program</option>
               <option value="learning">Learning</option>
+              <option value="affiliation">Affiliation</option>
               <option value="clinical">Clinical</option>
               <option v-if="canCreateOffice" value="office">Building</option>
             </select>
-            <small v-if="!editingAgency && userRole !== 'super_admin'">Admins can create schools/programs/learning/clinical orgs. Only super admins can create agencies.</small>
+            <small v-if="!editingAgency && userRole !== 'super_admin'">Admins can create schools/programs/learning/clinical orgs. Only super admins can create tenants.</small>
             <small v-if="editingAgency">Organization type cannot be changed after creation</small>
           </div>
 
           <div v-if="requiresAffiliatedAgency" class="form-group">
             <label>{{ isOfficeType ? 'Agency *' : 'Affiliated Agency *' }}</label>
             <select v-model="agencyForm.affiliatedAgencyId" required :disabled="affiliatedAgencyLocked">
-              <option value="" disabled>Select an agency</option>
+              <option value="" disabled>{{ userRole === 'super_admin' ? 'Select a tenant' : 'Select an agency' }}</option>
               <option v-for="a in affiliableAgencies" :key="a.id" :value="String(a.id)">
                 {{ a.name }}
               </option>
@@ -398,7 +399,7 @@
               <span class="pricing-value">{{ selectedAffiliatedAgency?.name || '—' }}</span>
       </div>
             <div class="pricing-row">
-              <span class="pricing-label">Additional {{ agencyForm.organizationType }}</span>
+              <span class="pricing-label">Additional {{ orgTypeDisplay(agencyForm.organizationType) }}</span>
               <span class="pricing-value">{{ formatMoneyCents(estimatedUnitPriceCents) }} / month</span>
     </div>
             <small class="pricing-note">Unit price estimate; actual billing depends on current plan usage and included counts.</small>
@@ -782,6 +783,104 @@
               <div class="color-preview" :style="{ backgroundColor: agencyForm.accentColor }" :title="agencyForm.accentColor"></div>
             </div>
           </div>
+
+          <div class="form-section-divider" style="margin-top: 18px; margin-bottom: 12px; padding-top: 18px; border-top: 1px solid var(--border);">
+            <h4 style="margin: 0 0 8px 0; font-size: 15px; font-weight: 600;">Extended Colors (optional)</h4>
+            <small style="color: var(--text-secondary);">Override specific UI areas. Leave blank to keep defaults. Click the swatch to pick a color.</small>
+          </div>
+          <div class="extended-colors-grid">
+            <div class="form-group extended-color-item">
+              <label>Primary Hover</label>
+              <div class="color-input-group">
+                <label class="color-swatch-label" :for="'ext-primaryHover'">
+                  <div class="color-swatch" :style="{ backgroundColor: agencyForm.primaryHover || '#175C99' }"></div>
+                </label>
+                <input :id="'ext-primaryHover'" :value="agencyForm.primaryHover || '#175C99'" type="color" class="color-picker-ext" @input="agencyForm.primaryHover = $event.target.value" />
+                <input v-model="agencyForm.primaryHover" type="text" class="color-text-input" placeholder="#175C99" />
+              </div>
+            </div>
+            <div class="form-group extended-color-item">
+              <label>Background (primary)</label>
+              <div class="color-input-group">
+                <label class="color-swatch-label" :for="'ext-bgPrimary'">
+                  <div class="color-swatch" :style="{ backgroundColor: agencyForm.backgroundColor || '#F4F7FA' }"></div>
+                </label>
+                <input :id="'ext-bgPrimary'" :value="agencyForm.backgroundColor || '#F4F7FA'" type="color" class="color-picker-ext" @input="agencyForm.backgroundColor = $event.target.value" />
+                <input v-model="agencyForm.backgroundColor" type="text" class="color-text-input" placeholder="#F4F7FA" />
+              </div>
+            </div>
+            <div class="form-group extended-color-item">
+              <label>Background (panels)</label>
+              <div class="color-input-group">
+                <label class="color-swatch-label" :for="'ext-bgSecondary'">
+                  <div class="color-swatch" :style="{ backgroundColor: agencyForm.secondaryBackground || '#FFFFFF' }"></div>
+                </label>
+                <input :id="'ext-bgSecondary'" :value="agencyForm.secondaryBackground || '#FFFFFF'" type="color" class="color-picker-ext" @input="agencyForm.secondaryBackground = $event.target.value" />
+                <input v-model="agencyForm.secondaryBackground" type="text" class="color-text-input" placeholder="#FFFFFF" />
+              </div>
+            </div>
+            <div class="form-group extended-color-item">
+              <label>Divider lines</label>
+              <div class="color-input-group">
+                <label class="color-swatch-label" :for="'ext-divider'">
+                  <div class="color-swatch" :style="{ backgroundColor: agencyForm.dividerColor || '#E3E8EF' }"></div>
+                </label>
+                <input :id="'ext-divider'" :value="agencyForm.dividerColor || '#E3E8EF'" type="color" class="color-picker-ext" @input="agencyForm.dividerColor = $event.target.value" />
+                <input v-model="agencyForm.dividerColor" type="text" class="color-text-input" placeholder="#E3E8EF" />
+              </div>
+            </div>
+            <div class="form-group extended-color-item">
+              <label>Success / Highlight</label>
+              <div class="color-input-group">
+                <label class="color-swatch-label" :for="'ext-success'">
+                  <div class="color-swatch" :style="{ backgroundColor: agencyForm.successColor || '#7ED321' }"></div>
+                </label>
+                <input :id="'ext-success'" :value="agencyForm.successColor || '#7ED321'" type="color" class="color-picker-ext" @input="agencyForm.successColor = $event.target.value" />
+                <input v-model="agencyForm.successColor" type="text" class="color-text-input" placeholder="#7ED321" />
+              </div>
+            </div>
+            <div class="form-group extended-color-item">
+              <label>Data / Stats numbers</label>
+              <div class="color-input-group">
+                <label class="color-swatch-label" :for="'ext-dataNumbers'">
+                  <div class="color-swatch" :style="{ backgroundColor: agencyForm.dataNumbersColor || '#2C7BE5' }"></div>
+                </label>
+                <input :id="'ext-dataNumbers'" :value="agencyForm.dataNumbersColor || '#2C7BE5'" type="color" class="color-picker-ext" @input="agencyForm.dataNumbersColor = $event.target.value" />
+                <input v-model="agencyForm.dataNumbersColor" type="text" class="color-text-input" placeholder="#2C7BE5" />
+              </div>
+            </div>
+            <div class="form-group extended-color-item">
+              <label>Text (primary)</label>
+              <div class="color-input-group">
+                <label class="color-swatch-label" :for="'ext-textPrimary'">
+                  <div class="color-swatch" :style="{ backgroundColor: agencyForm.textPrimary || '#1A1F36' }"></div>
+                </label>
+                <input :id="'ext-textPrimary'" :value="agencyForm.textPrimary || '#1A1F36'" type="color" class="color-picker-ext" @input="agencyForm.textPrimary = $event.target.value" />
+                <input v-model="agencyForm.textPrimary" type="text" class="color-text-input" placeholder="#1A1F36" />
+              </div>
+            </div>
+            <div class="form-group extended-color-item">
+              <label>Text (secondary)</label>
+              <div class="color-input-group">
+                <label class="color-swatch-label" :for="'ext-textSecondary'">
+                  <div class="color-swatch" :style="{ backgroundColor: agencyForm.textSecondary || '#5A6B7B' }"></div>
+                </label>
+                <input :id="'ext-textSecondary'" :value="agencyForm.textSecondary || '#5A6B7B'" type="color" class="color-picker-ext" @input="agencyForm.textSecondary = $event.target.value" />
+                <input v-model="agencyForm.textSecondary" type="text" class="color-text-input" placeholder="#5A6B7B" />
+              </div>
+            </div>
+            <div class="form-group extended-color-item">
+              <label>Text (muted)</label>
+              <div class="color-input-group">
+                <label class="color-swatch-label" :for="'ext-textMuted'">
+                  <div class="color-swatch" :style="{ backgroundColor: agencyForm.textMuted || '#8A97A6' }"></div>
+                </label>
+                <input :id="'ext-textMuted'" :value="agencyForm.textMuted || '#8A97A6'" type="color" class="color-picker-ext" @input="agencyForm.textMuted = $event.target.value" />
+                <input v-model="agencyForm.textMuted" type="text" class="color-text-input" placeholder="#8A97A6" />
+              </div>
+            </div>
+          </div>
+
           <!-- Portal Configuration Section -->
           <div class="form-section-divider" style="margin-top: 24px; margin-bottom: 16px; padding-top: 24px; border-top: 2px solid var(--border);">
             <h4 style="margin: 0 0 16px 0; color: var(--text-primary); font-size: 18px; font-weight: 600;">Portal Configuration</h4>
@@ -3401,6 +3500,11 @@ const brandingStore = useBrandingStore();
 const route = useRoute();
 const router = useRouter();
 const userRole = computed(() => authStore.user?.role);
+const orgTypeDisplay = (type) => {
+  const t = String(type || 'agency').toLowerCase();
+  return userRole.value === 'super_admin' && t === 'agency' ? 'tenant' : t;
+};
+const agencyOptionLabel = computed(() => (userRole.value === 'super_admin' ? 'Tenant' : 'Agency'));
 const organizationSlug = computed(() => {
   const slug = route.params?.organizationSlug;
   return typeof slug === 'string' && slug.trim() ? slug.trim() : '';
@@ -3693,6 +3797,7 @@ const scheduledDraft = ref({
   startsAt: '',
   endsAt: ''
 });
+const sendToAllInGroup = ref(true);
 
 const toLocalInput = (d) => {
   const dt = d instanceof Date ? d : new Date(d);
@@ -3864,8 +3969,6 @@ const audienceGroupMembers = computed(() => {
   }
   return all;
 });
-
-const sendToAllInGroup = ref(true);
 
 const audienceGroupLabel = computed(() => {
   const aud = scheduledDraft.value.audience;
@@ -5266,6 +5369,15 @@ const defaultAgencyForm = () => ({
   primaryColor: '#0f172a',
   secondaryColor: '#1e40af',
   accentColor: '#f97316',
+  primaryHover: '',
+  backgroundColor: '',
+  secondaryBackground: '',
+  dividerColor: '',
+  successColor: '',
+  dataNumbersColor: '',
+  textPrimary: '',
+  textSecondary: '',
+  textMuted: '',
   iconId: null,
   chatIconId: null,
   isActive: true,
@@ -5918,7 +6030,7 @@ const removeOfficeAdditionalAgency = (idx) => {
 
 const requiresAffiliatedAgency = computed(() => {
   const t = String(agencyForm.value.organizationType || 'agency').toLowerCase();
-  return ['school', 'program', 'learning', 'clinical', 'office'].includes(t);
+  return ['school', 'program', 'learning', 'affiliation', 'clinical', 'office'].includes(t);
 });
 
 const affiliatedAgencyLocked = computed(() => {
@@ -6586,6 +6698,15 @@ const editAgency = async (agency) => {
     primaryColor: palette.primary || '#0f172a',
     secondaryColor: palette.secondary || '#1e40af',
     accentColor: palette.accent || '#f97316',
+    primaryHover: palette.primaryHover || palette.primary_hover || '',
+    backgroundColor: palette.backgroundColor || palette.background || palette.background_color || '',
+    secondaryBackground: palette.secondaryBackground || palette.secondary_background || '',
+    dividerColor: palette.dividerColor || palette.divider || palette.divider_color || '',
+    successColor: palette.successColor || palette.success || palette.success_color || '',
+    dataNumbersColor: palette.dataNumbersColor || palette.dataNumbers || palette.data_numbers_color || '',
+    textPrimary: palette.textPrimary || palette.text_primary || '',
+    textSecondary: palette.textSecondary || palette.text_secondary || '',
+    textMuted: palette.textMuted || palette.text_muted || '',
     iconId: agency.icon_id || null,
     chatIconId: agency.chat_icon_id ?? null,
     // Backend stores is_active as TINYINT(1) in many envs; validator expects boolean.
@@ -7030,7 +7151,7 @@ const toggleAgencyStatus = () => {
 
 const isChildOrgRow = (org) => {
   const t = String(org?.organization_type || 'agency').toLowerCase();
-  return ['school', 'program', 'learning', 'clinical'].includes(t);
+  return ['school', 'program', 'learning', 'affiliation', 'clinical'].includes(t);
 };
 
 const openDuplicateModal = (org) => {
@@ -7260,6 +7381,17 @@ const saveAgency = async () => {
       secondary: validateColor(agencyForm.value.secondaryColor),
       accent: validateColor(agencyForm.value.accentColor)
     };
+    const optionalColorKeys = ['primaryHover', 'backgroundColor', 'secondaryBackground', 'dividerColor', 'successColor', 'dataNumbersColor', 'textPrimary', 'textSecondary', 'textMuted'];
+    for (const k of optionalColorKeys) {
+      const v = (agencyForm.value[k] || '').trim();
+      if (v) {
+        try {
+          colorPalette[k] = validateColor(v);
+        } catch {
+          // skip invalid optional color
+        }
+      }
+    }
     
     // Build terminology settings object, only including non-empty values
     const terminologySettings = {};
@@ -8819,6 +8951,41 @@ onMounted(async () => {
   border-radius: 8px;
   box-shadow: 0 2px 4px rgba(0,0,0,0.1);
   flex-shrink: 0;
+}
+
+/* Extended colors: swatch first (clickable), hidden native picker, hex input */
+.extended-colors-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px;
+}
+.extended-color-item .color-input-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.extended-color-item .color-swatch-label {
+  cursor: pointer;
+  margin: 0;
+  flex-shrink: 0;
+}
+.extended-color-item .color-swatch {
+  width: 40px;
+  height: 40px;
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  display: block;
+}
+.extended-color-item .color-picker-ext {
+  position: absolute;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.extended-color-item .color-text-input {
+  flex: 1;
+  min-width: 90px;
 }
 
 .modal-actions {
