@@ -18,9 +18,9 @@
       </div>
     </div>
     
-    <!-- Summit Stats club managers: create/manage club as main interface -->
-    <div v-if="clubContextLoading && route.params?.organizationSlug" class="loading">Loading…</div>
-    <div v-else-if="clubContext?.summitStatsScopedAdmin" class="create-club-section">
+    <!-- Summit Stats club managers only (ssc slug): create/manage club as main interface -->
+    <div v-if="clubContextLoading && isSscAdminRoute" class="loading">Loading…</div>
+    <div v-else-if="isSscAdminRoute && clubContext?.summitStatsScopedAdmin" class="create-club-section">
       <div v-if="!clubContext?.emailVerified" class="create-club-card create-club-verify">
         <h3>Verify your email</h3>
         <p>Please verify your email before creating your club. Check your inbox for the verification link.</p>
@@ -228,6 +228,11 @@ const ticketsLink = computed(() => {
 });
 const currentAgency = computed(() => agencyStore.currentAgency);
 
+// Only on SSC portal (slug ssc) do we show club manager flows
+const isSscAdminRoute = computed(() => {
+  const slug = String(route.params?.organizationSlug || '').toLowerCase();
+  return slug === 'ssc';
+});
 // Summit Stats club context: use "Club" terminology instead of "Agency"
 const isSummitStatsContext = computed(() => {
   if (clubContext.value?.summitStatsScopedAdmin) return true;
@@ -285,7 +290,8 @@ const requestVerificationLink = async () => {
 };
 
 const loadClubManagerContext = async () => {
-  if (!route.params?.organizationSlug) return;
+  const slug = String(route.params?.organizationSlug || '').toLowerCase();
+  if (slug !== 'ssc') return;
   clubContextLoading.value = true;
   try {
     const r = await api.get('/summit-stats/club-manager-context', { skipGlobalLoading: true });
@@ -909,8 +915,8 @@ onMounted(async () => {
   }
   // Ensure currentAgency is set/hydrated for non-super-admins; Quick Action icon overrides depend on it.
   await agencyStore.fetchUserAgencies();
-  // Summit Stats club managers: load context for create-club flow
-  if (route.params?.organizationSlug) {
+  // Summit Stats club managers only (ssc): load context for create-club flow
+  if (String(route.params?.organizationSlug || '').toLowerCase() === 'ssc') {
     await loadClubManagerContext();
   }
   await fetchStats();

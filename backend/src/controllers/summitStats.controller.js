@@ -465,7 +465,11 @@ export const getClubManagerContext = async (req, res, next) => {
     }
 
     const canCreateClub = (user.role === 'admin' || user.role === 'super_admin') && emailVerified;
-    const summitStatsScopedAdmin = user.role === 'admin' && clubs.length === 0;
+    // Only SSC club managers: admins with clubs OR admins with no agencies (new club manager signup)
+    const agenciesList = agencies || [];
+    const summitStatsScopedAdmin =
+      user.role === 'admin' &&
+      (clubs.length > 0 || agenciesList.length === 0);
 
     res.json({
       clubs,

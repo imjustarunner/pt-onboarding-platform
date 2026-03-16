@@ -5,9 +5,9 @@
       <p class="subtitle">Your fitness challenges, teams, and progress.</p>
     </div>
 
-    <!-- Create Club (scoped admin with no clubs) -->
-    <div v-if="clubContextLoading" class="create-club-section loading">Loading…</div>
-    <div v-else-if="clubContext?.summitStatsScopedAdmin" class="create-club-section">
+    <!-- Create Club (SSC only: scoped admin with no clubs) -->
+    <div v-if="isSscRoute && clubContextLoading" class="create-club-section loading">Loading…</div>
+    <div v-else-if="isSscRoute && clubContext?.summitStatsScopedAdmin" class="create-club-section">
       <div v-if="!clubContext?.emailVerified" class="create-club-card create-club-verify">
         <h3>Verify your email</h3>
         <p>Please verify your email before creating your club. Check your inbox for the verification link.</p>
@@ -107,6 +107,7 @@ const organizationId = computed(() => agencyStore.currentAgency?.id || null);
 const organizationSlug = computed(() =>
   agencyStore.currentAgency?.slug || agencyStore.currentAgency?.portal_url || route.params?.organizationSlug || null
 );
+const isSscRoute = computed(() => String(route.params?.organizationSlug || '').toLowerCase() === 'ssc');
 
 const loading = ref(true);
 const error = ref(null);
@@ -121,6 +122,7 @@ const createClubSubmitting = ref(false);
 const createClubSuccess = ref(false);
 
 const loadClubManagerContext = async () => {
+  if (String(route.params?.organizationSlug || '').toLowerCase() !== 'ssc') return;
   clubContextLoading.value = true;
   try {
     const r = await api.get('/summit-stats/club-manager-context', { skipGlobalLoading: true });
@@ -146,11 +148,8 @@ const submitCreateClub = async () => {
     if (club) agencyStore.setCurrentAgency(club);
     await loadClubManagerContext();
     await agencyStore.fetchUserAgencies();
-    const clubSlug = club?.slug || club?.portal_url || null;
-    if (clubSlug) {
-      // Redirect to club admin - main interface for managing their club
-      await router.replace(`/${clubSlug}/admin`);
-    }
+    const adminSlug = club?.parent_slug || 'ssc';
+    await router.replace(`/${adminSlug}/admin`);
     setTimeout(() => {
       createClubSuccess.value = false;
       createClubName.value = '';
