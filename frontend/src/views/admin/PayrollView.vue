@@ -1243,10 +1243,10 @@
               <option :value="null" disabled>Select pay period…</option>
               <option v-for="p in periods" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
             </select>
-            <div class="hint muted" style="margin-top: 4px;">Late notes will be added to this period when you click Add.</div>
+            <div class="hint muted" style="margin-top: 4px;">Runs belong to the prior period above. Select destination only when applying — late notes / still no-note will be added here.</div>
           </div>
           <div class="actions" style="margin: 0; flex-wrap: wrap; gap: 8px;">
-            <button v-if="batchCatchUpPriorPeriodId" class="btn btn-primary" @click="runBatchCatchUpDbBaseline" :disabled="batchCatchUpLoading || !batchCatchUpDbBaselineFileReady || !agencyId || !batchCatchUpDestinationPeriodId">
+            <button v-if="batchCatchUpPriorPeriodId" class="btn btn-primary" @click="runBatchCatchUpDbBaseline" :disabled="batchCatchUpLoading || !batchCatchUpDbBaselineFileReady || !agencyId">
               {{ batchCatchUpLoading ? 'Comparing…' : batchCatchUpDbBaselineButtonLabel }}
             </button>
             <button class="btn btn-primary" @click="runBatchCatchUp" :disabled="batchCatchUpLoading || !batchFiles[1] || !batchFiles[2] || !agencyId">
@@ -1292,6 +1292,19 @@
                 </tr>
               </tbody>
             </table>
+          </div>
+          <div v-else-if="!batchCatchUpResult.applied && (batchCatchUpResult.superFlag || []).length > 0" class="card" style="margin-top: 10px; padding: 12px;">
+            <strong>Still no note ({{ batchCatchUpResult.superFlagCount }} rows)</strong>
+            <div class="hint muted" style="margin-top: 4px;">Add these to the current period so providers know what they're missing.</div>
+            <div class="actions" style="margin-top: 10px;">
+              <button
+                class="btn btn-primary"
+                @click="applyStillNoNoteToPeriod"
+                :disabled="batchCatchUpApplying || !batchCatchUpDestinationPeriodId || isBatchCatchUpDestPosted"
+              >
+                {{ batchCatchUpApplying ? 'Adding…' : 'Add still no-note to current period' }}
+              </button>
+            </div>
           </div>
           <div
             v-if="(batchCatchUpResult.h0031PendingCount || 0) + (batchCatchUpResult.h0032PendingCount || 0) + (batchCatchUpResult.h2014PendingCount || 0) + (batchCatchUpResult.h2032PendingCount || 0) > 0"
@@ -12457,6 +12470,34 @@ const isBatchCatchUpDestPosted = computed(() => {
   const s = String(p?.status || '').toLowerCase();
   return s === 'posted' || s === 'finalized';
 });
+
+const applyStillNoNoteToPeriod = async () => {
+  const result = batchCatchUpResult.value;
+  if (!result || !(result.superFlag || []).length) return;
+  const destId = batchCatchUpDestinationPeriodId.value || result.destinationPeriodId || selectedPeriodId.value;
+  if (!destId) return;
+  const rows = (result.superFlag || []).map((f) => ({
+    userId: f.userId,
+    serviceCode: f.serviceCode,
+    stillUnpaidUnits: Number(f.run2NoNoteUnits ?? f.run3NoNoteUnits ?? f.run2UnpaidUnits ?? f.run3UnpaidUnits ?? 0)
+  })).filter((r) => r.stillUnpaidUnits > 0);
+  if (!rows.length) return;
+  try {
+    batchCatchUpApplying.value = true;
+    batchCatchUpError.value = '';
+    await api.put(`/payroll/periods/${destId}/prior-unpaid`, {
+      sourcePayrollPeriodId: batchCatchUpPriorPeriodId.value || result.period?.id,
+      rows
+    });
+    batchCatchUpResult.value = { ...result, applied: true };
+    await loadPeriods();
+    await selectPeriod(destId);
+  } catch (e) {
+    batchCatchUpError.value = e.response?.data?.error?.message || e.message || 'Failed to add still no-note';
+  } finally {
+    batchCatchUpApplying.value = false;
+  }
+};
 
 const applyBatchCatchUpToPeriod = async () => {
   const result = batchCatchUpResult.value;

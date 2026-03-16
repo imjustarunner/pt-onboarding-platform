@@ -5618,6 +5618,67 @@ export const batchCatchUp = [
           });
         }
         run2 = { run: r2, snapshotRows: snapshotRows2 };
+
+        // Persist Run 2 as payroll_import so it shows in Manage Imports (fixes "Run 2 not sticking").
+        const existingImports = await PayrollImport.listForPeriod(period.id);
+        const hasSlot2 = (existingImports || []).some((imp) => Number(imp.slot_number) === 2);
+        if (!hasSlot2 && parsed2.length > 0) {
+          const h0032Manual = new Map();
+          try {
+            const [uaRows] = await pool.execute(
+              `SELECT user_id, h0032_requires_manual_minutes FROM user_agencies WHERE agency_id = ?`,
+              [period.agency_id]
+            );
+            for (const ua of uaRows || []) h0032Manual.set(Number(ua.user_id), Number(ua.h0032_requires_manual_minutes) ? 1 : 0);
+          } catch { /* column may not exist */ }
+          const imp2 = await PayrollImport.create({
+            agencyId: period.agency_id,
+            payrollPeriodId: period.id,
+            slotNumber: 2,
+            source: 'csv',
+            originalFilename: f2.originalname || 'file2.csv',
+            uploadedByUserId: req.user.id
+          });
+          const rowsToInsert2 = parsed2.map((r) => {
+            const userId = resolveUserIdForProviderName(nameToIds, r.providerName);
+            const codeKey = String(r.serviceCode || '').trim().toUpperCase();
+            const isH0031 = codeKey === 'H0031';
+            const isH0032 = codeKey === 'H0032';
+            const isH2014 = codeKey === 'H2014';
+            const isH2032 = codeKey === 'H2032';
+            const h0032NeedsManual = isH0032 ? !!h0032Manual.get(userId) : false;
+            let unitCount = Number(r.unitCount) || 0;
+            if (isH0031 && Math.abs(unitCount - 1) < 1e-9) unitCount = 60;
+            else if (isH0032 && Math.abs(unitCount - 1) < 1e-9) unitCount = 30;
+            else if ((isH2014 || isH2032) && Math.abs(unitCount - 1) < 1e-9) unitCount = 15;
+            const requiresProcessing = isH0031 || (isH0032 && h0032NeedsManual) || isH2014 || isH2032;
+            return {
+              payrollImportId: imp2.id,
+              payrollPeriodId: period.id,
+              agencyId: period.agency_id,
+              userId,
+              providerName: r.providerName,
+              patientFirstName: r.patientFirstName,
+              serviceCode: r.serviceCode,
+              serviceDate: r.serviceDate ? formatYmd(r.serviceDate) : null,
+              noteStatus: r.noteStatus,
+              draftPayable: r.noteStatus === 'DRAFT' ? 1 : 0,
+              unitCount,
+              rowFingerprint: computeRowFingerprint({ agencyId: period.agency_id, clinicianName: r.providerName, patientFirstName: r.patientFirstName, serviceCode: r.serviceCode, serviceDate: r.serviceDate }),
+              requiresProcessing,
+              processedAt: null,
+              processedByUserId: null
+            };
+          });
+          await PayrollImportRow.bulkInsert(rowsToInsert2);
+          if (!isEffectivelyPostedOrFinalized(period)) {
+            await pool.execute('DELETE FROM payroll_summaries WHERE payroll_period_id = ?', [period.id]);
+            await pool.execute(
+              `UPDATE payroll_periods SET status = 'raw_imported', ran_at = NULL, ran_by_user_id = NULL WHERE id = ?`,
+              [period.id]
+            );
+          }
+        }
       } else {
         if (!f1 || !f2) {
           return res.status(400).json({ error: { message: 'file1 and file2 are required (same period, 2 or 3 runs)' } });
