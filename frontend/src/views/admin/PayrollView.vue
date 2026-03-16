@@ -1377,6 +1377,20 @@
             </select>
           </div>
           <div v-if="manageImportsError" class="warn-box" style="margin-top: 10px;">{{ manageImportsError }}</div>
+          <div v-if="manageImportsPeriodIsPosted && manageImportsList.length" class="warn-box" style="margin-top: 10px;">
+            Cannot delete import: pay period is posted/finalized.
+            <span v-if="manageImportsCanForceDeleteEmptyRun1" style="margin-left: 8px;">
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm"
+                @click="forceDeleteEmptyRun1"
+                :disabled="manageImportsDeleting !== null"
+                style="margin-left: 8px;"
+              >
+                {{ manageImportsDeleting ? 'Deleting…' : 'Force delete empty Run 1 (Run 2 → Run 1)' }}
+              </button>
+            </span>
+          </div>
           <div v-if="manageImportsList.length" class="table-wrap" style="margin-top: 12px;">
             <table class="table">
               <thead>
@@ -10126,6 +10140,19 @@ const manageImportsDeleting = ref(null);
 const manageImportsReplacing = ref(null);
 const manageImportsReplaceImp = ref(null);
 const manageImportsReplaceInput = ref(null);
+
+const manageImportsPeriodIsPosted = computed(() => {
+  const pid = manageImportsPeriodId.value;
+  if (!pid) return false;
+  const p = (periods.value || []).find((x) => Number(x?.id) === Number(pid));
+  return (p?.status || '').toLowerCase() === 'posted' || (p?.status || '').toLowerCase() === 'finalized';
+});
+
+const manageImportsCanForceDeleteEmptyRun1 = computed(() => {
+  const list = manageImportsList.value || [];
+  const run1 = list.find((imp) => (imp.slot_number || imp.import_sequence) === 1);
+  return manageImportsPeriodIsPosted.value && run1 && (run1.row_count ?? 0) === 0 && list.length >= 2;
+});
 const processChangesAggregate = ref(
   safeJsonParse(localStorage.getItem(LS_PROCESS_CHANGES_AGGREGATE) || '[]', [])
 );
@@ -12234,7 +12261,7 @@ const loadManageImportsList = async () => {
   }
 };
 
-const deleteManageImport = async (imp) => {
+const deleteManageImport = async (imp, forceDeleteEmpty = false) => {
   const pid = manageImportsPeriodId.value;
   if (!pid || !imp?.id) return;
   const slot = imp.slot_number || imp.import_sequence;
@@ -12249,7 +12276,10 @@ const deleteManageImport = async (imp) => {
   manageImportsDeleting.value = imp.id;
   manageImportsError.value = '';
   try {
-    await api.delete(`/payroll/periods/${pid}/imports/${imp.id}`);
+    const url = forceDeleteEmpty
+      ? `/payroll/periods/${pid}/imports/${imp.id}?forceDeleteEmpty=true`
+      : `/payroll/periods/${pid}/imports/${imp.id}`;
+    await api.delete(url);
     await loadManageImportsList();
     await loadBatchCatchUpPriorImports();
     await loadPeriods();
@@ -12259,6 +12289,13 @@ const deleteManageImport = async (imp) => {
   } finally {
     manageImportsDeleting.value = null;
   }
+};
+
+const forceDeleteEmptyRun1 = () => {
+  const run1 = (manageImportsList.value || []).find((imp) => (imp.slot_number || imp.import_sequence) === 1);
+  if (!run1) return;
+  if (!confirm('Force delete empty Run 1? Run 2 will become Run 1. This cannot be undone.')) return;
+  deleteManageImport(run1, true);
 };
 
 const triggerReplaceImport = (imp) => {

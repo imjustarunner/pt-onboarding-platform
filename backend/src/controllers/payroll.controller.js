@@ -8501,6 +8501,7 @@ export const deletePayrollImport = async (req, res, next) => {
   try {
     const payrollPeriodId = parseInt(req.params.periodId, 10);
     const importId = parseInt(req.params.importId, 10);
+    const forceDeleteEmpty = String(req.query?.forceDeleteEmpty || '').toLowerCase() === 'true';
     const period = await PayrollPeriod.findById(payrollPeriodId);
     if (!period) return res.status(404).json({ error: { message: 'Pay period not found' } });
     if (!(await requirePayrollAccess(req, res, period.agency_id))) return;
@@ -8509,18 +8510,36 @@ export const deletePayrollImport = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Import not found or does not belong to this period' } });
     }
     const isLocked = isEffectivelyPostedOrFinalized(period);
-    if (isLocked) {
+    if (isLocked && !forceDeleteEmpty) {
       return res.status(409).json({ error: { message: 'Cannot delete import: pay period is posted/finalized' } });
+    }
+    if (forceDeleteEmpty && isLocked) {
+      const [[{ rowCount }]] = await pool.execute(
+        'SELECT COUNT(*) AS rowCount FROM payroll_import_rows WHERE payroll_import_id = ?',
+        [importId]
+      );
+      if (Number(rowCount || 0) > 0) {
+        return res.status(409).json({
+          error: { message: 'Force delete is only for empty imports. This import has data.' }
+        });
+      }
     }
     await PayrollImport.deleteById(importId);
     const remaining = await PayrollImport.listForPeriod(payrollPeriodId);
-    if (!remaining.length) {
+    if (forceDeleteEmpty && isLocked && remaining.length > 0) {
+      for (let i = 0; i < remaining.length; i++) {
+        await pool.execute(
+          'UPDATE payroll_imports SET slot_number = ? WHERE id = ?',
+          [i + 1, remaining[i].id]
+        );
+      }
+    } else if (!remaining.length) {
       await pool.execute('DELETE FROM payroll_summaries WHERE payroll_period_id = ?', [payrollPeriodId]);
       await pool.execute(
         `UPDATE payroll_periods SET status = 'draft', ran_at = NULL, ran_by_user_id = NULL WHERE id = ?`,
         [payrollPeriodId]
       );
-    } else {
+    } else if (!isLocked) {
       await pool.execute('DELETE FROM payroll_summaries WHERE payroll_period_id = ?', [payrollPeriodId]);
       await pool.execute(
         `UPDATE payroll_periods SET status = 'raw_imported', ran_at = NULL, ran_by_user_id = NULL WHERE id = ?`,
@@ -8692,13 +8711,20 @@ export const listPayrollPeriodImports = async (req, res, next) => {
     if (!period) return res.status(404).json({ error: { message: 'Pay period not found' } });
     if (!(await requirePayrollAccess(req, res, period.agency_id))) return;
     const imports = await PayrollImport.listForPeriod(payrollPeriodId);
+    const [rowCounts] = await pool.execute(
+      `SELECT payroll_import_id, COUNT(*) AS row_count FROM payroll_import_rows
+       WHERE payroll_period_id = ? GROUP BY payroll_import_id`,
+      [payrollPeriodId]
+    );
+    const countByImport = new Map((rowCounts || []).map((r) => [Number(r.payroll_import_id), Number(r.row_count || 0)]));
     const importsWithMeta = (imports || []).map((imp, idx) => {
       const seq = Number(imp.slot_number) || idx + 1;
       return {
         ...imp,
         import_sequence: seq,
         slot_number: seq,
-        slot_label: `Run ${seq}`
+        slot_label: `Run ${seq}`,
+        row_count: countByImport.get(Number(imp.id)) ?? 0
       };
     });
     res.json({ imports: importsWithMeta });
