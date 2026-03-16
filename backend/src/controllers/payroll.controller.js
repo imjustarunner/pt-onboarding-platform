@@ -211,6 +211,7 @@ function computeRawRunDiffRows({ baselineRows, compareRows }) {
           out.push({
             rowMatchKey: rowStableMatchKey(c),
             changeType: deltaType,
+            user_id: Number(c.user_id || 0) || null,
             provider_name: c.provider_name || b.provider_name || null,
             patient_first_name: c.patient_first_name || b.patient_first_name || null,
             service_date: c.service_date || b.service_date || null,
@@ -232,6 +233,7 @@ function computeRawRunDiffRows({ baselineRows, compareRows }) {
         out.push({
           rowMatchKey: rowStableMatchKey(b),
           changeType: 'removed',
+          user_id: Number(b.user_id || 0) || null,
           provider_name: b.provider_name || null,
           patient_first_name: b.patient_first_name || null,
           service_date: b.service_date || null,
@@ -249,6 +251,7 @@ function computeRawRunDiffRows({ baselineRows, compareRows }) {
         out.push({
           rowMatchKey: rowStableMatchKey(c),
           changeType: 'added',
+          user_id: Number(c.user_id || 0) || null,
           provider_name: c.provider_name || null,
           patient_first_name: c.patient_first_name || null,
           service_date: c.service_date || null,

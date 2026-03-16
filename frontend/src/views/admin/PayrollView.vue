@@ -1274,6 +1274,20 @@
           <div class="hint" v-else>
             Compare complete. Review what would be added below, then click <strong>Add to current period</strong> when ready.
           </div>
+          <div
+            v-if="!batchCatchUpResult.applied && ((batchCatchUpResult.carryoverApplied || []).length > 0 || (batchCatchUpResult.superFlag || []).length > 0)"
+            class="actions"
+            style="margin-top: 10px;"
+          >
+            <button
+              v-if="(batchCatchUpResult.carryoverApplied || []).length > 0 && (batchCatchUpResult.superFlag || []).length > 0"
+              class="btn btn-primary"
+              @click="applyBatchCatchUpAllToPeriod"
+              :disabled="batchCatchUpApplying || !batchCatchUpDestinationPeriodId || isBatchCatchUpDestPosted"
+            >
+              {{ batchCatchUpApplying ? 'Adding…' : 'Add all (late notes + still no-note) to current period' }}
+            </button>
+          </div>
           <div v-if="(batchCatchUpResult.carryoverApplied || []).length > 0" class="card" style="margin-top: 10px; padding: 12px;">
             <strong>Late notes to add ({{ batchCatchUpSelectedCount }} of {{ batchCatchUpResult.carryoverRowsApplied }} selected)</strong>
             <div class="hint muted" style="margin-top: 4px;">{{ batchCatchUpResult.twoRunMode ? 'No note in Run 1 → finalized in Run 2.' : 'No note in Run 2 → finalized in Run 3. (1→2 was already paid.)' }} Check the rows to add, edit units if needed, then click Add.</div>
@@ -1305,7 +1319,7 @@
               </tbody>
             </table>
           </div>
-          <div v-else-if="!batchCatchUpResult.applied && (batchCatchUpResult.superFlag || []).length > 0" class="card" style="margin-top: 10px; padding: 12px;">
+          <div v-if="!batchCatchUpResult.applied && (batchCatchUpResult.superFlag || []).length > 0" class="card" style="margin-top: 10px; padding: 12px;">
             <strong>Still no note ({{ batchCatchUpResult.superFlagCount }} rows)</strong>
             <div class="hint muted" style="margin-top: 4px;">Add these to the current period so providers know what they're missing.</div>
             <div class="actions" style="margin-top: 10px;">
@@ -4605,6 +4619,7 @@
                 <select v-else v-model="rawRowFilter">
                   <option value="unpaid_only">Unpaid only (no note + draft unpaid)</option>
                   <option value="draft_only">Draft only</option>
+                  <option value="payable">Payable (finalized + draft paid)</option>
                   <option value="all">Show All</option>
                 </select>
               </div>
@@ -4631,6 +4646,9 @@
               </div>
             </div>
             <div v-if="rawDraftError" class="error-box">{{ rawDraftError }}</div>
+            <div v-if="rawMode === 'draft_audit' && rawRowFilter === 'unpaid_only' && !rawModeRows.length && rawImportRows.length" class="hint muted" style="margin-top: 8px;">
+              No unpaid rows. Try <strong>Payable</strong> or <strong>Show All</strong> to see finalized rows, or review the Run Audit section above for late notes to add to current period.
+            </div>
             <div
               v-if="isPeriodPosted && rawPostedProcessingUnlocked && (rawMode === 'process_h0031' || rawMode === 'process_h0032' || rawMode === 'process_h2014' || rawMode === 'process_h2032')"
               class="warn-box"
@@ -4801,6 +4819,54 @@
                     </tr>
                     <tr v-if="!rawAuditChangesLimited.length">
                       <td colspan="8" class="muted">No run-to-run changes found for this selection.</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div
+                v-if="rawMode !== 'missed_appts_paid_in_full' && rawAuditPayableChanges.length > 0 && rawAuditBaselineImportId !== rawAuditSelectedImportId"
+                class="card"
+                style="margin-top: 12px; padding: 12px;"
+              >
+                <strong>Add to current period</strong>
+                <div class="hint muted" style="margin-top: 4px;">
+                  {{ rawAuditPayableChanges.length }} late note(s) (newly finalized in this run). Select destination period, check rows to add, then click Add.
+                </div>
+                <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr auto;">
+                  <div class="field">
+                    <label>Destination period</label>
+                    <select v-model="rawAddToCurrentPeriodDestinationId" :disabled="rawAddToCurrentPeriodApplying">
+                      <option :value="null" disabled>Select pay period…</option>
+                      <option v-for="p in rawAddToCurrentPeriodDestOptions" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
+                    </select>
+                  </div>
+                  <div class="field" style="align-self: flex-end;">
+                    <button
+                      class="btn btn-primary"
+                      @click="applyRawAddToCurrentPeriod"
+                      :disabled="rawAddToCurrentPeriodApplying || !rawAddToCurrentPeriodDestinationId || rawAddToCurrentPeriodSelectedCount === 0 || isRawAddToCurrentPeriodDestPosted"
+                    >
+                      {{ rawAddToCurrentPeriodApplying ? 'Adding…' : 'Add selected to current period' }}
+                    </button>
+                  </div>
+                </div>
+                <div v-if="rawAddToCurrentPeriodError" class="warn-box" style="margin-top: 8px;">{{ rawAddToCurrentPeriodError }}</div>
+                <table class="table" style="margin-top: 10px; font-size: 0.9em;">
+                  <thead>
+                    <tr><th style="width: 36px;"></th><th>Provider</th><th>Service code</th><th>Type</th><th class="right">Units</th></tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="c in rawAuditPayableChanges" :key="c.rowMatchKey" :style="!rawAddToCurrentPeriodRowSelected(c) ? { opacity: 0.5 } : {}">
+                      <td>
+                        <input type="checkbox" :checked="rawAddToCurrentPeriodRowSelected(c)" @change="rawAddToCurrentPeriodToggleRow(c, $event.target.checked)" />
+                      </td>
+                      <td>{{ c.provider_name || getUserName(c.user_id) }}</td>
+                      <td>{{ c.to_service_code || '—' }}</td>
+                      <td><span class="badge badge-success">{{ c.changeType === 'added' ? 'Added' : 'Finalized' }}</span></td>
+                      <td class="right">
+                        <input type="number" :value="rawAddToCurrentPeriodRowUnits(c)" @input="rawAddToCurrentPeriodSetRowUnits(c, $event.target.value)" min="0" step="0.01" style="width: 80px; text-align: right;" />
+                      </td>
                     </tr>
                   </tbody>
                 </table>
@@ -9753,6 +9819,7 @@ const rawModeRows = computed(() => {
     const filter = String(rawRowFilter.value || 'unpaid_only');
     if (filter === 'unpaid_only') rows = rows.filter((r) => !willBePaid(r));
     else if (filter === 'draft_only') rows = rows.filter((r) => String(r.note_status || '').toUpperCase() === 'DRAFT');
+    else if (filter === 'payable') rows = rows.filter((r) => willBePaid(r));
   } else if (mode === 'process_h0031') {
     rows = rows.filter((r) =>
       Number(r.requires_processing) === 1 &&
@@ -9861,6 +9928,147 @@ const rawAuditChangesLimited = computed(() => {
   }
   return rows.slice(0, 500);
 });
+
+const rawAuditPayableChanges = computed(() => {
+  const all = (rawAuditChanges.value || []).slice();
+  return all.filter((c) => {
+    const toStatus = String(c?.to_status || '').toUpperCase();
+    const toUnits = Number(c?.to_units || 0);
+    if (toStatus !== 'FINALIZED' || !(toUnits > 1e-9)) return false;
+    const userId = Number(c?.user_id || 0);
+    if (!userId) return false;
+    return true;
+  });
+});
+
+const rawAddToCurrentPeriodDestinationId = ref(null);
+const rawAddToCurrentPeriodSelection = ref({});
+
+watch(rawAuditPayableChanges, (payable) => {
+  const sel = {};
+  for (const c of payable || []) {
+    const k = c?.rowMatchKey;
+    if (k) sel[k] = { selected: true, units: Number(c?.to_units || 0) };
+  }
+  rawAddToCurrentPeriodSelection.value = sel;
+}, { immediate: true });
+
+watch([rawAuditPayableChanges, rawAddToCurrentPeriodDestOptions], () => {
+  if (rawAuditPayableChanges.value?.length > 0 && !rawAddToCurrentPeriodDestinationId.value) {
+    const opts = rawAddToCurrentPeriodDestOptions.value || [];
+    const batchDest = batchCatchUpDestinationPeriodId.value;
+    if (batchDest && opts.some((p) => Number(p?.id) === Number(batchDest))) {
+      rawAddToCurrentPeriodDestinationId.value = batchDest;
+    } else if (opts.length > 0) {
+      rawAddToCurrentPeriodDestinationId.value = opts[0]?.id || null;
+    }
+  }
+}, { immediate: true });
+const rawAddToCurrentPeriodApplying = ref(false);
+const rawAddToCurrentPeriodError = ref('');
+
+const rawAddToCurrentPeriodDestOptions = computed(() => {
+  const priorId = Number(selectedPeriodId.value || 0);
+  const list = Array.isArray(periods.value) ? periods.value : [];
+  return list.filter((p) => {
+    if (!p?.id) return false;
+    const pid = Number(p.id || 0);
+    if (priorId && pid === priorId) return false;
+    if (String(p?.status || '').toLowerCase() === 'draft') return false;
+    const priorEnd = String((periods.value || []).find((x) => Number(x?.id) === priorId)?.period_end || '').slice(0, 10);
+    if (priorEnd) {
+      const pStart = String(p?.period_start || '').slice(0, 10);
+      if (pStart && pStart <= priorEnd) return false;
+    }
+    return true;
+  }).sort((a, b) => String(a?.period_start || '').localeCompare(String(b?.period_start || '')));
+});
+
+const rawAddToCurrentPeriodSelectedCount = computed(() => {
+  const sel = rawAddToCurrentPeriodSelection.value || {};
+  return (rawAuditPayableChanges.value || []).filter((c) => sel[c.rowMatchKey]?.selected).length;
+});
+
+const isRawAddToCurrentPeriodDestPosted = computed(() => {
+  const destId = rawAddToCurrentPeriodDestinationId.value;
+  if (!destId) return false;
+  const p = (periods.value || []).find((x) => Number(x?.id) === Number(destId));
+  return (p?.status || '').toLowerCase() === 'posted' || (p?.status || '').toLowerCase() === 'finalized';
+});
+
+const rawAddToCurrentPeriodRowSelected = (c) => {
+  const k = c?.rowMatchKey;
+  const s = rawAddToCurrentPeriodSelection.value?.[k];
+  return s ? s.selected : true;
+};
+const rawAddToCurrentPeriodToggleRow = (c, checked) => {
+  const k = c?.rowMatchKey;
+  const base = rawAddToCurrentPeriodSelection.value[k] || { selected: true, units: Number(c?.to_units || 0) };
+  rawAddToCurrentPeriodSelection.value = { ...rawAddToCurrentPeriodSelection.value, [k]: { ...base, selected: !!checked } };
+};
+const rawAddToCurrentPeriodRowUnits = (c) => {
+  const k = c?.rowMatchKey;
+  const s = rawAddToCurrentPeriodSelection.value?.[k];
+  const def = Number(c?.to_units || 0);
+  return s ? s.units : def;
+};
+const rawAddToCurrentPeriodSetRowUnits = (c, val) => {
+  const k = c?.rowMatchKey;
+  const num = Math.max(0, Number(val) || 0);
+  const base = rawAddToCurrentPeriodSelection.value[k] || { selected: true, units: Number(c?.to_units || 0) };
+  rawAddToCurrentPeriodSelection.value = { ...rawAddToCurrentPeriodSelection.value, [k]: { ...base, units: num } };
+};
+
+const applyRawAddToCurrentPeriod = async () => {
+  const destId = rawAddToCurrentPeriodDestinationId.value;
+  if (!destId) return;
+  const payable = rawAuditPayableChanges.value || [];
+  const sel = rawAddToCurrentPeriodSelection.value || {};
+  const rowsToApply = [];
+  for (const c of payable) {
+    if (!sel[c.rowMatchKey]?.selected) continue;
+    const units = rawAddToCurrentPeriodRowUnits(c);
+    if (!(units > 1e-9)) continue;
+    const userId = Number(c?.user_id || 0);
+    if (!userId) continue;
+    const serviceCode = String(c?.to_service_code || '').trim();
+    if (!serviceCode) continue;
+    rowsToApply.push({
+      userId,
+      serviceCode,
+      carryoverFinalizedUnits: Number(units.toFixed(2)),
+      carryoverFinalizedRowCount: 1
+    });
+  }
+  if (!rowsToApply.length) return;
+  try {
+    rawAddToCurrentPeriodApplying.value = true;
+    rawAddToCurrentPeriodError.value = '';
+    await api.post(`/payroll/periods/${destId}/carryover/apply`, { rows: rowsToApply });
+    rawAddToCurrentPeriodError.value = '';
+    rawAddToCurrentPeriodSelection.value = {};
+    await loadPeriods();
+    await loadRawAuditData();
+  } catch (e) {
+    const msg = e.response?.data?.error?.message || e.message || '';
+    if (e.response?.status === 409 && (String(msg).includes('H0031') || String(msg).includes('H0032') || String(msg).includes('H2014') || String(msg).includes('H2032'))) {
+      const ok = window.confirm('Carryover is blocked by H0031/H0032/H2014/H2032 processing. Apply anyway (skip processing gate)?');
+      if (ok) {
+        await api.post(`/payroll/periods/${destId}/carryover/apply`, { rows: rowsToApply }, { params: { skipProcessingGate: 'true' } });
+        rawAddToCurrentPeriodError.value = '';
+        rawAddToCurrentPeriodSelection.value = {};
+        await loadPeriods();
+        await loadRawAuditData();
+      } else {
+        rawAddToCurrentPeriodError.value = msg;
+      }
+    } else {
+      rawAddToCurrentPeriodError.value = msg || 'Failed to add to current period';
+    }
+  } finally {
+    rawAddToCurrentPeriodApplying.value = false;
+  }
+};
 
 const rawStatusLabel = (r) => {
   const direct = String(r?.normalized_status || '').trim().toUpperCase();
@@ -12257,9 +12465,19 @@ const loadBatchCatchUpPriorImports = async () => {
 const openRawModalForPeriodAndImport = async (periodId, importId) => {
   await selectPeriod(periodId);
   rawAuditSelectedImportId.value = importId;
-  rawAuditBaselineImportId.value = importId;
+  // Default baseline to previous import so we see Run 3 vs Run 2 (or Run 2 vs Run 1) changes
+  let baselineImportId = importId;
+  try {
+    const resp = await api.get(`/payroll/periods/${periodId}/imports`);
+    const imports = resp.data?.imports || [];
+    const idx = imports.findIndex((imp) => Number(imp?.id) === Number(importId));
+    if (idx > 0 && imports[idx - 1]?.id) {
+      baselineImportId = imports[idx - 1].id;
+    }
+  } catch { /* fallback to same-as-selected */ }
+  rawAuditBaselineImportId.value = baselineImportId;
   showRawModal.value = true;
-  await loadRawAuditData({ importId, baselineImportId: importId });
+  await loadRawAuditData({ importId, baselineImportId });
 };
 
 const openManageImportsModal = () => {
@@ -12528,6 +12746,72 @@ const isBatchCatchUpDestPosted = computed(() => {
   const s = String(p?.status || '').toLowerCase();
   return s === 'posted' || s === 'finalized';
 });
+
+const applyBatchCatchUpAllToPeriod = async () => {
+  const result = batchCatchUpResult.value;
+  const destId = batchCatchUpDestinationPeriodId.value || result?.destinationPeriodId || selectedPeriodId.value;
+  if (!result || !destId) return;
+  const hasLateNotes = (result.carryoverApplied || []).length > 0;
+  const hasStillNoNote = (result.superFlag || []).length > 0;
+  if (!hasLateNotes && !hasStillNoNote) return;
+  try {
+    batchCatchUpApplying.value = true;
+    batchCatchUpError.value = '';
+    let totalApplied = 0;
+    if (hasLateNotes) {
+      const applied = result.carryoverApplied || [];
+      const rowsToApply = [];
+      for (const c of applied) {
+        if (!batchCatchUpRowSelected(c)) continue;
+        const units = batchCatchUpRowUnits(c);
+        if (!(units > 0)) continue;
+        const row = (result.rowsForApply || []).find((r) => Number(r.userId) === Number(c.userId) && String(r.serviceCode || '').toUpperCase() === String(c.serviceCode || '').toUpperCase());
+        rowsToApply.push({
+          userId: c.userId,
+          serviceCode: c.serviceCode,
+          carryoverFinalizedUnits: units,
+          carryoverFinalizedRowCount: row?.carryoverFinalizedRowCount ?? 1,
+          carryoverMeta: row?.carryoverMeta ?? null
+        });
+      }
+      if (rowsToApply.length > 0) {
+        try {
+          await api.post(`/payroll/periods/${destId}/carryover/apply`, { rows: rowsToApply });
+          totalApplied += rowsToApply.length;
+        } catch (e) {
+          if (e.response?.status === 409 && (String(e.response?.data?.error?.message || '').includes('H0031') || String(e.response?.data?.error?.message || '').includes('H0032'))) {
+            const ok = window.confirm('Carryover is blocked by H0031/H0032/H2014/H2032 processing. Apply anyway (skip processing gate)?');
+            if (ok) {
+              await api.post(`/payroll/periods/${destId}/carryover/apply`, { rows: rowsToApply }, { params: { skipProcessingGate: 'true' } });
+              totalApplied += rowsToApply.length;
+            } else throw e;
+          } else throw e;
+        }
+      }
+    }
+    if (hasStillNoNote) {
+      const rows = (result.superFlag || []).map((f) => ({
+        userId: f.userId,
+        serviceCode: f.serviceCode,
+        stillUnpaidUnits: Number(f.run2NoNoteUnits ?? f.run3NoNoteUnits ?? f.run2UnpaidUnits ?? f.run3UnpaidUnits ?? 0)
+      })).filter((r) => r.stillUnpaidUnits > 0);
+      if (rows.length > 0) {
+        await api.put(`/payroll/periods/${destId}/prior-unpaid`, {
+          sourcePayrollPeriodId: batchCatchUpPriorPeriodId.value || result.period?.id,
+          rows
+        });
+        totalApplied += rows.length;
+      }
+    }
+    batchCatchUpResult.value = { ...result, applied: true, carryoverRowsApplied: totalApplied };
+    await loadPeriods();
+    await selectPeriod(destId);
+  } catch (e) {
+    batchCatchUpError.value = e.response?.data?.error?.message || e.message || 'Failed to add to current period';
+  } finally {
+    batchCatchUpApplying.value = false;
+  }
+};
 
 const applyStillNoNoteToPeriod = async () => {
   const result = batchCatchUpResult.value;
