@@ -82,7 +82,7 @@ Users must be able to:
 **Modes within Raw Import:**
 
 - **Draft Audit:** Mark drafts as payable/unpayable.
-- **Process H0031 / H0032 / H2014:** Enter minutes and mark Done. **All H2014 must be seen, approved, and changed before moving past raw import.** Payroll cannot run until these are processed.
+- **Process H0031 / H0032 / H2014 / H2032:** Enter minutes and mark Done. **All H2014 and H2032 must be seen, approved, and changed before moving past raw import.** Payroll cannot run until these are processed.
 - **Missed Appts (Paid in Full):** Display-only.
 - **Processed:** Review rows marked Done.
 
@@ -121,7 +121,7 @@ Users must be able to:
   - H0031/H0032/H2014 minutes and Done processing
   - **H2014:** Must see, approve, and change all H2014 before moving past raw import.
   - Any other raw-row edits
-- Implemented as a sub-stage of `raw_imported`: Run Payroll is gated until all H0031/H0032/H2014 rows requiring processing are marked Done.
+- Implemented as a sub-stage of `raw_imported`: Run Payroll is gated until all H0031/H0032/H2014/H2032 rows requiring processing are marked Done.
 
 ---
 
