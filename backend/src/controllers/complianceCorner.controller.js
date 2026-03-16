@@ -428,7 +428,7 @@ export const listRoiRenewalCandidates = async (req, res, next) => {
        LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
        WHERE c.agency_id = ?
          AND (c.status IS NULL OR UPPER(c.status) <> 'ARCHIVED')
-         AND (cs.status_key IS NULL OR LOWER(cs.status_key) <> 'archived')
+         AND (cs.status_key IS NULL OR LOWER(cs.status_key) NOT IN ('archived', 'inactive', 'terminated'))
          AND (org.organization_type IS NULL OR LOWER(org.organization_type) = 'school')
        ORDER BY org.name ASC, c.initials ASC, c.id DESC`,
       [agencyId]
@@ -637,11 +637,14 @@ export const queueBulkRoiRenewalEmails = async (req, res, next) => {
     const hasAgencyAccess = await ensureAgencyAccessForUser({ userId, roleNorm, agencyId });
     if (!hasAgencyAccess) return res.status(403).json({ error: { message: 'Access denied' } });
 
+    const excludedStatusKeys = ['archived', 'inactive', 'terminated'];
     const jobs = [];
     for (const clientId of clientIds) {
       jobs.push(async () => {
         const client = await Client.findById(clientId, { includeSensitive: true });
         if (!client || Number(client.agency_id || 0) !== agencyId) return;
+        const statusKey = String(client.client_status_key || '').toLowerCase();
+        if (excludedStatusKeys.includes(statusKey)) return;
         const schoolOrganizationId = Number(client.organization_id || 0);
         if (!schoolOrganizationId) return;
 
@@ -725,12 +728,15 @@ export const sendProviderRoiReminders = async (req, res, next) => {
     const hasAgencyAccess = await ensureAgencyAccessForUser({ userId, roleNorm, agencyId });
     if (!hasAgencyAccess) return res.status(403).json({ error: { message: 'Access denied' } });
 
+    const excludedStatusKeys = ['archived', 'inactive', 'terminated'];
     let created = 0;
     let pushed = 0;
     for (const clientId of clientIds) {
       // eslint-disable-next-line no-await-in-loop
       const client = await Client.findById(clientId, { includeSensitive: true });
       if (!client || Number(client.agency_id || 0) !== agencyId) continue;
+      const statusKey = String(client.client_status_key || '').toLowerCase();
+      if (excludedStatusKeys.includes(statusKey)) continue;
       const roi = computeRoiStatus(client.roi_expires_at, DEFAULT_ROI_SOON_DAYS);
       const expirationText = client.roi_expires_at ? formatYmd(client.roi_expires_at) : 'not on file';
       const title = 'ROI update reminder';

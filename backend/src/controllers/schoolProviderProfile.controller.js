@@ -3,6 +3,7 @@ import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
 import ClientSchoolStaffRoiAccess, {
   getEffectiveSchoolStaffRoiState,
+  isRoiExpired,
   schoolStaffCanOpenClient,
   schoolStaffCanViewClientDocuments
 } from '../models/ClientSchoolStaffRoiAccess.model.js';
@@ -48,16 +49,22 @@ async function listSchoolStaffAccessByClient({ userId, role, schoolOrganizationI
   });
 }
 
-function getSchoolStaffClientPrivacyMeta(client, accessMap) {
+function getSchoolStaffClientPrivacyMeta(client, accessMap, { schoolStaffInOrg = false } = {}) {
   const clientId = Number(client?.id || 0);
   const record = clientId ? accessMap.get(clientId) : null;
-  const effectiveState = getEffectiveSchoolStaffRoiState(record, client?.roi_expires_at || null);
-  const canOpenClient = schoolStaffCanOpenClient(record, client?.roi_expires_at || null);
+  const roiExpiresAt = client?.roi_expires_at || null;
+  let effectiveState = getEffectiveSchoolStaffRoiState(record, roiExpiresAt);
+  let canOpenClient = schoolStaffCanOpenClient(record, roiExpiresAt);
+  // No explicit record: school staff in same org get LIMITED access when ROI is active (not expired).
+  if (!record && schoolStaffInOrg && !isRoiExpired(roiExpiresAt)) {
+    effectiveState = 'limited';
+    canOpenClient = true;
+  }
   const locked = !canOpenClient;
   return {
     school_staff_access_level: record?.is_active ? String(record.access_level || 'packet').toLowerCase() : 'none',
     school_staff_effective_access_state: effectiveState,
-    school_staff_can_view_documents: schoolStaffCanViewClientDocuments(record, client?.roi_expires_at || null),
+    school_staff_can_view_documents: schoolStaffCanViewClientDocuments(record, roiExpiresAt),
     school_portal_can_open: canOpenClient,
     school_portal_gray: locked,
     school_portal_force_placeholder: locked,
@@ -654,17 +661,36 @@ export const getProviderSchoolCaseloadSlots = async (req, res, next) => {
         // ignore
       }
 
-      const accessByClientId = await listSchoolStaffAccessByClient({
-        userId: req.user?.id,
-        role: req.user?.role,
-        schoolOrganizationId: orgId,
-        clientIds: (clientRows || []).map((c) => Number(c?.id)).filter(Boolean)
-      });
+      const userRole = String(req.user?.role || '').toLowerCase();
+      const isSchoolStaff = userRole === 'school_staff';
+      const accessByClientId = isSchoolStaff
+        ? await listSchoolStaffAccessByClient({
+            userId: req.user?.id,
+            role: req.user?.role,
+            schoolOrganizationId: orgId,
+            clientIds: (clientRows || []).map((c) => Number(c?.id)).filter(Boolean)
+          })
+        : new Map();
+      const schoolStaffInOrg = isSchoolStaff
+        ? await ClientSchoolStaffRoiAccess.schoolStaffBelongsToOrganization({
+            schoolStaffUserId: req.user?.id,
+            schoolOrganizationId: orgId
+          })
+        : false;
 
       for (const c of clientRows || []) {
         const d = String(c.service_day || c.service_day || '');
         const list = clientsByDay.get(d) || [];
-        const privacyMeta = getSchoolStaffClientPrivacyMeta(c, accessByClientId);
+        const privacyMeta = isSchoolStaff
+          ? getSchoolStaffClientPrivacyMeta(c, accessByClientId, { schoolStaffInOrg })
+          : {
+              school_staff_access_level: null,
+              school_staff_effective_access_state: null,
+              school_portal_can_open: true,
+              school_portal_gray: false,
+              school_portal_force_placeholder: false,
+              school_portal_locked_label: null
+            };
         list.push({
           ...c,
           unread_notes_count: unreadCounts.get(Number(c.id)) || 0,
