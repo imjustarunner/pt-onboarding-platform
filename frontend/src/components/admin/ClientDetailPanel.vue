@@ -438,6 +438,17 @@
                 {{ guardianIntakeDob ? formatDate(guardianIntakeDob) : '-' }}
               </div>
             </div>
+            <div
+              v-if="editingOverview && guardianIntakeProfile && !intakeGuardianAlreadyLinked && canManageGuardians"
+              class="info-item"
+            >
+              <label>&nbsp;</label>
+              <div class="info-value">
+                <button type="button" class="btn btn-primary btn-sm" @click="openAddGuardian">
+                  Add guardian from intake info
+                </button>
+              </div>
+            </div>
             <div class="info-item">
               <label>Upload status (legacy)</label>
               <div class="info-value">
@@ -895,13 +906,19 @@
           </div>
 
           <!-- Add Guardian Modal -->
-          <div v-if="showAddGuardianModal" class="modal-overlay" @click.self="closeAddGuardian">
-            <div class="modal-content" @click.stop style="max-width: 720px;">
-              <div class="modal-header" style="padding: 16px 18px;">
+          <div v-if="showAddGuardianModal" class="modal-overlay add-guardian-modal-overlay" @click.self="closeAddGuardian">
+            <div class="modal-content add-guardian-modal" @click.stop style="max-width: 560px;">
+              <div class="modal-header" style="padding: 18px 20px;">
                 <h3 style="margin:0;">Add guardian access</h3>
                 <button class="btn-close" @click="closeAddGuardian">×</button>
               </div>
-              <div style="padding: 18px;">
+              <div class="add-guardian-modal-body">
+                <div
+                  v-if="addGuardianFormPrefilledFromIntake"
+                  class="add-guardian-intake-hint"
+                >
+                  Pre-filled from latest intake. Add a different guardian? Click <strong>Clear</strong> to start fresh.
+                </div>
                 <div class="form-group">
                   <label>Email *</label>
                   <input v-model="addGuardianForm.email" type="email" placeholder="guardian@email.com" />
@@ -956,7 +973,17 @@
                   </label>
                 </div>
 
-                <div style="display:flex; justify-content:flex-end; gap: 10px; margin-top: 18px;">
+                <div class="add-guardian-modal-actions">
+                  <button
+                    v-if="addGuardianFormPrefilledFromIntake"
+                    type="button"
+                    class="btn btn-secondary btn-sm"
+                    @click="clearAddGuardianForm"
+                    :disabled="addingGuardian"
+                  >
+                    Clear
+                  </button>
+                  <div style="flex:1;" />
                   <button type="button" class="btn btn-secondary" @click="closeAddGuardian" :disabled="addingGuardian">Cancel</button>
                   <button type="button" class="btn btn-primary" @click="addGuardian" :disabled="addingGuardian">
                     {{ addingGuardian ? 'Creating…' : 'Create + Generate invite link' }}
@@ -2056,6 +2083,9 @@ const addGuardianForm = ref({
 });
 const lastInviteLink = ref('');
 const updatingGuardianId = ref(null);
+const addGuardianPrefilledFromIntake = ref(false);
+
+const addGuardianFormPrefilledFromIntake = computed(() => addGuardianPrefilledFromIntake.value);
 
 const canManageGuardians = computed(() => {
   const r = String(authStore.user?.role || '').toLowerCase();
@@ -2471,6 +2501,7 @@ const fetchGuardians = async () => {
 const openAddGuardian = () => {
   lastInviteLink.value = '';
   const gip = guardianIntakeProfile.value;
+  const hasIntakeData = gip && (gip.email || gip.firstName || gip.lastName);
   addGuardianForm.value = {
     email: gip?.email || '',
     firstName: gip?.firstName || '',
@@ -2486,7 +2517,27 @@ const openAddGuardian = () => {
       canMessage: false
     }
   };
+  addGuardianPrefilledFromIntake.value = !!hasIntakeData;
   showAddGuardianModal.value = true;
+};
+
+const clearAddGuardianForm = () => {
+  addGuardianForm.value = {
+    email: '',
+    firstName: '',
+    lastName: '',
+    relationshipTitle: 'Guardian',
+    accessEnabled: true,
+    permissions: {
+      canViewDocs: true,
+      canSignDocs: true,
+      canViewLinks: true,
+      canViewProgramMaterials: true,
+      canViewProgress: true,
+      canMessage: false
+    }
+  };
+  addGuardianPrefilledFromIntake.value = false;
 };
 
 const closeAddGuardian = () => {
@@ -3938,6 +3989,34 @@ watch(
   font-size: 13px;
   color: var(--text-primary);
   cursor: pointer;
+}
+
+.add-guardian-modal-overlay {
+  z-index: 10000;
+}
+.add-guardian-modal {
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+}
+.add-guardian-modal-body {
+  padding: 18px 20px;
+}
+.add-guardian-intake-hint {
+  font-size: 13px;
+  color: var(--text-secondary);
+  background: #f0f7ff;
+  border: 1px solid #c8e1ff;
+  border-radius: 6px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+}
+.add-guardian-modal-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 18px;
+  flex-wrap: wrap;
 }
 
 .intake-guardian-placeholder {

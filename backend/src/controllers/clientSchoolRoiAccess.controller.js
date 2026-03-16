@@ -10,6 +10,7 @@ import ClientSchoolStaffRoiAccess, {
 import SchoolRoiIntakeLinkConfig from '../models/SchoolRoiIntakeLinkConfig.model.js';
 import ClientSchoolRoiSigningLink from '../models/ClientSchoolRoiSigningLink.model.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
+import ClientGuardianIntakeProfile from '../models/ClientGuardianIntakeProfile.model.js';
 import MessageLog from '../models/MessageLog.model.js';
 import Notification from '../models/Notification.model.js';
 import TwilioNumber from '../models/TwilioNumber.model.js';
@@ -985,6 +986,16 @@ export const sendClientSchoolRoiSigningEmail = async (req, res, next) => {
     });
 
     _roiEmailCooldowns.set(`${clientId}:${toEmail}`, Date.now());
+
+    try {
+      await ClientGuardianIntakeProfile.mergeEmailForClient({
+        clientId,
+        email: toEmail,
+        source: 'roi_email_sent'
+      });
+    } catch (persistErr) {
+      console.warn('[clientSchoolRoiAccess] guardian intake profile merge failed:', persistErr?.message);
+    }
 
     const updatedLink = issuedResult.issuedLink?.id
       ? await ClientSchoolRoiSigningLink.recordEmailSent({ id: issuedResult.issuedLink.id, toEmail })

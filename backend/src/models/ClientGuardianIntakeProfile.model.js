@@ -55,6 +55,17 @@ class ClientGuardianIntakeProfile {
     return this.findByClientId(cid);
   }
 
+  static async mergeEmailForClient({ clientId, email, source = 'roi_email_sent' }) {
+    const cid = Number(clientId || 0);
+    const emailNorm = String(email || '').trim().toLowerCase();
+    if (!cid || !emailNorm || !emailNorm.includes('@')) return null;
+    const existing = await this.findByClientId(cid);
+    const merged = existing
+      ? { ...existing, email: emailNorm }
+      : { email: emailNorm, firstName: null, lastName: null, fullName: null, phone: null, relationship: null, dateOfBirth: null };
+    return this.upsertForClient({ clientId: cid, profile: merged, source });
+  }
+
   static async findByClientId(clientId) {
     const cid = Number(clientId || 0);
     if (!cid) return null;
