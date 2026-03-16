@@ -1195,7 +1195,7 @@
         <div class="hint muted" style="margin-top: 4px;">Import + draft audit path: Import Run 1, do draft audit (mark drafts unpaid), create baseline run, then upload Run 2. Or use file compare (2 or 3 files) to double-check.</div>
         <div class="field-row" style="margin-top: 8px; grid-template-columns: 1fr 1fr; gap: 8px;">
           <div class="field">
-            <label>Prior period (for DB baseline)</label>
+            <label>Prior period (runs in DB)</label>
             <select v-model="batchCatchUpPriorPeriodId" :disabled="!agencyId || !(processPriorPeriodOptions || []).length" style="min-width: 220px;">
               <option :value="null">None (use file compare)</option>
               <option v-for="p in processPriorPeriodOptions" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
@@ -6162,8 +6162,8 @@ const batchCatchUpDbBaselineFileReady = computed(() => {
 
 const batchCatchUpDbBaselineButtonLabel = computed(() => {
   const imp = batchCatchUpPriorPeriodImports.value || [];
-  if (imp.length >= 2) return 'Upload Run 3 & compare (DB baseline)';
-  return 'Upload Run 2 & compare (DB baseline)';
+  if (imp.length >= 2) return 'Upload Run 3 & compare (Run 3 vs Run 2)';
+  return 'Upload Run 2 & compare (Run 2 vs Run 1)';
 });
 
 const wizardPriorPeriodId = ref(null);
