@@ -14,6 +14,7 @@
 
       <form v-else @submit.prevent="submit" class="signup-form">
         <div v-if="error" class="error">{{ error }}</div>
+        <!-- reCAPTCHA placeholder: public-facing club manager signup - add verifyRecaptchaV3() before submit when ready -->
         <div class="form-group">
           <label for="email">Email</label>
           <input id="email" v-model="email" type="email" required placeholder="you@example.com" :disabled="loading" />

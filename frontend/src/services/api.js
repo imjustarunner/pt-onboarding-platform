@@ -72,8 +72,9 @@ api.interceptors.response.use(
       reqUrl.startsWith('/public/') ||
       reqUrl.includes('/public-intake') ||
       reqUrl.startsWith('/public-intake');
-    const publicPathPrefixes = ['/intake/', '/schools', '/kiosk/'];
-    const isPublicPath = publicPathPrefixes.some((prefix) => path.startsWith(prefix));
+    const publicPathPrefixes = ['/intake/', '/schools', '/kiosk'];
+    const isPublicPath =
+      publicPathPrefixes.some((prefix) => path.startsWith(prefix)) || path.includes('/clubs');
     
     if (
       error.response?.status === 401 &&

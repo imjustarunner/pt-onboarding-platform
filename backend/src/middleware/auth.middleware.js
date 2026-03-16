@@ -18,6 +18,9 @@ export const authenticate = (req, res, next) => {
     if (requestPath.includes('/verify-club-manager-email')) {
       return next();
     }
+    if (requestPath.includes('/summit-stats/clubs') && req.method === 'GET') {
+      return next();
+    }
     // Fonts are used on public login/portal pages.
     if (requestPath.startsWith('/api/fonts/public') || requestPath.startsWith('/api/fonts/families')) {
       return next();

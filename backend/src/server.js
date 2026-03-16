@@ -8,6 +8,7 @@ import requestLoggingMiddleware from './middleware/requestLogging.middleware.js'
 import { accessDebugMiddleware } from './middleware/accessDebug.middleware.js';
 import authRoutes from './routes/auth.routes.js';
 import { verifyClubManagerEmail } from './controllers/auth.controller.js';
+import { listClubs } from './controllers/summitStats.controller.js';
 import userRoutes from './routes/user.routes.js';
 import moduleRoutes from './routes/module.routes.js';
 import progressRoutes from './routes/progress.routes.js';
@@ -521,6 +522,9 @@ app.use('/api/public/schools', publicSchoolsRoutes);
 // Club manager email verification (public, no auth) - mount before auth to avoid any auth middleware
 app.get('/api/auth/verify-club-manager-email', verifyClubManagerEmail);
 app.get('/api/auth/verify-club-manager-email/:token', verifyClubManagerEmail);
+
+// Summit Stats: list clubs (public, no auth) - mount before summit-stats router
+app.get('/api/summit-stats/clubs', listClubs);
 
 // API Routes
 app.use('/api/auth', authRoutes);

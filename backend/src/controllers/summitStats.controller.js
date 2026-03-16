@@ -123,26 +123,46 @@ export const listClubs = async (req, res, next) => {
     }
 
     const search = String(req.query?.search || req.query?.q || '').trim();
+    const state = String(req.query?.state || '').trim();
     const limit = Math.min(100, Math.max(1, parseInt(req.query?.limit, 10) || 50));
     const offset = Math.max(0, parseInt(req.query?.offset, 10) || 0);
 
     let where = `oa.agency_id = ? AND oa.is_active = 1 AND a.organization_type = 'affiliation' AND a.is_active = 1`;
     const params = [platformAgencyId];
 
-    if (search) {
-      where += ` AND (a.name LIKE ? OR a.slug LIKE ?)`;
-      const pattern = `%${search.replace(/%/g, '\\%')}%`;
-      params.push(pattern, pattern);
+    if (state) {
+      where += ` AND (a.state = ? OR UPPER(TRIM(a.state)) = ?)`;
+      const stateNorm = state.toUpperCase().trim();
+      params.push(state, stateNorm);
     }
 
+    if (search) {
+      where += ` AND (a.name LIKE ? OR a.slug LIKE ? OR a.city LIKE ?)`;
+      const pattern = `%${search.replace(/%/g, '\\%')}%`;
+      params.push(pattern, pattern, pattern);
+    }
+
+    const searchLower = search ? search.toLowerCase().trim() : '';
+    const orderBy = searchLower
+      ? `CASE
+           WHEN LOWER(a.name) = ? THEN 0
+           WHEN LOWER(a.name) LIKE ? THEN 1
+           WHEN LOWER(a.slug) LIKE ? THEN 2
+           ELSE 3
+         END, a.name ASC`
+      : 'a.name ASC';
+    const orderParams = searchLower
+      ? [searchLower, `${searchLower}%`, `${searchLower}%`]
+      : [];
+
     const [rows] = await pool.execute(
-      `SELECT a.id, a.name, a.slug, a.organization_type, a.is_active, a.created_at
+      `SELECT a.id, a.name, a.slug, a.state, a.city, a.organization_type, a.is_active, a.created_at
        FROM organization_affiliations oa
        JOIN agencies a ON a.id = oa.organization_id
        WHERE ${where}
-       ORDER BY a.name ASC
+       ORDER BY ${orderBy}
        LIMIT ? OFFSET ?`,
-      [...params, limit, offset]
+      [...params, ...orderParams, limit, offset]
     );
 
     const [countRows] = await pool.execute(

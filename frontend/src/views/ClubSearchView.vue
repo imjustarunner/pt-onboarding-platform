@@ -7,14 +7,18 @@
       <h1>Find a Club</h1>
       <p class="subtitle">Browse clubs and apply to join. Sign in to apply.</p>
 
-      <div class="search-row">
+      <div class="search-filters">
         <input
           v-model="search"
           type="text"
-          placeholder="Search clubs..."
+          placeholder="Search by name or city..."
           class="search-input"
           @input="debouncedSearch"
         />
+        <select v-model="stateFilter" class="state-select" @change="fetchClubs">
+          <option value="">All states</option>
+          <option v-for="s in usStates" :key="s" :value="s">{{ s }}</option>
+        </select>
       </div>
 
       <div v-if="loading" class="loading">Loading clubs…</div>
@@ -22,8 +26,14 @@
       <div v-else-if="!clubs.length" class="empty">No clubs found. Try a different search.</div>
       <div v-else class="clubs-grid">
         <div v-for="c in clubs" :key="c.id" class="club-card">
-          <div class="club-name">{{ c.name }}</div>
-          <div v-if="c.slug" class="club-slug">{{ c.slug }}</div>
+          <div class="club-info">
+            <div class="club-name">{{ c.name }}</div>
+            <div v-if="c.slug || c.city || c.state" class="club-meta">
+              <template v-if="c.slug">{{ c.slug }}</template>
+              <template v-if="c.slug && (c.city || c.state)"> · </template>
+              <template v-if="c.city || c.state">{{ [c.city, c.state].filter(Boolean).join(', ') }}</template>
+            </div>
+          </div>
           <div v-if="isMember(c.id)" class="club-badge">Member</div>
           <button
             v-else-if="authStore.isAuthenticated"
@@ -34,13 +44,10 @@
           >
             {{ applyingId === c.id ? 'Joining…' : 'Apply to Join' }}
           </button>
-          <router-link
-            v-else
-            :to="loginPath"
-            class="btn btn-primary btn-sm"
-          >
-            Sign in to Join
-          </router-link>
+          <div v-else class="club-actions">
+            <router-link :to="loginPath" class="btn btn-primary btn-sm">Sign in to Join</router-link>
+            <router-link :to="signupPath" class="btn btn-secondary btn-sm">Sign up to Apply</router-link>
+          </div>
         </div>
       </div>
 
@@ -49,6 +56,7 @@
         <span class="sep">|</span>
         <router-link :to="clubManagerSignupPath">Create a club instead</router-link>
       </p>
+      <!-- reCAPTCHA placeholder: apply-to-join flow (sign up to apply) - add when implementing -->
     </div>
   </div>
 </template>
@@ -78,8 +86,15 @@ const clubs = ref([]);
 const loading = ref(true);
 const error = ref('');
 const search = ref('');
+const stateFilter = ref('');
 const applyingId = ref(null);
 let searchTimeout = null;
+
+const usStates = [
+  'AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA', 'HI', 'ID', 'IL', 'IN', 'IA', 'KS',
+  'KY', 'LA', 'ME', 'MD', 'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ', 'NM', 'NY',
+  'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC', 'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY', 'DC'
+];
 
 const displayLogoUrl = computed(() => {
   if (orgSlug.value && loginTheme.value?.agency?.logoUrl) return loginTheme.value.agency.logoUrl;
@@ -105,8 +120,12 @@ const fetchClubs = async () => {
   error.value = '';
   try {
     const r = await api.get('/summit-stats/clubs', {
-      params: { search: search.value.trim() || undefined },
-      skipGlobalLoading: true
+      params: {
+        search: search.value.trim() || undefined,
+        state: stateFilter.value || undefined
+      },
+      skipGlobalLoading: true,
+      skipAuthRedirect: true
     });
     clubs.value = r.data?.clubs || [];
   } catch (e) {
@@ -187,15 +206,36 @@ watch(orgSlug, (newSlug) => {
   color: var(--text-muted, #666);
   font-size: 0.95em;
 }
-.search-row {
+.search-filters {
+  display: flex;
+  gap: 12px;
   margin-bottom: 24px;
+  flex-wrap: wrap;
 }
 .search-input {
-  width: 100%;
+  flex: 1;
+  min-width: 180px;
   padding: 12px 16px;
   border: 1px solid var(--border-color, #ddd);
   border-radius: 8px;
   font-size: 1em;
+}
+.state-select {
+  padding: 12px 16px;
+  border: 1px solid var(--border-color, #ddd);
+  border-radius: 8px;
+  font-size: 1em;
+  min-width: 140px;
+}
+.club-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.btn-secondary {
+  background: var(--bg, #f5f5f5);
+  color: var(--text, #333);
+  border: 1px solid var(--border-color, #ddd);
 }
 .loading, .error, .empty {
   padding: 24px;
@@ -221,12 +261,15 @@ watch(orgSlug, (newSlug) => {
 }
 .club-name {
   font-weight: 600;
+}
+.club-info {
   flex: 1;
   min-width: 120px;
 }
-.club-slug {
+.club-meta {
   font-size: 0.9em;
   color: var(--text-muted, #666);
+  margin-top: 2px;
 }
 .club-badge {
   margin-left: auto;
