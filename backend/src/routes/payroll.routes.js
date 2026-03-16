@@ -6,6 +6,7 @@ import {
   getUnpaidDraftsReport,
   getPayrollPeriod,
   getPayrollPeriodRawAudit,
+  listPayrollPeriodImports,
   patchPayrollImportRow,
   downloadPayrollRawCsv,
   downloadPayrollExportCsv,
@@ -188,6 +189,7 @@ router.get('/periods', listPayrollPeriods);
 router.get('/periods/unpaid-drafts-report', getUnpaidDraftsReport);
 router.get('/periods/:id', getPayrollPeriod);
 router.get('/periods/:id/raw-audit', getPayrollPeriodRawAudit);
+router.get('/periods/:id/imports', listPayrollPeriodImports);
 router.patch('/import-rows/:rowId', patchPayrollImportRow);
 router.get('/periods/:id/reports/sessions-units', getPayrollReportSessionsUnits);
 router.get('/periods/:id/reports/late-notes', getPayrollReportLateNotesTotals);

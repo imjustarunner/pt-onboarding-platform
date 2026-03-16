@@ -530,8 +530,8 @@
                   <div v-if="batchCatchUpResult.superFlagCount > 0" class="warn-box" style="margin-top: 10px; padding: 10px; font-size: 0.9em;">
                     <strong>Still no note ({{ batchCatchUpResult.superFlagCount }}):</strong> Please address before continuing.
                   </div>
-                  <div v-if="(batchCatchUpResult.h0031PendingCount || 0) + (batchCatchUpResult.h0032PendingCount || 0) > 0" class="warn-box" style="margin-top: 8px; padding: 10px; font-size: 0.9em;">
-                    {{ batchCatchUpResult.h0031PendingCount || 0 }} H0031 and {{ batchCatchUpResult.h0032PendingCount || 0 }} H0032 rows need minutes updated (you’ll do that in later steps).
+                  <div v-if="(batchCatchUpResult.h0031PendingCount || 0) + (batchCatchUpResult.h0032PendingCount || 0) + (batchCatchUpResult.h2014PendingCount || 0) > 0" class="warn-box" style="margin-top: 8px; padding: 10px; font-size: 0.9em;">
+                    {{ batchCatchUpResult.h0031PendingCount || 0 }} H0031, {{ batchCatchUpResult.h0032PendingCount || 0 }} H0032, {{ batchCatchUpResult.h2014PendingCount || 0 }} H2014 rows need minutes updated (you’ll do that in later steps).
                   </div>
                 </div>
                 <div v-if="batchCatchUpResult?.applied" style="margin-top: 10px;">
@@ -1185,16 +1185,25 @@
         <div class="field-row" style="margin-top: 8px; grid-template-columns: 1fr 1fr 1fr; gap: 8px;" :key="`batch-files-${batchCatchUpResetKey}`">
           <div class="field">
             <label>First run</label>
-            <input type="file" accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" @change="onBatchFilePick($event, 1)" />
+            <input type="file" accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" @change="onBatchFilePick($event, 1)" :disabled="batchCatchUpRun1Disabled" :title="batchCatchUpRun1Disabled ? 'Run 1 already in DB for this period' : ''" />
+            <div v-if="batchCatchUpPriorPeriodId && (batchCatchUpPriorPeriodImports || [])[0]" class="hint" style="margin-top: 4px;">
+              <button type="button" class="btn btn-secondary btn-sm" @click="openRawModalForPeriodAndImport(batchCatchUpPriorPeriodId, (batchCatchUpPriorPeriodImports || [])[0].id)">View import</button>
+            </div>
           </div>
           <div class="field">
             <label>Second run</label>
-            <input type="file" accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" @change="onBatchFilePick($event, 2)" />
+            <input type="file" accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" @change="onBatchFilePick($event, 2)" :disabled="batchCatchUpRun2Disabled" :title="batchCatchUpRun2Disabled ? 'Run 2 already in DB for this period' : ''" />
+            <div v-if="batchCatchUpPriorPeriodId && (batchCatchUpPriorPeriodImports || [])[1]" class="hint" style="margin-top: 4px;">
+              <button type="button" class="btn btn-secondary btn-sm" @click="openRawModalForPeriodAndImport(batchCatchUpPriorPeriodId, (batchCatchUpPriorPeriodImports || [])[1].id)">View import</button>
+            </div>
           </div>
           <div class="field">
             <label>Latest (optional for 2-run)</label>
-            <input type="file" accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" @change="onBatchFilePick($event, 3)" />
+            <input type="file" accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" @change="onBatchFilePick($event, 3)" :disabled="batchCatchUpRun3Disabled" :title="batchCatchUpRun3Disabled ? 'Run 3 already in DB for this period' : ''" />
             <div class="hint muted" style="font-size: 0.85em;">Leave empty for 2-run: Run 1 vs Run 2 only.</div>
+            <div v-if="batchCatchUpPriorPeriodId && (batchCatchUpPriorPeriodImports || [])[2]" class="hint" style="margin-top: 4px;">
+              <button type="button" class="btn btn-secondary btn-sm" @click="openRawModalForPeriodAndImport(batchCatchUpPriorPeriodId, (batchCatchUpPriorPeriodImports || [])[2].id)">View import</button>
+            </div>
           </div>
         </div>
         <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr auto; gap: 12px; align-items: end;">
@@ -1207,8 +1216,8 @@
             <div class="hint muted" style="margin-top: 4px;">Late notes will be added to this period when you click Add.</div>
           </div>
           <div class="actions" style="margin: 0; flex-wrap: wrap; gap: 8px;">
-            <button v-if="batchCatchUpPriorPeriodId" class="btn btn-primary" @click="runBatchCatchUpDbBaseline" :disabled="batchCatchUpLoading || !batchFiles[2] || !agencyId || !batchCatchUpDestinationPeriodId">
-              {{ batchCatchUpLoading ? 'Comparing…' : 'Upload Run 2 & compare (DB baseline)' }}
+            <button v-if="batchCatchUpPriorPeriodId" class="btn btn-primary" @click="runBatchCatchUpDbBaseline" :disabled="batchCatchUpLoading || !batchCatchUpDbBaselineFileReady || !agencyId || !batchCatchUpDestinationPeriodId">
+              {{ batchCatchUpLoading ? 'Comparing…' : batchCatchUpDbBaselineButtonLabel }}
             </button>
             <button class="btn btn-primary" @click="runBatchCatchUp" :disabled="batchCatchUpLoading || !batchFiles[1] || !batchFiles[2] || !agencyId">
               {{ batchCatchUpLoading ? 'Comparing…' : (batchFiles[3] ? 'Upload 3 & compare (file)' : 'Upload 2 & compare (file)') }}
@@ -1255,13 +1264,13 @@
             </table>
           </div>
           <div
-            v-if="(batchCatchUpResult.h0031PendingCount || 0) + (batchCatchUpResult.h0032PendingCount || 0) > 0"
+            v-if="(batchCatchUpResult.h0031PendingCount || 0) + (batchCatchUpResult.h0032PendingCount || 0) + (batchCatchUpResult.h2014PendingCount || 0) > 0"
             class="warn-box"
             style="margin-top: 10px; padding: 12px;"
           >
-            <strong>H0031/H0032 minutes:</strong>
-            {{ batchCatchUpResult.h0031PendingCount || 0 }} H0031 and {{ batchCatchUpResult.h0032PendingCount || 0 }} H0032 rows need minutes updated.
-            Open <strong>Raw Import</strong> → <strong>Process H0031</strong> / <strong>Process H0032</strong> to edit. Unpaid rows are highlighted in amber.
+            <strong>H0031/H0032/H2014 minutes:</strong>
+            {{ batchCatchUpResult.h0031PendingCount || 0 }} H0031, {{ batchCatchUpResult.h0032PendingCount || 0 }} H0032, {{ batchCatchUpResult.h2014PendingCount || 0 }} H2014 rows need minutes updated.
+            Open <strong>Raw Import</strong> → <strong>Process H0031</strong> / <strong>Process H0032</strong> / <strong>Process H2014</strong> to edit. Unpaid rows are highlighted in amber.
           </div>
           <div v-if="batchCatchUpResult.superFlagCount > 0" class="warn-box" style="margin-top: 10px; padding: 12px;">
             <strong>Still no note ({{ batchCatchUpResult.superFlagCount }}):</strong> {{ batchCatchUpResult.twoRunMode ? 'No note in Run 1, still no note in Run 2.' : 'No note in Run 2, still no note in Run 3.' }} Please address.
@@ -4358,6 +4367,7 @@
                   <span v-if="rawMode === 'draft_audit'">Raw Import (Draft Audit)</span>
                   <span v-else-if="rawMode === 'process_h0031'">Raw Import (Process H0031)</span>
                   <span v-else-if="rawMode === 'process_h0032'">Raw Import (Process H0032)</span>
+                  <span v-else-if="rawMode === 'process_h2014'">Raw Import (Process H2014)</span>
                   <span v-else-if="rawMode === 'missed_appts_paid_in_full'">Raw Import (Missed Appointments • Paid in Full)</span>
                   <span v-else>Raw Import (Processed)</span>
                 </div>
@@ -4373,6 +4383,9 @@
                     Enter the correct minutes for H0032 Cat1 Hour rows, then mark Done. Payroll cannot run until these are processed. (Cat2 Flat providers do not appear here; they default to 30 minutes per line.)
                     <strong>Unpaid rows</strong> are included — update minutes so they are correct when notes are added later.
                   </span>
+                  <span v-else-if="rawMode === 'process_h2014'">
+                    See, approve, and change all H2014 (Skills Training) rows before moving past raw import. Enter correct minutes and mark Done. Payroll cannot run until these are processed.
+                  </span>
                   <span v-else-if="rawMode === 'missed_appts_paid_in_full'">
                     Flags from the billing report upload where Type contains "Missed Appointment" and Patient Balance Status is "Paid in Full". Display-only (no pay math).
                   </span>
@@ -4385,6 +4398,7 @@
                 <button class="btn btn-secondary btn-sm" @click="rawMode = 'draft_audit'">Draft Audit</button>
                 <button class="btn btn-secondary btn-sm" @click="rawMode = 'process_h0031'">Process H0031</button>
                 <button class="btn btn-secondary btn-sm" @click="rawMode = 'process_h0032'">Process H0032</button>
+                <button class="btn btn-secondary btn-sm" @click="rawMode = 'process_h2014'">Process H2014</button>
                 <button class="btn btn-secondary btn-sm" @click="rawMode = 'missed_appts_paid_in_full'">Missed Appts (Paid in Full)</button>
                 <button class="btn btn-secondary btn-sm" @click="rawMode = 'processed'">Processed</button>
                 <button class="btn btn-secondary btn-sm" @click="downloadRawCsv" :disabled="!selectedPeriodId">
@@ -4438,7 +4452,7 @@
                 <label>Status</label>
                 <div class="hint" v-if="isPeriodPosted">
                   Posted (locked)
-                  <span v-if="rawMode === 'process_h0031' || rawMode === 'process_h0032'">
+                  <span v-if="rawMode === 'process_h0031' || rawMode === 'process_h0032' || rawMode === 'process_h2014'">
                     •
                     <button
                       type="button"
@@ -4446,7 +4460,7 @@
                       style="margin-left: 8px;"
                       @click="unlockPostedRawProcessing"
                     >
-                      {{ rawPostedProcessingUnlocked ? 'Unlocked' : 'Unlock H0031/H0032 editing' }}
+                      {{ rawPostedProcessingUnlocked ? 'Unlocked' : 'Unlock H0031/H0032/H2014 editing' }}
                     </button>
                   </span>
                 </div>
@@ -4458,7 +4472,7 @@
             </div>
             <div v-if="rawDraftError" class="error-box">{{ rawDraftError }}</div>
             <div
-              v-if="isPeriodPosted && rawPostedProcessingUnlocked && (rawMode === 'process_h0031' || rawMode === 'process_h0032')"
+              v-if="isPeriodPosted && rawPostedProcessingUnlocked && (rawMode === 'process_h0031' || rawMode === 'process_h0032' || rawMode === 'process_h2014')"
               class="warn-box"
               style="margin-top: 10px;"
             >
@@ -4498,7 +4512,7 @@
                     v-for="r in rawModeRowsLimited"
                     :key="r.id"
                     :class="{
-                      'row-unpaid-h003': (rawMode === 'process_h0031' || rawMode === 'process_h0032') && !willBePaid(r),
+                      'row-unpaid-h003': (rawMode === 'process_h0031' || rawMode === 'process_h0032' || rawMode === 'process_h2014') && !willBePaid(r),
                       'row-paid-muted': Number(r.is_paid) === 1
                     }"
                   >
@@ -4540,7 +4554,7 @@
                     <td v-else>
                       <div style="display: flex; align-items: center; gap: 10px; justify-content: flex-end;">
                         <label
-                          v-if="rawMode === 'process_h0031' || rawMode === 'process_h0032'"
+                          v-if="rawMode === 'process_h0031' || rawMode === 'process_h0032' || rawMode === 'process_h2014'"
                           class="muted"
                           style="display: inline-flex; align-items: center; gap: 6px; margin-right: 6px;"
                           title="Local checklist only (not saved)"
@@ -5893,6 +5907,33 @@ const batchCatchUpDestinationPeriodId = ref(null);
 const batchCatchUpSelection = ref({}); // { 'userId:code': { selected, units } }
 const batchCatchUpResetKey = ref(0);
 const batchCatchUpPriorPeriodId = ref(null);
+const batchCatchUpPriorPeriodImports = ref([]);
+
+const batchCatchUpRun1Disabled = computed(() => {
+  const imp = batchCatchUpPriorPeriodImports.value || [];
+  return imp.length >= 1;
+});
+const batchCatchUpRun2Disabled = computed(() => {
+  const imp = batchCatchUpPriorPeriodImports.value || [];
+  return imp.length >= 2;
+});
+const batchCatchUpRun3Disabled = computed(() => {
+  const imp = batchCatchUpPriorPeriodImports.value || [];
+  return imp.length >= 3;
+});
+
+const batchCatchUpDbBaselineFileReady = computed(() => {
+  const imp = batchCatchUpPriorPeriodImports.value || [];
+  if (imp.length < 1) return false;
+  if (imp.length >= 2) return !!batchFiles.value[3];
+  return !!batchFiles.value[2];
+});
+
+const batchCatchUpDbBaselineButtonLabel = computed(() => {
+  const imp = batchCatchUpPriorPeriodImports.value || [];
+  if (imp.length >= 2) return 'Upload Run 3 & compare (DB baseline)';
+  return 'Upload Run 2 & compare (DB baseline)';
+});
 
 const wizardPriorPeriodId = ref(null);
 const wizardPriorRun1File = ref(null);
@@ -9391,7 +9432,7 @@ const rawDraftRows = computed(() => {
   return rows;
 });
 
-const rawMode = ref('draft_audit'); // draft_audit | process_h0031 | process_h0032 | processed | missed_appts_paid_in_full
+const rawMode = ref('draft_audit'); // draft_audit | process_h0031 | process_h0032 | process_h2014 | processed | missed_appts_paid_in_full
 
 const rawModeRowsLimited = computed(() => {
   const all = rawModeRows.value || [];
@@ -9462,6 +9503,11 @@ const rawModeRows = computed(() => {
       Number(r.requires_processing) === 1 &&
       String(r.service_code || '').trim().toUpperCase() === 'H0032'
     );
+  } else if (mode === 'process_h2014') {
+    rows = rows.filter((r) =>
+      Number(r.requires_processing) === 1 &&
+      String(r.service_code || '').trim().toUpperCase() === 'H2014'
+    );
   } else {
     // processed
     rows = rows.filter((r) => Number(r.requires_processing) === 1 && !!r.processed_at && willBePaid(r));
@@ -9479,7 +9525,7 @@ const rawModeRows = computed(() => {
   rows.sort((a, b) => {
     // In processing views, keep unfinished rows at the top and done rows at the bottom,
     // so users can undo mistakes without rows disappearing.
-    if (mode === 'process_h0031' || mode === 'process_h0032') {
+    if (mode === 'process_h0031' || mode === 'process_h0032' || mode === 'process_h2014') {
       const ra = processedRank(a);
       const rb = processedRank(b);
       if (ra !== rb) return ra - rb;
@@ -9740,7 +9786,7 @@ const toggleRawProcessed = async (row, nextDone) => {
 
 const unlockPostedRawProcessing = () => {
   if (!isPeriodPosted.value) return;
-  if (!(rawMode.value === 'process_h0031' || rawMode.value === 'process_h0032')) return;
+  if (!(rawMode.value === 'process_h0031' || rawMode.value === 'process_h0032' || rawMode.value === 'process_h2014')) return;
   if (rawPostedProcessingUnlocked.value) return;
   const ok = window.confirm(
     'Unlock editing for a POSTED pay period?\n\nThis will allow editing H0031/H0032 minutes and marking Done in Raw Import so you can correct time for Category-1 providers.\n\nIt does NOT automatically recompute posted payroll totals.'
@@ -10322,7 +10368,7 @@ const saveStageCarryoverEdits = async () => {
     } catch (e) {
       const msg = e.response?.data?.error?.message || e.message || '';
       // Catch-up workflow: allow explicit bypass of H0031/H0032 processing gates for carryover edits.
-      if (e.response?.status === 409 && (String(msg).includes('H0031') || String(msg).includes('H0032') || e.response?.data?.pendingProcessing)) {
+      if (e.response?.status === 409 && (String(msg).includes('H0031') || String(msg).includes('H0032') || String(msg).includes('H2014') || e.response?.data?.pendingProcessing)) {
         const ok = window.confirm(
           'Old Done Notes is blocked by H0031/H0032 processing requirements.\n\nSave anyway (skip processing gate)?\n\nUse this only for catch-up/backfill. You must verify/correct final units in the destination payroll stage before running payroll.'
         );
@@ -10892,7 +10938,7 @@ const applyCarryover = async () => {
     } catch (e) {
       const msg = e.response?.data?.error?.message || e.message || '';
       // Catch-up workflow: allow explicit bypass of H0031/H0032 processing gates for carryover apply.
-      if (e.response?.status === 409 && (String(msg).includes('H0031') || String(msg).includes('H0032') || e.response?.data?.pendingProcessing)) {
+      if (e.response?.status === 409 && (String(msg).includes('H0031') || String(msg).includes('H0032') || String(msg).includes('H2014') || e.response?.data?.pendingProcessing)) {
         const ok = window.confirm(
           'Carryover is blocked by H0031/H0032 processing requirements.\n\nApply carryover anyway (skip processing gate)?\n\nUse this only for catch-up/backfill. You must verify/correct final units in the destination payroll stage before running payroll.'
         );
@@ -11700,6 +11746,10 @@ watch(selectedOrgId, async (id) => {
   }
 });
 
+watch(batchCatchUpPriorPeriodId, () => {
+  loadBatchCatchUpPriorImports();
+});
+
 watch(selectedPeriodId, async (id) => {
   if (!id) return;
   if (id && (batchCatchUpDestinationPeriodId.value == null || batchCatchUpDestinationPeriodId.value === '')) batchCatchUpDestinationPeriodId.value = id;
@@ -11858,15 +11908,39 @@ const resetBatchCatchUp = () => {
   batchCatchUpResetKey.value += 1;
 };
 
+const loadBatchCatchUpPriorImports = async () => {
+  const priorId = batchCatchUpPriorPeriodId.value;
+  if (!priorId) {
+    batchCatchUpPriorPeriodImports.value = [];
+    return;
+  }
+  try {
+    const resp = await api.get(`/payroll/periods/${priorId}/imports`);
+    batchCatchUpPriorPeriodImports.value = resp.data?.imports || [];
+  } catch {
+    batchCatchUpPriorPeriodImports.value = [];
+  }
+};
+
+const openRawModalForPeriodAndImport = async (periodId, importId) => {
+  await selectPeriod(periodId);
+  rawAuditSelectedImportId.value = importId;
+  rawAuditBaselineImportId.value = importId;
+  showRawModal.value = true;
+  await loadRawAuditData({ importId, baselineImportId: importId });
+};
+
 const runBatchCatchUpDbBaseline = async () => {
-  if (!agencyId.value || !batchFiles.value[2] || !batchCatchUpPriorPeriodId.value) return;
+  const imports = batchCatchUpPriorPeriodImports.value || [];
+  const fileForCompare = imports.length >= 2 ? batchFiles.value[3] : batchFiles.value[2];
+  if (!agencyId.value || !fileForCompare || !batchCatchUpPriorPeriodId.value) return;
   try {
     batchCatchUpLoading.value = true;
     batchCatchUpError.value = '';
     batchCatchUpResult.value = null;
     batchCatchUpSelection.value = {};
     const fd = new FormData();
-    fd.append('file2', batchFiles.value[2]);
+    fd.append('file2', fileForCompare);
     fd.append('agencyId', String(agencyId.value));
     fd.append('priorPeriodId', String(batchCatchUpPriorPeriodId.value));
     fd.append('useDbBaseline', 'true');
@@ -11885,6 +11959,7 @@ const runBatchCatchUpDbBaseline = async () => {
       batchCatchUpDestinationPeriodId.value = batchCatchUpResult.value.destinationPeriodId;
     }
     await loadPeriods();
+    await loadBatchCatchUpPriorImports();
   } catch (e) {
     batchCatchUpError.value = e.response?.data?.error?.message || e.message || 'Batch catch-up failed';
   } finally {
@@ -11920,6 +11995,7 @@ const runBatchCatchUp = async () => {
     if (batchCatchUpResult.value?.destinationPeriodId && !batchCatchUpDestinationPeriodId.value) {
       batchCatchUpDestinationPeriodId.value = batchCatchUpResult.value.destinationPeriodId;
     }
+    if (batchCatchUpPriorPeriodId.value) await loadBatchCatchUpPriorImports();
   } catch (e) {
     batchCatchUpError.value = e.response?.data?.error?.message || e.message || 'Batch catch-up failed';
   } finally {

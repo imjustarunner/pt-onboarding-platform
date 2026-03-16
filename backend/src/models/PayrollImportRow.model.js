@@ -264,7 +264,7 @@ class PayrollImportRow {
          AND payroll_import_id = ?
          AND requires_processing = 1
          AND processed_at IS NULL
-         AND UPPER(TRIM(service_code)) IN ('H0031','H0032')
+         AND UPPER(TRIM(service_code)) IN ('H0031','H0032','H2014')
          AND (
            note_status = 'FINALIZED'
            OR (note_status = 'DRAFT' AND draft_payable = 1)
@@ -295,7 +295,7 @@ class PayrollImportRow {
          AND pir.payroll_import_id = ?
          AND pir.requires_processing = 1
          AND pir.processed_at IS NULL
-         AND UPPER(TRIM(pir.service_code)) IN ('H0031','H0032')
+         AND UPPER(TRIM(pir.service_code)) IN ('H0031','H0032','H2014')
          AND (
            pir.note_status = 'FINALIZED'
            OR (pir.note_status = 'DRAFT' AND pir.draft_payable = 1)
