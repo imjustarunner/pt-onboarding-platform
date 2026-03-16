@@ -967,6 +967,26 @@ export const useBrandingStore = defineStore('branding', () => {
     return null;
   };
 
+  // Club quick action icons (Add Member, Add Season, Settings) - customizable per club
+  const getClubQuickActionIconUrl = (actionKey, agencyOverride = null) => {
+    const iconFieldMap = {
+      add_member: 'club_add_member_icon_path',
+      add_season: 'club_add_season_icon_path',
+      settings: 'club_settings_icon_path'
+    };
+    const field = iconFieldMap[actionKey];
+    if (!field) return null;
+    const idField = field.replace(/_icon_path$/, '_icon_id');
+
+    const org = agencyOverride || agencyStore.currentAgency;
+    if (org?.[field]) return toUploadsUrl(org[field]);
+    if (org?.[idField]) {
+      const url = iconUrlById(org[idField]);
+      if (url) return url;
+    }
+    return null;
+  };
+
   return {
     userRole,
     isSuperAdmin,
@@ -1013,6 +1033,7 @@ export const useBrandingStore = defineStore('branding', () => {
     getDashboardCardIconUrl,
     getSchoolPortalCardIconUrl,
     getAdminQuickActionIconUrl,
+    getClubQuickActionIconUrl,
     // Icon-id resolution helpers (admin/support/super_admin only)
     prefetchIconIds,
     iconUrlById,

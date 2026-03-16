@@ -63,11 +63,17 @@ const getDefaultOrganizationSlug = () => {
     const fromStore = agencyStore.currentAgency?.slug || agencyStore.currentAgency?.portal_url;
     if (fromStore) return fromStore;
 
+    // Prefer affiliation (SSC) when picking from stored user agencies
+    const isAffiliation = (org) => String(org?.organization_type || org?.organizationType || '').toLowerCase() === 'affiliation';
+    const storedList = JSON.parse(localStorage.getItem('userAgencies') || '[]');
+    const storedArr = Array.isArray(storedList) ? storedList : [];
+    const firstAffiliation = storedArr.find((o) => isAffiliation(o) && pickSlug(o));
+    if (firstAffiliation) return pickSlug(firstAffiliation);
+
     const fromUserAgencies = authStore.user?.agencies?.[0]?.slug;
     if (fromUserAgencies) return fromUserAgencies;
 
-    const storedList = JSON.parse(localStorage.getItem('userAgencies') || '[]');
-    const fromStoredUserAgencies = Array.isArray(storedList) ? storedList?.[0] : null;
+    const fromStoredUserAgencies = storedArr[0] || null;
     const storedSlug = fromStoredUserAgencies?.slug || fromStoredUserAgencies?.portal_url || fromStoredUserAgencies?.portalUrl || null;
     if (storedSlug) return storedSlug;
 
@@ -1588,6 +1594,32 @@ router.beforeEach(async (to, from, next) => {
     return;
   }
 
+  // Club managers (admin with only affiliation orgs): redirect /admin to /ssc/admin
+  const isAdminPath = to.path === '/admin' || String(to.path || '').startsWith('/admin/');
+  if (authStore.isAuthenticated && isAdminPath && !to.meta.organizationSlug) {
+    const userRole = String(authStore.user?.role || '').toLowerCase();
+    if (userRole === 'admin') {
+      let list = agencyStore.userAgencies?.value ?? agencyStore.userAgencies ?? [];
+      if (!Array.isArray(list)) list = [];
+      if (list.length === 0) await agencyStore.fetchUserAgencies();
+      const orgs = agencyStore.userAgencies?.value ?? agencyStore.userAgencies ?? [];
+      const orgList = Array.isArray(orgs) ? orgs : [];
+      if (orgList.length === 1) {
+        const org = orgList[0];
+        const orgType = String(org?.organization_type || org?.organizationType || '').toLowerCase();
+        if (orgType === 'affiliation') {
+          const slug = org?.parent_slug || org?.slug || org?.portal_url || org?.portalUrl;
+          if (slug && String(slug).trim()) {
+            const rest = to.path === '/admin' ? '' : to.path.slice(6);
+            const qs = to.fullPath.includes('?') ? to.fullPath.slice(to.fullPath.indexOf('?')) : '';
+            next(`/${slug}/admin${rest}${qs}`);
+            return;
+          }
+        }
+      }
+    }
+  }
+
   // Prevent stale org branding “flash” when leaving a branded portal.
   if (!to.meta.organizationSlug && from.meta.organizationSlug) {
     // On custom-domain portals, /login should remain branded (portalHostPortalUrl is set at boot).
@@ -1688,6 +1720,20 @@ router.beforeEach(async (to, from, next) => {
     to.path === '/mydashboard' ||
     String(to.name || '') === 'Dashboard';
   const allowUnscopedDocumentSigning = ['DocumentSigning', 'DocumentReview', 'DocumentPrint'].includes(String(to.name || ''));
+  // Users with affiliation (SSC) access: redirect to club dashboard instead of platform /dashboard
+  if (
+    authStore.isAuthenticated &&
+    authStore.user?.role !== 'super_admin' &&
+    allowUnscopedDashboard &&
+    to.path === '/dashboard'
+  ) {
+    const slug = getDefaultOrganizationSlug();
+    if (slug) {
+      const suffix = (to.fullPath || to.path).replace(/^\/dashboard/, '') || '';
+      next(`/${slug}/dashboard${suffix}`);
+      return;
+    }
+  }
   if (
     authStore.isAuthenticated &&
     authStore.user?.role !== 'super_admin' &&

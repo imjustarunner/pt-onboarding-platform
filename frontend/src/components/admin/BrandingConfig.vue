@@ -1471,6 +1471,38 @@
           </div>
           </div>
 
+          <template v-if="isClubAgency">
+            <div class="section-divider"></div>
+            <h4>Club Quick Action Icons</h4>
+            <p class="section-description">Icons for the Club Dashboard quick actions (Add New Member, Add New Season, Club Settings).</p>
+            <div class="icons-table">
+              <div class="icon-row">
+                <div class="icon-label">Add New Member Icon</div>
+                <div class="icon-selector-cell">
+                  <IconSelector v-model="agencyBrandingForm.clubAddMemberIconId" />
+                  <button v-if="agencyBrandingForm.clubAddMemberIconId" @click="agencyBrandingForm.clubAddMemberIconId = null" class="btn btn-sm btn-danger" type="button" title="Remove icon">Clear</button>
+                </div>
+                <div class="icon-description">Icon for the "Add New Member" quick action</div>
+              </div>
+              <div class="icon-row">
+                <div class="icon-label">Add New Season Icon</div>
+                <div class="icon-selector-cell">
+                  <IconSelector v-model="agencyBrandingForm.clubAddSeasonIconId" />
+                  <button v-if="agencyBrandingForm.clubAddSeasonIconId" @click="agencyBrandingForm.clubAddSeasonIconId = null" class="btn btn-sm btn-danger" type="button" title="Remove icon">Clear</button>
+                </div>
+                <div class="icon-description">Icon for the "Add New Season" quick action</div>
+              </div>
+              <div class="icon-row">
+                <div class="icon-label">Club Settings Icon</div>
+                <div class="icon-selector-cell">
+                  <IconSelector v-model="agencyBrandingForm.clubSettingsIconId" />
+                  <button v-if="agencyBrandingForm.clubSettingsIconId" @click="agencyBrandingForm.clubSettingsIconId = null" class="btn btn-sm btn-danger" type="button" title="Remove icon">Clear</button>
+                </div>
+                <div class="icon-description">Icon for the "Club Settings" quick action</div>
+              </div>
+            </div>
+          </template>
+
           <div class="section-divider"></div>
           <h4>Settings Navigation Icons</h4>
           <p class="section-description">Icons shown in the Settings sidebar navigation (overrides platform defaults).</p>
@@ -2336,7 +2368,12 @@ const agencyBrandingForm = ref({
   assetsIconId: null,
   communicationsIconId: null,
   integrationsIconId: null,
-  archiveIconId: null
+  archiveIconId: null,
+
+  // Club quick action icons (affiliations only)
+  clubAddMemberIconId: null,
+  clubAddSeasonIconId: null,
+  clubSettingsIconId: null
 });
 
 const selectedAgency = computed(() => {
@@ -2345,6 +2382,11 @@ const selectedAgency = computed(() => {
     return agencyStore.agencies.find(a => a.id === agencyId);
   }
   return null;
+});
+
+const isClubAgency = computed(() => {
+  const t = String(selectedAgency.value?.organization_type || selectedAgency.value?.organizationType || '').toLowerCase();
+  return t === 'affiliation';
 });
 
 const saving = ref(false);
@@ -2476,7 +2518,11 @@ watch(currentAgency, async (agency) => {
         assetsIconId: freshAgency.assets_icon_id ?? null,
         communicationsIconId: freshAgency.communications_icon_id ?? null,
         integrationsIconId: freshAgency.integrations_icon_id ?? null,
-        archiveIconId: freshAgency.archive_icon_id ?? null
+        archiveIconId: freshAgency.archive_icon_id ?? null,
+
+        clubAddMemberIconId: freshAgency.club_add_member_icon_id ?? null,
+        clubAddSeasonIconId: freshAgency.club_add_season_icon_id ?? null,
+        clubSettingsIconId: freshAgency.club_settings_icon_id ?? null
       };
     } catch (err) {
       console.error('Failed to fetch fresh agency data:', err);
@@ -2585,7 +2631,11 @@ const onBrandingScopeChange = async () => {
         assetsIconId: freshAgency.assets_icon_id ?? null,
         communicationsIconId: freshAgency.communications_icon_id ?? null,
         integrationsIconId: freshAgency.integrations_icon_id ?? null,
-        archiveIconId: freshAgency.archive_icon_id ?? null
+        archiveIconId: freshAgency.archive_icon_id ?? null,
+
+        clubAddMemberIconId: freshAgency.club_add_member_icon_id ?? null,
+        clubAddSeasonIconId: freshAgency.club_add_season_icon_id ?? null,
+        clubSettingsIconId: freshAgency.club_settings_icon_id ?? null
       };
     } catch (err) {
       console.error('Failed to fetch agency data:', err);
@@ -2678,7 +2728,11 @@ const saveAgencyBrandingForSuperAdmin = async () => {
       assetsIconId: agencyBrandingForm.value.assetsIconId ?? null,
       communicationsIconId: agencyBrandingForm.value.communicationsIconId ?? null,
       integrationsIconId: agencyBrandingForm.value.integrationsIconId ?? null,
-      archiveIconId: agencyBrandingForm.value.archiveIconId ?? null
+      archiveIconId: agencyBrandingForm.value.archiveIconId ?? null,
+
+      clubAddMemberIconId: agencyBrandingForm.value.clubAddMemberIconId ?? null,
+      clubAddSeasonIconId: agencyBrandingForm.value.clubAddSeasonIconId ?? null,
+      clubSettingsIconId: agencyBrandingForm.value.clubSettingsIconId ?? null
     };
     
     console.log('Saving agency branding:', requestData);
@@ -2695,6 +2749,10 @@ const saveAgencyBrandingForSuperAdmin = async () => {
         const agencyIndex = agencyStore.agencies.findIndex(a => a.id === freshAgency.id);
         if (agencyIndex !== -1) {
           agencyStore.agencies[agencyIndex] = freshAgency;
+        }
+        // Update currentAgency so BrandingProvider re-applies theme immediately
+        if (agencyStore.currentAgency?.id === freshAgency.id) {
+          agencyStore.setCurrentAgency(freshAgency);
         }
         // Update the form with fresh data
         const palette = freshAgency.color_palette
@@ -2751,7 +2809,11 @@ const saveAgencyBrandingForSuperAdmin = async () => {
           assetsIconId: freshAgency.assets_icon_id ?? null,
           communicationsIconId: freshAgency.communications_icon_id ?? null,
           integrationsIconId: freshAgency.integrations_icon_id ?? null,
-          archiveIconId: freshAgency.archive_icon_id ?? null
+          archiveIconId: freshAgency.archive_icon_id ?? null,
+
+          clubAddMemberIconId: freshAgency.club_add_member_icon_id ?? null,
+          clubAddSeasonIconId: freshAgency.club_add_season_icon_id ?? null,
+          clubSettingsIconId: freshAgency.club_settings_icon_id ?? null
         };
       } catch (err) {
         console.error('Failed to refresh agency data:', err);

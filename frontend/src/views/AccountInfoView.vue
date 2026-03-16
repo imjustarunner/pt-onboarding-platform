@@ -229,8 +229,8 @@
         </div>
       </div>
 
-      <!-- Profile Information (filled via assigned onboarding/profile modules) -->
-      <div class="info-section">
+      <!-- Profile Information (filled via assigned onboarding/profile modules) – hidden for clubs -->
+      <div v-if="!isClubContext" class="info-section">
         <div class="section-header">
           <h2 style="margin: 0;">Profile Information</h2>
           <div style="display:flex; gap: 10px; flex-wrap: wrap;">
@@ -461,8 +461,8 @@
         </div>
       </div>
       
-      <!-- Progress & Time Section -->
-      <div class="info-section">
+      <!-- Progress & Time Section – hidden for clubs -->
+      <div v-if="!isClubContext" class="info-section">
         <h2>Onboarding Progress</h2>
         <div class="info-grid">
           <div class="info-item progress-item">
@@ -478,8 +478,8 @@
         </div>
       </div>
       
-      <!-- Download Section -->
-      <div class="info-section">
+      <!-- Download Section – hidden for clubs -->
+      <div v-if="!isClubContext" class="info-section">
         <h2>Download Completion Package</h2>
         <div class="download-section">
           <p class="download-description">
@@ -504,10 +504,16 @@ import { ref, onMounted, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../services/api';
 import { useAuthStore } from '../store/auth';
+import { useAgencyStore } from '../store/agency';
 import { toUploadsUrl } from '../utils/uploadsUrl';
 
 const router = useRouter();
 const authStore = useAuthStore();
+const agencyStore = useAgencyStore();
+const isClubContext = computed(() => {
+  const t = String(agencyStore.currentAgency?.organization_type || agencyStore.currentAgency?.organizationType || '').toLowerCase();
+  return t === 'affiliation';
+});
 const userId = computed(() => authStore.user?.id);
 const profilePhotoUrl = computed(() => {
   // `GET /users/me` returns `profile_photo_url` which is typically a backend-relative `/uploads/...` path.

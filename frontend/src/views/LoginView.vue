@@ -98,12 +98,14 @@
           <a href="#" @click.prevent="showForgotPassword" class="help-link">Forgot Password?</a>
           <span class="help-separator">|</span>
           <a href="#" @click.prevent="showForgotUsername" class="help-link">Forgot Username?</a>
-          <span class="help-separator">|</span>
-          <router-link v-if="loginSlug" :to="participantSignupPath" class="help-link">Sign up</router-link>
-          <template v-if="loginSlug"><span class="help-separator">|</span></template>
-          <router-link v-if="loginSlug" :to="clubsPath" class="help-link">Browse Clubs</router-link>
-          <template v-if="loginSlug"><span class="help-separator">|</span></template>
-          <router-link :to="clubManagerSignupPath" class="help-link">Create Club Manager Account</router-link>
+          <template v-if="showClubLinks">
+            <span class="help-separator">|</span>
+            <router-link :to="participantSignupPath" class="help-link">Sign up</router-link>
+            <span class="help-separator">|</span>
+            <router-link :to="clubsPath" class="help-link">Browse Clubs</router-link>
+            <span class="help-separator">|</span>
+            <router-link :to="clubManagerSignupPath" class="help-link">Create Club Manager Account</router-link>
+          </template>
         </div>
         
         <!-- Forgot Password Modal -->
@@ -232,6 +234,10 @@ const clubsPath = computed(() =>
   loginSlug.value ? `/${loginSlug.value}/clubs` : '/clubs'
 );
 
+// Show club links (Sign up, Browse Clubs, Create Club Manager) when backend says so:
+// - affiliation (direct club login), OR agency that hosts clubs (e.g. Summit Stats Challenge)
+const showClubLinks = computed(() => !!loginTheme.value?.agency?.showClubLinks);
+
 // Agency login theme data
 const loginTheme = ref(null);
 const loadingTheme = ref(false);
@@ -279,9 +285,19 @@ const fetchLoginTheme = async (portalUrl) => {
   try {
     loadingTheme.value = true;
     const response = await api.get(`/agencies/portal/${portalUrl}/login-theme`);
-    loginTheme.value = response.data;
+    const data = response.data;
+
+    // SSC: only /ssc/login serves login. Child orgs (affiliations) redirect to parent.
+    const canonical = (data?.agency?.canonicalLoginSlug || '').toString().trim().toLowerCase();
+    const current = (portalUrl || '').toString().trim().toLowerCase();
+    if (canonical && current && canonical !== current) {
+      router.replace({ path: `/${canonical}/login`, query: route.query });
+      return;
+    }
+
+    loginTheme.value = data;
     // Apply org theme so CSS variables (colors/background/fonts) match the org on /{slug}/login
-    brandingStore.setPortalThemeFromLoginTheme(response.data);
+    brandingStore.setPortalThemeFromLoginTheme(data);
   } catch (error) {
     console.error('Failed to fetch login theme:', error);
     // If agency not found, redirect to default login
@@ -332,6 +348,12 @@ onMounted(async () => {
     if (shouldVerify && restored) {
       sessionStorage.removeItem('__pt_login_pending_verify__');
       // Keep pending_username so a route change can rehydrate again if needed.
+      await verifyUsername({ reason: 'pending_route' });
+      return;
+    }
+    // SSC: when username is pre-filled from URL, auto-verify to show password immediately
+    const currentSlugForAuto = String(loginSlug.value || '').trim().toLowerCase();
+    if (restored && currentSlugForAuto === 'ssc') {
       await verifyUsername({ reason: 'pending_route' });
       return;
     }
@@ -501,9 +523,14 @@ const verifyUsername = async ({ orgSlugOverride = null, reason = 'user' } = {}) 
     // IMPORTANT: prefer portal_url as the branded portal path segment.
     const resolvedSlug = String(ro?.portal_url || ro?.portalUrl || ro?.slug || '').trim().toLowerCase();
 
-    // If this verification indicates we should be on a different branded login, route there.
-    if (resolvedSlug) {
-      const current = isOrgLogin.value && loginSlug.value ? String(loginSlug.value).trim().toLowerCase() : '';
+    const current = isOrgLogin.value && loginSlug.value ? String(loginSlug.value).trim().toLowerCase() : '';
+    const isSscLogin = current === 'ssc';
+
+    // SSC: stay on /ssc/login when account is recognized. No slug swap—just show password.
+    if (isSscLogin) {
+      // Skip redirect; fall through to show password (or Google)
+    } else if (resolvedSlug) {
+      // If this verification indicates we should be on a different branded login, route there.
       if (!current || current !== resolvedSlug) {
         try {
           sessionStorage.setItem('__pt_login_pending_username__', u);
@@ -909,7 +936,11 @@ const handleLogoError = (event) => {
 }
 
 .login-help {
-  text-align: center;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 0;
   margin: 15px 0;
   font-size: 14px;
 }
@@ -919,6 +950,7 @@ const handleLogoError = (event) => {
   text-decoration: none;
   cursor: pointer;
   transition: color 0.2s;
+  white-space: nowrap;
 }
 
 .help-link:hover {

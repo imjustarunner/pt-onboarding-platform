@@ -5,12 +5,12 @@
       <div class="header-content">
         <BrandingLogo v-if="previewAgencyLogoUrl" size="large" class="dashboard-logo" :logo-url="previewAgencyLogoUrl" />
         <div>
-          <h1 data-tour="dash-header-title">{{ isPending ? 'Pre-Hire Checklist' : 'My Dashboard' }}</h1>
+          <h1 data-tour="dash-header-title">{{ isPending && !isClubContext ? 'Pre-Hire Checklist' : 'My Dashboard' }}</h1>
         </div>
       </div>
     </div>
     <div v-else class="dashboard-header-user">
-      <h1 data-tour="dash-header-title">{{ isPending ? 'Pre-Hire Checklist' : 'My Dashboard' }}</h1>
+      <h1 data-tour="dash-header-title">{{ isPending && !isClubContext ? 'Pre-Hire Checklist' : 'My Dashboard' }}</h1>
       <span class="badge badge-user">Personal</span>
       <span v-if="tierBadgeText" class="badge badge-tier" :class="tierBadgeKind">{{ tierBadgeText }}</span>
     </div>
@@ -73,7 +73,7 @@
     </div>
 
     <div
-      v-if="!previewMode && isOnboardingComplete && optionalSupervisionPrompts.length > 0"
+      v-if="!previewMode && isOnboardingComplete && !isClubContext && optionalSupervisionPrompts.length > 0"
       class="supervision-invite-strip"
     >
       <div class="supervision-invite-head">
@@ -93,7 +93,7 @@
     </div>
 
     <div
-      v-if="!previewMode && isOnboardingComplete && presenterAssignmentsNeedingAttention.length > 0"
+      v-if="!previewMode && isOnboardingComplete && !isClubContext && presenterAssignmentsNeedingAttention.length > 0"
       class="supervision-invite-strip"
     >
       <div class="supervision-invite-head">
@@ -526,6 +526,7 @@
                 :user-label-by-id="superviseeLabelById"
                 :agency-ids="[Number(currentAgencyId)]"
                 :week-start-ymd="activeScheduleWeekStartYmd || null"
+                :hide-google-and-therapy-notes="isClubContext"
                 @update:weekStartYmd="onScheduleWeekStartUpdate"
               />
               <ScheduleAvailabilityGrid
@@ -535,6 +536,7 @@
                 :agency-id="scheduleViewMode === 'self' ? null : Number(currentAgencyId)"
                 :mode="scheduleGridMode"
                 :week-start-ymd="activeScheduleWeekStartYmd || null"
+                :hide-office-and-calendar-integration="isClubContext"
                 @update:weekStartYmd="onScheduleWeekStartUpdate"
               />
             </div>
@@ -770,10 +772,10 @@
             />
           </div>
 
-          <div v-if="!previewMode && isOnboardingComplete && activeTab === 'supervision'" class="my-panel">
+          <div v-if="!previewMode && isOnboardingComplete && !isClubContext && activeTab === 'supervision'" class="my-panel">
             <SupervisionModal />
           </div>
-          <div v-if="!previewMode && isOnboardingComplete && activeTab === 'my_supervision'" class="my-panel">
+          <div v-if="!previewMode && isOnboardingComplete && !isClubContext && activeTab === 'my_supervision'" class="my-panel">
             <UserSupervisionTab userId="me" :agency-id="currentAgencyId" />
           </div>
 
@@ -812,6 +814,7 @@
                 Account Info
               </button>
               <button
+                v-if="!isClubContext"
                 type="button"
                 class="subtab"
                 :class="{ active: myTab === 'credentials' }"
@@ -828,6 +831,7 @@
                 My Preferences
               </button>
               <button
+                v-if="!isClubContext"
                 type="button"
                 class="subtab"
                 :class="{ active: myTab === 'payroll' }"
@@ -836,6 +840,7 @@
                 My Payroll
               </button>
               <button
+                v-if="!isClubContext"
                 type="button"
                 class="subtab"
                 :class="{ active: myTab === 'compensation' }"
@@ -857,7 +862,7 @@
             <div v-show="myTab === 'account'">
               <AccountInfoView />
             </div>
-            <div v-show="myTab === 'credentials'">
+            <div v-if="!isClubContext" v-show="myTab === 'credentials'">
               <CredentialsView />
             </div>
             <div v-show="myTab === 'preferences'">
@@ -867,10 +872,10 @@
               </div>
               <UserPreferencesHub v-if="authStore.user?.id" :userId="authStore.user.id" />
             </div>
-            <div v-show="myTab === 'payroll'">
+            <div v-if="!isClubContext" v-show="myTab === 'payroll'">
               <MyPayrollTab />
             </div>
-            <div v-show="myTab === 'compensation'">
+            <div v-if="!isClubContext" v-show="myTab === 'compensation'">
               <MyCompensationTab />
             </div>
             <div v-show="myTab === 'kudos'">
@@ -1006,7 +1011,7 @@
       </div>
     </div>
 
-    <div v-if="mandatorySupervisionPrompt" class="supervision-splash" role="dialog" aria-modal="true" aria-label="Join group supervision">
+    <div v-if="!isClubContext && mandatorySupervisionPrompt" class="supervision-splash" role="dialog" aria-modal="true" aria-label="Join group supervision">
       <div class="supervision-splash-card">
         <button
           type="button"
@@ -1978,6 +1983,8 @@ const tabs = computed(() => [
 ]);
 
 const isOnboardingComplete = computed(() => {
+  // Club context: no HR onboarding; treat as complete so club members see full dashboard
+  if (isClubContext.value) return true;
   // Privileged roles should always have access to the "My" area (account + payroll),
   // even if their lifecycle status doesn't match the employee workflow.
   const role = authStore.user?.role;
@@ -2003,13 +2010,13 @@ const previewAgencyLogoUrl = computed(() => {
 });
 
 const filteredTabs = computed(() => {
+  // Club context (SSC/affiliation): hide Checklist and Training; show only Documents
+  if (isClubContext.value) return tabs.value.filter(tab => tab.id !== 'checklist' && tab.id !== 'training');
   // PREHIRE_OPEN, PREHIRE_REVIEW, and ONBOARDING users see limited tabs
-  if (isPending.value || userStatus.value === 'PREHIRE_REVIEW' || userStatus.value === 'ONBOARDING' || 
+  if (isPending.value || userStatus.value === 'PREHIRE_REVIEW' || userStatus.value === 'ONBOARDING' ||
       userStatus.value === 'ready_for_review') {
-    // Pre-hire and onboarding users only see checklist and documents (no training tab)
     return tabs.value.filter(tab => tab.id !== 'training');
   }
-  // ACTIVE_EMPLOYEE and TERMINATED_PENDING users see all tabs
   return tabs.value;
 });
 
@@ -2032,6 +2039,10 @@ const canAccessToolsAids = computed(() => {
 });
 
 const isAgencyOrgType = (org) => String(org?.organization_type || org?.organizationType || 'agency').toLowerCase() === 'agency';
+const isClubContext = computed(() => {
+  const t = String(agencyStore.currentAgency?.organization_type || agencyStore.currentAgency?.organizationType || '').toLowerCase();
+  return t === 'affiliation';
+});
 const portalShortTitle = (org) => {
   return String(
     org?.portal_short_title ||
@@ -2093,6 +2104,7 @@ const shouldCollapseSchoolPortalCards = computed(() => {
 });
 const schoolPortalCardsExpanded = ref(false);
 const schoolPortalToggleCard = computed(() => {
+  if (isClubContext.value) return null; // Club context: no Show All School Portals
   const count = providerPortalCards.value.length;
   if (!count || !shouldCollapseSchoolPortalCards.value) return null;
   return {
@@ -2155,10 +2167,10 @@ const dashboardCards = computed(() => {
         description: 'View weekly schedule and request availability from the grid.'
       });
       if (schoolPortalToggleCard.value) cards.push(schoolPortalToggleCard.value);
-      cards.push(...visibleProviderPortalCards.value);
+      if (!isClubContext.value) cards.push(...visibleProviderPortalCards.value);
 
-      // Provider-only surfaces: hide these for limited-access non-provider users.
-      if (!isLimitedAccessNonProvider) {
+      // Provider-only surfaces: hide these for limited-access non-provider users and club context.
+      if (!isLimitedAccessNonProvider && !isClubContext.value) {
         cards.push({
           id: 'clients',
           label: 'Clients',
@@ -2167,7 +2179,7 @@ const dashboardCards = computed(() => {
           iconUrl: brandingStore.getDashboardCardIconUrl('clients', cardIconOrgOverride),
           description: 'Your caseload by school with psychotherapy fiscal-year totals.'
         });
-        if (providerSurfacesEnabled.value) {
+        if (providerSurfacesEnabled.value && !isClubContext.value) {
           cards.push({
             id: 'submit',
             label: 'Submit',
@@ -2177,14 +2189,16 @@ const dashboardCards = computed(() => {
             description: 'Submit mileage, in-school claims, and more.'
           });
         }
-        cards.push({
-          id: 'payroll',
-          label: 'Payroll',
-          kind: 'content',
-          badgeCount: 0,
-          iconUrl: brandingStore.getDashboardCardIconUrl('payroll', cardIconOrgOverride),
-          description: 'Your payroll history by pay period.'
-        });
+        if (!isClubContext.value) {
+          cards.push({
+            id: 'payroll',
+            label: 'Payroll',
+            kind: 'content',
+            badgeCount: 0,
+            iconUrl: brandingStore.getDashboardCardIconUrl('payroll', cardIconOrgOverride),
+            description: 'Your payroll history by pay period.'
+          });
+        }
         if (shiftProgramsEnabledForAgency.value) {
           cards.push({
             id: 'program_shifts',
@@ -2234,23 +2248,39 @@ const dashboardCards = computed(() => {
       iconUrl: brandingStore.getDashboardCardIconUrl('my', cardIconOrgOverride),
       description: 'Account info, credentials, and personal preferences.'
     });
-    cards.push({
-      id: 'on_demand_training',
-      label: 'On-Demand Training',
-      kind: 'content',
-      badgeCount: 0,
-      iconUrl: brandingStore.getDashboardCardIconUrl('on_demand_training', cardIconOrgOverride),
-      description: 'Always available after onboarding is complete.'
-    });
-    // Summit Stats Challenge: Challenges card when user has challenge memberships
+    if (!isClubContext.value) {
+      cards.push({
+        id: 'on_demand_training',
+        label: 'On-Demand Training',
+        kind: 'content',
+        badgeCount: 0,
+        iconUrl: brandingStore.getDashboardCardIconUrl('on_demand_training', cardIconOrgOverride),
+        description: 'Always available after onboarding is complete.'
+      });
+    }
+    // Summit Stats Challenge: Challenges/seasons card when user has challenge memberships
     if (myChallenges.value?.length > 0) {
       cards.push({
         id: 'challenges',
-        label: 'Challenges',
+        label: isClubContext.value ? 'Current Seasons' : 'Challenges',
         kind: 'content',
         badgeCount: myChallenges.value.length,
         iconUrl: brandingStore.getDashboardCardIconUrl('challenges', cardIconOrgOverride),
-        description: 'Your assigned fitness challenges. View leaderboards and log workouts.'
+        description: isClubContext.value ? 'Your enrolled seasons. View leaderboards and log workouts.' : 'Your assigned fitness challenges. View leaderboards and log workouts.'
+      });
+    }
+    // Club admin: Start new season card
+    if (isClubContext.value && (role === 'admin' || role === 'super_admin')) {
+      const orgSlug = route.params?.organizationSlug || agencyStore.currentAgency?.slug || agencyStore.currentAgency?.portal_url || '';
+      const to = orgSlug ? `/${orgSlug}/admin/settings?category=workflow&item=challenge-management` : '/admin/settings?category=workflow&item=challenge-management';
+      cards.push({
+        id: 'start_new_season',
+        label: 'Start New Season',
+        kind: 'action',
+        to,
+        badgeCount: 0,
+        iconUrl: brandingStore.getDashboardCardIconUrl('challenges', cardIconOrgOverride),
+        description: 'Create a new fitness challenge season for your club.'
       });
     }
     // Social feeds – super_admin only until full release
@@ -2267,30 +2297,35 @@ const dashboardCards = computed(() => {
 
     // Communications surfaces (embedded in dashboard)
     if (!isLimitedAccessNonProvider) {
-      cards.push({
-        id: 'communications',
-        label: 'Communications',
-        kind: 'content',
-        badgeCount: 0,
-        iconUrl: brandingStore.getDashboardCardIconUrl('communications', cardIconOrgOverride),
-        description: 'SMS inbox, calls, and delivery automation workspace.'
-      });
+      if (!isClubContext.value) {
+        cards.push({
+          id: 'communications',
+          label: 'Communications',
+          kind: 'content',
+          badgeCount: 0,
+          iconUrl: brandingStore.getDashboardCardIconUrl('communications', cardIconOrgOverride),
+          description: 'SMS inbox, calls, and delivery automation workspace.'
+        });
+      }
+      // Chats: keep for club context (simplified to club members only)
       cards.push({
         id: 'chats',
         label: 'Chats',
         kind: 'content',
         badgeCount: 0,
         iconUrl: brandingStore.getDashboardCardIconUrl('chats', cardIconOrgOverride),
-        description: 'Direct messages in the platform.'
+        description: isClubContext.value ? 'Club members online.' : 'Direct messages in the platform.'
       });
-      cards.push({
-        id: 'contacts',
-        label: 'Contacts',
-        kind: 'content',
-        badgeCount: 0,
-        iconUrl: brandingStore.getDashboardCardIconUrl('contacts', cardIconOrgOverride),
-        description: 'Agency contacts for mass communications and outreach.'
-      });
+      if (!isClubContext.value) {
+        cards.push({
+          id: 'contacts',
+          label: 'Contacts',
+          kind: 'content',
+          badgeCount: 0,
+          iconUrl: brandingStore.getDashboardCardIconUrl('contacts', cardIconOrgOverride),
+          description: 'Agency contacts for mass communications and outreach.'
+        });
+      }
     }
 
     // Notifications: embedded in dashboard
@@ -2302,8 +2337,8 @@ const dashboardCards = computed(() => {
       iconUrl: brandingStore.getDashboardCardIconUrl('notifications', cardIconOrgOverride),
       description: 'Your recent notifications.'
     });
-    // Supervision card (supervisors only)
-    if (isSupervisor(authStore.user)) {
+    // Supervision card (supervisors only) – hidden for clubs (no supervision)
+    if (!isClubContext.value && isSupervisor(authStore.user)) {
       cards.push({
         id: 'supervision',
         label: 'Supervision',
@@ -2313,8 +2348,8 @@ const dashboardCards = computed(() => {
         description: 'View and support your supervisees.'
       });
     }
-    // My supervision card (supervisees – providers, interns, etc. who have supervision sessions)
-    if (!isSupervisor(authStore.user) && !isLimitedAccessNonProvider) {
+    // My supervision card (supervisees – providers, interns, etc. who have supervision sessions) – hidden for clubs
+    if (!isClubContext.value && !isSupervisor(authStore.user) && !isLimitedAccessNonProvider) {
       cards.push({
         id: 'my_supervision',
         label: 'My Supervision',
@@ -2502,7 +2537,7 @@ function openSocialFeedInDetail(feed) {
 const handleCardClick = (card) => {
   closeCardDescriptor();
   if (props.previewMode) return;
-  if (card.kind === 'link' && card.to) {
+  if ((card.kind === 'link' || card.kind === 'action') && card.to) {
     router.push(String(card.to));
     return;
   }
@@ -2552,7 +2587,13 @@ const syncFromQuery = () => {
 
   const qMy = route.query?.my;
   if (typeof qMy === 'string' && ['account', 'credentials', 'preferences', 'payroll', 'compensation', 'kudos'].includes(qMy)) {
-    myTab.value = qMy;
+    const hiddenInClub = ['credentials', 'payroll', 'compensation'];
+    if (isClubContext.value && hiddenInClub.includes(qMy)) {
+      myTab.value = 'account';
+      router.replace({ query: { ...route.query, tab: 'my', my: 'account' } });
+    } else {
+      myTab.value = qMy;
+    }
   }
 
   if (String(qTab || '') === 'my_schedule') {
@@ -2885,6 +2926,16 @@ watch(() => [props.previewStatus, props.previewData], () => {
 watch(() => [route.query?.tab, route.query?.my, route.query?.scheduleMode, route.query?.superviseeId], () => {
   syncFromQuery();
 });
+
+// Club context: reset myTab if it's one of the hidden tabs (credentials, payroll, compensation)
+watch([isClubContext, () => myTab.value], () => {
+  if (!isClubContext.value) return;
+  const hidden = ['credentials', 'payroll', 'compensation'];
+  if (hidden.includes(myTab.value)) {
+    myTab.value = 'account';
+    if (!props.previewMode) router.replace({ query: { ...route.query, tab: 'my', my: 'account' } });
+  }
+}, { immediate: true });
 
 watch([
   scheduleViewMode,

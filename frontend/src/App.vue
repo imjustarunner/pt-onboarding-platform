@@ -113,7 +113,7 @@
               <!-- Portal navigation (admins must see this even if ACTIVE_EMPLOYEE) -->
               <template v-if="canSeePortalNav && canSeeFullPortalNav">
 
-                <div class="nav-dropdown" @click.stop>
+                <div v-if="!isAffiliationContext" class="nav-dropdown" @click.stop>
                   <button
                     type="button"
                     class="nav-dropdown-trigger"
@@ -154,15 +154,15 @@
                     <span class="nav-dropdown-label">Directory</span> <span class="brand-caret">▾</span>
                   </button>
                   <div v-if="directoryMenuOpen" class="nav-dropdown-menu">
-                    <router-link :to="orgTo('/operations-dashboard')" v-if="user?.role === 'super_admin' || isAdmin || user?.role === 'provider_plus' || user?.role === 'clinical_practice_assistant'" >Operations Dashboard</router-link>
+                    <router-link :to="orgTo('/operations-dashboard')" v-if="(user?.role === 'super_admin' || isAdmin || user?.role === 'provider_plus' || user?.role === 'clinical_practice_assistant')" >{{ isAffiliationContext ? 'Team Lead Dashboards' : 'Operations Dashboard' }}</router-link>
                     <router-link :to="orgTo('/schedule')" >Schedule Hub</router-link>
-                    <router-link :to="orgTo('/admin/schools/overview?orgType=school')" v-if="user?.role === 'super_admin' || isAdmin" >School Overview</router-link>
-                    <router-link :to="orgTo('/admin/schools/overview?orgType=program')" v-if="user?.role === 'super_admin' || isAdmin" >Program Overview</router-link>
-                    <router-link :to="orgTo('/admin/school-portals')" v-if="user?.role === 'super_admin' || isAdmin" >Show All School Portals</router-link>
-                    <router-link :to="orgTo('/admin/find-providers')" v-if="user?.role === 'super_admin' || isAdmin" >Provider Booking Interface</router-link>
-                    <router-link :to="orgTo('/admin/skill-builders-availability')" v-if="canSeeSkillBuildersAvailabilityDirectoryNav" >Skill Builders Availability</router-link>
-                    <router-link :to="orgTo('/admin/provider-availability')" v-if="user?.role === 'super_admin' || isAdmin || user?.role === 'staff' || user?.role === 'provider_plus'" >Provider Availability</router-link>
-                    <router-link :to="orgTo('/admin/school-clients')" v-if="user?.role === 'super_admin' || isAdmin || user?.role === 'staff'">
+                    <router-link :to="orgTo('/admin/schools/overview?orgType=school')" v-if="(user?.role === 'super_admin' || isAdmin) && !isAffiliationContext" >School Overview</router-link>
+                    <router-link :to="orgTo('/admin/schools/overview?orgType=program')" v-if="(user?.role === 'super_admin' || isAdmin) && !isAffiliationContext" >Program Overview</router-link>
+                    <router-link :to="orgTo('/admin/school-portals')" v-if="(user?.role === 'super_admin' || isAdmin) && !isAffiliationContext" >Show All School Portals</router-link>
+                    <router-link :to="orgTo('/admin/find-providers')" v-if="(user?.role === 'super_admin' || isAdmin) && !isAffiliationContext" >Provider Booking Interface</router-link>
+                    <router-link :to="orgTo('/admin/skill-builders-availability')" v-if="canSeeSkillBuildersAvailabilityDirectoryNav && !isAffiliationContext" >Skill Builders Availability</router-link>
+                    <router-link :to="orgTo('/admin/provider-availability')" v-if="(user?.role === 'super_admin' || isAdmin || user?.role === 'staff' || user?.role === 'provider_plus') && !isAffiliationContext" >Provider Availability</router-link>
+                    <router-link :to="orgTo('/admin/school-clients')" v-if="(user?.role === 'super_admin' || isAdmin || user?.role === 'staff') && !isAffiliationContext">
                       <span>School Clients</span>
                       <span
                         v-if="schoolClientsPendingCount > 0"
@@ -172,8 +172,8 @@
                         {{ schoolClientsPendingCount }}
                       </span>
                     </router-link>
-                    <router-link :to="orgTo('/admin/users')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" >Users</router-link>
-                    <router-link :to="orgTo('/admin/clients')" v-if="isAdmin || user?.role === 'provider'" >Clients</router-link>
+                    <router-link :to="orgTo('/admin/users')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" >{{ isAffiliationContext ? 'Members' : 'Users' }}</router-link>
+                    <router-link :to="orgTo('/admin/clients')" v-if="(isAdmin || user?.role === 'provider') && !isAffiliationContext" >Clients</router-link>
                   </div>
                 </div>
 
@@ -195,17 +195,17 @@
                     <router-link :to="orgTo('/admin/receivables')" v-if="canSeePayrollManagement" >Receivables</router-link>
                     <router-link :to="orgTo('/admin/learning-billing')" v-if="canSeePayrollManagement && learningBillingNavEnabled" >Learning Billing</router-link>
                     <router-link :to="orgTo('/admin/psychotherapy-compliance')" v-if="canSeePayrollManagement" >Psychotherapy Compliance</router-link>
-                    <router-link :to="orgTo('/admin/compliance-corner')" v-if="isTrueAdmin" >Compliance Corner</router-link>
-                    <router-link :to="orgTo('/admin/audit-center')" v-if="isTrueAdmin" >Audit Center</router-link>
+                    <router-link :to="orgTo('/admin/compliance-corner')" v-if="isTrueAdmin && !isAffiliationContext" >Compliance Corner</router-link>
+                    <router-link :to="orgTo('/admin/audit-center')" v-if="isTrueAdmin && !isAffiliationContext" >Audit Center</router-link>
                     <router-link :to="orgTo('/admin/expenses')" v-if="canSeePayrollManagement" >Expense/Reimbursements</router-link>
                     <router-link :to="orgTo('/admin/budget-management')" v-if="canSeeBudgetManagement" >Budget Management</router-link>
                     <router-link :to="orgTo('/admin/revenue')" v-if="user?.role === 'super_admin'" >Revenue</router-link>
-                    <router-link :to="availabilityIntakeNavLink" v-if="canSeeAvailabilityIntake" >Availability Intake</router-link>
+                    <router-link :to="availabilityIntakeNavLink" v-if="canSeeAvailabilityIntake && !isAffiliationContext" >Availability Intake</router-link>
 
                     <div class="nav-dropdown-sep" />
 
-                    <router-link :to="orgTo('/admin/users')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" >Users</router-link>
-                    <router-link :to="orgTo('/admin/clients')" v-if="isAdmin || user?.role === 'provider'" >Clients</router-link>
+                    <router-link :to="orgTo('/admin/users')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" >{{ isAffiliationContext ? 'Members' : 'Users' }}</router-link>
+                    <router-link :to="orgTo('/admin/clients')" v-if="(isAdmin || user?.role === 'provider') && !isAffiliationContext" >Clients</router-link>
                     <router-link :to="orgTo('/admin/credentialing')" v-if="canSeeCredentialing" >Credentialing</router-link>
 
                     <div class="nav-dropdown-sep" />
@@ -279,7 +279,7 @@
                         {{ notificationsUnreadCount }}
                       </span>
                     </router-link>
-                    <router-link :to="ticketsNavLink" >
+                    <router-link :to="ticketsNavLink" v-if="!isAffiliationContext">
                       <span>Tickets</span>
                       <span
                         v-if="communicationsOpenTicketsCount > 0"
@@ -323,6 +323,7 @@
                 </div>
               </div>
               <button
+                v-if="!isAffiliationContext"
                 type="button"
                 class="btn btn-secondary tutorial-toggle"
                 :class="{ active: tutorialStore.enabled }"
@@ -340,46 +341,56 @@
               >
                 Builder
               </button>
-              <WeatherChip />
-              <router-link
-                v-if="canShowScheduleIcon"
-                :to="myScheduleNavLink"
-                class="nav-icon-btn"
-                title="Schedule"
-                aria-label="Schedule"
-              >
-                <img v-if="scheduleIconUrl" :src="scheduleIconUrl" alt="" class="nav-icon-img" />
-                <span v-else aria-hidden="true">📅</span>
-              </router-link>
-              <router-link
-                v-if="canShowSettingsIcon"
-                :to="orgTo('/admin/settings')"
-                class="nav-icon-btn"
-                title="Settings"
-                aria-label="Settings"
-              >
-                <img v-if="settingsIconUrl" :src="settingsIconUrl" alt="" class="nav-icon-img" />
-                <span v-else aria-hidden="true">⚙</span>
-              </router-link>
-              <router-link
-                v-if="showNotificationsObnoxiousBadge"
-                :to="orgTo('/notifications')"
-                class="nav-obnoxious-badge"
-                :title="`${notificationsUnreadCount} unread notification(s)`"
-                aria-label="Notifications"
-              >
-                {{ notificationsUnreadCount }}
-              </router-link>
-              <router-link
-                v-if="showNotificationsCompactBadge"
-                :to="orgTo('/notifications')"
-                class="nav-compact-badge nav-badge-pulse"
-                :title="`${notificationsUnreadCount} unread notification(s)`"
-                aria-label="Notifications"
-              >
-                {{ notificationsUnreadCount }}
-              </router-link>
-              <button @click="handleLogout" class="btn btn-secondary">Logout</button>
+              <div class="nav-right-group">
+                <WeatherChip />
+                <router-link
+                  v-if="canShowScheduleIcon"
+                  :to="myScheduleNavLink"
+                  class="nav-icon-btn"
+                  title="Schedule"
+                  aria-label="Schedule"
+                >
+                  <img v-if="scheduleIconUrl" :src="scheduleIconUrl" alt="" class="nav-icon-img" />
+                  <span v-else aria-hidden="true">📅</span>
+                </router-link>
+                <router-link
+                  v-if="canShowSettingsIcon"
+                  :to="orgTo('/admin/settings')"
+                  class="nav-icon-btn"
+                  title="Settings"
+                  aria-label="Settings"
+                >
+                  <img v-if="settingsIconUrl" :src="settingsIconUrl" alt="" class="nav-icon-img" />
+                  <span v-else aria-hidden="true">⚙</span>
+                </router-link>
+                <router-link
+                  v-if="showNotificationsObnoxiousBadge"
+                  :to="orgTo('/notifications')"
+                  class="nav-obnoxious-badge"
+                  :title="`${notificationsUnreadCount} unread notification(s)`"
+                  aria-label="Notifications"
+                >
+                  {{ notificationsUnreadCount }}
+                </router-link>
+                <router-link
+                  v-if="showNotificationsCompactBadge"
+                  :to="orgTo('/notifications')"
+                  class="nav-compact-badge nav-badge-pulse"
+                  :title="`${notificationsUnreadCount} unread notification(s)`"
+                  aria-label="Notifications"
+                >
+                  {{ notificationsUnreadCount }}
+                </router-link>
+                <router-link
+                  :to="{ path: myDashboardTo, query: { tab: 'my' } }"
+                  class="nav-icon-btn"
+                  title="My Account"
+                  aria-label="My Account"
+                >
+                  <span aria-hidden="true">👤</span>
+                </router-link>
+                <button @click="handleLogout" class="btn btn-secondary">Logout</button>
+              </div>
               </div>
             </div>
           </div>
@@ -436,7 +447,7 @@
               class="mobile-nav-link"
             >Payroll</router-link>
             <router-link
-              v-if="canSeeSkillBuildersAvailabilityNav"
+              v-if="canSeeSkillBuildersAvailabilityNav && !isAffiliationContext"
               :to="orgTo('/admin/skill-builders-availability')"
               @click="closeMobileMenu"
               class="mobile-nav-link"
@@ -450,7 +461,7 @@
 
             <template v-if="canSeePortalNav && canSeeFullPortalNav">
               <router-link :to="orgTo('/admin')" v-if="isTrueAdmin" @click="closeMobileMenu" class="mobile-nav-link">Admin Dashboard</router-link>
-              <router-link :to="orgTo('/operations-dashboard')" v-if="showOperationsDashboardLink && user?.role !== 'provider_plus'" @click="closeMobileMenu" class="mobile-nav-link">Operations Dashboard</router-link>
+              <router-link :to="orgTo('/operations-dashboard')" v-if="showOperationsDashboardLink && user?.role !== 'provider_plus'" @click="closeMobileMenu" class="mobile-nav-link">{{ isAffiliationContext ? 'Team Lead Dashboards' : 'Operations Dashboard' }}</router-link>
 
               <router-link
                 :to="orgTo('/admin/modules')"
@@ -460,19 +471,19 @@
               >Training</router-link>
               <router-link
                 :to="orgTo('/admin/school-portals')"
-                v-if="user?.role === 'super_admin' || isAdmin"
+                v-if="(user?.role === 'super_admin' || isAdmin) && !isAffiliationContext"
                 @click="closeMobileMenu"
                 class="mobile-nav-link"
               >Show All School Portals</router-link>
               <router-link
                 :to="orgTo('/admin/provider-availability')"
-                v-if="user?.role === 'super_admin' || isAdmin || user?.role === 'staff' || user?.role === 'provider_plus'"
+                v-if="(user?.role === 'super_admin' || isAdmin || user?.role === 'staff' || user?.role === 'provider_plus') && !isAffiliationContext"
                 @click="closeMobileMenu"
                 class="mobile-nav-link"
               >Provider Availability</router-link>
               <router-link
                 :to="orgTo('/admin/school-clients')"
-                v-if="user?.role === 'super_admin' || isAdmin || user?.role === 'staff'"
+                v-if="(user?.role === 'super_admin' || isAdmin || user?.role === 'staff') && !isAffiliationContext"
                 @click="closeMobileMenu"
                 class="mobile-nav-link"
               >
@@ -491,8 +502,8 @@
                 @click="closeMobileMenu"
                 class="mobile-nav-link"
               >Documents</router-link>
-              <router-link :to="orgTo('/admin/users')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu" class="mobile-nav-link">Users</router-link>
-              <router-link :to="orgTo('/admin/clients')" v-if="isAdmin || user?.role === 'provider'" @click="closeMobileMenu" class="mobile-nav-link">Clients</router-link>
+              <router-link :to="orgTo('/admin/users')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu" class="mobile-nav-link">{{ isAffiliationContext ? 'Members' : 'Users' }}</router-link>
+              <router-link :to="orgTo('/admin/clients')" v-if="(isAdmin || user?.role === 'provider') && !isAffiliationContext" @click="closeMobileMenu" class="mobile-nav-link">Clients</router-link>
               <router-link
                 :to="orgTo('/admin/communications')"
                 v-if="canUseEngagementFeed"
@@ -528,7 +539,7 @@
               </router-link>
               <router-link
                 :to="ticketsNavLink"
-                v-if="(isAdmin || user?.role === 'staff' || user?.role === 'support' || user?.role === 'super_admin')"
+                v-if="(isAdmin || user?.role === 'staff' || user?.role === 'support' || user?.role === 'super_admin') && !isAffiliationContext"
                 @click="closeMobileMenu"
                 class="mobile-nav-link"
               >
@@ -550,14 +561,15 @@
               <router-link :to="orgTo('/admin/payroll')" v-if="canSeePayrollManagement" @click="closeMobileMenu" class="mobile-nav-link">Payroll</router-link>
               <router-link :to="orgTo('/admin/receivables')" v-if="canSeePayrollManagement" @click="closeMobileMenu" class="mobile-nav-link">Receivables</router-link>
               <router-link :to="orgTo('/admin/learning-billing')" v-if="canSeePayrollManagement && learningBillingNavEnabled" @click="closeMobileMenu" class="mobile-nav-link">Learning Billing</router-link>
-              <router-link :to="orgTo('/admin/audit-center')" v-if="isTrueAdmin" @click="closeMobileMenu" class="mobile-nav-link">Audit Center</router-link>
+              <router-link :to="orgTo('/admin/audit-center')" v-if="isTrueAdmin && !isAffiliationContext" @click="closeMobileMenu" class="mobile-nav-link">Audit Center</router-link>
               <router-link :to="orgTo('/admin/expenses')" v-if="canSeePayrollManagement" @click="closeMobileMenu" class="mobile-nav-link">Expense/Reimbursements</router-link>
               <router-link :to="orgTo('/admin/revenue')" v-if="user?.role === 'super_admin'" @click="closeMobileMenu" class="mobile-nav-link">Revenue</router-link>
-              <router-link :to="availabilityIntakeNavLink" v-if="canSeeAvailabilityIntake" @click="closeMobileMenu" class="mobile-nav-link">Availability Intake</router-link>
+              <router-link :to="availabilityIntakeNavLink" v-if="canSeeAvailabilityIntake && !isAffiliationContext" @click="closeMobileMenu" class="mobile-nav-link">Availability Intake</router-link>
 
               <router-link :to="orgTo('/admin/settings')" v-if="(canCreateEdit || user?.role === 'support') && user?.role !== 'clinical_practice_assistant'" @click="closeMobileMenu" class="mobile-nav-link">Settings</router-link>
             </template>
             <button
+              v-if="!isAffiliationContext"
               type="button"
               class="btn btn-secondary tutorial-toggle mobile-tutorial-toggle"
               :class="{ active: tutorialStore.enabled }"
@@ -1185,6 +1197,12 @@ const isSummitStatsClubManager = computed(() => {
   return !Array.isArray(agencies) || agencies.length === 0;
 });
 
+// SSC/affiliation context: current org is a club (affiliation). Simplified nav: Team Lead Dashboards, Schedule, Members, Settings.
+const isAffiliationContext = computed(() => {
+  const t = String(agencyStore.currentAgency?.organization_type || '').toLowerCase();
+  return t === 'affiliation';
+});
+
 const canSeeFullPortalNav = computed(() => {
   // Keep the “full” admin dropdown navigation for backoffice roles.
   // Limited-access users (payroll/hiring/supervisors) should not see it.
@@ -1435,7 +1453,7 @@ const canSeePortalNav = computed(() => {
 });
 
 const showOnDemandLink = computed(() => {
-  return user.value?.role !== 'super_admin' && isOnDemandUser.value && hasCapability('canViewTraining');
+  return user.value?.role !== 'super_admin' && isOnDemandUser.value && hasCapability('canViewTraining') && !isAffiliationContext.value;
 });
 
 const canCreateEdit = computed(() => {
@@ -1512,8 +1530,16 @@ const activeOrganizationSlug = computed(() => {
   return null;
 });
 
+// For admin routes, use parent slug when in club/affiliation context (e.g. /ssc/admin instead of /club-slug/admin)
+const adminOrganizationSlug = computed(() => {
+  const agency = agencyStore.currentAgency?.value ?? agencyStore.currentAgency;
+  const orgType = String(agency?.organization_type || agency?.organizationType || '').toLowerCase();
+  if (orgType === 'affiliation' && agency?.parent_slug) return agency.parent_slug;
+  return activeOrganizationSlug.value;
+});
+
 const orgTo = (path) => {
-  const slug = activeOrganizationSlug.value;
+  const slug = path.startsWith('/admin') ? adminOrganizationSlug.value : activeOrganizationSlug.value;
   if (!slug) return path;
   return `/${slug}${path}`;
 };
@@ -2266,7 +2292,11 @@ onUnmounted(() => {
   box-shadow: var(--shadow-lg);
   border-bottom: 3px solid var(--accent);
   width: 100%;
-  /* overflow: visible so dropdown menus can render; overflow contained by nav-links-wrapper */
+  overflow: visible;
+}
+
+.navbar .container {
+  overflow: visible;
 }
 
 .navbar .nav-title,
@@ -2281,7 +2311,7 @@ onUnmounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 24px;
+  gap: 28px;
   /* Allow dropdowns (e.g., Switch Brand) to render outside navbar row */
   overflow: visible;
   position: relative;
@@ -2509,10 +2539,18 @@ onUnmounted(() => {
 .nav-links {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 20px;
   flex-wrap: nowrap;
   flex-shrink: 1;
   min-width: 0;
+}
+
+.nav-right-group {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-left: auto;
+  flex-shrink: 0;
 }
 
 @media (max-width: 1400px) {
@@ -3178,7 +3216,20 @@ onUnmounted(() => {
   z-index: 1001;
   flex-shrink: 0;
   margin-right: 16px;
+  margin-left: -24px; /* Pull to far left, offset container padding */
   order: -1; /* Place before nav-brand */
+}
+
+@media (min-width: 768px) {
+  .navbar .mobile-menu-toggle {
+    margin-left: -40px;
+  }
+}
+
+@media (min-width: 1200px) {
+  .navbar .mobile-menu-toggle {
+    margin-left: -60px;
+  }
 }
 
 .hamburger-line {

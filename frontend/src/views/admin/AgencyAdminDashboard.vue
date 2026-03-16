@@ -45,6 +45,10 @@
         <div v-if="createClubError" class="create-club-error">{{ createClubError }}</div>
         <form v-if="!createClubSuccess" @submit.prevent="submitCreateClub" class="create-club-form">
           <input v-model="createClubName" type="text" placeholder="Club name" required class="create-club-input" />
+          <div class="create-club-slug-row">
+            <input v-model="createClubSlug" type="text" placeholder="Custom URL slug (optional)" class="create-club-input create-club-slug" />
+            <span class="create-club-slug-hint">Leave blank to auto-generate from name. You can edit later in settings.</span>
+          </div>
           <button type="submit" :disabled="createClubSubmitting" class="create-club-btn">
             {{ createClubSubmitting ? 'Creating…' : 'Create Club' }}
           </button>
@@ -59,8 +63,8 @@
     <div v-else class="dashboard-content">
       <div class="dashboard-grid">
         <component 
+          v-if="!isSummitStatsContext && ((user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'support') || (user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)))"
           :is="previewMode ? 'div' : 'router-link'"
-          v-if="(user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'support') || (user?.role !== 'clinical_practice_assistant' && !isSupervisor(user))"
           :to="previewMode ? null : '/admin/settings?tab=agencies'"
           class="stat-card"
           :class="{ 'preview-disabled': previewMode }"
@@ -70,8 +74,8 @@
         </component>
         
         <component 
+          v-if="!isSummitStatsContext && ((user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'support') || (user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)))"
           :is="previewMode ? 'div' : 'router-link'"
-          v-if="(user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'support') || (user?.role !== 'clinical_practice_assistant' && !isSupervisor(user))"
           :to="previewMode ? null : '/admin/modules?filter=templates'"
           class="stat-card"
           :class="{ 'preview-disabled': previewMode }"
@@ -81,8 +85,8 @@
         </component>
         
         <component 
+          v-if="!isSummitStatsContext && ((user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'support') || (user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)))"
           :is="previewMode ? 'div' : 'router-link'"
-          v-if="(user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'support') || (user?.role !== 'clinical_practice_assistant' && !isSupervisor(user))"
           :to="previewMode ? null : '/admin/modules?view=table'"
           class="stat-card"
           :class="{ 'preview-disabled': previewMode }"
@@ -93,15 +97,16 @@
         
         <component 
           :is="previewMode ? 'div' : 'router-link'"
-          :to="previewMode ? null : '/admin/users'"
+          :to="previewMode ? null : orgTo('/admin/users')"
           class="stat-card"
           :class="{ 'preview-disabled': previewMode }"
         >
-          <h3>Active Users</h3>
+          <h3>{{ isSummitStatsContext ? 'Members' : 'Active Users' }}</h3>
           <p class="stat-value">{{ stats.activeUsers }}</p>
         </component>
 
         <component
+          v-if="!isSummitStatsContext"
           :is="previewMode ? 'div' : 'router-link'"
           :to="previewMode ? null : ticketsLink"
           class="stat-card"
@@ -134,8 +139,15 @@
         <SupervisionModal />
       </section>
 
+      <ClubQuickActions
+        v-if="!previewMode && isSummitStatsContext"
+        :org-slug="orgSlug"
+        :agency="agencyData || currentAgency"
+        @add-member="showAddMemberModal = true"
+        @add-season="showAddSeasonModal = true"
+      />
       <QuickActionsSection
-        v-if="!previewMode"
+        v-else-if="!previewMode"
         title="Quick Actions"
         context-key="agency"
         :actions="quickActions"
@@ -143,9 +155,27 @@
         :icon-resolver="resolveQuickActionIcon"
         compact
       />
+
+      <ClubAddMemberModal
+        :open="showAddMemberModal"
+        :club-id="currentAgency?.id"
+        @close="showAddMemberModal = false"
+        @added="() => { fetchStats(); showAddMemberModal = false; }"
+      />
+      <ClubAddSeasonModal
+        :open="showAddSeasonModal"
+        :club-id="currentAgency?.id"
+        @close="showAddSeasonModal = false"
+        @created="() => { showAddSeasonModal = false; }"
+      />
       
+      <ClubSpecsPanel
+        v-if="!previewMode && isSummitStatsContext && currentAgency?.id"
+        title="Club Specs"
+        :organization-id="currentAgency?.id"
+      />
       <AgencySpecsPanel
-        v-if="!previewMode && myAgencies.length > 0 && ((user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'support') || (user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)))"
+        v-else-if="!previewMode && myAgencies.length > 0 && ((user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'support') || (user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)))"
         title="Agency Specs"
         v-model:organizationId="selectedOrgId"
         :organizations="myAgencies"
@@ -165,7 +195,11 @@ import { useAuthStore } from '../../store/auth';
 import { isSupervisor } from '../../utils/helpers.js';
 import NotificationCards from '../../components/admin/NotificationCards.vue';
 import QuickActionsSection from '../../components/admin/QuickActionsSection.vue';
+import ClubQuickActions from '../../components/club/ClubQuickActions.vue';
+import ClubAddMemberModal from '../../components/club/ClubAddMemberModal.vue';
+import ClubAddSeasonModal from '../../components/club/ClubAddSeasonModal.vue';
 import AgencySpecsPanel from '../../components/admin/AgencySpecsPanel.vue';
+import ClubSpecsPanel from '../../components/club/ClubSpecsPanel.vue';
 import SupervisionModal from '../../components/supervision/SupervisionModal.vue';
 
 const props = defineProps({
@@ -219,12 +253,15 @@ const branding = computed(() => brandingStore.platformBranding);
 const clubContext = ref(null);
 const clubContextLoading = ref(false);
 const createClubName = ref('');
+const createClubSlug = ref('');
 const createClubSubmitting = ref(false);
 const createClubSuccess = ref(false);
 const createClubError = ref('');
 const verificationLink = ref('');
 const verificationError = ref('');
 const resendVerificationLoading = ref(false);
+const showAddMemberModal = ref(false);
+const showAddSeasonModal = ref(false);
 
 const requestVerificationLink = async () => {
   resendVerificationLoading.value = true;
@@ -265,21 +302,24 @@ const submitCreateClub = async () => {
   if (!name) return;
   createClubSubmitting.value = true;
   try {
-    const r = await api.post('/summit-stats/clubs', { name });
+    const payload = { name };
+    const slug = String(createClubSlug.value || '').trim();
+    if (slug) payload.slug = slug;
+    const r = await api.post('/summit-stats/clubs', payload);
     createClubSuccess.value = true;
     createClubError.value = '';
     const club = r.data;
     if (club) agencyStore.setCurrentAgency(club);
     await loadClubManagerContext();
     await agencyStore.fetchUserAgencies();
-    const clubSlug = club?.slug || club?.portal_url || null;
-    const orgSlug = route.params?.organizationSlug;
-    if (clubSlug && orgSlug) {
-      await router.replace(`/${clubSlug}/admin`);
+    const adminSlug = club?.parent_slug || club?.slug || club?.portal_url || route.params.organizationSlug;
+    if (adminSlug) {
+      await router.replace(`/${adminSlug}/admin`);
     }
     setTimeout(() => {
       createClubSuccess.value = false;
       createClubName.value = '';
+      createClubSlug.value = '';
     }, 1500);
   } catch (e) {
     createClubError.value = e?.response?.data?.error?.message || 'Failed to create club';
@@ -351,14 +391,19 @@ const fetchStats = async () => {
       await brandingStore.fetchPlatformBranding();
     }
     
+    // Club (affiliation) context: skip modules/training-focuses (may require canViewTraining which club managers lack)
+    const isClub = String(currentAgency.value?.organization_type || currentAgency.value?.organizationType || '').toLowerCase() === 'affiliation';
+    const modulesPromise = isClub ? Promise.resolve({ data: [] }) : api.get('/modules').catch(() => ({ data: [] }));
+    const trainingPromises = isClub ? [] : trainingFocusPromises;
+
     const [modulesRes, usersRes, ...trainingFocusResults] = await Promise.all([
-      api.get('/modules'),
+      modulesPromise,
       api.get('/users').catch(err => {
         // If users fetch fails (e.g., for supervisors without assignments), return empty array
         console.warn('Could not fetch users:', err.message);
         return { data: [] };
       }),
-      ...trainingFocusPromises
+      ...trainingPromises
     ]);
     
     // Fetch current agency data if available
@@ -372,7 +417,7 @@ const fetchStats = async () => {
     }
     
     // Filter modules for user's agencies
-    const agencyModules = modulesRes.data.filter(m => 
+    const agencyModules = (modulesRes?.data || []).filter(m =>
       !m.is_shared && rawAgencies.some(a => a.id === m.agency_id)
     );
     
@@ -449,8 +494,55 @@ const clinicalNoteGeneratorEnabledForAgency = computed(() =>
   })()
 );
 
+const orgSlug = computed(() => route.params?.organizationSlug || '');
+const orgTo = (path) => (orgSlug.value ? `/${orgSlug.value}${path}` : path);
+
+const AFFILIATION_QUICK_ACTION_IDS = ['team_lead_dashboard', 'schedule', 'start_new_season', 'manage_users', 'settings'];
+const AFFILIATION_HIDDEN_IDS = new Set([
+  'school_overview', 'program_overview', 'import_school_directory', 'skill_builders_availability',
+  'provider_availability_dashboard', 'provider_scheduling_settings', 'audit_center', 'external_calendar_audit',
+  'manage_clients', 'progress_dashboard', 'tools_aids', 'clinical_note_generator', 'manage_modules',
+  'manage_documents', 'intake_links', 'unassigned_documents', 'management_team', 'provider_directory',
+  'communications', 'chats', 'notifications', 'payroll', 'billing', 'billing_policy_rules'
+]);
+
 const quickActions = computed(() => {
+  const slug = orgSlug.value;
+  const prefix = slug ? `/${slug}` : '';
   const base = [
+  {
+    id: 'team_lead_dashboard',
+    title: 'Team Lead Dashboards',
+    description: 'View what team leads and captains see',
+    to: '/operations-dashboard',
+    emoji: '👥',
+    iconKey: 'provider_availability_dashboard',
+    category: 'Management',
+    roles: ['admin', 'support', 'super_admin', 'staff', 'clinical_practice_assistant', 'provider_plus'],
+    capabilities: ['canAccessPlatform']
+  },
+  {
+    id: 'schedule',
+    title: 'Schedule',
+    description: 'View schedule hub',
+    to: '/schedule',
+    emoji: '📅',
+    iconKey: 'schedule',
+    category: 'Scheduling',
+    roles: ['admin', 'support', 'super_admin', 'staff', 'clinical_practice_assistant', 'provider_plus'],
+    capabilities: ['canAccessPlatform']
+  },
+  {
+    id: 'start_new_season',
+    title: 'Start New Season',
+    description: 'Create a new fitness challenge season',
+    to: '/admin/settings?category=workflow&item=challenge-management',
+    emoji: '🏁',
+    iconKey: 'challenges',
+    category: 'Challenges',
+    roles: ['admin', 'support', 'super_admin'],
+    capabilities: ['canAccessPlatform']
+  },
   {
     id: 'progress_dashboard',
     title: 'Progress Dashboard',
@@ -742,7 +834,13 @@ const quickActions = computed(() => {
   }
   ];
 
-  return base.filter((a) => {
+  let filtered = base.filter((a) => {
+    if (isSummitStatsContext.value) {
+      if (AFFILIATION_HIDDEN_IDS.has(String(a?.id))) return false;
+      if (String(a?.id) === 'manage_users') return true;
+      if (String(a?.id) === 'settings') return true;
+      return ['team_lead_dashboard', 'schedule', 'manage_users', 'settings'].includes(String(a?.id));
+    }
     if (String(a?.id) === 'school_overview') return hasAffiliatedSchools.value;
     if (String(a?.id) === 'program_overview') return hasAffiliatedPrograms.value;
     // Admin/support/supervisor always see Tools & Aids when no agency selected; otherwise use agency feature flag
@@ -750,31 +848,41 @@ const quickActions = computed(() => {
     if (String(a?.id) === 'tools_aids' || String(a?.id) === 'clinical_note_generator') return showToolsOrNoteAid;
     return true;
   });
+  return filtered.map((a) => {
+    const toPath = prefix && a.to ? `${prefix}${a.to}` : a.to;
+    const title = isSummitStatsContext.value && String(a?.id) === 'manage_users' ? 'Members' : a.title;
+    return { ...a, to: toPath || a.to, title };
+  });
 });
 
-const defaultQuickActionIds = computed(() => ([
-  'progress_dashboard',
-  'manage_clients',
-  'management_team',
-  ...((clinicalNoteGeneratorEnabledForAgency.value || !currentAgency.value) ? ['tools_aids', 'clinical_note_generator'] : []),
-  ...(hasAffiliatedSchools.value ? ['school_overview'] : []),
-  ...(hasAffiliatedPrograms.value ? ['program_overview'] : []),
-  'manage_modules',
-  'manage_documents',
-  'manage_users',
-  'settings',
-  'audit_center',
-  'external_calendar_audit',
-  'provider_availability_dashboard',
-  'provider_scheduling_settings',
-  'skill_builders_availability',
-  'notifications',
-  'communications',
-  'chats',
-  'payroll',
-  'billing',
-  'billing_policy_rules'
-]));
+const defaultQuickActionIds = computed(() => {
+  if (isSummitStatsContext.value) {
+    return ['team_lead_dashboard', 'schedule', 'manage_users', 'settings'];
+  }
+  return [
+    'progress_dashboard',
+    'manage_clients',
+    'management_team',
+    ...((clinicalNoteGeneratorEnabledForAgency.value || !currentAgency.value) ? ['tools_aids', 'clinical_note_generator'] : []),
+    ...(hasAffiliatedSchools.value ? ['school_overview'] : []),
+    ...(hasAffiliatedPrograms.value ? ['program_overview'] : []),
+    'manage_modules',
+    'manage_documents',
+    'manage_users',
+    'settings',
+    'audit_center',
+    'external_calendar_audit',
+    'provider_availability_dashboard',
+    'provider_scheduling_settings',
+    'skill_builders_availability',
+    'notifications',
+    'communications',
+    'chats',
+    'payroll',
+    'billing',
+    'billing_policy_rules'
+  ];
+});
 
 const resolveQuickActionIcon = (action) => {
   if (!action?.iconKey) return null;
@@ -950,9 +1058,18 @@ onMounted(loadMyOpenTickets);
 }
 .create-club-form {
   display: flex;
+  flex-direction: column;
   gap: 12px;
-  flex-wrap: wrap;
-  align-items: center;
+  align-items: stretch;
+}
+.create-club-slug-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.create-club-slug-hint {
+  font-size: 0.8rem;
+  color: var(--color-muted, #666);
 }
 .create-club-input {
   flex: 1;

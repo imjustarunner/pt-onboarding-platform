@@ -35,11 +35,18 @@ onMounted(async () => {
     await loadAndApplyPlatformFonts(brandingStore.platformBranding);
   }
   
-  // Only fetch agencies if user is authenticated and not a super admin
-  // This prevents agency colors from affecting the login page
-  if (authStore.isAuthenticated && authStore.user?.role !== 'super_admin') {
-    await agencyStore.fetchUserAgencies();
-    // Best-effort: apply agency theme (fonts) if we already have a selected agency.
+  // Fetch agencies for authenticated users so agency branding can be applied
+  if (authStore.isAuthenticated) {
+    if (authStore.user?.role === 'super_admin') {
+      await agencyStore.fetchAgencies();
+      // Hydrate currentAgency from localStorage so it has color_palette
+      if (agencyStore.currentAgency?.id) {
+        await agencyStore.hydrateAgencyById(agencyStore.currentAgency.id);
+      }
+    } else {
+      await agencyStore.fetchUserAgencies();
+    }
+    // Best-effort: apply agency theme (fonts) if we already have a selected agency
     if (agencyStore.currentAgency) {
       try {
         const colorPalette = typeof agencyStore.currentAgency.color_palette === 'string'

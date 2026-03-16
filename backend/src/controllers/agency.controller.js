@@ -67,6 +67,22 @@ async function attachAffiliationMeta(orgs) {
         o.hasLearningOrg = false;
       }
     }
+
+    // For affiliations (e.g. Summit Stats Clubs): add parent_slug for admin routing, inherit branding when missing
+    for (const o of list) {
+      if (!o || !o.affiliated_agency_id) continue;
+      try {
+        const parent = await Agency.findById(o.affiliated_agency_id);
+        if (parent) {
+          o.parent_slug = parent.slug || parent.portal_url || null;
+          const hasPalette = o.color_palette && (typeof o.color_palette === 'string' ? (() => { try { const p = JSON.parse(o.color_palette); return p && (p.primary || p.secondary || p.accent); } catch { return false; } })() : (o.color_palette?.primary || o.color_palette?.secondary || o.color_palette?.accent));
+          if (!hasPalette && parent.color_palette) o.color_palette = parent.color_palette;
+          if (!o.theme_settings && parent.theme_settings) o.theme_settings = parent.theme_settings;
+        }
+      } catch {
+        // ignore; best-effort only
+      }
+    }
   } catch {
     // ignore; best-effort only
   }
@@ -103,7 +119,9 @@ export const getAgencyById = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Agency not found' } });
     }
 
-    res.json(agency);
+    // Apply affiliation meta (e.g. inherited branding for clubs) so hydration doesn't overwrite with raw DB values
+    const [enriched] = await attachAffiliationMeta([agency]);
+    res.json(enriched || agency);
   } catch (error) {
     next(error);
   }
@@ -122,7 +140,8 @@ export const getAgencyBySlug = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Organization not found' } });
     }
 
-    res.json(agency);
+    const [enriched] = await attachAffiliationMeta([agency]);
+    res.json(enriched || agency);
   } catch (error) {
     next(error);
   }
@@ -324,6 +343,7 @@ export const updateAgency = async (req, res, next) => {
     const { id } = req.params;
     const { name, slug, officialName, logoUrl, logoPath, colorPalette, terminologySettings, intakeRetentionPolicy, sessionSettings, isActive, iconId, chatIconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, manageAgenciesIconId, manageClientsIconId, schoolOverviewIconId, programOverviewIconId, providerAvailabilityDashboardIconId, executiveReportIconId, manageModulesIconId, manageDocumentsIconId, manageUsersIconId, platformSettingsIconId, viewAllProgressIconId, progressDashboardIconId, settingsIconId, dashboardNotificationsIconId, dashboardCommunicationsIconId, dashboardChatsIconId, dashboardPayrollIconId, dashboardBillingIconId, externalCalendarAuditIconId, certificateTemplateUrl, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, customDomain, themeSettings, customParameters, featureFlags, publicAvailabilityEnabled, organizationType, affiliatedAgencyId, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId, supportTicketCreatedIconId, ticketingNotificationOrgTypes, myDashboardChecklistIconId, myDashboardMomentumListIconId, myDashboardMomentumStickiesIconId, myDashboardTrainingIconId, myDashboardDocumentsIconId, myDashboardMyAccountIconId, myDashboardMyScheduleIconId, myDashboardClientsIconId, myDashboardSupervisionIconId, myDashboardClinicalNoteGeneratorIconId, myDashboardOnDemandTrainingIconId, myDashboardPayrollIconId, myDashboardSubmitIconId, myDashboardCommunicationsIconId, myDashboardChatsIconId, myDashboardNotificationsIconId, schoolPortalProvidersIconId, schoolPortalDaysIconId, schoolPortalRosterIconId, schoolPortalSkillsGroupsIconId, schoolPortalContactAdminIconId, schoolPortalFaqIconId, schoolPortalSchoolStaffIconId, schoolPortalParentQrIconId, schoolPortalParentSignIconId, schoolPortalUploadPacketIconId, schoolPortalPublicDocumentsIconId, schoolPortalAnnouncementsIconId, streetAddress, city, state, postalCode, tierSystemEnabled, tierThresholds,
       companyProfileIconId, teamRolesIconId, billingIconId, packagesIconId, checklistItemsIconId, fieldDefinitionsIconId, brandingTemplatesIconId, assetsIconId, communicationsIconId, integrationsIconId, archiveIconId,
+      clubAddMemberIconId, clubAddSeasonIconId, clubSettingsIconId,
       reviewPromptConfig, companyCarDefaultReason
     } = req.body;
     
@@ -517,6 +537,9 @@ export const updateAgency = async (req, res, next) => {
       ,communicationsIconId
       ,integrationsIconId
       ,archiveIconId
+      ,clubAddMemberIconId
+      ,clubAddSeasonIconId
+      ,clubSettingsIconId
       ,...(String(organizationType || '').toLowerCase() === 'school' && companyCarDefaultReason !== undefined
         ? { companyCarDefaultReason: companyCarDefaultReason?.trim() || null }
         : {})
@@ -1002,8 +1025,9 @@ export const getThemeByPortalUrl = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Agency not found' } });
     }
 
-    // If this portal belongs to a school/program/learning org, brand it using the linked
+    // If this portal belongs to a school/program/learning/affiliation org, brand it using the linked
     // parent agency by default, unless the child org explicitly opts out.
+    // Affiliations (clubs) default to Summit Stats platform agency branding; never fall back to generic platform.
     const orgType = String(agency.organization_type || 'agency').toLowerCase();
     const parseJsonObject = (v) => {
       if (!v) return {};
@@ -1029,10 +1053,10 @@ export const getThemeByPortalUrl = async (req, res, next) => {
       true
     );
     let brandingOrg = agency;
-    if (['school', 'program', 'learning'].includes(orgType) && useAffiliatedAgencyBranding) {
+    if (['school', 'program', 'learning', 'affiliation'].includes(orgType) && useAffiliatedAgencyBranding) {
       const linkedAgencyId =
         (await OrganizationAffiliation.getActiveAgencyIdForOrganization(agency.id)) ||
-        (await AgencySchool.getActiveAgencyIdForSchool(agency.id)); // legacy fallback
+        (orgType !== 'affiliation' ? await AgencySchool.getActiveAgencyIdForSchool(agency.id) : null); // legacy fallback (schools only)
       if (linkedAgencyId) {
         const linkedAgency = await Agency.findById(linkedAgencyId);
         if (linkedAgency) brandingOrg = linkedAgency;
@@ -1099,8 +1123,9 @@ export const getLoginThemeByPortalUrl = async (req, res, next) => {
     const platformBranding = await PlatformBranding.get();
 
     // Parse JSON fields if they're strings.
-    // If this portal belongs to a school/program/learning org, brand it using the linked
+    // If this portal belongs to a school/program/learning/affiliation org, brand it using the linked
     // parent agency by default, unless the child org explicitly opts out.
+    // Affiliations (clubs) default to Summit Stats platform agency branding; never fall back to generic platform.
     const orgType = String(agency.organization_type || 'agency').toLowerCase();
     const parseJsonObject = (v) => {
       if (!v) return {};
@@ -1130,6 +1155,12 @@ export const getLoginThemeByPortalUrl = async (req, res, next) => {
       const linkedAgencyId =
         (await OrganizationAffiliation.getActiveAgencyIdForOrganization(agency.id)) ||
         (await AgencySchool.getActiveAgencyIdForSchool(agency.id)); // legacy fallback
+      if (linkedAgencyId) {
+        const linkedAgency = await Agency.findById(linkedAgencyId);
+        if (linkedAgency) brandingOrg = linkedAgency;
+      }
+    } else if (orgType === 'affiliation' && useAffiliatedAgencyBranding) {
+      const linkedAgencyId = await OrganizationAffiliation.getActiveAgencyIdForOrganization(agency.id);
       if (linkedAgencyId) {
         const linkedAgency = await Agency.findById(linkedAgencyId);
         if (linkedAgency) brandingOrg = linkedAgency;
@@ -1174,6 +1205,26 @@ export const getLoginThemeByPortalUrl = async (req, res, next) => {
       platformLogoUrl = cleaned ? `${baseUrl}/uploads/${cleaned}` : null;
     }
 
+    // Club links (Sign up, Browse Clubs, Create Club Manager) ONLY on /ssc/login.
+    // NLU and all other agencies must NOT show these links.
+    const normalizedSlug = (portalUrl || agency.portal_url || agency.slug || '')
+      .toString()
+      .trim()
+      .toLowerCase();
+    const showClubLinks = normalizedSlug === 'ssc';
+
+    // SSC: only /ssc/login (parent slug) should serve login. Affiliations (clubs) redirect to parent.
+    let parentAgencyForLogin = null;
+    if (orgType === 'affiliation') {
+      const parentId = await OrganizationAffiliation.getActiveAgencyIdForOrganization(agency.id);
+      if (parentId) {
+        parentAgencyForLogin = await Agency.findById(parentId);
+      }
+    }
+    const canonicalLoginSlug = parentAgencyForLogin
+      ? (parentAgencyForLogin.portal_url || parentAgencyForLogin.slug || '').toString().trim().toLowerCase()
+      : null;
+
     // Return combined theme data for login page
     res.json({
       agency: {
@@ -1182,6 +1233,8 @@ export const getLoginThemeByPortalUrl = async (req, res, next) => {
         name: brandingOrg.name,
         // Preserve the portal org type so frontend can enforce school portal behavior.
         organizationType: agency.organization_type || 'agency',
+        showClubLinks,
+        canonicalLoginSlug: canonicalLoginSlug || undefined,
         logoUrl: agencyLogoUrl,
         colorPalette: colorPalette || {},
         themeSettings: themeSettings || {}

@@ -158,7 +158,7 @@
             <div class="filter-help muted">Organizations are scoped by the selected agency.</div>
           </div>
 
-          <div class="filter-section">
+          <div v-if="!isAffiliationContext" class="filter-section">
             <label for="statusSort" class="filter-label">Status</label>
             <select id="statusSort" v-model="statusSort" class="filter-select">
               <option value="">All</option>
@@ -172,7 +172,7 @@
             </select>
           </div>
 
-          <div class="filter-section">
+          <div v-if="!isAffiliationContext" class="filter-section">
             <div class="filter-label">Quick user type</div>
             <div class="type-filter-row">
               <button
@@ -219,7 +219,7 @@
             </div>
           </div>
 
-          <div class="filter-section advanced-filters">
+          <div v-if="!isAffiliationContext" class="filter-section advanced-filters">
             <div class="filter-label">More filters</div>
             <div class="filter-subsection">
               <label for="roleSort" class="filter-label">Role</label>
@@ -246,7 +246,7 @@
         </aside>
 
         <div class="users-main" data-tour="users-main">
-          <div class="ai-query-card" data-tour="users-ai-search">
+          <div v-if="!isAffiliationContext" class="ai-query-card" data-tour="users-ai-search">
             <div class="ai-query-banner">
               <img :src="aiBannerSrc" alt="AI status" class="ai-query-banner-img" />
             </div>
@@ -1505,6 +1505,10 @@ const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
 const user = computed(() => authStore.user);
 const isSuperAdmin = computed(() => user.value?.role === 'super_admin');
+const isAffiliationContext = computed(() => {
+  const t = String(agencyStore.currentAgency?.organization_type || agencyStore.currentAgency?.organizationType || '').toLowerCase();
+  return t === 'affiliation';
+});
 const canArchiveDelete = computed(() => {
   const role = authStore.user?.role;
   return role === 'admin' || role === 'super_admin';

@@ -11,8 +11,8 @@
         </div>
       </div>
       <div class="sched-toolbar-main">
-        <div class="sched-toolbar-left" :class="{ 'sched-office-pulse': showOfficeReminderPulse }">
-          <div class="sched-view-switch" role="tablist" aria-label="Schedule view" data-tour="my-schedule-view-switch">
+        <div class="sched-toolbar-left" :class="{ 'sched-office-pulse': showOfficeReminderPulse && !hideOfficeAndCalendarIntegration }">
+          <div v-if="!hideOfficeAndCalendarIntegration" class="sched-view-switch" role="tablist" aria-label="Schedule view" data-tour="my-schedule-view-switch">
             <button
               v-for="opt in viewModeOptions"
               :key="`view-${opt.id}`"
@@ -31,69 +31,71 @@
           <button class="btn btn-secondary btn-sm sched-btn" type="button" @click="nextWeek" :disabled="loading">Next →</button>
         </div>
 
-        <div v-if="officeReminderToast" class="sched-office-reminder-toast">
+        <div v-if="officeReminderToast && !hideOfficeAndCalendarIntegration" class="sched-office-reminder-toast">
           {{ officeReminderToast }}
         </div>
         <div class="sched-toolbar-right">
-          <label class="sched-inline" data-tour="my-schedule-office-select">
-            <span>Office</span>
-            <select v-model.number="selectedOfficeLocationId" class="sched-select" :disabled="loading || officeGridLoading">
-              <option :value="0">None</option>
-              <option v-for="o in officeLocations" :key="`sched-office-${o.id}`" :value="Number(o.id)">{{ o.name }}</option>
-            </select>
-          </label>
+          <template v-if="!hideOfficeAndCalendarIntegration">
+            <label class="sched-inline" data-tour="my-schedule-office-select">
+              <span>Office</span>
+              <select v-model.number="selectedOfficeLocationId" class="sched-select" :disabled="loading || officeGridLoading">
+                <option :value="0">None</option>
+                <option v-for="o in officeLocations" :key="`sched-office-${o.id}`" :value="Number(o.id)">{{ o.name }}</option>
+              </select>
+            </label>
 
-          <button
-            v-if="selectedOfficeLocationId"
-            class="sched-icon-btn"
-            type="button"
-            title="Clear office selection"
-            :disabled="loading || officeGridLoading"
-            @click="selectedOfficeLocationId = 0"
-          >
-            ✕
-          </button>
+            <button
+              v-if="selectedOfficeLocationId"
+              class="sched-icon-btn"
+              type="button"
+              title="Clear office selection"
+              :disabled="loading || officeGridLoading"
+              @click="selectedOfficeLocationId = 0"
+            >
+              ✕
+            </button>
 
-          <button
-            v-if="selectedOfficeLocationId"
-            type="button"
-            class="sched-pill"
-            :class="{ on: showOfficeOverlay }"
-            role="switch"
-            :aria-checked="String(!!showOfficeOverlay)"
-            :disabled="loading"
-            @click="showOfficeOverlay = !showOfficeOverlay"
-            title="Show or hide office room-count overlay labels"
-          >
-            Office overlay
-          </button>
+            <button
+              v-if="selectedOfficeLocationId"
+              type="button"
+              class="sched-pill"
+              :class="{ on: showOfficeOverlay }"
+              role="switch"
+              :aria-checked="String(!!showOfficeOverlay)"
+              :disabled="loading"
+              @click="showOfficeOverlay = !showOfficeOverlay"
+              title="Show or hide office room-count overlay labels"
+            >
+              Office overlay
+            </button>
 
-          <button
-            type="button"
-            class="sched-pill"
-            :class="{ on: showGoogleBusy }"
-            role="switch"
-            :aria-checked="String(!!showGoogleBusy)"
-            :disabled="loading"
-            @click="toggleGoogleBusy"
-            data-tour="my-schedule-google-busy-toggle"
-          >
-            Google busy
-          </button>
+            <button
+              type="button"
+              class="sched-pill"
+              :class="{ on: showGoogleBusy }"
+              role="switch"
+              :aria-checked="String(!!showGoogleBusy)"
+              :disabled="loading"
+              @click="toggleGoogleBusy"
+              data-tour="my-schedule-google-busy-toggle"
+            >
+              Google busy
+            </button>
 
-          <button
-            type="button"
-            class="sched-pill"
-            :class="{ on: showGoogleEvents }"
-            role="switch"
-            :aria-checked="String(!!showGoogleEvents)"
-            :disabled="loading"
-            @click="toggleGoogleEvents"
-            title="Shows event titles (sensitive)"
-            data-tour="my-schedule-google-titles-toggle"
-          >
-            Google titles
-          </button>
+            <button
+              type="button"
+              class="sched-pill"
+              :class="{ on: showGoogleEvents }"
+              role="switch"
+              :aria-checked="String(!!showGoogleEvents)"
+              :disabled="loading"
+              @click="toggleGoogleEvents"
+              title="Shows event titles (sensitive)"
+              data-tour="my-schedule-google-titles-toggle"
+            >
+              Google titles
+            </button>
+          </template>
 
           <button
             type="button"
@@ -133,6 +135,21 @@
           </button>
 
           <button
+            v-if="hideOfficeAndCalendarIntegration"
+            type="button"
+            class="sched-pill"
+            :class="{ on: showAllHours }"
+            role="switch"
+            :aria-checked="String(!!showAllHours)"
+            :disabled="loading"
+            @click="showAllHours = !showAllHours"
+            title="Show full 24 hours (early morning runs, late night)"
+          >
+            {{ showAllHours ? 'Main hours' : 'Show all hours' }}
+          </button>
+
+          <button
+            v-if="!hideOfficeAndCalendarIntegration"
             type="button"
             class="sched-pill"
             :class="{ on: showExternalBusy }"
@@ -146,7 +163,7 @@
           </button>
 
           <button
-            v-if="!calendarsHidden"
+            v-if="!hideOfficeAndCalendarIntegration && !calendarsHidden"
             class="sched-pill"
             type="button"
             :disabled="loading"
@@ -157,7 +174,7 @@
             Hide calendars
           </button>
           <button
-            v-else
+            v-else-if="!hideOfficeAndCalendarIntegration"
             class="sched-pill on"
             type="button"
             :disabled="loading"
@@ -172,14 +189,14 @@
         </div>
       </div>
 
-      <div v-if="selectedOfficeLocationId && officeGridError" class="error" style="margin-top: 10px;">
+      <div v-if="!hideOfficeAndCalendarIntegration && selectedOfficeLocationId && officeGridError" class="error" style="margin-top: 10px;">
         {{ officeGridError }}
       </div>
-      <div v-else-if="selectedOfficeLocationId && officeGridLoading" class="loading" style="margin-top: 10px;">
+      <div v-else-if="!hideOfficeAndCalendarIntegration && selectedOfficeLocationId && officeGridLoading" class="loading" style="margin-top: 10px;">
         Loading office availability…
       </div>
 
-      <div v-if="selectedOfficeLocationId && officeGrid && !officeGridLoading" class="office-quick-glance">
+      <div v-if="!hideOfficeAndCalendarIntegration && selectedOfficeLocationId && officeGrid && !officeGridLoading" class="office-quick-glance">
         <div class="office-quick-glance-head">
           <div class="office-quick-glance-title">Office at this time</div>
           <div class="office-quick-glance-controls">
@@ -264,7 +281,7 @@
           </label>
         </div>
 
-        <div class="sched-calendars" data-tour="my-schedule-ehr-calendars">
+        <div v-if="!hideOfficeAndCalendarIntegration" class="sched-calendars" data-tour="my-schedule-ehr-calendars">
           <div class="sched-calendars-label">Therapy Notes calendars</div>
           <div class="sched-calendars-actions">
             <button type="button" class="sched-chip" :disabled="loading || !externalCalendarsAvailable.length" @click="selectAllExternalCalendars">All</button>
@@ -341,7 +358,7 @@
     </div>
 
     <!-- Office layout view (room-by-room weekly board) -->
-    <div v-if="viewMode === 'office_layout'" class="sched-grid-wrap" data-tour="my-schedule-office-layout-panel">
+    <div v-if="!hideOfficeAndCalendarIntegration && viewMode === 'office_layout'" class="sched-grid-wrap" data-tour="my-schedule-office-layout-panel">
       <div v-if="!selectedOfficeLocationId" class="hint" style="margin-top: 10px;">
         Select an office above to view the room-by-room weekly layout.
       </div>
@@ -361,7 +378,7 @@
     <template v-else>
       <div v-if="error" class="error" style="margin-top: 10px;">{{ error }}</div>
       <div v-if="loading" class="loading" style="margin-top: 10px;">Loading schedule…</div>
-      <div v-if="googleBusyDisabledHint" class="hint" style="margin-top: 10px;">
+      <div v-if="!hideOfficeAndCalendarIntegration && googleBusyDisabledHint" class="hint" style="margin-top: 10px;">
         {{ googleBusyDisabledHint }}
       </div>
       <div v-if="overlayErrorText" class="error" style="margin-top: 10px;">
@@ -370,20 +387,27 @@
 
       <div v-else-if="summary" class="sched-grid-wrap">
       <div class="legend">
-        <div class="legend-note muted" style="font-size: 11px; margin-bottom: 6px;">Block color = booking/event type; dot = agency</div>
-        <div class="legend-item"><span class="swatch swatch-request"></span> Pending request</div>
-        <div class="legend-item"><span class="swatch swatch-school"></span> School assigned</div>
-        <div class="legend-item"><span class="swatch swatch-supv"></span> Supervision</div>
-        <div class="legend-item"><span class="swatch swatch-sevt"></span> Schedule event</div>
-        <div class="legend-item"><span class="swatch swatch-oa"></span> Office assigned</div>
-        <div class="legend-item"><span class="swatch swatch-ot"></span> Office temporary</div>
-        <div class="legend-item"><span class="swatch swatch-ob"></span> Office booked</div>
-        <div class="legend-item"><span class="swatch swatch-intake-ip"></span> In-person intake</div>
-        <div class="legend-item"><span class="swatch swatch-intake-vi"></span> Virtual intake</div>
-        <div class="legend-item" v-if="showGoogleBusy"><span class="swatch swatch-gbusy"></span> Google busy</div>
-        <div class="legend-item" v-if="showGoogleEvents"><span class="swatch swatch-gevt"></span> Google event</div>
-        <div class="legend-item" v-if="showExternalBusy && selectedExternalCalendarIds.length"><span class="swatch swatch-ebusy"></span> Therapy Notes busy</div>
-        <div class="legend-item"><span class="cell-block-agency-dot"></span> Agency marker</div>
+        <template v-if="hideOfficeAndCalendarIntegration">
+          <div class="legend-note muted" style="font-size: 11px; margin-bottom: 6px;">Team meetings</div>
+          <div class="legend-item"><span class="swatch swatch-sevt"></span> Team meeting</div>
+          <div class="legend-item"><span class="swatch swatch-request"></span> Pending</div>
+        </template>
+        <template v-else>
+          <div class="legend-note muted" style="font-size: 11px; margin-bottom: 6px;">Block color = booking/event type; dot = agency</div>
+          <div class="legend-item"><span class="swatch swatch-request"></span> Pending request</div>
+          <div class="legend-item"><span class="swatch swatch-school"></span> School assigned</div>
+          <div class="legend-item"><span class="swatch swatch-supv"></span> Supervision</div>
+          <div class="legend-item"><span class="swatch swatch-sevt"></span> Schedule event</div>
+          <div class="legend-item"><span class="swatch swatch-oa"></span> Office assigned</div>
+          <div class="legend-item"><span class="swatch swatch-ot"></span> Office temporary</div>
+          <div class="legend-item"><span class="swatch swatch-ob"></span> Office booked</div>
+          <div class="legend-item"><span class="swatch swatch-intake-ip"></span> In-person intake</div>
+          <div class="legend-item"><span class="swatch swatch-intake-vi"></span> Virtual intake</div>
+          <div class="legend-item" v-if="showGoogleBusy"><span class="swatch swatch-gbusy"></span> Google busy</div>
+          <div class="legend-item" v-if="showGoogleEvents"><span class="swatch swatch-gevt"></span> Google event</div>
+          <div class="legend-item" v-if="showExternalBusy && selectedExternalCalendarIds.length"><span class="swatch swatch-ebusy"></span> Therapy Notes busy</div>
+          <div class="legend-item"><span class="cell-block-agency-dot"></span> Agency marker</div>
+        </template>
       </div>
 
       <div class="sched-grid" :style="gridStyle">
@@ -508,7 +532,7 @@
               :title="act.disabledReason || act.description"
               @click="requestType = act.id; requestTypeChosenByUser = true"
             >
-              <span class="action-chip-label">{{ act.label }}</span>
+              <span class="action-chip-label">{{ (hideOfficeAndCalendarIntegration && act.id === 'agency_meeting') ? 'Team meeting' : act.label }}</span>
               <span v-if="act.disabledReason" class="action-chip-note">{{ act.disabledReason }}</span>
               <span v-else-if="act.description" class="action-chip-note">{{ act.description }}</span>
             </button>
@@ -1628,7 +1652,9 @@ const props = defineProps({
   weekStartYmd: { type: String, default: null },
   weekStartsOn: { type: String, default: 'monday' },
   // Optional: availability overlay (computed server-side), to highlight open slots.
-  availabilityOverlay: { type: Object, default: null }
+  availabilityOverlay: { type: Object, default: null },
+  // Club/affiliation context: hide office space, Open finder, Google busy, Therapy Notes.
+  hideOfficeAndCalendarIntegration: { type: Boolean, default: false }
 });
 const emit = defineEmits(['update:weekStartYmd']);
 
@@ -1767,7 +1793,19 @@ const dayIdxFromWeekStartMonday = (dayName) => {
   const idx = ALL_DAYS.indexOf(String(dayName || ''));
   return idx < 0 ? 0 : (idx + 1) % 7 - 1;
 };
-const hours = Array.from({ length: 15 }, (_, i) => 7 + i); // 7..21
+
+// Club context: runners start early. Main view 5–22 (5 AM–10 PM); expand to full 0–23.
+const showAllHours = ref(false);
+const hours = computed(() => {
+  if (props.hideOfficeAndCalendarIntegration) {
+    return showAllHours.value
+      ? Array.from({ length: 24 }, (_, i) => i) // 0..23 full 24h
+      : Array.from({ length: 18 }, (_, i) => 5 + i); // 5..22 main part of day
+  }
+  return Array.from({ length: 15 }, (_, i) => 7 + i); // 7..21 default
+});
+const gridMinHour = computed(() => (hours.value?.length ? Math.min(...hours.value) : 7));
+const gridMaxHour = computed(() => (hours.value?.length ? Math.max(...hours.value) + 1 : 22));
 
 const loading = ref(false);
 const error = ref('');
@@ -2134,8 +2172,9 @@ const visibleDays = computed(() => {
   return selected.length ? selected : baseDays;
 });
 const displayTimeSlots = computed(() => {
+  const hList = hours.value || [];
   if (!showQuarterDetail.value) {
-    return hours.map((h) => ({
+    return hList.map((h) => ({
       key: `${h}:00`,
       hour: Number(h),
       minute: 0,
@@ -2143,7 +2182,7 @@ const displayTimeSlots = computed(() => {
     }));
   }
   const slots = [];
-  for (const h of hours) {
+  for (const h of hList) {
     for (const m of quarterMinuteOptions) {
       slots.push({
         key: `${h}:${pad2(m)}`,
@@ -2540,11 +2579,11 @@ const load = async ({ forceRefresh = false } = {}) => {
           params: {
             weekStart: weekStart.value,
             agencyId: ids[0],
-            includeGoogleBusy: showGoogleBusy.value ? 'true' : 'false',
-            includeGoogleEvents: showGoogleEvents.value ? 'true' : 'false',
-            ...(showExternalBusy.value && selectedExternalCalendarIds.value.length
+            includeGoogleBusy: props.hideOfficeAndCalendarIntegration ? 'false' : (showGoogleBusy.value ? 'true' : 'false'),
+            includeGoogleEvents: props.hideOfficeAndCalendarIntegration ? 'false' : (showGoogleEvents.value ? 'true' : 'false'),
+            ...(props.hideOfficeAndCalendarIntegration ? {} : (showExternalBusy.value && selectedExternalCalendarIds.value.length
               ? { externalCalendarIds: selectedExternalCalendarIds.value.join(',') }
-              : {})
+              : {}))
           }
         }),
         twilioCheckPromise
@@ -2581,11 +2620,11 @@ const load = async ({ forceRefresh = false } = {}) => {
                 params: {
                   weekStart: weekStart.value,
                   agencyId,
-                  includeGoogleBusy: showGoogleBusy.value ? 'true' : 'false',
-                  includeGoogleEvents: showGoogleEvents.value ? 'true' : 'false',
-                  ...(showExternalBusy.value && selectedExternalCalendarIds.value.length
+                  includeGoogleBusy: props.hideOfficeAndCalendarIntegration ? 'false' : (showGoogleBusy.value ? 'true' : 'false'),
+                  includeGoogleEvents: props.hideOfficeAndCalendarIntegration ? 'false' : (showGoogleEvents.value ? 'true' : 'false'),
+                  ...(props.hideOfficeAndCalendarIntegration ? {} : (showExternalBusy.value && selectedExternalCalendarIds.value.length
                     ? { externalCalendarIds: selectedExternalCalendarIds.value.join(',') }
-                    : {})
+                    : {}))
                 }
               })
               .then((r) => ({ ok: true, agencyId, data: r.data }))
@@ -3893,7 +3932,7 @@ const canUseQuarterHourInput = computed(
   () => isQuarterHourRequestType.value && !(isScheduleEventRequestType.value && scheduleEventAllDay.value)
 );
 const endMinuteOptions = computed(
-  () => (Number(modalEndHour.value || 0) >= 22 ? [0] : quarterMinuteOptions)
+  () => (Number(modalEndHour.value || 0) >= modalGridMaxEnd.value - 1 ? [0] : quarterMinuteOptions)
 );
 const modalTimeRangeLabel = computed(() => {
   if (canUseQuarterHourInput.value) {
@@ -3904,7 +3943,7 @@ const modalTimeRangeLabel = computed(() => {
 const scheduleHoldReasonOptions = computed(() => SCHEDULE_HOLD_REASON_OPTIONS);
 const scheduleEventTitlePlaceholder = computed(() => {
   const kind = String(requestType.value || '');
-  if (kind === 'agency_meeting') return 'Agency meeting';
+  if (kind === 'agency_meeting') return props.hideOfficeAndCalendarIntegration ? 'Team meeting' : 'Agency meeting';
   if (kind === 'huddle') return 'Huddle';
   if (kind === 'schedule_hold' || kind === 'schedule_hold_all_day') return 'Schedule hold';
   if (kind === 'indirect_services') return 'Indirect services';
@@ -4160,9 +4199,13 @@ const OFFICE_BLOCK_ONLY_ACTIONS = new Set([
   'booked_record'
 ]);
 
+const CLUB_SCHEDULING_ACTIONS = new Set(['agency_meeting', 'huddle']);
 const visibleQuickActions = computed(() => {
   const rows = Array.isArray(availableQuickActions.value) ? availableQuickActions.value : [];
   const filtered = rows.filter((row) => row?.visible !== false);
+  if (props.hideOfficeAndCalendarIntegration) {
+    return filtered.filter((row) => row?.id && CLUB_SCHEDULING_ACTIONS.has(row.id));
+  }
   if (modalActionSource.value === 'office_block') {
     return filtered.filter((row) => row?.id && OFFICE_BLOCK_ONLY_ACTIONS.has(row.id));
   }
@@ -4193,7 +4236,7 @@ const submitActionLabel = computed(() => {
     office_request_only: 'Submit office request',
     school: 'Submit school request',
     supervision: isGroupSupervisionType.value ? 'Schedule group supervision' : 'Schedule supervision',
-    agency_meeting: 'Create agency meeting',
+    agency_meeting: props.hideOfficeAndCalendarIntegration ? 'Create team meeting' : 'Create agency meeting',
     huddle: 'Create huddle',
     personal_event: 'Create personal event',
     schedule_hold: 'Create schedule hold',
@@ -4829,7 +4872,7 @@ const loadMeetingBusyByParticipant = async () => {
         try {
           const params = {
             weekStart: weekStart.value,
-            includeGoogleBusy: showGoogleBusy.value ? 'true' : 'false'
+            includeGoogleBusy: props.hideOfficeAndCalendarIntegration ? 'false' : (showGoogleBusy.value ? 'true' : 'false')
           };
           if (!meetingUsingAllAgencies.value && Number(effectiveAgencyId.value || 0) > 0) {
             params.agencyId = Number(effectiveAgencyId.value);
@@ -4903,18 +4946,18 @@ const loadSupervisionProviders = async () => {
 const effectiveModalStartHour = computed(() =>
   canUseQuarterHourInput.value ? Number(modalStartHour.value || modalHour.value || 0) : Number(modalHour.value || 0)
 );
+const modalGridMaxEnd = computed(() => (props.hideOfficeAndCalendarIntegration ? gridMaxHour.value : 22));
 const startHourOptions = computed(() => {
   const clicked = Number(modalHour.value || 0);
   if (!canUseQuarterHourInput.value) return [clicked];
-  const minH = Math.max(7, clicked - 1);
+  const minH = Math.max(gridMinHour.value, clicked - 1);
   const out = [];
   for (let h = minH; h <= clicked; h++) out.push(h);
   return out;
 });
 const endHourOptions = computed(() => {
   const start = Number(effectiveModalStartHour.value || modalHour.value || 0);
-  // Grid hours are 7..21 (end 22). Allow multi-hour ranges up to end-of-grid.
-  const maxEnd = 22;
+  const maxEnd = modalGridMaxEnd.value;
   const out = [];
   const first = canUseQuarterHourInput.value ? start : (start + 1);
   for (let h = first; h <= maxEnd; h++) out.push(h);
@@ -4922,13 +4965,13 @@ const endHourOptions = computed(() => {
 });
 
 const ensureModalEndTimeValid = () => {
+  const maxEnd = modalGridMaxEnd.value;
   if (canUseQuarterHourInput.value) {
     const allowed = startHourOptions.value;
     let sh = Number(modalStartHour.value || modalHour.value || 0);
     if (!allowed.includes(sh)) modalStartHour.value = allowed[allowed.length - 1] ?? sh;
   }
   const startH = Number(effectiveModalStartHour.value || modalHour.value || 0);
-  const maxEnd = 22;
   const minEndH = canUseQuarterHourInput.value ? startH : (startH + 1);
   let endH = Number(modalEndHour.value || 0);
   if (endH < minEndH) endH = minEndH;
@@ -5072,8 +5115,9 @@ const openSlotActionModal = ({
   modalHour.value = Number(hour);
   modalStartHour.value = Number(hour);
   // Default to a 1-hour range; clamp to end-of-grid.
-  const nextEnd = Math.min(Number(hour) + 1, 22);
-  modalEndHour.value = nextEnd > Number(hour) ? nextEnd : Number(hour) + 1;
+  const maxEnd = modalGridMaxEnd.value;
+  const nextEnd = Math.min(Number(hour) + 1, maxEnd);
+  modalEndHour.value = nextEnd > Number(hour) ? nextEnd : Math.min(Number(hour) + 1, maxEnd);
   const normalizedInitialRequestType = String(initialRequestType || '').trim();
   requestType.value = normalizedInitialRequestType || '';
   requestTypeChosenByUser.value = Boolean(normalizedInitialRequestType);
@@ -5138,7 +5182,7 @@ const openSlotActionModal = ({
       if (Number.isFinite(minHour) && Number.isFinite(maxHour)) {
         modalHour.value = minHour;
         modalStartHour.value = minHour;
-        modalEndHour.value = Math.min(maxHour + 1, 22);
+        modalEndHour.value = Math.min(maxHour + 1, modalGridMaxEnd.value);
       }
     }
   }

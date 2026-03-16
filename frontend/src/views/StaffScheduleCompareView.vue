@@ -88,6 +88,7 @@
             :week-start-ymd="weekStartYmd"
             :week-starts-on="weekStartsOn"
             :user-label-by-id="userLabelById"
+            :hide-google-and-therapy-notes="isClubContext"
             @update:weekStartYmd="(v) => (weekStartYmd = v)"
           />
         </div>
@@ -110,6 +111,7 @@
               :week-start-ymd="weekStartYmd"
               :week-starts-on="weekStartsOn"
               :availability-overlay="availabilityByUserId[uid] || null"
+              :hide-office-and-calendar-integration="isClubContext"
               mode="admin"
             />
           </div>
@@ -172,6 +174,10 @@ const toggleWeekStartsOn = () => {
   if (typeof window !== 'undefined') window.localStorage.setItem('schedule.weekStartsOn', weekStartsOn.value);
 };
 
+const isClubContext = computed(() => {
+  const t = String(agencyStore.currentAgency?.organization_type || '').toLowerCase();
+  return t === 'affiliation';
+});
 const effectiveAgencyId = computed(() => {
   const fromStore = Number(agencyStore.currentAgency?.id || 0);
   if (fromStore) return fromStore;

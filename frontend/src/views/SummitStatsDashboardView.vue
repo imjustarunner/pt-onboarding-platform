@@ -18,6 +18,10 @@
         <p>You're all set. Create your first club to get started.</p>
         <form v-if="!createClubSuccess" @submit.prevent="submitCreateClub" class="create-club-form">
           <input v-model="createClubName" type="text" placeholder="Club name" required class="create-club-input" />
+          <div class="create-club-slug-row">
+            <input v-model="createClubSlug" type="text" placeholder="Custom URL slug (optional)" class="create-club-input create-club-slug" />
+            <span class="create-club-slug-hint">Leave blank to auto-generate from name. You can edit later in settings.</span>
+          </div>
           <button type="submit" :disabled="createClubSubmitting" class="create-club-btn">
             {{ createClubSubmitting ? 'Creating…' : 'Create Club' }}
           </button>
@@ -112,6 +116,7 @@ const summary = ref(null);
 const clubContext = ref(null);
 const clubContextLoading = ref(true);
 const createClubName = ref('');
+const createClubSlug = ref('');
 const createClubSubmitting = ref(false);
 const createClubSuccess = ref(false);
 
@@ -132,7 +137,10 @@ const submitCreateClub = async () => {
   if (!name) return;
   createClubSubmitting.value = true;
   try {
-    const r = await api.post('/summit-stats/clubs', { name });
+    const payload = { name };
+    const slug = String(createClubSlug.value || '').trim();
+    if (slug) payload.slug = slug;
+    const r = await api.post('/summit-stats/clubs', payload);
     createClubSuccess.value = true;
     const club = r.data;
     if (club) agencyStore.setCurrentAgency(club);
@@ -146,6 +154,7 @@ const submitCreateClub = async () => {
     setTimeout(() => {
       createClubSuccess.value = false;
       createClubName.value = '';
+      createClubSlug.value = '';
     }, 1500);
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Failed to create club';
@@ -413,6 +422,15 @@ watch(organizationId, () => {
   display: flex;
   gap: 12px;
   flex-wrap: wrap;
+}
+.create-club-slug-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.create-club-slug-hint {
+  font-size: 0.8rem;
+  color: var(--color-muted, #666);
 }
 .create-club-input {
   flex: 1;

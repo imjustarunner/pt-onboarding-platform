@@ -228,7 +228,10 @@ class Agency {
         { col: 'school_portal_parent_sign_icon_id', alias: 'sp_psign_i', path: 'school_portal_parent_sign_icon_path', name: 'school_portal_parent_sign_icon_name' },
         { col: 'school_portal_upload_packet_icon_id', alias: 'sp_up_i', path: 'school_portal_upload_packet_icon_path', name: 'school_portal_upload_packet_icon_name' },
         { col: 'school_portal_public_documents_icon_id', alias: 'sp_docs_i', path: 'school_portal_public_documents_icon_path', name: 'school_portal_public_documents_icon_name' },
-        { col: 'school_portal_announcements_icon_id', alias: 'sp_ann_i', path: 'school_portal_announcements_icon_path', name: 'school_portal_announcements_icon_name' }
+        { col: 'school_portal_announcements_icon_id', alias: 'sp_ann_i', path: 'school_portal_announcements_icon_path', name: 'school_portal_announcements_icon_name' },
+        { col: 'club_add_member_icon_id', alias: 'cam_i', path: 'club_add_member_icon_path', name: 'club_add_member_icon_name' },
+        { col: 'club_add_season_icon_id', alias: 'cas_i', path: 'club_add_season_icon_path', name: 'club_add_season_icon_name' },
+        { col: 'club_settings_icon_id', alias: 'cs_i', path: 'club_settings_icon_path', name: 'club_settings_icon_name' }
       ];
       const present = want.filter((x) => cols.has(x.col));
       let schoolPortalSelects = '';
@@ -1261,7 +1264,8 @@ class Agency {
       schoolPortalProvidersIconId, schoolPortalDaysIconId, schoolPortalRosterIconId, schoolPortalSkillsGroupsIconId, schoolPortalContactAdminIconId, schoolPortalFaqIconId, schoolPortalSchoolStaffIconId, schoolPortalParentQrIconId, schoolPortalParentSignIconId, schoolPortalUploadPacketIconId,
       schoolPortalPublicDocumentsIconId,
       schoolPortalAnnouncementsIconId,
-      companyProfileIconId, teamRolesIconId, billingIconId, packagesIconId, checklistItemsIconId, fieldDefinitionsIconId, brandingTemplatesIconId, assetsIconId, communicationsIconId, integrationsIconId, archiveIconId
+      companyProfileIconId, teamRolesIconId, billingIconId, packagesIconId, checklistItemsIconId, fieldDefinitionsIconId, brandingTemplatesIconId, assetsIconId, communicationsIconId, integrationsIconId, archiveIconId,
+      clubAddMemberIconId, clubAddSeasonIconId, clubSettingsIconId
     } = agencyData;
     
     // Check if icon_id column exists
@@ -1646,6 +1650,47 @@ class Agency {
       if (settingsIconId !== undefined) {
         updates.push('settings_icon_id = ?');
         values.push(settingsIconId || null);
+      }
+
+      // Club quick action icons (optional; affiliations/clubs only)
+      if (agencyData.clubAddMemberIconId !== undefined) {
+        try {
+          const [cols] = await pool.execute(
+            "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'club_add_member_icon_id'"
+          );
+          if ((cols || []).length > 0) {
+            updates.push('club_add_member_icon_id = ?');
+            values.push(agencyData.clubAddMemberIconId || null);
+          }
+        } catch {
+          // ignore
+        }
+      }
+      if (agencyData.clubAddSeasonIconId !== undefined) {
+        try {
+          const [cols] = await pool.execute(
+            "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'club_add_season_icon_id'"
+          );
+          if ((cols || []).length > 0) {
+            updates.push('club_add_season_icon_id = ?');
+            values.push(agencyData.clubAddSeasonIconId || null);
+          }
+        } catch {
+          // ignore
+        }
+      }
+      if (agencyData.clubSettingsIconId !== undefined) {
+        try {
+          const [cols] = await pool.execute(
+            "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'club_settings_icon_id'"
+          );
+          if ((cols || []).length > 0) {
+            updates.push('club_settings_icon_id = ?');
+            values.push(agencyData.clubSettingsIconId || null);
+          }
+        } catch {
+          // ignore
+        }
       }
 
       // External Calendar Audit quick-action icon (optional)

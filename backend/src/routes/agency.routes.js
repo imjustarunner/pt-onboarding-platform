@@ -133,6 +133,9 @@ const validateCreateAgency = [
   validateIconId('schoolPortalParentSignIconId'),
   validateIconId('schoolPortalUploadPacketIconId'),
   validateIconId('supportTicketCreatedIconId'),
+  validateIconId('clubAddMemberIconId'),
+  validateIconId('clubAddSeasonIconId'),
+  validateIconId('clubSettingsIconId'),
   body('ticketingNotificationOrgTypes').optional().custom((value) => {
     if (value === null || value === undefined || value === '') return true;
     const parsed = typeof value === 'string' ? (() => { try { return JSON.parse(value); } catch { return null; } })() : value;
@@ -306,6 +309,9 @@ const validateUpdateAgency = [
   validateIconId('schoolPortalParentSignIconId'),
   validateIconId('schoolPortalUploadPacketIconId'),
   validateIconId('supportTicketCreatedIconId'),
+  validateIconId('clubAddMemberIconId'),
+  validateIconId('clubAddSeasonIconId'),
+  validateIconId('clubSettingsIconId'),
   body('ticketingNotificationOrgTypes').optional().custom((value) => {
     if (value === null || value === undefined || value === '') return true;
     const parsed = typeof value === 'string' ? (() => { try { return JSON.parse(value); } catch { return null; } })() : value;

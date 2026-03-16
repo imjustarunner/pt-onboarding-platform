@@ -180,6 +180,12 @@ export const useAgencyStore = defineStore('agency', () => {
           }) || null;
           if (portal) return portal;
         }
+        // Users with Summit Stats Club (affiliation) access should default to the club, not the platform.
+        const affiliation = arr.find((a) => {
+          const t = String(a?.organization_type || a?.organizationType || '').toLowerCase();
+          return t === 'affiliation';
+        });
+        if (affiliation) return affiliation;
         return arr[0] || null;
       };
       
@@ -204,15 +210,17 @@ export const useAgencyStore = defineStore('agency', () => {
         const { storeUserAgencies } = await import('../utils/loginRedirect');
         storeUserAgencies(agencyList);
         
-        // School staff should default to a SCHOOL org (not the parent agency),
-        // so they land in the school portal experience.
+        // School staff should default to a SCHOOL org (not the parent agency).
+        // Users with affiliation (SSC) access should default to the club, not the platform.
         if (userAgencies.value.length > 0) {
           const currentType = String(currentAgency.value?.organization_type || currentAgency.value?.organizationType || '').toLowerCase();
           const isPortal = currentType === 'school' || currentType === 'program' || currentType === 'learning';
+          const isAffiliation = currentType === 'affiliation';
+          const hasAffiliation = userAgencies.value.some((a) => String(a?.organization_type || a?.organizationType || '').toLowerCase() === 'affiliation');
           const preferredPortal = inferPreferredPortalFromRuntime();
           const currentPortal = pickPortalKey(currentAgency.value);
           const hasPreferredMismatch = !!(preferredPortal && preferredPortal !== currentPortal);
-          const shouldOverride = !currentAgency.value || hasPreferredMismatch || (roleNorm === 'school_staff' && !isPortal);
+          const shouldOverride = !currentAgency.value || hasPreferredMismatch || (roleNorm === 'school_staff' && !isPortal) || (hasAffiliation && !isAffiliation);
           if (shouldOverride) {
             const def = pickDefaultAgencyForUser(userAgencies.value);
             if (def) setCurrentAgency(def);
@@ -230,15 +238,17 @@ export const useAgencyStore = defineStore('agency', () => {
         const { storeUserAgencies } = await import('../utils/loginRedirect');
         storeUserAgencies(response.data);
         
-        // School staff should default to a SCHOOL org (not the parent agency),
-        // so they land in the school portal experience.
+        // School staff should default to a SCHOOL org (not the parent agency).
+        // Users with affiliation (SSC) access should default to the club, not the platform.
         if (userAgencies.value.length > 0) {
           const currentType = String(currentAgency.value?.organization_type || currentAgency.value?.organizationType || '').toLowerCase();
           const isPortal = currentType === 'school' || currentType === 'program' || currentType === 'learning';
+          const isAffiliation = currentType === 'affiliation';
+          const hasAffiliation = userAgencies.value.some((a) => String(a?.organization_type || a?.organizationType || '').toLowerCase() === 'affiliation');
           const preferredPortal = inferPreferredPortalFromRuntime();
           const currentPortal = pickPortalKey(currentAgency.value);
           const hasPreferredMismatch = !!(preferredPortal && preferredPortal !== currentPortal);
-          const shouldOverride = !currentAgency.value || hasPreferredMismatch || (roleNorm === 'school_staff' && !isPortal);
+          const shouldOverride = !currentAgency.value || hasPreferredMismatch || (roleNorm === 'school_staff' && !isPortal) || (hasAffiliation && !isAffiliation);
           if (shouldOverride) {
             const def = pickDefaultAgencyForUser(userAgencies.value);
             if (def) setCurrentAgency(def);

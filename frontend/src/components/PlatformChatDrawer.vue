@@ -25,11 +25,11 @@
       <div class="panel-header">
         <div>
           <div class="title">Chat</div>
-          <div class="subtitle">Agency presence + internal messages</div>
+          <div class="subtitle">{{ isClubContext ? 'Club members online' : 'Agency presence + internal messages' }}</div>
         </div>
 
         <div class="presence-controls" v-if="isAuthenticated">
-          <template v-if="isAdminLike">
+          <template v-if="isAdminLike && !isClubContext">
             <button
               class="btn btn-xs"
               :class="myAvailability === 'admins_only' ? 'btn-primary' : 'btn-secondary'"
@@ -96,7 +96,7 @@
 
         <template v-else>
           <div class="toolbar">
-            <input v-model="q" class="search" placeholder="Search people…" />
+            <input v-model="q" class="search" :placeholder="isClubContext ? 'Search club members…' : 'Search people…'" />
           </div>
 
           <div v-if="loading" class="loading">Loading…</div>
@@ -114,7 +114,7 @@
                 <span class="dot dot-online"></span>
                 <span class="name">
                   {{ t.other_participant.first_name }} {{ t.other_participant.last_name }}
-                  <span v-if="t.agencyLabel" class="agency-chip">{{ t.agencyLabel }}</span>
+                  <span v-if="!isClubContext && t.agencyLabel" class="agency-chip">{{ t.agencyLabel }}</span>
                 </span>
                 <span class="pill">{{ t.unread_count }}</span>
               </button>
@@ -122,7 +122,7 @@
 
             <div class="section">
               <div class="section-title">Online</div>
-              <div v-if="online.length === 0" class="muted">No one is online.</div>
+              <div v-if="online.length === 0" class="muted">{{ isClubContext ? 'No club members online.' : 'No one is online.' }}</div>
               <button v-for="u in online" :key="u.id" class="person" @click="openChat(u)">
                 <span class="dot dot-online"></span>
                 <span class="name">
@@ -135,7 +135,7 @@
 
             <div class="section">
               <div class="section-title">Idle</div>
-              <div v-if="idle.length === 0" class="muted">No one is idle.</div>
+              <div v-if="idle.length === 0" class="muted">{{ isClubContext ? 'No club members idle.' : 'No one is idle.' }}</div>
               <button v-for="u in idle" :key="u.id" class="person" @click="openChat(u)">
                 <span class="dot dot-idle"></span>
                 <span class="name">
@@ -146,7 +146,7 @@
               </button>
             </div>
 
-            <div class="section">
+            <div v-if="!isClubContext" class="section">
               <div class="section-title">Offline</div>
               <div class="scroll">
                 <div v-if="offline.length === 0" class="muted">No offline users.</div>
@@ -261,10 +261,14 @@ const agencyStore = useAgencyStore();
 const brandingStore = useBrandingStore();
 const isAuthenticated = computed(() => authStore.isAuthenticated);
 const isAgencyOrgType = (org) => String(org?.organization_type || org?.organizationType || 'agency').toLowerCase() === 'agency';
+const isAffiliationOrgType = (org) => String(org?.organization_type || org?.organizationType || '').toLowerCase() === 'affiliation';
 const agencyId = computed(() => {
   const current = agencyStore.currentAgency || null;
   if (!current) return null;
   if (isAgencyOrgType(current)) return current?.id || null;
+
+  // Club (affiliation) context: scope to club members only.
+  if (isAffiliationOrgType(current)) return current?.id || null;
 
   // School/program/learning context: prefer explicit affiliated agency id.
   const affiliated =
@@ -283,6 +287,10 @@ const myRole = computed(() => authStore.user?.role || '');
 const isAdminLike = computed(() => myRole.value === 'admin' || myRole.value === 'super_admin');
 const adminsAllMode = computed(() => myRole.value === 'super_admin' && myAvailability.value === 'admins_only');
 const needsAgency = computed(() => !agencyId.value && !adminsAllMode.value);
+const isClubContext = computed(() => {
+  const current = agencyStore.currentAgency || null;
+  return !!current && isAffiliationOrgType(current);
+});
 
 const people = ref([]);
 const threads = ref([]);
@@ -348,6 +356,7 @@ const onLeave = () => {
 };
 
 const shouldLoadAllThreads = computed(() => {
+  if (isClubContext.value) return false; // Club: scope to club only
   if (myRole.value === 'super_admin') return true;
   const ua = agencyStore.userAgencies || [];
   return ua.length > 1;

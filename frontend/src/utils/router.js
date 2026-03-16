@@ -90,7 +90,7 @@ export function getDashboardRoute() {
 
   // Admins/super admins/support/supervisors (with multiple orgs or no slug) go to admin dashboard.
   // CPAs should land on personal dashboard so "My Schedule" is immediately available.
-  // Summit Stats club managers (admin with only affiliation agencies) go to their club admin
+  // Summit Stats club managers (admin with only affiliation agencies) go to parent slug admin (e.g. /ssc/admin)
   if (userRole === 'admin' || userRole === 'super_admin' || userRole === 'superadmin' ||
       user.role === 'support' || isSupervisor(user)) {
     const adminOrgs = agencyStore.userAgencies?.value ?? agencyStore.userAgencies ?? user.agencies ?? [];
@@ -99,7 +99,7 @@ export function getDashboardRoute() {
       const org = orgs[0];
       const orgType = String(org?.organization_type || org?.organizationType || '').toLowerCase();
       if (orgType === 'affiliation') {
-        const slug = org?.slug || org?.portal_url || org?.portalUrl;
+        const slug = org?.parent_slug || org?.slug || org?.portal_url || org?.portalUrl;
         if (slug && String(slug).trim()) return `/${slug}/admin`;
       }
     }

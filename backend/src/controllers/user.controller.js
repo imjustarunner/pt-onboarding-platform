@@ -165,6 +165,23 @@ async function attachAffiliationMeta(orgs) {
         }
       }
     }
+
+    // For affiliations (e.g. Summit Stats Clubs): add parent_slug for admin routing, inherit branding when missing
+    const Agency = (await import('../models/Agency.model.js')).default;
+    for (const o of list) {
+      if (!o || !o.affiliated_agency_id) continue;
+      try {
+        const parent = await Agency.findById(o.affiliated_agency_id);
+        if (parent) {
+          o.parent_slug = parent.slug || parent.portal_url || null;
+          const hasPalette = o.color_palette && (typeof o.color_palette === 'string' ? (() => { try { const p = JSON.parse(o.color_palette); return p && (p.primary || p.secondary || p.accent); } catch { return false; } })() : (o.color_palette?.primary || o.color_palette?.secondary || o.color_palette?.accent));
+          if (!hasPalette && parent.color_palette) o.color_palette = parent.color_palette;
+          if (!o.theme_settings && parent.theme_settings) o.theme_settings = parent.theme_settings;
+        }
+      } catch {
+        // ignore; best-effort only
+      }
+    }
   } catch {
     // ignore; best-effort only
   }

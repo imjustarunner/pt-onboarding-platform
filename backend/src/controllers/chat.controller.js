@@ -21,6 +21,12 @@ async function hasChatMessageEncryptionColumns() {
 
 async function assertAgencyOrOrgAccess(reqUser, agencyId, organizationId = null) {
   if (reqUser.role === 'super_admin') return true;
+  // Direct user_agencies check (handles club managers in affiliation-type orgs)
+  const [direct] = await pool.execute(
+    'SELECT 1 FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1',
+    [reqUser.id, agencyId]
+  );
+  if (direct?.length > 0) return true;
   const agencies = await User.getAgencies(reqUser.id);
   const ids = (agencies || []).map((a) => Number(a?.id)).filter(Boolean);
   const okAgency = ids.includes(Number(agencyId));

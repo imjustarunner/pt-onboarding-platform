@@ -16,26 +16,40 @@
         </div>
         <div class="sched-toolbar-right">
           <button
+            v-if="hideGoogleAndTherapyNotes"
             type="button"
             class="sched-pill"
-            :class="{ on: showGoogleBusy }"
+            :class="{ on: showAllHours }"
             role="switch"
-            :aria-checked="String(!!showGoogleBusy)"
-            @click="toggleGoogleBusy"
+            :aria-checked="String(!!showAllHours)"
+            @click="showAllHours = !showAllHours"
+            title="Show full 24 hours (early morning runs, late night)"
           >
-            Google busy
+            {{ showAllHours ? 'Main hours' : 'Show all hours' }}
           </button>
-          <button
-            type="button"
-            class="sched-pill"
-            :class="{ on: showGoogleEvents }"
-            role="switch"
-            :aria-checked="String(!!showGoogleEvents)"
-            @click="toggleGoogleEvents"
-            title="Shows event titles (sensitive)"
-          >
-            Google titles
-          </button>
+          <template v-if="!hideGoogleAndTherapyNotes">
+            <button
+              type="button"
+              class="sched-pill"
+              :class="{ on: showGoogleBusy }"
+              role="switch"
+              :aria-checked="String(!!showGoogleBusy)"
+              @click="toggleGoogleBusy"
+            >
+              Google busy
+            </button>
+            <button
+              type="button"
+              class="sched-pill"
+              :class="{ on: showGoogleEvents }"
+              role="switch"
+              :aria-checked="String(!!showGoogleEvents)"
+              @click="toggleGoogleEvents"
+              title="Shows event titles (sensitive)"
+            >
+              Google titles
+            </button>
+          </template>
         </div>
       </div>
       <div v-if="overlayErrorText" class="hint" style="margin-top: 8px;">
@@ -87,14 +101,23 @@ const props = defineProps({
   agencyIds: { type: Array, default: null },
   weekStartYmd: { type: String, default: null },
   weekStartsOn: { type: String, default: 'monday' },
-  userLabelById: { type: Object, default: null }
+  userLabelById: { type: Object, default: null },
+  hideGoogleAndTherapyNotes: { type: Boolean, default: false }
 });
 const emit = defineEmits(['update:weekStartYmd']);
 
 const ALL_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const SUNDAY_FIRST_DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const orderedDays = computed(() => (String(props.weekStartsOn || '').toLowerCase() === 'sunday' ? SUNDAY_FIRST_DAYS : ALL_DAYS));
-const hours = Array.from({ length: 15 }, (_, i) => 7 + i); // 7..21
+
+// Club context (runners): main view 5–22, expand to full 0–23
+const showAllHours = ref(false);
+const hours = computed(() => {
+  if (props.hideGoogleAndTherapyNotes) {
+    return showAllHours.value ? Array.from({ length: 24 }, (_, i) => i) : Array.from({ length: 18 }, (_, i) => 5 + i); // 5..22
+  }
+  return Array.from({ length: 15 }, (_, i) => 7 + i); // 7..21 default
+});
 
 const pad2 = (n) => String(n).padStart(2, '0');
 const localYmd = (d) => {
@@ -224,8 +247,8 @@ const load = async () => {
                   params: {
                     agencyId,
                     weekStart: ws,
-                    includeGoogleBusy: showGoogleBusy.value ? 'true' : 'false',
-                    includeGoogleEvents: showGoogleEvents.value ? 'true' : 'false'
+                    includeGoogleBusy: props.hideGoogleAndTherapyNotes ? 'false' : (showGoogleBusy.value ? 'true' : 'false'),
+                    includeGoogleEvents: props.hideGoogleAndTherapyNotes ? 'false' : (showGoogleEvents.value ? 'true' : 'false')
                   }
                 })
                 .then((r) => ({ ok: true, agencyId, data: r.data }))
@@ -300,7 +323,7 @@ const deferredLoad = () => {
     setTimeout(() => void load(), 0);
   }
 };
-watch([() => props.userIds, effectiveWeekStart, showGoogleBusy, showGoogleEvents, effectiveAgencyIds], deferredLoad, { deep: true, immediate: true });
+watch([() => props.userIds, effectiveWeekStart, showGoogleBusy, showGoogleEvents, () => props.hideGoogleAndTherapyNotes, effectiveAgencyIds], deferredLoad, { deep: true, immediate: true });
 
 const gridStyle = computed(() => ({
   gridTemplateColumns: `64px repeat(${orderedDays.value.length}, minmax(0, 1fr))`
@@ -450,7 +473,7 @@ const eventBlocksForUserCell = (uid, dayName, hour) => {
   }
 
   // google busy
-  if (showGoogleBusy.value && hasBusyIntervals(s.googleBusy || [], dayName, hour, ws)) {
+  if (!props.hideGoogleAndTherapyNotes && showGoogleBusy.value && hasBusyIntervals(s.googleBusy || [], dayName, hour, ws)) {
     blocks.push({
       kind: 'gbusy',
       key: `u${uid}-gbusy-${dayName}-${hour}`,
@@ -461,7 +484,7 @@ const eventBlocksForUserCell = (uid, dayName, hour) => {
   }
 
   // google event titles
-  if (showGoogleEvents.value) {
+  if (!props.hideGoogleAndTherapyNotes && showGoogleEvents.value) {
     const evs = Array.isArray(s.googleEvents) ? s.googleEvents : [];
     for (const ev of evs) {
       const st = parseMaybeDate(ev.startAt);
@@ -501,6 +524,7 @@ const cellBlocks = (dayName, hour) => {
 };
 
 const overlayErrorText = computed(() => {
+  if (props.hideGoogleAndTherapyNotes) return '';
   const ids = (props.userIds || []).map((x) => Number(x)).filter(Boolean);
   const msgs = [];
   for (const uid of ids) {
