@@ -90,6 +90,11 @@ class PayrollImportRow {
     return this.listForImportId({ payrollPeriodId, payrollImportId: latestImportId });
   }
 
+  static async deleteByImportId(payrollImportId) {
+    const [result] = await pool.execute('DELETE FROM payroll_import_rows WHERE payroll_import_id = ?', [payrollImportId]);
+    return result.affectedRows || 0;
+  }
+
   static async listForImportId({ payrollPeriodId, payrollImportId }) {
     if (!payrollImportId) return [];
     const [rows] = await pool.execute(

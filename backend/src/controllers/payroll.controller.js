@@ -5131,9 +5131,11 @@ export const importPayrollCsv = [
         }
       }
 
+      const nextSlot = await PayrollImport.getNextSlotForPeriod(payrollPeriodId) || 1;
       const imp = await PayrollImport.create({
         agencyId,
         payrollPeriodId,
+        slotNumber: nextSlot,
         source: 'csv',
         originalFilename: req.file.originalname,
         uploadedByUserId: req.user.id
@@ -5356,9 +5358,11 @@ export const importPayrollAuto = [
         }
       }
 
+      const nextSlot = await PayrollImport.getNextSlotForPeriod(period.id) || 1;
       const imp = await PayrollImport.create({
         agencyId: resolvedAgencyId,
         payrollPeriodId: period.id,
+        slotNumber: nextSlot,
         source: (String(req.file.originalname || '').toLowerCase().endsWith('.xlsx') || String(req.file.originalname || '').toLowerCase().endsWith('.xls')) ? 'xlsx' : 'csv',
         originalFilename: req.file.originalname,
         uploadedByUserId: req.user.id
@@ -5921,6 +5925,7 @@ export const batchCatchUp = [
         const imp = await PayrollImport.create({
           agencyId: period.agency_id,
           payrollPeriodId: period.id,
+          slotNumber: 3,
           source: 'csv',
           originalFilename: f3.originalname,
           uploadedByUserId: req.user.id
@@ -8522,6 +8527,157 @@ export const deletePayrollImport = async (req, res, next) => {
   }
 };
 
+export const replacePayrollImport = [
+  upload.single('file'),
+  async (req, res, next) => {
+    try {
+      if (!ensureBillingEncryptionOrRespond(res)) return;
+      const payrollPeriodId = parseInt(req.params.periodId, 10);
+      const importId = parseInt(req.params.importId, 10);
+      const period = await PayrollPeriod.findById(payrollPeriodId);
+      if (!period) return res.status(404).json({ error: { message: 'Pay period not found' } });
+      if (!(await requirePayrollAccess(req, res, period.agency_id))) return;
+      if (isEffectivelyPostedOrFinalized(period)) {
+        return res.status(409).json({ error: { message: 'Pay period is posted/finalized and cannot be re-imported.' } });
+      }
+      const imp = await PayrollImport.findById(importId);
+      if (!imp || Number(imp.payroll_period_id) !== payrollPeriodId) {
+        return res.status(404).json({ error: { message: 'Import not found or does not belong to this period' } });
+      }
+      if (!req.file) return res.status(400).json({ error: { message: 'No CSV/XLSX file uploaded' } });
+
+      const agencyId = period.agency_id;
+      let parsed = [];
+      let missedAppointmentsPaidInFull = [];
+      try {
+        const r = parsePayrollFile(req.file.buffer, req.file.originalname);
+        parsed = r?.rows || [];
+        missedAppointmentsPaidInFull = r?.missedAppointmentsPaidInFull || [];
+      } catch (e) {
+        return res.status(400).json({
+          error: {
+            message: e.message || 'Failed to parse report',
+            errorMeta: {
+              rowNumber: e?.rowNumber || null,
+              detectedHeaders: Array.isArray(e?.detectedHeaders) ? e.detectedHeaders : null
+            }
+          }
+        });
+      }
+      if ((!parsed || parsed.length === 0) && (!missedAppointmentsPaidInFull || missedAppointmentsPaidInFull.length === 0)) {
+        return res.status(400).json({ error: { message: 'No rows found in report' } });
+      }
+
+      const agencyUsers = await getAgencyUsersForPayrollMatching(agencyId);
+      const h0032ManualMinutesByUserId = new Map();
+      try {
+        const [uaRows] = await pool.execute(
+          `SELECT user_id, h0032_requires_manual_minutes FROM user_agencies WHERE agency_id = ?`,
+          [agencyId]
+        );
+        for (const r of uaRows || []) h0032ManualMinutesByUserId.set(Number(r.user_id), Number(r.h0032_requires_manual_minutes) ? 1 : 0);
+      } catch { /* ignore */ }
+
+      const nameToIds = new Map();
+      for (const u of agencyUsers || []) {
+        const first = String(u.first_name || '').trim();
+        const last = String(u.last_name || '').trim();
+        const a = normalizeName(`${first} ${last}`);
+        const b = normalizeName(`${last} ${first}`);
+        if (a) addNameKeyToIds(nameToIds, a, u.id);
+        if (b) addNameKeyToIds(nameToIds, b, u.id);
+      }
+
+      const createdUsers = [];
+      const seen = new Set();
+      for (const r of parsed || []) {
+        const keys = nameKeyCandidates(r.providerName);
+        const primaryKey = keys[0] || '';
+        if (!primaryKey || seen.has(primaryKey)) continue;
+        if (resolveUserIdForProviderName(nameToIds, r.providerName)) continue;
+        seen.add(primaryKey);
+        const ensured = await ensureUserForProviderName({ agencyId, providerName: r.providerName });
+        if (ensured?.userId) {
+          for (const k of keys) addNameKeyToIds(nameToIds, k, ensured.userId);
+          createdUsers.push({ providerName: r.providerName, userId: ensured.userId, firstName: ensured.firstName, lastName: ensured.lastName });
+        }
+      }
+
+      await PayrollImportRow.deleteByImportId(importId);
+
+      const rowsToInsert = parsed.map((r) => {
+        const userId = resolveUserIdForProviderName(nameToIds, r.providerName);
+        const codeKey = String(r.serviceCode || '').trim().toUpperCase();
+        const isH0031 = codeKey === 'H0031';
+        const isH0032 = codeKey === 'H0032';
+        const isH2014 = codeKey === 'H2014';
+        const h0032NeedsManualMinutes = isH0032 ? !!h0032ManualMinutesByUserId.get(userId) : false;
+        let unitCount = Number(r.unitCount) || 0;
+        if (isH0031 && Math.abs(unitCount - 1) < 1e-9) unitCount = 60;
+        else if (isH0032 && Math.abs(unitCount - 1) < 1e-9) unitCount = 30;
+        else if (isH2014 && Math.abs(unitCount - 1) < 1e-9) unitCount = 15;
+        const requiresProcessing = isH0031 || (isH0032 && h0032NeedsManualMinutes) || isH2014;
+        const rowFingerprint = computeRowFingerprint({
+          agencyId,
+          clinicianName: r.providerName,
+          patientFirstName: r.patientFirstName,
+          serviceCode: r.serviceCode,
+          serviceDate: r.serviceDate
+        });
+        return {
+          payrollImportId: imp.id,
+          payrollPeriodId,
+          agencyId,
+          userId,
+          providerName: r.providerName,
+          patientFirstName: r.patientFirstName,
+          serviceCode: r.serviceCode,
+          serviceDate: r.serviceDate ? formatYmd(r.serviceDate) : null,
+          noteStatus: r.noteStatus,
+          draftPayable: r.noteStatus === 'DRAFT' ? 1 : 0,
+          unitCount,
+          rowFingerprint,
+          requiresProcessing,
+          processedAt: null,
+          processedByUserId: null
+        };
+      });
+
+      await PayrollImportRow.bulkInsert(rowsToInsert);
+      await PayrollImport.updateFilename(importId, req.file.originalname);
+
+      try {
+        await PayrollImportMissedAppointment.replaceForImport({
+          payrollImportId: imp.id,
+          payrollPeriodId,
+          agencyId,
+          rows: missedAppointmentsPaidInFull
+        });
+      } catch (e) {
+        if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+      }
+
+      await pool.execute('DELETE FROM payroll_summaries WHERE payroll_period_id = ?', [payrollPeriodId]);
+      await pool.execute(
+        `UPDATE payroll_periods SET status = 'raw_imported', ran_at = NULL, ran_by_user_id = NULL WHERE id = ?`,
+        [payrollPeriodId]
+      );
+
+      const unmatched = rowsToInsert.filter((r) => !r.userId).slice(0, 50);
+      res.json({
+        import: { ...imp, original_filename: req.file.originalname },
+        replaced: true,
+        inserted: rowsToInsert.length,
+        flaggedMissedAppointmentsPaidInFull: (missedAppointmentsPaidInFull || []).length,
+        createdUsers,
+        unmatchedProvidersSample: unmatched.map((u) => u.providerName)
+      });
+    } catch (e) {
+      next(e);
+    }
+  }
+];
+
 export const listPayrollPeriodImports = async (req, res, next) => {
   try {
     const payrollPeriodId = parseInt(req.params.id, 10);
@@ -8530,7 +8686,7 @@ export const listPayrollPeriodImports = async (req, res, next) => {
     if (!(await requirePayrollAccess(req, res, period.agency_id))) return;
     const imports = await PayrollImport.listForPeriod(payrollPeriodId);
     const importsWithMeta = (imports || []).map((imp, idx) => {
-      const seq = idx + 1;
+      const seq = Number(imp.slot_number) || idx + 1;
       return {
         ...imp,
         import_sequence: seq,
@@ -8568,7 +8724,7 @@ export const getPayrollPeriodRawAudit = async (req, res, next) => {
     }
 
     const importsWithMeta = (imports || []).map((imp, idx) => {
-      const seq = idx + 1;
+      const seq = Number(imp.slot_number) || idx + 1;
       const importedAt = imp.created_at || null;
       const uploader = `${imp.uploaded_by_first_name || ''} ${imp.uploaded_by_last_name || ''}`.trim();
       return {
@@ -8704,11 +8860,10 @@ export const getPayrollPeriodRunsSideBySide = async (req, res, next) => {
     if (!(await requirePayrollAccess(req, res, period.agency_id))) return;
 
     const imports = await PayrollImport.listForPeriod(payrollPeriodId);
-    const importsWithMeta = (imports || []).map((imp, idx) => ({
-      ...imp,
-      slot_number: idx + 1,
-      slot_label: `Run ${idx + 1}`
-    }));
+    const importsWithMeta = (imports || []).map((imp, idx) => {
+      const seq = Number(imp.slot_number) || idx + 1;
+      return { ...imp, slot_number: seq, slot_label: `Run ${seq}` };
+    });
 
     const runCount = Math.min(importsWithMeta.length, 3);
     const rowsByRun = [];

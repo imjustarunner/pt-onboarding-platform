@@ -1351,7 +1351,7 @@
           <div class="modal-header">
             <div>
               <div class="modal-title">View & Manage Imports</div>
-              <div class="hint">View imports in order, delete wrong ones, or open Raw Import to add changes to current payroll.</div>
+              <div class="hint">View imports in order, delete wrong ones, or open Raw Import. <strong>To make Run 2 become Run 1:</strong> delete Run 1 — the remaining imports are renumbered automatically (no re-upload needed).</div>
             </div>
             <button class="btn btn-secondary btn-sm" @click="showManageImportsModal = false">Close</button>
           </div>
@@ -1380,8 +1380,25 @@
                   <td>{{ imp.original_filename || '—' }}</td>
                   <td>
                     <button type="button" class="btn btn-secondary btn-sm" @click="openRawModalForPeriodAndImport(manageImportsPeriodId, imp.id); showManageImportsModal = false">View</button>
-                    <button type="button" class="btn btn-danger btn-sm" @click="deleteManageImport(imp)" :disabled="manageImportsDeleting === imp.id" style="margin-left: 6px;">
-                      {{ manageImportsDeleting === imp.id ? 'Deleting…' : 'Delete' }}
+                    <button
+                      type="button"
+                      class="btn btn-secondary btn-sm"
+                      @click="triggerReplaceImport(imp)"
+                      :disabled="manageImportsReplacing === imp.id"
+                      title="Replace this run with a new file (keeps Run 1/2/3 slot)"
+                      style="margin-left: 6px;"
+                    >
+                      {{ manageImportsReplacing === imp.id ? 'Replacing…' : 'Replace' }}
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-danger btn-sm"
+                      @click="deleteManageImport(imp)"
+                      :disabled="manageImportsDeleting === imp.id"
+                      :title="(imp.slot_number || imp.import_sequence) === 1 ? 'Delete Run 1 — Run 2 will become the new Run 1' : 'Delete this import'"
+                      style="margin-left: 6px;"
+                    >
+                      {{ manageImportsDeleting === imp.id ? 'Deleting…' : ((imp.slot_number || imp.import_sequence) === 1 && manageImportsList.length > 1 ? 'Delete Run 1 (Run 2 → Run 1)' : 'Delete') }}
                     </button>
                   </td>
                 </tr>
@@ -1390,6 +1407,13 @@
           </div>
           <div v-else-if="manageImportsPeriodId && !manageImportsLoading" class="hint muted" style="margin-top: 12px;">No imports for this period.</div>
           <div v-else-if="manageImportsLoading" class="hint" style="margin-top: 12px;">Loading…</div>
+          <input
+            ref="manageImportsReplaceInput"
+            type="file"
+            accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+            style="display: none;"
+            @change="onReplaceImportFilePick"
+          />
         </div>
       </div>
 
@@ -1650,6 +1674,9 @@
         </button>
         <button class="btn btn-secondary" @click="openRunsSideBySideModal" :disabled="!selectedPeriodId">
           Runs Side-by-Side (Audit)
+        </button>
+        <button class="btn btn-secondary" @click="openManageImportsModal" :disabled="!selectedPeriodId">
+          Manage Imports (delete/reorder)
         </button>
         <button class="btn btn-secondary" @click="openCarryoverModal" :disabled="!selectedPeriodId || isPeriodPosted">
           No-note/Draft Unpaid
@@ -10056,6 +10083,9 @@ const manageImportsList = ref([]);
 const manageImportsLoading = ref(false);
 const manageImportsError = ref('');
 const manageImportsDeleting = ref(null);
+const manageImportsReplacing = ref(null);
+const manageImportsReplaceImp = ref(null);
+const manageImportsReplaceInput = ref(null);
 const processChangesAggregate = ref(
   safeJsonParse(localStorage.getItem(LS_PROCESS_CHANGES_AGGREGATE) || '[]', [])
 );
@@ -12167,7 +12197,15 @@ const loadManageImportsList = async () => {
 const deleteManageImport = async (imp) => {
   const pid = manageImportsPeriodId.value;
   if (!pid || !imp?.id) return;
-  if (!confirm(`Delete Run ${imp.slot_number || imp.import_sequence} (${imp.original_filename || 'import'})? This cannot be undone.`)) return;
+  const slot = imp.slot_number || imp.import_sequence;
+  const hasNext = (manageImportsList.value || []).length > 1;
+  const promoteMsg = slot === 1 && hasNext
+    ? 'Run 2 will become the new Run 1. No re-upload needed.'
+    : slot === 2 && hasNext
+      ? 'Run 3 will become the new Run 2.'
+      : '';
+  const msg = `Delete Run ${slot} (${imp.original_filename || 'import'})?${promoteMsg ? ` ${promoteMsg}` : ''} This cannot be undone.`;
+  if (!confirm(msg)) return;
   manageImportsDeleting.value = imp.id;
   manageImportsError.value = '';
   try {
@@ -12180,6 +12218,40 @@ const deleteManageImport = async (imp) => {
     manageImportsError.value = e.response?.data?.error?.message || e.message || 'Failed to delete import';
   } finally {
     manageImportsDeleting.value = null;
+  }
+};
+
+const triggerReplaceImport = (imp) => {
+  manageImportsReplaceImp.value = imp;
+  manageImportsReplaceInput.value?.click();
+};
+
+const onReplaceImportFilePick = async (e) => {
+  const imp = manageImportsReplaceImp.value;
+  const pid = manageImportsPeriodId.value;
+  const file = e?.target?.files?.[0];
+  if (!imp || !pid || !file) {
+    manageImportsReplaceImp.value = null;
+    e.target.value = '';
+    return;
+  }
+  manageImportsReplacing.value = imp.id;
+  manageImportsError.value = '';
+  try {
+    const fd = new FormData();
+    fd.append('file', file);
+    const resp = await api.post(`/payroll/periods/${pid}/imports/${imp.id}/replace`, fd, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    });
+    await loadManageImportsList();
+    if (selectedPeriodId.value === pid) await loadPeriodDetails();
+    manageImportsError.value = '';
+  } catch (err) {
+    manageImportsError.value = err.response?.data?.error?.message || err.message || 'Failed to replace import';
+  } finally {
+    manageImportsReplacing.value = null;
+    manageImportsReplaceImp.value = null;
+    e.target.value = '';
   }
 };
 

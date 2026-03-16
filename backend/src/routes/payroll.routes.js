@@ -9,6 +9,7 @@ import {
   getPayrollPeriodRunsSideBySide,
   listPayrollPeriodImports,
   deletePayrollImport,
+  replacePayrollImport,
   patchPayrollImportRow,
   downloadPayrollRawCsv,
   downloadPayrollExportCsv,
@@ -194,6 +195,7 @@ router.get('/periods/:id/raw-audit', getPayrollPeriodRawAudit);
 router.get('/periods/:id/runs-side-by-side', getPayrollPeriodRunsSideBySide);
 router.get('/periods/:id/imports', listPayrollPeriodImports);
 router.delete('/periods/:periodId/imports/:importId', deletePayrollImport);
+router.post('/periods/:periodId/imports/:importId/replace', ...replacePayrollImport);
 router.patch('/import-rows/:rowId', patchPayrollImportRow);
 router.get('/periods/:id/reports/sessions-units', getPayrollReportSessionsUnits);
 router.get('/periods/:id/reports/late-notes', getPayrollReportLateNotesTotals);

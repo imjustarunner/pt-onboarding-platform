@@ -159,10 +159,10 @@ When a prior period is selected in **Prior period (for DB baseline)**:
 
 ### 4.5 View & Manage Imports
 
-- **Button:** "View & Manage Imports" in Process Changes opens a modal.
-- **Functionality:** Select a pay period, see all imports in order (Run 1, Run 2, Run 3), with date and filename.
-- **Actions per import:** **View** (opens Raw Import Audit for that import; add changes to current payroll via Draft Audit / staging), **Delete** (removes the import; cannot be undone).
-- **Replace upload:** For batch catch-up file inputs, a "Replace" button clears the selected file so you can pick a different one in case of errors.
+- **Button:** "View & Manage Imports" in Process Changes (or "Manage Imports" in Current Payroll Run).
+- **Explicit Run tags:** Each import is tagged as Run 1, Run 2, or Run 3 of the pay period (stored in DB). Order is stable.
+- **Actions per import:** **View** (opens Raw Import Audit), **Replace** (upload a new file to replace this run’s data; keeps the same Run 1/2/3 slot), **Delete** (removes the import; cannot be undone).
+- **Replace:** Upload a new CSV/XLSX to replace the data for that run. The Run 1/2/3 slot stays the same. No re-upload of other runs needed.
 
 ### 4.6 Process Changes Aggregate
 
