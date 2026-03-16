@@ -171,9 +171,20 @@
                 v-for="r in g.rows"
                 v-show="groupBySchool ? isSchoolExpanded(g.organizationId) : true"
                 :key="`${r.client_id}-${r.provider_user_id}-${r.organization_id}`"
+                :class="viewMode === 'roi' ? roiRowClass(r.days_until_expiration) : ''"
               >
                 <td>{{ r.organization_name || '—' }}</td>
-                <td>{{ formatClient(r) }}</td>
+                <td>
+                  <button
+                    v-if="r.client_id"
+                    type="button"
+                    class="client-link btn-link"
+                    @click="openClientDetail(r)"
+                  >
+                    {{ formatClient(r) }}
+                  </button>
+                  <span v-else>{{ formatClient(r) }}</span>
+                </td>
                 <td>{{ formatProvider(r) }}</td>
                 <td v-if="viewMode === 'pending'">{{ formatDate(r.pending_added_at) }}</td>
                 <td v-if="viewMode === 'pending'">{{ formatDate(r.assigned_at) }}</td>
@@ -314,6 +325,14 @@
         </div>
       </div>
     </div>
+
+    <ClientDetailPanel
+      v-if="selectedClient"
+      :key="String(selectedClient?.id || '')"
+      :client="selectedClient"
+      @close="closeClientDetail"
+      @updated="closeClientDetail"
+    />
   </div>
 </template>
 
@@ -322,6 +341,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
+import ClientDetailPanel from '../../components/admin/ClientDetailPanel.vue';
 
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
@@ -347,6 +367,8 @@ const waiverRedFlagOnly = ref(false);
 const waiverSortKey = ref('flag');
 const waiverSortDir = ref('desc');
 const MIN_PENDING_DATE = '2026-02-01';
+const selectedClient = ref(null);
+const clientDetailLoading = ref(false);
 
 const filters = ref({
   search: '',
@@ -678,6 +700,14 @@ const roiDaysClass = (days) => {
   return '';
 };
 
+const roiRowClass = (days) => {
+  if (days === null || days === undefined) return 'tr-roi-expired';
+  const n = Number(days || 0);
+  if (n < 0) return 'tr-roi-expired';
+  if (n <= 30) return 'tr-roi-soon';
+  return '';
+};
+
 const reloadPending = async () => {
   if (!activeAgencyId.value) return;
   const resp = await api.get('/compliance-corner/pending-clients', {
@@ -696,6 +726,24 @@ const reloadRoi = async () => {
     }
   });
   roiRows.value = Array.isArray(resp.data?.results) ? resp.data.results : [];
+};
+
+const openClientDetail = async (row) => {
+  const clientId = Number(row?.client_id || 0);
+  if (!clientId) return;
+  try {
+    clientDetailLoading.value = true;
+    const { data } = await api.get(`/clients/${clientId}`);
+    selectedClient.value = data || null;
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || e.message || 'Failed to load client';
+  } finally {
+    clientDetailLoading.value = false;
+  }
+};
+
+const closeClientDetail = () => {
+  selectedClient.value = null;
 };
 
 const reload = async () => {
@@ -969,10 +1017,30 @@ onMounted(async () => {
   font-weight: 800;
 }
 .roi-expired {
-  color: #991b1b;
+  color: #b91c1c;
+  font-weight: 700;
 }
 .roi-soon {
-  color: #92400e;
+  color: #ea580c;
+  font-weight: 700;
+}
+.client-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+  color: var(--primary, #166534);
+  text-decoration: underline;
+}
+.client-link:hover {
+  text-decoration: none;
+}
+.tr-roi-expired .client-link {
+  color: #b91c1c;
+}
+.tr-roi-soon .client-link {
+  color: #ea580c;
 }
 .muted {
   color: var(--text-secondary);

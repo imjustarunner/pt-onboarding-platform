@@ -425,10 +425,10 @@ export const listRoiRenewalCandidates = async (req, res, next) => {
        FROM clients c
        JOIN agencies org ON org.id = c.organization_id
        LEFT JOIN users u ON u.id = c.provider_id
-       LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
+       LEFT JOIN client_statuses cs ON cs.id = c.client_status_id AND cs.agency_id = c.agency_id
        WHERE c.agency_id = ?
          AND (c.status IS NULL OR UPPER(c.status) <> 'ARCHIVED')
-         AND (cs.status_key IS NULL OR LOWER(cs.status_key) NOT IN ('archived', 'inactive', 'terminated'))
+         AND (c.client_status_id IS NULL OR cs.id IS NULL OR LOWER(cs.status_key) NOT IN ('archived', 'inactive', 'terminated'))
          AND (org.organization_type IS NULL OR LOWER(org.organization_type) = 'school')
        ORDER BY org.name ASC, c.initials ASC, c.id DESC`,
       [agencyId]
