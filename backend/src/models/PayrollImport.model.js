@@ -29,6 +29,11 @@ class PayrollImport {
     );
     return rows || [];
   }
+
+  static async deleteById(id) {
+    const [result] = await pool.execute('DELETE FROM payroll_imports WHERE id = ?', [id]);
+    return result.affectedRows > 0;
+  }
 }
 
 export default PayrollImport;

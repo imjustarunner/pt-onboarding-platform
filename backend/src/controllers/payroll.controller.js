@@ -8486,6 +8486,42 @@ export const listPayrollPeriodRuns = async (req, res, next) => {
   }
 };
 
+export const deletePayrollImport = async (req, res, next) => {
+  try {
+    const payrollPeriodId = parseInt(req.params.periodId, 10);
+    const importId = parseInt(req.params.importId, 10);
+    const period = await PayrollPeriod.findById(payrollPeriodId);
+    if (!period) return res.status(404).json({ error: { message: 'Pay period not found' } });
+    if (!(await requirePayrollAccess(req, res, period.agency_id))) return;
+    const imp = await PayrollImport.findById(importId);
+    if (!imp || Number(imp.payroll_period_id) !== payrollPeriodId) {
+      return res.status(404).json({ error: { message: 'Import not found or does not belong to this period' } });
+    }
+    const isLocked = isEffectivelyPostedOrFinalized(period);
+    if (isLocked) {
+      return res.status(409).json({ error: { message: 'Cannot delete import: pay period is posted/finalized' } });
+    }
+    await PayrollImport.deleteById(importId);
+    const remaining = await PayrollImport.listForPeriod(payrollPeriodId);
+    if (!remaining.length) {
+      await pool.execute('DELETE FROM payroll_summaries WHERE payroll_period_id = ?', [payrollPeriodId]);
+      await pool.execute(
+        `UPDATE payroll_periods SET status = 'draft', ran_at = NULL, ran_by_user_id = NULL WHERE id = ?`,
+        [payrollPeriodId]
+      );
+    } else {
+      await pool.execute('DELETE FROM payroll_summaries WHERE payroll_period_id = ?', [payrollPeriodId]);
+      await pool.execute(
+        `UPDATE payroll_periods SET status = 'raw_imported', ran_at = NULL, ran_by_user_id = NULL WHERE id = ?`,
+        [payrollPeriodId]
+      );
+    }
+    res.json({ ok: true, remainingCount: remaining.length });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const listPayrollPeriodImports = async (req, res, next) => {
   try {
     const payrollPeriodId = parseInt(req.params.id, 10);
@@ -8494,12 +8530,12 @@ export const listPayrollPeriodImports = async (req, res, next) => {
     if (!(await requirePayrollAccess(req, res, period.agency_id))) return;
     const imports = await PayrollImport.listForPeriod(payrollPeriodId);
     const importsWithMeta = (imports || []).map((imp, idx) => {
-      const slot = importSlotByDate({ periodEnd: period.period_end, importedAt: imp.created_at });
+      const seq = idx + 1;
       return {
         ...imp,
-        import_sequence: idx + 1,
-        slot_number: slot,
-        slot_label: `Run ${slot}`
+        import_sequence: seq,
+        slot_number: seq,
+        slot_label: `Run ${seq}`
       };
     });
     res.json({ imports: importsWithMeta });
@@ -8532,15 +8568,15 @@ export const getPayrollPeriodRawAudit = async (req, res, next) => {
     }
 
     const importsWithMeta = (imports || []).map((imp, idx) => {
-      const slot = importSlotByDate({ periodEnd: period.period_end, importedAt: imp.created_at });
+      const seq = idx + 1;
       const importedAt = imp.created_at || null;
       const uploader = `${imp.uploaded_by_first_name || ''} ${imp.uploaded_by_last_name || ''}`.trim();
       return {
         ...imp,
-        import_sequence: idx + 1,
-        slot_number: slot,
-        slot_label: `Run ${slot}`,
-        import_label: `Import #${idx + 1} • ${String(importedAt || '').slice(0, 19)}${uploader ? ` • ${uploader}` : ''}`
+        import_sequence: seq,
+        slot_number: seq,
+        slot_label: `Run ${seq}`,
+        import_label: `Run ${seq} • ${String(importedAt || '').slice(0, 19)}${uploader ? ` • ${uploader}` : ''}`
       };
     });
 
@@ -8638,6 +8674,99 @@ export const getPayrollPeriodRawAudit = async (req, res, next) => {
       isLatestRun: latestRunId && Number(latestRunId) === Number(selectedRunId),
       rows,
       changes
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+function rowKeyForSideBySide(row) {
+  const uid = Number(row?.user_id || 0);
+  const prov = String(row?.provider_name || '').trim().toLowerCase();
+  const code = String(row?.service_code || '').trim().toUpperCase();
+  const date = String(row?.service_date || '').slice(0, 10);
+  const client = String(row?.patient_first_name || '').trim().toLowerCase();
+  return `${uid}|${prov}|${code}|${date}|${client}`;
+}
+
+function clientHint(row) {
+  const first = String(row?.patient_first_name || '').trim();
+  if (!first) return '—';
+  const initials = first.length >= 2 ? `${first[0]}${first[1]}`.toUpperCase() : first.toUpperCase();
+  return first.length <= 4 ? first : initials;
+}
+
+export const getPayrollPeriodRunsSideBySide = async (req, res, next) => {
+  try {
+    const payrollPeriodId = parseInt(req.params.id, 10);
+    const period = await PayrollPeriod.findById(payrollPeriodId);
+    if (!period) return res.status(404).json({ error: { message: 'Pay period not found' } });
+    if (!(await requirePayrollAccess(req, res, period.agency_id))) return;
+
+    const imports = await PayrollImport.listForPeriod(payrollPeriodId);
+    const importsWithMeta = (imports || []).map((imp, idx) => ({
+      ...imp,
+      slot_number: idx + 1,
+      slot_label: `Run ${idx + 1}`
+    }));
+
+    const runCount = Math.min(importsWithMeta.length, 3);
+    const rowsByRun = [];
+    for (let i = 0; i < runCount; i++) {
+      const imp = importsWithMeta[i];
+      const rows = await PayrollImportRow.listForImportId({
+        payrollPeriodId,
+        payrollImportId: imp.id
+      });
+      rowsByRun.push(rows.map((r) => mapRawRowForAudit(r)));
+    }
+
+    const keyToRuns = new Map();
+    for (let runIdx = 0; runIdx < runCount; runIdx++) {
+      for (const r of rowsByRun[runIdx]) {
+        const key = rowKeyForSideBySide(r);
+        if (!keyToRuns.has(key)) keyToRuns.set(key, [[], [], []]);
+        keyToRuns.get(key)[runIdx].push(r);
+      }
+    }
+
+    const merged = [];
+    for (const [, runArrays] of keyToRuns) {
+      const maxLen = Math.max(...runArrays.map((a) => a.length));
+      for (let idx = 0; idx < maxLen; idx++) {
+        const r1 = runArrays[0]?.[idx] || null;
+        const r2 = runArrays[1]?.[idx] || null;
+        const r3 = runArrays[2]?.[idx] || null;
+        const row = r1 || r2 || r3;
+        if (!row) continue;
+        merged.push({
+          provider_name: row.provider_name || row.providerName || '—',
+          service_code: row.service_code || '—',
+          service_date: String(row.service_date || '').slice(0, 10) || '—',
+          client_hint: clientHint(row),
+          run1_units: r1 ? Number(r1.unit_count || 0) : null,
+          run1_status: r1 ? normalizedRawStatus(r1) : null,
+          run2_units: r2 ? Number(r2.unit_count || 0) : null,
+          run2_status: r2 ? normalizedRawStatus(r2) : null,
+          run3_units: r3 ? Number(r3.unit_count || 0) : null,
+          run3_status: r3 ? normalizedRawStatus(r3) : null
+        });
+      }
+    }
+
+    merged.sort((a, b) => {
+      const prov = String(a.provider_name || '').localeCompare(String(b.provider_name || ''), undefined, { sensitivity: 'base' });
+      if (prov) return prov;
+      const code = String(a.service_code || '').localeCompare(String(b.service_code || ''), undefined, { sensitivity: 'base' });
+      if (code) return code;
+      return String(a.service_date || '').localeCompare(String(b.service_date || ''), undefined, { sensitivity: 'base' });
+    });
+
+    res.json({
+      period,
+      imports: importsWithMeta,
+      runCount,
+      rows: merged
     });
   } catch (e) {
     next(e);

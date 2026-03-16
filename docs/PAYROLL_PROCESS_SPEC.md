@@ -1,6 +1,6 @@
 # Payroll Process Specification
 
-**Version:** 1.0  
+**Version:** 1.1  
 **Last Updated:** 2026-03-16  
 **Purpose:** Single source of truth for payroll workflow, dropdown behavior, import/run visibility, and stage expectations. Update this document as requirements evolve.
 
@@ -66,11 +66,18 @@ Users must be able to:
 - **Compare Against Import:** Dropdown to pick a baseline import for comparison.
 - **Run Audit:** Shows the number of changes between the selected baseline and the selected import.
 - **Change table:** Rows showing deltas (status, service code, units, etc.) between baseline and selected import.
+- **Changes-only (default):** By default, the change table shows only relevant changes: unpaid→paid, draft needing edit, or late adds. Rows that were already paid in the baseline are hidden. Use "Show All" to include them.
 
 **Labels:**
 
 - Imports are labeled as `Run 1`, `Run 2`, `Run 3` via `slot_number` / `slot_label`.
 - Each import shows: `Import #N • timestamp • uploader`.
+
+**Rows filter (Draft Audit mode):**
+
+- **Unpaid only (default):** Shows NO_NOTE and DRAFT_UNPAID rows — the unpaid items that need attention.
+- **Draft only:** Shows only DRAFT rows (excludes NO_NOTE).
+- **Show All:** Shows all rows (read-only for Draft Payable).
 
 **Modes within Raw Import:**
 
@@ -142,6 +149,32 @@ When a prior period is selected in **Prior period (for DB baseline)**:
 - **Run 2 in DB:** Second run file input is grayed out; "View import" link appears.
 - **Run 3 in DB:** Latest run file input is grayed out; "View import" link appears.
 - **Next step:** The first run slot that does not yet exist in the DB is the active upload target.
+
+### 4.4 Run 1/2/3 Rules (Medical/Health Payroll)
+
+- **One Run 1, one Run 2, one Run 3:** There should never be duplicate Run 1s (or 2s or 3s) for the same period. If duplicates exist, it is by error.
+- **Comparison order:** Run 2 compares to Run 1; Run 3 compares to Run 2. Changes/differences are applicable to the current pay period.
+- **Labels:** Imports are labeled by sequence (Run 1, Run 2, Run 3) in order of creation, not by import date.
+- **Changes-only view (default):** When viewing Run 2 vs Run 1 (or Run 3 vs Run 2), the change table shows only: unpaid→paid, draft needing edit, or late adds. Rows already paid in the baseline are hidden. Use "Show All" to see everything.
+
+### 4.5 View & Manage Imports
+
+- **Button:** "View & Manage Imports" in Process Changes opens a modal.
+- **Functionality:** Select a pay period, see all imports in order (Run 1, Run 2, Run 3), with date and filename.
+- **Actions per import:** **View** (opens Raw Import Audit for that import; add changes to current payroll via Draft Audit / staging), **Delete** (removes the import; cannot be undone).
+- **Replace upload:** For batch catch-up file inputs, a "Replace" button clears the selected file so you can pick a different one in case of errors.
+
+### 4.6 Process Changes Aggregate
+
+- **Collapsible:** Click the header to collapse/expand for viewing pleasure.
+- **Clear:** Clears the aggregate history for this agency.
+
+### 4.7 Runs Side-by-Side (Audit)
+
+- **Button:** "Runs Side-by-Side (Audit)" in Current Payroll Run.
+- **Purpose:** Auditing — view all runs (1, 2, 3) for a pay period in one table.
+- **Columns:** Clinician, Service, Date, Client (initials or first name), Run 1 Units, Run 1 Status, Run 2 Units, Run 2 Status, Run 3 Units, Run 3 Status.
+- **Behavior:** Rows that did not exist in Run 1 appear in Run 2 (or Run 3) as late adds. Aligned by provider + service + date + client.
 
 ---
 

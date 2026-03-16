@@ -1648,6 +1648,9 @@
         <button class="btn btn-secondary" @click="openRawModal" :disabled="!selectedPeriodId">
           Raw Import Audit (View)
         </button>
+        <button class="btn btn-secondary" @click="openRunsSideBySideModal" :disabled="!selectedPeriodId">
+          Runs Side-by-Side (Audit)
+        </button>
         <button class="btn btn-secondary" @click="openCarryoverModal" :disabled="!selectedPeriodId || isPeriodPosted">
           No-note/Draft Unpaid
         </button>
@@ -4495,6 +4498,10 @@
                     Showing {{ rawAuditChangeCount }} change{{ rawAuditChangeCount === 1 ? '' : 's' }} from selected baseline import
                   </span>
                 </div>
+                <label v-if="!rawAuditLoading && rawAuditChanges.length" class="muted" style="display: inline-flex; align-items: center; gap: 6px; margin-top: 6px;">
+                  <input type="checkbox" v-model="rawAuditShowAllChanges" />
+                  Show All (including rows already paid in baseline)
+                </label>
               </div>
             </div>
 
@@ -4510,9 +4517,10 @@
               <div class="field">
                 <label>Rows</label>
                 <div class="hint" v-if="rawMode !== 'draft_audit'">Filtered by mode</div>
-                <select v-else v-model="rawDraftOnly">
-                  <option :value="true">Draft only</option>
-                  <option :value="false">All (read-only)</option>
+                <select v-else v-model="rawRowFilter">
+                  <option value="unpaid_only">Unpaid only (no note + draft unpaid)</option>
+                  <option value="draft_only">Draft only</option>
+                  <option value="all">Show All</option>
                 </select>
               </div>
               <div class="field">
@@ -4609,7 +4617,7 @@
                     <td v-if="rawMode === 'draft_audit'">
                       <select
                         v-if="String(r.note_status || '').toUpperCase() === 'DRAFT'"
-                        :disabled="isPeriodPosted || !rawDraftOnly || isRawAuditHistoricalRun"
+                        :disabled="isPeriodPosted || rawRowFilter === 'all' || isRawAuditHistoricalRun"
                         :value="Number(r.draft_payable) ? 'payable' : 'not_payable'"
                         @change="toggleDraftPayable(r, $event.target.value === 'payable')"
                       >
@@ -4742,6 +4750,71 @@
                 </div>
               </div>
             </div>
+            </div>
+          </div>
+        </teleport>
+
+        <!-- Runs Side-by-Side (Audit) modal -->
+        <teleport to="body">
+          <div v-if="showRunsSideBySideModal" class="modal-backdrop" @click.self="showRunsSideBySideModal = false">
+            <div class="modal" style="width: min(95vw, 1200px); max-height: 90vh; overflow: hidden; display: flex; flex-direction: column;">
+              <div class="modal-header">
+                <div>
+                  <div class="modal-title">Runs Side-by-Side (Audit)</div>
+                  <div class="hint">
+                    Clinician, service, date, client, units, and status for Run 1, Run 2, Run 3. Rows that appear only in Run 2 or Run 3 show as late adds.
+                  </div>
+                </div>
+                <button class="btn btn-secondary btn-sm" @click="showRunsSideBySideModal = false">Close</button>
+              </div>
+              <div v-if="runsSideBySideLoading" class="hint" style="padding: 20px;">Loading…</div>
+              <div v-else-if="runsSideBySideData?.rows?.length" class="table-wrap" style="flex: 1; overflow: auto; padding: 0 16px 16px;">
+                <div class="hint" style="margin-bottom: 8px;">
+                  {{ periodRangeLabel(runsSideBySideData.period) }} — {{ runsSideBySideData.rows.length }} row(s)
+                </div>
+                <table class="table table-sm">
+                  <thead>
+                    <tr>
+                      <th>Clinician</th>
+                      <th>Service</th>
+                      <th>Date</th>
+                      <th>Client</th>
+                      <th class="right">Run 1 Units</th>
+                      <th>Run 1 Status</th>
+                      <th class="right">Run 2 Units</th>
+                      <th>Run 2 Status</th>
+                      <th class="right">Run 3 Units</th>
+                      <th>Run 3 Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="(r, idx) in runsSideBySideData.rows" :key="idx">
+                      <td>{{ r.provider_name || '—' }}</td>
+                      <td>{{ r.service_code || '—' }}</td>
+                      <td class="muted">{{ r.service_date || '—' }}</td>
+                      <td class="muted">{{ r.client_hint || '—' }}</td>
+                      <td class="right">{{ r.run1_units != null ? fmtNum(r.run1_units) : '—' }}</td>
+                      <td>
+                        <span v-if="r.run1_status" class="status-pill" :class="rawStatusPillClass({ normalized_status: r.run1_status })">{{ r.run1_status }}</span>
+                        <span v-else class="muted">—</span>
+                      </td>
+                      <td class="right">{{ r.run2_units != null ? fmtNum(r.run2_units) : '—' }}</td>
+                      <td>
+                        <span v-if="r.run2_status" class="status-pill" :class="rawStatusPillClass({ normalized_status: r.run2_status })">{{ r.run2_status }}</span>
+                        <span v-else class="muted">—</span>
+                      </td>
+                      <td class="right">{{ r.run3_units != null ? fmtNum(r.run3_units) : '—' }}</td>
+                      <td>
+                        <span v-if="r.run3_status" class="status-pill" :class="rawStatusPillClass({ normalized_status: r.run3_status })">{{ r.run3_status }}</span>
+                        <span v-else class="muted">—</span>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div v-else class="hint" style="padding: 20px;">
+                {{ runsSideBySideData && !runsSideBySideData.rows?.length ? 'No imports for this period.' : 'Select a pay period and click the button to load.' }}
+              </div>
             </div>
           </div>
         </teleport>
@@ -5506,6 +5579,9 @@ const savingStaging = ref(false);
 const workspaceSearch = ref('');
 const showStageModal = ref(false);
 const showRawModal = ref(false);
+const showRunsSideBySideModal = ref(false);
+const runsSideBySideData = ref(null);
+const runsSideBySideLoading = ref(false);
 const showRunModal = ref(false);
 const showPayrollToolsModal = ref(false);
 const showSubmitOnBehalfModal = ref(false);
@@ -5883,10 +5959,11 @@ const rawAuditSelectedImportId = ref(null);
 const rawAuditBaselineImportId = ref(null);
 const rawAuditLatestImportId = ref(null);
 const rawAuditChanges = ref([]);
+const rawAuditShowAllChanges = ref(false);
 const rawAuditLoading = ref(false);
 const missedAppointmentsPaidInFull = ref([]); // display-only flags from billing import
 const rawDraftSearch = ref('');
-const rawDraftOnly = ref(true);
+const rawRowFilter = ref('unpaid_only'); // unpaid_only | draft_only | all
 const rawRowLimit = ref(200);
 const rawSortColumn = ref('service_date'); // provider_name | client | service_code | service_date | unit_count | note_status | draft_payable
 const rawSortDirection = ref('desc'); // asc | desc
@@ -9494,7 +9571,10 @@ const ymd = (v) => {
 
 const rawDraftRows = computed(() => {
   const all = (rawImportRows.value || []).slice();
-  let rows = rawDraftOnly.value ? all.filter((r) => String(r.note_status || '').toUpperCase() === 'DRAFT') : all;
+  const filter = String(rawRowFilter.value || 'unpaid_only');
+  let rows = all;
+  if (filter === 'unpaid_only') rows = all.filter((r) => !willBePaid(r));
+  else if (filter === 'draft_only') rows = all.filter((r) => String(r.note_status || '').toUpperCase() === 'DRAFT');
   const q = String(rawDraftSearch.value || '').trim().toLowerCase();
   if (q) {
     rows = rows.filter((r) => {
@@ -9554,7 +9634,7 @@ const setRawProcessChecked = (rowId, checked) => {
   rawProcessChecklistByRowId.value = { ...(rawProcessChecklistByRowId.value || {}), [id]: !!checked };
 };
 
-watch([rawMode, rawDraftSearch, rawDraftOnly, showRawModal], ([mode, q, only, open]) => {
+watch([rawMode, rawDraftSearch, rawRowFilter, showRawModal], ([mode, q, filter, open]) => {
   // Reset paging when changing modes/search or reopening modal.
   if (open) rawRowLimit.value = 200;
 });
@@ -9569,7 +9649,9 @@ const rawModeRows = computed(() => {
     return [];
   }
   if (mode === 'draft_audit') {
-    rows = rawDraftOnly.value ? rows.filter((r) => String(r.note_status || '').toUpperCase() === 'DRAFT') : rows;
+    const filter = String(rawRowFilter.value || 'unpaid_only');
+    if (filter === 'unpaid_only') rows = rows.filter((r) => !willBePaid(r));
+    else if (filter === 'draft_only') rows = rows.filter((r) => String(r.note_status || '').toUpperCase() === 'DRAFT');
   } else if (mode === 'process_h0031') {
     rows = rows.filter((r) =>
       Number(r.requires_processing) === 1 &&
@@ -9637,7 +9719,18 @@ const willBePaid = (r) => {
   return false;
 };
 
-const rawAuditChangeCount = computed(() => (rawAuditChanges.value || []).length);
+const rawAuditChangesFiltered = computed(() => {
+  const all = (rawAuditChanges.value || []).slice();
+  if (rawAuditShowAllChanges.value) return all;
+  return all.filter((c) => {
+    const added = String(c?.changeType || '').toLowerCase() === 'added';
+    if (added) return true;
+    const fromStatus = String(c?.from_status || '').toUpperCase();
+    const wasPaidInBaseline = fromStatus === 'FINALIZED' || fromStatus === 'DRAFT_PAID';
+    return !wasPaidInBaseline;
+  });
+});
+const rawAuditChangeCount = computed(() => (rawAuditChangesFiltered.value || []).length);
 const isRawAuditHistoricalRun = computed(() => {
   const selImport = Number(rawAuditSelectedImportId.value || 0);
   const latestImport = Number(rawAuditLatestImportId.value || 0);
@@ -9650,7 +9743,7 @@ const isRawAuditHistoricalRun = computed(() => {
 
 const rawAuditChangesLimited = computed(() => {
   const q = String(rawDraftSearch.value || '').trim().toLowerCase();
-  let rows = (rawAuditChanges.value || []).slice();
+  let rows = (rawAuditChangesFiltered.value || []).slice();
   if (q) {
     rows = rows.filter((r) => {
       const prov = String(r?.provider_name || '').toLowerCase();
@@ -10102,6 +10195,27 @@ const loadRawAuditData = async ({ runId = null, baselineRunId = null, importId =
   } finally {
     rawAuditLoading.value = false;
   }
+};
+
+const loadRunsSideBySide = async () => {
+  if (!selectedPeriodId.value) return;
+  try {
+    runsSideBySideLoading.value = true;
+    runsSideBySideData.value = null;
+    const resp = await api.get(`/payroll/periods/${selectedPeriodId.value}/runs-side-by-side`);
+    runsSideBySideData.value = resp.data || null;
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || e.message || 'Failed to load runs side-by-side';
+    runsSideBySideData.value = null;
+  } finally {
+    runsSideBySideLoading.value = false;
+  }
+};
+
+const openRunsSideBySideModal = async () => {
+  if (!selectedPeriodId.value) return;
+  showRunsSideBySideModal.value = true;
+  await loadRunsSideBySide();
 };
 
 const loadPeriodDetails = async () => {
