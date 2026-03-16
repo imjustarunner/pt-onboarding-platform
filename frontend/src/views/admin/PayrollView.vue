@@ -36,9 +36,9 @@
       <div class="wizard-hero-controls" data-tour="payroll-wizard-controls">
         <div class="field wizard-period" data-tour="payroll-period-picker">
           <label>Pay period</label>
-          <select v-model="selectedPeriodId" :disabled="!agencyId || !(periods || []).length">
+          <select v-model="selectedPeriodId" :disabled="!agencyId || !(periodsForSelect || []).length" :key="`period-wizard-${agencyId || 'none'}`">
             <option :value="null" disabled>Select a pay period…</option>
-            <option v-for="p in periods" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
+            <option v-for="p in periodsForSelect" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
           </select>
           <div class="hint" v-if="selectedPeriodForUi" style="margin-top: 6px;">
             Current: <strong>{{ periodRangeLabel(selectedPeriodForUi) }}</strong>
@@ -408,9 +408,9 @@
 
               <div v-if="wizardStep?.key === 'select_period'" class="hint">
                 <label>Current pay period</label>
-                <select v-model="selectedPeriodId" class="wizard-period-select" :disabled="!agencyId || !(periods || []).length" style="margin-top: 6px; min-width: 280px;">
+                <select v-model="selectedPeriodId" class="wizard-period-select" :disabled="!agencyId || !(periodsForSelect || []).length" style="margin-top: 6px; min-width: 280px;">
                   <option :value="null" disabled>Select a pay period…</option>
-                  <option v-for="p in periods" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
+                  <option v-for="p in periodsForSelect" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
                 </select>
                 <div class="hint" style="margin-top: 8px;">This period will be used for all following steps.</div>
               </div>
@@ -1161,12 +1161,19 @@
     </div>
 
     <div ref="processChangesCard" class="card" v-if="agencyId" style="margin-bottom: 12px;">
-      <h2 class="card-title">Process Changes</h2>
-      <div class="hint">
-        Use this when you re-run a <strong>prior</strong> pay period report to catch late notes. The system will auto-detect which prior pay period the upload belongs to, compare “then vs now”, and let you add only the differences into the <strong>present</strong> pay period.
-      </div>
-      <div class="hint" style="margin-top: 6px;">
-        <strong>One-time batch catch-up:</strong> Upload 3 reports for the <strong>same pay period</strong> at 3 different times (first run, second run, latest). The system compares them and adds late notes in one step.
+      <div class="actions" style="justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
+        <div>
+          <h2 class="card-title" style="margin-bottom: 4px;">Process Changes</h2>
+          <div class="hint">
+            Use this when you re-run a <strong>prior</strong> pay period report to catch late notes. The system will auto-detect which prior pay period the upload belongs to, compare “then vs now”, and let you add only the differences into the <strong>present</strong> pay period.
+          </div>
+          <div class="hint" style="margin-top: 6px;">
+            <strong>One-time batch catch-up:</strong> Upload 3 reports for the <strong>same pay period</strong> at 3 different times (first run, second run, latest). The system compares them and adds late notes in one step.
+          </div>
+        </div>
+        <button class="btn btn-secondary" type="button" @click="openManageImportsModal" :disabled="!agencyId">
+          View & Manage Imports
+        </button>
       </div>
 
       <div class="card" style="margin-top: 12px; padding: 12px; background: #f8f9fa;">
@@ -1185,21 +1192,30 @@
         <div class="field-row" style="margin-top: 8px; grid-template-columns: 1fr 1fr 1fr; gap: 8px;" :key="`batch-files-${batchCatchUpResetKey}`">
           <div class="field">
             <label>First run</label>
-            <input type="file" accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" @change="onBatchFilePick($event, 1)" :disabled="batchCatchUpRun1Disabled" :title="batchCatchUpRun1Disabled ? 'Run 1 already in DB for this period' : ''" />
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <input type="file" accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" @change="onBatchFilePick($event, 1)" :disabled="batchCatchUpRun1Disabled" :title="batchCatchUpRun1Disabled ? 'Run 1 already in DB for this period' : ''" :key="`file1-${batchCatchUpResetKey}`" />
+              <button v-if="batchFiles[1] && !batchCatchUpRun1Disabled" type="button" class="btn btn-secondary btn-sm" @click="clearBatchFileSlot(1)">Replace</button>
+            </div>
             <div v-if="batchCatchUpPriorPeriodId && (batchCatchUpPriorPeriodImports || [])[0]" class="hint" style="margin-top: 4px;">
               <button type="button" class="btn btn-secondary btn-sm" @click="openRawModalForPeriodAndImport(batchCatchUpPriorPeriodId, (batchCatchUpPriorPeriodImports || [])[0].id)">View import</button>
             </div>
           </div>
           <div class="field">
             <label>Second run</label>
-            <input type="file" accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" @change="onBatchFilePick($event, 2)" :disabled="batchCatchUpRun2Disabled" :title="batchCatchUpRun2Disabled ? 'Run 2 already in DB for this period' : ''" />
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <input type="file" accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" @change="onBatchFilePick($event, 2)" :disabled="batchCatchUpRun2Disabled" :title="batchCatchUpRun2Disabled ? 'Run 2 already in DB for this period' : ''" :key="`file2-${batchCatchUpResetKey}`" />
+              <button v-if="batchFiles[2] && !batchCatchUpRun2Disabled" type="button" class="btn btn-secondary btn-sm" @click="clearBatchFileSlot(2)">Replace</button>
+            </div>
             <div v-if="batchCatchUpPriorPeriodId && (batchCatchUpPriorPeriodImports || [])[1]" class="hint" style="margin-top: 4px;">
               <button type="button" class="btn btn-secondary btn-sm" @click="openRawModalForPeriodAndImport(batchCatchUpPriorPeriodId, (batchCatchUpPriorPeriodImports || [])[1].id)">View import</button>
             </div>
           </div>
           <div class="field">
             <label>Latest (optional for 2-run)</label>
-            <input type="file" accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" @change="onBatchFilePick($event, 3)" :disabled="batchCatchUpRun3Disabled" :title="batchCatchUpRun3Disabled ? 'Run 3 already in DB for this period' : ''" />
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <input type="file" accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" @change="onBatchFilePick($event, 3)" :disabled="batchCatchUpRun3Disabled" :title="batchCatchUpRun3Disabled ? 'Run 3 already in DB for this period' : ''" :key="`file3-${batchCatchUpResetKey}`" />
+              <button v-if="batchFiles[3] && !batchCatchUpRun3Disabled" type="button" class="btn btn-secondary btn-sm" @click="clearBatchFileSlot(3)">Replace</button>
+            </div>
             <div class="hint muted" style="font-size: 0.85em;">Leave empty for 2-run: Run 1 vs Run 2 only.</div>
             <div v-if="batchCatchUpPriorPeriodId && (batchCatchUpPriorPeriodImports || [])[2]" class="hint" style="margin-top: 4px;">
               <button type="button" class="btn btn-secondary btn-sm" @click="openRawModalForPeriodAndImport(batchCatchUpPriorPeriodId, (batchCatchUpPriorPeriodImports || [])[2].id)">View import</button>
@@ -1329,6 +1345,54 @@
           </div>
         </div>
 
+      <!-- Manage Imports modal -->
+      <div v-if="showManageImportsModal" class="modal-backdrop" @click.self="showManageImportsModal = false">
+        <div class="modal" style="width: min(700px, 100%);">
+          <div class="modal-header">
+            <div>
+              <div class="modal-title">View & Manage Imports</div>
+              <div class="hint">View imports in order, delete wrong ones, or open Raw Import to add changes to current payroll.</div>
+            </div>
+            <button class="btn btn-secondary btn-sm" @click="showManageImportsModal = false">Close</button>
+          </div>
+          <div class="field" style="margin-top: 10px;">
+            <label>Pay period</label>
+            <select v-model="manageImportsPeriodId" @change="loadManageImportsList" style="min-width: 280px;">
+              <option :value="null" disabled>Select a pay period…</option>
+              <option v-for="p in periods" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
+            </select>
+          </div>
+          <div v-if="manageImportsError" class="warn-box" style="margin-top: 10px;">{{ manageImportsError }}</div>
+          <div v-if="manageImportsList.length" class="table-wrap" style="margin-top: 12px;">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>Run</th>
+                  <th>Date</th>
+                  <th>Filename</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="imp in manageImportsList" :key="imp.id">
+                  <td><strong>Run {{ imp.slot_number || imp.import_sequence }}</strong></td>
+                  <td class="muted">{{ String(imp.created_at || '').slice(0, 19) }}</td>
+                  <td>{{ imp.original_filename || '—' }}</td>
+                  <td>
+                    <button type="button" class="btn btn-secondary btn-sm" @click="openRawModalForPeriodAndImport(manageImportsPeriodId, imp.id); showManageImportsModal = false">View</button>
+                    <button type="button" class="btn btn-danger btn-sm" @click="deleteManageImport(imp)" :disabled="manageImportsDeleting === imp.id" style="margin-left: 6px;">
+                      {{ manageImportsDeleting === imp.id ? 'Deleting…' : 'Delete' }}
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div v-else-if="manageImportsPeriodId && !manageImportsLoading" class="hint muted" style="margin-top: 12px;">No imports for this period.</div>
+          <div v-else-if="manageImportsLoading" class="hint" style="margin-top: 12px;">Loading…</div>
+        </div>
+      </div>
+
       <!-- Process Changes: prior-period confirmation modal -->
       <div v-if="processConfirmOpen" class="modal-backdrop" @click.self="processConfirmOpen = false">
         <div class="modal" style="width: min(800px, 100%);">
@@ -1423,21 +1487,24 @@
 
     <!-- Process Changes Aggregate (scoped to current agency) -->
     <div class="card" v-if="(processChangesAggregateForAgency || []).length" style="margin-bottom: 12px;">
-      <div class="actions" style="justify-content: space-between;">
+      <div class="actions" style="justify-content: space-between; cursor: pointer;" @click="processChangesAggregateCollapsed = !processChangesAggregateCollapsed">
         <div>
-          <h2 class="card-title" style="margin-bottom: 4px;">Process Changes Aggregate</h2>
+          <h2 class="card-title" style="margin-bottom: 4px;">
+            Process Changes Aggregate
+            <span class="muted" style="font-size: 0.9em; font-weight: normal;">({{ processChangesAggregateCollapsed ? 'click to expand' : 'click to collapse' }})</span>
+          </h2>
           <div class="hint">
             Tracks carryover you’ve applied for this agency.
           </div>
         </div>
-        <div class="actions" style="margin: 0;">
+        <div class="actions" style="margin: 0;" @click.stop>
           <button class="btn btn-secondary" type="button" @click="clearProcessChangesAggregate">
             Clear
           </button>
         </div>
       </div>
 
-      <div class="field-row" style="grid-template-columns: repeat(4, 1fr); margin-top: 10px;">
+      <div v-show="!processChangesAggregateCollapsed" class="field-row" style="grid-template-columns: repeat(4, 1fr); margin-top: 10px;">
         <div class="card" style="padding: 10px;">
           <div class="hint muted">Agencies</div>
           <div style="font-size: 18px;"><strong>{{ processChangesAggregateTotals.agencyCount }}</strong></div>
@@ -1456,7 +1523,7 @@
         </div>
       </div>
 
-      <div class="table-wrap" style="margin-top: 10px;">
+      <div v-show="!processChangesAggregateCollapsed" class="table-wrap" style="margin-top: 10px;">
         <table class="table">
           <thead>
             <tr>
@@ -1491,9 +1558,9 @@
       <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 2fr;">
         <div class="field">
           <label>Pay period</label>
-          <select v-model="selectedPeriodId" :key="`period-top-${agencyId || 'none'}-${(periods || []).length}`">
+          <select v-model="selectedPeriodId" :key="`period-top-${agencyId || 'none'}`">
             <option :value="null" disabled>Select a pay period…</option>
-            <option v-for="p in periods" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
+            <option v-for="p in periodsForSelect" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
           </select>
         </div>
         <div class="field">
@@ -1696,9 +1763,9 @@
         <div class="field-row" style="margin-top: 8px;">
           <div class="field">
             <label>Pay Period</label>
-            <select v-model="selectedPeriodId" :key="`period-details-${agencyId || 'none'}-${(periods || []).length}`">
+            <select v-model="selectedPeriodId" :key="`period-details-${agencyId || 'none'}`">
               <option :value="null" disabled>Select a pay period…</option>
-              <option v-for="p in periods" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
+              <option v-for="p in periodsForSelect" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
             </select>
           </div>
           <div class="field">
@@ -8197,6 +8264,16 @@ const sortedPeriods = computed(() => {
   return all;
 });
 
+// Ensures the selected period is always in the dropdown (e.g. when filtered out by alignedOnly).
+const periodsForSelect = computed(() => {
+  const list = periods.value || [];
+  const selId = selectedPeriodId.value;
+  const selPeriod = selectedPeriod.value;
+  if (!selId || !selPeriod) return list;
+  if (list.some((p) => p?.id === selId)) return list;
+  return [...list, selPeriod];
+});
+
 // History list should show past + at most one upcoming pay period.
 // Keep full `periods` for dropdowns (claim targeting / reimbursements into the future).
 const historyPeriods = computed(() => {
@@ -9879,6 +9956,13 @@ const safeJsonParse = (raw, fallback) => {
 
 // ---- Process Changes aggregate (cross-agency) ----
 // Persisted so super admins can switch orgs while processing and still see totals.
+const processChangesAggregateCollapsed = ref(false);
+const showManageImportsModal = ref(false);
+const manageImportsPeriodId = ref(null);
+const manageImportsList = ref([]);
+const manageImportsLoading = ref(false);
+const manageImportsError = ref('');
+const manageImportsDeleting = ref(null);
 const processChangesAggregate = ref(
   safeJsonParse(localStorage.getItem(LS_PROCESS_CHANGES_AGGREGATE) || '[]', [])
 );
@@ -10526,10 +10610,14 @@ const restoreSelectionFromStorage = async () => {
     const savedPeriod = localStorage.getItem(lsLastPeriodKey(agencyId.value));
     const savedId = savedPeriod ? Number(savedPeriod) : null;
     const exists = savedId && (periods.value || []).some((p) => p.id === savedId);
-    if (exists) {
+    if (savedId) {
       selectedPeriodId.value = savedId;
-      await loadPeriodDetails();
-      return;
+      try {
+        await loadPeriodDetails();
+      } catch {
+        if (!exists) selectedPeriodId.value = null;
+      }
+      if (selectedPeriodId.value) return;
     }
   } catch { /* ignore */ }
 
@@ -11681,7 +11769,8 @@ const restagePeriod = async () => {
 };
 
 
-watch(agencyId, async () => {
+watch(agencyId, async (newId, oldId) => {
+  if (newId === oldId) return;
   selectedPeriodId.value = null;
   selectedPeriod.value = null;
   summaries.value = [];
@@ -11900,6 +11989,13 @@ const onBatchFilePick = (evt, slot) => {
   batchCatchUpError.value = '';
 };
 
+const clearBatchFileSlot = (slot) => {
+  batchFiles.value = { ...batchFiles.value, [slot]: null };
+  batchCatchUpResult.value = null;
+  batchCatchUpError.value = '';
+  batchCatchUpResetKey.value += 1;
+};
+
 const resetBatchCatchUp = () => {
   batchCatchUpResult.value = null;
   batchCatchUpSelection.value = {};
@@ -11928,6 +12024,49 @@ const openRawModalForPeriodAndImport = async (periodId, importId) => {
   rawAuditBaselineImportId.value = importId;
   showRawModal.value = true;
   await loadRawAuditData({ importId, baselineImportId: importId });
+};
+
+const openManageImportsModal = () => {
+  showManageImportsModal.value = true;
+  manageImportsPeriodId.value = batchCatchUpPriorPeriodId.value || selectedPeriodId.value;
+  manageImportsError.value = '';
+  manageImportsList.value = [];
+  if (manageImportsPeriodId.value) loadManageImportsList();
+};
+
+const loadManageImportsList = async () => {
+  const pid = manageImportsPeriodId.value;
+  if (!pid) return;
+  manageImportsLoading.value = true;
+  manageImportsError.value = '';
+  try {
+    const resp = await api.get(`/payroll/periods/${pid}/imports`);
+    manageImportsList.value = resp.data?.imports || [];
+  } catch (e) {
+    manageImportsError.value = e.response?.data?.error?.message || e.message || 'Failed to load imports';
+    manageImportsList.value = [];
+  } finally {
+    manageImportsLoading.value = false;
+  }
+};
+
+const deleteManageImport = async (imp) => {
+  const pid = manageImportsPeriodId.value;
+  if (!pid || !imp?.id) return;
+  if (!confirm(`Delete Run ${imp.slot_number || imp.import_sequence} (${imp.original_filename || 'import'})? This cannot be undone.`)) return;
+  manageImportsDeleting.value = imp.id;
+  manageImportsError.value = '';
+  try {
+    await api.delete(`/payroll/periods/${pid}/imports/${imp.id}`);
+    await loadManageImportsList();
+    await loadBatchCatchUpPriorImports();
+    await loadPeriods();
+    if (selectedPeriodId.value === pid) await loadPeriodDetails();
+  } catch (e) {
+    manageImportsError.value = e.response?.data?.error?.message || e.message || 'Failed to delete import';
+  } finally {
+    manageImportsDeleting.value = null;
+  }
 };
 
 const runBatchCatchUpDbBaseline = async () => {
