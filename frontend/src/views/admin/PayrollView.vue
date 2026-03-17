@@ -506,7 +506,7 @@
                 <div v-if="batchCatchUpResult && !batchCatchUpResult.applied" style="margin-top: 10px;">
                   <div class="hint">Compare complete. Select rows, edit units if needed, then add.</div>
                   <div v-if="(batchCatchUpResult.carryoverApplied || []).length > 0" class="card" style="margin-top: 10px; padding: 12px;">
-                    <strong>Late notes to add ({{ batchCatchUpSelectedCount }} of {{ batchCatchUpResult.carryoverRowsApplied }} selected)</strong>
+                    <strong>Late add + notes to be paid ({{ batchCatchUpSelectedCount }} of {{ batchCatchUpResult.carryoverRowsApplied }} selected)</strong>
                     <div class="actions" style="margin-top: 10px;">
                       <button class="btn btn-primary" type="button" @click="wizardApplyBatchCatchUpAndNext" :disabled="batchCatchUpApplying || !batchCatchUpDestinationPeriodId || batchCatchUpSelectedCount === 0 || isBatchCatchUpDestPosted">
                         {{ batchCatchUpApplying ? 'Adding…' : 'Add selected & Next' }}
@@ -528,7 +528,7 @@
                     </table>
                   </div>
                   <div v-if="batchCatchUpResult.superFlagCount > 0" class="warn-box" style="margin-top: 10px; padding: 10px; font-size: 0.9em;">
-                    <strong>Still no note ({{ batchCatchUpResult.superFlagCount }}):</strong> Please address before continuing.
+                    <strong>No note ({{ batchCatchUpResult.superFlagCount }}):</strong> Please address before continuing.
                   </div>
                   <div v-if="(batchCatchUpResult.h0031PendingCount || 0) + (batchCatchUpResult.h0032PendingCount || 0) + (batchCatchUpResult.h2014PendingCount || 0) + (batchCatchUpResult.h2032PendingCount || 0) > 0" class="warn-box" style="margin-top: 8px; padding: 10px; font-size: 0.9em;">
                     {{ batchCatchUpResult.h0031PendingCount || 0 }} H0031, {{ batchCatchUpResult.h0032PendingCount || 0 }} H0032, {{ batchCatchUpResult.h2014PendingCount || 0 }} H2014, {{ batchCatchUpResult.h2032PendingCount || 0 }} H2032 rows need minutes updated (you’ll do that in later steps).
@@ -536,7 +536,7 @@
                 </div>
                 <div v-if="batchCatchUpResult?.applied" style="margin-top: 10px;">
                   <div class="actions" style="align-items: center; gap: 12px;">
-                    <div class="hint" style="color: var(--success); margin: 0;">Done. Applied {{ batchCatchUpResult.carryoverRowsApplied }} late-note carryover rows.</div>
+                    <div class="hint" style="color: var(--success); margin: 0;">Done. Applied {{ batchCatchUpResult.carryoverRowsApplied }} rows.</div>
                     <button class="btn btn-secondary btn-sm" type="button" @click="resetBatchCatchUp">Reset</button>
                     <button class="btn btn-primary" type="button" @click="wizardNext">Next</button>
                   </div>
@@ -1255,7 +1255,7 @@
               <option :value="null" disabled>Select pay period…</option>
               <option v-for="p in periods" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
             </select>
-            <div class="hint muted" style="margin-top: 4px;">Runs belong to the prior period above. Select destination only when applying — late notes / still no-note will be added here.</div>
+            <div class="hint muted" style="margin-top: 4px;">Runs belong to the prior period above. Select destination only when applying — late add, notes to be paid, and no-note will be added here.</div>
           </div>
           <div class="actions" style="margin: 0; flex-wrap: wrap; gap: 8px;">
             <button v-if="batchCatchUpPriorPeriodId" class="btn btn-primary" @click="runBatchCatchUpDbBaseline" :disabled="batchCatchUpLoading || !batchCatchUpDbBaselineFileReady || !agencyId">
@@ -1268,7 +1268,7 @@
         </div>
         <div v-if="batchCatchUpResult" style="margin-top: 10px;">
           <div v-if="batchCatchUpResult.applied" class="actions" style="align-items: center; gap: 12px;">
-            <div class="hint" style="color: var(--success); margin: 0;">Done. Applied {{ batchCatchUpResult.carryoverRowsApplied }} late-note carryover rows. Select the period above to review.</div>
+            <div class="hint" style="color: var(--success); margin: 0;">Done. Applied {{ batchCatchUpResult.carryoverRowsApplied }} rows. Select the period above to review.</div>
             <button class="btn btn-secondary btn-sm" @click="resetBatchCatchUp">Reset</button>
           </div>
           <div class="hint" v-else>
@@ -1285,12 +1285,12 @@
               @click="applyBatchCatchUpAllToPeriod"
               :disabled="batchCatchUpApplying || !batchCatchUpDestinationPeriodId || isBatchCatchUpDestPosted"
             >
-              {{ batchCatchUpApplying ? 'Adding…' : 'Add all (late notes + still no-note) to current period' }}
+              {{ batchCatchUpApplying ? 'Adding…' : 'Add all (late add + notes to be paid + no note) to current period' }}
             </button>
           </div>
           <div v-if="(batchCatchUpResult.carryoverApplied || []).length > 0" class="card" style="margin-top: 10px; padding: 12px;">
-            <strong>Late notes to add ({{ batchCatchUpSelectedCount }} of {{ batchCatchUpResult.carryoverRowsApplied }} selected)</strong>
-            <div class="hint muted" style="margin-top: 4px;">{{ batchCatchUpResult.twoRunMode ? 'No note in Run 1 → finalized in Run 2.' : 'No note in Run 2 → finalized in Run 3. (1→2 was already paid.)' }} Check the rows to add, edit units if needed, then click Add.</div>
+            <strong>Late add + notes to be paid ({{ batchCatchUpSelectedCount }} of {{ batchCatchUpResult.carryoverRowsApplied }} selected)</strong>
+            <div class="hint muted" style="margin-top: 4px;">{{ batchCatchUpResult.twoRunMode ? 'Late add: new in Run 2. Notes to be paid: no note or draft unpaid in Run 1 → finalized or draft in Run 2.' : 'Late add: new in Run 3. Notes to be paid: no note or draft unpaid in Run 2 → finalized or draft in Run 3.' }} Check rows, edit units if needed, then click Add.</div>
             <div v-if="!batchCatchUpResult.applied && (batchCatchUpResult.rowsForApply || []).length > 0" class="actions" style="margin-top: 10px;">
               <button
                 class="btn btn-primary"
@@ -1320,7 +1320,7 @@
             </table>
           </div>
           <div v-if="!batchCatchUpResult.applied && (batchCatchUpResult.superFlag || []).length > 0" class="card" style="margin-top: 10px; padding: 12px;">
-            <strong>Still no note ({{ batchCatchUpResult.superFlagCount }} rows)</strong>
+            <strong>No note ({{ batchCatchUpResult.superFlagCount }} rows)</strong>
             <div class="hint muted" style="margin-top: 4px;">Add these to the current period so providers know what they're missing.</div>
             <div class="actions" style="margin-top: 10px;">
               <button
@@ -1328,7 +1328,7 @@
                 @click="applyStillNoNoteToPeriod"
                 :disabled="batchCatchUpApplying || !batchCatchUpDestinationPeriodId || isBatchCatchUpDestPosted"
               >
-                {{ batchCatchUpApplying ? 'Adding…' : 'Add still no-note to current period' }}
+                {{ batchCatchUpApplying ? 'Adding…' : 'Add no-note to current period' }}
               </button>
             </div>
           </div>
@@ -1342,7 +1342,7 @@
             Open <strong>Raw Import</strong> → <strong>Process H0031</strong> / <strong>Process H0032</strong> / <strong>Process H2014</strong> / <strong>Process H2032</strong> to edit. Unpaid rows are highlighted in amber.
           </div>
           <div v-if="batchCatchUpResult.superFlagCount > 0" class="warn-box" style="margin-top: 10px; padding: 12px;">
-            <strong>Still no note ({{ batchCatchUpResult.superFlagCount }}):</strong> {{ batchCatchUpResult.twoRunMode ? 'No note in Run 1, still no note in Run 2.' : 'No note in Run 2, still no note in Run 3.' }} Please address.
+            <strong>No note ({{ batchCatchUpResult.superFlagCount }}):</strong> {{ batchCatchUpResult.twoRunMode ? 'No note in Run 1, still no note in Run 2.' : 'No note in Run 2, still no note in Run 3.' }} Please address.
             <table class="table" style="margin-top: 8px; font-size: 0.9em;">
               <thead>
                 <tr><th>User</th><th>Service code</th><th class="right">{{ batchCatchUpResult.twoRunMode ? 'Run 1 no note' : 'Run 2 no note' }}</th><th class="right">{{ batchCatchUpResult.twoRunMode ? 'Run 2 no note' : 'Run 3 no note' }}</th></tr>
@@ -1533,47 +1533,6 @@
         </div>
       </div>
 
-    </div>
-
-    <!-- Unpaid Drafts Report: legacy-only for migration from old system -->
-    <div class="card" v-if="agencyId" style="margin-bottom: 12px;">
-      <h2 class="card-title">Unpaid Drafts Report (Legacy)</h2>
-      <div class="hint">
-        Shows no-note and unpaid draft units from prior periods. <strong>Legacy only</strong> — use when migrating from the old system to see what was left unpaid so you can manually add via carryover. The new snapshot-based system handles this automatically.
-      </div>
-      <div class="actions" style="margin-top: 10px;">
-        <button class="btn btn-secondary" @click="loadUnpaidDraftsReport" :disabled="unpaidDraftsLoading || !agencyId">
-          {{ unpaidDraftsLoading ? 'Loading…' : 'Load unpaid drafts from prior periods' }}
-        </button>
-      </div>
-      <div v-if="unpaidDraftsReport?.report?.length" class="table-wrap" style="margin-top: 12px;">
-        <div v-for="p in unpaidDraftsReport.report" :key="p.payrollPeriodId" style="margin-bottom: 16px;">
-          <div class="hint" style="font-weight: 600;">{{ p.periodStart }} → {{ p.periodEnd }} ({{ p.status }}) — {{ fmtNum(p.totalUnpaidUnits) }} unpaid units</div>
-          <table class="table" style="margin-top: 6px;">
-            <thead>
-              <tr>
-                <th>Provider</th>
-                <th>Service code</th>
-                <th class="right">No-note</th>
-                <th class="right">Draft unpaid</th>
-                <th class="right">Total unpaid</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="r in (p.rows || [])" :key="`${p.payrollPeriodId}-${r.userId}-${r.serviceCode}`">
-                <td>{{ r.providerName || '—' }}</td>
-                <td>{{ r.serviceCode }}</td>
-                <td class="right">{{ fmtNum(r.noNoteUnits) }}</td>
-                <td class="right">{{ fmtNum(r.draftUnits) }}</td>
-                <td class="right"><strong>{{ fmtNum(r.totalUnpaidUnits) }}</strong></td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-      <div v-else-if="unpaidDraftsReport && !unpaidDraftsReport.report?.length" class="hint muted" style="margin-top: 12px;">
-        No unpaid drafts found in the last {{ unpaidDraftsReport.periodsScanned || 5 }} pay periods.
-      </div>
     </div>
 
     <!-- Process Changes Aggregate (scoped to current agency) -->
@@ -4831,7 +4790,7 @@
               >
                 <strong>Add to current period</strong>
                 <div class="hint muted" style="margin-top: 4px;">
-                  {{ rawAuditPayableChanges.length }} late note(s) (newly finalized in this run). Select destination period, check rows to add, then click Add.
+                  {{ rawAuditPayableChanges.length }} note(s) to be paid (newly finalized in this run). Select destination period, check rows to add, then click Add.
                 </div>
                 <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr auto;">
                   <div class="field">
@@ -6205,8 +6164,6 @@ const serviceCodeRulesError = ref('');
 const processImportFile = ref(null);
 const processingChanges = ref(false);
 const processError = ref('');
-const unpaidDraftsReport = ref(null);
-const unpaidDraftsLoading = ref(false);
 const batchFiles = ref({ 1: null, 2: null, 3: null });
 const batchCatchUpLoading = ref(false);
 const batchCatchUpApplying = ref(false);
@@ -9943,6 +9900,25 @@ const rawAuditPayableChanges = computed(() => {
 
 const rawAddToCurrentPeriodDestinationId = ref(null);
 const rawAddToCurrentPeriodSelection = ref({});
+const rawAddToCurrentPeriodApplying = ref(false);
+const rawAddToCurrentPeriodError = ref('');
+
+const rawAddToCurrentPeriodDestOptions = computed(() => {
+  const priorId = Number(selectedPeriodId.value || 0);
+  const list = Array.isArray(periods.value) ? periods.value : [];
+  return list.filter((p) => {
+    if (!p?.id) return false;
+    const pid = Number(p.id || 0);
+    if (priorId && pid === priorId) return false;
+    if (String(p?.status || '').toLowerCase() === 'draft') return false;
+    const priorEnd = String((periods.value || []).find((x) => Number(x?.id) === priorId)?.period_end || '').slice(0, 10);
+    if (priorEnd) {
+      const pStart = String(p?.period_start || '').slice(0, 10);
+      if (pStart && pStart <= priorEnd) return false;
+    }
+    return true;
+  }).sort((a, b) => String(a?.period_start || '').localeCompare(String(b?.period_start || '')));
+});
 
 watch(rawAuditPayableChanges, (payable) => {
   const sel = {};
@@ -9964,25 +9940,6 @@ watch([rawAuditPayableChanges, rawAddToCurrentPeriodDestOptions], () => {
     }
   }
 }, { immediate: true });
-const rawAddToCurrentPeriodApplying = ref(false);
-const rawAddToCurrentPeriodError = ref('');
-
-const rawAddToCurrentPeriodDestOptions = computed(() => {
-  const priorId = Number(selectedPeriodId.value || 0);
-  const list = Array.isArray(periods.value) ? periods.value : [];
-  return list.filter((p) => {
-    if (!p?.id) return false;
-    const pid = Number(p.id || 0);
-    if (priorId && pid === priorId) return false;
-    if (String(p?.status || '').toLowerCase() === 'draft') return false;
-    const priorEnd = String((periods.value || []).find((x) => Number(x?.id) === priorId)?.period_end || '').slice(0, 10);
-    if (priorEnd) {
-      const pStart = String(p?.period_start || '').slice(0, 10);
-      if (pStart && pStart <= priorEnd) return false;
-    }
-    return true;
-  }).sort((a, b) => String(a?.period_start || '').localeCompare(String(b?.period_start || '')));
-});
 
 const rawAddToCurrentPeriodSelectedCount = computed(() => {
   const sel = rawAddToCurrentPeriodSelection.value || {};
@@ -12720,8 +12677,8 @@ const batchCatchUpSetRowUnits = (c, val) => {
 const batchCatchUpTypeLabel = (c) => {
   const t = c.carryoverType || '';
   if (t === 'late_add') return 'Late add';
-  if (t === 'old_note') return 'Old note';
-  if (t === 'both') return 'Both';
+  if (t === 'old_note') return 'Notes to be paid';
+  if (t === 'both') return 'Late add + notes to be paid';
   return '—';
 };
 const batchCatchUpTypeBadgeClass = (c) => {
@@ -12886,22 +12843,6 @@ const applyBatchCatchUpToPeriod = async () => {
     }
   } finally {
     batchCatchUpApplying.value = false;
-  }
-};
-
-const loadUnpaidDraftsReport = async () => {
-  if (!agencyId.value) return;
-  try {
-    unpaidDraftsLoading.value = true;
-    unpaidDraftsReport.value = null;
-    const resp = await api.get('/payroll/periods/unpaid-drafts-report', {
-      params: { agencyId: agencyId.value, periods: 5 }
-    });
-    unpaidDraftsReport.value = resp.data || null;
-  } catch (e) {
-    error.value = e.response?.data?.error?.message || e.message || 'Failed to load unpaid drafts report';
-  } finally {
-    unpaidDraftsLoading.value = false;
   }
 };
 
