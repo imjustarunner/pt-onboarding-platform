@@ -285,42 +285,73 @@ function computeRawRunDiffRows({ baselineRows, compareRows }) {
         });
       }
   }
-  // Merge added+removed when same session (provider+date+code+client). Treat as already paid.
-  const mergeKey = (o, codeField) => {
-    const r = o.changeType === 'added'
-      ? (compareRows.find((x) => x.id === o.metadata_json?.compareRowId) || { provider_name: o.provider_name, patient_first_name: o.patient_first_name, service_date: o.service_date, service_code: o[codeField] })
-      : (baselineRows.find((x) => x.id === o.metadata_json?.baselineRowId) || { provider_name: o.provider_name, patient_first_name: o.patient_first_name, service_date: o.service_date, service_code: o[codeField] });
-    return sessionMergeKey(r);
+  // Short key: provider+date+code only (no client).
+  // Used as fallback when one import has null patient_first_name (old imports pre-migration 218).
+  const shortKey = (provider, date, code) => {
+    const normCode = baseServiceCodeForSession(code) || String(code || '').trim().toUpperCase();
+    return `${normalizeName(provider || '')}:${String(date || '').slice(0, 10)}:${normCode}`;
   };
-  const addedByKey = new Map();
-  const removedByKey = new Map();
-  for (const o of out) {
+
+  // Two-pass merge: added + removed for same session → already paid, suppress both.
+  // Pass 1: full key (provider+date+code+client) — exact match.
+  // Pass 2: short key (provider+date+code) — fallback for old imports with null patient_first_name.
+  const addedByFull = new Map();   // fullKey → index into out
+  const removedByFull = new Map(); // fullKey → index into out
+  const addedByShort = new Map();  // shortKey → index into out
+  const removedByShort = new Map();// shortKey → index into out
+
+  for (let i = 0; i < out.length; i++) {
+    const o = out[i];
+    if (!o) continue;
     if (o.changeType === 'added') {
-      addedByKey.set(mergeKey(o, 'to_service_code'), o);
+      const code = o.to_service_code || '';
+      const fk = sessionMergeKey({ provider_name: o.provider_name, patient_first_name: o.patient_first_name, service_date: o.service_date, service_code: code });
+      const sk = shortKey(o.provider_name, o.service_date, code);
+      if (!addedByFull.has(fk)) addedByFull.set(fk, i);
+      if (!addedByShort.has(sk)) addedByShort.set(sk, i);
     }
     if (o.changeType === 'removed') {
-      removedByKey.set(mergeKey(o, 'from_service_code'), o);
+      const code = o.from_service_code || '';
+      const fk = sessionMergeKey({ provider_name: o.provider_name, patient_first_name: o.patient_first_name, service_date: o.service_date, service_code: code });
+      const sk = shortKey(o.provider_name, o.service_date, code);
+      if (!removedByFull.has(fk)) removedByFull.set(fk, i);
+      if (!removedByShort.has(sk)) removedByShort.set(sk, i);
     }
   }
-  for (const [k, added] of addedByKey) {
-    const removed = removedByKey.get(k);
-    if (removed) {
-      out[out.indexOf(added)] = null;
-      out[out.indexOf(removed)] = null;
+
+  // Pass 1: full key merge
+  for (const [fk, addedIdx] of addedByFull) {
+    const removedIdx = removedByFull.get(fk);
+    if (removedIdx !== undefined && out[addedIdx] && out[removedIdx]) {
+      out[addedIdx] = null;
+      out[removedIdx] = null;
     }
   }
-  const filtered = out.filter(Boolean);
+
+  // Pass 2: short key merge (handles null patient_first_name in old baseline imports)
+  for (const [sk, addedIdx] of addedByShort) {
+    const removedIdx = removedByShort.get(sk);
+    if (removedIdx !== undefined && out[addedIdx] && out[removedIdx]) {
+      out[addedIdx] = null;
+      out[removedIdx] = null;
+    }
+  }
+
+  // Overpaid deleted: removed + paid, no matching added by either full or short key.
   const paidStatuses = new Set(['DRAFT_PAID', 'FINALIZED']);
-  for (const o of filtered) {
-    if (o.changeType === 'removed' && paidStatuses.has(o.from_status)) {
-      const k = mergeKey(o, 'from_service_code');
-      if (!addedByKey.has(k)) {
-        o.changeType = 'overpaid_deleted';
-        o.redFlag = true;
-      }
+  for (let i = 0; i < out.length; i++) {
+    const o = out[i];
+    if (!o || o.changeType !== 'removed') continue;
+    if (!paidStatuses.has(o.from_status)) continue;
+    const code = o.from_service_code || '';
+    const fk = sessionMergeKey({ provider_name: o.provider_name, patient_first_name: o.patient_first_name, service_date: o.service_date, service_code: code });
+    const sk = shortKey(o.provider_name, o.service_date, code);
+    if (!addedByFull.has(fk) && !addedByShort.has(sk)) {
+      out[i] = { ...o, changeType: 'overpaid_deleted', redFlag: true };
     }
   }
-  return filtered;
+
+  return out.filter(Boolean);
 }
 
 function importSlotByDate({ periodEnd, importedAt }) {
