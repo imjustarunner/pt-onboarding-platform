@@ -514,13 +514,15 @@
                     </div>
                     <table class="table" style="margin-top: 8px; font-size: 0.9em;">
                       <thead>
-                        <tr><th style="width: 36px;"></th><th>User</th><th>Service code</th><th>Type</th><th class="right">Units</th></tr>
+                        <tr><th style="width: 36px;"></th><th>User</th><th>Service code</th><th>Client</th><th>DOS</th><th>Type</th><th class="right">Units</th></tr>
                       </thead>
                       <tbody>
-                        <tr v-for="c in (batchCatchUpResult.carryoverApplied || [])" :key="`wz-${c.userId}-${c.serviceCode}`" :style="!batchCatchUpRowSelected(c) ? { opacity: 0.5 } : {}">
+                        <tr v-for="c in batchCatchUpFilteredRows" :key="`wz-${c.userId}-${c.serviceCode}`" :style="!batchCatchUpRowSelected(c) ? { opacity: 0.5 } : {}">
                           <td><input type="checkbox" :checked="batchCatchUpRowSelected(c)" @change="batchCatchUpToggleRow(c, $event.target.checked)" /></td>
                           <td>{{ c.providerName || getUserName(c.userId) }}</td>
                           <td>{{ c.serviceCode }}</td>
+                          <td class="muted">{{ c.clientHint || '—' }}</td>
+                          <td class="muted">{{ ymd(c.serviceDate) || '—' }}</td>
                           <td><span class="badge" :class="batchCatchUpTypeBadgeClass(c)">{{ batchCatchUpTypeLabel(c) }}</span></td>
                           <td class="right"><input type="number" :value="batchCatchUpRowUnits(c)" @input="batchCatchUpSetRowUnits(c, $event.target.value)" min="0" step="0.01" style="width: 80px; text-align: right;" /></td>
                         </tr>
@@ -1300,17 +1302,36 @@
                 {{ batchCatchUpApplying ? 'Adding…' : 'Add selected to current period' }}
               </button>
             </div>
+            <div class="field-row" style="margin-bottom: 8px; grid-template-columns: 1fr auto; align-items: center; gap: 8px;">
+              <input
+                v-model="batchCatchUpSearch"
+                type="text"
+                placeholder="Search (user, code, client, date…)"
+                class="input"
+                style="max-width: 280px;"
+              />
+            </div>
             <table class="table" style="margin-top: 8px; font-size: 0.9em;">
               <thead>
-                <tr><th style="width: 36px;"></th><th>User</th><th>Service code</th><th>Type</th><th class="right">Units</th></tr>
+                <tr>
+                  <th style="width: 36px;"></th>
+                  <th class="th-sortable" @click="batchCatchUpSortBy('providerName')">User{{ batchCatchUpSortIndicator('providerName') }}</th>
+                  <th class="th-sortable" @click="batchCatchUpSortBy('serviceCode')">Service code{{ batchCatchUpSortIndicator('serviceCode') }}</th>
+                  <th class="th-sortable" @click="batchCatchUpSortBy('clientHint')">Client{{ batchCatchUpSortIndicator('clientHint') }}</th>
+                  <th class="th-sortable" @click="batchCatchUpSortBy('serviceDate')">DOS{{ batchCatchUpSortIndicator('serviceDate') }}</th>
+                  <th class="th-sortable" @click="batchCatchUpSortBy('carryoverType')">Type{{ batchCatchUpSortIndicator('carryoverType') }}</th>
+                  <th class="right">Units</th>
+                </tr>
               </thead>
               <tbody>
-                <tr v-for="c in (batchCatchUpResult.carryoverApplied || [])" :key="`${c.userId}-${c.serviceCode}`" :style="!batchCatchUpRowSelected(c) ? { opacity: 0.5 } : {}">
+                <tr v-for="c in batchCatchUpFilteredRows" :key="`${c.userId}-${c.serviceCode}`" :style="!batchCatchUpRowSelected(c) ? { opacity: 0.5 } : {}">
                   <td>
                     <input type="checkbox" :checked="batchCatchUpRowSelected(c)" @change="batchCatchUpToggleRow(c, $event.target.checked)" />
                   </td>
                   <td>{{ c.providerName || getUserName(c.userId) }}</td>
                   <td>{{ c.serviceCode }}</td>
+                  <td class="muted">{{ c.clientHint || '—' }}</td>
+                  <td class="muted">{{ ymd(c.serviceDate) || '—' }}</td>
                   <td><span class="badge" :class="batchCatchUpTypeBadgeClass(c)">{{ batchCatchUpTypeLabel(c) }}</span></td>
                   <td class="right">
                     <input type="number" :value="batchCatchUpRowUnits(c)" @input="batchCatchUpSetRowUnits(c, $event.target.value)" min="0" step="0.01" style="width: 80px; text-align: right;" />
@@ -10584,23 +10605,26 @@ const openRunsSideBySideModal = async () => {
 const runsSideBySideFilteredRows = computed(() => {
   const rows = runsSideBySideData.value?.rows || [];
   const q = String(runsSideBySideSearch.value || '').trim().toLowerCase();
-  let filtered = rows;
-  if (q) {
-    filtered = rows.filter((r) => {
-      const prov = String(r.provider_name || '').toLowerCase();
-      const code = String(r.service_code || '').toLowerCase();
-      const client = String(r.client_hint || '').toLowerCase();
-      const date = String(r.service_date || '').toLowerCase();
-      const s1 = String(r.run1_status || '').toLowerCase();
-      const s2 = String(r.run2_status || '').toLowerCase();
-      const s3 = String(r.run3_status || '').toLowerCase();
-      return prov.includes(q) || code.includes(q) || client.includes(q) || date.includes(q) ||
-        s1.includes(q) || s2.includes(q) || s3.includes(q);
-    });
-  }
-  const col = runsSideBySideSortColumn.value || 'provider_name';
-  const dir = runsSideBySideSortDirection.value === 'asc' ? 1 : -1;
-  const sorted = [...filtered].sort((a, b) => {
+  const matches = (r) => {
+    if (!q) return true;
+    const prov = String(r.provider_name || '').toLowerCase();
+    const code = String(r.service_code || '').toLowerCase();
+    const client = String(r.client_hint || '').toLowerCase();
+    const date = String(r.service_date || '').toLowerCase();
+    const s1 = String(r.run1_status || '').toLowerCase();
+    const s2 = String(r.run2_status || '').toLowerCase();
+    const s3 = String(r.run3_status || '').toLowerCase();
+    return prov.includes(q) || code.includes(q) || client.includes(q) || date.includes(q) ||
+      s1.includes(q) || s2.includes(q) || s3.includes(q);
+  };
+  const sorted = [...rows].sort((a, b) => {
+    if (q) {
+      const ma = matches(a) ? 1 : 0;
+      const mb = matches(b) ? 1 : 0;
+      if (ma !== mb) return mb - ma;
+    }
+    const col = runsSideBySideSortColumn.value || 'provider_name';
+    const dir = runsSideBySideSortDirection.value === 'asc' ? 1 : -1;
     let cmp = 0;
     if (col === 'provider_name') cmp = String(a.provider_name || '').localeCompare(String(b.provider_name || ''), undefined, { sensitivity: 'base' });
     else if (col === 'service_code') cmp = String(a.service_code || '').localeCompare(String(b.service_code || ''), undefined, { sensitivity: 'base' });
@@ -12758,6 +12782,7 @@ const runBatchCatchUp = async () => {
     if (destId) fd.append('destinationPeriodId', String(destId));
     const resp = await api.post('/payroll/periods/batch-catch-up', fd);
     batchCatchUpResult.value = resp.data || null;
+    batchCatchUpSearch.value = '';
     // Initialize selection: all selected, original units
     const applied = batchCatchUpResult.value?.carryoverApplied || [];
     const sel = {};
@@ -12777,6 +12802,43 @@ const runBatchCatchUp = async () => {
     batchCatchUpLoading.value = false;
   }
 };
+
+const batchCatchUpSearch = ref('');
+const batchCatchUpSortColumn = ref('providerName');
+const batchCatchUpSortDirection = ref('asc');
+
+const batchCatchUpFilteredRows = computed(() => {
+  const rows = batchCatchUpResult.value?.carryoverApplied || [];
+  const q = String(batchCatchUpSearch.value || '').trim().toLowerCase();
+  let filtered = rows;
+  if (q) {
+    filtered = rows.filter((r) => {
+      const prov = String(r.providerName || '').toLowerCase();
+      const code = String(r.serviceCode || '').toLowerCase();
+      const client = String(r.clientHint || '').toLowerCase();
+      const date = String(ymd(r.serviceDate) || '').toLowerCase();
+      const type = String(batchCatchUpTypeLabel(r)).toLowerCase();
+      return prov.includes(q) || code.includes(q) || client.includes(q) || date.includes(q) || type.includes(q);
+    });
+  }
+  const col = batchCatchUpSortColumn.value || 'providerName';
+  const dir = batchCatchUpSortDirection.value === 'asc' ? 1 : -1;
+  return [...filtered].sort((a, b) => {
+    let cmp = 0;
+    if (col === 'providerName') cmp = String(a.providerName || '').localeCompare(String(b.providerName || ''), undefined, { sensitivity: 'base' });
+    else if (col === 'serviceCode') cmp = String(a.serviceCode || '').localeCompare(String(b.serviceCode || ''), undefined, { sensitivity: 'base' });
+    else if (col === 'clientHint') cmp = String(a.clientHint || '').localeCompare(String(b.clientHint || ''), undefined, { sensitivity: 'base' });
+    else if (col === 'serviceDate') cmp = String(a.serviceDate || '').localeCompare(String(b.serviceDate || ''), undefined, { sensitivity: 'base' });
+    else if (col === 'carryoverType') cmp = String(batchCatchUpTypeLabel(a)).localeCompare(String(batchCatchUpTypeLabel(b)), undefined, { sensitivity: 'base' });
+    return cmp * dir;
+  });
+});
+
+const batchCatchUpSortBy = (col) => {
+  if (batchCatchUpSortColumn.value === col) batchCatchUpSortDirection.value = batchCatchUpSortDirection.value === 'asc' ? 'desc' : 'asc';
+  else { batchCatchUpSortColumn.value = col; batchCatchUpSortDirection.value = 'asc'; }
+};
+const batchCatchUpSortIndicator = (col) => (batchCatchUpSortColumn.value === col ? (batchCatchUpSortDirection.value === 'asc' ? ' ↑' : ' ↓') : '');
 
 const batchCatchUpRowKey = (c) => `${c.userId}:${(c.serviceCode || '').toUpperCase()}`;
 const batchCatchUpRowSelected = (c) => {

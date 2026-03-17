@@ -191,11 +191,9 @@ function computeRawRunDiffRows({ baselineRows, compareRows }) {
   for (const key of keys) {
     const baselineList = [...(baselinePool.get(key) || [])];
     const compareList = [...(comparePool.get(key) || [])];
-    const maxLen = Math.max(baselineList.length, compareList.length);
-    for (let idx = 0; idx < maxLen; idx += 1) {
-      const b = baselineList[idx] || null;
-      const c = compareList[idx] || null;
-      if (b && c) {
+    const b = pickCanonicalRawRow(baselineList);
+    const c = pickCanonicalRawRow(compareList);
+    if (b && c) {
         const fromStatus = normalizedRawStatus(b);
         const toStatus = normalizedRawStatus(c);
         const fromCode = String(b.service_code || '').trim().toUpperCase();
@@ -266,7 +264,6 @@ function computeRawRunDiffRows({ baselineRows, compareRows }) {
           metadata_json: { baselineRowId: null, compareRowId: c.id || null }
         });
       }
-    }
   }
   return out;
 }
@@ -5978,6 +5975,19 @@ export const batchCatchUp = [
         );
         carryoverUserMap = new Map((uRows || []).map((u) => [u.id, u]));
       }
+      const sampleByUserCode = new Map();
+      const compareParsed = useDbBaseline ? (file2Info?.parsedForSnapshots || []) : (twoRunMode ? parsed2 : parsed3);
+      for (const r of compareParsed || []) {
+        const uid = useDbBaseline ? Number(r.user_id || 0) : (resolveUserIdForProviderName(nameToIds, r.providerName) || 0);
+        const code = String(r.serviceCode || r.service_code || '').trim().toUpperCase();
+        if (!code || uid <= 0) continue;
+        const key = `${uid}:${code}`;
+        if (sampleByUserCode.has(key)) continue;
+        const first = String(r.patientFirstName ?? r.patient_first_name ?? '').trim();
+        const clientHint = first.length <= 4 ? first : (first.length >= 2 ? `${first[0]}${first[1]}`.toUpperCase() : first.toUpperCase());
+        const serviceDate = r.serviceDate || r.service_date || null;
+        sampleByUserCode.set(key, { clientHint: clientHint || null, serviceDate: serviceDate ? String(serviceDate).slice(0, 10) : null });
+      }
       const carryoverAppliedRows = [];
       for (const k of carryover2to3ByKey.keys()) {
         const [uidStr, code] = k.split(':');
@@ -5987,10 +5997,13 @@ export const batchCatchUp = [
         const c = carryover2to3ByKey.get(k);
         const types = c?.types ? Array.from(c.types) : [];
         const carryoverType = types.includes('late_add') && types.includes('old_note') ? 'both' : (types.includes('late_add') ? 'late_add' : 'old_note');
+        const sample = sampleByUserCode.get(k);
         carryoverAppliedRows.push({
           userId,
           serviceCode: code,
           providerName,
+          clientHint: sample?.clientHint ?? null,
+          serviceDate: sample?.serviceDate ?? null,
           run2To3Units: c ? c.units : 0,
           totalUnits: c ? c.units : 0,
           carryoverType
@@ -9023,6 +9036,30 @@ function rowKeyForSideBySide(row) {
   return `${uid}|${prov}|${code}|${date}|${client}`;
 }
 
+function statusRankForCanonical(st) {
+  const s = String(st || '').toUpperCase();
+  if (s === 'FINALIZED') return 4;
+  if (s === 'DRAFT_PAID') return 3;
+  if (s === 'DRAFT_UNPAID') return 2;
+  return 1;
+}
+
+function pickCanonicalRawRow(rows) {
+  if (!rows || !rows.length) return null;
+  if (rows.length === 1) return rows[0];
+  return rows.reduce((best, r) => {
+    const stBest = normalizedRawStatus(best);
+    const stR = normalizedRawStatus(r);
+    const rankBest = statusRankForCanonical(stBest);
+    const rankR = statusRankForCanonical(stR);
+    if (rankR > rankBest) return r;
+    if (rankR < rankBest) return best;
+    const unitsBest = Number(best?.unit_count || 0);
+    const unitsR = Number(r?.unit_count || 0);
+    return unitsR >= unitsBest ? r : best;
+  });
+}
+
 function clientHint(row) {
   const first = String(row?.patient_first_name || '').trim();
   if (!first) return '—';
@@ -9065,26 +9102,23 @@ export const getPayrollPeriodRunsSideBySide = async (req, res, next) => {
 
     const merged = [];
     for (const [, runArrays] of keyToRuns) {
-      const maxLen = Math.max(...runArrays.map((a) => a.length));
-      for (let idx = 0; idx < maxLen; idx++) {
-        const r1 = runArrays[0]?.[idx] || null;
-        const r2 = runArrays[1]?.[idx] || null;
-        const r3 = runArrays[2]?.[idx] || null;
-        const row = r1 || r2 || r3;
-        if (!row) continue;
-        merged.push({
-          provider_name: row.provider_name || row.providerName || '—',
-          service_code: row.service_code || '—',
-          service_date: String(row.service_date || '').slice(0, 10) || '—',
-          client_hint: clientHint(row),
-          run1_units: r1 ? Number(r1.unit_count || 0) : null,
-          run1_status: r1 ? normalizedRawStatus(r1) : null,
-          run2_units: r2 ? Number(r2.unit_count || 0) : null,
-          run2_status: r2 ? normalizedRawStatus(r2) : null,
-          run3_units: r3 ? Number(r3.unit_count || 0) : null,
-          run3_status: r3 ? normalizedRawStatus(r3) : null
-        });
-      }
+      const r1 = pickCanonicalRawRow(runArrays[0]);
+      const r2 = pickCanonicalRawRow(runArrays[1]);
+      const r3 = pickCanonicalRawRow(runArrays[2]);
+      const row = r1 || r2 || r3;
+      if (!row) continue;
+      merged.push({
+        provider_name: row.provider_name || row.providerName || '—',
+        service_code: row.service_code || '—',
+        service_date: String(row.service_date || '').slice(0, 10) || '—',
+        client_hint: clientHint(row),
+        run1_units: r1 ? Number(r1.unit_count || 0) : null,
+        run1_status: r1 ? normalizedRawStatus(r1) : null,
+        run2_units: r2 ? Number(r2.unit_count || 0) : null,
+        run2_status: r2 ? normalizedRawStatus(r2) : null,
+        run3_units: r3 ? Number(r3.unit_count || 0) : null,
+        run3_status: r3 ? normalizedRawStatus(r3) : null
+      });
     }
 
     merged.sort((a, b) => {
