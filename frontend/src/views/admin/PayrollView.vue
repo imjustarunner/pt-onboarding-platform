@@ -1438,7 +1438,7 @@
           </div>
           <div v-if="manageImportsError" class="warn-box" style="margin-top: 10px;">{{ manageImportsError }}</div>
           <div v-if="manageImportsPeriodIsPosted && manageImportsList.length" class="warn-box" style="margin-top: 10px;">
-            Cannot delete import: pay period is posted/finalized.
+            Imports that were used in the payroll run cannot be deleted when the period is posted. Imports added after posting (e.g. Run 2) can be deleted.
             <span v-if="manageImportsCanForceDeleteEmptyRun1" style="margin-left: 8px;">
               <button
                 type="button"

@@ -8668,8 +8668,13 @@ export const deletePayrollImport = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Import not found or does not belong to this period' } });
     }
     const isLocked = isEffectivelyPostedOrFinalized(period);
-    if (isLocked && !forceDeleteEmpty) {
-      return res.status(409).json({ error: { message: 'Cannot delete import: pay period is posted/finalized' } });
+    const [[{ usedByRun }]] = await pool.execute(
+      'SELECT COUNT(*) AS usedByRun FROM payroll_period_runs WHERE payroll_import_id = ?',
+      [importId]
+    );
+    const wasUsedInPostedRun = Number(usedByRun || 0) > 0;
+    if (isLocked && wasUsedInPostedRun && !forceDeleteEmpty) {
+      return res.status(409).json({ error: { message: 'Cannot delete import: pay period is posted/finalized and this import was used in the payroll run' } });
     }
     if (forceDeleteEmpty && isLocked) {
       const [[{ rowCount }]] = await pool.execute(
