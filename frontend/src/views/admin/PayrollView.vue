@@ -9957,12 +9957,16 @@ const rawAuditPayableChanges = computed(() => {
   const all = (rawAuditChanges.value || []).slice();
   return all.filter((c) => {
     const toStatus = String(c?.to_status || '').toUpperCase();
+    const fromStatus = String(c?.from_status || '').toUpperCase();
     const toUnits = Number(c?.to_units || 0);
     if (!(toUnits > 1e-9)) return false;
     const userId = Number(c?.user_id || 0);
     if (!userId) return false;
-    if (toStatus === 'FINALIZED') return true;
     if (toStatus === 'DRAFT_PAID') return true;
+    if (toStatus === 'FINALIZED') {
+      if (fromStatus === 'DRAFT_PAID') return false;
+      return true;
+    }
     return false;
   });
 });
