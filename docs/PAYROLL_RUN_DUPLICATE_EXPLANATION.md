@@ -1,15 +1,16 @@
 # Run Comparison Deduplication
 
-## Session identity (fingerprint)
+## Session identity
 
-`rowKeyForSideBySide` prefers `row_fingerprint` when present. Fallback key:
-`userId|provider|baseServiceCode|serviceDate|clientFirst|location`
+`rowKeyForSideBySide` and `rowEntityKey` use:
+`userId|provider|serviceDate|baseServiceCode|client` (+ location for non-unit-editable codes)
 
-- **clientFirst**: first token from patient name ("Gini Williamson" or "Williamson, Gini" → "gini")
-- **baseServiceCode**: strips " - LOCATION" suffix for consistent matching
-- **location**: from billing report Location column when available
+- **H0031/H0032/H2014/H2032**: omit location from key so our unit edits match across runs
+- **Other codes**: include location when present
+- **Units** never in key—our corrections (60→5 etc.) must not flag as "new"
 
-Duration/units are **not** part of the key. Session identity persists across duration changes.
+When WE change units for these codes, same clinician+date+code+client = same session.
+Fallback matching merges added+removed into unit_change when primary key differs.
 
 ## Deduplication (fix)
 

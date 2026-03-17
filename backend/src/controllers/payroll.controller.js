@@ -147,15 +147,32 @@ function paidStateForStatus(statusKey) {
   return statusKey === 'FINALIZED' || statusKey === 'DRAFT_PAID' ? 'PAID' : 'UNPAID';
 }
 
+// Session key: clinician + date + service code + client + location. Units excluded.
+// For H0031/H0032/H2014/H2032 (we edit units), omit location so same session matches.
+const UNIT_EDITABLE_CODES = new Set(['H0031', 'H0032', 'H2014', 'H2032']);
 function rowEntityKey(row) {
-  const provider = String(row?.provider_name || '').trim().toLowerCase();
+  const provider = normalizeName(row?.provider_name || '');
   const client = firstTokenForClient(row?.patient_first_name);
   const serviceDate = String(row?.service_date || '').slice(0, 10);
   const code = baseServiceCodeForSession(row?.service_code) || String(row?.service_code || '').trim().toUpperCase();
-  const loc = String(row?.location || '').trim().toLowerCase();
   const userId = Number(row?.user_id || 0);
+  if (UNIT_EDITABLE_CODES.has(code)) {
+    return `${userId}:${provider}:${serviceDate}:${code}:${client}`;
+  }
+  const loc = String(row?.location || '').trim().toLowerCase();
   const locPart = loc ? `:${loc}` : '';
-  return `${userId}:${provider}:${client}:${serviceDate}:${code}${locPart}`;
+  return `${userId}:${provider}:${serviceDate}:${code}:${client}${locPart}`;
+}
+
+// Fallback key for unit-editable codes: when primary key still doesn't match
+// (e.g. userId differs), detect same session by provider+date+code+client.
+function rowEntityKeyForUnitEditable(row) {
+  const code = baseServiceCodeForSession(row?.service_code) || String(row?.service_code || '').trim().toUpperCase();
+  if (!UNIT_EDITABLE_CODES.has(code)) return null;
+  const provider = normalizeName(row?.provider_name || '');
+  const client = firstTokenForClient(row?.patient_first_name);
+  const serviceDate = String(row?.service_date || '').slice(0, 10);
+  return `${provider}:${serviceDate}:${code}:${client}`;
 }
 
 function rowStableMatchKey(row) {
@@ -209,6 +226,9 @@ function computeRawRunDiffRows({ baselineRows, compareRows }) {
           let deltaType = 'status_change';
           if (codeChanged) deltaType = 'code_change';
           else if (unitsChanged && !statusChanged) deltaType = 'unit_change';
+          const code = String(toCode || fromCode || '').trim().toUpperCase();
+          const isUnitEditable = UNIT_EDITABLE_CODES.has(code);
+          if (deltaType === 'unit_change' && isUnitEditable) continue;
           out.push({
             rowMatchKey: rowStableMatchKey(c),
             changeType: deltaType,
@@ -267,7 +287,39 @@ function computeRawRunDiffRows({ baselineRows, compareRows }) {
         });
       }
   }
-  return out;
+  // For H0031/H0032/H2014/H2032: when WE changed units (our edit), primary key may differ
+  // (e.g. location). Merge added+removed into unit_change when same provider+date+code+client.
+  const fallbackKey = (r) => rowEntityKeyForUnitEditable(r);
+  const addedByFallback = new Map();
+  const removedByFallback = new Map();
+  for (const o of out) {
+    if (o.changeType === 'added' && o.metadata_json?.compareRowId) {
+      const cRow = compareRows.find((r) => r.id === o.metadata_json.compareRowId) || { provider_name: o.provider_name, patient_first_name: o.patient_first_name, service_date: o.service_date, service_code: o.to_service_code };
+      const fk = fallbackKey(cRow);
+      if (fk) addedByFallback.set(fk, o);
+    }
+    if (o.changeType === 'removed' && o.metadata_json?.baselineRowId) {
+      const bRow = baselineRows.find((r) => r.id === o.metadata_json.baselineRowId) || { provider_name: o.provider_name, patient_first_name: o.patient_first_name, service_date: o.service_date, service_code: o.from_service_code };
+      const fk = fallbackKey(bRow);
+      if (fk) removedByFallback.set(fk, o);
+    }
+  }
+  for (const [fk, added] of addedByFallback) {
+    const removed = removedByFallback.get(fk);
+    if (removed) {
+      const cRow = compareRows.find((r) => r.id === added.metadata_json?.compareRowId);
+      const bRow = baselineRows.find((r) => r.id === removed.metadata_json?.baselineRowId);
+      const b = cRow && bRow ? pickCanonicalRawRow([bRow]) : null;
+      const c = cRow && bRow ? pickCanonicalRawRow([cRow]) : null;
+      if (b && c) {
+        const idxAdded = out.indexOf(added);
+        const idxRemoved = out.indexOf(removed);
+        out[idxAdded] = null;
+        out[idxRemoved] = null;
+      }
+    }
+  }
+  return out.filter(Boolean);
 }
 
 function importSlotByDate({ periodEnd, importedAt }) {
@@ -9083,16 +9135,20 @@ export const getPayrollPeriodRawAudit = async (req, res, next) => {
   }
 };
 
+// Session key: clinician + date + service code + client + location. Units excluded.
+// For H0031/H0032/H2014/H2032, omit location so our unit edits match across runs.
 function rowKeyForSideBySide(row) {
-  if (String(row?.row_fingerprint || '').trim()) return String(row.row_fingerprint).trim();
-  const prov = String(row?.provider_name || '').trim().toLowerCase();
+  const prov = normalizeName(row?.provider_name || '');
   const client = firstTokenForClient(row?.patient_first_name);
   const date = String(row?.service_date || '').slice(0, 10);
   const code = baseServiceCodeForSession(row?.service_code) || String(row?.service_code || '').trim().toUpperCase();
-  const loc = String(row?.location || '').trim().toLowerCase();
   const uid = Number(row?.user_id || 0);
+  if (UNIT_EDITABLE_CODES.has(code)) {
+    return `${uid}|${prov}|${date}|${code}|${client}`;
+  }
+  const loc = String(row?.location || '').trim().toLowerCase();
   const locPart = loc ? `|${loc}` : '';
-  return `${uid}|${prov}|${code}|${date}|${client}${locPart}`;
+  return `${uid}|${prov}|${date}|${code}|${client}${locPart}`;
 }
 
 function statusRankForCanonical(st) {
