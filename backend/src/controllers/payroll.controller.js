@@ -5514,6 +5514,7 @@ export const batchCatchUp = [
       let run1;
       let run2;
       let run3 = null;
+      let compareParsedForSample = [];
 
       if (useDbBaseline && priorPeriodId && f2) {
         // Import + draft audit flow: use prior period's DB run as baseline, file2 as compare.
@@ -5595,6 +5596,7 @@ export const batchCatchUp = [
           return { parsedForSnapshots, byKey };
         };
         const file2Info = createSnapshotRunFromParsed(parsed2);
+        compareParsedForSample = file2Info.parsedForSnapshots || [];
         const existingImportsForPersist = await PayrollImport.listForPeriod(period.id);
         const hasSlot2ForPersist = (existingImportsForPersist || []).some((imp) => Number(imp.slot_number) === 2);
         const hasSlot3ForPersist = (existingImportsForPersist || []).some((imp) => Number(imp.slot_number) === 3);
@@ -5868,6 +5870,7 @@ export const batchCatchUp = [
         run1 = await createSnapshotRun({ parsed: parsed1 });
         run2 = await createSnapshotRun({ parsed: parsed2 });
         run3 = twoRunMode ? null : await createSnapshotRun({ parsed: parsed3 });
+        compareParsedForSample = twoRunMode ? parsed2 : parsed3;
       }
 
       const destinationPeriodIdRaw = req.body?.destinationPeriodId ?? req.body?.destination_period_id ?? req.query?.destinationPeriodId;
@@ -5976,8 +5979,7 @@ export const batchCatchUp = [
         carryoverUserMap = new Map((uRows || []).map((u) => [u.id, u]));
       }
       const sampleByUserCode = new Map();
-      const compareParsed = useDbBaseline ? (file2Info?.parsedForSnapshots || []) : (twoRunMode ? parsed2 : parsed3);
-      for (const r of compareParsed || []) {
+      for (const r of compareParsedForSample || []) {
         const uid = useDbBaseline ? Number(r.user_id || 0) : (resolveUserIdForProviderName(nameToIds, r.providerName) || 0);
         const code = String(r.serviceCode || r.service_code || '').trim().toUpperCase();
         if (!code || uid <= 0) continue;
