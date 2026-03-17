@@ -4778,8 +4778,8 @@
                     </tr>
                   </thead>
                   <tbody>
-                    <tr v-for="(c, idx) in rawAuditChangesLimited" :key="`${c.rowMatchKey || idx}-${idx}`">
-                      <td>{{ rawChangeTypeLabel(c.changeType) }}</td>
+                    <tr v-for="(c, idx) in rawAuditChangesLimited" :key="`${c.rowMatchKey || idx}-${idx}`" :style="c.redFlag ? 'background-color: #ffecec; border-left: 3px solid #dc3545;' : null">
+                      <td><strong v-if="c.redFlag" style="color: #dc3545;">{{ rawChangeTypeLabel(c.changeType) }}</strong><template v-else>{{ rawChangeTypeLabel(c.changeType) }}</template></td>
                       <td>{{ c.provider_name || '—' }}</td>
                       <td class="muted">{{ rawClientHint(c) || '—' }}</td>
                       <td class="muted">{{ ymd(c.service_date) || '—' }}</td>
@@ -9903,8 +9903,9 @@ const rawAuditChangesFiltered = computed(() => {
   const all = (rawAuditChanges.value || []).slice();
   if (rawAuditShowAllChanges.value) return all;
   return all.filter((c) => {
-    const added = String(c?.changeType || '').toLowerCase() === 'added';
-    if (added) return true;
+    const changeType = String(c?.changeType || '').toLowerCase();
+    if (changeType === 'added') return true;
+    if (changeType === 'overpaid_deleted') return true;
     const fromStatus = String(c?.from_status || '').toUpperCase();
     const wasPaidInBaseline = fromStatus === 'FINALIZED' || fromStatus === 'DRAFT_PAID';
     return !wasPaidInBaseline;
@@ -10152,6 +10153,7 @@ const rawChangeTypeLabel = (type) => {
   if (t === 'unit_change') return 'Units changed';
   if (t === 'added') return 'Added in selected run';
   if (t === 'removed') return 'Removed in selected run';
+  if (t === 'overpaid_deleted') return 'Overpaid—session deleted';
   return type || 'Changed';
 };
 

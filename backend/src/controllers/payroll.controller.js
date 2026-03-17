@@ -147,32 +147,30 @@ function paidStateForStatus(statusKey) {
   return statusKey === 'FINALIZED' || statusKey === 'DRAFT_PAID' ? 'PAID' : 'UNPAID';
 }
 
-// Session key: clinician + date + service code + client + location. Units excluded.
-// For H0031/H0032/H2014/H2032 (we edit units), omit location so same session matches.
+// Session key: clinician + date + service code + client. Omit userId and location so same
+// session matches across runs.
 const UNIT_EDITABLE_CODES = new Set(['H0031', 'H0032', 'H2014', 'H2032']);
 function rowEntityKey(row) {
   const provider = normalizeName(row?.provider_name || '');
   const client = firstTokenForClient(row?.patient_first_name);
   const serviceDate = String(row?.service_date || '').slice(0, 10);
   const code = baseServiceCodeForSession(row?.service_code) || String(row?.service_code || '').trim().toUpperCase();
-  const userId = Number(row?.user_id || 0);
-  if (UNIT_EDITABLE_CODES.has(code)) {
-    return `${userId}:${provider}:${serviceDate}:${code}:${client}`;
-  }
-  const loc = String(row?.location || '').trim().toLowerCase();
-  const locPart = loc ? `:${loc}` : '';
-  return `${userId}:${provider}:${serviceDate}:${code}:${client}${locPart}`;
+  return `${provider}:${serviceDate}:${code}:${client}`;
 }
 
-// Fallback key for unit-editable codes: when primary key still doesn't match
-// (e.g. userId differs), detect same session by provider+date+code+client.
-function rowEntityKeyForUnitEditable(row) {
-  const code = baseServiceCodeForSession(row?.service_code) || String(row?.service_code || '').trim().toUpperCase();
-  if (!UNIT_EDITABLE_CODES.has(code)) return null;
+// Merge key for matching same session across runs (provider+date+code+client).
+function sessionMergeKey(row) {
   const provider = normalizeName(row?.provider_name || '');
   const client = firstTokenForClient(row?.patient_first_name);
   const serviceDate = String(row?.service_date || '').slice(0, 10);
+  const code = baseServiceCodeForSession(row?.service_code) || String(row?.service_code || '').trim().toUpperCase();
   return `${provider}:${serviceDate}:${code}:${client}`;
+}
+
+function rowEntityKeyForUnitEditable(row) {
+  const code = baseServiceCodeForSession(row?.service_code) || String(row?.service_code || '').trim().toUpperCase();
+  if (!UNIT_EDITABLE_CODES.has(code)) return null;
+  return sessionMergeKey(row);
 }
 
 function rowStableMatchKey(row) {
@@ -287,39 +285,42 @@ function computeRawRunDiffRows({ baselineRows, compareRows }) {
         });
       }
   }
-  // For H0031/H0032/H2014/H2032: when WE changed units (our edit), primary key may differ
-  // (e.g. location). Merge added+removed into unit_change when same provider+date+code+client.
-  const fallbackKey = (r) => rowEntityKeyForUnitEditable(r);
-  const addedByFallback = new Map();
-  const removedByFallback = new Map();
+  // Merge added+removed when same session (provider+date+code+client). Treat as already paid.
+  const mergeKey = (o, codeField) => {
+    const r = o.changeType === 'added'
+      ? (compareRows.find((x) => x.id === o.metadata_json?.compareRowId) || { provider_name: o.provider_name, patient_first_name: o.patient_first_name, service_date: o.service_date, service_code: o[codeField] })
+      : (baselineRows.find((x) => x.id === o.metadata_json?.baselineRowId) || { provider_name: o.provider_name, patient_first_name: o.patient_first_name, service_date: o.service_date, service_code: o[codeField] });
+    return sessionMergeKey(r);
+  };
+  const addedByKey = new Map();
+  const removedByKey = new Map();
   for (const o of out) {
-    if (o.changeType === 'added' && o.metadata_json?.compareRowId) {
-      const cRow = compareRows.find((r) => r.id === o.metadata_json.compareRowId) || { provider_name: o.provider_name, patient_first_name: o.patient_first_name, service_date: o.service_date, service_code: o.to_service_code };
-      const fk = fallbackKey(cRow);
-      if (fk) addedByFallback.set(fk, o);
+    if (o.changeType === 'added') {
+      addedByKey.set(mergeKey(o, 'to_service_code'), o);
     }
-    if (o.changeType === 'removed' && o.metadata_json?.baselineRowId) {
-      const bRow = baselineRows.find((r) => r.id === o.metadata_json.baselineRowId) || { provider_name: o.provider_name, patient_first_name: o.patient_first_name, service_date: o.service_date, service_code: o.from_service_code };
-      const fk = fallbackKey(bRow);
-      if (fk) removedByFallback.set(fk, o);
+    if (o.changeType === 'removed') {
+      removedByKey.set(mergeKey(o, 'from_service_code'), o);
     }
   }
-  for (const [fk, added] of addedByFallback) {
-    const removed = removedByFallback.get(fk);
+  for (const [k, added] of addedByKey) {
+    const removed = removedByKey.get(k);
     if (removed) {
-      const cRow = compareRows.find((r) => r.id === added.metadata_json?.compareRowId);
-      const bRow = baselineRows.find((r) => r.id === removed.metadata_json?.baselineRowId);
-      const b = cRow && bRow ? pickCanonicalRawRow([bRow]) : null;
-      const c = cRow && bRow ? pickCanonicalRawRow([cRow]) : null;
-      if (b && c) {
-        const idxAdded = out.indexOf(added);
-        const idxRemoved = out.indexOf(removed);
-        out[idxAdded] = null;
-        out[idxRemoved] = null;
+      out[out.indexOf(added)] = null;
+      out[out.indexOf(removed)] = null;
+    }
+  }
+  const filtered = out.filter(Boolean);
+  const paidStatuses = new Set(['DRAFT_PAID', 'FINALIZED']);
+  for (const o of filtered) {
+    if (o.changeType === 'removed' && paidStatuses.has(o.from_status)) {
+      const k = mergeKey(o, 'from_service_code');
+      if (!addedByKey.has(k)) {
+        o.changeType = 'overpaid_deleted';
+        o.redFlag = true;
       }
     }
   }
-  return out.filter(Boolean);
+  return filtered;
 }
 
 function importSlotByDate({ periodEnd, importedAt }) {
@@ -9135,20 +9136,14 @@ export const getPayrollPeriodRawAudit = async (req, res, next) => {
   }
 };
 
-// Session key: clinician + date + service code + client + location. Units excluded.
-// For H0031/H0032/H2014/H2032, omit location so our unit edits match across runs.
+// Session key: clinician + date + service code + client. Omit userId and location so same
+// session merges across runs (userId can differ when matching improves; location often varies).
 function rowKeyForSideBySide(row) {
   const prov = normalizeName(row?.provider_name || '');
   const client = firstTokenForClient(row?.patient_first_name);
   const date = String(row?.service_date || '').slice(0, 10);
   const code = baseServiceCodeForSession(row?.service_code) || String(row?.service_code || '').trim().toUpperCase();
-  const uid = Number(row?.user_id || 0);
-  if (UNIT_EDITABLE_CODES.has(code)) {
-    return `${uid}|${prov}|${date}|${code}|${client}`;
-  }
-  const loc = String(row?.location || '').trim().toLowerCase();
-  const locPart = loc ? `|${loc}` : '';
-  return `${uid}|${prov}|${date}|${code}|${client}${locPart}`;
+  return `${prov}|${date}|${code}|${client}`;
 }
 
 function statusRankForCanonical(st) {
