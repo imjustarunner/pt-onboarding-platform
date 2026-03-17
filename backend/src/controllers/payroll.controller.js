@@ -10179,6 +10179,20 @@ export const applyPayrollCarryover = async (req, res, next) => {
         }
       }
 
+      // Aggregate by (userId, serviceCode) — primary key allows one row per user+code.
+      const byKey = new Map();
+      for (const r of rows) {
+        const code = String(r.serviceCode || '').trim().toUpperCase();
+        const k = `${r.userId}:${code}`;
+        if (!byKey.has(k)) {
+          byKey.set(k, { userId: r.userId, serviceCode: code, carryoverFinalizedUnits: 0, carryoverFinalizedRowCount: 0, carryoverMeta: r.carryoverMeta });
+        }
+        const t = byKey.get(k);
+        t.carryoverFinalizedUnits = Number((t.carryoverFinalizedUnits + r.carryoverFinalizedUnits).toFixed(2));
+        t.carryoverFinalizedRowCount += Number(r.carryoverFinalizedRowCount || 0) || 1;
+      }
+      rows = Array.from(byKey.values()).filter((r) => Number(r.carryoverFinalizedUnits || 0) > 1e-9);
+
       // Verify all users belong to the agency for this payroll period.
       const ids = Array.from(userIds);
       if (!ids.length) return res.json({ ok: true, inserted: 0 });
