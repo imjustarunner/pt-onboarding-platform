@@ -54,6 +54,7 @@ class PayrollImportRow {
         patientEnc?.authTagB64 || null,
         patientEnc?.keyId || null,
         r.serviceCode,
+        String(r.location || '').trim() || null,
         r.serviceDate || null,
         r.noteStatus || null,
         null, // appt_type (do not store)
@@ -69,15 +70,15 @@ class PayrollImportRow {
       ]);
     }
 
-    // 27 columns inserted (see column list below) => 27 placeholders per row.
-    const placeholders = values.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(',');
+    // 28 columns inserted (including location) => 28 placeholders per row.
+    const placeholders = values.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(',');
     const flat = values.flat();
     const [result] = await pool.execute(
       `INSERT INTO payroll_import_rows
        (payroll_import_id, payroll_period_id, agency_id, user_id, provider_name, patient_first_name,
         provider_name_ciphertext_b64, provider_name_iv_b64, provider_name_auth_tag_b64, provider_name_key_id,
         patient_first_name_ciphertext_b64, patient_first_name_iv_b64, patient_first_name_auth_tag_b64, patient_first_name_key_id,
-        service_code, service_date, note_status, appt_type, amount_collected, paid_status, draft_payable, unit_count, raw_row, row_fingerprint, requires_processing, processed_at, processed_by_user_id)
+        service_code, location, service_date, note_status, appt_type, amount_collected, paid_status, draft_payable, unit_count, raw_row, row_fingerprint, requires_processing, processed_at, processed_by_user_id)
        VALUES ${placeholders}`,
       flat
     );
@@ -117,6 +118,7 @@ class PayrollImportRow {
          pir.patient_first_name_auth_tag_b64,
          pir.patient_first_name_key_id,
          pir.service_code,
+         pir.location,
          pir.service_date,
          pir.note_status,
          pir.draft_payable,

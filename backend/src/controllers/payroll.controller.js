@@ -148,12 +148,14 @@ function paidStateForStatus(statusKey) {
 }
 
 function rowEntityKey(row) {
-  const userId = Number(row?.user_id || 0);
   const provider = String(row?.provider_name || '').trim().toLowerCase();
-  const client = String(row?.patient_first_name || '').trim().toLowerCase();
+  const client = firstTokenForClient(row?.patient_first_name);
   const serviceDate = String(row?.service_date || '').slice(0, 10);
-  const code = String(row?.service_code || '').trim().toUpperCase();
-  return `${userId}:${provider}:${client}:${serviceDate}:${code}`;
+  const code = baseServiceCodeForSession(row?.service_code) || String(row?.service_code || '').trim().toUpperCase();
+  const loc = String(row?.location || '').trim().toLowerCase();
+  const userId = Number(row?.user_id || 0);
+  const locPart = loc ? `:${loc}` : '';
+  return `${userId}:${provider}:${client}:${serviceDate}:${code}${locPart}`;
 }
 
 function rowStableMatchKey(row) {
@@ -1519,7 +1521,7 @@ function ymdOrEmpty(d) {
 // IMPORTANT:
 // - Do NOT include volatile fields (units, note status, payable flags, rates, etc.)
 // - Do NOT include userId (can change when matching improves)
-function computeRowKeyV4({ agencyId, serviceCode, serviceDate, clinicianName, patientFirstName }) {
+function computeRowKeyV4({ agencyId, serviceCode, serviceDate, clinicianName, patientFirstName, location }) {
   const norm = (v) =>
     String(v ?? '')
       .trim()
@@ -1535,20 +1537,50 @@ function computeRowKeyV4({ agencyId, serviceCode, serviceDate, clinicianName, pa
   const code = normCode(serviceCode);
   const clin = norm(clinicianName);
   const fn = norm(patientFirstName || parseHumanNameToFirstLast(clinicianName).first);
+  const loc = norm(location || '');
   const clinHash = crypto.createHash('sha256').update(clin).digest('hex');
   const fnHash = crypto.createHash('sha256').update(fn).digest('hex');
-  return `v5|agency:${agencyId}|dos:${dos}|code:${code}|clin_h:${clinHash}|fn_h:${fnHash}`;
+  const locPart = loc ? `|loc:${loc}` : '';
+  return `v6|agency:${agencyId}|dos:${dos}|code:${code}|clin_h:${clinHash}|fn_h:${fnHash}${locPart}`;
 }
 
 // Backward-compatible alias: legacy code still calls this name.
-function computeRowFingerprint({ agencyId, clinicianName, firstName, patientFirstName, serviceCode, serviceDate }) {
+function computeRowFingerprint({ agencyId, clinicianName, firstName, patientFirstName, serviceCode, serviceDate, location }) {
   return computeRowKeyV4({
     agencyId,
     serviceCode,
     serviceDate,
     clinicianName,
-    patientFirstName: patientFirstName ?? firstName ?? ''
+    patientFirstName: patientFirstName ?? firstName ?? '',
+    location: location ?? ''
   });
+}
+
+// Normalize client name for session fingerprint: "Gini Williamson" or "Williamson, Gini" or "Gini" → first token.
+function firstTokenForClient(name) {
+  if (!name || typeof name !== 'string') return '';
+  const s = String(name).trim();
+  if (!s) return '';
+  if (s.includes(',')) {
+    const firstPart = s.split(',')[1];
+    const tok = String(firstPart ?? '').trim().split(/\s+/)[0];
+    return tok.toLowerCase();
+  }
+  return String(s.split(/\s+/)[0] || '').toLowerCase();
+}
+
+// Normalize service code: strip " - LOCATION" or "-LOCATION" suffix for consistent matching.
+function baseServiceCodeForSession(code) {
+  if (!code || typeof code !== 'string') return '';
+  const s = String(code).trim().toUpperCase().replace(/\s+/g, '');
+  const dash = s.indexOf('-');
+  if (dash > 0) {
+    const suffix = s.slice(dash + 1);
+    if (/^[A-Z]+$/.test(suffix)) return s.slice(0, dash);
+  }
+  const spaceDash = String(code).trim().indexOf(' - ');
+  if (spaceDash > 0) return String(code).trim().slice(0, spaceDash).replace(/\s+/g, '').toUpperCase();
+  return s;
 }
 
 // Deterministic match key (SHA256) for snapshot-based carryover. No fallback to clinician-derived patient name.
@@ -3181,7 +3213,8 @@ export const downloadPayrollRawCsv = async (req, res, next) => {
             clinicianName: r.provider_name || clinicianName,
             patientFirstName: r.patient_first_name || '',
             serviceCode: r.service_code,
-            serviceDate: r.service_date
+            serviceDate: r.service_date,
+            location: r.location || ''
           }))
         ].join(',')
       );
@@ -5185,12 +5218,14 @@ export const importPayrollCsv = [
         }
 
         const requiresProcessing = isH0031 || (isH0032 && h0032NeedsManualMinutes) || isH2014 || isH2032;
+        const location = String(r.fingerprintFields?.location ?? r.location ?? '').trim() || null;
         const rowFingerprint = computeRowFingerprint({
           agencyId,
           clinicianName: r.providerName,
           patientFirstName: r.patientFirstName,
           serviceCode: r.serviceCode,
-          serviceDate: r.serviceDate
+          serviceDate: r.serviceDate,
+          location
         });
         return {
           payrollImportId: imp.id,
@@ -5200,6 +5235,7 @@ export const importPayrollCsv = [
           providerName: r.providerName,
           patientFirstName: r.patientFirstName,
           serviceCode: r.serviceCode,
+          location,
           serviceDate: r.serviceDate ? formatYmd(r.serviceDate) : null,
           noteStatus: r.noteStatus,
           // DRAFT rows default payable=true; other rows ignore this flag.
@@ -5410,12 +5446,14 @@ export const importPayrollAuto = [
         }
 
         const requiresProcessing = isH0031 || (isH0032 && h0032NeedsManualMinutes) || isH2014 || isH2032;
+        const location = String(r.fingerprintFields?.location ?? r.location ?? '').trim() || null;
         const rowFingerprint = computeRowFingerprint({
           agencyId: resolvedAgencyId,
           clinicianName: r.providerName,
           patientFirstName: r.patientFirstName,
           serviceCode: r.serviceCode,
-          serviceDate: r.serviceDate
+          serviceDate: r.serviceDate,
+          location
         });
         return {
           payrollImportId: imp.id,
@@ -5425,6 +5463,7 @@ export const importPayrollAuto = [
           providerName: r.providerName,
           patientFirstName: r.patientFirstName,
           serviceCode: r.serviceCode,
+          location,
           serviceDate: r.serviceDate ? formatYmd(r.serviceDate) : null,
           noteStatus: r.noteStatus,
           // DRAFT rows default payable=true; other rows ignore this flag.
@@ -5587,6 +5626,7 @@ export const batchCatchUp = [
               provider_name: providerName,
               patient_first_name: r.patientFirstName ?? '',
               service_code: serviceCode,
+              location: String(r.fingerprintFields?.location ?? r.location ?? '').trim() || null,
               service_date: r.serviceDate || null,
               note_status: note,
               draft_payable: note === 'DRAFT' ? 0 : 1,
@@ -5633,6 +5673,7 @@ export const batchCatchUp = [
               else if (isH0032 && Math.abs(unitCount - 1) < 1e-9) unitCount = 30;
               else if ((isH2014 || isH2032) && Math.abs(unitCount - 1) < 1e-9) unitCount = 15;
               const requiresProcessing = isH0031 || (isH0032 && h0032NeedsManual) || isH2014 || isH2032;
+              const location = String(r.fingerprintFields?.location ?? r.location ?? '').trim() || null;
               return {
                 payrollImportId: impPersist.id,
                 payrollPeriodId: period.id,
@@ -5641,11 +5682,12 @@ export const batchCatchUp = [
                 providerName: r.providerName,
                 patientFirstName: r.patientFirstName,
                 serviceCode: r.serviceCode,
+                location,
                 serviceDate: r.serviceDate ? formatYmd(r.serviceDate) : null,
                 noteStatus: r.noteStatus,
                 draftPayable: r.noteStatus === 'DRAFT' ? 1 : 0,
                 unitCount,
-                rowFingerprint: computeRowFingerprint({ agencyId: period.agency_id, clinicianName: r.providerName, patientFirstName: r.patientFirstName, serviceCode: r.serviceCode, serviceDate: r.serviceDate }),
+                rowFingerprint: computeRowFingerprint({ agencyId: period.agency_id, clinicianName: r.providerName, patientFirstName: r.patientFirstName, serviceCode: r.serviceCode, serviceDate: r.serviceDate, location }),
                 requiresProcessing,
                 processedAt: null,
                 processedByUserId: null
@@ -5735,6 +5777,7 @@ export const batchCatchUp = [
             else if (isH0032 && Math.abs(unitCount - 1) < 1e-9) unitCount = 30;
             else if ((isH2014 || isH2032) && Math.abs(unitCount - 1) < 1e-9) unitCount = 15;
             const requiresProcessing = isH0031 || (isH0032 && h0032NeedsManual) || isH2014 || isH2032;
+            const location = String(r.fingerprintFields?.location ?? r.location ?? '').trim() || null;
             return {
               payrollImportId: imp2.id,
               payrollPeriodId: period.id,
@@ -5743,11 +5786,12 @@ export const batchCatchUp = [
               providerName: r.providerName,
               patientFirstName: r.patientFirstName,
               serviceCode: r.serviceCode,
+              location,
               serviceDate: r.serviceDate ? formatYmd(r.serviceDate) : null,
               noteStatus: r.noteStatus,
               draftPayable: r.noteStatus === 'DRAFT' ? 1 : 0,
               unitCount,
-              rowFingerprint: computeRowFingerprint({ agencyId: period.agency_id, clinicianName: r.providerName, patientFirstName: r.patientFirstName, serviceCode: r.serviceCode, serviceDate: r.serviceDate }),
+              rowFingerprint: computeRowFingerprint({ agencyId: period.agency_id, clinicianName: r.providerName, patientFirstName: r.patientFirstName, serviceCode: r.serviceCode, serviceDate: r.serviceDate, location }),
               requiresProcessing,
               processedAt: null,
               processedByUserId: null
@@ -6110,6 +6154,7 @@ export const batchCatchUp = [
           else if (codeKey === 'H0032' && Math.abs(unitCount - 1) < 1e-9) unitCount = 30;
           else if ((codeKey === 'H2014' || codeKey === 'H2032') && Math.abs(unitCount - 1) < 1e-9) unitCount = 15;
           const requiresProcessing = codeKey === 'H0031' || (codeKey === 'H0032' && !!h0032Manual.get(userId)) || codeKey === 'H2014' || codeKey === 'H2032';
+          const location = String(r.fingerprintFields?.location ?? r.location ?? '').trim() || null;
           rowsToInsert.push({
             payrollImportId: imp.id,
             payrollPeriodId: period.id,
@@ -6118,11 +6163,12 @@ export const batchCatchUp = [
             providerName: r.providerName,
             patientFirstName: r.patientFirstName,
             serviceCode: r.serviceCode,
+            location,
             serviceDate: r.serviceDate ? formatYmd(r.serviceDate) : null,
             noteStatus: r.noteStatus,
             draftPayable: r.noteStatus === 'DRAFT' ? 1 : 0,
             unitCount,
-            rowFingerprint: computeRowFingerprint({ agencyId: period.agency_id, clinicianName: r.providerName, patientFirstName: r.patientFirstName, serviceCode: r.serviceCode, serviceDate: r.serviceDate }),
+            rowFingerprint: computeRowFingerprint({ agencyId: period.agency_id, clinicianName: r.providerName, patientFirstName: r.patientFirstName, serviceCode: r.serviceCode, serviceDate: r.serviceDate, location }),
             requiresProcessing,
             processedAt: null,
             processedByUserId: null
@@ -8808,12 +8854,14 @@ export const replacePayrollImport = [
         else if (isH0032 && Math.abs(unitCount - 1) < 1e-9) unitCount = 30;
         else if ((isH2014 || isH2032) && Math.abs(unitCount - 1) < 1e-9) unitCount = 15;
         const requiresProcessing = isH0031 || (isH0032 && h0032NeedsManualMinutes) || isH2014 || isH2032;
+        const location = String(r.fingerprintFields?.location ?? r.location ?? '').trim() || null;
         const rowFingerprint = computeRowFingerprint({
           agencyId,
           clinicianName: r.providerName,
           patientFirstName: r.patientFirstName,
           serviceCode: r.serviceCode,
-          serviceDate: r.serviceDate
+          serviceDate: r.serviceDate,
+          location
         });
         return {
           payrollImportId: imp.id,
@@ -8823,6 +8871,7 @@ export const replacePayrollImport = [
           providerName: r.providerName,
           patientFirstName: r.patientFirstName,
           serviceCode: r.serviceCode,
+          location,
           serviceDate: r.serviceDate ? formatYmd(r.serviceDate) : null,
           noteStatus: r.noteStatus,
           draftPayable: r.noteStatus === 'DRAFT' ? 1 : 0,
@@ -9035,12 +9084,15 @@ export const getPayrollPeriodRawAudit = async (req, res, next) => {
 };
 
 function rowKeyForSideBySide(row) {
-  const uid = Number(row?.user_id || 0);
+  if (String(row?.row_fingerprint || '').trim()) return String(row.row_fingerprint).trim();
   const prov = String(row?.provider_name || '').trim().toLowerCase();
-  const code = String(row?.service_code || '').trim().toUpperCase();
+  const client = firstTokenForClient(row?.patient_first_name);
   const date = String(row?.service_date || '').slice(0, 10);
-  const client = String(row?.patient_first_name || '').trim().toLowerCase();
-  return `${uid}|${prov}|${code}|${date}|${client}`;
+  const code = baseServiceCodeForSession(row?.service_code) || String(row?.service_code || '').trim().toUpperCase();
+  const loc = String(row?.location || '').trim().toLowerCase();
+  const uid = Number(row?.user_id || 0);
+  const locPart = loc ? `|${loc}` : '';
+  return `${uid}|${prov}|${code}|${date}|${client}${locPart}`;
 }
 
 function statusRankForCanonical(st) {
@@ -9480,7 +9532,8 @@ export const previewPayrollCarryover = async (req, res, next) => {
           clinicianName: providerName || '',
           patientFirstName: r?.patient_first_name || '',
           serviceCode: code,
-          serviceDate: r?.service_date
+          serviceDate: r?.service_date,
+          location: r?.location || ''
         });
         const bucket = classify(r);
 
@@ -9558,7 +9611,8 @@ export const previewPayrollCarryover = async (req, res, next) => {
           clinicianName: providerName || '',
           patientFirstName: r?.patient_first_name || '',
           serviceCode: code,
-          serviceDate: r?.service_date
+          serviceDate: r?.service_date,
+          location: r?.location || ''
         });
         if (!rowKey) continue;
         if (byRowKeyBase.has(rowKey)) continue; // existed already; not late-added
@@ -10393,7 +10447,8 @@ export const applyPayrollCarryover = async (req, res, next) => {
             clinicianName: providerName || '',
             patientFirstName: r?.patient_first_name || '',
             serviceCode: code,
-            serviceDate: r?.service_date
+            serviceDate: r?.service_date,
+            location: r?.location || ''
           });
           if (!rowKey) return;
           const bucket = classify(r);

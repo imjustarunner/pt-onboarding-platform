@@ -1,10 +1,15 @@
 # Run Comparison Deduplication
 
-## Session identity (unchanged)
+## Session identity (fingerprint)
 
-`rowKeyForSideBySide` = `userId|provider|serviceCode|serviceDate|client`
+`rowKeyForSideBySide` prefers `row_fingerprint` when present. Fallback key:
+`userId|provider|baseServiceCode|serviceDate|clientFirst|location`
 
-Duration/units are **not** part of the key. Session identity is based only on who, what, when, and for whom.
+- **clientFirst**: first token from patient name ("Gini Williamson" or "Williamson, Gini" → "gini")
+- **baseServiceCode**: strips " - LOCATION" suffix for consistent matching
+- **location**: from billing report Location column when available
+
+Duration/units are **not** part of the key. Session identity persists across duration changes.
 
 ## Deduplication (fix)
 
