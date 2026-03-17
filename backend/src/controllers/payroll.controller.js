@@ -152,7 +152,8 @@ function rowEntityKey(row) {
   const provider = String(row?.provider_name || '').trim().toLowerCase();
   const client = String(row?.patient_first_name || '').trim().toLowerCase();
   const serviceDate = String(row?.service_date || '').slice(0, 10);
-  return `${userId}:${provider}:${client}:${serviceDate}`;
+  const code = String(row?.service_code || '').trim().toUpperCase();
+  return `${userId}:${provider}:${client}:${serviceDate}:${code}`;
 }
 
 function rowStableMatchKey(row) {

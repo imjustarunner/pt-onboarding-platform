@@ -4753,6 +4753,7 @@
                       <th>To</th>
                       <th>Units</th>
                       <th>Paid?</th>
+                      <th v-if="rawAuditHasDraftRows">Draft Payable?</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -4775,9 +4776,21 @@
                       </td>
                       <td class="right">{{ fmtNum(c.from_units || 0) }} → {{ fmtNum(c.to_units || 0) }}</td>
                       <td><strong>{{ c.paid_state || 'UNPAID' }}</strong></td>
+                      <td v-if="rawAuditHasDraftRows">
+                        <select
+                          v-if="rawAuditChangeCanToggleDraft(c)"
+                          :disabled="isPeriodPosted || isRawAuditHistoricalRun || rawAuditDraftUnpaidUpdating === (c.metadata_json?.compareRowId)"
+                          :value="c.to_status === 'DRAFT_PAID' ? 'payable' : 'not_payable'"
+                          @change="rawAuditToggleDraftPayable(c, $event.target.value === 'payable')"
+                        >
+                          <option value="payable">Payable (default)</option>
+                          <option value="not_payable">Not payable</option>
+                        </select>
+                        <span v-else class="muted">—</span>
+                      </td>
                     </tr>
                     <tr v-if="!rawAuditChangesLimited.length">
-                      <td colspan="8" class="muted">No run-to-run changes found for this selection.</td>
+                      <td :colspan="rawAuditHasDraftRows ? 9 : 8" class="muted">No run-to-run changes found for this selection.</td>
                     </tr>
                   </tbody>
                 </table>
@@ -4790,7 +4803,7 @@
               >
                 <strong>Add to current period</strong>
                 <div class="hint muted" style="margin-top: 4px;">
-                  {{ rawAuditPayableChanges.length }} note(s) to be paid (newly finalized in this run). Select destination period, check rows to add, then click Add.
+                  {{ rawAuditPayableChanges.length }} note(s) to be paid (finalized or draft payable). Select destination period, check rows to add, then click Add.
                 </div>
                 <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr auto;">
                   <div class="field">
@@ -4813,7 +4826,7 @@
                 <div v-if="rawAddToCurrentPeriodError" class="warn-box" style="margin-top: 8px;">{{ rawAddToCurrentPeriodError }}</div>
                 <table class="table" style="margin-top: 10px; font-size: 0.9em;">
                   <thead>
-                    <tr><th style="width: 36px;"></th><th>Provider</th><th>Service code</th><th>Type</th><th class="right">Units</th></tr>
+                    <tr><th style="width: 36px;"></th><th>Provider</th><th>Client</th><th>DOS</th><th>Service code</th><th>Type</th><th class="right">Units</th></tr>
                   </thead>
                   <tbody>
                     <tr v-for="c in rawAuditPayableChanges" :key="c.rowMatchKey" :style="!rawAddToCurrentPeriodRowSelected(c) ? { opacity: 0.5 } : {}">
@@ -4821,8 +4834,10 @@
                         <input type="checkbox" :checked="rawAddToCurrentPeriodRowSelected(c)" @change="rawAddToCurrentPeriodToggleRow(c, $event.target.checked)" />
                       </td>
                       <td>{{ c.provider_name || getUserName(c.user_id) }}</td>
+                      <td class="muted">{{ rawClientHint(c) || '—' }}</td>
+                      <td class="muted">{{ ymd(c.service_date) || '—' }}</td>
                       <td>{{ c.to_service_code || '—' }}</td>
-                      <td><span class="badge badge-success">{{ c.changeType === 'added' ? 'Added' : 'Finalized' }}</span></td>
+                      <td><span class="badge badge-success">{{ rawAuditPayableTypeBadge(c) }}</span></td>
                       <td class="right">
                         <input type="number" :value="rawAddToCurrentPeriodRowUnits(c)" @input="rawAddToCurrentPeriodSetRowUnits(c, $event.target.value)" min="0" step="0.01" style="width: 80px; text-align: right;" />
                       </td>
@@ -4879,26 +4894,37 @@
               </div>
               <div v-if="runsSideBySideLoading" class="hint" style="padding: 20px;">Loading…</div>
               <div v-else-if="runsSideBySideData?.rows?.length" class="table-wrap" style="flex: 1; overflow: auto; padding: 0 16px 16px;">
-                <div class="hint" style="margin-bottom: 8px;">
-                  {{ periodRangeLabel(runsSideBySideData.period) }} — {{ runsSideBySideData.rows.length }} row(s)
+                <div class="field-row" style="margin-bottom: 10px; grid-template-columns: 1fr auto; align-items: center; gap: 12px;">
+                  <div class="field" style="margin: 0;">
+                    <input
+                      v-model="runsSideBySideSearch"
+                      type="text"
+                      placeholder="Search clinician, service code, client, date, status…"
+                      class="input"
+                      style="width: 100%;"
+                    />
+                  </div>
+                  <div class="hint" style="margin: 0;">
+                    {{ periodRangeLabel(runsSideBySideData.period) }} — {{ runsSideBySideFilteredRows.length }} of {{ runsSideBySideData.rows.length }} row(s)
+                  </div>
                 </div>
                 <table class="table table-sm">
                   <thead>
                     <tr>
-                      <th>Clinician</th>
-                      <th>Service</th>
-                      <th>Date</th>
-                      <th>Client</th>
-                      <th class="right">Run 1 Units</th>
-                      <th>Run 1 Status</th>
-                      <th class="right">Run 2 Units</th>
-                      <th>Run 2 Status</th>
-                      <th class="right">Run 3 Units</th>
-                      <th>Run 3 Status</th>
+                      <th class="th-sortable" @click="toggleRunsSideBySideSort('provider_name')">Clinician{{ runsSideBySideSortIndicator('provider_name') }}</th>
+                      <th class="th-sortable" @click="toggleRunsSideBySideSort('service_code')">Service{{ runsSideBySideSortIndicator('service_code') }}</th>
+                      <th class="th-sortable" @click="toggleRunsSideBySideSort('service_date')">Date{{ runsSideBySideSortIndicator('service_date') }}</th>
+                      <th class="th-sortable" @click="toggleRunsSideBySideSort('client_hint')">Client{{ runsSideBySideSortIndicator('client_hint') }}</th>
+                      <th class="th-sortable right" @click="toggleRunsSideBySideSort('run1_units')">Run 1 Units{{ runsSideBySideSortIndicator('run1_units') }}</th>
+                      <th class="th-sortable" @click="toggleRunsSideBySideSort('run1_status')">Run 1 Status{{ runsSideBySideSortIndicator('run1_status') }}</th>
+                      <th class="th-sortable right" @click="toggleRunsSideBySideSort('run2_units')">Run 2 Units{{ runsSideBySideSortIndicator('run2_units') }}</th>
+                      <th class="th-sortable" @click="toggleRunsSideBySideSort('run2_status')">Run 2 Status{{ runsSideBySideSortIndicator('run2_status') }}</th>
+                      <th class="th-sortable right" @click="toggleRunsSideBySideSort('run3_units')">Run 3 Units{{ runsSideBySideSortIndicator('run3_units') }}</th>
+                      <th class="th-sortable" @click="toggleRunsSideBySideSort('run3_status')">Run 3 Status{{ runsSideBySideSortIndicator('run3_status') }}</th>
                     </tr>
                   </thead>
                   <tbody>
-                    <tr v-for="(r, idx) in runsSideBySideData.rows" :key="idx">
+                    <tr v-for="(r, idx) in runsSideBySideFilteredRows" :key="idx">
                       <td>{{ r.provider_name || '—' }}</td>
                       <td>{{ r.service_code || '—' }}</td>
                       <td class="muted">{{ r.service_date || '—' }}</td>
@@ -5706,6 +5732,9 @@ const showRawModal = ref(false);
 const showRunsSideBySideModal = ref(false);
 const runsSideBySideData = ref(null);
 const runsSideBySideLoading = ref(false);
+const runsSideBySideSearch = ref('');
+const runsSideBySideSortColumn = ref('provider_name');
+const runsSideBySideSortDirection = ref('asc');
 const showRunModal = ref(false);
 const showPayrollToolsModal = ref(false);
 const showSubmitOnBehalfModal = ref(false);
@@ -9886,15 +9915,55 @@ const rawAuditChangesLimited = computed(() => {
   return rows.slice(0, 500);
 });
 
+const rawAuditHasDraftRows = computed(() => {
+  return (rawAuditChangesFiltered.value || []).some((c) => {
+    const to = String(c?.to_status || '').toUpperCase();
+    return to === 'DRAFT_PAID' || to === 'DRAFT_UNPAID';
+  });
+});
+
+const rawAuditChangeCanToggleDraft = (c) => {
+  const to = String(c?.to_status || '').toUpperCase();
+  if (to !== 'DRAFT_PAID' && to !== 'DRAFT_UNPAID') return false;
+  return !!c?.metadata_json?.compareRowId;
+};
+
+const rawAuditDraftUnpaidUpdating = ref(null);
+
+const rawAuditPayableTypeBadge = (c) => {
+  if (String(c?.changeType || '').toLowerCase() === 'added') return 'Added';
+  const to = String(c?.to_status || '').toUpperCase();
+  if (to === 'DRAFT_PAID') return 'Draft';
+  return 'Finalized';
+};
+
+const rawAuditToggleDraftPayable = async (c, isPayable) => {
+  const rowId = c?.metadata_json?.compareRowId;
+  if (!rowId) return;
+  if (isPeriodPosted.value) return;
+  try {
+    rawAuditDraftUnpaidUpdating.value = rowId;
+    rawDraftError.value = '';
+    await api.patch(`/payroll/import-rows/${rowId}`, { draftPayable: !!isPayable });
+    await loadRawAuditData();
+  } catch (e) {
+    rawDraftError.value = e.response?.data?.error?.message || e.message || 'Failed to update draft payable';
+  } finally {
+    rawAuditDraftUnpaidUpdating.value = null;
+  }
+};
+
 const rawAuditPayableChanges = computed(() => {
   const all = (rawAuditChanges.value || []).slice();
   return all.filter((c) => {
     const toStatus = String(c?.to_status || '').toUpperCase();
     const toUnits = Number(c?.to_units || 0);
-    if (toStatus !== 'FINALIZED' || !(toUnits > 1e-9)) return false;
+    if (!(toUnits > 1e-9)) return false;
     const userId = Number(c?.user_id || 0);
     if (!userId) return false;
-    return true;
+    if (toStatus === 'FINALIZED') return true;
+    if (toStatus === 'DRAFT_PAID') return true;
+    return false;
   });
 });
 
@@ -10502,7 +10571,61 @@ const loadRunsSideBySide = async () => {
 const openRunsSideBySideModal = async () => {
   if (!selectedPeriodId.value) return;
   showRunsSideBySideModal.value = true;
+  runsSideBySideSearch.value = '';
+  runsSideBySideSortColumn.value = 'provider_name';
+  runsSideBySideSortDirection.value = 'asc';
   await loadRunsSideBySide();
+};
+
+const runsSideBySideFilteredRows = computed(() => {
+  const rows = runsSideBySideData.value?.rows || [];
+  const q = String(runsSideBySideSearch.value || '').trim().toLowerCase();
+  let filtered = rows;
+  if (q) {
+    filtered = rows.filter((r) => {
+      const prov = String(r.provider_name || '').toLowerCase();
+      const code = String(r.service_code || '').toLowerCase();
+      const client = String(r.client_hint || '').toLowerCase();
+      const date = String(r.service_date || '').toLowerCase();
+      const s1 = String(r.run1_status || '').toLowerCase();
+      const s2 = String(r.run2_status || '').toLowerCase();
+      const s3 = String(r.run3_status || '').toLowerCase();
+      return prov.includes(q) || code.includes(q) || client.includes(q) || date.includes(q) ||
+        s1.includes(q) || s2.includes(q) || s3.includes(q);
+    });
+  }
+  const col = runsSideBySideSortColumn.value || 'provider_name';
+  const dir = runsSideBySideSortDirection.value === 'asc' ? 1 : -1;
+  const sorted = [...filtered].sort((a, b) => {
+    let cmp = 0;
+    if (col === 'provider_name') cmp = String(a.provider_name || '').localeCompare(String(b.provider_name || ''), undefined, { sensitivity: 'base' });
+    else if (col === 'service_code') cmp = String(a.service_code || '').localeCompare(String(b.service_code || ''), undefined, { sensitivity: 'base' });
+    else if (col === 'service_date') cmp = String(a.service_date || '').localeCompare(String(b.service_date || ''), undefined, { sensitivity: 'base' });
+    else if (col === 'client_hint') cmp = String(a.client_hint || '').localeCompare(String(b.client_hint || ''), undefined, { sensitivity: 'base' });
+    else if (col === 'run1_units') cmp = (Number(a.run1_units ?? -1) || -1) - (Number(b.run1_units ?? -1) || -1);
+    else if (col === 'run1_status') cmp = String(a.run1_status || '').localeCompare(String(b.run1_status || ''), undefined, { sensitivity: 'base' });
+    else if (col === 'run2_units') cmp = (Number(a.run2_units ?? -1) || -1) - (Number(b.run2_units ?? -1) || -1);
+    else if (col === 'run2_status') cmp = String(a.run2_status || '').localeCompare(String(b.run2_status || ''), undefined, { sensitivity: 'base' });
+    else if (col === 'run3_units') cmp = (Number(a.run3_units ?? -1) || -1) - (Number(b.run3_units ?? -1) || -1);
+    else if (col === 'run3_status') cmp = String(a.run3_status || '').localeCompare(String(b.run3_status || ''), undefined, { sensitivity: 'base' });
+    else cmp = 0;
+    return cmp * dir;
+  });
+  return sorted;
+});
+
+const toggleRunsSideBySideSort = (col) => {
+  if (runsSideBySideSortColumn.value === col) {
+    runsSideBySideSortDirection.value = runsSideBySideSortDirection.value === 'asc' ? 'desc' : 'asc';
+  } else {
+    runsSideBySideSortColumn.value = col;
+    runsSideBySideSortDirection.value = ['run1_units', 'run2_units', 'run3_units', 'service_date'].includes(col) ? 'desc' : 'asc';
+  }
+};
+
+const runsSideBySideSortIndicator = (col) => {
+  if (runsSideBySideSortColumn.value !== col) return '';
+  return runsSideBySideSortDirection.value === 'asc' ? ' ↑' : ' ↓';
 };
 
 const loadPeriodDetails = async () => {
