@@ -385,7 +385,8 @@ async function enforceTargetPeriodDeadline({
   targetPayrollPeriodId,
   targetPeriodRow = null,
   officeLocationId = null,
-  hardStopPolicy = '60_days'
+  hardStopPolicy = '60_days',
+  skipDeadlineIfPeriodNotRun = false
 }) {
   const overrideDeadline = parseBool(req.body?.overrideDeadline);
   if (overrideDeadline && !isAdminRole(req.user?.role)) {
@@ -414,6 +415,15 @@ async function enforceTargetPeriodDeadline({
   }
 
   if (overrideDeadline) return { ok: true, overrideDeadline: true, timeZone, target };
+
+  // If payroll has not been run yet for the target period, allow adding the claim
+  // even if it was submitted after the deadline.
+  if (skipDeadlineIfPeriodNotRun) {
+    const st = String(target.status || '').toLowerCase();
+    if (st !== 'ran' && st !== 'posted' && st !== 'finalized') {
+      return { ok: true, overrideDeadline: false, timeZone, target, win: null };
+    }
+  }
 
   const win = await computeSubmissionWindow({
     agencyId,
@@ -14666,7 +14676,8 @@ export const patchReimbursementClaim = async (req, res, next) => {
         agencyId: claim.agency_id,
         effectiveDateYmd: claim.expense_date,
         submittedAt: claim.created_at,
-        targetPayrollPeriodId
+        targetPayrollPeriodId,
+        skipDeadlineIfPeriodNotRun: true
       });
       if (!ok.ok) return;
 
@@ -14787,7 +14798,8 @@ export const patchReimbursementClaim = async (req, res, next) => {
         effectiveDateYmd: claim.expense_date,
         submittedAt: claim.created_at,
         targetPayrollPeriodId,
-        targetPeriodRow: toPeriod
+        targetPeriodRow: toPeriod,
+        skipDeadlineIfPeriodNotRun: true
       });
       if (!ok.ok) return;
 
