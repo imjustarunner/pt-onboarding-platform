@@ -5663,8 +5663,11 @@ export const batchCatchUp = [
             });
           }
         } else {
-          const latestRun = runs[runs.length - 1];
-          run1 = { run: latestRun, snapshotRows: await PayrollPeriodRunSnapshot.listForRun(latestRun.id) };
+          // Use the earliest run (runs[0]) as the baseline so we always compare against the
+          // original Run 1 import state, not a later snapshot that may already show everything
+          // as finalized from a previous catch-up attempt.
+          const earliestRun = runs[0];
+          run1 = { run: earliestRun, snapshotRows: await PayrollPeriodRunSnapshot.listForRun(earliestRun.id) };
         }
         twoRunMode = true;
         const parsed2 = parsePayrollFile(f2.buffer, f2.originalname || 'file2.csv')?.rows || [];
@@ -8543,7 +8546,9 @@ function computeStillUnpaidFromRunRows({ runRows }) {
     const userId = r.user_id;
     const serviceCode = r.service_code;
     if (!userId || !serviceCode) continue;
-    const unpaid = Number(r.no_note_units || 0) + Number(r.draft_units || 0);
+    // Only count no_note_units as "still unpaid." Draft notes are partially complete
+    // and should not surface in the prior-still-unpaid staging column.
+    const unpaid = Number(r.no_note_units || 0);
     if (unpaid > 1e-9) {
       rows.push({ userId, serviceCode, stillUnpaidUnits: Number(unpaid.toFixed(2)) });
     }
@@ -9232,12 +9237,51 @@ export const getPayrollPeriodRunsSideBySide = async (req, res, next) => {
       rowsByRun.push(rows.map((r) => mapRawRowForAudit(r)));
     }
 
+    // Short key: provider+date+code only (no client).
+    // Fallback for old imports where patient_first_name is NULL (pre-migration 218),
+    // so the full key differs from newer imports that have the actual client name.
+    const shortKeyForSideBySide = (r) => {
+      const prov = normalizeName(r?.provider_name || '');
+      const date = String(r?.service_date || '').slice(0, 10);
+      const code = baseServiceCodeForSession(r?.service_code) || String(r?.service_code || '').trim().toUpperCase();
+      return `${prov}|${date}|${code}`;
+    };
+
+    // Pass 1: group by full key (provider+date+code+client).
     const keyToRuns = new Map();
     for (let runIdx = 0; runIdx < runCount; runIdx++) {
       for (const r of rowsByRun[runIdx]) {
         const key = rowKeyForSideBySide(r);
         if (!keyToRuns.has(key)) keyToRuns.set(key, [[], [], []]);
         keyToRuns.get(key)[runIdx].push(r);
+      }
+    }
+
+    // Pass 2: collapse groups that share the same short key when one has an empty client
+    // (null patient_first_name in old baseline imports). Merge them into a single group.
+    const shortKeyToFullKeys = new Map(); // shortKey → first full key seen with non-empty client
+    for (const [fullKey, runArrays] of keyToRuns) {
+      const allRows = runArrays.flat();
+      const hasClient = allRows.some((r) => firstTokenForClient(r?.patient_first_name));
+      const sk = shortKeyForSideBySide(allRows[0] || {});
+      if (hasClient) {
+        // This full key has a client — record as the canonical for this short key.
+        if (!shortKeyToFullKeys.has(sk)) shortKeyToFullKeys.set(sk, fullKey);
+      }
+    }
+    for (const [fullKey, runArrays] of [...keyToRuns.entries()]) {
+      const allRows = runArrays.flat();
+      const hasClient = allRows.some((r) => firstTokenForClient(r?.patient_first_name));
+      if (hasClient) continue; // already the canonical entry
+      const sk = shortKeyForSideBySide(allRows[0] || {});
+      const canonicalKey = shortKeyToFullKeys.get(sk);
+      if (canonicalKey && canonicalKey !== fullKey && keyToRuns.has(canonicalKey)) {
+        // Merge this no-client group into the canonical (with-client) group.
+        const target = keyToRuns.get(canonicalKey);
+        for (let i = 0; i < 3; i++) {
+          for (const r of runArrays[i]) target[i].push(r);
+        }
+        keyToRuns.delete(fullKey);
       }
     }
 
@@ -9252,7 +9296,7 @@ export const getPayrollPeriodRunsSideBySide = async (req, res, next) => {
         provider_name: row.provider_name || row.providerName || '—',
         service_code: row.service_code || '—',
         service_date: String(row.service_date || '').slice(0, 10) || '—',
-        client_hint: clientHint(row),
+        client_hint: clientHint(r1 || r2 || r3),
         run1_units: r1 ? Number(r1.unit_count || 0) : null,
         run1_status: r1 ? normalizedRawStatus(r1) : null,
         run2_units: r2 ? Number(r2.unit_count || 0) : null,

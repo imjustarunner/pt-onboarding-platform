@@ -538,7 +538,7 @@
                 </div>
                 <div v-if="batchCatchUpResult?.applied" style="margin-top: 10px;">
                   <div class="actions" style="align-items: center; gap: 12px;">
-                    <div class="hint" style="color: var(--success); margin: 0;">Done. Applied {{ batchCatchUpResult.carryoverRowsApplied }} rows.</div>
+                    <div class="hint" style="color: var(--success); margin: 0;">Added {{ batchCatchUpResult.carryoverRowsApplied }} rows to payroll staging{{ batchCatchUpDestPeriodLabel ? ` for ${batchCatchUpDestPeriodLabel}` : '' }}.</div>
                     <button class="btn btn-secondary btn-sm" type="button" @click="resetBatchCatchUp">Reset</button>
                     <button class="btn btn-primary" type="button" @click="wizardNext">Next</button>
                   </div>
@@ -1270,7 +1270,7 @@
         </div>
         <div v-if="batchCatchUpResult" style="margin-top: 10px;">
           <div v-if="batchCatchUpResult.applied" class="actions" style="align-items: center; gap: 12px;">
-            <div class="hint" style="color: var(--success); margin: 0;">Done. Applied {{ batchCatchUpResult.carryoverRowsApplied }} rows. Select the period above to review.</div>
+            <div class="hint" style="color: var(--success); margin: 0;">Added {{ batchCatchUpResult.carryoverRowsApplied }} rows to payroll staging{{ batchCatchUpDestPeriodLabel ? ` for ${batchCatchUpDestPeriodLabel}` : '' }}. Select the period above to review.</div>
             <button class="btn btn-secondary btn-sm" @click="resetBatchCatchUp">Reset</button>
           </div>
           <div class="hint" v-else>
@@ -1364,12 +1364,26 @@
           </div>
           <div v-if="batchCatchUpResult.superFlagCount > 0" class="warn-box" style="margin-top: 10px; padding: 12px;">
             <strong>No note ({{ batchCatchUpResult.superFlagCount }}):</strong> {{ batchCatchUpResult.twoRunMode ? 'No note in Run 1, still no note in Run 2.' : 'No note in Run 2, still no note in Run 3.' }} Please address.
-            <table class="table" style="margin-top: 8px; font-size: 0.9em;">
+            <div style="margin-top: 8px; margin-bottom: 6px;">
+              <input
+                v-model="superFlagSearch"
+                type="text"
+                placeholder="Search (user, code…)"
+                class="input"
+                style="max-width: 240px; font-size: 0.9em;"
+              />
+            </div>
+            <table class="table" style="margin-top: 4px; font-size: 0.9em;">
               <thead>
-                <tr><th>User</th><th>Service code</th><th class="right">{{ batchCatchUpResult.twoRunMode ? 'Run 1 no note' : 'Run 2 no note' }}</th><th class="right">{{ batchCatchUpResult.twoRunMode ? 'Run 2 no note' : 'Run 3 no note' }}</th></tr>
+                <tr>
+                  <th class="th-sortable" @click="superFlagSortBy('providerName')">User{{ superFlagSortIndicator('providerName') }}</th>
+                  <th class="th-sortable" @click="superFlagSortBy('serviceCode')">Service code{{ superFlagSortIndicator('serviceCode') }}</th>
+                  <th class="th-sortable right" @click="superFlagSortBy('run2')">{{ batchCatchUpResult.twoRunMode ? 'Run 1 no note' : 'Run 2 no note' }}{{ superFlagSortIndicator('run2') }}</th>
+                  <th class="th-sortable right" @click="superFlagSortBy('run3')">{{ batchCatchUpResult.twoRunMode ? 'Run 2 no note' : 'Run 3 no note' }}{{ superFlagSortIndicator('run3') }}</th>
+                </tr>
               </thead>
               <tbody>
-                <tr v-for="f in (batchCatchUpResult.superFlag || [])" :key="`${f.userId}-${f.serviceCode}`">
+                <tr v-for="f in superFlagFilteredRows" :key="`${f.userId}-${f.serviceCode}`">
                   <td>{{ f.providerName || getUserName(f.userId) }}</td>
                   <td>{{ f.serviceCode }}</td>
                   <td class="right">{{ fmtNum(f.run2NoNoteUnits ?? f.run2UnpaidUnits) }}</td>
@@ -12785,6 +12799,7 @@ const runBatchCatchUp = async () => {
     const resp = await api.post('/payroll/periods/batch-catch-up', fd);
     batchCatchUpResult.value = resp.data || null;
     batchCatchUpSearch.value = '';
+    superFlagSearch.value = '';
     // Initialize selection: all selected, original units
     const applied = batchCatchUpResult.value?.carryoverApplied || [];
     const sel = {};
@@ -12841,6 +12856,44 @@ const batchCatchUpSortBy = (col) => {
   else { batchCatchUpSortColumn.value = col; batchCatchUpSortDirection.value = 'asc'; }
 };
 const batchCatchUpSortIndicator = (col) => (batchCatchUpSortColumn.value === col ? (batchCatchUpSortDirection.value === 'asc' ? ' ↑' : ' ↓') : '');
+
+const superFlagSearch = ref('');
+const superFlagSortColumn = ref('providerName');
+const superFlagSortDirection = ref('asc');
+const superFlagFilteredRows = computed(() => {
+  const rows = batchCatchUpResult.value?.superFlag || [];
+  const q = String(superFlagSearch.value || '').trim().toLowerCase();
+  let filtered = rows;
+  if (q) {
+    filtered = rows.filter((f) => {
+      const prov = String(f.providerName || '').toLowerCase();
+      const code = String(f.serviceCode || '').toLowerCase();
+      return prov.includes(q) || code.includes(q);
+    });
+  }
+  const col = superFlagSortColumn.value || 'providerName';
+  const dir = superFlagSortDirection.value === 'asc' ? 1 : -1;
+  return [...filtered].sort((a, b) => {
+    let cmp = 0;
+    if (col === 'providerName') cmp = String(a.providerName || '').localeCompare(String(b.providerName || ''), undefined, { sensitivity: 'base' });
+    else if (col === 'serviceCode') cmp = String(a.serviceCode || '').localeCompare(String(b.serviceCode || ''), undefined, { sensitivity: 'base' });
+    else if (col === 'run2') cmp = (Number(a.run2NoNoteUnits ?? a.run2UnpaidUnits ?? 0) - Number(b.run2NoNoteUnits ?? b.run2UnpaidUnits ?? 0));
+    else if (col === 'run3') cmp = (Number(a.run3NoNoteUnits ?? a.run3UnpaidUnits ?? 0) - Number(b.run3NoNoteUnits ?? b.run3UnpaidUnits ?? 0));
+    return cmp * dir;
+  });
+});
+const superFlagSortBy = (col) => {
+  if (superFlagSortColumn.value === col) superFlagSortDirection.value = superFlagSortDirection.value === 'asc' ? 'desc' : 'asc';
+  else { superFlagSortColumn.value = col; superFlagSortDirection.value = 'asc'; }
+};
+const superFlagSortIndicator = (col) => (superFlagSortColumn.value === col ? (superFlagSortDirection.value === 'asc' ? ' ↑' : ' ↓') : '');
+
+const batchCatchUpDestPeriodLabel = computed(() => {
+  const id = batchCatchUpDestinationPeriodId.value || batchCatchUpResult.value?.destinationPeriodId;
+  if (!id) return '';
+  const p = (periods.value || []).find((x) => Number(x.id) === Number(id));
+  return p ? periodRangeLabel(p) : `Period #${id}`;
+});
 
 const batchCatchUpRowKey = (c) => `${c.userId}:${(c.serviceCode || '').toUpperCase()}`;
 const batchCatchUpRowSelected = (c) => {
