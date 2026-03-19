@@ -16,6 +16,7 @@ import {
   supervisorHasSuperviseeInSchool,
   supervisorCanAccessClientInOrg
 } from '../utils/supervisorSchoolAccess.js';
+import { supportTicketSourceLabel } from '../constants/supportTicketSources.js';
 
 async function hasSupportTicketMessagesTable() {
   try {
@@ -212,6 +213,69 @@ const isTicketQueueCollaboratorRole = (role) => {
   return r === 'school_staff' || r === 'admin' || r === 'super_admin' || r === 'support' || r === 'staff' || r === 'clinical_practice_assistant' || r === 'provider_plus';
 };
 
+const normalizeEmail = (value) => {
+  const out = String(value || '').trim().toLowerCase();
+  return out.includes('@') ? out : '';
+};
+
+async function isSchedulerForSchool({ userId, schoolOrganizationId, userEmail = null }) {
+  const sid = Number(schoolOrganizationId || 0);
+  if (!userId || !sid) return false;
+  const user = await User.findById(userId);
+  const emails = new Set([
+    normalizeEmail(userEmail),
+    normalizeEmail(user?.email),
+    normalizeEmail(user?.work_email),
+    normalizeEmail(user?.username),
+    normalizeEmail(user?.personal_email)
+  ].filter(Boolean));
+  if (!emails.size) return false;
+  const placeholders = Array.from(emails).map(() => '?').join(',');
+  try {
+    const [rows] = await pool.execute(
+      `SELECT 1
+       FROM school_contacts
+       WHERE school_organization_id = ?
+         AND LOWER(TRIM(email)) IN (${placeholders})
+         AND is_scheduler = 1
+       LIMIT 1`,
+      [sid, ...Array.from(emails)]
+    );
+    return !!rows?.[0];
+  } catch (err) {
+    if (err?.code === 'ER_BAD_FIELD_ERROR' || err?.code === 'ER_NO_SUCH_TABLE') return false;
+    throw err;
+  }
+}
+
+async function isSchedulerForAnySchool({ userId, userEmail = null }) {
+  if (!userId) return false;
+  const user = await User.findById(userId);
+  const emails = new Set([
+    normalizeEmail(userEmail),
+    normalizeEmail(user?.email),
+    normalizeEmail(user?.work_email),
+    normalizeEmail(user?.username),
+    normalizeEmail(user?.personal_email)
+  ].filter(Boolean));
+  if (!emails.size) return false;
+  const placeholders = Array.from(emails).map(() => '?').join(',');
+  try {
+    const [rows] = await pool.execute(
+      `SELECT 1
+       FROM school_contacts
+       WHERE LOWER(TRIM(email)) IN (${placeholders})
+         AND is_scheduler = 1
+       LIMIT 1`,
+      [...Array.from(emails)]
+    );
+    return !!rows?.[0];
+  } catch (err) {
+    if (err?.code === 'ER_BAD_FIELD_ERROR' || err?.code === 'ER_NO_SUCH_TABLE') return false;
+    throw err;
+  }
+}
+
 const canManageTicketAssignments = (req) => isTicketQueueCollaboratorRole(req.user?.role);
 
 const formatUserDisplayName = (user, fallback = 'Someone') => {
@@ -361,6 +425,12 @@ async function canViewClientTicketScope({ req, schoolOrganizationId, clientId })
 
 async function getSchoolStaffTicketAccessState({ req, schoolOrganizationId, clientId }) {
   if (String(req.user?.role || '').toLowerCase() !== 'school_staff') return 'none';
+  const scheduler = await isSchedulerForSchool({
+    userId: req.user?.id,
+    schoolOrganizationId,
+    userEmail: req.user?.email || req.user?.username || null
+  });
+  if (scheduler) return 'limited';
   return ClientSchoolStaffRoiAccess.resolveSchoolStaffClientAccessState({
     clientId,
     schoolOrganizationId,
@@ -409,7 +479,13 @@ function buildSupportTicketResponsePrompt({
     `- Subject: ${truncateText(ticket?.subject || 'Support ticket', 240)}`,
     `- Question: ${truncateText(ticket?.question, 1800)}`,
     `- Status: ${String(ticket?.status || '').toLowerCase() || 'open'}`,
-    `- Created by: ${truncateText(ticket?.created_by_name || ticket?.created_by_email || `User #${ticket?.created_by_user_id || '—'}`, 160)}`,
+    `- Created by: ${truncateText(
+      ticket?.created_by_name ||
+      ticket?.created_by_email ||
+      (ticket?.created_by_source_key ? `${supportTicketSourceLabel(ticket.created_by_source_key)} (external request)` : null) ||
+      `User #${ticket?.created_by_user_id || '—'}`,
+      160
+    )}`,
     `- School: ${truncateText(ticket?.school_name || `Org #${ticket?.school_organization_id || '—'}`, 160)}`,
     `- Created at: ${formatPromptDate(ticket?.created_at)}`
   ];
@@ -569,6 +645,9 @@ export const listSupportTicketsQueue = async (req, res, next) => {
 
     const where = [];
     const params = [];
+    const schedulerOwnOnly = role === 'school_staff'
+      ? await isSchedulerForAnySchool({ userId: req.user?.id, userEmail: req.user?.email || req.user?.username || null })
+      : false;
 
     // Scope to user's agencies/schools for non-super_admin (so agency admins see all tickets from their agency's schools)
     const scope = await getAccessibleTicketScopeForUser(req.user.id, role, req);
@@ -631,6 +710,10 @@ export const listSupportTicketsQueue = async (req, res, next) => {
     // "My tickets" = claimed by current user.
     if (mine === true) {
       where.push('t.claimed_by_user_id = ?');
+      params.push(req.user.id);
+    }
+    if (schedulerOwnOnly) {
+      where.push('t.created_by_user_id = ?');
       params.push(req.user.id);
     }
 
@@ -727,6 +810,9 @@ export const getSupportTicketsCount = async (req, res, next) => {
 
     const where = [];
     const params = [];
+    const schedulerOwnOnly = role === 'school_staff'
+      ? await isSchedulerForAnySchool({ userId: req.user?.id, userEmail: req.user?.email || req.user?.username || null })
+      : false;
 
     const scope = await getAccessibleTicketScopeForUser(req.user.id, role, req);
     if (scope.agencyIds !== null) {
@@ -751,6 +837,10 @@ export const getSupportTicketsCount = async (req, res, next) => {
 
     if (mine === true) {
       where.push('t.claimed_by_user_id = ?');
+      params.push(req.user.id);
+    }
+    if (schedulerOwnOnly) {
+      where.push('t.created_by_user_id = ?');
       params.push(req.user.id);
     }
 
@@ -1071,6 +1161,13 @@ export const listSupportTicketMessages = async (req, res, next) => {
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
 
     const role = String(req.user?.role || '').toLowerCase();
+    const schedulerOwnOnly = role === 'school_staff'
+      ? await isSchedulerForSchool({
+          userId: req.user?.id,
+          schoolOrganizationId: ticket.school_organization_id,
+          userEmail: req.user?.email || req.user?.username || null
+        })
+      : false;
     const limitedStaffOwnTicketOnly =
       role === 'school_staff' &&
       Number(ticket?.client_id || 0) > 0 &&
@@ -1081,7 +1178,8 @@ export const listSupportTicketMessages = async (req, res, next) => {
           clientId: ticket.client_id
         })
       ) === 'limited';
-    if (limitedStaffOwnTicketOnly && Number(ticket?.created_by_user_id || 0) !== Number(req.user?.id || 0)) {
+    const restrictToOwnTicket = limitedStaffOwnTicketOnly || schedulerOwnOnly;
+    if (restrictToOwnTicket && Number(ticket?.created_by_user_id || 0) !== Number(req.user?.id || 0)) {
       return res.status(403).json({ error: { message: 'Limited ticket access only allows your own tickets' } });
     }
     let canView = isAgencyAdminUser(req) || role === 'super_admin';
@@ -1114,8 +1212,8 @@ export const listSupportTicketMessages = async (req, res, next) => {
 
     const hasSoftDelete = await hasSupportTicketMessagesSoftDeleteColumns();
     const messageParams = [ticketId];
-    const ownMessageClause = limitedStaffOwnTicketOnly ? ' AND m.author_user_id = ?' : '';
-    if (limitedStaffOwnTicketOnly) messageParams.push(req.user.id);
+    const ownMessageClause = restrictToOwnTicket ? ' AND m.author_user_id = ?' : '';
+    if (restrictToOwnTicket) messageParams.push(req.user.id);
     const [mRows] = await pool.execute(
       `SELECT m.*,
               u.first_name AS author_first_name,
@@ -1171,6 +1269,13 @@ export const createSupportTicketMessage = async (req, res, next) => {
     }
 
     const role = String(req.user?.role || '').toLowerCase();
+    const schedulerOwnOnly = role === 'school_staff'
+      ? await isSchedulerForSchool({
+          userId: req.user?.id,
+          schoolOrganizationId: ticket.school_organization_id,
+          userEmail: req.user?.email || req.user?.username || null
+        })
+      : false;
 
     // Client-scoped tickets: allow school_staff, agency admin/support/staff, and assigned providers to post.
     if (ticket.client_id) {
@@ -1183,7 +1288,7 @@ export const createSupportTicketMessage = async (req, res, next) => {
             clientId: ticket.client_id
           })
         ) === 'limited';
-      if (limitedStaffOwnTicketOnly && Number(ticket?.created_by_user_id || 0) !== Number(req.user?.id || 0)) {
+      if ((limitedStaffOwnTicketOnly || schedulerOwnOnly) && Number(ticket?.created_by_user_id || 0) !== Number(req.user?.id || 0)) {
         return res.status(403).json({ error: { message: 'Limited ticket access only allows replying to your own tickets' } });
       }
       let canPost = isAgencyAdminUser(req) || role === 'super_admin';
@@ -1433,7 +1538,10 @@ export const generateSupportTicketResponse = async (req, res, next) => {
     const createdByName = [ticket.created_by_first_name, ticket.created_by_last_name].filter(Boolean).join(' ').trim();
     const ticketContext = {
       ...ticket,
-      created_by_name: createdByName
+      created_by_name:
+        createdByName ||
+        ticket?.created_by_email ||
+        (ticket?.created_by_source_key ? `${supportTicketSourceLabel(ticket.created_by_source_key)} (external request)` : '')
     };
 
     let client = null;

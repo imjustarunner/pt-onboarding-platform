@@ -1017,6 +1017,34 @@ export const createMySchoolAvailabilityRequest = async (req, res, next) => {
     }
 
     await conn.commit();
+
+    try {
+      const [userRows] = await pool.execute(
+        `SELECT first_name, last_name
+         FROM users
+         WHERE id = ?
+         LIMIT 1`,
+        [providerId]
+      );
+      const providerName = userRows?.[0]
+        ? `${userRows[0].first_name || ''} ${userRows[0].last_name || ''}`.trim() || `Provider #${providerId}`
+        : `Provider #${providerId}`;
+      await Notification.create({
+        type: 'school_availability_request_pending',
+        severity: 'info',
+        title: 'School request pending',
+        message: `${providerName} requested school availability. Review in Availability Intake (School Requests).`,
+        audienceJson: { admin: true, clinicalPracticeAssistant: true, schoolStaff: false },
+        userId: null,
+        agencyId,
+        relatedEntityType: 'provider_school_availability_request',
+        relatedEntityId: requestId,
+        actorUserId: providerId
+      });
+    } catch {
+      /* non-blocking */
+    }
+
     res.status(201).json({ ok: true, id: requestId });
   } catch (e) {
     if (conn) {

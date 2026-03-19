@@ -150,6 +150,14 @@
           >
             Admin Tools
           </button>
+          <button
+            v-if="isFakeySchoolForSplashTest"
+            class="btn btn-secondary btn-sm"
+            type="button"
+            @click="openWeeklySplashPreview"
+          >
+            Display weekly splash
+          </button>
           <button class="btn btn-secondary btn-sm" type="button" @click="showHelpDesk = true">Contact admin</button>
           <button
             v-if="isSchoolStaff"
@@ -647,10 +655,12 @@
             :organization-name="organizationDisplayName || organizationName"
             :roster-scope="isProvider ? 'provider' : 'school'"
             :client-label-mode="clientLabelMode"
+            :waitlist-school-count="waitlistSchoolCount"
             edit-mode="inline"
             :show-search="true"
             search-placeholder="Search roster…"
             @edit-client="openAdminClientEditor"
+            @open-availability-request="openAvailabilityRequest"
           />
           <div v-else class="empty-state">Organization not loaded.</div>
         </div>
@@ -744,9 +754,11 @@
             :organization-name="organizationDisplayName || organizationName"
             :roster-scope="isProvider ? 'provider' : 'school'"
             :client-label-mode="clientLabelMode"
+            :waitlist-school-count="waitlistSchoolCount"
             edit-mode="inline"
             v-model:statusFilterKey="rosterStatusFilterKey"
             @edit-client="openAdminClientEditor"
+            @open-availability-request="openAvailabilityRequest"
           />
           <div v-else class="empty-state">Organization not loaded.</div>
         </div>
@@ -951,18 +963,83 @@
       @uploaded="handleUploadSuccess"
     />
 
+    <div v-if="showWeeklyAvailabilityPrompt" class="modal-overlay" @click.self="dismissWeeklyAvailabilityPrompt">
+      <div class="modal weekly-availability-modal" @click.stop>
+        <div class="modal-header weekly-availability-header">
+          <strong>Weekly availability check-in</strong>
+          <button class="btn btn-secondary btn-sm" type="button" @click="dismissWeeklyAvailabilityPrompt">Close</button>
+        </div>
+        <div class="modal-body">
+          <div class="weekly-availability-lead">
+            Please confirm your school client availability this week.
+          </div>
+          <div class="weekly-availability-summary">
+            You are assigned: <strong>{{ availabilityAssignedClientsTotal }}</strong> client{{ availabilityAssignedClientsTotal === 1 ? '' : 's' }}.
+          </div>
+          <div v-if="availabilityContextLoading" class="muted" style="margin-bottom: 8px;">Loading your availability…</div>
+          <div v-if="availabilityContextError" class="error" style="margin-bottom: 8px;">{{ availabilityContextError }}</div>
+          <ul v-else class="availability-weekly-list">
+            <li v-for="d in availabilityDayOptions" :key="`weekly-${d.day_of_week}`">
+              <strong>{{ d.day_of_week }}:</strong>
+              {{ d.clients_assigned }} client{{ d.clients_assigned === 1 ? '' : 's' }} assigned,
+              {{ d.slots_available }} slot{{ Number(d.slots_available) === 1 ? '' : 's' }} available,
+              hours {{ formatSchoolPortalTimeRange(d.start_time, d.end_time) }}
+            </li>
+          </ul>
+          <div class="muted" style="margin-top: 10px;">
+            Please update your clients if needed. You may also update your availability.
+          </div>
+          <div v-if="availabilityConfirmSuccess" class="success" style="margin-top: 10px;">{{ availabilityConfirmSuccess }}</div>
+          <div v-if="availabilityConfirmError" class="error" style="margin-top: 10px;">{{ availabilityConfirmError }}</div>
+          <div class="weekly-availability-actions">
+            <button
+              class="btn btn-primary"
+              type="button"
+              :disabled="availabilityConfirming || !isProviderRoleForAvailability"
+              @click="confirmWeeklyAvailability"
+            >
+              {{ availabilityConfirming ? 'Confirming…' : 'Confirm current availability' }}
+            </button>
+            <button class="btn btn-primary" type="button" @click="openAvailabilityRequest({ source: 'weekly_prompt' })">
+              Update my availability
+            </button>
+            <a class="btn btn-secondary btn-sm" :href="additionalAvailabilityHref">
+              Submit for additional availability
+            </a>
+            <button class="btn btn-secondary btn-sm" type="button" @click="dismissWeeklyAvailabilityPrompt">Dismiss for now</button>
+          </div>
+          <div v-if="!isProviderRoleForAvailability" class="muted" style="margin-top: 8px;">
+            Confirm action is provider-only. This preview is shown for testing.
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div v-if="showAvailabilityRequest" class="modal-overlay" @click.self="closeAvailabilityRequest">
       <div class="modal" @click.stop>
         <div class="modal-header">
-          <strong>Update my availability (request)</strong>
+          <strong>Update my availability</strong>
           <button class="btn btn-secondary btn-sm" type="button" @click="closeAvailabilityRequest">Close</button>
         </div>
         <div class="modal-body">
           <div class="muted" style="margin-bottom: 10px;">
-            This sends a request to the admin/staff team to update your slots/hours for this school.
+            This sends a request to admin/staff for review and application.
+            Requests show in Provider Availability under School Requests.
+          </div>
+          <div v-if="availabilityContextLoading" class="muted" style="margin-bottom: 8px;">Loading your availability…</div>
+          <div v-if="availabilityContextError" class="error" style="margin-bottom: 10px;">
+            {{ availabilityContextError }}
           </div>
 
           <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 12px;">
+            <div class="form-group">
+              <label>Day</label>
+              <select v-model="availabilitySelectedDay">
+                <option v-for="d in availabilityDayOptions" :key="`avail-day-${d.day_of_week}`" :value="d.day_of_week">
+                  {{ d.day_of_week }} — {{ d.clients_assigned }} assigned / {{ d.slots_total }} slots
+                </option>
+              </select>
+            </div>
             <div class="form-group">
               <label>Current slots</label>
               <div class="muted">
@@ -974,6 +1051,9 @@
               <input v-model.number="availabilityDeltaSlots" type="number" />
               <div class="muted" style="font-size: 12px; margin-top: 4px;">
                 Requested total: <strong>{{ availabilityRequestedSlotsTotal }}</strong>
+              </div>
+              <div v-if="availabilityOverAssignedWarning" class="error" style="margin-top: 6px;">
+                {{ availabilityOverAssignedWarning }}
               </div>
             </div>
             <div class="form-group">
@@ -994,17 +1074,29 @@
               <label>Note (optional)</label>
               <input v-model="availabilityNote" type="text" placeholder="e.g., 40min sessions; can see 10/day on Tuesdays" />
             </div>
+            <div class="form-group" style="grid-column: 1 / -1;">
+              <label>Change preview (from -> to)</label>
+              <div class="muted">
+                Slots: <strong>{{ availabilityFromToSummary.slots }}</strong>
+              </div>
+              <div class="muted">
+                Hours: <strong>{{ availabilityFromToSummary.hours }}</strong>
+              </div>
+            </div>
           </div>
 
           <div style="display:flex; gap: 10px; align-items:center; margin-top: 12px;">
             <button
               class="btn btn-primary"
               type="button"
-              :disabled="availabilitySubmitting"
+              :disabled="availabilitySubmitting || !availabilitySelectedDay"
               @click="submitAvailabilityRequest"
             >
               {{ availabilitySubmitting ? 'Sending…' : 'Send request' }}
             </button>
+            <a class="btn btn-secondary btn-sm" :href="additionalAvailabilityHref">
+              Submit for additional availability
+            </a>
             <div v-if="availabilityError" class="error" style="margin:0;">{{ availabilityError }}</div>
           </div>
         </div>
@@ -1243,15 +1335,25 @@ const adminToolsResult = ref(null);
 const supervisorSuperviseeIds = ref([]);
 const schedulingEligibilityResolved = ref(false);
 
-// Provider availability request modal (creates a support ticket)
+// Provider availability modal (apply directly or send admin request)
 const showAvailabilityRequest = ref(false);
 const availabilityRequest = ref(null); // payload from ProviderPanel
+const availabilityDayOptions = ref([]); // [{ day_of_week, slots_total, slots_available, start_time, end_time, clients_assigned }]
+const availabilitySelectedDay = ref('');
+const availabilityAssignedClientsTotal = ref(0);
+const availabilityProviderName = ref('');
+const availabilityContextLoading = ref(false);
+const availabilityContextError = ref('');
 const availabilityDeltaSlots = ref(0);
 const availabilityNewStart = ref('');
 const availabilityNewEnd = ref('');
 const availabilityNote = ref('');
 const availabilitySubmitting = ref(false);
 const availabilityError = ref('');
+const showWeeklyAvailabilityPrompt = ref(false);
+const availabilityConfirming = ref(false);
+const availabilityConfirmSuccess = ref('');
+const availabilityConfirmError = ref('');
 
 const openComingSoon = (key) => {
   comingSoonKey.value = String(key || '');
@@ -1531,6 +1633,10 @@ const atGlance = computed(() => {
   const waitlist = Number.isFinite(Number(s.clients_waitlist)) ? String(Number(s.clients_waitlist)) : '0';
   const staff = Number.isFinite(Number(s.school_staff_count)) ? String(Number(s.school_staff_count)) : '0';
   return { days, clients, slots, pending, waitlist, staff };
+});
+const waitlistSchoolCount = computed(() => {
+  const n = Number(store.portalStats?.clients_waitlist ?? 0);
+  return Number.isFinite(n) && n >= 0 ? n : 0;
 });
 
 const isDarkMode = ref(document.documentElement.getAttribute('data-theme') === 'dark');
@@ -1996,105 +2102,355 @@ const loadSupervisorScheduleEligibility = async () => {
   }
 };
 
-const openAvailabilityRequest = (payload) => {
-  availabilityRequest.value = payload || null;
+const DAY_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+const additionalAvailabilityHref = '/dashboard?tab=submit';
+const WEEKLY_AVAILABILITY_PROMPT_KEY = 'schoolPortalWeeklyAvailabilityPrompt';
+
+const parseServiceDays = (raw) => {
+  const s = String(raw || '');
+  if (!s.trim()) return [];
+  return s
+    .split(',')
+    .map((d) => d.trim())
+    .filter((d) => DAY_ORDER.includes(d));
+};
+
+const weekKeyForDate = (value = new Date()) => {
+  const d = new Date(value);
+  d.setHours(0, 0, 0, 0);
+  const day = (d.getDay() + 6) % 7; // monday=0
+  d.setDate(d.getDate() - day + 3); // thursday-based ISO week anchor
+  const firstThursday = new Date(d.getFullYear(), 0, 4);
+  firstThursday.setHours(0, 0, 0, 0);
+  const firstDay = (firstThursday.getDay() + 6) % 7;
+  firstThursday.setDate(firstThursday.getDate() - firstDay + 3);
+  const weekNo = 1 + Math.round((d.getTime() - firstThursday.getTime()) / (7 * 24 * 60 * 60 * 1000));
+  return `${d.getFullYear()}-W${String(weekNo).padStart(2, '0')}`;
+};
+
+const weeklyAvailabilityPromptStorageKey = computed(() => {
+  const uid = Number(authStore.user?.id || 0);
+  const orgId = Number(organizationId.value || 0);
+  if (!uid || !orgId) return '';
+  return `${WEEKLY_AVAILABILITY_PROMPT_KEY}:${uid}:${orgId}`;
+});
+
+const hasSeenWeeklyAvailabilityPrompt = () => {
+  const k = weeklyAvailabilityPromptStorageKey.value;
+  if (!k) return false;
+  try {
+    return localStorage.getItem(k) === weekKeyForDate(new Date());
+  } catch {
+    return false;
+  }
+};
+
+const markWeeklyAvailabilityPromptSeen = () => {
+  const k = weeklyAvailabilityPromptStorageKey.value;
+  if (!k) return;
+  try {
+    localStorage.setItem(k, weekKeyForDate(new Date()));
+  } catch {
+    // ignore
+  }
+};
+
+const isProviderRoleForAvailability = computed(() => {
+  const role = String(authStore.user?.role || '').toLowerCase();
+  return ['provider', 'provider_plus', 'intern', 'intern_plus', 'clinical_practice_assistant'].includes(role);
+});
+
+const selectedAvailabilityAssignment = computed(() => {
+  const day = String(availabilitySelectedDay.value || '');
+  if (!day) return null;
+  return (availabilityDayOptions.value || []).find((d) => String(d.day_of_week || '') === day) || null;
+});
+
+const resetAvailabilityDraftFromSelectedDay = () => {
+  const day = selectedAvailabilityAssignment.value;
   availabilityDeltaSlots.value = 0;
   availabilityNote.value = '';
   availabilityError.value = '';
+  availabilityNewStart.value = String(day?.start_time || '').slice(0, 5) || '';
+  availabilityNewEnd.value = String(day?.end_time || '').slice(0, 5) || '';
+};
 
-  const st = String(payload?.startTime || '').slice(0, 5);
-  const et = String(payload?.endTime || '').slice(0, 5);
-  availabilityNewStart.value = st || '';
-  availabilityNewEnd.value = et || '';
+const ensureAvailabilityContext = async ({ force = false } = {}) => {
+  if (!organizationId.value || !isProviderRoleForAvailability.value) return;
+  if (!force && availabilityDayOptions.value.length > 0) return;
+  try {
+    availabilityContextLoading.value = true;
+    availabilityContextError.value = '';
+    const orgKey = organizationId.value;
+    const uid = Number(authStore.user?.id || 0);
+    const [providerResp, rosterResp] = await Promise.all([
+      api.get(`/school-portal/${orgKey}/providers/scheduling`, { skipGlobalLoading: true }),
+      api.get(`/school-portal/${orgKey}/my-roster`, { skipGlobalLoading: true })
+    ]);
+    const providers = Array.isArray(providerResp.data) ? providerResp.data : [];
+    const mine = providers.find((p) => Number(p?.provider_user_id || 0) === uid) || null;
+    const assignments = Array.isArray(mine?.assignments) ? mine.assignments : [];
+    const roster = Array.isArray(rosterResp.data) ? rosterResp.data : [];
+    availabilityAssignedClientsTotal.value = roster.length;
+    availabilityProviderName.value = mine
+      ? `${mine.first_name || ''} ${mine.last_name || ''}`.trim()
+      : `${authStore.user?.first_name || ''} ${authStore.user?.last_name || ''}`.trim();
+
+    const clientsByDay = new Map();
+    for (const day of DAY_ORDER) clientsByDay.set(day, 0);
+    for (const c of roster) {
+      const days = parseServiceDays(c?.service_day);
+      const uniqueDays = Array.from(new Set(days));
+      for (const d of uniqueDays) {
+        clientsByDay.set(d, Number(clientsByDay.get(d) || 0) + 1);
+      }
+    }
+
+    const next = assignments
+      .filter((a) => DAY_ORDER.includes(String(a?.day_of_week || '')))
+      .map((a) => {
+        const day = String(a.day_of_week || '');
+        const clientsAssigned = Number(clientsByDay.get(day) || 0);
+        const slotsTotal = Number(a?.slots_total ?? 0);
+        const rawAvailable = Number(a?.slots_available);
+        const slotsAvailable = Number.isFinite(rawAvailable) ? rawAvailable : (slotsTotal - clientsAssigned);
+        return {
+          day_of_week: day,
+          slots_total: Number.isFinite(slotsTotal) ? slotsTotal : 0,
+          slots_available: Number.isFinite(slotsAvailable) ? slotsAvailable : 0,
+          start_time: String(a?.start_time || '').slice(0, 5) || '',
+          end_time: String(a?.end_time || '').slice(0, 5) || '',
+          clients_assigned: clientsAssigned
+        };
+      })
+      .sort((a, b) => DAY_ORDER.indexOf(a.day_of_week) - DAY_ORDER.indexOf(b.day_of_week));
+
+    availabilityDayOptions.value = next;
+    if (!availabilitySelectedDay.value || !next.some((d) => d.day_of_week === availabilitySelectedDay.value)) {
+      availabilitySelectedDay.value = next[0]?.day_of_week || '';
+    }
+  } catch (e) {
+    availabilityContextError.value = e?.response?.data?.error?.message || 'Failed to load your school availability context';
+    availabilityDayOptions.value = [];
+    availabilitySelectedDay.value = '';
+    availabilityAssignedClientsTotal.value = 0;
+  } finally {
+    availabilityContextLoading.value = false;
+  }
+};
+
+const maybeOpenWeeklyAvailabilityPrompt = async () => {
+  if (!isProviderRoleForAvailability.value) return;
+  if (!organizationId.value) return;
+  if (hasSeenWeeklyAvailabilityPrompt()) return;
+  await ensureAvailabilityContext();
+  if ((availabilityDayOptions.value || []).length === 0) return;
+  availabilityConfirmSuccess.value = '';
+  availabilityConfirmError.value = '';
+  showWeeklyAvailabilityPrompt.value = true;
+};
+
+const dismissWeeklyAvailabilityPrompt = () => {
+  showWeeklyAvailabilityPrompt.value = false;
+  markWeeklyAvailabilityPromptSeen();
+};
+
+const openWeeklySplashPreview = async () => {
+  availabilityConfirmSuccess.value = '';
+  availabilityConfirmError.value = '';
+  if (isProviderRoleForAvailability.value) {
+    await ensureAvailabilityContext({ force: true });
+  }
+  showWeeklyAvailabilityPrompt.value = true;
+};
+
+const confirmWeeklyAvailability = async () => {
+  if (!organizationId.value || !isProviderRoleForAvailability.value) return;
+  availabilityConfirming.value = true;
+  availabilityConfirmSuccess.value = '';
+  availabilityConfirmError.value = '';
+  try {
+    const res = await api.post(`/school-portal/${organizationId.value}/provider-availability/confirm`);
+    const count = Number(res?.data?.notifiedCount || 0);
+    availabilityConfirmSuccess.value = count > 0
+      ? `Confirmed. ${count} admin notification${count === 1 ? '' : 's'} sent.`
+      : 'Confirmed. Admin notification sent.';
+    markWeeklyAvailabilityPromptSeen();
+    window.setTimeout(() => {
+      showWeeklyAvailabilityPrompt.value = false;
+    }, 700);
+  } catch (e) {
+    availabilityConfirmError.value = e?.response?.data?.error?.message || 'Failed to confirm availability';
+  } finally {
+    availabilityConfirming.value = false;
+  }
+};
+
+const openAvailabilityRequest = async (payload) => {
+  await ensureAvailabilityContext();
+  availabilityRequest.value = payload || null;
+  if (showWeeklyAvailabilityPrompt.value) dismissWeeklyAvailabilityPrompt();
+  const requestedDay = String(payload?.weekday || '').trim();
+  if (requestedDay && availabilityDayOptions.value.some((d) => d.day_of_week === requestedDay)) {
+    availabilitySelectedDay.value = requestedDay;
+  } else if (!availabilitySelectedDay.value) {
+    availabilitySelectedDay.value = availabilityDayOptions.value[0]?.day_of_week || '';
+  }
+  resetAvailabilityDraftFromSelectedDay();
   showAvailabilityRequest.value = true;
 };
 
 const closeAvailabilityRequest = () => {
   showAvailabilityRequest.value = false;
   availabilityRequest.value = null;
+  availabilitySelectedDay.value = '';
+  availabilityDayOptions.value = [];
+  availabilityAssignedClientsTotal.value = 0;
+  availabilityProviderName.value = '';
   availabilityDeltaSlots.value = 0;
   availabilityNewStart.value = '';
   availabilityNewEnd.value = '';
   availabilityNote.value = '';
   availabilityError.value = '';
+  availabilityContextError.value = '';
 };
 
 const availabilityCurrentSlotsText = computed(() => {
-  const p = availabilityRequest.value || {};
-  const total = p.slotsTotal ?? null;
-  const used = p.slotsUsed ?? null;
+  const d = selectedAvailabilityAssignment.value || {};
+  const total = d.slots_total ?? null;
+  const used = d.clients_assigned ?? null;
   if (total == null) return '—';
   if (used == null) return `${Number(total)} total`;
   return `${Number(used || 0)} assigned / ${Number(total)} total`;
 });
 
 const availabilityRequestedSlotsTotal = computed(() => {
-  const p = availabilityRequest.value || {};
-  const current = Number(p.slotsTotal ?? 0);
+  const d = selectedAvailabilityAssignment.value || {};
+  const current = Number(d.slots_total ?? 0);
   const delta = Number(availabilityDeltaSlots.value || 0);
   const out = Number.isFinite(current) ? current + delta : delta;
   return Number.isFinite(out) ? out : '';
 });
 
+const availabilityOverAssignedWarning = computed(() => {
+  const d = selectedAvailabilityAssignment.value || {};
+  const assigned = Number(d.clients_assigned ?? 0);
+  const requested = Number(availabilityRequestedSlotsTotal.value ?? NaN);
+  if (!Number.isFinite(requested)) return '';
+  if (requested < assigned) {
+    return `Requested slots (${requested}) are below assigned clients (${assigned}) for this day.`;
+  }
+  return '';
+});
+
+const formatSchoolPortalTime = (value) => {
+  const raw = String(value || '').trim();
+  if (!raw || raw === '—') return '—';
+  const hhmm = raw.length >= 5 ? raw.slice(0, 5) : raw;
+  const [hRaw, mRaw] = hhmm.split(':');
+  const hh = Number(hRaw);
+  const mm = Number(mRaw);
+  if (!Number.isFinite(hh) || !Number.isFinite(mm)) return hhmm;
+  const suffix = hh >= 12 ? 'PM' : 'AM';
+  const h12 = hh % 12 === 0 ? 12 : hh % 12;
+  return `${h12}:${String(mm).padStart(2, '0')} ${suffix}`;
+};
+
+const formatSchoolPortalTimeRange = (start, end) => {
+  const st = formatSchoolPortalTime(start);
+  const et = formatSchoolPortalTime(end);
+  if (st === '—' && et === '—') return '—';
+  return `${st} to ${et}`;
+};
+
 const availabilityCurrentHoursText = computed(() => {
-  const p = availabilityRequest.value || {};
-  const st = String(p.startTime || '').slice(0, 5);
-  const et = String(p.endTime || '').slice(0, 5);
-  if (!st && !et) return '—';
-  return `${st || '—'}–${et || '—'}`;
+  const d = selectedAvailabilityAssignment.value || {};
+  const st = String(d.start_time || '').slice(0, 5);
+  const et = String(d.end_time || '').slice(0, 5);
+  return formatSchoolPortalTimeRange(st, et);
+});
+
+const availabilityFromToSummary = computed(() => {
+  const d = selectedAvailabilityAssignment.value || {};
+  const fromSlots = Number(d.slots_total ?? 0);
+  const toSlots = Number(availabilityRequestedSlotsTotal.value ?? fromSlots);
+  const fromStart = String(d.start_time || '').slice(0, 5) || '—';
+  const fromEnd = String(d.end_time || '').slice(0, 5) || '—';
+  const toStart = String(availabilityNewStart.value || '').slice(0, 5) || fromStart;
+  const toEnd = String(availabilityNewEnd.value || '').slice(0, 5) || fromEnd;
+  return {
+    slots: `${fromSlots} -> ${toSlots}`,
+    hours: `${formatSchoolPortalTimeRange(fromStart, fromEnd)} -> ${formatSchoolPortalTimeRange(toStart, toEnd)}`
+  };
 });
 
 const submitAvailabilityRequest = async () => {
   if (!organizationId.value) return;
   const p = availabilityRequest.value || {};
-  if (!p.providerUserId) return;
+  const selected = selectedAvailabilityAssignment.value || {};
+  const providerUserId = Number(p.providerUserId || authStore.user?.id || 0);
+  if (!providerUserId || !availabilitySelectedDay.value) return;
   try {
     availabilitySubmitting.value = true;
     availabilityError.value = '';
 
-    const weekday = String(p.weekday || store.selectedWeekday || '').trim();
-    const providerName = String(p.providerName || '').trim() || `Provider #${p.providerUserId}`;
-    const currentSlots = p.slotsTotal ?? null;
-    const currentUsed = p.slotsUsed ?? null;
+    const weekday = String(availabilitySelectedDay.value || '').trim();
+    const providerName = String(availabilityProviderName.value || p.providerName || '').trim() || `Provider #${providerUserId}`;
+    const currentSlots = selected.slots_total ?? null;
+    const currentUsed = selected.clients_assigned ?? null;
     const delta = Number(availabilityDeltaSlots.value || 0);
     const requestedSlots = availabilityRequestedSlotsTotal.value;
     const currentHours = availabilityCurrentHoursText.value;
     const requestedHours =
       availabilityNewStart.value || availabilityNewEnd.value
-        ? `${availabilityNewStart.value || '—'}–${availabilityNewEnd.value || '—'}`
+        ? formatSchoolPortalTimeRange(availabilityNewStart.value || '—', availabilityNewEnd.value || '—')
         : '—';
 
-    const subject = `Availability update request — ${providerName}${weekday ? ` (${weekday})` : ''}`;
-    const question = [
+    const requestNotes = [
       `School: ${organizationDisplayName.value || organizationName.value || ''}`.trim(),
-      `Provider: ${providerName} (user_id=${p.providerUserId})`,
+      `Provider: ${providerName} (user_id=${providerUserId})`,
       weekday ? `Day: ${weekday}` : null,
-      '',
       `Current slots: ${currentUsed != null && currentSlots != null ? `${Number(currentUsed || 0)} assigned / ${Number(currentSlots)} total` : (currentSlots != null ? `${Number(currentSlots)} total` : '—')}`,
       `Requested slots total: ${requestedSlots} (delta ${delta >= 0 ? '+' : ''}${delta})`,
-      '',
       `Current hours: ${currentHours}`,
       `Requested hours: ${requestedHours}`,
-      availabilityNote.value.trim() ? '' : null,
       availabilityNote.value.trim() ? `Note: ${availabilityNote.value.trim()}` : null
-    ]
-      .filter((x) => x !== null && x !== undefined)
-      .join('\n');
+    ].filter(Boolean).join(' | ');
 
-    await api.post('/support-tickets', {
-      schoolOrganizationId: organizationId.value,
-      subject,
-      question
+    await api.post('/availability/school-requests', {
+      agencyId: affiliatedAgencyId.value || undefined,
+      notes: requestNotes,
+      blocks: [
+        {
+          dayOfWeek: weekday,
+          startTime: availabilityNewStart.value || String(selected.start_time || '').slice(0, 5),
+          endTime: availabilityNewEnd.value || String(selected.end_time || '').slice(0, 5)
+        }
+      ]
     });
 
-    closeAvailabilityRequest();
-    showHelpDesk.value = true; // show the user the created ticket in their list
+    const submittedDay = weekday || 'this day';
+    const submitAnother = window.confirm(`Request sent for ${submittedDay}. Submit another day update now?`);
+    if (submitAnother) {
+      await ensureAvailabilityContext({ force: true });
+      resetAvailabilityDraftFromSelectedDay();
+    } else {
+      closeAvailabilityRequest();
+    }
   } catch (e) {
     availabilityError.value = e.response?.data?.error?.message || 'Failed to send request';
   } finally {
     availabilitySubmitting.value = false;
   }
 };
+
+watch(
+  () => availabilitySelectedDay.value,
+  () => {
+    if (!showAvailabilityRequest.value) return;
+    resetAvailabilityDraftFromSelectedDay();
+  }
+);
 
 const ensureAffiliation = async () => {
   if (!organizationId.value) return;
@@ -2252,6 +2608,10 @@ const scrollToHomeRoster = () => {
 };
 
 const organizationSlug = computed(() => route.params.organizationSlug);
+const isFakeySchoolForSplashTest = computed(() => {
+  const slug = String(organizationSlug.value || '').trim().toLowerCase();
+  return slug === 'fakey-school' || slug === 'fakeyschool' || slug.includes('fakey');
+});
 
 const organizationName = computed(() => {
   return organizationStore.organizationContext?.name || 
@@ -2550,6 +2910,7 @@ onMounted(async () => {
 
   // Best-effort: resolve active affiliated agency for icon overrides + settings button.
   await ensureAffiliation();
+  await maybeOpenWeeklyAvailabilityPrompt();
 
   const stored = authStore.user?.id ? getStoredDarkMode(authStore.user.id) : null;
   if (stored !== null) isDarkMode.value = stored;
@@ -2583,6 +2944,7 @@ watch(organizationId, async (id) => {
   await openClientFromQuery();
 
   await ensureAffiliation();
+  await maybeOpenWeeklyAvailabilityPrompt();
 });
 
 watch(
@@ -3242,6 +3604,49 @@ watch(() => store.selectedWeekday, async (weekday) => {
 }
 .modal-body {
   padding: 14px 16px;
+}
+.availability-weekly-list {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.weekly-availability-modal {
+  border-color: rgba(14, 116, 76, 0.22);
+  box-shadow: 0 16px 38px rgba(15, 23, 42, 0.2);
+}
+
+.weekly-availability-header {
+  background: linear-gradient(
+    135deg,
+    var(--primary, var(--primary-color, #0f766e)) 0%,
+    var(--secondary, #0b6b63) 100%
+  );
+  color: var(--header-text-color, #fff);
+  border-bottom: none;
+}
+
+.weekly-availability-lead {
+  font-size: 16px;
+  font-weight: 700;
+  color: #111827;
+  margin-bottom: 8px;
+}
+
+.weekly-availability-summary {
+  margin-bottom: 8px;
+  color: #374151;
+}
+
+.weekly-availability-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-top: 12px;
+  flex-wrap: wrap;
 }
 
 .school-announcement-modal {

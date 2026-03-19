@@ -200,7 +200,7 @@
                     <router-link :to="orgTo('/admin/expenses')" v-if="canSeePayrollManagement" >Expense/Reimbursements</router-link>
                     <router-link :to="orgTo('/admin/budget-management')" v-if="canSeeBudgetManagement" >Budget Management</router-link>
                     <router-link :to="orgTo('/admin/revenue')" v-if="user?.role === 'super_admin'" >Revenue</router-link>
-                    <router-link :to="availabilityIntakeNavLink" v-if="canSeeAvailabilityIntake && !isAffiliationContext" >Availability Intake</router-link>
+                    <router-link :to="availabilityIntakeNavLink" v-if="canSeeAvailabilityIntake && !isAffiliationContext" >Provider Availability</router-link>
 
                     <div class="nav-dropdown-sep" />
 
@@ -564,7 +564,7 @@
               <router-link :to="orgTo('/admin/audit-center')" v-if="isTrueAdmin && !isAffiliationContext" @click="closeMobileMenu" class="mobile-nav-link">Audit Center</router-link>
               <router-link :to="orgTo('/admin/expenses')" v-if="canSeePayrollManagement" @click="closeMobileMenu" class="mobile-nav-link">Expense/Reimbursements</router-link>
               <router-link :to="orgTo('/admin/revenue')" v-if="user?.role === 'super_admin'" @click="closeMobileMenu" class="mobile-nav-link">Revenue</router-link>
-              <router-link :to="availabilityIntakeNavLink" v-if="canSeeAvailabilityIntake && !isAffiliationContext" @click="closeMobileMenu" class="mobile-nav-link">Availability Intake</router-link>
+              <router-link :to="availabilityIntakeNavLink" v-if="canSeeAvailabilityIntake && !isAffiliationContext" @click="closeMobileMenu" class="mobile-nav-link">Provider Availability</router-link>
 
               <router-link :to="orgTo('/admin/settings')" v-if="(canCreateEdit || user?.role === 'support') && user?.role !== 'clinical_practice_assistant'" @click="closeMobileMenu" class="mobile-nav-link">Settings</router-link>
             </template>

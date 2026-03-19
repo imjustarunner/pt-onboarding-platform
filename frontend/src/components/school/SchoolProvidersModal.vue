@@ -57,7 +57,7 @@
                 {{ a.slots_available }} / {{ a.slots_total }} slots
               </span>
               <span v-if="a.start_time || a.end_time" class="badge badge-secondary">
-                {{ a.start_time || '—' }}–{{ a.end_time || '—' }}
+                {{ formatClock(a.start_time) }} to {{ formatClock(a.end_time) }}
               </span>
             </div>
           </div>
@@ -114,6 +114,15 @@ const selectedProvider = computed(() => {
 });
 
 const dayOrder = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+const formatClock = (t) => {
+  const raw = String(t || '').slice(0, 5);
+  if (!raw || raw === '—') return '—';
+  const [hh, mm] = raw.split(':').map((x) => parseInt(x, 10));
+  if (!Number.isFinite(hh) || !Number.isFinite(mm)) return raw;
+  const suffix = hh >= 12 ? 'PM' : 'AM';
+  const h12 = hh % 12 === 0 ? 12 : hh % 12;
+  return `${h12}:${String(mm).padStart(2, '0')} ${suffix}`;
+};
 const assignmentsSorted = computed(() => {
   const list = Array.isArray(selectedProvider.value?.assignments) ? selectedProvider.value.assignments : [];
   return list

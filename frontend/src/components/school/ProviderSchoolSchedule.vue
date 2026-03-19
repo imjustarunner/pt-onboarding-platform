@@ -27,7 +27,7 @@
           <strong>Slots:</strong> {{ selectedAssignment.slots_available }} / {{ selectedAssignment.slots_total }}
         </div>
         <div class="chip" v-if="selectedAssignment && (selectedAssignment.start_time || selectedAssignment.end_time)">
-          <strong>Hours:</strong> {{ selectedAssignment.start_time || '—' }}–{{ selectedAssignment.end_time || '—' }}
+          <strong>Hours:</strong> {{ formatTime(selectedAssignment.start_time) }} to {{ formatTime(selectedAssignment.end_time) }}
         </div>
         <div class="chip" v-if="selectedProvider">
           <strong>Accepting:</strong> {{ selectedProvider.accepting_new_clients === false ? 'Closed' : 'Open' }}
@@ -206,8 +206,12 @@ const selectedAssignment = computed(() => {
 
 const formatTime = (t) => {
   if (!t) return '—';
-  // backend may return "HH:MM:SS"
-  return String(t).slice(0, 5);
+  const raw = String(t).slice(0, 5);
+  const [hh, mm] = raw.split(':').map((x) => parseInt(x, 10));
+  if (!Number.isFinite(hh) || !Number.isFinite(mm)) return raw;
+  const suffix = hh >= 12 ? 'PM' : 'AM';
+  const h12 = hh % 12 === 0 ? 12 : hh % 12;
+  return `${h12}:${String(mm).padStart(2, '0')} ${suffix}`;
 };
 
 const clientInitialsFallback = (clientId) => {

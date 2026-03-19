@@ -1,6 +1,8 @@
 import pool from '../config/database.js';
 import { createNotificationAndDispatch } from './notificationDispatcher.service.js';
 import { createClientOnboardingTaskForProvider } from './clientOnboardingTask.service.js';
+import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
+import { sendEmailFromIdentity } from './unifiedEmail/unifiedEmailSender.service.js';
 
 async function alreadyNotified({ agencyId, userId, type, relatedEntityId }) {
   const [rows] = await pool.execute(
@@ -57,6 +59,93 @@ async function getSchoolStaffUserIds(schoolOrganizationId) {
     [schoolOrganizationId]
   );
   return rows.map(r => r.id);
+}
+
+async function getSchoolItscoEmail(schoolOrganizationId) {
+  const sid = Number(schoolOrganizationId || 0);
+  if (!sid) return null;
+  try {
+    const [rows] = await pool.execute(
+      `SELECT sp.itsco_email
+       FROM school_profiles sp
+       WHERE sp.school_organization_id = ?
+       LIMIT 1`,
+      [sid]
+    );
+    const email = String(rows?.[0]?.itsco_email || '').trim();
+    return email || null;
+  } catch {
+    return null;
+  }
+}
+
+async function resolveNotificationsSenderIdentityId() {
+  try {
+    const identity = await EmailSenderIdentity.findByFromEmail('notifications@itsco.health');
+    return Number(identity?.id || 0) || null;
+  } catch {
+    return null;
+  }
+}
+
+async function sendSchoolIntakeStatusEmail({
+  schoolOrganizationId,
+  mode,
+  clientInitials,
+  schoolStaffName
+}) {
+  const sid = Number(schoolOrganizationId || 0);
+  if (!sid) return false;
+  const to = await getSchoolItscoEmail(sid);
+  if (!to) return false;
+  const senderIdentityId = await resolveNotificationsSenderIdentityId();
+  if (!senderIdentityId) return false;
+
+  const initials = String(clientInitials || '').trim() || 'TBD';
+  const staff = String(schoolStaffName || '').trim();
+  const includePaperStaffSentence = mode === 'paper_upload' && initials.toUpperCase() !== 'TBD' && !!staff;
+
+  let subject = '';
+  let text = '';
+  if (mode === 'paper_upload') {
+    subject = 'New Client Intake Notification: Paper Packet Uploaded';
+    text = [
+      'Hello,',
+      '',
+      includePaperStaffSentence
+        ? `A new paper packet has been uploaded into our system by ${staff} for the client ${initials}. Please login at app.ITSCO.health to view the client's status. Our team has been notified and they will be working on getting them ready to go!`
+        : `A new paper packet has been uploaded into our system for the client ${initials}. Please login at app.ITSCO.health to view the client's status. Our team has been notified and they will be working on getting them ready to go!`,
+      '',
+      'Thank you,',
+      '',
+      'ITSCO Support'
+    ].join('\n');
+  } else {
+    subject = 'New Client Intake Notification: Digital Packet Submitted';
+    text = [
+      'Hello,',
+      '',
+      `A new digital intake packet/form has been submitted for the client with the initials of ${initials}. Please login at app.ITSCO.health to view the client's status. Our team has been notified and they will be working on getting them ready to go!`,
+      '',
+      'Thank you,',
+      '',
+      'ITSCO Support'
+    ].join('\n');
+  }
+  const html = text
+    .split('\n')
+    .map((line) => (line ? `<p>${line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>` : '<p>&nbsp;</p>'))
+    .join('');
+
+  await sendEmailFromIdentity({
+    senderIdentityId,
+    to,
+    subject,
+    text,
+    html,
+    source: 'auto'
+  });
+  return true;
 }
 
 function buildChecklistDetails({
@@ -121,7 +210,15 @@ async function alreadyNotifiedNewPacketUploadedAgencyWide({ agencyId, clientId }
   return !!rows[0]?.id;
 }
 
-export async function notifyNewPacketUploaded({ agencyId, schoolOrganizationId, clientId, clientNameOrIdentifier }) {
+export async function notifyNewPacketUploaded({
+  agencyId,
+  schoolOrganizationId,
+  clientId,
+  clientNameOrIdentifier,
+  clientInitials,
+  mode = 'digital_submission',
+  schoolStaffName = null
+}) {
   if (!agencyId || !clientId) return;
   if (await alreadyNotifiedNewPacketUploadedAgencyWide({ agencyId, clientId })) return;
 
@@ -145,6 +242,14 @@ export async function notifyNewPacketUploaded({ agencyId, schoolOrganizationId, 
     relatedEntityType: 'client',
     relatedEntityId: clientId,
     actorSource: 'System'
+  }).catch(() => null);
+
+  // School-facing status email (uses editable sender identity: notifications@itsco.health).
+  await sendSchoolIntakeStatusEmail({
+    schoolOrganizationId,
+    mode,
+    clientInitials,
+    schoolStaffName
   }).catch(() => null);
 }
 

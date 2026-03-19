@@ -24,7 +24,7 @@
           <div class="meta">
             <span v-if="p.slots_total != null" class="badge badge-secondary">{{ (p.slots_used ?? 0) }} / {{ p.slots_total }} assigned</span>
             <span v-if="p.start_time || p.end_time" class="badge badge-secondary">
-              {{ (p.start_time || '—').toString().slice(0, 5) }}–{{ (p.end_time || '—').toString().slice(0, 5) }}
+              {{ formatClock(p.start_time) }} to {{ formatClock(p.end_time) }}
             </span>
           </div>
         </div>
@@ -143,6 +143,16 @@ const emit = defineEmits([
   'open-provider',
   'request-availability'
 ]);
+
+const formatClock = (t) => {
+  const raw = String(t || '').slice(0, 5);
+  if (!raw || raw === '—') return '—';
+  const [hh, mm] = raw.split(':').map((x) => parseInt(x, 10));
+  if (!Number.isFinite(hh) || !Number.isFinite(mm)) return raw;
+  const suffix = hh >= 12 ? 'PM' : 'AM';
+  const h12 = hh % 12 === 0 ? 12 : hh % 12;
+  return `${h12}:${String(mm).padStart(2, '0')} ${suffix}`;
+};
 
 const showAddProvider = ref(false);
 const selectedProviderUserId = ref('');

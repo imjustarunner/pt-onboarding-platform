@@ -152,6 +152,24 @@ export const useNotificationStore = defineStore('notifications', () => {
     }
   };
 
+  const setFollowUp = async (notificationId, enabled = true) => {
+    try {
+      await api.put(`/notifications/${notificationId}/follow-up`, { enabled: !!enabled });
+      const notification = notifications.value.find(n => n.id === notificationId);
+      if (notification) {
+        notification._requires_follow_up_for_viewer = !!enabled;
+        if (enabled) {
+          notification.is_read = false;
+          notification.read_at = null;
+          notification.muted_until = null;
+        }
+      }
+    } catch (error) {
+      console.error('Error updating follow-up state:', error);
+      throw error;
+    }
+  };
+
   const markAllAsRead = async (agencyId, filters = {}) => {
     try {
       await api.put('/notifications/read-all', { agencyId, filters });
@@ -250,6 +268,7 @@ export const useNotificationStore = defineStore('notifications', () => {
     markAllAsRead,
     markAllAsResolved,
     deleteNotification,
+    setFollowUp,
     setSelectedAgency,
     clearNotifications,
     fetchLatestNotifications

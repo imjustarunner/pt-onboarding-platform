@@ -3824,7 +3824,9 @@ export const finalizePublicIntake = async (req, res, next) => {
           agencyId,
           schoolOrganizationId: schoolOrgId,
           clientId,
-          clientNameOrIdentifier: clientLabel
+          clientNameOrIdentifier: clientLabel,
+          clientInitials: clientRow?.initials || clientPayload?.initials || null,
+          mode: 'digital_submission'
         }).catch(() => {});
       }
 
@@ -4301,7 +4303,9 @@ export const submitPublicIntake = async (req, res, next) => {
           agencyId,
           schoolOrganizationId: schoolOrgId,
           clientId,
-          clientNameOrIdentifier: clientLabel
+          clientNameOrIdentifier: clientLabel,
+          clientInitials: clientRow?.initials || clientPayload?.initials || null,
+          mode: 'digital_submission'
         }).catch(() => {});
       }
 

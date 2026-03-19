@@ -1,5 +1,6 @@
 const STORAGE_KEY = '__pt_login_remember__';
 const GOOGLE_SSO_STORAGE_KEY = '__pt_google_sso_remember__';
+const SCHOOL_STAFF_PASSWORD_LOGIN_KEY = '__pt_school_staff_password_login_remember__';
 
 function normalizeUsername(value) {
   return String(value || '').trim();
@@ -62,6 +63,46 @@ export function setRememberedGoogleLogin({ username, orgSlug } = {}) {
     const s = normalizeOrgSlug(orgSlug);
     if (!u || !s) return;
     localStorage.setItem(GOOGLE_SSO_STORAGE_KEY, JSON.stringify({ username: u, orgSlug: s, ts: Date.now() }));
+  } catch {
+    // ignore
+  }
+}
+
+export function getRememberedSchoolStaffPasswordLogin() {
+  try {
+    const raw = localStorage.getItem(SCHOOL_STAFF_PASSWORD_LOGIN_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    const username = normalizeUsername(parsed?.username);
+    const orgSlug = normalizeOrgSlug(parsed?.orgSlug);
+    if (!username || !orgSlug) return null;
+    return { username, orgSlug };
+  } catch {
+    return null;
+  }
+}
+
+export function setRememberedSchoolStaffPasswordLogin({ username, orgSlug } = {}) {
+  try {
+    const u = normalizeUsername(username);
+    const s = normalizeOrgSlug(orgSlug);
+    if (!u || !s) return;
+    localStorage.setItem(SCHOOL_STAFF_PASSWORD_LOGIN_KEY, JSON.stringify({ username: u, orgSlug: s, ts: Date.now() }));
+  } catch {
+    // ignore
+  }
+}
+
+export function clearRememberedSchoolStaffPasswordLogin(orgSlug = null) {
+  try {
+    if (!orgSlug) {
+      localStorage.removeItem(SCHOOL_STAFF_PASSWORD_LOGIN_KEY);
+      return;
+    }
+    const remembered = getRememberedSchoolStaffPasswordLogin();
+    const target = normalizeOrgSlug(orgSlug);
+    if (!remembered || remembered.orgSlug !== target) return;
+    localStorage.removeItem(SCHOOL_STAFF_PASSWORD_LOGIN_KEY);
   } catch {
     // ignore
   }

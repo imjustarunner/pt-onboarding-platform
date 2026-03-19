@@ -7,6 +7,7 @@ import UserActivityLog from '../models/UserActivityLog.model.js';
 import ActivityLogService from '../services/activityLog.service.js';
 import config from '../config/config.js';
 import { getUserCapabilities } from '../utils/capabilities.js';
+import { calcPasswordExpiry } from '../utils/passwordPolicy.js';
 import Agency from '../models/Agency.model.js';
 import { createSignedState as createGoogleState, verifySignedState as verifyGoogleState, exchangeCodeForTokens, getGoogleAuthorizeUrl, getGoogleOAuthClient } from '../services/googleOAuth.service.js';
 import EmailService from '../services/email.service.js';
@@ -16,6 +17,8 @@ import { sendEmailFromIdentity } from '../services/unifiedEmail/unifiedEmailSend
 import { resolvePreferredSenderIdentityForAgency } from '../services/emailSenderIdentityResolver.service.js';
 import { getPlatformAgencyId } from './summitStats.controller.js';
 import pool from '../config/database.js';
+import { verifyRecaptchaV3 } from '../services/captcha.service.js';
+import { SUPPORT_TICKET_SOURCE_KEYS, normalizeSupportTicketSourceKey } from '../constants/supportTicketSources.js';
 
 async function buildPayrollCaps(user) {
   const [payrollAgencyIds, departmentAgencyIds, credentialingAgencyIds] = user?.id
@@ -646,19 +649,6 @@ export const login = async (req, res, next) => {
       // best-effort
     }
 
-    // 6-month password expiry (best-effort; defaults to created_at if password_changed_at missing)
-    const calcPasswordExpiry = (u) => {
-      const changedAt = u?.password_changed_at ? new Date(u.password_changed_at) : (u?.created_at ? new Date(u.created_at) : null);
-      if (!changedAt || Number.isNaN(changedAt.getTime())) return { requiresPasswordChange: false, passwordExpiresAt: null, passwordExpired: false };
-      const expiresAt = new Date(changedAt.getTime());
-      expiresAt.setMonth(expiresAt.getMonth() + 6);
-      const expired = expiresAt.getTime() <= Date.now();
-      return {
-        requiresPasswordChange: expired,
-        passwordExpiresAt: expiresAt.toISOString(),
-        passwordExpired: expired
-      };
-    };
     const pw = calcPasswordExpiry(freshUser);
 
     // Force a password change when a temporary password is active (and unexpired).
@@ -1710,18 +1700,6 @@ export const passwordlessTokenLogin = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'User not found' } });
     }
 
-    const calcPasswordExpiry = (u) => {
-      const changedAt = u?.password_changed_at ? new Date(u.password_changed_at) : (u?.created_at ? new Date(u.created_at) : null);
-      if (!changedAt || Number.isNaN(changedAt.getTime())) return { requiresPasswordChange: false, passwordExpiresAt: null, passwordExpired: false };
-      const expiresAt = new Date(changedAt.getTime());
-      expiresAt.setMonth(expiresAt.getMonth() + 6);
-      const expired = expiresAt.getTime() <= Date.now();
-      return {
-        requiresPasswordChange: expired,
-        passwordExpiresAt: expiresAt.toISOString(),
-        passwordExpired: expired
-      };
-    };
     const pw = calcPasswordExpiry(fullUser);
     
     // Block ARCHIVED users
@@ -2009,18 +1987,6 @@ export const passwordlessTokenLoginFromBody = async (req, res, next) => {
 
       console.log('[passwordlessTokenLoginFromBody] Login successful for user:', user.id, user.first_name, user.last_name);
       
-      const calcPasswordExpiry = (u) => {
-        const changedAt = u?.password_changed_at ? new Date(u.password_changed_at) : (u?.created_at ? new Date(u.created_at) : null);
-        if (!changedAt || Number.isNaN(changedAt.getTime())) return { requiresPasswordChange: false, passwordExpiresAt: null, passwordExpired: false };
-        const expiresAt = new Date(changedAt.getTime());
-        expiresAt.setMonth(expiresAt.getMonth() + 6);
-        const expired = expiresAt.getTime() <= Date.now();
-        return {
-          requiresPasswordChange: expired,
-          passwordExpiresAt: expiresAt.toISOString(),
-          passwordExpired: expired
-        };
-      };
       const pw = calcPasswordExpiry(fullUser);
       
       const response = {
@@ -2154,6 +2120,107 @@ export const validateResetToken = async (req, res, next) => {
 const normalizeOrgSlug = (value) => {
   const v = String(value || '').trim().toLowerCase();
   return v || null;
+};
+
+const NON_AGENCY_RECOVERY_ROLES = new Set(['school_staff', 'client_guardian', 'guardian', 'client']);
+
+const getClientIpAddress = (req) => {
+  const forwarded = req.headers['x-forwarded-for'];
+  if (Array.isArray(forwarded)) return String(forwarded[0] || '').trim();
+  if (typeof forwarded === 'string' && forwarded) return forwarded.split(',')[0].trim();
+  return String(req.ip || req.connection?.remoteAddress || '').trim();
+};
+
+const isRecaptchaConfigured = () => !!(config.recaptcha?.secretKey || config.recaptcha?.enterpriseApiKey);
+
+const verifyRecoveryCaptcha = async ({ req, expectedAction }) => {
+  const captchaToken = String(req.body?.captchaToken || '').trim();
+  if (!isRecaptchaConfigured()) {
+    // In environments without captcha config, do not block recovery.
+    return { ok: true };
+  }
+  if (!captchaToken) {
+    return { ok: false, reason: 'missing_token' };
+  }
+  const verification = await verifyRecaptchaV3({
+    token: captchaToken,
+    remoteip: getClientIpAddress(req),
+    expectedAction,
+    userAgent: req.get('user-agent')
+  });
+  if (!verification.ok) return verification;
+  const minScoreRaw = process.env.RECAPTCHA_MIN_SCORE_LOGIN_RECOVERY ?? config.recaptcha?.minScore ?? 0.3;
+  const minScore = Number.isFinite(Number(minScoreRaw)) ? Number(minScoreRaw) : 0.3;
+  if (verification.score !== null && verification.score < minScore && config.nodeEnv === 'production') {
+    return { ok: false, reason: 'low_score', score: verification.score, minScore };
+  }
+  return verification;
+};
+
+const resolveActiveAgencyIdForOrg = async (orgId) => {
+  const sid = Number(orgId || 0);
+  if (!sid) return null;
+  try {
+    const [rows] = await pool.execute(
+      `SELECT affiliated_agency_id
+       FROM organization_affiliations
+       WHERE organization_id = ?
+         AND is_active = 1
+       ORDER BY id DESC
+       LIMIT 1`,
+      [sid]
+    );
+    const id = Number(rows?.[0]?.affiliated_agency_id || 0);
+    if (id > 0) return id;
+  } catch {
+    // best-effort fallback below
+  }
+  try {
+    const [rows] = await pool.execute(
+      `SELECT agency_id
+       FROM agency_schools
+       WHERE school_id = ?
+         AND is_active = 1
+       ORDER BY id DESC
+       LIMIT 1`,
+      [sid]
+    );
+    const id = Number(rows?.[0]?.agency_id || 0);
+    return id > 0 ? id : null;
+  } catch {
+    return null;
+  }
+};
+
+const createExternalSupportTicket = async ({
+  schoolOrganizationId,
+  agencyId = null,
+  subject,
+  question,
+  sourceKey = 'external_request',
+  fallbackUserId = null
+}) => {
+  try {
+    const normalizedSourceKey = normalizeSupportTicketSourceKey(sourceKey);
+    await pool.execute(
+      `INSERT INTO support_tickets
+        (school_organization_id, client_id, created_by_user_id, created_by_source_key, agency_id, subject, question, status)
+       VALUES (?, NULL, NULL, ?, ?, ?, ?, 'open')`,
+      [schoolOrganizationId, normalizedSourceKey, agencyId, subject, question]
+    );
+  } catch (e) {
+    // Backward-compatible fallback for DBs that haven't run the migration yet.
+    const msg = String(e?.message || '');
+    const unknownSourceCol = msg.includes('created_by_source_key');
+    if (!unknownSourceCol) throw e;
+    const fallbackCreator = Number(fallbackUserId || 0) > 0 ? Number(fallbackUserId) : null;
+    await pool.execute(
+      `INSERT INTO support_tickets
+        (school_organization_id, client_id, created_by_user_id, agency_id, subject, question, status)
+       VALUES (?, NULL, ?, ?, ?, ?, 'open')`,
+      [schoolOrganizationId, fallbackCreator, agencyId, `[${sourceKey}] ${subject}`, question]
+    );
+  }
 };
 
 const safeGenericRecoveryResponse = (res, extra = {}) => {
@@ -2371,8 +2438,16 @@ export const requestPasswordReset = async (req, res, next) => {
     const requestedEmail = String(emailRaw || '').trim().toLowerCase();
     if (!requestedEmail) return safeGenericRecoveryResponse(res);
 
+    const captcha = await verifyRecoveryCaptcha({ req, expectedAction: 'login_password_reset' });
+    if (!captcha.ok) return safeGenericRecoveryResponse(res);
+
     const user = await User.findByEmail(requestedEmail).catch(() => null);
     if (!user?.id) return safeGenericRecoveryResponse(res);
+
+    const roleNorm = String(user?.role || '').trim().toLowerCase();
+    if (!NON_AGENCY_RECOVERY_ROLES.has(roleNorm)) {
+      return safeGenericRecoveryResponse(res);
+    }
 
     // If this user is under Workspace-only policy for the requested org, do not issue reset tokens.
     // Keep response generic to avoid account/policy enumeration.
@@ -2483,8 +2558,8 @@ export const requestPasswordReset = async (req, res, next) => {
 
 /**
  * Public endpoint: recover username by first/last/role.
- * - If exactly one match, send username to the user’s associated email.
- * - Otherwise notify the org admin (based on the login page org slug).
+ * - Never returns username directly.
+ * - Creates an external-origin support ticket when possible, then notifies org admin.
  * Always returns a generic success response to avoid revealing whether a user exists.
  */
 export const recoverUsername = async (req, res, next) => {
@@ -2498,77 +2573,76 @@ export const recoverUsername = async (req, res, next) => {
     const lastName = String(req.body?.lastName || '').trim();
     const role = String(req.body?.role || '').trim().toLowerCase();
     const orgSlug = normalizeOrgSlug(req.body?.organizationSlug || req.body?.orgSlug);
+    const requesterMessage = String(req.body?.message || '').trim();
+    const contactEmail = String(req.body?.contactEmail || '').trim().toLowerCase();
 
-    if (!firstName || !lastName || !role) return safeGenericRecoveryResponse(res);
+    if (!firstName || !lastName || !role || !requesterMessage) return safeGenericRecoveryResponse(res);
+    if (!NON_AGENCY_RECOVERY_ROLES.has(role)) return safeGenericRecoveryResponse(res);
+
+    const captcha = await verifyRecoveryCaptcha({ req, expectedAction: 'login_recover_username' });
+    if (!captcha.ok) return safeGenericRecoveryResponse(res);
 
     const matches = await User.findByName(firstName, lastName).catch(() => []);
     const filtered = (matches || []).filter((u) => String(u?.role || '').trim().toLowerCase() === role);
 
+    // Never send username by email for this public flow. Route to admin support.
+    // If we can uniquely match a user and org, create an in-system support ticket.
     if (filtered.length === 1) {
       const u = filtered[0];
       const full = await User.findById(u.id).catch(() => null);
-      const username = full?.username || full?.email || full?.work_email || full?.personal_email || u?.email || null;
-      const to = pickRecoveryRecipientEmail(full || u, full?.email || u?.email);
       const agency = await resolvePrimaryAgencyForUser(u.id, orgSlug);
+      try {
+        if (agency?.id && full?.id) {
+          const agencyId = await resolveActiveAgencyIdForOrg(agency.id);
+          const subject = 'Login help needed: forgot username';
+          const body = [
+            `Public username recovery request`,
+            ``,
+            `Name: ${firstName} ${lastName}`,
+            `Role: ${role}`,
+            `Org: ${agency?.name || orgSlug || '(unknown org)'}`,
+            `Contact email: ${contactEmail || '(not provided)'}`,
+            `Requester message: ${requesterMessage}`,
+            ``,
+            `IP: ${getClientIpAddress(req) || '(unknown)'}`,
+            `User-Agent: ${req.get('user-agent') || '(unknown)'}`
+          ].join('\n');
 
-      if (to && username) {
-        const subject = 'Your username';
-        const body = `Hello ${full?.first_name || firstName},\n\nYour username is:\n${username}\n\nYou can sign in here:\n${EmailTemplateService.buildPortalLoginLink(agency)}\n\nIf you did not request this email, you can ignore it.`;
-
-        try {
-          const comm = await CommunicationLoggingService.logGeneratedCommunication({
-            userId: u.id,
-            agencyId: agency?.id || null,
-            templateType: 'username_recovery',
-            templateId: null,
+          await createExternalSupportTicket({
+            schoolOrganizationId: agency.id,
+            agencyId: agencyId ? Number(agencyId) : null,
             subject,
-            body,
-            generatedByUserId: null,
-            channel: 'email',
-            recipientAddress: to
-          }).catch(() => null);
-
-          const sendResult = await sendRecoveryEmail({
-            agencyId: agency?.id || null,
-            to,
-            subject,
-            text: body,
-            html: null,
-            source: 'auto'
+            question: body,
+            sourceKey: SUPPORT_TICKET_SOURCE_KEYS.FORGOT_USERNAME,
+            fallbackUserId: full.id
           });
-
-          if (comm?.id && sendResult?.id) {
-            await CommunicationLoggingService.markAsSent(comm.id, sendResult.id, {
-              fromEmail: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || null
-            }).catch(() => {});
-          }
-        } catch (e) {
-          if (process.env.NODE_ENV !== 'production') {
-            return safeGenericRecoveryResponse(res, {
-              debug: { error: String(e?.message || e), to, username }
-            });
-          }
+        }
+      } catch (e) {
+        // Best-effort fallback below via admin email.
+        if (process.env.NODE_ENV !== 'production') {
+          console.warn('recoverUsername ticket create failed:', e?.message || e);
         }
       }
-
-      return safeGenericRecoveryResponse(res);
     }
 
-    // None or multiple: notify org admin for this login page (best-effort)
+    // Notify org admin for this login page (best-effort).
     const org = await resolveAgencyFromOrgSlug(orgSlug);
     const adminEmail = getOrgAdminEmail(org);
     if (adminEmail) {
-      const subject = `Login help needed: username not found (${org?.name || orgSlug || 'unknown org'})`;
+      const subject = `Login help needed: forgot username (${org?.name || orgSlug || 'unknown org'})`;
       const body = [
-        'A user attempted to recover their username, but no unique account match was found.',
+        'A user submitted a public forgot-username request.',
         '',
         `First name: ${firstName}`,
         `Last name: ${lastName}`,
         `Role: ${role}`,
+        `Contact email: ${contactEmail || '(not provided)'}`,
+        `Message: ${requesterMessage || '(none provided)'}`,
+        `Matched account count: ${filtered.length}`,
         `Org slug: ${orgSlug || '(none provided)'}`,
-        `IP: ${req.ip || '(unknown)'}`,
+        `IP: ${getClientIpAddress(req) || '(unknown)'}`,
         '',
-        'Please assist the user with their login credentials.'
+        'Please assist this user with login access.'
       ].join('\n');
 
       try {

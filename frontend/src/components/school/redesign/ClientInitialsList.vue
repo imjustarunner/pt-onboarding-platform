@@ -8,7 +8,7 @@
       :disabled="isLocked(c)"
       @click="$emit('select', c)"
       :title="chipTitle(c)"
-      :data-initials="isLocked(c) ? '' : (String(clientLabelMode || 'codes') === 'codes' ? String(c?.initials || '').trim() : '')"
+      :data-initials="String(clientLabelMode || 'codes') === 'codes' ? String(c?.initials || '').trim() : ''"
     >
       {{ displayId(c) }}
       <span v-if="Number(c.unread_notes_count || 0) > 0" class="dot" aria-hidden="true" />
@@ -28,7 +28,16 @@ defineEmits(['select']);
 const isLocked = (c) => c?.school_portal_force_placeholder === true || c?.school_portal_can_open === false;
 
 const displayId = (c) => {
-  if (isLocked(c)) return String(c?.school_portal_locked_label || 'NO ROI').trim() || 'NO ROI';
+  if (isLocked(c)) {
+    const initials = String(c?.initials || '').replace(/\s+/g, '');
+    const code = String(c?.identifier_code || '').replace(/\s+/g, '').toUpperCase();
+    const preferred = initials || code;
+    if (preferred) {
+      if (preferred.length >= 6) return `${preferred.slice(0, 3)}${preferred.slice(-3)}`;
+      return preferred;
+    }
+    return String(c?.school_portal_locked_label || 'NO ROI').trim() || 'NO ROI';
+  }
   const mode = String(props.clientLabelMode || 'codes');
   const src = mode === 'initials' ? (c?.initials || c?.identifier_code) : (c?.identifier_code || c?.initials);
   let raw = String(src || '').replace(/\s+/g, '');
@@ -42,8 +51,10 @@ const displayId = (c) => {
 const chipTitle = (c) => {
   if (isLocked(c)) {
     const state = String(c?.school_staff_effective_access_state || '').toLowerCase();
-    if (state === 'expired') return 'ROI expired. This client remains on the caseload, but details are locked.';
-    return 'ROI needed before client details can be viewed.';
+    if (state === 'expired') {
+      return 'ROI EXPIRED: Release of information is expired. Initials are shown for schedule context only.';
+    }
+    return 'ROI LOCKED: ROI is missing, pending, or requires packet update/approval. Initials are shown for schedule context only.';
   }
   const status = c?.status ? String(c.status) : '';
   const doc = c?.document_status ? String(c.document_status) : '';

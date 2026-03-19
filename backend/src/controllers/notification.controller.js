@@ -25,6 +25,9 @@ const IN_APP_CATEGORY_BY_TYPE = {
   client_became_current: 'clients_checklist_updates',
   paperwork_received: 'clients_new_intakes',
   new_packet_uploaded: 'clients_new_intakes',
+  school_availability_request_pending: 'scheduling_schedule_changes',
+  school_provider_availability_confirmed: 'school_portal_provider_slots',
+  school_provider_availability_updated: 'school_portal_provider_slots',
   client_school_roi_link_generated: 'clients_new_intakes',
   client_school_roi_link_copied: 'clients_new_intakes',
   client_school_roi_link_sent: 'clients_new_intakes',
@@ -358,9 +361,15 @@ export const getNotifications = async (req, res, next) => {
       }
 
       const dedupedNotifications = dedupeNotificationsById(allNotifications);
+      await Notification.applyReadStateForViewer(dedupedNotifications, userId);
       // Sort by created_at descending
       dedupedNotifications.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
       let filtered = filterNotificationsForViewer(dedupedNotifications, userId, userRole, filterOpts);
+      if (isRead !== undefined) {
+        const wantRead = isRead === 'true';
+        filtered = filtered.filter((n) => (n._is_read_for_viewer === wantRead));
+      }
+      filtered = filtered.filter(isUnmuted);
       filtered = collapseEquivalentNotifications(filtered);
       await appendNotificationContext(filtered);
       const limitNum = limitParam ? parseInt(limitParam, 10) : 0;
@@ -427,7 +436,13 @@ export const getNotifications = async (req, res, next) => {
         isResolved: isResolved !== undefined ? isResolved === 'true' : undefined
       });
       const scoped = agencyId ? (personal || []).filter((n) => Number(n.agency_id) === Number(agencyId)) : (personal || []);
+      await Notification.applyReadStateForViewer(scoped, userId);
       let filtered = filterNotificationsForViewer(scoped, userId, userRole, filterOpts);
+      if (isRead !== undefined) {
+        const wantRead = isRead === 'true';
+        filtered = filtered.filter((n) => (n._is_read_for_viewer === wantRead));
+      }
+      filtered = filtered.filter(isUnmuted);
       await appendNotificationContext(filtered);
       const limitNumPersonal = limitParam ? parseInt(limitParam, 10) : 0;
       if (Number.isFinite(limitNumPersonal) && limitNumPersonal > 0) filtered = filtered.slice(0, limitNumPersonal);
@@ -582,14 +597,15 @@ export const getNotificationCounts = async (req, res, next) => {
       const filteredCounts = {};
       for (const agencyId of allAgencyIds) {
         const notifications = await Notification.findByAgency(agencyId, {
-          isRead: false,
           isResolved: false
         });
         const filteredNotifications = notifications.filter(n =>
           n.user_id && allSuperviseeIds.includes(n.user_id)
         );
-        const visible = filterNotificationsForViewer(filteredNotifications, userId, userRole, filterOpts);
-        filteredCounts[agencyId] = collapseEquivalentNotifications(visible).length;
+        await Notification.applyReadStateForViewer(filteredNotifications, userId);
+        const visible = filterNotificationsForViewer(filteredNotifications, userId, userRole, filterOpts).filter(isUnmuted);
+        const collapsed = collapseEquivalentNotifications(visible);
+        filteredCounts[agencyId] = collapsed.filter((n) => !n._is_read_for_viewer && !n.is_resolved).length;
       }
       
       return res.json(filteredCounts);
@@ -712,8 +728,16 @@ export const markAsResolved = async (req, res, next) => {
       }
     }
 
-    await Notification.markAsResolved(id);
-    res.json({ message: 'Notification marked as resolved' });
+    const followUpLocked = await Notification.isFollowUpForUser(id, userId);
+    if (followUpLocked) {
+      return res.status(409).json({ error: { message: 'Marked as needs follow-up. Clear follow-up before dismissing.' } });
+    }
+
+    const ok = await Notification.dismissForUser(id, userId);
+    if (!ok) {
+      return res.status(403).json({ error: { message: 'Unable to dismiss notification for this user' } });
+    }
+    res.json({ message: 'Notification dismissed for current user' });
   } catch (error) {
     next(error);
   }
@@ -833,8 +857,48 @@ export const deleteNotification = async (req, res, next) => {
       }
     }
 
-    await Notification.delete(id);
-    res.json({ message: 'Notification deleted' });
+    const followUpLocked = await Notification.isFollowUpForUser(id, userId);
+    if (followUpLocked) {
+      return res.status(409).json({ error: { message: 'Marked as needs follow-up. Clear follow-up before deleting.' } });
+    }
+
+    const ok = await Notification.dismissForUser(id, userId);
+    if (!ok) {
+      return res.status(403).json({ error: { message: 'Unable to delete notification for this user' } });
+    }
+    res.json({ message: 'Notification deleted for current user' });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const setNotificationFollowUp = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+    const enabled = req.body?.enabled !== false;
+
+    const notification = await Notification.findById(id);
+    if (!notification) {
+      return res.status(404).json({ error: { message: 'Notification not found' } });
+    }
+    if (MESSAGE_PRIVATE_TYPES.has(String(notification.type || '')) && Number(notification.user_id) !== Number(userId)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    if (req.user.role !== 'super_admin') {
+      const userAgencies = await User.getAgencies(userId);
+      const userAgencyIds = userAgencies.map(a => a.id);
+      if (!userAgencyIds.includes(notification.agency_id)) {
+        return res.status(403).json({ error: { message: 'Access denied' } });
+      }
+    }
+
+    const ok = await Notification.setFollowUpForUser(id, userId, enabled);
+    if (!ok) {
+      return res.status(403).json({ error: { message: 'Unable to update follow-up state' } });
+    }
+    res.json({ ok: true, enabled });
   } catch (error) {
     next(error);
   }

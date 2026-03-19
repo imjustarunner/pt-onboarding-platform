@@ -1,7 +1,7 @@
 <template>
   <div class="availability-intake-view container">
     <div class="page-header">
-      <h1>Availability Intake</h1>
+      <h1>Provider Availability</h1>
       <p class="subtitle">Review provider availability submissions and search by office/school/skills.</p>
     </div>
 
@@ -13,7 +13,7 @@
       </select>
     </div>
 
-    <AvailabilityIntakeManagement />
+    <AvailabilityIntakeManagement :show-header="false" :initial-tab="initialTab" />
   </div>
 </template>
 
@@ -29,6 +29,7 @@ const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
 
 const selectedAgencyId = ref(null);
+const initialTab = computed(() => String(route.query.tab || '').trim().toLowerCase());
 
 const isSuperAdmin = computed(() => authStore.user?.role === 'super_admin');
 

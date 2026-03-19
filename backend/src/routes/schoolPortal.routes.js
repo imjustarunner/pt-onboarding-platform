@@ -10,6 +10,8 @@ import {
   addSchoolStaff,
   updateSchoolStaff,
   setPrimarySchoolStaff,
+  updateSchoolStaffRoleFlags,
+  forfeitSchoolAdmin,
   listSchoolPortalFaq,
   createSchoolPortalFaq,
   getClientWaitlistNote,
@@ -20,6 +22,7 @@ import {
   listSchoolPortalNotificationsFeed,
   markSchoolPortalNotificationsRead,
   dismissSchoolPortalNotifications,
+  confirmProviderSchoolAvailability,
   listSchoolPortalBannerAnnouncements,
   createSchoolPortalAnnouncement,
   updateSchoolPortalAnnouncement,
@@ -87,6 +90,7 @@ router.put('/bulk-announcements/:groupId', authenticate, updateBulkSchoolPortalA
 router.delete('/bulk-announcements/:groupId', authenticate, deleteBulkSchoolPortalAnnouncements);
 router.get('/:organizationId/clients', authenticate, getSchoolClients);
 router.get('/:organizationId/my-roster', authenticate, getProviderMyRoster);
+router.post('/:organizationId/provider-availability/confirm', authenticate, confirmProviderSchoolAvailability);
 router.get('/:organizationId/clients/:clientId/waitlist-note', authenticate, getClientWaitlistNote);
 router.put('/:organizationId/clients/:clientId/waitlist-note', authenticate, upsertClientWaitlistNote);
 router.get('/:organizationId/clients/:clientId/comments', authenticate, listClientComments);
@@ -110,6 +114,8 @@ router.delete('/:organizationId/school-staff/:userId', authenticate, removeSchoo
 router.put('/:organizationId/school-staff/:userId', authenticate, updateSchoolStaff);
 router.post('/:organizationId/school-staff/:userId/send-reset-password', authenticate, sendSchoolStaffResetPassword);
 router.post('/:organizationId/school-staff/:userId/set-primary', authenticate, setPrimarySchoolStaff);
+router.patch('/:organizationId/school-staff/:userId/roles', authenticate, updateSchoolStaffRoleFlags);
+router.post('/:organizationId/school-staff/forfeit-school-admin', authenticate, forfeitSchoolAdmin);
 router.post('/:organizationId/school-staff', authenticate, addSchoolStaff);
 router.get('/:organizationId/faq', authenticate, listSchoolPortalFaq);
 router.post('/:organizationId/faq', authenticate, createSchoolPortalFaq);

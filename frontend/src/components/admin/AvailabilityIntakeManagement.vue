@@ -1,7 +1,7 @@
 <template>
   <div class="page">
-    <div class="page-header">
-      <h1>Availability Intake</h1>
+    <div v-if="showHeader" class="page-header">
+      <h1>Provider Availability</h1>
       <p class="page-description">Review provider availability submissions and search by office/school/skills.</p>
     </div>
 
@@ -98,7 +98,7 @@
               </div>
 
               <div class="assign">
-                <div class="lbl">Assign to school</div>
+                <div class="lbl">Review and apply</div>
                 <select class="select" v-model="schoolAssign[r.id].schoolOrgId">
                   <option value="">School…</option>
                   <option v-for="s in schools" :key="s.id" :value="String(s.id)">{{ s.name }}</option>
@@ -111,7 +111,7 @@
                 </select>
                 <input class="input" type="number" min="0" v-model.number="schoolAssign[r.id].slotsTotal" />
                 <div class="row-inline" style="gap: 8px;">
-                  <button class="btn btn-primary btn-sm" @click="assignSchool(r)" :disabled="saving">Assign</button>
+                  <button class="btn btn-primary btn-sm" @click="assignSchool(r)" :disabled="saving">Accept &amp; Apply</button>
                   <button class="btn btn-secondary btn-sm" @click="denySchool(r)" :disabled="saving">Deny</button>
                 </div>
               </div>
@@ -305,10 +305,21 @@ import { computed, onMounted, reactive, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 
+const props = defineProps({
+  showHeader: {
+    type: Boolean,
+    default: true
+  },
+  initialTab: {
+    type: String,
+    default: ''
+  }
+});
+
 const agencyStore = useAgencyStore();
 const agencyId = computed(() => agencyStore.currentAgency?.id || null);
 
-const tab = ref('office'); // office | school | search | skills
+const tab = ref('office'); // office | school | appointments | search | skills
 const loading = ref(false);
 const saving = ref(false);
 const error = ref('');
@@ -566,7 +577,7 @@ const reload = async () => {
       if (!schoolAssign[r.id]) schoolAssign[r.id] = { schoolOrgId: '', blockKey: '', slotsTotal: 1 };
     }
   } catch (e) {
-    error.value = e.response?.data?.error?.message || 'Failed to load availability intake';
+    error.value = e.response?.data?.error?.message || 'Failed to load provider availability';
   } finally {
     loading.value = false;
   }
@@ -791,12 +802,26 @@ const saveProviderSkills = async () => {
 };
 
 onMounted(async () => {
+  const initial = String(props.initialTab || '').trim().toLowerCase();
+  if (['office', 'school', 'appointments', 'search', 'skills'].includes(initial)) {
+    tab.value = initial;
+  }
   await reload();
 });
 
 watch(agencyId, async () => {
   await reload();
 });
+
+watch(
+  () => props.initialTab,
+  (next) => {
+    const normalized = String(next || '').trim().toLowerCase();
+    if (['office', 'school', 'appointments', 'search', 'skills'].includes(normalized)) {
+      tab.value = normalized;
+    }
+  }
+);
 </script>
 
 <style scoped>

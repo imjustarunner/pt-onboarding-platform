@@ -30,7 +30,10 @@
           <option value="password_changed">Password Changed</option>
           <option value="support_ticket_created">Support Tickets</option>
           <option value="office_availability_request_pending">Office Requests</option>
+          <option value="school_availability_request_pending">School Requests</option>
           <option value="office_availability_request_approved">Office Request Approved</option>
+          <option value="school_provider_availability_confirmed">School Availability Confirmed</option>
+          <option value="school_provider_availability_updated">School Availability Updated</option>
           <option value="budget_expense_pending_approval">Budget Expense Approval</option>
           <option value="client_assigned">Client Assigned</option>
           <option value="unassigned_document_submitted">Unassigned Documents</option>
@@ -183,9 +186,17 @@
                   Mark as Read
                 </button>
                 <button
+                  @click.stop="toggleFollowUp(notification)"
+                  class="btn btn-sm btn-secondary"
+                  :title="notification._requires_follow_up_for_viewer ? 'Clear follow-up marker' : 'Mark as needs follow-up'"
+                >
+                  {{ notification._requires_follow_up_for_viewer ? 'Clear Follow-up' : 'Needs Follow-up' }}
+                </button>
+                <button
                   @click.stop="resolveNotification(notification.id)"
                   class="btn btn-sm btn-danger"
-                  title="Permanently delete notification"
+                  :disabled="notification._requires_follow_up_for_viewer"
+                  :title="notification._requires_follow_up_for_viewer ? 'Clear follow-up first' : 'Permanently delete notification'"
                 >
                   Resolve
                 </button>
@@ -351,7 +362,10 @@ const getTypeLabel = (type) => {
     support_ticket_created: 'Support Tickets',
     new_packet_uploaded: 'New Packet Uploaded',
     office_availability_request_pending: 'Office Requests',
+    school_availability_request_pending: 'School Requests',
     office_availability_request_approved: 'Office Request Approved',
+    school_provider_availability_confirmed: 'School Availability Confirmed',
+    school_provider_availability_updated: 'School Availability Updated',
     budget_expense_pending_approval: 'Budget Expense Approval',
     client_assigned: 'Client Assigned',
     unassigned_document_submitted: 'Unassigned Documents',
@@ -464,6 +478,16 @@ const resolveNotification = async (notificationId) => {
   }
 };
 
+const toggleFollowUp = async (notification) => {
+  try {
+    await notificationStore.setFollowUp(notification.id, !notification._requires_follow_up_for_viewer);
+    await loadNotifications();
+    await notificationStore.fetchCounts();
+  } catch (err) {
+    error.value = err.response?.data?.error?.message || 'Failed to update follow-up state';
+  }
+};
+
 const purgeAllNotifications = async () => {
   const isSuperAdmin = authStore.user?.role === 'super_admin';
   const scopeText = selectedAgencyId.value
@@ -534,7 +558,15 @@ const getNotificationNavigationPath = async (notification) => {
   } else if (notification.type === 'office_availability_request_pending' && notification.agency_id) {
     const agencyId = notification.agency_id;
     const base = route.params.organizationSlug ? `/${route.params.organizationSlug}/admin/availability-intake` : '/admin/availability-intake';
-    return `${base}?agencyId=${agencyId}`;
+    return `${base}?agencyId=${agencyId}&tab=office`;
+  } else if (notification.type === 'school_availability_request_pending' && notification.agency_id) {
+    const agencyId = notification.agency_id;
+    const base = route.params.organizationSlug ? `/${route.params.organizationSlug}/admin/availability-intake` : '/admin/availability-intake';
+    return `${base}?agencyId=${agencyId}&tab=school`;
+  } else if ((notification.type === 'school_provider_availability_confirmed' || notification.type === 'school_provider_availability_updated') && notification.agency_id) {
+    const agencyId = notification.agency_id;
+    const base = route.params.organizationSlug ? `/${route.params.organizationSlug}/admin/availability-intake` : '/admin/availability-intake';
+    return `${base}?agencyId=${agencyId}&tab=school`;
   } else if (notification.type === 'office_availability_request_approved') {
     const base = route.params.organizationSlug ? `/${route.params.organizationSlug}/buildings/schedule` : '/buildings/schedule';
     return base;

@@ -17,7 +17,7 @@
               {{ Number(provider.slots_used || 0) }} assigned
             </span>
             <span v-if="provider.start_time || provider.end_time" class="metric">
-              {{ (provider.start_time || '—').toString().slice(0, 5) }}–{{ (provider.end_time || '—').toString().slice(0, 5) }}
+              {{ formatClock(provider.start_time) }} to {{ formatClock(provider.end_time) }}
             </span>
           </div>
         </div>
@@ -110,6 +110,16 @@ const initialsFor = (p) => {
   const a = f ? f[0] : '';
   const b = l ? l[0] : '';
   return `${a}${b}`.toUpperCase() || 'P';
+};
+
+const formatClock = (t) => {
+  const raw = String(t || '').slice(0, 5);
+  if (!raw || raw === '—') return '—';
+  const [hh, mm] = raw.split(':').map((x) => parseInt(x, 10));
+  if (!Number.isFinite(hh) || !Number.isFinite(mm)) return raw;
+  const suffix = hh >= 12 ? 'PM' : 'AM';
+  const h12 = hh % 12 === 0 ? 12 : hh % 12;
+  return `${h12}:${String(mm).padStart(2, '0')} ${suffix}`;
 };
 
 const canRequestAvailability = computed(() => {

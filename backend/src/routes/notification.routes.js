@@ -10,7 +10,8 @@ import {
   syncNotifications,
   deleteNotification,
   purgeNotifications,
-  createProgramReminder
+  createProgramReminder,
+  setNotificationFollowUp
 } from '../controllers/notification.controller.js';
 import { getMySmsLogs, getSmsLogs } from '../controllers/notificationSmsLog.controller.js';
 import { authenticate, requireBackofficeAdmin, requireAgencyAdmin } from '../middleware/auth.middleware.js';
@@ -50,6 +51,9 @@ router.put('/resolve-all', markAllAsResolved);
 
 // Mark notification as read
 router.put('/:id/read', markAsRead);
+
+// Mark/unmark notification as needs follow-up for current user
+router.put('/:id/follow-up', setNotificationFollowUp);
 
 // Mark notification as resolved
 router.put('/:id/resolved', markAsResolved);

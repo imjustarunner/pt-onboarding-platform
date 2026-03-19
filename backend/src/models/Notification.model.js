@@ -92,6 +92,12 @@ class Notification {
     'office_availability_request_pending',
     // Office availability request approved (provider reminder to mark booked)
     'office_availability_request_approved',
+    // School availability request pending review (availability intake)
+    'school_availability_request_pending',
+    // School portal: provider confirmed weekly availability/slots/hours
+    'school_provider_availability_confirmed',
+    // School portal: provider directly updated slots/hours
+    'school_provider_availability_updated',
     // Budget Management: expense pending approval (department approvers)
     'budget_expense_pending_approval',
     // School portal: primary sent password reset link (notify agency admin)
@@ -227,20 +233,11 @@ class Notification {
     const uid = Number(viewerUserId);
     if (!uid || !Array.isArray(notifications) || notifications.length === 0) return notifications;
 
-    const agencyWide = notifications.filter((n) => n.user_id == null);
-    // Any non-private cross-user notification should support per-viewer read state for admin-like agency feeds.
-    const crossUserPerViewer = notifications.filter(
-      (n) =>
-        n.user_id != null &&
-        Number(n.user_id) !== uid &&
-        !PRIVATE_CROSS_USER_TYPES.has(String(n?.type || ''))
-    );
-    const crossUserPerViewerIds = new Set(crossUserPerViewer.map((n) => Number(n.id)).filter(Boolean));
-    const ids = [...new Set([...agencyWide.map((n) => n.id), ...crossUserPerViewer.map((n) => n.id)])].filter(Boolean);
+    const ids = [...new Set((notifications || []).map((n) => Number(n?.id || 0)).filter(Boolean))];
     if (ids.length === 0) return notifications;
     const placeholders = ids.map(() => '?').join(',');
     const [rows] = await pool.execute(
-      `SELECT notification_id, is_read, read_at, muted_until
+      `SELECT notification_id, is_read, read_at, muted_until, requires_follow_up
        FROM notification_user_reads
        WHERE notification_id IN (${placeholders}) AND user_id = ?`,
       [...ids, uid]
@@ -250,26 +247,39 @@ class Notification {
       byId.set(Number(r.notification_id), {
         is_read: !!r.is_read,
         read_at: r.read_at,
-        muted_until: r.muted_until
+        muted_until: r.muted_until,
+        requires_follow_up: !!r.requires_follow_up
       });
     }
 
-    for (const n of agencyWide) {
-      const state = byId.get(Number(n.id)) || { is_read: false };
-      n._user_read_state = state;
-      n._is_read_for_viewer = state.is_read;
-      n._muted_until_for_viewer = state.muted_until;
-    }
-    for (const n of crossUserPerViewer) {
-      const state = byId.get(Number(n.id)) || { is_read: false };
-      n._user_read_state = state;
-      n._is_read_for_viewer = state.is_read;
-      n._muted_until_for_viewer = state.muted_until;
-    }
     for (const n of notifications) {
-      if (n.user_id != null && !crossUserPerViewerIds.has(Number(n.id))) {
-        n._is_read_for_viewer = Number(n.user_id) === uid ? !!n.is_read : false;
+      const nid = Number(n?.id || 0);
+      const notificationOwnerId = Number(n?.user_id || 0);
+      const isCrossUserPrivate = (
+        n?.user_id != null &&
+        notificationOwnerId !== uid &&
+        PRIVATE_CROSS_USER_TYPES.has(String(n?.type || ''))
+      );
+      if (isCrossUserPrivate) {
+        n._is_read_for_viewer = false;
+        n._muted_until_for_viewer = null;
+        continue;
+      }
+
+      const state = byId.get(nid);
+      if (state) {
+        n._user_read_state = state;
+        n._is_read_for_viewer = !!state.is_read;
+        n._muted_until_for_viewer = state.muted_until;
+        n._requires_follow_up_for_viewer = !!state.requires_follow_up;
+      } else if (n.user_id != null && notificationOwnerId === uid) {
+        n._is_read_for_viewer = !!n.is_read;
         n._muted_until_for_viewer = n.muted_until;
+        n._requires_follow_up_for_viewer = false;
+      } else {
+        n._is_read_for_viewer = false;
+        n._muted_until_for_viewer = null;
+        n._requires_follow_up_for_viewer = false;
       }
     }
     return notifications;
@@ -285,7 +295,11 @@ class Notification {
     if (!notification) return false;
 
     const uid = Number(userId);
-    if (Number(notification.user_id) === uid) {
+    const [exists] = await pool.execute(
+      'SELECT 1 FROM notification_user_reads WHERE notification_id = ? AND user_id = ?',
+      [notificationId, uid]
+    );
+    if ((exists || []).length === 0 && Number(notification.user_id) === uid) {
       return (await this.markAsRead(notificationId, userId)) !== false;
     }
     if (
@@ -296,16 +310,10 @@ class Notification {
       return false; // Cannot mark another user's personal notification
     }
 
-    const [exists] = await pool.execute(
-      'SELECT 1 FROM notification_user_reads WHERE notification_id = ? AND user_id = ?',
-      [notificationId, uid]
-    );
-    const mutedUntil = new Date();
-    mutedUntil.setHours(mutedUntil.getHours() + 48);
     if ((exists || []).length > 0) {
       const [result] = await pool.execute(
         `UPDATE notification_user_reads
-         SET is_read = TRUE, read_at = NOW(), muted_until = DATE_ADD(NOW(), INTERVAL 48 HOUR)
+         SET is_read = TRUE, read_at = NOW(), muted_until = DATE_ADD(NOW(), INTERVAL 48 HOUR), requires_follow_up = FALSE
          WHERE notification_id = ? AND user_id = ?`,
         [notificationId, uid]
       );
@@ -314,6 +322,99 @@ class Notification {
     const [result] = await pool.execute(
       `INSERT INTO notification_user_reads (notification_id, user_id, is_read, read_at, muted_until)
        VALUES (?, ?, TRUE, NOW(), DATE_ADD(NOW(), INTERVAL 48 HOUR))`,
+      [notificationId, uid]
+    );
+    return result.affectedRows > 0;
+  }
+
+  static async isFollowUpForUser(notificationId, userId) {
+    const uid = Number(userId);
+    if (!uid) return false;
+    const [rows] = await pool.execute(
+      `SELECT requires_follow_up
+       FROM notification_user_reads
+       WHERE notification_id = ? AND user_id = ?
+       LIMIT 1`,
+      [notificationId, uid]
+    );
+    return !!rows?.[0]?.requires_follow_up;
+  }
+
+  static async setFollowUpForUser(notificationId, userId, enabled = true) {
+    const notification = await this.findById(notificationId);
+    if (!notification) return false;
+    const uid = Number(userId);
+    if (!uid) return false;
+    if (
+      notification.user_id != null &&
+      Number(notification.user_id) !== uid &&
+      PRIVATE_CROSS_USER_TYPES.has(String(notification.type || ''))
+    ) {
+      return false;
+    }
+
+    const shouldEnable = enabled === true;
+    const [exists] = await pool.execute(
+      'SELECT 1 FROM notification_user_reads WHERE notification_id = ? AND user_id = ?',
+      [notificationId, uid]
+    );
+
+    if ((exists || []).length > 0) {
+      const [result] = await pool.execute(
+        `UPDATE notification_user_reads
+         SET requires_follow_up = ?,
+             is_read = CASE WHEN ? THEN FALSE ELSE is_read END,
+             read_at = CASE WHEN ? THEN NULL ELSE read_at END,
+             muted_until = CASE WHEN ? THEN NULL ELSE muted_until END
+         WHERE notification_id = ? AND user_id = ?`,
+        [shouldEnable ? 1 : 0, shouldEnable ? 1 : 0, shouldEnable ? 1 : 0, shouldEnable ? 1 : 0, notificationId, uid]
+      );
+      return result.affectedRows > 0;
+    }
+
+    const [result] = await pool.execute(
+      `INSERT INTO notification_user_reads (notification_id, user_id, is_read, read_at, muted_until, requires_follow_up)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [notificationId, uid, shouldEnable ? 0 : 1, shouldEnable ? null : new Date(), null, shouldEnable ? 1 : 0]
+    );
+    return result.affectedRows > 0;
+  }
+
+  /**
+   * Dismiss a notification for a specific viewer only.
+   * Uses notification_user_reads muted_until far in the future so it no longer appears
+   * for that viewer, without deleting/closing it for everyone else.
+   */
+  static async dismissForUser(notificationId, userId) {
+    const notification = await this.findById(notificationId);
+    if (!notification) return false;
+    const uid = Number(userId);
+    if (!uid) return false;
+
+    if (
+      notification.user_id != null &&
+      Number(notification.user_id) !== uid &&
+      PRIVATE_CROSS_USER_TYPES.has(String(notification.type || ''))
+    ) {
+      return false;
+    }
+
+    const [exists] = await pool.execute(
+      'SELECT 1 FROM notification_user_reads WHERE notification_id = ? AND user_id = ?',
+      [notificationId, uid]
+    );
+    if ((exists || []).length > 0) {
+      const [result] = await pool.execute(
+        `UPDATE notification_user_reads
+         SET is_read = TRUE, read_at = NOW(), muted_until = DATE_ADD(NOW(), INTERVAL 10 YEAR)
+         WHERE notification_id = ? AND user_id = ?`,
+        [notificationId, uid]
+      );
+      return result.affectedRows > 0;
+    }
+    const [result] = await pool.execute(
+      `INSERT INTO notification_user_reads (notification_id, user_id, is_read, read_at, muted_until)
+       VALUES (?, ?, TRUE, NOW(), DATE_ADD(NOW(), INTERVAL 10 YEAR))`,
       [notificationId, uid]
     );
     return result.affectedRows > 0;
@@ -351,7 +452,7 @@ class Notification {
       if ((exists || []).length > 0) {
         await pool.execute(
           `UPDATE notification_user_reads
-           SET is_read = TRUE, read_at = NOW(), muted_until = DATE_ADD(NOW(), INTERVAL 48 HOUR)
+           SET is_read = TRUE, read_at = NOW(), muted_until = DATE_ADD(NOW(), INTERVAL 48 HOUR), requires_follow_up = FALSE
            WHERE notification_id = ? AND user_id = ?`,
           [nid, uid]
         );
@@ -385,7 +486,7 @@ class Notification {
       if ((exists || []).length > 0) {
         await pool.execute(
           `UPDATE notification_user_reads
-           SET is_read = TRUE, read_at = NOW(), muted_until = DATE_ADD(NOW(), INTERVAL 48 HOUR)
+           SET is_read = TRUE, read_at = NOW(), muted_until = DATE_ADD(NOW(), INTERVAL 48 HOUR), requires_follow_up = FALSE
            WHERE notification_id = ? AND user_id = ?`,
           [nid, uid]
         );
@@ -633,15 +734,21 @@ class Notification {
     const placeholders = agencyIds.map(() => '?').join(',');
     const params = [uid, ...agencyIds];
     const [rows] = await pool.execute(
-      `SELECT *
-       FROM notifications
-       WHERE user_id = ?
-         AND agency_id IN (${placeholders})
-         AND is_read = FALSE
-         AND is_resolved = FALSE
-         AND (muted_until IS NULL OR muted_until <= NOW())
-       ORDER BY created_at DESC`,
-      params
+      `SELECT n.*
+       FROM notifications n
+       LEFT JOIN notification_user_reads nur
+         ON nur.notification_id = n.id
+        AND nur.user_id = ?
+       WHERE n.user_id = ?
+         AND n.agency_id IN (${placeholders})
+         AND n.is_resolved = FALSE
+         AND (
+           (nur.notification_id IS NOT NULL AND nur.is_read = FALSE AND (nur.muted_until IS NULL OR nur.muted_until <= NOW()))
+           OR
+           (nur.notification_id IS NULL AND n.is_read = FALSE AND (n.muted_until IS NULL OR n.muted_until <= NOW()))
+         )
+       ORDER BY n.created_at DESC`,
+      [uid, ...params]
     );
     return rows || [];
   }

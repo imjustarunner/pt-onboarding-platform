@@ -71,9 +71,31 @@ async function userCanAccessClient({ requestingUserId, requestingUserRole, clien
 async function resolveSchoolStaffAccessStateForClient({ requestingUserId, requestingUserRole, client }) {
   const normalizedRole = String(requestingUserRole || '').toLowerCase();
   if (normalizedRole !== 'school_staff') return 'none';
+  const schoolOrgId = client?.organization_id || client?.school_organization_id;
+  const user = await User.findById(requestingUserId);
+  const emails = [user?.email, user?.work_email, user?.username, user?.personal_email]
+    .map((v) => String(v || '').trim().toLowerCase())
+    .filter((v) => v.includes('@'));
+  if (schoolOrgId && emails.length) {
+    try {
+      const placeholders = emails.map(() => '?').join(',');
+      const [rows] = await pool.execute(
+        `SELECT 1
+         FROM school_contacts
+         WHERE school_organization_id = ?
+           AND LOWER(TRIM(email)) IN (${placeholders})
+           AND is_scheduler = 1
+         LIMIT 1`,
+        [schoolOrgId, ...emails]
+      );
+      if (rows?.[0]) return 'limited';
+    } catch (e) {
+      if (e?.code !== 'ER_BAD_FIELD_ERROR' && e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+    }
+  }
   return ClientSchoolStaffRoiAccess.resolveSchoolStaffClientAccessState({
     clientId: client?.id,
-    schoolOrganizationId: client?.organization_id || client?.school_organization_id,
+    schoolOrganizationId: schoolOrgId,
     schoolStaffUserId: requestingUserId
   });
 }

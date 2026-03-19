@@ -12,6 +12,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { getUserCapabilities } from '../utils/capabilities.js';
+import { calcPasswordExpiry } from '../utils/passwordPolicy.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 import OfficeScheduleMaterializer from '../services/officeScheduleMaterializer.service.js';
 import GoogleCalendarService from '../services/googleCalendar.service.js';
@@ -232,19 +233,6 @@ export const getCurrentUser = async (req, res, next) => {
     // This keeps UI capability checks consistent with payroll controller enforcement.
     const canManagePayroll = effectiveRole === 'super_admin' || payrollAgencyIds.length > 0;
 
-    // 6-month password expiry (best-effort; defaults to created_at if password_changed_at missing)
-    const calcPasswordExpiry = (u) => {
-      const changedAt = u?.password_changed_at ? new Date(u.password_changed_at) : (u?.created_at ? new Date(u.created_at) : null);
-      if (!changedAt || Number.isNaN(changedAt.getTime())) return { requiresPasswordChange: false, passwordExpiresAt: null, passwordExpired: false };
-      const expiresAt = new Date(changedAt.getTime());
-      expiresAt.setMonth(expiresAt.getMonth() + 6);
-      const expired = expiresAt.getTime() <= Date.now();
-      return {
-        requiresPasswordChange: expired,
-        passwordExpiresAt: expiresAt.toISOString(),
-        passwordExpired: expired
-      };
-    };
     const pw = calcPasswordExpiry(user);
     const tempActive = (() => {
       if (!user?.temporary_password_hash) return false;

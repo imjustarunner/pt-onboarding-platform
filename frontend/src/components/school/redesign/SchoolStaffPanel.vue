@@ -26,7 +26,8 @@
         <div class="card-top">
           <div class="name-row">
             <span class="name">{{ [u.first_name, u.last_name].filter(Boolean).join(' ') || 'School staff' }}</span>
-            <span v-if="u.is_primary" class="badge badge-primary">Primary contact</span>
+            <span v-if="u.is_school_admin" class="badge badge-primary">School Admin</span>
+            <span v-if="u.is_scheduler" class="badge badge-secondary">Scheduler</span>
           </div>
           <div class="meta">{{ u.email }}</div>
           <div v-if="u.last_login" class="meta meta-detail">
@@ -48,13 +49,22 @@
             Edit
           </button>
           <button
-            v-if="canSetPrimary(u)"
+            v-if="canToggleSchoolRoles(u)"
             class="btn btn-secondary btn-sm"
             type="button"
-            @click="setPrimary(u)"
+            @click="toggleSchoolAdmin(u)"
             :disabled="settingPrimaryId === u.id"
           >
-            {{ settingPrimaryId === u.id ? 'Setting…' : 'Set as primary' }}
+            {{ settingPrimaryId === u.id ? 'Saving…' : (u.is_school_admin ? 'Remove School Admin' : 'Make School Admin') }}
+          </button>
+          <button
+            v-if="canToggleSchoolRoles(u)"
+            class="btn btn-secondary btn-sm"
+            type="button"
+            @click="toggleScheduler(u)"
+            :disabled="settingSchedulerId === u.id"
+          >
+            {{ settingSchedulerId === u.id ? 'Saving…' : (u.is_scheduler ? 'Remove Scheduler' : 'Make Scheduler') }}
           </button>
           <button
             v-if="u.id !== currentUserId"
@@ -110,10 +120,27 @@
           <input v-model="addEmail" class="input" type="email" placeholder="e.g., jane@school.org" />
         </label>
       </div>
+      <div class="role-flags-row">
+        <label class="checkbox-inline">
+          <input v-model="addIsSchoolAdmin" type="checkbox" />
+          School Admin
+        </label>
+        <label class="checkbox-inline">
+          <input v-model="addIsScheduler" type="checkbox" />
+          Scheduler
+        </label>
+      </div>
       <button class="btn btn-primary btn-sm" type="button" @click="addStaff" :disabled="adding">
         {{ adding ? 'Adding…' : 'Add staff' }}
       </button>
       <div v-if="addSuccess" class="success">{{ addSuccess }}</div>
+    </div>
+
+    <div v-if="isCurrentUserSchoolAdmin" class="request-box">
+      <div style="font-weight: 800; margin-bottom: 8px;">School Admin controls</div>
+      <button class="btn btn-secondary btn-sm" type="button" @click="forfeitSchoolAdmin" :disabled="forfeiting">
+        {{ forfeiting ? 'Saving…' : 'Forfeit School Admin (me)' }}
+      </button>
     </div>
 
     <div v-if="showEditModal" class="modal-overlay" @click.self="closeEdit">
@@ -184,23 +211,23 @@ const currentUserId = computed(() => authStore.user?.id);
 const isAgencyAdmin = computed(() =>
   ['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus'].includes(roleNorm.value)
 );
-const isCurrentUserPrimary = computed(() => {
+const isCurrentUserSchoolAdmin = computed(() => {
   const uid = currentUserId.value;
   if (!uid) return false;
-  return staff.value.some((s) => s.id === uid && s.is_primary);
+  return staff.value.some((s) => s.id === uid && s.is_school_admin);
 });
 
 const canRequest = computed(() => roleNorm.value === 'school_staff');
 const canRemove = (u) =>
   isAgencyAdmin.value ||
-  (roleNorm.value === 'school_staff' && isCurrentUserPrimary.value && u.id !== currentUserId.value);
+  (roleNorm.value === 'school_staff' && isCurrentUserSchoolAdmin.value && u.id !== currentUserId.value);
 const canSendReset = (u) =>
-  (isAgencyAdmin.value || (roleNorm.value === 'school_staff' && isCurrentUserPrimary.value)) && u.id !== currentUserId.value;
+  (isAgencyAdmin.value || (roleNorm.value === 'school_staff' && isCurrentUserSchoolAdmin.value)) && u.id !== currentUserId.value;
 const canAdd = computed(
-  () => isAgencyAdmin.value || (roleNorm.value === 'school_staff' && isCurrentUserPrimary.value)
+  () => isAgencyAdmin.value || (roleNorm.value === 'school_staff' && isCurrentUserSchoolAdmin.value)
 );
-const canEdit = computed(() => isAgencyAdmin.value);
-const canSetPrimary = (u) => isAgencyAdmin.value && !u.is_primary && u.id !== currentUserId.value;
+const canEdit = computed(() => isAgencyAdmin.value || (roleNorm.value === 'school_staff' && isCurrentUserSchoolAdmin.value));
+const canToggleSchoolRoles = (u) => isAgencyAdmin.value || (roleNorm.value === 'school_staff' && isCurrentUserSchoolAdmin.value && u.id !== currentUserId.value);
 const canManageTickets = computed(() =>
   ['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus'].includes(roleNorm.value)
 );
@@ -225,6 +252,8 @@ const success = ref('');
 const adding = ref(false);
 const addName = ref('');
 const addEmail = ref('');
+const addIsSchoolAdmin = ref(false);
+const addIsScheduler = ref(false);
 const addSuccess = ref('');
 
 const showEditModal = ref(false);
@@ -232,6 +261,8 @@ const editTarget = ref(null);
 const editForm = ref({ firstName: '', lastName: '', email: '' });
 const savingEdit = ref(false);
 const settingPrimaryId = ref(null);
+const settingSchedulerId = ref(null);
+const forfeiting = ref(false);
 
 const formatDate = (d) => {
   if (!d) return '—';
@@ -297,7 +328,9 @@ const saveEdit = async () => {
     await api.put(`/school-portal/${props.schoolOrganizationId}/school-staff/${u.id}`, {
       firstName: firstName || undefined,
       lastName: lastName || undefined,
-      email
+      email,
+      isSchoolAdmin: !!u.is_school_admin,
+      isScheduler: !!u.is_scheduler
     });
     closeEdit();
     await load();
@@ -310,20 +343,59 @@ const saveEdit = async () => {
   }
 };
 
-const setPrimary = async (u) => {
+const toggleSchoolAdmin = async (u) => {
   if (!u?.id) return;
-  if (!confirm(`Set ${[u.first_name, u.last_name].filter(Boolean).join(' ') || u.email} as the primary contact for this school?`)) return;
+  const next = !u.is_school_admin;
+  if (!confirm(`${next ? 'Grant' : 'Remove'} School Admin for ${[u.first_name, u.last_name].filter(Boolean).join(' ') || u.email}?`)) return;
   try {
     settingPrimaryId.value = u.id;
     error.value = '';
-    await api.post(`/school-portal/${props.schoolOrganizationId}/school-staff/${u.id}/set-primary`);
+    await api.patch(`/school-portal/${props.schoolOrganizationId}/school-staff/${u.id}/roles`, {
+      isSchoolAdmin: next
+    });
     await load();
-    success.value = 'Primary contact updated.';
+    success.value = next ? 'School Admin assigned.' : 'School Admin removed.';
     setTimeout(() => { success.value = ''; }, 3000);
   } catch (e) {
-    error.value = e.response?.data?.error?.message || 'Failed to set primary contact';
+    error.value = e.response?.data?.error?.message || 'Failed to update School Admin';
   } finally {
     settingPrimaryId.value = null;
+  }
+};
+
+const toggleScheduler = async (u) => {
+  if (!u?.id) return;
+  const next = !u.is_scheduler;
+  if (!confirm(`${next ? 'Grant' : 'Remove'} Scheduler for ${[u.first_name, u.last_name].filter(Boolean).join(' ') || u.email}?`)) return;
+  try {
+    settingSchedulerId.value = u.id;
+    error.value = '';
+    await api.patch(`/school-portal/${props.schoolOrganizationId}/school-staff/${u.id}/roles`, {
+      isScheduler: next
+    });
+    await load();
+    success.value = next ? 'Scheduler assigned.' : 'Scheduler removed.';
+    setTimeout(() => { success.value = ''; }, 3000);
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to update Scheduler';
+  } finally {
+    settingSchedulerId.value = null;
+  }
+};
+
+const forfeitSchoolAdmin = async () => {
+  if (!confirm('Forfeit your School Admin access for this school?')) return;
+  try {
+    forfeiting.value = true;
+    error.value = '';
+    await api.post(`/school-portal/${props.schoolOrganizationId}/school-staff/forfeit-school-admin`);
+    await load();
+    success.value = 'You are no longer a School Admin for this school.';
+    setTimeout(() => { success.value = ''; }, 3500);
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to forfeit School Admin';
+  } finally {
+    forfeiting.value = false;
   }
 };
 
@@ -373,10 +445,14 @@ const addStaff = async () => {
     addSuccess.value = '';
     await api.post(`/school-portal/${props.schoolOrganizationId}/school-staff`, {
       email,
-      fullName: addName.value.trim() || undefined
+      fullName: addName.value.trim() || undefined,
+      isSchoolAdmin: !!addIsSchoolAdmin.value,
+      isScheduler: !!addIsScheduler.value
     });
     addName.value = '';
     addEmail.value = '';
+    addIsSchoolAdmin.value = false;
+    addIsScheduler.value = false;
     addSuccess.value = 'Staff added. Setup email sent.';
     await load();
   } catch (e) {
@@ -516,6 +592,10 @@ onMounted(load);
   background: var(--primary-light, #e8f4fd);
   color: var(--primary, #0d6efd);
 }
+.badge-secondary {
+  background: #ede9fe;
+  color: #5b21b6;
+}
 .meta {
   color: var(--text-secondary);
   font-size: 12px;
@@ -542,6 +622,19 @@ onMounted(load);
   grid-template-columns: 1fr 1fr;
   gap: 10px;
   margin-bottom: 10px;
+}
+.role-flags-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 10px;
+}
+.checkbox-inline {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 .field {
   font-size: 12px;

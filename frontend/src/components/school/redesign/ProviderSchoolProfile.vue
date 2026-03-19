@@ -170,7 +170,7 @@
                     {{ slotsLeftText(a) }} left
                   </span>
                   <span v-if="a.start_time || a.end_time" class="badge badge-secondary">
-                    {{ (a.start_time || '—').toString().slice(0, 5) }}–{{ (a.end_time || '—').toString().slice(0, 5) }}
+                    {{ formatClock(a.start_time) }} to {{ formatClock(a.end_time) }}
                   </span>
                 </div>
                 <div class="chips-mini">
@@ -400,6 +400,13 @@ const toggleClientLabelMode = () => {
 };
 const clientShort = (c) => {
   if (isLockedClient(c)) {
+    const initials = String(c?.initials || '').replace(/\s+/g, '');
+    const code = String(c?.identifier_code || '').replace(/\s+/g, '').toUpperCase();
+    const preferred = initials || code;
+    if (preferred) {
+      if (preferred.length >= 6) return `${preferred.slice(0, 3)}${preferred.slice(-3)}`;
+      return preferred;
+    }
     return String(c?.school_portal_locked_label || 'NO ROI').trim() || 'NO ROI';
   }
   const mode = String(clientLabelMode.value || 'codes');
@@ -417,9 +424,10 @@ const isLockedClient = (c) => c?.school_portal_force_placeholder === true || c?.
 const clientTitle = (c) => {
   if (isLockedClient(c)) {
     const state = String(c?.school_staff_effective_access_state || '').toLowerCase();
-    return state === 'expired'
-      ? 'ROI expired. This client remains on the caseload, but details are locked.'
-      : 'NO ROI. Client details are locked until ROI access is granted.';
+    if (state === 'expired') {
+      return 'ROI EXPIRED: Release of information is expired. Initials are visible for schedule context only.';
+    }
+    return 'ROI LOCKED: ROI is missing, pending, or requires packet update/approval. Initials are visible for schedule context only.';
   }
   const mode = String(clientLabelMode.value || 'codes');
   if (mode === 'codes' && c?.initials) return `Initials: ${c.initials}`;

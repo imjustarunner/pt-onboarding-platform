@@ -200,13 +200,17 @@ router.get('/verify-club-manager-email', verifyClubManagerEmail);
 router.get('/recovery-status', recoveryLimiter, getRecoveryStatus);
 router.post('/request-password-reset', recoveryLimiter, [
   body('email').isEmail().normalizeEmail(),
-  body('organizationSlug').optional().isString().trim()
+  body('organizationSlug').optional().isString().trim(),
+  body('captchaToken').optional().isString().trim()
 ], requestPasswordReset);
 router.post('/recover-username', recoveryLimiter, [
   body('firstName').isString().trim().notEmpty(),
   body('lastName').isString().trim().notEmpty(),
   body('role').isString().trim().notEmpty(),
-  body('organizationSlug').optional().isString().trim()
+  body('message').isString().trim().isLength({ min: 5, max: 2000 }),
+  body('contactEmail').optional().isEmail().normalizeEmail(),
+  body('organizationSlug').optional().isString().trim(),
+  body('captchaToken').optional().isString().trim()
 ], recoverUsername);
 
 // Old route: token in URL (kept for backward compatibility)

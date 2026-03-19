@@ -64,10 +64,10 @@
             />
           </div>
 
-          <div v-if="!isOrgLogin && !needsOrgChoice" class="remember-row">
+          <div v-if="!needsOrgChoice" class="remember-row">
             <label class="remember-me">
               <input type="checkbox" v-model="rememberLogin" :disabled="verifying || loading" />
-              Remember me
+              Remember username
             </label>
           </div>
           
@@ -147,7 +147,7 @@
         <div v-if="showForgotUsernameMessage" class="modal-overlay" @click.self="closeRecoveryModals">
           <div class="modal">
             <h3>Recover your username</h3>
-            <p class="modal-subtitle">Enter your name and role. If we find a match, we'll email your username.</p>
+            <p class="modal-subtitle">Enter your details and message. We send this to admin support for follow-up.</p>
             <form @submit.prevent="submitForgotUsername" class="modal-form">
               <div class="form-row">
                 <div class="form-group">
@@ -163,23 +163,29 @@
                 <label for="role">Role</label>
                 <select id="role" v-model="recoverRole" required>
                   <option disabled value="">Select your role</option>
-                  <option value="provider">Provider</option>
-                  <option value="intern">Intern</option>
-                  <option value="staff">Staff</option>
-                  <option value="supervisor">Supervisor</option>
-                  <option value="admin">Admin</option>
-                  <option value="support">Support</option>
-                  <option value="clinical_practice_assistant">Clinical Practice Assistant</option>
-                  <option value="provider_plus">Provider Plus</option>
                   <option value="school_staff">School Staff</option>
                   <option value="client_guardian">Guardian</option>
-                  <option value="facilitator">Facilitator</option>
                 </select>
+              </div>
+              <div class="form-group">
+                <label for="recoverContactEmail">Contact email (optional)</label>
+                <input id="recoverContactEmail" v-model="recoverContactEmail" type="email" placeholder="name@school.org" />
+              </div>
+              <div class="form-group">
+                <label for="recoverMessage">Message</label>
+                <textarea
+                  id="recoverMessage"
+                  v-model="recoverMessage"
+                  rows="4"
+                  required
+                  maxlength="2000"
+                  placeholder="Tell admin who you are and what access help you need."
+                />
               </div>
               <div v-if="recoveryError" class="error">{{ recoveryError }}</div>
               <div v-if="recoverySuccess" class="success">{{ recoverySuccess }}</div>
               <button type="submit" class="btn btn-primary" :disabled="recoveryLoading">
-                {{ recoveryLoading ? 'Sending…' : 'Email my username' }}
+                {{ recoveryLoading ? 'Sending…' : 'Send help request' }}
               </button>
               <button type="button" class="btn btn-secondary" @click="closeRecoveryModals" :disabled="recoveryLoading">Cancel</button>
             </form>
@@ -206,7 +212,9 @@ import {
   setRememberedLogin,
   clearRememberedLogin,
   getRememberedGoogleLogin,
-  setRememberedGoogleLogin
+  getRememberedSchoolStaffPasswordLogin,
+  setRememberedSchoolStaffPasswordLogin,
+  clearRememberedSchoolStaffPasswordLogin
 } from '../utils/loginRemember';
 
 // Removed hardcoded credentials for security
@@ -361,6 +369,21 @@ onMounted(async () => {
     // ignore
   }
 
+  if (isOrgLogin.value && loginSlug.value && !String(username.value || '').trim()) {
+    const rememberedSchoolStaff = getRememberedSchoolStaffPasswordLogin();
+    const currentOrg = String(loginSlug.value || '').trim().toLowerCase();
+    if (
+      rememberedSchoolStaff?.username &&
+      rememberedSchoolStaff?.orgSlug &&
+      rememberedSchoolStaff.orgSlug === currentOrg
+    ) {
+      username.value = rememberedSchoolStaff.username;
+      rememberLogin.value = true;
+      await verifyUsername({ reason: 'remembered_school_staff' });
+      return;
+    }
+  }
+
   // Platform login convenience: if they opted-in to remember brand+username, auto-verify to route to the right branded login.
   if (!isOrgLogin.value) {
     const remembered = getRememberedLogin();
@@ -412,6 +435,7 @@ const orgOptions = ref([]);
 const selectedOrgSlug = ref('');
 const rememberLogin = ref(false);
 const rememberedGoogleLogin = ref(null);
+const identifiedLoginMethod = ref('password');
 const lastVerifiedUsername = ref('');
 const lastUsernameInputAt = ref(0);
 const showForgotPasswordMessage = ref(false);
@@ -427,6 +451,8 @@ const forgotPasswordEmail = ref('');
 const recoverFirstName = ref('');
 const recoverLastName = ref('');
 const recoverRole = ref('');
+const recoverMessage = ref('');
+const recoverContactEmail = ref('');
 const currentEmployeeRescueLoading = ref(false);
 const canShowCurrentEmployeeRescue = computed(() =>
   isOrgLogin.value && String(username.value || '').trim().length > 0
@@ -508,6 +534,7 @@ const verifyUsername = async ({ orgSlugOverride = null, reason = 'user' } = {}) 
     }
 
     lastVerifiedUsername.value = String(data?.normalizedUsername || u).trim().toLowerCase();
+    identifiedLoginMethod.value = String(data?.login?.method || 'password').toLowerCase();
 
     if (data?.needsOrgChoice === true) {
       // Simplified login UX: never show an org picker.
@@ -610,6 +637,19 @@ const handleLogin = async () => {
   const result = await authStore.login(username.value, password.value, loginSlug.value);
   
   if (result.success) {
+    const currentOrgSlug = String(loginSlug.value || '').trim().toLowerCase();
+    const roleNorm = String(authStore.user?.role || '').toLowerCase();
+    const verifiedMethod = String(identifiedLoginMethod.value || 'password').toLowerCase();
+    const isSchoolStaffPasswordFlow = roleNorm === 'school_staff' && verifiedMethod === 'password' && !!currentOrgSlug;
+    if (isSchoolStaffPasswordFlow && rememberLogin.value) {
+      setRememberedSchoolStaffPasswordLogin({
+        username: String(username.value || '').trim(),
+        orgSlug: currentOrgSlug
+      });
+    } else if (isSchoolStaffPasswordFlow && !rememberLogin.value) {
+      clearRememberedSchoolStaffPasswordLogin(currentOrgSlug);
+    }
+
     // Kiosk users go to kiosk app (no agency fetch)
     if (authStore.user?.role?.toLowerCase() === 'kiosk') {
       router.push('/kiosk/app');
@@ -676,6 +716,8 @@ const showForgotUsername = () => {
   recoverFirstName.value = '';
   recoverLastName.value = '';
   recoverRole.value = '';
+  recoverMessage.value = '';
+  recoverContactEmail.value = '';
 };
 
 const closeRecoveryModals = () => {
@@ -687,15 +729,62 @@ const closeRecoveryModals = () => {
   recoveryDebug.value = null;
 };
 
+const recoveryRecaptchaSiteKey = String(import.meta.env.VITE_RECAPTCHA_SITE_KEY || '').trim();
+let recoveryRecaptchaLoadPromise = null;
+const loadRecoveryRecaptcha = async () => {
+  if (!recoveryRecaptchaSiteKey) return null;
+  if (window.grecaptcha?.execute || window.grecaptcha?.enterprise?.execute) return window.grecaptcha;
+  if (!recoveryRecaptchaLoadPromise) {
+    recoveryRecaptchaLoadPromise = new Promise((resolve, reject) => {
+      const existing = document.querySelector('script[data-login-recaptcha="true"]');
+      if (existing) {
+        existing.addEventListener('load', () => resolve(window.grecaptcha), { once: true });
+        existing.addEventListener('error', () => reject(new Error('Failed to load reCAPTCHA')), { once: true });
+        return;
+      }
+      const script = document.createElement('script');
+      script.src = `https://www.google.com/recaptcha/api.js?render=${encodeURIComponent(recoveryRecaptchaSiteKey)}`;
+      script.async = true;
+      script.defer = true;
+      script.setAttribute('data-login-recaptcha', 'true');
+      script.onload = () => resolve(window.grecaptcha);
+      script.onerror = () => reject(new Error('Failed to load reCAPTCHA'));
+      document.head.appendChild(script);
+    });
+  }
+  return recoveryRecaptchaLoadPromise;
+};
+
+const getRecoveryCaptchaToken = async (action) => {
+  if (!recoveryRecaptchaSiteKey) return '';
+  try {
+    const grecaptcha = await loadRecoveryRecaptcha();
+    if (!grecaptcha) return '';
+    const enterpriseExecute = grecaptcha?.enterprise?.execute;
+    if (typeof enterpriseExecute === 'function') {
+      return await enterpriseExecute(recoveryRecaptchaSiteKey, { action });
+    }
+    const execute = grecaptcha?.execute;
+    if (typeof execute === 'function') {
+      return await execute(recoveryRecaptchaSiteKey, { action });
+    }
+    return '';
+  } catch {
+    return '';
+  }
+};
+
 const submitForgotPassword = async () => {
   recoveryLoading.value = true;
   recoveryError.value = '';
   recoverySuccess.value = '';
   recoveryDebug.value = null;
   try {
+    const captchaToken = await getRecoveryCaptchaToken('login_password_reset');
     const resp = await api.post('/auth/request-password-reset', {
       email: String(forgotPasswordEmail.value || '').trim(),
-      organizationSlug: loginSlug.value || undefined
+      organizationSlug: loginSlug.value || undefined,
+      captchaToken: captchaToken || undefined
     }, { skipGlobalLoading: true, skipAuthRedirect: true });
 
     recoverySuccess.value = resp?.data?.message || 'If the email matches an account, you will receive a reset link shortly.';
@@ -751,17 +840,21 @@ const submitForgotUsername = async () => {
   recoverySuccess.value = '';
   recoveryDebug.value = null;
   try {
+    const captchaToken = await getRecoveryCaptchaToken('login_recover_username');
     const resp = await api.post('/auth/recover-username', {
       firstName: String(recoverFirstName.value || '').trim(),
       lastName: String(recoverLastName.value || '').trim(),
       role: String(recoverRole.value || '').trim(),
-      organizationSlug: loginSlug.value || undefined
+      message: String(recoverMessage.value || '').trim(),
+      contactEmail: String(recoverContactEmail.value || '').trim() || undefined,
+      organizationSlug: loginSlug.value || undefined,
+      captchaToken: captchaToken || undefined
     }, { skipGlobalLoading: true, skipAuthRedirect: true });
 
-    recoverySuccess.value = resp?.data?.message || 'If the information matches an account, you will receive an email shortly.';
+    recoverySuccess.value = resp?.data?.message || 'If the information matches our records, admin will follow up shortly.';
     recoveryDebug.value = resp?.data?.debug || null;
   } catch (e) {
-    recoverySuccess.value = 'If the information matches an account, you will receive an email shortly.';
+    recoverySuccess.value = 'If the information matches our records, admin will follow up shortly.';
     recoveryDebug.value = e?.response?.data?.debug || null;
   } finally {
     recoveryLoading.value = false;

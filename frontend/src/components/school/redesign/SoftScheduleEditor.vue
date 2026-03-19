@@ -105,6 +105,13 @@ const isLockedClientId = (clientId) => isLockedClient(getClientById(clientId));
 
 const displayClient = (c) => {
   if (isLockedClient(c)) {
+    const initials = String(c?.initials || '').replace(/\s+/g, '');
+    const code = String(c?.identifier_code || '').replace(/\s+/g, '').toUpperCase();
+    const preferred = initials || code;
+    if (preferred) {
+      if (preferred.length >= 6) return `${preferred.slice(0, 3)}${preferred.slice(-3)}`;
+      return preferred;
+    }
     return String(c?.school_portal_locked_label || 'NO ROI').trim() || 'NO ROI';
   }
   const mode = String(props.clientLabelMode || 'codes');

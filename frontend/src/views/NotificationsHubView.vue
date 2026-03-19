@@ -95,7 +95,16 @@
                   <button class="btn btn-secondary btn-sm mark-btn" type="button" @click="markRead(n)" :disabled="!isUnread(n)">
                     Mark read
                   </button>
-                  <button class="btn btn-danger btn-sm" type="button" @click="dismissNotification(n)">
+                  <button class="btn btn-secondary btn-sm" type="button" @click="toggleFollowUp(n)">
+                    {{ n._requires_follow_up_for_viewer ? 'Clear Follow-up' : 'Needs Follow-up' }}
+                  </button>
+                  <button
+                    class="btn btn-danger btn-sm"
+                    type="button"
+                    @click="dismissNotification(n)"
+                    :disabled="n._requires_follow_up_for_viewer"
+                    :title="n._requires_follow_up_for_viewer ? 'Clear follow-up first' : ''"
+                  >
                     Dismiss
                   </button>
                 </template>
@@ -373,13 +382,38 @@ const markRead = async (n) => {
 
 const dismissNotification = async (n) => {
   try {
+    // Preferred path: mark resolved.
     await api.put(`/notifications/${n.id}/resolved`);
-    n.is_resolved = true;
-    n.resolved_at = new Date().toISOString();
-    myNotifications.value = myNotifications.value.filter((item) => item.id !== n.id);
-    void notificationStore.fetchCounts();
   } catch {
-    // ignore
+    // Fallback path: if resolve fails for any reason, attempt hard delete so
+    // the item can still be dismissed from the user's perspective.
+    try {
+      await api.delete(`/notifications/${n.id}`);
+    } catch {
+      return;
+    }
+  }
+  n.is_resolved = true;
+  n.resolved_at = new Date().toISOString();
+  myNotifications.value = myNotifications.value.filter((item) => item.id !== n.id);
+  void notificationStore.fetchCounts();
+};
+
+const toggleFollowUp = async (n) => {
+  try {
+    await api.put(`/notifications/${n.id}/follow-up`, {
+      enabled: !n._requires_follow_up_for_viewer
+    });
+    n._requires_follow_up_for_viewer = !n._requires_follow_up_for_viewer;
+    if (n._requires_follow_up_for_viewer) {
+      n.is_read = false;
+      n.read_at = null;
+      n.muted_until = null;
+    }
+    await loadMy();
+    void notificationStore.fetchCounts();
+  } catch (e) {
+    alert(e.response?.data?.error?.message || 'Failed to update follow-up state');
   }
 };
 
@@ -450,7 +484,17 @@ const openNotification = async (notification) => {
   }
   if (notification.type === 'office_availability_request_pending' && notification.agency_id) {
     const agencyId = notification.agency_id;
-    router.push(`${base}/admin/availability-intake?agencyId=${agencyId}`);
+    router.push(`${base}/admin/availability-intake?agencyId=${agencyId}&tab=office`);
+    return;
+  }
+  if (notification.type === 'school_availability_request_pending' && notification.agency_id) {
+    const agencyId = notification.agency_id;
+    router.push(`${base}/admin/availability-intake?agencyId=${agencyId}&tab=school`);
+    return;
+  }
+  if ((notification.type === 'school_provider_availability_confirmed' || notification.type === 'school_provider_availability_updated') && notification.agency_id) {
+    const agencyId = notification.agency_id;
+    router.push(`${base}/admin/availability-intake?agencyId=${agencyId}&tab=school`);
     return;
   }
   if (notification.type === 'office_availability_request_approved') {
@@ -512,7 +556,10 @@ const typeLabelMap = {
   new_packet_uploaded: 'New packet uploaded',
   support_ticket_created: 'Support ticket',
   office_availability_request_pending: 'Office request',
+  school_availability_request_pending: 'School request',
   office_availability_request_approved: 'Office request approved',
+  school_provider_availability_confirmed: 'School availability confirmed',
+  school_provider_availability_updated: 'School availability updated',
   client_assigned: 'Client assigned',
   task_overdue: 'Task overdue',
   status_expired: 'Status expired',

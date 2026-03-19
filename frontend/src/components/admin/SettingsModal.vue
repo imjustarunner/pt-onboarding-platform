@@ -309,7 +309,7 @@ const allCategories = [
       },
       {
         id: 'availability-intake',
-        label: 'Availability Intake',
+        label: 'Provider Availability',
         icon: '🧭',
         component: 'AvailabilityIntakeManagement',
         agencyOnly: true,

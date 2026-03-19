@@ -402,7 +402,10 @@ export const submitReferralPacketDraft = async (req, res, next) => {
       agencyId,
       schoolOrganizationId: organization.id,
       clientId: client.id,
-      clientNameOrIdentifier: client.identifier_code || client.initials || `ID ${client.id}`
+      clientNameOrIdentifier: client.identifier_code || client.initials || `ID ${client.id}`,
+      clientInitials: client.initials || null,
+      mode: 'paper_upload',
+      schoolStaffName: String(req.user?.role || '').toLowerCase() === 'school_staff' ? uploaderLabel : null
     }).catch(() => {});
 
     if (uploadNote && uploadNote.length <= 500 && uploaderId) {

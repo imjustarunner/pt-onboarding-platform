@@ -86,7 +86,10 @@ const categories = computed(() => {
     { type: 'password_changed', label: 'Password Changed' },
     { type: 'new_packet_uploaded', label: 'New Packet Uploaded' },
     { type: 'support_ticket_created', label: 'Support Tickets' },
-    { type: 'office_availability_request_pending', label: 'Office Requests' }
+    { type: 'office_availability_request_pending', label: 'Office Requests' },
+    { type: 'school_availability_request_pending', label: 'School Requests' },
+    { type: 'school_provider_availability_confirmed', label: 'School Availability Confirmed' },
+    { type: 'school_provider_availability_updated', label: 'School Availability Updated' }
   ];
 
   return categoryTypes.map(cat => ({
@@ -118,7 +121,10 @@ const getCategoryIcon = (type) => {
     password_changed: '🔐',
     new_packet_uploaded: '📄',
     support_ticket_created: '🎟️',
-    office_availability_request_pending: '🏢'
+    office_availability_request_pending: '🏢',
+    school_availability_request_pending: '🏫',
+    school_provider_availability_confirmed: '🗓️',
+    school_provider_availability_updated: '🛠️'
   };
   return icons[type] || '📢';
 };
@@ -160,7 +166,10 @@ const fetchCategoryCounts = async () => {
       password_changed: 0,
       new_packet_uploaded: 0,
       support_ticket_created: 0,
-      office_availability_request_pending: 0
+      office_availability_request_pending: 0,
+      school_availability_request_pending: 0,
+      school_provider_availability_confirmed: 0,
+      school_provider_availability_updated: 0
     };
 
     response.data.forEach(notification => {

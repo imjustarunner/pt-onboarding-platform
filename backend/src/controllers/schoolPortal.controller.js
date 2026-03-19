@@ -65,6 +65,67 @@ async function resolveActiveAgencyIdForOrg(orgId) {
   );
 }
 
+async function getAgencyAdminStaffUserIds(agencyId) {
+  const [rows] = await pool.execute(
+    `SELECT DISTINCT u.id
+     FROM users u
+     LEFT JOIN user_agencies ua ON ua.user_id = u.id
+     WHERE (
+       (ua.agency_id = ? AND LOWER(COALESCE(u.role, '')) IN ('admin', 'staff', 'support'))
+       OR LOWER(COALESCE(u.role, '')) = 'super_admin'
+     )
+       AND (u.is_archived = FALSE OR u.is_archived IS NULL)
+       AND UPPER(COALESCE(u.status, '')) <> 'ARCHIVED'`,
+    [agencyId]
+  );
+  return (rows || []).map((r) => Number(r.id)).filter(Boolean);
+}
+
+async function getAgencyAdminOnlyUserIds(agencyId) {
+  const [rows] = await pool.execute(
+    `SELECT DISTINCT u.id
+     FROM users u
+     LEFT JOIN user_agencies ua ON ua.user_id = u.id
+     WHERE (
+       (ua.agency_id = ? AND LOWER(COALESCE(u.role, '')) = 'admin')
+       OR LOWER(COALESCE(u.role, '')) = 'super_admin'
+     )
+       AND (u.is_archived = FALSE OR u.is_archived IS NULL)
+       AND UPPER(COALESCE(u.status, '')) <> 'ARCHIVED'`,
+    [agencyId]
+  );
+  return (rows || []).map((r) => Number(r.id)).filter(Boolean);
+}
+
+async function notifyAgencyAdmins({
+  agencyId,
+  title,
+  message,
+  actorUserId = null,
+  relatedEntityType = null,
+  relatedEntityId = null
+}) {
+  if (!agencyId || !title || !message) return 0;
+  const Notification = (await import('../models/Notification.model.js')).default;
+  const adminIds = await getAgencyAdminOnlyUserIds(agencyId);
+  const uniqueAdminIds = Array.from(new Set(adminIds));
+  await Promise.all(uniqueAdminIds.map(async (adminUserId) => {
+    await Notification.create({
+      type: 'program_reminder',
+      severity: 'info',
+      title,
+      message,
+      userId: adminUserId,
+      agencyId,
+      relatedEntityType: relatedEntityType || undefined,
+      relatedEntityId: relatedEntityId || undefined,
+      actorUserId: actorUserId || undefined,
+      actorSource: 'School Portal'
+    });
+  }));
+  return uniqueAdminIds.length;
+}
+
 async function canSchoolStaffUseWaiverFallbackAccess({ userId, orgId }) {
   const uid = Number(userId || 0);
   const sid = Number(orgId || 0);
@@ -807,16 +868,24 @@ export const getSchoolClients = async (req, res, next) => {
       clientIds: (clients || []).map((c) => Number(c?.id)).filter(Boolean)
     });
     const schoolStaffResolvedStateByClientId = new Map();
+    const schedulerOwnOnly = await isSchedulerSchoolStaff({
+      userId,
+      role: userRole,
+      actorEmail: req.user?.email || req.user?.username || null,
+      orgId
+    });
     if (String(userRole || '').toLowerCase() === 'school_staff') {
       await Promise.all(
         (clients || []).map(async (client) => {
           const cid = Number(client?.id || 0);
           if (!cid) return;
-          const state = await ClientSchoolStaffRoiAccess.resolveSchoolStaffClientAccessState({
-            clientId: cid,
-            schoolOrganizationId: orgId,
-            schoolStaffUserId: userId
-          });
+          const state = schedulerOwnOnly
+            ? 'limited'
+            : await ClientSchoolStaffRoiAccess.resolveSchoolStaffClientAccessState({
+                clientId: cid,
+                schoolOrganizationId: orgId,
+                schoolStaffUserId: userId
+              });
           schoolStaffResolvedStateByClientId.set(cid, state);
         })
       );
@@ -1350,6 +1419,317 @@ export const getProviderMyRoster = async (req, res, next) => {
     logAuditEvent(req, { actionType: 'school_portal_roster_viewed', agencyId: agencyId || undefined }).catch(() => {});
 
     res.json(restrictedClients);
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Provider confirms current school-day availability (weekly splash action).
+ * POST /api/school-portal/:organizationId/provider-availability/confirm
+ */
+export const confirmProviderSchoolAvailability = async (req, res, next) => {
+  try {
+    const { organizationId } = req.params;
+    const orgId = parseInt(String(organizationId), 10);
+    if (!orgId) return res.status(400).json({ error: { message: 'Invalid organizationId' } });
+
+    const userId = Number(req.user?.id || 0);
+    const role = String(req.user?.role || '').toLowerCase();
+    const providerRoles = ['provider', 'provider_plus', 'intern', 'intern_plus', 'clinical_practice_assistant'];
+    if (!providerRoles.includes(role)) {
+      return res.status(403).json({ error: { message: 'Provider access required' } });
+    }
+    if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+
+    const [providerRows] = await pool.execute(
+      `SELECT DISTINCT psa.provider_user_id
+       FROM provider_school_assignments psa
+       WHERE psa.school_organization_id = ? AND psa.provider_user_id = ? AND psa.is_active = TRUE
+       LIMIT 1`,
+      [orgId, userId]
+    );
+    if (!providerRows?.[0]) {
+      return res.status(403).json({ error: { message: 'You are not assigned to this school schedule' } });
+    }
+
+    const activeAgencyId = await resolveActiveAgencyIdForOrg(orgId);
+    if (!activeAgencyId) {
+      return res.status(400).json({ error: { message: 'No active agency affiliation found for this school' } });
+    }
+
+    const [dayRows] = await pool.execute(
+      `SELECT day_of_week, slots_total, slots_available, start_time, end_time
+       FROM provider_school_assignments
+       WHERE school_organization_id = ? AND provider_user_id = ? AND is_active = TRUE
+       ORDER BY FIELD(day_of_week, 'Monday','Tuesday','Wednesday','Thursday','Friday')`,
+      [orgId, userId]
+    );
+
+    const [clientRows] = await pool.execute(
+      `SELECT c.id, cpa.service_day
+       FROM clients c
+       JOIN client_organization_assignments coa
+         ON coa.client_id = c.id
+        AND coa.organization_id = ?
+        AND coa.is_active = TRUE
+       JOIN client_provider_assignments cpa
+         ON cpa.client_id = c.id
+        AND cpa.organization_id = coa.organization_id
+        AND cpa.provider_user_id = ?
+        AND cpa.is_active = TRUE
+       LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
+       WHERE (c.status IS NULL OR UPPER(c.status) <> 'ARCHIVED')
+         AND (cs.status_key IS NULL OR LOWER(cs.status_key) <> 'archived')`,
+      [orgId, userId]
+    );
+
+    const assignedTotal = Number((clientRows || []).length || 0);
+    const clientsByDay = new Map();
+    for (const r of (clientRows || [])) {
+      const days = String(r?.service_day || '')
+        .split(',')
+        .map((d) => d.trim())
+        .filter((d) => ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].includes(d));
+      for (const d of Array.from(new Set(days))) {
+        clientsByDay.set(d, Number(clientsByDay.get(d) || 0) + 1);
+      }
+    }
+
+    const lines = (dayRows || []).map((d) => {
+      const day = String(d?.day_of_week || '').trim();
+      const assigned = Number(clientsByDay.get(day) || 0);
+      const slots = Number(d?.slots_total || 0);
+      const available = Number(d?.slots_available ?? (slots - assigned));
+      const st = String(d?.start_time || '').slice(0, 5) || '—';
+      const et = String(d?.end_time || '').slice(0, 5) || '—';
+      return `${day}: ${assigned} assigned, ${available} available slots, hours ${st}-${et}`;
+    });
+
+    const actor = await User.findById(userId);
+    const actorName =
+      `${actor?.first_name || ''} ${actor?.last_name || ''}`.trim() ||
+      actor?.email ||
+      `Provider #${userId}`;
+    const school = await Agency.findById(orgId);
+    const schoolName = school?.name || school?.official_name || `School #${orgId}`;
+
+    const Notification = (await import('../models/Notification.model.js')).default;
+    const recipients = await getAgencyAdminOnlyUserIds(activeAgencyId);
+    const uniqueRecipients = Array.from(new Set(recipients));
+    await Promise.all(uniqueRecipients.map(async (adminUserId) => {
+      await Notification.create({
+        type: 'school_provider_availability_confirmed',
+        severity: 'info',
+        title: 'Provider weekly availability confirmed',
+        message: `${actorName} confirmed school availability for ${schoolName}. Assigned clients: ${assignedTotal}.${lines.length ? ` ${lines.join(' | ')}` : ''}`,
+        userId: adminUserId,
+        agencyId: activeAgencyId,
+        relatedEntityType: 'school_organization',
+        relatedEntityId: orgId,
+        actorUserId: userId,
+        actorSource: 'School Portal'
+      });
+    }));
+
+    res.json({ ok: true, notifiedCount: uniqueRecipients.length });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Provider applies an availability update directly to provider_school_assignments
+ * for a single existing school day assignment.
+ * POST /api/school-portal/:organizationId/provider-availability/apply
+ */
+export const applyProviderSchoolAvailability = async (req, res, next) => {
+  try {
+    const { organizationId } = req.params;
+    const orgId = parseInt(String(organizationId), 10);
+    if (!orgId) return res.status(400).json({ error: { message: 'Invalid organizationId' } });
+
+    const userId = Number(req.user?.id || 0);
+    const role = String(req.user?.role || '').toLowerCase();
+    const providerRoles = ['provider', 'provider_plus', 'intern', 'intern_plus', 'clinical_practice_assistant'];
+    if (!providerRoles.includes(role)) {
+      return res.status(403).json({ error: { message: 'Provider access required' } });
+    }
+    if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+
+    const dayOfWeek = String(req.body?.dayOfWeek || '').trim();
+    const validDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+    if (!validDays.includes(dayOfWeek)) {
+      return res.status(400).json({ error: { message: 'A valid weekday is required' } });
+    }
+
+    const slotsTotal = Number(req.body?.slotsTotal);
+    if (!Number.isInteger(slotsTotal) || slotsTotal < 0) {
+      return res.status(400).json({ error: { message: 'slotsTotal must be a non-negative integer' } });
+    }
+
+    const fromSlotsTotal = Number(req.body?.fromSlotsTotal);
+    const fromStartTime = String(req.body?.fromStartTime || '').trim().slice(0, 5);
+    const fromEndTime = String(req.body?.fromEndTime || '').trim().slice(0, 5);
+    if (!Number.isInteger(fromSlotsTotal) || !fromStartTime || !fromEndTime) {
+      return res.status(400).json({
+        error: { message: 'fromSlotsTotal, fromStartTime, and fromEndTime are required for confirm/apply' }
+      });
+    }
+
+    const requestedStartTime = String(req.body?.startTime || '').trim().slice(0, 5);
+    const requestedEndTime = String(req.body?.endTime || '').trim().slice(0, 5);
+    if (!requestedStartTime || !requestedEndTime || requestedEndTime <= requestedStartTime) {
+      return res.status(400).json({ error: { message: 'Valid startTime and endTime are required' } });
+    }
+
+    const allowOverAssigned = req.body?.allowOverAssigned === true;
+
+    const [providerRows] = await pool.execute(
+      `SELECT DISTINCT psa.provider_user_id
+       FROM provider_school_assignments psa
+       WHERE psa.school_organization_id = ? AND psa.provider_user_id = ? AND psa.is_active = TRUE
+       LIMIT 1`,
+      [orgId, userId]
+    );
+    if (!providerRows?.[0]) {
+      return res.status(403).json({ error: { message: 'You are not assigned to this school schedule' } });
+    }
+
+    const activeAgencyId = await resolveActiveAgencyIdForOrg(orgId);
+    if (!activeAgencyId) {
+      return res.status(400).json({ error: { message: 'No active agency affiliation found for this school' } });
+    }
+
+    const [assignmentRows] = await pool.execute(
+      `SELECT id, slots_total, slots_available, start_time, end_time
+       FROM provider_school_assignments
+       WHERE school_organization_id = ? AND provider_user_id = ? AND day_of_week = ?
+       LIMIT 1`,
+      [orgId, userId, dayOfWeek]
+    );
+    const assignment = assignmentRows?.[0] || null;
+    if (!assignment) {
+      return res.status(404).json({ error: { message: 'No existing assignment found for this day' } });
+    }
+
+    const currentSlots = Number(assignment.slots_total || 0);
+    const currentStart = String(assignment.start_time || '').slice(0, 5);
+    const currentEnd = String(assignment.end_time || '').slice(0, 5);
+    if (fromSlotsTotal !== currentSlots || fromStartTime !== currentStart || fromEndTime !== currentEnd) {
+      return res.status(409).json({
+        error: { message: 'Availability changed since you opened this form. Please review current values and try again.' },
+        current: {
+          dayOfWeek,
+          slotsTotal: currentSlots,
+          startTime: currentStart,
+          endTime: currentEnd
+        }
+      });
+    }
+
+    const [assignedRows] = await pool.execute(
+      `SELECT COUNT(DISTINCT c.id) AS assigned_count
+       FROM clients c
+       JOIN client_organization_assignments coa
+         ON coa.client_id = c.id
+        AND coa.organization_id = ?
+        AND coa.is_active = TRUE
+       JOIN client_provider_assignments cpa
+         ON cpa.client_id = c.id
+        AND cpa.organization_id = coa.organization_id
+        AND cpa.provider_user_id = ?
+        AND cpa.is_active = TRUE
+       LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
+       WHERE (c.status IS NULL OR UPPER(c.status) <> 'ARCHIVED')
+         AND (cs.status_key IS NULL OR LOWER(cs.status_key) <> 'archived')
+         AND FIND_IN_SET(?, REPLACE(COALESCE(cpa.service_day, ''), ' ', '')) > 0`,
+      [orgId, userId, dayOfWeek]
+    );
+    const assignedCount = Number(assignedRows?.[0]?.assigned_count || 0);
+
+    if (slotsTotal < assignedCount && !allowOverAssigned) {
+      return res.status(409).json({
+        error: {
+          message: `Requested slots (${slotsTotal}) are below assigned clients (${assignedCount}) for ${dayOfWeek}. Confirm override if you still want to apply.`
+        },
+        requiresOverride: true,
+        assignedClients: assignedCount,
+        requestedSlots: slotsTotal
+      });
+    }
+
+    const nextSlotsAvailable = Math.max(0, slotsTotal - assignedCount);
+    await pool.execute(
+      `UPDATE provider_school_assignments
+       SET slots_total = ?,
+           slots_available = ?,
+           start_time = ?,
+           end_time = ?,
+           is_active = TRUE
+       WHERE id = ?`,
+      [slotsTotal, nextSlotsAvailable, `${requestedStartTime}:00`, `${requestedEndTime}:00`, Number(assignment.id)]
+    );
+
+    const actor = await User.findById(userId);
+    const actorName =
+      `${actor?.first_name || ''} ${actor?.last_name || ''}`.trim() ||
+      actor?.email ||
+      `Provider #${userId}`;
+    const school = await Agency.findById(orgId);
+    const schoolName = school?.name || school?.official_name || `School #${orgId}`;
+
+    logAuditEvent(req, {
+      actionType: 'school_provider_availability_updated_by_provider',
+      agencyId: activeAgencyId || undefined,
+      metadata: {
+        schoolOrganizationId: orgId,
+        dayOfWeek,
+        before: { slotsTotal: currentSlots, startTime: currentStart, endTime: currentEnd },
+        after: { slotsTotal, startTime: requestedStartTime, endTime: requestedEndTime },
+        assignedClients: assignedCount,
+        allowOverAssigned
+      }
+    }).catch(() => {});
+
+    const Notification = (await import('../models/Notification.model.js')).default;
+    const recipients = await getAgencyAdminOnlyUserIds(activeAgencyId);
+    const uniqueRecipients = Array.from(new Set(recipients));
+    await Promise.all(uniqueRecipients.map(async (adminUserId) => {
+      await Notification.create({
+        type: 'school_provider_availability_updated',
+        severity: slotsTotal < assignedCount ? 'warning' : 'info',
+        title: 'Provider school availability updated',
+        message: `${actorName} updated ${schoolName} (${dayOfWeek}) availability: slots ${currentSlots} -> ${slotsTotal}, hours ${currentStart}-${currentEnd} -> ${requestedStartTime}-${requestedEndTime}. Assigned clients: ${assignedCount}.`,
+        userId: adminUserId,
+        agencyId: activeAgencyId,
+        relatedEntityType: 'school_organization',
+        relatedEntityId: orgId,
+        actorUserId: userId,
+        actorSource: 'School Portal'
+      });
+    }));
+
+    res.json({
+      ok: true,
+      notifiedCount: uniqueRecipients.length,
+      warning: slotsTotal < assignedCount
+        ? {
+            overAssigned: true,
+            dayOfWeek,
+            assignedClients: assignedCount,
+            slotsTotal
+          }
+        : null,
+      assignment: {
+        dayOfWeek,
+        slotsTotal,
+        slotsAvailable: nextSlotsAvailable,
+        startTime: requestedStartTime,
+        endTime: requestedEndTime,
+        assignedClients: assignedCount
+      }
+    });
   } catch (e) {
     next(e);
   }
@@ -1965,30 +2345,136 @@ export const restoreSchoolPortalIntakeArtifacts = async (req, res, next) => {
   }
 };
 
-async function getPrimaryContactEmailForSchool(orgId) {
+const normalizeEmail = (value) => {
+  const out = String(value || '').trim().toLowerCase();
+  return out.includes('@') ? out : '';
+};
+
+async function getSchoolContactRowsByOrg(orgId) {
   try {
     const [rows] = await pool.execute(
-      `SELECT email FROM school_contacts WHERE school_organization_id = ? AND is_primary = 1 LIMIT 1`,
+      `SELECT id, email, is_primary, is_school_admin, is_scheduler
+       FROM school_contacts
+       WHERE school_organization_id = ?`,
       [orgId]
     );
-    const email = rows?.[0]?.email;
-    return email ? String(email).trim().toLowerCase() : null;
-  } catch {
-    return null;
+    return Array.isArray(rows) ? rows : [];
+  } catch (err) {
+    if (err?.code !== 'ER_BAD_FIELD_ERROR' && err?.code !== 'ER_NO_SUCH_TABLE') throw err;
+    try {
+      const [rows] = await pool.execute(
+        `SELECT id, email, is_primary, 0 AS is_school_admin, 0 AS is_scheduler
+         FROM school_contacts
+         WHERE school_organization_id = ?`,
+        [orgId]
+      );
+      return Array.isArray(rows) ? rows : [];
+    } catch {
+      return [];
+    }
   }
 }
 
-async function isPrimarySchoolContact(actorUserId, actorEmail, orgId) {
-  const primaryEmail = await getPrimaryContactEmailForSchool(orgId);
-  if (!primaryEmail) return false;
-  const actorEmails = [
-    actorEmail,
-    (await User.findById(actorUserId))?.email,
-    (await User.findById(actorUserId))?.work_email
-  ]
-    .filter(Boolean)
-    .map((e) => String(e).trim().toLowerCase());
-  return actorEmails.some((e) => e === primaryEmail);
+async function getSchoolStaffRoleFlagsForOrg(orgId) {
+  const rows = await getSchoolContactRowsByOrg(orgId);
+  const byEmail = new Map();
+  for (const r of rows) {
+    const email = normalizeEmail(r?.email);
+    if (!email) continue;
+    byEmail.set(email, {
+      contactId: Number(r?.id || 0) || null,
+      isPrimary: Number(r?.is_primary || 0) === 1,
+      isSchoolAdmin: Number(r?.is_school_admin || 0) === 1 || Number(r?.is_primary || 0) === 1,
+      isScheduler: Number(r?.is_scheduler || 0) === 1
+    });
+  }
+  return byEmail;
+}
+
+async function getUserEmailCandidates(userId, actorEmail = null) {
+  const emails = new Set();
+  if (actorEmail) emails.add(normalizeEmail(actorEmail));
+  const u = userId ? await User.findById(userId) : null;
+  for (const e of [u?.email, u?.work_email, u?.username, u?.personal_email]) {
+    const n = normalizeEmail(e);
+    if (n) emails.add(n);
+  }
+  return Array.from(emails);
+}
+
+async function getActorSchoolRoleFlags({ actorUserId, actorEmail, orgId }) {
+  const candidates = await getUserEmailCandidates(actorUserId, actorEmail);
+  const map = await getSchoolStaffRoleFlagsForOrg(orgId);
+  const roleFlags = { isSchoolAdmin: false, isPrimary: false, isScheduler: false, matchedEmail: null };
+  for (const email of candidates) {
+    const row = map.get(email);
+    if (!row) continue;
+    roleFlags.isSchoolAdmin = roleFlags.isSchoolAdmin || !!row.isSchoolAdmin;
+    roleFlags.isPrimary = roleFlags.isPrimary || !!row.isPrimary;
+    roleFlags.isScheduler = roleFlags.isScheduler || !!row.isScheduler;
+    roleFlags.matchedEmail = roleFlags.matchedEmail || email;
+  }
+  return roleFlags;
+}
+
+async function isSchedulerSchoolStaff({ userId, role, actorEmail, orgId }) {
+  if (String(role || '').toLowerCase() !== 'school_staff') return false;
+  const flags = await getActorSchoolRoleFlags({ actorUserId: userId, actorEmail, orgId });
+  return flags.isScheduler === true;
+}
+
+async function upsertSchoolContactRoleFlags({ orgId, email, fullName = null, isSchoolAdmin, isScheduler }) {
+  const normalized = normalizeEmail(email);
+  if (!normalized) return;
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [existingRows] = await conn.execute(
+      `SELECT id, is_primary, is_school_admin, is_scheduler
+       FROM school_contacts
+       WHERE school_organization_id = ? AND LOWER(TRIM(email)) = ?
+       LIMIT 1`,
+      [orgId, normalized]
+    );
+    if (existingRows?.length) {
+      const row = existingRows[0];
+      const updates = [];
+      const values = [];
+      if (fullName !== null) {
+        updates.push('full_name = ?');
+        values.push(fullName || null);
+      }
+      if (typeof isSchoolAdmin === 'boolean') {
+        updates.push('is_school_admin = ?');
+        values.push(isSchoolAdmin ? 1 : 0);
+      }
+      if (typeof isScheduler === 'boolean') {
+        updates.push('is_scheduler = ?');
+        values.push(isScheduler ? 1 : 0);
+      }
+      if (updates.length) {
+        updates.push('updated_at = CURRENT_TIMESTAMP');
+        values.push(row.id, orgId);
+        await conn.execute(
+          `UPDATE school_contacts SET ${updates.join(', ')} WHERE id = ? AND school_organization_id = ?`,
+          values
+        );
+      }
+    } else {
+      await conn.execute(
+        `INSERT INTO school_contacts
+          (school_organization_id, full_name, email, role_title, notes, is_primary, is_school_admin, is_scheduler)
+         VALUES (?, ?, ?, NULL, NULL, 0, ?, ?)`,
+        [orgId, fullName || null, normalized, isSchoolAdmin ? 1 : 0, isScheduler ? 1 : 0]
+      );
+    }
+    await conn.commit();
+  } catch (err) {
+    try { await conn.rollback(); } catch {}
+    if (err?.code !== 'ER_NO_SUCH_TABLE') throw err;
+  } finally {
+    conn.release();
+  }
 }
 
 /**
@@ -2022,7 +2508,7 @@ export const listSchoolStaff = async (req, res, next) => {
       }
     }
 
-    const primaryEmail = await getPrimaryContactEmailForSchool(orgId);
+    const roleFlagsByEmail = await getSchoolStaffRoleFlagsForOrg(orgId);
 
     const [rows] = await pool.execute(
       `SELECT
@@ -2059,23 +2545,14 @@ export const listSchoolStaff = async (req, res, next) => {
       }
     }
 
-    let contactByEmail = {};
-    try {
-      const [contactRows] = await pool.execute(
-        `SELECT id, email FROM school_contacts WHERE school_organization_id = ?`,
-        [orgId]
-      );
-      for (const c of contactRows || []) {
-        const e = c.email ? String(c.email).trim().toLowerCase() : '';
-        if (e) contactByEmail[e] = c.id;
-      }
-    } catch {
-      // school_contacts table may not exist
-    }
-
     const result = (rows || []).map((r) => {
-      const emailNorm = r.email ? String(r.email).trim().toLowerCase() : '';
-      const isPrimary = !!primaryEmail && emailNorm === primaryEmail;
+      const emailNorm = normalizeEmail(r.email);
+      const flags = roleFlagsByEmail.get(emailNorm) || {
+        contactId: null,
+        isPrimary: false,
+        isSchoolAdmin: false,
+        isScheduler: false
+      };
       const purpose = String(r.passwordless_token_purpose || '').toLowerCase();
       const hasResetToken = purpose === 'reset' && r.passwordless_token_expires_at;
       const now = new Date();
@@ -2091,8 +2568,10 @@ export const listSchoolStaff = async (req, res, next) => {
         created_at: r.created_at,
         last_login: lastLoginByUser[r.id] || null,
         password_reset_expires_at: hasResetToken && !resetExpired ? r.passwordless_token_expires_at : null,
-        is_primary: isPrimary,
-        school_contact_id: contactByEmail[emailNorm] || null
+        is_primary: flags.isPrimary,
+        is_school_admin: flags.isSchoolAdmin,
+        is_scheduler: flags.isScheduler,
+        school_contact_id: flags.contactId || null
       };
     });
 
@@ -2117,7 +2596,7 @@ export const removeSchoolStaff = async (req, res, next) => {
 
     const actorId = req.user?.id;
     const actorRole = String(req.user?.role || '').toLowerCase();
-    const actorEmail = req.user?.email || req.user?.username;
+    const actorEmail = req.user?.email || req.user?.username || null;
 
     const isAgencyAdmin =
       actorRole === 'super_admin' ||
@@ -2126,11 +2605,14 @@ export const removeSchoolStaff = async (req, res, next) => {
       actorRole === 'support' ||
       actorRole === 'clinical_practice_assistant' ||
       actorRole === 'provider_plus';
-    const isPrimary = actorRole === 'school_staff' && (await isPrimarySchoolContact(actorId, actorEmail, orgId));
+    const actorFlags = actorRole === 'school_staff'
+      ? await getActorSchoolRoleFlags({ actorUserId: actorId, actorEmail, orgId })
+      : { isSchoolAdmin: false };
+    const isSchoolAdmin = actorRole === 'school_staff' && actorFlags.isSchoolAdmin === true;
 
-    if (!isAgencyAdmin && !isPrimary) {
+    if (!isAgencyAdmin && !isSchoolAdmin) {
       return res.status(403).json({
-        error: { message: 'Only the primary school contact or agency admin/staff can remove school staff users' }
+        error: { message: 'Only a school admin or agency admin/staff can remove school staff users' }
       });
     }
 
@@ -2176,19 +2658,26 @@ export const removeSchoolStaff = async (req, res, next) => {
     const activeAgencyId = await resolveActiveAgencyIdForOrg(orgId);
     const org = await Agency.findById(orgId);
     const schoolName = org?.name || org?.display_name || `School #${orgId}`;
+    logAuditEvent(req, {
+      actionType: 'school_portal_school_staff_removed',
+      agencyId: activeAgencyId || undefined,
+      targetType: 'user',
+      targetId: targetUserId,
+      metadata: {
+        schoolOrganizationId: orgId,
+        actorRole,
+        actorIsSchoolAdmin: isSchoolAdmin,
+        removedEmail: u.email || targetEmail || null
+      }
+    }).catch(() => {});
     if (activeAgencyId) {
-      const Notification = (await import('../models/Notification.model.js')).default;
-      await Notification.create({
-        type: 'school_primary_staff_removed',
-        severity: 'info',
-        title: 'School staff removed – update group email',
-        message: `${u.first_name || ''} ${u.last_name || ''} (${u.email || targetEmail}) was removed from ${schoolName} by ${isPrimary ? 'the primary school contact' : 'agency staff'}. Please remove them from the school group email list.`,
-        userId: u.id,
+      await notifyAgencyAdmins({
         agencyId: activeAgencyId,
-        relatedEntityType: 'user',
-        relatedEntityId: u.id,
+        title: 'School staff removed from school',
+        message: `${u.first_name || ''} ${u.last_name || ''} (${u.email || targetEmail}) was removed from ${schoolName} by ${isSchoolAdmin ? 'a School Admin' : 'agency staff'}.`,
         actorUserId: actorId,
-        actorSource: isPrimary ? 'School Portal (Primary)' : 'Agency Admin'
+        relatedEntityType: 'user',
+        relatedEntityId: u.id
       });
     }
 
@@ -2214,7 +2703,7 @@ export const sendSchoolStaffResetPassword = async (req, res, next) => {
 
     const actorId = req.user?.id;
     const actorRole = String(req.user?.role || '').toLowerCase();
-    const actorEmail = req.user?.email || req.user?.username;
+    const actorEmail = req.user?.email || req.user?.username || null;
 
     const isAgencyAdmin =
       actorRole === 'super_admin' ||
@@ -2223,10 +2712,13 @@ export const sendSchoolStaffResetPassword = async (req, res, next) => {
       actorRole === 'support' ||
       actorRole === 'clinical_practice_assistant' ||
       actorRole === 'provider_plus';
-    const isPrimary = actorRole === 'school_staff' && (await isPrimarySchoolContact(actorId, actorEmail, orgId));
-    if (!isAgencyAdmin && !isPrimary) {
+    const actorFlags = actorRole === 'school_staff'
+      ? await getActorSchoolRoleFlags({ actorUserId: actorId, actorEmail, orgId })
+      : { isSchoolAdmin: false };
+    const isSchoolAdmin = actorRole === 'school_staff' && actorFlags.isSchoolAdmin === true;
+    if (!isAgencyAdmin && !isSchoolAdmin) {
       return res.status(403).json({
-        error: { message: 'Only the primary school contact or agency admin/staff can send password reset links from the portal' }
+        error: { message: 'Only a School Admin or agency admin/staff can send password reset links from the portal' }
       });
     }
 
@@ -2298,7 +2790,7 @@ export const sendSchoolStaffResetPassword = async (req, res, next) => {
         metadata: {
           performedByUserId: actorId,
           performedByEmail: actorEmail,
-          source: 'school_portal_primary',
+          source: isSchoolAdmin ? 'school_portal_school_admin' : 'school_portal_agency_admin',
           expiresAt: tokenResult.expiresAt,
           expiresInHours: tokenResult.expiresInHours
         }
@@ -2371,20 +2863,27 @@ export const sendSchoolStaffResetPassword = async (req, res, next) => {
     const activeAgencyId = await resolveActiveAgencyIdForOrg(orgId);
     const org = await Agency.findById(orgId);
     const schoolName = org?.name || org?.display_name || `School #${orgId}`;
+    logAuditEvent(req, {
+      actionType: 'school_portal_school_staff_password_reset_sent',
+      agencyId: activeAgencyId || undefined,
+      targetType: 'user',
+      targetId: targetUserId,
+      metadata: {
+        schoolOrganizationId: orgId,
+        actorRole,
+        actorIsSchoolAdmin: isSchoolAdmin,
+        emailSent
+      }
+    }).catch(() => {});
     if (activeAgencyId) {
-      const Notification = (await import('../models/Notification.model.js')).default;
-      await Notification.create({
-        type: 'school_primary_password_reset_sent',
-        severity: 'info',
-        title: 'Password reset link sent (school portal)',
-        message: `The primary contact for ${schoolName} sent a password reset link to ${user.first_name || ''} ${user.last_name || ''} (${user.email || to}).` +
-          (emailSent ? ' Email was sent.' : ' Email could not be sent; the link may be shared manually.'),
-        userId: user.id,
+      await notifyAgencyAdmins({
         agencyId: activeAgencyId,
-        relatedEntityType: 'user',
-        relatedEntityId: user.id,
+        title: 'School staff password reset sent',
+        message: `${isSchoolAdmin ? 'A School Admin' : 'Agency staff'} sent a password reset link for ${user.first_name || ''} ${user.last_name || ''} (${user.email || to}) in ${schoolName}.` +
+          (emailSent ? ' Email delivery succeeded.' : ' Email delivery failed; manual sharing may be needed.'),
         actorUserId: actorId,
-        actorSource: 'School Portal (Primary)'
+        relatedEntityType: 'user',
+        relatedEntityId: user.id
       });
     }
 
@@ -2409,7 +2908,7 @@ export const addSchoolStaff = async (req, res, next) => {
 
     const actorId = req.user?.id;
     const actorRole = String(req.user?.role || '').toLowerCase();
-    const actorEmail = req.user?.email || req.user?.username;
+    const actorEmail = req.user?.email || req.user?.username || null;
 
     const isAgencyAdmin =
       actorRole === 'super_admin' ||
@@ -2418,10 +2917,13 @@ export const addSchoolStaff = async (req, res, next) => {
       actorRole === 'support' ||
       actorRole === 'clinical_practice_assistant' ||
       actorRole === 'provider_plus';
-    const isPrimary = actorRole === 'school_staff' && (await isPrimarySchoolContact(actorId, actorEmail, orgId));
-    if (!isAgencyAdmin && !isPrimary) {
+    const actorFlags = actorRole === 'school_staff'
+      ? await getActorSchoolRoleFlags({ actorUserId: actorId, actorEmail, orgId })
+      : { isSchoolAdmin: false };
+    const isSchoolAdmin = actorRole === 'school_staff' && actorFlags.isSchoolAdmin === true;
+    if (!isAgencyAdmin && !isSchoolAdmin) {
       return res.status(403).json({
-        error: { message: 'Only the primary school contact or agency admin/staff can add school staff from the portal' }
+        error: { message: 'Only a School Admin or agency admin/staff can add school staff from the portal' }
       });
     }
 
@@ -2437,6 +2939,8 @@ export const addSchoolStaff = async (req, res, next) => {
     const emailRaw = req.body?.email;
     const fullName = req.body?.fullName !== undefined ? String(req.body.fullName || '').trim() : null;
     const email = emailRaw ? String(emailRaw).trim().toLowerCase() : '';
+    const assignSchoolAdmin = req.body?.isSchoolAdmin === true;
+    const assignScheduler = req.body?.isScheduler === true;
     if (!email || !email.includes('@')) {
       return res.status(400).json({ error: { message: 'Invalid email address' } });
     }
@@ -2504,25 +3008,13 @@ export const addSchoolStaff = async (req, res, next) => {
       actorUserId: actorId
     });
 
-    try {
-      await pool.execute(
-        `INSERT INTO school_contacts (school_organization_id, full_name, email, role_title, notes, is_primary)
-         VALUES (?, ?, ?, ?, NULL, 0)
-         ON DUPLICATE KEY UPDATE full_name = COALESCE(VALUES(full_name), full_name), updated_at = CURRENT_TIMESTAMP`,
-        [orgId, fullName || `${user.first_name || ''} ${user.last_name || ''}`.trim() || null, email, null]
-      );
-    } catch {
-      // best-effort; table may not have UNIQUE on email
-      try {
-        await pool.execute(
-          `INSERT INTO school_contacts (school_organization_id, full_name, email, role_title, notes, is_primary)
-           VALUES (?, ?, ?, ?, NULL, 0)`,
-          [orgId, fullName || `${user.first_name || ''} ${user.last_name || ''}`.trim() || null, email, null]
-        );
-      } catch {
-        // ignore
-      }
-    }
+    await upsertSchoolContactRoleFlags({
+      orgId,
+      email,
+      fullName: fullName || `${user.first_name || ''} ${user.last_name || ''}`.trim() || null,
+      isSchoolAdmin: assignSchoolAdmin,
+      isScheduler: assignScheduler
+    });
 
     const setupLink = await User.generatePasswordlessToken(user.id, 24 * 7, 'setup');
     const config = (await import('../config/config.js')).default;
@@ -2588,6 +3080,32 @@ export const addSchoolStaff = async (req, res, next) => {
       }
     }
 
+    const activeAgencyId = await resolveActiveAgencyIdForOrg(orgId);
+    logAuditEvent(req, {
+      actionType: 'school_portal_school_staff_added',
+      agencyId: activeAgencyId || undefined,
+      targetType: 'user',
+      targetId: user.id,
+      metadata: {
+        schoolOrganizationId: orgId,
+        actorRole,
+        actorIsSchoolAdmin: isSchoolAdmin,
+        assignedRoles: { isSchoolAdmin: assignSchoolAdmin, isScheduler: assignScheduler }
+      }
+    }).catch(() => {});
+    if (activeAgencyId) {
+      const orgName = org?.name || org?.official_name || `School #${orgId}`;
+      await notifyAgencyAdmins({
+        agencyId: activeAgencyId,
+        title: 'School staff account added',
+        message: `${user.first_name || ''} ${user.last_name || ''} (${user.email || email}) was added to ${orgName}` +
+          `${assignSchoolAdmin ? ' as School Admin' : ''}${assignScheduler ? `${assignSchoolAdmin ? ' and ' : ' as '}Scheduler` : ''}.`,
+        actorUserId: actorId,
+        relatedEntityType: 'user',
+        relatedEntityId: user.id
+      });
+    }
+
     res.status(201).json({
       ok: true,
       user: {
@@ -2596,7 +3114,9 @@ export const addSchoolStaff = async (req, res, next) => {
         first_name: user.first_name,
         last_name: user.last_name,
         role: user.role,
-        status: user.status
+        status: user.status,
+        is_school_admin: assignSchoolAdmin,
+        is_scheduler: assignScheduler
       },
       setupLink: setupUrl,
       setupExpiresAt: setupLink.expiresAt,
@@ -2620,7 +3140,9 @@ export const updateSchoolStaff = async (req, res, next) => {
     const targetUserId = parseInt(targetUserIdParam, 10);
     if (!orgId || !targetUserId) return res.status(400).json({ error: { message: 'Invalid organizationId or userId' } });
 
+    const actorId = Number(req.user?.id || 0);
     const actorRole = String(req.user?.role || '').toLowerCase();
+    const actorEmail = req.user?.email || req.user?.username || null;
     const isAgencyAdmin =
       actorRole === 'super_admin' ||
       actorRole === 'admin' ||
@@ -2628,12 +3150,16 @@ export const updateSchoolStaff = async (req, res, next) => {
       actorRole === 'support' ||
       actorRole === 'clinical_practice_assistant' ||
       actorRole === 'provider_plus';
-    if (!isAgencyAdmin) {
-      return res.status(403).json({ error: { message: 'Only agency admin/staff can edit school staff from the portal' } });
+    const actorFlags = actorRole === 'school_staff'
+      ? await getActorSchoolRoleFlags({ actorUserId: actorId, actorEmail, orgId })
+      : { isSchoolAdmin: false };
+    const isSchoolAdmin = actorRole === 'school_staff' && actorFlags.isSchoolAdmin === true;
+    if (!isAgencyAdmin && !isSchoolAdmin) {
+      return res.status(403).json({ error: { message: 'Only a School Admin or agency admin/staff can edit school staff from the portal' } });
     }
 
     const ok = await userHasOrgOrAffiliatedAgencyAccess({
-      userId: req.user?.id,
+      userId: actorId,
       role: actorRole,
       schoolOrganizationId: orgId
     });
@@ -2664,58 +3190,79 @@ export const updateSchoolStaff = async (req, res, next) => {
       await User.update(targetUserId, updates);
     }
 
+    const nextIsSchoolAdmin = req.body?.isSchoolAdmin;
+    const nextIsScheduler = req.body?.isScheduler;
+    const hasRoleFlagUpdate = typeof nextIsSchoolAdmin === 'boolean' || typeof nextIsScheduler === 'boolean';
+
     const oldEmail = user.email ? String(user.email).trim().toLowerCase() : '';
     const newEmail = email || oldEmail;
-    if (newEmail && (updates.email !== undefined || updates.firstName !== undefined || updates.lastName !== undefined)) {
+    if (newEmail && (updates.email !== undefined || updates.firstName !== undefined || updates.lastName !== undefined || hasRoleFlagUpdate)) {
       try {
         const fullName =
           updates.firstName !== undefined || updates.lastName !== undefined
             ? `${updates.firstName ?? user.first_name ?? ''} ${updates.lastName ?? user.last_name ?? ''}`.trim()
             : `${user.first_name || ''} ${user.last_name || ''}`.trim();
-        const [contactRows] = await pool.execute(
-          `SELECT id FROM school_contacts WHERE school_organization_id = ? AND email = ? LIMIT 1`,
-          [orgId, oldEmail]
-        );
-        if (contactRows?.length) {
-          const contactId = contactRows[0].id;
-          const updateParts = [];
-          const updateVals = [];
-          if (updates.email !== undefined) {
-            updateParts.push('email = ?');
-            updateVals.push(newEmail);
-          }
-          if (fullName) {
-            updateParts.push('full_name = ?');
-            updateVals.push(fullName);
-          }
-          if (updateParts.length) {
-            updateVals.push(contactId, orgId);
-            await pool.execute(
-              `UPDATE school_contacts SET ${updateParts.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND school_organization_id = ?`,
-              updateVals
-            );
-          }
-        } else {
-          await pool.execute(
-            `INSERT INTO school_contacts (school_organization_id, full_name, email, role_title, notes, is_primary)
-             VALUES (?, ?, ?, ?, NULL, 0)
-             ON DUPLICATE KEY UPDATE full_name = COALESCE(VALUES(full_name), full_name), updated_at = CURRENT_TIMESTAMP`,
-            [orgId, fullName || `${user.first_name || ''} ${user.last_name || ''}`.trim() || null, newEmail, null]
-          );
-        }
+        const roleMap = await getSchoolStaffRoleFlagsForOrg(orgId);
+        const currentFlags = roleMap.get(oldEmail) || roleMap.get(newEmail) || {
+          isSchoolAdmin: false,
+          isScheduler: false
+        };
+        await upsertSchoolContactRoleFlags({
+          orgId,
+          email: newEmail,
+          fullName: fullName || `${user.first_name || ''} ${user.last_name || ''}`.trim() || null,
+          isSchoolAdmin: typeof nextIsSchoolAdmin === 'boolean' ? nextIsSchoolAdmin : currentFlags.isSchoolAdmin,
+          isScheduler: typeof nextIsScheduler === 'boolean' ? nextIsScheduler : currentFlags.isScheduler
+        });
       } catch (e) {
         if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
       }
     }
 
     const updated = await User.findById(targetUserId);
+    const updatedFlagsMap = await getSchoolStaffRoleFlagsForOrg(orgId);
+    const updatedFlags = updatedFlagsMap.get(normalizeEmail(updated?.email || updated?.work_email || updated?.username || '')) || {
+      isSchoolAdmin: false,
+      isScheduler: false
+    };
+    const activeAgencyId = await resolveActiveAgencyIdForOrg(orgId);
+    logAuditEvent(req, {
+      actionType: 'school_portal_school_staff_updated',
+      agencyId: activeAgencyId || undefined,
+      targetType: 'user',
+      targetId: targetUserId,
+      metadata: {
+        schoolOrganizationId: orgId,
+        actorRole,
+        actorIsSchoolAdmin: isSchoolAdmin,
+        updatedProfileFields: Object.keys(updates),
+        updatedRoleFlags: hasRoleFlagUpdate ? {
+          isSchoolAdmin: typeof nextIsSchoolAdmin === 'boolean' ? nextIsSchoolAdmin : null,
+          isScheduler: typeof nextIsScheduler === 'boolean' ? nextIsScheduler : null
+        } : null
+      }
+    }).catch(() => {});
+    if (activeAgencyId) {
+      const org = await Agency.findById(orgId);
+      const schoolName = org?.name || org?.official_name || `School #${orgId}`;
+      await notifyAgencyAdmins({
+        agencyId: activeAgencyId,
+        title: 'School staff account updated',
+        message: `${updated.first_name || ''} ${updated.last_name || ''} (${updated.email || ''}) was updated for ${schoolName}.`,
+        actorUserId: actorId,
+        relatedEntityType: 'user',
+        relatedEntityId: updated.id
+      });
+    }
     res.json({
       ok: true,
       user: {
         id: updated.id,
         first_name: updated.first_name,
         last_name: updated.last_name,
-        email: updated.email
+        email: updated.email,
+        is_school_admin: updatedFlags.isSchoolAdmin,
+        is_scheduler: updatedFlags.isScheduler
       }
     });
   } catch (e) {
@@ -2724,7 +3271,8 @@ export const updateSchoolStaff = async (req, res, next) => {
 };
 
 /**
- * Set a school staff member as the primary contact (admin/super_admin only).
+ * Legacy route kept for backward compatibility.
+ * Sets a school staff member as School Admin for this school.
  * POST /api/school-portal/:organizationId/school-staff/:userId/set-primary
  */
 export const setPrimarySchoolStaff = async (req, res, next) => {
@@ -2734,7 +3282,9 @@ export const setPrimarySchoolStaff = async (req, res, next) => {
     const targetUserId = parseInt(targetUserIdParam, 10);
     if (!orgId || !targetUserId) return res.status(400).json({ error: { message: 'Invalid organizationId or userId' } });
 
+    const actorId = Number(req.user?.id || 0);
     const actorRole = String(req.user?.role || '').toLowerCase();
+    const actorEmail = req.user?.email || req.user?.username || null;
     const isAgencyAdmin =
       actorRole === 'super_admin' ||
       actorRole === 'admin' ||
@@ -2742,12 +3292,16 @@ export const setPrimarySchoolStaff = async (req, res, next) => {
       actorRole === 'support' ||
       actorRole === 'clinical_practice_assistant' ||
       actorRole === 'provider_plus';
-    if (!isAgencyAdmin) {
-      return res.status(403).json({ error: { message: 'Only agency admin/staff can change the primary contact' } });
+    const actorFlags = actorRole === 'school_staff'
+      ? await getActorSchoolRoleFlags({ actorUserId: actorId, actorEmail, orgId })
+      : { isSchoolAdmin: false };
+    const isSchoolAdmin = actorRole === 'school_staff' && actorFlags.isSchoolAdmin === true;
+    if (!isAgencyAdmin && !isSchoolAdmin) {
+      return res.status(403).json({ error: { message: 'Only a School Admin or agency admin/staff can assign School Admin' } });
     }
 
     const ok = await userHasOrgOrAffiliatedAgencyAccess({
-      userId: req.user?.id,
+      userId: actorId,
       role: actorRole,
       schoolOrganizationId: orgId
     });
@@ -2767,43 +3321,200 @@ export const setPrimarySchoolStaff = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'User must have an email to be set as primary contact' } });
     }
 
-    const conn = await pool.getConnection();
-    try {
-      await conn.beginTransaction();
-      await conn.execute(`UPDATE school_contacts SET is_primary = FALSE WHERE school_organization_id = ?`, [orgId]);
-      const [existing] = await conn.execute(
-        `SELECT id FROM school_contacts WHERE school_organization_id = ? AND email = ? LIMIT 1`,
-        [orgId, email]
-      );
-      if (existing?.length) {
-        await conn.execute(
-          `UPDATE school_contacts SET is_primary = TRUE, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND school_organization_id = ?`,
-          [existing[0].id, orgId]
-        );
-      } else {
-        const fullName = `${user.first_name || ''} ${user.last_name || ''}`.trim() || null;
-        await conn.execute(
-          `INSERT INTO school_contacts (school_organization_id, full_name, email, role_title, notes, is_primary)
-           VALUES (?, ?, ?, NULL, NULL, 1)`,
-          [orgId, fullName, email]
-        );
-      }
-      await conn.commit();
-    } catch (e) {
-      try {
-        await conn.rollback();
-      } catch {
-        // ignore
-      }
-      if (e?.code === 'ER_NO_SUCH_TABLE') {
-        return res.status(400).json({ error: { message: 'School contacts are not enabled (missing school_contacts table)' } });
-      }
-      throw e;
-    } finally {
-      conn.release();
+    await upsertSchoolContactRoleFlags({
+      orgId,
+      email,
+      fullName: `${user.first_name || ''} ${user.last_name || ''}`.trim() || null,
+      isSchoolAdmin: true,
+      isScheduler: (await getSchoolStaffRoleFlagsForOrg(orgId)).get(email)?.isScheduler || false
+    });
+
+    const activeAgencyId = await resolveActiveAgencyIdForOrg(orgId);
+    logAuditEvent(req, {
+      actionType: 'school_portal_school_admin_assigned',
+      agencyId: activeAgencyId || undefined,
+      targetType: 'user',
+      targetId: targetUserId,
+      metadata: { schoolOrganizationId: orgId, actorRole, actorIsSchoolAdmin: isSchoolAdmin }
+    }).catch(() => {});
+    if (activeAgencyId) {
+      const org = await Agency.findById(orgId);
+      const schoolName = org?.name || org?.official_name || `School #${orgId}`;
+      await notifyAgencyAdmins({
+        agencyId: activeAgencyId,
+        title: 'School Admin assigned',
+        message: `${user.first_name || ''} ${user.last_name || ''} (${email}) was granted School Admin access for ${schoolName}.`,
+        actorUserId: actorId,
+        relatedEntityType: 'user',
+        relatedEntityId: targetUserId
+      });
     }
 
-    res.json({ ok: true, message: 'Primary contact updated' });
+    res.json({ ok: true, message: 'School Admin assigned' });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Update school-scoped role flags for a school_staff user.
+ * PATCH /api/school-portal/:organizationId/school-staff/:userId/roles
+ * Body: { isSchoolAdmin?: boolean, isScheduler?: boolean }
+ */
+export const updateSchoolStaffRoleFlags = async (req, res, next) => {
+  try {
+    const { organizationId, userId: targetUserIdParam } = req.params;
+    const orgId = parseInt(String(organizationId), 10);
+    const targetUserId = parseInt(String(targetUserIdParam), 10);
+    if (!orgId || !targetUserId) return res.status(400).json({ error: { message: 'Invalid organizationId or userId' } });
+
+    const actorId = Number(req.user?.id || 0);
+    const actorRole = String(req.user?.role || '').toLowerCase();
+    const actorEmail = req.user?.email || req.user?.username || null;
+    const isAgencyAdmin =
+      actorRole === 'super_admin' ||
+      actorRole === 'admin' ||
+      actorRole === 'staff' ||
+      actorRole === 'support' ||
+      actorRole === 'clinical_practice_assistant' ||
+      actorRole === 'provider_plus';
+    const actorFlags = actorRole === 'school_staff'
+      ? await getActorSchoolRoleFlags({ actorUserId: actorId, actorEmail, orgId })
+      : { isSchoolAdmin: false };
+    const isSchoolAdmin = actorRole === 'school_staff' && actorFlags.isSchoolAdmin === true;
+    if (!isAgencyAdmin && !isSchoolAdmin) {
+      return res.status(403).json({ error: { message: 'Only a School Admin or agency admin/staff can change school role flags' } });
+    }
+
+    const ok = await userHasOrgOrAffiliatedAgencyAccess({ userId: actorId, role: actorRole, schoolOrganizationId: orgId });
+    if (!ok) return res.status(403).json({ error: { message: 'You do not have access to this school organization' } });
+
+    const user = await User.findById(targetUserId);
+    if (!user) return res.status(404).json({ error: { message: 'User not found' } });
+    if (String(user.role || '').toLowerCase() !== 'school_staff') {
+      return res.status(400).json({ error: { message: 'Only school_staff users can have school role flags' } });
+    }
+    const membership = await User.getAgencyMembership(targetUserId, orgId);
+    if (!membership) return res.status(400).json({ error: { message: 'User is not assigned to this school' } });
+
+    const hasAdminPatch = typeof req.body?.isSchoolAdmin === 'boolean';
+    const hasSchedulerPatch = typeof req.body?.isScheduler === 'boolean';
+    if (!hasAdminPatch && !hasSchedulerPatch) {
+      return res.status(400).json({ error: { message: 'Provide isSchoolAdmin and/or isScheduler as boolean values' } });
+    }
+
+    const email = normalizeEmail(user.email || user.work_email || user.username || '');
+    if (!email) return res.status(400).json({ error: { message: 'Target user must have a valid email address' } });
+
+    const roleMap = await getSchoolStaffRoleFlagsForOrg(orgId);
+    const before = roleMap.get(email) || { isSchoolAdmin: false, isScheduler: false };
+    const nextIsSchoolAdmin = hasAdminPatch ? !!req.body.isSchoolAdmin : !!before.isSchoolAdmin;
+    const nextIsScheduler = hasSchedulerPatch ? !!req.body.isScheduler : !!before.isScheduler;
+
+    await upsertSchoolContactRoleFlags({
+      orgId,
+      email,
+      fullName: `${user.first_name || ''} ${user.last_name || ''}`.trim() || null,
+      isSchoolAdmin: nextIsSchoolAdmin,
+      isScheduler: nextIsScheduler
+    });
+
+    const activeAgencyId = await resolveActiveAgencyIdForOrg(orgId);
+    logAuditEvent(req, {
+      actionType: 'school_portal_school_staff_role_flags_updated',
+      agencyId: activeAgencyId || undefined,
+      targetType: 'user',
+      targetId: targetUserId,
+      metadata: {
+        schoolOrganizationId: orgId,
+        actorRole,
+        actorIsSchoolAdmin: isSchoolAdmin,
+        before,
+        after: { isSchoolAdmin: nextIsSchoolAdmin, isScheduler: nextIsScheduler }
+      }
+    }).catch(() => {});
+    if (activeAgencyId) {
+      const org = await Agency.findById(orgId);
+      const schoolName = org?.name || org?.official_name || `School #${orgId}`;
+      await notifyAgencyAdmins({
+        agencyId: activeAgencyId,
+        title: 'School staff role flags updated',
+        message: `${user.first_name || ''} ${user.last_name || ''} (${email}) role flags were updated for ${schoolName}. School Admin: ${nextIsSchoolAdmin ? 'Yes' : 'No'}, Scheduler: ${nextIsScheduler ? 'Yes' : 'No'}.`,
+        actorUserId: actorId,
+        relatedEntityType: 'user',
+        relatedEntityId: targetUserId
+      });
+    }
+
+    return res.json({
+      ok: true,
+      userId: targetUserId,
+      roleFlags: {
+        is_school_admin: nextIsSchoolAdmin,
+        is_scheduler: nextIsScheduler
+      }
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Forfeit School Admin permission for current user in current school.
+ * POST /api/school-portal/:organizationId/school-staff/forfeit-school-admin
+ */
+export const forfeitSchoolAdmin = async (req, res, next) => {
+  try {
+    const { organizationId } = req.params;
+    const orgId = parseInt(String(organizationId), 10);
+    if (!orgId) return res.status(400).json({ error: { message: 'Invalid organizationId' } });
+    const actorId = Number(req.user?.id || 0);
+    const actorRole = String(req.user?.role || '').toLowerCase();
+    const actorEmail = req.user?.email || req.user?.username || null;
+    if (actorRole !== 'school_staff') {
+      return res.status(403).json({ error: { message: 'Only school staff can forfeit School Admin' } });
+    }
+    const ok = await userHasOrgOrAffiliatedAgencyAccess({ userId: actorId, role: actorRole, schoolOrganizationId: orgId });
+    if (!ok) return res.status(403).json({ error: { message: 'You do not have access to this school organization' } });
+
+    const flags = await getActorSchoolRoleFlags({ actorUserId: actorId, actorEmail, orgId });
+    if (!flags.isSchoolAdmin) {
+      return res.status(400).json({ error: { message: 'You are not currently a School Admin for this school' } });
+    }
+    const actor = await User.findById(actorId);
+    const email = normalizeEmail(actor?.email || actor?.work_email || actor?.username || actorEmail || '');
+    if (!email) return res.status(400).json({ error: { message: 'Could not resolve your account email' } });
+
+    await upsertSchoolContactRoleFlags({
+      orgId,
+      email,
+      fullName: `${actor?.first_name || ''} ${actor?.last_name || ''}`.trim() || null,
+      isSchoolAdmin: false,
+      isScheduler: !!flags.isScheduler
+    });
+
+    const activeAgencyId = await resolveActiveAgencyIdForOrg(orgId);
+    logAuditEvent(req, {
+      actionType: 'school_portal_school_admin_forfeited',
+      agencyId: activeAgencyId || undefined,
+      targetType: 'user',
+      targetId: actorId,
+      metadata: { schoolOrganizationId: orgId }
+    }).catch(() => {});
+    if (activeAgencyId) {
+      const org = await Agency.findById(orgId);
+      const schoolName = org?.name || org?.official_name || `School #${orgId}`;
+      await notifyAgencyAdmins({
+        agencyId: activeAgencyId,
+        title: 'School Admin forfeited',
+        message: `${actor?.first_name || ''} ${actor?.last_name || ''} (${email}) forfeited School Admin access for ${schoolName}.`,
+        actorUserId: actorId,
+        relatedEntityType: 'user',
+        relatedEntityId: actorId
+      });
+    }
+
+    return res.json({ ok: true });
   } catch (e) {
     next(e);
   }
@@ -3097,6 +3808,7 @@ export const getClientWaitlistNote = async (req, res, next) => {
 
     const userId = req.user?.id;
     const roleNorm = String(req.user?.role || '').toLowerCase();
+    const requesterEmail = req.user?.email || req.user?.username || null;
     if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
 
     // Ensure client is actually part of this org (prevents cross-org note disclosure).
@@ -3115,6 +3827,12 @@ export const getClientWaitlistNote = async (req, res, next) => {
       clientId
     });
     if (!roiAccess.ok) return res.status(roiAccess.status).json({ error: { message: roiAccess.message } });
+    const schedulerOwnOnly = await isSchedulerSchoolStaff({
+      userId,
+      role: roleNorm,
+      actorEmail: requesterEmail,
+      orgId
+    });
 
     const providerUserId = roleNorm === 'provider' ? Number(userId) : null;
     const providerClientIds = providerUserId ? await getProviderAssignedClientIds({ providerUserId, schoolOrganizationId: orgId }) : [];
@@ -3168,6 +3886,12 @@ export const upsertClientWaitlistNote = async (req, res, next) => {
 
     const userId = req.user?.id;
     const roleNorm = String(req.user?.role || '').toLowerCase();
+    const schedulerOwnOnly = await isSchedulerSchoolStaff({
+      userId,
+      role: roleNorm,
+      actorEmail: req.user?.email || req.user?.username || null,
+      orgId
+    });
     if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
 
     const inOrg = await clientBelongsToOrg({ clientId, orgId });
@@ -3270,6 +3994,7 @@ export const listClientComments = async (req, res, next) => {
     const notes = await ClientNotes.findByClientId(clientId, { hasAgencyAccess: false, canViewInternalNotes: false });
     const out = (notes || [])
       .filter((n) => String(n?.category || '').toLowerCase() === 'comment')
+      .filter((n) => !schedulerOwnOnly || Number(n?.author_id || 0) === Number(userId))
       .slice(0, 200)
       .map((n) => ({
         id: n.id,
@@ -3483,6 +4208,7 @@ export const listSchoolPortalNotificationsFeed = async (req, res, next) => {
     const allowClientComments = categories.school_portal_client_comments !== false;
     const allowClientMessages = categories.school_portal_client_messages !== false;
     const allowTickets = categories.school_portal_ticket_activity !== false;
+    const allowTicketsForUser = allowTickets && !schedulerOwnOnly;
     const allowClientCreated = categories.school_portal_client_created !== false;
     const allowProviderSlots = categories.school_portal_provider_slots !== false;
     const allowProviderDayAdded = categories.school_portal_provider_day_added !== false;
@@ -3775,7 +4501,8 @@ export const listSchoolPortalNotificationsFeed = async (req, res, next) => {
           `SELECT
              n.id,
              n.client_id,
-             n.message,
+            n.message,
+            n.author_id,
              n.created_at,
              c.initials,
              c.identifier_code,
@@ -3800,6 +4527,7 @@ export const listSchoolPortalNotificationsFeed = async (req, res, next) => {
           const clientLabel = String(r.identifier_code || r.initials || '—');
           const raw = String(r.message || '').trim();
           const snippet = raw.length > 260 ? `${raw.slice(0, 260)}…` : raw;
+          if (schedulerOwnOnly && Number(r.author_id || 0) !== Number(userId)) return null;
           return {
             id: `comment:${r.id}`,
             kind: 'comment',
@@ -3811,7 +4539,7 @@ export const listSchoolPortalNotificationsFeed = async (req, res, next) => {
             client_initials: r.initials || null,
             client_identifier_code: r.identifier_code || null
           };
-        });
+        }).filter(Boolean);
       }
     } catch {
       comments = [];
@@ -3837,7 +4565,8 @@ export const listSchoolPortalNotificationsFeed = async (req, res, next) => {
                c.initials,
                c.identifier_code,
                u.first_name AS actor_first_name,
-               u.last_name AS actor_last_name
+               u.last_name AS actor_last_name,
+               m.author_user_id
              FROM support_ticket_messages m
              JOIN support_tickets t ON t.id = m.ticket_id
              JOIN client_organization_assignments coa
@@ -3859,6 +4588,7 @@ export const listSchoolPortalNotificationsFeed = async (req, res, next) => {
           const clientLabel = String(r.identifier_code || r.initials || '—');
           const raw = String(r.body || '').trim();
           const snippet = raw.length > 260 ? `${raw.slice(0, 260)}…` : raw;
+          if (schedulerOwnOnly && Number(r.author_user_id || 0) !== Number(userId)) return null;
           return {
             id: `ticket_message:${r.id}`,
             kind: 'message',
@@ -3872,7 +4602,7 @@ export const listSchoolPortalNotificationsFeed = async (req, res, next) => {
             client_initials: r.initials || null,
             client_identifier_code: r.identifier_code || null
           };
-          });
+          }).filter(Boolean);
         }
       }
     } catch {
@@ -3882,7 +4612,7 @@ export const listSchoolPortalNotificationsFeed = async (req, res, next) => {
     // Ticket activity (created, reply, closed)
     let ticketActivity = [];
     try {
-      if (!allowTickets || roleNorm === 'provider') {
+      if (!allowTicketsForUser || roleNorm === 'provider') {
         ticketActivity = [];
       } else if (await hasSupportTicketMessagesTable()) {
         const [ticketRows] = await pool.execute(

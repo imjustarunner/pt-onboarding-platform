@@ -88,6 +88,57 @@
                 {{ submitting ? 'Submitting...' : 'Submit Feedback' }}
               </button>
             </div>
+
+            <div class="my-feedback-section">
+              <div class="my-feedback-header">
+                <h4>My Beta Feedback</h4>
+                <button type="button" class="btn btn-secondary btn-sm" @click="fetchMyFeedback" :disabled="myLoading">
+                  {{ myLoading ? 'Loading...' : 'Refresh' }}
+                </button>
+              </div>
+              <div v-if="myError" class="beta-error">{{ myError }}</div>
+              <div v-else-if="myLoading" class="beta-hint">Loading your feedback...</div>
+              <div v-else-if="!myItems.length" class="beta-hint">No previous feedback yet.</div>
+              <div v-else class="my-feedback-list">
+                <div v-for="fb in myItems" :key="fb.id" class="my-feedback-item">
+                  <button type="button" class="my-feedback-row" @click="toggleMyExpand(fb.id)">
+                    <span class="my-feedback-status" :class="fb.status">{{ fb.status }}</span>
+                    <span class="my-feedback-date">{{ formatDateTime(fb.created_at) }}</span>
+                    <span class="my-feedback-expand">{{ myExpandedId === fb.id ? '▾' : '▸' }}</span>
+                  </button>
+                  <div v-if="myExpandedId === fb.id" class="my-feedback-body">
+                    <p class="my-feedback-desc">{{ fb.description || 'No description' }}</p>
+                    <div v-if="myThreadLoadingMap[fb.id]" class="beta-hint">Loading messages...</div>
+                    <div v-else-if="!(myThreadMap[fb.id] || []).length" class="beta-hint">No messages yet.</div>
+                    <div v-else class="my-thread-list">
+                      <div v-for="m in myThreadMap[fb.id]" :key="m.id" class="my-thread-msg">
+                        <div class="my-thread-meta">
+                          <strong>{{ myMessageAuthor(m) }}</strong>
+                          <span>{{ formatDateTime(m.created_at) }}</span>
+                        </div>
+                        <p>{{ m.message_text }}</p>
+                      </div>
+                    </div>
+                    <div v-if="fb.status !== 'resolved'" class="my-thread-compose">
+                      <textarea
+                        :value="myReplyDraftMap[fb.id] || ''"
+                        rows="2"
+                        placeholder="Reply to admin..."
+                        @input="setMyReplyDraft(fb.id, $event)"
+                      />
+                      <button
+                        type="button"
+                        class="btn btn-secondary btn-sm"
+                        :disabled="!!mySendingMap[fb.id]"
+                        @click="replyToFeedback(fb)"
+                      >
+                        {{ mySendingMap[fb.id] ? 'Sending...' : 'Send Reply' }}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -104,6 +155,7 @@ import { useAgencyStore } from '../store/agency';
 import { useOrganizationStore } from '../store/organization';
 import api from '../services/api';
 import html2canvas from 'html2canvas';
+import { formatDateTime } from '../utils/formatDate';
 
 const route = useRoute();
 const brandingStore = useBrandingStore();
@@ -120,6 +172,14 @@ const capturing = ref(false);
 const submitting = ref(false);
 const submitError = ref('');
 const submitSuccess = ref(false);
+const myItems = ref([]);
+const myLoading = ref(false);
+const myError = ref('');
+const myExpandedId = ref(null);
+const myThreadMap = ref({});
+const myThreadLoadingMap = ref({});
+const myReplyDraftMap = ref({});
+const mySendingMap = ref({});
 const MAX_SCREENSHOT_BYTES = 4.5 * 1024 * 1024;
 const MAX_SCREENSHOT_DIMENSION = 1920;
 
@@ -131,6 +191,7 @@ watch(formOpen, (open) => {
   if (open) {
     submitError.value = '';
     submitSuccess.value = false;
+    fetchMyFeedback();
   } else {
     hoverOpen.value = false;
   }
@@ -313,6 +374,7 @@ const submit = async () => {
     submitSuccess.value = true;
     description.value = '';
     clearScreenshot();
+    fetchMyFeedback();
 
     setTimeout(() => {
       formOpen.value = false;
@@ -322,6 +384,73 @@ const submit = async () => {
     submitError.value = err?.response?.data?.error?.message || err?.message || 'Failed to submit feedback';
   } finally {
     submitting.value = false;
+  }
+};
+
+const fetchMyFeedback = async () => {
+  try {
+    myLoading.value = true;
+    myError.value = '';
+    const res = await api.get('/beta-feedback/mine', { params: { limit: 20 }, skipGlobalLoading: true });
+    myItems.value = res.data?.items || [];
+    if (myExpandedId.value && !myItems.value.some((i) => i.id === myExpandedId.value)) {
+      myExpandedId.value = null;
+    }
+  } catch (err) {
+    myError.value = err?.response?.data?.error?.message || err?.message || 'Failed to load your feedback';
+    myItems.value = [];
+  } finally {
+    myLoading.value = false;
+  }
+};
+
+const myMessageAuthor = (m) => {
+  if (String(m?.user_role || '').toLowerCase() === 'super_admin') return 'Admin';
+  return m?.user_preferred_name || m?.user_first_name || m?.user_email || 'You';
+};
+
+const fetchMyThread = async (feedbackId) => {
+  if (!feedbackId || myThreadLoadingMap.value[feedbackId]) return;
+  try {
+    myThreadLoadingMap.value = { ...myThreadLoadingMap.value, [feedbackId]: true };
+    const res = await api.get(`/beta-feedback/${feedbackId}/messages`, { skipGlobalLoading: true });
+    myThreadMap.value = { ...myThreadMap.value, [feedbackId]: res.data?.items || [] };
+  } catch {
+    myThreadMap.value = { ...myThreadMap.value, [feedbackId]: [] };
+  } finally {
+    const next = { ...myThreadLoadingMap.value };
+    delete next[feedbackId];
+    myThreadLoadingMap.value = next;
+  }
+};
+
+const toggleMyExpand = (id) => {
+  myExpandedId.value = myExpandedId.value === id ? null : id;
+  if (myExpandedId.value === id) fetchMyThread(id);
+};
+
+const setMyReplyDraft = (id, ev) => {
+  const value = String(ev?.target?.value || '');
+  myReplyDraftMap.value = { ...myReplyDraftMap.value, [id]: value };
+};
+
+const replyToFeedback = async (fb) => {
+  const id = Number(fb?.id || 0);
+  if (!id) return;
+  const message = String(myReplyDraftMap.value[id] || '').trim();
+  if (!message) return;
+  try {
+    mySendingMap.value = { ...mySendingMap.value, [id]: true };
+    const res = await api.post(`/beta-feedback/${id}/messages`, { message }, { skipGlobalLoading: true });
+    myThreadMap.value = { ...myThreadMap.value, [id]: res.data?.items || [] };
+    myReplyDraftMap.value = { ...myReplyDraftMap.value, [id]: '' };
+    await fetchMyFeedback();
+  } catch (err) {
+    myError.value = err?.response?.data?.error?.message || err?.message || 'Failed to send reply';
+  } finally {
+    const next = { ...mySendingMap.value };
+    delete next[id];
+    mySendingMap.value = next;
   }
 };
 </script>
@@ -542,6 +671,134 @@ const submit = async () => {
   margin-top: 18px;
   padding-top: 18px;
   border-top: 1px solid var(--border);
+}
+
+.my-feedback-section {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.my-feedback-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.my-feedback-header h4 {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.my-feedback-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.my-feedback-item {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.my-feedback-row {
+  width: 100%;
+  border: 0;
+  background: var(--bg-alt);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.my-feedback-status {
+  text-transform: uppercase;
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 5px;
+  padding: 2px 6px;
+}
+
+.my-feedback-status.pending {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.my-feedback-status.reviewed {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.my-feedback-status.resolved {
+  background: #d1fae5;
+  color: #047857;
+}
+
+.my-feedback-date {
+  font-size: 12px;
+  color: var(--text-secondary);
+  flex: 1;
+}
+
+.my-feedback-expand {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.my-feedback-body {
+  padding: 10px;
+}
+
+.my-feedback-desc {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.my-thread-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.my-thread-msg {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 8px;
+  background: #fff;
+}
+
+.my-thread-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.my-thread-msg p {
+  margin: 4px 0 0;
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+
+.my-thread-compose {
+  margin-top: 8px;
+}
+
+.my-thread-compose textarea {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  font-size: 12px;
+  margin-bottom: 8px;
 }
 
 .beta-modal-enter-active,

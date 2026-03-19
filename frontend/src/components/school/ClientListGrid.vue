@@ -18,7 +18,7 @@
           <button
             type="button"
             class="filter-pill"
-            :class="{ active: !attentionFilterActive }"
+            :class="{ active: !attentionFilterActive && !activeStatusFilterKey }"
             @click="setAttentionFilter(null)"
           >
             All
@@ -40,14 +40,35 @@
           >
             Pending
           </button>
-          <button
-            type="button"
-            class="filter-pill"
-            :class="{ active: activeStatusFilterKey === 'waitlist' }"
-            @click="setStatusFilter('waitlist')"
+          <div
+            class="waitlist-pill-wrap"
+            @mouseenter="showWaitlistAvailabilityAlert ? (waitlistAlertOpen = true) : null"
+            @mouseleave="waitlistAlertOpen = false"
           >
-            Waitlist
-          </button>
+            <button
+              type="button"
+              class="filter-pill waitlist-pill"
+              :class="{ active: activeStatusFilterKey === 'waitlist' }"
+              @click="setStatusFilter('waitlist')"
+            >
+              Waitlist
+              <span
+                v-if="showWaitlistAvailabilityAlert"
+                class="waitlist-pill-badge"
+                :aria-label="`${waitlistDisplayCount} waitlisted client${waitlistDisplayCount === 1 ? '' : 's'} in this school`"
+              >
+                ! {{ waitlistDisplayCount }}
+              </span>
+            </button>
+            <div v-if="showWaitlistAvailabilityAlert && waitlistAlertOpen" class="waitlist-alert-tooltip" role="status">
+              There are waitlisted clients. Contact admin if you have openings or
+              <button type="button" class="inline-link-btn" @click.stop.prevent="openAvailabilityRequestFromWaitlist">
+                update my availability
+              </button>.
+              For requesting a whole new day, use
+              <a :href="additionalAvailabilityHref" @click.stop>Submit</a>.
+            </div>
+          </div>
         </div>
         <div v-if="showSummaryBanner && attentionSummary.any" class="summary-banner">
           <template v-if="attentionSummary.new > 0">{{ attentionSummary.new }} new</template>
@@ -183,7 +204,8 @@
                   class="initials initials-btn"
                   type="button"
                   :disabled="!canOpenSchoolClient(client)"
-                  :title="canOpenSchoolClient(client) ? rosterLabelTitle(client) : lockedClientTitle(client)"
+                  :title="canOpenSchoolClient(client) ? rosterLabelTitle(client) : lockedInitialsTitle(client)"
+                  :data-locked-reason="!canOpenSchoolClient(client) ? lockedInitialsTitle(client) : ''"
                   @click.stop="openClient(client, 'comments')"
                 >
                   {{ formatRosterLabel(client) }}
@@ -535,10 +557,17 @@ const props = defineProps({
   clientsOverride: {
     type: Array,
     default: null
+  },
+  /**
+   * Optional school-wide waitlist count for provider waitlist alert bubble.
+   */
+  waitlistSchoolCount: {
+    type: Number,
+    default: null
   }
 });
 
-const emit = defineEmits(['edit-client', 'update:statusFilterKey', 'update:needsAttentionCount']);
+const emit = defineEmits(['edit-client', 'update:statusFilterKey', 'update:needsAttentionCount', 'open-availability-request']);
 
 const clients = ref([]);
 const loading = ref(false);
@@ -683,6 +712,7 @@ const saveSort = () => {
 
 const sortKey = ref('submission_date');
 const sortDir = ref('desc');
+const waitlistAlertOpen = ref(false);
 
 const showPsychotherapyColumn = computed(() => !!props.psychotherapyTotalsByClientId);
 
@@ -920,6 +950,24 @@ const attentionFilterActive = ref(false);
 const localStatusFilterKey = ref(''); // used when provider has filter pills (parent may not pass statusFilterKey)
 const showAttentionFilters = computed(() => props.rosterScope === 'provider');
 const showSummaryBanner = computed(() => props.rosterScope === 'provider');
+const waitlistCount = computed(() => {
+  const list = Array.isArray(clients.value) ? clients.value : [];
+  return list.filter((c) => normalize(c?.client_status_key) === 'waitlist').length;
+});
+const waitlistDisplayCount = computed(() => {
+  const external = Number(props.waitlistSchoolCount);
+  if (Number.isFinite(external) && external >= 0) return external;
+  return waitlistCount.value;
+});
+const showWaitlistAvailabilityAlert = computed(() => (
+  props.rosterScope === 'provider' &&
+  isProviderUser.value &&
+  waitlistDisplayCount.value > 0
+));
+const additionalAvailabilityHref = '/dashboard?tab=submit';
+const openAvailabilityRequestFromWaitlist = () => {
+  emit('open-availability-request', { source: 'waitlist_alert' });
+};
 
 const attentionSummary = computed(() => {
   const list = Array.isArray(clients.value) ? clients.value : [];
@@ -946,7 +994,10 @@ const attentionSummary = computed(() => {
 
 const setAttentionFilter = (mode) => {
   attentionFilterActive.value = mode === 'needs_attention';
-  if (mode !== 'needs_attention') emit('update:statusFilterKey', '');
+  if (mode !== 'needs_attention') {
+    localStatusFilterKey.value = '';
+    emit('update:statusFilterKey', '');
+  }
 };
 
 const setStatusFilter = (key) => {
@@ -1031,9 +1082,13 @@ const formatDateTime = (value) => {
 };
 
 const formatRosterLabel = (client) => {
-  if (client?.school_portal_can_open === false) return 'NO ROI';
   const initials = String(client?.initials || '').replace(/\s+/g, '').toUpperCase();
   const code = String(client?.identifier_code || '').replace(/\s+/g, '').toUpperCase();
+  const isLocked = client?.school_portal_force_placeholder === true || client?.school_portal_can_open === false;
+  if (isLocked) {
+    // For locked/NO ROI rows, prioritize initials so school staff can identify schedules.
+    return initials || code || String(client?.school_portal_locked_label || 'NO ROI').trim() || 'NO ROI';
+  }
   if (client?.school_portal_force_code) return code || initials || '—';
   if (props.clientLabelMode === 'initials') return initials || code || '—';
   return code || initials || '—';
@@ -1066,9 +1121,18 @@ const rosterLabelTitle = (client) => {
 
 const lockedClientTitle = (client) => {
   const state = String(client?.school_staff_effective_access_state || '').toLowerCase();
-  if (state === 'expired') return 'ROI expired. A new packet and ROI approval are required.';
-  if (state === 'packet') return 'Packet uploaded. Support must grant ROI access before this client can be opened.';
-  return 'ROI access is required before this client can be opened.';
+  if (state === 'expired') {
+    return 'ROI EXPIRED: Release of information is expired. Initials are shown for scheduling only; profile/comments remain locked until ROI is renewed.';
+  }
+  return 'ROI LOCKED: ROI is missing, pending, or requires packet update/approval. Initials are shown for scheduling only; profile/comments remain locked.';
+};
+
+const lockedInitialsTitle = (client) => {
+  const state = String(client?.school_staff_effective_access_state || '').toLowerCase();
+  if (state === 'expired') {
+    return 'ROI EXPIRED: Release of information is expired. Initials are visible for schedule context only.';
+  }
+  return 'ROI LOCKED: ROI is missing, pending, or requires packet update/approval. Initials are visible for schedule context only.';
 };
 
 const lockedClientButtonLabel = (client) => {
@@ -1627,6 +1691,53 @@ onMounted(() => {
   color: #065f46;
   font-size: 11px;
 }
+.waitlist-pill-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+.waitlist-pill {
+  position: relative;
+}
+.waitlist-pill-badge {
+  border: 1px solid #ef4444;
+  background: #fef2f2;
+  color: #b91c1c;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  padding: 4px 8px;
+  margin-left: 6px;
+}
+.waitlist-alert-tooltip {
+  position: absolute;
+  top: 34px;
+  left: 0;
+  width: min(320px, 72vw);
+  background: #111827;
+  color: #fff;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.4;
+  z-index: 20;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.3);
+}
+.waitlist-alert-tooltip a {
+  color: #93c5fd;
+  font-weight: 700;
+  text-decoration: underline;
+}
+.inline-link-btn {
+  border: none;
+  background: transparent;
+  color: #93c5fd;
+  font-weight: 700;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0;
+}
 .summary-banner {
   padding: 8px 12px;
   margin-bottom: 8px;
@@ -1749,6 +1860,31 @@ onMounted(() => {
 }
 .initials-btn:disabled {
   cursor: default;
+}
+.initials-btn[data-locked-reason]:disabled {
+  position: relative;
+}
+.initials-btn[data-locked-reason]:disabled:hover::after {
+  content: attr(data-locked-reason);
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(100% + 8px);
+  min-width: 240px;
+  max-width: 360px;
+  white-space: normal;
+  text-align: left;
+  line-height: 1.25;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(17, 24, 39, 0.96);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  z-index: 80;
+  pointer-events: none;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.25);
 }
 
 .clients-table td {

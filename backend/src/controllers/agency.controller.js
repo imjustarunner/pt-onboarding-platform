@@ -93,17 +93,24 @@ export const getAllAgencies = async (req, res, next) => {
   try {
     const includeInactive = req.user.role === 'admin' || req.user.role === 'super_admin';
     const includeArchived = false; // Don't include archived by default
-    
+    const minimal = req.query?.minimal === '1' || req.query?.minimal === 'true';
+
     // Super admins see all agencies
     if (req.user.role === 'super_admin') {
       const agencies = await Agency.findAll(includeInactive, includeArchived);
-      await attachAffiliationMeta(agencies);
+      if (!minimal) await attachAffiliationMeta(agencies);
+      if (minimal) {
+        return res.json(agencies.map((a) => ({ id: a.id, name: a.name, organization_type: a.organization_type })));
+      }
       return res.json(agencies);
     }
-    
+
     // Regular admins and others see only their assigned agencies
     const userAgencies = await User.getAgencies(req.user.id);
-    await attachAffiliationMeta(userAgencies);
+    if (!minimal) await attachAffiliationMeta(userAgencies);
+    if (minimal) {
+      return res.json(userAgencies.map((a) => ({ id: a.id, name: a.name, organization_type: a.organization_type })));
+    }
     res.json(userAgencies);
   } catch (error) {
     next(error);

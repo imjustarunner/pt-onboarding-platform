@@ -36,6 +36,22 @@
             <option v-for="a in agencies" :key="a.id" :value="String(a.id)">{{ a.name }}</option>
           </select>
           <button type="button" class="btn btn-secondary btn-sm" @click="clearFilters">Clear</button>
+          <button
+            type="button"
+            class="btn btn-danger btn-sm"
+            :disabled="selectedCount === 0 || bulkDeleting"
+            @click="bulkDeleteSelected"
+          >
+            {{ bulkDeleting ? 'Deleting...' : `Delete Selected (${selectedCount})` }}
+          </button>
+          <button
+            type="button"
+            class="btn btn-danger btn-sm"
+            :disabled="deleteResolvedLoading"
+            @click="deleteAllResolved"
+          >
+            {{ deleteResolvedLoading ? 'Deleting Resolved...' : 'Delete All Resolved' }}
+          </button>
         </div>
         <div class="toolbar-stats">
           <span class="stat">{{ total }} submission{{ total === 1 ? '' : 's' }}</span>
@@ -56,6 +72,13 @@
           :class="{ expanded: expandedId === item.id, [item.status]: true }"
         >
           <div class="feedback-card-header" @click="toggleExpand(item.id)">
+            <input
+              type="checkbox"
+              class="select-checkbox"
+              :checked="!!selectedMap[item.id]"
+              @click.stop
+              @change="toggleSelected(item.id, $event)"
+            />
             <span class="status-badge" :class="item.status">{{ item.status }}</span>
             <div class="feedback-meta">
               <span class="feedback-user">
@@ -91,12 +114,28 @@
                 Reviewed
               </button>
               <button
+                v-if="item.status === 'reviewed'"
+                type="button"
+                class="status-btn"
+                @click.stop="requestRetest(item)"
+              >
+                Request Re-test
+              </button>
+              <button
                 type="button"
                 class="status-btn"
                 :class="{ active: item.status === 'resolved' }"
                 @click.stop="setStatus(item.id, 'resolved')"
               >
                 Resolved
+              </button>
+              <button
+                type="button"
+                class="status-btn danger"
+                :disabled="!!deletingIds[item.id]"
+                @click.stop="deleteFeedback(item)"
+              >
+                {{ deletingIds[item.id] ? 'Deleting...' : 'Delete' }}
               </button>
             </div>
             <div v-if="item.description" class="feedback-description">
@@ -127,6 +166,36 @@
                 <img :src="screenshotUrl(item.screenshot_path)" alt="Screenshot" class="screenshot-img" />
               </a>
             </div>
+            <div class="feedback-thread">
+              <label>Owner Thread</label>
+              <div v-if="threadLoadingMap[item.id]" class="muted">Loading messages...</div>
+              <div v-else-if="!(threadMap[item.id] || []).length" class="muted">No messages yet.</div>
+              <div v-else class="thread-list">
+                <div v-for="m in threadMap[item.id]" :key="m.id" class="thread-msg">
+                  <div class="thread-meta">
+                    <strong>{{ messageAuthor(m) }}</strong>
+                    <span>{{ formatDateTime(m.created_at) }}</span>
+                  </div>
+                  <p>{{ m.message_text }}</p>
+                </div>
+              </div>
+              <div class="thread-compose">
+                <textarea
+                  :value="threadDraftMap[item.id] || ''"
+                  rows="2"
+                  placeholder="Send update/request to owner..."
+                  @input="setThreadDraft(item.id, $event)"
+                />
+                <button
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  :disabled="!!threadSendingMap[item.id]"
+                  @click="sendThreadMessage(item)"
+                >
+                  {{ threadSendingMap[item.id] ? 'Sending...' : 'Send Message' }}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -135,7 +204,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
+import { computed, ref, onMounted } from 'vue';
 import api from '../../services/api';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 import { formatDateTime } from '../../utils/formatDate';
@@ -147,6 +216,14 @@ const agencies = ref([]);
 const loading = ref(true);
 const error = ref('');
 const expandedId = ref(null);
+const deletingIds = ref({});
+const selectedMap = ref({});
+const bulkDeleting = ref(false);
+const deleteResolvedLoading = ref(false);
+const threadMap = ref({});
+const threadDraftMap = ref({});
+const threadLoadingMap = ref({});
+const threadSendingMap = ref({});
 const filters = ref({
   status: '',
   dateFrom: '',
@@ -161,6 +238,9 @@ const screenshotUrl = (path) => {
 
 const toggleExpand = (id) => {
   expandedId.value = expandedId.value === id ? null : id;
+  if (expandedId.value === id) {
+    fetchThread(id);
+  }
 };
 
 const buildParams = () => {
@@ -178,6 +258,13 @@ const fetchFeedback = async () => {
     error.value = '';
     const res = await api.get('/beta-feedback', { params: buildParams() });
     items.value = res.data?.items || [];
+    const visible = new Set(items.value.map((i) => Number(i.id)));
+    const nextSelected = {};
+    for (const [k, v] of Object.entries(selectedMap.value || {})) {
+      const idNum = Number(k);
+      if (v && visible.has(idNum)) nextSelected[idNum] = true;
+    }
+    selectedMap.value = nextSelected;
     total.value = res.data?.total ?? 0;
   } catch (err) {
     error.value = err?.response?.data?.error?.message || err?.message || 'Failed to load feedback';
@@ -197,7 +284,7 @@ const fetchPendingCount = async () => {
 
 const fetchAgencies = async () => {
   try {
-    const res = await api.get('/agencies');
+    const res = await api.get('/agencies', { params: { minimal: '1' } });
     agencies.value = (res.data || []).filter((a) => String(a?.organization_type || 'agency').toLowerCase() === 'agency');
   } catch {
     agencies.value = [];
@@ -224,8 +311,130 @@ const setStatus = async (id, status) => {
   }
 };
 
+const messageAuthor = (m) => {
+  if (String(m?.user_role || '').toLowerCase() === 'super_admin') return 'Admin';
+  return m?.user_preferred_name || m?.user_first_name || m?.user_email || 'User';
+};
+
+const setThreadDraft = (id, ev) => {
+  const value = String(ev?.target?.value || '');
+  threadDraftMap.value = { ...threadDraftMap.value, [id]: value };
+};
+
+const fetchThread = async (id) => {
+  if (threadLoadingMap.value[id]) return;
+  try {
+    threadLoadingMap.value = { ...threadLoadingMap.value, [id]: true };
+    const res = await api.get(`/beta-feedback/${id}/messages`, { skipGlobalLoading: true });
+    threadMap.value = { ...threadMap.value, [id]: res.data?.items || [] };
+  } catch {
+    threadMap.value = { ...threadMap.value, [id]: [] };
+  } finally {
+    const next = { ...threadLoadingMap.value };
+    delete next[id];
+    threadLoadingMap.value = next;
+  }
+};
+
+const sendThreadMessage = async (item, forcedMessage = null) => {
+  const id = Number(item?.id || 0);
+  if (!id) return;
+  const text = String(forcedMessage ?? threadDraftMap.value[id] ?? '').trim();
+  if (!text) return;
+  try {
+    threadSendingMap.value = { ...threadSendingMap.value, [id]: true };
+    const res = await api.post(`/beta-feedback/${id}/messages`, { message: text });
+    threadMap.value = { ...threadMap.value, [id]: res.data?.items || [] };
+    threadDraftMap.value = { ...threadDraftMap.value, [id]: '' };
+  } catch (err) {
+    error.value = err?.response?.data?.error?.message || err?.message || 'Failed to send message';
+  } finally {
+    const next = { ...threadSendingMap.value };
+    delete next[id];
+    threadSendingMap.value = next;
+  }
+};
+
+const requestRetest = async (item) => {
+  const defaultText = 'I reviewed this and made updates. Can you please re-test and reply here with your result?';
+  const entered = window.prompt('Message to owner (re-test request):', defaultText);
+  if (entered === null) return;
+  await sendThreadMessage(item, entered);
+};
+
+const selectedCount = computed(() =>
+  Object.values(selectedMap.value || {}).filter(Boolean).length
+);
+
+const toggleSelected = (id, ev) => {
+  const checked = !!ev?.target?.checked;
+  selectedMap.value = { ...selectedMap.value, [id]: checked };
+};
+
+const bulkDeleteSelected = async () => {
+  const ids = Object.entries(selectedMap.value || {})
+    .filter(([, v]) => !!v)
+    .map(([k]) => Number(k))
+    .filter((n) => Number.isInteger(n) && n > 0);
+  if (!ids.length) return;
+  const ok = window.confirm(`Delete ${ids.length} selected feedback submission(s)? This cannot be undone.`);
+  if (!ok) return;
+
+  try {
+    bulkDeleting.value = true;
+    await api.post('/beta-feedback/bulk-delete', { ids });
+    selectedMap.value = {};
+    await Promise.all([fetchFeedback(), fetchPendingCount()]);
+  } catch (err) {
+    error.value = err?.response?.data?.error?.message || err?.message || 'Failed to bulk delete feedback';
+  } finally {
+    bulkDeleting.value = false;
+  }
+};
+
+const deleteAllResolved = async () => {
+  const ok = window.confirm('Delete all resolved feedback for the current filter scope? This cannot be undone.');
+  if (!ok) return;
+  try {
+    deleteResolvedLoading.value = true;
+    await api.post('/beta-feedback/delete-resolved', {
+      agencyId: filters.value.agencyId || null,
+      dateFrom: filters.value.dateFrom || null,
+      dateTo: filters.value.dateTo || null
+    });
+    selectedMap.value = {};
+    await Promise.all([fetchFeedback(), fetchPendingCount()]);
+  } catch (err) {
+    error.value = err?.response?.data?.error?.message || err?.message || 'Failed to delete resolved feedback';
+  } finally {
+    deleteResolvedLoading.value = false;
+  }
+};
+
+const deleteFeedback = async (item) => {
+  const label = item?.route_path || item?.route_name || `#${item?.id}`;
+  const ok = window.confirm(`Delete beta feedback ${label}? This cannot be undone.`);
+  if (!ok) return;
+
+  try {
+    deletingIds.value = { ...deletingIds.value, [item.id]: true };
+    await api.delete(`/beta-feedback/${item.id}`);
+    items.value = items.value.filter((i) => i.id !== item.id);
+    total.value = Math.max(0, Number(total.value || 0) - 1);
+    if (expandedId.value === item.id) expandedId.value = null;
+    await fetchPendingCount();
+  } catch (err) {
+    error.value = err?.response?.data?.error?.message || err?.message || 'Failed to delete feedback';
+  } finally {
+    const next = { ...deletingIds.value };
+    delete next[item.id];
+    deletingIds.value = next;
+  }
+};
+
 onMounted(async () => {
-  await Promise.all([fetchFeedback(), fetchPendingCount(), fetchAgencies()]);
+  await Promise.all([fetchFeedback(), fetchPendingCount()]);
+  fetchAgencies(); // Non-blocking: agencies filter loads in background
 });
 </script>
 
@@ -348,6 +557,12 @@ onMounted(async () => {
   padding: 14px 16px;
   cursor: pointer;
   transition: background 0.15s;
+}
+
+.select-checkbox {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
 }
 
 .feedback-card-header:hover {
@@ -473,6 +688,17 @@ onMounted(async () => {
   color: white;
 }
 
+.status-btn.danger {
+  border-color: #fca5a5;
+  color: #991b1b;
+}
+
+.status-btn.danger:hover {
+  border-color: #ef4444;
+  color: #b91c1c;
+  background: #fef2f2;
+}
+
 .feedback-description {
   margin-top: 0;
 }
@@ -519,6 +745,56 @@ onMounted(async () => {
 
 .feedback-screenshot {
   margin-top: 16px;
+}
+
+.feedback-thread {
+  margin-top: 16px;
+}
+
+.muted {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.thread-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.thread-msg {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: var(--bg-alt);
+}
+
+.thread-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.thread-msg p {
+  margin: 6px 0 0;
+  font-size: 13px;
+  white-space: pre-wrap;
+}
+
+.thread-compose {
+  margin-top: 8px;
+}
+
+.thread-compose textarea {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  font-size: 13px;
+  margin-bottom: 8px;
 }
 
 .screenshot-link {
