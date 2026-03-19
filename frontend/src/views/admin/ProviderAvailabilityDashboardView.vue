@@ -6,8 +6,17 @@
         <p class="page-description" data-tour="avail-subtitle">View organization slots, office availability, and virtual availability templates.</p>
       </div>
       <div class="header-actions" data-tour="avail-actions">
+        <button class="btn btn-secondary" type="button" @click="tab = 'tracker'">Provider App Tracker</button>
         <button class="btn btn-secondary" type="button" @click="reload" :disabled="loading">Refresh</button>
       </div>
+    </div>
+
+    <div v-if="agencies.length > 1" class="agency-selector">
+      <label>Agency</label>
+      <select v-model="selectedAgencyId" @change="onAgencyChange">
+        <option :value="null">Select an agency…</option>
+        <option v-for="a in agencies" :key="a.id" :value="a.id">{{ a.name }}</option>
+      </select>
     </div>
 
     <div v-if="!agencyId" class="empty-state">
@@ -19,13 +28,61 @@
         <button class="tab" :class="{ active: tab === 'school' }" @click="tab = 'school'" data-tour="avail-tab-school">Organization slots</button>
         <button class="tab" :class="{ active: tab === 'office' }" @click="tab = 'office'" data-tour="avail-tab-office">Office availability</button>
         <button class="tab" :class="{ active: tab === 'virtual' }" @click="tab = 'virtual'" data-tour="avail-tab-virtual">Virtual availability</button>
+        <button class="tab" :class="{ active: tab === 'school_requests' }" @click="tab = 'school_requests'">School availability</button>
+        <button class="tab" :class="{ active: tab === 'tracker' }" @click="tab = 'tracker'">Provider app tracker</button>
       </div>
 
       <div v-if="error" class="error">{{ error }}</div>
       <div v-else-if="loading" class="loading">Loading…</div>
 
       <div v-else>
-        <div class="filters" data-tour="avail-filters">
+        <div v-if="tab === 'school_requests'" class="school-requests-wrap">
+          <AvailabilityIntakeManagement :show-header="false" initial-tab="school" />
+        </div>
+
+        <div v-else-if="tab === 'tracker'" class="table-wrap">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Provider</th>
+                <th>Email</th>
+                <th>First login</th>
+                <th>Last login</th>
+                <th>Assigned school</th>
+                <th>Last school portal access</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="p in trackerProviders" :key="`tracker-${p.providerId}`">
+                <td>{{ p.providerName }}</td>
+                <td>{{ p.email || '—' }}</td>
+                <td>{{ formatDateTime(p.firstLoginAt) }}</td>
+                <td>{{ formatDateTime(p.lastLoginAt) }}</td>
+                <td>
+                  <div v-if="p.primarySchool">
+                    <div>{{ p.primarySchool.schoolName || `School #${p.primarySchool.schoolOrganizationId || ''}` }}</div>
+                    <details v-if="p.otherSchools.length" class="tracker-school-details">
+                      <summary>Show other schools ({{ p.otherSchools.length }})</summary>
+                      <div class="tracker-school-list">
+                        <div v-for="(s, idx) in p.otherSchools" :key="`tracker-other-${p.providerId}-${s.schoolOrganizationId || idx}`" class="tracker-school-item">
+                          <strong>{{ s.schoolName || `School #${s.schoolOrganizationId || ''}` }}</strong>
+                          <span class="muted">Last portal access: {{ formatDateTime(s.lastPortalAccessAt) }}</span>
+                        </div>
+                      </div>
+                    </details>
+                  </div>
+                  <span v-else>—</span>
+                </td>
+                <td>{{ formatDateTime(p.primarySchool?.lastPortalAccessAt) }}</td>
+              </tr>
+              <tr v-if="trackerProviders.length === 0">
+                <td colspan="6" class="muted">No provider tracker rows found.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div v-else class="filters" data-tour="avail-filters">
           <div class="field">
             <label>Provider</label>
             <select v-model="filters.providerId" class="select">
@@ -217,15 +274,26 @@
 
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
+import { useRoute } from 'vue-router';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
+import { useAuthStore } from '../../store/auth';
+import AvailabilityIntakeManagement from '../../components/admin/AvailabilityIntakeManagement.vue';
 
 const agencyStore = useAgencyStore();
+const authStore = useAuthStore();
+const route = useRoute();
 const agencyId = computed(() => agencyStore.currentAgency?.id || null);
+const selectedAgencyId = ref(null);
+const isSuperAdmin = computed(() => authStore.user?.role === 'super_admin');
+const agencies = computed(() => {
+  const list = isSuperAdmin.value ? (agencyStore.agencies || []) : (agencyStore.userAgencies || []);
+  return (list || []).filter((a) => String(a?.organization_type || 'agency').toLowerCase() === 'agency');
+});
 
 const loading = ref(false);
 const error = ref('');
-const tab = ref('school'); // school | office | virtual
+const tab = ref('school'); // school | office | virtual | school_requests | tracker
 
 const data = ref({
   providers: [],
@@ -235,6 +303,7 @@ const data = ref({
   officeAvailability: [],
   virtualWorkingHours: []
 });
+const trackerProviders = ref([]);
 
 const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
@@ -263,6 +332,13 @@ const formatRange = (start, end) => {
   if (s && !e) return s;
   if (!s && e) return e;
   return `${s}–${e}`;
+};
+
+const formatDateTime = (value) => {
+  if (!value) return '—';
+  const dt = new Date(value);
+  if (Number.isNaN(dt.getTime())) return '—';
+  return dt.toLocaleString();
 };
 
 const matchesCommonFilters = (row) => {
@@ -417,6 +493,11 @@ const setSort = (key) => {
 
 const reload = async () => {
   if (!agencyId.value) return;
+  if (tab.value === 'tracker') {
+    await loadProviderTracker();
+    return;
+  }
+  if (tab.value === 'school_requests') return;
   try {
     loading.value = true;
     error.value = '';
@@ -435,7 +516,84 @@ const reload = async () => {
   }
 };
 
+const loadProviderTracker = async () => {
+  if (!agencyId.value) return;
+  try {
+    loading.value = true;
+    error.value = '';
+    const resp = await api.get('/availability/admin/provider-app-tracker', {
+      params: { agencyId: agencyId.value }
+    });
+    const rows = Array.isArray(resp?.data?.providers) ? resp.data.providers : [];
+    trackerProviders.value = rows.map((row) => ({
+      providerId: Number(row?.providerId || 0) || null,
+      providerName: `${row?.firstName || ''} ${row?.lastName || ''}`.trim() || row?.email || 'Provider',
+      email: row?.email || '',
+      firstLoginAt: row?.firstLoginAt || null,
+      lastLoginAt: row?.lastLoginAt || null,
+      schools: sortSchoolsMostRecent(Array.isArray(row?.schools) ? row.schools : []),
+      primarySchool: null,
+      otherSchools: []
+    }));
+    trackerProviders.value.forEach((p) => {
+      p.primarySchool = p.schools[0] || null;
+      p.otherSchools = p.schools.slice(1);
+    });
+  } catch (e) {
+    trackerProviders.value = [];
+    error.value = e.response?.data?.error?.message || e.message || 'Failed to load provider app tracker';
+  } finally {
+    loading.value = false;
+  }
+};
+
+const sortSchoolsMostRecent = (schools) => {
+  const rows = (schools || []).slice();
+  rows.sort((a, b) => {
+    const al = a?.lastPortalAccessAt ? new Date(a.lastPortalAccessAt).getTime() : 0;
+    const bl = b?.lastPortalAccessAt ? new Date(b.lastPortalAccessAt).getTime() : 0;
+    if (al !== bl) return bl - al;
+    const aa = a?.assignedAt ? new Date(a.assignedAt).getTime() : 0;
+    const ba = b?.assignedAt ? new Date(b.assignedAt).getTime() : 0;
+    return ba - aa;
+  });
+  return rows;
+};
+
+const onAgencyChange = () => {
+  const id = selectedAgencyId.value ? Number(selectedAgencyId.value) : null;
+  const agency = agencies.value.find((a) => Number(a.id) === Number(id));
+  agencyStore.setCurrentAgency(agency || null);
+};
+
+const ensureAgencyContextFromQuery = async () => {
+  if (!agencies.value.length) {
+    if (isSuperAdmin.value) await agencyStore.fetchAgencies();
+    else await agencyStore.fetchUserAgencies();
+  }
+  const qAgencyId = route.query.agencyId ? Number(route.query.agencyId) : null;
+  if (qAgencyId && agencies.value.some((a) => Number(a.id) === qAgencyId)) {
+    selectedAgencyId.value = qAgencyId;
+    const agency = agencies.value.find((a) => Number(a.id) === qAgencyId);
+    agencyStore.setCurrentAgency(agency || null);
+    return;
+  }
+  if (agencyStore.currentAgency?.id) {
+    selectedAgencyId.value = Number(agencyStore.currentAgency.id);
+    return;
+  }
+  if (agencies.value.length === 1) {
+    selectedAgencyId.value = Number(agencies.value[0].id);
+    agencyStore.setCurrentAgency(agencies.value[0]);
+  }
+};
+
 watch(tab, (t) => {
+  if (t === 'tracker') {
+    loadProviderTracker();
+    return;
+  }
+  if (t === 'school_requests') return;
   // Set a reasonable default sort per tab
   if (t === 'school') {
     sortKey.value = 'schoolName';
@@ -465,10 +623,15 @@ watch(schoolGroups, (next) => {
 });
 
 onMounted(async () => {
-  if (!agencyStore.currentAgency) {
-    await agencyStore.fetchUserAgencies();
-  }
+  await ensureAgencyContextFromQuery();
   await reload();
+});
+
+watch(() => agencyStore.currentAgency?.id, (id) => {
+  if (!id) return;
+  if (Number(selectedAgencyId.value || 0) !== Number(id)) {
+    selectedAgencyId.value = Number(id);
+  }
 });
 </script>
 
@@ -500,12 +663,49 @@ onMounted(async () => {
   border-radius: 12px;
   padding: 16px;
 }
+.agency-selector {
+  margin-top: 12px;
+}
+.agency-selector label {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+.agency-selector select {
+  min-width: 260px;
+  max-width: 420px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text-primary);
+}
 .tabs {
   display: flex;
   gap: 8px;
   border-bottom: 1px solid var(--border);
   padding-bottom: 10px;
   margin-bottom: 14px;
+}
+.tracker-school-details {
+  margin-top: 4px;
+}
+.tracker-school-details summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--primary);
+}
+.tracker-school-list {
+  margin-top: 6px;
+  display: grid;
+  gap: 6px;
+}
+.tracker-school-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 .tab {
   border: 1px solid var(--border);

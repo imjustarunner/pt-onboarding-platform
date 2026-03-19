@@ -44,7 +44,11 @@ const onAgencyChange = () => {
   agencyStore.setCurrentAgency(agency || null);
 };
 
-onMounted(() => {
+const ensureAgencyContextFromQuery = async () => {
+  if (!agencies.value.length) {
+    if (isSuperAdmin.value) await agencyStore.fetchAgencies();
+    else await agencyStore.fetchUserAgencies();
+  }
   const qAgencyId = route.query.agencyId ? Number(route.query.agencyId) : null;
   if (qAgencyId && agencies.value.some((a) => a.id === qAgencyId)) {
     selectedAgencyId.value = qAgencyId;
@@ -56,6 +60,10 @@ onMounted(() => {
     selectedAgencyId.value = agencies.value[0].id;
     agencyStore.setCurrentAgency(agencies.value[0]);
   }
+};
+
+onMounted(async () => {
+  await ensureAgencyContextFromQuery();
 });
 
 watch(() => agencyStore.currentAgency?.id, (id) => {

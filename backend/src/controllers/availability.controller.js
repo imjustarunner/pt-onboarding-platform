@@ -3107,6 +3107,152 @@ export const providerAvailabilityDashboard = async (req, res, next) => {
   }
 };
 
+export const providerAppTracker = async (req, res, next) => {
+  try {
+    const agencyId = await resolveAgencyId(req);
+    if (!(await requireAgencyMembership(req, res, agencyId))) return;
+    if (!canViewAvailabilityDashboard(req.user?.role)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const [providers] = await pool.execute(
+      `SELECT DISTINCT u.id, u.first_name, u.last_name, u.email
+       FROM users u
+       JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
+       WHERE (u.role IN ('provider') OR u.has_provider_access = TRUE)
+         AND (u.is_archived IS NULL OR u.is_archived = FALSE)
+         AND (u.is_active IS NULL OR u.is_active = TRUE)
+         AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE'))
+       ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC`,
+      [agencyId]
+    );
+
+    const providerIds = (providers || []).map((p) => Number(p.id)).filter(Boolean);
+    if (providerIds.length === 0) {
+      return res.json({ ok: true, agencyId, providers: [] });
+    }
+
+    const providerPlaceholders = providerIds.map(() => '?').join(',');
+    const [loginRows] = await pool.execute(
+      `SELECT
+         user_id,
+         MIN(created_at) AS first_login_at,
+         MAX(created_at) AS last_login_at
+       FROM user_activity_log
+       WHERE action_type = 'login'
+         AND user_id IN (${providerPlaceholders})
+       GROUP BY user_id`,
+      providerIds
+    );
+    const loginByUserId = new Map(
+      (loginRows || []).map((r) => [
+        Number(r.user_id),
+        {
+          first_login_at: r.first_login_at || null,
+          last_login_at: r.last_login_at || null
+        }
+      ])
+    );
+
+    let assignmentRows = [];
+    try {
+      const [rows] = await pool.execute(
+        `SELECT
+           psa.provider_user_id,
+           psa.school_organization_id,
+           s.name AS school_name,
+           MIN(psa.created_at) AS assigned_at,
+           psaa.first_access_at,
+           psaa.last_access_at
+         FROM provider_school_assignments psa
+         JOIN agencies s
+           ON s.id = psa.school_organization_id
+         JOIN organization_affiliations oa
+           ON oa.organization_id = psa.school_organization_id
+          AND oa.agency_id = ?
+          AND oa.is_active = TRUE
+         LEFT JOIN provider_school_portal_access psaa
+           ON psaa.provider_user_id = psa.provider_user_id
+          AND psaa.school_organization_id = psa.school_organization_id
+         WHERE psa.provider_user_id IN (${providerPlaceholders})
+           AND psa.is_active = TRUE
+         GROUP BY
+           psa.provider_user_id,
+           psa.school_organization_id,
+           s.name,
+           psaa.first_access_at,
+           psaa.last_access_at
+         ORDER BY s.name ASC`,
+        [agencyId, ...providerIds]
+      );
+      assignmentRows = rows || [];
+    } catch (e) {
+      if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+      const [rows] = await pool.execute(
+        `SELECT
+           psa.provider_user_id,
+           psa.school_organization_id,
+           s.name AS school_name,
+           MIN(psa.created_at) AS assigned_at,
+           NULL AS first_access_at,
+           NULL AS last_access_at
+         FROM provider_school_assignments psa
+         JOIN agencies s
+           ON s.id = psa.school_organization_id
+         JOIN organization_affiliations oa
+           ON oa.organization_id = psa.school_organization_id
+          AND oa.agency_id = ?
+          AND oa.is_active = TRUE
+         WHERE psa.provider_user_id IN (${providerPlaceholders})
+           AND psa.is_active = TRUE
+         GROUP BY
+           psa.provider_user_id,
+           psa.school_organization_id,
+           s.name
+         ORDER BY s.name ASC`,
+        [agencyId, ...providerIds]
+      );
+      assignmentRows = rows || [];
+    }
+
+    const schoolsByProviderId = new Map();
+    for (const row of assignmentRows || []) {
+      const pid = Number(row.provider_user_id || 0);
+      if (!pid) continue;
+      if (!schoolsByProviderId.has(pid)) schoolsByProviderId.set(pid, []);
+      schoolsByProviderId.get(pid).push({
+        schoolOrganizationId: Number(row.school_organization_id || 0) || null,
+        schoolName: row.school_name || '',
+        assignedAt: row.assigned_at || null,
+        firstPortalAccessAt: row.first_access_at || null,
+        lastPortalAccessAt: row.last_access_at || null
+      });
+    }
+
+    const out = (providers || []).map((p) => {
+      const pid = Number(p.id);
+      const login = loginByUserId.get(pid) || {};
+      return {
+        providerId: pid,
+        firstName: p.first_name || '',
+        lastName: p.last_name || '',
+        email: p.email || '',
+        firstLoginAt: login.first_login_at || null,
+        lastLoginAt: login.last_login_at || null,
+        schools: schoolsByProviderId.get(pid) || []
+      };
+    });
+
+    res.json({
+      ok: true,
+      agencyId,
+      providers: out
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const searchAvailability = async (req, res, next) => {
   try {
     const agencyId = await resolveAgencyId(req);

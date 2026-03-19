@@ -65,6 +65,26 @@ async function resolveActiveAgencyIdForOrg(orgId) {
   );
 }
 
+async function touchProviderSchoolPortalAccess({ providerUserId, schoolOrganizationId }) {
+  const providerId = Number(providerUserId || 0);
+  const schoolId = Number(schoolOrganizationId || 0);
+  if (!providerId || !schoolId) return;
+  try {
+    await pool.execute(
+      `INSERT INTO provider_school_portal_access
+        (provider_user_id, school_organization_id, first_access_at, last_access_at)
+       VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+       ON DUPLICATE KEY UPDATE
+         last_access_at = CURRENT_TIMESTAMP`,
+      [providerId, schoolId]
+    );
+  } catch (e) {
+    // Best effort for environments where this migration is not applied yet.
+    if (e?.code === 'ER_NO_SUCH_TABLE') return;
+    throw e;
+  }
+}
+
 async function getAgencyAdminStaffUserIds(agencyId) {
   const [rows] = await pool.execute(
     `SELECT DISTINCT u.id
@@ -1092,6 +1112,12 @@ export const getProviderMyRoster = async (req, res, next) => {
       // No org key resolved → treat as empty roster rather than 404 (prevents broken UX).
       return res.json([]);
     }
+
+    // Update provider-school portal access timestamp for admin tracker reporting.
+    await touchProviderSchoolPortalAccess({
+      providerUserId,
+      schoolOrganizationId: orgId
+    }).catch(() => {});
 
     const skillsOnly = false;
 

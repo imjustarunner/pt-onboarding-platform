@@ -1009,7 +1009,7 @@
             <button class="btn btn-secondary btn-sm" type="button" @click="dismissWeeklyAvailabilityPrompt">Dismiss for now</button>
           </div>
           <div v-if="!isProviderRoleForAvailability" class="muted" style="margin-top: 8px;">
-            Confirm action is provider-only. This preview is shown for testing.
+            Confirm action is provider-only.
           </div>
         </div>
       </div>
