@@ -3,6 +3,7 @@ import { createNotificationAndDispatch } from './notificationDispatcher.service.
 import { createClientOnboardingTaskForProvider } from './clientOnboardingTask.service.js';
 import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
 import { sendEmailFromIdentity } from './unifiedEmail/unifiedEmailSender.service.js';
+import { resolvePreferredSenderIdentityForSchoolThenAgency } from './emailSenderIdentityResolver.service.js';
 
 async function alreadyNotified({ agencyId, userId, type, relatedEntityId }) {
   const [rows] = await pool.execute(
@@ -88,8 +89,27 @@ async function resolveNotificationsSenderIdentityId() {
   }
 }
 
+async function resolveIntakeStatusSenderIdentityId({ schoolOrganizationId, agencyId }) {
+  const schoolOrgId = Number(schoolOrganizationId || 0) || null;
+  const aid = Number(agencyId || 0) || null;
+  try {
+    const scoped = await resolvePreferredSenderIdentityForSchoolThenAgency({
+      schoolOrganizationId: schoolOrgId,
+      agencyId: aid,
+      preferredKeys: ['school_intake', 'intake', 'notifications', 'system'],
+      includePlatformDefaults: true,
+      onlyActive: true
+    });
+    if (Number(scoped?.id || 0)) return Number(scoped.id);
+  } catch {
+    // Fall through to stable notifications identity fallback.
+  }
+  return await resolveNotificationsSenderIdentityId();
+}
+
 async function sendSchoolIntakeStatusEmail({
   schoolOrganizationId,
+  agencyId,
   mode,
   clientInitials,
   schoolStaffName
@@ -98,12 +118,17 @@ async function sendSchoolIntakeStatusEmail({
   if (!sid) return false;
   const to = await getSchoolItscoEmail(sid);
   if (!to) return false;
-  const senderIdentityId = await resolveNotificationsSenderIdentityId();
+  const senderIdentityId = await resolveIntakeStatusSenderIdentityId({
+    schoolOrganizationId: sid,
+    agencyId
+  });
   if (!senderIdentityId) return false;
 
-  const initials = String(clientInitials || '').trim() || 'TBD';
+  const initialsRaw = String(clientInitials || '').trim();
+  const hasKnownInitials = !!initialsRaw && initialsRaw.toUpperCase() !== 'TBD';
+  const initials = hasKnownInitials ? initialsRaw : null;
   const staff = String(schoolStaffName || '').trim();
-  const includePaperStaffSentence = mode === 'paper_upload' && initials.toUpperCase() !== 'TBD' && !!staff;
+  const includePaperStaffSentence = mode === 'paper_upload' && !!initials && !!staff;
 
   let subject = '';
   let text = '';
@@ -114,7 +139,11 @@ async function sendSchoolIntakeStatusEmail({
       '',
       includePaperStaffSentence
         ? `A new paper packet has been uploaded into our system by ${staff} for the client ${initials}. Please login at app.ITSCO.health to view the client's status. Our team has been notified and they will be working on getting them ready to go!`
-        : `A new paper packet has been uploaded into our system for the client ${initials}. Please login at app.ITSCO.health to view the client's status. Our team has been notified and they will be working on getting them ready to go!`,
+        : (
+            initials
+              ? `A new paper packet has been uploaded into our system for the client ${initials}. Please login at app.ITSCO.health to view the client's status. Our team has been notified and they will be working on getting them ready to go!`
+              : `A new paper packet has been uploaded into our system for a new client intake. Please login at app.ITSCO.health to view the client's status. Our team has been notified and they will be working on getting them ready to go!`
+          ),
       '',
       'Thank you,',
       '',
@@ -125,7 +154,11 @@ async function sendSchoolIntakeStatusEmail({
     text = [
       'Hello,',
       '',
-      `A new digital intake packet/form has been submitted for the client with the initials of ${initials}. Please login at app.ITSCO.health to view the client's status. Our team has been notified and they will be working on getting them ready to go!`,
+      (
+        initials
+          ? `A new digital intake packet/form has been submitted for the client with the initials of ${initials}. Please login at app.ITSCO.health to view the client's status. Our team has been notified and they will be working on getting them ready to go!`
+          : `A new digital intake packet/form has been submitted for a new client intake. Please login at app.ITSCO.health to view the client's status. Our team has been notified and they will be working on getting them ready to go!`
+      ),
       '',
       'Thank you,',
       '',
@@ -247,6 +280,7 @@ export async function notifyNewPacketUploaded({
   // School-facing status email (uses editable sender identity: notifications@itsco.health).
   await sendSchoolIntakeStatusEmail({
     schoolOrganizationId,
+    agencyId,
     mode,
     clientInitials,
     schoolStaffName

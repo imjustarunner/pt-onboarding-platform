@@ -3812,10 +3812,13 @@ export const finalizePublicIntake = async (req, res, next) => {
           }
           if (!agencyId) agencyId = link.organization_id;
         }
+        const submittedSchoolOrgId = String(link?.scope_type || '').toLowerCase() === 'school'
+          ? (Number(link?.organization_id || 0) || null)
+          : null;
         const schoolOrgId =
+          submittedSchoolOrgId ||
           clientRow?.school_organization_id ||
           clientRow?.organization_id ||
-          (String(link?.scope_type || '').toLowerCase() === 'school' ? link?.organization_id : null) ||
           req.body?.organizationId ||
           null;
         const clientLabel =
@@ -4291,10 +4294,13 @@ export const submitPublicIntake = async (req, res, next) => {
           }
           if (!agencyId) agencyId = link.organization_id;
         }
+        const submittedSchoolOrgId = String(link?.scope_type || '').toLowerCase() === 'school'
+          ? (Number(link?.organization_id || 0) || null)
+          : null;
         const schoolOrgId =
+          submittedSchoolOrgId ||
           clientRow?.school_organization_id ||
           clientRow?.organization_id ||
-          (String(link?.scope_type || '').toLowerCase() === 'school' ? link?.organization_id : null) ||
           req.body?.organizationId ||
           null;
         const clientLabel =
