@@ -120,15 +120,19 @@
           <input v-model="addEmail" class="input" type="email" placeholder="e.g., jane@school.org" />
         </label>
       </div>
-      <div class="role-flags-row">
-        <label class="checkbox-inline">
-          <input v-model="addIsSchoolAdmin" type="checkbox" />
-          School Admin
+      <div class="add-role-row">
+        <label class="field add-role-field" style="margin: 0;">
+          Access role
+          <select v-model="addAccessRole" class="input role-select">
+            <option value="standard">Standard account</option>
+            <option value="school_admin">School Admin</option>
+            <option value="scheduler">Scheduler</option>
+            <option value="school_admin_scheduler">School Admin + Scheduler</option>
+          </select>
         </label>
-        <label class="checkbox-inline">
-          <input v-model="addIsScheduler" type="checkbox" />
-          Scheduler
-        </label>
+        <div class="role-helper">
+          {{ addRoleHelperText }}
+        </div>
       </div>
       <button class="btn btn-primary btn-sm" type="button" @click="addStaff" :disabled="adding">
         {{ adding ? 'Adding…' : 'Add staff' }}
@@ -252,8 +256,7 @@ const success = ref('');
 const adding = ref(false);
 const addName = ref('');
 const addEmail = ref('');
-const addIsSchoolAdmin = ref(false);
-const addIsScheduler = ref(false);
+const addAccessRole = ref('standard');
 const addSuccess = ref('');
 
 const showEditModal = ref(false);
@@ -346,7 +349,11 @@ const saveEdit = async () => {
 const toggleSchoolAdmin = async (u) => {
   if (!u?.id) return;
   const next = !u.is_school_admin;
-  if (!confirm(`${next ? 'Grant' : 'Remove'} School Admin for ${[u.first_name, u.last_name].filter(Boolean).join(' ') || u.email}?`)) return;
+  const label = [u.first_name, u.last_name].filter(Boolean).join(' ') || u.email || 'this user';
+  const actionText = next
+    ? `This will make ${label} a School Admin for this school. They will be able to add/edit school staff, reset passwords, remove access, and manage School Admin/Scheduler role assignments for this school.`
+    : `This will remove School Admin access for ${label}. They will no longer be able to manage school staff or role assignments for this school unless another admin grants it again.`;
+  if (!confirm(`${actionText}\n\nDo you want to continue?`)) return;
   try {
     settingPrimaryId.value = u.id;
     error.value = '';
@@ -366,7 +373,11 @@ const toggleSchoolAdmin = async (u) => {
 const toggleScheduler = async (u) => {
   if (!u?.id) return;
   const next = !u.is_scheduler;
-  if (!confirm(`${next ? 'Grant' : 'Remove'} Scheduler for ${[u.first_name, u.last_name].filter(Boolean).join(' ') || u.email}?`)) return;
+  const label = [u.first_name, u.last_name].filter(Boolean).join(' ') || u.email || 'this user';
+  const actionText = next
+    ? `This will make ${label} a Scheduler for this school. Scheduler users get limited/own-only school access by default and will not appear in Smart School ROI assignment lists.`
+    : `This will remove Scheduler from ${label}. They will return to standard school staff behavior unless other role flags are set.`;
+  if (!confirm(`${actionText}\n\nDo you want to continue?`)) return;
   try {
     settingSchedulerId.value = u.id;
     error.value = '';
@@ -439,6 +450,10 @@ const addStaff = async () => {
     error.value = 'Please enter a valid email address.';
     return;
   }
+  const roleFlags = roleFlagsFromAccessRole(addAccessRole.value);
+  const selectedRoleLabel = roleLabelFromAccessRole(addAccessRole.value);
+  const selectedRoleDescription = roleDescriptionFromAccessRole(addAccessRole.value);
+  if (!confirm(`This will create a new school staff login as: ${selectedRoleLabel}.\n${selectedRoleDescription}\n\nContinue?`)) return;
   try {
     adding.value = true;
     error.value = '';
@@ -446,13 +461,12 @@ const addStaff = async () => {
     await api.post(`/school-portal/${props.schoolOrganizationId}/school-staff`, {
       email,
       fullName: addName.value.trim() || undefined,
-      isSchoolAdmin: !!addIsSchoolAdmin.value,
-      isScheduler: !!addIsScheduler.value
+      isSchoolAdmin: roleFlags.isSchoolAdmin,
+      isScheduler: roleFlags.isScheduler
     });
     addName.value = '';
     addEmail.value = '';
-    addIsSchoolAdmin.value = false;
-    addIsScheduler.value = false;
+    addAccessRole.value = 'standard';
     addSuccess.value = 'Staff added. Setup email sent.';
     await load();
   } catch (e) {
@@ -522,6 +536,50 @@ const requestDeletionFor = async (u) => {
     submitting.value = false;
   }
 };
+
+const roleFlagsFromAccessRole = (value) => {
+  const role = String(value || 'standard').trim().toLowerCase();
+  return {
+    isSchoolAdmin: role === 'school_admin' || role === 'school_admin_scheduler',
+    isScheduler: role === 'scheduler' || role === 'school_admin_scheduler'
+  };
+};
+
+const roleLabelFromAccessRole = (value) => {
+  const role = String(value || 'standard').trim().toLowerCase();
+  if (role === 'school_admin') return 'School Admin';
+  if (role === 'scheduler') return 'Scheduler';
+  if (role === 'school_admin_scheduler') return 'School Admin + Scheduler';
+  return 'Standard account';
+};
+
+const roleDescriptionFromAccessRole = (value) => {
+  const role = String(value || 'standard').trim().toLowerCase();
+  if (role === 'school_admin') {
+    return 'They can manage school staff accounts and role assignments for this school.';
+  }
+  if (role === 'scheduler') {
+    return 'They get limited/own-only school access and will not appear in Smart School ROI staff assignment lists.';
+  }
+  if (role === 'school_admin_scheduler') {
+    return 'They can manage school staff for this school, and scheduler constraints (limited/own-only ROI behavior and Smart ROI exclusion) still apply.';
+  }
+  return 'This is a general school staff account (not School Admin and not Scheduler).';
+};
+
+const addRoleHelperText = computed(() => {
+  const role = String(addAccessRole.value || 'standard').trim().toLowerCase();
+  if (role === 'school_admin') {
+    return 'Use School Admin if this user should manage staff, resets, and role assignments for this school.';
+  }
+  if (role === 'scheduler') {
+    return 'Use Scheduler if this user should schedule only with limited/own-only ROI access and no Smart School ROI assignment visibility.';
+  }
+  if (role === 'school_admin_scheduler') {
+    return 'Use this only when the person should both manage school staff and also operate under scheduler constraints.';
+  }
+  return 'Standard account is the default. If this user does not need ROI scheduling limits or School Admin permissions, keep Standard.';
+});
 
 onMounted(load);
 </script>
@@ -623,18 +681,24 @@ onMounted(load);
   gap: 10px;
   margin-bottom: 10px;
 }
-.role-flags-row {
-  display: flex;
-  align-items: center;
-  gap: 14px;
+.add-role-row {
+  display: grid;
+  grid-template-columns: minmax(220px, 320px) 1fr;
+  align-items: end;
+  gap: 10px;
   margin-bottom: 10px;
 }
-.checkbox-inline {
-  display: inline-flex;
-  gap: 6px;
-  align-items: center;
+.add-role-field {
+  max-width: 320px;
+}
+.role-select {
+  margin-top: 4px;
+}
+.role-helper {
   font-size: 12px;
   color: var(--text-secondary);
+  line-height: 1.35;
+  padding-bottom: 8px;
 }
 .field {
   font-size: 12px;
@@ -692,6 +756,8 @@ onMounted(load);
 
 @media (max-width: 820px) {
   .row { grid-template-columns: 1fr; }
+  .add-role-row { grid-template-columns: 1fr; }
+  .role-helper { padding-bottom: 0; }
 }
 </style>
 

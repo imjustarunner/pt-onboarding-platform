@@ -399,21 +399,17 @@ const toggleClientLabelMode = () => {
   }
 };
 const clientShort = (c) => {
-  if (isLockedClient(c)) {
-    const initials = String(c?.initials || '').replace(/\s+/g, '');
-    const code = String(c?.identifier_code || '').replace(/\s+/g, '').toUpperCase();
-    const preferred = initials || code;
-    if (preferred) {
-      if (preferred.length >= 6) return `${preferred.slice(0, 3)}${preferred.slice(-3)}`;
-      return preferred;
-    }
-    return String(c?.school_portal_locked_label || 'NO ROI').trim() || 'NO ROI';
-  }
   const mode = String(clientLabelMode.value || 'codes');
   const src = mode === 'initials' ? (c?.initials || c?.identifier_code) : (c?.identifier_code || c?.initials);
   let raw = String(src || '').replace(/\s+/g, '');
-  // Preserve casing when displaying initials; codes can be normalized to uppercase.
   if (mode !== 'initials') raw = raw.toUpperCase();
+  if (isLockedClient(c)) {
+    if (raw) {
+      if (raw.length >= 6) return `${raw.slice(0, 3)}${raw.slice(-3)}`;
+      return raw;
+    }
+    return String(c?.school_portal_locked_label || 'NO ROI').trim() || 'NO ROI';
+  }
   if (!raw) return '—';
   if (raw.length >= 6) return `${raw.slice(0, 3)}${raw.slice(-3)}`;
   return raw;
@@ -425,9 +421,9 @@ const clientTitle = (c) => {
   if (isLockedClient(c)) {
     const state = String(c?.school_staff_effective_access_state || '').toLowerCase();
     if (state === 'expired') {
-      return 'ROI EXPIRED: Release of information is expired. Initials are visible for schedule context only.';
+      return 'ROI EXPIRED: Release of information is expired. Client label is visible for schedule context only.';
     }
-    return 'ROI LOCKED: ROI is missing, pending, or requires packet update/approval. Initials are visible for schedule context only.';
+    return 'ROI LOCKED: ROI is missing, pending, or requires packet update/approval. Client label is visible for schedule context only.';
   }
   const mode = String(clientLabelMode.value || 'codes');
   if (mode === 'codes' && c?.initials) return `Initials: ${c.initials}`;

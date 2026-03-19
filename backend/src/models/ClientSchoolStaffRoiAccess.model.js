@@ -77,25 +77,58 @@ class ClientSchoolStaffRoiAccess {
     const sid = Number(schoolOrganizationId || 0);
     if (!sid) return [];
 
-    const [rows] = await pool.execute(
-      `SELECT
-         u.id AS school_staff_user_id,
-         u.first_name,
-         u.last_name,
-         u.email,
-         u.phone_number,
-         u.role AS role_key,
-         u.status
-       FROM user_agencies ua
-       JOIN users u
-         ON u.id = ua.user_id
-       WHERE ua.agency_id = ?
-         AND LOWER(COALESCE(u.role, '')) = 'school_staff'
-         AND COALESCE(u.is_active, TRUE) = TRUE
-         AND UPPER(COALESCE(u.status, '')) <> 'ARCHIVED'
-       ORDER BY u.last_name ASC, u.first_name ASC, u.email ASC`,
-      [sid]
-    );
+    let rows = [];
+    try {
+      const [result] = await pool.execute(
+        `SELECT
+           u.id AS school_staff_user_id,
+           u.first_name,
+           u.last_name,
+           u.email,
+           u.phone_number,
+           u.role AS role_key,
+           u.status
+         FROM user_agencies ua
+         JOIN users u
+           ON u.id = ua.user_id
+         WHERE ua.agency_id = ?
+           AND LOWER(COALESCE(u.role, '')) = 'school_staff'
+           AND COALESCE(u.is_active, TRUE) = TRUE
+           AND UPPER(COALESCE(u.status, '')) <> 'ARCHIVED'
+           AND NOT EXISTS (
+             SELECT 1
+             FROM school_contacts sc
+             WHERE sc.school_organization_id = ua.agency_id
+               AND LOWER(COALESCE(sc.email, '')) = LOWER(COALESCE(u.email, ''))
+               AND COALESCE(sc.is_scheduler, 0) = 1
+           )
+         ORDER BY u.last_name ASC, u.first_name ASC, u.email ASC`,
+        [sid]
+      );
+      rows = Array.isArray(result) ? result : [];
+    } catch (e) {
+      if (e?.code !== 'ER_BAD_FIELD_ERROR' && e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+      const [result] = await pool.execute(
+        `SELECT
+           u.id AS school_staff_user_id,
+           u.first_name,
+           u.last_name,
+           u.email,
+           u.phone_number,
+           u.role AS role_key,
+           u.status
+         FROM user_agencies ua
+         JOIN users u
+           ON u.id = ua.user_id
+         WHERE ua.agency_id = ?
+           AND LOWER(COALESCE(u.role, '')) = 'school_staff'
+           AND COALESCE(u.is_active, TRUE) = TRUE
+           AND UPPER(COALESCE(u.status, '')) <> 'ARCHIVED'
+         ORDER BY u.last_name ASC, u.first_name ASC, u.email ASC`,
+        [sid]
+      );
+      rows = Array.isArray(result) ? result : [];
+    }
 
     return (rows || []).map((row) => ({
       school_staff_user_id: Number(row.school_staff_user_id),
@@ -113,50 +146,108 @@ class ClientSchoolStaffRoiAccess {
     const sid = Number(schoolOrganizationId || 0);
     if (!cid || !sid) return [];
 
-    const [rows] = await pool.execute(
-      `SELECT
-         u.id AS school_staff_user_id,
-         u.first_name,
-         u.last_name,
-         u.email,
-         u.phone_number,
-         u.role AS role_key,
-         u.status,
-         a.id AS access_record_id,
-         a.access_level,
-         a.is_active,
-         a.granted_by_user_id,
-         a.granted_at,
-         a.revoked_by_user_id,
-         a.revoked_at,
-         a.last_packet_uploaded_by_user_id,
-         a.last_packet_uploaded_at,
-         gb.first_name AS granted_by_first_name,
-         gb.last_name AS granted_by_last_name,
-         gb.email AS granted_by_email,
-         rb.first_name AS revoked_by_first_name,
-         rb.last_name AS revoked_by_last_name,
-         rb.email AS revoked_by_email,
-         pu.first_name AS packet_uploader_first_name,
-         pu.last_name AS packet_uploader_last_name,
-         pu.email AS packet_uploader_email
-       FROM user_agencies ua
-       JOIN users u
-         ON u.id = ua.user_id
-       LEFT JOIN client_school_staff_roi_access a
-         ON a.client_id = ?
-        AND a.school_organization_id = ua.agency_id
-        AND a.school_staff_user_id = u.id
-       LEFT JOIN users gb ON gb.id = a.granted_by_user_id
-       LEFT JOIN users rb ON rb.id = a.revoked_by_user_id
-       LEFT JOIN users pu ON pu.id = a.last_packet_uploaded_by_user_id
-       WHERE ua.agency_id = ?
-         AND LOWER(COALESCE(u.role, '')) = 'school_staff'
-         AND COALESCE(u.is_active, TRUE) = TRUE
-         AND UPPER(COALESCE(u.status, '')) <> 'ARCHIVED'
-       ORDER BY u.last_name ASC, u.first_name ASC, u.email ASC`,
-      [cid, sid]
-    );
+    let rows = [];
+    try {
+      const [result] = await pool.execute(
+        `SELECT
+           u.id AS school_staff_user_id,
+           u.first_name,
+           u.last_name,
+           u.email,
+           u.phone_number,
+           u.role AS role_key,
+           u.status,
+           a.id AS access_record_id,
+           a.access_level,
+           a.is_active,
+           a.granted_by_user_id,
+           a.granted_at,
+           a.revoked_by_user_id,
+           a.revoked_at,
+           a.last_packet_uploaded_by_user_id,
+           a.last_packet_uploaded_at,
+           gb.first_name AS granted_by_first_name,
+           gb.last_name AS granted_by_last_name,
+           gb.email AS granted_by_email,
+           rb.first_name AS revoked_by_first_name,
+           rb.last_name AS revoked_by_last_name,
+           rb.email AS revoked_by_email,
+           pu.first_name AS packet_uploader_first_name,
+           pu.last_name AS packet_uploader_last_name,
+           pu.email AS packet_uploader_email
+         FROM user_agencies ua
+         JOIN users u
+           ON u.id = ua.user_id
+         LEFT JOIN client_school_staff_roi_access a
+           ON a.client_id = ?
+          AND a.school_organization_id = ua.agency_id
+          AND a.school_staff_user_id = u.id
+         LEFT JOIN users gb ON gb.id = a.granted_by_user_id
+         LEFT JOIN users rb ON rb.id = a.revoked_by_user_id
+         LEFT JOIN users pu ON pu.id = a.last_packet_uploaded_by_user_id
+         WHERE ua.agency_id = ?
+           AND LOWER(COALESCE(u.role, '')) = 'school_staff'
+           AND COALESCE(u.is_active, TRUE) = TRUE
+           AND UPPER(COALESCE(u.status, '')) <> 'ARCHIVED'
+           AND NOT EXISTS (
+             SELECT 1
+             FROM school_contacts sc
+             WHERE sc.school_organization_id = ua.agency_id
+               AND LOWER(COALESCE(sc.email, '')) = LOWER(COALESCE(u.email, ''))
+               AND COALESCE(sc.is_scheduler, 0) = 1
+           )
+         ORDER BY u.last_name ASC, u.first_name ASC, u.email ASC`,
+        [cid, sid]
+      );
+      rows = Array.isArray(result) ? result : [];
+    } catch (e) {
+      if (e?.code !== 'ER_BAD_FIELD_ERROR' && e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+      const [result] = await pool.execute(
+        `SELECT
+           u.id AS school_staff_user_id,
+           u.first_name,
+           u.last_name,
+           u.email,
+           u.phone_number,
+           u.role AS role_key,
+           u.status,
+           a.id AS access_record_id,
+           a.access_level,
+           a.is_active,
+           a.granted_by_user_id,
+           a.granted_at,
+           a.revoked_by_user_id,
+           a.revoked_at,
+           a.last_packet_uploaded_by_user_id,
+           a.last_packet_uploaded_at,
+           gb.first_name AS granted_by_first_name,
+           gb.last_name AS granted_by_last_name,
+           gb.email AS granted_by_email,
+           rb.first_name AS revoked_by_first_name,
+           rb.last_name AS revoked_by_last_name,
+           rb.email AS revoked_by_email,
+           pu.first_name AS packet_uploader_first_name,
+           pu.last_name AS packet_uploader_last_name,
+           pu.email AS packet_uploader_email
+         FROM user_agencies ua
+         JOIN users u
+           ON u.id = ua.user_id
+         LEFT JOIN client_school_staff_roi_access a
+           ON a.client_id = ?
+          AND a.school_organization_id = ua.agency_id
+          AND a.school_staff_user_id = u.id
+         LEFT JOIN users gb ON gb.id = a.granted_by_user_id
+         LEFT JOIN users rb ON rb.id = a.revoked_by_user_id
+         LEFT JOIN users pu ON pu.id = a.last_packet_uploaded_by_user_id
+         WHERE ua.agency_id = ?
+           AND LOWER(COALESCE(u.role, '')) = 'school_staff'
+           AND COALESCE(u.is_active, TRUE) = TRUE
+           AND UPPER(COALESCE(u.status, '')) <> 'ARCHIVED'
+         ORDER BY u.last_name ASC, u.first_name ASC, u.email ASC`,
+        [cid, sid]
+      );
+      rows = Array.isArray(result) ? result : [];
+    }
 
     return (rows || []).map((row) => {
       let effectiveState = getEffectiveSchoolStaffRoiState(row, roiExpiresAt);

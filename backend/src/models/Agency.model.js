@@ -444,23 +444,50 @@ class Agency {
           agency.street_address = schoolProfile.school_address;
         }
 
-        const [contacts] = await pool.execute(
-          `SELECT
-             id,
-             full_name,
-             email,
-             role_title,
-             notes,
-             raw_source_text,
-             is_primary,
-             created_at,
-             updated_at
-           FROM school_contacts
-           WHERE school_organization_id = ?
-           ORDER BY is_primary DESC, full_name ASC, email ASC`,
-          [id]
-        );
-        agency.school_contacts = Array.isArray(contacts) ? contacts : [];
+        try {
+          const [contacts] = await pool.execute(
+            `SELECT
+               id,
+               full_name,
+               email,
+               role_title,
+               notes,
+               raw_source_text,
+               is_primary,
+               is_school_admin,
+               is_scheduler,
+               created_at,
+               updated_at
+             FROM school_contacts
+             WHERE school_organization_id = ?
+             ORDER BY is_school_admin DESC, is_scheduler DESC, full_name ASC, email ASC`,
+            [id]
+          );
+          agency.school_contacts = Array.isArray(contacts) ? contacts : [];
+        } catch (contactErr) {
+          if (contactErr?.code !== 'ER_BAD_FIELD_ERROR') throw contactErr;
+          const [contacts] = await pool.execute(
+            `SELECT
+               id,
+               full_name,
+               email,
+               role_title,
+               notes,
+               raw_source_text,
+               is_primary,
+               created_at,
+               updated_at
+             FROM school_contacts
+             WHERE school_organization_id = ?
+             ORDER BY is_primary DESC, full_name ASC, email ASC`,
+            [id]
+          );
+          agency.school_contacts = (Array.isArray(contacts) ? contacts : []).map((c) => ({
+            ...c,
+            is_school_admin: c?.is_primary ? 1 : 0,
+            is_scheduler: 0
+          }));
+        }
       } catch (e) {
         if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
         agency.school_profile = null;

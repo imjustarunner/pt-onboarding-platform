@@ -116,6 +116,8 @@ export const createSchoolContact = async (req, res, next) => {
     const roleTitle = req.body?.roleTitle !== undefined ? String(req.body.roleTitle || '').trim() : null;
     const notes = req.body?.notes !== undefined ? String(req.body.notes || '').trim() : null;
     const isPrimary = req.body?.isPrimary === true;
+    const isSchoolAdmin = req.body?.isSchoolAdmin === true || isPrimary;
+    const isScheduler = req.body?.isScheduler === true;
 
     if (!fullName && !email && !roleTitle && !notes) {
       return res.status(400).json({ error: { message: 'At least one field is required' } });
@@ -125,20 +127,25 @@ export const createSchoolContact = async (req, res, next) => {
     try {
       await conn.beginTransaction();
 
-      if (isPrimary) {
-        await conn.execute(`UPDATE school_contacts SET is_primary = FALSE WHERE school_organization_id = ?`, [orgId]);
-      }
-
       const [result] = await conn.execute(
         `INSERT INTO school_contacts
-          (school_organization_id, full_name, email, role_title, notes, raw_source_text, is_primary)
-         VALUES (?, ?, ?, ?, ?, NULL, ?)`,
-        [orgId, fullName || null, email || null, roleTitle || null, notes || null, isPrimary ? 1 : 0]
+          (school_organization_id, full_name, email, role_title, notes, raw_source_text, is_primary, is_school_admin, is_scheduler)
+         VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?)`,
+        [
+          orgId,
+          fullName || null,
+          email || null,
+          roleTitle || null,
+          notes || null,
+          isSchoolAdmin ? 1 : 0,
+          isSchoolAdmin ? 1 : 0,
+          isScheduler ? 1 : 0
+        ]
       );
 
       const insertedId = result?.insertId ? Number(result.insertId) : null;
       const [rows] = await conn.execute(
-        `SELECT id, full_name, email, role_title, notes, raw_source_text, is_primary, created_at, updated_at
+        `SELECT id, full_name, email, role_title, notes, raw_source_text, is_primary, is_school_admin, is_scheduler, created_at, updated_at
          FROM school_contacts
          WHERE id = ? AND school_organization_id = ?
          LIMIT 1`,
@@ -156,6 +163,9 @@ export const createSchoolContact = async (req, res, next) => {
       // Duplicate email constraint -> conflict
       if (e?.code === 'ER_DUP_ENTRY' || String(e?.message || '').toLowerCase().includes('duplicate')) {
         return res.status(409).json({ error: { message: 'A contact with that email already exists for this school.' } });
+      }
+      if (e?.code === 'ER_BAD_FIELD_ERROR') {
+        return res.status(400).json({ error: { message: 'School contact role flags are not enabled yet (missing migration).' } });
       }
       if (e?.code === 'ER_NO_SUCH_TABLE') {
         return res.status(400).json({ error: { message: 'School contacts are not enabled (missing school_contacts table).' } });
@@ -183,6 +193,9 @@ export const updateSchoolContact = async (req, res, next) => {
     const roleTitle = req.body?.roleTitle !== undefined ? String(req.body.roleTitle || '').trim() : undefined;
     const notes = req.body?.notes !== undefined ? String(req.body.notes || '').trim() : undefined;
     const isPrimary = req.body?.isPrimary !== undefined ? (req.body.isPrimary === true) : undefined;
+    const isSchoolAdminRaw = req.body?.isSchoolAdmin !== undefined ? (req.body.isSchoolAdmin === true) : undefined;
+    const isScheduler = req.body?.isScheduler !== undefined ? (req.body.isScheduler === true) : undefined;
+    const isSchoolAdmin = isSchoolAdminRaw !== undefined ? isSchoolAdminRaw : isPrimary;
 
     const conn = await pool.getConnection();
     try {
@@ -195,10 +208,6 @@ export const updateSchoolContact = async (req, res, next) => {
       if (!existingRows?.length) {
         await conn.rollback();
         return res.status(404).json({ error: { message: 'Contact not found' } });
-      }
-
-      if (isPrimary === true) {
-        await conn.execute(`UPDATE school_contacts SET is_primary = FALSE WHERE school_organization_id = ?`, [orgId]);
       }
 
       const fields = [];
@@ -219,9 +228,15 @@ export const updateSchoolContact = async (req, res, next) => {
         fields.push('notes = ?');
         values.push(notes || null);
       }
-      if (isPrimary !== undefined) {
+      if (isSchoolAdmin !== undefined) {
         fields.push('is_primary = ?');
-        values.push(isPrimary ? 1 : 0);
+        values.push(isSchoolAdmin ? 1 : 0);
+        fields.push('is_school_admin = ?');
+        values.push(isSchoolAdmin ? 1 : 0);
+      }
+      if (isScheduler !== undefined) {
+        fields.push('is_scheduler = ?');
+        values.push(isScheduler ? 1 : 0);
       }
 
       if (fields.length) {
@@ -234,7 +249,7 @@ export const updateSchoolContact = async (req, res, next) => {
       }
 
       const [rows] = await conn.execute(
-        `SELECT id, full_name, email, role_title, notes, raw_source_text, is_primary, created_at, updated_at
+        `SELECT id, full_name, email, role_title, notes, raw_source_text, is_primary, is_school_admin, is_scheduler, created_at, updated_at
          FROM school_contacts
          WHERE id = ? AND school_organization_id = ?
          LIMIT 1`,
@@ -251,6 +266,9 @@ export const updateSchoolContact = async (req, res, next) => {
       }
       if (e?.code === 'ER_DUP_ENTRY' || String(e?.message || '').toLowerCase().includes('duplicate')) {
         return res.status(409).json({ error: { message: 'A contact with that email already exists for this school.' } });
+      }
+      if (e?.code === 'ER_BAD_FIELD_ERROR') {
+        return res.status(400).json({ error: { message: 'School contact role flags are not enabled yet (missing migration).' } });
       }
       if (e?.code === 'ER_NO_SUCH_TABLE') {
         return res.status(400).json({ error: { message: 'School contacts are not enabled (missing school_contacts table).' } });

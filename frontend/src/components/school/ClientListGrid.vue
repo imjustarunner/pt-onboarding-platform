@@ -1084,13 +1084,17 @@ const formatDateTime = (value) => {
 const formatRosterLabel = (client) => {
   const initials = String(client?.initials || '').replace(/\s+/g, '').toUpperCase();
   const code = String(client?.identifier_code || '').replace(/\s+/g, '').toUpperCase();
+  const mode = String(props.clientLabelMode || 'codes');
+  const src = mode === 'initials' ? (client?.initials || client?.identifier_code) : (client?.identifier_code || client?.initials);
+  let preferred = String(src || '').replace(/\s+/g, '');
+  if (mode !== 'initials') preferred = preferred.toUpperCase();
   const isLocked = client?.school_portal_force_placeholder === true || client?.school_portal_can_open === false;
   if (isLocked) {
-    // For locked/NO ROI rows, prioritize initials so school staff can identify schedules.
-    return initials || code || String(client?.school_portal_locked_label || 'NO ROI').trim() || 'NO ROI';
+    // Locked rows still follow label mode so users can swap codes/initials consistently.
+    return preferred || String(client?.school_portal_locked_label || 'NO ROI').trim() || 'NO ROI';
   }
   if (client?.school_portal_force_code) return code || initials || '—';
-  if (props.clientLabelMode === 'initials') return initials || code || '—';
+  if (mode === 'initials') return initials || code || '—';
   return code || initials || '—';
 };
 
@@ -1122,17 +1126,17 @@ const rosterLabelTitle = (client) => {
 const lockedClientTitle = (client) => {
   const state = String(client?.school_staff_effective_access_state || '').toLowerCase();
   if (state === 'expired') {
-    return 'ROI EXPIRED: Release of information is expired. Initials are shown for scheduling only; profile/comments remain locked until ROI is renewed.';
+    return 'ROI EXPIRED: Release of information is expired. Client label is shown for scheduling only; profile/comments remain locked until ROI is renewed.';
   }
-  return 'ROI LOCKED: ROI is missing, pending, or requires packet update/approval. Initials are shown for scheduling only; profile/comments remain locked.';
+  return 'ROI LOCKED: ROI is missing, pending, or requires packet update/approval. Client label is shown for scheduling only; profile/comments remain locked.';
 };
 
 const lockedInitialsTitle = (client) => {
   const state = String(client?.school_staff_effective_access_state || '').toLowerCase();
   if (state === 'expired') {
-    return 'ROI EXPIRED: Release of information is expired. Initials are visible for schedule context only.';
+    return 'ROI EXPIRED: Release of information is expired. Client label is visible for schedule context only.';
   }
-  return 'ROI LOCKED: ROI is missing, pending, or requires packet update/approval. Initials are visible for schedule context only.';
+  return 'ROI LOCKED: ROI is missing, pending, or requires packet update/approval. Client label is visible for schedule context only.';
 };
 
 const lockedClientButtonLabel = (client) => {

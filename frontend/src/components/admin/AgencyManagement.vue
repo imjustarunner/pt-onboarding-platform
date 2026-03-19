@@ -639,7 +639,8 @@
                     <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
                       <strong v-if="c.full_name">{{ c.full_name }}</strong>
                       <span v-else style="color: var(--text-secondary);">(no name)</span>
-                      <span v-if="c.is_primary" class="badge badge-success">Primary</span>
+                      <span v-if="contactRoleFlags(c).isSchoolAdmin" class="badge badge-success">School Admin</span>
+                      <span v-if="contactRoleFlags(c).isScheduler" class="badge badge-secondary">Scheduler</span>
                       <span v-if="c.role_title" style="color: var(--text-secondary);">• {{ c.role_title }}</span>
                       <span v-if="c.email" style="color: var(--text-secondary);">• {{ c.email }}</span>
                     </div>
@@ -1227,7 +1228,7 @@
               <table class="table">
                 <thead>
                   <tr>
-                    <th style="width: 88px;">Primary</th>
+                    <th style="width: 150px;">Access Role</th>
                     <th>Name</th>
                     <th>Role/Title</th>
                     <th>Email</th>
@@ -1239,10 +1240,12 @@
                 <tbody>
                   <tr>
                     <td>
-                      <label style="display:flex; align-items:center; gap:8px;">
-                        <input type="checkbox" v-model="newSchoolContact.isPrimary" :disabled="addingSchoolContact" />
-                        <span>Primary</span>
-                      </label>
+                      <select v-model="newSchoolContact.accessRole" :disabled="addingSchoolContact">
+                        <option value="standard">Standard</option>
+                        <option value="school_admin">School Admin</option>
+                        <option value="scheduler">Scheduler</option>
+                        <option value="school_admin_scheduler">School Admin + Scheduler</option>
+                      </select>
                     </td>
                     <td><input v-model="newSchoolContact.fullName" type="text" placeholder="Full name" :disabled="addingSchoolContact" /></td>
                     <td><input v-model="newSchoolContact.roleTitle" type="text" placeholder="e.g. Counselor" :disabled="addingSchoolContact" /></td>
@@ -1267,10 +1270,12 @@
                   <tr v-for="c in schoolContactsForEditor" :key="c.id">
                     <template v-if="editingSchoolContactId === c.id">
                       <td>
-                        <label style="display:flex; align-items:center; gap:8px;">
-                          <input type="checkbox" v-model="schoolContactEdits[c.id].isPrimary" :disabled="savingSchoolContactId === c.id" />
-                          <span>Primary</span>
-                        </label>
+                        <select v-model="schoolContactEdits[c.id].accessRole" :disabled="savingSchoolContactId === c.id">
+                          <option value="standard">Standard</option>
+                          <option value="school_admin">School Admin</option>
+                          <option value="scheduler">Scheduler</option>
+                          <option value="school_admin_scheduler">School Admin + Scheduler</option>
+                        </select>
                       </td>
                       <td><input v-model="schoolContactEdits[c.id].fullName" type="text" :disabled="savingSchoolContactId === c.id" /></td>
                       <td><input v-model="schoolContactEdits[c.id].roleTitle" type="text" :disabled="savingSchoolContactId === c.id" /></td>
@@ -1293,8 +1298,11 @@
                     </template>
                     <template v-else>
                       <td>
-                        <span v-if="c.is_primary" class="badge badge-success">Primary</span>
-                        <span v-else style="color: var(--text-secondary); font-size: 12px;">—</span>
+                        <template v-if="contactRoleFlags(c).isSchoolAdmin || contactRoleFlags(c).isScheduler">
+                          <span v-if="contactRoleFlags(c).isSchoolAdmin" class="badge badge-success">School Admin</span>
+                          <span v-if="contactRoleFlags(c).isScheduler" class="badge badge-secondary">Scheduler</span>
+                        </template>
+                        <span v-else style="color: var(--text-secondary); font-size: 12px;">Standard</span>
                       </td>
                       <td>
                         <strong v-if="c.full_name">{{ c.full_name }}</strong>
@@ -5625,10 +5633,32 @@ const newSchoolContact = ref({
   roleTitle: '',
   email: '',
   notes: '',
-  isPrimary: false
+  accessRole: 'standard'
 });
 const addingSchoolContact = ref(false);
 const addSchoolContactError = ref('');
+
+const contactRoleFlags = (contactLike) => {
+  const isSchoolAdmin = contactLike?.is_school_admin === true || Number(contactLike?.is_school_admin || 0) === 1 || contactLike?.is_primary === true || Number(contactLike?.is_primary || 0) === 1;
+  const isScheduler = contactLike?.is_scheduler === true || Number(contactLike?.is_scheduler || 0) === 1;
+  return { isSchoolAdmin, isScheduler };
+};
+
+const roleAccessFromContact = (contactLike) => {
+  const { isSchoolAdmin, isScheduler } = contactRoleFlags(contactLike);
+  if (isSchoolAdmin && isScheduler) return 'school_admin_scheduler';
+  if (isSchoolAdmin) return 'school_admin';
+  if (isScheduler) return 'scheduler';
+  return 'standard';
+};
+
+const roleFlagsFromAccess = (accessRole) => {
+  const normalized = String(accessRole || '').trim().toLowerCase();
+  return {
+    isSchoolAdmin: normalized === 'school_admin' || normalized === 'school_admin_scheduler',
+    isScheduler: normalized === 'scheduler' || normalized === 'school_admin_scheduler'
+  };
+};
 
 const addSchoolContact = async () => {
   if (!editingAgency.value?.id) return;
@@ -5642,9 +5672,9 @@ const addSchoolContact = async () => {
       roleTitle: String(newSchoolContact.value.roleTitle || '').trim(),
       email: String(newSchoolContact.value.email || '').trim(),
       notes: String(newSchoolContact.value.notes || '').trim(),
-      isPrimary: newSchoolContact.value.isPrimary === true
+      ...roleFlagsFromAccess(newSchoolContact.value.accessRole)
     });
-    newSchoolContact.value = { fullName: '', roleTitle: '', email: '', notes: '', isPrimary: false };
+    newSchoolContact.value = { fullName: '', roleTitle: '', email: '', notes: '', accessRole: 'standard' };
     await reloadSchoolContacts();
   } catch (e) {
     addSchoolContactError.value = e.response?.data?.error?.message || 'Failed to add contact';
@@ -5661,7 +5691,7 @@ const addSchoolContact = async () => {
     });
     if (exists) {
       addSchoolContactError.value = '';
-      newSchoolContact.value = { fullName: '', roleTitle: '', email: '', notes: '', isPrimary: false };
+      newSchoolContact.value = { fullName: '', roleTitle: '', email: '', notes: '', accessRole: 'standard' };
     }
   } finally {
     addingSchoolContact.value = false;
@@ -5683,7 +5713,7 @@ const startEditSchoolContact = (c) => {
     roleTitle: c.role_title || '',
     email: c.email || '',
     notes: c.notes || '',
-    isPrimary: !!c.is_primary
+    accessRole: roleAccessFromContact(c)
   };
 };
 
@@ -5709,7 +5739,7 @@ const saveSchoolContact = async (contactId) => {
       roleTitle: String(draft.roleTitle || '').trim(),
       email: String(draft.email || '').trim(),
       notes: String(draft.notes || '').trim(),
-      isPrimary: draft.isPrimary === true
+      ...roleFlagsFromAccess(draft.accessRole)
     });
     await reloadSchoolContacts();
     await loadSchoolStaffUsers(); // email may have changed
