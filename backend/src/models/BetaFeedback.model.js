@@ -112,7 +112,12 @@ class BetaFeedback {
        LEFT JOIN users u ON bf.user_id = u.id
        LEFT JOIN agencies a ON bf.agency_id = a.id
        ${whereClause}
-       ORDER BY bf.created_at DESC
+       ORDER BY CASE bf.status
+         WHEN 'pending' THEN 1
+         WHEN 'reviewed' THEN 2
+         WHEN 'resolved' THEN 3
+         ELSE 4
+       END, bf.created_at DESC
        LIMIT ? OFFSET ?`,
       params
     );

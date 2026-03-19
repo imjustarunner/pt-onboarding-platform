@@ -859,6 +859,24 @@ if (!isBootstrap) {
     setInterval(scheduleIntakeRetentionCleanup, 24 * 60 * 60 * 1000);
   }, getMsUntilMidnight() + (2.5 * 60 * 60 * 1000));
 
+  // Client compliance: promote pending clients to "current" when first_service_at has passed.
+  // Runs daily at 5:00 AM so clients are promoted even if nobody saves the checklist again.
+  const scheduleClientCompliancePromotion = async () => {
+    try {
+      const ClientCompliancePromotionService = (await import('./services/clientCompliancePromotion.service.js')).default;
+      const result = await ClientCompliancePromotionService.run();
+      const n = Number(result?.promoted || 0);
+      if (n > 0) console.log(`[client_compliance] promoted ${n} pending client(s) to current`);
+    } catch (error) {
+      console.error('Error in client compliance promotion:', error);
+    }
+  };
+  scheduleClientCompliancePromotion();
+  setTimeout(() => {
+    scheduleClientCompliancePromotion();
+    setInterval(scheduleClientCompliancePromotion, 24 * 60 * 60 * 1000);
+  }, getMsUntilMidnight() + (5 * 60 * 60 * 1000));
+
   // SMS/Voice retention cleanup (message_logs, call_logs, call_voicemails, notification_sms_logs)
   // Runs daily at 3:00 AM. Set SMS_VOICE_RETENTION_DAYS=365 (default) or 0 to keep indefinitely.
   const scheduleSmsVoiceRetentionCleanup = async () => {

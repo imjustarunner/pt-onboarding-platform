@@ -218,7 +218,7 @@ export default {
       popover: {
         title: 'Checklist items',
         description:
-          'The compliance checklist tracks: Parents Contacted (date + successful?), Intake Date, First Service. Updates appear as Checklist notifications. In the client modal, the checklist is read-only—agency staff update it. Checklist notifications tell you when items are completed or changed.',
+          'The compliance checklist tracks: Parents Contacted (date + successful?), First Date of Service. Updates appear as Checklist notifications. In the client modal, the checklist is read-only—agency staff update it. Checklist notifications tell you when items are completed or changed.',
         side: 'bottom',
         align: 'center'
       }

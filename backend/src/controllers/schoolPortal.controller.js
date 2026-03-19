@@ -1249,9 +1249,7 @@ export const getProviderMyRoster = async (req, res, next) => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const restrictedClients = clients.map((client) => {
-      const intakeAt = client.intake_at ? new Date(client.intake_at) : null;
       const firstServiceAt = client.first_service_at ? new Date(client.first_service_at) : null;
-      const intakePassed = intakeAt && intakeAt.getTime() <= today.getTime();
       const firstServicePassed = firstServiceAt && firstServiceAt.getTime() <= today.getTime();
       const statusKey = String(client?.client_status_key || '').toLowerCase();
       const workflow = String(client?.status || '').toUpperCase();
@@ -1267,7 +1265,6 @@ export const getProviderMyRoster = async (req, res, next) => {
       const parentsContactedOk =
         client.parents_contacted_successful === 1 || client.parents_contacted_successful === true;
       if (!parentsContactedAt || !parentsContactedOk) missingChecklist.push('Parents contacted');
-      if (!intakePassed) missingChecklist.push('Intake date');
       if (!firstServicePassed) missingChecklist.push('First session');
       return {
         id: client.id,

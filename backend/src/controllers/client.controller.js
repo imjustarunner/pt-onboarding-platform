@@ -2474,7 +2474,7 @@ export const updateClientComplianceChecklist = async (req, res, next) => {
       String(req.body.parentsContactedSuccessful).trim() !== '';
 
     const parentsContactedAt = parseDate(req.body?.parentsContactedAt);
-    const intakeAt = parseDate(req.body?.intakeAt);
+    const intakeAt = req.body?.intakeAt !== undefined ? parseDate(req.body.intakeAt) : undefined;
     const firstServiceAt = parseDate(req.body?.firstServiceAt);
     const pcs = req.body?.parentsContactedSuccessful;
     const parentsContactedSuccessful =
@@ -2482,23 +2482,29 @@ export const updateClientComplianceChecklist = async (req, res, next) => {
         ? null
         : (pcs === true || pcs === 'true' || pcs === 1 || pcs === '1');
 
+    // School portal sends only parentsContactedAt, parentsContactedSuccessful, firstServiceAt (no intakeAt).
+    // Only update intake_at when explicitly provided so we preserve it from admin/other flows.
+    const intakeAtProvided = intakeAt !== undefined;
+    const updateParts = [
+      'parents_contacted_at = ?',
+      'parents_contacted_successful = ?',
+      'first_service_at = ?',
+      'checklist_updated_by_user_id = ?',
+      'checklist_updated_at = CURRENT_TIMESTAMP'
+    ];
+    const updateValues = [
+      parentsContactedAt,
+      parentsContactedSuccessful === null ? null : (parentsContactedSuccessful ? 1 : 0),
+      firstServiceAt,
+      userId
+    ];
+    if (intakeAtProvided) {
+      updateParts.push('intake_at = ?');
+      updateValues.push(intakeAt);
+    }
     await pool.execute(
-      `UPDATE clients
-       SET parents_contacted_at = ?,
-           parents_contacted_successful = ?,
-           intake_at = ?,
-           first_service_at = ?,
-           checklist_updated_by_user_id = ?,
-           checklist_updated_at = CURRENT_TIMESTAMP
-       WHERE id = ?`,
-      [
-        parentsContactedAt,
-        parentsContactedSuccessful === null ? null : (parentsContactedSuccessful ? 1 : 0),
-        intakeAt,
-        firstServiceAt,
-        userId,
-        clientId
-      ]
+      `UPDATE clients SET ${updateParts.join(', ')} WHERE id = ?`,
+      [...updateValues, clientId]
     );
 
     // History entry (lightweight)
