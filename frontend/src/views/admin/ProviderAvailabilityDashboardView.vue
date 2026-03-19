@@ -6,6 +6,7 @@
         <p class="page-description" data-tour="avail-subtitle">View organization slots, office availability, and virtual availability templates.</p>
       </div>
       <div class="header-actions" data-tour="avail-actions">
+        <button class="btn btn-secondary" type="button" @click="tab = 'kudos'">Kudos</button>
         <button class="btn btn-secondary" type="button" @click="tab = 'tracker'">Provider App Tracker</button>
         <button class="btn btn-secondary" type="button" @click="reload" :disabled="loading">Refresh</button>
       </div>
@@ -30,6 +31,7 @@
         <button class="tab" :class="{ active: tab === 'virtual' }" @click="tab = 'virtual'" data-tour="avail-tab-virtual">Virtual availability</button>
         <button class="tab" :class="{ active: tab === 'school_requests' }" @click="tab = 'school_requests'">School availability</button>
         <button class="tab" :class="{ active: tab === 'tracker' }" @click="tab = 'tracker'">Provider app tracker</button>
+        <button class="tab" :class="{ active: tab === 'kudos' }" @click="tab = 'kudos'">Kudos</button>
       </div>
 
       <div v-if="error" class="error">{{ error }}</div>
@@ -38,6 +40,109 @@
       <div v-else>
         <div v-if="tab === 'school_requests'" class="school-requests-wrap">
           <AvailabilityIntakeManagement :show-header="false" initial-tab="school" />
+        </div>
+
+        <div v-else-if="tab === 'kudos'" class="kudos-wrap">
+          <div class="kudos-issue-card">
+            <h3>Issue Kudos</h3>
+            <p class="muted">
+              Issue kudos from this admin page. Include a clear reason so teams can see why recognition was given.
+            </p>
+            <div class="kudos-issue-form">
+              <div class="field">
+                <label>Recipient (provider)</label>
+                <select v-model="kudosIssueToUserId" class="select">
+                  <option value="">Select provider…</option>
+                  <option v-for="p in kudosProviders" :key="`kudos-recipient-${p.providerId}`" :value="String(p.providerId)">
+                    {{ p.providerName }} ({{ p.points }} pts)
+                  </option>
+                </select>
+              </div>
+              <div class="field">
+                <label>Reason</label>
+                <textarea
+                  v-model="kudosIssueReason"
+                  class="input"
+                  rows="3"
+                  placeholder="Why did they earn this kudos?"
+                />
+              </div>
+              <div class="kudos-issue-actions">
+                <button
+                  class="btn btn-primary"
+                  type="button"
+                  :disabled="kudosIssuing || !kudosIssueToUserId || kudosIssueReason.trim().length < 10"
+                  @click="issueKudosFromDashboard"
+                >
+                  {{ kudosIssuing ? 'Sending…' : 'Issue kudos' }}
+                </button>
+                <span v-if="kudosIssueSuccess" class="kudos-success">{{ kudosIssueSuccess }}</span>
+                <span v-else-if="kudosIssueError" class="error-inline">{{ kudosIssueError }}</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="table-wrap">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>Provider</th>
+                  <th>Kudos earned</th>
+                  <th>Kudos received (who + why)</th>
+                  <th>Kudos given (who + why)</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="p in kudosProviders" :key="`kudos-${p.providerId}`">
+                  <td>
+                    <div><strong>{{ p.providerName }}</strong></div>
+                    <div class="muted">{{ p.email || '—' }}</div>
+                  </td>
+                  <td>
+                    <div class="kudos-points">{{ p.points }}</div>
+                    <div class="muted">Given: {{ p.givenCount }}</div>
+                  </td>
+                  <td>
+                    <div v-if="p.received.length === 0" class="muted">No kudos received yet.</div>
+                    <details v-else class="kudos-details">
+                      <summary>View {{ p.received.length }} received</summary>
+                      <div class="kudos-history-list">
+                        <div
+                          v-for="item in p.received"
+                          :key="`kudos-received-${p.providerId}-${item.id}`"
+                          class="kudos-history-item"
+                        >
+                          <div><strong>{{ item.fromName }}</strong> · {{ formatDateTime(item.createdAt) }}</div>
+                          <div>{{ item.reason || 'No reason provided.' }}</div>
+                          <div class="muted">{{ formatKudosStatus(item.approvalStatus, item.source) }}</div>
+                        </div>
+                      </div>
+                    </details>
+                  </td>
+                  <td>
+                    <div v-if="p.given.length === 0" class="muted">No kudos given yet.</div>
+                    <details v-else class="kudos-details">
+                      <summary>View {{ p.given.length }} given</summary>
+                      <div class="kudos-history-list">
+                        <div
+                          v-for="item in p.given"
+                          :key="`kudos-given-${p.providerId}-${item.id}`"
+                          class="kudos-history-item"
+                        >
+                          <div><strong>{{ item.toName }}</strong> · {{ formatDateTime(item.createdAt) }}</div>
+                          <div>{{ item.reason || 'No reason provided.' }}</div>
+                          <div class="muted">{{ formatKudosStatus(item.approvalStatus, item.source) }}</div>
+                        </div>
+                      </div>
+                    </details>
+                  </td>
+                </tr>
+                <tr v-if="kudosProviders.length === 0">
+                  <td colspan="4" class="muted">No provider kudos rows found.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
 
         <div v-else-if="tab === 'tracker'" class="table-wrap">
@@ -293,7 +398,7 @@ const agencies = computed(() => {
 
 const loading = ref(false);
 const error = ref('');
-const tab = ref('school'); // school | office | virtual | school_requests | tracker
+const tab = ref('school'); // school | office | virtual | school_requests | tracker | kudos
 
 const data = ref({
   providers: [],
@@ -304,6 +409,12 @@ const data = ref({
   virtualWorkingHours: []
 });
 const trackerProviders = ref([]);
+const kudosProviders = ref([]);
+const kudosIssueToUserId = ref('');
+const kudosIssueReason = ref('');
+const kudosIssuing = ref(false);
+const kudosIssueError = ref('');
+const kudosIssueSuccess = ref('');
 
 const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
@@ -339,6 +450,14 @@ const formatDateTime = (value) => {
   const dt = new Date(value);
   if (Number.isNaN(dt.getTime())) return '—';
   return dt.toLocaleString();
+};
+
+const formatKudosStatus = (approvalStatus, source) => {
+  const st = String(approvalStatus || '').toLowerCase();
+  if (st === 'approved') return source === 'notes_complete' ? 'Approved (notes completion)' : 'Approved';
+  if (st === 'pending') return 'Pending admin approval';
+  if (st === 'rejected') return 'Rejected';
+  return 'Status unknown';
 };
 
 const matchesCommonFilters = (row) => {
@@ -497,6 +616,10 @@ const reload = async () => {
     await loadProviderTracker();
     return;
   }
+  if (tab.value === 'kudos') {
+    await loadKudosTracker();
+    return;
+  }
   if (tab.value === 'school_requests') return;
   try {
     loading.value = true;
@@ -513,6 +636,67 @@ const reload = async () => {
     error.value = e.response?.data?.error?.message || e.message || 'Failed to load availability dashboard';
   } finally {
     loading.value = false;
+  }
+};
+
+const loadKudosTracker = async () => {
+  if (!agencyId.value) return;
+  try {
+    loading.value = true;
+    error.value = '';
+    kudosIssueError.value = '';
+    const resp = await api.get('/kudos/admin/tracker', {
+      params: { agencyId: agencyId.value }
+    });
+    const rows = Array.isArray(resp?.data?.providers) ? resp.data.providers : [];
+    kudosProviders.value = rows
+      .map((row) => ({
+        providerId: Number(row?.providerId || 0) || null,
+        providerName: String(row?.providerName || '').trim() || row?.email || 'Provider',
+        email: row?.email || '',
+        points: Number(row?.points || 0),
+        givenCount: Number(row?.givenCount || 0),
+        received: Array.isArray(row?.received) ? row.received : [],
+        given: Array.isArray(row?.given) ? row.given : []
+      }))
+      .sort((a, b) => (Number(b.points || 0) - Number(a.points || 0)) || String(a.providerName).localeCompare(String(b.providerName)));
+  } catch (e) {
+    kudosProviders.value = [];
+    error.value = e.response?.data?.error?.message || e.message || 'Failed to load kudos tracker';
+  } finally {
+    loading.value = false;
+  }
+};
+
+const issueKudosFromDashboard = async () => {
+  if (!agencyId.value) return;
+  const toUserId = Number(kudosIssueToUserId.value || 0);
+  const reason = String(kudosIssueReason.value || '').trim();
+  kudosIssueError.value = '';
+  kudosIssueSuccess.value = '';
+  if (!toUserId) {
+    kudosIssueError.value = 'Please choose a provider.';
+    return;
+  }
+  if (reason.length < 10) {
+    kudosIssueError.value = 'Please include at least 10 characters for the reason.';
+    return;
+  }
+  if (!window.confirm('Issue kudos now? This creates a kudos entry for this provider with the reason entered.')) return;
+  try {
+    kudosIssuing.value = true;
+    await api.post('/kudos', {
+      toUserId,
+      agencyId: Number(agencyId.value),
+      reason
+    });
+    kudosIssueSuccess.value = 'Kudos submitted successfully.';
+    kudosIssueReason.value = '';
+    await loadKudosTracker();
+  } catch (e) {
+    kudosIssueError.value = e.response?.data?.error?.message || e.message || 'Failed to issue kudos';
+  } finally {
+    kudosIssuing.value = false;
   }
 };
 
@@ -591,6 +775,10 @@ const ensureAgencyContextFromQuery = async () => {
 watch(tab, (t) => {
   if (t === 'tracker') {
     loadProviderTracker();
+    return;
+  }
+  if (t === 'kudos') {
+    loadKudosTracker();
     return;
   }
   if (t === 'school_requests') return;
@@ -706,6 +894,54 @@ watch(() => agencyStore.currentAgency?.id, (id) => {
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+.kudos-wrap {
+  display: grid;
+  gap: 12px;
+}
+.kudos-issue-card {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+  background: var(--bg-alt);
+}
+.kudos-issue-card h3 {
+  margin: 0 0 6px;
+}
+.kudos-issue-form {
+  display: grid;
+  gap: 10px;
+}
+.kudos-issue-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.kudos-points {
+  font-size: 20px;
+  font-weight: 900;
+}
+.kudos-details summary {
+  cursor: pointer;
+  color: var(--primary);
+}
+.kudos-history-list {
+  margin-top: 6px;
+  display: grid;
+  gap: 8px;
+}
+.kudos-history-item {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  background: var(--bg);
+}
+.kudos-success {
+  color: var(--success, #067647);
+  font-weight: 700;
+}
+.error-inline {
+  color: var(--danger, #d92d20);
 }
 .tab {
   border: 1px solid var(--border);

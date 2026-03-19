@@ -557,6 +557,7 @@ const typeLabelMap = {
   support_ticket_created: 'Support ticket',
   office_availability_request_pending: 'Office request',
   school_availability_request_pending: 'School request',
+  kudos_earned_admin_digest: 'Kudos earned',
   office_availability_request_approved: 'Office request approved',
   school_provider_availability_confirmed: 'School availability confirmed',
   school_provider_availability_updated: 'School availability updated',

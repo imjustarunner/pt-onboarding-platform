@@ -14,7 +14,8 @@ import {
   listPendingKudos,
   getPendingSummary,
   approveKudos,
-  rejectKudos
+  rejectKudos,
+  getAdminKudosTracker
 } from '../controllers/kudos.controller.js';
 
 const router = express.Router();
@@ -28,6 +29,7 @@ router.get('/leaderboard', getLeaderboard);
 router.get('/tier-progress', getTierProgress);
 router.get('/pending-summary', getPendingSummary);
 router.get('/pending', listPendingKudos);
+router.get('/admin/tracker', getAdminKudosTracker);
 router.post('/:id/approve', approveKudos);
 router.post('/:id/reject', rejectKudos);
 router.get('/tiers', listTiers);

@@ -12,6 +12,70 @@ function isAdminRole(role) {
   return role === 'admin' || role === 'super_admin';
 }
 
+async function getAgencyAdminUserIds(agencyId) {
+  const [rows] = await pool.execute(
+    `SELECT DISTINCT u.id
+     FROM users u
+     LEFT JOIN user_agencies ua ON ua.user_id = u.id
+     WHERE (
+       (ua.agency_id = ? AND LOWER(COALESCE(u.role, '')) = 'admin')
+       OR LOWER(COALESCE(u.role, '')) = 'super_admin'
+     )
+       AND (u.is_archived = FALSE OR u.is_archived IS NULL)
+       AND UPPER(COALESCE(u.status, '')) <> 'ARCHIVED'`,
+    [agencyId]
+  );
+  return (rows || []).map((r) => Number(r.id)).filter(Boolean);
+}
+
+function normalizeDigestLine({ recipientName, reason }) {
+  const who = String(recipientName || 'Someone').trim() || 'Someone';
+  const why = String(reason || '').trim();
+  const base = why ? `${who}: ${why}` : `${who}: Kudos earned`;
+  return `- ${base}`.slice(0, 300);
+}
+
+async function appendAdminKudosDigestNotification({ agencyId, recipientName, reason, relatedEntityId = null }) {
+  const adminIds = await getAgencyAdminUserIds(agencyId);
+  if (!adminIds.length) return;
+  const line = normalizeDigestLine({ recipientName, reason });
+  for (const adminUserId of adminIds) {
+    const [existingRows] = await pool.execute(
+      `SELECT id, message
+       FROM notifications
+       WHERE type = 'kudos_earned_admin_digest'
+         AND agency_id = ?
+         AND user_id = ?
+         AND is_resolved = FALSE
+       ORDER BY created_at DESC, id DESC
+       LIMIT 1`,
+      [agencyId, adminUserId]
+    );
+    const existing = existingRows?.[0] || null;
+    if (existing?.id) {
+      const prev = String(existing.message || '').trim();
+      const next = prev ? `${line}\n${prev}` : line;
+      await pool.execute(
+        `UPDATE notifications
+         SET title = ?, message = ?, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        ['Kudos earned updates', next.slice(0, 4000), existing.id]
+      );
+      continue;
+    }
+    await createNotificationAndDispatch({
+      type: 'kudos_earned_admin_digest',
+      severity: 'info',
+      title: 'Kudos earned updates',
+      message: line,
+      userId: adminUserId,
+      agencyId,
+      relatedEntityType: 'kudos',
+      relatedEntityId: relatedEntityId || undefined
+    }).catch(() => {});
+  }
+}
+
 async function canGiveUnlimitedKudos(reqUser) {
   const role = String(reqUser?.role || '').toLowerCase();
   if (role === 'provider_plus') {
@@ -381,6 +445,19 @@ export const approveKudos = async (req, res, next) => {
       relatedEntityId: kudos.id
     }).catch(() => {});
 
+    const recipient = await User.findById(kudos.to_user_id);
+    const recipientName = recipient
+      ? (recipient.preferred_name
+          ? `${recipient.first_name || ''} "${recipient.preferred_name}" ${recipient.last_name || ''}`.trim()
+          : `${recipient.first_name || ''} ${recipient.last_name || ''}`.trim() || recipient.email || `User #${kudos.to_user_id}`)
+      : `User #${kudos.to_user_id}`;
+    await appendAdminKudosDigestNotification({
+      agencyId: kudos.agency_id,
+      recipientName,
+      reason: kudos.reason || '',
+      relatedEntityId: kudos.id
+    }).catch(() => {});
+
     const points = await Kudos.getPoints(kudos.to_user_id, kudos.agency_id);
     res.json({ kudos, recipientPoints: points });
   } catch (e) {
@@ -622,6 +699,18 @@ export const awardNotesComplete = async (req, res, next) => {
       payrollPeriodId: periodId
     });
 
+    const recipient = await User.findById(userId);
+    const recipientName = recipient
+      ? (recipient.preferred_name
+          ? `${recipient.first_name || ''} "${recipient.preferred_name}" ${recipient.last_name || ''}`.trim()
+          : `${recipient.first_name || ''} ${recipient.last_name || ''}`.trim() || recipient.email || `User #${userId}`)
+      : `User #${userId}`;
+    await appendAdminKudosDigestNotification({
+      agencyId,
+      recipientName,
+      reason: 'Completed all clinical notes for this pay period.'
+    }).catch(() => {});
+
     const points = await Kudos.getPoints(userId, agencyId);
 
     res.json({
@@ -661,6 +750,162 @@ export const getLeaderboard = async (req, res, next) => {
     }));
 
     res.json({ leaderboard: items });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * GET /api/kudos/admin/tracker - Agency provider kudos tracker for admin workflows
+ */
+export const getAdminKudosTracker = async (req, res, next) => {
+  try {
+    if (!isAdminRole(req.user?.role)) {
+      return res.status(403).json({ error: { message: 'Admin access required' } });
+    }
+    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
+    if (!agencyId) {
+      return res.status(400).json({ error: { message: 'agencyId is required' } });
+    }
+    await assertAgencyAccess(req.user, agencyId);
+    await assertKudosEnabled(agencyId);
+
+    const [providers] = await pool.execute(
+      `SELECT DISTINCT u.id, u.first_name, u.last_name, u.preferred_name, u.email
+       FROM users u
+       JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
+       WHERE (u.role IN ('provider') OR u.has_provider_access = TRUE)
+         AND (u.is_archived IS NULL OR u.is_archived = FALSE)
+         AND (u.is_active IS NULL OR u.is_active = TRUE)
+         AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE'))
+       ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC`,
+      [agencyId]
+    );
+    const providerIds = (providers || []).map((p) => Number(p.id)).filter(Boolean);
+    if (!providerIds.length) {
+      return res.json({ ok: true, agencyId, providers: [] });
+    }
+
+    const placeholders = providerIds.map(() => '?').join(',');
+    const [pointsRows] = await pool.execute(
+      `SELECT user_id, points
+       FROM user_kudos_points
+       WHERE agency_id = ?
+         AND user_id IN (${placeholders})`,
+      [agencyId, ...providerIds]
+    );
+    const pointsByUserId = new Map((pointsRows || []).map((r) => [Number(r.user_id), Number(r.points || 0)]));
+
+    const [givenCountRows] = await pool.execute(
+      `SELECT from_user_id AS user_id, COUNT(*) AS cnt
+       FROM kudos
+       WHERE agency_id = ?
+         AND from_user_id IN (${placeholders})
+       GROUP BY from_user_id`,
+      [agencyId, ...providerIds]
+    );
+    const givenCountByUserId = new Map((givenCountRows || []).map((r) => [Number(r.user_id), Number(r.cnt || 0)]));
+
+    const [receivedRows] = await pool.execute(
+      `SELECT
+         k.id,
+         k.to_user_id AS user_id,
+         k.reason,
+         k.approval_status,
+         k.source,
+         k.created_at,
+         k.from_user_id,
+         fu.first_name AS from_first_name,
+         fu.last_name AS from_last_name,
+         fu.preferred_name AS from_preferred_name,
+         fu.email AS from_email
+       FROM kudos k
+       LEFT JOIN users fu ON fu.id = k.from_user_id
+       WHERE k.agency_id = ?
+         AND k.to_user_id IN (${placeholders})
+       ORDER BY k.created_at DESC`,
+      [agencyId, ...providerIds]
+    );
+
+    const [givenRows] = await pool.execute(
+      `SELECT
+         k.id,
+         k.from_user_id AS user_id,
+         k.reason,
+         k.approval_status,
+         k.source,
+         k.created_at,
+         k.to_user_id,
+         tu.first_name AS to_first_name,
+         tu.last_name AS to_last_name,
+         tu.preferred_name AS to_preferred_name,
+         tu.email AS to_email
+       FROM kudos k
+       LEFT JOIN users tu ON tu.id = k.to_user_id
+       WHERE k.agency_id = ?
+         AND k.from_user_id IN (${placeholders})
+       ORDER BY k.created_at DESC`,
+      [agencyId, ...providerIds]
+    );
+
+    const receivedByUserId = new Map();
+    for (const row of receivedRows || []) {
+      const uid = Number(row.user_id || 0);
+      if (!uid) continue;
+      if (!receivedByUserId.has(uid)) receivedByUserId.set(uid, []);
+      const fromName = row.from_user_id
+        ? (row.from_preferred_name
+            ? `${row.from_first_name || ''} "${row.from_preferred_name}" ${row.from_last_name || ''}`.trim()
+            : `${row.from_first_name || ''} ${row.from_last_name || ''}`.trim() || row.from_email || `User #${row.from_user_id}`)
+        : 'System';
+      receivedByUserId.get(uid).push({
+        id: Number(row.id),
+        fromUserId: row.from_user_id ? Number(row.from_user_id) : null,
+        fromName,
+        reason: row.reason || '',
+        source: row.source || 'peer',
+        approvalStatus: row.approval_status || 'approved',
+        createdAt: row.created_at || null
+      });
+    }
+
+    const givenByUserId = new Map();
+    for (const row of givenRows || []) {
+      const uid = Number(row.user_id || 0);
+      if (!uid) continue;
+      if (!givenByUserId.has(uid)) givenByUserId.set(uid, []);
+      const toName = row.to_user_id
+        ? (row.to_preferred_name
+            ? `${row.to_first_name || ''} "${row.to_preferred_name}" ${row.to_last_name || ''}`.trim()
+            : `${row.to_first_name || ''} ${row.to_last_name || ''}`.trim() || row.to_email || `User #${row.to_user_id}`)
+        : 'Unknown';
+      givenByUserId.get(uid).push({
+        id: Number(row.id),
+        toUserId: row.to_user_id ? Number(row.to_user_id) : null,
+        toName,
+        reason: row.reason || '',
+        source: row.source || 'peer',
+        approvalStatus: row.approval_status || 'approved',
+        createdAt: row.created_at || null
+      });
+    }
+
+    const out = (providers || []).map((p) => {
+      const providerName = p.preferred_name
+        ? `${p.first_name || ''} "${p.preferred_name}" ${p.last_name || ''}`.trim()
+        : `${p.first_name || ''} ${p.last_name || ''}`.trim() || p.email || `User #${p.id}`;
+      return {
+        providerId: Number(p.id),
+        providerName,
+        email: p.email || '',
+        points: Number(pointsByUserId.get(Number(p.id)) || 0),
+        givenCount: Number(givenCountByUserId.get(Number(p.id)) || 0),
+        received: receivedByUserId.get(Number(p.id)) || [],
+        given: givenByUserId.get(Number(p.id)) || []
+      };
+    });
+
+    res.json({ ok: true, agencyId, providers: out });
   } catch (e) {
     next(e);
   }

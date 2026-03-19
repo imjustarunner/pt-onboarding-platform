@@ -363,6 +363,7 @@ const getTypeLabel = (type) => {
     new_packet_uploaded: 'New Packet Uploaded',
     office_availability_request_pending: 'Office Requests',
     school_availability_request_pending: 'School Requests',
+    kudos_earned_admin_digest: 'Kudos Earned',
     office_availability_request_approved: 'Office Request Approved',
     school_provider_availability_confirmed: 'School Availability Confirmed',
     school_provider_availability_updated: 'School Availability Updated',

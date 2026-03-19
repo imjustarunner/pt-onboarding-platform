@@ -88,6 +88,7 @@ class Notification {
     'user_logout',
     // Kudos
     'kudos_received',
+    'kudos_earned_admin_digest',
     // Office availability request (provider requesting office space)
     'office_availability_request_pending',
     // Office availability request approved (provider reminder to mark booked)

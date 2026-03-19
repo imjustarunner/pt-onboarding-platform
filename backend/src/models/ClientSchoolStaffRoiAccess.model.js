@@ -12,6 +12,20 @@ function toBool(value) {
   return value === true || value === 1 || value === '1';
 }
 
+function isSchoolContactsSchedulerFilterError(error) {
+  const code = String(error?.code || '').trim();
+  if (code === 'ER_BAD_FIELD_ERROR' || code === 'ER_NO_SUCH_TABLE') return true;
+  const msg = String(error?.message || '').toLowerCase();
+  if (!msg) return false;
+  // Be defensive across environments: collation and legacy schema differences can
+  // break the scheduler exclusion subquery, but we can safely fall back.
+  return (
+    msg.includes('school_contacts')
+    || msg.includes('is_scheduler')
+    || msg.includes('collation')
+  );
+}
+
 function startOfToday() {
   const date = new Date();
   date.setHours(0, 0, 0, 0);
@@ -107,7 +121,7 @@ class ClientSchoolStaffRoiAccess {
       );
       rows = Array.isArray(result) ? result : [];
     } catch (e) {
-      if (e?.code !== 'ER_BAD_FIELD_ERROR' && e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+      if (!isSchoolContactsSchedulerFilterError(e)) throw e;
       const [result] = await pool.execute(
         `SELECT
            u.id AS school_staff_user_id,
@@ -201,7 +215,7 @@ class ClientSchoolStaffRoiAccess {
       );
       rows = Array.isArray(result) ? result : [];
     } catch (e) {
-      if (e?.code !== 'ER_BAD_FIELD_ERROR' && e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+      if (!isSchoolContactsSchedulerFilterError(e)) throw e;
       const [result] = await pool.execute(
         `SELECT
            u.id AS school_staff_user_id,

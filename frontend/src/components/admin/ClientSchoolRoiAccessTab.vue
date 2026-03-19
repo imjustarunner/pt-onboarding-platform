@@ -399,7 +399,7 @@ const rows = ref([]);
 const draftStates = ref({});
 const savingUserId = ref(null);
 const roiExpiresAt = ref(null);
-const roiExpired = ref(true);
+const roiExpired = ref(false);
 const schoolName = ref('');
 const availableLinks = ref([]);
 const savedIntakeLinkId = ref('');
@@ -624,6 +624,8 @@ const load = async () => {
     programmedRecipientRelationship.value = '';
     programmedRecipientEmail.value = '';
     programmedRecipientPhone.value = '';
+    roiExpiresAt.value = null;
+    roiExpired.value = false;
     return;
   }
 
@@ -702,6 +704,8 @@ const load = async () => {
     programmedRecipientEmail.value = '';
     programmedRecipientPhone.value = '';
     emailLanguageDraft.value = 'en';
+    roiExpiresAt.value = null;
+    roiExpired.value = false;
   } finally {
     loading.value = false;
   }
