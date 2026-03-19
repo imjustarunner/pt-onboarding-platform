@@ -2484,7 +2484,6 @@ export const updateClientComplianceChecklist = async (req, res, next) => {
 
     // School portal sends only parentsContactedAt, parentsContactedSuccessful, firstServiceAt (no intakeAt).
     // Only update intake_at when explicitly provided so we preserve it from admin/other flows.
-    const intakeAtProvided = intakeAt !== undefined;
     const updateParts = [
       'parents_contacted_at = ?',
       'parents_contacted_successful = ?',
