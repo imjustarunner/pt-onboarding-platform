@@ -54,6 +54,30 @@
           </div>
 
           <div v-if="isAuthenticated" class="form-group upload-note-group">
+            <label>Client name for initials</label>
+            <div class="name-row">
+              <input
+                v-model="firstName"
+                type="text"
+                placeholder="First name"
+                maxlength="100"
+                class="name-input"
+              />
+              <input
+                v-model="lastName"
+                type="text"
+                placeholder="Last name"
+                maxlength="100"
+                class="name-input"
+              />
+            </div>
+            <p class="muted upload-note-hint">
+              Client initials preview: <strong>{{ abbreviatedName || '---' }}</strong>
+              (first 3 letters of first name + first 3 letters of last name).
+            </p>
+          </div>
+
+          <div v-if="isAuthenticated" class="form-group upload-note-group">
             <label for="upload-note">Quick note <span class="optional">(optional)</span></label>
             <textarea
               id="upload-note"
@@ -940,6 +964,10 @@ const handleUpload = async () => {
     if (noteText) {
       formData.append('uploadNote', noteText);
     }
+    const first = String(firstName.value || '').trim();
+    const last = String(lastName.value || '').trim();
+    if (first) formData.append('firstName', first);
+    if (last) formData.append('lastName', last);
 
     const response = await api.post(`/organizations/${props.organizationSlug}/upload-referral`, formData);
 
@@ -1287,6 +1315,16 @@ const handleSubmitClient = async () => {
   font-weight: normal;
   color: var(--text-secondary);
   font-size: 0.9em;
+}
+
+.name-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.name-input {
+  width: 100%;
 }
 
 .upload-note-input {

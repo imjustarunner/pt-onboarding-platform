@@ -152,12 +152,18 @@ export const uploadReferralPacket = [
       }
 
       const uploadNote = String(req.body?.uploadNote || '').trim();
+      const firstName = String(req.body?.firstName || '').trim();
+      const lastName = String(req.body?.lastName || '').trim();
+      const computedInitials = buildAbbreviatedName(firstName, lastName);
       const draft = await ReferralPacketDraft.create({
         organizationId: organization.id,
         agencyId,
         uploadedByUserId: uploaderId,
         submissionDate,
         uploadNote: uploadNote || null,
+        firstName: firstName || null,
+        lastName: lastName || null,
+        initials: computedInitials || null,
         status: 'draft'
       });
 
