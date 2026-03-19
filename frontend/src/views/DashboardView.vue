@@ -1988,7 +1988,16 @@ const isOnboardingComplete = computed(() => {
   // Privileged roles should always have access to the "My" area (account + payroll),
   // even if their lifecycle status doesn't match the employee workflow.
   const role = authStore.user?.role;
-  if (role === 'super_admin' || role === 'admin' || role === 'support') return true;
+  const roleNorm = String(role || '').toLowerCase();
+  if (
+    role === 'super_admin' ||
+    role === 'admin' ||
+    role === 'support' ||
+    roleNorm === 'provider_plus' ||
+    roleNorm === 'clinical_practice_assistant'
+  ) {
+    return true;
+  }
 
   const st = userStatus.value;
   // Approved employees should always be able to access on-demand + prefs.

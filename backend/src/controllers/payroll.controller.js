@@ -908,11 +908,8 @@ async function requireTargetUserInAgency({ res, agencyId, targetUserId }) {
     res.status(400).json({ error: { message: 'userId is required' } });
     return false;
   }
-  const [rows] = await pool.execute(
-    'SELECT 1 FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1',
-    [targetUserId, agencyId]
-  );
-  if (!rows || rows.length === 0) {
+  const ok = await userHasAgencyAccess({ userId: targetUserId, agencyId });
+  if (!ok) {
     res.status(404).json({ error: { message: 'User is not in this organization' } });
     return false;
   }
@@ -13270,13 +13267,10 @@ export const createMyReimbursementClaim = [
       if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
       if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
 
-      // Ensure membership for non-admins.
+      // Ensure membership for non-admins (include school/program → parent agency via affiliations).
       if (!isAdminRole(req.user.role)) {
-        const [rows] = await pool.execute(
-          'SELECT 1 FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1',
-          [userId, agencyId]
-        );
-        if (!rows || rows.length === 0) {
+        const ok = await userHasAgencyAccess({ userId, agencyId });
+        if (!ok) {
           return res.status(403).json({ error: { message: 'Access denied' } });
         }
       }
@@ -13476,13 +13470,10 @@ export const updateMyReimbursementClaim = [
       if (!id) return res.status(400).json({ error: { message: 'id is required' } });
       if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
 
-      // Ensure membership for non-admins.
+      // Ensure membership for non-admins (include school/program → parent agency via affiliations).
       if (!isAdminRole(req.user.role)) {
-        const [rows] = await pool.execute(
-          'SELECT 1 FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1',
-          [userId, agencyId]
-        );
-        if (!rows || rows.length === 0) {
+        const ok = await userHasAgencyAccess({ userId, agencyId });
+        if (!ok) {
           return res.status(403).json({ error: { message: 'Access denied' } });
         }
       }
@@ -13710,13 +13701,10 @@ export const createMyCompanyCardExpense = [
         return res.status(403).json({ error: { message: 'Company card expense submissions are not enabled for this user' } });
       }
 
-      // Ensure membership for non-admins.
+      // Ensure membership for non-admins (include school/program → parent agency via affiliations).
       if (!isAdminRole(req.user.role)) {
-        const [rows] = await pool.execute(
-          'SELECT 1 FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1',
-          [userId, agencyId]
-        );
-        if (!rows || rows.length === 0) {
+        const ok = await userHasAgencyAccess({ userId, agencyId });
+        if (!ok) {
           return res.status(403).json({ error: { message: 'Access denied' } });
         }
       }
@@ -13972,13 +13960,10 @@ export const listMyCompanyCardExpenses = async (req, res, next) => {
     if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
 
-    // Ensure membership for non-admins.
+    // Ensure membership for non-admins (include school/program → parent agency via affiliations).
     if (!isAdminRole(req.user.role)) {
-      const [rows] = await pool.execute(
-        'SELECT 1 FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1',
-        [userId, agencyId]
-      );
-      if (!rows || rows.length === 0) {
+      const ok = await userHasAgencyAccess({ userId, agencyId });
+      if (!ok) {
         return res.status(403).json({ error: { message: 'Access denied' } });
       }
     }
@@ -14008,13 +13993,10 @@ export const updateMyCompanyCardExpense = [
         return res.status(403).json({ error: { message: 'Company card expense submissions are not enabled for this user' } });
       }
 
-      // Ensure membership for non-admins.
+      // Ensure membership for non-admins (include school/program → parent agency via affiliations).
       if (!isAdminRole(req.user.role)) {
-        const [rows] = await pool.execute(
-          'SELECT 1 FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1',
-          [userId, agencyId]
-        );
-        if (!rows || rows.length === 0) {
+        const ok = await userHasAgencyAccess({ userId, agencyId });
+        if (!ok) {
           return res.status(403).json({ error: { message: 'Access denied' } });
         }
       }
