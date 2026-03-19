@@ -821,7 +821,7 @@ const roiStaffStateLabel = (row) => {
   if (effective === 'roi' || access === 'roi') return 'ROI access';
   if (effective === 'packet' || access === 'packet') return 'Packet only';
   if (effective === 'limited' || access === 'limited') return 'Limited';
-  return 'No access';
+  return 'Limited';
 };
 
 const startOfDay = (value) => {

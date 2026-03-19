@@ -299,7 +299,6 @@
             <label class="bulk-label">Set all to:</label>
             <select v-model="bulkAccessLevel" class="inline-select bulk-select" :disabled="bulkSaving">
               <option value="">— choose —</option>
-              <option value="none">No access</option>
               <option value="packet">Packet</option>
               <option value="limited">Limited</option>
               <option value="roi">ROI access</option>
@@ -355,7 +354,6 @@
                 </td>
                 <td style="min-width: 180px;">
                   <select v-model="draftStates[row.school_staff_user_id]" class="inline-select" :disabled="bulkSaving">
-                    <option value="none">No access</option>
                     <option value="packet">Packet</option>
                     <option value="limited">Limited</option>
                     <option value="roi">ROI access</option>
@@ -440,7 +438,8 @@ const roiExpiryLabel = computed(() => {
 
 const normalizeState = (value) => {
   const normalized = String(value || '').trim().toLowerCase();
-  return ['none', 'packet', 'limited', 'roi', 'roi_docs'].includes(normalized) ? normalized : 'none';
+  if (normalized === 'none') return 'limited';
+  return ['packet', 'limited', 'roi', 'roi_docs'].includes(normalized) ? normalized : 'limited';
 };
 
 const displayName = (row) => {
@@ -485,7 +484,7 @@ const stateLabel = (effectiveState, accessLevel) => {
   if (effective === 'roi') return 'ROI access';
   if (effective === 'limited') return 'Limited';
   if (effective === 'packet' || accessLevel === 'packet') return 'Packet';
-  return 'No access';
+  return 'Limited';
 };
 
 const stateClass = (effectiveState) => {
@@ -493,7 +492,7 @@ const stateClass = (effectiveState) => {
   return {
     'state-none': !state || state === 'none',
     'state-packet': state === 'packet',
-    'state-limited': state === 'limited',
+    'state-limited': state === 'limited' || state === 'none',
     'state-roi': state === 'roi' || state === 'roi_docs',
     'state-expired': state === 'expired'
   };

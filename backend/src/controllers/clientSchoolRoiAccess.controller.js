@@ -444,12 +444,13 @@ export const updateClientSchoolRoiAccess = async (req, res, next) => {
   try {
     const clientId = Number(req.params.id || 0);
     const schoolStaffUserId = Number(req.params.schoolStaffUserId || 0);
-    const nextState = String(req.body?.nextState || '').trim().toLowerCase();
+    const rawNextState = String(req.body?.nextState || '').trim().toLowerCase();
+    const nextState = rawNextState === 'none' ? 'limited' : rawNextState;
     if (!clientId || !schoolStaffUserId) {
       return res.status(400).json({ error: { message: 'Invalid ids' } });
     }
-    if (!['none', 'packet', 'roi', 'roi_docs'].includes(nextState)) {
-      return res.status(400).json({ error: { message: 'nextState must be none, packet, roi, or roi_docs' } });
+    if (!['packet', 'limited', 'roi', 'roi_docs'].includes(nextState)) {
+      return res.status(400).json({ error: { message: 'nextState must be packet, limited, roi, or roi_docs' } });
     }
     if (!isBackofficeManager(req.user?.role)) {
       return res.status(403).json({ error: { message: 'Backoffice access required' } });

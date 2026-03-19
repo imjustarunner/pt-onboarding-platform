@@ -265,7 +265,7 @@ class ClientSchoolStaffRoiAccess {
 
     return (rows || []).map((row) => {
       let effectiveState = getEffectiveSchoolStaffRoiState(row, roiExpiresAt);
-      if (!row.access_record_id && effectiveState === 'none' && !isRoiExpired(roiExpiresAt)) {
+      if (effectiveState === 'none' && !isRoiExpired(roiExpiresAt)) {
         effectiveState = 'limited';
       }
       return {
@@ -390,7 +390,11 @@ class ClientSchoolStaffRoiAccess {
     );
     const row = rows?.[0] || null;
     if (row) {
-      return getEffectiveSchoolStaffRoiState(row, row.roi_expires_at || null);
+      const effective = getEffectiveSchoolStaffRoiState(row, row.roi_expires_at || null);
+      if (effective === 'none' && !isRoiExpired(row.roi_expires_at || null)) {
+        return 'limited';
+      }
+      return effective;
     }
 
     // No explicit row: while ROI is active, school staff in the same school org gets LIMITED access.
@@ -474,26 +478,11 @@ class ClientSchoolStaffRoiAccess {
     const sid = Number(schoolOrganizationId || 0);
     const staffId = Number(schoolStaffUserId || 0);
     const actorId = Number(actorUserId || 0) || null;
-    const state = String(nextState || '').trim().toLowerCase();
+    const rawState = String(nextState || '').trim().toLowerCase();
+    const state = rawState === 'none' ? 'limited' : rawState;
     if (!cid || !sid || !staffId) return false;
-    if (!['none', 'packet', 'limited', 'roi', 'roi_docs'].includes(state)) {
+    if (!['packet', 'limited', 'roi', 'roi_docs'].includes(state)) {
       throw new Error('Invalid nextState');
-    }
-
-    if (state === 'none') {
-      await pool.execute(
-        `INSERT INTO client_school_staff_roi_access
-          (client_id, school_organization_id, school_staff_user_id, access_level, is_active,
-           revoked_by_user_id, revoked_at)
-         VALUES (?, ?, ?, 'packet', FALSE, ?, CURRENT_TIMESTAMP)
-         ON DUPLICATE KEY UPDATE
-           is_active = FALSE,
-           revoked_by_user_id = VALUES(revoked_by_user_id),
-           revoked_at = VALUES(revoked_at),
-           updated_at = CURRENT_TIMESTAMP`,
-        [cid, sid, staffId, actorId]
-      );
-      return true;
     }
 
     if (state === 'packet') {
