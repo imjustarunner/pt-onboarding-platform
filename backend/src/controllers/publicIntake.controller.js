@@ -570,8 +570,21 @@ const resolvePacketCompletionEmailContent = async ({
     LINK_EXPIRY_DAYS: Number(expiresInDays || 7)
   };
 
-  const fallbackSubject = 'Your signed intake packet';
-  const fallbackText = `${params.CLIENT_SUMMARY ? `${params.CLIENT_SUMMARY}\n\n` : ''}Your intake packet is ready. Download here:\n\n${params.DOWNLOAD_URL}\n\nThis link expires in ${params.LINK_EXPIRES_DAYS} days.`;
+  const fallbackSubject = `Thank you for completing your intake packet${params.SCHOOL_NAME ? ` for ${params.SCHOOL_NAME}` : ''}`;
+  const fallbackText = [
+    `Hello ${params.SIGNER_NAME || 'there'},`,
+    '',
+    `${params.CLIENT_SUMMARY ? `${params.CLIENT_SUMMARY}\n` : ''}Thank you for completing the intake packet${params.SCHOOL_NAME ? ` for ${params.SCHOOL_NAME}` : ''}.`,
+    'Our staff will be in touch with next steps.',
+    'Once your client is assigned to a provider, they will reach out to schedule intake and begin services.',
+    '',
+    params.DOWNLOAD_URL
+      ? `You can view/download your signed copy here:\n${params.DOWNLOAD_URL}\n\nThis link expires in ${params.LINK_EXPIRES_DAYS} days.`
+      : 'Your signed copy is available in our system. If you would like a copy resent, reply to this email and our team can help.',
+    '',
+    'Thank you,',
+    'ITSCO Support'
+  ].join('\n');
 
   const customSubject = String(customMessages?.completionEmailSubject || '').trim();
   const customBody = String(customMessages?.completionEmailBody || '').trim();
@@ -586,9 +599,13 @@ const resolvePacketCompletionEmailContent = async ({
     : `
       <div style="font-family: Arial, sans-serif; line-height: 1.5;">
         ${params.CLIENT_COUNT > 1 ? `<p><strong>Clients:</strong> ${params.CLIENT_COUNT}</p>` : (params.CLIENT_NAME ? `<p><strong>Client:</strong> ${escapeHtml(params.CLIENT_NAME)}</p>` : '')}
-        <p>Your intake packet is ready.</p>
-        <p><a href="${escapeHtml(params.DOWNLOAD_URL)}" style="display:inline-block;padding:10px 14px;background:#2c3e50;color:#fff;text-decoration:none;border-radius:6px;">Download Signed Packet</a></p>
-        <p style="color:#777;">This link expires in ${params.LINK_EXPIRES_DAYS} days.</p>
+        <p>Thank you for completing the intake packet${params.SCHOOL_NAME ? ` for <strong>${escapeHtml(params.SCHOOL_NAME)}</strong>` : ''}.</p>
+        <p>Our staff will be in touch with next steps.</p>
+        <p>Once your client is assigned to a provider, they will reach out to schedule intake and begin services.</p>
+        ${params.DOWNLOAD_URL
+          ? `<p><a href="${escapeHtml(params.DOWNLOAD_URL)}" style="display:inline-block;padding:10px 14px;background:#2c3e50;color:#fff;text-decoration:none;border-radius:6px;">View Signed Packet</a></p>
+             <p style="color:#777;">This link expires in ${params.LINK_EXPIRES_DAYS} days.</p>`
+          : '<p style="color:#555;">Your signed copy is available in our system. Reply to this email if you need another copy.</p>'}
       </div>
     `.trim();
 

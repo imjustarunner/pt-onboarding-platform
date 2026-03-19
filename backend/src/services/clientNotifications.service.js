@@ -3,7 +3,7 @@ import { createNotificationAndDispatch } from './notificationDispatcher.service.
 import { createClientOnboardingTaskForProvider } from './clientOnboardingTask.service.js';
 import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
 import { sendEmailFromIdentity } from './unifiedEmail/unifiedEmailSender.service.js';
-import { resolvePreferredSenderIdentityForSchoolThenAgency } from './emailSenderIdentityResolver.service.js';
+import { resolvePreferredSenderIdentityForAgency } from './emailSenderIdentityResolver.service.js';
 
 async function alreadyNotified({ agencyId, userId, type, relatedEntityId }) {
   const [rows] = await pool.execute(
@@ -89,14 +89,16 @@ async function resolveNotificationsSenderIdentityId() {
   }
 }
 
-async function resolveIntakeStatusSenderIdentityId({ schoolOrganizationId, agencyId }) {
-  const schoolOrgId = Number(schoolOrganizationId || 0) || null;
+async function resolveIntakeStatusSenderIdentityId({ agencyId }) {
+  // Hard-prefer the canonical ITSCO notifications sender for intake status emails.
+  const notificationsId = await resolveNotificationsSenderIdentityId();
+  if (notificationsId) return notificationsId;
+
   const aid = Number(agencyId || 0) || null;
   try {
-    const scoped = await resolvePreferredSenderIdentityForSchoolThenAgency({
-      schoolOrganizationId: schoolOrgId,
+    const scoped = await resolvePreferredSenderIdentityForAgency({
       agencyId: aid,
-      preferredKeys: ['school_intake', 'intake', 'notifications', 'system'],
+      preferredKeys: ['notifications', 'system', 'intake'],
       includePlatformDefaults: true,
       onlyActive: true
     });
@@ -118,10 +120,7 @@ async function sendSchoolIntakeStatusEmail({
   if (!sid) return false;
   const to = await getSchoolItscoEmail(sid);
   if (!to) return false;
-  const senderIdentityId = await resolveIntakeStatusSenderIdentityId({
-    schoolOrganizationId: sid,
-    agencyId
-  });
+  const senderIdentityId = await resolveIntakeStatusSenderIdentityId({ agencyId });
   if (!senderIdentityId) return false;
 
   const initialsRaw = String(clientInitials || '').trim();
