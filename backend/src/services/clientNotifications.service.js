@@ -82,7 +82,25 @@ async function getSchoolItscoEmail(schoolOrganizationId) {
 
 async function resolveNotificationsSenderIdentityId() {
   try {
-    const identity = await EmailSenderIdentity.findByFromEmail('notifications@itsco.health');
+    // Prefer platform-level ITSCO notifications identity so school-specific
+    // branding (e.g., "Fakey School ...") is never used for this email flow.
+    const platformIdentities = await EmailSenderIdentity.list({
+      agencyId: null,
+      includePlatformDefaults: true,
+      onlyActive: true
+    });
+    const notificationsEmail = 'notifications@itsco.health';
+    const platformNotificationMatches = (platformIdentities || []).filter((row) =>
+      String(row?.from_email || '').trim().toLowerCase() === notificationsEmail
+    );
+    const preferredItsco = platformNotificationMatches.find((row) =>
+      String(row?.display_name || '').trim().toLowerCase().includes('itsco')
+    );
+    const chosen = preferredItsco || platformNotificationMatches[0] || null;
+    if (Number(chosen?.id || 0)) return Number(chosen.id);
+
+    // Fallback to first active identity with notifications@itsco.health.
+    const identity = await EmailSenderIdentity.findByFromEmail(notificationsEmail);
     return Number(identity?.id || 0) || null;
   } catch {
     return null;
@@ -132,7 +150,7 @@ async function sendSchoolIntakeStatusEmail({
   let subject = '';
   let text = '';
   if (mode === 'paper_upload') {
-    subject = 'New Client Intake Notification: Paper Packet Uploaded';
+    subject = 'Portal Document';
     text = [
       'Hello,',
       '',
@@ -149,7 +167,7 @@ async function sendSchoolIntakeStatusEmail({
       'ITSCO Support'
     ].join('\n');
   } else {
-    subject = 'New Client Intake Notification: Digital Packet Submitted';
+    subject = 'Portal Document';
     text = [
       'Hello,',
       '',
