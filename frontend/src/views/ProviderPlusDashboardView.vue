@@ -163,6 +163,14 @@ const cards = computed(() => [
     emoji: '🩺'
   },
   {
+    id: 'submit',
+    title: 'Submit',
+    description: 'Mileage, in-school claims, availability, PTO, and other payroll submissions.',
+    to: { path: orgTo('/dashboard'), query: { tab: 'submit' } },
+    iconKey: 'submit',
+    emoji: '📤'
+  },
+  {
     id: 'notifications',
     title: 'Notifications',
     description: 'Review team and personal notifications.',

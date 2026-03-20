@@ -2153,9 +2153,17 @@ const dashboardCards = computed(() => {
   const role = String(u?.role || '').toLowerCase();
   const caps = u?.capabilities || {};
   const isTrueAdmin = role === 'admin' || role === 'super_admin';
-  const isProvider = role === 'provider';
+  // Supervisors / hiring / payroll caps should still see provider submission surfaces when they
+  // are clinician-facing roles (provider_plus, CPA, interns)—not only literal `provider`.
+  const isProviderLikeForSubmissions =
+    role === 'provider' ||
+    role === 'provider_plus' ||
+    role === 'intern' ||
+    role === 'intern_plus' ||
+    role === 'clinical_practice_assistant';
   const isSup = isSupervisor(u);
-  const isLimitedAccessNonProvider = !isTrueAdmin && !isProvider && (isSup || !!caps?.canManageHiring || !!caps?.canManagePayroll);
+  const isLimitedAccessNonProvider =
+    !isTrueAdmin && !isProviderLikeForSubmissions && (isSup || !!caps?.canManageHiring || !!caps?.canManagePayroll);
 
   // Use the current organization (when selected) for icon overrides.
   // If none is selected, we fall back to platform branding inside `getDashboardCardIconUrl`.
