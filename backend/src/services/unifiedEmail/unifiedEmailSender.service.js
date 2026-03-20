@@ -223,7 +223,9 @@ export async function sendEmailFromIdentity({
   inReplyTo = null,
   references = null,
   threadId = null,
-  source = 'auto'
+  source = 'auto',
+  /** When set, replaces identity.display_name in the From header (and signature label) only. */
+  fromDisplayNameOverride = null
 }) {
   const identity = await EmailSenderIdentity.findById(senderIdentityId);
   if (!identity) throw new Error('Sender identity not found');
@@ -232,9 +234,13 @@ export async function sendEmailFromIdentity({
     return { skipped: true, reason: gate.reason };
   }
 
-  const from = pickFromHeader({ displayName: identity.display_name, fromEmail: identity.from_email });
+  const overrideName = String(fromDisplayNameOverride || '').trim();
+  const effectiveDisplayName = overrideName || identity.display_name;
+  const from = pickFromHeader({ displayName: effectiveDisplayName, fromEmail: identity.from_email });
   const replyTo = identity.reply_to || null;
-  const signedContent = applySenderSignatureBlock({ identity, text, html });
+  const identityForSignature =
+    overrideName ? { ...identity, display_name: effectiveDisplayName } : identity;
+  const signedContent = applySenderSignatureBlock({ identity: identityForSignature, text, html });
 
   const gmail = await getGmailClient();
   const mime = buildMimeMessage({

@@ -80,10 +80,45 @@ async function getSchoolItscoEmail(schoolOrganizationId) {
   }
 }
 
+const DEFAULT_SCHOOL_INTAKE_FROM_NAME = 'ITSCO - School Intake';
+
+function isTestOrPlaceholderSenderDisplayName(name) {
+  const n = String(name || '').trim().toLowerCase();
+  if (!n) return false;
+  return (
+    n.includes('fakey') ||
+    n.includes('fake school') ||
+    n.includes('test school') ||
+    n.includes('placeholder') ||
+    n.includes('example school')
+  );
+}
+
+async function getSchoolIntakeEmailFromDisplayName(schoolOrganizationId) {
+  const sid = Number(schoolOrganizationId || 0);
+  if (!sid) return DEFAULT_SCHOOL_INTAKE_FROM_NAME;
+  try {
+    const [rows] = await pool.execute(
+      `SELECT TRIM(a.name) AS agency_name, TRIM(sp.district_name) AS district_name
+       FROM agencies a
+       LEFT JOIN school_profiles sp ON sp.school_organization_id = a.id
+       WHERE a.id = ?
+       LIMIT 1`,
+      [sid]
+    );
+    const row = rows?.[0] || {};
+    const raw = String(row.agency_name || row.district_name || '').trim();
+    if (!raw || isTestOrPlaceholderSenderDisplayName(raw)) return DEFAULT_SCHOOL_INTAKE_FROM_NAME;
+    return `${raw} - School Intake`;
+  } catch {
+    return DEFAULT_SCHOOL_INTAKE_FROM_NAME;
+  }
+}
+
 async function resolveNotificationsSenderIdentityId() {
   try {
-    // Prefer platform-level ITSCO notifications identity so school-specific
-    // branding (e.g., "Fakey School ...") is never used for this email flow.
+    // Prefer platform-level ITSCO notifications identity. Never prefer test/pilot
+    // display names (e.g. "Fakey School …") when multiple rows share the same from_email.
     const platformIdentities = await EmailSenderIdentity.list({
       agencyId: null,
       includePlatformDefaults: true,
@@ -93,10 +128,14 @@ async function resolveNotificationsSenderIdentityId() {
     const platformNotificationMatches = (platformIdentities || []).filter((row) =>
       String(row?.from_email || '').trim().toLowerCase() === notificationsEmail
     );
-    const preferredItsco = platformNotificationMatches.find((row) =>
+    const withoutTestNames = platformNotificationMatches.filter(
+      (row) => !isTestOrPlaceholderSenderDisplayName(row?.display_name)
+    );
+    const candidates = withoutTestNames.length ? withoutTestNames : platformNotificationMatches;
+    const preferredItsco = candidates.find((row) =>
       String(row?.display_name || '').trim().toLowerCase().includes('itsco')
     );
-    const chosen = preferredItsco || platformNotificationMatches[0] || null;
+    const chosen = preferredItsco || candidates[0] || null;
     if (Number(chosen?.id || 0)) return Number(chosen.id);
 
     // Fallback to first active identity with notifications@itsco.health.
@@ -187,13 +226,16 @@ async function sendSchoolIntakeStatusEmail({
     .map((line) => (line ? `<p>${line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>` : '<p>&nbsp;</p>'))
     .join('');
 
+  const fromDisplayNameOverride = await getSchoolIntakeEmailFromDisplayName(sid);
+
   await sendEmailFromIdentity({
     senderIdentityId,
     to,
     subject,
     text,
     html,
-    source: 'auto'
+    source: 'auto',
+    fromDisplayNameOverride
   });
   return true;
 }

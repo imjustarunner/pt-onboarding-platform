@@ -7255,7 +7255,9 @@ const saveSenderIdentitiesForAgency = async (agencyId) => {
     {
       key: 'school_intake',
       email: agencyForm.value.schoolIntakeSenderEmail,
-      displayName: `${agencyForm.value.name || 'School'} School Intake`
+      displayName: agencyForm.value.name
+        ? `${agencyForm.value.name} - School Intake`
+        : 'ITSCO - School Intake'
     }
   ];
 
