@@ -163,6 +163,17 @@
                   <label>Service Focus</label>
                   <input v-model="accountForm.serviceFocus" type="text" :disabled="!isEditingAccount" placeholder="e.g. School-based, Trauma, Medicaid" />
                 </div>
+                <div v-if="isProviderLikeUser" class="form-group">
+                  <label>Start date (with organization)</label>
+                  <input
+                    v-model="accountForm.providerStartDate"
+                    type="date"
+                    :disabled="!isEditingAccount"
+                  />
+                  <small class="form-help">
+                    Used for tenure on Provider Management → Hourly direct / indirect and for anniversary planning. Not tied to payroll.
+                  </small>
+                </div>
                 <div class="form-group">
                   <label>Languages spoken</label>
                   <input v-model="accountForm.languagesSpoken" type="text" :disabled="!isEditingAccount" placeholder="e.g. English, Spanish" />
@@ -2506,7 +2517,8 @@ const accountForm = ref({
   hasCredentialingAccess: false,
   isHourlyWorker: false,
   hasHiringAccess: false,
-  hasMedicalRecordsReleaseAccess: false
+  hasMedicalRecordsReleaseAccess: false,
+  providerStartDate: ''
 });
 
 const forcingSkillBuilderConfirm = ref(false);
@@ -3239,7 +3251,14 @@ const agencyFinderIntroBlurb = ref('');
 
 const isProviderLikeUser = computed(() => {
   const role = String(user.value?.role || accountForm.value?.role || '').toLowerCase();
-  return role === 'provider' || role === 'supervisor' || !!accountForm.value?.hasProviderAccess;
+  return (
+    role === 'provider' ||
+    role === 'supervisor' ||
+    role === 'intern' ||
+    role === 'facilitator' ||
+    role === 'provider_plus' ||
+    !!accountForm.value?.hasProviderAccess
+  );
 });
 
 const selectedProviderProfileAgency = computed(() => {
@@ -3746,7 +3765,11 @@ const fetchUser = async () => {
       hasCredentialingAccess: accountInfo.value?.hasCredentialingAccess === true || accountForm.value?.hasCredentialingAccess || false,
       isHourlyWorker: user.value?.is_hourly_worker === true || user.value?.is_hourly_worker === 1 || user.value?.is_hourly_worker === '1' || accountForm.value?.isHourlyWorker || false,
       hasHiringAccess: user.value?.has_hiring_access === true || user.value?.has_hiring_access === 1 || user.value?.has_hiring_access === '1' || accountForm.value?.hasHiringAccess || false,
-      hasMedicalRecordsReleaseAccess: user.value?.has_medical_records_release_access === true || user.value?.has_medical_records_release_access === 1 || user.value?.has_medical_records_release_access === '1' || accountForm.value?.hasMedicalRecordsReleaseAccess || false
+      hasMedicalRecordsReleaseAccess: user.value?.has_medical_records_release_access === true || user.value?.has_medical_records_release_access === 1 || user.value?.has_medical_records_release_access === '1' || accountForm.value?.hasMedicalRecordsReleaseAccess || false,
+      providerStartDate:
+        (user.value.provider_start_date && String(user.value.provider_start_date).slice(0, 10)) ||
+        accountForm.value?.providerStartDate ||
+        ''
     };
     
     // Render the page as soon as the base user record is loaded.
@@ -3840,6 +3863,11 @@ const fetchAccountInfo = async () => {
     }
     if (response.data?.hasMedicalRecordsReleaseAccess !== undefined) {
       accountForm.value.hasMedicalRecordsReleaseAccess = Boolean(response.data.hasMedicalRecordsReleaseAccess);
+    }
+    if (response.data?.providerStartDate !== undefined && response.data?.providerStartDate !== null) {
+      accountForm.value.providerStartDate = String(response.data.providerStartDate).slice(0, 10);
+    } else if (response.data?.providerStartDate === null) {
+      accountForm.value.providerStartDate = '';
     }
   } catch (err) {
     accountInfoError.value = err.response?.data?.error?.message || 'Failed to load account information';
@@ -4540,7 +4568,12 @@ const saveAccount = async () => {
     if (accountForm.value.role === 'provider') {
       updateData.hasStaffAccess = Boolean(accountForm.value.hasStaffAccess);
     }
-    
+
+    if (isProviderLikeUser.value) {
+      const sd = String(accountForm.value.providerStartDate || '').trim();
+      updateData.providerStartDate = sd ? sd.slice(0, 10) : null;
+    }
+
     console.log('Update data being sent:', updateData);
     pendingAccountUpdate.value = updateData;
     const response = await api.put(`/users/${userId.value}`, updateData);

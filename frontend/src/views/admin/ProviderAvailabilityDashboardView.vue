@@ -203,6 +203,9 @@
                 <tr>
                   <th class="sortable" @click="setHourlySort('providerName')">Provider</th>
                   <th class="sortable" @click="setHourlySort('email')">Email</th>
+                  <th class="sortable" @click="setHourlySort('providerStartDate')">Start date</th>
+                  <th class="sortable" @click="setHourlySort('tenureDays')">Days</th>
+                  <th>Tenure</th>
                   <th class="sortable" @click="setHourlySort('recentRatio')">Most recent</th>
                   <th class="sortable" @click="setHourlySort('allTimeRatio')">All pay periods</th>
                   <th class="sortable" @click="setHourlySort('selectedRatio')">Selected pay period</th>
@@ -225,6 +228,21 @@
                         <template v-else>{{ seg.t }}</template>
                       </template>
                     </div>
+                  </td>
+                  <td>{{ row.providerStartDate ? formatYmdLocal(row.providerStartDate) : '—' }}</td>
+                  <td>
+                    <span v-if="row.tenureDaysElapsed != null">{{ row.tenureDaysElapsed.toLocaleString() }}</span>
+                    <span v-else class="muted">—</span>
+                  </td>
+                  <td>
+                    <button
+                      type="button"
+                      class="btn btn-secondary btn-sm"
+                      :disabled="!row.providerStartDate"
+                      @click="hourlyTenureModal = row"
+                    >
+                      Details
+                    </button>
                   </td>
                   <td>
                     <template v-if="row.recent">
@@ -256,7 +274,7 @@
                   </td>
                 </tr>
                 <tr v-if="sortedHourlyRows.length === 0">
-                  <td colspan="5" class="muted">No hourly-flagged providers for this agency.</td>
+                  <td colspan="8" class="muted">No hourly-flagged providers for this agency.</td>
                 </tr>
               </tbody>
             </table>
@@ -492,6 +510,51 @@
         </div>
       </div>
     </div>
+
+    <div
+      v-if="hourlyTenureModal"
+      class="hourly-tenure-modal-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="hourly-tenure-modal-title"
+      @click.self="hourlyTenureModal = null"
+    >
+      <div class="hourly-tenure-modal-panel">
+        <h3 id="hourly-tenure-modal-title" class="hourly-tenure-modal-title">
+          {{ hourlyTenureModal.providerName }}
+        </h3>
+        <p class="muted hourly-tenure-modal-email">{{ hourlyTenureModal.email || '—' }}</p>
+        <dl class="hourly-tenure-dl">
+          <dt>Start date</dt>
+          <dd>{{ hourlyTenureModal.providerStartDate ? formatYmdLocal(hourlyTenureModal.providerStartDate) : '—' }}</dd>
+          <dt>Calendar days with organization</dt>
+          <dd>
+            {{
+              hourlyTenureModal.tenureDaysElapsed != null
+                ? `${hourlyTenureModal.tenureDaysElapsed.toLocaleString()} day${hourlyTenureModal.tenureDaysElapsed === 1 ? '' : 's'}`
+                : '—'
+            }}
+          </dd>
+          <dt>Breakdown</dt>
+          <dd>{{ hourlyTenureModal.tenureHuman || '—' }}</dd>
+          <dt>Next work anniversary (calendar)</dt>
+          <dd>
+            <template v-if="hourlyTenureModal.nextAnniversaryDate">
+              {{ formatYmdLocal(hourlyTenureModal.nextAnniversaryDate) }}
+              <span v-if="hourlyTenureModal.daysUntilNextAnniversary != null" class="muted">
+                (in {{ hourlyTenureModal.daysUntilNextAnniversary }} day{{
+                  hourlyTenureModal.daysUntilNextAnniversary === 1 ? '' : 's'
+                }})
+              </span>
+            </template>
+            <template v-else>—</template>
+          </dd>
+        </dl>
+        <div class="hourly-tenure-modal-actions">
+          <button type="button" class="btn btn-primary" @click="hourlyTenureModal = null">Close</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -540,6 +603,7 @@ const hourlySearch = ref('');
 const hourlyComparePeriodId = ref('');
 const hourlySortKey = ref('providerName');
 const hourlySortDir = ref('asc');
+const hourlyTenureModal = ref(null);
 
 const kudosEligibleRecipients = computed(() =>
   (kudosProviders.value || []).filter((p) => p.kudosEligible === true)
@@ -668,6 +732,32 @@ const sortedHourlyRows = computed(() => {
       return String(a.providerName || '').localeCompare(String(b.providerName || ''));
     }
 
+    if (key === 'providerStartDate') {
+      const va = a.providerStartDate ? String(a.providerStartDate) : '';
+      const vb = b.providerStartDate ? String(b.providerStartDate) : '';
+      const na = !va;
+      const nb = !vb;
+      if (na && nb) return String(a.providerName || '').localeCompare(String(b.providerName || ''));
+      if (na) return 1;
+      if (nb) return -1;
+      const c = va.localeCompare(vb);
+      if (c !== 0) return dir * c;
+      return String(a.providerName || '').localeCompare(String(b.providerName || ''));
+    }
+
+    if (key === 'tenureDays') {
+      const va = a.tenureDaysElapsed;
+      const vb = b.tenureDaysElapsed;
+      const na = va === null || va === undefined;
+      const nb = vb === null || vb === undefined;
+      if (na && nb) return String(a.providerName || '').localeCompare(String(b.providerName || ''));
+      if (na) return 1;
+      if (nb) return -1;
+      const c = Number(va) - Number(vb);
+      if (c !== 0) return dir * c;
+      return String(a.providerName || '').localeCompare(String(b.providerName || ''));
+    }
+
     if (key === 'recentRatio' || key === 'allTimeRatio' || key === 'selectedRatio') {
       const va = ratioFor(a);
       const vb = ratioFor(b);
@@ -713,6 +803,16 @@ const formatDateTime = (value) => {
   const dt = new Date(value);
   if (Number.isNaN(dt.getTime())) return '—';
   return dt.toLocaleString();
+};
+
+/** YYYY-MM-DD → readable local date (avoids UTC shift for date-only values). */
+const formatYmdLocal = (ymd) => {
+  const s = String(ymd || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return '—';
+  const [y, m, d] = s.split('-').map((n) => parseInt(n, 10));
+  const dt = new Date(y, m - 1, d);
+  if (Number.isNaN(dt.getTime())) return '—';
+  return dt.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 };
 
 const formatKudosStatus = (approvalStatus, source) => {
@@ -1546,6 +1646,57 @@ watch(() => agencyStore.currentAgency?.id, (id) => {
     grid-column: 1 / -1;
     justify-content: flex-start;
   }
+}
+.hourly-tenure-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.hourly-tenure-modal-panel {
+  background: var(--bg, #fff);
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  max-width: 420px;
+  width: 100%;
+  padding: 20px 22px;
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.18);
+}
+.hourly-tenure-modal-title {
+  margin: 0 0 4px;
+  font-size: 1.1rem;
+}
+.hourly-tenure-modal-email {
+  margin: 0 0 16px;
+  font-size: 13px;
+}
+.hourly-tenure-dl {
+  margin: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px 0;
+}
+.hourly-tenure-dl dt {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+}
+.hourly-tenure-dl dd {
+  margin: 2px 0 0;
+  font-size: 14px;
+  line-height: 1.45;
+}
+.hourly-tenure-modal-actions {
+  margin-top: 18px;
+  display: flex;
+  justify-content: flex-end;
 }
 </style>
 

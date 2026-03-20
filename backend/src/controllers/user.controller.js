@@ -1663,7 +1663,8 @@ export const updateUser = async (req, res, next) => {
       isHourlyWorker,
       hasHiringAccess,
       hasMedicalRecordsReleaseAccess,
-      externalBusyIcsUrl
+      externalBusyIcsUrl,
+      providerStartDate
     } = req.body;
     const loginEmailAliases = req.body?.loginEmailAliases;
 
@@ -1860,6 +1861,17 @@ export const updateUser = async (req, res, next) => {
     if (languagesSpoken !== undefined) {
       const v = String(languagesSpoken || '').trim();
       updateData.languagesSpoken = v || null;
+    }
+    if (providerStartDate !== undefined) {
+      if (providerStartDate === null || providerStartDate === '') {
+        updateData.providerStartDate = null;
+      } else {
+        const s = String(providerStartDate).slice(0, 10);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+          return res.status(400).json({ error: { message: 'providerStartDate must be YYYY-MM-DD' } });
+        }
+        updateData.providerStartDate = s;
+      }
     }
     if (credential !== undefined) {
       const v = String(credential || '').trim();
@@ -5686,6 +5698,7 @@ export const getAccountInfo = async (req, res, next) => {
       title: user.title ?? null,
       serviceFocus: user.service_focus ?? null,
       languagesSpoken: user.languages_spoken ?? null,
+      providerStartDate: user.provider_start_date ? String(user.provider_start_date).slice(0, 10) : null,
       personalEmail: personalEmail || user.personal_email || null,
       phoneNumber: user.phone_number || null, // Keep for backward compatibility
       personalPhone: user.personal_phone || null,

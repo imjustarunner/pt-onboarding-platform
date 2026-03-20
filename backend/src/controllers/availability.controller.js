@@ -3125,6 +3125,91 @@ function diFmtPct(r) {
   return `${Math.round(r * 1000) / 10}%`;
 }
 
+function parseLocalDateOnlyYmd(ymd) {
+  const s = String(ymd || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  const [y, m, d] = s.split('-').map((n) => parseInt(n, 10));
+  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return null;
+  const dt = new Date(y, m - 1, d);
+  if (dt.getFullYear() !== y || dt.getMonth() !== m - 1 || dt.getDate() !== d) return null;
+  return dt;
+}
+
+function startOfLocalDay(d) {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+/** Calendar-based tenure from a DATE column (browser local timezone). */
+function computeTenureMeta(startYmd) {
+  const start = parseLocalDateOnlyYmd(startYmd);
+  if (!start) {
+    return {
+      providerStartDate: null,
+      tenureDaysElapsed: null,
+      tenureYears: null,
+      tenureMonths: null,
+      tenureDaysRemainder: null,
+      tenureHuman: null,
+      nextAnniversaryDate: null,
+      daysUntilNextAnniversary: null
+    };
+  }
+  const start0 = startOfLocalDay(start);
+  const today = startOfLocalDay(new Date());
+  const ymd = String(startYmd).slice(0, 10);
+  if (start0 > today) {
+    return {
+      providerStartDate: ymd,
+      tenureDaysElapsed: null,
+      tenureYears: null,
+      tenureMonths: null,
+      tenureDaysRemainder: null,
+      tenureHuman: null,
+      nextAnniversaryDate: null,
+      daysUntilNextAnniversary: null
+    };
+  }
+  const msPerDay = 86400000;
+  const tenureDaysElapsed = Math.round((today - start0) / msPerDay);
+
+  let yy = today.getFullYear() - start.getFullYear();
+  let mo = today.getMonth() - start.getMonth();
+  let da = today.getDate() - start.getDate();
+  if (da < 0) {
+    mo -= 1;
+    const prevMonthLast = new Date(today.getFullYear(), today.getMonth(), 0);
+    da += prevMonthLast.getDate();
+  }
+  if (mo < 0) {
+    yy -= 1;
+    mo += 12;
+  }
+  const parts = [];
+  if (yy) parts.push(`${yy} year${yy === 1 ? '' : 's'}`);
+  if (mo) parts.push(`${mo} month${mo === 1 ? '' : 's'}`);
+  if (da || parts.length === 0) parts.push(`${da} day${da === 1 ? '' : 's'}`);
+  const tenureHuman = parts.join(', ');
+
+  const cy = today.getFullYear();
+  let nextAnn = new Date(cy, start.getMonth(), start.getDate());
+  if (nextAnn < today) {
+    nextAnn = new Date(cy + 1, start.getMonth(), start.getDate());
+  }
+  const daysUntilNextAnniversary = Math.round((startOfLocalDay(nextAnn) - today) / msPerDay);
+  const nextAnniversaryDate = `${nextAnn.getFullYear()}-${String(nextAnn.getMonth() + 1).padStart(2, '0')}-${String(nextAnn.getDate()).padStart(2, '0')}`;
+
+  return {
+    providerStartDate: ymd,
+    tenureDaysElapsed,
+    tenureYears: yy,
+    tenureMonths: mo,
+    tenureDaysRemainder: da,
+    tenureHuman,
+    nextAnniversaryDate,
+    daysUntilNextAnniversary
+  };
+}
+
 function diPayload(direct, indirect, extra = {}) {
   const d = Number(direct || 0);
   const i = Number(indirect || 0);
@@ -3174,7 +3259,7 @@ export const hourlyWorkerDirectIndirectDashboard = async (req, res, next) => {
     }));
 
     const [hourlyProviders] = await pool.execute(
-      `SELECT DISTINCT u.id, u.first_name, u.last_name, u.email
+      `SELECT DISTINCT u.id, u.first_name, u.last_name, u.email, u.provider_start_date
        FROM users u
        JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
        WHERE (u.role IN ('provider') OR u.has_provider_access = TRUE)
@@ -3251,13 +3336,15 @@ export const hourlyWorkerDirectIndirectDashboard = async (req, res, next) => {
         ...diPayload(row.directHours, row.indirectHours)
       }));
 
+      const tenure = computeTenureMeta(p.provider_start_date);
       return {
         userId,
         providerName: `${p.first_name || ''} ${p.last_name || ''}`.trim(),
         email: p.email || '',
         recent,
         allTime,
-        byPeriod
+        byPeriod,
+        ...tenure
       };
     });
 
