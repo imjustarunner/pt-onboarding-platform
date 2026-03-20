@@ -48,15 +48,28 @@
             <p class="muted">
               Issue kudos from this admin page. Include a clear reason so teams can see why recognition was given.
             </p>
+            <p class="muted kudos-issue-policy">
+              Recipients must be at <strong>benefit Tier&nbsp;2 or higher</strong> on the latest
+              <em>posted</em> payroll period (rolling direct-credits average, same thresholds as payroll)
+              and have <strong>no unpaid or incomplete notes</strong> in that period’s import.
+              Supervisors are excluded. Peer kudos elsewhere follow the same rules.
+            </p>
             <div class="kudos-issue-form">
               <div class="field">
-                <label>Recipient (provider)</label>
+                <label>Recipient (eligible providers only)</label>
                 <select v-model="kudosIssueToUserId" class="select">
                   <option value="">Select provider…</option>
-                  <option v-for="p in kudosProviders" :key="`kudos-recipient-${p.providerId}`" :value="String(p.providerId)">
+                  <option
+                    v-for="p in kudosEligibleRecipients"
+                    :key="`kudos-recipient-${p.providerId}`"
+                    :value="String(p.providerId)"
+                  >
                     {{ p.providerName }} ({{ p.points }} pts)
                   </option>
                 </select>
+                <div v-if="kudosProviders.length && !kudosEligibleRecipients.length" class="muted kudos-issue-empty">
+                  No providers meet eligibility right now (tier + notes + payroll data).
+                </div>
               </div>
               <div class="field">
                 <label>Reason</label>
@@ -87,6 +100,7 @@
               <thead>
                 <tr>
                   <th>Provider</th>
+                  <th>Eligible for new kudos</th>
                   <th>Kudos earned</th>
                   <th>Kudos received (who + why)</th>
                   <th>Kudos given (who + why)</th>
@@ -97,6 +111,13 @@
                   <td>
                     <div><strong>{{ p.providerName }}</strong></div>
                     <div class="muted">{{ p.email || '—' }}</div>
+                  </td>
+                  <td>
+                    <span v-if="p.kudosEligible" class="kudos-pill kudos-pill-ok">Yes</span>
+                    <div v-else class="kudos-ineligible-cell">
+                      <span class="kudos-pill">No</span>
+                      <div class="muted kudos-ineligible-msg">{{ p.kudosIneligibleMessage }}</div>
+                    </div>
                   </td>
                   <td>
                     <div class="kudos-points">{{ p.points }}</div>
@@ -138,7 +159,7 @@
                   </td>
                 </tr>
                 <tr v-if="kudosProviders.length === 0">
-                  <td colspan="4" class="muted">No provider kudos rows found.</td>
+                  <td colspan="5" class="muted">No provider kudos rows found.</td>
                 </tr>
               </tbody>
             </table>
@@ -416,6 +437,10 @@ const kudosIssuing = ref(false);
 const kudosIssueError = ref('');
 const kudosIssueSuccess = ref('');
 
+const kudosEligibleRecipients = computed(() =>
+  (kudosProviders.value || []).filter((p) => p.kudosEligible === true)
+);
+
 const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
 const filters = ref({
@@ -657,9 +682,17 @@ const loadKudosTracker = async () => {
         points: Number(row?.points || 0),
         givenCount: Number(row?.givenCount || 0),
         received: Array.isArray(row?.received) ? row.received : [],
-        given: Array.isArray(row?.given) ? row.given : []
+        given: Array.isArray(row?.given) ? row.given : [],
+        kudosEligible: !!row?.kudosEligible,
+        kudosIneligibleMessage: String(row?.kudosIneligibleMessage || '').trim() || 'Not eligible.',
+        benefitTierLevel: Number(row?.benefitTierLevel ?? 0),
+        unpaidNotesCount: Number(row?.unpaidNotesCount ?? 0)
       }))
       .sort((a, b) => (Number(b.points || 0) - Number(a.points || 0)) || String(a.providerName).localeCompare(String(b.providerName)));
+    const allowed = new Set(kudosEligibleRecipients.value.map((p) => String(p.providerId || '')));
+    if (kudosIssueToUserId.value && !allowed.has(String(kudosIssueToUserId.value))) {
+      kudosIssueToUserId.value = '';
+    }
   } catch (e) {
     kudosProviders.value = [];
     error.value = e.response?.data?.error?.message || e.message || 'Failed to load kudos tracker';
@@ -906,7 +939,40 @@ watch(() => agencyStore.currentAgency?.id, (id) => {
   -webkit-overflow-scrolling: touch;
 }
 .kudos-wrap .table {
-  min-width: 720px;
+  min-width: 880px;
+}
+.kudos-issue-policy {
+  font-size: 13px;
+  line-height: 1.45;
+  margin-top: 8px;
+}
+.kudos-issue-empty {
+  margin-top: 6px;
+  font-size: 13px;
+}
+.kudos-pill {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 800;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+.kudos-pill-ok {
+  background: #ecfdf5;
+  border-color: #a7f3d0;
+  color: #065f46;
+}
+.kudos-ineligible-cell {
+  display: grid;
+  gap: 6px;
+  max-width: 280px;
+}
+.kudos-ineligible-msg {
+  font-size: 12px;
+  line-height: 1.35;
 }
 .kudos-wrap .table th,
 .kudos-wrap .table td {

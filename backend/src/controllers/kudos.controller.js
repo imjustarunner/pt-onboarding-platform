@@ -5,6 +5,11 @@ import PayrollSummary from '../models/PayrollSummary.model.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 import { createNotificationAndDispatch } from '../services/notificationDispatcher.service.js';
 import { isSupervisorActor } from '../utils/supervisorSchoolAccess.js';
+import {
+  computeKudosRecipientEligibility,
+  loadAgencyTierThresholds,
+  tierLevelFromWeeklyAvg
+} from '../services/kudosRecipientEligibility.service.js';
 
 const MIN_REASON_LENGTH = 10;
 
@@ -177,6 +182,19 @@ export const giveKudos = async (req, res, next) => {
     await assertAgencyAccess(req.user, agencyId);
     await assertKudosEnabled(agencyId);
     await assertUserInAgency(toUserId, agencyId);
+
+    const eligMap = await computeKudosRecipientEligibility({ agencyId, userIds: [toUserId] });
+    const elig = eligMap.get(Number(toUserId));
+    if (!elig?.eligible) {
+      return res.status(400).json({
+        error: {
+          message: elig?.reasonMessage || 'This person is not eligible to receive kudos right now.',
+          code: elig?.reason || 'not_eligible',
+          benefitTierLevel: elig?.benefitTierLevel ?? null,
+          unpaidNotesCount: elig?.unpaidNotesCount ?? null
+        }
+      });
+    }
 
     const giverCanGiveUnlimited = await canGiveUnlimitedKudos(req.user);
     const giveBalancePolicy = getGiveBalancePolicy(req.user);
@@ -645,6 +663,19 @@ export const awardNotesComplete = async (req, res, next) => {
 
     const periodId = Number(lastPaycheck.payroll_period_id);
 
+    const thresholds = await loadAgencyTierThresholds(agencyId);
+    const biWeeklyAward =
+      Number(lastPaycheck.tier_credits_final ?? lastPaycheck.tier_credits_current ?? 0) || 0;
+    const weeklyAvgAward = biWeeklyAward / 2;
+    const benefitTierForAward = tierLevelFromWeeklyAvg(weeklyAvgAward, thresholds);
+    if (benefitTierForAward < 2) {
+      return res.json({
+        awarded: false,
+        reason: 'benefit_tier_below_2',
+        benefitTierLevel: benefitTierForAward
+      });
+    }
+
     const [impRows] = await pool.execute(
       `SELECT id FROM payroll_imports
        WHERE payroll_period_id = ?
@@ -771,10 +802,11 @@ export const getAdminKudosTracker = async (req, res, next) => {
     await assertKudosEnabled(agencyId);
 
     const [providers] = await pool.execute(
-      `SELECT DISTINCT u.id, u.first_name, u.last_name, u.preferred_name, u.email
+      `SELECT DISTINCT u.id, u.first_name, u.last_name, u.preferred_name, u.email, u.role
        FROM users u
        JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
-       WHERE (u.role IN ('provider') OR u.has_provider_access = TRUE)
+       WHERE (u.role IN ('provider', 'provider_plus') OR u.has_provider_access = TRUE)
+         AND LOWER(COALESCE(u.role, '')) <> 'supervisor'
          AND (u.is_archived IS NULL OR u.is_archived = FALSE)
          AND (u.is_active IS NULL OR u.is_active = TRUE)
          AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE'))
@@ -890,18 +922,36 @@ export const getAdminKudosTracker = async (req, res, next) => {
       });
     }
 
+    const eligByUser = await computeKudosRecipientEligibility({ agencyId, userIds: providerIds });
+
     const out = (providers || []).map((p) => {
       const providerName = p.preferred_name
         ? `${p.first_name || ''} "${p.preferred_name}" ${p.last_name || ''}`.trim()
         : `${p.first_name || ''} ${p.last_name || ''}`.trim() || p.email || `User #${p.id}`;
+      const pid = Number(p.id);
+      const elig = eligByUser.get(pid) || {
+        eligible: false,
+        reason: 'no_payroll_period',
+        reasonMessage: 'Unable to determine kudos eligibility.',
+        benefitTierLevel: 0,
+        unpaidNotesCount: 0,
+        payrollPeriodId: null
+      };
       return {
-        providerId: Number(p.id),
+        providerId: pid,
         providerName,
         email: p.email || '',
-        points: Number(pointsByUserId.get(Number(p.id)) || 0),
-        givenCount: Number(givenCountByUserId.get(Number(p.id)) || 0),
-        received: receivedByUserId.get(Number(p.id)) || [],
-        given: givenByUserId.get(Number(p.id)) || []
+        role: p.role || '',
+        points: Number(pointsByUserId.get(pid) || 0),
+        givenCount: Number(givenCountByUserId.get(pid) || 0),
+        received: receivedByUserId.get(pid) || [],
+        given: givenByUserId.get(pid) || [],
+        kudosEligible: !!elig.eligible,
+        kudosIneligibleReason: elig.reason,
+        kudosIneligibleMessage: elig.reasonMessage,
+        benefitTierLevel: elig.benefitTierLevel,
+        unpaidNotesCount: elig.unpaidNotesCount,
+        kudosEligibilityPayrollPeriodId: elig.payrollPeriodId
       };
     });
 

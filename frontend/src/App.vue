@@ -2374,11 +2374,16 @@ onUnmounted(() => {
   box-shadow: var(--shadow-lg);
   border-bottom: 3px solid var(--accent);
   width: 100%;
+  max-width: 100%;
+  flex-shrink: 0;
   overflow: visible;
+  box-sizing: border-box;
 }
 
 .navbar .container {
   overflow: visible;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .navbar .nav-title,
@@ -2640,6 +2645,7 @@ onUnmounted(() => {
     overflow-x: auto;
     overflow-y: visible;
     -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
     scrollbar-width: none;
   }
 
@@ -2649,6 +2655,7 @@ onUnmounted(() => {
 
   .nav-links {
     min-width: max-content;
+    flex-wrap: nowrap;
   }
 
   .nav-links-wrapper.nav-menus-open {
@@ -3528,16 +3535,18 @@ onUnmounted(() => {
   filter: brightness(0) invert(1);
 }
 
-/* Responsive: Hide desktop nav on small mobile, show hamburger */
-@media (max-width: 1200px) {
-  /* Prevent horizontal overflow on smaller laptops by allowing wrapping. */
+/*
+ * Tablet / narrow desktop: keep ONE horizontal row inside the green bar and scroll it.
+ * Wrapping was pushing weather / notifications / logout into a second row or past the bar,
+ * leaving a blank strip on the right on iPad (especially landscape).
+ */
+@media (max-width: 1200px) and (min-width: 769px) {
   .nav-content {
-    align-items: flex-start;
+    align-items: center;
   }
 
   .nav-links {
-    flex-wrap: wrap;
-    row-gap: 10px;
+    flex-wrap: nowrap;
   }
 
   .nav-availability {
