@@ -667,15 +667,26 @@
           {{ notificationsUnreadCount }}
         </span>
       </button>
-      <button
+      <div
         v-if="newNotificationToastVisible"
-        type="button"
-        class="new-notification-toast"
-        @click="goToNotifications"
+        class="new-notification-toast-wrap"
+        role="alert"
       >
-        <span class="new-notification-toast-icon" aria-hidden="true">🔔</span>
-        <span>New notification{{ notificationsUnreadCount > 1 ? 's' : '' }}</span>
-      </button>
+        <button
+          type="button"
+          class="new-notification-toast"
+          @click="goToNotifications"
+        >
+          <span class="new-notification-toast-icon" aria-hidden="true">🔔</span>
+          <span>New notification{{ notificationsUnreadCount > 1 ? 's' : '' }}</span>
+        </button>
+        <button
+          type="button"
+          class="toast-dismiss-btn new-notification-toast-dismiss"
+          aria-label="Dismiss"
+          @click.stop="dismissNewNotificationToast"
+        >×</button>
+      </div>
       <div
         v-if="loginActivityToast.visible"
         class="login-activity-toast"
@@ -690,7 +701,7 @@
           type="button"
           class="toast-dismiss-btn"
           aria-label="Dismiss"
-          @click.stop="loginActivityToast.visible = false"
+          @click.stop="dismissLoginActivityToast"
         >×</button>
       </div>
       <div
@@ -706,18 +717,25 @@
           type="button"
           class="toast-dismiss-btn"
           aria-label="Dismiss"
-          @click.stop="newPacketToast = { visible: false, message: '', notificationId: null }"
+          @click.stop="dismissNewPacketToast"
         >×</button>
       </div>
-      <button
+      <div
         v-if="kudosToast.visible"
-        type="button"
         class="kudos-toast"
-        @click="goToNotifications"
+        role="alert"
       >
-        <span class="kudos-toast-plus" aria-hidden="true">+1</span>
-        <span class="kudos-toast-message">{{ kudosToast.reason }}</span>
-      </button>
+        <button type="button" class="kudos-toast-body" @click="goToNotifications">
+          <span class="kudos-toast-plus" aria-hidden="true">+1</span>
+          <span class="kudos-toast-message">{{ kudosToast.reason }}</span>
+        </button>
+        <button
+          type="button"
+          class="toast-dismiss-btn kudos-toast-dismiss-btn"
+          aria-label="Dismiss"
+          @click.stop="dismissKudosToast"
+        >×</button>
+      </div>
       <div
         v-if="joinReminderToast.visible"
         class="join-reminder-toast"
@@ -736,7 +754,7 @@
           type="button"
           class="join-reminder-toast-dismiss"
           aria-label="Dismiss"
-          @click.stop="joinReminderToast.visible = false"
+          @click.stop="dismissJoinReminderToast"
         >
           ×
         </button>
@@ -1756,14 +1774,66 @@ const playNotificationSound = () => {
 const newNotificationToastVisible = ref(false);
 const newNotificationToastTimer = ref(null);
 // Login/logout activity toast – shows who logged in/out, pokes out by chat rail
-const loginActivityToast = ref({ visible: false, message: '', type: null });
+const loginActivityToast = ref({ visible: false, message: '', type: null, notificationId: null });
 const loginActivityToastTimer = ref(null);
+/** Prevents the same login/logout notification from re-opening the toast after dismiss or navigation. */
+const dismissedLoginActivityNotificationIds = ref([]);
+const MAX_DISMISSED_LOGIN_ACTIVITY_IDS = 80;
+
+const recordLoginActivityNotificationDismissed = (id) => {
+  if (id == null || id === '') return;
+  const key = String(id);
+  const cur = dismissedLoginActivityNotificationIds.value;
+  if (cur.includes(key)) return;
+  const next = [...cur, key];
+  if (next.length > MAX_DISMISSED_LOGIN_ACTIVITY_IDS) {
+    next.splice(0, next.length - MAX_DISMISSED_LOGIN_ACTIVITY_IDS);
+  }
+  dismissedLoginActivityNotificationIds.value = next;
+};
+
+const dismissLoginActivityToast = () => {
+  recordLoginActivityNotificationDismissed(loginActivityToast.value?.notificationId);
+  loginActivityToast.value = { visible: false, message: '', type: null, notificationId: null };
+  if (loginActivityToastTimer.value) {
+    clearTimeout(loginActivityToastTimer.value);
+    loginActivityToastTimer.value = null;
+  }
+};
 const kudosToast = ref({ visible: false, message: '', reason: '' });
 const kudosToastTimer = ref(null);
 const joinReminderToast = ref({ visible: false, message: '', prompt: null });
 let joinReminderPollInterval = null;
 const newPacketToast = ref({ visible: false, message: '', notificationId: null });
 const newPacketToastTimer = ref(null);
+
+const dismissNewNotificationToast = () => {
+  newNotificationToastVisible.value = false;
+  if (newNotificationToastTimer.value) {
+    clearTimeout(newNotificationToastTimer.value);
+    newNotificationToastTimer.value = null;
+  }
+};
+
+const dismissNewPacketToast = () => {
+  newPacketToast.value = { visible: false, message: '', notificationId: null };
+  if (newPacketToastTimer.value) {
+    clearTimeout(newPacketToastTimer.value);
+    newPacketToastTimer.value = null;
+  }
+};
+
+const dismissKudosToast = () => {
+  kudosToast.value = { visible: false, message: '', reason: '' };
+  if (kudosToastTimer.value) {
+    clearTimeout(kudosToastTimer.value);
+    kudosToastTimer.value = null;
+  }
+};
+
+const dismissJoinReminderToast = () => {
+  joinReminderToast.value = { visible: false, message: '', prompt: null };
+};
 
 const getToastPref = (type) => {
   const tp = userPreferencesStore.toastPreferences;
@@ -1811,14 +1881,24 @@ const showNewNotificationToast = async () => {
     // Login/logout activity toast
     const llPref = getToastPref('login_logout');
     if (llPref.toast_enabled && !isSchoolStaff) {
-      const loginLogout = (latest || []).filter((n) => n.type === 'user_login' || n.type === 'user_logout');
+      const dismissed = new Set(dismissedLoginActivityNotificationIds.value.map(String));
+      const loginLogout = (latest || []).filter(
+        (n) =>
+          (n.type === 'user_login' || n.type === 'user_logout') &&
+          (n.id == null || n.id === '' || !dismissed.has(String(n.id)))
+      );
       const first = loginLogout[0];
       if (first?.message) {
-        loginActivityToast.value = { visible: true, message: first.message, type: first.type };
+        loginActivityToast.value = {
+          visible: true,
+          message: first.message,
+          type: first.type,
+          notificationId: first.id != null ? first.id : null
+        };
         if (loginActivityToastTimer.value) clearTimeout(loginActivityToastTimer.value);
         if (llPref.duration_seconds !== null && llPref.duration_seconds > 0) {
           loginActivityToastTimer.value = setTimeout(() => {
-            loginActivityToast.value = { visible: false, message: '', type: null };
+            loginActivityToast.value = { visible: false, message: '', type: null, notificationId: null };
             loginActivityToastTimer.value = null;
           }, llPref.duration_seconds * 1000);
         }
@@ -1918,14 +1998,15 @@ const joinReminderToastJoin = () => {
   const p = joinReminderToast.value?.prompt;
   const link = String(p?.joinUrl || p?.googleMeetLink || '').trim();
   if (link) window.open(link, '_blank', 'noreferrer');
-  joinReminderToast.value = { visible: false, message: '', prompt: null };
+  dismissJoinReminderToast();
 };
 
 const goToNotifications = () => {
   showLoginNotificationsModal.value = false;
   notificationsNudgeVisible.value = false;
   newNotificationToastVisible.value = false;
-  loginActivityToast.value = { visible: false, message: '', type: null };
+  recordLoginActivityNotificationDismissed(loginActivityToast.value?.notificationId);
+  loginActivityToast.value = { visible: false, message: '', type: null, notificationId: null };
   kudosToast.value = { visible: false, message: '', reason: '' };
   if (newNotificationToastTimer.value) {
     clearTimeout(newNotificationToastTimer.value);
@@ -2012,7 +2093,8 @@ watch(isOnNotificationsRoute, (onNotifications) => {
     showLoginNotificationsModal.value = false;
     notificationsNudgeVisible.value = false;
     newNotificationToastVisible.value = false;
-    loginActivityToast.value = { visible: false, message: '', type: null };
+    recordLoginActivityNotificationDismissed(loginActivityToast.value?.notificationId);
+    loginActivityToast.value = { visible: false, message: '', type: null, notificationId: null };
     newPacketToast.value = { visible: false, message: '', notificationId: null };
     if (newNotificationToastTimer.value) {
       clearTimeout(newNotificationToastTimer.value);
@@ -2858,31 +2940,47 @@ onUnmounted(() => {
   }
 }
 
-.new-notification-toast {
+.new-notification-toast-wrap {
   position: fixed;
   top: 16px;
   right: 20px;
   z-index: 1550;
   display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 18px;
+  align-items: stretch;
+  max-width: min(420px, calc(100vw - 40px));
   border-radius: 12px;
   border: 1px solid var(--border);
   background: white;
-  color: var(--text-primary);
   box-shadow: 0 12px 28px rgba(15, 23, 42, 0.22);
+  overflow: hidden;
+  animation: newNotificationToastIn 0.3s ease-out;
+}
+.new-notification-toast {
+  flex: 1;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 18px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
   cursor: pointer;
   font-weight: 700;
   font-size: 14px;
-  animation: newNotificationToastIn 0.3s ease-out;
+  font: inherit;
+  text-align: left;
 }
 .new-notification-toast:hover {
   background: var(--bg-secondary);
-  transform: translateY(-1px);
 }
 .new-notification-toast-icon {
   font-size: 18px;
+  flex-shrink: 0;
+}
+.new-notification-toast-wrap .new-notification-toast-dismiss {
+  border-radius: 0;
+  flex-shrink: 0;
 }
 
 /* Login/logout activity toast – pokes out by the chat rail on the left */
@@ -2932,6 +3030,8 @@ onUnmounted(() => {
 }
 
 .toast-dismiss-btn {
+  position: relative;
+  z-index: 2;
   background: transparent;
   border: none;
   border-left: 1px solid var(--border);
@@ -3003,21 +3103,29 @@ onUnmounted(() => {
   right: 20px;
   z-index: 1550;
   display: inline-flex;
+  align-items: stretch;
+  max-width: min(360px, calc(100vw - 40px));
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+.kudos-toast-body {
+  flex: 1;
+  min-width: 0;
+  display: inline-flex;
   align-items: center;
   gap: 10px;
   padding: 12px 18px;
-  border-radius: 10px;
   background: var(--success-color, #2F8F83);
   color: #fff;
   font-size: 14px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  cursor: pointer;
+  font: inherit;
   border: none;
-  max-width: 360px;
+  cursor: pointer;
+  text-align: left;
 }
-.kudos-toast:hover {
+.kudos-toast-body:hover {
   filter: brightness(1.05);
-  transform: translateY(-1px);
 }
 .kudos-toast-plus {
   font-weight: 700;
@@ -3025,9 +3133,16 @@ onUnmounted(() => {
   flex-shrink: 0;
 }
 .kudos-toast-message {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+.kudos-toast .kudos-toast-dismiss-btn {
+  border-left-color: rgba(255, 255, 255, 0.35);
+  color: rgba(255, 255, 255, 0.95);
+}
+.kudos-toast .kudos-toast-dismiss-btn:hover {
+  background: rgba(0, 0, 0, 0.15);
+  color: #fff;
 }
 
 @keyframes loginActivityToastIn {
@@ -3092,6 +3207,8 @@ onUnmounted(() => {
   filter: brightness(1.08);
 }
 .join-reminder-toast-dismiss {
+  position: relative;
+  z-index: 2;
   padding: 2px 8px;
   font-size: 18px;
   line-height: 1;

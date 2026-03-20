@@ -345,7 +345,7 @@
           </table>
         </div>
 
-        <div v-else class="table-wrap" data-tour="avail-virtual-table">
+        <div v-else-if="tab === 'virtual'" class="table-wrap" data-tour="avail-virtual-table">
           <table class="table">
             <thead>
               <tr>
@@ -872,7 +872,9 @@ watch(() => agencyStore.currentAgency?.id, (id) => {
 }
 .tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
+  row-gap: 10px;
   border-bottom: 1px solid var(--border);
   padding-bottom: 10px;
   margin-bottom: 14px;
@@ -898,6 +900,29 @@ watch(() => agencyStore.currentAgency?.id, (id) => {
 .kudos-wrap {
   display: grid;
   gap: 12px;
+}
+.kudos-wrap .table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.kudos-wrap .table {
+  min-width: 720px;
+}
+.kudos-wrap .table th,
+.kudos-wrap .table td {
+  vertical-align: top;
+}
+.kudos-wrap .table th {
+  white-space: normal;
+  line-height: 1.25;
+}
+.kudos-wrap .kudos-details summary {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.kudos-wrap .kudos-history-item {
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .kudos-issue-card {
   border: 1px solid var(--border);
@@ -1097,6 +1122,19 @@ watch(() => agencyStore.currentAgency?.id, (id) => {
 .empty-state {
   padding: 16px;
   color: var(--text-secondary);
+}
+@media (max-width: 900px) {
+  .page-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .header-actions {
+    flex-wrap: wrap;
+  }
+  .tab {
+    font-size: 13px;
+    padding: 7px 10px;
+  }
 }
 @media (max-width: 1100px) {
   .filters {
