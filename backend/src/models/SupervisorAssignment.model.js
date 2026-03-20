@@ -150,6 +150,29 @@ class SupervisorAssignment {
   }
 
   /**
+   * Distinct supervisor user IDs for a supervisee in an agency (for notifications, etc.).
+   * Excludes archived/inactive supervisor accounts. Uses an explicit SELECT so driver quirks
+   * from sa.* column overlap never drop supervisor_id.
+   */
+  static async getActiveSupervisorUserIdsForSupervisee(superviseeId, agencyId) {
+    const sv = Number(superviseeId || 0);
+    const aid = Number(agencyId || 0);
+    if (!sv || !aid) return [];
+    const [rows] = await pool.execute(
+      `SELECT DISTINCT sa.supervisor_id
+       FROM supervisor_assignments sa
+       INNER JOIN users u ON u.id = sa.supervisor_id
+       WHERE sa.supervisee_id = ?
+         AND sa.agency_id = ?
+         AND (u.is_archived IS NULL OR u.is_archived = FALSE)
+         AND (u.is_active IS NULL OR u.is_active = TRUE)
+         AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE'))`,
+      [sv, aid]
+    );
+    return [...new Set((rows || []).map((r) => Number(r.supervisor_id)).filter((n) => Number.isInteger(n) && n > 0))];
+  }
+
+  /**
    * Find all assignments in an agency
    */
   static async findByAgency(agencyId) {

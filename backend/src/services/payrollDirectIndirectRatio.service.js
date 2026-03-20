@@ -78,9 +78,9 @@ export async function emitDirectIndirectRatioNotifications({ agencyId, payrollPe
 
       const recipientIds = new Set([userId]);
 
-      const supervisors = await SupervisorAssignment.findBySupervisee(userId, agencyIdNum);
-      for (const s of supervisors || []) {
-        if (s?.supervisor_id) recipientIds.add(Number(s.supervisor_id));
+      const supervisorIds = await SupervisorAssignment.getActiveSupervisorUserIdsForSupervisee(userId, agencyIdNum);
+      for (const supId of supervisorIds) {
+        recipientIds.add(supId);
       }
 
       const [adminRows] = await pool.execute(

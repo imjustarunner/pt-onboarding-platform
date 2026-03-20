@@ -18,6 +18,7 @@ import {
   upsertClientWaitlistNote,
   listClientComments,
   createClientComment,
+  getSchoolPortalClientSchoolStaffRoiSummary,
   issueSchoolPortalClientSmartRoiLink,
   listSchoolPortalNotificationsFeed,
   markSchoolPortalNotificationsRead,
@@ -94,6 +95,7 @@ router.post('/:organizationId/provider-availability/confirm', authenticate, conf
 router.get('/:organizationId/clients/:clientId/waitlist-note', authenticate, getClientWaitlistNote);
 router.put('/:organizationId/clients/:clientId/waitlist-note', authenticate, upsertClientWaitlistNote);
 router.get('/:organizationId/clients/:clientId/comments', authenticate, listClientComments);
+router.get('/:organizationId/clients/:clientId/school-staff-roi-summary', authenticate, getSchoolPortalClientSchoolStaffRoiSummary);
 router.post('/:organizationId/clients/:clientId/comments', authenticate, createClientComment);
 router.post('/:organizationId/clients/:clientId/smart-roi-link', authenticate, issueSchoolPortalClientSmartRoiLink);
 router.get('/:organizationId/notifications/feed', authenticate, listSchoolPortalNotificationsFeed);

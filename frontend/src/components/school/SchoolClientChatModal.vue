@@ -116,25 +116,62 @@
       <div v-if="loading" class="loading">Loading…</div>
       <div v-else-if="error" class="error">{{ error }}</div>
       <div v-else class="body">
-        <div v-if="checklist" class="checklist">
-          <div class="checklist-title">Compliance checklist (read-only)</div>
-          <div class="checklist-grid">
-            <div class="check-item">
-              <div class="k">Parents Contacted</div>
-              <div class="v">{{ formatDateOnly(checklist.parents_contacted_at) }}</div>
-            </div>
-            <div class="check-item">
-              <div class="k">Successful?</div>
-              <div class="v">
-                {{ checklist.parents_contacted_successful === null ? '—' : (checklist.parents_contacted_successful ? 'Yes' : 'No') }}
+        <div v-if="checklist" class="checklist-roi-split">
+          <div class="checklist checklist-half">
+            <div class="checklist-title">Compliance checklist (read-only)</div>
+            <div class="checklist-grid">
+              <div class="check-item">
+                <div class="k">Parents Contacted</div>
+                <div class="v">{{ formatDateOnly(checklist.parents_contacted_at) }}</div>
+              </div>
+              <div class="check-item">
+                <div class="k">Successful?</div>
+                <div class="v">
+                  {{ checklist.parents_contacted_successful === null ? '—' : (checklist.parents_contacted_successful ? 'Yes' : 'No') }}
+                </div>
+              </div>
+              <div class="check-item">
+                <div class="k">First Service</div>
+                <div class="v">{{ formatDateOnly(checklist.first_service_at) }}</div>
               </div>
             </div>
-            <div class="check-item">
-              <div class="k">First Service</div>
-              <div class="v">{{ formatDateOnly(checklist.first_service_at) }}</div>
+            <div v-if="checklistAudit" class="checklist-audit">{{ checklistAudit }}</div>
+          </div>
+
+          <div class="staff-roi-card checklist-half">
+            <div class="checklist-title">School staff & ROI (read-only)</div>
+            <p class="staff-roi-hint muted">
+              Each row is a school portal account. Status is that person’s access level for this student; ROI expiration is this student’s school ROI date (same for all rows).
+            </p>
+            <div v-if="!props.schoolOrganizationId" class="muted staff-roi-body">School context missing — roster unavailable.</div>
+            <div v-else-if="staffRoiError" class="error staff-roi-body">{{ staffRoiError }}</div>
+            <div v-else-if="loading && !staffRoiSummary" class="muted staff-roi-body">Loading…</div>
+            <div v-else-if="staffRoiSummary && (!staffRoiSummary.staff || staffRoiSummary.staff.length === 0)" class="muted staff-roi-body">
+              No school staff users found for this school.
+            </div>
+            <div v-else-if="staffRoiSummary" class="staff-roi-table-wrap">
+              <table class="staff-roi-table">
+                <thead>
+                  <tr>
+                    <th>Staff</th>
+                    <th>ROI status</th>
+                    <th>ROI expires</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="s in staffRoiSummary.staff" :key="`staff-roi-${s.school_staff_user_id}`">
+                    <td class="staff-roi-name">{{ s.name }}</td>
+                    <td>
+                      <span class="staff-roi-status" :class="`staff-roi-${String(s.effective_access_state || '').toLowerCase()}`">
+                        {{ s.status_label }}
+                      </span>
+                    </td>
+                    <td class="mono staff-roi-exp">{{ s.roi_expires_at || '—' }}</td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           </div>
-          <div v-if="checklistAudit" class="checklist-audit">{{ checklistAudit }}</div>
         </div>
 
         <div class="dual" :class="dualClass">
@@ -377,6 +414,8 @@ const error = ref('');
 const fullClient = ref(null);
 const checklist = ref(null);
 const checklistAudit = ref('');
+const staffRoiSummary = ref(null);
+const staffRoiError = ref('');
 
 const activePane = ref(null); // null | 'comments' | 'messages'
 const dualClass = computed(() => (activePane.value ? `dual-active-${activePane.value}` : 'dual-active-both'));
@@ -407,6 +446,8 @@ const load = async () => {
   try {
     loading.value = true;
     error.value = '';
+    staffRoiSummary.value = null;
+    staffRoiError.value = '';
     // Comments (non-ticket notes) from school portal endpoint.
     if (props.schoolOrganizationId) {
       try {
@@ -434,6 +475,20 @@ const load = async () => {
     } catch {
       checklist.value = null;
       checklistAudit.value = '';
+    }
+
+    if (props.schoolOrganizationId && checklist.value) {
+      try {
+        const r = await api.get(
+          `/school-portal/${props.schoolOrganizationId}/clients/${props.client.id}/school-staff-roi-summary`,
+          { skipGlobalLoading: true }
+        );
+        staffRoiSummary.value = r.data || null;
+      } catch (e) {
+        staffRoiSummary.value = null;
+        staffRoiError.value =
+          e.response?.data?.error?.message || e.message || 'Failed to load school staff ROI summary';
+      }
     }
 
     if (canViewPacketAudit.value) {
@@ -539,6 +594,8 @@ watch(
     commentDraft.value = '';
     commentError.value = '';
     smartRoiError.value = '';
+    staffRoiSummary.value = null;
+    staffRoiError.value = '';
   }
 );
 </script>
@@ -595,12 +652,80 @@ watch(
 .waitlist-badge-compact {
   font-size: 12px;
 }
+.checklist-roi-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  align-items: start;
+  margin-bottom: 12px;
+}
+@media (max-width: 768px) {
+  .checklist-roi-split {
+    grid-template-columns: 1fr;
+  }
+}
+.checklist-half {
+  margin-bottom: 0;
+  min-width: 0;
+}
 .checklist {
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 12px;
   background: var(--bg);
   margin-bottom: 12px;
+}
+.checklist-roi-split .checklist {
+  margin-bottom: 0;
+}
+.staff-roi-card {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+  background: var(--bg);
+}
+.staff-roi-hint {
+  font-size: 12px;
+  line-height: 1.35;
+  margin: 0 0 10px;
+}
+.staff-roi-body {
+  font-size: 13px;
+}
+.staff-roi-table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.staff-roi-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.staff-roi-table th,
+.staff-roi-table td {
+  text-align: left;
+  padding: 8px 6px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+.staff-roi-table th {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--text-secondary);
+}
+.staff-roi-name {
+  font-weight: 700;
+}
+.staff-roi-exp {
+  white-space: nowrap;
+}
+.staff-roi-status.staff-roi-expired {
+  color: #991b1b;
+  font-weight: 700;
+}
+.staff-roi-status.staff-roi-none {
+  color: var(--text-secondary);
 }
 .checklist-title {
   font-weight: 700;

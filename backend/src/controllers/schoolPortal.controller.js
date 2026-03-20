@@ -8,6 +8,7 @@ import Client from '../models/Client.model.js';
 import ClientNotes from '../models/ClientNotes.model.js';
 import ClientSchoolStaffRoiAccess, {
   getEffectiveSchoolStaffRoiState,
+  isRoiExpired,
   schoolStaffCanOpenClient,
   schoolStaffCanViewClientDocuments
 } from '../models/ClientSchoolStaffRoiAccess.model.js';
@@ -4033,6 +4034,96 @@ export const listClientComments = async (req, res, next) => {
     logClientAccess(req, clientId, 'school_portal_comments_viewed').catch(() => {});
 
     res.json(out);
+  } catch (e) {
+    next(e);
+  }
+};
+
+function schoolPortalRoiStatusLabel(effectiveState) {
+  const s = String(effectiveState || '').toLowerCase();
+  if (s === 'none') return 'No access';
+  if (s === 'packet') return 'Packet';
+  if (s === 'limited') return 'Limited';
+  if (s === 'roi') return 'ROI';
+  if (s === 'roi_docs') return 'ROI + documents';
+  if (s === 'expired') return 'Expired';
+  return '—';
+}
+
+/**
+ * Read-only: school staff roster for this client with per-staff ROI access state and client ROI expiration.
+ * GET /api/school-portal/:organizationId/clients/:clientId/school-staff-roi-summary
+ */
+export const getSchoolPortalClientSchoolStaffRoiSummary = async (req, res, next) => {
+  try {
+    const orgId = await resolveOrgIdFromParam(req.params.organizationId);
+    const clientId = parseInt(req.params.clientId, 10);
+    if (!orgId || !clientId) return res.status(400).json({ error: { message: 'Invalid organizationId or clientId' } });
+
+    const userId = req.user?.id;
+    const roleNorm = String(req.user?.role || '').toLowerCase();
+    if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+
+    const inOrg = await clientBelongsToOrg({ clientId, orgId });
+    if (!inOrg) return res.status(404).json({ error: { message: 'Client not found in this organization' } });
+
+    if (roleNorm !== 'super_admin') {
+      const ok = await userHasOrgOrAffiliatedAgencyAccess({ userId, role: roleNorm, schoolOrganizationId: orgId });
+      if (!ok) return res.status(403).json({ error: { message: 'You do not have access to this school organization' } });
+    }
+
+    const roiAccess = await ensureSchoolStaffClientRoiAccess({
+      userId,
+      role: roleNorm,
+      schoolOrganizationId: orgId,
+      clientId
+    });
+    if (!roiAccess.ok) return res.status(roiAccess.status).json({ error: { message: roiAccess.message } });
+
+    const isSupervisorOnly = await isSupervisorOnlyActor({ userId, role: roleNorm, user: req.user });
+    if (roleNorm === 'provider') {
+      const assigned = await providerAssignedToClientInOrg({ providerUserId: userId, clientId, orgId });
+      if (!assigned) return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+    if (isSupervisorOnly) {
+      const assigned = await supervisorCanAccessClientInOrg({ supervisorUserId: userId, clientId, orgId });
+      if (!assigned) return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const client = await Client.findById(clientId, { includeSensitive: true });
+    if (!client) return res.status(404).json({ error: { message: 'Client not found' } });
+
+    const roiExpiresAt = client.roi_expires_at || null;
+    const staffRows = await ClientSchoolStaffRoiAccess.listSchoolStaffRosterForClient({
+      clientId,
+      schoolOrganizationId: orgId,
+      roiExpiresAt
+    });
+
+    const staff = (staffRows || []).map((row) => {
+      const first = String(row.first_name || '').trim();
+      const last = String(row.last_name || '').trim();
+      const name = [first, last].filter(Boolean).join(' ').trim() || String(row.email || '').trim() || `User ${row.school_staff_user_id}`;
+      return {
+        school_staff_user_id: Number(row.school_staff_user_id),
+        name,
+        email: row.email || null,
+        effective_access_state: row.effective_access_state || 'none',
+        status_label: schoolPortalRoiStatusLabel(row.effective_access_state),
+        roi_expires_at: roiExpiresAt ? String(roiExpiresAt).slice(0, 10) : null,
+        roi_expired: isRoiExpired(roiExpiresAt)
+      };
+    });
+
+    logClientAccess(req, clientId, 'school_portal_staff_roi_summary_viewed').catch(() => {});
+
+    res.json({
+      client_id: clientId,
+      school_organization_id: orgId,
+      roi_expires_at: roiExpiresAt ? String(roiExpiresAt).slice(0, 10) : null,
+      roi_expired: isRoiExpired(roiExpiresAt),
+      staff
+    });
   } catch (e) {
     next(e);
   }
