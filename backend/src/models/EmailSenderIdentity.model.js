@@ -131,13 +131,56 @@ class EmailSenderIdentity {
     return (rows || []).map((r) => ({ ...r, inbound_addresses: parseJsonMaybe(r.inbound_addresses_json) || [] }));
   }
 
-  static async findByFromEmail(fromEmail) {
+  /**
+   * All active identities with this from_email (often several agencies share an alias).
+   * @param {string} fromEmail
+   * @param {{ preferAgencyId?: number|null, skipTestDisplayNames?: boolean }} [options]
+   */
+  static async findByFromEmail(fromEmail, options = {}) {
+    const email = String(fromEmail || '').trim();
+    if (!email) return null;
     const [rows] = await pool.execute(
       `SELECT * FROM email_sender_identities WHERE LOWER(from_email) = LOWER(?) AND is_active = TRUE`,
-      [fromEmail]
+      [email]
     );
-    const r = rows[0] || null;
-    return r ? { ...r, inbound_addresses: parseJsonMaybe(r.inbound_addresses_json) || [] } : null;
+    if (!rows?.length) return null;
+
+    const mapRow = (r) => ({ ...r, inbound_addresses: parseJsonMaybe(r.inbound_addresses_json) || [] });
+    let list = rows.map(mapRow);
+
+    const skipTest = options.skipTestDisplayNames !== false;
+    if (skipTest) {
+      const isBadDisplay = (d) => {
+        const n = String(d || '').trim().toLowerCase();
+        return (
+          n.includes('fakey') ||
+          n.includes('fake school') ||
+          n.includes('test school') ||
+          n.includes('placeholder') ||
+          n.includes('example school')
+        );
+      };
+      const ok = list.filter((r) => !isBadDisplay(r.display_name));
+      if (ok.length) list = ok;
+    }
+
+    const preferAid = options.preferAgencyId != null ? Number(options.preferAgencyId) : null;
+    if (preferAid) {
+      const hit = list.find((r) => Number(r.agency_id) === preferAid);
+      if (hit) return hit;
+    }
+
+    list.sort((a, b) => {
+      const aPlat = a.agency_id == null ? 0 : 1;
+      const bPlat = b.agency_id == null ? 0 : 1;
+      if (aPlat !== bPlat) return aPlat - bPlat;
+      const aIt = String(a.display_name || '').toLowerCase().includes('itsco') ? 0 : 1;
+      const bIt = String(b.display_name || '').toLowerCase().includes('itsco') ? 0 : 1;
+      if (aIt !== bIt) return aIt - bIt;
+      return Number(a.id) - Number(b.id);
+    });
+
+    return list[0] || null;
   }
 
   static async findByInboundAddress(address) {

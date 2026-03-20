@@ -115,7 +115,7 @@ async function getSchoolIntakeEmailFromDisplayName(schoolOrganizationId) {
   }
 }
 
-async function resolveNotificationsSenderIdentityId() {
+async function resolveNotificationsSenderIdentityId({ preferAgencyId = null } = {}) {
   try {
     // Prefer platform-level ITSCO notifications identity. Never prefer test/pilot
     // display names (e.g. "Fakey School …") when multiple rows share the same from_email.
@@ -138,8 +138,30 @@ async function resolveNotificationsSenderIdentityId() {
     const chosen = preferredItsco || candidates[0] || null;
     if (Number(chosen?.id || 0)) return Number(chosen.id);
 
-    // Fallback to first active identity with notifications@itsco.health.
-    const identity = await EmailSenderIdentity.findByFromEmail(notificationsEmail);
+    const aid = Number(preferAgencyId || 0) || null;
+    // When platform has no row (common), use the therapy agency's school_intake / notifications
+    // identity — not an arbitrary other agency that shares notifications@itsco.health.
+    if (aid) {
+      try {
+        const scoped = await resolvePreferredSenderIdentityForAgency({
+          agencyId: aid,
+          preferredKeys: ['school_intake', 'notifications', 'intake', 'system'],
+          includePlatformDefaults: true,
+          onlyActive: true
+        });
+        if (Number(scoped?.id || 0)) {
+          const fe = String(scoped.from_email || '').trim().toLowerCase();
+          if (fe === notificationsEmail) return Number(scoped.id);
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    const identity = await EmailSenderIdentity.findByFromEmail(notificationsEmail, {
+      preferAgencyId: aid,
+      skipTestDisplayNames: true
+    });
     return Number(identity?.id || 0) || null;
   } catch {
     return null;
@@ -147,23 +169,7 @@ async function resolveNotificationsSenderIdentityId() {
 }
 
 async function resolveIntakeStatusSenderIdentityId({ agencyId }) {
-  // Hard-prefer the canonical ITSCO notifications sender for intake status emails.
-  const notificationsId = await resolveNotificationsSenderIdentityId();
-  if (notificationsId) return notificationsId;
-
-  const aid = Number(agencyId || 0) || null;
-  try {
-    const scoped = await resolvePreferredSenderIdentityForAgency({
-      agencyId: aid,
-      preferredKeys: ['notifications', 'system', 'intake'],
-      includePlatformDefaults: true,
-      onlyActive: true
-    });
-    if (Number(scoped?.id || 0)) return Number(scoped.id);
-  } catch {
-    // Fall through to stable notifications identity fallback.
-  }
-  return await resolveNotificationsSenderIdentityId();
+  return await resolveNotificationsSenderIdentityId({ preferAgencyId: agencyId });
 }
 
 async function sendSchoolIntakeStatusEmail({
