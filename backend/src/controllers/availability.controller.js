@@ -12,6 +12,7 @@ import Notification from '../models/Notification.model.js';
 import { isPublicProviderFinderFeatureEnabled } from '../services/publicAvailabilityGate.service.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 import OfficeScheduleMaterializer from '../services/officeScheduleMaterializer.service.js';
+import { directIndirectRatioKindFromRatio } from '../utils/directIndirectRatioBands.js';
 
 function parseIntSafe(v) {
   const n = parseInt(v, 10);
@@ -3102,6 +3103,165 @@ export const providerAvailabilityDashboard = async (req, res, next) => {
       officeAvailability,
       virtualWorkingHours
     });
+  } catch (e) {
+    next(e);
+  }
+};
+
+function diRatioOf(direct, indirect) {
+  const d = Number(direct || 0);
+  const i = Number(indirect || 0);
+  if (d > 1e-9) return i / d;
+  if (i > 1e-9) return Infinity;
+  return 0;
+}
+
+function diRatioKind(ratio) {
+  return directIndirectRatioKindFromRatio(ratio);
+}
+
+function diFmtPct(r) {
+  if (r === null || r === undefined || !Number.isFinite(r)) return '—';
+  return `${Math.round(r * 1000) / 10}%`;
+}
+
+function diPayload(direct, indirect, extra = {}) {
+  const d = Number(direct || 0);
+  const i = Number(indirect || 0);
+  const ratio = diRatioOf(d, i);
+  const dPerI = i > 1e-9 ? d / i : null;
+  return {
+    ...extra,
+    directHours: d,
+    indirectHours: i,
+    indirectToDirectRatio: Number.isFinite(ratio) ? ratio : null,
+    indirectToDirectPct: diFmtPct(ratio),
+    directToIndirectLabel:
+      dPerI !== null && Number.isFinite(dPerI)
+        ? `${Math.round(dPerI * 100) / 100} : 1`
+        : d > 1e-9 && i <= 1e-9
+          ? 'Direct only'
+          : '—',
+    kind: diRatioKind(ratio)
+  };
+}
+
+/** Admin dashboard: hourly-flagged providers with direct/indirect hours from posted payroll (matches provider paycheck ratio semantics). */
+export const hourlyWorkerDirectIndirectDashboard = async (req, res, next) => {
+  try {
+    const agencyId = await resolveAgencyId(req);
+    if (!(await requireAgencyMembership(req, res, agencyId))) return;
+    if (!canViewAvailabilityDashboard(req.user?.role)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const [periodRows] = await pool.execute(
+      `SELECT id, label, period_start, period_end, status
+       FROM payroll_periods
+       WHERE agency_id = ?
+         AND LOWER(status) IN ('posted','finalized')
+       ORDER BY period_start DESC
+       LIMIT 120`,
+      [agencyId]
+    );
+
+    const payPeriods = (periodRows || []).map((r) => ({
+      id: Number(r.id),
+      label: r.label || '',
+      periodStart: r.period_start ? String(r.period_start).slice(0, 10) : '',
+      periodEnd: r.period_end ? String(r.period_end).slice(0, 10) : '',
+      status: r.status || ''
+    }));
+
+    const [hourlyProviders] = await pool.execute(
+      `SELECT DISTINCT u.id, u.first_name, u.last_name, u.email
+       FROM users u
+       JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
+       WHERE (u.role IN ('provider') OR u.has_provider_access = TRUE)
+         AND (u.is_hourly_worker = 1 OR u.is_hourly_worker = TRUE OR u.is_hourly_worker = '1')
+         AND (u.is_archived IS NULL OR u.is_archived = FALSE)
+         AND (u.is_active IS NULL OR u.is_active = TRUE)
+         AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE'))
+       ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC`,
+      [agencyId]
+    );
+
+    const userIds = (hourlyProviders || []).map((p) => Number(p.id)).filter(Boolean);
+    if (userIds.length === 0) {
+      return res.json({ ok: true, agencyId, payPeriods, providers: [] });
+    }
+
+    const ph = userIds.map(() => '?').join(',');
+    const [summaryRows] = await pool.execute(
+      `SELECT
+         ps.user_id,
+         ps.payroll_period_id,
+         ps.direct_hours,
+         ps.indirect_hours,
+         pp.period_start,
+         pp.label
+       FROM payroll_summaries ps
+       JOIN payroll_periods pp ON pp.id = ps.payroll_period_id AND pp.agency_id = ps.agency_id
+       WHERE ps.agency_id = ?
+         AND ps.user_id IN (${ph})
+         AND LOWER(pp.status) IN ('posted','finalized')
+       ORDER BY pp.period_start DESC, ps.user_id ASC`,
+      [agencyId, ...userIds]
+    );
+
+    const byUser = new Map();
+    for (const uid of userIds) {
+      byUser.set(uid, []);
+    }
+    for (const r of summaryRows || []) {
+      const uid = Number(r.user_id);
+      if (!byUser.has(uid)) continue;
+      byUser.get(uid).push({
+        payrollPeriodId: Number(r.payroll_period_id),
+        periodStart: r.period_start ? String(r.period_start).slice(0, 10) : '',
+        periodLabel: r.label || '',
+        directHours: Number(r.direct_hours || 0),
+        indirectHours: Number(r.indirect_hours || 0)
+      });
+    }
+
+    const providers = (hourlyProviders || []).map((p) => {
+      const userId = Number(p.id);
+      const periods = byUser.get(userId) || [];
+      const recentRaw = periods[0] || null;
+      const sumD = periods.reduce((a, x) => a + Number(x.directHours || 0), 0);
+      const sumI = periods.reduce((a, x) => a + Number(x.indirectHours || 0), 0);
+
+      const recent = recentRaw
+        ? diPayload(recentRaw.directHours, recentRaw.indirectHours, {
+            payrollPeriodId: recentRaw.payrollPeriodId,
+            periodLabel: recentRaw.periodLabel,
+            periodStart: recentRaw.periodStart
+          })
+        : null;
+
+      const allTime = diPayload(sumD, sumI, {
+        periodCount: periods.length
+      });
+
+      const byPeriod = periods.map((row) => ({
+        payrollPeriodId: row.payrollPeriodId,
+        periodLabel: row.periodLabel,
+        periodStart: row.periodStart,
+        ...diPayload(row.directHours, row.indirectHours)
+      }));
+
+      return {
+        userId,
+        providerName: `${p.first_name || ''} ${p.last_name || ''}`.trim(),
+        email: p.email || '',
+        recent,
+        allTime,
+        byPeriod
+      };
+    });
+
+    res.json({ ok: true, agencyId, payPeriods, providers });
   } catch (e) {
     next(e);
   }

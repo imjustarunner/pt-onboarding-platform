@@ -5,8 +5,9 @@ export default {
     {
       element: '[data-tour="avail-title"]',
       popover: {
-        title: 'Provider Availability',
-        description: 'Use this dashboard to audit school slots, office availability, and virtual availability templates.',
+        title: 'Provider Management',
+        description:
+          'Use this hub to audit school slots, office and virtual availability, hourly direct/indirect payroll ratios, app usage, and kudos.',
         side: 'bottom',
         align: 'start'
       }
@@ -15,7 +16,7 @@ export default {
       element: '[data-tour="avail-tabs"]',
       popover: {
         title: 'Tabs',
-        description: 'Switch between School, Office, and Virtual availability datasets.',
+        description: 'Switch between organization slots, office/virtual availability, school requests, app tracker, kudos, and hourly payroll ratios.',
         side: 'bottom',
         align: 'start'
       }

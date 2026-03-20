@@ -2,6 +2,7 @@ import pool from '../config/database.js';
 import PayrollSummary from '../models/PayrollSummary.model.js';
 import Notification from '../models/Notification.model.js';
 import SupervisorAssignment from '../models/SupervisorAssignment.model.js';
+import { directIndirectRatioKindFromRatio } from '../utils/directIndirectRatioBands.js';
 
 const ratioOf = ({ direct, indirect }) => {
   const d = Number(direct || 0);
@@ -11,12 +12,7 @@ const ratioOf = ({ direct, indirect }) => {
   return 0;
 };
 
-const ratioKind = (ratio) => {
-  if (!Number.isFinite(ratio)) return 'red';
-  if (ratio <= 0.15 + 1e-9) return 'green';
-  if (ratio <= 0.25 + 1e-9) return 'yellow';
-  return 'red';
-};
+const ratioKind = (ratio) => directIndirectRatioKindFromRatio(ratio);
 
 const fmtPct = (r) => {
   if (r === null || r === undefined || !Number.isFinite(r)) return '—';
@@ -78,7 +74,7 @@ export async function emitDirectIndirectRatioNotifications({ agencyId, payrollPe
       const avgPct = fmtPct(avgRatio);
       const severityLabel = lastKind === 'red' || avgKind === 'red' ? 'red' : 'yellow';
       const title = 'Direct/Indirect ratio alert';
-      const message = `Direct/Indirect ratio is ${severityLabel}: Last ${lastPct}, 90-day ${avgPct}. Goal: green ≤15%, yellow 15–25%, red >25%.`;
+      const message = `Payroll was just posted — direct/indirect ratio is ${severityLabel}: Last ${lastPct}, 90-day ${avgPct}. Goal: green ≤9 min indirect per 1h direct, yellow between 9 and 15 min, red ≥15 min (15+ min flagged).`;
 
       const recipientIds = new Set([userId]);
 

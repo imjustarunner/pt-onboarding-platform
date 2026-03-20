@@ -72,7 +72,10 @@
           </div>
         </div>
         <div class="muted small">
-          Goal: green ≤ 15% · yellow 15–25% · red &gt; 25%
+          Goal: green ≤9 min indirect per 1h direct · yellow &gt;9–&lt;15 min · red ≥15 min
+        </div>
+        <div class="muted small">
+          Yellow/red ratio alerts are only sent <strong>after</strong> a pay period is posted.
         </div>
       </div>
 

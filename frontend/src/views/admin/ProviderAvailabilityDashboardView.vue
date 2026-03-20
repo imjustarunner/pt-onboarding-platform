@@ -2,8 +2,10 @@
   <div class="page">
     <div class="page-header" data-tour="avail-header">
       <div>
-        <h1 data-tour="avail-title">Provider Availability</h1>
-        <p class="page-description" data-tour="avail-subtitle">View organization slots, office availability, and virtual availability templates.</p>
+        <h1 data-tour="avail-title">Provider Management</h1>
+        <p class="page-description" data-tour="avail-subtitle">
+          Schedules, availability, payroll ratios for hourly providers, app usage, and kudos — by agency.
+        </p>
       </div>
       <div class="header-actions" data-tour="avail-actions">
         <button class="btn btn-secondary" type="button" @click="tab = 'kudos'">Kudos</button>
@@ -32,6 +34,9 @@
         <button class="tab" :class="{ active: tab === 'school_requests' }" @click="tab = 'school_requests'">School availability</button>
         <button class="tab" :class="{ active: tab === 'tracker' }" @click="tab = 'tracker'">Provider app tracker</button>
         <button class="tab" :class="{ active: tab === 'kudos' }" @click="tab = 'kudos'">Kudos</button>
+        <button class="tab" :class="{ active: tab === 'hourly_direct' }" @click="tab = 'hourly_direct'">
+          Hourly direct / indirect
+        </button>
       </div>
 
       <div v-if="error" class="error">{{ error }}</div>
@@ -160,6 +165,98 @@
                 </tr>
                 <tr v-if="kudosProviders.length === 0">
                   <td colspan="5" class="muted">No provider kudos rows found.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div v-else-if="tab === 'hourly_direct'" class="hourly-direct-wrap">
+          <p class="muted hourly-direct-hint">
+            Hourly-flagged providers only; data is from <strong>posted</strong> payroll periods. Bands use <strong>minutes of indirect per clock hour of direct</strong> (same idea as the paycheck card). Green ≤9 min, yellow &gt;9 and &lt;15 min, red ≥15 min (15 min with 1h direct is flagged). Providers are told about yellow/red ratios <strong>only after</strong> payroll is posted.
+            <strong>Indirect %</strong> shown is still indirect ÷ direct; <strong>direct : indirect</strong> is direct hours per one indirect hour.
+          </p>
+          <div class="hourly-direct-toolbar">
+            <div class="field hourly-search-field">
+              <label>Search</label>
+              <input
+                v-model="hourlySearch"
+                class="input"
+                type="search"
+                placeholder="Name or email — matches letters in order"
+                autocomplete="off"
+              />
+            </div>
+            <div class="field">
+              <label>Pay period</label>
+              <select v-model="hourlyComparePeriodId" class="select">
+                <option value="">Latest in table (see “Most recent”)</option>
+                <option v-for="p in hourlyPayPeriods" :key="`hp-${p.id}`" :value="String(p.id)">
+                  {{ p.label || `${p.periodStart} → ${p.periodEnd}` }}
+                </option>
+              </select>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table class="table hourly-table">
+              <thead>
+                <tr>
+                  <th class="sortable" @click="setHourlySort('providerName')">Provider</th>
+                  <th class="sortable" @click="setHourlySort('email')">Email</th>
+                  <th class="sortable" @click="setHourlySort('recentRatio')">Most recent</th>
+                  <th class="sortable" @click="setHourlySort('allTimeRatio')">All pay periods</th>
+                  <th class="sortable" @click="setHourlySort('selectedRatio')">Selected pay period</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="row in sortedHourlyRows" :key="`hourly-${row.userId}`">
+                  <td>
+                    <div class="hourly-name">
+                      <template v-for="(seg, i) in hourlyHighlightSegments(row.providerName, row._hiName)" :key="`hn-${row.userId}-${i}`">
+                        <mark v-if="seg.mark" class="search-hit">{{ seg.t }}</mark>
+                        <template v-else>{{ seg.t }}</template>
+                      </template>
+                    </div>
+                  </td>
+                  <td>
+                    <div class="hourly-email">
+                      <template v-for="(seg, i) in hourlyHighlightSegments(row.email, row._hiEmail)" :key="`he-${row.userId}-${i}`">
+                        <mark v-if="seg.mark" class="search-hit">{{ seg.t }}</mark>
+                        <template v-else>{{ seg.t }}</template>
+                      </template>
+                    </div>
+                  </td>
+                  <td>
+                    <template v-if="row.recent">
+                      <div class="pill" :class="`pill-${row.recent.kind}`">{{ row.recent.indirectToDirectPct }}</div>
+                      <div class="muted hourly-sub">{{ row.recent.directToIndirectLabel }} · {{ fmtHoursPair(row.recent) }}</div>
+                      <div class="muted hourly-sub">{{ row.recent.periodLabel || row.recent.periodStart || '' }}</div>
+                    </template>
+                    <span v-else class="muted">No posted payroll yet</span>
+                  </td>
+                  <td>
+                    <template v-if="row.allTime && row.allTime.periodCount > 0">
+                      <div class="pill" :class="`pill-${row.allTime.kind}`">{{ row.allTime.indirectToDirectPct }}</div>
+                      <div class="muted hourly-sub">{{ row.allTime.directToIndirectLabel }} · {{ fmtHoursPair(row.allTime) }}</div>
+                      <div class="muted hourly-sub">{{ row.allTime.periodCount }} period(s)</div>
+                    </template>
+                    <span v-else class="muted">—</span>
+                  </td>
+                  <td>
+                    <template v-if="hourlySelectedPeriodPayload(row)">
+                      <div class="pill" :class="`pill-${hourlySelectedPeriodPayload(row).kind}`">
+                        {{ hourlySelectedPeriodPayload(row).indirectToDirectPct }}
+                      </div>
+                      <div class="muted hourly-sub">
+                        {{ hourlySelectedPeriodPayload(row).directToIndirectLabel }} · {{ fmtHoursPair(hourlySelectedPeriodPayload(row)) }}
+                      </div>
+                    </template>
+                    <span v-else-if="hourlyComparePeriodId" class="muted">No payroll summary this period</span>
+                    <span v-else class="muted">Choose a pay period above</span>
+                  </td>
+                </tr>
+                <tr v-if="sortedHourlyRows.length === 0">
+                  <td colspan="5" class="muted">No hourly-flagged providers for this agency.</td>
                 </tr>
               </tbody>
             </table>
@@ -419,7 +516,7 @@ const agencies = computed(() => {
 
 const loading = ref(false);
 const error = ref('');
-const tab = ref('school'); // school | office | virtual | school_requests | tracker | kudos
+const tab = ref('school'); // school | office | virtual | school_requests | tracker | kudos | hourly_direct
 
 const data = ref({
   providers: [],
@@ -436,6 +533,13 @@ const kudosIssueReason = ref('');
 const kudosIssuing = ref(false);
 const kudosIssueError = ref('');
 const kudosIssueSuccess = ref('');
+
+const hourlyPayPeriods = ref([]);
+const hourlyProviders = ref([]);
+const hourlySearch = ref('');
+const hourlyComparePeriodId = ref('');
+const hourlySortKey = ref('providerName');
+const hourlySortDir = ref('asc');
 
 const kudosEligibleRecipients = computed(() =>
   (kudosProviders.value || []).filter((p) => p.kudosEligible === true)
@@ -456,6 +560,140 @@ const sortKey = ref('schoolName');
 const sortDir = ref('asc'); // asc | desc
 
 const normalize = (v) => String(v || '').toLowerCase();
+
+/** Greedy subsequence match; returns original-string indices (haystack not lowercased — match is case-insensitive). */
+function subsequenceIndices(haystack, queryLower) {
+  const h = String(haystack || '');
+  const hl = h.toLowerCase();
+  const q = String(queryLower || '').replace(/\s+/g, '');
+  if (!q.length) return [];
+  let qi = 0;
+  const idx = [];
+  for (let i = 0; i < hl.length && qi < q.length; i++) {
+    if (hl[i] === q[qi]) {
+      idx.push(i);
+      qi++;
+    }
+  }
+  return qi === q.length ? idx : null;
+}
+
+const hourlySearchNorm = computed(() =>
+  String(hourlySearch.value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '')
+);
+
+const hourlyRowsAugmented = computed(() => {
+  const q = hourlySearchNorm.value;
+  const rows = hourlyProviders.value || [];
+  return rows.map((r) => {
+    const name = String(r.providerName || '');
+    const email = String(r.email || '');
+    const full = `${name} ${email}`;
+    const _hiName = new Set();
+    const _hiEmail = new Set();
+    if (!q.length) {
+      return { ...r, _match: true, _hiName, _hiEmail, _searchScore: 0 };
+    }
+    const m = subsequenceIndices(full, q);
+    if (!m) {
+      return { ...r, _match: false, _hiName, _hiEmail, _searchScore: 1e9 };
+    }
+    const gap = name.length + 1;
+    for (const i of m) {
+      if (i < name.length) _hiName.add(i);
+      else if (i >= gap) _hiEmail.add(i - gap);
+    }
+    const span = m.length ? m[m.length - 1] - m[0] : 0;
+    const _searchScore = span + m.length * 0.001;
+    return { ...r, _match: true, _hiName, _hiEmail, _searchScore };
+  });
+});
+
+const hourlySelectedPeriodPayload = (r) => {
+  const id = hourlyComparePeriodId.value;
+  if (!id) return null;
+  const list = r.byPeriod || [];
+  return list.find((x) => String(x.payrollPeriodId) === String(id)) || null;
+};
+
+const fmtHoursPair = (payload) => {
+  if (!payload) return '';
+  return `${Number(payload.directHours || 0).toFixed(1)}h / ${Number(payload.indirectHours || 0).toFixed(1)}h`;
+};
+
+const hourlyHighlightSegments = (text, idxSet) => {
+  const s = String(text || '');
+  const set = idxSet instanceof Set ? idxSet : new Set();
+  if (!s.length) return [{ t: '—', mark: false }];
+  const parts = [];
+  for (let i = 0; i < s.length; ) {
+    const mark = set.has(i);
+    let j = i + 1;
+    while (j < s.length && set.has(j) === mark) j += 1;
+    parts.push({ t: s.slice(i, j), mark });
+    i = j;
+  }
+  return parts;
+};
+
+const sortedHourlyRows = computed(() => {
+  const q = hourlySearchNorm.value;
+  const rows = hourlyRowsAugmented.value.slice();
+  const dir = hourlySortDir.value === 'asc' ? 1 : -1;
+  const key = hourlySortKey.value;
+
+  const ratioFor = (r) => {
+    if (key === 'recentRatio') return r.recent?.indirectToDirectRatio;
+    if (key === 'allTimeRatio') return r.allTime?.indirectToDirectRatio;
+    if (key === 'selectedRatio') return hourlySelectedPeriodPayload(r)?.indirectToDirectRatio;
+    return null;
+  };
+
+  rows.sort((a, b) => {
+    if (q.length) {
+      const ma = a._match !== false;
+      const mb = b._match !== false;
+      if (ma !== mb) return ma ? -1 : 1;
+      if (ma && mb && a._searchScore !== b._searchScore) return a._searchScore - b._searchScore;
+    }
+
+    if (key === 'providerName' || key === 'email') {
+      const va = key === 'providerName' ? String(a.providerName || '') : String(a.email || '');
+      const vb = key === 'providerName' ? String(b.providerName || '') : String(b.email || '');
+      const c = va.localeCompare(vb);
+      if (c !== 0) return dir * c;
+      return String(a.providerName || '').localeCompare(String(b.providerName || ''));
+    }
+
+    if (key === 'recentRatio' || key === 'allTimeRatio' || key === 'selectedRatio') {
+      const va = ratioFor(a);
+      const vb = ratioFor(b);
+      const na = va === null || va === undefined || !Number.isFinite(va);
+      const nb = vb === null || vb === undefined || !Number.isFinite(vb);
+      if (na && nb) return String(a.providerName || '').localeCompare(String(b.providerName || ''));
+      if (na) return 1;
+      if (nb) return -1;
+      const c = va - vb;
+      if (c !== 0) return dir * c;
+      return String(a.providerName || '').localeCompare(String(b.providerName || ''));
+    }
+
+    return String(a.providerName || '').localeCompare(String(b.providerName || ''));
+  });
+  return rows;
+});
+
+const setHourlySort = (key) => {
+  if (hourlySortKey.value === key) {
+    hourlySortDir.value = hourlySortDir.value === 'asc' ? 'desc' : 'asc';
+    return;
+  }
+  hourlySortKey.value = key;
+  hourlySortDir.value = 'asc';
+};
 
 const providerOptions = computed(() => data.value.providers || []);
 const orgOptions = computed(() => (data.value.organizations || []).filter((o) => String(o?.organization_type || '').toLowerCase() !== 'agency'));
@@ -635,6 +873,31 @@ const setSort = (key) => {
   sortDir.value = 'asc';
 };
 
+const loadHourlyDirectIndirect = async () => {
+  if (!agencyId.value) return;
+  try {
+    loading.value = true;
+    error.value = '';
+    const resp = await api.get('/availability/admin/hourly-worker-direct-indirect', {
+      params: { agencyId: agencyId.value }
+    });
+    hourlyPayPeriods.value = Array.isArray(resp?.data?.payPeriods) ? resp.data.payPeriods : [];
+    hourlyProviders.value = Array.isArray(resp?.data?.providers) ? resp.data.providers : [];
+    if (
+      hourlyComparePeriodId.value &&
+      !hourlyPayPeriods.value.some((p) => String(p.id) === String(hourlyComparePeriodId.value))
+    ) {
+      hourlyComparePeriodId.value = '';
+    }
+  } catch (e) {
+    hourlyProviders.value = [];
+    hourlyPayPeriods.value = [];
+    error.value = e.response?.data?.error?.message || e.message || 'Failed to load hourly payroll ratios';
+  } finally {
+    loading.value = false;
+  }
+};
+
 const reload = async () => {
   if (!agencyId.value) return;
   if (tab.value === 'tracker') {
@@ -643,6 +906,10 @@ const reload = async () => {
   }
   if (tab.value === 'kudos') {
     await loadKudosTracker();
+    return;
+  }
+  if (tab.value === 'hourly_direct') {
+    await loadHourlyDirectIndirect();
     return;
   }
   if (tab.value === 'school_requests') return;
@@ -812,6 +1079,10 @@ watch(tab, (t) => {
   }
   if (t === 'kudos') {
     loadKudosTracker();
+    return;
+  }
+  if (t === 'hourly_direct') {
+    loadHourlyDirectIndirect();
     return;
   }
   if (t === 'school_requests') return;
@@ -1033,6 +1304,68 @@ watch(() => agencyStore.currentAgency?.id, (id) => {
 }
 .error-inline {
   color: var(--danger, #d92d20);
+}
+.hourly-direct-wrap {
+  display: grid;
+  gap: 12px;
+}
+.hourly-direct-hint {
+  font-size: 13px;
+  line-height: 1.45;
+  margin: 0;
+}
+.hourly-direct-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  align-items: flex-end;
+}
+.hourly-search-field {
+  flex: 1;
+  min-width: 220px;
+}
+.hourly-table .hourly-sub {
+  font-size: 12px;
+  margin-top: 4px;
+  line-height: 1.35;
+}
+.hourly-name {
+  font-weight: 800;
+}
+.hourly-email {
+  word-break: break-word;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.search-hit {
+  padding: 0 1px;
+  border-radius: 3px;
+  background: rgba(250, 204, 21, 0.45);
+  color: inherit;
+}
+.hourly-table .pill {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-alt);
+  font-weight: 800;
+  font-size: 12px;
+}
+.hourly-table .pill-green {
+  border-color: rgba(34, 197, 94, 0.35);
+  background: rgba(34, 197, 94, 0.12);
+  color: #166534;
+}
+.hourly-table .pill-yellow {
+  border-color: rgba(245, 158, 11, 0.35);
+  background: rgba(245, 158, 11, 0.12);
+  color: #92400e;
+}
+.hourly-table .pill-red {
+  border-color: rgba(239, 68, 68, 0.35);
+  background: rgba(239, 68, 68, 0.1);
+  color: #991b1b;
 }
 .tab {
   border: 1px solid var(--border);

@@ -37,6 +37,7 @@ import PayrollRunDelta from '../models/PayrollRunDelta.model.js';
 import PayrollRateTemplate from '../models/PayrollRateTemplate.model.js';
 import PayrollRateTemplateRate from '../models/PayrollRateTemplateRate.model.js';
 import Notification from '../models/Notification.model.js';
+import { directIndirectRatioKindFromRatio } from '../utils/directIndirectRatioBands.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import AgencyMileageRate from '../models/AgencyMileageRate.model.js';
 import PayrollMileageClaim from '../models/PayrollMileageClaim.model.js';
@@ -17067,12 +17068,7 @@ async function buildDashboardSummaryPayload(userId, resolvedAgencyId) {
       if (i > 1e-9) return Infinity;
       return 0;
     };
-    const ratioKind = (ratio) => {
-      if (!Number.isFinite(ratio)) return 'red';
-      if (ratio <= 0.15 + 1e-9) return 'green';
-      if (ratio <= 0.25 + 1e-9) return 'yellow';
-      return 'red';
-    };
+    const ratioKind = (ratio) => directIndirectRatioKindFromRatio(ratio);
 
     const lastRatio = lastPaycheck
       ? ratioOf({ direct: lastPaycheck.direct_hours || 0, indirect: lastPaycheck.indirect_hours || 0 })

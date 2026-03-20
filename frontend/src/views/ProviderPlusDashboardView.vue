@@ -132,7 +132,7 @@ const cards = computed(() => [
   },
   {
     id: 'provider_availability',
-    title: 'Provider Availability',
+    title: 'Provider Management',
     description: 'Review and coordinate provider availability.',
     to: orgTo('/admin/provider-availability'),
     iconKey: 'provider_availability_dashboard',

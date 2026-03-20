@@ -161,7 +161,7 @@
                     <router-link :to="orgTo('/admin/school-portals')" v-if="(user?.role === 'super_admin' || isAdmin) && !isAffiliationContext" >Show All School Portals</router-link>
                     <router-link :to="orgTo('/admin/find-providers')" v-if="(user?.role === 'super_admin' || isAdmin) && !isAffiliationContext" >Provider Booking Interface</router-link>
                     <router-link :to="orgTo('/admin/skill-builders-availability')" v-if="canSeeSkillBuildersAvailabilityDirectoryNav && !isAffiliationContext" >Skill Builders Availability</router-link>
-                    <router-link :to="orgTo('/admin/provider-availability')" v-if="(user?.role === 'super_admin' || isAdmin || user?.role === 'staff' || user?.role === 'provider_plus') && !isAffiliationContext" >Provider Availability</router-link>
+                    <router-link :to="orgTo('/admin/provider-availability')" v-if="(user?.role === 'super_admin' || isAdmin || user?.role === 'staff' || user?.role === 'provider_plus') && !isAffiliationContext" >Provider Management</router-link>
                     <router-link :to="orgTo('/admin/school-clients')" v-if="(user?.role === 'super_admin' || isAdmin || user?.role === 'staff') && !isAffiliationContext">
                       <span>School Clients</span>
                       <span
@@ -480,7 +480,7 @@
                 v-if="(user?.role === 'super_admin' || isAdmin || user?.role === 'staff' || user?.role === 'provider_plus') && !isAffiliationContext"
                 @click="closeMobileMenu"
                 class="mobile-nav-link"
-              >Provider Availability</router-link>
+              >Provider Management</router-link>
               <router-link
                 :to="orgTo('/admin/school-clients')"
                 v-if="(user?.role === 'super_admin' || isAdmin || user?.role === 'staff') && !isAffiliationContext"

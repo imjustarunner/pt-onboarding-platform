@@ -456,7 +456,7 @@ const quickActions = computed(() => {
   },
   {
     id: 'provider_availability_dashboard',
-    title: 'Provider Availability',
+    title: 'Provider Management',
     description: 'View availability by school slots, office, and virtual',
     to: '/admin/provider-availability',
     emoji: '🧭',

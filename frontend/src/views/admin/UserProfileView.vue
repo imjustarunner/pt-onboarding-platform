@@ -619,7 +619,7 @@
                 </label>
                 <label
                   class="compact-toggle"
-                  title="Hourly workers see the Direct/Indirect ratio card and receive ratio notifications."
+                  title="Hourly workers see the Direct/Indirect ratio on their snapshot from posted payroll; yellow/red ratio notifications are sent only after a period is posted."
                 >
                   <span class="compact-title">Hourly Workers</span>
                   <div class="toggle-switch toggle-switch-sm">
