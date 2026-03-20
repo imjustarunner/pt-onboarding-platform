@@ -447,6 +447,48 @@ const openNotification = async (notification) => {
   const isAdminLikeRole = isAdminLike.value;
   const base = orgSlug.value ? `/${orgSlug.value}` : '';
 
+  if (notification.type === 'support_ticket_forwarded_to_provider' && entityType === 'client' && notification.related_entity_id) {
+    const clientId = Number(notification.related_entity_id || 0);
+    if (!clientId) return;
+    const dest = orgSlug.value ? `${base}/dashboard` : '/dashboard';
+    await router.push({ path: dest, query: { ...route.query, clientId: String(clientId) } });
+    return;
+  }
+
+  if (notification.type === 'chat_message' && entityType === 'chat_thread' && notification.related_entity_id) {
+    const threadId = Number(notification.related_entity_id);
+    const actorId = Number(notification.actor_user_id || notification.actorUserId || 0);
+    if (!threadId) return;
+    if (!actorId) {
+      alert('Could not open chat: this notification is missing sender details.');
+      return;
+    }
+    try {
+      const meta = await api.get(`/chat/threads/${threadId}/meta`, { skipGlobalLoading: true });
+      const parentAgencyId = meta.data?.agency_id;
+      const organizationId = meta.data?.organization_id;
+      if (!parentAgencyId) {
+        alert('Could not open chat: missing agency for this thread.');
+        return;
+      }
+      const name = String(notification.actor_display_name || '').trim();
+      await router.push({
+        path: route.path,
+        query: {
+          ...route.query,
+          openChat: '1',
+          openChatWith: String(actorId),
+          agencyId: String(parentAgencyId),
+          ...(organizationId ? { organizationId: String(organizationId) } : {}),
+          ...(name ? { openChatWithName: name } : {})
+        }
+      });
+    } catch (e) {
+      alert(e.response?.data?.error?.message || e.message || 'Failed to open chat');
+    }
+    return;
+  }
+
   if (entityType === 'client' && isAdminLikeRole) {
     const clientId = Number(notification.related_entity_id || 0);
     if (!clientId) return;
@@ -555,6 +597,7 @@ const isUrgent = (n) => String(n?.severity || '').toLowerCase() === 'urgent';
 const typeLabelMap = {
   new_packet_uploaded: 'New packet uploaded',
   support_ticket_created: 'Support ticket',
+  support_ticket_forwarded_to_provider: 'Forwarded client message',
   office_availability_request_pending: 'Office request',
   school_availability_request_pending: 'School request',
   kudos_earned_admin_digest: 'Kudos earned',

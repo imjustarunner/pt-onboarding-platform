@@ -384,6 +384,46 @@
               </button>
             </div>
           </div>
+
+          <div v-if="t.client_id" class="forward-box">
+            <div class="label">Forward to provider(s) &amp; close</div>
+            <p class="muted forward-hint">
+              Converts this into a message on the student’s ticketed Messages thread in the school portal, notifies the
+              selected provider(s), and closes this ticket with a standard resolution note.
+            </p>
+            <div v-if="t.claimed_by_user_id && Number(t.claimed_by_user_id) !== Number(myUserId)" class="muted">
+              Claim this ticket to forward it.
+            </div>
+            <template v-else>
+              <div v-if="forwardProvidersLoading" class="muted">Loading assigned providers…</div>
+              <div v-else-if="!forwardProviders.length" class="muted">
+                No assigned providers found for this client in this school (check client assignments).
+              </div>
+              <div v-else class="forward-provider-list">
+                <label v-for="p in forwardProviders" :key="p.id" class="forward-pill">
+                  <input v-model="forwardSelectedIds" type="checkbox" :value="Number(p.id)" />
+                  <span>
+                    {{ [p.first_name, p.last_name].filter(Boolean).join(' ') || p.email || `User #${p.id}` }}
+                    <span class="muted">({{ p.role || 'provider' }})</span>
+                  </span>
+                </label>
+              </div>
+              <label v-if="forwardProviders.length" class="field" style="margin-top: 10px;">
+                Optional note at the top of the provider message
+                <textarea v-model="forwardNote" class="textarea" rows="2" placeholder="Context for the provider…" />
+              </label>
+              <button
+                v-if="forwardProviders.length"
+                class="btn btn-secondary forward-submit"
+                type="button"
+                :disabled="forwarding || !forwardSelectedIds.length"
+                @click="submitForwardToProviders(t)"
+              >
+                {{ forwarding ? 'Forwarding…' : 'Forward to selected provider(s) & close ticket' }}
+              </button>
+            </template>
+          </div>
+
           <div v-if="answerError" class="error">{{ answerError }}</div>
         </div>
       </div>
@@ -496,6 +536,11 @@ const searchInput = ref('');
 
 const openAnswerId = ref(null);
 const answerText = ref('');
+const forwardProviders = ref([]);
+const forwardProvidersLoading = ref(false);
+const forwardSelectedIds = ref([]);
+const forwardNote = ref('');
+const forwarding = ref(false);
 const submitting = ref(false);
 const generatingResponse = ref(false);
 const reviewingDraftId = ref(null);
@@ -779,11 +824,48 @@ const parseDraftMetadata = (raw) => {
 
 const autoClaimedTicketId = ref(null);
 
+let forwardProvidersReq = 0;
+watch(
+  () => {
+    const aid = openAnswerId.value;
+    if (!aid) return null;
+    const t = (tickets.value || []).find((row) => Number(row?.id) === Number(aid));
+    if (!t?.client_id) return null;
+    return { ticketId: Number(t.id), clientId: Number(t.client_id) };
+  },
+  async (sel, prev) => {
+    if (sel?.ticketId !== prev?.ticketId) {
+      forwardSelectedIds.value = [];
+      forwardNote.value = '';
+    }
+    if (!sel) {
+      forwardProviders.value = [];
+      forwardProvidersLoading.value = false;
+      return;
+    }
+    const reqId = ++forwardProvidersReq;
+    forwardProvidersLoading.value = true;
+    try {
+      const r = await api.get(`/support-tickets/${sel.ticketId}/client-assigned-providers`, { skipGlobalLoading: true });
+      if (reqId !== forwardProvidersReq) return;
+      forwardProviders.value = Array.isArray(r.data?.providers) ? r.data.providers : [];
+    } catch {
+      if (reqId !== forwardProvidersReq) return;
+      forwardProviders.value = [];
+    } finally {
+      if (reqId === forwardProvidersReq) forwardProvidersLoading.value = false;
+    }
+  },
+  { flush: 'post' }
+);
+
 const toggleAnswer = async (ticketId) => {
   if (openAnswerId.value === ticketId) {
     openAnswerId.value = null;
     answerText.value = '';
     answerError.value = '';
+    forwardSelectedIds.value = [];
+    forwardNote.value = '';
     if (Number(autoClaimedTicketId.value) === Number(ticketId)) {
       const t = (tickets.value || []).find((row) => Number(row?.id) === Number(ticketId));
       if (t && Number(t.claimed_by_user_id) === Number(myUserId)) {
@@ -804,6 +886,8 @@ const toggleAnswer = async (ticketId) => {
   openAnswerId.value = ticketId;
   answerText.value = '';
   answerError.value = '';
+  forwardSelectedIds.value = [];
+  forwardNote.value = '';
   const t = (tickets.value || []).find((row) => Number(row?.id) === Number(ticketId));
   if (t) {
     expandedThreadByTicketId.value = { ...(expandedThreadByTicketId.value || {}), [t.id]: true };
@@ -1097,6 +1181,34 @@ const isStale = (t) => {
   return hours >= 24;
 };
 
+const submitForwardToProviders = async (t) => {
+  if (!forwardSelectedIds.value.length) {
+    answerError.value = 'Select at least one provider.';
+    return;
+  }
+  if (t?.claimed_by_user_id && Number(t.claimed_by_user_id) !== Number(myUserId)) {
+    answerError.value = `Ticket is claimed by ${formatClaimedBy(t)}.`;
+    return;
+  }
+  try {
+    forwarding.value = true;
+    answerError.value = '';
+    await api.post(`/support-tickets/${t.id}/forward-to-providers`, {
+      providerUserIds: forwardSelectedIds.value.map((id) => Number(id)),
+      message: forwardNote.value.trim() || undefined
+    });
+    autoClaimedTicketId.value = null;
+    openAnswerId.value = null;
+    forwardSelectedIds.value = [];
+    forwardNote.value = '';
+    await load();
+  } catch (e) {
+    answerError.value = e.response?.data?.error?.message || 'Failed to forward ticket';
+  } finally {
+    forwarding.value = false;
+  }
+};
+
 const submitAnswer = async (t, mode = 'answered') => {
   try {
     submitting.value = true;
@@ -1292,6 +1404,36 @@ onMounted(() => {
   gap: 10px;
   align-items: end;
   flex-wrap: wrap;
+}
+.forward-box {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.forward-hint {
+  margin: 6px 0 10px;
+  font-size: 13px;
+}
+.forward-provider-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 200px;
+  overflow: auto;
+  margin-top: 8px;
+}
+.forward-pill {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 14px;
+  cursor: pointer;
+}
+.forward-pill input {
+  margin-top: 3px;
+}
+.forward-submit {
+  margin-top: 12px;
 }
 .stale {
   background: rgba(239, 68, 68, 0.12);

@@ -40,6 +40,7 @@ class Notification {
     'task_comment_mention',
     // School portal ticketing
     'support_ticket_created',
+    'support_ticket_forwarded_to_provider',
     // Client pipeline automation
     'paperwork_received',
     'new_packet_uploaded', // Packet uploaded from school portal

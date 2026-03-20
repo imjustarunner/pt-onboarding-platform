@@ -19,7 +19,9 @@ import {
   unclaimSupportTicket,
   listSupportTicketAssignees,
   assignSupportTicket,
-  closeSupportTicket
+  closeSupportTicket,
+  listClientAssignedProvidersForSupportTicket,
+  forwardSupportTicketToProviders
 } from '../controllers/supportTickets.controller.js';
 
 const router = express.Router();
@@ -45,6 +47,8 @@ router.post('/', createSupportTicket);
 
 // Thread messages (client-scoped + future general ticket threading)
 router.get('/:id/messages', listSupportTicketMessages);
+router.get('/:id/client-assigned-providers', listClientAssignedProvidersForSupportTicket);
+router.post('/:id/forward-to-providers', forwardSupportTicketToProviders);
 router.post('/:id/messages', createSupportTicketMessage);
 router.delete('/:id/messages/:messageId', deleteSupportTicketMessage);
 

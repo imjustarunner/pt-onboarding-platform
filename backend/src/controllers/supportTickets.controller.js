@@ -2141,3 +2141,251 @@ export const closeSupportTicket = async (req, res, next) => {
   }
 };
 
+async function listProvidersAssignedToClientInSchool({ clientId, schoolOrganizationId }) {
+  const cid = parseInt(String(clientId), 10);
+  const sid = parseInt(String(schoolOrganizationId), 10);
+  if (!cid || !sid) return [];
+  const byId = new Map();
+  try {
+    const [cpaRows] = await pool.execute(
+      `SELECT DISTINCT u.id, u.first_name, u.last_name, u.email, u.role
+       FROM client_provider_assignments cpa
+       JOIN users u ON u.id = cpa.provider_user_id
+       WHERE cpa.client_id = ?
+         AND cpa.organization_id = ?
+         AND cpa.is_active = TRUE
+         AND (u.is_archived = FALSE OR u.is_archived IS NULL)
+         AND UPPER(COALESCE(u.status, '')) <> 'ARCHIVED'`,
+      [cid, sid]
+    );
+    for (const r of cpaRows || []) {
+      if (r?.id) byId.set(Number(r.id), r);
+    }
+  } catch (e) {
+    const msg = String(e?.message || '');
+    const missing =
+      msg.includes("doesn't exist") ||
+      msg.includes('ER_NO_SUCH_TABLE') ||
+      msg.includes('Unknown column') ||
+      msg.includes('ER_BAD_FIELD_ERROR');
+    if (!missing) throw e;
+  }
+  try {
+    const [cRows] = await pool.execute(
+      `SELECT id, provider_id, organization_id FROM clients WHERE id = ? LIMIT 1`,
+      [cid]
+    );
+    const crow = cRows?.[0] || null;
+    const pid = crow?.provider_id ? Number(crow.provider_id) : null;
+    if (pid && Number(crow.organization_id) === sid && !byId.has(pid)) {
+      const [uRows] = await pool.execute(
+        `SELECT id, first_name, last_name, email, role FROM users WHERE id = ? LIMIT 1`,
+        [pid]
+      );
+      const u = uRows?.[0];
+      if (u?.id) byId.set(Number(u.id), u);
+    }
+  } catch {
+    // ignore legacy lookup failures
+  }
+  return Array.from(byId.values()).sort((a, b) => {
+    const an = `${a.last_name || ''} ${a.first_name || ''}`.toLowerCase();
+    const bn = `${b.last_name || ''} ${b.first_name || ''}`.toLowerCase();
+    return an.localeCompare(bn);
+  });
+}
+
+export const listClientAssignedProvidersForSupportTicket = async (req, res, next) => {
+  try {
+    if (!isAgencyAdminUser(req) && req.user?.role !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+    const ticketId = parseInt(req.params.id, 10);
+    if (!ticketId) return res.status(400).json({ error: { message: 'Invalid ticket id' } });
+
+    const [rows] = await pool.execute(`SELECT * FROM support_tickets WHERE id = ? LIMIT 1`, [ticketId]);
+    const ticket = rows?.[0] || null;
+    if (!ticket) return res.status(404).json({ error: { message: 'Ticket not found' } });
+    if (!ticket.client_id) {
+      return res.status(400).json({ error: { message: 'Ticket has no linked client' } });
+    }
+
+    const access = await ensureOrgAccess(req, ticket.school_organization_id);
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    const providers = await listProvidersAssignedToClientInSchool({
+      clientId: ticket.client_id,
+      schoolOrganizationId: ticket.school_organization_id
+    });
+    res.json({ providers });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const forwardSupportTicketToProviders = async (req, res, next) => {
+  try {
+    if (!isAgencyAdminUser(req) && req.user?.role !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'Only admin/support/staff can forward tickets' } });
+    }
+
+    const ticketId = parseInt(req.params.id, 10);
+    if (!ticketId) return res.status(400).json({ error: { message: 'Invalid ticket id' } });
+
+    const rawIds = req.body?.providerUserIds ?? req.body?.provider_user_ids;
+    const ids = Array.isArray(rawIds) ? rawIds : [];
+    const providerUserIds = [...new Set(ids.map((x) => parseInt(x, 10)).filter((n) => Number.isFinite(n) && n > 0))];
+    const adminNote = String(req.body?.message || '').trim();
+    const customCloseAnswer = String(req.body?.closeAnswer || '').trim();
+
+    if (!providerUserIds.length) {
+      return res.status(400).json({ error: { message: 'Select at least one provider' } });
+    }
+
+    const [rows] = await pool.execute(`SELECT * FROM support_tickets WHERE id = ? LIMIT 1`, [ticketId]);
+    const ticket = rows?.[0] || null;
+    if (!ticket) return res.status(404).json({ error: { message: 'Ticket not found' } });
+    if (!ticket.client_id) {
+      return res.status(400).json({ error: { message: 'Forwarding is only available for client-linked tickets' } });
+    }
+
+    const access = await ensureOrgAccess(req, ticket.school_organization_id);
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    const claimedBy = ticket.claimed_by_user_id ? Number(ticket.claimed_by_user_id) : null;
+    if (claimedBy && claimedBy !== Number(req.user.id)) {
+      return res.status(409).json({ error: { message: 'Ticket is already claimed by another team member' } });
+    }
+
+    if (!claimedBy) {
+      try {
+        const [claimResult] = await pool.execute(
+          `UPDATE support_tickets
+           SET claimed_by_user_id = ?, claimed_at = COALESCE(claimed_at, CURRENT_TIMESTAMP)
+           WHERE id = ? AND claimed_by_user_id IS NULL`,
+          [req.user.id, ticketId]
+        );
+        if ((claimResult?.affectedRows || 0) === 0) {
+          const [r2] = await pool.execute(`SELECT claimed_by_user_id FROM support_tickets WHERE id = ?`, [ticketId]);
+          const nowClaimed = r2?.[0]?.claimed_by_user_id ? Number(r2[0].claimed_by_user_id) : null;
+          if (nowClaimed && nowClaimed !== Number(req.user.id)) {
+            return res.status(409).json({ error: { message: 'Ticket was just claimed by another team member' } });
+          }
+        }
+      } catch {
+        // best-effort
+      }
+    }
+
+    if (!(await hasSupportTicketMessagesTable())) {
+      return res.status(409).json({ error: { message: 'Ticket messages are not enabled' } });
+    }
+
+    for (const pid of providerUserIds) {
+      const ok = await providerAssignedToClientInOrg({
+        providerUserId: pid,
+        clientId: ticket.client_id,
+        orgId: ticket.school_organization_id
+      });
+      if (!ok) {
+        return res.status(400).json({
+          error: { message: `User #${pid} is not an assigned provider for this client at this school` }
+        });
+      }
+    }
+
+    const [latestRows] = await pool.execute(
+      `SELECT id FROM support_tickets
+       WHERE school_organization_id = ? AND client_id = ?
+       ORDER BY created_at DESC, id DESC
+       LIMIT 1`,
+      [ticket.school_organization_id, ticket.client_id]
+    );
+    const targetTicketId = latestRows?.[0]?.id ? Number(latestRows[0].id) : ticketId;
+
+    const providerNames = [];
+    for (const pid of providerUserIds) {
+      const u = await User.findById(pid);
+      const nm = [u?.first_name, u?.last_name].filter(Boolean).join(' ').trim();
+      providerNames.push(nm || u?.email || `User #${pid}`);
+    }
+
+    const subjectLine = ticket.subject ? String(ticket.subject).trim() : '';
+    const q = String(ticket.question || '').trim();
+    const forwardParts = ['📩 Support forwarded this school ticket to you as a client message.', ''];
+    if (adminNote) forwardParts.push(`Note from support:\n${adminNote}`, '');
+    forwardParts.push(
+      `Original ticket #${ticketId}${subjectLine ? `: ${subjectLine}` : ''}`,
+      '',
+      '---',
+      q || '(No question text)'
+    );
+    const forwardBody = forwardParts.join('\n');
+
+    await pool.execute(
+      `INSERT INTO support_ticket_messages (ticket_id, parent_message_id, author_user_id, author_role, body)
+       VALUES (?, NULL, ?, ?, ?)`,
+      [targetTicketId, req.user.id, String(req.user?.role || ''), forwardBody]
+    );
+
+    const defaultClose = `Forwarded to provider(s): ${providerNames.join(', ')}. They can read and reply under this student’s Messages (ticketed) in the school portal.`;
+    const closeAnswer = customCloseAnswer || defaultClose;
+
+    const hasCloseOnRead = await hasSupportTicketsCloseOnReadColumn();
+    if (hasCloseOnRead) {
+      await pool.execute(
+        `UPDATE support_tickets
+         SET answer = ?, status = 'closed', answered_by_user_id = ?, answered_at = CURRENT_TIMESTAMP, close_on_read = 0
+         WHERE id = ?`,
+        [closeAnswer, req.user.id, ticketId]
+      );
+    } else {
+      await pool.execute(
+        `UPDATE support_tickets
+         SET answer = ?, status = 'closed', answered_by_user_id = ?, answered_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [closeAnswer, req.user.id, ticketId]
+      );
+    }
+
+    try {
+      const summary = await maybeGenerateGeminiSummary({ question: ticket?.question || '', answer: closeAnswer });
+      if (summary) {
+        await pool.execute(`UPDATE support_tickets SET ai_summary = ? WHERE id = ?`, [summary, ticketId]);
+      }
+    } catch {
+      // ignore
+    }
+
+    const agencyIdNum = ticket.agency_id
+      ? Number(ticket.agency_id)
+      : await resolveActiveAgencyIdForOrg(ticket.school_organization_id);
+
+    for (const pid of providerUserIds) {
+      try {
+        await Notification.create({
+          type: 'support_ticket_forwarded_to_provider',
+          severity: 'info',
+          title: 'Client message from support',
+          message: `Support forwarded ticket #${ticketId} for you to address in the school portal (student Messages).`,
+          userId: pid,
+          agencyId: agencyIdNum || null,
+          relatedEntityType: 'client',
+          relatedEntityId: ticket.client_id,
+          actorUserId: req.user.id
+        });
+      } catch {
+        // best-effort
+      }
+    }
+
+    const [out] = await pool.execute(`SELECT * FROM support_tickets WHERE id = ?`, [ticketId]);
+    res.json({
+      ticket: out?.[0] || null,
+      targetTicketId,
+      forwardedToProviderIds: providerUserIds
+    });
+  } catch (e) {
+    next(e);
+  }
+};
