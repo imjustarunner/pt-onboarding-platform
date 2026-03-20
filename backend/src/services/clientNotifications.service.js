@@ -117,14 +117,35 @@ async function getSchoolIntakeEmailFromDisplayName(schoolOrganizationId) {
 
 async function resolveNotificationsSenderIdentityId({ preferAgencyId = null } = {}) {
   try {
-    // Prefer platform-level ITSCO notifications identity. Never prefer test/pilot
-    // display names (e.g. "Fakey School …") when multiple rows share the same from_email.
+    const notificationsEmail = 'notifications@itsco.health';
+    const aid = Number(preferAgencyId || 0) || null;
+
+    // 1) Parent therapy agency only (school orgs are affiliates; their intake mail should use
+    //    the main agency's sender identities — not platform — unless the agency has nothing).
+    if (aid) {
+      try {
+        const agencyOnly = await resolvePreferredSenderIdentityForAgency({
+          agencyId: aid,
+          preferredKeys: ['school_intake', 'notifications', 'intake', 'system'],
+          includePlatformDefaults: false,
+          onlyActive: true
+        });
+        if (Number(agencyOnly?.id || 0)) {
+          const fe = String(agencyOnly.from_email || '').trim().toLowerCase();
+          if (fe === notificationsEmail) return Number(agencyOnly.id);
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    // 2) Platform defaults (agency_id IS NULL). Never prefer test/pilot display names when
+    //    multiple platform rows share the same from_email.
     const platformIdentities = await EmailSenderIdentity.list({
       agencyId: null,
       includePlatformDefaults: true,
       onlyActive: true
     });
-    const notificationsEmail = 'notifications@itsco.health';
     const platformNotificationMatches = (platformIdentities || []).filter((row) =>
       String(row?.from_email || '').trim().toLowerCase() === notificationsEmail
     );
@@ -137,26 +158,6 @@ async function resolveNotificationsSenderIdentityId({ preferAgencyId = null } = 
     );
     const chosen = preferredItsco || candidates[0] || null;
     if (Number(chosen?.id || 0)) return Number(chosen.id);
-
-    const aid = Number(preferAgencyId || 0) || null;
-    // When platform has no row (common), use the therapy agency's school_intake / notifications
-    // identity — not an arbitrary other agency that shares notifications@itsco.health.
-    if (aid) {
-      try {
-        const scoped = await resolvePreferredSenderIdentityForAgency({
-          agencyId: aid,
-          preferredKeys: ['school_intake', 'notifications', 'intake', 'system'],
-          includePlatformDefaults: true,
-          onlyActive: true
-        });
-        if (Number(scoped?.id || 0)) {
-          const fe = String(scoped.from_email || '').trim().toLowerCase();
-          if (fe === notificationsEmail) return Number(scoped.id);
-        }
-      } catch {
-        // ignore
-      }
-    }
 
     const identity = await EmailSenderIdentity.findByFromEmail(notificationsEmail, {
       preferAgencyId: aid,
