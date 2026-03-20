@@ -1,5 +1,6 @@
 import Client from '../models/Client.model.js';
 import ClientPhiDocument from '../models/ClientPhiDocument.model.js';
+import ReferralPacketDraft from '../models/ReferralPacketDraft.model.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
 import ClientSchoolStaffRoiAccess from '../models/ClientSchoolStaffRoiAccess.model.js';
 import StorageService from '../services/storage.service.js';
@@ -430,6 +431,43 @@ export const listClientIntakeResponses = async (req, res, next) => {
   }
 };
 
+/**
+ * Referral packet uploads create PHI rows with client_id NULL until the draft is submitted.
+ * Allow view for the uploader (school staff on that org) or agency operations roles.
+ */
+async function canUserAccessReferralDraftPhiDocument({ doc, user }) {
+  const uid = Number(user?.id || 0);
+  if (!uid) return false;
+  const draftId = Number(doc?.referral_draft_id ?? 0);
+  if (!draftId) return false;
+  const draft = await ReferralPacketDraft.findById(draftId);
+  if (!draft) return false;
+  if (Number(draft.phi_document_id || 0) !== Number(doc.id || 0)) return false;
+
+  const role = String(user?.role || '').toLowerCase();
+  if (role === 'super_admin') return true;
+
+  const userAgencies = await User.getAgencies(uid);
+  const agencyIds = new Set(userAgencies.map((a) => Number(a.id)));
+
+  const schoolOrgId = Number(doc.school_organization_id || draft.organization_id || 0);
+  const therapyAgencyId = Number(doc.agency_id || draft.agency_id || 0);
+  const inSchool = schoolOrgId > 0 && agencyIds.has(schoolOrgId);
+  const inTherapy = therapyAgencyId > 0 && agencyIds.has(therapyAgencyId);
+
+  const uploaderId = Number(doc.uploaded_by_user_id || draft.uploaded_by_user_id || 0);
+  if (uploaderId === uid && inSchool) return true;
+
+  if (
+    ['admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus', 'supervisor'].includes(role) &&
+    (inTherapy || inSchool)
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
 export const viewPhiDocument = async (req, res, next) => {
   try {
     const docId = parseInt(req.params.docId, 10);
@@ -449,30 +487,38 @@ export const viewPhiDocument = async (req, res, next) => {
       return res.status(410).json({ error: { message: 'Document has been removed from the system.' } });
     }
 
-    const client = await Client.findById(doc.client_id, { includeSensitive: true });
-    if (!client) return res.status(404).json({ error: { message: 'Client not found' } });
+    const clientId = doc.client_id != null ? Number(doc.client_id) : 0;
+    if (clientId) {
+      const client = await Client.findById(clientId, { includeSensitive: true });
+      if (!client) return res.status(404).json({ error: { message: 'Client not found' } });
 
-    const schoolStaffAccessState = await resolveSchoolStaffAccessStateForClient({
-      requestingUserId: req.user.id,
-      requestingUserRole: req.user.role,
-      client
-    });
-    const limitedScope = isSchoolStaffLimitedDocumentScope({
-      requestingUserRole: req.user.role,
-      schoolStaffAccessState
-    });
-    const isSchoolStaff = String(req.user?.role || '').toLowerCase() === 'school_staff';
-    const allowed = isSchoolStaff
-      ? ['limited', 'roi_docs'].includes(String(schoolStaffAccessState || '').toLowerCase())
-      : await userCanAccessClient({
-          requestingUserId: req.user.id,
-          requestingUserRole: req.user.role,
-          client,
-          requireDocumentAccess: true
-        });
-    if (!allowed) return res.status(403).json({ error: { message: 'Access denied' } });
-    if (limitedScope && Number(doc?.uploaded_by_user_id || 0) !== Number(req.user?.id || 0)) {
-      return res.status(403).json({ error: { message: 'Limited access only allows documents you uploaded' } });
+      const schoolStaffAccessState = await resolveSchoolStaffAccessStateForClient({
+        requestingUserId: req.user.id,
+        requestingUserRole: req.user.role,
+        client
+      });
+      const limitedScope = isSchoolStaffLimitedDocumentScope({
+        requestingUserRole: req.user.role,
+        schoolStaffAccessState
+      });
+      const isSchoolStaff = String(req.user?.role || '').toLowerCase() === 'school_staff';
+      const allowed = isSchoolStaff
+        ? ['limited', 'roi_docs'].includes(String(schoolStaffAccessState || '').toLowerCase())
+        : await userCanAccessClient({
+            requestingUserId: req.user.id,
+            requestingUserRole: req.user.role,
+            client,
+            requireDocumentAccess: true
+          });
+      if (!allowed) return res.status(403).json({ error: { message: 'Access denied' } });
+      if (limitedScope && Number(doc?.uploaded_by_user_id || 0) !== Number(req.user?.id || 0)) {
+        return res.status(403).json({ error: { message: 'Limited access only allows documents you uploaded' } });
+      }
+    } else if (doc.referral_draft_id) {
+      const ok = await canUserAccessReferralDraftPhiDocument({ doc, user: req.user });
+      if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+    } else {
+      return res.status(404).json({ error: { message: 'Client not found' } });
     }
 
     // Log access (best-effort)

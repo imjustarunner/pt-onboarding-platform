@@ -98,6 +98,43 @@
             {{ success }}
           </div>
 
+          <div class="form-actions form-actions-primary">
+            <button
+              type="button"
+              class="btn btn-secondary"
+              @click="confirmClose() ? $emit('close') : null"
+            >
+              Cancel
+            </button>
+            <button
+              v-if="!uploadComplete"
+              type="button"
+              class="btn btn-primary"
+              :disabled="!isAuthenticated || (!selectedFile && selectedImages.length === 0) || uploading"
+              @click="handleUpload"
+            >
+              <span v-if="uploading">Uploading...</span>
+              <span v-else>Upload Referral Packet</span>
+            </button>
+            <button
+              v-else-if="!clientSubmitted"
+              type="button"
+              class="btn btn-primary"
+              :disabled="submittingClient"
+              @click="handleSubmitClient"
+            >
+              {{ submittingClient ? 'Submitting…' : 'Submit Client' }}
+            </button>
+            <button
+              v-else
+              type="button"
+              class="btn btn-primary"
+              @click="$emit('close')"
+            >
+              Close
+            </button>
+          </div>
+
           <div v-if="!isAuthenticated" class="auth-panel">
             <h3>Sign in to upload</h3>
             <p class="muted">Use your school account to submit a referral packet.</p>
@@ -136,7 +173,7 @@
                   Open in new tab
                 </a>
               </div>
-              <PDFPreview :pdfUrl="pdfPreviewUrl" />
+              <PDFPreview :key="pdfPreviewKey" :pdfUrl="pdfPreviewUrl" />
             </div>
 
             <div v-if="ocrText" class="ocr-extracted">
@@ -230,42 +267,6 @@
             </div>
           </div>
 
-          <div class="form-actions">
-            <button
-              type="button"
-              class="btn btn-secondary"
-              @click="confirmClose() ? $emit('close') : null"
-            >
-              Cancel
-            </button>
-            <button
-              v-if="!uploadComplete"
-              type="button"
-              class="btn btn-primary"
-              :disabled="!isAuthenticated || (!selectedFile && selectedImages.length === 0) || uploading"
-              @click="handleUpload"
-            >
-              <span v-if="uploading">Uploading...</span>
-              <span v-else>Upload Referral Packet</span>
-            </button>
-            <button
-              v-else-if="!clientSubmitted"
-              type="button"
-              class="btn btn-primary"
-              :disabled="submittingClient"
-              @click="handleSubmitClient"
-            >
-              {{ submittingClient ? 'Submitting…' : 'Submit Client' }}
-            </button>
-            <button
-              v-else
-              type="button"
-              class="btn btn-primary"
-              @click="$emit('close')"
-            >
-              Close
-            </button>
-          </div>
         </form>
       </div>
     </div>
@@ -318,6 +319,8 @@ const initialsSet = ref(false);
 const firstName = ref('');
 const lastName = ref('');
 const hasAttemptedDraftResume = ref(false);
+/** Bumps after submit so PDF preview remounts once the doc is linked to a client (same URL). */
+const pdfPreviewKey = ref(0);
 
 const abbreviatedName = computed(() => {
   const clean = (value) => String(value || '').replace(/[^A-Za-z]/g, '');
@@ -1103,6 +1106,7 @@ const handleSubmitClient = async () => {
     const response = await api.post(`/organizations/${props.organizationSlug}/upload-referral/${draftId.value}/submit`, payload);
     success.value = 'Client created successfully from referral packet.';
     clientSubmitted.value = true;
+    pdfPreviewKey.value += 1;
     emit('uploaded', response.data);
   } catch (err) {
     error.value = err.response?.data?.error?.message || 'Failed to submit client. Please try again.';
@@ -1471,6 +1475,12 @@ const handleSubmitClient = async () => {
   gap: 12px;
   justify-content: flex-end;
   margin-top: 24px;
+}
+
+.form-actions-primary {
+  margin-top: 12px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
 }
 
 .btn {
