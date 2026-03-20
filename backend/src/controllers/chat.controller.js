@@ -328,7 +328,8 @@ export const createOrGetDirectThread = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Cannot create a chat with yourself' } });
     }
 
-    // Ensure the other user is in the agency or on the agency's management team
+    // Ensure the other user is in the agency or on the agency's management team.
+    // For org-scoped threads, also allow users assigned only to the child organization (school/program row in `agencies`).
     const [inAgency] = await pool.execute(
       'SELECT 1 FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1',
       [otherUserId, agencyId]
@@ -337,7 +338,15 @@ export const createOrGetDirectThread = async (req, res, next) => {
       'SELECT 1 FROM agency_management_team WHERE user_id = ? AND agency_id = ? AND is_active = TRUE LIMIT 1',
       [otherUserId, agencyId]
     );
-    if (inAgency.length === 0 && onManagementTeam.length === 0) {
+    let inChildOrg = { length: 0 };
+    if (organizationId) {
+      const [rows] = await pool.execute(
+        'SELECT 1 FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1',
+        [otherUserId, organizationId]
+      );
+      inChildOrg = rows;
+    }
+    if (inAgency.length === 0 && onManagementTeam.length === 0 && inChildOrg.length === 0) {
       return res.status(400).json({ error: { message: 'User is not in the selected agency' } });
     }
 

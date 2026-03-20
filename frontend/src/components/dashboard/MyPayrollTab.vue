@@ -1938,7 +1938,7 @@
             <option :value="false">No</option>
           </select>
         </div>
-        <div class="field">
+        <div v-if="overtimeTherapyNotesAttestationEnabled" class="field">
           <label>All direct service recorded in Therapy Notes?</label>
           <select v-model="timeOvertimeForm.allDirectServiceRecorded">
             <option :value="true">Yes</option>
@@ -2069,6 +2069,12 @@ const agencyFlags = computed(() => {
 });
 const inSchoolEnabled = computed(() => agencyFlags.value?.inSchoolSubmissionsEnabled !== false);
 const medcancelEnabledForAgency = computed(() => inSchoolEnabled.value && agencyFlags.value?.medcancelEnabled !== false);
+/** When false, hide excess time entry and reject API (Payroll Settings → Time claims). Default: enabled. */
+const timeClaimExcessEnabled = computed(() => agencyFlags.value?.timeClaimExcessEnabled !== false);
+/** When false, hide service correction entry. Default: enabled. */
+const timeClaimServiceCorrectionEnabled = computed(() => agencyFlags.value?.timeClaimServiceCorrectionEnabled !== false);
+/** When false, omit Therapy Notes attestation on overtime evaluation. Default: enabled (ask). */
+const overtimeTherapyNotesAttestationEnabled = computed(() => agencyFlags.value?.overtimeTherapyNotesAttestationEnabled !== false);
 
 const userId = computed(() => authStore.user?.id || null);
 
@@ -2299,7 +2305,9 @@ const excessRuleByCode = computed(() => {
 });
 const hasValidExcessItems = computed(() => {
   const f = timeExcessForm.value;
-  return f.serviceCode && (Number(f.actualDirectMinutes || 0) > 0 || Number(f.actualIndirectMinutes || 0) > 0);
+  if (excessRulesLoading.value) return false;
+  if (!excessRules.value.length) return false;
+  return !!(f.serviceCode && (Number(f.actualDirectMinutes || 0) > 0 || Number(f.actualIndirectMinutes || 0) > 0));
 });
 
 const excessExpectedDirect = computed(() => {
@@ -3677,7 +3685,12 @@ const closeTimeMeetingModal = () => {
   emit('time-modal-closed');
 };
 
-const openTimeExcessModal = () => {
+const openTimeExcessModal = (opts = {}) => {
+  if (!opts.bypassDisabled && !timeClaimExcessEnabled.value) {
+    submitTimeClaimError.value = 'Excess time claims are turned off for this organization.';
+    emit('time-modal-closed');
+    return;
+  }
   submitTimeClaimError.value = '';
   const today = new Date();
   const ymd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
@@ -3698,7 +3711,12 @@ const closeTimeExcessModal = () => {
   emit('time-modal-closed');
 };
 
-const openTimeCorrectionModal = () => {
+const openTimeCorrectionModal = (opts = {}) => {
+  if (!opts.bypassDisabled && !timeClaimServiceCorrectionEnabled.value) {
+    submitTimeClaimError.value = 'Service correction claims are turned off for this organization.';
+    emit('time-modal-closed');
+    return;
+  }
   submitTimeClaimError.value = '';
   const today = new Date();
   const ymd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
@@ -3769,7 +3787,7 @@ const openEditTimeClaim = (c) => {
     return;
   }
   if (type === 'excess_holiday') {
-    openTimeExcessModal();
+    openTimeExcessModal({ bypassDisabled: true });
     let items = Array.isArray(payload.items) ? payload.items : [];
     if (!items.length && (Number((payload.actualDirectMinutes ?? payload.directMinutes) ?? 0) > 0 || Number((payload.actualIndirectMinutes ?? payload.indirectMinutes) ?? 0) > 0)) {
       items = [{
@@ -3792,7 +3810,7 @@ const openEditTimeClaim = (c) => {
     return;
   }
   if (type === 'service_correction') {
-    openTimeCorrectionModal();
+    openTimeCorrectionModal({ bypassDisabled: true });
     timeCorrectionForm.value = {
       ...timeCorrectionForm.value,
       claimDate: String(c.claim_date || '').slice(0, 10),
@@ -3941,20 +3959,25 @@ const submitTimeOvertime = async () => {
     submitTimeClaimError.value = 'Please enter a valid reference date and hours for each day.';
     return;
   }
+  const payloadOvertime = {
+    workedOver12Hours: !!f.workedOver12Hours,
+    datesAndHours: datesAndHoursStr,
+    daysHours: f.daysHours,
+    estimatedWorkweekHours: Number(f.estimatedWorkweekHours || 0),
+    overtimeApproved: !!f.overtimeApproved,
+    approvedBy: f.approvedBy,
+    notesForPayroll: f.notesForPayroll,
+    attestation: !!f.attestation
+  };
+  if (overtimeTherapyNotesAttestationEnabled.value) {
+    payloadOvertime.allDirectServiceRecorded = !!f.allDirectServiceRecorded;
+  } else {
+    payloadOvertime.allDirectServiceRecorded = null;
+  }
   await submitTimeClaim({
     claimType: 'overtime_evaluation',
     claimDate: f.claimDate,
-    payload: {
-      workedOver12Hours: !!f.workedOver12Hours,
-      datesAndHours: datesAndHoursStr,
-      daysHours: f.daysHours,
-      estimatedWorkweekHours: Number(f.estimatedWorkweekHours || 0),
-      allDirectServiceRecorded: !!f.allDirectServiceRecorded,
-      overtimeApproved: !!f.overtimeApproved,
-      approvedBy: f.approvedBy,
-      notesForPayroll: f.notesForPayroll,
-      attestation: !!f.attestation
-    }
+    payload: payloadOvertime
   });
   if (submitTimeClaimError.value) return;
 
@@ -4369,9 +4392,17 @@ watch(
         openTimeMeetingModal();
         opened = true;
       } else if (key === 'time_excess_holiday') {
+        if (!timeClaimExcessEnabled.value) {
+          submitTimeClaimError.value = 'Excess time claims are turned off for this organization.';
+          return;
+        }
         openTimeExcessModal();
         opened = true;
       } else if (key === 'time_service_correction') {
+        if (!timeClaimServiceCorrectionEnabled.value) {
+          submitTimeClaimError.value = 'Service correction claims are turned off for this organization.';
+          return;
+        }
         openTimeCorrectionModal();
         opened = true;
       } else if (key === 'time_overtime_evaluation') {

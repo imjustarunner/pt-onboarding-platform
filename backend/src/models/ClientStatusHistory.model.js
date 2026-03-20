@@ -1,5 +1,24 @@
 import pool from '../config/database.js';
 
+function attachChangedByDisplay(row) {
+  if (!row) return row;
+  if (row.changed_by_first_name && row.changed_by_last_name) {
+    row.changed_by_name = `${row.changed_by_first_name} ${row.changed_by_last_name}`;
+    return row;
+  }
+  if (row.changed_by_user_id != null) {
+    row.changed_by_name = null;
+    return row;
+  }
+  const note = String(row.note || '').toLowerCase();
+  if (note.includes('public intake')) {
+    row.changed_by_name = 'Public intake';
+    return row;
+  }
+  row.changed_by_name = 'Automated';
+  return row;
+}
+
 /**
  * Client Status History Model
  * 
@@ -10,7 +29,7 @@ class ClientStatusHistory {
    * Create a new history entry
    * @param {Object} historyData - History data
    * @param {number} historyData.client_id - Client ID
-   * @param {number} historyData.changed_by_user_id - User who made the change
+   * @param {number|null} historyData.changed_by_user_id - User who made the change (null = automated / no user)
    * @param {string} historyData.field_changed - Field that was changed
    * @param {string|null} historyData.from_value - Previous value
    * @param {string} historyData.to_value - New value
@@ -27,16 +46,10 @@ class ClientStatusHistory {
       note
     } = historyData;
 
-    let actorId = changed_by_user_id;
-    if (!actorId) {
-      const [rows] = await pool.execute(
-        "SELECT id FROM users WHERE role IN ('super_admin','admin') ORDER BY role = 'super_admin' DESC, id ASC LIMIT 1"
-      );
-      actorId = rows?.[0]?.id || null;
-    }
-    if (!actorId) {
-      throw new Error('No admin user available for client status history entry');
-    }
+    const actorId =
+      changed_by_user_id === undefined || changed_by_user_id === null
+        ? null
+        : Number(changed_by_user_id);
 
     const query = `
       INSERT INTO client_status_history (
@@ -77,11 +90,7 @@ class ClientStatusHistory {
     if (rows.length === 0) return null;
 
     const entry = rows[0];
-    if (entry.changed_by_first_name && entry.changed_by_last_name) {
-      entry.changed_by_name = `${entry.changed_by_first_name} ${entry.changed_by_last_name}`;
-    } else {
-      entry.changed_by_name = null;
-    }
+    attachChangedByDisplay(entry);
 
     return entry;
   }
@@ -105,14 +114,7 @@ class ClientStatusHistory {
 
     const [rows] = await pool.execute(query, [clientId]);
 
-    return rows.map(row => {
-      if (row.changed_by_first_name && row.changed_by_last_name) {
-        row.changed_by_name = `${row.changed_by_first_name} ${row.changed_by_last_name}`;
-      } else {
-        row.changed_by_name = null;
-      }
-      return row;
-    });
+    return rows.map((row) => attachChangedByDisplay(row));
   }
 
   /**
@@ -150,14 +152,7 @@ class ClientStatusHistory {
 
     const [rows] = await pool.execute(query, values);
 
-    return rows.map(row => {
-      if (row.changed_by_first_name && row.changed_by_last_name) {
-        row.changed_by_name = `${row.changed_by_first_name} ${row.changed_by_last_name}`;
-      } else {
-        row.changed_by_name = null;
-      }
-      return row;
-    });
+    return rows.map((row) => attachChangedByDisplay(row));
   }
 }
 

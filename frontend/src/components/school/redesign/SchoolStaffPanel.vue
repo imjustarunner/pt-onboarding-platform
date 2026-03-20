@@ -273,17 +273,28 @@ const formatDate = (d) => {
   return dt.toLocaleString();
 };
 
-const openMessage = (u) => {
+const openMessage = async (u) => {
   const name = [u.first_name, u.last_name].filter(Boolean).join(' ') || 'School staff';
-  router.push({
-    path: route.path,
-    query: {
-      ...route.query,
-      openChatWith: String(u.id),
-      agencyId: String(props.schoolOrganizationId),
-      openChatWithName: name
+  try {
+    const aff = await api.get(`/school-portal/${props.schoolOrganizationId}/affiliation`);
+    const parentAgencyId = aff.data?.active_agency_id ? Number(aff.data.active_agency_id) : null;
+    if (!parentAgencyId) {
+      error.value = 'No active agency affiliation found for this organization.';
+      return;
     }
-  });
+    router.push({
+      path: route.path,
+      query: {
+        ...route.query,
+        openChatWith: String(u.id),
+        agencyId: String(parentAgencyId),
+        organizationId: String(props.schoolOrganizationId),
+        openChatWithName: name
+      }
+    });
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || e.message || 'Failed to open chat';
+  }
 };
 
 const load = async () => {

@@ -234,7 +234,7 @@
                     </div>
                   </div>
                   <div class="hint" style="margin-top: 4px;">
-                    Editing affiliated providers is managed on the <strong>Affiliations</strong> tab.
+                    Editing affiliated providers is managed on the <strong>Assignments</strong> tab.
                   </div>
                 </div>
               </div>
@@ -312,6 +312,20 @@
                   <span v-if="documentStatusSummaryText" class="doc-status-pill">{{ documentStatusSummaryText }}</span>
                   <span v-else>{{ client.paperwork_status_label || '-' }}</span>
                 </template>
+              </div>
+            </div>
+            <div
+              v-if="canManageSchoolRoi"
+              class="info-item school-roi-overview-cta"
+            >
+              <label>School ROI</label>
+              <div class="info-value" style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center;">
+                <button type="button" class="btn btn-secondary btn-sm" @click="activeTab = 'school-roi'">
+                  Open School ROI Access
+                </button>
+                <span class="hint" style="margin: 0;">
+                  Send signing links, notify guardians, and manage school-staff portal access for this client’s school.
+                </span>
               </div>
             </div>
             <div class="info-item">
@@ -1548,7 +1562,6 @@ const intakeGuardianAlreadyLinked = computed(() => {
 });
 const canViewAdminNote = computed(() => isBackofficeRole.value || roleNorm.value === 'supervisor');
 const canManageClientCode = computed(() => isBackofficeRole.value || roleNorm.value === 'supervisor');
-const isSchoolClient = computed(() => String(props.client?.organization_type || '').trim().toLowerCase() === 'school');
 // Providers terminate via "Mark as Terminated" in roster only; support staff use this panel
 const canTerminate = computed(() => {
   if (!hasAgencyAccess.value) return false;
@@ -1566,31 +1579,6 @@ const learningBillingEnabledForClient = computed(() => {
     })()
     : (raw || {});
   return flags.learningProgramBillingEnabled === true;
-});
-
-const tabs = computed(() => {
-  const base = [
-    { id: 'overview', label: 'Overview' },
-    { id: 'checklist', label: 'Checklist' },
-    { id: 'history', label: 'Status History' },
-    { id: 'access', label: 'Access Log' },
-    { id: 'messages', label: 'Messages / Notes' },
-    { id: 'guardians', label: 'Guardians' },
-    { id: 'phi', label: 'Documentation' }
-  ];
-  if (learningBillingEnabledForClient.value) {
-    const idx = base.findIndex((t) => t.id === 'messages');
-    base.splice(idx < 0 ? base.length : idx, 0, { id: 'billing', label: 'Billing' });
-  }
-  if (canEditAccount.value) {
-    const idx = base.findIndex((t) => t.id === 'phi');
-    base.splice(idx < 0 ? base.length : idx, 0, { id: 'assignments', label: 'Assignments' });
-  }
-  if (canManageSchoolRoi.value) {
-    const roiIdx = base.findIndex((t) => t.id === 'phi');
-    base.splice(roiIdx < 0 ? base.length : roiIdx, 0, { id: 'school-roi', label: 'School ROI Access' });
-  }
-  return base;
 });
 
 // Overview tab state
@@ -1782,7 +1770,6 @@ const hasAgencyAccess = computed(() => {
 });
 
 const canEditAccount = computed(() => isBackofficeRole.value && hasAgencyAccess.value);
-const canManageSchoolRoi = computed(() => isBackofficeRole.value && hasAgencyAccess.value && isSchoolClient.value);
 
 const clientAgenciesNote = computed(() => {
   // If user isn't affiliated with the client’s agency (or the client is multi-agency),
@@ -1987,6 +1974,49 @@ const onToggleDocNeeded = async (item, event) => {
 
 // Multi-org + multi-provider assignments (backoffice only)
 const affiliations = ref([]);
+
+const SCHOOL_LIKE_ORG_TYPES = new Set(['school', 'program', 'learning']);
+const isSchoolLikeOrgType = (t) => SCHOOL_LIKE_ORG_TYPES.has(String(t || '').trim().toLowerCase());
+
+const isSchoolClientByPrimaryOrg = computed(() => isSchoolLikeOrgType(props.client?.organization_type));
+
+const clientHasSchoolLikeOrgAffiliation = computed(() =>
+  (affiliations.value || []).some((a) => isSchoolLikeOrgType(a?.organization_type))
+);
+
+const clientQualifiesForSchoolRoiTab = computed(
+  () => isSchoolClientByPrimaryOrg.value || clientHasSchoolLikeOrgAffiliation.value
+);
+
+const canManageSchoolRoi = computed(
+  () => isBackofficeRole.value && hasAgencyAccess.value && clientQualifiesForSchoolRoiTab.value
+);
+
+const tabs = computed(() => {
+  const base = [
+    { id: 'overview', label: 'Overview' },
+    { id: 'checklist', label: 'Checklist' },
+    { id: 'history', label: 'Status History' },
+    { id: 'access', label: 'Access Log' },
+    { id: 'messages', label: 'Messages / Notes' },
+    { id: 'guardians', label: 'Guardians' },
+    { id: 'phi', label: 'Documentation' }
+  ];
+  if (learningBillingEnabledForClient.value) {
+    const idx = base.findIndex((t) => t.id === 'messages');
+    base.splice(idx < 0 ? base.length : idx, 0, { id: 'billing', label: 'Billing' });
+  }
+  if (canEditAccount.value) {
+    const idx = base.findIndex((t) => t.id === 'phi');
+    base.splice(idx < 0 ? base.length : idx, 0, { id: 'assignments', label: 'Assignments' });
+  }
+  if (canManageSchoolRoi.value) {
+    const roiIdx = base.findIndex((t) => t.id === 'phi');
+    base.splice(roiIdx < 0 ? base.length : roiIdx, 0, { id: 'school-roi', label: 'School ROI Access' });
+  }
+  return base;
+});
+
 const affiliationsLoading = ref(false);
 const assignmentsError = ref('');
 const availableAffiliations = ref([]);
@@ -3225,6 +3255,9 @@ watch(() => props.client, async () => {
   loadOverviewOptions();
   fetchDocChecklist();
   await fetchClientAgencyAffiliations();
+  if (canEditAccount.value) {
+    await fetchClientAffiliations();
+  }
   await fetchAccess();
   await refreshOverviewProviders();
   await fetchAdminNote();
@@ -3631,6 +3664,10 @@ watch(
   grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
   gap: 20px;
   margin-bottom: 32px;
+}
+
+.school-roi-overview-cta {
+  grid-column: 1 / -1;
 }
 
 .info-item {

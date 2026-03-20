@@ -448,7 +448,7 @@ const loadThreads = async () => {
   }
 };
 
-const openChat = async (u, agencyIdOverride = null) => {
+const openChat = async (u, agencyIdOverride = null, organizationIdOverride = null) => {
   chatError.value = '';
   chatMessages.value = [];
   draft.value = '';
@@ -469,7 +469,13 @@ const openChat = async (u, agencyIdOverride = null) => {
 
     activeChatUser.value = u;
     activeThreadAgencyId.value = useAgencyId;
-    const resp = await api.post('/chat/threads/direct', { agencyId: useAgencyId, otherUserId: u.id }, { skipGlobalLoading: true });
+    const body = { agencyId: useAgencyId, otherUserId: u.id };
+    const oid =
+      organizationIdOverride != null && organizationIdOverride !== ''
+        ? parseInt(organizationIdOverride, 10)
+        : null;
+    if (oid) body.organizationId = oid;
+    const resp = await api.post('/chat/threads/direct', body, { skipGlobalLoading: true });
     activeThreadId.value = resp.data.threadId;
     await loadMessages({ markRead: true, scrollToBottom: true });
   } catch (e) {
@@ -481,11 +487,11 @@ const openChat = async (u, agencyIdOverride = null) => {
 
 const openThread = async (t) => {
   if (!t?.other_participant) return;
-  await openChat(t.other_participant, t.agency_id);
+  await openChat(t.other_participant, t.agency_id, t.organization_id);
 };
 
 /** Open a direct thread by user id (e.g. from URL openChatWith=userId&agencyId=...). Used when supervisor clicks "Chat with supervisee". */
-const openChatByUserId = async (otherUserId, agencyIdOverride, displayName = '') => {
+const openChatByUserId = async (otherUserId, agencyIdOverride, displayName = '', organizationIdOverride = null) => {
   const useAgencyId = agencyIdOverride ? parseInt(agencyIdOverride, 10) : agencyId.value;
   if (!useAgencyId || !otherUserId) return;
   chatError.value = '';
@@ -493,10 +499,16 @@ const openChatByUserId = async (otherUserId, agencyIdOverride, displayName = '')
   draft.value = '';
   try {
     chatLoading.value = true;
-    const resp = await api.post('/chat/threads/direct', {
+    const body = {
       agencyId: useAgencyId,
       otherUserId: parseInt(otherUserId, 10)
-    }, { skipGlobalLoading: true });
+    };
+    const oid =
+      organizationIdOverride != null && organizationIdOverride !== ''
+        ? parseInt(organizationIdOverride, 10)
+        : null;
+    if (oid) body.organizationId = oid;
+    const resp = await api.post('/chat/threads/direct', body, { skipGlobalLoading: true });
     activeThreadId.value = resp.data?.threadId ?? null;
     activeThreadAgencyId.value = useAgencyId;
     const name = (displayName || '').trim() || 'User';
@@ -742,12 +754,19 @@ watch(
     const openChatWith = newVal.query?.openChatWith;
     const agencyIdFromQuery = newVal.query?.agencyId;
     const openChatWithName = newVal.query?.openChatWithName;
+    const organizationIdFromQuery = newVal.query?.organizationId;
     if (!openChatWith || !(agencyIdFromQuery || agencyId.value)) return;
-    await openChatByUserId(openChatWith, agencyIdFromQuery || agencyId.value, openChatWithName);
+    await openChatByUserId(
+      openChatWith,
+      agencyIdFromQuery || agencyId.value,
+      openChatWithName,
+      organizationIdFromQuery
+    );
     await loadThreads();
     const q = { ...newVal.query };
     delete q.openChatWith;
     delete q.openChatWithName;
+    delete q.organizationId;
     router.replace({ path: newVal.path, query: q });
   },
   { immediate: true }

@@ -15052,11 +15052,21 @@ export const createMyTimeClaim = async (req, res, next) => {
     let payload = body.payload || {};
     const attestation = payload?.attestation === true || payload?.attestation === 1 || payload?.attestation === '1';
 
+    const agencyRow = await Agency.findById(agencyId);
+    const agencyFeatureFlags = parseFeatureFlags(agencyRow?.feature_flags);
+
     if (!claimType) return res.status(400).json({ error: { message: 'claimType is invalid' } });
     if (!/^\d{4}-\d{2}-\d{2}$/.test(claimDate)) {
       return res.status(400).json({ error: { message: 'claimDate (YYYY-MM-DD) is required' } });
     }
     if (!attestation) return res.status(400).json({ error: { message: 'attestation is required' } });
+
+    if (claimType === 'excess_holiday' && agencyFeatureFlags.timeClaimExcessEnabled === false) {
+      return res.status(403).json({ error: { message: 'Excess time claims are disabled for this organization.' } });
+    }
+    if (claimType === 'service_correction' && agencyFeatureFlags.timeClaimServiceCorrectionEnabled === false) {
+      return res.status(403).json({ error: { message: 'Service correction claims are disabled for this organization.' } });
+    }
 
     // Light validation per type (keep payload flexible for iteration).
     if (claimType === 'meeting_training' || claimType === 'mentor_cpa_meeting') {
@@ -15097,7 +15107,13 @@ export const createMyTimeClaim = async (req, res, next) => {
       if (!String(payload?.datesAndHours || '').trim()) return res.status(400).json({ error: { message: 'datesAndHours is required' } });
       const est = Number(payload?.estimatedWorkweekHours);
       if (!Number.isFinite(est) || est < 0) return res.status(400).json({ error: { message: 'estimatedWorkweekHours must be a number' } });
-      if (payload?.allDirectServiceRecorded === undefined) return res.status(400).json({ error: { message: 'allDirectServiceRecorded is required' } });
+      const overtimeTnAttestationEnabled = agencyFeatureFlags.overtimeTherapyNotesAttestationEnabled !== false;
+      if (overtimeTnAttestationEnabled) {
+        const adr = payload?.allDirectServiceRecorded;
+        if (adr === undefined || adr === null) {
+          return res.status(400).json({ error: { message: 'allDirectServiceRecorded is required' } });
+        }
+      }
       if (payload?.overtimeApproved === undefined) return res.status(400).json({ error: { message: 'overtimeApproved is required' } });
       if (!String(payload?.approvedBy || '').trim()) return res.status(400).json({ error: { message: 'approvedBy is required' } });
       if (!String(payload?.notesForPayroll || '').trim()) return res.status(400).json({ error: { message: 'notesForPayroll is required' } });

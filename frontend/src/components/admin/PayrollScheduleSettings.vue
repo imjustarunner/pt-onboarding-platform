@@ -25,6 +25,9 @@
         <button type="button" class="tab" :class="{ active: payrollTab === 'excess' }" @click="payrollTab = 'excess'; loadExcessRules()">
           Excess Time Rules
         </button>
+        <button type="button" class="tab" :class="{ active: payrollTab === 'time_claims' }" @click="payrollTab = 'time_claims'; loadTimeClaimSettings()">
+          Time claims
+        </button>
       </div>
 
       <div v-if="payrollTab === 'schedule'" class="card">
@@ -146,6 +149,35 @@
         <div class="filters-group">
           <button type="button" class="btn btn-primary btn-sm" @click="addExcessRule" :disabled="!newExcessServiceCode || excessAdding">
             {{ excessAdding ? 'Adding…' : 'Add' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div v-else-if="payrollTab === 'time_claims'" class="card">
+      <h3 style="margin: 0 0 8px 0;">Time claim modules</h3>
+      <div class="hint" style="margin-bottom: 12px;">
+        Show or hide excess time and service correction on the dashboard Submit tab. When excess time is off, providers cannot submit excess claims even if rules exist below.
+        Turn off the Therapy Notes question when your agency does not use Therapy Notes for direct service documentation.
+      </div>
+      <div v-if="timeClaimSettingsError" class="warn">{{ timeClaimSettingsError }}</div>
+      <div v-if="timeClaimSettingsLoading" class="muted">Loading…</div>
+      <div v-else class="time-claim-toggles">
+        <label class="toggle-row">
+          <input v-model="timeClaimDraft.excessEnabled" type="checkbox" />
+          <span>Allow excess time claims</span>
+        </label>
+        <label class="toggle-row">
+          <input v-model="timeClaimDraft.serviceCorrectionEnabled" type="checkbox" />
+          <span>Allow service correction claims</span>
+        </label>
+        <label class="toggle-row">
+          <input v-model="timeClaimDraft.overtimeTherapyNotesAttestationEnabled" type="checkbox" />
+          <span>Ask “All direct service recorded in Therapy Notes?” on overtime evaluation</span>
+        </label>
+        <div class="actions" style="margin-top: 14px;">
+          <button class="btn btn-primary" type="button" @click="saveTimeClaimSettings" :disabled="timeClaimSettingsSaving">
+            {{ timeClaimSettingsSaving ? 'Saving…' : 'Save' }}
           </button>
         </div>
       </div>
@@ -321,6 +353,65 @@ const deleteExcessRule = async (r) => {
   }
 };
 
+function parseFeatureFlagsJson(raw) {
+  if (!raw) return {};
+  if (typeof raw === 'object') return raw || {};
+  if (typeof raw === 'string') {
+    try { return JSON.parse(raw) || {}; } catch { return {}; }
+  }
+  return {};
+}
+
+const timeClaimDraft = ref({
+  excessEnabled: true,
+  serviceCorrectionEnabled: true,
+  overtimeTherapyNotesAttestationEnabled: true
+});
+const timeClaimSettingsLoading = ref(false);
+const timeClaimSettingsSaving = ref(false);
+const timeClaimSettingsError = ref('');
+
+const loadTimeClaimSettings = async () => {
+  if (!agencyId.value) return;
+  try {
+    timeClaimSettingsLoading.value = true;
+    timeClaimSettingsError.value = '';
+    const res = await api.get(`/agencies/${agencyId.value}`);
+    const flags = parseFeatureFlagsJson(res.data?.feature_flags);
+    timeClaimDraft.value = {
+      excessEnabled: flags.timeClaimExcessEnabled !== false,
+      serviceCorrectionEnabled: flags.timeClaimServiceCorrectionEnabled !== false,
+      overtimeTherapyNotesAttestationEnabled: flags.overtimeTherapyNotesAttestationEnabled !== false
+    };
+  } catch (e) {
+    timeClaimSettingsError.value = e.response?.data?.error?.message || e.message || 'Failed to load agency flags';
+  } finally {
+    timeClaimSettingsLoading.value = false;
+  }
+};
+
+const saveTimeClaimSettings = async () => {
+  if (!agencyId.value) return;
+  try {
+    timeClaimSettingsSaving.value = true;
+    timeClaimSettingsError.value = '';
+    const res = await api.get(`/agencies/${agencyId.value}`);
+    const prev = parseFeatureFlagsJson(res.data?.feature_flags);
+    const next = {
+      ...prev,
+      timeClaimExcessEnabled: !!timeClaimDraft.value.excessEnabled,
+      timeClaimServiceCorrectionEnabled: !!timeClaimDraft.value.serviceCorrectionEnabled,
+      overtimeTherapyNotesAttestationEnabled: !!timeClaimDraft.value.overtimeTherapyNotesAttestationEnabled
+    };
+    await api.put(`/agencies/${agencyId.value}`, { featureFlags: next });
+    await agencyStore.hydrateAgencyById(agencyId.value);
+  } catch (e) {
+    timeClaimSettingsError.value = e.response?.data?.error?.message || e.message || 'Failed to save';
+  } finally {
+    timeClaimSettingsSaving.value = false;
+  }
+};
+
 const addExcessRule = async () => {
   const code = String(newExcessServiceCode.value || '').trim();
   if (!agencyId.value || !code) return;
@@ -347,7 +438,12 @@ const addExcessRule = async () => {
 
 watch(agencyId, async () => {
   await load();
+  if (payrollTab.value === 'time_claims') await loadTimeClaimSettings();
 }, { immediate: true });
+
+watch(payrollTab, async (t) => {
+  if (t === 'time_claims') await loadTimeClaimSettings();
+});
 </script>
 
 <style scoped>
@@ -468,6 +564,16 @@ watch(agencyId, async () => {
   border: 1px solid var(--border);
   border-radius: 6px;
   min-width: 120px;
+}
+.time-claim-toggles .toggle-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 10px;
+  font-weight: 500;
+}
+.time-claim-toggles .toggle-row input {
+  margin-top: 3px;
 }
 </style>
 

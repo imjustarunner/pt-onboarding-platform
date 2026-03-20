@@ -672,7 +672,12 @@
                   </div>
                 </button>
 
-                <button type="button" class="dash-card" @click="openTimeExcessModal">
+                <button
+                  v-if="timeClaimExcessEnabled"
+                  type="button"
+                  class="dash-card"
+                  @click="openTimeExcessModal"
+                >
                   <div class="dash-card-title">Excess Time</div>
                   <div class="dash-card-desc">Select service codes and enter direct/indirect minutes. Excess beyond included span is paid at your rates.</div>
                   <div class="dash-card-meta">
@@ -680,7 +685,12 @@
                   </div>
                 </button>
 
-                <button type="button" class="dash-card" @click="openTimeCorrectionModal">
+                <button
+                  v-if="timeClaimServiceCorrectionEnabled"
+                  type="button"
+                  class="dash-card"
+                  @click="openTimeCorrectionModal"
+                >
                   <div class="dash-card-title">Service Correction</div>
                   <div class="dash-card-desc">Request correction review for a service.</div>
                   <div class="dash-card-meta">
@@ -1234,6 +1244,9 @@ const clinicalNoteGeneratorEnabledForAgency = computed(() => {
   return false;
 });
 const shiftProgramsEnabledForAgency = computed(() => isTruthyFlag(agencyFlags.value?.shiftProgramsEnabled));
+
+const timeClaimExcessEnabled = computed(() => agencyFlags.value?.timeClaimExcessEnabled !== false);
+const timeClaimServiceCorrectionEnabled = computed(() => agencyFlags.value?.timeClaimServiceCorrectionEnabled !== false);
 
 // Presence widget: super_admin always; staff/admin when agency has presenceEnabled
 const canSeePresenceWidget = computed(() => {
@@ -2778,8 +2791,14 @@ const onBudgetExpensesSubmitted = () => {
 };
 
 const openTimeMeetingModal = () => { pendingTimeModalOpen.value = 'meeting'; };
-const openTimeExcessModal = () => { pendingTimeModalOpen.value = 'excess'; };
-const openTimeCorrectionModal = () => { pendingTimeModalOpen.value = 'correction'; };
+const openTimeExcessModal = () => {
+  if (!timeClaimExcessEnabled.value) return;
+  pendingTimeModalOpen.value = 'excess';
+};
+const openTimeCorrectionModal = () => {
+  if (!timeClaimServiceCorrectionEnabled.value) return;
+  pendingTimeModalOpen.value = 'correction';
+};
 const openTimeOvertimeModal = () => { pendingTimeModalOpen.value = 'overtime'; };
 
 const onTimeSubmittedFromModal = () => {
