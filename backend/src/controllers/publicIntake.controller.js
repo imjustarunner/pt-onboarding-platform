@@ -1057,6 +1057,13 @@ const normalizeAnswerValue = (val) => {
     return val.map((entry) => normalizeAnswerValue(entry)).filter(Boolean).join(', ');
   }
   if (typeof val === 'object') {
+    const o = val;
+    const nestedKeys = ['details', 'detail', 'explanation', 'notes', 'text', 'description', 'value', 'comment', 'comments'];
+    const pieces = [];
+    for (const k of nestedKeys) {
+      if (hasValue(o[k])) pieces.push(String(o[k]).trim());
+    }
+    if (pieces.length) return pieces.join(' — ');
     try {
       return JSON.stringify(val);
     } catch {
@@ -1086,6 +1093,21 @@ const isIntakeFieldVisible = (field, values = {}) => {
   const showIf = field?.showIf;
   if (!showIf || !showIf.fieldKey) return true;
   const actual = values[showIf.fieldKey];
+  const expected = showIf.equals;
+  if (Array.isArray(expected)) {
+    return expected.map((v) => String(v).trim().toLowerCase()).includes(String(actual).trim().toLowerCase());
+  }
+  if (expected === '' || expected === null || expected === undefined) {
+    return Boolean(actual);
+  }
+  return String(actual ?? '').trim().toLowerCase() === String(expected ?? '').trim().toLowerCase();
+};
+
+/** Like isIntakeFieldVisible but showIf resolves against merged maps (e.g. client keys on guardian/submission fields). */
+const isIntakeFieldVisibleWithShowIfContext = (field, showIfContext) => {
+  const showIf = field?.showIf;
+  if (!showIf || !showIf.fieldKey) return true;
+  const actual = showIfContext[showIf.fieldKey];
   const expected = showIf.equals;
   if (Array.isArray(expected)) {
     return expected.map((v) => String(v).trim().toLowerCase()).includes(String(actual).trim().toLowerCase());
@@ -1255,13 +1277,23 @@ export const buildClinicalSummaryText = ({ link, intakeData, clientIndex = 0 }) 
   }
 
   const formatElevated = (score, cutoff) => (score >= cutoff ? 'Elevated' : 'Not Elevated');
-  const buildH0002Narrative = ({ attentionScore, internalScore, externalScore, totalScore, traumaIndicators, goals }) => {
+  const buildH0002Narrative = ({
+    attentionScore,
+    internalScore,
+    externalScore,
+    totalScore,
+    traumaIndicators,
+    goals,
+    traumaHasWrittenDetails = false
+  }) => {
     const attentionStatus = formatElevated(attentionScore, 7);
     const internalStatus = formatElevated(internalScore, 5);
     const externalStatus = formatElevated(externalScore, 7);
     const totalStatus = totalScore >= 15 ? 'clinically significant' : 'below clinical cutoff';
     const traumaText = traumaIndicators.length
-      ? `Trauma indicators were endorsed (${traumaIndicators.join('; ')}).`
+      ? `Trauma indicators were endorsed (${traumaIndicators.join('; ')}).${
+          traumaHasWrittenDetails ? ' Additional narrative details were provided in the intake responses (see Clinical History).' : ''
+        }`
       : 'No trauma indicators were endorsed.';
     const goalsText = goals.length
       ? `Client goals include: ${goals.map((g) => g.value).join('; ')}.`
@@ -1356,20 +1388,99 @@ export const buildClinicalSummaryText = ({ link, intakeData, clientIndex = 0 }) 
     responses: clientResponses
   }).filter((line) => !/^psc_\d+$/i.test(line.key || ''));
 
-  const findYesLabels = (lines, patterns) =>
-    lines
-      .filter((line) => {
-        if (shouldExcludeSummaryLine(line)) return false;
-        const label = String(line.label || '').toLowerCase();
-        return patterns.some((p) => p.test(label)) && isYes(line.value);
-      })
-      .map((line) => String(line.label).trim());
-
-  const traumaLabels = [
-    ...findYesLabels(orderedClient, [/physical harm|abuse/i]),
-    ...findYesLabels(orderedClient, [/neglect|lack of appropriate care/i]),
-    ...findYesLabels(orderedClient, [/emotional harm|mistreatment|intimidation/i])
+  const traumaQuestionPatterns = [
+    /physical harm|abuse/i,
+    /neglect|lack of appropriate care/i,
+    /emotional harm|mistreatment|intimidation/i
   ];
+
+  const traumaEntries = [];
+  const seenTraumaQuestionKeys = new Set();
+  for (const line of orderedClient) {
+    if (shouldExcludeSummaryLine(line)) continue;
+    const labelLower = String(line.label || '').toLowerCase();
+    if (!traumaQuestionPatterns.some((p) => p.test(labelLower))) continue;
+    if (!isYes(line.value)) continue;
+    const k = String(line.key || '').trim();
+    if (!k || seenTraumaQuestionKeys.has(k)) continue;
+    seenTraumaQuestionKeys.add(k);
+    traumaEntries.push({ key: k, label: String(line.label).trim() });
+  }
+  const traumaParentKeys = new Set(traumaEntries.map((e) => e.key));
+  const traumaLabels = traumaEntries.map((e) => e.label);
+
+  const clientScopeFields = getOrderedFieldsByScope(fields, 'client');
+  const clientFieldOrder = new Map();
+  clientScopeFields.forEach((f, i) => {
+    if (f?.key) clientFieldOrder.set(String(f.key), i);
+  });
+
+  const showIfMerge = { ...submissionResponses, ...guardianResponses, ...clientResponses };
+
+  const pushFollowUpsForScope = (scopeFields, scopeResponses, out, seenKeys) => {
+    for (const field of scopeFields) {
+      const parentKey = String(field?.showIf?.fieldKey || '').trim();
+      if (!parentKey || !traumaParentKeys.has(parentKey)) continue;
+      const fk = String(field.key || '').trim();
+      if (!fk || traumaParentKeys.has(fk)) continue;
+      if (/^psc_\d+$/i.test(fk)) continue;
+      if (!isIntakeFieldVisibleWithShowIfContext(field, showIfMerge)) continue;
+      const raw = scopeResponses?.[field.key];
+      if (!hasValue(raw)) continue;
+      const label = String(field?.label || field?.key || '').trim();
+      const rendered = normalizeAnswerValue(raw);
+      const lineObj = { key: fk, label, value: rendered };
+      if (shouldExcludeSummaryLine(lineObj)) continue;
+      if (!hasValue(rendered)) continue;
+      if (seenKeys.has(fk)) continue;
+      seenKeys.add(fk);
+      out.push(lineObj);
+    }
+  };
+
+  const collectTraumaFollowUpLines = () => {
+    const out = [];
+    const seenKeys = new Set();
+    pushFollowUpsForScope(clientScopeFields, clientResponses, out, seenKeys);
+    pushFollowUpsForScope(getOrderedFieldsByScope(fields, 'guardian'), guardianResponses, out, seenKeys);
+    pushFollowUpsForScope(getOrderedFieldsByScope(fields, 'submission'), submissionResponses, out, seenKeys);
+    return out;
+  };
+
+  const elaborationLabelPattern =
+    /describe|explanation|details|elaborat|please explain|if you (answered|selected) yes|tell us more|additional information|more about|please provide/i;
+
+  const collectHeuristicTraumaElaborationLines = () => {
+    if (!traumaParentKeys.size) return [];
+    const out = [];
+    const seenKeys = new Set();
+    const scanLines = (lines) => {
+      for (const line of lines) {
+        if (/^psc_\d+$/i.test(line.key || '')) continue;
+        if (shouldExcludeSummaryLine(line)) continue;
+        const fk = String(line.key || '').trim();
+        if (!fk || traumaParentKeys.has(fk)) continue;
+        if (!elaborationLabelPattern.test(String(line.label || ''))) continue;
+        if (isYes(line.value)) continue;
+        if (seenKeys.has(fk)) continue;
+        seenKeys.add(fk);
+        out.push({ key: fk, label: line.label, value: line.value });
+      }
+    };
+    scanLines(orderedClient);
+    scanLines(orderedGuardian);
+    scanLines(orderedSubmission);
+    return out;
+  };
+
+  let traumaFollowUpLines = collectTraumaFollowUpLines();
+  for (const extra of collectHeuristicTraumaElaborationLines()) {
+    if (traumaFollowUpLines.some((x) => x.key === extra.key)) continue;
+    traumaFollowUpLines.push(extra);
+  }
+  traumaFollowUpLines.sort(
+    (a, b) => (clientFieldOrder.get(a.key) ?? 9999) - (clientFieldOrder.get(b.key) ?? 9999)
+  );
 
   const goalLines = [...orderedClient, ...orderedSubmission].filter((line) => {
     if (shouldExcludeSummaryLine(line)) return false;
@@ -1380,9 +1491,14 @@ export const buildClinicalSummaryText = ({ link, intakeData, clientIndex = 0 }) 
   if (traumaLabels.length) {
     output.push('Clinical History');
     output.push('----------------');
-    output.push(
-      `Trauma indicators endorsed: ${traumaLabels.join('; ')}.`
-    );
+    output.push(`Trauma indicators endorsed: ${traumaLabels.join('; ')}.`);
+    if (traumaFollowUpLines.length) {
+      output.push('');
+      output.push('Reported details:');
+      traumaFollowUpLines.forEach((line) => {
+        output.push(`- ${line.label}: ${line.value}`);
+      });
+    }
     output.push('');
   }
   if (goalLines.length) {
@@ -1401,7 +1517,8 @@ export const buildClinicalSummaryText = ({ link, intakeData, clientIndex = 0 }) 
       externalScore,
       totalScore,
       traumaIndicators: traumaLabels,
-      goals: goalLines
+      goals: goalLines,
+      traumaHasWrittenDetails: traumaFollowUpLines.length > 0
     });
     output.push('H0002 Narrative');
     output.push('--------------');
