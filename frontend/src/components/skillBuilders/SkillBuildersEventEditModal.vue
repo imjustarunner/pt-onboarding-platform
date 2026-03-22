@@ -69,19 +69,21 @@
             <div v-if="isSkillsGroupIntegrated" class="sb-ce-section muted small sb-ce-sg-recur-info">
               <p class="sb-ce-sg-recur-p">
                 <strong>Integrated Skill Builders group:</strong> the start/end fields above are the <em>program date
-                span</em>. Which weekdays you meet and at what times are edited with <strong>Save week pattern</strong> on
-                the event page (see below). The system generates <strong>scheduled sessions</strong> from that pattern for
-                kiosk and attendance.
+                span</em>. Recurring weekdays and times are the <strong>program week pattern</strong> (below). The system
+                generates <strong>scheduled sessions</strong> from that pattern for kiosk and attendance.
               </p>
             </div>
 
-            <div v-if="skillsGroupMeetingsPreview.length" class="sb-ce-section">
+            <div v-if="isSkillsGroupIntegrated && canEditProgramWeekPattern" class="sb-ce-section sb-ce-pwm-wrap">
+              <SkillBuildersEventProgramMeetingsCard
+                :agency-id="agencyId"
+                :event-id="eventId"
+                :initial-meetings="skillsGroupMeetingsPreview"
+                @saved="onProgramMeetingsSaved"
+              />
+            </div>
+            <div v-else-if="isSkillsGroupIntegrated && skillsGroupMeetingsPreview.length" class="sb-ce-section">
               <strong class="sb-ce-subhead">Program week pattern</strong>
-              <p class="muted small sb-ce-pattern-lead">
-                Recurring slots for this skills group (same as the Program week pattern card on this page). To change
-                them, close this modal and use <strong>Save week pattern</strong> there. This modal does not edit
-                meeting times.
-              </p>
               <ul class="sb-ce-pattern-list">
                 <li v-for="(m, i) in skillsGroupMeetingsPreview" :key="i">
                   {{ m.weekday }} · {{ formatHm(m.startTime) }}–{{ formatHm(m.endTime) }}
@@ -125,6 +127,87 @@
             <div class="form-group">
               <label class="sb-ce-lbl">Skill Builders — direct hours (payroll)</label>
               <input v-model.number="draft.skillBuilderDirectHours" class="input" type="number" min="0" step="0.25" />
+            </div>
+
+            <div v-if="isSkillsGroupIntegrated" class="sb-ce-section">
+              <strong class="sb-ce-subhead">Family-facing times</strong>
+              <p class="muted small sb-ce-pattern-lead">
+                Shown to guardians for drop-off and pickup (wall-clock times, not payroll punches).
+              </p>
+              <div class="sb-ce-grid">
+                <div class="form-group">
+                  <label class="sb-ce-lbl">Client check-in (display)</label>
+                  <input v-model="draft.clientCheckInDisplayTime" class="input" type="time" step="60" />
+                </div>
+                <div class="form-group">
+                  <label class="sb-ce-lbl">Client check-out (display)</label>
+                  <input v-model="draft.clientCheckOutDisplayTime" class="input" type="time" step="60" />
+                </div>
+              </div>
+            </div>
+
+            <div v-if="isSkillsGroupIntegrated" class="sb-ce-section">
+              <strong class="sb-ce-subhead">Virtual sessions (join links)</strong>
+              <p class="muted small sb-ce-pattern-lead">
+                Turn this off to hide the <strong>Virtual sessions</strong> card on the Skill Builders event portal
+                (no video join UI). Session rows and URLs in admin are unchanged; turn this back on anytime.
+              </p>
+              <div class="form-group">
+                <label class="sb-ce-lbl">Show virtual join card on event portal</label>
+                <select v-model="draft.virtualSessionsEnabled" class="input">
+                  <option :value="true">Yes</option>
+                  <option :value="false">No</option>
+                </select>
+              </div>
+            </div>
+
+            <div v-if="isSkillsGroupIntegrated" class="sb-ce-section">
+              <strong class="sb-ce-subhead">Program station kiosk</strong>
+              <p class="muted small sb-ce-pattern-lead">
+                Providers open your branded <strong>station</strong> link, enter the 6-digit event PIN, then their personal
+                4-digit kiosk PIN (from profile preferences). Each station PIN must be unique across Skill Builders events
+                for this agency so the kiosk always opens the right program.
+              </p>
+              <p v-if="kioskEntryUrl" class="muted small sb-ce-kiosk-url">
+                <strong>Station link:</strong> <code class="sb-ce-code">{{ kioskEntryUrl }}</code>
+              </p>
+              <p v-else class="muted small">Save the program portal slug to show the full station URL here.</p>
+              <p v-if="draft.kioskEventPinSet" class="muted small">A station PIN is currently set.</p>
+              <div class="form-group">
+                <label class="sb-ce-lbl">New 6-digit station PIN (optional)</label>
+                <input
+                  v-model="draft.kioskEventPinNew"
+                  class="input"
+                  type="password"
+                  inputmode="numeric"
+                  maxlength="6"
+                  autocomplete="new-password"
+                  placeholder="Leave blank to keep current"
+                />
+              </div>
+              <div class="form-group">
+                <label class="sb-ce-check">
+                  <input v-model="draft.kioskEventPinClear" type="checkbox" />
+                  Remove station PIN (disable kiosk unlock for this event)
+                </label>
+              </div>
+            </div>
+
+            <div v-if="isSkillsGroupIntegrated" class="sb-ce-section">
+              <strong class="sb-ce-subhead">Staff report / departure (payroll context)</strong>
+              <p class="muted small sb-ce-pattern-lead">
+                Expected on-site arrival and departure times of day (separate from the recurring program pattern).
+              </p>
+              <div class="sb-ce-grid">
+                <div class="form-group">
+                  <label class="sb-ce-lbl">Employee report time</label>
+                  <input v-model="draft.employeeReportTime" class="input" type="time" step="60" />
+                </div>
+                <div class="form-group">
+                  <label class="sb-ce-lbl">Employee departure time</label>
+                  <input v-model="draft.employeeDepartureTime" class="input" type="time" step="60" />
+                </div>
+              </div>
             </div>
 
             <div class="sb-ce-section">
@@ -248,11 +331,16 @@
 <script setup>
 import { ref, watch, computed } from 'vue';
 import api from '../../services/api';
+import SkillBuildersEventProgramMeetingsCard from './SkillBuildersEventProgramMeetingsCard.vue';
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
   agencyId: { type: Number, required: true },
-  eventId: { type: Number, required: true }
+  eventId: { type: Number, required: true },
+  /** Portal slug for branded links (same as route `/:organizationSlug`). */
+  portalSlug: { type: String, default: '' },
+  /** When true, show the full week-pattern editor (otherwise read-only list for integrated groups). */
+  canEditProgramWeekPattern: { type: Boolean, default: false }
 });
 
 const emit = defineEmits(['update:modelValue', 'saved']);
@@ -268,6 +356,12 @@ const skillsGroupMeetingsPreview = ref([]);
 const isSkillsGroupIntegrated = computed(
   () => String(draft.value.eventType || '').toLowerCase() === 'skills_group'
 );
+
+const kioskEntryUrl = computed(() => {
+  const s = String(props.portalSlug || '').trim();
+  if (!s || typeof window === 'undefined') return '';
+  return `${window.location.origin}/${encodeURI(s)}/kiosk`;
+});
 
 const weekdayOptions = [
   { value: 0, label: 'Sun' },
@@ -320,8 +414,22 @@ function emptyDraft() {
     skillBuilderDirectHours: null,
     registrationEligible: false,
     medicaidEligible: false,
-    cashEligible: false
+    cashEligible: false,
+    clientCheckInDisplayTime: '',
+    clientCheckOutDisplayTime: '',
+    employeeReportTime: '',
+    employeeDepartureTime: '',
+    virtualSessionsEnabled: true,
+    kioskEventPinSet: false,
+    kioskEventPinNew: '',
+    kioskEventPinClear: false
   };
+}
+
+function wallTimeToInput(v) {
+  if (v == null || v === '') return '';
+  const s = String(v).slice(0, 8);
+  return s.length >= 5 ? s.slice(0, 5) : '';
 }
 
 const draft = ref(emptyDraft());
@@ -512,7 +620,15 @@ function populateFromEvent(event) {
         : null,
     registrationEligible: !!event.registrationEligible,
     medicaidEligible: !!event.medicaidEligible,
-    cashEligible: !!event.cashEligible
+    cashEligible: !!event.cashEligible,
+    clientCheckInDisplayTime: wallTimeToInput(event.clientCheckInDisplayTime),
+    clientCheckOutDisplayTime: wallTimeToInput(event.clientCheckOutDisplayTime),
+    employeeReportTime: wallTimeToInput(event.employeeReportTime),
+    employeeDepartureTime: wallTimeToInput(event.employeeDepartureTime),
+    virtualSessionsEnabled: event.virtualSessionsEnabled !== false,
+    kioskEventPinSet: !!event.kioskEventPinSet,
+    kioskEventPinNew: '',
+    kioskEventPinClear: false
   };
 }
 
@@ -536,6 +652,11 @@ function normalizeRecurrenceForPayload(recurrence = {}) {
 
 function formatHm(t) {
   return String(t || '').slice(0, 5) || '—';
+}
+
+function onProgramMeetingsSaved(next) {
+  skillsGroupMeetingsPreview.value = Array.isArray(next) ? next.map((x) => ({ ...x })) : [];
+  emit('saved');
 }
 
 function toggleWeekday(weekday, checked) {
@@ -669,8 +790,20 @@ async function save() {
           : null,
       registrationEligible: !!draft.value.registrationEligible,
       medicaidEligible: !!draft.value.medicaidEligible,
-      cashEligible: !!draft.value.cashEligible
+      cashEligible: !!draft.value.cashEligible,
+      clientCheckInDisplayTime: draft.value.clientCheckInDisplayTime || null,
+      clientCheckOutDisplayTime: draft.value.clientCheckOutDisplayTime || null,
+      employeeReportTime: draft.value.employeeReportTime || null,
+      employeeDepartureTime: draft.value.employeeDepartureTime || null,
+      virtualSessionsEnabled: !!draft.value.virtualSessionsEnabled
     };
+
+    const pinNew = String(draft.value.kioskEventPinNew || '').replace(/\D/g, '').slice(0, 6);
+    if (pinNew.length === 6) {
+      payload.kioskEventPin = pinNew;
+    } else if (draft.value.kioskEventPinClear) {
+      payload.kioskEventPinClear = true;
+    }
 
     await api.put(
       `/skill-builders/events/${props.eventId}/company-event-edit`,
@@ -712,6 +845,12 @@ watch(
   justify-content: center;
   padding: 24px 12px;
   overflow-y: auto;
+}
+.sb-ce-pwm-wrap {
+  padding: 0;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 12px;
+  overflow: hidden;
 }
 .sb-ce-modal {
   width: min(720px, 100%);
@@ -758,6 +897,22 @@ watch(
   font-weight: 600;
   margin-bottom: 4px;
   color: var(--text-secondary, #475569);
+}
+.sb-ce-code {
+  display: inline-block;
+  margin-top: 4px;
+  word-break: break-all;
+  font-size: 0.8rem;
+}
+.sb-ce-check {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+.sb-ce-kiosk-url {
+  margin: 8px 0 0;
 }
 .sb-ce-section {
   margin-top: 14px;

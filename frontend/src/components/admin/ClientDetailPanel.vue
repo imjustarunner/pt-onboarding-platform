@@ -385,7 +385,7 @@
                   </label>
                 </template>
                 <template v-else>
-                  {{ client.skills ? 'Yes' : 'No' }}
+                  {{ isSkillsClientFlag(client.skills) ? 'Yes' : 'No' }}
                 </template>
               </div>
             </div>
@@ -525,6 +525,11 @@
               </template>
             </div>
           </div>
+        </div>
+
+        <!-- Skill Builders program (skills clients — integrated groups/events; see docs/SKILL_BUILDERS_PROGRAM_AND_AFFILIATIONS.md) -->
+        <div v-if="activeTab === 'skill-builders'" class="detail-section">
+          <ClientSkillBuildersProgramTab :client="client" @program-updated="emit('updated', { keepOpen: true })" />
         </div>
 
         <!-- Compliance Checklist Tab -->
@@ -1495,6 +1500,8 @@ import api from '../../services/api';
 import PhiDocumentsPanel from './PhiDocumentsPanel.vue';
 import ClientSchoolRoiAccessTab from './ClientSchoolRoiAccessTab.vue';
 import GuardianBillingTab from '../guardian/GuardianBillingTab.vue';
+import ClientSkillBuildersProgramTab from '../skillBuilders/ClientSkillBuildersProgramTab.vue';
+import { isSkillsClientFlag } from '../../utils/skillsClientFlag.js';
 
 const props = defineProps({
   client: {
@@ -1993,15 +2000,18 @@ const canManageSchoolRoi = computed(
 );
 
 const tabs = computed(() => {
-  const base = [
-    { id: 'overview', label: 'Overview' },
+  const base = [{ id: 'overview', label: 'Overview' }];
+  if (isSkillsClientFlag(props.client?.skills)) {
+    base.push({ id: 'skill-builders', label: 'Events / groups' });
+  }
+  base.push(
     { id: 'checklist', label: 'Checklist' },
     { id: 'history', label: 'Status History' },
     { id: 'access', label: 'Access Log' },
     { id: 'messages', label: 'Messages / Notes' },
     { id: 'guardians', label: 'Guardians' },
     { id: 'phi', label: 'Documentation' }
-  ];
+  );
   if (learningBillingEnabledForClient.value) {
     const idx = base.findIndex((t) => t.id === 'messages');
     base.splice(idx < 0 ? base.length : idx, 0, { id: 'billing', label: 'Billing' });
@@ -2412,7 +2422,7 @@ const saveSkills = async () => {
   } catch (err) {
     console.error('Failed to update skills flag:', err);
     alert(err.response?.data?.error?.message || 'Failed to update skills flag');
-    skillsValue.value = !!props.client?.skills;
+    skillsValue.value = isSkillsClientFlag(props.client?.skills);
   }
 };
 
@@ -2428,7 +2438,7 @@ const hydrateOverviewForm = () => {
   overviewForm.value.grade = String(props.client?.grade || '');
   overviewForm.value.primary_client_language = String(props.client?.primary_client_language || '');
   overviewForm.value.primary_parent_language = String(props.client?.primary_parent_language || '');
-  overviewForm.value.skills = !!props.client?.skills;
+  overviewForm.value.skills = isSkillsClientFlag(props.client?.skills);
   overviewForm.value.referral_date = props.client?.referral_date ? String(props.client.referral_date).slice(0, 10) : '';
   overviewForm.value.source = String(props.client?.source || '');
 };
@@ -3247,7 +3257,7 @@ watch(() => activeTab.value, (newTab) => {
 watch(() => props.client, async () => {
   // Reset editing states when client changes
   editingStatus.value = false;
-  skillsValue.value = !!props.client?.skills;
+  skillsValue.value = isSkillsClientFlag(props.client?.skills);
   clientCodeDraft.value = '';
   if (!editingOverview.value) {
     hydrateOverviewForm();
@@ -3366,6 +3376,27 @@ watch(
     if (allowed.has(desired)) activeTab.value = desired;
   },
   { immediate: true }
+);
+
+// Hub passes initial-tab="skill-builders" while the client row may load without `skills` first; apply when flag appears.
+watch(
+  () => isSkillsClientFlag(props.client?.skills),
+  (on) => {
+    const desired = String(props.initialTab || '').trim();
+    if (desired !== 'skill-builders' || !on) return;
+    const allowed = new Set((tabs.value || []).map((x) => x.id));
+    if (allowed.has('skill-builders')) activeTab.value = 'skill-builders';
+  },
+  { immediate: true }
+);
+
+// If the tab set shrinks (e.g. skills cleared), avoid a blank panel.
+watch(
+  () => (tabs.value || []).map((t) => t.id).join(','),
+  () => {
+    const allowed = new Set((tabs.value || []).map((t) => t.id));
+    if (!allowed.has(activeTab.value)) activeTab.value = 'overview';
+  }
 );
 
 watch(

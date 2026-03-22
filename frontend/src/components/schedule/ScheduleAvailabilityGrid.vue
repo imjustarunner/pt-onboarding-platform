@@ -2699,9 +2699,10 @@ const load = async ({ forceRefresh = false } = {}) => {
       // Person-level schedule events (agencyId NULL) can appear in each agency response.
       // Deduplicate by stable event id (fallback to kind/time signature for safety).
       const scheduleEventKey = (e) => {
+        const kind = String(e?.kind || '').toUpperCase();
         const id = Number(e?.id || 0);
-        if (id > 0) return `id:${id}`;
-        return `sig:${String(e?.kind || '').toUpperCase()}|${String(e?.startAt || e?.startDate || '')}|${String(e?.endAt || e?.endDate || '')}|${String(e?.title || '')}`;
+        if (id > 0) return `${kind || 'EVT'}:${id}`;
+        return `sig:${kind}|${String(e?.startAt || e?.startDate || '')}|${String(e?.endAt || e?.endDate || '')}|${String(e?.title || '')}`;
       };
       const seenScheduleEventKeys = new Set();
       for (const r of okOnes) {

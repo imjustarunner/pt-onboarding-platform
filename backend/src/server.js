@@ -835,6 +835,31 @@ if (!isBootstrap) {
     setInterval(scheduleClinicalNoteDraftCleanup, 24 * 60 * 60 * 1000);
   }, getMsUntilMidnight() + (2 * 60 * 60 * 1000));
 
+  const scheduleSkillBuildersClinicalRetention = async () => {
+    try {
+      const { runSkillBuildersClinicalRetention } = await import(
+        './services/skillBuildersSessionClinical.service.js'
+      );
+      const result = await runSkillBuildersClinicalRetention({ limitRows: 800 });
+      const n = Number(result?.deletedNotes || 0);
+      const c = Number(result?.deletedCurriculumRows || 0);
+      if (n > 0 || c > 0) {
+        console.log(`[skill_builders_clinical_retention] deleted notes=${n}, curriculum rows=${c}`);
+      }
+    } catch (error) {
+      if (error.code === 'ER_NO_SUCH_TABLE') {
+        console.warn('skill_builders_session_clinical_notes not found. Run migration 589.');
+      } else {
+        console.error('Error in Skill Builders clinical retention:', error);
+      }
+    }
+  };
+  scheduleSkillBuildersClinicalRetention();
+  setTimeout(() => {
+    scheduleSkillBuildersClinicalRetention();
+    setInterval(scheduleSkillBuildersClinicalRetention, 24 * 60 * 60 * 1000);
+  }, getMsUntilMidnight() + (3 * 60 * 60 * 1000));
+
   // Public intake retention cleanup (hard delete expired submissions)
   // Run daily at 2:30 AM (best-effort; safe if tables don't exist yet).
   const scheduleIntakeRetentionCleanup = async () => {

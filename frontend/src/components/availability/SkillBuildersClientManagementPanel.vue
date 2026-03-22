@@ -29,17 +29,31 @@
         </thead>
         <tbody>
           <tr v-for="row in rows" :key="`${row.clientId}-${row.schoolOrganizationId}`">
-            <td>{{ row.initials || row.identifierCode || row.clientId }}</td>
+            <td>
+              <button type="button" class="sbcm-status-btn sbcm-initials-btn" @click="openClientProfile(row)">
+                {{ row.initials || row.identifierCode || row.clientId }}
+              </button>
+            </td>
             <td>{{ row.schoolName }}</td>
             <td>{{ row.grade || '—' }}</td>
             <td>{{ row.ageYears != null ? row.ageYears : '—' }}</td>
             <td>
-              <button type="button" class="btn-link" @click="toggleIntake(row)">
+              <button
+                type="button"
+                class="sbcm-status-btn"
+                :class="{ 'is-complete': row.intakeComplete }"
+                @click="toggleIntake(row)"
+              >
                 {{ row.intakeComplete ? 'Complete' : 'Needed' }}
               </button>
             </td>
             <td>
-              <button type="button" class="btn-link" @click="toggleTp(row)">
+              <button
+                type="button"
+                class="sbcm-status-btn"
+                :class="{ 'is-complete': row.treatmentPlanComplete }"
+                @click="toggleTp(row)"
+              >
                 {{ row.treatmentPlanComplete ? 'Complete' : 'Needed' }}
               </button>
             </td>
@@ -104,12 +118,30 @@
         <div v-if="assignError" class="pch-error">{{ assignError }}</div>
       </div>
     </div>
+
+    <Teleport to="body">
+      <div v-if="profileLoading" class="sbcm-profile-loading-overlay" role="status" aria-live="polite">
+        <div class="sbcm-profile-loading-card muted">Loading client…</div>
+      </div>
+      <div v-if="profileFullClient" class="sbcm-client-detail-lift">
+        <ClientDetailPanel
+          :key="`sbcm-client-${profileFullClient.id}`"
+          :client="profileFullClient"
+          initial-tab="skill-builders"
+          :current-client-index="-1"
+          :navigation-count="0"
+          @close="closeClientProfile"
+          @updated="onClientProfileUpdated"
+        />
+      </div>
+    </Teleport>
   </div>
 </template>
 
 <script setup>
 import { computed, ref, watch } from 'vue';
 import api from '../../services/api';
+import ClientDetailPanel from '../admin/ClientDetailPanel.vue';
 
 const props = defineProps({
   agencyId: { type: [Number, String], required: true }
@@ -129,6 +161,9 @@ const assignSaving = ref(false);
 const assignError = ref('');
 let assignSearchTimer = null;
 
+const profileLoading = ref(false);
+const profileFullClient = ref(null);
+
 const aid = computed(() => Number(props.agencyId));
 
 const schoolOptions = computed(() => {
@@ -147,9 +182,13 @@ const rows = computed(() => {
   return list.filter((c) => !sf || Number(c.schoolOrganizationId) === sf);
 });
 
-async function load() {
+/** @param {{ silent?: boolean }} [opts] — silent: refresh without hiding the table (no full-panel loading state) */
+async function load(opts = {}) {
+  const silent = !!opts.silent;
   if (!Number.isFinite(aid.value) || aid.value <= 0) return;
-  loading.value = true;
+  if (!silent) {
+    loading.value = true;
+  }
   error.value = '';
   try {
     const res = await api.get('/skill-builders/coordinator/master-clients', {
@@ -161,7 +200,42 @@ async function load() {
     error.value = e.response?.data?.error?.message || e.message || 'Failed to load';
     rawClients.value = [];
   } finally {
-    loading.value = false;
+    if (!silent) {
+      loading.value = false;
+    }
+  }
+}
+
+/** Open full client panel in a modal (above Skill Builders hub); Overview shows Skills client + Skill Builders fields. */
+async function openClientProfile(row) {
+  const id = Number(row?.clientId);
+  if (!Number.isFinite(id) || id <= 0) return;
+  profileFullClient.value = null;
+  profileLoading.value = true;
+  try {
+    const r = await api.get(`/clients/${id}`, { skipGlobalLoading: true });
+    if (r.data) {
+      profileFullClient.value = { ...r.data };
+    } else {
+      window.alert('Client not found.');
+    }
+  } catch (e) {
+    window.alert(e.response?.data?.error?.message || e.message || 'Failed to load client');
+  } finally {
+    profileLoading.value = false;
+  }
+}
+
+function closeClientProfile() {
+  profileFullClient.value = null;
+}
+
+function onClientProfileUpdated(payload) {
+  load({ silent: true });
+  if (payload?.keepOpen && payload?.client) {
+    profileFullClient.value = { ...payload.client };
+  } else if (!payload?.keepOpen) {
+    closeClientProfile();
   }
 }
 
@@ -171,7 +245,7 @@ async function toggleIntake(row) {
       agencyId: aid.value,
       skillBuildersIntakeComplete: !row.intakeComplete
     });
-    await load();
+    await load({ silent: true });
   } catch (e) {
     window.alert(e.response?.data?.error?.message || e.message || 'Update failed');
   }
@@ -217,7 +291,7 @@ async function toggleTp(row) {
         }
       }
     }
-    await load();
+    await load({ silent: true });
   } catch (e) {
     window.alert(e.response?.data?.error?.message || e.message || 'Update failed');
   }
@@ -284,7 +358,7 @@ async function submitAssign() {
       schoolOrganizationId: assignRow.value.schoolOrganizationId
     });
     closeAssign();
-    await load();
+    await load({ silent: true });
   } catch (e) {
     assignError.value = e.response?.data?.error?.message || e.message || 'Assign failed';
   } finally {
@@ -311,7 +385,7 @@ async function confirmRow(row) {
       agencyId: aid.value,
       companyEventIds: ids
     });
-    await load();
+    await load({ silent: true });
   } catch (e) {
     window.alert(e.response?.data?.error?.message || e.message || 'Confirm failed');
   }
@@ -361,6 +435,65 @@ watch(
   border-bottom: 1px solid var(--border, #e2e8f0);
   text-align: left;
   vertical-align: top;
+}
+.sbcm-status-btn {
+  min-width: 5.25rem;
+  padding: 7px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(15, 118, 110, 0.35);
+  background: linear-gradient(180deg, #ffffff 0%, #f4fbf9 100%);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: var(--text-primary, #0f172a);
+  cursor: pointer;
+  text-align: center;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 0.1s ease;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+}
+.sbcm-status-btn:hover {
+  border-color: rgba(15, 118, 110, 0.55);
+  box-shadow: 0 4px 14px rgba(15, 118, 110, 0.12);
+}
+.sbcm-status-btn:active {
+  transform: translateY(1px);
+}
+.sbcm-status-btn.is-complete {
+  background: linear-gradient(180deg, rgba(15, 118, 110, 0.14) 0%, #ffffff 100%);
+  color: var(--primary, #0f766e);
+  border-color: rgba(15, 118, 110, 0.45);
+}
+.sbcm-initials-btn {
+  min-width: 4.5rem;
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  color: var(--primary, #0f766e);
+}
+.sbcm-profile-loading-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 4000;
+  background: rgba(15, 23, 42, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.sbcm-profile-loading-card {
+  padding: 16px 22px;
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid var(--border, #e2e8f0);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.12);
+  font-weight: 600;
+}
+/* ClientDetailPanel’s own overlay defaults to z-index 1000 — sit above Program hub modal (1500). */
+.sbcm-client-detail-lift :deep(.modal-overlay) {
+  z-index: 4000;
 }
 .sbcm-ev-list {
   margin: 0;

@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { fetchSkillBuildersGroupProvidersForPortal } from '../services/skillBuildersEventProviders.service.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
 import User from '../models/User.model.js';
 import LearningProgramClass from '../models/LearningProgramClass.model.js';
@@ -7,6 +8,8 @@ import {
   enrollClientsInCompanyEvent,
   validatePayerForEligibility
 } from '../services/skillBuildersIntakeEnrollment.service.js';
+import StorageService from '../services/storage.service.js';
+import { loadSessionCurriculumRow } from '../services/skillBuildersSessionClinical.service.js';
 
 const parsePositiveInt = (raw) => {
   const value = Number.parseInt(String(raw || ''), 10);
@@ -119,6 +122,12 @@ async function assertGuardianSkillBuilderEventAccess(guardianUserId, eventId) {
             ce.description,
             ce.starts_at,
             ce.ends_at,
+            ce.registration_eligible,
+            ce.medicaid_eligible,
+            ce.cash_eligible,
+            ce.client_check_in_display_time,
+            ce.client_check_out_display_time,
+            ce.virtual_sessions_enabled,
             sg.id AS skills_group_id,
             sg.name AS skills_group_name,
             sg.start_date AS group_start_date,
@@ -164,25 +173,14 @@ async function loadMeetingsAndProviders(skillsGroupId) {
      ORDER BY FIELD(weekday,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'), start_time`,
     [sgid]
   );
-  const [prows] = await pool.execute(
-    `SELECT u.id, u.first_name, u.last_name
-     FROM skills_group_providers sgp
-     JOIN users u ON u.id = sgp.provider_user_id
-     WHERE sgp.skills_group_id = ?
-     ORDER BY u.last_name ASC, u.first_name ASC`,
-    [sgid]
-  );
+  const providers = await fetchSkillBuildersGroupProvidersForPortal(sgid);
   return {
     meetings: (mrows || []).map((m) => ({
       weekday: m.weekday,
       startTime: String(m.start_time || '').slice(0, 8),
       endTime: String(m.end_time || '').slice(0, 8)
     })),
-    providers: (prows || []).map((p) => ({
-      id: Number(p.id),
-      firstName: p.first_name,
-      lastName: p.last_name
-    }))
+    providers
   };
 }
 
@@ -290,6 +288,96 @@ export const getGuardianSkillBuilderEventDetail = async (req, res, next) => {
       }
     }
 
+    const ymdTodayG = () => {
+      const d = new Date();
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    };
+    const ymdAddDaysG = (ymd, delta) => {
+      const [y, mo, da] = String(ymd || '').split('-').map(Number);
+      const dt = new Date(Date.UTC(y, mo - 1, da));
+      if (!Number.isFinite(dt.getTime())) return ymdTodayG();
+      dt.setUTCDate(dt.getUTCDate() + delta);
+      return dt.toISOString().slice(0, 10);
+    };
+
+    let sessions = [];
+    let clientAttendance = [];
+    try {
+      const eidNum = Number(base.company_event_id);
+      let from = ymdAddDaysG(ymdTodayG(), -7);
+      let to = ymdAddDaysG(ymdTodayG(), 365);
+      const sd = base.group_start_date != null ? String(base.group_start_date).slice(0, 10) : '';
+      const ed = base.group_end_date != null ? String(base.group_end_date).slice(0, 10) : '';
+      if (/^\d{4}-\d{2}-\d{2}$/.test(sd) && sd < from) from = sd;
+      if (/^\d{4}-\d{2}-\d{2}$/.test(ed) && ed > to) to = ed;
+      const [sessRows] = await pool.execute(
+        `SELECT s.id, s.session_date, s.starts_at, s.ends_at, s.timezone,
+                s.location_label, s.location_address, s.modality, s.join_url,
+                m.weekday, m.start_time, m.end_time
+         FROM skill_builders_event_sessions s
+         INNER JOIN skills_group_meetings m ON m.id = s.skills_group_meeting_id
+         WHERE s.company_event_id = ? AND s.session_date >= ? AND s.session_date <= ?
+         ORDER BY s.session_date ASC, m.start_time ASC, s.id ASC
+         LIMIT 500`,
+        [eidNum, from, to]
+      );
+      const sessList = (sessRows || []).map((r) => ({
+        id: Number(r.id),
+        sessionDate: r.session_date,
+        startsAt: r.starts_at,
+        endsAt: r.ends_at,
+        timezone: r.timezone || 'UTC',
+        weekday: r.weekday,
+        startTime: String(r.start_time || '').slice(0, 8),
+        endTime: String(r.end_time || '').slice(0, 8),
+        locationLabel: r.location_label != null ? String(r.location_label).trim() || null : null,
+        locationAddress: r.location_address != null ? String(r.location_address).trim() || null : null,
+        modality: r.modality != null ? String(r.modality).trim().toLowerCase() || null : null,
+        joinUrl: r.join_url != null ? String(r.join_url).trim().slice(0, 1024) || null : null
+      }));
+      const sids = sessList.map((s) => s.id).filter((n) => n > 0);
+      const hasCurr = new Set();
+      if (sids.length) {
+        try {
+          const ph = sids.map(() => '?').join(',');
+          const [cuRows] = await pool.execute(
+            `SELECT session_id FROM skill_builders_event_session_curriculum WHERE session_id IN (${ph})`,
+            sids
+          );
+          for (const c of cuRows || []) hasCurr.add(Number(c.session_id));
+        } catch (e) {
+          if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+        }
+      }
+      sessions = sessList.map((s) => ({ ...s, hasCurriculum: hasCurr.has(s.id) }));
+
+      const childIds = myChildren.map((x) => Number(x.clientId)).filter((n) => n > 0);
+      if (childIds.length) {
+        const ph = childIds.map(() => '?').join(',');
+        const [attRows] = await pool.execute(
+          `SELECT a.client_id, a.session_id, a.check_in_at, a.check_out_at, a.signature_text, s.session_date
+           FROM skill_builders_client_session_attendance a
+           INNER JOIN skill_builders_event_sessions s ON s.id = a.session_id
+           WHERE s.company_event_id = ? AND a.client_id IN (${ph})
+           ORDER BY s.session_date DESC, a.client_id ASC`,
+          [eidNum, ...childIds]
+        );
+        clientAttendance = (attRows || []).map((r) => ({
+          clientId: Number(r.client_id),
+          sessionId: Number(r.session_id),
+          sessionDate: r.session_date,
+          checkInAt: r.check_in_at,
+          checkOutAt: r.check_out_at,
+          signatureText: r.signature_text || null
+        }));
+      }
+    } catch (e) {
+      if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+    }
+
     res.json({
       ok: true,
       event: {
@@ -298,7 +386,18 @@ export const getGuardianSkillBuilderEventDetail = async (req, res, next) => {
         title: base.title,
         description: base.description || '',
         startsAt: base.starts_at,
-        endsAt: base.ends_at
+        endsAt: base.ends_at,
+        clientCheckInDisplayTime:
+          base.client_check_in_display_time != null ? String(base.client_check_in_display_time).slice(0, 8) : null,
+        clientCheckOutDisplayTime:
+          base.client_check_out_display_time != null ? String(base.client_check_out_display_time).slice(0, 8) : null,
+        registrationEligible: !!(base.registration_eligible === 1 || base.registration_eligible === true),
+        medicaidEligible: !!(base.medicaid_eligible === 1 || base.medicaid_eligible === true),
+        cashEligible: !!(base.cash_eligible === 1 || base.cash_eligible === true),
+        virtualSessionsEnabled:
+          base.virtual_sessions_enabled === undefined || base.virtual_sessions_enabled === null
+            ? true
+            : !!(base.virtual_sessions_enabled === 1 || base.virtual_sessions_enabled === true)
       },
       skillsGroup: {
         id: Number(base.skills_group_id),
@@ -311,9 +410,42 @@ export const getGuardianSkillBuilderEventDetail = async (req, res, next) => {
       },
       myChildren: childDetails,
       meetings,
-      providers
+      providers,
+      sessions,
+      clientAttendance
     });
   } catch (e) {
+    next(e);
+  }
+};
+
+/** GET /api/guardian-portal/skill-builders/events/:eventId/sessions/:sessionId/curriculum — PDF for families */
+export const getGuardianSkillBuilderSessionCurriculum = async (req, res, next) => {
+  try {
+    const uid = req.user?.id;
+    const eventId = parsePositiveInt(req.params.eventId);
+    const sessionId = parsePositiveInt(req.params.sessionId);
+    if (!uid || !eventId || !sessionId) return res.status(400).json({ error: { message: 'Invalid request' } });
+    const access = await assertGuardianSkillBuilderEventAccess(uid, eventId);
+    if (!access.ok) return res.status(403).json({ error: { message: 'Not available' } });
+    const [sRows] = await pool.execute(
+      `SELECT id FROM skill_builders_event_sessions WHERE id = ? AND company_event_id = ? LIMIT 1`,
+      [sessionId, eventId]
+    );
+    if (!sRows?.[0]) return res.status(404).json({ error: { message: 'Session not found' } });
+    const row = await loadSessionCurriculumRow(sessionId);
+    if (!row) return res.status(404).json({ error: { message: 'Curriculum not available' } });
+    const buf = await StorageService.readObject(row.storage_path);
+    res.setHeader('Content-Type', row.mime_type || 'application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="${encodeURIComponent(row.original_filename || 'curriculum.pdf')}"`
+    );
+    res.send(buf);
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE') {
+      return res.status(503).json({ error: { message: 'Curriculum feature not migrated' } });
+    }
     next(e);
   }
 };

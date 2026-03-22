@@ -26,6 +26,33 @@ import {
   recordSkillBuilderEventClockIn,
   recordSkillBuilderEventClockOut
 } from '../services/skillBuildersEventKioskPunch.service.js';
+import { fetchSkillBuildersGroupProvidersForPortal } from '../services/skillBuildersEventProviders.service.js';
+import multer from 'multer';
+import StorageService from '../services/storage.service.js';
+import {
+  curriculumStorageKey,
+  deleteCurriculumForSession,
+  deleteClinicalNotesForSession,
+  decryptClinicalNoteRow,
+  generateH2014SessionClinicalNote,
+  getClinicalNoteBySessionClient,
+  getDecryptedCurriculumTextForSession,
+  listClinicalNotesForSession,
+  loadSessionCurriculumRow,
+  processPdfUploadBuffer,
+  requireNoteAidEnabledForAgency,
+  upsertClinicalNote,
+  upsertCurriculumRecord
+} from '../services/skillBuildersSessionClinical.service.js';
+
+const curriculumUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 12 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (String(file.mimetype || '').toLowerCase() === 'application/pdf') cb(null, true);
+    else cb(new Error('Only PDF files are allowed'), false);
+  }
+});
 
 const parsePositiveInt = (raw) => {
   const value = Number.parseInt(String(raw || ''), 10);
@@ -181,6 +208,7 @@ async function resolveProgramOrg(conn, agencyId) {
 }
 
 function formatEventRow(row) {
+  const t = (v) => (v != null && v !== '' ? String(v).slice(0, 8) : null);
   return {
     id: Number(row.id),
     agencyId: Number(row.agency_id),
@@ -196,7 +224,18 @@ function formatEventRow(row) {
       row.skill_builder_direct_hours != null && row.skill_builder_direct_hours !== ''
         ? Number(row.skill_builder_direct_hours)
         : null,
-    learningProgramClassId: row.learning_program_class_id ? Number(row.learning_program_class_id) : null
+    learningProgramClassId: row.learning_program_class_id ? Number(row.learning_program_class_id) : null,
+    clientCheckInDisplayTime: t(row.client_check_in_display_time),
+    clientCheckOutDisplayTime: t(row.client_check_out_display_time),
+    employeeReportTime: t(row.employee_report_time),
+    employeeDepartureTime: t(row.employee_departure_time),
+    registrationEligible: !!(row.registration_eligible === 1 || row.registration_eligible === true),
+    medicaidEligible: !!(row.medicaid_eligible === 1 || row.medicaid_eligible === true),
+    cashEligible: !!(row.cash_eligible === 1 || row.cash_eligible === true),
+    virtualSessionsEnabled:
+      row.virtual_sessions_enabled === undefined || row.virtual_sessions_enabled === null
+        ? true
+        : !!(row.virtual_sessions_enabled === 1 || row.virtual_sessions_enabled === true)
   };
 }
 
@@ -689,6 +728,43 @@ async function assertEventAccess({ req, agencyId, eventId }) {
   return { error: { status: 403, message: 'Not assigned to this event' } };
 }
 
+async function assertClinicalSkillBuildersAccess(req, agencyId, eventId) {
+  if (String(req.user?.role || '').toLowerCase() === 'school_staff') {
+    return {
+      error: { status: 403, message: 'Clinical notes are not available for school staff accounts.' }
+    };
+  }
+  return assertEventAccess({ req, agencyId, eventId });
+}
+
+async function canManageSessionCurriculum(req, agencyId, eventId) {
+  const access = await assertEventAccess({ req, agencyId, eventId });
+  if (access.error) return access;
+  if (await isAgencyStaffLikeForSkillBuilders(req, agencyId)) return { ok: true };
+  const uid = parsePositiveInt(req.user?.id);
+  if (await getSkillBuilderCoordinatorAccess(uid)) return { ok: true };
+  const [r] = await pool.execute(
+    `SELECT 1 FROM skills_group_providers sgp
+     INNER JOIN skills_groups sg ON sg.id = sgp.skills_group_id
+     WHERE sg.company_event_id = ? AND sgp.provider_user_id = ?
+     LIMIT 1`,
+    [eventId, uid]
+  );
+  if (r?.[0]) return { ok: true };
+  return { error: { status: 403, message: 'Not authorized to manage session curriculum' } };
+}
+
+async function clientOnEventRoster(clientId, eventId, agencyId) {
+  const [r] = await pool.execute(
+    `SELECT 1 FROM skills_group_clients sgc
+     INNER JOIN skills_groups sg ON sg.id = sgc.skills_group_id
+     WHERE sg.company_event_id = ? AND sg.agency_id = ? AND sgc.client_id = ?
+     LIMIT 1`,
+    [eventId, agencyId, clientId]
+  );
+  return !!r?.[0];
+}
+
 const WEEKDAY_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const WEEKDAY_ABBR = {
   Monday: 'M',
@@ -861,7 +937,7 @@ export const getSkillBuilderEventDetail = async (req, res, next) => {
     if (access.error) return res.status(access.error.status).json({ error: { message: access.error.message } });
 
     const [sgRows] = await pool.execute(
-      `SELECT sg.*, school.name AS school_name, school.id AS school_id
+      `SELECT sg.*, school.name AS school_name, school.id AS school_id, school.slug AS school_slug
        FROM skills_groups sg
        INNER JOIN agencies school ON school.id = sg.organization_id
        WHERE sg.company_event_id = ? AND sg.agency_id = ?
@@ -870,14 +946,7 @@ export const getSkillBuilderEventDetail = async (req, res, next) => {
     );
     const sg = sgRows?.[0] || null;
 
-    const [provRows] = await pool.execute(
-      `SELECT u.id, u.first_name, u.last_name, u.email
-       FROM skills_group_providers sgp
-       JOIN users u ON u.id = sgp.provider_user_id
-       WHERE sgp.skills_group_id = ?
-       ORDER BY u.last_name ASC, u.first_name ASC`,
-      [sg?.id || 0]
-    );
+    const providers = sg?.id ? await fetchSkillBuildersGroupProvidersForPortal(sg.id) : [];
     const userId = parsePositiveInt(req.user?.id);
     const staffLike = await isAgencyStaffLikeForSkillBuilders(req, agencyId);
     const coord = await getSkillBuilderCoordinatorAccess(userId);
@@ -891,9 +960,11 @@ export const getSkillBuilderEventDetail = async (req, res, next) => {
            AND (sgc.active_for_providers = 1 OR sgc.active_for_providers IS TRUE)
          ORDER BY c.initials ASC
          LIMIT 200`
-      : `SELECT c.id, c.initials, c.identifier_code
+      : `SELECT c.id, c.initials, c.identifier_code, c.document_status, c.paperwork_status_id,
+                ps.label AS paperwork_status_label
          FROM skills_group_clients sgc
          JOIN clients c ON c.id = sgc.client_id
+         LEFT JOIN paperwork_statuses ps ON ps.id = c.paperwork_status_id
          WHERE sgc.skills_group_id = ?
          ORDER BY c.initials ASC
          LIMIT 200`;
@@ -994,19 +1065,19 @@ export const getSkillBuilderEventDetail = async (req, res, next) => {
             startDate: sg.start_date,
             endDate: sg.end_date,
             schoolOrganizationId: Number(sg.organization_id),
-            schoolName: sg.school_name
+            schoolName: sg.school_name,
+            schoolSlug: sg.school_slug != null && String(sg.school_slug).trim()
+              ? String(sg.school_slug).trim().toLowerCase()
+              : null
           }
         : null,
-      providers: (provRows || []).map((u) => ({
-        id: Number(u.id),
-        firstName: u.first_name,
-        lastName: u.last_name,
-        email: u.email
-      })),
+      providers,
       clients: (clientRows || []).map((c) => ({
         id: Number(c.id),
         initials: c.initials,
-        identifierCode: c.identifier_code
+        identifierCode: c.identifier_code,
+        documentStatus: c.document_status != null ? String(c.document_status) : null,
+        paperworkStatusLabel: c.paperwork_status_label != null ? String(c.paperwork_status_label).trim() || null : null
       }))
     });
   } catch (e) {
@@ -1029,6 +1100,7 @@ export const listSkillBuilderEventSessions = async (req, res, next) => {
     const toY = String(req.query.to || '').trim().slice(0, 10);
     let sql = `
       SELECT s.id, s.session_date, s.starts_at, s.ends_at, s.timezone,
+             s.location_label, s.location_address, s.modality, s.join_url,
              m.weekday, m.start_time, m.end_time
       FROM skill_builders_event_sessions s
       INNER JOIN skills_group_meetings m ON m.id = s.skills_group_meeting_id
@@ -1126,8 +1198,39 @@ export const listSkillBuilderEventSessions = async (req, res, next) => {
       }
     }
 
+    /** @type {Map<number, { fileName: string, extractStatus: string }>} */
+    const curriculumBySession = new Map();
+    /** @type {Map<number, number>} */
+    const clinicalNoteCountBySession = new Map();
+    if (sessionIds.length) {
+      try {
+        const ph = sessionIds.map(() => '?').join(',');
+        const [cuRows] = await pool.execute(
+          `SELECT session_id, original_filename, extract_status
+           FROM skill_builders_event_session_curriculum WHERE session_id IN (${ph})`,
+          sessionIds
+        );
+        for (const c of cuRows || []) {
+          curriculumBySession.set(Number(c.session_id), {
+            fileName: String(c.original_filename || ''),
+            extractStatus: String(c.extract_status || '')
+          });
+        }
+        const [cnRows] = await pool.execute(
+          `SELECT session_id, COUNT(*) AS n FROM skill_builders_session_clinical_notes WHERE session_id IN (${ph}) GROUP BY session_id`,
+          sessionIds
+        );
+        for (const n of cnRows || []) {
+          clinicalNoteCountBySession.set(Number(n.session_id), Number(n.n || 0));
+        }
+      } catch (e) {
+        if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+      }
+    }
+
     const sessions = (rows || []).map((r) => {
       const id = Number(r.id);
+      const cur = curriculumBySession.get(id);
       return {
         id,
         sessionDate: r.session_date,
@@ -1137,7 +1240,15 @@ export const listSkillBuilderEventSessions = async (req, res, next) => {
         weekday: r.weekday,
         startTime: String(r.start_time || '').slice(0, 8),
         endTime: String(r.end_time || '').slice(0, 8),
-        assignedProviders: assignBySession.get(id) || []
+        locationLabel: r.location_label != null ? String(r.location_label).trim() || null : null,
+        locationAddress: r.location_address != null ? String(r.location_address).trim() || null : null,
+        modality: r.modality != null ? String(r.modality).trim().toLowerCase() || null : null,
+        joinUrl: r.join_url != null ? String(r.join_url).trim().slice(0, 1024) || null : null,
+        assignedProviders: assignBySession.get(id) || [],
+        hasCurriculum: !!cur,
+        curriculumFileName: cur?.fileName || null,
+        curriculumExtractStatus: cur?.extractStatus || null,
+        clinicalNoteCount: clinicalNoteCountBySession.get(id) || 0
       };
     });
     res.json({ ok: true, sessions });
@@ -1172,7 +1283,7 @@ export const putSkillBuilderEventSessionProviders = async (req, res, next) => {
     const normalized = [...new Set(rawIds.map((x) => parsePositiveInt(x)).filter(Boolean))];
 
     const [sRows] = await pool.execute(
-      `SELECT s.id, s.skills_group_id
+      `SELECT s.id, s.skills_group_id, s.session_date
        FROM skill_builders_event_sessions s
        INNER JOIN skills_groups sg ON sg.id = s.skills_group_id AND sg.agency_id = ?
        WHERE s.id = ? AND s.company_event_id = ?
@@ -1182,6 +1293,16 @@ export const putSkillBuilderEventSessionProviders = async (req, res, next) => {
     const sess = sRows?.[0];
     if (!sess) {
       return res.status(404).json({ error: { message: 'Session not found for this event' } });
+    }
+    const sessionDateYmd = sess.session_date ? String(sess.session_date).slice(0, 10) : '';
+    const todayLocal = new Date();
+    const todayYmd = `${todayLocal.getFullYear()}-${String(todayLocal.getMonth() + 1).padStart(2, '0')}-${String(todayLocal.getDate()).padStart(2, '0')}`;
+    if (sessionDateYmd && /^\d{4}-\d{2}-\d{2}$/.test(sessionDateYmd) && sessionDateYmd < todayYmd) {
+      if (!(await isAgencyStaffLikeForSkillBuilders(req, agencyId))) {
+        return res.status(403).json({
+          error: { message: 'Past sessions are read-only. Ask an agency admin to override.' }
+        });
+      }
     }
     const gid = Number(sess.skills_group_id);
 
@@ -1240,6 +1361,252 @@ export const putSkillBuilderEventSessionProviders = async (req, res, next) => {
     }
     if (e?.code === 'ER_NO_SUCH_TABLE') {
       return res.status(503).json({ error: { message: 'Run migration 585 for per-session staff assignments' } });
+    }
+    next(e);
+  } finally {
+    if (conn) conn.release();
+  }
+};
+
+/** PATCH /api/skill-builders/events/:eventId/sessions/:sessionId — location, modality, join URL */
+export const patchSkillBuilderEventSession = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.body?.agencyId);
+    const eventId = parsePositiveInt(req.params.eventId);
+    const sessionId = parsePositiveInt(req.params.sessionId);
+    if (!agencyId || !eventId || !sessionId) {
+      return res.status(400).json({ error: { message: 'agencyId, event id, and session id required' } });
+    }
+    const access = await assertEventAccess({ req, agencyId, eventId });
+    if (access.error) return res.status(access.error.status).json({ error: { message: access.error.message } });
+    if (!(await canManageTeamSchedulesForAgency(req, agencyId))) {
+      return res.status(403).json({ error: { message: 'Coordinator or agency staff access required' } });
+    }
+    const [sRows] = await pool.execute(
+      `SELECT s.id, s.session_date
+       FROM skill_builders_event_sessions s
+       INNER JOIN skills_groups sg ON sg.id = s.skills_group_id AND sg.agency_id = ?
+       WHERE s.id = ? AND s.company_event_id = ?
+       LIMIT 1`,
+      [agencyId, sessionId, eventId]
+    );
+    if (!sRows?.[0]) return res.status(404).json({ error: { message: 'Session not found' } });
+    const sessionDateYmd = String(sRows[0].session_date || '').slice(0, 10);
+    const todayLocal = new Date();
+    const todayYmd = `${todayLocal.getFullYear()}-${String(todayLocal.getMonth() + 1).padStart(2, '0')}-${String(todayLocal.getDate()).padStart(2, '0')}`;
+    if (sessionDateYmd && /^\d{4}-\d{2}-\d{2}$/.test(sessionDateYmd) && sessionDateYmd < todayYmd) {
+      if (!(await isAgencyStaffLikeForSkillBuilders(req, agencyId))) {
+        return res.status(403).json({ error: { message: 'Past sessions are read-only' } });
+      }
+    }
+    const b = req.body || {};
+    const locationLabel =
+      b.locationLabel !== undefined ? String(b.locationLabel || '').trim().slice(0, 512) || null : undefined;
+    const locationAddress =
+      b.locationAddress !== undefined
+        ? b.locationAddress
+          ? String(b.locationAddress).trim().slice(0, 4000)
+          : null
+        : undefined;
+    const modality =
+      b.modality !== undefined ? String(b.modality || '').trim().toLowerCase().slice(0, 32) || null : undefined;
+    const joinUrl =
+      b.joinUrl !== undefined ? (b.joinUrl ? String(b.joinUrl).trim().slice(0, 1024) : null) : undefined;
+    const sets = [];
+    const params = [];
+    if (locationLabel !== undefined) {
+      sets.push('location_label = ?');
+      params.push(locationLabel);
+    }
+    if (locationAddress !== undefined) {
+      sets.push('location_address = ?');
+      params.push(locationAddress);
+    }
+    if (modality !== undefined) {
+      sets.push('modality = ?');
+      params.push(modality);
+    }
+    if (joinUrl !== undefined) {
+      sets.push('join_url = ?');
+      params.push(joinUrl);
+    }
+    if (!sets.length) return res.status(400).json({ error: { message: 'No updatable fields' } });
+    params.push(sessionId, eventId);
+    await pool.execute(
+      `UPDATE skill_builders_event_sessions SET ${sets.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND company_event_id = ?`,
+      params
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    if (e?.code === 'ER_BAD_FIELD_ERROR') {
+      return res.status(503).json({ error: { message: 'Run migration 586 for session location/modality' } });
+    }
+    next(e);
+  }
+};
+
+/** GET /api/skill-builders/events/:eventId/attendance/providers?agencyId=&userId= optional */
+export const listSkillBuilderEventProviderAttendance = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.query.agencyId);
+    const eventId = parsePositiveInt(req.params.eventId);
+    if (!agencyId || !eventId) return res.status(400).json({ error: { message: 'agencyId and event id required' } });
+    const access = await assertEventAccess({ req, agencyId, eventId });
+    if (access.error) return res.status(access.error.status).json({ error: { message: access.error.message } });
+    const uid = parsePositiveInt(req.user?.id);
+    const staffLike = await isAgencyStaffLikeForSkillBuilders(req, agencyId);
+    const coord = await getSkillBuilderCoordinatorAccess(uid);
+    let filterUserId = parsePositiveInt(req.query.userId);
+    if (!staffLike && !coord) {
+      filterUserId = uid;
+    }
+    const [rows] = await pool.execute(
+      `SELECT id, user_id, punch_type, punched_at, session_id, client_id, payroll_time_claim_id
+       FROM skill_builders_event_kiosk_punches
+       WHERE company_event_id = ?
+       ${filterUserId ? 'AND user_id = ?' : ''}
+       ORDER BY punched_at ASC, id ASC`,
+      filterUserId ? [eventId, filterUserId] : [eventId]
+    );
+    const punches = (rows || []).map((r) => ({
+      id: Number(r.id),
+      userId: Number(r.user_id),
+      punchType: r.punch_type,
+      punchedAt: r.punched_at,
+      sessionId: r.session_id != null ? Number(r.session_id) : null,
+      clientId: r.client_id != null ? Number(r.client_id) : null,
+      payrollTimeClaimId: r.payroll_time_claim_id != null ? Number(r.payroll_time_claim_id) : null
+    }));
+    res.json({ ok: true, punches });
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE') {
+      return res.json({ ok: true, punches: [] });
+    }
+    next(e);
+  }
+};
+
+/** GET /api/skill-builders/events/:eventId/attendance/clients?agencyId= */
+export const listSkillBuilderEventClientAttendance = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.query.agencyId);
+    const eventId = parsePositiveInt(req.params.eventId);
+    if (!agencyId || !eventId) return res.status(400).json({ error: { message: 'agencyId and event id required' } });
+    const access = await assertEventAccess({ req, agencyId, eventId });
+    if (access.error) return res.status(access.error.status).json({ error: { message: access.error.message } });
+    const [rows] = await pool.execute(
+      `SELECT a.id, a.session_id, a.client_id, a.check_in_at, a.check_out_at, a.checked_out_by_user_id,
+              a.signature_text, a.manual_entry, a.created_by_user_id, a.updated_by_user_id,
+              s.session_date, s.starts_at, s.ends_at
+       FROM skill_builders_client_session_attendance a
+       INNER JOIN skill_builders_event_sessions s ON s.id = a.session_id
+       WHERE s.company_event_id = ?
+       ORDER BY s.session_date ASC, a.client_id ASC`,
+      [eventId]
+    );
+    const attendance = (rows || []).map((r) => ({
+      id: Number(r.id),
+      sessionId: Number(r.session_id),
+      clientId: Number(r.client_id),
+      checkInAt: r.check_in_at,
+      checkOutAt: r.check_out_at,
+      checkedOutByUserId: r.checked_out_by_user_id != null ? Number(r.checked_out_by_user_id) : null,
+      signatureText: r.signature_text || null,
+      manualEntry: !!(r.manual_entry === 1 || r.manual_entry === true),
+      sessionDate: r.session_date,
+      startsAt: r.starts_at,
+      endsAt: r.ends_at
+    }));
+    res.json({ ok: true, attendance });
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE') {
+      return res.json({ ok: true, attendance: [] });
+    }
+    next(e);
+  }
+};
+
+/** PUT /api/skill-builders/events/:eventId/sessions/:sessionId/client-attendance — upsert one client row */
+export const putSkillBuilderClientSessionAttendance = async (req, res, next) => {
+  let conn = null;
+  try {
+    const agencyId = parsePositiveInt(req.body?.agencyId);
+    const eventId = parsePositiveInt(req.params.eventId);
+    const sessionId = parsePositiveInt(req.params.sessionId);
+    const clientId = parsePositiveInt(req.body?.clientId);
+    if (!agencyId || !eventId || !sessionId || !clientId) {
+      return res.status(400).json({ error: { message: 'agencyId, event id, session id, and clientId required' } });
+    }
+    const access = await assertEventAccess({ req, agencyId, eventId });
+    if (access.error) return res.status(access.error.status).json({ error: { message: access.error.message } });
+    const uid = parsePositiveInt(req.user?.id);
+    const staffLike = await isAgencyStaffLikeForSkillBuilders(req, agencyId);
+    const coord = await getSkillBuilderCoordinatorAccess(uid);
+    const onProviderRoster = await providerOnEventRoster(eventId, agencyId, uid);
+    if (!staffLike && !coord && !onProviderRoster) {
+      return res.status(403).json({ error: { message: 'Not authorized' } });
+    }
+    const [sRows] = await pool.execute(
+      `SELECT s.id FROM skill_builders_event_sessions s
+       INNER JOIN skills_groups sg ON sg.id = s.skills_group_id AND sg.agency_id = ?
+       WHERE s.id = ? AND s.company_event_id = ?
+       LIMIT 1`,
+      [agencyId, sessionId, eventId]
+    );
+    if (!sRows?.[0]) return res.status(404).json({ error: { message: 'Session not found' } });
+    const [cRows] = await pool.execute(
+      `SELECT 1 AS ok FROM skills_group_clients sgc
+       INNER JOIN skills_groups sg ON sg.id = sgc.skills_group_id
+       WHERE sg.company_event_id = ? AND sg.agency_id = ? AND sgc.client_id = ?
+       LIMIT 1`,
+      [eventId, agencyId, clientId]
+    );
+    if (!cRows?.[0]) {
+      return res.status(400).json({ error: { message: 'Client is not on this program roster' } });
+    }
+    const checkInAt = req.body?.checkInAt ? new Date(req.body.checkInAt) : null;
+    const checkOutAt = req.body?.checkOutAt ? new Date(req.body.checkOutAt) : null;
+    const signatureText = req.body?.signatureText != null ? String(req.body.signatureText).slice(0, 512) : null;
+    const manualEntry = !!(req.body?.manualEntry === true || req.body?.manualEntry === 1);
+    const checkedOutByUserId = parsePositiveInt(req.body?.checkedOutByUserId) || uid;
+
+    conn = await pool.getConnection();
+    await conn.beginTransaction();
+    await conn.execute(
+      `INSERT INTO skill_builders_client_session_attendance
+        (session_id, client_id, check_in_at, check_out_at, checked_out_by_user_id, signature_text, manual_entry, created_by_user_id, updated_by_user_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+        check_in_at = VALUES(check_in_at),
+        check_out_at = VALUES(check_out_at),
+        checked_out_by_user_id = VALUES(checked_out_by_user_id),
+        signature_text = VALUES(signature_text),
+        manual_entry = VALUES(manual_entry),
+        updated_by_user_id = VALUES(updated_by_user_id)`,
+      [
+        sessionId,
+        clientId,
+        checkInAt && Number.isFinite(checkInAt.getTime()) ? checkInAt : null,
+        checkOutAt && Number.isFinite(checkOutAt.getTime()) ? checkOutAt : null,
+        checkedOutByUserId,
+        signatureText,
+        manualEntry ? 1 : 0,
+        uid,
+        uid
+      ]
+    );
+    await conn.commit();
+    res.json({ ok: true });
+  } catch (e) {
+    if (conn) {
+      try {
+        await conn.rollback();
+      } catch {
+        /* ignore */
+      }
+    }
+    if (e?.code === 'ER_NO_SUCH_TABLE') {
+      return res.status(503).json({ error: { message: 'Run migration 586 for client attendance' } });
     }
     next(e);
   } finally {
@@ -1613,6 +1980,289 @@ export const putSkillBuilderPortalCompanyEventForEdit = async (req, res, next) =
       return res.status(result.error.status).json({ error: { message: result.error.message } });
     }
     res.json({ ok: true, event: result.data });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/** POST multipart /api/skill-builders/events/:eventId/sessions/:sessionId/curriculum */
+export const postSkillBuilderSessionCurriculum = [
+  curriculumUpload.single('file'),
+  async (req, res, next) => {
+    try {
+      const agencyId = parsePositiveInt(req.body?.agencyId);
+      const eventId = parsePositiveInt(req.params.eventId);
+      const sessionId = parsePositiveInt(req.params.sessionId);
+      if (!agencyId || !eventId || !sessionId) {
+        return res.status(400).json({ error: { message: 'agencyId, event id, and session id required' } });
+      }
+      const cm = await canManageSessionCurriculum(req, agencyId, eventId);
+      if (cm.error) return res.status(cm.error.status).json({ error: { message: cm.error.message } });
+      if (!req.file?.buffer) return res.status(400).json({ error: { message: 'file is required' } });
+
+      const [sRows] = await pool.execute(
+        `SELECT s.id, s.company_event_id, s.skills_group_id
+         FROM skill_builders_event_sessions s
+         INNER JOIN skills_groups sg ON sg.id = s.skills_group_id AND sg.agency_id = ?
+         WHERE s.id = ? AND s.company_event_id = ?
+         LIMIT 1`,
+        [agencyId, sessionId, eventId]
+      );
+      if (!sRows?.[0]) return res.status(404).json({ error: { message: 'Session not found' } });
+      const sgId = Number(sRows[0].skills_group_id);
+      const key = curriculumStorageKey(agencyId, eventId, sessionId, req.file.originalname);
+      await StorageService.writeObject(key, req.file.buffer, 'application/pdf', {
+        uploadedBy: String(req.user?.id || ''),
+        kind: 'skill_builders_session_curriculum'
+      });
+      const { extractStatus, extractedTextEnc } = await processPdfUploadBuffer({
+        buffer: req.file.buffer,
+        mimeType: req.file.mimetype
+      });
+      await upsertCurriculumRecord({
+        sessionId,
+        companyEventId: eventId,
+        agencyId,
+        skillsGroupId: sgId,
+        storagePath: key,
+        originalFilename: String(req.file.originalname || 'curriculum.pdf').slice(0, 255),
+        mimeType: 'application/pdf',
+        fileSizeBytes: req.file.size,
+        uploadedByUserId: req.user.id,
+        extractedTextEnc,
+        extractStatus
+      });
+      res.json({ ok: true, extractStatus, hasExtractedText: !!extractedTextEnc });
+    } catch (e) {
+      if (e?.message === 'Only PDF files are allowed') {
+        return res.status(400).json({ error: { message: e.message } });
+      }
+      if (e?.code === 'ER_NO_SUCH_TABLE') {
+        return res.status(503).json({ error: { message: 'Run migration 589 for session curriculum' } });
+      }
+      next(e);
+    }
+  }
+];
+
+/** GET /api/skill-builders/events/:eventId/sessions/:sessionId/curriculum — download PDF */
+export const getSkillBuilderSessionCurriculumFile = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.query.agencyId);
+    const eventId = parsePositiveInt(req.params.eventId);
+    const sessionId = parsePositiveInt(req.params.sessionId);
+    if (!agencyId || !eventId || !sessionId) {
+      return res.status(400).json({ error: { message: 'agencyId, event id, and session id required' } });
+    }
+    const access = await assertEventAccess({ req, agencyId, eventId });
+    if (access.error) return res.status(access.error.status).json({ error: { message: access.error.message } });
+    const row = await loadSessionCurriculumRow(sessionId);
+    if (!row || Number(row.company_event_id) !== eventId) {
+      return res.status(404).json({ error: { message: 'Curriculum not found' } });
+    }
+    const buf = await StorageService.readObject(row.storage_path);
+    res.setHeader('Content-Type', row.mime_type || 'application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="${encodeURIComponent(row.original_filename || 'curriculum.pdf')}"`
+    );
+    res.send(buf);
+  } catch (e) {
+    if (e?.message?.includes('not found') || e?.code === 404) {
+      return res.status(404).json({ error: { message: 'File not found' } });
+    }
+    if (e?.code === 'ER_NO_SUCH_TABLE') {
+      return res.status(503).json({ error: { message: 'Run migration 589' } });
+    }
+    next(e);
+  }
+};
+
+/** DELETE /api/skill-builders/events/:eventId/sessions/:sessionId/curriculum */
+export const deleteSkillBuilderSessionCurriculum = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.body?.agencyId ?? req.query.agencyId);
+    const eventId = parsePositiveInt(req.params.eventId);
+    const sessionId = parsePositiveInt(req.params.sessionId);
+    if (!agencyId || !eventId || !sessionId) {
+      return res.status(400).json({ error: { message: 'agencyId, event id, and session id required' } });
+    }
+    const cm = await canManageSessionCurriculum(req, agencyId, eventId);
+    if (cm.error) return res.status(cm.error.status).json({ error: { message: cm.error.message } });
+    await deleteCurriculumForSession(sessionId);
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/** GET /api/skill-builders/events/:eventId/sessions/:sessionId/clinical-notes */
+export const listSkillBuilderSessionClinicalNotes = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.query.agencyId);
+    const eventId = parsePositiveInt(req.params.eventId);
+    const sessionId = parsePositiveInt(req.params.sessionId);
+    if (!agencyId || !eventId || !sessionId) {
+      return res.status(400).json({ error: { message: 'agencyId, event id, and session id required' } });
+    }
+    const access = await assertClinicalSkillBuildersAccess(req, agencyId, eventId);
+    if (access.error) return res.status(access.error.status).json({ error: { message: access.error.message } });
+
+    const rows = await listClinicalNotesForSession({ sessionId, companyEventId: eventId });
+    res.json({
+      ok: true,
+      notes: (rows || []).map((r) => ({
+        id: Number(r.id),
+        clientId: Number(r.client_id),
+        authorUserId: Number(r.author_user_id),
+        createdAt: r.created_at,
+        updatedAt: r.updated_at
+      }))
+    });
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE') {
+      return res.status(503).json({ error: { message: 'Run migration 589' } });
+    }
+    next(e);
+  }
+};
+
+/** GET /api/skill-builders/events/:eventId/sessions/:sessionId/clinical-notes/clients/:clientId */
+export const getSkillBuilderSessionClinicalNote = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.query.agencyId);
+    const eventId = parsePositiveInt(req.params.eventId);
+    const sessionId = parsePositiveInt(req.params.sessionId);
+    const clientId = parsePositiveInt(req.params.clientId);
+    if (!agencyId || !eventId || !sessionId || !clientId) {
+      return res.status(400).json({ error: { message: 'agencyId, event id, session id, and client id required' } });
+    }
+    const access = await assertClinicalSkillBuildersAccess(req, agencyId, eventId);
+    if (access.error) return res.status(access.error.status).json({ error: { message: access.error.message } });
+    const row = await getClinicalNoteBySessionClient({ sessionId, clientId, companyEventId: eventId });
+    if (!row) return res.status(404).json({ error: { message: 'Note not found' } });
+    const note = decryptClinicalNoteRow(row);
+    res.json({ ok: true, note });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/** PUT /api/skill-builders/events/:eventId/sessions/:sessionId/clinical-notes/clients/:clientId — save manual text */
+export const putSkillBuilderSessionClinicalNoteManual = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.body?.agencyId);
+    const eventId = parsePositiveInt(req.params.eventId);
+    const sessionId = parsePositiveInt(req.params.sessionId);
+    const clientId = parsePositiveInt(req.params.clientId);
+    if (!agencyId || !eventId || !sessionId || !clientId) {
+      return res.status(400).json({ error: { message: 'agencyId, event id, session id, and client id required' } });
+    }
+    const access = await assertClinicalSkillBuildersAccess(req, agencyId, eventId);
+    if (access.error) return res.status(access.error.status).json({ error: { message: access.error.message } });
+    if (!(await clientOnEventRoster(clientId, eventId, agencyId))) {
+      return res.status(400).json({ error: { message: 'Client is not on this event roster' } });
+    }
+    const text = String(req.body?.plainText || '').trim();
+    if (!text) return res.status(400).json({ error: { message: 'plainText is required' } });
+    const out = { sections: { Output: text }, meta: { manual: true } };
+    const id = await upsertClinicalNote({
+      agencyId,
+      companyEventId: eventId,
+      sessionId,
+      clientId,
+      authorUserId: req.user.id,
+      outputObj: out,
+      plainText: text
+    });
+    res.json({ ok: true, id });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/** POST /api/skill-builders/events/:eventId/sessions/:sessionId/clinical-notes/clients/:clientId/generate */
+export const postSkillBuilderSessionClinicalNoteGenerate = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.body?.agencyId);
+    const eventId = parsePositiveInt(req.params.eventId);
+    const sessionId = parsePositiveInt(req.params.sessionId);
+    const clientId = parsePositiveInt(req.params.clientId);
+    if (!agencyId || !eventId || !sessionId || !clientId) {
+      return res.status(400).json({ error: { message: 'agencyId, event id, session id, and client id required' } });
+    }
+    const access = await assertClinicalSkillBuildersAccess(req, agencyId, eventId);
+    if (access.error) return res.status(access.error.status).json({ error: { message: access.error.message } });
+    const na = await requireNoteAidEnabledForAgency(agencyId);
+    if (!na.ok) return res.status(403).json({ error: { message: na.error } });
+
+    if (!(await clientOnEventRoster(clientId, eventId, agencyId))) {
+      return res.status(400).json({ error: { message: 'Client is not on this event roster' } });
+    }
+
+    const [sgRow] = await pool.execute(
+      `SELECT sg.name, sg.organization_id FROM skills_groups sg WHERE sg.company_event_id = ? AND sg.agency_id = ? LIMIT 1`,
+      [eventId, agencyId]
+    );
+    const programLabel = sgRow?.[0]?.name ? String(sgRow[0].name).trim().slice(0, 120) : null;
+
+    let curriculumText = await getDecryptedCurriculumTextForSession(sessionId);
+    const paste = req.body?.curriculumPaste != null ? String(req.body.curriculumPaste).trim().slice(0, 50000) : '';
+    if (paste) curriculumText = paste;
+
+    const clinicianSummaryText = String(req.body?.clinicianSummaryText || '').trim();
+    if (!clinicianSummaryText) {
+      return res.status(400).json({ error: { message: 'clinicianSummaryText is required' } });
+    }
+    const revisionInstruction = req.body?.revisionInstruction
+      ? String(req.body.revisionInstruction).trim().slice(0, 1500)
+      : '';
+
+    const { outputObj, plainText } = await generateH2014SessionClinicalNote({
+      agencyId,
+      curriculumText,
+      clinicianSummaryText,
+      programLabel,
+      revisionInstruction
+    });
+
+    const id = await upsertClinicalNote({
+      agencyId,
+      companyEventId: eventId,
+      sessionId,
+      clientId,
+      authorUserId: req.user.id,
+      outputObj,
+      plainText
+    });
+
+    res.json({ ok: true, id, note: decryptClinicalNoteRow(await getClinicalNoteBySessionClient({ sessionId, clientId, companyEventId: eventId })) });
+  } catch (e) {
+    if (e.status) return res.status(e.status).json({ error: { message: e.message } });
+    next(e);
+  }
+};
+
+/** DELETE /api/skill-builders/events/:eventId/sessions/:sessionId/clinical-notes */
+export const deleteSkillBuilderSessionClinicalNotes = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.body?.agencyId);
+    const eventId = parsePositiveInt(req.params.eventId);
+    const sessionId = parsePositiveInt(req.params.sessionId);
+    const confirm = String(req.body?.confirm || '').trim();
+    if (!agencyId || !eventId || !sessionId) {
+      return res.status(400).json({ error: { message: 'agencyId, event id, and session id required' } });
+    }
+    if (confirm !== 'DELETE_ALL_CLINICAL_NOTES') {
+      return res.status(400).json({ error: { message: 'Confirmation phrase mismatch' } });
+    }
+    const access = await assertClinicalSkillBuildersAccess(req, agencyId, eventId);
+    if (access.error) return res.status(access.error.status).json({ error: { message: access.error.message } });
+    if (!(await canManageTeamSchedulesForAgency(req, agencyId)) && !(await isAgencyStaffLikeForSkillBuilders(req, agencyId))) {
+      return res.status(403).json({ error: { message: 'Coordinator or agency staff required' } });
+    }
+    const n = await deleteClinicalNotesForSession({ sessionId, companyEventId: eventId });
+    res.json({ ok: true, deletedCount: n });
   } catch (e) {
     next(e);
   }

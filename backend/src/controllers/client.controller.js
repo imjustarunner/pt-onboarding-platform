@@ -20,6 +20,7 @@ import NotificationGatekeeperService from '../services/notificationGatekeeper.se
 import { isCategoryEnabledForUser } from '../services/notificationDispatcher.service.js';
 import crypto from 'crypto';
 import { getClientStatusIdByKey } from '../utils/clientStatusCatalog.js';
+import { isSkillsClientFlag } from '../utils/skillsClientFlag.js';
 
 function normalizeSixDigitClientCode(value) {
   const raw = String(value || '').trim();
@@ -437,6 +438,7 @@ export const getClientById = async (req, res, next) => {
         document_status: client.document_status,
         organization_name: client.organization_name,
         organization_slug: client.organization_slug,
+        skills: isSkillsClientFlag(client.skills),
 
         // Compliance checklist fields (non-clinical / operational)
         parents_contacted_at: client.parents_contacted_at || null,

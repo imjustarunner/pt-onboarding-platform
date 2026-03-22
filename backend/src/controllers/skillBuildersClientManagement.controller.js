@@ -1,6 +1,7 @@
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import Client from '../models/Client.model.js';
+import { isSkillsClientFlag } from '../utils/skillsClientFlag.js';
 
 const parsePositiveInt = (raw) => {
   const value = Number.parseInt(String(raw || ''), 10);
@@ -275,7 +276,7 @@ export const patchCoordinatorSkillBuilderClient = async (req, res, next) => {
     if (!cur || Number(cur.agency_id) !== agencyId) {
       return res.status(404).json({ error: { message: 'Client not found for this agency' } });
     }
-    if (!cur.skills) {
+    if (!isSkillsClientFlag(cur.skills)) {
       return res.status(400).json({ error: { message: 'Client is not a Skill Builders (skills) client' } });
     }
 
@@ -387,7 +388,7 @@ export const coordinatorAssignClientToEvent = async (req, res, next) => {
     }
 
     const cur = await Client.findById(clientId);
-    if (!cur || Number(cur.agency_id) !== agencyId || !cur.skills) {
+    if (!cur || Number(cur.agency_id) !== agencyId || !isSkillsClientFlag(cur.skills)) {
       return res.status(400).json({ error: { message: 'Client not found or not a skills client' } });
     }
 
@@ -481,7 +482,7 @@ export const getClientSkillBuilderDetail = async (req, res, next) => {
     if (!cur || Number(cur.agency_id) !== agencyId) {
       return res.status(404).json({ error: { message: 'Client not found' } });
     }
-    if (!cur.skills) {
+    if (!isSkillsClientFlag(cur.skills)) {
       return res.status(403).json({ error: { message: 'Skill Builders tab only for skills clients' } });
     }
 
@@ -600,7 +601,7 @@ export const listSkillBuilderClientNotes = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Not authorized' } });
     }
     const cur = await Client.findById(clientId);
-    if (!cur || Number(cur.agency_id) !== agencyId || !cur.skills) {
+    if (!cur || Number(cur.agency_id) !== agencyId || !isSkillsClientFlag(cur.skills)) {
       return res.status(404).json({ error: { message: 'Client not found' } });
     }
 
@@ -651,7 +652,7 @@ export const createSkillBuilderClientNote = async (req, res, next) => {
     }
 
     const cur = await Client.findById(clientId);
-    if (!cur || Number(cur.agency_id) !== agencyId || !cur.skills) {
+    if (!cur || Number(cur.agency_id) !== agencyId || !isSkillsClientFlag(cur.skills)) {
       return res.status(404).json({ error: { message: 'Client not found' } });
     }
 
@@ -680,7 +681,7 @@ export const addSkillBuilderTransportPickup = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Not authorized' } });
     }
     const cur = await Client.findById(clientId);
-    if (!cur || Number(cur.agency_id) !== agencyId || !cur.skills) {
+    if (!cur || Number(cur.agency_id) !== agencyId || !isSkillsClientFlag(cur.skills)) {
       return res.status(404).json({ error: { message: 'Client not found' } });
     }
 

@@ -3110,6 +3110,53 @@ export const getUserScheduleSummary = async (req, res, next) => {
       scheduleEvents = [];
     }
 
+    // 4d) Skill Builders — materialized program sessions for rostered providers (compare schedule / week view)
+    try {
+      const [sbRows] = await pool.execute(
+        `SELECT s.id, s.starts_at, s.ends_at, ce.title AS event_title, sg.name AS skills_group_name
+         FROM skill_builders_event_sessions s
+         INNER JOIN skills_groups sg ON sg.id = s.skills_group_id AND sg.agency_id = ?
+         INNER JOIN company_events ce ON ce.id = s.company_event_id
+         INNER JOIN skills_group_providers sgp ON sgp.skills_group_id = sg.id AND sgp.provider_user_id = ?
+         WHERE s.starts_at < ? AND s.ends_at > ?
+         ORDER BY s.starts_at ASC, s.id ASC
+         LIMIT 400`,
+        [agencyId, providerId, windowEnd, windowStart]
+      );
+      for (const r of sbRows || []) {
+        const startAtOut =
+          toIsoUtcForSchedule(r.starts_at) || toMysqlDateTimeWall(r.starts_at) || r.starts_at || null;
+        const endAtOut = toIsoUtcForSchedule(r.ends_at) || toMysqlDateTimeWall(r.ends_at) || r.ends_at || null;
+        if (!startAtOut || !endAtOut) continue;
+        const sgName = String(r.skills_group_name || '').trim();
+        const evTitle = String(r.event_title || '').trim();
+        const title = [sgName, evTitle].filter(Boolean).join(' · ') || 'Skill Builders program';
+        scheduleEvents.push({
+          id: Number(r.id),
+          agencyId: Number(agencyId),
+          kind: 'SKILL_BUILDERS_PROGRAM',
+          title,
+          isPrivate: false,
+          allDay: false,
+          startAt: startAtOut,
+          endAt: endAtOut,
+          startDate: null,
+          endDate: null,
+          reasonCode: null,
+          recurrenceSeriesId: null,
+          recurrenceFrequency: null,
+          recurrencePolicy: null,
+          recurrenceIndex: null,
+          googleEventId: null,
+          htmlLink: null,
+          meetLink: null,
+          appJoinUrl: null
+        });
+      }
+    } catch (e) {
+      if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+    }
+
     // 5) Optional busy overlays (busy blocks only)
     let googleBusy = [];
     let googleBusyError = null;

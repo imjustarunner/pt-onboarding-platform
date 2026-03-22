@@ -22,6 +22,70 @@ export async function clientOnSkillBuilderEventRoster(clientId, eventId, agencyI
   return !!r?.[0]?.ok;
 }
 
+/**
+ * If the user has an open clock-in tied to a session and the agency has
+ * `skill_builder_auto_clock_out_minutes_after_session_end` set, auto clock-out
+ * at session end + that many minutes when the user attempts a new clock-in.
+ */
+async function maybeAutoClockOutStaleOpenPunch(poolConn, { agencyId, eventId, userId }) {
+  const aid = parsePositiveInt(agencyId);
+  const eid = parsePositiveInt(eventId);
+  const uid = parsePositiveInt(userId);
+  if (!aid || !eid || !uid) return;
+
+  const [lastInRows] = await poolConn.execute(
+    `SELECT id, punched_at, session_id FROM skill_builders_event_kiosk_punches
+     WHERE company_event_id = ? AND user_id = ? AND punch_type = 'clock_in'
+     ORDER BY punched_at DESC LIMIT 1`,
+    [eid, uid]
+  );
+  const lastIn = lastInRows?.[0];
+  if (!lastIn) return;
+
+  const [outCheck] = await poolConn.execute(
+    `SELECT id FROM skill_builders_event_kiosk_punches
+     WHERE company_event_id = ? AND user_id = ? AND punch_type = 'clock_out' AND punched_at > ?
+     LIMIT 1`,
+    [eid, uid, lastIn.punched_at]
+  );
+  if (outCheck?.[0]) return;
+
+  const sid = lastIn.session_id != null ? Number(lastIn.session_id) : null;
+  if (!sid) return;
+
+  let autoMins = 0;
+  try {
+    const [agRows] = await poolConn.execute(
+      `SELECT skill_builder_auto_clock_out_minutes_after_session_end FROM agencies WHERE id = ? LIMIT 1`,
+      [aid]
+    );
+    autoMins = Number(agRows?.[0]?.skill_builder_auto_clock_out_minutes_after_session_end);
+  } catch (e) {
+    if (e?.code === 'ER_BAD_FIELD_ERROR') autoMins = 0;
+    else throw e;
+  }
+  if (!Number.isFinite(autoMins) || autoMins <= 0) return;
+
+  const [sRows] = await poolConn.execute(
+    `SELECT ends_at FROM skill_builders_event_sessions WHERE id = ? AND company_event_id = ? LIMIT 1`,
+    [sid, eid]
+  );
+  const endsRaw = sRows?.[0]?.ends_at;
+  const endsAt = endsRaw ? new Date(endsRaw) : null;
+  if (!endsAt || !Number.isFinite(endsAt.getTime())) return;
+
+  const cutoff = new Date(endsAt.getTime() + autoMins * 60 * 1000);
+  const now = new Date();
+  if (now <= cutoff) return;
+
+  await recordSkillBuilderEventClockOut(poolConn, {
+    agencyId: aid,
+    eventId: eid,
+    userId: uid,
+    clockOutAt: cutoff
+  });
+}
+
 export async function providerOnSkillBuilderEventRoster(providerUserId, eventId, agencyId) {
   const pid = parsePositiveInt(providerUserId);
   const eid = parsePositiveInt(eventId);
@@ -81,6 +145,8 @@ export async function recordSkillBuilderEventClockIn(poolConn, params) {
     return { error: { status: 400, message: 'User is not on this event provider roster' } };
   }
 
+  await maybeAutoClockOutStaleOpenPunch(poolConn, { agencyId: aid, eventId: eid, userId: uid });
+
   const [lastP] = await poolConn.execute(
     `SELECT punch_type FROM skill_builders_event_kiosk_punches
      WHERE company_event_id = ? AND user_id = ?
@@ -112,6 +178,10 @@ export async function recordSkillBuilderEventClockOut(poolConn, params) {
     return { error: { status: 400, message: 'agencyId, eventId, and userId are required' } };
   }
 
+  const clockOutAtRaw = params.clockOutAt != null ? new Date(params.clockOutAt) : null;
+  const clockOutAt =
+    clockOutAtRaw && Number.isFinite(clockOutAtRaw.getTime()) ? clockOutAtRaw : null;
+
   const onRoster = await providerOnSkillBuilderEventRoster(userId, eventId, agencyId);
   if (!onRoster) {
     return { error: { status: 400, message: 'User is not on this event provider roster' } };
@@ -141,11 +211,12 @@ export async function recordSkillBuilderEventClockOut(poolConn, params) {
     [eventId, agencyId]
   );
   const directConfigured = Number(evRows?.[0]?.skill_builder_direct_hours);
-  const directHours = Number.isFinite(directConfigured) && directConfigured > 0 ? directConfigured : 0;
+  const directHoursCap = Number.isFinite(directConfigured) && directConfigured > 0 ? directConfigured : 0;
 
   const tIn = new Date(lastIn.punched_at);
-  const tOut = new Date();
+  const tOut = clockOutAt || new Date();
   const workedHours = Math.max(0, (tOut.getTime() - tIn.getTime()) / 3600000);
+  const directHours = Math.min(directHoursCap, workedHours);
   const indirectHours = Math.max(0, workedHours - directHours);
 
   const outClientId = lastIn.client_id != null ? Number(lastIn.client_id) : null;
@@ -154,8 +225,8 @@ export async function recordSkillBuilderEventClockOut(poolConn, params) {
   const [insOut] = await poolConn.execute(
     `INSERT INTO skill_builders_event_kiosk_punches
      (company_event_id, session_id, user_id, client_id, punch_type, punched_at, office_location_id)
-     VALUES (?, ?, ?, ?, 'clock_out', NOW(), NULL)`,
-    [eventId, outSessionId || null, userId, outClientId]
+     VALUES (?, ?, ?, ?, 'clock_out', ?, NULL)`,
+    [eventId, outSessionId || null, userId, outClientId, tOut]
   );
 
   const claimDate = tOut.toISOString().slice(0, 10);
@@ -184,6 +255,7 @@ export async function recordSkillBuilderEventClockOut(poolConn, params) {
       workedHours: Math.round(workedHours * 100) / 100,
       directHours: Math.round(directHours * 100) / 100,
       indirectHours: Math.round(indirectHours * 100) / 100,
+      directHoursCap: Math.round(directHoursCap * 100) / 100,
       kioskPunchInId: lastIn.id,
       kioskPunchOutId: insOut.insertId
     }

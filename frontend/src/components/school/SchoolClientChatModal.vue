@@ -43,12 +43,18 @@
       </div>
 
       <div v-if="showActionBar" class="modal-actions-bar">
-        <button class="btn btn-secondary btn-sm action-btn action-btn-active" type="button" @click="subView = 'default'; activePane = null">
+        <button
+          v-if="subView !== 'default'"
+          class="btn btn-secondary btn-sm"
+          type="button"
+          @click="subView = 'default'; activePane = null"
+        >
           View & Comment
         </button>
         <button
           v-if="showSkillBuildersEntry"
           class="btn btn-secondary btn-sm"
+          :class="{ 'action-btn-active': subView === 'skill_builders' }"
           type="button"
           @click="openSkillBuildersTab"
         >
@@ -68,7 +74,7 @@
           type="button"
           @click="emit('open-edit', props.client)"
         >
-          Edit
+          More Info
         </button>
       </div>
 
@@ -152,7 +158,28 @@
                 {{ selectedSkillEvent.schoolName || '' }}
                 <span v-if="formatSbRange(selectedSkillEvent)"> · {{ formatSbRange(selectedSkillEvent) }}</span>
               </p>
-              <p v-if="selectedSkillEvent.eventDescription" class="sb-desc">{{ selectedSkillEvent.eventDescription }}</p>
+              <p
+                v-if="selectedSkillEvent.eventDescription && !(selectedSkillEvent.meetings || []).length"
+                class="sb-desc"
+              >
+                {{ selectedSkillEvent.eventDescription }}
+              </p>
+              <template v-if="(selectedSkillEvent.meetings || []).length">
+                <p class="sb-subh sb-meetings-heading">Weekly meetings</p>
+                <ul class="sb-list">
+                  <li v-for="(m, idx) in selectedSkillEvent.meetings" :key="idx">
+                    {{ m.weekday }} · {{ formatSbClock(m.startTime) }}–{{ formatSbClock(m.endTime) }}
+                  </li>
+                </ul>
+              </template>
+              <p v-else class="muted small">No weekly meeting pattern on file.</p>
+            </section>
+            <section class="sb-section">
+              <h4>Providers</h4>
+              <ul v-if="(selectedSkillEvent.providers || []).length" class="sb-list">
+                <li v-for="p in selectedSkillEvent.providers" :key="p.id">{{ p.firstName }} {{ p.lastName }}</li>
+              </ul>
+              <p v-else class="muted">No providers listed yet.</p>
             </section>
             <section class="sb-section">
               <h4>This student</h4>
@@ -168,26 +195,6 @@
                 <li v-if="builderClientSummary?.clientStatusLabel">Status: {{ builderClientSummary.clientStatusLabel }}</li>
               </ul>
               <p class="muted small">More document links and resources will appear here as we wire them in.</p>
-            </section>
-            <section class="sb-section">
-              <h4>Schedule</h4>
-              <p class="muted">
-                Group window:
-                {{ formatDateShort(selectedSkillEvent.groupStartDate) }} – {{ formatDateShort(selectedSkillEvent.groupEndDate) }}
-              </p>
-              <ul v-if="(selectedSkillEvent.meetings || []).length" class="sb-list">
-                <li v-for="(m, idx) in selectedSkillEvent.meetings" :key="idx">
-                  {{ m.weekday }} · {{ formatSbClock(m.startTime) }}–{{ formatSbClock(m.endTime) }}
-                </li>
-              </ul>
-              <p v-else class="muted">No weekly meeting pattern on file.</p>
-            </section>
-            <section class="sb-section">
-              <h4>Providers</h4>
-              <ul v-if="(selectedSkillEvent.providers || []).length" class="sb-list">
-                <li v-for="p in selectedSkillEvent.providers" :key="p.id">{{ p.firstName }} {{ p.lastName }}</li>
-              </ul>
-              <p v-else class="muted">No providers listed yet.</p>
             </section>
             <div class="sb-portal-actions">
               <button
@@ -479,6 +486,7 @@ import ClientTicketThreadPanel from './ClientTicketThreadPanel.vue';
 import PhiDocumentsPanel from '../admin/PhiDocumentsPanel.vue';
 import { useAuthStore } from '../../store/auth';
 import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
+import { formatSkillBuilderWallTime12h } from '../../utils/skillBuildersDisplay.js';
 
 const props = defineProps({
   client: { type: Object, required: true },
@@ -661,8 +669,7 @@ function formatSbRange(ev) {
 }
 
 function formatSbClock(t) {
-  const s = String(t || '').slice(0, 5);
-  return s || '—';
+  return formatSkillBuilderWallTime12h(t);
 }
 
 function formatDateShort(d) {
@@ -1130,9 +1137,6 @@ watch(
   display: flex;
   gap: 8px;
   align-items: center;
-}
-.action-btn {
-  cursor: default;
 }
 .action-btn-active {
   box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.08);

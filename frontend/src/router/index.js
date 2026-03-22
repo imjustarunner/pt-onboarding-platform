@@ -149,11 +149,28 @@ const routes = [
     component: () => import('../views/public/PublicSkillBuildersProgramEventsView.vue'),
     meta: { requiresGuest: false }
   },
+  {
+    path: '/open-events/:agencySlug/kiosk',
+    redirect: (to) => `/${to.params.agencySlug}/kiosk`,
+    meta: { requiresGuest: false }
+  },
   // Branded program events (portal slug = agencies.slug on the program org)
   {
     path: '/:organizationSlug/programs/:programSlug/events',
     name: 'PublicProgramEvents',
     component: () => import('../views/public/PublicSkillBuildersProgramEventsView.vue'),
+    meta: { requiresGuest: false, organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/kiosk',
+    name: 'OrganizationSkillBuildersEventKioskEntry',
+    component: () => import('../views/public/PublicSkillBuildersEventKioskView.vue'),
+    meta: { requiresGuest: false, organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/skill-builders/kiosk/:eventId',
+    name: 'OrganizationSkillBuildersEventKioskStation',
+    component: () => import('../views/public/PublicSkillBuildersEventKioskStationView.vue'),
     meta: { requiresGuest: false, organizationSlug: true }
   },
   // Organization-specific routes (supports Agency, School, Program, Learning)

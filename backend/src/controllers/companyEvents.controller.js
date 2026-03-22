@@ -13,6 +13,7 @@ import {
   computeNextOccurrence
 } from '../services/companyEvents.service.js';
 import { backfillSkillsGroupCompanyEvents } from '../services/skillBuildersGroupEventBackfill.service.js';
+import KioskModel from '../models/Kiosk.model.js';
 
 const DEFAULT_RSVP_OPTIONS = [
   { key: '1', label: 'Yes' },
@@ -225,7 +226,16 @@ function mapEventRow(row, req, opts = {}) {
         : null,
     registrationEligible: !!(row.registration_eligible === 1 || row.registration_eligible === true),
     medicaidEligible: !!(row.medicaid_eligible === 1 || row.medicaid_eligible === true),
-    cashEligible: !!(row.cash_eligible === 1 || row.cash_eligible === true)
+    cashEligible: !!(row.cash_eligible === 1 || row.cash_eligible === true),
+    clientCheckInDisplayTime: row.client_check_in_display_time != null ? String(row.client_check_in_display_time).slice(0, 8) : null,
+    clientCheckOutDisplayTime: row.client_check_out_display_time != null ? String(row.client_check_out_display_time).slice(0, 8) : null,
+    employeeReportTime: row.employee_report_time != null ? String(row.employee_report_time).slice(0, 8) : null,
+    employeeDepartureTime: row.employee_departure_time != null ? String(row.employee_departure_time).slice(0, 8) : null,
+    virtualSessionsEnabled:
+      row.virtual_sessions_enabled === undefined || row.virtual_sessions_enabled === null
+        ? true
+        : !!(row.virtual_sessions_enabled === 1 || row.virtual_sessions_enabled === true),
+    kioskEventPinSet: !!(row.kiosk_event_pin_hash && String(row.kiosk_event_pin_hash).trim())
   };
   const nextOccurrence = computeNextOccurrence(base);
   const calendarSource = nextOccurrence || { startsAt, endsAt };
@@ -354,6 +364,48 @@ function parseEventPayload(body = {}) {
   const medicaidEligible = triBool(body.medicaidEligible ?? body.medicaid_eligible, false);
   const cashEligible = triBool(body.cashEligible ?? body.cash_eligible, false);
 
+  const parseWallTime = (raw) => {
+    if (raw === undefined || raw === null || raw === '') return null;
+    const s = String(raw).trim();
+    if (!s) return null;
+    const m = s.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+    if (!m) return null;
+    const hh = String(Math.min(23, Math.max(0, parseInt(m[1], 10)))).padStart(2, '0');
+    const mm = String(Math.min(59, Math.max(0, parseInt(m[2], 10)))).padStart(2, '0');
+    const ss = m[3] ? String(Math.min(59, Math.max(0, parseInt(m[3], 10)))).padStart(2, '0') : '00';
+    return `${hh}:${mm}:${ss}`;
+  };
+  const clientCheckInDisplayTime = parseWallTime(body.clientCheckInDisplayTime ?? body.client_check_in_display_time);
+  const clientCheckOutDisplayTime = parseWallTime(body.clientCheckOutDisplayTime ?? body.client_check_out_display_time);
+  const employeeReportTime = parseWallTime(body.employeeReportTime ?? body.employee_report_time);
+  const employeeDepartureTime = parseWallTime(body.employeeDepartureTime ?? body.employee_departure_time);
+  const virtualSessionsEnabled = triBool(
+    body.virtualSessionsEnabled ?? body.virtual_sessions_enabled,
+    true
+  );
+
+  let kioskPinOutcome = { mode: 'unchanged' };
+  const pinRaw = body.kioskEventPin ?? body.kiosk_event_pin;
+  const clearRaw = body.kioskEventPinClear ?? body.kiosk_event_pin_clear;
+  const wantsClear =
+    clearRaw === true ||
+    clearRaw === 1 ||
+    String(clearRaw || '').toLowerCase() === 'true';
+  const hasPinField = Object.prototype.hasOwnProperty.call(body, 'kioskEventPin')
+    || Object.prototype.hasOwnProperty.call(body, 'kiosk_event_pin');
+  if (hasPinField) {
+    const s = pinRaw === undefined || pinRaw === null ? '' : String(pinRaw).trim();
+    if (s === '') {
+      kioskPinOutcome = { mode: 'clear' };
+    } else if (!/^\d{6}$/.test(s)) {
+      return { error: 'Kiosk station PIN must be exactly 6 digits' };
+    } else {
+      kioskPinOutcome = { mode: 'set', hash: KioskModel.hashPin(s) };
+    }
+  } else if (wantsClear) {
+    kioskPinOutcome = { mode: 'clear' };
+  }
+
   if (!title) return { error: 'title is required' };
   if (!Number.isFinite(startsAt.getTime()) || !Number.isFinite(endsAt.getTime())) {
     return { error: 'startsAt and endsAt are required and must be valid dates' };
@@ -394,8 +446,42 @@ function parseEventPayload(body = {}) {
     skillBuilderDirectHours,
     registrationEligible,
     medicaidEligible,
-    cashEligible
+    cashEligible,
+    clientCheckInDisplayTime,
+    clientCheckOutDisplayTime,
+    employeeReportTime,
+    employeeDepartureTime,
+    virtualSessionsEnabled,
+    kioskPinOutcome
   };
+}
+
+/**
+ * Station PIN must be unique among active integrated Skill Builders events for this agency so public
+ * unlock (scoped by agency portal slug) always resolves to a single event.
+ */
+async function assertKioskEventPinUnique(conn, { agencyId, eventId, pinHash }) {
+  const aid = parsePositiveInt(agencyId);
+  const eid = parsePositiveInt(eventId);
+  const h = String(pinHash || '').trim();
+  if (!aid || !h) return { ok: true };
+
+  const excludeId = eid > 0 ? eid : 0;
+  const [hit] = await conn.execute(
+    `SELECT id FROM company_events
+     WHERE agency_id = ? AND id != ? AND kiosk_event_pin_hash = ?
+       AND LOWER(COALESCE(event_type, '')) = 'skills_group'
+       AND (is_active = 1 OR is_active IS NULL)
+     LIMIT 1`,
+    [aid, excludeId, h]
+  );
+  if (hit?.[0]?.id) {
+    return {
+      error:
+        'This station PIN is already used by another Skill Builders event for your agency. Choose a different PIN.'
+    };
+  }
+  return { ok: true };
 }
 
 async function getAudienceForEvent(eventId) {
@@ -809,26 +895,70 @@ export const listProgramCompanyEventsForCoordinator = async (req, res, next) => 
     // Program hub "Events": rows scoped to this program org, plus any company_events
     // referenced by school skills_groups with this program (covers legacy / inconsistent organization_id).
     const [rows] = await pool.execute(
-      `SELECT merged.*
+      `SELECT ce.*, sg.id AS skills_group_id, sg.start_date AS skills_group_start_date, sg.end_date AS skills_group_end_date
        FROM (
-         SELECT ce.*
-         FROM company_events ce
-         WHERE ce.agency_id = ?
-           AND ce.organization_id = ?
-         UNION
-         SELECT ce2.*
-         FROM company_events ce2
-         INNER JOIN skills_groups sg
-           ON sg.company_event_id = ce2.id
-           AND sg.agency_id = ce2.agency_id
-         WHERE ce2.agency_id = ?
-           AND sg.skill_builders_program_organization_id = ?
-       ) AS merged
-       ORDER BY merged.starts_at DESC, merged.id DESC
+         SELECT merged.*
+         FROM (
+           SELECT ce.*
+           FROM company_events ce
+           WHERE ce.agency_id = ?
+             AND ce.organization_id = ?
+           UNION
+           SELECT ce2.*
+           FROM company_events ce2
+           INNER JOIN skills_groups sg2
+             ON sg2.company_event_id = ce2.id
+             AND sg2.agency_id = ce2.agency_id
+           WHERE ce2.agency_id = ?
+             AND sg2.skill_builders_program_organization_id = ?
+         ) AS merged
+       ) AS ce
+       LEFT JOIN (
+         SELECT sg.*
+         FROM skills_groups sg
+         INNER JOIN (
+           SELECT company_event_id, MIN(id) AS pick_id
+           FROM skills_groups
+           WHERE agency_id = ?
+           GROUP BY company_event_id
+         ) pick ON pick.pick_id = sg.id
+       ) sg ON sg.company_event_id = ce.id AND sg.agency_id = ce.agency_id
+       ORDER BY ce.starts_at DESC, ce.id DESC
        LIMIT 200`,
-      [agencyId, organizationId, agencyId, organizationId]
+      [agencyId, organizationId, agencyId, organizationId, agencyId]
     );
-    const events = (rows || []).map((row) => mapEventRow(row, req));
+    const sgIds = [...new Set((rows || []).map((r) => r.skills_group_id).filter((id) => id != null))];
+    /** @type {Map<number, { weekday: string, startTime: string, endTime: string }[]>} */
+    const meetingsBySkillsGroupId = new Map();
+    if (sgIds.length) {
+      const ph = sgIds.map(() => '?').join(',');
+      const [mrows] = await pool.execute(
+        `SELECT skills_group_id, weekday, start_time, end_time
+         FROM skills_group_meetings
+         WHERE skills_group_id IN (${ph})
+         ORDER BY FIELD(weekday,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'), start_time`,
+        sgIds
+      );
+      for (const m of mrows || []) {
+        const sgid = Number(m.skills_group_id);
+        if (!meetingsBySkillsGroupId.has(sgid)) meetingsBySkillsGroupId.set(sgid, []);
+        meetingsBySkillsGroupId.get(sgid).push({
+          weekday: m.weekday,
+          startTime: String(m.start_time || '').slice(0, 8),
+          endTime: String(m.end_time || '').slice(0, 8)
+        });
+      }
+    }
+    const events = (rows || []).map((row) => {
+      const base = mapEventRow(row, req);
+      const sgid = row.skills_group_id != null ? Number(row.skills_group_id) : null;
+      return {
+        ...base,
+        skillsGroupStartDate: row.skills_group_start_date || null,
+        skillsGroupEndDate: row.skills_group_end_date || null,
+        meetings: sgid && meetingsBySkillsGroupId.has(sgid) ? meetingsBySkillsGroupId.get(sgid) : []
+      };
+    });
     res.json({ ok: true, events });
   } catch (error) {
     next(error);
@@ -943,10 +1073,21 @@ export const createCompanyEvent = async (req, res, next) => {
       organizationIdForRow = v.organizationId;
     }
 
+    let createKioskPinHash = null;
+    if (parsed.kioskPinOutcome?.mode === 'set') {
+      const uq = await assertKioskEventPinUnique(pool, {
+        agencyId,
+        eventId: 0,
+        pinHash: parsed.kioskPinOutcome.hash
+      });
+      if (uq.error) return res.status(409).json({ error: { message: uq.error } });
+      createKioskPinHash = parsed.kioskPinOutcome.hash;
+    }
+
     const [insertResult] = await pool.execute(
       `INSERT INTO company_events
-       (agency_id, organization_id, created_by_user_id, updated_by_user_id, title, description, event_type, splash_content, starts_at, ends_at, timezone, recurrence_json, is_active, rsvp_mode, voting_config_json, reminder_config_json, voting_closed_at, sms_code, skill_builder_direct_hours, registration_eligible, medicaid_eligible, cash_eligible)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (agency_id, organization_id, created_by_user_id, updated_by_user_id, title, description, event_type, splash_content, starts_at, ends_at, timezone, recurrence_json, is_active, rsvp_mode, voting_config_json, reminder_config_json, voting_closed_at, sms_code, skill_builder_direct_hours, registration_eligible, medicaid_eligible, cash_eligible, kiosk_event_pin_hash)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         agencyId,
         organizationIdForRow,
@@ -969,7 +1110,8 @@ export const createCompanyEvent = async (req, res, next) => {
         parsed.skillBuilderDirectHours,
         parsed.registrationEligible ? 1 : 0,
         parsed.medicaidEligible ? 1 : 0,
-        parsed.cashEligible ? 1 : 0
+        parsed.cashEligible ? 1 : 0,
+        createKioskPinHash
       ]
     );
     const eventId = Number(insertResult.insertId);
@@ -1016,9 +1158,22 @@ export async function persistCompanyEventUpdate(req, agencyId, eventId, body) {
     organizationIdForRow = v.organizationId;
   }
 
+  let nextKioskPinHash = existing.kiosk_event_pin_hash != null ? String(existing.kiosk_event_pin_hash) : null;
+  if (parsed.kioskPinOutcome?.mode === 'clear') {
+    nextKioskPinHash = null;
+  } else if (parsed.kioskPinOutcome?.mode === 'set') {
+    const uq = await assertKioskEventPinUnique(pool, {
+      agencyId,
+      eventId,
+      pinHash: parsed.kioskPinOutcome.hash
+    });
+    if (uq.error) return { error: { status: 409, message: uq.error } };
+    nextKioskPinHash = parsed.kioskPinOutcome.hash;
+  }
+
   await pool.execute(
     `UPDATE company_events
-     SET updated_by_user_id = ?, organization_id = ?, title = ?, description = ?, event_type = ?, splash_content = ?, starts_at = ?, ends_at = ?, timezone = ?, recurrence_json = ?, is_active = ?, rsvp_mode = ?, voting_config_json = ?, reminder_config_json = ?, voting_closed_at = ?, sms_code = ?, skill_builder_direct_hours = ?, registration_eligible = ?, medicaid_eligible = ?, cash_eligible = ?
+     SET updated_by_user_id = ?, organization_id = ?, title = ?, description = ?, event_type = ?, splash_content = ?, starts_at = ?, ends_at = ?, timezone = ?, recurrence_json = ?, is_active = ?, rsvp_mode = ?, voting_config_json = ?, reminder_config_json = ?, voting_closed_at = ?, sms_code = ?, skill_builder_direct_hours = ?, registration_eligible = ?, medicaid_eligible = ?, cash_eligible = ?, client_check_in_display_time = ?, client_check_out_display_time = ?, employee_report_time = ?, employee_departure_time = ?, virtual_sessions_enabled = ?, kiosk_event_pin_hash = ?
      WHERE id = ? AND agency_id = ?`,
     [
       userId,
@@ -1041,6 +1196,12 @@ export async function persistCompanyEventUpdate(req, agencyId, eventId, body) {
       parsed.registrationEligible ? 1 : 0,
       parsed.medicaidEligible ? 1 : 0,
       parsed.cashEligible ? 1 : 0,
+      parsed.clientCheckInDisplayTime,
+      parsed.clientCheckOutDisplayTime,
+      parsed.employeeReportTime,
+      parsed.employeeDepartureTime,
+      parsed.virtualSessionsEnabled ? 1 : 0,
+      nextKioskPinHash,
       eventId,
       agencyId
     ]

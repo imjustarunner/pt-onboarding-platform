@@ -165,7 +165,7 @@
             <th></th>
             <th v-if="showChecklistButton"></th>
             <th v-if="showTerminateButton"></th>
-            <th v-if="canEditClients" class="edit-col">Edit</th>
+            <th v-if="canEditClients" class="edit-col">More Info</th>
             <th
               v-if="showAssignedColumn"
               class="sortable"
@@ -375,7 +375,7 @@
               </button>
             </td>
             <td v-if="canEditClients" class="edit-col">
-              <button class="btn btn-primary btn-sm" type="button" @click.stop="goEdit(client)">Edit</button>
+              <button class="btn btn-primary btn-sm" type="button" @click.stop="goEdit(client)">More Info</button>
             </td>
             <td v-if="showAssignedColumn">{{ formatDate(client.provider_assigned_at) }}</td>
             <td>{{ formatDate(client.submission_date) }}</td>

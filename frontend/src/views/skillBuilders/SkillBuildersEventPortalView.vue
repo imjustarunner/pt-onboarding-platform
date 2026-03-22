@@ -25,7 +25,7 @@
             >
               Add a portal slug on the program organization to enable the public events list link.
             </p>
-            <router-link v-if="dashboardHref" class="btn btn-secondary btn-sm" :to="dashboardHref">Dashboard</router-link>
+            <router-link v-if="dashboardHref" class="btn btn-secondary btn-sm" :to="dashboardHref">My dashboard</router-link>
             <router-link v-if="scheduleHubHref" class="btn btn-secondary btn-sm" :to="scheduleHubHref">
               Schedule hub
             </router-link>
@@ -47,157 +47,619 @@
             <button type="button" class="btn btn-secondary btn-sm" @click="goBack">Back</button>
           </template>
 
-          <div class="sbep-portal-grid">
-            <section
-              v-if="detail.calendar && (detail.calendar.googleCalendarUrl || detail.calendar.icsUrl)"
-              class="sbep-portal-card sbep-calendar-card sbep-span-2"
-            >
-              <h2 class="sbep-card-title">Add to calendar</h2>
-              <p v-if="detail.calendar.note" class="muted small sbep-card-lead">{{ detail.calendar.note }}</p>
-              <div class="sbep-calendar-actions">
-                <a
-                  v-if="detail.calendar.googleCalendarUrl"
-                  class="btn btn-primary btn-sm"
-                  :href="detail.calendar.googleCalendarUrl"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  Google Calendar
-                </a>
-                <a v-if="detail.calendar.icsUrl" class="btn btn-secondary btn-sm" :href="detail.calendar.icsUrl">
-                  Download ICS
-                </a>
-                <button
-                  v-if="detail.calendar.googleCalendarUrl"
-                  type="button"
-                  class="btn btn-secondary btn-sm"
-                  @click="copyGoogleCalendarLink"
-                >
-                  Copy Google link
-                </button>
-                <button type="button" class="btn btn-secondary btn-sm" @click="copyShareBlurb">Copy share text</button>
-              </div>
-              <p v-if="copyHint" class="muted small sbep-copy-hint">{{ copyHint }}</p>
-            </section>
-
-            <div v-if="viewerCaps.canManageTeamSchedules && agencyId && eventId" class="sbep-span-2">
-              <SkillBuildersEventProgramMeetingsCard
-                :agency-id="agencyId"
-                :event-id="eventId"
-                :initial-meetings="meetingsForEditor"
-                @saved="onMeetingsSaved"
-              />
+          <div v-show="dashHubMode && eventRailItems.length" class="sbep-hub">
+            <p class="sbep-hub-tagline muted small">Choose a section — pick one to open the sidebar layout.</p>
+            <div class="sbep-hub-grid" role="navigation" aria-label="Event sections">
+              <button
+                v-for="item in eventRailItems"
+                :key="item.id"
+                type="button"
+                class="sbep-hub-card"
+                @click="selectRailSection(item.id)"
+              >
+                <span class="sbep-hub-ico-wrap">
+                  <img v-if="item.iconUrl" :src="item.iconUrl" alt="" class="sbep-hub-ico" />
+                </span>
+                <span class="sbep-hub-card-title">{{ item.label }}</span>
+                <span class="sbep-hub-card-hint">Open <span aria-hidden="true">→</span></span>
+              </button>
             </div>
+          </div>
 
-            <section
-              v-if="detail.skillsGroup"
-              class="sbep-portal-card sbep-span-2 sbep-sessions-card"
+          <div v-show="!dashHubMode" class="sbep-dash-layout">
+            <div class="sbep-rail-column">
+              <button type="button" class="sbep-hub-back" @click="openDashHub">
+                <span class="sbep-hub-back-arr" aria-hidden="true">←</span>
+                All sections
+              </button>
+              <nav v-if="eventRailItems.length" class="sbep-rail" aria-label="Event sections">
+                <button
+                  v-for="item in eventRailItems"
+                  :key="item.id"
+                  type="button"
+                  class="sbep-rail-item"
+                  :class="{ active: railActive === item.id }"
+                  :aria-current="railActive === item.id ? 'true' : undefined"
+                  @click="selectRailSection(item.id)"
+                >
+                  <span class="sbep-rail-ico-wrap">
+                    <img v-if="item.iconUrl" :src="item.iconUrl" alt="" class="sbep-rail-ico" />
+                  </span>
+                  <span class="sbep-rail-lbl">{{ item.shortLabel }}</span>
+                </button>
+              </nav>
+            </div>
+            <div class="sbep-rail-content">
+              <div class="sbep-portal-grid sbep-dash">
+            <SkillBuildersEventDashboardSection
+              v-show="railActive === 'home'"
+              rail-mode
+              section-id="home"
+              title="Home"
+              :icon-url="sectionIconUrl('home')"
             >
-              <h2 class="sbep-card-title">Scheduled sessions</h2>
               <p class="muted small sbep-card-lead">
-                One row per program day that matches your week pattern (e.g. every Tuesday in range). Refreshes when you
-                save the pattern. Used to tie kiosk punches to a specific occurrence. Coordinators can note which roster
-                providers are expected per session (migration <strong>585</strong>).
+                Overview of this Skill Builders program event. Use the icons on the left to jump to schedule, client
+                management, work schedule, and more.
               </p>
+              <ul v-if="detail.skillsGroup" class="sbep-list muted small sbep-home-meta">
+                <li>
+                  <strong>{{ detail.skillsGroup.name }}</strong>
+                  · {{ detail.skillsGroup.schoolName }}
+                </li>
+                <li>Program dates: {{ formatDateOnly(detail.skillsGroup.startDate) }} – {{ formatDateOnly(detail.skillsGroup.endDate) }}</li>
+              </ul>
+              <p class="muted small">{{ headerSubtitle }}</p>
+              <div v-if="programEventsHref || dashboardHref" class="sbep-inline-actions sbep-home-links">
+                <router-link v-if="programEventsHref" class="btn btn-secondary btn-sm" :to="programEventsHref">
+                  All program events
+                </router-link>
+                <router-link v-if="dashboardHref" class="btn btn-secondary btn-sm" :to="dashboardHref">My dashboard</router-link>
+              </div>
+            </SkillBuildersEventDashboardSection>
+
+            <SkillBuildersEventDashboardSection
+              v-if="showScheduleSection"
+              v-show="railActive === 'schedule'"
+              rail-mode
+              section-id="schedule"
+              title="Schedule"
+              :icon-url="sectionIconUrl('schedule')"
+            >
+              <div v-if="detail.calendar && (detail.calendar.googleCalendarUrl || detail.calendar.icsUrl)" class="sbep-sched-block">
+                <p class="sbep-subh">Add to calendar</p>
+                <p v-if="detail.calendar.note" class="muted small sbep-card-lead">{{ detail.calendar.note }}</p>
+                <div class="sbep-calendar-actions">
+                  <a
+                    v-if="detail.calendar.googleCalendarUrl"
+                    class="btn btn-primary btn-sm"
+                    :href="detail.calendar.googleCalendarUrl"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Google Calendar
+                  </a>
+                  <a v-if="detail.calendar.icsUrl" class="btn btn-secondary btn-sm" :href="detail.calendar.icsUrl">
+                    Download ICS
+                  </a>
+                  <button
+                    v-if="detail.calendar.googleCalendarUrl"
+                    type="button"
+                    class="btn btn-secondary btn-sm"
+                    @click="copyGoogleCalendarLink"
+                  >
+                    Copy Google link
+                  </button>
+                  <button type="button" class="btn btn-secondary btn-sm" @click="copyShareBlurb">Copy share text</button>
+                </div>
+                <p v-if="copyHint" class="muted small sbep-copy-hint">{{ copyHint }}</p>
+              </div>
+
+              <div v-if="detail.skillsGroup" class="sbep-sched-block">
+                <p class="sbep-subh">Program window &amp; times</p>
+                <p class="muted small sbep-card-lead">
+                  Program window: {{ formatDateOnly(detail.skillsGroup?.startDate) }} – {{ formatDateOnly(detail.skillsGroup?.endDate) }} ·
+                  {{ detail.skillsGroup?.schoolName }} — {{ detail.skillsGroup?.name }}
+                </p>
+                <p v-if="detail.event?.clientCheckInDisplayTime || detail.event?.clientCheckOutDisplayTime" class="muted small">
+                  <strong>Family-facing times:</strong>
+                  check-in {{ formatDisplayTime(detail.event?.clientCheckInDisplayTime) }} · check-out
+                  {{ formatDisplayTime(detail.event?.clientCheckOutDisplayTime) }}
+                </p>
+                <p v-if="detail.event?.employeeReportTime || detail.event?.employeeDepartureTime" class="muted small">
+                  <strong>Staff planned window:</strong>
+                  {{ formatDisplayTime(detail.event?.employeeReportTime) }} –
+                  {{ formatDisplayTime(detail.event?.employeeDepartureTime) }}
+                </p>
+                <p v-if="detail.meetings?.length" class="muted small sbep-card-lead">Weekly pattern</p>
+                <ul v-if="detail.meetings?.length" class="sbep-list">
+                  <li v-for="(m, i) in detail.meetings" :key="i">
+                    {{ m.weekday }} · {{ wallHmToDisplay(formatHm(m.startTime)) }}–{{ wallHmToDisplay(formatHm(m.endTime)) }}
+                  </li>
+                </ul>
+              </div>
+
+              <div v-if="detail.skillsGroup" class="sbep-sched-block">
+                <p class="sbep-subh">Dates &amp; locations</p>
+                <p class="muted small sbep-card-lead">
+                  Each scheduled occurrence; coordinators can set location and modality in the admin session tools (API).
+                </p>
+                <div v-if="sessionsLoading" class="muted">Loading sessions…</div>
+                <div v-else-if="sessions.length" class="sbep-sessions-table-wrap">
+                  <table class="sbep-sessions-table">
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Time</th>
+                        <th>Location</th>
+                        <th>Modality</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="s in sessionsTableRows" :key="`d-${s.id}`">
+                        <td>{{ formatSessionDateDisplay(s.sessionDate) }}</td>
+                        <td>{{ wallHmToDisplay(formatHm(s.startTime)) }}–{{ wallHmToDisplay(formatHm(s.endTime)) }}</td>
+                        <td>{{ s.locationLabel || s.locationAddress || '—' }}</td>
+                        <td>{{ s.modality || '—' }}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <p v-else class="muted">No materialized sessions in range.</p>
+              </div>
+
+              <div
+                v-if="detail.skillsGroup && sessions.length && detail.event?.virtualSessionsEnabled !== false"
+                class="sbep-sched-block"
+              >
+                <p class="sbep-subh">Join links (virtual / hybrid)</p>
+                <p class="muted small sbep-card-lead">Join opens 10 minutes before start and stays available through the scheduled end.</p>
+                <ul class="sbep-join-list">
+                  <li v-for="s in sessions" :key="`vj-${s.id}`" class="sbep-join-li">
+                    <span>{{ formatSessionDateDisplay(s.sessionDate) }} · {{ wallHmToDisplay(formatHm(s.startTime)) }}–{{ wallHmToDisplay(formatHm(s.endTime)) }}</span>
+                    <a
+                      v-if="sessionJoinVisible(s)"
+                      class="btn btn-primary btn-sm"
+                      :href="s.joinUrl"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Join
+                    </a>
+                    <span v-else-if="s.joinUrl && (s.modality === 'virtual' || s.modality === 'hybrid')" class="muted small">Not yet open</span>
+                    <span v-else class="muted small">—</span>
+                  </li>
+                </ul>
+              </div>
+            </SkillBuildersEventDashboardSection>
+
+            <SkillBuildersEventDashboardSection
+              v-if="(detail.providers || []).length"
+              v-show="railActive === 'providers'"
+              rail-mode
+              section-id="providers"
+              title="Providers"
+              :icon-url="sectionIconUrl('providers')"
+              :badge="`${detail.providers?.length || 0} on roster`"
+            >
+              <p class="muted small sbep-card-lead">
+                Assigned providers — profile and photo from your agency directory (same kind of info as the school portal;
+                no scheduling details here).
+              </p>
+              <SkillBuildersEventProvidersGrid :providers="detail.providers || []" />
+            </SkillBuildersEventDashboardSection>
+
+            <SkillBuildersEventDashboardSection
+              v-if="(detail.clients || []).length"
+              v-show="railActive === 'clients'"
+              rail-mode
+              section-id="clients"
+              title="Client Management"
+              :icon-url="sectionIconUrl('clients')"
+              :badge="`${detail.clients?.length || 0}`"
+            >
+              <p class="muted small sbep-card-lead">Clients on this program roster — attendance and clinical session notes.</p>
+              <ul class="sbep-list sbep-roster-list">
+                <li v-for="c in detail.clients || []" :key="c.id" class="sbep-client-li">
+                  <div>
+                    <router-link
+                      v-if="rosterClientLinkTo(c)"
+                      :to="rosterClientLinkTo(c)"
+                      class="sbep-roster-client-link"
+                    >
+                      <strong>{{ clientLabelForRow(c) }}</strong>
+                    </router-link>
+                    <strong v-else>{{ clientLabelForRow(c) }}</strong>
+                    <span
+                      v-if="c.documentStatus || c.paperworkStatusLabel"
+                      class="muted small"
+                    >
+                      · Docs: {{ c.paperworkStatusLabel || c.documentStatus || '—' }}
+                    </span>
+                  </div>
+                  <ul v-if="attendanceRowsForClient(c.id).length" class="sbep-client-att-sub muted small">
+                    <li v-for="row in attendanceRowsForClient(c.id)" :key="`att-${row.sessionId}-${row.clientId}`">
+                      {{ formatSessionDateDisplay(row.sessionDate) }}
+                      <span v-if="row.checkInAt"> · In {{ formatPostTime(row.checkInAt) }}</span>
+                      <span v-if="row.checkOutAt"> · Out {{ formatPostTime(row.checkOutAt) }}</span>
+                      <span v-if="row.signatureText"> · Signature on file</span>
+                    </li>
+                  </ul>
+                </li>
+              </ul>
+
+              <div v-if="canEditClientAttendance && sessions.length" class="sbep-client-mgmt-grid">
+                <div class="sbep-client-mgmt-col sbep-client-mgmt-attendance">
+                  <p class="sbep-subh">Attendance</p>
+                  <label class="sbep-label">Session</label>
+                  <select v-model.number="clientAttSessionId" class="input sbep-kiosk-field">
+                    <option v-for="s in sessions" :key="`ca-s-${s.id}`" :value="s.id">
+                      {{ formatSessionKioskLabel(s) }}
+                    </option>
+                  </select>
+                  <div class="sbep-client-att-picker">
+                    <div class="sbep-client-att-picker-head">
+                      <span class="sbep-label sbep-label-inline">Clients</span>
+                      <div class="sbep-client-att-picker-actions">
+                        <button type="button" class="btn btn-link btn-sm" @click="selectAllClientsForAttendance">
+                          Select all
+                        </button>
+                        <button type="button" class="btn btn-link btn-sm" @click="clearClientsForAttendance">Clear</button>
+                      </div>
+                    </div>
+                    <div class="sbep-client-att-checkboxes" role="group" aria-label="Clients to mark attended">
+                      <label v-for="c in detail.clients || []" :key="`ca-c-${c.id}`" class="sbep-client-att-row">
+                        <input v-model="clientAttSelectedClientIds" type="checkbox" :value="Number(c.id)" />
+                        <span>{{ clientLabelForRow(c) }}</span>
+                      </label>
+                    </div>
+                    <p v-if="!(detail.clients || []).length" class="muted small">No clients on this roster.</p>
+                  </div>
+                  <p class="muted small sbep-manual-att-times-note">
+                    Time in / time out use the <strong>session date</strong> from above; defaults match this session’s start
+                    and end times.
+                  </p>
+                  <label class="sbep-label">Time in</label>
+                  <input v-model="clientAttTimeIn" type="time" class="input sbep-kiosk-field" />
+                  <label class="sbep-label">Time out</label>
+                  <input v-model="clientAttTimeOut" type="time" class="input sbep-kiosk-field" />
+                  <label class="sbep-label">Signature / attestation (optional)</label>
+                  <input v-model="clientAttSig" class="input sbep-kiosk-field" maxlength="512" placeholder="Typed name or short note" />
+                  <div class="sbep-inline-actions">
+                    <button
+                      type="button"
+                      class="btn btn-primary btn-sm"
+                      :disabled="clientAttSaving || !clientAttSessionId || !clientAttSelectedClientIds.length"
+                      @click="saveClientAttendance"
+                    >
+                      {{
+                        clientAttSaving
+                          ? 'Saving…'
+                          : `Save attendance${clientAttSelectedCount ? ` (${clientAttSelectedCount})` : ''}`
+                      }}
+                    </button>
+                  </div>
+                </div>
+                <div v-if="agencyId && eventId" class="sbep-client-mgmt-col sbep-client-mgmt-clinical">
+                  <SkillBuildersClientManagementClinicalPanel
+                    :agency-id="agencyId"
+                    :event-id="eventId"
+                    :sessions="sessions"
+                    :session-id="clientAttSessionId"
+                    :clients="detail.clients || []"
+                    :viewer-caps="viewerCaps"
+                    :format-session-label="formatSessionKioskLabel"
+                    :client-label-for-row="clientLabelForRow"
+                    @update:session-id="(v) => (clientAttSessionId = v)"
+                    @refresh-sessions="loadSessions"
+                  />
+                </div>
+              </div>
+              <p v-else-if="canEditClientAttendance && !sessions.length" class="muted small">
+                Session dates are still loading or none were generated for this program window.
+              </p>
+            </SkillBuildersEventDashboardSection>
+
+            <SkillBuildersEventDashboardSection
+              v-show="railActive === 'materials'"
+              rail-mode
+              section-id="materials"
+              title="Materials"
+              :icon-url="sectionIconUrl('materials')"
+              badge="Coming soon"
+            >
+              <p class="muted small">Course materials and handouts will appear here when your team adds them.</p>
+            </SkillBuildersEventDashboardSection>
+
+            <SkillBuildersEventDashboardSection
+              v-if="detail.event?.registrationEligible"
+              v-show="railActive === 'registrations'"
+              rail-mode
+              section-id="registrations"
+              title="Registrations"
+              :icon-url="sectionIconUrl('registrations')"
+              badge="Open"
+            >
+              <p class="muted small sbep-card-lead">
+                This program is included in the <strong>guardian registration catalog</strong> when the window is open.
+                Families enroll eligible dependents from the guardian portal.
+              </p>
+              <p v-if="registrationPayerLines.length" class="muted small">
+                <strong>Payer options:</strong> {{ registrationPayerLines.join(' · ') }}
+              </p>
+              <p v-else class="muted small">Set Medicaid / cash eligibility under <strong>Edit event</strong> (registration catalog).</p>
+              <p v-if="guardianRegistrationHref" class="muted small">
+                <router-link :to="guardianRegistrationHref">Open guardian portal</router-link>
+                <span> — Registration section</span>
+              </p>
+            </SkillBuildersEventDashboardSection>
+
+            <SkillBuildersEventDashboardSection
+              v-if="detail.skillsGroup"
+              v-show="railActive === 'work-schedule'"
+              rail-mode
+              section-id="work-schedule"
+              title="Event Assignments"
+              :icon-url="sectionIconUrl('work-schedule')"
+            >
+              <p class="muted small sbep-card-lead">
+                One row per program day that matches your week pattern. Assign expected staff per session; kiosk clock
+                in/out times for this event appear in the <strong>Kiosk time</strong> column when a session was
+                selected on the punch. Past dates are collapsed — expand to see full history.
+              </p>
+              <div
+                v-if="viewerCaps.canManageTeamSchedules || viewerCaps.isAssignedProvider"
+                class="sbep-inline-actions sbep-assign-export"
+              >
+                <button type="button" class="btn btn-secondary btn-sm" @click="exportEventClockCsv">
+                  Export clock in/out (CSV)
+                </button>
+              </div>
+              <p v-if="sessionStaffFlash" class="sbep-flash-ok" role="status">{{ sessionStaffFlash }}</p>
               <div v-if="sessionsLoading" class="muted">Loading sessions…</div>
               <p v-else-if="sessionsLoadError" class="error-box sbep-sessions-err">{{ sessionsLoadError }}</p>
               <p v-else-if="!sessions.length && sessionsLoadAttempted" class="muted">
-                No sessions in the program window for this date range. If you just added the week pattern, click
-                <strong>Save week pattern</strong> once to generate rows. If the program dates are in the past, they still
-                appear here — if this stays empty, confirm migration <strong>584</strong> ran on the server.
+                No sessions in the program window for this date range. If you just set the week pattern, use
+                <strong>Save week pattern</strong> once so scheduled days are generated. Past program dates should still
+                appear here. If this stays empty after saving, contact your agency administrator — they may need to enable
+                Skill Builders session scheduling for this environment.
               </p>
-              <div v-else-if="sessions.length" class="sbep-sessions-table-wrap">
-                <table class="sbep-sessions-table">
-                  <thead>
-                    <tr>
-                      <th>Date</th>
-                      <th>Day</th>
-                      <th>Time</th>
-                      <th>Staff</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="s in sessionsTableRows" :key="s.id">
-                      <td>{{ s.sessionDate }}</td>
-                      <td>{{ s.weekday }}</td>
-                      <td>{{ formatHm(s.startTime) }}–{{ formatHm(s.endTime) }}</td>
-                      <td class="sbep-sessions-staff-cell">
-                        <template v-if="viewerCaps.canManageTeamSchedules && rosterProviderOptions.length">
-                          <select
-                            v-model="sessionStaffDraft[s.id]"
-                            multiple
-                            class="input sbep-session-staff-ms"
-                            :disabled="sessionStaffSavingId === s.id"
-                          >
-                            <option v-for="p in rosterProviderOptions" :key="p.id" :value="p.id">
-                              {{ p.firstName }} {{ p.lastName }}
-                            </option>
-                          </select>
-                          <button
-                            type="button"
-                            class="btn btn-secondary btn-sm sbep-session-staff-save"
-                            :disabled="sessionStaffSavingId === s.id"
-                            @click="saveSessionStaff(s.id)"
-                          >
-                            {{ sessionStaffSavingId === s.id ? 'Saving…' : 'Save' }}
-                          </button>
-                        </template>
-                        <span v-else class="sbep-sessions-staff-read">{{ formatSessionAssignedStaff(s) }}</span>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-                <p v-if="sessions.length > sessionsTableRows.length" class="muted small sbep-sessions-more">
-                  Showing first {{ sessionsTableRows.length }} of {{ sessions.length }}.
-                </p>
-              </div>
-            </section>
+              <template v-else-if="sessions.length">
+                <div v-if="eventAssignmentsUpcoming.length" class="sbep-sessions-table-wrap">
+                  <p class="sbep-subh">Upcoming &amp; today</p>
+                  <table class="sbep-sessions-table">
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Day</th>
+                        <th>Scheduled time</th>
+                        <th>Staff assignment</th>
+                        <th>Kiosk time</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="s in eventAssignmentsUpcoming" :key="`up-${s.id}`">
+                        <td class="sbep-sessions-date">{{ formatSessionDateDisplay(s.sessionDate) }}</td>
+                        <td>{{ s.weekday }}</td>
+                        <td class="sbep-sessions-time">
+                          {{ wallHmToDisplay(formatHm(s.startTime)) }}–{{ wallHmToDisplay(formatHm(s.endTime)) }}
+                        </td>
+                        <td class="sbep-sessions-staff-cell">
+                          <template v-if="viewerCaps.canManageTeamSchedules && rosterProviderOptions.length">
+                            <div class="sbep-staff-compact">
+                              <div class="sbep-staff-chips">
+                                <span
+                                  v-for="pid in sessionStaffDraft[s.id] || []"
+                                  :key="`${s.id}-${pid}`"
+                                  class="sbep-staff-chip"
+                                >
+                                  {{ providerNameById(pid) }}
+                                  <button
+                                    type="button"
+                                    class="sbep-staff-chip-remove"
+                                    :disabled="sessionStaffSavingId === s.id"
+                                    title="Remove from this session"
+                                    @click="removeSessionStaff(s.id, pid)"
+                                  >
+                                    ×
+                                  </button>
+                                </span>
+                              </div>
+                              <div class="sbep-staff-add-row">
+                                <select
+                                  class="input sbep-staff-add-select"
+                                  :disabled="sessionStaffSavingId === s.id"
+                                  aria-label="Add staff to this session"
+                                  @change="addSessionStaffFromSelect(s.id, $event)"
+                                >
+                                  <option value="">Add staff…</option>
+                                  <option
+                                    v-for="p in rosterProviderOptions"
+                                    :key="`add-${s.id}-${p.id}`"
+                                    :value="p.id"
+                                    :disabled="(sessionStaffDraft[s.id] || []).includes(p.id)"
+                                  >
+                                    {{ p.firstName }} {{ p.lastName }}
+                                  </option>
+                                </select>
+                                <button
+                                  type="button"
+                                  class="btn btn-primary btn-sm sbep-session-staff-save"
+                                  :disabled="sessionStaffSavingId === s.id"
+                                  @click="saveSessionStaff(s.id)"
+                                >
+                                  {{ sessionStaffSavingId === s.id ? 'Saving…' : 'Save' }}
+                                </button>
+                              </div>
+                            </div>
+                          </template>
+                          <span v-else class="sbep-sessions-staff-read">{{ formatSessionAssignedStaff(s) }}</span>
+                        </td>
+                        <td class="sbep-kiosk-cell">
+                          <ul v-if="sessionKioskPunchLines(s.id).length" class="sbep-kiosk-cell-list">
+                            <li v-for="(ln, idx) in sessionKioskPunchLines(s.id)" :key="`k-${s.id}-${idx}`">
+                              <span class="sbep-kiosk-name">{{ ln.name }}</span>
+                              <span v-if="ln.inAt" class="muted small">In {{ ln.inAt }}</span>
+                              <span v-if="ln.outAt" class="muted small"> · Out {{ ln.outAt }}</span>
+                              <span v-if="ln.payrollId" class="muted small"> · Payroll #{{ ln.payrollId }}</span>
+                            </li>
+                          </ul>
+                          <span v-else class="muted small">—</span>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <p v-else class="muted small">No upcoming sessions in the loaded range.</p>
 
-            <section
-              v-else-if="(detail.meetings || []).length"
-              class="sbep-portal-card"
+                <details v-if="eventAssignmentsPast.length" class="sbep-assign-past">
+                  <summary class="sbep-assign-past-summary">
+                    Past sessions ({{ eventAssignmentsPast.length }}) — tap to expand
+                  </summary>
+                  <div class="sbep-sessions-table-wrap sbep-assign-past-table">
+                    <table class="sbep-sessions-table">
+                      <thead>
+                        <tr>
+                          <th>Date</th>
+                          <th>Day</th>
+                          <th>Scheduled time</th>
+                          <th>Staff assignment</th>
+                          <th>Kiosk time</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr v-for="s in eventAssignmentsPast" :key="`past-${s.id}`">
+                          <td class="sbep-sessions-date">{{ formatSessionDateDisplay(s.sessionDate) }}</td>
+                          <td>{{ s.weekday }}</td>
+                          <td class="sbep-sessions-time">
+                            {{ wallHmToDisplay(formatHm(s.startTime)) }}–{{ wallHmToDisplay(formatHm(s.endTime)) }}
+                          </td>
+                          <td class="sbep-sessions-staff-cell">
+                            <template v-if="viewerCaps.canManageTeamSchedules && rosterProviderOptions.length">
+                              <div class="sbep-staff-compact">
+                                <div class="sbep-staff-chips">
+                                  <span
+                                    v-for="pid in sessionStaffDraft[s.id] || []"
+                                    :key="`p-${s.id}-${pid}`"
+                                    class="sbep-staff-chip"
+                                  >
+                                    {{ providerNameById(pid) }}
+                                    <button
+                                      type="button"
+                                      class="sbep-staff-chip-remove"
+                                      :disabled="sessionStaffSavingId === s.id"
+                                      title="Remove from this session"
+                                      @click="removeSessionStaff(s.id, pid)"
+                                    >
+                                      ×
+                                    </button>
+                                  </span>
+                                </div>
+                                <div class="sbep-staff-add-row">
+                                  <select
+                                    class="input sbep-staff-add-select"
+                                    :disabled="sessionStaffSavingId === s.id"
+                                    aria-label="Add staff to this session"
+                                    @change="addSessionStaffFromSelect(s.id, $event)"
+                                  >
+                                    <option value="">Add staff…</option>
+                                    <option
+                                      v-for="p in rosterProviderOptions"
+                                      :key="`ap-${s.id}-${p.id}`"
+                                      :value="p.id"
+                                      :disabled="(sessionStaffDraft[s.id] || []).includes(p.id)"
+                                    >
+                                      {{ p.firstName }} {{ p.lastName }}
+                                    </option>
+                                  </select>
+                                  <button
+                                    type="button"
+                                    class="btn btn-primary btn-sm sbep-session-staff-save"
+                                    :disabled="sessionStaffSavingId === s.id"
+                                    @click="saveSessionStaff(s.id)"
+                                  >
+                                    {{ sessionStaffSavingId === s.id ? 'Saving…' : 'Save' }}
+                                  </button>
+                                </div>
+                              </div>
+                            </template>
+                            <span v-else class="sbep-sessions-staff-read">{{ formatSessionAssignedStaff(s) }}</span>
+                          </td>
+                          <td class="sbep-kiosk-cell">
+                            <ul v-if="sessionKioskPunchLines(s.id).length" class="sbep-kiosk-cell-list">
+                              <li v-for="(ln, idx) in sessionKioskPunchLines(s.id)" :key="`pk-${s.id}-${idx}`">
+                                <span class="sbep-kiosk-name">{{ ln.name }}</span>
+                                <span v-if="ln.inAt" class="muted small">In {{ ln.inAt }}</span>
+                                <span v-if="ln.outAt" class="muted small"> · Out {{ ln.outAt }}</span>
+                                <span v-if="ln.payrollId" class="muted small"> · Payroll #{{ ln.payrollId }}</span>
+                              </li>
+                            </ul>
+                            <span v-else class="muted small">—</span>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </details>
+
+                <div v-if="orphanKioskPunchLines.length" class="sbep-orphan-punches">
+                  <p class="sbep-subh">Kiosk punches without a session</p>
+                  <p class="muted small">Clock in/out did not use a scheduled session row (general punch).</p>
+                  <ul class="sbep-kiosk-cell-list">
+                    <li v-for="(ln, idx) in orphanKioskPunchLines" :key="`orph-${idx}`">
+                      <span class="sbep-kiosk-name">{{ ln.name }}</span>
+                      <span v-if="ln.inAt" class="muted small">In {{ ln.inAt }}</span>
+                      <span v-if="ln.outAt" class="muted small"> · Out {{ ln.outAt }}</span>
+                      <span v-if="ln.payrollId" class="muted small"> · Payroll #{{ ln.payrollId }}</span>
+                    </li>
+                  </ul>
+                </div>
+              </template>
+            </SkillBuildersEventDashboardSection>
+
+            <SkillBuildersEventDashboardSection
+              v-if="viewerCaps.isAssignedProvider && agencyId"
+              v-show="railActive === 'my-work'"
+              rail-mode
+              section-id="my-work"
+              title="My work schedule"
+              :icon-url="sectionIconUrl('my-work')"
             >
-              <h2 class="sbep-card-title">Weekly meeting pattern</h2>
-              <ul class="sbep-list">
-                <li v-for="(m, i) in detail.meetings" :key="i">
-                  {{ m.weekday }} · {{ formatHm(m.startTime) }}–{{ formatHm(m.endTime) }}
-                </li>
-              </ul>
-            </section>
-
-            <section v-if="viewerCaps.isAssignedProvider && agencyId" class="sbep-portal-card sbep-span-2">
-              <h2 class="sbep-card-title">My work schedule</h2>
               <p class="muted small sbep-card-lead">Your Skill Builder availability, group meetings, and assigned program events.</p>
               <SkillBuildersWorkSchedulePanel
                 :agency-id="agencyId"
                 :highlight-event-id="eventId"
                 :program-session-summaries="sessionsForWorkSchedulePanel"
               />
-            </section>
+            </SkillBuildersEventDashboardSection>
 
-            <div v-if="viewerCaps.canManageTeamSchedules && agencyId && eventId" class="sbep-span-2">
-              <SkillBuildersEventTeamScheduleCard
-                :agency-id="agencyId"
-                :event-id="eventId"
-                :providers="detail.providers || []"
-                @updated="loadDetail"
-              />
-            </div>
-
-            <section class="sbep-portal-card">
-              <h2 class="sbep-card-title">Roster</h2>
-              <p class="muted">Providers ({{ detail.providers?.length || 0 }})</p>
-              <ul class="sbep-list">
-                <li v-for="p in detail.providers" :key="p.id">{{ p.firstName }} {{ p.lastName }}</li>
+            <SkillBuildersEventDashboardSection
+              v-if="viewerCaps.isAssignedProvider || viewerCaps.canManageTeamSchedules"
+              v-show="railActive === 'attendance'"
+              rail-mode
+              section-id="attendance"
+              title="Provider attendance"
+              :icon-url="sectionIconUrl('attendance')"
+            >
+              <p v-if="viewerCaps.isAssignedProvider" class="muted small sbep-card-lead">Your kiosk punches for this event.</p>
+              <p v-else class="muted small sbep-card-lead">Provider punches recorded for this event.</p>
+              <ul v-if="providerAttendance.length" class="sbep-att-list">
+                <li v-for="(p, idx) in providerAttendance" :key="`pa-${idx}`">
+                  {{ p.punchType }} · {{ formatPostTime(p.punchedAt) }}
+                  <span v-if="p.sessionId" class="muted"> · session #{{ p.sessionId }}</span>
+                </li>
               </ul>
-              <p class="muted">Clients ({{ detail.clients?.length || 0 }})</p>
-              <ul class="sbep-list">
-                <li v-for="c in detail.clients" :key="c.id">{{ c.initials || c.identifierCode || c.id }}</li>
-              </ul>
-            </section>
+              <p v-else class="muted">No punches recorded yet.</p>
+            </SkillBuildersEventDashboardSection>
 
-            <section v-if="detail.showKioskClockActions" class="sbep-portal-card sbep-span-2">
-              <h2 class="sbep-card-title">Kiosk / time</h2>
+            <SkillBuildersEventDashboardSection
+              v-if="detail.showKioskClockActions"
+              v-show="railActive === 'kiosk'"
+              rail-mode
+              section-id="kiosk"
+              title="Kiosk / time"
+              :icon-url="sectionIconUrl('kiosk')"
+            >
               <p class="muted sbep-card-lead">
                 Direct hours: <strong>{{ detail.event?.skillBuilderDirectHours ?? '—' }}</strong>
               </p>
@@ -226,40 +688,52 @@
                 </button>
               </div>
               <p v-if="clockMessage" class="muted sbep-clock-msg">{{ clockMessage }}</p>
-            </section>
+            </SkillBuildersEventDashboardSection>
 
-            <section class="sbep-portal-card sbep-span-2">
-              <h2 class="sbep-card-title">Event discussion</h2>
-              <p class="muted small sbep-card-lead">
-                Visible to program staff and assigned providers. School-portal–only accounts cannot post here.
-              </p>
-              <div v-if="postsLoading" class="muted">Loading…</div>
-              <ul v-else class="sbep-posts">
-                <li v-for="p in posts" :key="p.id" class="sbep-post">
-                  <div class="sbep-post-meta">
-                    {{ p.authorFirstName }} {{ p.authorLastName }} · {{ formatPostTime(p.createdAt) }}
-                  </div>
-                  <div class="sbep-post-body">{{ p.body }}</div>
-                </li>
-              </ul>
-              <template v-if="viewerCaps.canPostEventDiscussion">
-                <label class="sbep-label">Add comment</label>
-                <textarea v-model="newPostBody" class="input" rows="3" placeholder="Write a note…" />
+            <SkillBuildersEventDashboardSection
+              v-if="detail.event?.learningProgramClassId"
+              v-show="railActive === 'learning'"
+              rail-mode
+              section-id="learning"
+              title="Learning"
+              :icon-url="sectionIconUrl('learning')"
+              class="muted"
+            >
+              Linked learning class ID {{ detail.event.learningProgramClassId }} — open class features from Learning when wired in the admin UI.
+            </SkillBuildersEventDashboardSection>
+
+            <SkillBuildersEventDashboardSection
+              v-show="railActive === 'event-chat'"
+              rail-mode
+              section-id="event-chat"
+              title="Event chat"
+              :icon-url="sectionIconUrl('event-chat')"
+            >
+              <p class="muted small sbep-card-lead">Linked to your agency chat. Everyone with event access can post here.</p>
+              <div v-if="chatLoading" class="muted">Loading chat…</div>
+              <div v-else-if="chatError" class="error-box">{{ chatError }}</div>
+              <template v-else>
+                <ul class="sbep-chat-msgs">
+                  <li v-for="m in chatMessages" :key="m.id" class="sbep-chat-li">
+                    <div class="sbep-chat-meta">
+                      {{ m.sender_first_name }} {{ m.sender_last_name }} · {{ formatPostTime(m.created_at) }}
+                    </div>
+                    <div class="sbep-chat-body">{{ m.body }}</div>
+                  </li>
+                </ul>
+                <textarea v-model="chatDraft" class="input" rows="3" placeholder="Message the event group…" />
                 <button
                   type="button"
-                  class="btn btn-primary btn-sm sbep-post-btn"
-                  :disabled="!newPostBody.trim() || postSaving"
-                  @click="submitPost"
+                  class="btn btn-primary btn-sm sbep-chat-send"
+                  :disabled="!chatDraft.trim() || chatSending"
+                  @click="sendChat"
                 >
-                  {{ postSaving ? 'Posting…' : 'Post' }}
+                  {{ chatSending ? 'Sending…' : 'Send' }}
                 </button>
               </template>
-              <p v-else class="muted small">You can read updates here; posting is limited to program staff in this context.</p>
-            </section>
-
-            <section v-if="detail.event?.learningProgramClassId" class="sbep-portal-card muted sbep-span-2">
-              Linked learning class ID {{ detail.event.learningProgramClassId }} — open class features from Learning when wired in the admin UI.
-            </section>
+            </SkillBuildersEventDashboardSection>
+              </div>
+            </div>
           </div>
         </SkillBuildersEventPortalLayout>
         <SkillBuildersEventEditModal
@@ -267,32 +741,12 @@
           v-model="editEventModalOpen"
           :agency-id="agencyId"
           :event-id="eventId"
+          :portal-slug="String(route.params.organizationSlug || '')"
+          :can-edit-program-week-pattern="viewerCaps.canManageTeamSchedules"
           @saved="loadDetail"
         />
       </template>
     </div>
-    <aside class="sbep-chat">
-      <div class="sbep-chat-inner">
-        <h2 class="sbep-chat-title">Event chat</h2>
-        <p class="muted sbep-chat-hint">Linked to your agency chat. Everyone with event access can post here.</p>
-        <div v-if="chatLoading" class="muted">Loading chat…</div>
-        <div v-else-if="chatError" class="error-box">{{ chatError }}</div>
-        <template v-else>
-          <ul class="sbep-chat-msgs">
-            <li v-for="m in chatMessages" :key="m.id" class="sbep-chat-li">
-              <div class="sbep-chat-meta">
-                {{ m.sender_first_name }} {{ m.sender_last_name }} · {{ formatPostTime(m.created_at) }}
-              </div>
-              <div class="sbep-chat-body">{{ m.body }}</div>
-            </li>
-          </ul>
-          <textarea v-model="chatDraft" class="input" rows="3" placeholder="Message the event group…" />
-          <button type="button" class="btn btn-primary btn-sm sbep-chat-send" :disabled="!chatDraft.trim() || chatSending" @click="sendChat">
-            {{ chatSending ? 'Sending…' : 'Send' }}
-          </button>
-        </template>
-      </div>
-    </aside>
   </div>
 </template>
 
@@ -303,20 +757,23 @@ import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 import api from '../../services/api';
 import SkillBuildersEventPortalLayout from '../../components/skillBuilders/SkillBuildersEventPortalLayout.vue';
+import SkillBuildersEventDashboardSection from '../../components/skillBuilders/SkillBuildersEventDashboardSection.vue';
 import SkillBuildersWorkSchedulePanel from '../../components/availability/SkillBuildersWorkSchedulePanel.vue';
-import SkillBuildersEventTeamScheduleCard from '../../components/skillBuilders/SkillBuildersEventTeamScheduleCard.vue';
-import SkillBuildersEventProgramMeetingsCard from '../../components/skillBuilders/SkillBuildersEventProgramMeetingsCard.vue';
+import SkillBuildersClientManagementClinicalPanel from '../../components/skillBuilders/SkillBuildersClientManagementClinicalPanel.vue';
+import SkillBuildersSessionCurriculumMaterials from '../../components/skillBuilders/SkillBuildersSessionCurriculumMaterials.vue';
 import SkillBuildersEventEditModal from '../../components/skillBuilders/SkillBuildersEventEditModal.vue';
+import SkillBuildersEventProvidersGrid from '../../components/skillBuilders/SkillBuildersEventProvidersGrid.vue';
+import { useBrandingStore } from '../../store/branding';
 
 const route = useRoute();
 const router = useRouter();
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
+const brandingStore = useBrandingStore();
 
 const loading = ref(false);
 const error = ref('');
 const detail = ref(null);
-const meetingsForEditor = ref([]);
 const editEventModalOpen = ref(false);
 const sessions = ref([]);
 const sessionsLoading = ref(false);
@@ -328,6 +785,8 @@ const kioskClientId = ref(0);
 /** @type {Record<number, number[]>} */
 const sessionStaffDraft = reactive({});
 const sessionStaffSavingId = ref(null);
+const sessionStaffFlash = ref('');
+let sessionStaffFlashTimer = null;
 
 const eventId = computed(() => Number(route.params.eventId));
 const agencyId = computed(() => Number(agencyStore.currentAgency?.id || 0));
@@ -344,6 +803,22 @@ const dashboardHref = computed(() => {
   const s = organizationSlug.value;
   if (!s) return null;
   return `/${s}/dashboard`;
+});
+
+/** Link to guardian home (registration catalog lives there). */
+const guardianRegistrationHref = computed(() => {
+  const s = organizationSlug.value;
+  if (!s) return null;
+  return `/${s}/guardian`;
+});
+
+const registrationPayerLines = computed(() => {
+  const e = detail.value?.event;
+  if (!e?.registrationEligible) return [];
+  const parts = [];
+  if (e.medicaidEligible) parts.push('Medicaid');
+  if (e.cashEligible) parts.push('Cash / self-pay');
+  return parts;
 });
 
 const crumbProgramLabel = computed(() => detail.value?.programPortal?.name || '');
@@ -366,32 +841,265 @@ const viewerCaps = computed(() => {
   };
 });
 
+const showScheduleSection = computed(() => {
+  const d = detail.value;
+  if (!d) return false;
+  const cal = d.calendar;
+  const hasCal = !!(cal && (cal.googleCalendarUrl || cal.icsUrl));
+  return hasCal || !!d.skillsGroup;
+});
+
+const sectionQuery = computed(() => String(route.query.section || '').trim());
+
+/** No `?section=`, or `?section=home` → centered hub of cards; any other section → left rail + panel. */
+const dashHubMode = computed(() => {
+  const q = sectionQuery.value;
+  return !q || q === 'home';
+});
+
+const railActive = ref('');
+
+/** Uses My Dashboard / School Portal icon keys (agency overrides in branding). */
+function sectionIconUrl(sectionKey) {
+  if (sectionKey === 'providers') {
+    const school = brandingStore.getSchoolPortalCardIconUrl('providers');
+    return school || brandingStore.getDashboardCardIconUrl('staff');
+  }
+  const map = {
+    home: 'my',
+    schedule: 'my_schedule',
+    calendar: 'my_schedule',
+    clients: 'clients',
+    materials: 'documents',
+    'session-details': 'my_schedule',
+    'session-virtual': 'communications',
+    details: 'checklist',
+    'work-schedule': 'momentum_list',
+    'my-work': 'my_schedule',
+    attendance: 'payroll',
+    kiosk: 'payroll',
+    'event-chat': 'chats',
+    learning: 'training',
+    registrations: 'submit'
+  };
+  const id = map[sectionKey];
+  return id ? brandingStore.getDashboardCardIconUrl(id) : '';
+}
+
+const eventRailItems = computed(() => {
+  const d = detail.value;
+  if (!d) return [];
+  const v = viewerCaps.value;
+  const items = [];
+  const push = (id, label, shortLabel, iconKey, ok) => {
+    if (!ok) return;
+    items.push({
+      id,
+      label,
+      shortLabel: shortLabel || label,
+      iconUrl: sectionIconUrl(iconKey)
+    });
+  };
+
+  push('home', 'Home', 'Home', 'home', true);
+
+  const cal = d.calendar;
+  const hasCal = !!(cal && (cal.googleCalendarUrl || cal.icsUrl));
+  push('schedule', 'Schedule', 'Schedule', 'schedule', hasCal || !!d.skillsGroup);
+
+  const nProv = (d.providers || []).length;
+  push('providers', 'Providers', 'Providers', 'providers', nProv > 0);
+
+  const nCli = (d.clients || []).length;
+  push('clients', 'Client Management', 'Clients', 'clients', nCli > 0);
+
+  push('materials', 'Materials', 'Materials', 'materials', true);
+
+  if (d.event?.registrationEligible) {
+    push('registrations', 'Registrations', 'Registrations', 'registrations', true);
+  }
+
+  if (d.skillsGroup) {
+    push('work-schedule', 'Event Assignments', 'Assign', 'work-schedule', true);
+  }
+
+  if (v.isAssignedProvider && agencyId.value) {
+    push('my-work', 'My work schedule', 'My work', 'my-work', true);
+  }
+  if (v.isAssignedProvider || v.canManageTeamSchedules) {
+    push('attendance', 'Provider attendance', 'Attendance', 'attendance', true);
+  }
+  if (d.showKioskClockActions) {
+    push('kiosk', 'Kiosk / time', 'Kiosk', 'kiosk', true);
+  }
+
+  if (d.event?.learningProgramClassId) {
+    push('learning', 'Learning', 'Learning', 'learning', true);
+  }
+
+  push('event-chat', 'Event chat', 'Chat', 'event-chat', true);
+
+  return items;
+});
+
+function selectRailSection(id) {
+  router.replace({ query: { ...route.query, section: id } });
+}
+
+function openDashHub() {
+  const next = { ...route.query };
+  delete next.section;
+  router.replace({ query: next });
+}
+
+const legacyRailSection = {
+  calendar: 'schedule',
+  'session-details': 'schedule',
+  details: 'schedule',
+  'session-virtual': 'schedule',
+  'team-schedule': 'work-schedule',
+  discussion: 'event-chat'
+};
+
 watch(
-  () => detail.value?.meetings,
-  (m) => {
-    meetingsForEditor.value = Array.isArray(m) ? m.map((x) => ({ ...x })) : [];
+  () => [eventRailItems.value, sectionQuery.value],
+  () => {
+    const items = eventRailItems.value;
+    if (!items.length) return;
+    const q = sectionQuery.value;
+    const mapped = legacyRailSection[q];
+    if (mapped && mapped !== q) {
+      router.replace({ query: { ...route.query, section: mapped } });
+      return;
+    }
+    if (!q) {
+      railActive.value = '';
+      return;
+    }
+    if (q === 'home') {
+      railActive.value = 'home';
+      return;
+    }
+    if (items.some((i) => i.id === q)) {
+      railActive.value = q;
+      return;
+    }
+    const next = { ...route.query };
+    delete next.section;
+    router.replace({ query: next });
   },
-  { immediate: true, deep: true }
+  { immediate: true }
 );
 
-function onMeetingsSaved(m) {
-  meetingsForEditor.value = Array.isArray(m) ? m.map((x) => ({ ...x })) : [];
-  if (detail.value) detail.value.meetings = Array.isArray(m) ? [...m] : [];
-  loadSessions();
-}
+const canEditClientAttendance = computed(
+  () => viewerCaps.value.isAssignedProvider || viewerCaps.value.canManageTeamSchedules
+);
 
 function formatHm(t) {
   return String(t || '').slice(0, 5) || '—';
+}
+
+/** Combine session calendar date (YYYY-MM-DD) + time input value (HH:mm) → ISO UTC for API */
+function combineSessionDateAndWallTime(sessionDateYmd, hhmm) {
+  const ymd = String(sessionDateYmd || '').trim().slice(0, 10);
+  const wall = String(hhmm || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return null;
+  const m = wall.match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return null;
+  const h = parseInt(m[1], 10);
+  const mi = parseInt(m[2], 10);
+  const [y, mo, d] = ymd.split('-').map(Number);
+  if (![y, mo, d].every((n) => Number.isFinite(n))) return null;
+  const dt = new Date(y, mo - 1, d, h, mi, 0, 0);
+  if (!Number.isFinite(dt.getTime())) return null;
+  return dt.toISOString();
+}
+
+function syncClientAttTimesFromSelectedSession() {
+  const sid = clientAttSessionId.value;
+  const s = sessions.value.find((x) => Number(x.id) === Number(sid));
+  if (!s) {
+    clientAttTimeIn.value = '';
+    clientAttTimeOut.value = '';
+    return;
+  }
+  const tIn = formatHm(s.startTime);
+  const tOut = formatHm(s.endTime);
+  clientAttTimeIn.value = tIn && tIn !== '—' ? tIn : '';
+  clientAttTimeOut.value = tOut && tOut !== '—' ? tOut : '';
+}
+
+function formatSessionDateDisplay(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return '—';
+  const ymd = s.slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(ymd)) {
+    const [y, mo, da] = ymd.split('-').map(Number);
+    const d = new Date(y, mo - 1, da);
+    if (Number.isFinite(d.getTime())) {
+      return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+    return ymd;
+  }
+  const t = new Date(s);
+  if (Number.isFinite(t.getTime())) {
+    return t.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+  return s;
+}
+
+function formatDateOnly(d) {
+  if (d == null || d === '') return '—';
+  return formatSessionDateDisplay(d);
 }
 
 const SESSIONS_TABLE_LIMIT = 50;
 
 const sessionsTableRows = computed(() => sessions.value.slice(0, SESSIONS_TABLE_LIMIT));
 
+const eventAssignmentsUpcoming = computed(() => {
+  const today = ymdToday();
+  return sessions.value
+    .filter((s) => String(s.sessionDate || '').slice(0, 10) >= today)
+    .sort((a, b) => String(a.sessionDate || '').localeCompare(String(b.sessionDate || '')));
+});
+
+const eventAssignmentsPast = computed(() => {
+  const today = ymdToday();
+  return sessions.value
+    .filter((s) => String(s.sessionDate || '').slice(0, 10) < today)
+    .sort((a, b) => String(b.sessionDate || '').localeCompare(String(a.sessionDate || '')));
+});
+
 const rosterProviderOptions = computed(() => {
   const list = detail.value?.providers;
   return Array.isArray(list) ? list : [];
 });
+
+function providerNameById(pid) {
+  const p = rosterProviderOptions.value.find((x) => Number(x.id) === Number(pid));
+  return p ? `${p.firstName || ''} ${p.lastName || ''}`.trim() || `#${pid}` : `#${pid}`;
+}
+
+function addSessionStaffFromSelect(sessionId, ev) {
+  const el = ev?.target;
+  if (!el) return;
+  const vid = Number(el.value);
+  if (!Number.isFinite(vid) || vid <= 0) {
+    el.value = '';
+    return;
+  }
+  const cur = sessionStaffDraft[sessionId] ? [...sessionStaffDraft[sessionId]] : [];
+  if (!cur.includes(vid)) {
+    sessionStaffDraft[sessionId] = [...cur, vid];
+  }
+  el.value = '';
+}
+
+function removeSessionStaff(sessionId, pid) {
+  const cur = sessionStaffDraft[sessionId] || [];
+  sessionStaffDraft[sessionId] = cur.filter((x) => Number(x) !== Number(pid));
+}
 
 const kioskSessionChoices = computed(() => sessions.value.slice(0, 120));
 
@@ -410,11 +1118,6 @@ const sessionsForWorkSchedulePanel = computed(() => {
       assignedSummary: formatSessionAssignedStaff(s)
     }));
 });
-
-function formatSessionKioskLabel(s) {
-  if (!s) return '';
-  return `${s.sessionDate} · ${String(s.weekday || '').slice(0, 3)} ${formatHm(s.startTime)}–${formatHm(s.endTime)}`;
-}
 
 function formatSessionAssignedStaff(s) {
   const ap = s?.assignedProviders;
@@ -453,6 +1156,12 @@ async function saveSessionStaff(sessionId) {
       sessions.value[idx] = { ...sessions.value[idx], assignedProviders: next };
     }
     syncSessionStaffDraft();
+    sessionStaffFlash.value = 'Event assignments saved for this session.';
+    if (sessionStaffFlashTimer) window.clearTimeout(sessionStaffFlashTimer);
+    sessionStaffFlashTimer = window.setTimeout(() => {
+      sessionStaffFlash.value = '';
+      sessionStaffFlashTimer = null;
+    }, 5000);
   } catch (e) {
     window.alert(e.response?.data?.error?.message || e.message || 'Failed to save staff');
   } finally {
@@ -531,6 +1240,21 @@ function wallHmToDisplay(hm) {
   if (!Number.isFinite(h) || !Number.isFinite(mi)) return s;
   const d = new Date(2000, 0, 1, h, mi, 0);
   return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+}
+
+function formatDisplayTime(t) {
+  if (t == null || t === '') return '—';
+  return wallHmToDisplay(formatHm(String(t)));
+}
+
+/** Kiosk / attendance session dropdown: short local date + 12-hour wall times (no ISO / military). */
+function formatSessionKioskLabel(s) {
+  if (!s) return '';
+  const datePart = formatSessionDateDisplay(s.sessionDate);
+  const dayAbbr = String(s.weekday || '').slice(0, 3);
+  const st = wallHmToDisplay(formatHm(s.startTime));
+  const et = wallHmToDisplay(formatHm(s.endTime));
+  return `${datePart} · ${dayAbbr} ${st}–${et}`;
 }
 
 function formatWeekdayList(days) {
@@ -661,10 +1385,6 @@ function goBack() {
   if (dashboardHref.value) router.push(dashboardHref.value);
   else if (programEventsHref.value) router.push(programEventsHref.value);
 }
-const posts = ref([]);
-const postsLoading = ref(false);
-const newPostBody = ref('');
-const postSaving = ref(false);
 const clockBusy = ref(false);
 const clockMessage = ref('');
 
@@ -674,6 +1394,40 @@ const chatError = ref('');
 const chatMessages = ref([]);
 const chatDraft = ref('');
 const chatSending = ref(false);
+
+const providerAttendance = ref([]);
+const clientAttendance = ref([]);
+const clientAttSessionId = ref(0);
+/** Selected roster client ids for manual attendance (checkbox group) */
+const clientAttSelectedClientIds = ref([]);
+/** Wall times (HH:mm) combined with selected session’s sessionDate when saving */
+const clientAttTimeIn = ref('');
+const clientAttTimeOut = ref('');
+const clientAttSig = ref('');
+const clientAttSaving = ref(false);
+/** After roster first loads, avoid auto “select all” again if the user cleared selection */
+const clientAttDidInitSelection = ref(false);
+
+const clientAttSelectedCount = computed(() => clientAttSelectedClientIds.value.length);
+
+const joinNowTick = ref(0);
+if (typeof window !== 'undefined') {
+  window.setInterval(() => {
+    joinNowTick.value += 1;
+  }, 15000);
+}
+
+function sessionJoinVisible(s) {
+  void joinNowTick.value;
+  if (!s?.joinUrl) return false;
+  const mod = String(s.modality || '').toLowerCase();
+  if (mod !== 'virtual' && mod !== 'hybrid') return false;
+  const st = new Date(s.startsAt);
+  const en = new Date(s.endsAt);
+  if (!Number.isFinite(st.getTime()) || !Number.isFinite(en.getTime())) return false;
+  const t = Date.now();
+  return t >= st.getTime() - 10 * 60 * 1000 && t <= en.getTime();
+}
 
 function formatWhen(startsAt, endsAt) {
   const a = new Date(startsAt || 0);
@@ -693,6 +1447,97 @@ function formatPostTime(t) {
   } catch {
     return String(t || '');
   }
+}
+
+/** Pair clock_in / clock_out rows per user for Skill Builders kiosk punches. */
+function pairKioskPunchesByUser(punchList) {
+  const sorted = [...(punchList || [])].sort(
+    (a, b) => new Date(a.punchedAt).getTime() - new Date(b.punchedAt).getTime()
+  );
+  const byUser = new Map();
+  for (const p of sorted) {
+    const uid = Number(p.userId);
+    if (!byUser.has(uid)) byUser.set(uid, []);
+    byUser.get(uid).push(p);
+  }
+  const lines = [];
+  for (const [uid, pts] of byUser) {
+    const name = providerNameById(uid);
+    let openIn = null;
+    for (const p of pts) {
+      const t = String(p.punchType || '').toLowerCase();
+      if (t === 'clock_in') {
+        openIn = p;
+      } else if (t === 'clock_out') {
+        lines.push({
+          name,
+          inAt: openIn ? formatPostTime(openIn.punchedAt) : null,
+          outAt: formatPostTime(p.punchedAt),
+          payrollId: p.payrollTimeClaimId != null ? Number(p.payrollTimeClaimId) : null
+        });
+        openIn = null;
+      }
+    }
+    if (openIn) {
+      lines.push({
+        name,
+        inAt: formatPostTime(openIn.punchedAt),
+        outAt: null,
+        payrollId: null
+      });
+    }
+  }
+  return lines;
+}
+
+function sessionKioskPunchLines(sessionId) {
+  const sid = Number(sessionId);
+  const list = (providerAttendance.value || []).filter((p) => Number(p.sessionId) === sid);
+  return pairKioskPunchesByUser(list);
+}
+
+const orphanKioskPunchLines = computed(() => {
+  const list = (providerAttendance.value || []).filter((p) => !p.sessionId || Number(p.sessionId) === 0);
+  return pairKioskPunchesByUser(list);
+});
+
+function csvEscape(v) {
+  const s = String(v ?? '');
+  if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+
+function sessionDateLabelForPunch(sessionId) {
+  if (!sessionId) return '';
+  const s = sessions.value.find((x) => Number(x.id) === Number(sessionId));
+  return s?.sessionDate ? String(s.sessionDate).slice(0, 10) : '';
+}
+
+function exportEventClockCsv() {
+  const title = detail.value?.event?.title || 'Skill Builders event';
+  const rows = [
+    ['Event', 'UserId', 'Provider', 'PunchType', 'PunchedAt', 'SessionId', 'SessionDate', 'PayrollClaimId']
+  ];
+  for (const p of providerAttendance.value || []) {
+    rows.push([
+      title,
+      p.userId,
+      providerNameById(p.userId),
+      p.punchType,
+      p.punchedAt ? new Date(p.punchedAt).toISOString() : '',
+      p.sessionId ?? '',
+      sessionDateLabelForPunch(p.sessionId),
+      p.payrollTimeClaimId ?? ''
+    ]);
+  }
+  const csv = rows.map((r) => r.map(csvEscape).join(',')).join('\n');
+  const blob = new Blob([`\ufeff${csv}`], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `skill-builders-event-${eventId.value}-clock-punches.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 function absoluteUrl(path) {
@@ -734,6 +1579,142 @@ async function copyShareBlurb() {
   }, 4000);
 }
 
+async function loadAttendance() {
+  if (!agencyId.value || !eventId.value) return;
+  try {
+    const [pr, cr] = await Promise.all([
+      api.get(`/skill-builders/events/${eventId.value}/attendance/providers`, {
+        params: { agencyId: agencyId.value },
+        skipGlobalLoading: true
+      }),
+      api.get(`/skill-builders/events/${eventId.value}/attendance/clients`, {
+        params: { agencyId: agencyId.value },
+        skipGlobalLoading: true
+      })
+    ]);
+    providerAttendance.value = Array.isArray(pr.data?.punches) ? pr.data.punches : [];
+    clientAttendance.value = Array.isArray(cr.data?.attendance) ? cr.data.attendance : [];
+  } catch {
+    providerAttendance.value = [];
+    clientAttendance.value = [];
+  }
+}
+
+function clientLabelForRow(c) {
+  if (!c) return '';
+  return c.initials || c.identifierCode || `Client #${c.id}`;
+}
+
+/**
+ * Deep-link from the event roster: agency staff / coordinators go straight to Client management (Events / groups).
+ * Providers and others use the school portal client view when we know the school slug.
+ */
+function rosterClientLinkTo(c) {
+  const cid = Number(c?.id || 0);
+  if (!Number.isFinite(cid) || cid <= 0) return null;
+
+  const r = roleLower.value;
+  const staffLike = ['super_admin', 'admin', 'staff', 'support'].includes(r);
+  const coord =
+    authStore.user?.has_skill_builder_coordinator_access === true ||
+    authStore.user?.has_skill_builder_coordinator_access === 1 ||
+    String(authStore.user?.has_skill_builder_coordinator_access || '').toLowerCase() === 'true';
+  const preferAgencyClientUi = staffLike || coord;
+
+  const agencyPortal = String(detail.value?.agencyPortalSlug || '')
+    .trim()
+    .toLowerCase();
+  const schoolSlug = String(detail.value?.skillsGroup?.schoolSlug || '')
+    .trim()
+    .toLowerCase();
+  const cur = String(organizationSlug.value || '')
+    .trim()
+    .toLowerCase();
+
+  const adminClientsQuery = { clientId: String(cid), tab: 'skill-builders' };
+
+  if (preferAgencyClientUi) {
+    if (agencyPortal) {
+      return { path: `/${agencyPortal}/admin/clients`, query: adminClientsQuery };
+    }
+    return { path: '/admin/clients', query: adminClientsQuery };
+  }
+
+  if (schoolSlug) {
+    return { path: `/${schoolSlug}/dashboard`, query: { clientId: String(cid) } };
+  }
+  if (agencyPortal) {
+    return { path: `/${agencyPortal}/admin/clients`, query: { clientId: String(cid) } };
+  }
+  if (cur) {
+    return { path: `/${cur}/dashboard`, query: { clientId: String(cid) } };
+  }
+  return { path: '/admin/clients', query: { clientId: String(cid) } };
+}
+
+function attendanceRowsForClient(cid) {
+  return clientAttendance.value.filter((a) => Number(a.clientId) === Number(cid));
+}
+
+function selectAllClientsForAttendance() {
+  const list = detail.value?.clients;
+  if (!Array.isArray(list) || !list.length) return;
+  clientAttSelectedClientIds.value = list.map((c) => Number(c.id)).filter((id) => Number.isFinite(id) && id > 0);
+}
+
+function clearClientsForAttendance() {
+  clientAttSelectedClientIds.value = [];
+}
+
+async function saveClientAttendance() {
+  const clientIds = clientAttSelectedClientIds.value
+    .map((id) => Number(id))
+    .filter((id) => Number.isFinite(id) && id > 0);
+  if (!agencyId.value || !eventId.value || !clientAttSessionId.value || !clientIds.length) return;
+  clientAttSaving.value = true;
+  try {
+    const sess = sessions.value.find((x) => Number(x.id) === Number(clientAttSessionId.value));
+    const base = {
+      agencyId: agencyId.value,
+      manualEntry: true
+    };
+    if (sess?.sessionDate && clientAttTimeIn.value) {
+      const isoIn = combineSessionDateAndWallTime(sess.sessionDate, clientAttTimeIn.value);
+      if (isoIn) base.checkInAt = isoIn;
+    }
+    if (sess?.sessionDate && clientAttTimeOut.value) {
+      const isoOut = combineSessionDateAndWallTime(sess.sessionDate, clientAttTimeOut.value);
+      if (isoOut) base.checkOutAt = isoOut;
+    }
+    if (clientAttSig.value.trim()) base.signatureText = clientAttSig.value.trim();
+
+    const errors = [];
+    for (const clientId of clientIds) {
+      try {
+        await api.put(
+          `/skill-builders/events/${eventId.value}/sessions/${clientAttSessionId.value}/client-attendance`,
+          { ...base, clientId },
+          { skipGlobalLoading: true }
+        );
+      } catch (e) {
+        const msg = e.response?.data?.error?.message || e.message || 'Failed';
+        errors.push({ clientId, msg });
+      }
+    }
+    await loadAttendance();
+    if (errors.length) {
+      const detailMsg = errors.map((e) => `#${e.clientId}: ${e.msg}`).join('\n');
+      window.alert(
+        `Saved ${clientIds.length - errors.length} of ${clientIds.length}.\n\n` + detailMsg
+      );
+    }
+  } catch (e) {
+    window.alert(e.response?.data?.error?.message || e.message || 'Failed to save');
+  } finally {
+    clientAttSaving.value = false;
+  }
+}
+
 async function loadDetail() {
   if (!agencyId.value || !eventId.value) return;
   loading.value = true;
@@ -745,46 +1726,13 @@ async function loadDetail() {
     });
     detail.value = res.data;
     await loadSessions();
+    await loadAttendance();
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message || 'Failed to load';
     detail.value = null;
     sessions.value = [];
   } finally {
     loading.value = false;
-  }
-}
-
-async function loadPosts() {
-  if (!agencyId.value || !eventId.value) return;
-  postsLoading.value = true;
-  try {
-    const res = await api.get(`/skill-builders/events/${eventId.value}/posts`, {
-      params: { agencyId: agencyId.value },
-      skipGlobalLoading: true
-    });
-    posts.value = Array.isArray(res.data?.posts) ? res.data.posts : [];
-  } catch {
-    posts.value = [];
-  } finally {
-    postsLoading.value = false;
-  }
-}
-
-async function submitPost() {
-  if (!agencyId.value || !eventId.value || !newPostBody.value.trim()) return;
-  postSaving.value = true;
-  try {
-    await api.post(
-      `/skill-builders/events/${eventId.value}/posts`,
-      { agencyId: agencyId.value, body: newPostBody.value.trim() },
-      { skipGlobalLoading: true }
-    );
-    newPostBody.value = '';
-    await loadPosts();
-  } catch (e) {
-    error.value = e.response?.data?.error?.message || e.message || 'Post failed';
-  } finally {
-    postSaving.value = false;
   }
 }
 
@@ -797,7 +1745,8 @@ async function clockIn() {
     if (kioskSessionId.value) body.sessionId = kioskSessionId.value;
     if (kioskClientId.value) body.clientId = kioskClientId.value;
     await api.post(`/skill-builders/events/${eventId.value}/kiosk/clock-in`, body, { skipGlobalLoading: true });
-    clockMessage.value = 'Clocked in.';
+    clockMessage.value = 'Clocked in. Your punch is recorded for this event.';
+    await loadAttendance();
   } catch (e) {
     clockMessage.value = e.response?.data?.error?.message || e.message || 'Failed';
   } finally {
@@ -817,7 +1766,16 @@ async function clockOut() {
     );
     const d = res.data?.directHours;
     const ind = res.data?.indirectHours;
-    clockMessage.value = `Clocked out. Payroll claim ${res.data?.payrollTimeClaimId || ''} created (direct ${d}h, indirect ${ind}h).`;
+    const wh = res.data?.workedHours;
+    const claimId = res.data?.payrollTimeClaimId || '';
+    const parts = [
+      'Clocked out successfully.',
+      claimId ? `Time submitted to payroll (claim #${claimId}).` : 'Payroll claim pending.',
+      `Direct ${d ?? '—'}h · indirect ${ind ?? '—'}h`,
+      wh != null && wh !== '' ? ` · worked ${wh}h` : ''
+    ];
+    clockMessage.value = parts.filter(Boolean).join(' ');
+    await loadAttendance();
   } catch (e) {
     clockMessage.value = e.response?.data?.error?.message || e.message || 'Failed';
   } finally {
@@ -875,9 +1833,51 @@ watch(
   () => {
     kioskSessionId.value = 0;
     kioskClientId.value = 0;
+    clientAttSessionId.value = 0;
+    clientAttSelectedClientIds.value = [];
+    clientAttDidInitSelection.value = false;
+    clientAttTimeIn.value = '';
+    clientAttTimeOut.value = '';
+    clientAttSig.value = '';
     loadDetail();
-    loadPosts();
     ensureChatAndLoad();
+  },
+  { immediate: true }
+);
+
+watch(
+  sessions,
+  (list) => {
+    if (Array.isArray(list) && list.length && !clientAttSessionId.value) {
+      clientAttSessionId.value = list[0].id;
+    }
+  },
+  { immediate: true }
+);
+
+watch(
+  () => [clientAttSessionId.value, sessions.value],
+  () => {
+    syncClientAttTimesFromSelectedSession();
+  },
+  { immediate: true }
+);
+
+watch(
+  () => detail.value?.clients,
+  (list) => {
+    if (!Array.isArray(list) || !list.length) {
+      clientAttSelectedClientIds.value = [];
+      clientAttDidInitSelection.value = false;
+      return;
+    }
+    const validIds = list.map((c) => Number(c.id)).filter((id) => Number.isFinite(id) && id > 0);
+    const valid = new Set(validIds);
+    clientAttSelectedClientIds.value = clientAttSelectedClientIds.value.filter((id) => valid.has(Number(id)));
+    if (!clientAttDidInitSelection.value && clientAttSelectedClientIds.value.length === 0) {
+      clientAttSelectedClientIds.value = validIds.slice();
+      clientAttDidInitSelection.value = true;
+    }
   },
   { immediate: true }
 );
@@ -885,12 +1885,10 @@ watch(
 
 <style scoped>
 .sbep-wrap {
-  display: flex;
-  align-items: stretch;
   min-height: calc(100vh - 48px);
 }
 .sbep-main {
-  flex: 1;
+  width: 100%;
   min-width: 0;
 }
 .sbep-state {
@@ -898,21 +1896,246 @@ watch(
   margin: 0 auto;
   padding: 32px 16px;
 }
+.sbep-hub {
+  width: 100%;
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 8px 16px 32px;
+}
+.sbep-hub-tagline {
+  text-align: center;
+  margin: 0 0 16px;
+  max-width: 28rem;
+  margin-left: auto;
+  margin-right: auto;
+}
+.sbep-hub-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+  gap: 14px;
+  justify-content: center;
+}
+.sbep-hub-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+  padding: 18px 14px 16px;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  cursor: pointer;
+  font: inherit;
+  color: var(--text-primary, #0f172a);
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 0.12s ease;
+}
+.sbep-hub-card:hover {
+  border-color: rgba(15, 118, 110, 0.45);
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.08);
+  transform: translateY(-2px);
+}
+.sbep-hub-card:focus-visible {
+  outline: 2px solid var(--primary, #0f766e);
+  outline-offset: 2px;
+}
+.sbep-hub-ico-wrap {
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  background: rgba(15, 118, 110, 0.08);
+  border: 1px solid var(--border, #e2e8f0);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.sbep-hub-ico {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+}
+.sbep-hub-card-title {
+  font-weight: 800;
+  font-size: 0.88rem;
+  line-height: 1.25;
+  color: var(--primary, #0f766e);
+}
+.sbep-hub-card-hint {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-secondary, #64748b);
+}
+.sbep-rail-column {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+.sbep-hub-back {
+  border: 1px solid var(--border, #e2e8f0);
+  background: #fff;
+  border-radius: 999px;
+  padding: 8px 12px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--primary, #0f766e);
+  cursor: pointer;
+  width: 100%;
+  max-width: 104px;
+  line-height: 1.2;
+  transition: background 0.15s ease;
+}
+.sbep-hub-back:hover {
+  background: #f8fafc;
+}
+.sbep-hub-back-arr {
+  margin-right: 4px;
+}
+.sbep-home-meta {
+  margin: 0 0 12px;
+  padding-left: 1.1rem;
+}
+.sbep-home-links {
+  margin-top: 12px;
+}
+
+.sbep-dash-layout {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  width: 100%;
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 0 2px 24px;
+}
+.sbep-rail {
+  flex: 0 0 88px;
+  position: sticky;
+  top: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 4px;
+  border-radius: 16px;
+  background: rgba(15, 118, 110, 0.08);
+  border: 1px solid var(--border, #e2e8f0);
+}
+.sbep-rail-item {
+  border: none;
+  background: transparent;
+  padding: 0;
+  border-radius: 10px;
+  cursor: pointer;
+  display: grid;
+  gap: 4px;
+  place-items: center;
+  width: 100%;
+  color: var(--text-secondary, #64748b);
+  transition: color 0.15s ease, transform 0.12s ease;
+}
+.sbep-rail-item:hover {
+  color: var(--primary, #0f766e);
+  transform: translateY(-1px);
+}
+.sbep-rail-item.active {
+  color: var(--primary, #0f766e);
+  transform: none;
+}
+.sbep-rail-ico-wrap {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  background: #fff;
+  border: 1px solid var(--border, #e2e8f0);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.sbep-rail-item.active .sbep-rail-ico-wrap {
+  border-color: rgba(15, 118, 110, 0.45);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+}
+.sbep-rail-ico {
+  width: 30px;
+  height: 30px;
+  object-fit: contain;
+}
+.sbep-rail-lbl {
+  font-size: 0.65rem;
+  font-weight: 700;
+  line-height: 1.15;
+  text-align: center;
+  max-width: 84px;
+  padding: 0 2px;
+}
+.sbep-rail-content {
+  flex: 1;
+  min-width: 0;
+}
 .sbep-portal-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 0 2px 24px;
 }
-@media (max-width: 860px) {
-  .sbep-portal-grid {
+.sbep-portal-grid.sbep-dash {
+  max-width: none;
+  margin: 0;
+  padding: 0;
+}
+@media (min-width: 1100px) {
+  .sbep-portal-grid.sbep-dash {
+    max-width: none;
+  }
+}
+@media (max-width: 560px) {
+  .sbep-hub-grid {
     grid-template-columns: 1fr;
   }
-  .sbep-span-2 {
-    grid-column: auto;
+  .sbep-dash-layout {
+    flex-direction: column;
+  }
+  .sbep-rail-column {
+    flex-direction: row;
+    flex-wrap: wrap;
+    width: 100%;
+    justify-content: flex-start;
+    align-items: flex-start;
+  }
+  .sbep-hub-back {
+    max-width: none;
+    width: auto;
+  }
+  .sbep-rail {
+    position: static;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    width: 100%;
+    justify-content: flex-start;
+    gap: 8px;
+    padding: 8px;
+  }
+  .sbep-rail-item {
+    flex: 0 0 auto;
+    min-width: 64px;
+  }
+  .sbep-rail-lbl {
+    font-size: 0.6rem;
+    max-width: 72px;
   }
 }
 .sbep-span-2 {
-  grid-column: span 2;
+  grid-column: 1 / -1;
 }
 .sbep-portal-card {
   padding: 18px;
@@ -958,9 +2181,16 @@ watch(
 .sbep-sessions-table th,
 .sbep-sessions-table td {
   text-align: left;
-  padding: 8px 10px;
+  padding: 6px 8px;
   border-bottom: 1px solid var(--border, #e2e8f0);
-  vertical-align: top;
+  vertical-align: middle;
+}
+.sbep-sessions-date {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.sbep-sessions-time {
+  white-space: nowrap;
 }
 .sbep-sessions-table th {
   font-weight: 700;
@@ -970,18 +2200,77 @@ watch(
   letter-spacing: 0.02em;
 }
 .sbep-sessions-staff-cell {
-  min-width: 200px;
+  min-width: 180px;
 }
-.sbep-session-staff-ms {
-  display: block;
-  width: 100%;
-  max-width: 280px;
-  min-height: 72px;
-  margin-bottom: 6px;
+.sbep-staff-compact {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 420px;
+}
+.sbep-staff-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+.sbep-staff-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px 2px 8px;
+  font-size: 0.8rem;
+  line-height: 1.25;
+  background: #f0fdfa;
+  border: 1px solid rgba(15, 118, 110, 0.35);
+  border-radius: 999px;
+  color: var(--primary, #0f766e);
+}
+.sbep-staff-chip-remove {
+  border: none;
+  background: transparent;
+  color: var(--text-secondary, #64748b);
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0 2px;
+}
+.sbep-staff-chip-remove:hover:not(:disabled) {
+  color: #b91c1c;
+}
+.sbep-staff-add-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.sbep-staff-add-select {
+  flex: 1;
+  min-width: 140px;
+  max-width: 220px;
   font-size: 0.82rem;
+  padding: 4px 8px;
 }
 .sbep-session-staff-save {
-  display: inline-block;
+  flex-shrink: 0;
+}
+.sbep-roster-cols {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+@media (max-width: 560px) {
+  .sbep-roster-cols {
+    grid-template-columns: 1fr;
+  }
+}
+.sbep-roster-sub {
+  margin: 0 0 6px;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+.sbep-roster-list {
+  margin-top: 0;
 }
 .sbep-sessions-staff-read {
   font-size: 0.86rem;
@@ -1025,33 +2314,11 @@ watch(
 .sbep-copy-hint {
   margin: 10px 0 0;
 }
-.sbep-chat {
-  width: 360px;
-  max-width: 40vw;
-  border-left: 1px solid var(--border, #e2e8f0);
-  background: #f8fafc;
-  position: sticky;
-  top: 0;
-  align-self: flex-start;
-  max-height: 100vh;
-  overflow-y: auto;
-}
-.sbep-chat-inner {
-  padding: 16px;
-}
-.sbep-chat-title {
-  margin: 0 0 8px;
-  font-size: 1.1rem;
-}
-.sbep-chat-hint {
-  font-size: 0.8rem;
-  margin: 0 0 12px;
-}
 .sbep-chat-msgs {
   list-style: none;
   margin: 0 0 12px;
   padding: 0;
-  max-height: 48vh;
+  max-height: min(40vh, 320px);
   overflow-y: auto;
 }
 .sbep-chat-li {
@@ -1069,19 +2336,6 @@ watch(
 }
 .sbep-chat-send {
   margin-top: 8px;
-}
-@media (max-width: 900px) {
-  .sbep-wrap {
-    flex-direction: column;
-  }
-  .sbep-chat {
-    width: 100%;
-    max-width: none;
-    border-left: none;
-    border-top: 1px solid var(--border, #e2e8f0);
-    position: relative;
-    max-height: none;
-  }
 }
 .sbep-list {
   margin: 8px 0 16px;
@@ -1109,6 +2363,133 @@ watch(
   font-size: 0.85rem;
   margin-bottom: 6px;
 }
+.sbep-join-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.sbep-join-li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border, #e2e8f0);
+  font-size: 0.9rem;
+}
+.sbep-att-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 0.88rem;
+}
+.sbep-att-list li {
+  padding: 6px 0;
+  border-bottom: 1px solid #f1f5f9;
+}
+.sbep-client-li {
+  margin-bottom: 10px;
+}
+.sbep-client-att-sub {
+  list-style: disc;
+  margin: 6px 0 0 1rem;
+  padding: 0;
+}
+.sbep-manual-att {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border, #e2e8f0);
+}
+.sbep-manual-att-times-note {
+  margin: 0 0 10px;
+  line-height: 1.4;
+}
+.sbep-client-att-picker {
+  margin-bottom: 12px;
+}
+.sbep-client-att-picker-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.sbep-label-inline {
+  margin: 0;
+}
+.sbep-client-att-picker-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.sbep-client-att-checkboxes {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 10px;
+  background: #fafafa;
+}
+.sbep-client-att-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+  font-size: 0.88rem;
+  line-height: 1.35;
+  margin: 0;
+}
+.sbep-client-att-row input {
+  margin-top: 3px;
+  flex-shrink: 0;
+}
+.sbep-roster-client-link {
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
+}
+.sbep-roster-client-link:hover,
+.sbep-roster-client-link:focus-visible {
+  text-decoration: none;
+  color: inherit;
+  opacity: 0.88;
+}
+.sbep-sched-block {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border, #e2e8f0);
+}
+.sbep-sched-block:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+.sbep-client-mgmt-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 20px;
+  margin-top: 16px;
+  align-items: start;
+}
+@media (min-width: 900px) {
+  .sbep-client-mgmt-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+}
+.sbep-client-mgmt-col {
+  min-width: 0;
+}
+.sbep-subh {
+  margin: 0 0 10px;
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--text-secondary, #64748b);
+}
 .muted {
   color: var(--text-secondary, #64748b);
 }
@@ -1117,5 +2498,66 @@ watch(
   padding: 12px;
   background: #fef2f2;
   border-radius: 8px;
+}
+.sbep-assign-export {
+  margin-bottom: 10px;
+}
+.sbep-flash-ok {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #ecfdf5;
+  border: 1px solid rgba(15, 118, 110, 0.35);
+  color: #0f766e;
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+.sbep-assign-past {
+  margin-top: 18px;
+  padding: 12px 14px;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 12px;
+  background: #f8fafc;
+}
+.sbep-assign-past-summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: var(--primary, #0f766e);
+  list-style: none;
+}
+.sbep-assign-past-summary::-webkit-details-marker {
+  display: none;
+}
+.sbep-assign-past[open] .sbep-assign-past-summary {
+  margin-bottom: 12px;
+}
+.sbep-assign-past-table {
+  margin-top: 8px;
+}
+.sbep-kiosk-cell {
+  min-width: 160px;
+  max-width: 280px;
+  font-size: 0.82rem;
+  vertical-align: top;
+}
+.sbep-kiosk-cell-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.sbep-kiosk-cell-list li + li {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--border, #e2e8f0);
+}
+.sbep-kiosk-name {
+  font-weight: 600;
+  display: block;
+  margin-bottom: 2px;
+}
+.sbep-orphan-punches {
+  margin-top: 20px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--border, #e2e8f0);
 }
 </style>

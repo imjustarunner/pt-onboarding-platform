@@ -20,7 +20,19 @@ import {
   quickEnrollClientToSkillBuilderEvent,
   listSkillBuildersEventsDirectory,
   getSkillBuilderPortalCompanyEventForEdit,
-  putSkillBuilderPortalCompanyEventForEdit
+  putSkillBuilderPortalCompanyEventForEdit,
+  patchSkillBuilderEventSession,
+  listSkillBuilderEventProviderAttendance,
+  listSkillBuilderEventClientAttendance,
+  putSkillBuilderClientSessionAttendance,
+  postSkillBuilderSessionCurriculum,
+  getSkillBuilderSessionCurriculumFile,
+  deleteSkillBuilderSessionCurriculum,
+  listSkillBuilderSessionClinicalNotes,
+  getSkillBuilderSessionClinicalNote,
+  putSkillBuilderSessionClinicalNoteManual,
+  postSkillBuilderSessionClinicalNoteGenerate,
+  deleteSkillBuilderSessionClinicalNotes
 } from '../controllers/skillBuildersProviderHub.controller.js';
 import {
   listMasterSkillBuilderClients,
@@ -61,7 +73,22 @@ router.post('/events/:eventId/clients/:clientId/confirm-active', confirmClientAc
 router.get('/events/:eventId/company-event-edit', getSkillBuilderPortalCompanyEventForEdit);
 router.put('/events/:eventId/company-event-edit', putSkillBuilderPortalCompanyEventForEdit);
 router.get('/events/:eventId/sessions', listSkillBuilderEventSessions);
+router.patch('/events/:eventId/sessions/:sessionId', patchSkillBuilderEventSession);
+router.post('/events/:eventId/sessions/:sessionId/curriculum', ...postSkillBuilderSessionCurriculum);
+router.get('/events/:eventId/sessions/:sessionId/curriculum', getSkillBuilderSessionCurriculumFile);
+router.delete('/events/:eventId/sessions/:sessionId/curriculum', deleteSkillBuilderSessionCurriculum);
+router.get('/events/:eventId/sessions/:sessionId/clinical-notes', listSkillBuilderSessionClinicalNotes);
+router.get('/events/:eventId/sessions/:sessionId/clinical-notes/clients/:clientId', getSkillBuilderSessionClinicalNote);
+router.put('/events/:eventId/sessions/:sessionId/clinical-notes/clients/:clientId', putSkillBuilderSessionClinicalNoteManual);
+router.post(
+  '/events/:eventId/sessions/:sessionId/clinical-notes/clients/:clientId/generate',
+  postSkillBuilderSessionClinicalNoteGenerate
+);
+router.delete('/events/:eventId/sessions/:sessionId/clinical-notes', deleteSkillBuilderSessionClinicalNotes);
 router.put('/events/:eventId/sessions/:sessionId/providers', putSkillBuilderEventSessionProviders);
+router.put('/events/:eventId/sessions/:sessionId/client-attendance', putSkillBuilderClientSessionAttendance);
+router.get('/events/:eventId/attendance/providers', listSkillBuilderEventProviderAttendance);
+router.get('/events/:eventId/attendance/clients', listSkillBuilderEventClientAttendance);
 router.get('/events/:eventId/detail', getSkillBuilderEventDetail);
 router.get('/events/:eventId/providers/:providerUserId/work-schedule', getSkillBuilderEventProviderWorkSchedule);
 router.put('/events/:eventId/providers/:providerUserId/work-schedule', putSkillBuilderEventProviderWorkSchedule);

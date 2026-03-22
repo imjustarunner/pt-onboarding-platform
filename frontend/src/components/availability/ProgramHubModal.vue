@@ -100,7 +100,19 @@
                 <li v-for="ev in programEvents" :key="ev.id" class="pch-event-item">
                   <button type="button" class="pch-event-open" @click="goEventPortal(ev.id)">
                     <div class="pch-event-title">{{ ev.title }}</div>
-                    <div class="pch-muted">{{ formatEventWhen(ev) }}</div>
+                    <div class="pch-muted pch-event-dates">{{ formatEventDateRange(ev) }}</div>
+                    <p
+                      v-if="!ev.skillsGroupStartDate && !ev.skillsGroupEndDate && (ev.startsAt || ev.endsAt)"
+                      class="pch-muted pch-event-hint"
+                    >
+                      Date range not set on the skills group.
+                    </p>
+                    <ul v-if="ev.meetings?.length" class="pch-event-meet-list">
+                      <li v-for="(m, i) in ev.meetings" :key="i">
+                        {{ m.weekday }}
+                        {{ wallHmToDisplay(formatHm(m.startTime)) }}–{{ wallHmToDisplay(formatHm(m.endTime)) }}
+                      </li>
+                    </ul>
                     <div v-if="ev.description" class="pch-event-desc">{{ ev.description }}</div>
                     <span class="pch-cta">Event portal →</span>
                   </button>
@@ -113,7 +125,7 @@
                 <li v-for="ev in assignedEvents" :key="`a-${ev.id}`" class="pch-event-item">
                   <button type="button" class="pch-event-open" @click="goEventPortal(ev.id)">
                     <div class="pch-event-title">{{ ev.title }}</div>
-                    <div class="pch-muted">{{ formatEventWhen(ev) }} · {{ ev.schoolName }}</div>
+                    <div class="pch-muted pch-event-dates">{{ formatEventDateRange(ev) }} · {{ ev.schoolName }}</div>
                     <span class="pch-cta">Event portal →</span>
                   </button>
                 </li>
@@ -124,7 +136,7 @@
               <ul v-if="upcomingEvents.length" class="pch-event-list">
                 <li v-for="ev in upcomingEvents" :key="`u-${ev.id}`" class="pch-event-item">
                   <div class="pch-event-title">{{ ev.title }}</div>
-                  <div class="pch-muted">{{ formatEventWhen(ev) }} · {{ ev.schoolName }}</div>
+                  <div class="pch-muted pch-event-dates">{{ formatEventDateRange(ev) }} · {{ ev.schoolName }}</div>
                   <div class="pch-row-actions">
                     <button type="button" class="btn btn-secondary btn-sm" @click="goEventPortal(ev.id)">Details</button>
                     <button
@@ -253,17 +265,57 @@ function openSection(id) {
   activeSection.value = id;
 }
 
-const formatEventWhen = (ev) => {
-  const a = new Date(ev?.startsAt || 0);
-  const b = new Date(ev?.endsAt || 0);
-  if (!Number.isFinite(a.getTime())) return '';
-  const opt = { dateStyle: 'medium', timeStyle: 'short' };
-  try {
-    return `${a.toLocaleString(undefined, opt)} – ${Number.isFinite(b.getTime()) ? b.toLocaleString(undefined, opt) : ''}`;
-  } catch {
-    return String(ev.startsAt || '');
+function formatHm(t) {
+  return String(t || '').slice(0, 5) || '—';
+}
+
+function wallHmToDisplay(hm) {
+  const s = String(hm || '').slice(0, 5);
+  const m = s.match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return s === '—' ? '' : s;
+  const h = parseInt(m[1], 10);
+  const mi = parseInt(m[2], 10);
+  if (!Number.isFinite(h) || !Number.isFinite(mi)) return s;
+  const d = new Date(2000, 0, 1, h, mi, 0);
+  return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+}
+
+function parseYmdLocal(raw) {
+  const t = String(raw || '').trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(t)) return null;
+  const [y, mo, da] = t.split('-').map(Number);
+  const d = new Date(y, mo - 1, da);
+  return Number.isFinite(d.getTime()) ? d : null;
+}
+
+/** Date-only range for program hub cards (skills group dates preferred). */
+function formatEventDateRange(ev) {
+  const gs = ev?.skillsGroupStartDate;
+  const ge = ev?.skillsGroupEndDate;
+  if (gs && ge) {
+    const a = parseYmdLocal(gs);
+    const b = parseYmdLocal(ge);
+    if (a && b) {
+      const opt = { month: 'short', day: 'numeric', year: 'numeric' };
+      return `${a.toLocaleDateString(undefined, opt)} – ${b.toLocaleDateString(undefined, opt)}`;
+    }
   }
-};
+  const st = ev?.startsAt;
+  const en = ev?.endsAt;
+  const a = st ? new Date(st) : null;
+  const b = en ? new Date(en) : null;
+  if (!a || !Number.isFinite(a.getTime())) return '';
+  const dateOpt = { month: 'short', day: 'numeric', year: 'numeric' };
+  try {
+    const left = a.toLocaleDateString(undefined, dateOpt);
+    if (b && Number.isFinite(b.getTime())) {
+      return `${left} – ${b.toLocaleDateString(undefined, dateOpt)}`;
+    }
+    return left;
+  } catch {
+    return String(st || '');
+  }
+}
 
 function orgSlug() {
   return (
@@ -659,12 +711,12 @@ watch(
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 6px;
 }
 .pch-event-item {
   padding: 0;
   border: 1px solid var(--border, #e2e8f0);
-  border-radius: 12px;
+  border-radius: 8px;
   background: #f8fafc;
   overflow: hidden;
 }
@@ -672,7 +724,7 @@ watch(
   display: block;
   width: 100%;
   text-align: left;
-  padding: 12px 14px;
+  padding: 8px 10px;
   border: none;
   background: transparent;
   cursor: pointer;
@@ -683,18 +735,45 @@ watch(
 }
 .pch-event-title {
   font-weight: 600;
-  margin-bottom: 4px;
+  font-size: 0.9rem;
+  margin-bottom: 2px;
+  line-height: 1.25;
+}
+.pch-event-dates {
+  font-size: 0.78rem;
+  line-height: 1.3;
+}
+.pch-event-hint {
+  margin: 4px 0 0;
+  font-size: 0.72rem;
+  line-height: 1.3;
+}
+.pch-event-meet-list {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  color: var(--text-secondary, #64748b);
+}
+.pch-event-meet-list li {
+  padding: 0;
 }
 .pch-event-desc {
-  margin-top: 8px;
-  font-size: 0.875rem;
+  margin-top: 4px;
+  font-size: 0.78rem;
   color: var(--text-secondary, #64748b);
   white-space: pre-wrap;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 .pch-cta {
   display: inline-block;
-  margin-top: 8px;
-  font-size: 0.8rem;
+  margin-top: 4px;
+  font-size: 0.72rem;
   color: var(--primary, #15803d);
   font-weight: 600;
 }

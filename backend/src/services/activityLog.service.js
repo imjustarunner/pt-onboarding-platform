@@ -206,6 +206,16 @@ class ActivityLogService {
           sqlMessage: err.sqlMessage,
           stack: err.stack
         });
+        if (
+          Number(err?.errno) === 1265 &&
+          String(err?.sqlMessage || err?.message || '').includes('action_type')
+        ) {
+          console.error(
+            '[ActivityLogService] user_activity_log.action_type rejected this value (ENUM out of date). ' +
+              'Apply migration 590_user_activity_log_expand_action_types.sql on the database this server uses ' +
+              '(from backend: npm run migrate-one -- --migration=590).'
+          );
+        }
       }
     })().catch(err => {
       // Catch any unhandled errors in the async IIFE

@@ -5,6 +5,7 @@ import {
   getGuardianPortalOverview,
   listGuardianSkillBuilderEvents,
   getGuardianSkillBuilderEventDetail,
+  getGuardianSkillBuilderSessionCurriculum,
   listGuardianSkillBuilderEventPosts,
   ensureGuardianSkillBuilderEventChatThread,
   listGuardianDependentsForAgency,
@@ -30,6 +31,7 @@ router.get('/clients', listMyGuardianClients);
 router.get('/overview', getGuardianPortalOverview);
 router.get('/skill-builders/events', listGuardianSkillBuilderEvents);
 router.get('/skill-builders/events/:eventId/detail', getGuardianSkillBuilderEventDetail);
+router.get('/skill-builders/events/:eventId/sessions/:sessionId/curriculum', getGuardianSkillBuilderSessionCurriculum);
 router.get('/skill-builders/events/:eventId/posts', listGuardianSkillBuilderEventPosts);
 router.get('/skill-builders/events/:eventId/chat-thread', ensureGuardianSkillBuilderEventChatThread);
 

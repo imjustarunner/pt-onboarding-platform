@@ -153,16 +153,30 @@
                   >
                     <span class="nav-dropdown-label">Directory</span> <span class="brand-caret">▾</span>
                   </button>
-                  <div v-if="directoryMenuOpen" class="nav-dropdown-menu">
+                  <div v-if="directoryMenuOpen" class="nav-dropdown-menu nav-dropdown-menu-wide">
                     <router-link :to="orgTo('/operations-dashboard')" v-if="(user?.role === 'super_admin' || isAdmin || user?.role === 'provider_plus' || user?.role === 'clinical_practice_assistant')" >{{ isAffiliationContext ? 'Team Lead Dashboards' : 'Operations Dashboard' }}</router-link>
-                    <router-link v-if="canSeeScheduleBuildingsDirectoryNav" :to="orgTo('/schedule')">Schedule Hub</router-link>
-                    <router-link v-if="canSeeScheduleBuildingsDirectoryNav" :to="orgTo('/buildings/schedule')">Buildings schedule</router-link>
-                    <router-link v-if="canSeeScheduleBuildingsDirectoryNav" :to="orgTo('/buildings')">Buildings &amp; offices</router-link>
+                    <div v-if="canSeeScheduleBuildingsDirectoryNav" class="nav-dropdown-group">
+                      <div class="nav-dropdown-group-label">Schedules</div>
+                      <div class="nav-dropdown-group-items">
+                        <router-link :to="orgTo('/schedule')">Schedule Hub</router-link>
+                        <router-link :to="orgTo('/buildings/schedule')">Buildings schedule</router-link>
+                        <router-link :to="orgTo('/buildings')">Buildings &amp; offices</router-link>
+                      </div>
+                    </div>
+                    <div v-if="canSeeSkillBuildersAvailabilityNav && !isAffiliationContext" class="nav-dropdown-group">
+                      <div class="nav-dropdown-group-label">Skill Builders</div>
+                      <div class="nav-dropdown-group-items">
+                        <router-link :to="orgTo('/admin/skill-builders-availability')">Availability &amp; calendar</router-link>
+                        <router-link
+                          v-if="canOpenSkillBuildersProgramsFromNav"
+                          :to="skillBuildersProgramsDashboardTo"
+                        >Programs &amp; events</router-link>
+                      </div>
+                    </div>
                     <router-link :to="orgTo('/admin/schools/overview?orgType=school')" v-if="(user?.role === 'super_admin' || isAdmin) && !isAffiliationContext" >School Overview</router-link>
                     <router-link :to="orgTo('/admin/schools/overview?orgType=program')" v-if="(user?.role === 'super_admin' || isAdmin) && !isAffiliationContext" >Program Overview</router-link>
                     <router-link :to="orgTo('/admin/school-portals')" v-if="(user?.role === 'super_admin' || isAdmin) && !isAffiliationContext" >Show All School Portals</router-link>
                     <router-link :to="orgTo('/admin/find-providers')" v-if="(user?.role === 'super_admin' || isAdmin) && !isAffiliationContext" >Provider Booking Interface</router-link>
-                    <router-link :to="orgTo('/admin/skill-builders-availability')" v-if="canSeeSkillBuildersAvailabilityDirectoryNav && !isAffiliationContext" >Event Management</router-link>
                     <router-link :to="orgTo('/admin/provider-availability')" v-if="(user?.role === 'super_admin' || isAdmin || user?.role === 'staff' || user?.role === 'provider_plus') && !isAffiliationContext" >Provider Management</router-link>
                     <router-link :to="orgTo('/admin/school-clients')" v-if="(user?.role === 'super_admin' || isAdmin || user?.role === 'staff') && !isAffiliationContext">
                       <span>School Clients</span>
@@ -464,24 +478,26 @@
             <template v-if="canSeePortalNav && canSeeFullPortalNav">
               <router-link :to="orgTo('/admin')" v-if="isTrueAdmin" @click="closeMobileMenu" class="mobile-nav-link">Admin Dashboard</router-link>
               <router-link :to="orgTo('/operations-dashboard')" v-if="showOperationsDashboardLink && user?.role !== 'provider_plus'" @click="closeMobileMenu" class="mobile-nav-link">{{ isAffiliationContext ? 'Team Lead Dashboards' : 'Operations Dashboard' }}</router-link>
-              <router-link
-                v-if="canSeeScheduleBuildingsDirectoryNav"
-                :to="orgTo('/schedule')"
-                @click="closeMobileMenu"
-                class="mobile-nav-link"
-              >Schedule Hub</router-link>
-              <router-link
-                v-if="canSeeScheduleBuildingsDirectoryNav"
-                :to="orgTo('/buildings/schedule')"
-                @click="closeMobileMenu"
-                class="mobile-nav-link"
-              >Buildings schedule</router-link>
-              <router-link
-                v-if="canSeeScheduleBuildingsDirectoryNav"
-                :to="orgTo('/buildings')"
-                @click="closeMobileMenu"
-                class="mobile-nav-link"
-              >Buildings &amp; offices</router-link>
+              <div v-if="canSeeScheduleBuildingsDirectoryNav" class="mobile-nav-group">
+                <div class="mobile-nav-group-label">Schedules</div>
+                <router-link :to="orgTo('/schedule')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Schedule Hub</router-link>
+                <router-link :to="orgTo('/buildings/schedule')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Buildings schedule</router-link>
+                <router-link :to="orgTo('/buildings')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Buildings &amp; offices</router-link>
+              </div>
+              <div v-if="canSeeSkillBuildersAvailabilityNav && !isAffiliationContext" class="mobile-nav-group">
+                <div class="mobile-nav-group-label">Skill Builders</div>
+                <router-link
+                  :to="orgTo('/admin/skill-builders-availability')"
+                  @click="closeMobileMenu"
+                  class="mobile-nav-link mobile-nav-sublink"
+                >Availability &amp; calendar</router-link>
+                <router-link
+                  v-if="canOpenSkillBuildersProgramsFromNav"
+                  :to="skillBuildersProgramsDashboardTo"
+                  @click="closeMobileMenu"
+                  class="mobile-nav-link mobile-nav-sublink"
+                >Programs &amp; events</router-link>
+              </div>
 
               <router-link
                 :to="orgTo('/admin/modules')"
@@ -1421,10 +1437,27 @@ const canSeeSkillBuildersAvailabilityTopNav = computed(() => {
   return canSeeSkillBuildersAvailabilityNav.value && r !== 'super_admin' && r !== 'admin';
 });
 
-const canSeeSkillBuildersAvailabilityDirectoryNav = computed(() => {
+/** Opens Skill Builders program/events overlay on My Schedule (matches Skill Builders event portal link). */
+const canOpenSkillBuildersProgramsFromNav = computed(() => {
   const r = String(user.value?.role || '').toLowerCase();
-  return canSeeSkillBuildersAvailabilityNav.value && (r === 'super_admin' || r === 'admin');
+  if (['super_admin', 'admin', 'staff', 'support'].includes(r)) return true;
+  const coord =
+    user.value?.has_skill_builder_coordinator_access === true ||
+    user.value?.has_skill_builder_coordinator_access === 1 ||
+    user.value?.has_skill_builder_coordinator_access === '1';
+  if (coord) return true;
+  const elig =
+    user.value?.skill_builder_eligible === true ||
+    user.value?.skill_builder_eligible === 1 ||
+    user.value?.skill_builder_eligible === '1';
+  const providerLike = ['provider', 'provider_plus', 'intern', 'intern_plus', 'clinical_practice_assistant'].includes(r);
+  return !!(elig && providerLike);
 });
+
+const skillBuildersProgramsDashboardTo = computed(() => ({
+  path: orgTo('/dashboard'),
+  query: { tab: 'my_schedule', sbPrograms: '1' }
+}));
 
 /** Same roles as router `SCHEDULE_HUB_ROLES` for /schedule and /buildings/*. */
 const canSeeScheduleBuildingsDirectoryNav = computed(() => {
@@ -2586,6 +2619,33 @@ onUnmounted(() => {
   background: #f8fafc;
 }
 
+.nav-dropdown-menu-wide {
+  min-width: 280px;
+}
+.nav-dropdown-group {
+  padding: 2px 0 4px;
+}
+.nav-dropdown-group-label {
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary, #64748b);
+  padding: 6px 10px 4px;
+}
+.nav-dropdown-group-items {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 0 10px 10px;
+  padding-left: 8px;
+  border-left: 2px solid #e2e8f0;
+}
+.nav-dropdown-group-items a {
+  padding-left: 10px;
+  font-size: 15px;
+}
+
 .brand-menu-title {
   font-weight: 800;
   font-size: 13px;
@@ -3497,6 +3557,24 @@ onUnmounted(() => {
 .mobile-nav-link.router-link-active {
   background-color: rgba(255, 255, 255, 0.1);
   border-left-color: white;
+}
+
+.mobile-nav-group {
+  padding: 6px 0 10px;
+}
+.mobile-nav-group-label {
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: rgba(255, 255, 255, 0.55);
+  padding: 4px 20px 10px;
+}
+.mobile-nav-sublink {
+  padding-top: 12px !important;
+  padding-bottom: 12px !important;
+  padding-left: 28px !important;
+  font-size: 15px;
 }
 
 .mobile-sidebar-footer {

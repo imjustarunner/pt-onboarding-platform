@@ -272,19 +272,33 @@ const load = async () => {
           }
 
           const tag = (row, agencyId) => ({ ...row, _agencyId: agencyId });
+          const scheduleEventKey = (e) => {
+            const kind = String(e?.kind || '').toUpperCase();
+            const id = Number(e?.id || 0);
+            if (id > 0) return `${kind || 'EVT'}:${id}`;
+            return `sig:${kind}|${String(e?.startAt || e?.startDate || '')}|${String(e?.endAt || e?.endDate || '')}|${String(e?.title || '')}`;
+          };
           const merged = {
             ...first,
             agencyId: first.agencyId || agencyIds[0],
             agencyIds: [...agencyIds],
             schoolAssignments: [],
             officeEvents: [],
-            supervisionSessions: []
+            supervisionSessions: [],
+            scheduleEvents: []
           };
+          const seenScheduleKeys = new Set();
           for (const r of okOnes) {
             const aId = r.agencyId;
             merged.schoolAssignments.push(...(r.data?.schoolAssignments || []).map((x) => tag(x, aId)));
             merged.officeEvents.push(...(r.data?.officeEvents || []).map((x) => tag(x, aId)));
             merged.supervisionSessions.push(...(r.data?.supervisionSessions || []).map((x) => tag(x, aId)));
+            for (const e of (r.data?.scheduleEvents || []).map((x) => tag(x, aId))) {
+              const k = scheduleEventKey(e);
+              if (seenScheduleKeys.has(k)) continue;
+              seenScheduleKeys.add(k);
+              merged.scheduleEvents.push(e);
+            }
           }
 
           // Overlays are per-user (not agency-scoped), so prefer from the first successful result.
@@ -472,6 +486,26 @@ const eventBlocksForUserCell = (uid, dayName, hour) => {
     });
   }
 
+  // App schedule events (incl. Skill Builders program sessions)
+  const schedHits = (s.scheduleEvents || []).filter((e) => {
+    if (e?.allDay) return false;
+    const st = parseMaybeDate(e.startAt);
+    const en = parseMaybeDate(e.endAt);
+    return st && en && en > cellStart && st < cellEnd;
+  });
+  if (schedHits.length) {
+    const ev = schedHits[0];
+    const raw = String(ev?.title || '').trim() || 'Event';
+    const short = raw.length > 18 ? `${raw.slice(0, 18)}…` : raw;
+    blocks.push({
+      kind: 'sevt',
+      key: `u${uid}-sevt-${ev?.id || raw}-${dayName}-${hour}`,
+      userId: uid,
+      shortLabel: `${init} ${short}`,
+      title: `${props.userLabelById?.[uid] || `User ${uid}`} — ${raw}`
+    });
+  }
+
   // google busy
   if (!props.hideGoogleAndTherapyNotes && showGoogleBusy.value && hasBusyIntervals(s.googleBusy || [], dayName, hour, ws)) {
     blocks.push({
@@ -645,6 +679,7 @@ const onBlockClick = (e, b) => {
 .cell-block-intake-vi { background: rgba(59, 130, 246, 0.20); border-color: rgba(29, 78, 216, 0.45); color: rgba(29, 78, 216, 0.95); }
 .cell-block-gbusy { background: rgba(17, 24, 39, 0.10); border-color: rgba(17, 24, 39, 0.35); color: rgba(17, 24, 39, 0.95); }
 .cell-block-gevt { cursor: pointer; background: rgba(59, 130, 246, 0.12); border-color: rgba(59, 130, 246, 0.35); }
+.cell-block-sevt { background: rgba(15, 118, 110, 0.14); border-color: rgba(15, 118, 110, 0.42); color: rgba(15, 118, 110, 0.98); }
 .cell-block-more { background: rgba(148, 163, 184, 0.14); border-color: rgba(148, 163, 184, 0.40); color: rgba(51, 65, 85, 0.92); }
 
 .hint { background: var(--bg-alt); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; color: var(--text-secondary); font-weight: 800; }
