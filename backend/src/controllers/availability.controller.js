@@ -3281,6 +3281,165 @@ export const hourlyWorkerDirectIndirectDashboard = async (req, res, next) => {
   }
 };
 
+function fmtUnpaidUnitChunk(n) {
+  const v = Number(n || 0);
+  if (!Number.isFinite(v)) return '0';
+  const s = (Math.round(v * 100) / 100).toFixed(2);
+  return s.replace(/\.?0+$/, '');
+}
+
+function unpaidUnitsKind(total) {
+  const t = Number(total || 0);
+  if (!Number.isFinite(t) || t <= 1e-9) return 'green';
+  if (t <= 10) return 'yellow';
+  return 'red';
+}
+
+function unpaidPayload(noNote, draft, extra = {}) {
+  const nn = Number(noNote || 0);
+  const dd = Number(draft || 0);
+  const total = nn + dd;
+  const tu = fmtUnpaidUnitChunk(total);
+  return {
+    ...extra,
+    noNoteUnits: nn,
+    draftUnits: dd,
+    totalUnits: total,
+    totalUnitsLabel: `${tu} u`,
+    breakdownLabel: `${fmtUnpaidUnitChunk(nn)} no-note · ${fmtUnpaidUnitChunk(dd)} draft`,
+    kind: unpaidUnitsKind(total)
+  };
+}
+
+/** Admin dashboard: all agency providers with no-note / draft-unpaid units from posted payroll summaries (matches payroll import semantics). */
+export const agencyProviderNoNoteDraftUnpaidDashboard = async (req, res, next) => {
+  try {
+    const agencyId = await resolveAgencyId(req);
+    if (!(await requireAgencyMembership(req, res, agencyId))) return;
+    if (!canViewAvailabilityDashboard(req.user?.role)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const [periodRows] = await pool.execute(
+      `SELECT id, label, period_start, period_end, status
+       FROM payroll_periods
+       WHERE agency_id = ?
+         AND LOWER(status) IN ('posted','finalized')
+       ORDER BY period_start DESC
+       LIMIT 120`,
+      [agencyId]
+    );
+
+    const payPeriods = (periodRows || []).map((r) => ({
+      id: Number(r.id),
+      label: r.label || '',
+      periodStart: r.period_start ? String(r.period_start).slice(0, 10) : '',
+      periodEnd: r.period_end ? String(r.period_end).slice(0, 10) : '',
+      status: r.status || ''
+    }));
+
+    const [agencyProviders] = await pool.execute(
+      `SELECT DISTINCT u.id, u.first_name, u.last_name, u.email, u.provider_start_date
+       FROM users u
+       JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
+       WHERE (u.role IN ('provider') OR u.has_provider_access = TRUE)
+         AND (u.is_archived IS NULL OR u.is_archived = FALSE)
+         AND (u.is_active IS NULL OR u.is_active = TRUE)
+         AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE'))
+       ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC`,
+      [agencyId]
+    );
+
+    const userIds = (agencyProviders || []).map((p) => Number(p.id)).filter(Boolean);
+    if (userIds.length === 0) {
+      return res.json({ ok: true, agencyId, payPeriods, providers: [] });
+    }
+
+    const ph = userIds.map(() => '?').join(',');
+    const [summaryRows] = await pool.execute(
+      `SELECT
+         ps.user_id,
+         ps.payroll_period_id,
+         ps.no_note_units,
+         ps.draft_units,
+         pp.period_start,
+         pp.period_end,
+         pp.label
+       FROM payroll_summaries ps
+       JOIN payroll_periods pp ON pp.id = ps.payroll_period_id AND pp.agency_id = ps.agency_id
+       WHERE ps.agency_id = ?
+         AND ps.user_id IN (${ph})
+         AND LOWER(pp.status) IN ('posted','finalized')
+       ORDER BY pp.period_start DESC, ps.user_id ASC`,
+      [agencyId, ...userIds]
+    );
+
+    const byUser = new Map();
+    for (const uid of userIds) {
+      byUser.set(uid, []);
+    }
+    for (const r of summaryRows || []) {
+      const uid = Number(r.user_id);
+      if (!byUser.has(uid)) continue;
+      byUser.get(uid).push({
+        payrollPeriodId: Number(r.payroll_period_id),
+        periodStart: r.period_start ? String(r.period_start).slice(0, 10) : '',
+        periodEnd: r.period_end ? String(r.period_end).slice(0, 10) : '',
+        periodLabel: r.label || '',
+        noNoteUnits: Number(r.no_note_units || 0),
+        draftUnits: Number(r.draft_units || 0)
+      });
+    }
+
+    const providers = (agencyProviders || []).map((p) => {
+      const userId = Number(p.id);
+      const periods = byUser.get(userId) || [];
+      const recentRaw = periods[0] || null;
+      const sumNn = periods.reduce((a, x) => a + Number(x.noNoteUnits || 0), 0);
+      const sumDd = periods.reduce((a, x) => a + Number(x.draftUnits || 0), 0);
+
+      const recent = recentRaw
+        ? unpaidPayload(recentRaw.noNoteUnits, recentRaw.draftUnits, {
+            payrollPeriodId: recentRaw.payrollPeriodId,
+            periodLabel: recentRaw.periodLabel,
+            periodStart: recentRaw.periodStart,
+            periodEnd: recentRaw.periodEnd
+          })
+        : null;
+
+      const allTime =
+        periods.length > 0
+          ? unpaidPayload(sumNn, sumDd, {
+              periodCount: periods.length
+            })
+          : null;
+
+      const byPeriod = periods.map((row) => ({
+        payrollPeriodId: row.payrollPeriodId,
+        periodLabel: row.periodLabel,
+        periodStart: row.periodStart,
+        periodEnd: row.periodEnd,
+        ...unpaidPayload(row.noNoteUnits, row.draftUnits)
+      }));
+
+      const tenure = computeTenureMeta(p.provider_start_date);
+      return {
+        userId,
+        providerName: `${p.first_name || ''} ${p.last_name || ''}`.trim(),
+        email: p.email || '',
+        recent,
+        allTime,
+        byPeriod,
+        ...tenure
+      };
+    });
+
+    res.json({ ok: true, agencyId, payPeriods, providers });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const providerAppTracker = async (req, res, next) => {
   try {
     const agencyId = await resolveAgencyId(req);

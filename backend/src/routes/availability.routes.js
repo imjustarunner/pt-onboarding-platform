@@ -30,6 +30,7 @@ import {
   listIntakeAvailabilityCards,
   providerAvailabilityDashboard,
   hourlyWorkerDirectIndirectDashboard,
+  agencyProviderNoNoteDraftUnpaidDashboard,
   providerAppTracker,
   searchAvailability,
   getAdminPendingCounts,
@@ -79,6 +80,7 @@ router.get('/admin/program-company-events', listProgramCompanyEventsForCoordinat
 router.post('/admin/backfill-skills-group-company-events', postBackfillSkillsGroupCompanyEvents);
 router.get('/admin/provider-availability-dashboard', providerAvailabilityDashboard);
 router.get('/admin/hourly-worker-direct-indirect', hourlyWorkerDirectIndirectDashboard);
+router.get('/admin/no-note-draft-unpaid', agencyProviderNoNoteDraftUnpaidDashboard);
 router.get('/admin/provider-app-tracker', providerAppTracker);
 router.get('/admin/search', searchAvailability);
 router.get('/admin/public-appointment-requests', listPublicAppointmentRequests);

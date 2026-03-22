@@ -359,6 +359,13 @@ export async function deleteCurriculumForSession(sessionId) {
   return true;
 }
 
+/** MySQL/mysqld_stmt_execute rejects bound parameters in LIMIT; use a clamped integer in SQL. */
+function clampRetentionBatchLimit(limitRows, fallback = 500, maxCap = 10000) {
+  const n = Math.floor(Number(limitRows));
+  if (!Number.isFinite(n) || n < 1) return fallback;
+  return Math.min(maxCap, n);
+}
+
 /**
  * Purge curriculum files + clinical notes for ended groups (14 days after skills_groups.end_date)
  * or inactive company events.
@@ -366,6 +373,7 @@ export async function deleteCurriculumForSession(sessionId) {
 export async function runSkillBuildersClinicalRetention({ limitRows = 500 } = {}) {
   let deletedNotes = 0;
   let deletedCurr = 0;
+  const batch = clampRetentionBatchLimit(limitRows);
 
   try {
     const [noteRows] = await pool.execute(
@@ -378,8 +386,8 @@ export async function runSkillBuildersClinicalRetention({ limitRows = 500 } = {}
          (ce.is_active = 0 OR ce.is_active IS FALSE)
          OR DATE_ADD(sg.end_date, INTERVAL 14 DAY) < CURDATE()
        )
-       LIMIT ?`,
-      [limitRows]
+       LIMIT ${batch}`,
+      []
     );
     const noteIds = (noteRows || []).map((r) => Number(r.id)).filter((x) => x > 0);
     if (noteIds.length) {
@@ -402,8 +410,8 @@ export async function runSkillBuildersClinicalRetention({ limitRows = 500 } = {}
          (ce.is_active = 0 OR ce.is_active IS FALSE)
          OR DATE_ADD(sg.end_date, INTERVAL 14 DAY) < CURDATE()
        )
-       LIMIT ?`,
-      [limitRows]
+       LIMIT ${batch}`,
+      []
     );
     for (const row of currRows || []) {
       if (row.storage_path) {

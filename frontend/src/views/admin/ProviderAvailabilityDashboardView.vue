@@ -37,6 +37,9 @@
         <button class="tab" :class="{ active: tab === 'hourly_direct' }" @click="tab = 'hourly_direct'">
           Hourly direct / indirect
         </button>
+        <button class="tab" :class="{ active: tab === 'unpaid_notes' }" @click="tab = 'unpaid_notes'">
+          No-note / draft unpaid
+        </button>
       </div>
 
       <div v-if="error" class="error">{{ error }}</div>
@@ -275,6 +278,115 @@
                 </tr>
                 <tr v-if="sortedHourlyRows.length === 0">
                   <td colspan="8" class="muted">No hourly-flagged providers for this agency.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div v-else-if="tab === 'unpaid_notes'" class="hourly-direct-wrap">
+          <p class="muted hourly-direct-hint">
+            All active providers in the agency. Totals are <strong>units</strong> from <strong>posted</strong> payroll summaries:
+            <strong>no-note</strong> plus <strong>draft not payable</strong> (same as payroll’s no-note/draft unpaid). Green = 0, yellow = 1–10 units, red = more than 10.
+            <strong>Most recent</strong> is the latest posted period where this provider has a payroll summary row.
+          </p>
+          <div class="hourly-direct-toolbar">
+            <div class="field hourly-search-field">
+              <label>Search</label>
+              <input
+                v-model="unpaidSearch"
+                class="input"
+                type="search"
+                placeholder="Name or email — matches letters in order"
+                autocomplete="off"
+              />
+            </div>
+            <div class="field">
+              <label>Pay period</label>
+              <select v-model="unpaidComparePeriodId" class="select">
+                <option value="">Latest in table (see “Most recent”)</option>
+                <option v-for="p in unpaidPayPeriods" :key="`up-${p.id}`" :value="String(p.id)">
+                  {{ p.label || `${p.periodStart} → ${p.periodEnd}` }}
+                </option>
+              </select>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table class="table hourly-table">
+              <thead>
+                <tr>
+                  <th class="sortable" @click="setUnpaidSort('providerName')">Provider</th>
+                  <th class="sortable" @click="setUnpaidSort('email')">Email</th>
+                  <th class="sortable" @click="setUnpaidSort('providerStartDate')">Start date</th>
+                  <th class="sortable" @click="setUnpaidSort('tenureDays')">Days</th>
+                  <th>Tenure</th>
+                  <th class="sortable" @click="setUnpaidSort('recentTotal')">Most recent</th>
+                  <th class="sortable" @click="setUnpaidSort('allTimeTotal')">All pay periods</th>
+                  <th class="sortable" @click="setUnpaidSort('selectedTotal')">Selected pay period</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="row in sortedUnpaidRows" :key="`unpaid-${row.userId}`">
+                  <td>
+                    <div class="hourly-name">
+                      <template v-for="(seg, i) in hourlyHighlightSegments(row.providerName, row._hiName)" :key="`un-${row.userId}-n-${i}`">
+                        <mark v-if="seg.mark" class="search-hit">{{ seg.t }}</mark>
+                        <template v-else>{{ seg.t }}</template>
+                      </template>
+                    </div>
+                  </td>
+                  <td>
+                    <div class="hourly-email">
+                      <template v-for="(seg, i) in hourlyHighlightSegments(row.email, row._hiEmail)" :key="`un-${row.userId}-e-${i}`">
+                        <mark v-if="seg.mark" class="search-hit">{{ seg.t }}</mark>
+                        <template v-else>{{ seg.t }}</template>
+                      </template>
+                    </div>
+                  </td>
+                  <td>{{ row.providerStartDate ? formatYmdLocal(row.providerStartDate) : '—' }}</td>
+                  <td>
+                    <span v-if="row.tenureDaysElapsed != null">{{ row.tenureDaysElapsed.toLocaleString() }}</span>
+                    <span v-else class="muted">—</span>
+                  </td>
+                  <td>
+                    <button
+                      type="button"
+                      class="btn btn-secondary btn-sm"
+                      :disabled="!row.providerStartDate"
+                      @click="hourlyTenureModal = row"
+                    >
+                      Details
+                    </button>
+                  </td>
+                  <td>
+                    <template v-if="row.recent">
+                      <div class="pill" :class="`pill-${row.recent.kind}`">{{ row.recent.totalUnitsLabel }}</div>
+                      <div class="muted hourly-sub">{{ row.recent.breakdownLabel }}</div>
+                      <div class="muted hourly-sub">{{ unpaidPeriodRange(row.recent) }}</div>
+                    </template>
+                    <span v-else class="muted">No posted payroll yet</span>
+                  </td>
+                  <td>
+                    <template v-if="row.allTime && row.allTime.periodCount > 0">
+                      <div class="pill" :class="`pill-${row.allTime.kind}`">{{ row.allTime.totalUnitsLabel }}</div>
+                      <div class="muted hourly-sub">{{ row.allTime.breakdownLabel }}</div>
+                      <div class="muted hourly-sub">{{ row.allTime.periodCount }} period(s)</div>
+                    </template>
+                    <span v-else class="muted">—</span>
+                  </td>
+                  <td>
+                    <template v-if="unpaidSelectedPeriodPayload(row)">
+                      <div class="pill" :class="`pill-${unpaidSelectedPeriodPayload(row).kind}`">
+                        {{ unpaidSelectedPeriodPayload(row).totalUnitsLabel }}
+                      </div>
+                      <div class="muted hourly-sub">{{ unpaidSelectedPeriodPayload(row).breakdownLabel }}</div>
+                    </template>
+                    <span v-else-if="unpaidComparePeriodId" class="muted">No payroll summary this period</span>
+                    <span v-else class="muted">Choose a pay period above</span>
+                  </td>
+                </tr>
+                <tr v-if="sortedUnpaidRows.length === 0">
+                  <td colspan="8" class="muted">No providers for this agency.</td>
                 </tr>
               </tbody>
             </table>
@@ -580,7 +692,7 @@ const agencies = computed(() => {
 
 const loading = ref(false);
 const error = ref('');
-const tab = ref('school'); // school | office | virtual | school_requests | tracker | kudos | hourly_direct
+const tab = ref('school'); // school | office | virtual | school_requests | tracker | kudos | hourly_direct | unpaid_notes
 
 const data = ref({
   providers: [],
@@ -605,6 +717,13 @@ const hourlyComparePeriodId = ref('');
 const hourlySortKey = ref('providerName');
 const hourlySortDir = ref('asc');
 const hourlyTenureModal = ref(null);
+
+const unpaidPayPeriods = ref([]);
+const unpaidProviders = ref([]);
+const unpaidSearch = ref('');
+const unpaidComparePeriodId = ref('');
+const unpaidSortKey = ref('recentTotal');
+const unpaidSortDir = ref('desc');
 
 const kudosEligibleRecipients = computed(() =>
   (kudosProviders.value || []).filter((p) => p.kudosEligible === true)
@@ -682,6 +801,54 @@ const hourlySelectedPeriodPayload = (r) => {
   if (!id) return null;
   const list = r.byPeriod || [];
   return list.find((x) => String(x.payrollPeriodId) === String(id)) || null;
+};
+
+const unpaidSearchNorm = computed(() =>
+  String(unpaidSearch.value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '')
+);
+
+const unpaidRowsAugmented = computed(() => {
+  const q = unpaidSearchNorm.value;
+  const rows = unpaidProviders.value || [];
+  return rows.map((r) => {
+    const name = String(r.providerName || '');
+    const email = String(r.email || '');
+    const full = `${name} ${email}`;
+    const _hiName = new Set();
+    const _hiEmail = new Set();
+    if (!q.length) {
+      return { ...r, _match: true, _hiName, _hiEmail, _searchScore: 0 };
+    }
+    const m = subsequenceIndices(full, q);
+    if (!m) {
+      return { ...r, _match: false, _hiName, _hiEmail, _searchScore: 1e9 };
+    }
+    const gap = name.length + 1;
+    for (const i of m) {
+      if (i < name.length) _hiName.add(i);
+      else if (i >= gap) _hiEmail.add(i - gap);
+    }
+    const span = m.length ? m[m.length - 1] - m[0] : 0;
+    const _searchScore = span + m.length * 0.001;
+    return { ...r, _match: true, _hiName, _hiEmail, _searchScore };
+  });
+});
+
+const unpaidSelectedPeriodPayload = (r) => {
+  const id = unpaidComparePeriodId.value;
+  if (!id) return null;
+  const list = r.byPeriod || [];
+  return list.find((x) => String(x.payrollPeriodId) === String(id)) || null;
+};
+
+const unpaidPeriodRange = (payload) => {
+  if (!payload?.periodStart) return '';
+  const a = formatYmdLocal(payload.periodStart);
+  const b = payload.periodEnd ? formatYmdLocal(payload.periodEnd) : '';
+  return b ? `${a} – ${b}` : a;
 };
 
 const fmtHoursPair = (payload) => {
@@ -777,6 +944,79 @@ const sortedHourlyRows = computed(() => {
   return rows;
 });
 
+const sortedUnpaidRows = computed(() => {
+  const q = unpaidSearchNorm.value;
+  const rows = unpaidRowsAugmented.value.slice();
+  const dir = unpaidSortDir.value === 'asc' ? 1 : -1;
+  const key = unpaidSortKey.value;
+
+  const totalFor = (r) => {
+    if (key === 'recentTotal') return r.recent?.totalUnits;
+    if (key === 'allTimeTotal') return r.allTime?.totalUnits;
+    if (key === 'selectedTotal') return unpaidSelectedPeriodPayload(r)?.totalUnits;
+    return null;
+  };
+
+  rows.sort((a, b) => {
+    if (q.length) {
+      const ma = a._match !== false;
+      const mb = b._match !== false;
+      if (ma !== mb) return ma ? -1 : 1;
+      if (ma && mb && a._searchScore !== b._searchScore) return a._searchScore - b._searchScore;
+    }
+
+    if (key === 'providerName' || key === 'email') {
+      const va = key === 'providerName' ? String(a.providerName || '') : String(a.email || '');
+      const vb = key === 'providerName' ? String(b.providerName || '') : String(b.email || '');
+      const c = va.localeCompare(vb);
+      if (c !== 0) return dir * c;
+      return String(a.providerName || '').localeCompare(String(b.providerName || ''));
+    }
+
+    if (key === 'providerStartDate') {
+      const va = a.providerStartDate ? String(a.providerStartDate) : '';
+      const vb = b.providerStartDate ? String(b.providerStartDate) : '';
+      const na = !va;
+      const nb = !vb;
+      if (na && nb) return String(a.providerName || '').localeCompare(String(b.providerName || ''));
+      if (na) return 1;
+      if (nb) return -1;
+      const c = va.localeCompare(vb);
+      if (c !== 0) return dir * c;
+      return String(a.providerName || '').localeCompare(String(b.providerName || ''));
+    }
+
+    if (key === 'tenureDays') {
+      const va = a.tenureDaysElapsed;
+      const vb = b.tenureDaysElapsed;
+      const na = va === null || va === undefined;
+      const nb = vb === null || vb === undefined;
+      if (na && nb) return String(a.providerName || '').localeCompare(String(b.providerName || ''));
+      if (na) return 1;
+      if (nb) return -1;
+      const c = Number(va) - Number(vb);
+      if (c !== 0) return dir * c;
+      return String(a.providerName || '').localeCompare(String(b.providerName || ''));
+    }
+
+    if (key === 'recentTotal' || key === 'allTimeTotal' || key === 'selectedTotal') {
+      const va = totalFor(a);
+      const vb = totalFor(b);
+      const na = va === null || va === undefined || !Number.isFinite(Number(va));
+      const nb = vb === null || vb === undefined || !Number.isFinite(Number(vb));
+      if (na && nb) return String(a.providerName || '').localeCompare(String(b.providerName || ''));
+      if (na) return 1;
+      if (nb) return -1;
+      const c = Number(va) - Number(vb);
+      if (c !== 0) return dir * c;
+      return String(a.providerName || '').localeCompare(String(b.providerName || ''));
+    }
+
+    return String(a.providerName || '').localeCompare(String(b.providerName || ''));
+  });
+  return rows;
+});
+
 const setHourlySort = (key) => {
   if (hourlySortKey.value === key) {
     hourlySortDir.value = hourlySortDir.value === 'asc' ? 'desc' : 'asc';
@@ -784,6 +1024,16 @@ const setHourlySort = (key) => {
   }
   hourlySortKey.value = key;
   hourlySortDir.value = 'asc';
+};
+
+const setUnpaidSort = (key) => {
+  if (unpaidSortKey.value === key) {
+    unpaidSortDir.value = unpaidSortDir.value === 'asc' ? 'desc' : 'asc';
+    return;
+  }
+  unpaidSortKey.value = key;
+  unpaidSortDir.value =
+    key === 'recentTotal' || key === 'allTimeTotal' || key === 'selectedTotal' ? 'desc' : 'asc';
 };
 
 const providerOptions = computed(() => data.value.providers || []);
@@ -992,6 +1242,31 @@ const loadHourlyDirectIndirect = async () => {
   }
 };
 
+const loadUnpaidNotesDraft = async () => {
+  if (!agencyId.value) return;
+  try {
+    loading.value = true;
+    error.value = '';
+    const resp = await api.get('/availability/admin/no-note-draft-unpaid', {
+      params: { agencyId: agencyId.value }
+    });
+    unpaidPayPeriods.value = Array.isArray(resp?.data?.payPeriods) ? resp.data.payPeriods : [];
+    unpaidProviders.value = Array.isArray(resp?.data?.providers) ? resp.data.providers : [];
+    if (
+      unpaidComparePeriodId.value &&
+      !unpaidPayPeriods.value.some((p) => String(p.id) === String(unpaidComparePeriodId.value))
+    ) {
+      unpaidComparePeriodId.value = '';
+    }
+  } catch (e) {
+    unpaidProviders.value = [];
+    unpaidPayPeriods.value = [];
+    error.value = e.response?.data?.error?.message || e.message || 'Failed to load no-note / draft unpaid';
+  } finally {
+    loading.value = false;
+  }
+};
+
 const reload = async () => {
   if (!agencyId.value) return;
   if (tab.value === 'tracker') {
@@ -1004,6 +1279,10 @@ const reload = async () => {
   }
   if (tab.value === 'hourly_direct') {
     await loadHourlyDirectIndirect();
+    return;
+  }
+  if (tab.value === 'unpaid_notes') {
+    await loadUnpaidNotesDraft();
     return;
   }
   if (tab.value === 'school_requests') return;
@@ -1177,6 +1456,12 @@ watch(tab, (t) => {
   }
   if (t === 'hourly_direct') {
     loadHourlyDirectIndirect();
+    return;
+  }
+  if (t === 'unpaid_notes') {
+    unpaidSortKey.value = 'recentTotal';
+    unpaidSortDir.value = 'desc';
+    loadUnpaidNotesDraft();
     return;
   }
   if (t === 'school_requests') return;

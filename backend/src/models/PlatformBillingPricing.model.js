@@ -2,12 +2,30 @@ import pool from '../config/database.js';
 
 function parseJsonMaybe(v) {
   if (v == null) return null;
-  if (typeof v === 'object') return v;
-  try {
-    return JSON.parse(v);
-  } catch {
-    return null;
+  if (Buffer.isBuffer(v)) {
+    const s = v.toString('utf8').trim();
+    if (!s) return null;
+    try {
+      const parsed = JSON.parse(s);
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
   }
+  if (typeof v === 'object') {
+    return Array.isArray(v) ? null : v;
+  }
+  if (typeof v === 'string') {
+    const s = v.trim();
+    if (!s) return null;
+    try {
+      const parsed = JSON.parse(s);
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
 }
 
 class PlatformBillingPricing {

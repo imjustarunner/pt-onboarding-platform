@@ -89,8 +89,13 @@ pool.on('connection', (connection) => {
   
   // Handle connection-level errors (e.g., connection lost)
   connection.on('error', (err) => {
-    if (err.code === 'PROTOCOL_CONNECTION_LOST' || err.code === 'ECONNRESET') {
-      console.warn('⚠️  Database connection lost, will be recreated by pool');
+    const msg = String(err?.message || '');
+    const benignPoolChurn =
+      err.code === 'PROTOCOL_CONNECTION_LOST' ||
+      err.code === 'ECONNRESET' ||
+      msg.includes('Unexpected packet while no commands in the queue');
+    if (benignPoolChurn) {
+      console.warn('⚠️  Database connection dropped (pool will replace):', msg);
     } else {
       console.error('❌ Database connection error:', err.message);
     }

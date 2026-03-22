@@ -155,17 +155,36 @@
                   </button>
                   <div v-if="directoryMenuOpen" class="nav-dropdown-menu nav-dropdown-menu-wide">
                     <router-link :to="orgTo('/operations-dashboard')" v-if="(user?.role === 'super_admin' || isAdmin || user?.role === 'provider_plus' || user?.role === 'clinical_practice_assistant')" >{{ isAffiliationContext ? 'Team Lead Dashboards' : 'Operations Dashboard' }}</router-link>
-                    <div v-if="canSeeScheduleBuildingsDirectoryNav" class="nav-dropdown-group">
-                      <div class="nav-dropdown-group-label">Schedules</div>
-                      <div class="nav-dropdown-group-items">
+                    <div v-if="canSeeScheduleBuildingsDirectoryNav" class="nav-dropdown-group nav-dropdown-group-collapsible">
+                      <button
+                        type="button"
+                        class="nav-dropdown-group-trigger"
+                        :aria-expanded="directorySchedulesNavExpanded ? 'true' : 'false'"
+                        @click.stop="directorySchedulesNavExpanded = !directorySchedulesNavExpanded"
+                      >
+                        <span>Schedules</span>
+                        <span class="nav-dropdown-group-caret" :class="{ open: directorySchedulesNavExpanded }" aria-hidden="true">▸</span>
+                      </button>
+                      <div v-show="directorySchedulesNavExpanded" class="nav-dropdown-group-items">
                         <router-link :to="orgTo('/schedule')">Schedule Hub</router-link>
                         <router-link :to="orgTo('/buildings/schedule')">Buildings schedule</router-link>
                         <router-link :to="orgTo('/buildings')">Buildings &amp; offices</router-link>
                       </div>
                     </div>
-                    <div v-if="canSeeSkillBuildersAvailabilityNav && !isAffiliationContext" class="nav-dropdown-group">
-                      <div class="nav-dropdown-group-label">Skill Builders</div>
-                      <div class="nav-dropdown-group-items">
+                    <div
+                      v-if="canSeeSkillBuildersAvailabilityNav && !isAffiliationContext"
+                      class="nav-dropdown-group nav-dropdown-group-collapsible"
+                    >
+                      <button
+                        type="button"
+                        class="nav-dropdown-group-trigger"
+                        :aria-expanded="directorySkillBuildersNavExpanded ? 'true' : 'false'"
+                        @click.stop="directorySkillBuildersNavExpanded = !directorySkillBuildersNavExpanded"
+                      >
+                        <span>Skill Builders</span>
+                        <span class="nav-dropdown-group-caret" :class="{ open: directorySkillBuildersNavExpanded }" aria-hidden="true">▸</span>
+                      </button>
+                      <div v-show="directorySkillBuildersNavExpanded" class="nav-dropdown-group-items">
                         <router-link :to="orgTo('/admin/skill-builders-availability')">Availability &amp; calendar</router-link>
                         <router-link
                           v-if="canOpenSkillBuildersProgramsFromNav"
@@ -478,25 +497,45 @@
             <template v-if="canSeePortalNav && canSeeFullPortalNav">
               <router-link :to="orgTo('/admin')" v-if="isTrueAdmin" @click="closeMobileMenu" class="mobile-nav-link">Admin Dashboard</router-link>
               <router-link :to="orgTo('/operations-dashboard')" v-if="showOperationsDashboardLink && user?.role !== 'provider_plus'" @click="closeMobileMenu" class="mobile-nav-link">{{ isAffiliationContext ? 'Team Lead Dashboards' : 'Operations Dashboard' }}</router-link>
-              <div v-if="canSeeScheduleBuildingsDirectoryNav" class="mobile-nav-group">
-                <div class="mobile-nav-group-label">Schedules</div>
-                <router-link :to="orgTo('/schedule')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Schedule Hub</router-link>
-                <router-link :to="orgTo('/buildings/schedule')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Buildings schedule</router-link>
-                <router-link :to="orgTo('/buildings')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Buildings &amp; offices</router-link>
+              <div v-if="canSeeScheduleBuildingsDirectoryNav" class="mobile-nav-group mobile-nav-group-collapsible">
+                <button
+                  type="button"
+                  class="mobile-nav-group-trigger"
+                  :aria-expanded="directorySchedulesNavExpanded ? 'true' : 'false'"
+                  @click="directorySchedulesNavExpanded = !directorySchedulesNavExpanded"
+                >
+                  <span>Schedules</span>
+                  <span class="mobile-nav-group-caret" :class="{ open: directorySchedulesNavExpanded }" aria-hidden="true">▸</span>
+                </button>
+                <template v-if="directorySchedulesNavExpanded">
+                  <router-link :to="orgTo('/schedule')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Schedule Hub</router-link>
+                  <router-link :to="orgTo('/buildings/schedule')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Buildings schedule</router-link>
+                  <router-link :to="orgTo('/buildings')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Buildings &amp; offices</router-link>
+                </template>
               </div>
-              <div v-if="canSeeSkillBuildersAvailabilityNav && !isAffiliationContext" class="mobile-nav-group">
-                <div class="mobile-nav-group-label">Skill Builders</div>
-                <router-link
-                  :to="orgTo('/admin/skill-builders-availability')"
-                  @click="closeMobileMenu"
-                  class="mobile-nav-link mobile-nav-sublink"
-                >Availability &amp; calendar</router-link>
-                <router-link
-                  v-if="canOpenSkillBuildersProgramsFromNav"
-                  :to="skillBuildersProgramsDashboardTo"
-                  @click="closeMobileMenu"
-                  class="mobile-nav-link mobile-nav-sublink"
-                >Programs &amp; events</router-link>
+              <div v-if="canSeeSkillBuildersAvailabilityNav && !isAffiliationContext" class="mobile-nav-group mobile-nav-group-collapsible">
+                <button
+                  type="button"
+                  class="mobile-nav-group-trigger"
+                  :aria-expanded="directorySkillBuildersNavExpanded ? 'true' : 'false'"
+                  @click="directorySkillBuildersNavExpanded = !directorySkillBuildersNavExpanded"
+                >
+                  <span>Skill Builders</span>
+                  <span class="mobile-nav-group-caret" :class="{ open: directorySkillBuildersNavExpanded }" aria-hidden="true">▸</span>
+                </button>
+                <template v-if="directorySkillBuildersNavExpanded">
+                  <router-link
+                    :to="orgTo('/admin/skill-builders-availability')"
+                    @click="closeMobileMenu"
+                    class="mobile-nav-link mobile-nav-sublink"
+                  >Availability &amp; calendar</router-link>
+                  <router-link
+                    v-if="canOpenSkillBuildersProgramsFromNav"
+                    :to="skillBuildersProgramsDashboardTo"
+                    @click="closeMobileMenu"
+                    class="mobile-nav-link mobile-nav-sublink"
+                  >Programs &amp; events</router-link>
+                </template>
               </div>
 
               <router-link
@@ -954,6 +993,9 @@ watch(effectivePreviewViewport, (next) => {
 const brandMenuOpen = ref(false);
 const peopleOpsMenuOpen = ref(false);
 const directoryMenuOpen = ref(false);
+/** Collapsible subgroups under Directory (desktop dropdown + mobile sidebar). */
+const directorySchedulesNavExpanded = ref(false);
+const directorySkillBuildersNavExpanded = ref(false);
 const managementMenuOpen = ref(false);
 const engagementMenuOpen = ref(false);
 
@@ -1056,10 +1098,21 @@ const togglePeopleOpsMenu = () => {
   closeAllNavMenus();
   peopleOpsMenuOpen.value = next;
 };
+function applyDirectorySubgroupStateFromRoute() {
+  const p = route.path || '';
+  const inSchedules = /\/schedule(\/|$)/.test(p) || /\/buildings/.test(p);
+  const inSkillBuilders = p.includes('skill-builders');
+  directorySchedulesNavExpanded.value = inSchedules;
+  directorySkillBuildersNavExpanded.value = inSkillBuilders;
+}
+
 const toggleDirectoryMenu = () => {
   const next = !directoryMenuOpen.value;
   closeAllNavMenus();
   directoryMenuOpen.value = next;
+  if (next) {
+    applyDirectorySubgroupStateFromRoute();
+  }
 };
 const toggleManagementMenu = () => {
   const next = !managementMenuOpen.value;
@@ -1170,6 +1223,12 @@ const switchDemoView = async (nextRole) => {
 const closeMobileMenu = () => {
   mobileMenuOpen.value = false;
 };
+
+watch(mobileMenuOpen, (open) => {
+  if (open) {
+    applyDirectorySubgroupStateFromRoute();
+  }
+});
 
 // Navigation title - only show if it's not "PlotTwistCo" and there's a valid platform template name
 const navTitleText = computed(() => {
@@ -2633,6 +2692,41 @@ onUnmounted(() => {
   color: var(--text-secondary, #64748b);
   padding: 6px 10px 4px;
 }
+.nav-dropdown-group-trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0;
+  padding: 6px 10px 4px;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary, #64748b);
+}
+.nav-dropdown-group-trigger:hover {
+  background: #f8fafc;
+  color: var(--text-primary, #0f172a);
+}
+.nav-dropdown-group-caret {
+  display: inline-block;
+  flex-shrink: 0;
+  font-size: 10px;
+  line-height: 1;
+  opacity: 0.75;
+  transition: transform 0.15s ease;
+}
+.nav-dropdown-group-caret.open {
+  transform: rotate(90deg);
+}
 .nav-dropdown-group-items {
   display: flex;
   flex-direction: column;
@@ -3569,6 +3663,41 @@ onUnmounted(() => {
   letter-spacing: 0.06em;
   color: rgba(255, 255, 255, 0.55);
   padding: 4px 20px 10px;
+}
+.mobile-nav-group-trigger {
+  width: calc(100% - 40px);
+  margin: 0 20px 4px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: rgba(255, 255, 255, 0.7);
+}
+.mobile-nav-group-trigger:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+.mobile-nav-group-caret {
+  display: inline-block;
+  flex-shrink: 0;
+  font-size: 10px;
+  line-height: 1;
+  opacity: 0.85;
+  transition: transform 0.15s ease;
+}
+.mobile-nav-group-caret.open {
+  transform: rotate(90deg);
 }
 .mobile-nav-sublink {
   padding-top: 12px !important;

@@ -64,12 +64,26 @@ export function getBillingPricingConfig() {
 
 function parseJsonMaybe(v) {
   if (v == null) return null;
-  if (typeof v === 'object') return v;
-  try {
-    return JSON.parse(v);
-  } catch {
-    return null;
+  if (Buffer.isBuffer(v)) {
+    const s = v.toString('utf8').trim();
+    if (!s) return null;
+    try {
+      return JSON.parse(s);
+    } catch {
+      return null;
+    }
   }
+  if (typeof v === 'object') return v;
+  if (typeof v === 'string') {
+    const s = v.trim();
+    if (!s) return null;
+    try {
+      return JSON.parse(s);
+    } catch {
+      return null;
+    }
+  }
+  return null;
 }
 
 function isMissingBillingSchemaError(e) {
@@ -145,7 +159,9 @@ function mergePricing(base, override) {
 export async function getPlatformBillingPricing() {
   try {
     const fromDb = await PlatformBillingPricing.getPricingJson();
-    if (!fromDb) return FALLBACK_PRICING;
+    if (!fromDb || typeof fromDb !== 'object' || Array.isArray(fromDb)) {
+      return FALLBACK_PRICING;
+    }
     return mergePricing(FALLBACK_PRICING, fromDb);
   } catch (e) {
     // Keep billing/admin flows functional on partially migrated environments.
